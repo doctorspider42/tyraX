@@ -1655,15 +1655,26 @@ void App::drawMenuBar() {
             ImGui::EndMenu();
         }
 
+        // One flat list under labelled headers rather than submenus: every
+        // doc page, tooltip and AI prompt in the repo names a tool as
+        // "Tools > X", and a submenu would put a word into all of those
+        // paths. Groups answer "what am I working on"; inside a group the
+        // items are ALPHABETICAL, so a tool is found by reading, not by
+        // remembering where it landed the day it was added.
         if (hasProject_ && ImGui::BeginMenu("Tools")) {
-            if (ImGui::MenuItem("AI Assistant...")) showAiChat_ = true;
+            ImGui::SeparatorText("Assets");
+            if (ImGui::MenuItem("Animation Editor...")) showAnimEditor_ = true;
+            if (ImGui::MenuItem("Asset Browser...")) {
+                showAssetBrowser_ = true;
+                scanAssetTree();
+            }
+            if (ImGui::MenuItem("Drone Generator...")) showDroneGenerator_ = true;
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
-                    "Ask about the editor - it answers from the editor's own\n"
-                    "documentation - or ask for something to be done: it can\n"
-                    "add and change objects, write flow graphs, switch scenes\n"
-                    "and open windows. Uses the AI backend from Edit >\n"
-                    "Preferences; every change it makes is one Ctrl+Z away.");
+                    "Ambient / drone music generator: audition a patch live,\n"
+                    "render it into res/audio as a looping background track.");
+            if (ImGui::MenuItem("Font Manager...")) showFontManager_ = true;
+            if (ImGui::MenuItem("Material Editor...")) showMaterialEditor_ = true;
             if (ImGui::MenuItem("Texture Atlas...")) {
                 showTextureAtlas_ = true;
                 atlasPlanDirty_ = true;
@@ -1675,59 +1686,14 @@ void App::drawMenuBar() {
                     "per-texture keep-out and grouping controls. A page is ONE\n"
                     "allocation and ONE palette, so what shares one is worth\n"
                     "looking at.");
-            if (ImGui::MenuItem("Asset Browser...")) {
-                showAssetBrowser_ = true;
-                scanAssetTree();
-            }
-            ImGui::Separator();
-            if (ImGui::MenuItem("Material Editor...")) showMaterialEditor_ = true;
-            if (ImGui::MenuItem("Terrain Editor...")) showTerrainEditor_ = true;
-            if (ImGui::MenuItem("Menu Editor...")) showMenusEditor_ = true;
-            if (ImGui::MenuItem("Menu Preview...")) showMenuPreview_ = true;
-            if (ImGui::MenuItem("Save Editor...")) showSaveEditor_ = true;
-            if (ImGui::MenuItem("Color Grading...")) showGradingEditor_ = true;
-            if (ImGui::MenuItem("Ambience Editor...")) showAmbienceEditor_ = true;
-            if (ImGui::MenuItem("Cutscene Director...")) showCutsceneEditor_ = true;
-            if (ImGui::MenuItem("Animation Editor...")) showAnimEditor_ = true;
-            if (ImGui::MenuItem("UI Editor...")) showUiEditor_ = true;
-            if (ImGui::MenuItem("Font Manager...")) showFontManager_ = true;
-            if (ImGui::MenuItem("Input Map...")) showInputMap_ = true;
-            if (ImGui::MenuItem("Loading Screens...")) showLoadingEditor_ = true;
-            if (ImGui::MenuItem("Credits Editor...")) showCreditsEditor_ = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "End credits: headings, role/name pairs, images and page\n"
-                    "breaks, imported from a text file if you like, scrolling\n"
-                    "over music with a skip button and somewhere to go after.");
-            ImGui::Separator();
-            if (ImGui::MenuItem("Debugger...", "F9")) showDebugger_ = true;
-            if (ImGui::MenuItem("Remote Pad...")) showRemotePad_ = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Hold the running game's controller from here - click the\n"
-                    "buttons or drive it with the editor's keyboard. PCSX2 does\n"
-                    "not need the focus, and the same channel is scriptable\n"
-                    "(tyrax-editor --pad). Debug builds only.");
-            ImGui::Separator();
             if (ImGui::MenuItem("Tree Generator...")) {
                 showTreeGenerator_ = true;
                 treePreviewDirty_ = true;
             }
-            if (ImGui::MenuItem("VU Programs...")) showVuPrograms_ = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Compose a VU1 microprogram out of stages - wobble, twist,\n"
-                    "posterize - and see the micro memory it costs, the VCL it\n"
-                    "generates and what it computes, without a console. Also\n"
-                    "VU0 compute kernels.");
-            if (ImGui::MenuItem("World Facts...")) showWorldFacts_ = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "The game's central memory: named, typed facts like\n"
-                    "\"the generator is repaired\" or \"marta.trust\", the\n"
-                    "reusable conditions over them, the rules that react,\n"
-                    "and a live blackboard of every one of them while the\n"
-                    "game runs.");
+
+            ImGui::SeparatorText("Scene");
+            if (ImGui::MenuItem("Cutscene Director...")) showCutsceneEditor_ = true;
+            if (ImGui::MenuItem("Phone Camera...")) showPhoneCamWindow_ = true;
             if (ImGui::MenuItem("Prefabs...")) showPrefabs_ = true;
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
@@ -1735,22 +1701,12 @@ void App::drawMenuBar() {
                     "with its light and its script. Stamp them by hand, scatter\n"
                     "them with a procedural graph, or spawn them at runtime.");
             if (ImGui::MenuItem("Procedural...")) showProcedural_ = true;
-            if (ImGui::MenuItem("Drone Generator...")) showDroneGenerator_ = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Ambient / drone music generator: audition a patch live,\n"
-                    "render it into res/audio as a looping background track.");
-            if (ImGui::MenuItem("Phone Camera...")) showPhoneCamWindow_ = true;
-            if (ImGui::MenuItem("Neural Upscaler (BLSS)...")) showBlss_ = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Train, cross-validate and inspect the reduced-resolution\n"
-                    "reconstruction network, and look at the pictures it makes.\n"
-                    "Everything --blss-train / --blss-eval / --blss-emit can do,\n"
-                    "without a terminal. Proof of concept - read the notes.");
-            ImGui::Separator();
-            // Lives in the Ambience Editor now; the menu item still works
-            // and simply opens that window on its GI tab.
+            if (ImGui::MenuItem("Terrain Editor...")) showTerrainEditor_ = true;
+
+            ImGui::SeparatorText("Lighting & rendering");
+            if (ImGui::MenuItem("Ambience Editor...")) showAmbienceEditor_ = true;
+            // The two bakes live in the Ambience Editor now; the menu items
+            // still work and simply open that window on their tab.
             if (ImGui::MenuItem("Bake Global Illumination...")) {
                 showAmbienceEditor_ = true;
                 showGiBake_ = true;
@@ -1763,6 +1719,65 @@ void App::drawMenuBar() {
                 ImGui::SetTooltip(
                     "Light baked on the host and shipped as pixels: automatic\n"
                     "model AO multiplied into each model's own texture.");
+            if (ImGui::MenuItem("Color Grading...")) showGradingEditor_ = true;
+            if (ImGui::MenuItem("Neural Upscaler (BLSS)...")) showBlss_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Train, cross-validate and inspect the reduced-resolution\n"
+                    "reconstruction network, and look at the pictures it makes.\n"
+                    "Everything --blss-train / --blss-eval / --blss-emit can do,\n"
+                    "without a terminal. Proof of concept - read the notes.");
+            if (ImGui::MenuItem("VU Programs...")) showVuPrograms_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Compose a VU1 microprogram out of stages - wobble, twist,\n"
+                    "posterize - and see the micro memory it costs, the VCL it\n"
+                    "generates and what it computes, without a console. Also\n"
+                    "VU0 compute kernels.");
+
+            ImGui::SeparatorText("Screens & menus");
+            if (ImGui::MenuItem("Credits Editor...")) showCreditsEditor_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "End credits: headings, role/name pairs, images and page\n"
+                    "breaks, imported from a text file if you like, scrolling\n"
+                    "over music with a skip button and somewhere to go after.");
+            if (ImGui::MenuItem("Loading Screens...")) showLoadingEditor_ = true;
+            if (ImGui::MenuItem("Menu Editor...")) showMenusEditor_ = true;
+            if (ImGui::MenuItem("Menu Preview...")) showMenuPreview_ = true;
+            if (ImGui::MenuItem("UI Editor...")) showUiEditor_ = true;
+
+            ImGui::SeparatorText("Gameplay");
+            if (ImGui::MenuItem("Input Map...")) showInputMap_ = true;
+            if (ImGui::MenuItem("Save Editor...")) showSaveEditor_ = true;
+            if (ImGui::MenuItem("World Facts...")) showWorldFacts_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "The game's central memory: named, typed facts like\n"
+                    "\"the generator is repaired\" or \"marta.trust\", the\n"
+                    "reusable conditions over them, the rules that react,\n"
+                    "and a live blackboard of every one of them while the\n"
+                    "game runs.");
+
+            ImGui::SeparatorText("Running game");
+            if (ImGui::MenuItem("Debugger...", "F9")) showDebugger_ = true;
+            if (ImGui::MenuItem("Remote Pad...")) showRemotePad_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Hold the running game's controller from here - click the\n"
+                    "buttons or drive it with the editor's keyboard. PCSX2 does\n"
+                    "not need the focus, and the same channel is scriptable\n"
+                    "(tyrax-editor --pad). Debug builds only.");
+
+            ImGui::SeparatorText("AI");
+            if (ImGui::MenuItem("AI Assistant...")) showAiChat_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Ask about the editor - it answers from the editor's own\n"
+                    "documentation - or ask for something to be done: it can\n"
+                    "add and change objects, write flow graphs, switch scenes\n"
+                    "and open windows. Uses the AI backend from Edit >\n"
+                    "Preferences; every change it makes is one Ctrl+Z away.");
             ImGui::EndMenu();
         }
         // Deliberately outside the project gate: which build this is, and
