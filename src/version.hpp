@@ -16,6 +16,9 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.58.1: Aster's portal connects a screened vestibule to a vaulted instrument
+// cellar below the rotunda, with bounded view lists and underground support.
+//
 // 1.58.0: Box collision mode "invisible" adds authorable boundary walls without
 // rendered geometry or baked shadows. Format 32 adds the new collision value.
 // Aster clears its portals, seats its lighthouse and tessellates the sea.
@@ -1770,7 +1773,7 @@
 
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 58
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

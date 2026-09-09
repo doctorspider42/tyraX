@@ -56,8 +56,9 @@ gameplay is different from making its surface invisible.
 
 This is `"collision": "invisible"` on a Box (format 32). Existing box, mesh and
 none modes retain their behavior. Making a wall visible again restores box
-collision. Aster uses four tall walls just outside the island's paving, leaving
-both portal approaches inside the protected perimeter.
+collision. Aster uses four tall walls just outside the island's paving. Its
+surface portal stays inside that perimeter; the underground cellar is enclosed
+by its own collidable floor, walls and vault.
 
 ## Seeing them
 

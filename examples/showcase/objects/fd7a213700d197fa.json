@@ -1,0 +1,1 @@
+{ "id": "fd7a213700d197fa", "name": "district-vestibule", "type": "model", "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "collision": "mesh", "model": "res/aster/district-vestibule.obj", "meshLod": 0 }

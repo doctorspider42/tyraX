@@ -3,7 +3,7 @@
 
 namespace Showcase {
 
-constexpr int MODEL_COUNT = 26;
+constexpr int MODEL_COUNT = 25;
 inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "aster/arrival-terrace.tmdl",
     "aster/west-promenade.tmdl",
@@ -23,19 +23,17 @@ inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "aster/orbit-equator.tmdl",
     "aster/pedestal.tmdl",
     "aster/weights-backstop.tmdl",
-    "aster/east-gate-1.7.tmdl",
-    "aster/east-gate1.7.tmdl",
-    "aster/east-gatelintel.tmdl",
     "aster/island.tmdl",
     "aster/district-arrival.tmdl",
     "aster/district-east.tmdl",
     "aster/district-west.tmdl",
     "aster/district-rotunda.tmdl",
+    "aster/district-vestibule.tmdl",
+    "aster/district-cellar.tmdl",
 };
 // per-model .mtl override, for the .obj fallback path only (a
 // .tmdl already carries the resolved override) - "" = none
 inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
-    "",
     "",
     "",
     "",
@@ -85,16 +83,15 @@ inline const char* MODEL_SOURCES[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "res/aster/orbit-equator.obj",
     "res/aster/pedestal.obj",
     "res/aster/weights-backstop.obj",
-    "res/aster/east-gate-1.7.obj",
-    "res/aster/east-gate1.7.obj",
-    "res/aster/east-gatelintel.obj",
     "res/aster/island.obj",
     "res/aster/district-arrival.obj",
     "res/aster/district-east.obj",
     "res/aster/district-west.obj",
     "res/aster/district-rotunda.obj",
+    "res/aster/district-vestibule.obj",
+    "res/aster/district-cellar.obj",
 };
-constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, true, true};
+constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, true, true, true, true};
 
 constexpr int ANIM_MODEL_COUNT = 1;
 inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {
