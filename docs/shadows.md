@@ -73,8 +73,17 @@ number used to be as a built-in). It is one project-wide number because the
 four slots are one project-wide budget: on a wide scene where nothing contests
 them, raise it and the shed's shadow is there from further off; on a crowded
 one, lowering it keeps the slots for what is near. The `.tyra` carries
-`projShadowDistance` only when it is not 50 (format v38). Which four win
-within that reach is still raw camera distance ([backlog](backlog.md)).
+`projShadowDistance` only when it is not 50 (format v38).
+
+**Which four win** within that reach (1.71.1): only casters inside the
+camera's view cone are candidates - a radius and a half of margin, so a
+caster at the frame's edge still counts - and they
+are ranked by how big they are on screen, distance over bounding radius, so
+the shed twelve units off outranks a crate at ten. Raw camera distance used
+to decide it, and the slot's own log showed the yard's four slots held by
+casters at 5.6 / 7.4 / 8.5 / 9.7 units, three of them *behind the player*,
+while the lamp post in front of the camera at twelve cast nothing. The
+hysteresis and the dissolve are unchanged; they compare the same key.
 
 Marking twenty casters is not an error, but which four you get is then decided
 by where you stand, and the answer must not change on a footstep. It is held,

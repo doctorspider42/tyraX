@@ -15034,22 +15034,55 @@ void TerrainGame::renderProjShadows() {
   // Candidates: every authored caster that is on and within the far cull.
   // Shadows fade out over the last 15 units of that reach (35..50), so
   // walking away from one dissolves it instead of switching it off.
+  // WHICH casters compete for the four slots, and in what order. Two rules
+  // that the raw camera distance did not have, both from the yard: a truck
+  // BEHIND the player took a slot away from the lamp post in front of it
+  // (nearest four by distance, the slot's own log showed 5.6 / 7.4 / 8.5 /
+  // 9.7 units - three of them out of the frame), and a crate at ten units
+  // outranked a shed at twelve. So a caster is a candidate only inside the
+  // camera's view cone, with its shadow's own reach as margin (a caster just
+  // off-screen still throws INTO the frame), and the order is how big it is
+  // on screen - distance over radius - so what dominates the picture holds
+  // the slots. The far fade still runs on the true distance.
   struct Cand {
     int obj;
-    float d2;
+    float d2;   // true squared distance to the camera (the far fade)
+    float key;  // distance in caster radii (the ranking and the contest)
   };
   static std::vector<Cand> cands;
   cands.clear();
-  for (int i : projCasters) {
-    if (i >= (int)runtimeObjects.size()) continue;
-    const RuntimeObject& o = runtimeObjects[i];
-    if (!o.active || !o.visible) continue;
-    const float dx = o.data.position[0] - cameraPosition.x;
-    const float dy = o.data.position[1] - cameraPosition.y;
-    const float dz = o.data.position[2] - cameraPosition.z;
-    const float d2 = dx * dx + dy * dy + dz * dz;
-    if (d2 > PROJ_SHADOW_DISTANCE * PROJ_SHADOW_DISTANCE) continue;
-    cands.push_back({i, d2});
+  {
+    float cfx = cameraLookAt.x - cameraPosition.x,
+          cfy = cameraLookAt.y - cameraPosition.y,
+          cfz = cameraLookAt.z - cameraPosition.z;
+    const float cfl = sqrtf(cfx * cfx + cfy * cfy + cfz * cfz);
+    if (cfl > 0.0001F) cfx /= cfl, cfy /= cfl, cfz /= cfl;
+    for (int i : projCasters) {
+      if (i >= (int)runtimeObjects.size()) continue;
+      const RuntimeObject& o = runtimeObjects[i];
+      if (!o.active || !o.visible) continue;
+      const float dx = o.data.position[0] - cameraPosition.x;
+      const float dy = o.data.position[1] - cameraPosition.y;
+      const float dz = o.data.position[2] - cameraPosition.z;
+      const float d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 > PROJ_SHADOW_DISTANCE * PROJ_SHADOW_DISTANCE) continue;
+      // The same bounding radius the slot below sizes its frustum by.
+      const float sxs = o.data.scale[0], sys = o.data.scale[1],
+                  szs = o.data.scale[2];
+      const float r = 0.5F * sqrtf(sxs * sxs + sys * sys + szs * szs) + 0.25F;
+      // Margin: a radius and a half. The patch's full reach (3.5 radii) let
+      // a tree at scale 3 five units BEHIND the camera stay a candidate -
+      // the yard's log, again - and a caster you cannot see holding one of
+      // four slots is the wrong trade even when a sliver of its shadow could
+      // enter the frame.
+      const float reach = r * 1.5F;
+      const float fwd = dx * cfx + dy * cfy + dz * cfz;
+      if (fwd < -reach) continue;  // behind the camera
+      const float lat2 = d2 - fwd * fwd;
+      const float lim = (fwd > 0.0F ? fwd : 0.0F) * 1.6F + reach;  // ~58 deg
+      if (lat2 > lim * lim) continue;  // beside the frame
+      cands.push_back({i, d2, sqrtf(d2) / (r > 0.5F ? r : 0.5F)});
+    }
   }
   const int nSlots = (int)projShadows.size();
   // A slot letting go. The occupant, its dissolve, its patience and its light
@@ -15071,7 +15104,7 @@ void TerrainGame::renderProjShadows() {
     return;
   }
   std::sort(cands.begin(), cands.end(),
-            [](const Cand& a, const Cand& b) { return a.d2 < b.d2; });
+            [](const Cand& a, const Cand& b) { return a.key < b.key; });
 
   // --- WHICH FOUR CASTERS HOLD THE SLOTS ---------------------------------
   //
@@ -15103,6 +15136,11 @@ void TerrainGame::renderProjShadows() {
       if (c.obj == obj) return sqrtf(c.d2);
     return -1.0F;  // not a candidate at all this frame
   };
+  auto candKey = [&](int obj) -> float {
+    for (const Cand& c : cands)
+      if (c.obj == obj) return c.key;
+    return -1.0F;
+  };
   auto heldBy = [&](int obj) -> bool {
     for (int s = 0; s < nSlots; ++s)
       if (projShadows[s].occupant == obj) return true;
@@ -15127,11 +15165,13 @@ void TerrainGame::renderProjShadows() {
   // The contest is the FARTHEST holder against the nearest candidate holding
   // nothing - one hand-over at a time, so a camera crossing several casters
   // at once dissolves them one after another rather than all together.
+  // ...measured in caster radii (the ranking key), so a big shed and a small
+  // crate are compared by what they are on screen, not by metres.
   int worst = -1;
   float worstD = -1.0F;
   for (int s = 0; s < nSlots; ++s) {
     if (projShadows[s].occupant < 0) continue;
-    const float d = candDist(projShadows[s].occupant);
+    const float d = candKey(projShadows[s].occupant);
     if (d > worstD) worstD = d, worst = s;
   }
   int chal = -1;
@@ -15139,7 +15179,7 @@ void TerrainGame::renderProjShadows() {
   for (const Cand& c : cands)
     if (!heldBy(c.obj)) {
       chal = c.obj;
-      chalD = sqrtf(c.d2);
+      chalD = c.key;
       break;
     }
   for (int s = 0; s < nSlots; ++s) {
@@ -15523,6 +15563,13 @@ void TerrainGame::renderProjShadows() {
     sfade[s] *= sl.fade;
     sactive[s] = true;
     ++used;
+    if (SHADOW_VOLUMES_DEBUG != 0) {  // the slot, for a console capture
+      static int dbgP = 0;
+      if ((++dbgP % 60) < nSlots)
+        TYRA_LOG("PROJDBG slot ", s, " obj ", i, " kind ", bestKind, " sun ",
+                 (int)bestSun, " dist ", dist, " fade ", sfade[s], " reach ",
+                 reachFade, " light ", lpx, " ", lpy, " ", lpz);
+    }
   }
   if (used == 0) return;
   core.shadowMap.end();

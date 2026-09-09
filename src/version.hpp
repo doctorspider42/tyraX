@@ -16,6 +16,20 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.71.1 (the four projected-shadow slots go to what is IN THE FRAME):
+// the distance setting at 250 changed nothing at the yard - a step away from
+// the lamp post and its shadow was gone - and the slot log (PROJDBG, a
+// debug-build print) said why: the four slots held casters at 5.6, 7.4, 8.5
+// and 9.7 units from the camera, three of them behind the player, all lit
+// by the moon, while the post at twelve units in front of the camera had no
+// slot. The candidate order was raw camera distance. A caster is a candidate
+// now only inside the camera's view cone (a radius and a half of margin - the
+// patch's full 3.5-radius reach still let a tree five units behind the
+// camera through), and candidates rank by distance over bounding radius - what is
+// big on screen holds a slot - with the hysteresis and the dissolve comparing
+// that same key. Verified on the console at the same vantage: the slots hold
+// the post and the pallets, the moon shadows are there.
+//
 // 1.71.0 (Projected shadow distance is a setting): the projected
 // silhouettes' far cull was a built-in 50 units from the camera, dissolving
 // from 35, and a question from the yard - "the shed's shadow only shows when
@@ -2825,7 +2839,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 71
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
