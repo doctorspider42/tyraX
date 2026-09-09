@@ -16,7 +16,7 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
-// 1.73.0 (comments in the editor, docs/comments.md): a note pinned to a place
+// 1.78.0 (comments in the editor, docs/comments.md): a note pinned to a place
 // in the scene - why this prop is here, what is still to do, what broke last
 // time. It is an ordinary scene object (PrimitiveType::Comment) so it gets a
 // name, a place, undo, layers, selection, the outliner and multi-user merge
@@ -34,7 +34,7 @@
 // note's 3D box shrinks below its own icon. Nothing about a note is
 // generated, baked or shipped - the object still takes a scene-table row like
 // an Area does, because object indices are baked into every generated table.
-// kFormatVersion 38 -> 39. Verified by --resave round-trips (a note with
+// kFormatVersion 42 -> 43. Verified by --resave round-trips (a note with
 // newlines, quotes and 4 KB of text comes back byte for byte), --refresh-gen
 // on the examples (no generated file moves) and a --ui-script run that adds a
 // comment, types into it, screenshots the icon and toggles View > Comments.
@@ -2907,8 +2907,12 @@
 // have, which is what MINOR means, and a number that is strictly greater than
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
+// 1.76.0: merge configurable GPU impostors with full RGB SH receivers,
+// duplicate-corner skinning reuse and DMA-safe lighting payloads.
+// 1.77.0: merge animated HUD elements with the 1.76 rendering stack.
+// 1.78.0: editor comments pinned to scenes.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 73
+#define TYRAX_VERSION_MINOR 78
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -3244,12 +3248,20 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // built-in 50, so an untouched project resaves byte for byte and an older
 // editor reading a newer file falls back to exactly the number it always had.
 // Purely additive - no migration step.
-// v39 (editor comments, docs/comments.md): the new PrimitiveType::Comment
+// v39/v40: optional impostor path, distance and cylindrical billboard flag.
+// v41: impostorViews (4/8/16), defaults to 8 for existing captures.
+// v42 (animated HUD, docs/hud-animation.md): `anim` / `transition` objects on
+// HUD images and texts, `visibleAtStart` on images, and the `hudBars` array
+// (live health/stamina/progress bars). Every key is omitted at its default,
+// so the feature adds no noise to an unchanged HUD definition; an older
+// editor reading a newer file drops the motion and draws the classic static
+// HUD. Purely additive - no migration step.
+// v43 (editor comments, docs/comments.md): the new PrimitiveType::Comment
 // (serialized type name "comment") and SceneObject::commentText, written only
 // when a note has text. An older editor reads an unknown type name as a Box,
 // which is why this is a version bump and not just a new key - the refusal is
 // the point. Purely additive - no migration step.
-inline constexpr int kFormatVersion = 39;
+inline constexpr int kFormatVersion = 43;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

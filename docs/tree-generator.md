@@ -6,12 +6,10 @@
 the project as ordinary assets. Inspired by [EZ-Tree](https://github.com/dgreenheck/ez-tree)
 (MIT), reimplemented host-side in `src/treegen.cpp`.
 
-The design goal was deliberately narrow: **not** a runtime forest system, just a
-way to stop hunting for tree models. You dial a tree in, the editor writes
-`.obj` + `.mtl` + two PNGs into `res/models/trees/`, and a normal **Model**
-object enters the scene. Nothing about the PS2 side changes — no new object
-type, no serialization field, no codegen, no engine work. A generated tree is
-indistinguishable from a tree you modeled in Blender and imported.
+The generator exports ordinary OBJ/MTL/PNG assets. **Bake distant impostor** also
+captures 4, 8 or 16 views (select **Tree capture views**) for a two-triangle camera-facing card and assigns that far model
+to the inserted object. See [Distant foliage impostors](impostors.md) for distance
+controls, approximation limits and runtime costs.
 
 ## Why it costs nothing on the PS2
 
@@ -63,9 +61,8 @@ LOD** tiers for it (see [model-pipeline.md](model-pipeline.md)). Keeping the
 source mesh light still pays — LOD thins the distant draw, not the near one.
 
 Practical ceiling is **instance count, not tree cost**: models don't join static
-batching (only primitives do), so every tree is its own draw bag. A dozen or two
-per scene is comfortable; a forest wants a different technique (billboards, or
-batched primitives).
+batching (only primitives do), so every tree is its own draw bag. The optional impostor reduces distant triangle work, but each instance still
+has a draw bag; dense forests must budget both draw calls and alpha overdraw.
 
 ## What the UI gives you
 
@@ -186,3 +183,6 @@ rather than handing pixels to `glTexImage2D` — see PROGRESS entry 101.
 
 `addTreeToScene()` hands off to the existing `addModelObject()`, so naming,
 selection and `commitChange()` behave exactly like any other model import.
+
+**Impostor GPU** uses offscreen GPU capture, with automatic CPU fallback. The
+result status names the backend. See [impostors](impostors.md) for memory costs.

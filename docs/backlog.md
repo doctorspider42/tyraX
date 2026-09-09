@@ -13,6 +13,15 @@ git show <retirement-commit>^:PROGRESS.md
 git log -p --follow -- PROGRESS.md
 ```
 
+## Visual showcase directions
+
+See [Rendering directions](rendering-directions.md) for the assessed roadmap:
+offline foliage impostors, local vegetation interaction, better probe lighting
+and source assets first; crowds and texture paging only with measured budgets.
+The eight-view cylindrical impostor implementation is documented in
+[Distant foliage impostors](impostors.md). Follow-up candidates are transition blending, elevated
+captures, screen-size thresholds, per-view rendering and grouped distant draws.
+
 ## Small
 
 ### An input replay cannot reproduce a memory-card save
@@ -751,3 +760,28 @@ While there: the GI bake's ground grid follows object footprint AABBs, so a
 ROTATED thin wall still shows a faint version of the straddling teeth at its
 AABB's corners - splitting the ground cells along the rotated footprint is the
 fix if anyone reports it.
+
+
+## Animated probe lighting
+
+Full signed RGB SH L1 now reaches animated and explicitly dynamic-lit receivers
+without larger probe tables or extra passes (docs/global-illumination.md).
+Next quality candidates: contact occlusion around feet, visibility-aware probe
+interpolation to reduce light leaking through thin walls, then exact normals
+under nonuniform scale/shear. L2, animated self-shadowing and surface-transfer
+PRT need separate measurements and are not implied by full RGB L1.
+
+### Previous humanoid LOD hang: not reproduced
+
+The earlier three-humanoid meshLod 1.5 doorway hang had no identified cause.
+After exact duplicate-corner skin reuse, the same scene passed the doorway
+walk; a second fixture forced tiers 0/1/2 every 120 frames and ran beyond
+2400 ticks without stopping. This is a successful stress test, not proof of a
+specific hang fix. If it recurs, preserve the ELF, scene, log and pad sequence
+before rebuilding. The shipped example still uses one full-mesh humanoid and
+lightweight neutral receivers. Avatar skin time fell from about 10.8 to 5.6 ms
+in PCSX2, with identical geometry and full-rate animation.
+
+- Impostor follow-up: measure cold versus warm batch GPU capture time and consider
+  background batch baking. Configurable 4/8/16 views and optional GPU capture
+  with CPU fallback are implemented; see [impostors](impostors.md).

@@ -31,6 +31,7 @@
 #include "devsession.hpp"
 #include "editorcfg.hpp"
 #include "gl_loader.h"
+#include "hudanim.hpp"
 #include "fbxparser.hpp"
 #include "gigpu.hpp"
 #include "glbparser.hpp"
@@ -2004,7 +2005,7 @@ void App::drawTreeGeneratorWindow() {
     }
 
     const ImVec2 avail = ImGui::GetContentRegionAvail();
-    const float footer = scaled(96.0f);
+    const float footer = ImGui::GetFrameHeightWithSpacing() * (treeGenImpostor_ ? 5.0f : 3.0f) + scaled(12.0f);
     const int pw = (int)avail.x < 1 ? 1 : (int)avail.x;
     const int ph = (int)(avail.y - footer) < 1 ? 1 : (int)(avail.y - footer);
 
@@ -2079,6 +2080,17 @@ void App::drawTreeGeneratorWindow() {
 
     ImGui::SetNextItemWidth(scaled(180.0f));
     ImGui::InputText("Name", treeName_, sizeof(treeName_));
+    ImGui::Checkbox("Bake distant impostor", &treeGenImpostor_);
+    if (treeGenImpostor_) {
+        int choice = treeImpostorViews_ == 4 ? 0 : treeImpostorViews_ == 16 ? 2 : 1;
+        ImGui::SetNextItemWidth(scaled(180.0f));
+        if (ImGui::Combo("Tree capture views", &choice, "4 views\0" "8 views\0" "16 views\0"))
+            treeImpostorViews_ = 4 << choice;
+        ImGui::Checkbox("Impostor GPU", &impostorGpu_);
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Selected views on a camera-facing card (2 triangles) beyond six tree heights.\n"
+                          "GPU capture falls back to CPU if unavailable. Adjust distance in LOD properties.");
     ImGui::SameLine();
     ImGui::BeginDisabled(treeMesh_.bark.empty());
     if (ImGui::Button("Add to scene")) addTreeToScene();
@@ -2116,9 +2128,25 @@ void App::addTreeToScene() {
         statusMessage_ = "Tree export failed: " + err;
         return;
     }
-    addModelObject(objRel);        // creates the Model object + commitChange()
+    std::string impostorRel, impostorBackend;
+    if (treeGenImpostor_ &&
+        !treegen::writeImpostor(project_.dir, name, treeMesh_, treeBarkTex_,
+                                treeLeafTex_, &impostorRel, &err, 128, treeImpostorViews_, impostorGpu_, &impostorBackend)) {
+        statusMessage_ = "Impostor export failed: " + err;
+        return;
+    }
+    addModelObject(objRel, nullptr, false);
+    if (!impostorRel.empty()) {
+        SceneObject& o = project_.objects().back();
+        o.impostorPath = impostorRel;
+        o.impostorBillboard = true;
+        o.impostorViews = treeImpostorViews_;
+        o.impostorDistance = treeParams_.height * 6.0f;
+    }
+    commitChange();
     statusMessage_ = "Added tree '" + name + "' (" +
-                     std::to_string(treeMesh_.triangles()) + " tris)";
+                     std::to_string(treeMesh_.triangles()) + " tris)" +
+                     (impostorRel.empty() ? "" : " - impostor " + impostorBackend);
 }
 
 // Picks one of the project's Font Manager entries by name. An empty reference
@@ -2400,6 +2428,46 @@ void App::drawUiEditorWindow() {
         ImGui::SetTooltip(
             "Baked to PNG sprites at build (the PS2 engine has no font).\n"
             "Show/hide them from the flow graph: Set Text Visible.");
+
+    // Live bars (docs/hud-animation.md). They draw above the whole stack,
+    // under the texts, so like the texts they sit outside the reorderable list.
+    ImGui::SeparatorText("Bars");
+    for (int i = 0; i < (int)project_.hudBars.size(); ++i) {
+        ImGui::PushID(2000 + i);
+        if (ImGui::Selectable(project_.hudBars[i].name.c_str(),
+                              uiFxSel_ == 9 && selectedBar_ == i)) {
+            uiFxSel_ = 9;
+            selectedBar_ = i;
+        }
+        ImGui::PopID();
+    }
+    if (ImGui::SmallButton("+ Add bar")) {
+        HudBar b;
+        int suffix = 1;
+        auto taken = [&](const std::string& n) {
+            for (const HudBar& e : project_.hudBars)
+                if (e.name == n) return true;
+            return false;
+        };
+        while (taken(suffix == 1 ? "bar" : "bar-" + std::to_string(suffix)))
+            ++suffix;
+        b.name = suffix == 1 ? "bar" : "bar-" + std::to_string(suffix);
+        // Stack new bars down the top-left corner instead of on top of each
+        // other, so three "+ Add bar" clicks are three visible bars.
+        b.pos[0] = 0.22f;
+        b.pos[1] = 0.08f + 0.05f * (float)project_.hudBars.size();
+        project_.hudBars.push_back(std::move(b));
+        uiFxSel_ = 9;
+        selectedBar_ = (int)project_.hudBars.size() - 1;
+        hudBarPreview_ = -1.0f;
+        changed = true;
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Health, stamina, progress: a fill sized from a save value or the\n"
+            "Set HUD Bar node every frame. Nothing is baked - 2-4 sprites each.");
 
     // Inline text icons. They belong to no single element - ANY text in the
     // project can splice one in - so they get their own modal rather than a
@@ -2866,6 +2934,7 @@ void App::drawUiEditorWindow() {
                                 fn.str == oldName)
                                 fn.str = t.name;
                         }
+                renameHudElementRefs(oldName, t.name, false);
             }
             changed |= ImGui::IsItemDeactivatedAfterEdit();
         }
@@ -2897,6 +2966,7 @@ void App::drawUiEditorWindow() {
             "(the show pin takes an optional auto-hide after N\n"
             "seconds). This string is baked at build - for one that\n"
             "changes while the game runs, use a Display Text node.");
+        changed |= hudMotionControls(t.anim, t.transition, nullptr);
 
         // Live preview: the exact sprite the build will bake.
         {
@@ -2931,6 +3001,144 @@ void App::drawUiEditorWindow() {
         if (ImGui::Button("Delete text")) {
             project_.hudTexts.erase(project_.hudTexts.begin() + selectedText_);
             selectedText_ = -1;
+            uiFxSel_ = 0;
+            changed = true;
+        }
+    } else if (uiFxSel_ == 9 && selectedBar_ >= 0 &&
+               selectedBar_ < (int)project_.hudBars.size()) {
+        // --- a live bar (docs/hud-animation.md) ------------------------------
+        HudBar& b = project_.hudBars[selectedBar_];
+        ImGui::SeparatorText(b.name.c_str());
+        {
+            char nameBuf[64];
+            std::snprintf(nameBuf, sizeof(nameBuf), "%s", b.name.c_str());
+            ImGui::SetNextItemWidth(scaled(160.0f));
+            if (ImGui::InputText("Name##bar", nameBuf, sizeof(nameBuf))) {
+                const std::string oldName = b.name;
+                b.name = nameBuf;
+                renameHudElementRefs(oldName, b.name, true);
+            }
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+        const char* kinds[] = {"Continuous (fill)", "Quantized (segments)"};
+        ImGui::SetNextItemWidth(scaled(200));
+        if (ImGui::Combo("Type##bar", &b.kind, kinds, 2)) changed = true;
+        ImGui::DragFloat2("Position##bar", b.pos, 0.005f, 0.0f, 1.0f, "%.3f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::DragFloat2("Size (px)##bar", b.size, 1.0f, 2.0f, 512.0f, "%.0f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::Checkbox("Fill from the right", &b.rightToLeft)) changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("The fill is anchored on the right edge - a\n"
+                              "mirrored bar for a second player.");
+        if (ImGui::Checkbox("Visible at game start##bar", &b.visibleAtStart))
+            changed = true;
+
+        ImGui::SeparatorText("Value");
+        {
+            // The save value it follows. Empty = the Set HUD Bar node alone.
+            const char* cur = b.source.empty() ? "(Set HUD Bar node only)"
+                                               : b.source.c_str();
+            ImGui::SetNextItemWidth(scaled(200));
+            if (ImGui::BeginCombo("Follows save value", cur)) {
+                if (ImGui::Selectable("(Set HUD Bar node only)", b.source.empty())) {
+                    b.source.clear();
+                    changed = true;
+                }
+                for (const SaveValue& sv : project_.saveValues) {
+                    ImGui::PushID(sv.name.c_str());
+                    if (ImGui::Selectable(sv.name.c_str(), sv.name == b.source)) {
+                        b.source = sv.name;
+                        changed = true;
+                    }
+                    ImGui::PopID();
+                }
+                if (project_.saveValues.empty())
+                    ImGui::TextDisabled("Add save values in the\nProject panel (Save data).");
+                ImGui::EndCombo();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Read every frame, so Add To Save Value from any graph\n"
+                    "moves the bar with no node of its own. Set HUD Bar\n"
+                    "writes this value too.");
+        }
+        ImGui::SetNextItemWidth(scaled(90));
+        ImGui::DragFloat("Min##bar", &b.minValue, 0.5f, -1e6f, 1e6f, "%.1f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(scaled(90));
+        ImGui::DragFloat("Max##bar", &b.maxValue, 0.5f, -1e6f, 1e6f, "%.1f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (b.source.empty()) {
+            ImGui::SetNextItemWidth(scaled(90));
+            ImGui::DragFloat("Start##bar", &b.startValue, 0.5f, -1e6f, 1e6f, "%.1f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The value at scene start. A bar following a\n"
+                                  "save value starts at that value instead.");
+        }
+        ImGui::SetNextItemWidth(scaled(120));
+        ImGui::DragFloat("Smoothing (s)", &b.smoothing, 0.01f, 0.0f, 3.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Seconds the fill takes to ease to a new value.\n"
+                              "0 = jumps.");
+        if (ImGui::Checkbox("Ghost strip", &b.ghost)) changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Lingers where the fill was after a drop, then\n"
+                              "slides down after it - the damage chip.");
+        ImGui::SetNextItemWidth(scaled(120));
+        ImGui::SliderFloat("Low pulse below", &b.lowFraction, 0.0f, 1.0f,
+                           b.lowFraction <= 0.0f ? "never" : "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Under this fraction the fill breathes - low\n"
+                              "health asking for attention. 0 = never.");
+
+        ImGui::SeparatorText("Look");
+        if (ImGui::ColorEdit3("Track color", b.bgColor)) changed = true;
+        if (ImGui::ColorEdit3("Fill color", b.fillColor)) changed = true;
+        if (b.ghost && ImGui::ColorEdit3("Ghost color", b.ghostColor)) changed = true;
+        if (b.kind == 1) {
+            ImGui::SetNextItemWidth(scaled(120));
+            if (ImGui::DragInt("Segments##bar", &b.segments, 0.1f, 2, 16))
+                b.segments = b.segments < 2 ? 2 : b.segments > 16 ? 16 : b.segments;
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::SetNextItemWidth(scaled(120));
+            ImGui::DragFloat("Spacing (px)##bar", &b.spacing, 0.2f, 0.0f, 64.0f, "%.0f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+        changed |= hudBarImageControls("fillimg", "Fill image (optional)",
+                                       b.fillImage, false);
+        changed |= hudBarImageControls("frameimg", "Frame image (optional)",
+                                       b.frameImage, true);
+        changed |= hudMotionControls(b.anim, b.transition, nullptr);
+
+        ImGui::SeparatorText("Preview");
+        {
+            const float start = b.source.empty()
+                                    ? b.startValue
+                                    : [&]() {
+                                          for (const SaveValue& sv : project_.saveValues)
+                                              if (sv.name == b.source) return sv.value;
+                                          return b.minValue;
+                                      }();
+            float frac = hudBarPreview_ < 0.0f
+                             ? hudanim::fraction(start, b.minValue, b.maxValue)
+                             : hudBarPreview_;
+            ImGui::SetNextItemWidth(scaled(160));
+            if (ImGui::SliderFloat("Preview fill", &frac, 0.0f, 1.0f, "%.2f"))
+                hudBarPreview_ = frac;
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Reset##barprev")) hudBarPreview_ = -1.0f;
+            ImGui::TextDisabled("Editor only - fills the bar in the viewport overlay.");
+        }
+
+        ImGui::Spacing();
+        if (ImGui::Button("Delete bar")) {
+            project_.hudBars.erase(project_.hudBars.begin() + selectedBar_);
+            selectedBar_ = -1;
             uiFxSel_ = 0;
             changed = true;
         }
@@ -2992,6 +3200,7 @@ void App::drawUiEditorWindow() {
         changed |= ImGui::IsItemDeactivatedAfterEdit();
 
         changed |= hudBakeControls(h);
+        changed |= hudMotionControls(h.anim, h.transition, &h.visibleAtStart);
 
         ImGui::Spacing();
         if (ImGui::Button("Delete HUD image"))
@@ -3010,6 +3219,150 @@ void App::drawUiEditorWindow() {
     if (changed || project::sectionJson(project_, project::Section::Hud) != beforeSection)
         commitChange();
     ImGui::End();
+}
+
+// The Motion block every HUD element ends with (docs/hud-animation.md): a
+// looped animation (previewed live in the viewport overlay) and the show/hide
+// transition (runtime only). `visibleAtStart` is drawn when given - images and
+// bars have one here, a text draws its own beside the other text settings.
+bool App::hudMotionControls(HudAnim& anim, HudTransition& trans, bool* visibleAtStart) {
+    bool changed = false;
+    ImGui::SeparatorText("Motion");
+    if (visibleAtStart && ImGui::Checkbox("Visible at game start##motion", visibleAtStart))
+        changed = true;
+    {
+        const char* names[hudanim::KindCount];
+        for (int i = 0; i < hudanim::KindCount; ++i) names[i] = hudanim::kindName(i);
+        ImGui::SetNextItemWidth(scaled(140));
+        if (ImGui::Combo("Animation", &anim.kind, names, hudanim::KindCount)) {
+            // Each kind reads `amount` in its own unit, so switching kinds
+            // re-seeds it with something that looks like that kind.
+            switch (anim.kind) {
+                case hudanim::Pulse: anim.amount = 0.6f; anim.period = 1.2f; break;
+                case hudanim::Breathe: anim.amount = 0.12f; anim.period = 1.6f; break;
+                case hudanim::Blink: anim.amount = 0.5f; anim.period = 0.8f; break;
+                case hudanim::Shake: anim.amount = 2.0f; anim.period = 0.05f; break;
+                case hudanim::None: break;
+                default: anim.amount = 4.0f; anim.period = 1.2f; break;
+            }
+            changed = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "A loop on the sprite's position, scale or alpha - no rebake,\n"
+                "a few floats per frame. Previewed live in the viewport.");
+    }
+    if (anim.kind != hudanim::None) {
+        ImGui::SetNextItemWidth(scaled(100));
+        ImGui::DragFloat(anim.kind == hudanim::Shake ? "Step (s)" : "Period (s)",
+                         &anim.period, 0.01f, 0.01f, 30.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (anim.period < 0.01f) anim.period = 0.01f;
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(scaled(100));
+        const bool unit01 = anim.kind == hudanim::Pulse || anim.kind == hudanim::Blink ||
+                            anim.kind == hudanim::Breathe;
+        ImGui::DragFloat(anim.kind == hudanim::Pulse     ? "Depth"
+                         : anim.kind == hudanim::Blink   ? "On share"
+                         : anim.kind == hudanim::Breathe ? "Grow"
+                                                         : "Amount (px)",
+                         &anim.amount, unit01 ? 0.01f : 0.2f, 0.0f,
+                         unit01 ? 1.0f : 200.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                anim.kind == hudanim::Pulse     ? "How far the alpha dips (1 = to invisible)."
+                : anim.kind == hudanim::Blink   ? "Fraction of each period the element is drawn."
+                : anim.kind == hudanim::Breathe ? "How much bigger it grows (0.1 = 10%)."
+                : anim.kind == hudanim::Shake   ? "Jitter radius in pixels; a new offset every Step."
+                                                : "Travel in screen pixels (512x448 space).");
+    }
+    {
+        const char* names[hudanim::TransitionCount];
+        for (int i = 0; i < hudanim::TransitionCount; ++i)
+            names[i] = hudanim::transitionName(i);
+        ImGui::SetNextItemWidth(scaled(140));
+        if (ImGui::Combo("Show / hide", &trans.kind, names, hudanim::TransitionCount))
+            changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Played when a flow node shows or hides this element (in\n"
+                "reverse on hide). Runtime only - not previewed here.");
+        if (trans.kind != 0) {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(scaled(90));
+            ImGui::DragFloat("s##trans", &trans.duration, 0.01f, 0.0f, 5.0f, "%.2f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (trans.duration < 0.0f) trans.duration = 0.0f;
+        }
+    }
+    return changed;
+}
+
+// One of a bar's optional images. `withSize` = the image keeps its own
+// on-screen size (the frame); a fill is stretched into the bar's box.
+bool App::hudBarImageControls(const char* id, const char* title, HudImage& img,
+                              bool withSize) {
+    bool changed = false;
+    ImGui::PushID(id);
+    ImGui::SeparatorText(title);
+    if (img.imagePath.empty()) {
+        if (ImGui::Button("Set image (PNG)...")) {
+            std::vector<HudImage> tmp;
+            const int i = importHudImageInto(tmp);
+            if (i >= 0) {
+                img.imagePath = tmp[i].imagePath;
+                if (const HudTexture* t = hudTexture(img.imagePath)) {
+                    img.size[0] = (float)t->w;
+                    img.size[1] = (float)t->h;
+                }
+                changed = true;
+            }
+        }
+    } else {
+        ImGui::TextDisabled("%s", img.imagePath.c_str());
+        if (ImGui::Button("Replace...")) {
+            std::vector<HudImage> tmp;
+            const int i = importHudImageInto(tmp);
+            if (i >= 0) {
+                img.imagePath = tmp[i].imagePath;
+                changed = true;
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Clear image")) {
+            img.imagePath.clear();
+            changed = true;
+        }
+        if (withSize) {
+            ImGui::DragFloat2("Size (px)##barimg", img.size, 1.0f, 1.0f, 512.0f, "%.0f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Drawn centred on the bar at this size, over the fill.");
+        } else {
+            ImGui::TextDisabled("Cropped to the fill and tinted by the fill color\n"
+                                "(white = as painted).");
+        }
+        if (!img.imagePath.empty()) changed |= hudBakeControls(img);
+    }
+    ImGui::PopID();
+    return changed;
+}
+
+// Renames follow into the flow graphs like text renames do: Set HUD Bar names
+// a bar, Set HUD Element Visible / Play HUD Effect name any element.
+void App::renameHudElementRefs(const std::string& from, const std::string& to,
+                               bool isBar) {
+    if (from == to) return;
+    for (SceneData& sc : project_.scenes)
+        for (SceneObject& o : sc.objects)
+            for (FlowNode& fn : o.flowGraph.nodes) {
+                const FlowNodeType* ft = flowNodeType(fn.type);
+                if (!ft || fn.str != from) continue;
+                if (ft->strKind == FlowParamKind::HudElementName ||
+                    (isBar && ft->strKind == FlowParamKind::HudBarName))
+                    fn.str = to;
+            }
 }
 
 // Property editor for one progress bar (Loading Screens). Returns true when a

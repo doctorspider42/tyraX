@@ -31,6 +31,7 @@ for people building games with it. Internals live in code comments, the git log
   Area trigger, reverb rooms.
 - [Comments (editor notes)](comments.md) — a note pinned to a place in the
   scene, drawn as a message icon; editor-only, hideable, any length.
+- [Selecting objects](object-selection.md) — visible mesh priority, AABB fallback and full-model selection outlines.
 - [Placing objects: surface snapping and deferred paste](object-placement.md) —
   objects that rest on what's below them, `End` to drop, paste that follows the
   cursor.
@@ -131,6 +132,8 @@ for people building games with it. Internals live in code comments, the git log
   meshes; the PS2 never sees a graph.
 - [Runtime procedural generation](procedural-runtime.md) — the same graph
   evaluated on the EE at load, plus Blocks Fill for block worlds.
+- [Distant model impostors](impostors.md) - offline tree captures and distance-based model replacement.
+- [Rendering directions](rendering-directions.md) - assessed priorities for a PS2 visual showcase.
 - [Tree Generator](tree-generator.md) — procedural low-poly trees baked to
   ordinary `.obj` + textures.
 - [Drone Generator (ambient music)](drone-generator.md) — the built-in ambient
@@ -143,6 +146,8 @@ for people building games with it. Internals live in code comments, the git log
 
 **The game around the game**
 
+- [Animated HUD](hud-animation.md) — live health/stamina/progress bars,
+  per-element looped motion, show/hide transitions and one-shot effects.
 - [Loading screens](loading-screens.md) — named screens with real progress
   bars, per-scene or project-default, and the start scene.
 - [Credits rolls](credits.md) — scrolled or card-mode credits from a text file,

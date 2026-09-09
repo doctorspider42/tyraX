@@ -81,6 +81,7 @@ static std::vector<int> waypointIndices(const std::vector<SceneObject>& objs,
 static std::vector<std::pair<std::string, std::string>> collectModelKeys(
     const Project& p) {
     std::vector<std::pair<std::string, std::string>> keys;
+    std::map<std::string, bool> validFar;
     auto scan = [&](const SceneObject& o) {
         if (o.type != PrimitiveType::Model || o.modelPath.empty() ||
             isAnimatedModelPath(o.modelPath))
@@ -89,6 +90,19 @@ static std::vector<std::pair<std::string, std::string>> collectModelKeys(
         bool seen = false;
         for (const auto& e : keys) seen |= (e == key);
         if (!seen) keys.push_back(key);
+        if (!o.impostorPath.empty() && o.impostorDistance > 0 &&
+            !isAnimatedModelPath(o.impostorPath)) {
+            auto it = validFar.find(o.impostorPath);
+            if (it == validFar.end()) {
+                objparser::Model far;
+                it = validFar.emplace(o.impostorPath,
+                    objparser::load(p.filePath(o.impostorPath), far)).first;
+            }
+            if (!it->second) return; // retain the source model on invalid replacement
+            const std::pair<std::string, std::string> farKey{o.impostorPath, ""};
+            if (std::find(keys.begin(), keys.end(), farKey) == keys.end())
+                keys.push_back(farKey);
+        }
     };
     for (const SceneData& sc : p.scenes)
         for (const SceneObject& o : sc.objects) scan(o);
@@ -119,6 +133,14 @@ static int modelIndexOf(const Project& p, const SceneObject& o) {
         if (keys[i].first == o.modelPath && keys[i].second == o.materialPath)
             return (int)i;
     return -1;
+}
+
+static int impostorIndexOf(const Project& p, const SceneObject& o) {
+    if (o.impostorPath.empty() || o.impostorDistance <= 0) return -1;
+    SceneObject far = o;
+    far.modelPath = o.impostorPath;
+    far.materialPath.clear();
+    return modelIndexOf(p, far);
 }
 
 // An object that renders through the skeletal (.glb) pipeline: an animated
@@ -896,6 +918,9 @@ class TerrainGame : public Tyra::Game {
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
+    bool impostor = false; // visual representation only; data.model owns collision
+    bool impostorInitialized = false;
+    int impostorView = 0;
     // Physics fast path (awake bodies): parts hold LOCAL-space vertices
     // (scale baked in, shading frozen at the wake pose) and every
     // part.infoBag->model points at objMat, rebuilt from position/rotation
@@ -929,14 +954,16 @@ class TerrainGame : public Tyra::Game {
       // so an untextured mesh would render in the plain scene light color
       // (i.e. gray). This part's material albedo is folded into its own light
       // and ambient colors instead (outputColor = albedo * sceneLighting),
-      // matching how the editor viewport tints the .glb. Directions stay
-      // shared (animLightDirs); only the colors carry the per-part tint.
+      // matching how the editor viewport tints the .glb. Directions are
+      // owned by this part so pose-sharing instances retain independent GI.
       std::unique_ptr<Tyra::PipelineDirLightsBag> animLights;
       Tyra::Vec4 litColors[4];
+      Tyra::Vec4 litDirs[3];
     };
     std::vector<AnimPart> animParts;
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;
+    Tyra::M4x4 animLightMat;  // rotation/reflection only; scale is not light gain
     u32 animLastTick = 0;  // animLodTick of the last in-view frame; 0 = never
     // Usable-object highlight: terrain-hugging glow ring around the base,
     // built when first highlighted, cleared whenever the object rebuilds
@@ -1838,6 +1865,28 @@ class TerrainGame : public Tyra::Game {
   std::vector<float> hudTextDur;         // ScriptContext::textDuration
   std::vector<unsigned char> hudTextOn;  // visible this frame
   std::vector<float> hudTextTimer;       // seconds left (0 = until hidden)
+  // Animated HUD (docs/hud-animation.md): every HUD element - images, texts,
+  // bars, in HUD_ELEM order - carries a show/hide transition, a one-shot
+  // effect slot and, for images and bars, its own visibility (texts keep
+  // hudTextOn). updateHudMotion poses every sprite for the frame from the
+  // baked placement plus the element's looped animation, and ticks the bars.
+  void updateHudMotion();
+  void renderHudBars();
+  float hudClock = 0.0F;                     // seconds since boot - the loop clock
+  std::vector<unsigned char> hudElemOn;      // images + bars: shown
+  std::vector<float> hudElemTrans;           // 0 = fully hidden .. 1 = fully shown
+  std::vector<unsigned char> hudElemDrawn;   // drawn this frame (after Blink/transition)
+  std::vector<signed char> hudElemReq;       // ScriptContext::hudElemRequest
+  std::vector<signed char> hudElemFxReq;     // ScriptContext::hudElemEffect
+  std::vector<float> hudElemFxSecReq;        // ScriptContext::hudElemEffectSec
+  std::vector<signed char> hudElemFx;        // running effect (0 = none)
+  std::vector<float> hudElemFxT, hudElemFxDur;
+  std::vector<float> hudBarValue;            // ScriptContext::hudBarValue (bar units)
+  std::vector<signed char> hudBarSet;        // ScriptContext::hudBarSet
+  std::vector<float> hudBarShown, hudBarGhost, hudBarHold;  // eased fill (fractions)
+  std::vector<Tyra::Sprite> hudBarFillSprites, hudBarFrameSprites;
+  std::vector<int> hudBarFillTexW, hudBarFillTexH;  // fill image size, for the crop
+  Tyra::Sprite hudBarQuad;                   // hud/loading-white.png, tinted per quad
   // Dynamic point lights (Set Light flow node), per scene-object index.
   std::vector<signed char> lightReq;     // ScriptContext::lightRequest
   std::vector<float> lightIntens;        // ScriptContext::lightIntensity
@@ -2313,6 +2362,9 @@ class TerrainGame : public Tyra::Game {
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
+    bool impostor = false; // visual representation only; data.model owns collision
+    bool impostorInitialized = false;
+    int impostorView = 0;
     // Physics fast path (awake bodies): parts hold LOCAL-space vertices
     // (scale baked in, shading frozen at the wake pose) and every
     // part.infoBag->model points at objMat, rebuilt from position/rotation
@@ -2346,14 +2398,16 @@ class TerrainGame : public Tyra::Game {
       // so an untextured mesh would render in the plain scene light color
       // (i.e. gray). This part's material albedo is folded into its own light
       // and ambient colors instead (outputColor = albedo * sceneLighting),
-      // matching how the editor viewport tints the .glb. Directions stay
-      // shared (animLightDirs); only the colors carry the per-part tint.
+      // matching how the editor viewport tints the .glb. Directions are
+      // owned by this part so pose-sharing instances retain independent GI.
       std::unique_ptr<Tyra::PipelineDirLightsBag> animLights;
       Tyra::Vec4 litColors[4];
+      Tyra::Vec4 litDirs[3];
     };
     std::vector<AnimPart> animParts;
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;
+    Tyra::M4x4 animLightMat;  // rotation/reflection only; scale is not light gain
     u32 animLastTick = 0;  // animLodTick of the last in-view frame; 0 = never
     // Usable-object highlight: terrain-hugging glow ring around the base,
     // built when first highlighted, cleared whenever the object rebuilds
@@ -3255,6 +3309,28 @@ class TerrainGame : public Tyra::Game {
   std::vector<float> hudTextDur;         // ScriptContext::textDuration
   std::vector<unsigned char> hudTextOn;  // visible this frame
   std::vector<float> hudTextTimer;       // seconds left (0 = until hidden)
+  // Animated HUD (docs/hud-animation.md): every HUD element - images, texts,
+  // bars, in HUD_ELEM order - carries a show/hide transition, a one-shot
+  // effect slot and, for images and bars, its own visibility (texts keep
+  // hudTextOn). updateHudMotion poses every sprite for the frame from the
+  // baked placement plus the element's looped animation, and ticks the bars.
+  void updateHudMotion();
+  void renderHudBars();
+  float hudClock = 0.0F;                     // seconds since boot - the loop clock
+  std::vector<unsigned char> hudElemOn;      // images + bars: shown
+  std::vector<float> hudElemTrans;           // 0 = fully hidden .. 1 = fully shown
+  std::vector<unsigned char> hudElemDrawn;   // drawn this frame (after Blink/transition)
+  std::vector<signed char> hudElemReq;       // ScriptContext::hudElemRequest
+  std::vector<signed char> hudElemFxReq;     // ScriptContext::hudElemEffect
+  std::vector<float> hudElemFxSecReq;        // ScriptContext::hudElemEffectSec
+  std::vector<signed char> hudElemFx;        // running effect (0 = none)
+  std::vector<float> hudElemFxT, hudElemFxDur;
+  std::vector<float> hudBarValue;            // ScriptContext::hudBarValue (bar units)
+  std::vector<signed char> hudBarSet;        // ScriptContext::hudBarSet
+  std::vector<float> hudBarShown, hudBarGhost, hudBarHold;  // eased fill (fractions)
+  std::vector<Tyra::Sprite> hudBarFillSprites, hudBarFrameSprites;
+  std::vector<int> hudBarFillTexW, hudBarFillTexH;  // fill image size, for the crop
+  Tyra::Sprite hudBarQuad;                   // hud/loading-white.png, tinted per quad
   // Dynamic point lights (Set Light flow node), per scene-object index.
   std::vector<signed char> lightReq;     // ScriptContext::lightRequest
   std::vector<float> lightIntens;        // ScriptContext::lightIntensity
@@ -3906,6 +3982,22 @@ V3 giShade(const GiSample& s, const V3& n) {
     c[k] = t;
   }
   return V3{c[0], c[1], c[2]};
+}
+
+// The three VU1 slots are Cartesian SH basis terms, each with an RGB
+// coefficient. Signed normals survive until the final RGB sum is clamped.
+void giSHLights(const GiSample& sample, const float* live, const float* albedo,
+                float scale, Vec4* directions, Vec4* colors) {
+  directions[0].set(1.0F, 0.0F, 0.0F, 0.0F);
+  directions[1].set(0.0F, 1.0F, 0.0F, 0.0F);
+  directions[2].set(0.0F, 0.0F, 1.0F, 0.0F);
+  for (int axis = 0; axis < 3; ++axis)
+    colors[axis].set(scale * (2.0F / 3.0F) * sample.l1[axis][0] * albedo[0],
+                     scale * (2.0F / 3.0F) * sample.l1[axis][1] * albedo[1],
+                     scale * (2.0F / 3.0F) * sample.l1[axis][2] * albedo[2], 0.0F);
+  colors[3].set(scale * (sample.l0[0] + live[0]) * albedo[0],
+                scale * (sample.l0[1] + live[1]) * albedo[1],
+                scale * (sample.l0[2] + live[2]) * albedo[2], 128.0F);
 }
 
 /** Staged by the geometry builders: this surface's light comes from the probe
@@ -6390,6 +6482,9 @@ void TerrainGame::loop() {
     // bloom (with color grading) and film grain composite at independent
     // points, so sprites drawn afterwards stay crisp on top of them. -1 = the
     // pass applies at endFrame, over everything (menus included).
+    // Animated HUD: pose every element for this frame first (loops,
+    // transitions, effects, bar easing - docs/hud-animation.md).
+    updateHudMotion();
     for (int i = 0; i < (int)hudSprites.size(); ++i) {
       if (i == HUD_BLOOM_LAYER)
         engine->renderer.core.applyPostFx(
@@ -6397,9 +6492,11 @@ void TerrainGame::loop() {
             Tyra::RendererCorePostFx::PassGrading);
       if (i == HUD_GRAIN_LAYER)
         engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassGrain);
-{{SCREEN_FX_IN_LOOP}}      if (scriptCtx.hudVisible)
+{{SCREEN_FX_IN_LOOP}}      if (scriptCtx.hudVisible && hudElemDrawn[i])
         engine->renderer.renderer2D.render(hudSprites[i]);
     }
+    // Live bars sit above the stack, under the prompts and texts.
+    if (scriptCtx.hudVisible) renderHudBars();
     // Custom screen effects placed at the top of the stack (layer -1): drawn
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
 {{SCREEN_FX_TOP}}    if (useTargetIndex >= 0) {
@@ -6946,6 +7043,80 @@ void TerrainGame::buildScene() {
     scriptCtx.textRequest = hudTextReq.data();
     scriptCtx.textDuration = hudTextDur.data();
     scriptCtx.textCount = HUD_TEXT_COUNT;
+
+    // Animated HUD (docs/hud-animation.md): one slot per element - images,
+    // texts, bars - for the show/hide transition and the one-shot effects.
+    // An element that starts visible starts fully shown (no transition plays
+    // on boot); one that starts hidden sits at 0 until a node shows it.
+    {
+      const int ne = HUD_ELEM_COUNT > 0 ? HUD_ELEM_COUNT : 1;
+      hudElemOn.assign(ne, 0);
+      hudElemTrans.assign(ne, 0.0F);
+      hudElemDrawn.assign(ne, 0);
+      hudElemReq.assign(ne, -1);
+      hudElemFxReq.assign(ne, 0);
+      hudElemFxSecReq.assign(ne, 0.0F);
+      hudElemFx.assign(ne, 0);
+      hudElemFxT.assign(ne, 0.0F);
+      hudElemFxDur.assign(ne, 0.0F);
+      for (int i = 0; i < HUD_COUNT; ++i) {
+        hudElemOn[i] = (unsigned char)HUD_IMAGES[i].visible;
+        hudElemTrans[i] = HUD_IMAGES[i].visible ? 1.0F : 0.0F;
+      }
+      for (int i = 0; i < HUD_TEXT_COUNT; ++i)
+        hudElemTrans[HUD_ELEM_TEXT0 + i] = HUD_TEXTS[i].visible ? 1.0F : 0.0F;
+      for (int i = 0; i < HUD_BAR_COUNT; ++i) {
+        hudElemOn[HUD_ELEM_BAR0 + i] = (unsigned char)HUD_BARS[i].visible;
+        hudElemTrans[HUD_ELEM_BAR0 + i] = HUD_BARS[i].visible ? 1.0F : 0.0F;
+      }
+      scriptCtx.hudElemRequest = hudElemReq.data();
+      scriptCtx.hudElemEffect = hudElemFxReq.data();
+      scriptCtx.hudElemEffectSec = hudElemFxSecReq.data();
+      scriptCtx.hudElemCount = HUD_ELEM_COUNT;
+
+      const int nb = HUD_BAR_COUNT > 0 ? HUD_BAR_COUNT : 1;
+      hudBarValue.assign(nb, 0.0F);
+      hudBarSet.assign(nb, -1);
+      hudBarShown.assign(nb, 0.0F);
+      hudBarGhost.assign(nb, 0.0F);
+      hudBarHold.assign(nb, 0.0F);
+      hudBarFillSprites.clear();
+      hudBarFrameSprites.clear();
+      hudBarFillSprites.resize(nb);
+      hudBarFrameSprites.resize(nb);
+      hudBarFillTexW.assign(nb, 0);
+      hudBarFillTexH.assign(nb, 0);
+      auto& repo = engine->renderer.getTextureRepository();
+      hudBarQuad.mode = SpriteMode::MODE_STRETCH;
+      if (HUD_BAR_COUNT > 0)
+        repo.add(FileUtils::fromCwd("hud/loading-white.png"))->addLink(hudBarQuad.id);
+      for (int i = 0; i < HUD_BAR_COUNT; ++i) {
+        const HudBarData& d = HUD_BARS[i];
+        hudBarValue[i] = d.startV;
+        const float span = d.maxV - d.minV;
+        float f = span > 0.0F ? (d.startV - d.minV) / span : 0.0F;
+        f = f < 0.0F ? 0.0F : f > 1.0F ? 1.0F : f;
+        hudBarShown[i] = hudBarGhost[i] = f;
+        if (d.fillPath[0] != '\0') {
+          // MODE_REPEAT samples [offset, offset+size] texels, which is what
+          // lets the fill be CROPPED to the fraction instead of squashed.
+          Sprite& fs = hudBarFillSprites[i];
+          fs.mode = SpriteMode::MODE_REPEAT;
+          auto* t = repo.add(FileUtils::fromCwd(d.fillPath));
+          t->addLink(fs.id);
+          hudBarFillTexW[i] = t->getWidth();
+          hudBarFillTexH[i] = t->getHeight();
+        }
+        if (d.framePath[0] != '\0') {
+          Sprite& fr = hudBarFrameSprites[i];
+          fr.mode = SpriteMode::MODE_STRETCH;
+          repo.add(FileUtils::fromCwd(d.framePath))->addLink(fr.id);
+        }
+      }
+      scriptCtx.hudBarValue = hudBarValue.data();
+      scriptCtx.hudBarSet = hudBarSet.data();
+      scriptCtx.hudBarCount = HUD_BAR_COUNT;
+    }
     // Sun lens flare ghost sprites. FLARE_USED gates the load - the PNGs are
     // baked into res/hud only for flare-using projects (see refreshGenerated).
     if (FLARE_USED) {
@@ -7322,6 +7493,8 @@ void TerrainGame::applyLayerResidency() {
     const SceneObjectData& d = SCENE_OBJECTS[i];
     if (!layerOn(d.layer)) continue;
     if (d.model >= 0 && d.model < (int)modelNeed.size()) modelNeed[d.model] = 1;
+    if (d.impostorDistance > 0 && d.impostorModel >= 0 &&
+        d.impostorModel < (int)modelNeed.size()) modelNeed[d.impostorModel] = 1;
     if (d.material >= 0 && d.material < (int)materialNeed.size())
       materialNeed[d.material] = 1;
     if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
@@ -7335,6 +7508,8 @@ void TerrainGame::applyLayerResidency() {
     if (!runtimeObjects[i].active) continue;
     const SceneObjectData& d = runtimeObjects[i].data;
     if (d.model >= 0 && d.model < (int)modelNeed.size()) modelNeed[d.model] = 1;
+    if (d.impostorDistance > 0 && d.impostorModel >= 0 &&
+        d.impostorModel < (int)modelNeed.size()) modelNeed[d.impostorModel] = 1;
     if (d.material >= 0 && d.material < (int)materialNeed.size())
       materialNeed[d.material] = 1;
     if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
@@ -7359,6 +7534,8 @@ void TerrainGame::applyLayerResidency() {
     for (int m = 0; m < PREFAB_COUNTS[pf]; ++m) {
       const SceneObjectData& d = PREFAB_MEMBERS[PREFAB_FIRST[pf] + m];
       if (d.model >= 0 && d.model < (int)modelNeed.size()) modelNeed[d.model] = 1;
+      if (d.impostorDistance > 0 && d.impostorModel >= 0 &&
+          d.impostorModel < (int)modelNeed.size()) modelNeed[d.impostorModel] = 1;
       if (d.material >= 0 && d.material < (int)materialNeed.size())
         materialNeed[d.material] = 1;
       if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
@@ -7700,6 +7877,7 @@ void TerrainGame::setupAnimObject(int index) {
   // skin; bboxVersion bumps keep the frustum boxes honest). One info bag
   // per object carries the model matrix; parts share it.
   g.animMat.identity();
+  g.animLightMat.identity();
   g.animInfoBag = std::make_unique<StaPipInfoBag>();
   g.animInfoBag->model = &g.animMat;
   g.animInfoBag->shadingType = TyraShadingGouraud;  // per-vertex lighting
@@ -7713,12 +7891,12 @@ void TerrainGame::setupAnimObject(int index) {
     ap.colorBag = std::make_unique<StaPipColorBag>();
     ap.colorBag->single = &mesh->materials[m]->ambient;
     ap.lightBag = std::make_unique<StaPipLightingBag>();
-    ap.lightBag->lightMatrix = &g.animMat;
+    ap.lightBag->lightMatrix = &g.animLightMat;
     ap.lightBag->normals = frame->normals;
     // Fold this part's material albedo into its light colors so the lit VU1
     // program renders the .glb material color (outputColor = albedo * light),
     // not the plain scene light color (gray). Scene light/ambient here mirror
-    // updateAndRenderAnimObjects; directions stay shared (animLightDirs).
+    // updateAndRenderAnimObjects; each part owns its probe directions.
     {
       const float* base = gam.src->parts[m].color;
       const float amb = 128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT;
@@ -7730,7 +7908,10 @@ void TerrainGame::setupAnimObject(int index) {
       ap.litColors[2].set(0.0F, 0.0F, 0.0F, 1.0F);
       ap.litColors[3].set(amb * base[0], amb * base[1], amb * base[2], 128.0F);
       ap.animLights = std::make_unique<PipelineDirLightsBag>(true);
-      ap.animLights->setLightsManually(ap.litColors, animLightDirs);
+      ap.litDirs[0].set(SCENE_LIGHT_X, 0.0F, 0.0F, 1.0F);
+      ap.litDirs[1].set(SCENE_LIGHT_Y, 0.0F, 0.0F, 1.0F);
+      ap.litDirs[2].set(SCENE_LIGHT_Z, 0.0F, 0.0F, 1.0F);
+      ap.animLights->setLightsManually(ap.litColors, ap.litDirs);
       ap.lightBag->dirLights = ap.animLights.get();
     }
     ap.bag = std::make_unique<StaPipBag>();
@@ -7849,42 +8030,10 @@ void TerrainGame::fillDynLitColors(int i) {
     float dif[3] = {SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_R,
                     SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_G,
                     SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_B};
-    // The one directional slot points where the probe says the light actually
-    // comes from, not at the sun.
-    //
-    // VU1 computes ambient + color * clamp(N.L), and the probe's answer is
-    // shade(n) = L0 + (2/3) * dot(L1, n). Evaluating L1 along the SUN (what
-    // the animated path does, and what this used to do) is only right when the
-    // sun IS the light: in a room lit by a bounce off a red wall the field's
-    // direction is the wall, so shading along the sun leans the wrong way and
-    // a surface facing the actual light gets nothing. Taking L1's own dominant
-    // direction instead makes the VU1 slot exact at that direction - the term
-    // there is the probe's own answer - and it degrades smoothly off it.
-    // L1 is per channel, so the direction is their luminance-weighted mean.
     V3 ldir = sun;
     GiSample gs;
-    if (giProbeAt(o.data.position[0], o.data.position[1], o.data.position[2],
-                  gs)) {
-      float d3[3];
-      for (int a = 0; a < 3; ++a)
-        d3[a] = 0.299F * gs.l1[a][0] + 0.587F * gs.l1[a][1] +
-                0.114F * gs.l1[a][2];
-      const float len = sqrtf(d3[0] * d3[0] + d3[1] * d3[1] + d3[2] * d3[2]);
-      // A probe with no direction at all (a uniform environment) keeps the sun
-      // - there is nothing better to point at, and L0 carries the whole answer
-      // anyway, so the directional term comes out near zero either way.
-      if (len > 0.0001F)
-        ldir = {d3[0] / len, d3[1] / len, d3[2] / len};
-      for (int k = 0; k < 3; ++k) {
-        float a = gs.l0[k];
-        if (a < 0.0F) a = 0.0F;
-        amb[k] = a;
-        float d = (2.0F / 3.0F) * (gs.l1[0][k] * ldir.x + gs.l1[1][k] * ldir.y +
-                                   gs.l1[2][k] * ldir.z);
-        if (d < 0.0F) d = 0.0F;
-        dif[k] = d;
-      }
-    }
+    const bool hasProbe = giProbeAt(o.data.position[0], o.data.position[1],
+                                    o.data.position[2], gs);
     float dl[3];
     dynLightAt(engine, o.data.position[0], o.data.position[1],
                o.data.position[2], dl);
@@ -7892,6 +8041,11 @@ void TerrainGame::fillDynLitColors(int i) {
       if (!part.litBag) continue;
       const float* base = part.litAlbedo;
       const float s = part.litScale;
+      part.litBag->dirLights->signedSH = hasProbe;
+      if (hasProbe) {
+        giSHLights(gs, dl, base, s, part.litDirs, part.litColors);
+        continue;
+      }
       part.litColors[0].set(s * dif[0] * base[0], s * dif[1] * base[1],
                             s * dif[2] * base[2], 1.0F);
       part.litColors[1].set(0.0F, 0.0F, 0.0F, 1.0F);
@@ -8007,7 +8161,7 @@ void TerrainGame::updateAndRenderAnimObjects() {
     const V3 bx = rotated(sx, o.data.rotation);
     const V3 by = rotated(sy, o.data.rotation);
     const V3 bz = rotated(sz, o.data.rotation);
-    M4x4& m = g.animMat;  // the info bag and light matrix point here
+    M4x4& m = g.animMat;  // the geometry transform
     m.identity();
     m.data[0] = bx.x, m.data[1] = bx.y, m.data[2] = bx.z;
     m.data[4] = by.x, m.data[5] = by.y, m.data[6] = by.z;
@@ -8015,6 +8169,18 @@ void TerrainGame::updateAndRenderAnimObjects() {
     m.data[12] = o.data.position[0];
     m.data[13] = o.data.position[1];
     m.data[14] = o.data.position[2];
+    // The VU1 lit programs do not normalize after this matrix multiply.
+    // Remove instance scale or resizing a model changes its light intensity.
+    // Like the existing skinner this assumes rotation/uniform-scale normals;
+    // nonuniformly scaled surfaces still need a normalized inverse transpose.
+    g.animLightMat.identity();
+    for (int axis = 0; axis < 3; ++axis) {
+      const float scale = fabsf(o.data.scale[axis]);
+      const float inv = scale > 0.00001F ? 1.0F / scale : 0.0F;
+      for (int c = 0; c < 3; ++c)
+        g.animLightMat.data[axis * 4 + c] = m.data[axis * 4 + c] * inv;
+    }
+
 
     // pose + skin + submit only when the conservative box touches the view
     if (gam.cullBox.frustumCheck(
@@ -8108,47 +8274,43 @@ void TerrainGame::updateAndRenderAnimObjects() {
       dynLightAt(engine, o.data.position[0],
                  o.data.position[1] + o.data.scale[1] * 0.5F,
                  o.data.position[2], dl);
-      // Baked global illumination for everything that moves
-      // (docs/global-illumination.md): one probe sample at the model's centre
-      // per frame. amb[] takes the probe's L0 - the average radiance around
-      // the model - instead of the scene's flat ambient, and dif[] takes the
-      // probe's L1 evaluated along the SUN direction, which is what keeps a
-      // character shaded rather than flat: the shared animLightDirs[0] still
-      // points at the sun, so reconstructing the field along it turns the
-      // grid's directionality back into the one VU1 light slot these meshes
-      // have. A character walking from sunlight into a doorway darkens and
-      // picks up the interior's colour, all for a lookup and ~10 flops.
-      float amb[3] = {128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT,
-                      128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT,
-                      128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT};
-      float dif[3] = {128.0F * SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_R,
-                      128.0F * SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_G,
-                      128.0F * SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_B};
+      // One weighted probe lookup per visible instance, independent of pose
+      // sharing and skinning LOD. Directions live in WORLD space: animLightMat
+      // transforms the skinned local normals in the existing VU1 program.
+      float amb[3] = {SCENE_BRIGHTNESS * SCENE_AMBIENT,
+                      SCENE_BRIGHTNESS * SCENE_AMBIENT,
+                      SCENE_BRIGHTNESS * SCENE_AMBIENT};
+      float dif[3] = {SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_R,
+                      SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_G,
+                      SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_B};
+      const V3 sun = {SCENE_LIGHT_X, SCENE_LIGHT_Y, SCENE_LIGHT_Z};
+      V3 ldir = sun;
       GiSample gs;
-      if (giProbeAt(o.data.position[0],
+      const bool hasProbe = giProbeAt(o.data.position[0],
                     o.data.position[1] + o.data.scale[1] * 0.5F,
-                    o.data.position[2], gs)) {
-        const V3 sun = {SCENE_LIGHT_X, SCENE_LIGHT_Y, SCENE_LIGHT_Z};
-        for (int k = 0; k < 3; ++k) {
-          float a = gs.l0[k];
-          if (a < 0.0F) a = 0.0F;
-          amb[k] = 128.0F * a;
-          float d = (2.0F / 3.0F) * (gs.l1[0][k] * sun.x + gs.l1[1][k] * sun.y +
-                                     gs.l1[2][k] * sun.z);
-          if (d < 0.0F) d = 0.0F;
-          dif[k] = 128.0F * d;
-        }
-      }
+                    o.data.position[2], gs);
       const GameAnimModel& gam = gameAnimModels[o.data.animModel];
       for (size_t p = 0; p < g.animParts.size(); ++p) {
         if (!g.animParts[p].bag) continue;
         const float* base = gam.src->parts[p].color;
-        g.animParts[p].litColors[0].set(dif[0] * base[0], dif[1] * base[1],
-                                        dif[2] * base[2], 1.0F);
+        auto& ap = g.animParts[p];
+        ap.animLights->signedSH = hasProbe;
+        if (hasProbe) {
+          giSHLights(gs, dl, base, 128.0F, ap.litDirs, ap.litColors);
+          continue;
+        }
+        ap.litColors[1].set(0.0F, 0.0F, 0.0F, 0.0F);
+        ap.litColors[2].set(0.0F, 0.0F, 0.0F, 0.0F);
+        g.animParts[p].litDirs[0].set(ldir.x, 0.0F, 0.0F, 1.0F);
+        g.animParts[p].litDirs[1].set(ldir.y, 0.0F, 0.0F, 1.0F);
+        g.animParts[p].litDirs[2].set(ldir.z, 0.0F, 0.0F, 1.0F);
+        g.animParts[p].litColors[0].set(128.0F * dif[0] * base[0],
+                                        128.0F * dif[1] * base[1],
+                                        128.0F * dif[2] * base[2], 1.0F);
         g.animParts[p].litColors[3].set(
-            (amb[0] + 128.0F * dl[0]) * base[0],
-            (amb[1] + 128.0F * dl[1]) * base[1],
-            (amb[2] + 128.0F * dl[2]) * base[2], 128.0F);
+            128.0F * (amb[0] + dl[0]) * base[0],
+            128.0F * (amb[1] + dl[1]) * base[1],
+            128.0F * (amb[2] + dl[2]) * base[2], 128.0F);
       }
     }
     for (size_t p = 0; p < g.animParts.size(); ++p) {
@@ -11132,15 +11294,340 @@ void TerrainGame::renderGameMenu() {
   }
 }
 
-// On-screen texts: apply the frame's Show/Hide Text requests, tick the
-// auto-hide timers, draw what is visible. Baked sprites - one 2D quad each.
+// ---- Animated HUD (docs/hud-animation.md) ---------------------------------
+// The looped motion is a pure function of the clock, so a paused game and a
+// resumed one draw the same frame and nothing accumulates. KEEP IN SYNC with
+// hudanim::evaluate in the editor (src/hudanim.hpp) - the viewport overlay
+// previews exactly this.
+struct HudMotion {
+  float dx = 0.0F, dy = 0.0F, scale = 1.0F, alpha = 1.0F;
+  bool visible = true;
+};
+
+static float hudNoise(int step, int channel) {
+  const float v = sinf((float)step * 12.9898F + (float)channel * 78.233F) * 43758.5453F;
+  return (v - floorf(v)) * 2.0F - 1.0F;
+}
+
+static HudMotion hudAnimEval(int kind, float period, float amount, float t) {
+  HudMotion m;
+  if (kind <= 0 || kind >= 8) return m;
+  if (period < 0.01F) period = 0.01F;
+  const float ph = t / period * 6.2831853F;
+  switch (kind) {
+    case 1: m.alpha = 1.0F - amount * 0.5F * (1.0F - cosf(ph)); break;  // pulse
+    case 2: m.dy = -sinf(ph) * amount; break;                            // bob
+    case 3: m.dx = sinf(ph) * amount; break;                             // sway
+    case 4: m.scale = 1.0F + amount * 0.5F * (1.0F - cosf(ph)); break;   // breathe
+    case 5: {                                                            // blink
+      const float cyc = t / period;
+      m.visible = (cyc - floorf(cyc)) < amount;
+      break;
+    }
+    case 6:                                                              // wobble
+      m.dx = cosf(ph) * amount;
+      m.dy = sinf(ph) * amount;
+      break;
+    case 7: {                                                            // shake
+      const int step = (int)(t / period);
+      m.dx = hudNoise(step, 0) * amount;
+      m.dy = hudNoise(step, 1) * amount;
+      break;
+    }
+    default: break;
+  }
+  if (m.alpha < 0.0F) m.alpha = 0.0F;
+  if (m.alpha > 1.0F) m.alpha = 1.0F;
+  if (m.scale < 0.05F) m.scale = 0.05F;
+  return m;
+}
+
+// The show/hide transition at progress p (0 hidden .. 1 shown), folded into
+// the frame's offset/scale/alpha. Eased out, so an arrival lands softly and a
+// departure (the same curve run backwards) starts quickly. Runtime-only: the
+// editor does not preview it.
+static void hudTransEval(int kind, float p, float& dx, float& dy, float& scale,
+                         float& alpha) {
+  if (kind <= 0 || p >= 1.0F) return;
+  const float e = 1.0F - (1.0F - p) * (1.0F - p);
+  const float d = (1.0F - e) * 40.0F;
+  switch (kind) {
+    case 1: alpha *= e; break;                       // fade
+    case 2: dx -= d; alpha *= e; break;              // from the left
+    case 3: dx += d; alpha *= e; break;              // from the right
+    case 4: dy -= d; alpha *= e; break;              // from above
+    case 5: dy += d; alpha *= e; break;              // from below
+    case 6: scale *= 0.3F + 0.7F * e; alpha *= e; break;  // pop
+    default: break;
+  }
+}
+
+// A one-shot effect at progress p (0..1 over its duration). `bright` is a
+// multiplier on the sprite's colour - the GS modulates at 128 = 1.0 and
+// clamps at 255, so a flash can go to 2x.
+static void hudFxEval(int kind, float p, float& dx, float& dy, float& scale,
+                      float& bright) {
+  const float r = 1.0F - p;
+  switch (kind) {
+    case 1: bright *= 1.0F + 0.9F * r; break;                       // flash
+    case 2: scale *= 1.0F + 0.35F * sinf(p * 3.1415927F); break;     // bounce
+    case 3: {                                                        // shake
+      const int step = (int)(p * 60.0F);
+      dx += hudNoise(step, 2) * 6.0F * r;
+      dy += hudNoise(step, 3) * 6.0F * r;
+      break;
+    }
+    default: break;
+  }
+}
+
+// Poses one element for the frame: its authored box (centre + size, in screen
+// pixels) through the loop, the transition and any running effect. Returns
+// false when nothing should be drawn (fully hidden, or a Blink's off phase).
+static bool hudPose(float clock, int animKind, float animPeriod, float animAmount,
+                    int transKind, float trans, int fx, float fxP, float cx,
+                    float cy, float w, float h, float& outX, float& outY,
+                    float& outW, float& outH, float& outAlpha, float& outBright) {
+  if (trans <= 0.0F) return false;
+  const HudMotion m = hudAnimEval(animKind, animPeriod, animAmount, clock);
+  if (!m.visible) return false;
+  float dx = m.dx, dy = m.dy, scale = m.scale, alpha = m.alpha, bright = 1.0F;
+  hudTransEval(transKind, trans, dx, dy, scale, alpha);
+  if (fx > 0) hudFxEval(fx, fxP, dx, dy, scale, bright);
+  if (alpha <= 0.002F) return false;
+  outW = w * scale;
+  outH = h * scale;
+  outX = cx + dx - outW * 0.5F;
+  outY = cy + dy - outH * 0.5F;
+  outAlpha = alpha;
+  outBright = bright;
+  return true;
+}
+
+static Color hudTint(float r, float g, float b, float bright, float alpha) {
+  auto ch = [](float v) { return v > 255.0F ? 255.0F : v < 0.0F ? 0.0F : v; };
+  return Color(ch(r * bright), ch(g * bright), ch(b * bright), ch(128.0F * alpha));
+}
+
+// Per frame, before any HUD sprite is drawn: apply the flow nodes' requests,
+// advance every transition and effect, pose the image and text sprites, and
+// integrate the bars. Runs whether or not the HUD is visible, so a hidden
+// stack comes back where its animations would have been.
+void TerrainGame::updateHudMotion() {
+  hudClock += g_frameDt;
+  const auto& scr = engine->renderer.core.getSettings();
+  const float W = (float)scr.getWidth(), H = (float)scr.getHeight();
+  for (int e = 0; e < HUD_ELEM_COUNT; ++e) {
+    const bool isText = e >= HUD_ELEM_TEXT0 && e < HUD_ELEM_BAR0;
+    // Texts keep the legacy request/timer channel for Set Text Visible, but
+    // consume it here so their transition starts in the same frame as image
+    // and bar requests. updateAndRenderHudTexts only owns the timer tick/draw.
+    if (isText) {
+      const int i = e - HUD_ELEM_TEXT0;
+      if (scriptCtx.textRequest && scriptCtx.textRequest[i] >= 0) {
+        hudTextOn[i] = scriptCtx.textRequest[i] == 2 ? (hudTextOn[i] ? 0 : 1)
+                       : scriptCtx.textRequest[i] != 0 ? 1 : 0;
+        hudTextTimer[i] = hudTextOn[i] ? scriptCtx.textDuration[i] : 0.0F;
+        scriptCtx.textRequest[i] = -1;
+      }
+    }
+    if (hudElemReq[e] >= 0) {
+      if (!isText)
+        hudElemOn[e] = hudElemReq[e] == 2 ? (hudElemOn[e] ? 0 : 1)
+                                          : (hudElemReq[e] != 0 ? 1 : 0);
+      hudElemReq[e] = -1;
+    }
+    if (hudElemFxReq[e] > 0) {
+      hudElemFx[e] = hudElemFxReq[e];
+      hudElemFxT[e] = 0.0F;
+      hudElemFxDur[e] = hudElemFxSecReq[e] < 0.05F ? 0.05F : hudElemFxSecReq[e];
+      hudElemFxReq[e] = 0;
+    }
+    float transSec = 0.0F;
+    if (e < HUD_ELEM_TEXT0) transSec = HUD_IMAGES[e].transSec;
+    else if (isText) transSec = HUD_TEXTS[e - HUD_ELEM_TEXT0].transSec;
+    else transSec = HUD_BARS[e - HUD_ELEM_BAR0].transSec;
+    const bool on = isText ? hudTextOn[e - HUD_ELEM_TEXT0] != 0 : hudElemOn[e] != 0;
+    const float target = on ? 1.0F : 0.0F;
+    if (transSec <= 0.001F) {
+      hudElemTrans[e] = target;
+    } else {
+      const float step = g_frameDt / transSec;
+      if (hudElemTrans[e] < target)
+        hudElemTrans[e] = hudElemTrans[e] + step > target ? target : hudElemTrans[e] + step;
+      else if (hudElemTrans[e] > target)
+        hudElemTrans[e] = hudElemTrans[e] - step < target ? target : hudElemTrans[e] - step;
+    }
+    if (hudElemFx[e] > 0) {
+      hudElemFxT[e] += g_frameDt;
+      if (hudElemFxT[e] >= hudElemFxDur[e]) hudElemFx[e] = 0;
+    }
+    hudElemDrawn[e] = 0;
+  }
+  auto fxProgress = [&](int e) {
+    return hudElemFx[e] > 0 ? hudElemFxT[e] / hudElemFxDur[e] : 0.0F;
+  };
+  // Images: the sprite is re-posed from the baked placement every frame, so
+  // no drift accumulates and a Set HUD Visible off/on lands it back exactly.
+  for (int i = 0; i < HUD_COUNT && i < (int)hudSprites.size(); ++i) {
+    const HudImageData& d = HUD_IMAGES[i];
+    float x, y, w, h, a, br;
+    if (!hudPose(hudClock, d.anim, d.animPeriod, d.animAmount, d.trans,
+                 hudElemTrans[i], hudElemFx[i], fxProgress(i), d.x * W, d.y * H,
+                 d.w, d.h, x, y, w, h, a, br))
+      continue;
+    Sprite& s = hudSprites[i];
+    s.position = Vec2(x, y);
+    s.size = Vec2(w, h);
+    s.color = hudTint(128.0F, 128.0F, 128.0F, br, a);
+    hudElemDrawn[i] = 1;
+  }
+  for (int i = 0; i < HUD_TEXT_COUNT && i < (int)hudTextSprites.size(); ++i) {
+    const HudTextData& d = HUD_TEXTS[i];
+    const int e = HUD_ELEM_TEXT0 + i;
+    float x, y, w, h, a, br;
+    if (!hudPose(hudClock, d.anim, d.animPeriod, d.animAmount, d.trans,
+                 hudElemTrans[e], hudElemFx[e], fxProgress(e), d.x * W, d.y * H,
+                 (float)d.w, (float)d.h, x, y, w, h, a, br))
+      continue;
+    Sprite& s = hudTextSprites[i];
+    s.position = Vec2(x, y);
+    s.size = Vec2(w, h);
+    s.color = hudTint(128.0F, 128.0F, 128.0F, br, a);
+    hudElemDrawn[e] = 1;
+  }
+  // Bars: the fill eases toward the value; the ghost strip holds where the
+  // fill was for a beat, then slides down after it. A rise takes the ghost
+  // with it at once - the strip only ever shows what was LOST.
+  for (int b = 0; b < HUD_BAR_COUNT; ++b) {
+    const HudBarData& d = HUD_BARS[b];
+    const float span = d.maxV - d.minV;
+    const float raw = (d.source >= 0 && d.source < (int)saveValues.size())
+                          ? saveValues[d.source]
+                          : hudBarValue[b];
+    float target = span > 0.0F ? (raw - d.minV) / span : 0.0F;
+    target = target < 0.0F ? 0.0F : target > 1.0F ? 1.0F : target;
+    bool snap = d.smoothing <= 0.0F;
+    if (hudBarSet[b] >= 0) {
+      if (hudBarSet[b] == 2) snap = true;
+      hudBarSet[b] = -1;
+    }
+    float shown = hudBarShown[b];
+    if (snap) {
+      shown = target;
+    } else {
+      shown += (target - shown) * (1.0F - expf(-g_frameDt / d.smoothing));
+      if (fabsf(target - shown) < 0.0005F) shown = target;
+    }
+    float ghost = hudBarGhost[b];
+    if (snap || shown >= ghost) {
+      ghost = shown;
+      hudBarHold[b] = 0.35F;
+    } else if (hudBarHold[b] > 0.0F) {
+      hudBarHold[b] -= g_frameDt;
+    } else {
+      ghost -= g_frameDt * 1.0F;
+      if (ghost < shown) ghost = shown;
+    }
+    hudBarShown[b] = shown;
+    hudBarGhost[b] = ghost;
+  }
+}
+
+// Draws the bars above the HUD stack: track, ghost, fill (a tinted quad, or
+// the fill image cropped to the fraction), then the frame image over all of
+// it. A quantized bar lights whole segments instead.
+void TerrainGame::renderHudBars() {
+  const auto& scr = engine->renderer.core.getSettings();
+  const float W = (float)scr.getWidth(), H = (float)scr.getHeight();
+  auto quad = [&](float x, float y, float w, float h, const float* c, float bright,
+                  float alpha) {
+    if (w < 0.5F || h < 0.5F) return;
+    hudBarQuad.size = Vec2(w, h);
+    hudBarQuad.position = Vec2(x, y);
+    hudBarQuad.color = hudTint(c[0], c[1], c[2], bright, alpha);
+    engine->renderer.renderer2D.render(hudBarQuad);
+  };
+  for (int b = 0; b < HUD_BAR_COUNT; ++b) {
+    const HudBarData& d = HUD_BARS[b];
+    const int e = HUD_ELEM_BAR0 + b;
+    float x, y, w, h, a, br;
+    if (!hudPose(hudClock, d.anim, d.animPeriod, d.animAmount, d.trans,
+                 hudElemTrans[e], hudElemFx[e],
+                 hudElemFx[e] > 0 ? hudElemFxT[e] / hudElemFxDur[e] : 0.0F,
+                 d.x * W, d.y * H, d.w, d.h, x, y, w, h, a, br))
+      continue;
+    hudElemDrawn[e] = 1;
+    const float shown = hudBarShown[b];
+    const float ghost = hudBarGhost[b];
+    // The "low" pulse: a slow breath on the fill's alpha once the value is
+    // under the authored fraction - the health bar asking for attention.
+    float fillA = a;
+    if (d.lowFrac > 0.0F && shown < d.lowFrac && shown > 0.0F)
+      fillA *= 0.55F + 0.45F * (0.5F + 0.5F * sinf(hudClock * 6.2831853F / 0.6F));
+    if (d.kind == 0) {
+      quad(x, y, w, h, d.bg, 1.0F, a);
+      const float fw = w * shown;
+      const float gw = w * ghost;
+      const float fx = d.rightToLeft ? x + w - fw : x;
+      if (d.hasGhost && gw > fw + 0.5F)
+        quad(d.rightToLeft ? x + w - gw : x, y, gw, h, d.ghost, 1.0F, a);
+      if (d.fillPath[0] != '\0' && hudBarFillTexW[b] > 0) {
+        Sprite& fs = hudBarFillSprites[b];
+        const float texW = (float)hudBarFillTexW[b] * shown;
+        fs.offset = Vec2(d.rightToLeft ? (float)hudBarFillTexW[b] - texW : 0.0F, 0.0F);
+        fs.size = Vec2(texW, (float)hudBarFillTexH[b]);
+        fs.drawSize = Vec2(fw, h);
+        fs.position = Vec2(fx, y);
+        fs.color = hudTint(d.fill[0], d.fill[1], d.fill[2], br, fillA);
+        if (fw >= 0.5F) engine->renderer.renderer2D.render(fs);
+      } else {
+        quad(fx, y, fw, h, d.fill, br, fillA);
+      }
+    } else {
+      const int segs = d.segments < 1 ? 1 : d.segments;
+      const int lit = (int)(shown * segs + 0.001F);
+      const int litGhost = (int)(ghost * segs + 0.001F);
+      const float segW = (w - d.spacing * (segs - 1)) / segs;
+      for (int k = 0; k < segs; ++k) {
+        const int kk = d.rightToLeft ? segs - 1 - k : k;
+        const float sx = x + kk * (segW + d.spacing);
+        const bool on = k < lit;
+        const bool wasOn = d.hasGhost && !on && k < litGhost;
+        const float* c = on ? d.fill : wasOn ? d.ghost : d.bg;
+        const float sa = on ? fillA : a;
+        if (d.fillPath[0] != '\0' && hudBarFillTexW[b] > 0) {
+          Sprite& fs = hudBarFillSprites[b];
+          fs.offset = Vec2(0.0F, 0.0F);
+          fs.size = Vec2((float)hudBarFillTexW[b], (float)hudBarFillTexH[b]);
+          fs.drawSize = Vec2(segW, h);
+          fs.position = Vec2(sx, y);
+          fs.color = hudTint(c[0], c[1], c[2], on ? br : 1.0F, sa);
+          engine->renderer.renderer2D.render(fs);
+        } else {
+          quad(sx, y, segW, h, c, on ? br : 1.0F, sa);
+        }
+      }
+    }
+    if (d.framePath[0] != '\0') {
+      Sprite& fr = hudBarFrameSprites[b];
+      const float scale = d.w > 0.0F ? w / d.w : 1.0F;
+      const float fw = d.frameW * scale, fh = d.frameH * scale;
+      fr.size = Vec2(fw, fh);
+      fr.position = Vec2(x + w * 0.5F - fw * 0.5F, y + h * 0.5F - fh * 0.5F);
+      fr.color = hudTint(128.0F, 128.0F, 128.0F, br, a);
+      engine->renderer.renderer2D.render(fr);
+    }
+  }
+}
+
+// On-screen texts: tick the auto-hide timers and draw what is visible. Baked
+// sprites - one 2D quad each. Requests were consumed by updateHudMotion so a
+// show/hide transition starts in the frame its flow node fires.
+// The sprite was posed by updateHudMotion (transition + loop), which is also
+// why a text still draws while hudTextOn is 0: it is on its way out.
 void TerrainGame::updateAndRenderHudTexts() {
   for (int i = 0; i < (int)hudTextSprites.size(); ++i) {
-    if (scriptCtx.textRequest && scriptCtx.textRequest[i] >= 0) {
-      hudTextOn[i] = scriptCtx.textRequest[i] != 0 ? 1 : 0;
-      hudTextTimer[i] = hudTextOn[i] ? scriptCtx.textDuration[i] : 0.0F;
-      scriptCtx.textRequest[i] = -1;
-    }
     if (hudTextOn[i] && hudTextTimer[i] > 0.0F) {
       hudTextTimer[i] -= g_frameDt;
       if (hudTextTimer[i] <= 0.0F) {
@@ -11148,7 +11635,9 @@ void TerrainGame::updateAndRenderHudTexts() {
         hudTextTimer[i] = 0.0F;
       }
     }
-    if (hudTextOn[i]) engine->renderer.renderer2D.render(hudTextSprites[i]);
+    const int e = HUD_ELEM_TEXT0 + i;
+    if (e < (int)hudElemDrawn.size() && hudElemDrawn[e])
+      engine->renderer.renderer2D.render(hudTextSprites[i]);
   }
 }
 
@@ -16951,6 +17440,25 @@ void TerrainGame::pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags) {
     if (b && b->count != 0) b->packageSize = size;
 }
 
+// Cylindrical captures are authored upright with a common horizontal scale.
+// Legacy replacement meshes remain unrestricted by this additional contract.
+static bool billboardTransformValid(const SceneObjectData& d) {
+  return !d.impostorBillboard || (fabsf(d.rotation[0]) < .001F &&
+      fabsf(d.rotation[2]) < .001F && d.scale[0] > 0 && d.scale[1] > 0 &&
+      fabsf(d.scale[0]-d.scale[2]) < .0001F);
+}
+static int billboardView(const SceneObjectData& d, const Vec4& camera) {
+  const float yaw = atan2f(camera.x-d.position[0], camera.z-d.position[2]);
+  const float local = yaw - d.rotation[1]*PI/180.0F;
+  const int v = (int)floorf(local*(d.impostorViews/(2.0F*PI))+.5F);
+  return (v%d.impostorViews+d.impostorViews)%d.impostorViews;
+}
+static SceneObjectData billboardTransform(const SceneObjectData& d, const Vec4& camera) {
+  SceneObjectData facing = d;
+  facing.rotation[1] = atan2f(camera.x-d.position[0], camera.z-d.position[2])*180.0F/PI;
+  return facing;
+}
+
 void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
@@ -16967,7 +17475,26 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   if (o.data.type == 5 && o.data.model >= 0 &&
       o.data.model < (int)gameModels.size())
     gm = &gameModels[o.data.model];
-  const int partCount = o.data.type == 5 ? (gm ? (int)gm->parts.size() : 0) : 1;
+  if (!g.impostorInitialized) {
+    g.impostorInitialized = true;
+    const float dx = o.data.position[0] - cameraPosition.x;
+    const float dy = o.data.position[1] - cameraPosition.y;
+    const float dz = o.data.position[2] - cameraPosition.z;
+    g.impostor = !localSpace && !o.data.physics && billboardTransformValid(o.data) && o.data.impostorDistance > 0 &&
+        dx*dx + dy*dy + dz*dz > o.data.impostorDistance*o.data.impostorDistance;
+  }
+  if (localSpace || !billboardTransformValid(o.data)) g.impostor = false;
+  if (g.impostor && o.data.impostorModel >= 0 &&
+      o.data.impostorModel < (int)gameModels.size() &&
+      !gameModels[o.data.impostorModel].parts.empty() &&
+      (!o.data.impostorBillboard || gameModels[o.data.impostorModel].parts.size() == (size_t)o.data.impostorViews))
+    gm = &gameModels[o.data.impostorModel];
+  else
+    g.impostor = false;
+  const bool billboard = g.impostor && o.data.impostorBillboard;
+  if (billboard) g.impostorView = billboardView(o.data, cameraPosition);
+  const SceneObjectData visualData = billboard ? billboardTransform(o.data, cameraPosition) : o.data;
+  const int partCount = billboard ? 1 : (o.data.type == 5 ? (gm ? (int)gm->parts.size() : 0) : 1);
   if ((int)g.parts.size() != partCount) g.parts.resize(partCount);
 
   for (int pi = 0; pi < partCount; ++pi) {
@@ -17076,7 +17603,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
 
   if (o.data.type == 5) {
     for (int pi = 0; pi < partCount; ++pi) {
-      const GameModelPart& src = gm->parts[pi];
+      const GameModelPart& src = gm->parts[billboard ? g.impostorView : pi];
       GeoPart& part = g.parts[pi];
       const bool textured = src.texture != nullptr;
       // Baked raycast self-AO from the model's .aov sidecar (LeanObjLoader);
@@ -17086,8 +17613,8 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       g_envNormals = src.reflTexture ? &part.envNormals : nullptr;
       for (size_t i = 0; i + 7 < src.verts.size(); i += 8) {
         const float* v = &src.verts[i];
-        pushVert(part.vertices, part.colors, part.sts, o.data,
-                 {v[0], v[1], v[2]}, {v[3], v[4], v[5]}, v[6], v[7], src.kd,
+        pushVert(part.vertices, part.colors, part.sts, visualData,
+                 {v[0], v[1], v[2]}, billboard ? V3{0,1,0} : V3{v[3], v[4], v[5]}, v[6], v[7], src.kd,
                  textured, hasAo ? src.vertexAo[i / 8] : (unsigned char)255,
                  src.ke);
       }
@@ -17248,7 +17775,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
 
     // models: the part's own map_Kd; primitives: the assigned material's
     Texture* tex =
-        o.data.type == 5 ? gm->parts[pi].texture : (gmat ? gmat->texture : nullptr);
+        o.data.type == 5 ? gm->parts[billboard ? g.impostorView : pi].texture : (gmat ? gmat->texture : nullptr);
     // Raytraced mirror: the glass samples the VU0-traced reflection image
     // (created by buildRtMirrors before this rebuild ever runs).
     if (o.data.type == 15)
@@ -17301,10 +17828,10 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     // env bag reuses this part's vertex array and bboxVersion; all-white
     // "many" colors keep its VU1 program shape identical to a textured base
     // bag, so the frustum-bbox cache entry is shared, not recomputed.
-    Texture* envTex = o.data.type == 5 ? gm->parts[pi].reflTexture
+    Texture* envTex = o.data.type == 5 ? gm->parts[billboard ? g.impostorView : pi].reflTexture
                                        : (gmat ? gmat->reflTexture : nullptr);
     const float envStr = o.data.type == 5
-                             ? gm->parts[pi].reflStrength
+                             ? gm->parts[billboard ? g.impostorView : pi].reflStrength
                              : (gmat ? gmat->reflStrength : 0.0F);
     if (envTex && envStr > 0.004F &&
         part.envNormals.size() == part.vertices.size()) {
@@ -17341,7 +17868,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       // sweeps a gradient of the sphere map instead of showing one uniform
       // sample (the viewport shader mirrors this via uReflRounded).
       const bool envRounded = o.data.type == 5
-                                  ? gm->parts[pi].reflRounded
+                                  ? gm->parts[billboard ? g.impostorView : pi].reflRounded
                                   : (gmat && gmat->reflRounded);
       if (envRounded && !part.vertices.empty()) {
         const u32 nv = static_cast<u32>(part.vertices.size());
@@ -17444,10 +17971,10 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       // The albedo the light colors get folded into - the same product the
       // baked path would have put in the vertex colors.
       const bool litTextured = o.data.type == 5 && gm && pi < (int)gm->parts.size()
-                                   ? gm->parts[pi].texture != nullptr
+                                   ? gm->parts[billboard ? g.impostorView : pi].texture != nullptr
                                    : (gmat && gmat->texture);
       const float* kd = o.data.type == 5 && gm && pi < (int)gm->parts.size()
-                            ? gm->parts[pi].kd
+                            ? gm->parts[billboard ? g.impostorView : pi].kd
                             : (gmat ? gmat->kd : nullptr);
       for (int k = 0; k < 3; ++k)
         part.litAlbedo[k] = o.data.color[k] * (kd ? kd[k] : 1.0F);
@@ -17508,7 +18035,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
 // Everything else is fair game: the collider and the AABB are model-level, so
 // collision, physics extents and the split-band cull never see a tier.
 bool TerrainGame::modelLodEligible(int index) const {
-  if (objectGeometry[index].matrixMode) return false;
+  if (objectGeometry[index].matrixMode || objectGeometry[index].impostor) return false;
   for (int fi = 0; fi < OBJECT_FEED_COUNT; ++fi)
     if (OBJECT_FEEDS[fi].scene == currentScene &&
         OBJECT_FEEDS[fi].object == index)
@@ -19425,6 +19952,7 @@ void TerrainGame::renderScene() {
   int hlCount = 0;
   const bool hlActive = HIGHLIGHT_USABLE;
   const bool hlOverlay = HIGHLIGHT_OVERLAY;
+  int impostorSwitchBudget = 4;
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (!runtimeObjects[i].active) continue;  // streamed out with its layer
     // Batched members render via renderStaticBatches above; their dirty flag
@@ -19438,6 +19966,36 @@ void TerrainGame::renderScene() {
     // 16 FPS. This is checked BEFORE `dirty` on purpose: such an object dirties
     // itself on the frame it asks, and a world-space rebuild would clear the
     // flag and leave it asking again forever.
+    // Hysteresis avoids rebuilding geometry repeatedly on a distance boundary.
+    // Original model identity is untouched: collision, scripts and bounds keep it.
+    // Secondary views share the selected representation, just like mesh LOD.
+    if (!splitSecondPass) {
+      const SceneObjectData& d = runtimeObjects[i].data;
+      ObjectGeometry& g = objectGeometry[i];
+      bool far = false;
+      if (d.type == 5 && !d.physics && d.animModel < 0 && !g.matrixMode &&
+          !runtimeObjects[i].wantsMatrixPath && billboardTransformValid(d) &&
+          d.impostorDistance > 0 && d.impostorModel >= 0 &&
+          d.impostorModel < (int)gameModels.size() &&
+          !gameModels[d.impostorModel].parts.empty() &&
+          (!d.impostorBillboard || gameModels[d.impostorModel].parts.size() == (size_t)d.impostorViews)) {
+        const float dx = d.position[0] - cameraPosition.x;
+        const float dy = d.position[1] - cameraPosition.y;
+        const float dz = d.position[2] - cameraPosition.z;
+        const float threshold = d.impostorDistance * (g.impostor ? .9F : 1.0F);
+        far = dx*dx + dy*dy + dz*dz > threshold*threshold;
+      }
+      if (far != g.impostor && impostorSwitchBudget > 0) {
+        --impostorSwitchBudget;
+        g.impostor = far;
+        if (DEBUG_SHOW_PROFILER)
+          TYRA_LOG("IMPOSTOR object=", i, " far=", far ? 1 : 0);
+        // A different model can have a different material set. Recreate bags
+        // rather than retaining an old reflection/lightmap companion pass.
+        g.parts.clear();
+        runtimeObjects[i].dirty = true;
+      }
+    }
     if (runtimeObjects[i].wantsMatrixPath && !objectGeometry[i].matrixMode &&
         physFastPathEligible(i))
       rebuildObjectGeometry(i, true);
@@ -19449,6 +20007,34 @@ void TerrainGame::renderScene() {
     if (objectGeometry[i].matrixMode) updateObjMat(i);
     if (!runtimeObjects[i].visible) continue;
     if (beyondDrawDistance(runtimeObjects[i].data, cameraPosition)) continue;
+    // Six vertices, no allocation/rebuild: the selected capture and facing
+    // update in place. Texture coordinates come from the loaded (atlas-remapped)
+    // model, so the normal asset bake remains authoritative.
+    if (!splitSecondPass && objectGeometry[i].impostor && runtimeObjects[i].data.impostorBillboard) {
+      ObjectGeometry& g = objectGeometry[i];
+      const SceneObjectData& d = runtimeObjects[i].data;
+      const int view = billboardView(d, cameraPosition);
+      const auto& src = gameModels[d.impostorModel].parts[view];
+      if (g.parts.size() == 1 && src.verts.size() == g.parts[0].vertices.size()*8) {
+        GeoPart& part = g.parts[0];
+        const SceneObjectData facing = billboardTransform(d, cameraPosition);
+        const float yaw = facing.rotation[1]*PI/180.0F;
+        const float cr = cosf(yaw), sr = sinf(yaw);
+        for (size_t k = 0; k < part.vertices.size(); ++k) {
+          const float* v = &src.verts[k*8];
+          const float x = v[0]*d.scale[0];
+          part.vertices[k] = Vec4(d.position[0]+cr*x, d.position[1]+v[1]*d.scale[1],
+                                  d.position[2]-sr*x, 1.0F);
+          part.sts[k] = Vec4(v[6],v[7],1.0F,0.0F);
+        }
+        part.texBag->texture = src.texture;
+        part.baseStamp = ++g_bboxStamp;
+        part.bag->bboxVersion = part.baseStamp;
+        if (DEBUG_SHOW_PROFILER && g.impostorView != view)
+          TYRA_LOG("IMPOSTOR VIEW object=", i, " view=", view);
+        g.impostorView = view;
+      }
+    }
     // Split halves: whole objects above/below the visible band skip here.
     if (splitBandActive && objectOutsideSplitBand(i)) continue;
     // Static mesh LOD: hard thresholds at the distance and twice it, like the
@@ -23368,6 +23954,9 @@ void TerrainGame::loop() {
     // bloom (with color grading) and film grain composite at independent
     // points, so sprites drawn afterwards stay crisp on top of them. -1 = the
     // pass applies at endFrame, over everything (menus included).
+    // Animated HUD: pose every element for this frame first (loops,
+    // transitions, effects, bar easing - docs/hud-animation.md).
+    updateHudMotion();
     for (int i = 0; i < (int)hudSprites.size(); ++i) {
       if (i == HUD_BLOOM_LAYER)
         engine->renderer.core.applyPostFx(
@@ -23375,9 +23964,11 @@ void TerrainGame::loop() {
             Tyra::RendererCorePostFx::PassGrading);
       if (i == HUD_GRAIN_LAYER)
         engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassGrain);
-{{SCREEN_FX_IN_LOOP}}      if (scriptCtx.hudVisible)
+{{SCREEN_FX_IN_LOOP}}      if (scriptCtx.hudVisible && hudElemDrawn[i])
         engine->renderer.renderer2D.render(hudSprites[i]);
     }
+    // Live bars sit above the stack, under the prompts and texts.
+    if (scriptCtx.hudVisible) renderHudBars();
     // Custom screen effects placed at the top of the stack (layer -1): drawn
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
 {{SCREEN_FX_TOP}}    if (useTargetIndex >= 0) {
@@ -24385,6 +24976,25 @@ struct ScriptContext {
   float* textDuration = nullptr;
   int textCount = 0;
 
+  // Animated HUD (docs/hud-animation.md). Elements are indexed HUD images,
+  // then texts, then bars (HUD_ELEM_TEXT0 / HUD_ELEM_BAR0 in hud_data.gen.hpp).
+  // hudElemRequest[e]: -1 = leave, 0 = hide, 1 = show, 2 = toggle - through
+  // the element's own transition; images and bars only (a text goes through
+  // textRequest above, which accepts 2 = toggle too). hudElemEffect[e] > 0
+  // starts a one-shot (1 flash, 2 bounce, 3 shake) lasting hudElemEffectSec[e]
+  // seconds, on any element. The game applies and resets both every frame.
+  signed char* hudElemRequest = nullptr;
+  signed char* hudElemEffect = nullptr;
+  float* hudElemEffectSec = nullptr;
+  int hudElemCount = 0;
+  // Bars (HUD_BARS order): hudBarSet[b] 1 = ease the fill to hudBarValue[b],
+  // 2 = jump there, -1 = leave. A bar bound to a save value reads THAT value
+  // every frame (the Set HUD Bar node writes it as well), so hudBarValue only
+  // drives an unbound bar.
+  float* hudBarValue = nullptr;
+  signed char* hudBarSet = nullptr;
+  int hudBarCount = 0;
+
   // Dynamic point lights (Set Light flow node), indexed by scene-object
   // index like `objects`. lightRequest[i]: -1 = leave, 0 = off, 1 = on.
   // lightIntensity[i]: < 0 = leave, else a multiplier on the light's
@@ -25339,7 +25949,8 @@ static void writeObjectDataRow(std::ostringstream& out, const Project& p,
         << (o.primRings ? 1 : 0) << ", " << layerIdx
         << ", " << batchStatic << ", {" << floatLit(o.vuParams[0]) << ", "
         << floatLit(o.vuParams[1]) << ", " << floatLit(o.vuParams[2]) << ", "
-        << floatLit(o.vuParams[3]) << "}},  // " << o.name << "\n";
+        << floatLit(o.vuParams[3]) << "}, " << impostorIndexOf(p, o) << ", "
+        << floatLit(o.impostorDistance) << ", " << (o.impostorBillboard ? "true" : "false") << ", " << o.impostorViews << "},  // " << o.name << "\n";
 }
 
 // inc/prefab_data.gen.hpp - the prefab library (docs/prefabs.md).
@@ -26372,6 +26983,10 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "                   // bit-identically to the untouched program.\n"
            "                   // Uploaded per BAG, so batched objects share one\n"
            "                   // set - one bag is one sendObjectData.\n"
+           "  int impostorModel = -1; // optional far representation, original owns collision\n"
+           "  float impostorDistance = 0.0F; // disabled at zero\n"
+           "  bool impostorBillboard = false; // ordered view parts\n"
+           "  int impostorViews = 8; // 4, 8 or 16 baked captures\n"
            "};\n"
            "\n"
            // Areas (type 17) live here, in the always-regenerated data header,
@@ -31201,6 +31816,24 @@ std::string flowGraphScript(const Project& p) {
             if (p.hudTexts[i].name == name) return (int)i;
         return -1;
     };
+    auto hudBarIndex = [&](const std::string& name) {
+        for (size_t i = 0; i < p.hudBars.size(); ++i)
+            if (p.hudBars[i].name == name) return (int)i;
+        return -1;
+    };
+    // A HUD element by name, in the HUD_ELEM index space the runtime uses
+    // (images, then texts, then bars - the same order hudDataHeader emits).
+    // kind: 0 image, 1 text, 2 bar; -1 = no such element.
+    auto hudElemIndex = [&](const std::string& name, int& kind) {
+        for (size_t i = 0; i < p.hud.size(); ++i)
+            if (p.hud[i].name == name) { kind = 0; return (int)i; }
+        const int ti = hudTextIndex(name);
+        if (ti >= 0) { kind = 1; return (int)p.hud.size() + ti; }
+        const int bi = hudBarIndex(name);
+        if (bi >= 0) { kind = 2; return (int)(p.hud.size() + p.hudTexts.size()) + bi; }
+        kind = -1;
+        return -1;
+    };
     // Set Screen Effect names a custom effect KEY; the generated symbol suffix
     // is its index in enabledScreenFx() - the SAME order screenFxSource emits
     // the bodies in, so the two cannot disagree. A key placed twice resolves to
@@ -33789,6 +34422,60 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                       << "\"\n"
                       << pad << "ctx.textDuration[" << ti << "] = " << floatLit(secs)
                       << ";\n";
+                }
+            } else if (n.type == "SetHudElementVisible") {
+                int kind = -1;
+                const int e = hudElemIndex(n.str, kind);
+                const int req = pin == 1 ? 0 : pin == 2 ? 2 : 1;
+                if (e < 0) {
+                    c << pad << "// node " << n.id << " (" << n.type
+                      << "): unknown HUD element '" << n.str << "'\n";
+                } else if (kind == 1) {
+                    // A text keeps its own request channel (auto-hide lives
+                    // there); 2 = toggle is honoured by updateAndRenderHudTexts.
+                    const int ti = e - (int)p.hud.size();
+                    c << pad << "ctx.textRequest[" << ti << "] = " << req
+                      << ";  // \"" << n.str << "\"\n"
+                      << pad << "ctx.textDuration[" << ti << "] = 0.0F;\n";
+                } else {
+                    c << pad << "ctx.hudElemRequest[" << e << "] = " << req
+                      << ";  // \"" << n.str << "\" (" << (kind == 0 ? "image" : "bar")
+                      << ")\n";
+                }
+            } else if (n.type == "SetHudBar") {
+                const int bi = hudBarIndex(n.str);
+                if (bi < 0) {
+                    c << pad << "// node " << n.id << " (" << n.type
+                      << "): unknown HUD bar '" << n.str << "'\n";
+                } else {
+                    // A bar bound to a save value follows the value; writing
+                    // it here keeps the node and the binding in agreement.
+                    const int vi = saveValueIndex(p.hudBars[bi].source);
+                    c << pad << "{\n"
+                      << pad << "  const float v = " << numOperand(n) << ";  // \""
+                      << n.str << "\"\n";
+                    if (vi >= 0)
+                        c << pad << "  ctx.saveValues[" << vi << "] = v;  // \""
+                          << p.hudBars[bi].source << "\"\n";
+                    c << pad << "  ctx.hudBarValue[" << bi << "] = v;\n"
+                      << pad << "  ctx.hudBarSet[" << bi << "] = "
+                      << (pin == 1 ? 2 : 1) << ";\n"
+                      << pad << "}\n";
+                }
+            } else if (n.type == "PlayHudEffect") {
+                int kind = -1;
+                const int e = hudElemIndex(n.str, kind);
+                int fx = (int)(n.num[0] + 0.5f) + 1;  // choice 0 = Flash = runtime 1
+                fx = fx < 1 ? 1 : fx > 3 ? 3 : fx;
+                float secs = n.num[1] <= 0.0f ? 0.4f : n.num[1];
+                if (e < 0) {
+                    c << pad << "// node " << n.id << " (" << n.type
+                      << "): unknown HUD element '" << n.str << "'\n";
+                } else {
+                    c << pad << "ctx.hudElemEffect[" << e << "] = " << fx
+                      << ";  // \"" << n.str << "\"\n"
+                      << pad << "ctx.hudElemEffectSec[" << e << "] = "
+                      << floatLit(secs) << ";\n";
                 }
             } else if (n.type == "DisplayText") {
                 const int slot = dynTextSlotOf(si, ownerIdx, n.id);
@@ -41080,11 +41767,24 @@ static std::string hudDataHeader(const Project& p) {
            "  const char* path;  // relative to the game binary (res/ is copied there)\n"
            "  float x, y;        // normalized screen position, center anchor\n"
            "  float w, h;        // size in pixels\n"
+           "  int anim;          // looped motion (hudanim::Kind), 0 = none\n"
+           "  float animPeriod, animAmount;\n"
+           "  int trans;         // show/hide transition (hudanim::Transition)\n"
+           "  float transSec;\n"
+           "  int visible;       // 1 = shown when the game starts\n"
            "};\n\n"
         << "constexpr int HUD_COUNT = " << p.hud.size() << ";\n"
         << "inline const HudImageData HUD_IMAGES[HUD_COUNT > 0 ? HUD_COUNT : 1] = {\n";
+    // The motion columns of any element: anim kind/period/amount, transition
+    // kind/seconds - the same five numbers on images, texts and bars.
+    auto motionCols = [](const HudAnim& a, const HudTransition& t) {
+        std::ostringstream m;
+        m << a.kind << ", " << floatLit(a.period) << ", " << floatLit(a.amount)
+          << ", " << t.kind << ", " << floatLit(t.duration);
+        return m.str();
+    };
     if (p.hud.empty()) {
-        out << "    {\"\", 0, 0, 0, 0},\n";
+        out << "    {\"\", 0, 0, 0, 0, 0, 1, 0, 0, 0, 1},\n";
     } else {
         for (const HudImage& h : p.hud) {
             // res/hud/x.png on the host lands as hud/x.png next to the ELF
@@ -41092,7 +41792,9 @@ static std::string hudDataHeader(const Project& p) {
             if (binPath.rfind("res/", 0) == 0) binPath = binPath.substr(4);
             out << "    {\"" << binPath << "\", " << floatLit(h.pos[0]) << ", "
                 << floatLit(h.pos[1]) << ", " << floatLit(h.size[0]) << ", "
-                << floatLit(h.size[1]) << "},  // " << h.name << "\n";
+                << floatLit(h.size[1]) << ", " << motionCols(h.anim, h.transition)
+                << ", " << (h.visibleAtStart ? 1 : 0) << "},  // " << h.name
+                << "\n";
         }
     }
     out << "};\n\n"
@@ -41197,23 +41899,98 @@ static std::string hudDataHeader(const Project& p) {
            "  float x, y;        // normalized screen position, center anchor\n"
            "  int w, h;          // texture size (pow2; content centered)\n"
            "  int visible;       // 1 = shown when the game starts\n"
+           "  int anim;          // looped motion (hudanim::Kind), 0 = none\n"
+           "  float animPeriod, animAmount;\n"
+           "  int trans;         // show/hide transition (hudanim::Transition)\n"
+           "  float transSec;\n"
            "};\n\n"
         << "constexpr int HUD_TEXT_COUNT = " << p.hudTexts.size() << ";\n"
         << "inline const HudTextData HUD_TEXTS[HUD_TEXT_COUNT > 0 ? "
            "HUD_TEXT_COUNT : 1] = {\n";
     if (p.hudTexts.empty()) {
-        out << "    {\"\", 0, 0, 0, 0, 0},\n";
+        out << "    {\"\", 0, 0, 0, 0, 0, 0, 1, 0, 0, 0},\n";
     } else {
         for (const HudText& t : p.hudTexts) {
             int tw = 8, th = 8;  // fallback if no usable font (bake errors out)
             menubake::textLayout(t, p, tw, th);
             out << "    {\"hud/" << menubake::textFileName(t.name) << "\", "
                 << floatLit(t.pos[0]) << ", " << floatLit(t.pos[1]) << ", " << tw
-                << ", " << th << ", " << (t.visibleAtStart ? 1 : 0) << "},  // "
-                << t.name << "\n";
+                << ", " << th << ", " << (t.visibleAtStart ? 1 : 0) << ", "
+                << motionCols(t.anim, t.transition) << "},  // " << t.name << "\n";
         }
     }
-    out << "};\n"
+    out << "};\n";
+
+    // Live bars (docs/hud-animation.md). Nothing is baked for a bar: the
+    // runtime sizes tinted quads (or a cropped fill image) from the value
+    // every frame. Tints are in the GS range (128 = 1.0), like the loading
+    // bars. `source` is the save value the bar follows, -1 = the Set HUD Bar
+    // node alone.
+    out << "\nstruct HudBarData {\n"
+           "  int kind;              // 0 = continuous fill, 1 = quantized segments\n"
+           "  float x, y;            // normalized screen position, center anchor\n"
+           "  float w, h;            // total on-screen size in pixels\n"
+           "  float bg[3], fill[3], ghost[3];  // tints, GS range (128 = 1.0)\n"
+           "  int hasGhost;          // draw the lingering strip where the fill was\n"
+           "  int rightToLeft;       // fill anchored on the right edge\n"
+           "  float smoothing;       // seconds to reach a new value (0 = snap)\n"
+           "  float lowFrac;         // pulse the fill below this fraction (0 = never)\n"
+           "  int segments;          // quantized only\n"
+           "  float spacing;         // quantized: gap between segments, px\n"
+           "  int source;            // save value index, -1 = node-driven\n"
+           "  float minV, maxV, startV;\n"
+           "  const char* fillPath;  // fill image; \"\" = a tinted quad\n"
+           "  const char* framePath; // frame drawn over the bar; \"\" = none\n"
+           "  float frameW, frameH;  // the frame's own on-screen size\n"
+           "  int anim;              // looped motion (hudanim::Kind), 0 = none\n"
+           "  float animPeriod, animAmount;\n"
+           "  int trans;             // show/hide transition (hudanim::Transition)\n"
+           "  float transSec;\n"
+           "  int visible;           // 1 = shown when the game starts\n"
+           "};\n\n"
+        << "constexpr int HUD_BAR_COUNT = " << p.hudBars.size() << ";\n"
+        << "inline const HudBarData HUD_BARS[HUD_BAR_COUNT > 0 ? HUD_BAR_COUNT : 1] = {\n";
+    if (p.hudBars.empty()) {
+        out << "    {0, 0, 0, 0, 0, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, 0, 0, 0, 0, 1, 0, "
+               "-1, 0, 1, 0, \"\", \"\", 0, 0, 0, 1, 0, 0, 0, 1},\n";
+    } else {
+        auto gs3 = [](const float* c) {
+            std::ostringstream m;
+            m << "{" << floatLit(c[0] * 128.0f) << ", " << floatLit(c[1] * 128.0f)
+              << ", " << floatLit(c[2] * 128.0f) << "}";
+            return m.str();
+        };
+        auto binPath = [](std::string s) {
+            if (s.rfind("res/", 0) == 0) s = s.substr(4);
+            return s;
+        };
+        for (const HudBar& b : p.hudBars) {
+            int src = -1;
+            if (!b.source.empty())
+                for (size_t i = 0; i < p.saveValues.size(); ++i)
+                    if (p.saveValues[i].name == b.source) src = (int)i;
+            out << "    {" << b.kind << ", " << floatLit(b.pos[0]) << ", "
+                << floatLit(b.pos[1]) << ", " << floatLit(b.size[0]) << ", "
+                << floatLit(b.size[1]) << ", " << gs3(b.bgColor) << ", "
+                << gs3(b.fillColor) << ", " << gs3(b.ghostColor) << ", "
+                << (b.ghost ? 1 : 0) << ", " << (b.rightToLeft ? 1 : 0) << ", "
+                << floatLit(b.smoothing) << ", " << floatLit(b.lowFraction) << ", "
+                << b.segments << ", " << floatLit(b.spacing) << ", " << src << ", "
+                << floatLit(b.minValue) << ", " << floatLit(b.maxValue) << ", "
+                << floatLit(b.startValue) << ", \"" << binPath(b.fillImage.imagePath)
+                << "\", \"" << binPath(b.frameImage.imagePath) << "\", "
+                << floatLit(b.frameImage.size[0]) << ", "
+                << floatLit(b.frameImage.size[1]) << ", "
+                << motionCols(b.anim, b.transition) << ", "
+                << (b.visibleAtStart ? 1 : 0) << "},  // " << b.name << "\n";
+        }
+    }
+    out << "};\n\n"
+        << "// Every HUD element in one index space (the Set HUD Element Visible /\n"
+           "// Play HUD Effect nodes): images, then texts, then bars.\n"
+        << "constexpr int HUD_ELEM_TEXT0 = HUD_COUNT;\n"
+        << "constexpr int HUD_ELEM_BAR0 = HUD_COUNT + HUD_TEXT_COUNT;\n"
+        << "constexpr int HUD_ELEM_COUNT = HUD_COUNT + HUD_TEXT_COUNT + HUD_BAR_COUNT;\n"
         << "\n}  // namespace " << ns << "\n";
     return out.str();
 }

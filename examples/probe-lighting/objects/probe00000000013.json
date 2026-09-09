@@ -1,0 +1,1 @@
+{ "id": "probe00000000013", "name": "Rigid probe reference", "type": "cylinder", "position": [0, 1.1, 11], "rotation": [0, 0, 0], "scale": [1, 2.2, 1], "color": [0.85, 0.85, 0.85], "physics": false, "bakedLighting": false, "dynamicLighting": true }

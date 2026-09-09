@@ -18,6 +18,7 @@
 #include "navmesh.hpp"
 #include "procgen.hpp"
 #include "project.hpp"
+#include "objparser.hpp"
 
 // 3D preview of the project terrain and scene objects, rendered into an
 // offscreen texture shown inside an ImGui window. Orbit camera (drag+scroll).
@@ -702,6 +703,15 @@ public:
     void pickBounds(const SceneObject& o, float mn[3], float mx[3]);
 
 private:
+    const objparser::Model* pickModel(const std::string& path, const std::string& material);
+    int pickVisual(const SceneObject& o, const float* eye, SceneObject& visual);
+    void selectionBounds(const SceneObject& o, float mn[3], float mx[3]);
+    float pickModelSurface(const SceneObject& visual, int capture,
+                           const float* origin, const float* direction);
+    std::map<std::string, objparser::Model> pickModelCache_;
+    struct PickAlpha { int w = 0, h = 0; std::vector<unsigned char> values; };
+    std::map<std::string, PickAlpha> pickAlphaCache_;
+
     struct Mesh {
         uint32_t vao = 0, vbo = 0;
         int vertexCount = 0;
@@ -847,6 +857,7 @@ private:
     bool ps2Shade_ = false;
     void querySceneLocations(uint32_t prog);
     void useSceneProgram(bool ps2Vertex);
+    int uFoliageImpostor_ = -1;
     int uPs2Flat_ = -1;   // vtx program only: TyraShadingFlat per draw
     int uPs2NoDyn_ = -1;  // vtx program only: dynLightPick=false per draw
     // GL_LINES cannot pass through a triangles geometry shader, so when the
@@ -917,7 +928,7 @@ private:
     int uAoHeight_ = -1, uAoHmRect_ = -1, uAoHmOn_ = -1;
     // Baked GI probe grid (see setGiProbes)
     int uGiOn_ = -1, uGiProbes_ = -1, uGiOrigin_ = -1, uGiStep_ = -1,
-        uGiDim_ = -1, uGiScale_ = -1;
+        uGiDim_ = -1, uGiScale_ = -1, uGiReceiver_ = -1;
     uint32_t giTex_ = 0;
     float giOrigin_[3] = {0, 0, 0};
     float giStep_[3] = {1, 1, 1};

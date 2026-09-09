@@ -705,6 +705,9 @@ std::vector<float> simulateKernel(const BuiltKernel& b, const KernelDesc& k,
 
 /** Result of running two programs on identical input and diffing what they
  * staged for the GS. */
+// Independent numeric oracle for signed RGB SH and the classic fallback.
+bool checkLighting(std::string& error);
+
 struct Equivalence {
     bool ran = false;
     bool identical = false;

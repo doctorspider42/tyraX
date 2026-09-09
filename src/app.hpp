@@ -2177,6 +2177,11 @@ private:
     char treeName_[64] = "tree";
     float treeGenAngle_ = 40.0f, treeGenPitch_ = 18.0f, treeGenZoom_ = 1.0f;
     bool treeGenSpin_ = true;
+    bool treeGenImpostor_ = true;
+    int treeImpostorViews_ = 8;
+    int modelImpostorViews_ = 8;
+    std::string modelImpostorObject_;
+    bool impostorGpu_ = true;
     int treeGenDisplayMode_ = 0;
     // Drone Generator (Tools > Drone Generator, docs/drone-generator.md).
     // droneParams_ is the whole patch; the LiveSynth and the audio device are
@@ -2233,6 +2238,11 @@ private:
     int selectedHud_ = -1;
     int uiFxSel_ = 0;
     int selectedText_ = -1;
+    // UI Editor > Bars (uiFxSel_ 9, index into Project::hudBars). The preview
+    // fraction is editor-only: what the viewport overlay fills the selected bar
+    // to, so a bar can be judged at 30% without running the game (-1 = start).
+    int selectedBar_ = -1;
+    float hudBarPreview_ = -1.0f;
     // Font Manager selection (index into Project::fonts).
     int fontSel_ = 0;
     // Cached atlas footprint line: measuring it walks all 95 glyphs, so it is
@@ -2877,6 +2887,16 @@ private:
     // Texture-bake controls (pow2 size + quantization) shared by HUD images
     // and the USE prompt in the UI Editor. Returns true on change.
     bool hudBakeControls(HudImage& h);
+    // The shared "Motion" block (loop + show/hide transition) every HUD
+    // element's property panel ends with, and the optional-image picker a bar
+    // uses twice (fill, frame). Both return true on a change.
+    bool hudMotionControls(HudAnim& anim, HudTransition& trans, bool* visibleAtStart);
+    bool hudBarImageControls(const char* id, const char* title, HudImage& img,
+                             bool withSize);
+    // Renames a HUD element's name in every flow node that references it by
+    // that kind (Set HUD Element Visible / Play HUD Effect / Set HUD Bar).
+    void renameHudElementRefs(const std::string& from, const std::string& to,
+                              bool isBar);
     // The embedded built-in USE prompt sprite (viewport overlay preview).
     const HudTexture* builtinUseTexture();
     HudTexture builtinUseTex_;

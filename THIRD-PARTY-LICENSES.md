@@ -410,3 +410,14 @@ The editor projects this map into the moon disc of a day/night cycle
 embedded in the editor binary and is **never copied into a generated game** —
 only the small baked disc ships, so a game built with TyraX carries a derived
 image, not this file.
+
+
+### Quaternius Universal Animation Library character — CC0
+
+`examples/probe-lighting/res/models/UAL1_Standard.fbx` is the rigged humanoid
+from Quaternius's **Universal Animation Library [Standard]**, released under
+[CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/).
+Models by [Quaternius](https://quaternius.com). The unchanged source FBX was
+copied from `examples/foot-ik-stairs` on branch
+`claude/foot-ik-animations-feature-e56306`; that example records the pack's
+CC0 license. The GI example uses its Idle_Loop and Walk_Loop animations.

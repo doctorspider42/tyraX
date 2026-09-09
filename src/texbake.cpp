@@ -249,6 +249,13 @@ std::string bake(const Project& p,
     }
     for (const SplashScreen& s : p.splashScreens)
         if (!s.image.imagePath.empty()) hudBake[s.image.imagePath] = &s.image;
+    // HUD bars: an optional fill image and frame image, baked like the rest.
+    for (const HudBar& b : p.hudBars) {
+        if (!b.fillImage.imagePath.empty())
+            hudBake[b.fillImage.imagePath] = &b.fillImage;
+        if (!b.frameImage.imagePath.empty())
+            hudBake[b.frameImage.imagePath] = &b.frameImage;
+    }
 
     // Font atlases (res/fonts/atlas-<name>.png, baked by refreshGenerated for
     // the fonts a Display Text node uses): quantized per Font Manager entry

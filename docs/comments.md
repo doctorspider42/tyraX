@@ -88,7 +88,7 @@ hundred more objects. In practice notes are counted in tens.
 
 ## Format
 
-`kFormatVersion` 39. The type name and the `"comment"` key are additive: an
+`kFormatVersion` 43. The type name and the `"comment"` key are additive: an
 older editor refuses the file rather than reading the type as a Box (which is
 what an unknown type name falls back to), and no migration step is needed.
 

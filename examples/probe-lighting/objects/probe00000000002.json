@@ -1,0 +1,1 @@
+{ "id": "probe00000000002", "name": "Cool bounce wall", "type": "box", "position": [6, 2.5, 8], "rotation": [0, 0, 0], "scale": [0.4, 5, 12], "color": [0.04, 0.24, 0.85], "physics": false }

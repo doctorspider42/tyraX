@@ -1943,3 +1943,33 @@ legacy compatibility mode. See docs/vu1-clipping.md.
 
 Measure with PCSX2's FPS display on the software renderer, 3+ samples, before
 and after; pixel-compare screenshots to prove output is unchanged.
+
+
+## Signed RGB SH and exact skin reuse (1.74.0)
+
+`PipelineDirLightsBag::signedSH` defaults false. Both packet writers always
+set ambient.w to 0 (classic) or -1 (SH); output alpha is unchanged. The macro
+loads ambient.xyzw, uses w as the dot-product floor, then clamps the RGB sum
+before clipping. SH uses identity directions and signed RGB axis coefficients.
+Keep vugen.cpp, expanded shared clip C and generated as-is D/TD in sync; run
+`--vu-check`, including its RGB numeric oracle, then rebuild the PS2 engine.
+No extra packet qwords or probe bytes are used.
+
+`SkelInstance::PartLod::skinSource` points to the first corner with bit-identical
+position, normal, joints and weights. UV differences can share skinning; hard
+normals cannot. Skin the first corner and copy its output with VU0 loads/stores,
+without calling helpers that might clobber the running VU0 AABB. All render
+vertices remain, with a four-byte index per corner. The temporary hash table
+exists only during loading. Set `TYRA_SKEL_PROFILE` in skel_instance.hpp to 1
+for per-instance COP0 pose/skin timings every 100 skins; keep it 0 when shipping.
+
+
+### DMA REF lifetime (1.74.1)
+
+`packet2_utils_vu_add_unpack_data` does NOT copy: ps2sdk emits a DMA REF to
+the supplied pointer. Never pass a temporary/local array to asynchronous
+submission. SH initially did this for mode-adjusted colours, causing lighting
+flashes despite passing VU arithmetic tests. Both lighting senders now use
+CNT/UNPACK with inline colour floats (four extra packet-storage qwords; the
+same VU layout) and wait for VIF1 before resetting the reusable packet.
+Allocated capacities are 56 qwords for StaPip and 24 for DynPip.
