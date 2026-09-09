@@ -117,7 +117,19 @@ class Mesh:
         p=[(x-a,y-b,z-c),(x+a,y-b,z-c),(x+a,y+b,z-c),(x-a,y+b,z-c),
            (x-a,y-b,z+c),(x+a,y-b,z+c),(x+a,y+b,z+c),(x-a,y+b,z+c)]
         for f in [(0,3,2,1),(4,5,6,7),(0,4,7,3),(1,2,6,5),(3,7,6,2),(0,1,5,4)]:
-            self.face([p[i] for i in f], mat)
+            if f == (3,7,6,2) and max(size[0],size[2]) > 8 and min(size[0],size[2]) > 4:
+                # Sample probe light across the floor, not only at four distant
+                # corners; preserve the original face's tiled UV coordinates.
+                nx,nz=math.ceil(size[0]/2),math.ceil(size[2]/2)
+                for ix in range(nx):
+                    for iz in range(nz):
+                        x0,x1=x-a+size[0]*ix/nx,x-a+size[0]*(ix+1)/nx
+                        z0,z1=z-c+size[2]*iz/nz,z-c+size[2]*(iz+1)/nz
+                        self.face([(x0,y+b,z0),(x0,y+b,z1),(x1,y+b,z1),(x1,y+b,z0)],mat,
+                                  [((z0-z+c)/2,(x0-x+a)/2),((z1-z+c)/2,(x0-x+a)/2),
+                                   ((z1-z+c)/2,(x1-x+a)/2),((z0-z+c)/2,(x1-x+a)/2)])
+            else:
+                self.face([p[i] for i in f], mat)
 
     def lathe(self, profile, mat='ivory', n=24, center=(0,0,0)):
         x,y,z=center
@@ -248,8 +260,8 @@ def geometry():
         tip=(3*math.sin(a),.02,3*math.cos(a))
         left=(.6*math.sin(a-.35),.02,.6*math.cos(a-.35))
         right=(.6*math.sin(a+.35),.02,.6*math.cos(a+.35))
-        m.face([(0,.02,0),left,tip],'gold')
-        m.face([(0,.02,0),tip,right],'dark')
+        m.face([(0,.02,0),left,tip],'brass')
+        m.face([(0,.02,0),tip,right],'gold')
     m.save('compass-rose')
 
 
@@ -373,14 +385,19 @@ def batch_architecture():
 
 def author():
     p=json.loads((HERE/'showcase.tyra').read_text(encoding='utf-8-sig'))
+    pavilion_pose={}
+    for f in OBJECTS.glob('*.json'):
+        existing=json.loads(f.read_text(encoding='utf-8-sig'))
+        if existing.get('name') in ('district-pavilion','surface-gate'):
+            pavilion_pose[existing['name']]={k:existing[k] for k in ('position','rotation','scale')}
     s=p['settings']
     s.update(showFps=False,showMemory=False,showProfiler=False,buildProfile='debug',remotePad=True,liveDebug=True,
              liveLink=False,liveLogic=False,timeMachine=False,
-             unitsPerMeter=1,walkSpeed=.10,sprintMultiplier=1.7,terrainDetail=32,terrainViewDistance=0,textureQuant='8bit',
+             clipping='vu1',unitsPerMeter=1,walkSpeed=.10,sprintMultiplier=1.7,terrainDetail=32,terrainViewDistance=0,textureQuant='8bit',
              meshLodDistance=14,staticBatching=True,skyColor=[.88,.65,.43],skyTopColor=[.12,.32,.46],skyDome=True,
              zenithSize=.65,lightDir=[-.6,.7,.35],lightColor=[1,.83,.60],ambient=.44,diffuse=.7,brightness=1,
              fogEnabled=True,fogColor=[.70,.70,.62],fogStart=55,fogEnd=135,aoEnabled=True,aoStrength=.55,aoRadius=2,terrainMaterial='res/aster/shadowstone.mtl',
-             giEnabled=True,giRays=64,giBounces=2,giSkyLight=.8,giSunLight=1.1,giAmbientFloor=.08,giProbes=True,
+             giEnabled=True,giAutoBake=True,giRays=64,giBounces=2,giSkyLight=.8,giSunLight=1.1,giAmbientFloor=.08,giProbes=True,
              giProbeSpacing=6,giProbeHeight=3,giProbeLevels=7,modelAo=False,bloom=.18,bloomThreshold=.78,bloomSpread=.25,
              grain=0,dofAmount=0,flare=.08,godRays=0,highlightDistance=3,highlightColor=[.5,.95,1],highlightOpacity=.12,
              blssEnabled=False,loadingScreen=True)
@@ -419,7 +436,7 @@ def author():
     box('observatory-terrace',(0,-2.5,-23),(34,5,12),'paving')
     box('crossing',(0,-.35,0),(8,.7,4),'ivory')
     model('arrival-compass','compass-rose',(0,0,23),collision='none',castShadow=False)
-    for z in (-17,17):box('canal-end-'+str(z),(0,-.45,z),(8,.9,1),'ivory')
+    for z in (-17,17):box('canal-end-'+str(z),(0,-.47,z),(8,.9,1),'ivory')
     for x in (-4.18,4.18):
         for z in (-9,9):box(f'canal-curb-{x}-{z}',(x,.14,z),(.36,.28,14),'ivory')
     # Water's texture supplies its authored base light. The pre-lit route
@@ -619,11 +636,14 @@ def author():
     p['sequences'][2]['tracks']=[{'target':'heart-of-aster','animScale':True,'animColor':True,'animPos':False,'animRot':False,'animVis':False,
         'keys':[{'t':t,'pos':[0,4.1,-12],'rot':[0,0,0],'scale':[size]*3,'color':color,'vis':True,'ease':1}
                 for t,size,color in [(0,1.7,[1,1,1]),(4,2.6,[1,.95,.7]),(8,2.1,[.8,1,1])]]}]
+    for o in objects:
+        if o['type']=='portal':o['portal']['viewAll']=True
     batched=batch_architecture()
     # The building and its live doorway move as one; the cellar stays below map.
     for o in objects:
         if o['name'] in ('district-pavilion','surface-gate'):
             o['editorGroup']='Portal pavilion'
+            if o['name'] in pavilion_pose:o.update(pavilion_pose[o['name']])
     p['scenes']=[{'name':'Aster','terrain':{'width':64,'depth':64},'layers':[],'objects':[o['id'] for o in objects]}]
     # Hidden support terrain gives A* a real walkable surface. It follows the
     # architecture, sits below paving, and drops below the sea at the edges.
@@ -638,6 +658,9 @@ def author():
             row.append(str(h))
         heights.append(' '.join(row))
     write(HERE/'terrain-Aster.heights','33 33\n'+'\n'.join(heights)+'\n')
+    mood_keys=('skyColor','skyTopColor','skyDome','zenithSize','lightDir','ambient','diffuse','lightColor','brightness','aoEnabled','aoStrength','aoRadius','fogEnabled','fogColor','fogStart','fogEnd')
+    p['ambience']=[dict(name='Aster golden hour', **{k:s[k] for k in mood_keys})]
+    p['defaultAmbience']=0
     p['editor']={'selectedObject':-1,'gizmo':0,'viewMode':0,'showFog':True,'cam':[.55,.35,65,0,2,-5]}
     old_ids={f.stem for f in OBJECTS.glob('*.json')}
     for o in objects:write(OBJECTS/(o['id']+'.json'),json.dumps(o,ensure_ascii=False,indent=2)+'\n')

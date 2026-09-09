@@ -178,3 +178,15 @@ in-place render).
 - Portals are baked into the `PORTALS` side table at build, so Live Link can
   live-move an existing portal but cannot spawn a new one (the chip flips to
   "LIVE (rebuild)"; same rule as mirrors).
+
+### Imported mesh bounds (1.77.1)
+
+The exit-plane rejection uses each model's actual local bounds, transformed
+with its offset centre, scale, rotation and model heading. Previously it tested
+a unit box at the object pivot, which discarded large district meshes even in
+**All objects in view**. Primitives retain their unit bounds. Whole objects
+behind the exit are rejected early. Static bags straddling it
+are clipped against the exit plane, interpolating positions, colours, UVs and
+lighting normals. Otherwise a large model's rear wall covers the destination.
+Only straddling bags take this CPU path and its DMA drain; animated bags keep
+the existing whole-object test.

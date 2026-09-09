@@ -14938,7 +14938,7 @@ void TerrainGame::setFlashSpotOff(int obj, bool spot) {
           // more: no camera spot.
           batchNoSpotInfoBag = std::make_unique<StaPipInfoBag>();
           batchNoSpotInfoBag->model = &model;
-          batchNoSpotInfoBag->shadingType = TyraShadingFlat;
+          batchNoSpotInfoBag->shadingType = TyraShadingGouraud;
           batchNoSpotInfoBag->frustumCulling =
               PipelineInfoBagFrustumCulling_Precise;
           batchNoSpotInfoBag->fullClipChecks = true;
@@ -14983,7 +14983,7 @@ void TerrainGame::setDynLightSkip(int obj, int slot) {
           if (!batchSkipInfoBag) {
             batchSkipInfoBag = std::make_unique<StaPipInfoBag>();
             batchSkipInfoBag->model = &model;
-            batchSkipInfoBag->shadingType = TyraShadingFlat;
+            batchSkipInfoBag->shadingType = TyraShadingGouraud;
             batchSkipInfoBag->frustumCulling =
                 PipelineInfoBagFrustumCulling_Precise;
             batchSkipInfoBag->fullClipChecks = true;
@@ -16245,7 +16245,7 @@ void TerrainGame::renderCollisionBoxes() {
   if (!batchInfoBag) {
     batchInfoBag = std::make_unique<StaPipInfoBag>();
     batchInfoBag->model = &model;
-    batchInfoBag->shadingType = TyraShadingFlat;
+    batchInfoBag->shadingType = TyraShadingGouraud;
     batchInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
     batchInfoBag->fullClipChecks = true;
   }
@@ -17302,7 +17302,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     if (!part.bag) {
       part.infoBag = std::make_unique<StaPipInfoBag>();
       part.infoBag->model = &model;
-      part.infoBag->shadingType = TyraShadingFlat;
+      part.infoBag->shadingType = TyraShadingGouraud;
       // Objects go through frustum classification too - raw submission (None)
       // wraps the GS raster window for anything behind/off-screen. The bbox
       // cache is keyed by pointer + bboxVersion, bumped on every rebuild, so
@@ -17554,8 +17554,8 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       }
       part.litColorBag->single = &part.litBase;
       part.litColorBag->many = nullptr;
-      // GOURAUD, not the static path's flat. A lit bag shades per VERTEX, and
-      // flat shading takes one corner's normal for the whole triangle - on a
+      // Like the static path, a lit bag shades per VERTEX. With
+      // flat shading one corner's normal lights the whole triangle - on a
       // cylinder that lights half the segments off a normal pointing away and
       // the object comes out dark and hard-banded (it did).
       part.infoBag->shadingType = TyraShadingGouraud;
@@ -17571,7 +17571,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       // renders the object black.
       needsLitSeed = true;
     } else if (part.litBag) {
-      part.infoBag->shadingType = TyraShadingFlat;
+      part.infoBag->shadingType = TyraShadingGouraud;
       part.litBag.reset();
       part.litLights.reset();
       part.litColorBag.reset();
@@ -17821,7 +17821,7 @@ void TerrainGame::buildStaticBatchList() {
   if (!batchInfoBag) {
     batchInfoBag = std::make_unique<StaPipInfoBag>();
     batchInfoBag->model = &model;
-    batchInfoBag->shadingType = TyraShadingFlat;
+    batchInfoBag->shadingType = TyraShadingGouraud;
     // Same rules as the per-object bags: always classify against the
     // frustum (raw submission wraps the GS raster window) with full clip
     // checks.
@@ -18299,7 +18299,7 @@ void TerrainGame::procFinishChunks() {
   if (!batchInfoBag) {
     batchInfoBag = std::make_unique<StaPipInfoBag>();
     batchInfoBag->model = &model;
-    batchInfoBag->shadingType = TyraShadingFlat;
+    batchInfoBag->shadingType = TyraShadingGouraud;
     batchInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
     batchInfoBag->fullClipChecks = true;
   }
@@ -20773,33 +20773,93 @@ bool TerrainGame::renderOnePortalView(int pi) {
   // the recursion would re-carve the very opening being rendered (mirrors
   // draw only their glass here - the reflected copies are a main-pass
   // trick that would need its own bracket).
+  // Whole-object bounds cannot hide the rear wall of a model that spans the
+  // exit. Clip only those static bags that straddle it, preserving every corner
+  // attribute. Fully front-side objects keep the ordinary submission path.
+  auto renderExitClipped = [&](StaPipBag& source) {
+    struct Corner { Vec4 p, st, normal; Color color; float d; };
+    static std::vector<Vec4> vertices, sts, normals;
+    static std::vector<Color> colors;
+    static u32 version = 0;
+    vertices.clear(); sts.clear(); normals.clear(); colors.clear();
+    const bool textured = source.texture != nullptr;
+    const bool lit = source.lighting != nullptr;
+    const bool many = source.color->many != nullptr;
+    auto lerpV = [](const Vec4& a, const Vec4& b, float t) {
+      return Vec4(a.x+(b.x-a.x)*t, a.y+(b.y-a.y)*t,
+                  a.z+(b.z-a.z)*t, a.w+(b.w-a.w)*t);
+    };
+    auto emit = [&](const Corner& c) {
+      vertices.push_back(c.p);
+      if (textured) sts.push_back(c.st);
+      if (lit) normals.push_back(c.normal);
+      if (many) colors.push_back(c.color);
+    };
+    for (u32 vi=0; vi+2<source.count; vi+=3) {
+      Corner in[3], out[4];
+      for (int k=0;k<3;++k) {
+        Corner& c=in[k]; c.p=source.vertices[vi+k];
+        const Vec4 w=(*source.info->model)*c.p;
+        c.d=exitN.x*w.x+exitN.y*w.y+exitN.z*w.z-exitD-0.01F;
+        c.st=textured ? source.texture->coordinates[vi+k] : Vec4(0,0,0,0);
+        c.normal=lit ? source.lighting->normals[vi+k] : Vec4(0,0,0,0);
+        c.color=many ? source.color->many[vi+k] : *source.color->single;
+      }
+      int count=0;
+      for (int k=0;k<3;++k) {
+        const Corner& a=in[k]; const Corner& b=in[(k+1)%3];
+        if (a.d>=0.0F) out[count++]=a;
+        if ((a.d>=0.0F)!=(b.d>=0.0F)) {
+          const float t=a.d/(a.d-b.d);
+          Corner& c=out[count++];
+          c.p=lerpV(a.p,b.p,t); c.st=lerpV(a.st,b.st,t);
+          c.normal=lerpV(a.normal,b.normal,t);
+          c.color=Color(a.color.r+(b.color.r-a.color.r)*t,
+                        a.color.g+(b.color.g-a.color.g)*t,
+                        a.color.b+(b.color.b-a.color.b)*t,
+                        a.color.a+(b.color.a-a.color.a)*t);
+          c.d=0.0F;
+        }
+      }
+      for (int k=1;k+1<count;++k) { emit(out[0]);emit(out[k]);emit(out[k+1]); }
+    }
+    if (vertices.empty()) return;
+    StaPipBag bag=source;
+    StaPipColorBag color=*source.color;
+    StaPipTextureBag texture;
+    StaPipLightingBag lighting;
+    bag.vertices=vertices.data(); bag.count=(u32)vertices.size();
+    bag.bboxVersion=++version; bag.color=&color;
+    if (many) color.many=colors.data();
+    if (textured) { texture=*source.texture; texture.coordinates=sts.data(); bag.texture=&texture; }
+    if (lit) { lighting=*source.lighting; lighting.normals=normals.data(); bag.lighting=&lighting; }
+    stapip.core.render(&bag);
+    // The scratch arrays and bag descriptors may be reused only after DMA.
+    engine->renderer.core.sync.align3D();
+  };
   auto renderViewObject = [&](int ti) {
     if (ti < 0 || ti >= (int)runtimeObjects.size()) return;
     RuntimeObject& ro = runtimeObjects[ti];
     if (!ro.active || !ro.visible || ro.data.type == 16) return;
+    bool clipsExit = false;
     {
-      // Skip objects entirely behind the exit mouth (dead zone above).
-      // The extent along the plane normal is the exact OBB projection -
-      // a crude max-axis radius made a WIDE thin wall count as "reaching
-      // through" its own thickness (a wall the target portal is mounted
-      // on filled the whole view with its backside; owner report). The
-      // 0.1 slack keeps a flush-mounted wall (portal quad nudged 0.02 in
-      // front of it) classified as behind; geometry genuinely poking
-      // through the plane still renders.
-      const V3 oax = rotated({1.0F, 0.0F, 0.0F}, ro.data.rotation);
-      const V3 oay = rotated({0.0F, 1.0F, 0.0F}, ro.data.rotation);
-      const V3 oaz = rotated({0.0F, 0.0F, 1.0F}, ro.data.rotation);
+      // Test the actual mesh OBB, including its off-origin centre and model
+      // heading. Scale alone describes a unit primitive, not an imported district.
+      const CollisionBox bounds = objectCollisionBox(ro);
+      const V3 oax = boxRotate({1.0F, 0.0F, 0.0F}, ro.data);
+      const V3 oay = boxRotate({0.0F, 1.0F, 0.0F}, ro.data);
+      const V3 oaz = boxRotate({0.0F, 0.0F, 1.0F}, ro.data);
+      const V3 center = boxRotate(
+          {bounds.center[0], bounds.center[1], bounds.center[2]}, ro.data);
       const float r =
-          fabsf(exitN.x * oax.x + exitN.y * oax.y + exitN.z * oax.z) * 0.5F *
-              ro.data.scale[0] +
-          fabsf(exitN.x * oay.x + exitN.y * oay.y + exitN.z * oay.z) * 0.5F *
-              ro.data.scale[1] +
-          fabsf(exitN.x * oaz.x + exitN.y * oaz.y + exitN.z * oaz.z) * 0.5F *
-              ro.data.scale[2];
-      const float sd = exitN.x * ro.data.position[0] +
-                       exitN.y * ro.data.position[1] +
-                       exitN.z * ro.data.position[2] - exitD;
+          fabsf(exitN.x * oax.x + exitN.y * oax.y + exitN.z * oax.z) * bounds.half[0] +
+          fabsf(exitN.x * oay.x + exitN.y * oay.y + exitN.z * oay.z) * bounds.half[1] +
+          fabsf(exitN.x * oaz.x + exitN.y * oaz.y + exitN.z * oaz.z) * bounds.half[2];
+      const float sd = exitN.x * (ro.data.position[0] + center.x) +
+                       exitN.y * (ro.data.position[1] + center.y) +
+                       exitN.z * (ro.data.position[2] + center.z) - exitD;
       if (sd < -r + 0.1F) return;
+      clipsExit = sd - r < 0.01F;
     }
     if (ro.data.type == 7) {
       // Emitter: redraw its live particle billboards from the virtual
@@ -20836,8 +20896,11 @@ bool TerrainGame::renderOnePortalView(int pi) {
       rebuildObjectGeometry(ti);
     }
     ObjectGeometry& g = objectGeometry[ti];
-    for (GeoPart& part : g.parts)
-      if (part.bag) stapip.core.render(part.bag.get());
+    for (GeoPart& part : g.parts) {
+      if (!part.bag) continue;
+      if (clipsExit) renderExitClipped(*part.bag);
+      else stapip.core.render(part.bag.get());
+    }
     if (g.animInfoBag)
       for (ObjectGeometry::AnimPart& ap : g.animParts)
         if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());

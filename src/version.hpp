@@ -16,6 +16,9 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.77.1: Mesh-aware portal exit culling and interpolated static shading.
+// Aster refreshes stale GI on build and ships a reusable ambience preset.
+//
 // 1.77.0: Reject offscreen static models before viewport material submissions;
 // expanded group rows inspect/edit individual members without ungrouping.
 //
@@ -2910,7 +2913,7 @@
 // and world-bounds selection. Includes the earlier in-branch v39/v40 stages.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 77
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

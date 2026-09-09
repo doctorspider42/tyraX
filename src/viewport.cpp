@@ -5368,7 +5368,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     auto drawStaticObject = [&](const SceneObject& t, const Mat4& model,
                                 bool asLines, float tintScale) {
         aoReceive = t.type != PrimitiveType::Model;
-        ps2Flat = 1;  // merged prefab geometry is a static (flat) bag
+        ps2Flat = 0;  // static vertex colours interpolate on the GS
         const Mat4 mvp = mul(viewProj, model);
         const ModelDraw* md = t.type == PrimitiveType::Model
                                   ? modelDraw(t.modelPath, t.materialPath)
@@ -5507,12 +5507,8 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             // models don't receive AO (matches the game - see modelDraw note)
             aoReceive = o.type != PrimitiveType::Model &&
                         !(o.type == PrimitiveType::Player && o.playerMode == 2);
-            // Static geometry is a TyraShadingFlat bag on the console; a
-            // dyn-lit object's lit bag shades Gouraud (templates.cpp), and
-            // the bulb gizmo is an editor marker with no console twin.
-            ps2Flat = (o.dynamicLighting || o.type == PrimitiveType::PointLight)
-                          ? 0
-                          : 1;
+            // Static and dynamic object bags interpolate their vertex colours.
+            ps2Flat = 0;
             // The camera(s) being previewed through don't draw their body -
             // it would sit on the near plane and cover the whole view.
             if (o.type == PrimitiveType::Camera && camHidden(o.name)) continue;
@@ -5700,7 +5696,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             aoSelfObj = -1;
             aoGroundOn = true;
             aoReceive = false;  // models receive no baked AO, in game either
-            ps2Flat = 1;        // bakes to static chunks - flat bags
+            ps2Flat = 0;        // static chunks interpolate vertex colours
             const float d2r = kPi / 180.0f;
             for (const procgen::Instance& inst : scatter_.instances) {
                 if (inst.asset < 0 || inst.asset >= (int)scatter_.assets.size())
@@ -5766,7 +5762,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         auto drawReflected = [&](const SceneObject& t, const Mat4& model) {
             if (t.collisionMode == 3) return;
             aoReceive = t.type != PrimitiveType::Model;
-            ps2Flat = 1;  // the mirror redraw reuses the static (flat) bags
+            ps2Flat = 0;  // mirror redraw reuses the static Gouraud bags
             const Mat4 mvp = mul(viewProj, model);
             if (t.type == PrimitiveType::Model && isAnimatedModelPath(t.modelPath)) {
                 // pose already advanced by this frame's scene pass - reuse it

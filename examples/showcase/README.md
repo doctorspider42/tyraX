@@ -36,23 +36,22 @@ twice. Their visibility and the expedition's progress travel in save slots.
 | Start | Pause and open the expedition save menu |
 
 The calibration court is east of the entrance. The hovering keeper patrols
-the east garden and offers a clue. A tiny stone pavilion near **(14.4, 20)**
-has an east-facing portal: approach from the sea side and walk west through
-the frame. The roughly **2 × 4m exterior** opens into a **14 × 18m cellar**,
+the east garden and offers a clue. The grouped pavilion is currently near **(9.78, 17.73)**,
+with its opening facing south. Approach from the arrival court and walk north
+through the frame. Its placement can be changed as one group. The roughly **2 × 4m exterior** opens into a **14 × 18m cellar**,
 twelve metres below the island, with a six-metre vaulted ceiling. Repeated
 ribs, stocked shelves and the far instrument table reveal its depth through
-the small doorway. The entrance sits on the sea edge; the return view faces
-a few forecourt props and the sea,
-away from the centre of the garden. Inside the rotunda, the silver instrument
+the small doorway. The return view follows the pavilion's placement and now includes all scene
+objects in view. Inside the rotunda, the silver instrument
 traces reflections and the gold instrument shows a second camera's view.
 A save point waits at the entrance. Films use the engine's skippable-sequence
 controls and return the gameplay camera afterward.
 
-![The small sea-facing doorway into the large instrument cellar](preview/cellar-portal.png)
+![The small doorway into the large instrument cellar](preview/cellar-portal.png)
 
 ![Inside the vaulted cellar, captured from the running PS2 build](preview/cellar.png)
 
-![The return view faces the forecourt and sea](preview/cellar-return.png)
+![The return view through the relocated pavilion](preview/cellar-return.png)
 
 ## What is running
 
@@ -202,11 +201,32 @@ builds, the GI bake and all 37 graph links were checked again.
 The **Portal pavilion** object group contains the pavilion mesh and surface portal.
 Select either to move or rotate the entrance as one assembly; the cellar stays
 in place. The building mesh now has its pivot at the doorway, preserving every
-world-space vertex. See [Object groups](../../docs/object-groups.md). Re-bake GI
-after moving it, and adjust the return view list if its surroundings change.
+world-space vertex. See [Object groups](../../docs/object-groups.md). The next build refreshes GI after moving it; both ends now show all objects
+in view, so the return list needs no manual maintenance.
 
 Grouping validation covered real editor actions: create/rename, a rigid 90-degree
 rotation with mixed object orientations and a light, independent copy/delete,
 undo/redo across reload, ungroup without transform changes, and paired-portal
 copy reference remapping. The merged Release editor and Docker PS2 build passed;
 Aster was re-baked and entered through the grouped portal in PCSX2.
+
+## Lighting and portal maintenance
+
+The **Aster golden hour** ambience preset preserves the authored sky, sun, fog
+and AO values. **Re-bake stale global illumination** is enabled, so moving the
+portal pavilion refreshes GI on the next build. Both portals use **All objects
+in view**; runtime exit rejection now measures imported mesh bounds rather than
+assuming every model is a unit cube. The canal end stones sit 2 cm below the
+terrace surface to avoid coplanar faces at the overlap.
+
+Static vertex colours interpolate on PS2. Hard-normal imported assets remain
+faceted, and the district meshes use probe GI: their repeating shared UVs do
+not provide per-texel scene AO. See [GI routing](../../docs/global-illumination.md).
+
+Large walking surfaces are tessellated into approximately 2 m cells, retaining
+the original tiled UV coordinates and collision surface. This gives probe
+lighting more samples across a terrace instead of only its
+four distant corners. The compass rose uses brass/gold halves: its former dark
+halves looked like black holes or clipped triangles when viewed close up.
+The faster VU1 clipping mode is retained; switching to EE clipping did not
+change those authored compass shapes.

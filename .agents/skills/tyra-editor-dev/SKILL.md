@@ -2116,3 +2116,15 @@ GL dependencies. `bakegl.hpp` shares hidden-context creation and RAII restoratio
 with GI, but the two own separate contexts (GI may bake on a worker). GPU capture
 uses a private function table, never overwrites gl_loader's viewport pointers,
 and allocates texture storage before filling it (AMD driver workaround).
+
+## Static shading and portal bounds (1.77.1)
+
+`templates.cpp` uses Gouraud for static object/batch vertex colours; keep the
+`viewport.cpp` PS2 preview in sync. Terrain remains flat. This does not change
+OBJ face normals or grant imported meshes a lightmap. Portal exit rejection
+uses `objectCollisionBox` and `boxRotate`, including the mesh's offset centre;
+never infer an imported object's extent from scale alone.
+
+Portal static bags crossing the exit additionally use `renderExitClipped`:
+interpolate all attributes and drain PATH1 before reusing the scratch arrays.
+Whole-front bags bypass it; animated bags retain their bounds-only path.

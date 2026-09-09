@@ -1,7 +1,7 @@
 {
   "name": "showcase",
   "formatVersion": 43,
-  "editorVersion": "1.76.0",
+  "editorVersion": "1.77.1",
   "template": "fpp",
   "projectId": "106bc4d00dad4897",
   "settings": {
@@ -68,6 +68,7 @@
     "aoStrength": 0.55,
     "aoRadius": 2,
     "giEnabled": true,
+    "giAutoBake": true,
     "giRays": 64,
     "giBounces": 2,
     "giSkyLight": 0.8,
@@ -174,8 +175,8 @@
   "saveSpinnerScale": 1,
   "gradings": [],
   "defaultGrading": -1,
-  "ambience": [],
-  "defaultAmbience": -1,
+  "ambience": [{"name": "Aster golden hour", "skyColor": [0.88, 0.65, 0.43], "skyTopColor": [0.12, 0.32, 0.46], "skyDome": true, "zenithSize": 0.65, "lightDir": [-0.6, 0.7, 0.35], "ambient": 0.44, "diffuse": 0.7, "lightColor": [1, 0.83, 0.6], "brightness": 1, "aoEnabled": true, "aoStrength": 0.55, "aoRadius": 2, "fogEnabled": true, "fogColor": [0.7, 0.7, 0.62], "fogStart": 55, "fogEnd": 135}],
+  "defaultAmbience": 0,
   "loadingScreens": [],
   "defaultLoadingScreen": -1,
   "splashScreens": [],
@@ -242,10 +243,10 @@
         ] }
     ]
   },
-  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "showFog": true, "cam": [0.55, 0.35, 65, 0, 2, -5], "breakpoints": [] },
+  "editor": { "selectedObject": 1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "showFog": true, "cam": [1.95, 0.26, 25.1823, 13.5959, -1.12133, 6.10054], "breakpoints": [] },
   "activeLayout": 0,
   "layouts": [
-    { "name": "Default", "recipe": 0, "open": ["debugger"], "ini": "" },
+    { "name": "Default", "recipe": 0, "open": ["debugger"], "ini": "[Window][Project]\nPos=0,23\nSize=460,986\nCollapsed=0\nDockId=0x00000001,0\nLastUsed=20260909\n\n[Window][Properties]\nPos=1541,23\nSize=379,986\nCollapsed=0\nDockId=0x00000004,0\nLastUsed=20260909\n\n[Window][Debugger]\nPos=1541,23\nSize=379,986\nCollapsed=0\nDockId=0x00000004,1\nLastUsed=20260909\n\n[Window][Output]\nPos=462,747\nSize=1077,262\nCollapsed=0\nDockId=0x00000006,0\nLastUsed=20260909\n\n[Window][Debug]\nPos=462,747\nSize=1077,262\nCollapsed=0\nDockId=0x00000006,1\nLastUsed=20260909\n\n[Window][Flow Graph]\nPos=462,23\nSize=1077,722\nCollapsed=0\nDockId=0x00000005,1\nLastUsed=20260909\n\n[Window][Viewport]\nPos=462,23\nSize=1077,722\nCollapsed=0\nDockId=0x00000005,0\nLastUsed=20260909\n\n[Window][WindowOverViewport_11111111]\nPos=0,23\nSize=1920,986\nCollapsed=0\nLastUsed=20260909\n\n[Window][Debug##Default]\nPos=60,60\nSize=400,400\nCollapsed=0\nLastUsed=20260909\n\n[Window][##MainMenuBar]\nPos=0,0\nSize=1920,23\nCollapsed=0\nLastUsed=20260909\n\n[Docking][Data]\nDockSpace       ID=0x08BD597D Window=0x1BBC0F80 Pos=0,23 Size=1920,986 Split=X\n  DockNode      ID=0x00000001 Parent=0x08BD597D SizeRef=460,1009 Selected=0x9C21DE82\n  DockNode      ID=0x00000002 Parent=0x08BD597D SizeRef=1458,1009 Split=X\n    DockNode    ID=0x00000003 Parent=0x00000002 SizeRef=1077,1009 Split=Y\n      DockNode  ID=0x00000005 Parent=0x00000003 SizeRef=1077,745 CentralNode=1 Selected=0xC450F867\n      DockNode  ID=0x00000006 Parent=0x00000003 SizeRef=1077,262 Selected=0x6BCC3585\n    DockNode    ID=0x00000004 Parent=0x00000002 SizeRef=379,1009 Selected=0x8C72BEA8\n\n" },
     { "name": "Director", "recipe": 1, "open": ["cutscene"], "ini": "" },
     { "name": "Material Designer", "recipe": 2, "open": ["material"], "ini": "" },
     { "name": "Debugger", "recipe": 3, "open": ["debugger"], "ini": "" },

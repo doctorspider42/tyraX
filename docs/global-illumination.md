@@ -88,7 +88,7 @@ light changes rather than following it.
 A `.obj` model's route is the probe grid for the light it *receives*, but its
 own **self-occlusion** is a separate, per-texel answer that costs nothing:
 [Model AO](ambient-occlusion.md#model-ao) multiplies it straight into the
-model's texture at build. The two compose — flat probe light times per-pixel
+model's texture at build. The two compose — interpolated probe light times per-pixel
 self-shadowing — and neither needs a lightmap chart.
 
 **The editor viewport takes the same routes**, and has to: it shows what the
@@ -600,3 +600,24 @@ Said out loud in the Bake window too, not just here:
 | Baked pixels into `.res-baked/aoatlas`, `.res-baked/aomap` | `src/texbake.cpp` |
 | Viewport twin (3D texture + `giProbe()`; the per-pixel lightmaps: `setGiAtlas`, `lmMeshFor`, `uLmMode` / `lmApply`) | `src/viewport.cpp` |
 | The Bake window | `src/app.cpp` (`drawGiBakeWindow`) |
+
+### Aster's moving pavilion and interpolated shading (1.77.1)
+
+Aster enables `giAutoBake`: moving its grouped pavilion invalidates the scene
+cache, so the next build refreshes it instead of silently exporting a scene
+without GI. Inspect `SCENE_AO_ATLAS_GIS` / `SCENE_PROBES` in generated data;
+checking `giEnabled` alone does not prove a valid bake shipped.
+
+Static object bags and their merged batches now use Gouraud interpolation of
+already computed corner colours, matching the editor's PS2 preview. This needs
+no extra geometry or lighting pass. Face normals remain face normals: an OBJ
+with hard normals is still faceted. Interpolating colours removes triangle-wide
+steps in varying probe/light values; it does not create missing smooth normals
+or lightmap UVs. Terrain retains its existing shading mode.
+
+Most Aster architecture is imported, tiled-UV district meshes. Those receive
+probe GI, not the primitive AO atlas. Their shared repeating material UVs are
+not a valid unique lightmap unwrap, and enabling Model AO would skip shared
+textures rather than supply scene contact shadows. Per-texel contact lighting
+there requires authored unique UVs and texture budget; this update does not
+claim to add that asset conversion.
