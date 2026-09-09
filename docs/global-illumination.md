@@ -3,9 +3,9 @@
 ![Global illumination controls and bake status](img/ambience-editor.png)
 
 Static geometry gets a baked multi-bounce lightmap. Everything that moves gets
-its light from a probe grid. The PlayStation 2 pays **nothing** at run time for
-either: the ray tracing happens on your desktop and ships as one texture and one
-table.
+its light from a probe grid. Ray tracing happens on your desktop and ships as a texture and a probe table.
+The PlayStation 2 samples those baked results and shades geometry at runtime;
+it does not trace rays.
 
 Turn it on in *Tools > Ambience Editor*, on its **Global illumination** tab —
 the same window the sky, the sun and the AO are authored in — press **Bake this
@@ -133,6 +133,46 @@ the light is re-read from the grid every time the geometry is rebuilt, so they
 relight as they move. *Properties > Baked lighting* is the manual override for
 the channels no build-time scan can see: Live Link, a Raycast latch, a custom
 node's object output.
+
+---
+
+## Directional lighting on animated receivers
+
+Animated models, player avatars and NPCs sample the existing RGB L1 grid once
+per visible instance per render pass, at `position + (0, scale.y / 2, 0)`.
+This is the existing approximate receiver position, not an animated mesh centroid.
+`giDominantLight` now uses the same projection as explicitly dynamic-lit rigid
+objects: take the luminance-weighted direction of L1, keep RGB L0 as ambient,
+and project each channel of L1 along that direction for one VU1 directional slot.
+An interior lit from a side wall therefore lights that side of the character;
+the old animated path projected L1 along the sun even indoors.
+
+Each material part owns its three direction vectors (48 additional bytes), so
+instances sharing a skinned pose still retain their own lighting. Directions
+are world-space; `animLightMat` rotates the posed local normals and removes
+instance scale (a 64-byte matrix in ObjectGeometry). The VU1 program does not normalize that matrix's result, so
+passing the geometry matrix used to make resizing a character change its
+lighting. Rotation and uniform scale are supported; exact normal correction
+for nonuniform scale/shear remains outside this approximation.
+
+The console still runs the same lit VU1 program and sends the same packet size.
+The added EE work is one direction extraction/normalization per visible animated
+instance, plus light-matrix preparation; there is no per-vertex EE GI evaluation,
+new texture, lightmap pass, or probe format. The viewport's animated receivers
+use the same centre lookup and lobe in both shading modes.
+
+This is **not full PRT or full L1 reconstruction**: `L0 + D * max(N dot L, 0)`
+cannot represent the negative half of signed SH, and one direction cannot
+retain differently coloured light arriving from several directions. The side
+facing away retains L0. A nearly directionless field uses the sun as a stable
+fallback; an absent/dead probe neighbourhood keeps classic scene lighting.
+Outside the grid, the existing sampler clamps to its boundary probes. Baked
+lighting replaces the scene ambient/direct term; live lights remain separate.
+
+[probe-lighting](../examples/probe-lighting) is the focused walking demo:
+open courtyard, a roofed room, warm/cool side sources and animated receivers.
+Its README includes fixed-pose console comparisons and a reproducible L1 toggle
+script for scratch copies.
 
 ---
 

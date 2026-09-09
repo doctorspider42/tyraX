@@ -734,3 +734,13 @@ While there: the GI bake's ground grid follows object footprint AABBs, so a
 ROTATED thin wall still shows a faint version of the straddling teeth at its
 AABB's corners - splitting the ground cells along the rotated footprint is the
 fix if anyone reports it.
+
+
+## Animated probe lighting
+
+Dominant-direction RGB L1 lighting now reaches animated receivers as well as
+explicitly dynamic-lit rigid objects (docs/global-illumination.md). The next
+quality step is retaining multiple coloured directions / signed L1 instead of
+one clamped lobe. Measure that against the current VU1 and EE budgets before
+adding coefficients. Exact normals under nonuniform scale/shear and animated
+self-shadowing/PRT are separate work.

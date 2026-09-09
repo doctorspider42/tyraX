@@ -2044,3 +2044,14 @@ no glob.
 
 For how to test what you built — headless CLI, codegen checks without Docker,
 full PCSX2 e2e, screenshots — read **tyra-testing**.
+
+
+## Animated probe directions
+
+`templates.cpp::giDominantLight` is shared by `fillDynLitColors` and animated
+rendering. Both TerrainGame header templates carry AnimPart::litDirs and
+ObjectGeometry::animLightMat. Pose sharing must never share light directions.
+The latter matrix removes instance scale from the normal transform (the VU1
+lit programs do not normalize). Viewport SHADE_COMMON::giProbe uses uGiReceiver
+for the matching centre lookup and lobe; ordinary static probes stay full L1.
+See docs/global-illumination.md for approximation limits and examples/probe-lighting.
