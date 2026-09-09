@@ -301,6 +301,9 @@ add_executable(tyrax-editor
     src/theme.cpp
     src/tmdl.cpp
     src/treegen.cpp
+    src/treeimpostor.cpp
+    src/impostorgpu.cpp
+    src/modelimpostor.cpp
     src/uiscript.cpp
     src/update.cpp
     src/update_ui.cpp

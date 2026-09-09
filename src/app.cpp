@@ -2858,6 +2858,14 @@ void App::drawViewportWindow() {
         phoneCamPushPreview();
         // Flip vertically: GL texture origin is bottom-left
         ImGui::Image((ImTextureID)(intptr_t)tex, avail, ImVec2(0, 1), ImVec2(1, 0));
+#ifdef IMGUI_ENABLE_TEST_ENGINE
+        // Image has no item ID: expose its rectangle to unattended picking tests.
+        if (GImGui->TestEngineHookItems) {
+            const ImGuiID id = ImGui::GetID("Viewport canvas");
+            ImGuiTestEngineHook_ItemAdd(GImGui, id, GImGui->LastItemData.Rect, nullptr);
+            ImGuiTestEngineHook_ItemInfo(GImGui, id, "Viewport canvas", 0);
+        }
+#endif
 
         const ImVec2 imgPos = ImGui::GetItemRectMin();
         const bool imageHovered = ImGui::IsItemHovered();

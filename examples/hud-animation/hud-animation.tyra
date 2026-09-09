@@ -1,7 +1,7 @@
 {
   "name": "hud-animation",
-  "formatVersion": 39,
-  "editorVersion": "1.73.0",
+  "formatVersion": 42,
+  "editorVersion": "1.77.0",
   "template": "fpp",
   "projectId": "9cce4f621aedea88",
   "settings": {

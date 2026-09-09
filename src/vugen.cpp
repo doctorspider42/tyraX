@@ -1,5 +1,6 @@
 #include "vugen.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -787,11 +788,14 @@ void Vu::dirLightShade(Val color, Val normal, const Val lightMatrix[3],
     maddAcc(lightDirs[1], normal.broadcast(1), MXYZ);
     maddInto(color, lightDirs[2], normal.broadcast(2), MXYZ);
     minimumInto(color, color, zero().broadcast(3), MXYZ);
-    maximumInto(color, color, zero().broadcast(0), MXYZ);
+    maximumInto(color, color, ambient.broadcast(3), MXYZ);
     mulAcc(lightColors[0], color.broadcast(0), MXYZ);
     maddAcc(lightColors[1], color.broadcast(1), MXYZ);
     maddAcc(lightColors[2], color.broadcast(2), MXYZ);
     maddInto(color, ambient, zero().broadcast(3), MXYZ);
+    loadI(255.0f);
+    minimumIInto(color, color, MXYZ);
+    maximumInto(color, color, zero().broadcast(0), MXYZ);
     // Alpha 128 = the GS "1.0" - a lit mesh carries no colour stream to take
     // one from.
     loadI(128.0f);
@@ -1917,7 +1921,7 @@ void loadDirLights(Vu& b, Program& prog, Constants& k) {
         loadInto(prog, k.lightColors[i], b.izero(), kLightsColorsAddr + i, MXYZ);
     }
     k.ambient = b.named("ambientColor");
-    loadInto(prog, k.ambient, b.izero(), kLightsColorsAddr + 3, MXYZ);
+    loadInto(prog, k.ambient, b.izero(), kLightsColorsAddr + 3, MALL);
 }
 
 /** Everything that runs once per BUFFER before the first vertex is touched. */
@@ -3875,6 +3879,15 @@ std::vector<uint32_t> stageInput(const Desc& d, int top, int verts, uint32_t& s,
     for (int f = 0; f < 3; ++f)
         putf(kLightsColorsAddr + 3, f, randomFloat(s, 0.0f, 60.0f));
 
+    // Exercise both classic clamped N.L and signed, chromatic SH in every
+    // directional program, including shared-image peer paths.
+    if (d.dirLights && (xorshift(s) & 1)) {
+        putf(kLightsColorsAddr + 3, 3, -1.0f);
+        for (int i = 0; i < 3; ++i)
+            for (int f = 0; f < 3; ++f)
+                putf(kLightsColorsAddr + i, f, randomFloat(s, -120.0f, 120.0f));
+    }
+
     // Env bags reuse the light-matrix addresses for a transposed, pre-scaled
     // camera basis. Overwrite the random light data with a valid orthonormal
     // basis so the TCE equivalence trials exercise the actual packet layout,
@@ -4035,6 +4048,63 @@ std::vector<uint32_t> stageInput(const Desc& d, int top, int verts, uint32_t& s,
 }
 
 }  // namespace
+
+bool checkLighting(std::string& error) {
+    Program program;
+    Vu vu(program);
+    Val matrix[3], dirs[3], colors[3];
+    for (int i = 0; i < 3; ++i) {
+        matrix[i] = vu.lqConst(i);
+        dirs[i] = vu.lqConst(3 + i);
+        colors[i] = vu.lqConst(6 + i);
+    }
+    Val ambient = vu.lqConst(9), normal = vu.lqConst(10);
+    Val result = vu.tmp();
+    vu.dirLightShade(result, normal, matrix, dirs, colors, ambient);
+    vu.fixColor(result);
+    vu.sq(result, vu.izero(), 11);
+    Instr end; end.op = Op::End; program.code.push_back(end);
+    const float coeff[3][3] = {{80, -16, 4}, {-8, 100, -24}, {32, -48, 200}};
+    const float normals[][3] = {{1,0,0},{-1,0,0},{0,1,0},{0,-1,0},
+                                {0,0,1},{0,0,-1},{0.6f,-0.8f,0}};
+    for (int signedMode = 0; signedMode < 2; ++signedMode)
+        for (int rotated = 0; rotated < 2; ++rotated)
+            for (const auto& n : normals) {
+                std::vector<uint32_t> mem(vusim::kMemWords, 0);
+                auto put = [&](int q, int f, float v) { mem[q*4+f] = asBits(v); };
+                for (int i = 0; i < 3; ++i) {
+                    // A 90-degree rotation around Y, or identity.
+                    if (!rotated) put(i, i, 1);
+                    put(3+i, i, 1);
+                    for (int f = 0; f < 3; ++f) put(6+i, f, coeff[i][f]);
+                    put(9, i, 64.0f + 16.0f*i);
+                    put(10, i, n[i]);
+                }
+                if (rotated) { put(0,2,-1); put(1,1,1); put(2,0,1); }
+                put(9,3,signedMode ? -1.0f : 0.0f);
+                const auto actual = vusim::run(program, mem, {});
+                if (!actual.ok) { error = actual.error; return false; }
+                const float world[3] = {rotated ? n[2] : n[0], n[1],
+                                        rotated ? -n[0] : n[2]};
+                for (int c = 0; c < 3; ++c) {
+                    float expected = 64.0f + 16.0f*c;
+                    for (int axis = 0; axis < 3; ++axis)
+                        expected += coeff[axis][c] * (signedMode ? world[axis] :
+                                                        std::max(0.0f, world[axis]));
+                    const int got = (int)actual.mem[11*4+c];
+                    const int want = (int)std::clamp(expected, 0.0f, 255.0f);
+                    // GS integer conversion plus VU round-toward-zero can
+                    // differ by one at an integer boundary on mixed normals.
+                    if (std::abs(got-want) > 1) {
+                        error = "RGB SH numeric oracle: got " + std::to_string(got) +
+                                ", expected " + std::to_string(want);
+                        return false;
+                    }
+                }
+                if (actual.mem[11*4+3] != 129u) { error = "SH alpha changed"; return false; }
+            }
+    return true;
+}
 
 Equivalence equivalence(const Program& a, const Program& b, const Desc& d,
                         int trials, uint32_t seed, const float* customParams,

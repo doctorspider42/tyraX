@@ -218,6 +218,9 @@ class TerrainGame : public Tyra::Game {
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
+    bool impostor = false; // visual representation only; data.model owns collision
+    bool impostorInitialized = false;
+    int impostorView = 0;
     // Physics fast path (awake bodies): parts hold LOCAL-space vertices
     // (scale baked in, shading frozen at the wake pose) and every
     // part.infoBag->model points at objMat, rebuilt from position/rotation
@@ -251,14 +254,16 @@ class TerrainGame : public Tyra::Game {
       // so an untextured mesh would render in the plain scene light color
       // (i.e. gray). This part's material albedo is folded into its own light
       // and ambient colors instead (outputColor = albedo * sceneLighting),
-      // matching how the editor viewport tints the .glb. Directions stay
-      // shared (animLightDirs); only the colors carry the per-part tint.
+      // matching how the editor viewport tints the .glb. Directions are
+      // owned by this part so pose-sharing instances retain independent GI.
       std::unique_ptr<Tyra::PipelineDirLightsBag> animLights;
       Tyra::Vec4 litColors[4];
+      Tyra::Vec4 litDirs[3];
     };
     std::vector<AnimPart> animParts;
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;
+    Tyra::M4x4 animLightMat;  // rotation/reflection only; scale is not light gain
     u32 animLastTick = 0;  // animLodTick of the last in-view frame; 0 = never
     // Usable-object highlight: terrain-hugging glow ring around the base,
     // built when first highlighted, cleared whenever the object rebuilds

@@ -29,6 +29,7 @@ for people building games with it. Internals live in code comments, the git log
 - [Areas (invisible volumes)](areas.md) — the box that replaces hand-typed
   distances: streaming zones, catch lists for mirrors/portals/feeds, the In
   Area trigger, reverb rooms.
+- [Selecting objects](object-selection.md) — visible mesh priority, AABB fallback and full-model selection outlines.
 - [Placing objects: surface snapping and deferred paste](object-placement.md) —
   objects that rest on what's below them, `End` to drop, paste that follows the
   cursor.
@@ -129,6 +130,8 @@ for people building games with it. Internals live in code comments, the git log
   meshes; the PS2 never sees a graph.
 - [Runtime procedural generation](procedural-runtime.md) — the same graph
   evaluated on the EE at load, plus Blocks Fill for block worlds.
+- [Distant model impostors](impostors.md) - offline tree captures and distance-based model replacement.
+- [Rendering directions](rendering-directions.md) - assessed priorities for a PS2 visual showcase.
 - [Tree Generator](tree-generator.md) — procedural low-poly trees baked to
   ordinary `.obj` + textures.
 - [Drone Generator (ambient music)](drone-generator.md) — the built-in ambient

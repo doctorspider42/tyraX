@@ -1,0 +1,1 @@
+{ "id": "probe00000000012", "name": "Outdoor animated receiver", "type": "model", "position": [3, 0, -2], "rotation": [0, 0, 0], "scale": [0.75, 0.75, 0.75], "color": [0.8, 0.8, 0.8], "physics": false, "collision": "none", "model": "res/models/wobbler.glb", "anim": { "clip": "Twist", "autoplay": true, "loop": true, "speed": 0.6 } }

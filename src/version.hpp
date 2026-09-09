@@ -2884,8 +2884,11 @@
 // have, which is what MINOR means, and a number that is strictly greater than
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
+// 1.76.0: merge configurable GPU impostors with full RGB SH receivers,
+// duplicate-corner skinning reuse and DMA-safe lighting payloads.
+// 1.77.0: merge animated HUD elements with the 1.76 rendering stack.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 73
+#define TYRAX_VERSION_MINOR 77
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -3221,13 +3224,15 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // built-in 50, so an untouched project resaves byte for byte and an older
 // editor reading a newer file falls back to exactly the number it always had.
 // Purely additive - no migration step.
-// v39 (animated HUD, docs/hud-animation.md): `anim` / `transition` objects on
+// v39/v40: optional impostor path, distance and cylindrical billboard flag.
+// v41: impostorViews (4/8/16), defaults to 8 for existing captures.
+// v42 (animated HUD, docs/hud-animation.md): `anim` / `transition` objects on
 // HUD images and texts, `visibleAtStart` on images, and the `hudBars` array
 // (live health/stamina/progress bars). Every key is omitted at its default,
 // so the feature adds no noise to an unchanged HUD definition; an older
 // editor reading a newer file drops the motion and draws the classic static
 // HUD. Purely additive - no migration step.
-inline constexpr int kFormatVersion = 39;
+inline constexpr int kFormatVersion = 42;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

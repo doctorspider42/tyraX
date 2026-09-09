@@ -395,6 +395,22 @@ V3 giShade(const GiSample& s, const V3& n) {
   return V3{c[0], c[1], c[2]};
 }
 
+// The three VU1 slots are Cartesian SH basis terms, each with an RGB
+// coefficient. Signed normals survive until the final RGB sum is clamped.
+void giSHLights(const GiSample& sample, const float* live, const float* albedo,
+                float scale, Vec4* directions, Vec4* colors) {
+  directions[0].set(1.0F, 0.0F, 0.0F, 0.0F);
+  directions[1].set(0.0F, 1.0F, 0.0F, 0.0F);
+  directions[2].set(0.0F, 0.0F, 1.0F, 0.0F);
+  for (int axis = 0; axis < 3; ++axis)
+    colors[axis].set(scale * (2.0F / 3.0F) * sample.l1[axis][0] * albedo[0],
+                     scale * (2.0F / 3.0F) * sample.l1[axis][1] * albedo[1],
+                     scale * (2.0F / 3.0F) * sample.l1[axis][2] * albedo[2], 0.0F);
+  colors[3].set(scale * (sample.l0[0] + live[0]) * albedo[0],
+                scale * (sample.l0[1] + live[1]) * albedo[1],
+                scale * (sample.l0[2] + live[2]) * albedo[2], 128.0F);
+}
+
 /** Staged by the geometry builders: this surface's light comes from the probe
  * grid, so the ambient + directional term, the baked point lights and the
  * emissive pools must ALL stay out of its vertex colors - the probe already
@@ -3957,6 +3973,8 @@ void TerrainGame::applyLayerResidency() {
     const SceneObjectData& d = SCENE_OBJECTS[i];
     if (!layerOn(d.layer)) continue;
     if (d.model >= 0 && d.model < (int)modelNeed.size()) modelNeed[d.model] = 1;
+    if (d.impostorDistance > 0 && d.impostorModel >= 0 &&
+        d.impostorModel < (int)modelNeed.size()) modelNeed[d.impostorModel] = 1;
     if (d.material >= 0 && d.material < (int)materialNeed.size())
       materialNeed[d.material] = 1;
     if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
@@ -3970,6 +3988,8 @@ void TerrainGame::applyLayerResidency() {
     if (!runtimeObjects[i].active) continue;
     const SceneObjectData& d = runtimeObjects[i].data;
     if (d.model >= 0 && d.model < (int)modelNeed.size()) modelNeed[d.model] = 1;
+    if (d.impostorDistance > 0 && d.impostorModel >= 0 &&
+        d.impostorModel < (int)modelNeed.size()) modelNeed[d.impostorModel] = 1;
     if (d.material >= 0 && d.material < (int)materialNeed.size())
       materialNeed[d.material] = 1;
     if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
@@ -3994,6 +4014,8 @@ void TerrainGame::applyLayerResidency() {
     for (int m = 0; m < PREFAB_COUNTS[pf]; ++m) {
       const SceneObjectData& d = PREFAB_MEMBERS[PREFAB_FIRST[pf] + m];
       if (d.model >= 0 && d.model < (int)modelNeed.size()) modelNeed[d.model] = 1;
+      if (d.impostorDistance > 0 && d.impostorModel >= 0 &&
+          d.impostorModel < (int)modelNeed.size()) modelNeed[d.impostorModel] = 1;
       if (d.material >= 0 && d.material < (int)materialNeed.size())
         materialNeed[d.material] = 1;
       if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
@@ -4335,6 +4357,7 @@ void TerrainGame::setupAnimObject(int index) {
   // skin; bboxVersion bumps keep the frustum boxes honest). One info bag
   // per object carries the model matrix; parts share it.
   g.animMat.identity();
+  g.animLightMat.identity();
   g.animInfoBag = std::make_unique<StaPipInfoBag>();
   g.animInfoBag->model = &g.animMat;
   g.animInfoBag->shadingType = TyraShadingGouraud;  // per-vertex lighting
@@ -4348,12 +4371,12 @@ void TerrainGame::setupAnimObject(int index) {
     ap.colorBag = std::make_unique<StaPipColorBag>();
     ap.colorBag->single = &mesh->materials[m]->ambient;
     ap.lightBag = std::make_unique<StaPipLightingBag>();
-    ap.lightBag->lightMatrix = &g.animMat;
+    ap.lightBag->lightMatrix = &g.animLightMat;
     ap.lightBag->normals = frame->normals;
     // Fold this part's material albedo into its light colors so the lit VU1
     // program renders the .glb material color (outputColor = albedo * light),
     // not the plain scene light color (gray). Scene light/ambient here mirror
-    // updateAndRenderAnimObjects; directions stay shared (animLightDirs).
+    // updateAndRenderAnimObjects; each part owns its probe directions.
     {
       const float* base = gam.src->parts[m].color;
       const float amb = 128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT;
@@ -4365,7 +4388,10 @@ void TerrainGame::setupAnimObject(int index) {
       ap.litColors[2].set(0.0F, 0.0F, 0.0F, 1.0F);
       ap.litColors[3].set(amb * base[0], amb * base[1], amb * base[2], 128.0F);
       ap.animLights = std::make_unique<PipelineDirLightsBag>(true);
-      ap.animLights->setLightsManually(ap.litColors, animLightDirs);
+      ap.litDirs[0].set(SCENE_LIGHT_X, 0.0F, 0.0F, 1.0F);
+      ap.litDirs[1].set(SCENE_LIGHT_Y, 0.0F, 0.0F, 1.0F);
+      ap.litDirs[2].set(SCENE_LIGHT_Z, 0.0F, 0.0F, 1.0F);
+      ap.animLights->setLightsManually(ap.litColors, ap.litDirs);
       ap.lightBag->dirLights = ap.animLights.get();
     }
     ap.bag = std::make_unique<StaPipBag>();
@@ -4484,42 +4510,10 @@ void TerrainGame::fillDynLitColors(int i) {
     float dif[3] = {SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_R,
                     SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_G,
                     SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_B};
-    // The one directional slot points where the probe says the light actually
-    // comes from, not at the sun.
-    //
-    // VU1 computes ambient + color * clamp(N.L), and the probe's answer is
-    // shade(n) = L0 + (2/3) * dot(L1, n). Evaluating L1 along the SUN (what
-    // the animated path does, and what this used to do) is only right when the
-    // sun IS the light: in a room lit by a bounce off a red wall the field's
-    // direction is the wall, so shading along the sun leans the wrong way and
-    // a surface facing the actual light gets nothing. Taking L1's own dominant
-    // direction instead makes the VU1 slot exact at that direction - the term
-    // there is the probe's own answer - and it degrades smoothly off it.
-    // L1 is per channel, so the direction is their luminance-weighted mean.
     V3 ldir = sun;
     GiSample gs;
-    if (giProbeAt(o.data.position[0], o.data.position[1], o.data.position[2],
-                  gs)) {
-      float d3[3];
-      for (int a = 0; a < 3; ++a)
-        d3[a] = 0.299F * gs.l1[a][0] + 0.587F * gs.l1[a][1] +
-                0.114F * gs.l1[a][2];
-      const float len = sqrtf(d3[0] * d3[0] + d3[1] * d3[1] + d3[2] * d3[2]);
-      // A probe with no direction at all (a uniform environment) keeps the sun
-      // - there is nothing better to point at, and L0 carries the whole answer
-      // anyway, so the directional term comes out near zero either way.
-      if (len > 0.0001F)
-        ldir = {d3[0] / len, d3[1] / len, d3[2] / len};
-      for (int k = 0; k < 3; ++k) {
-        float a = gs.l0[k];
-        if (a < 0.0F) a = 0.0F;
-        amb[k] = a;
-        float d = (2.0F / 3.0F) * (gs.l1[0][k] * ldir.x + gs.l1[1][k] * ldir.y +
-                                   gs.l1[2][k] * ldir.z);
-        if (d < 0.0F) d = 0.0F;
-        dif[k] = d;
-      }
-    }
+    const bool hasProbe = giProbeAt(o.data.position[0], o.data.position[1],
+                                    o.data.position[2], gs);
     float dl[3];
     dynLightAt(engine, o.data.position[0], o.data.position[1],
                o.data.position[2], dl);
@@ -4527,6 +4521,11 @@ void TerrainGame::fillDynLitColors(int i) {
       if (!part.litBag) continue;
       const float* base = part.litAlbedo;
       const float s = part.litScale;
+      part.litBag->dirLights->signedSH = hasProbe;
+      if (hasProbe) {
+        giSHLights(gs, dl, base, s, part.litDirs, part.litColors);
+        continue;
+      }
       part.litColors[0].set(s * dif[0] * base[0], s * dif[1] * base[1],
                             s * dif[2] * base[2], 1.0F);
       part.litColors[1].set(0.0F, 0.0F, 0.0F, 1.0F);
@@ -4642,7 +4641,7 @@ void TerrainGame::updateAndRenderAnimObjects() {
     const V3 bx = rotated(sx, o.data.rotation);
     const V3 by = rotated(sy, o.data.rotation);
     const V3 bz = rotated(sz, o.data.rotation);
-    M4x4& m = g.animMat;  // the info bag and light matrix point here
+    M4x4& m = g.animMat;  // the geometry transform
     m.identity();
     m.data[0] = bx.x, m.data[1] = bx.y, m.data[2] = bx.z;
     m.data[4] = by.x, m.data[5] = by.y, m.data[6] = by.z;
@@ -4650,6 +4649,18 @@ void TerrainGame::updateAndRenderAnimObjects() {
     m.data[12] = o.data.position[0];
     m.data[13] = o.data.position[1];
     m.data[14] = o.data.position[2];
+    // The VU1 lit programs do not normalize after this matrix multiply.
+    // Remove instance scale or resizing a model changes its light intensity.
+    // Like the existing skinner this assumes rotation/uniform-scale normals;
+    // nonuniformly scaled surfaces still need a normalized inverse transpose.
+    g.animLightMat.identity();
+    for (int axis = 0; axis < 3; ++axis) {
+      const float scale = fabsf(o.data.scale[axis]);
+      const float inv = scale > 0.00001F ? 1.0F / scale : 0.0F;
+      for (int c = 0; c < 3; ++c)
+        g.animLightMat.data[axis * 4 + c] = m.data[axis * 4 + c] * inv;
+    }
+
 
     // pose + skin + submit only when the conservative box touches the view
     if (gam.cullBox.frustumCheck(
@@ -4743,47 +4754,43 @@ void TerrainGame::updateAndRenderAnimObjects() {
       dynLightAt(engine, o.data.position[0],
                  o.data.position[1] + o.data.scale[1] * 0.5F,
                  o.data.position[2], dl);
-      // Baked global illumination for everything that moves
-      // (docs/global-illumination.md): one probe sample at the model's centre
-      // per frame. amb[] takes the probe's L0 - the average radiance around
-      // the model - instead of the scene's flat ambient, and dif[] takes the
-      // probe's L1 evaluated along the SUN direction, which is what keeps a
-      // character shaded rather than flat: the shared animLightDirs[0] still
-      // points at the sun, so reconstructing the field along it turns the
-      // grid's directionality back into the one VU1 light slot these meshes
-      // have. A character walking from sunlight into a doorway darkens and
-      // picks up the interior's colour, all for a lookup and ~10 flops.
-      float amb[3] = {128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT,
-                      128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT,
-                      128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT};
-      float dif[3] = {128.0F * SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_R,
-                      128.0F * SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_G,
-                      128.0F * SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_B};
+      // One weighted probe lookup per visible instance, independent of pose
+      // sharing and skinning LOD. Directions live in WORLD space: animLightMat
+      // transforms the skinned local normals in the existing VU1 program.
+      float amb[3] = {SCENE_BRIGHTNESS * SCENE_AMBIENT,
+                      SCENE_BRIGHTNESS * SCENE_AMBIENT,
+                      SCENE_BRIGHTNESS * SCENE_AMBIENT};
+      float dif[3] = {SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_R,
+                      SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_G,
+                      SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_B};
+      const V3 sun = {SCENE_LIGHT_X, SCENE_LIGHT_Y, SCENE_LIGHT_Z};
+      V3 ldir = sun;
       GiSample gs;
-      if (giProbeAt(o.data.position[0],
+      const bool hasProbe = giProbeAt(o.data.position[0],
                     o.data.position[1] + o.data.scale[1] * 0.5F,
-                    o.data.position[2], gs)) {
-        const V3 sun = {SCENE_LIGHT_X, SCENE_LIGHT_Y, SCENE_LIGHT_Z};
-        for (int k = 0; k < 3; ++k) {
-          float a = gs.l0[k];
-          if (a < 0.0F) a = 0.0F;
-          amb[k] = 128.0F * a;
-          float d = (2.0F / 3.0F) * (gs.l1[0][k] * sun.x + gs.l1[1][k] * sun.y +
-                                     gs.l1[2][k] * sun.z);
-          if (d < 0.0F) d = 0.0F;
-          dif[k] = 128.0F * d;
-        }
-      }
+                    o.data.position[2], gs);
       const GameAnimModel& gam = gameAnimModels[o.data.animModel];
       for (size_t p = 0; p < g.animParts.size(); ++p) {
         if (!g.animParts[p].bag) continue;
         const float* base = gam.src->parts[p].color;
-        g.animParts[p].litColors[0].set(dif[0] * base[0], dif[1] * base[1],
-                                        dif[2] * base[2], 1.0F);
+        auto& ap = g.animParts[p];
+        ap.animLights->signedSH = hasProbe;
+        if (hasProbe) {
+          giSHLights(gs, dl, base, 128.0F, ap.litDirs, ap.litColors);
+          continue;
+        }
+        ap.litColors[1].set(0.0F, 0.0F, 0.0F, 0.0F);
+        ap.litColors[2].set(0.0F, 0.0F, 0.0F, 0.0F);
+        g.animParts[p].litDirs[0].set(ldir.x, 0.0F, 0.0F, 1.0F);
+        g.animParts[p].litDirs[1].set(ldir.y, 0.0F, 0.0F, 1.0F);
+        g.animParts[p].litDirs[2].set(ldir.z, 0.0F, 0.0F, 1.0F);
+        g.animParts[p].litColors[0].set(128.0F * dif[0] * base[0],
+                                        128.0F * dif[1] * base[1],
+                                        128.0F * dif[2] * base[2], 1.0F);
         g.animParts[p].litColors[3].set(
-            (amb[0] + 128.0F * dl[0]) * base[0],
-            (amb[1] + 128.0F * dl[1]) * base[1],
-            (amb[2] + 128.0F * dl[2]) * base[2], 128.0F);
+            128.0F * (amb[0] + dl[0]) * base[0],
+            128.0F * (amb[1] + dl[1]) * base[1],
+            128.0F * (amb[2] + dl[2]) * base[2], 128.0F);
       }
     }
     for (size_t p = 0; p < g.animParts.size(); ++p) {
@@ -13912,6 +13919,25 @@ void TerrainGame::pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags) {
     if (b && b->count != 0) b->packageSize = size;
 }
 
+// Cylindrical captures are authored upright with a common horizontal scale.
+// Legacy replacement meshes remain unrestricted by this additional contract.
+static bool billboardTransformValid(const SceneObjectData& d) {
+  return !d.impostorBillboard || (fabsf(d.rotation[0]) < .001F &&
+      fabsf(d.rotation[2]) < .001F && d.scale[0] > 0 && d.scale[1] > 0 &&
+      fabsf(d.scale[0]-d.scale[2]) < .0001F);
+}
+static int billboardView(const SceneObjectData& d, const Vec4& camera) {
+  const float yaw = atan2f(camera.x-d.position[0], camera.z-d.position[2]);
+  const float local = yaw - d.rotation[1]*PI/180.0F;
+  const int v = (int)floorf(local*(d.impostorViews/(2.0F*PI))+.5F);
+  return (v%d.impostorViews+d.impostorViews)%d.impostorViews;
+}
+static SceneObjectData billboardTransform(const SceneObjectData& d, const Vec4& camera) {
+  SceneObjectData facing = d;
+  facing.rotation[1] = atan2f(camera.x-d.position[0], camera.z-d.position[2])*180.0F/PI;
+  return facing;
+}
+
 void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
@@ -13928,7 +13954,26 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   if (o.data.type == 5 && o.data.model >= 0 &&
       o.data.model < (int)gameModels.size())
     gm = &gameModels[o.data.model];
-  const int partCount = o.data.type == 5 ? (gm ? (int)gm->parts.size() : 0) : 1;
+  if (!g.impostorInitialized) {
+    g.impostorInitialized = true;
+    const float dx = o.data.position[0] - cameraPosition.x;
+    const float dy = o.data.position[1] - cameraPosition.y;
+    const float dz = o.data.position[2] - cameraPosition.z;
+    g.impostor = !localSpace && !o.data.physics && billboardTransformValid(o.data) && o.data.impostorDistance > 0 &&
+        dx*dx + dy*dy + dz*dz > o.data.impostorDistance*o.data.impostorDistance;
+  }
+  if (localSpace || !billboardTransformValid(o.data)) g.impostor = false;
+  if (g.impostor && o.data.impostorModel >= 0 &&
+      o.data.impostorModel < (int)gameModels.size() &&
+      !gameModels[o.data.impostorModel].parts.empty() &&
+      (!o.data.impostorBillboard || gameModels[o.data.impostorModel].parts.size() == (size_t)o.data.impostorViews))
+    gm = &gameModels[o.data.impostorModel];
+  else
+    g.impostor = false;
+  const bool billboard = g.impostor && o.data.impostorBillboard;
+  if (billboard) g.impostorView = billboardView(o.data, cameraPosition);
+  const SceneObjectData visualData = billboard ? billboardTransform(o.data, cameraPosition) : o.data;
+  const int partCount = billboard ? 1 : (o.data.type == 5 ? (gm ? (int)gm->parts.size() : 0) : 1);
   if ((int)g.parts.size() != partCount) g.parts.resize(partCount);
 
   for (int pi = 0; pi < partCount; ++pi) {
@@ -14037,7 +14082,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
 
   if (o.data.type == 5) {
     for (int pi = 0; pi < partCount; ++pi) {
-      const GameModelPart& src = gm->parts[pi];
+      const GameModelPart& src = gm->parts[billboard ? g.impostorView : pi];
       GeoPart& part = g.parts[pi];
       const bool textured = src.texture != nullptr;
       // Baked raycast self-AO from the model's .aov sidecar (LeanObjLoader);
@@ -14047,8 +14092,8 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       g_envNormals = src.reflTexture ? &part.envNormals : nullptr;
       for (size_t i = 0; i + 7 < src.verts.size(); i += 8) {
         const float* v = &src.verts[i];
-        pushVert(part.vertices, part.colors, part.sts, o.data,
-                 {v[0], v[1], v[2]}, {v[3], v[4], v[5]}, v[6], v[7], src.kd,
+        pushVert(part.vertices, part.colors, part.sts, visualData,
+                 {v[0], v[1], v[2]}, billboard ? V3{0,1,0} : V3{v[3], v[4], v[5]}, v[6], v[7], src.kd,
                  textured, hasAo ? src.vertexAo[i / 8] : (unsigned char)255,
                  src.ke);
       }
@@ -14208,7 +14253,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
 
     // models: the part's own map_Kd; primitives: the assigned material's
     Texture* tex =
-        o.data.type == 5 ? gm->parts[pi].texture : (gmat ? gmat->texture : nullptr);
+        o.data.type == 5 ? gm->parts[billboard ? g.impostorView : pi].texture : (gmat ? gmat->texture : nullptr);
     // Raytraced mirror: the glass samples the VU0-traced reflection image
     // (created by buildRtMirrors before this rebuild ever runs).
     if (o.data.type == 15)
@@ -14261,10 +14306,10 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     // env bag reuses this part's vertex array and bboxVersion; all-white
     // "many" colors keep its VU1 program shape identical to a textured base
     // bag, so the frustum-bbox cache entry is shared, not recomputed.
-    Texture* envTex = o.data.type == 5 ? gm->parts[pi].reflTexture
+    Texture* envTex = o.data.type == 5 ? gm->parts[billboard ? g.impostorView : pi].reflTexture
                                        : (gmat ? gmat->reflTexture : nullptr);
     const float envStr = o.data.type == 5
-                             ? gm->parts[pi].reflStrength
+                             ? gm->parts[billboard ? g.impostorView : pi].reflStrength
                              : (gmat ? gmat->reflStrength : 0.0F);
     if (envTex && envStr > 0.004F &&
         part.envNormals.size() == part.vertices.size()) {
@@ -14301,7 +14346,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       // sweeps a gradient of the sphere map instead of showing one uniform
       // sample (the viewport shader mirrors this via uReflRounded).
       const bool envRounded = o.data.type == 5
-                                  ? gm->parts[pi].reflRounded
+                                  ? gm->parts[billboard ? g.impostorView : pi].reflRounded
                                   : (gmat && gmat->reflRounded);
       if (envRounded && !part.vertices.empty()) {
         const u32 nv = static_cast<u32>(part.vertices.size());
@@ -14404,10 +14449,10 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       // The albedo the light colors get folded into - the same product the
       // baked path would have put in the vertex colors.
       const bool litTextured = o.data.type == 5 && gm && pi < (int)gm->parts.size()
-                                   ? gm->parts[pi].texture != nullptr
+                                   ? gm->parts[billboard ? g.impostorView : pi].texture != nullptr
                                    : (gmat && gmat->texture);
       const float* kd = o.data.type == 5 && gm && pi < (int)gm->parts.size()
-                            ? gm->parts[pi].kd
+                            ? gm->parts[billboard ? g.impostorView : pi].kd
                             : (gmat ? gmat->kd : nullptr);
       for (int k = 0; k < 3; ++k)
         part.litAlbedo[k] = o.data.color[k] * (kd ? kd[k] : 1.0F);
@@ -14468,7 +14513,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
 // Everything else is fair game: the collider and the AABB are model-level, so
 // collision, physics extents and the split-band cull never see a tier.
 bool TerrainGame::modelLodEligible(int index) const {
-  if (objectGeometry[index].matrixMode) return false;
+  if (objectGeometry[index].matrixMode || objectGeometry[index].impostor) return false;
   for (int fi = 0; fi < OBJECT_FEED_COUNT; ++fi)
     if (OBJECT_FEEDS[fi].scene == currentScene &&
         OBJECT_FEEDS[fi].object == index)
@@ -16385,6 +16430,7 @@ void TerrainGame::renderScene() {
   int hlCount = 0;
   const bool hlActive = HIGHLIGHT_USABLE;
   const bool hlOverlay = HIGHLIGHT_OVERLAY;
+  int impostorSwitchBudget = 4;
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (!runtimeObjects[i].active) continue;  // streamed out with its layer
     // Batched members render via renderStaticBatches above; their dirty flag
@@ -16398,6 +16444,36 @@ void TerrainGame::renderScene() {
     // 16 FPS. This is checked BEFORE `dirty` on purpose: such an object dirties
     // itself on the frame it asks, and a world-space rebuild would clear the
     // flag and leave it asking again forever.
+    // Hysteresis avoids rebuilding geometry repeatedly on a distance boundary.
+    // Original model identity is untouched: collision, scripts and bounds keep it.
+    // Secondary views share the selected representation, just like mesh LOD.
+    if (!splitSecondPass) {
+      const SceneObjectData& d = runtimeObjects[i].data;
+      ObjectGeometry& g = objectGeometry[i];
+      bool far = false;
+      if (d.type == 5 && !d.physics && d.animModel < 0 && !g.matrixMode &&
+          !runtimeObjects[i].wantsMatrixPath && billboardTransformValid(d) &&
+          d.impostorDistance > 0 && d.impostorModel >= 0 &&
+          d.impostorModel < (int)gameModels.size() &&
+          !gameModels[d.impostorModel].parts.empty() &&
+          (!d.impostorBillboard || gameModels[d.impostorModel].parts.size() == (size_t)d.impostorViews)) {
+        const float dx = d.position[0] - cameraPosition.x;
+        const float dy = d.position[1] - cameraPosition.y;
+        const float dz = d.position[2] - cameraPosition.z;
+        const float threshold = d.impostorDistance * (g.impostor ? .9F : 1.0F);
+        far = dx*dx + dy*dy + dz*dz > threshold*threshold;
+      }
+      if (far != g.impostor && impostorSwitchBudget > 0) {
+        --impostorSwitchBudget;
+        g.impostor = far;
+        if (DEBUG_SHOW_PROFILER)
+          TYRA_LOG("IMPOSTOR object=", i, " far=", far ? 1 : 0);
+        // A different model can have a different material set. Recreate bags
+        // rather than retaining an old reflection/lightmap companion pass.
+        g.parts.clear();
+        runtimeObjects[i].dirty = true;
+      }
+    }
     if (runtimeObjects[i].wantsMatrixPath && !objectGeometry[i].matrixMode &&
         physFastPathEligible(i))
       rebuildObjectGeometry(i, true);
@@ -16409,6 +16485,34 @@ void TerrainGame::renderScene() {
     if (objectGeometry[i].matrixMode) updateObjMat(i);
     if (!runtimeObjects[i].visible) continue;
     if (beyondDrawDistance(runtimeObjects[i].data, cameraPosition)) continue;
+    // Six vertices, no allocation/rebuild: the selected capture and facing
+    // update in place. Texture coordinates come from the loaded (atlas-remapped)
+    // model, so the normal asset bake remains authoritative.
+    if (!splitSecondPass && objectGeometry[i].impostor && runtimeObjects[i].data.impostorBillboard) {
+      ObjectGeometry& g = objectGeometry[i];
+      const SceneObjectData& d = runtimeObjects[i].data;
+      const int view = billboardView(d, cameraPosition);
+      const auto& src = gameModels[d.impostorModel].parts[view];
+      if (g.parts.size() == 1 && src.verts.size() == g.parts[0].vertices.size()*8) {
+        GeoPart& part = g.parts[0];
+        const SceneObjectData facing = billboardTransform(d, cameraPosition);
+        const float yaw = facing.rotation[1]*PI/180.0F;
+        const float cr = cosf(yaw), sr = sinf(yaw);
+        for (size_t k = 0; k < part.vertices.size(); ++k) {
+          const float* v = &src.verts[k*8];
+          const float x = v[0]*d.scale[0];
+          part.vertices[k] = Vec4(d.position[0]+cr*x, d.position[1]+v[1]*d.scale[1],
+                                  d.position[2]-sr*x, 1.0F);
+          part.sts[k] = Vec4(v[6],v[7],1.0F,0.0F);
+        }
+        part.texBag->texture = src.texture;
+        part.baseStamp = ++g_bboxStamp;
+        part.bag->bboxVersion = part.baseStamp;
+        if (DEBUG_SHOW_PROFILER && g.impostorView != view)
+          TYRA_LOG("IMPOSTOR VIEW object=", i, " view=", view);
+        g.impostorView = view;
+      }
+    }
     // Split halves: whole objects above/below the visible band skip here.
     if (splitBandActive && objectOutsideSplitBand(i)) continue;
     // Static mesh LOD: hard thresholds at the distance and twice it, like the

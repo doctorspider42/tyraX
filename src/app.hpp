@@ -2143,6 +2143,11 @@ private:
     char treeName_[64] = "tree";
     float treeGenAngle_ = 40.0f, treeGenPitch_ = 18.0f, treeGenZoom_ = 1.0f;
     bool treeGenSpin_ = true;
+    bool treeGenImpostor_ = true;
+    int treeImpostorViews_ = 8;
+    int modelImpostorViews_ = 8;
+    std::string modelImpostorObject_;
+    bool impostorGpu_ = true;
     int treeGenDisplayMode_ = 0;
     // Drone Generator (Tools > Drone Generator, docs/drone-generator.md).
     // droneParams_ is the whole patch; the LiveSynth and the audio device are

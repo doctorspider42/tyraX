@@ -35,6 +35,7 @@
 #include "json.hpp"
 #include "menubake.hpp"
 #include "objparser.hpp"
+#include "impostorbake.hpp"
 #include "pngquant.hpp"
 #include "uvunwrap.hpp"
 #include "stochtile.hpp"
@@ -2696,6 +2697,54 @@ bool App::drawLodOverrides(SceneObject& o, bool animated) {
     if (animated)
         row("animation LOD", o.animLodOverride, project_.settings.animLodDistance);
     row("mesh LOD", o.meshLodOverride, project_.settings.meshLodDistance);
+    if (!animated && o.type == PrimitiveType::Model) {
+        const bool supported = !o.physics && !o.modelPath.empty() &&
+            std::fabs(o.rotation[0]) < .001f && std::fabs(o.rotation[2]) < .001f &&
+            o.scale[0] > 0 && o.scale[1] > 0 && std::fabs(o.scale[0]-o.scale[2]) < .0001f;
+        if (modelImpostorObject_ != o.id) {
+            modelImpostorObject_ = o.id;
+            modelImpostorViews_ = o.impostorViews;
+        }
+        int captureChoice = modelImpostorViews_ == 4 ? 0 : modelImpostorViews_ == 16 ? 2 : 1;
+        if (ImGui::Combo("Capture views", &captureChoice, "4 views\0" "8 views\0" "16 views\0"))
+            modelImpostorViews_ = 4 << captureChoice;
+        ImGui::Checkbox("Impostor GPU", &impostorGpu_);
+        ImGui::TextDisabled("Applied on bake; GPU falls back to CPU if unavailable.");
+        ImGui::BeginDisabled(!supported);
+        if (ImGui::Button("Bake impostor")) {
+            std::string key = o.id;
+            for (char& c : key)
+                if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                      (c >= '0' && c <= '9') || c == '-')) c = '_';
+            std::string path, error, backend;
+            float extent = 0;
+            if (impostorbake::model(project_.dir, o.modelPath, o.materialPath,
+                    "res/models/impostors/model-"+key, &path, &extent, &error, 128, modelImpostorViews_, impostorGpu_, &backend)) {
+                o.impostorPath = path;
+                o.impostorBillboard = true;
+                o.impostorViews = modelImpostorViews_;
+                if (o.impostorDistance <= 0)
+                    o.impostorDistance = std::max(1.0f, extent*std::max(o.scale[0],o.scale[1])*6.0f);
+                viewport_.invalidateAssets();
+                committed = true;
+                statusMessage_ = "Baked " + std::to_string(o.impostorViews) + "-view impostor (" + backend + ") for '" + o.name + "'";
+            } else statusMessage_ = "Impostor bake failed: " + error;
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Bake this OBJ and its material into the selected number of 128px views.\n"
+                              "Requires a static, upright object with equal positive X/Z scale.\n"
+                              "Reflection and emission are unsupported. Rebuild the game after baking.");
+    }
+    if (!animated && !o.impostorPath.empty()) {
+        ImGui::TextWrapped("Impostor: %s (%d views)", o.impostorPath.c_str(), o.impostorViews);
+        ImGui::DragFloat("Impostor distance", &o.impostorDistance, 1.0f,
+                          0.0f, 2000.0f, "%.0f units");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("0 disables the distant model. Collision keeps the original mesh.\n"
+                              "Eight-view cards approximate the silhouette; the swap is not blended.");
+    }
     return committed;
 }
 

@@ -1,0 +1,1 @@
+{ "id": "probe00000000000", "name": "Courtyard floor", "type": "box", "position": [0, -0.2, 4], "rotation": [0, 0, 0], "scale": [22, 0.4, 30], "color": [0.65, 0.67, 0.7], "physics": false }
