@@ -114,11 +114,16 @@ struct Result {
     // {|x| offset, y, z, half-size}; size 0 = none found (fallback).
     float lampRear[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     float lampFront[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-    // Body part indices of the emissive lamp PARTS ("lamp-rear"/"lamp-front"
-    // - lamp materials split out of the merge so the runtime can brighten
-    // their vertex colors per instance). -1 = the model marked no lamps.
-    int lampRearPart = -1;
-    int lampFrontPart = -1;
+    // The emissive lamp PART: every lamp-named material's geometry, split out
+    // of the merge into ONE body part named "lamps" - the rear lamps' corners
+    // first, the front lamps' after - so the runtime can brighten the two
+    // vertex RANGES per instance with one submit for the lot. -1 = the model
+    // marked no lamps. lampRearVerts is the rear range's corner count (0 =
+    // the model marked front lamps only). One part rather than two because a
+    // submit is ~1 ms of fixed EE time: two lamp parts cost a driven frame a
+    // fifth of its budget for a few dozen triangles.
+    int lampPart = -1;
+    int lampRearVerts = 0;
 
     std::vector<std::string> notes;
 };
@@ -166,9 +171,23 @@ struct BakedPaths {
 // name the files without running the bake.
 BakedPaths pathsFor(const VehicleDef& v);
 
+// What the bake hands BACK to a definition: the lamp measurements (the
+// glow clusters and the emissive part indices). Pure measurement with no
+// authored value to respect, so it is adopted UNCONDITIONALLY - by the
+// editor's per-frame tick and by bakeProject alike. It used to sit inside the
+// editor's "drive spec still at its defaults" guard, and a car whose wheelbase
+// had been adopted long before its model grew lamp materials therefore never
+// received a lamp part index: the console drew the fallback quads over a body
+// that carried real lamp parts, and a headless build (no GUI tick at all)
+// could not have carried them either. Returns true when anything moved.
+bool adoptMeasured(VehicleDef& v, const Result& r);
+
 // Returns "" on success, else the first error. Definitions with no model are
 // skipped silently - an author part-way through setting one up is not an error.
-std::string bakeProject(const Project& p,
+// Mutates the project: every baked definition adopts its lamp measurements
+// (adoptMeasured) so the codegen that follows the bake reads what the bake
+// produced, whether or not the .tyra had ever seen an editor.
+std::string bakeProject(Project& p,
                         const std::function<void(const std::string&)>& log);
 
 }  // namespace vehbake

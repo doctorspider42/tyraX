@@ -18,6 +18,11 @@ whether vehicles are a feature or a demo. The answer this design reaches is
 | body | 1 — a `.tmdl` drawn through `objMat`, so VU1 applies the motion and the EE does no per-vertex work at all |
 | wheels | 1 — all four merged into ONE bag, rebuilt in world space each frame |
 
+Two opt-ins add one each, and the Cost tab counts them: *Body shine* splits
+the matte trim off the paint (reflection is per part), and lamp materials
+become one fullbright `lamps` part the runtime recolours per instance. The
+reference car with both is **four**.
+
 Rebuilding four wheels' worth of vertices per frame on the EE sounds expensive
 and is not: a decimated wheel is a few hundred vertices, and the transform is
 VU0 macro-mode work measured in microseconds against the millisecond a second
@@ -319,14 +324,25 @@ nothing when idle:
   a tenth of a second — the shift sound's visual twin.
 - **Lamps can BE body mesh** — the one thing the engine asks of the model:
   name your lamp materials. Lamp-material geometry is split out of the
-  palette merge into its own parts (`lamp-rear`/`lamp-front`), baked
-  FULLBRIGHT (ke = kd — a lamp is a light source, shading must never
-  darken it), and the runtime brightens those parts' vertex colors **per
-  instance** every frame: rear dark red → red with the lights → bright
-  flare on the brake; front warm white with the lights. Mesh lamps stick
-  to every body shape by construction, because they ARE the body. The
-  definition records the part indices (`lampRearPart`/`lampFrontPart`);
-  models without lamp materials keep the fallback below.
+  palette merge into ONE extra part, `lamps` — the rear lamps' corners
+  first, the front lamps' after — baked FULLBRIGHT (ke = kd — a lamp is a
+  light source, shading must never darken it), and the runtime brightens
+  the two corner **ranges** per instance every frame: rear dark red → red
+  with the lights → bright flare on the brake; front warm white with the
+  lights. Mesh lamps stick to every body shape by construction, because
+  they ARE the body. One part rather than two because a submit is ~1 ms of
+  fixed EE time whatever it holds: a rear part and a front part cost a
+  driven frame a fifth of its budget for a few dozen triangles. The part
+  is never decimated (a collapse reorders corners, and the split is a
+  corner index) and never gets LOD tiers. The definition records
+  `lampPart` and `lampRearVerts`, **measured, never authored**:
+  `vehbake::adoptMeasured` writes them from the editor's per-frame bake,
+  from the Runner's build bake and from `--refresh-gen` alike, so a project
+  that has never seen the GUI still ships them — and the build bake runs
+  BEFORE codegen for exactly that reason. The reference CC96 names
+  `headlights`, `headlights2` and `rear lights`, and drives with mesh
+  lamps; the editor draws the part in the console's lights-off colours.
+  Models without lamp materials keep the fallback below.
 - **The lamps follow the MATERIALS.** The import pools the canonical AABBs
   of body parts whose material name says lamp (`lamp/light/brake/tail/stop/
   head/front`, plus a vertex-end split when the name does not say which end)
@@ -937,14 +953,15 @@ never showed the bug.
 
 ## Not built yet
 
-Honest state, so nobody looks for these. There is **no HUD** — no speedometer and
-no tacho, though the powertrain now supplies both their inputs, and note that a PS2
-sprite is axis-aligned, so a swinging needle is not a sprite rotation. **No AI
-drivers**, though `DriveInput` is the seam and nothing else has to move. **No tyre
-smoke**, though `DriveState::slip` is the one number it would read. A vehicle does
-not trade momentum with physics crates or with another car. And the controls other
-than USE are **raw pad reads** rather than Input Map actions, so they cannot be
-rebound. Every one of those has an entry in docs/backlog.md.
+Honest state, so nobody looks for these. There is **no tacho** — the HUD reads
+speed, gear and nitrous, and the powertrain supplies the engine speed, but a PS2
+sprite is axis-aligned, so a swinging needle is not a sprite rotation (a
+pre-baked sheet per angle or a small bag of geometry). A vehicle does not trade
+momentum with **physics crates** (car vs car does — see the drive model). AI
+cars do not avoid **each other**, and the patrol is a baked waypoint loop, not
+navigation. The **distant one-submit tier** (wheels baked into the body for a
+parked fleet far away) is designed and not built. Nothing has timed a driven
+frame on a **real PS2**. Every one of those has an entry in docs/backlog.md.
 
 The canonical vehicle frame is **forward +Z, up +Y, right +X**, and the bake is
 the one place an exporter's frame is discarded. Everything downstream — the sim,

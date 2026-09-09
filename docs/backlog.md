@@ -297,6 +297,17 @@ gaps, each with a testable end:
   before `ps aux` told the truth. killEmulatorsFor should normalise quoting
   before matching, and a diagnostic "N other emulator(s) on this ELF" line in
   the Runner would have named it immediately.
+- **~~The example never drove with mesh lamps.~~ FIXED (1.79.0)** - the CC96
+  names `headlights`/`rear lights`, and the bake split them out, but the editor
+  adopted the lamp measurements only inside the "drive spec at defaults" guard
+  (false for every car whose wheelbase had been adopted earlier) and the build
+  bake ran AFTER refreshGenerated, so codegen read -1 for a part the same build
+  had just written. Both commit messages that said "the CC96 names no lamp
+  materials" were wrong - nothing had measured it. The lesson kept here: **a
+  "no such input" claim about a fixture is a claim to check with one grep of
+  the asset**, and a measurement the bake hands back to the definition must
+  land through one adoption function that every path calls (adoptMeasured),
+  or the GUI, the Runner and the CLI drift three ways.
 - **~~Tail/brake lamps submit and do not show.~~ FIXED** - two stacked
   causes, neither the suspected blend path: the lights BOOKKEEPING sat in
   the smoke's slip-gated block (a car that never slipped never initialised

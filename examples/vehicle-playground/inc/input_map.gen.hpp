@@ -109,6 +109,11 @@ void inputRebuild();  // preset + overrides -> g_inputBind
 void inputSetPreset(int preset);
 void inputSetOverride(int action, int code);
 bool inputPressed(Tyra::Pad& pad, int action);  // held this frame
+// The bound pad button's PRESSURE, 0..1 - a DualShock 2 reports
+// 0..255 for the twelve pressure buttons, which is what an analog
+// throttle wants. Digital sources (keyboard, mouse, the four
+// pressure-less buttons) read as exactly 1 while held.
+float inputAnalog(Tyra::Pad& pad, int action);
 bool inputClicked(Tyra::Pad& pad, int action);  // went down now
 // Left-stick deflection (-127..127) the move-* actions ask for on a
 // keyboard; 0/0 when no key is down or no keyboard is attached.

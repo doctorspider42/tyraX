@@ -147,17 +147,15 @@ void App::vehicleRefreshBake(int index, bool force) {
             v.drive.wheelRadius = r_geom(c.result.spec.wheelRadius, def.wheelRadius);
             v.drive.rideHeight = r_geom(c.result.spec.rideHeight, def.rideHeight);
             v.drive.bodyOverhang = r_geom(c.result.spec.bodyOverhang, def.bodyOverhang);
-            // Lamp clusters follow the bake unconditionally: they are pure
-            // measurement (there is no authored value to respect), and a
-            // re-import of a re-textured model must move the glow with it.
-            for (int k = 0; k < 4; ++k) {
-                v.lampRear[k] = c.result.lampRear[k];
-                v.lampFront[k] = c.result.lampFront[k];
-            }
-            v.lampRearPart = c.result.lampRearPart;
-            v.lampFrontPart = c.result.lampFrontPart;
             setDirty(true);
         }
+        // The lamp measurements follow the bake UNCONDITIONALLY - outside the
+        // defaults guard above, on purpose: there is no authored value to
+        // respect, and inside that guard a car whose wheelbase had been
+        // adopted before its model grew lamp materials (the CC96) never
+        // received its lamp part index at all. vehbake::adoptMeasured is the
+        // one list, shared with the build's bakeProject.
+        if (vehbake::adoptMeasured(v, c.result)) setDirty(true);
     }
 
     // Hand the geometry to the viewport so a placed instance draws. The
@@ -165,7 +163,8 @@ void App::vehicleRefreshBake(int index, bool force) {
     // bake, and no .tmdl reader on the host that would have to agree with it.
     viewport_.setVehicleDraw(v.name, c.result.body, c.result.wheel,
                              ".res-baked/" + rel + "-palette.png", v.drive.wheelBase,
-                             v.drive.track, v.drive.wheelRadius, v.drive.rideHeight);
+                             v.drive.track, v.drive.wheelRadius, v.drive.rideHeight,
+                             c.result.lampPart, c.result.lampRearVerts);
 }
 
 // Keeps every definition's bake current, one per frame at most. Called from

@@ -407,6 +407,18 @@ mtime before trusting a run from there.
   a real backend, put a stub `claude.cmd` on PATH that swallows stdin
   (`findstr /r ".*" > nul`) and echoes a graph JSON — the Generator, parser,
   append-merge and save all exercise for real (see PROGRESS 65).
+- **`--refresh-gen` DOES run the vehicle bake** (`vehbake::bakeProject`, the
+  `[vehicle]` lines), unlike texbake: the bake hands measurements BACK to the
+  definition - the emissive `lamps` part index and its rear corner count,
+  `vehbake::adoptMeasured` - and codegen bakes those into `VEHICLE_DEFS`, so a
+  refresh without the bake emits `-1` for a part the next build writes. The
+  Runner runs it before `refreshGenerated` for the same reason. The check for
+  a lamp-material model is one grep: `grep -o '{[^}]*}, {[^}]*}, [0-9-]*,
+  [0-9]*, [0-9-]*, [0-9.]*F}' inc/scene_data.hpp` on the `VEHICLE_DEFS` row
+  reads `..., 2, 60, ...` on the CC96 (part 2, 60 rear corners); the lamp
+  colours on a GS capture then read EXACTLY the runtime's constants
+  ((175,32,24) lit / (78,14,12) off / (255,45,35) braking), which is how the
+  chain was verified.
 - Both `--build` and `--refresh-gen` also run the **procedural bake** first
   (`procbake::bakeAll` - docs/procedural-generation.md): stale Procedural
   volumes are baked into their chunk meshes and the project is saved, printing

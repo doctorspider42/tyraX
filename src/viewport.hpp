@@ -1007,17 +1007,21 @@ private:
    public:
     // Publishes one definition's baked geometry. Cheap to call only when a
     // bake changes - it uploads meshes.
+    // lampPart/lampRearVerts: the body's emissive lamp part and its rear
+    // corner range (docs/vehicles.md) - drawn in the console's lights-off
+    // colours, so the preview shows the car the way it parks.
     void setVehicleDraw(const std::string& name, const tmdl::Model& body,
                         const tmdl::Model& wheel, const std::string& paletteRel,
                         float wheelBase, float track, float wheelRadius,
-                        float rideHeight);
+                        float rideHeight, int lampPart = -1, int lampRearVerts = 0);
     void clearVehicleDraws();
     // World-space bounds of a placed vehicle, body and wheels together - what
     // a click tests against and what the selection outline wraps.
     bool vehicleLocalBounds(const SceneObject& o, float mn[3], float mx[3]) const;
 
    private:
-    ModelDraw uploadTmdl(const tmdl::Model& m, const std::string& paletteRel);
+    ModelDraw uploadTmdl(const tmdl::Model& m, const std::string& paletteRel,
+                         int lampPart = -1, int lampRearVerts = 0);
 
     // keyed by "<modelPath>|<materialPath>" - an .mtl override changes the draw
     std::map<std::string, ModelDraw> modelCache_;

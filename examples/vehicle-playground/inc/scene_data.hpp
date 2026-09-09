@@ -217,7 +217,7 @@ constexpr int SCENE_COUNT = 1;
 constexpr int START_SCENE = 0;
 
 // scene "main"
-constexpr SceneObjectData SCENE_0_OBJECTS[17] = {
+constexpr SceneObjectData SCENE_0_OBJECTS[18] = {
     {6, {0.0F, 0.0F, -4.0F}, {0.0F, 180.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // player-1
     {5, {0.0F, 0.0F, -8.0F}, {0.0F, 0.0F, 0.0F}, {1.5F, 1.5F, 1.5F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 0, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // coupe
     {0, {-152.0F, 2.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.5F, 4.0F, 304.0F}, {0.62F, 0.63F, 0.66F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // wall-1
@@ -235,12 +235,13 @@ constexpr SceneObjectData SCENE_0_OBJECTS[17] = {
     {17, {55.0F, 0.0F, -55.0F}, {0.0F, 0.0F, 0.0F}, {4.0F, 4.0F, 4.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // circuit-b
     {17, {-55.0F, 0.0F, -55.0F}, {0.0F, 0.0F, 0.0F}, {4.0F, 4.0F, 4.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // circuit-c
     {17, {-55.0F, 0.0F, 55.0F}, {0.0F, 0.0F, 0.0F}, {4.0F, 4.0F, 4.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // circuit-d
+    {21, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // main-street
 };
 
-constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {17};
+constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {18};
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
 
-constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[17] = {0xec49b5b85129c6bfULL, 0xafc362843aa32e28ULL, 0xa740d590774e0aeaULL, 0xa736d5907745b665ULL, 0xa73ad59077499f3cULL, 0xa74ad59077565f6fULL, 0x7c9489297f335bb5ULL, 0x7c9e89297f3bb03aULL, 0x7c9a89297f37c763ULL, 0x7c8889297f27a130ULL, 0x7c8689297f271e59ULL, 0x738d602979fa23b3ULL, 0xafc762843aa716ffULL, 0x8ae0d54f831cd808ULL, 0x8ae2d54f831d5adfULL, 0x8ae6d54f832143b6ULL, 0x8aced54f830cb1d5ULL};
+constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[18] = {0xec49b5b85129c6bfULL, 0xafc362843aa32e28ULL, 0xa740d590774e0aeaULL, 0xa736d5907745b665ULL, 0xa73ad59077499f3cULL, 0xa74ad59077565f6fULL, 0x7c9489297f335bb5ULL, 0x7c9e89297f3bb03aULL, 0x7c9a89297f37c763ULL, 0x7c8889297f27a130ULL, 0x7c8689297f271e59ULL, 0x738d602979fa23b3ULL, 0xafc762843aa716ffULL, 0x8ae0d54f831cd808ULL, 0x8ae2d54f831d5adfULL, 0x8ae6d54f832143b6ULL, 0x8aced54f830cb1d5ULL, 0x62fe74fff514a6f4ULL};
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
 
 // Endless scrollers (type 19). SCROLLERS holds per-belt state;
@@ -286,6 +287,7 @@ struct VehicleDefData {
   int bodyModel; int wheelModel;
   float wheelBase;
   float track;
+  float bodyOverhang;
   float wheelRadius;
   float topSpeed;
   float reverseTopSpeed;
@@ -324,6 +326,19 @@ struct VehicleDefData {
   // multipliers at idle and at the redline.
   int engineSnd; float enginePitchIdle; float enginePitchRedline;
   int engineVolume;
+  // The sound pack: a HIGH-rev loop crossfaded with the one
+  // above (-1 = single-sample), a tyre squeal riding slip, a
+  // one-shot per gear change. SND_PATHS slots, -1 = none.
+  int engineHighSnd; int screechSnd; int shiftSnd;
+  int screechVolume; int shiftVolume;
+  int headlights;  // additive terrain pools ahead of the nose
+  // Lamp clusters measured off lamp-named MATERIALS by the
+  // import ({|x|, y, z, half-size}, canonical frame; size 0 =
+  // unmeasured, the glow falls back to heuristic spots).
+  float lampRear[4]; float lampFront[4];
+  // The emissive lamp body part (-1 = none) and how many of its
+  // corners are the REAR lamps; the front lamps follow them.
+  int lampPart; int lampRearVerts;
   // Driver readout: a FONTS slot (-1 = no HUD) and what a world
   // unit per second should READ as on it.
   int hudFont; float hudSpeedScale;
@@ -332,8 +347,19 @@ struct VehicleInstData { int scene; int object; int def; int driveable;
                          int wpFirst; int wpCount; };
 constexpr int VEHICLE_DEF_COUNT = 1;
 constexpr VehicleDefData VEHICLE_DEFS[1] = {
-    {0, 1, 2.066F, 1.248F, 0.232F, 22.0F, 6.0F, 9.0F, 18.0F, 3.0F, 0.0016F, 34.0F, 11.0F, 220.0F, 300.0F, 26.0F, 6.0F, 24.0F, 0.232F, 0.18F, 8.0F, 0.5F, 12.0F, 0.8F, 5.0F, 1.52F, 800.0F, 7200.0F, 0.93F, 0.5F, 0.18F, 0.6F, 3.0F, 0.8F, 1.18F, 0.12F, 6.5F, 2.2F, 12.0F, {-1.4F, 0.0F, 0.0F}, 0, 0.75F, 2.4F, 70, 0, 3.6F},  // CC96
+    {0, 1, 2.066F, 1.248F, 0.3F, 0.232F, 22.0F, 6.0F, 9.0F, 18.0F, 3.0F, 0.0016F, 34.0F, 11.0F, 220.0F, 300.0F, 26.0F, 6.0F, 24.0F, 0.232F, 0.18F, 8.0F, 0.5F, 12.0F, 0.8F, 5.0F, 1.52F, 800.0F, 7200.0F, 0.93F, 0.5F, 0.18F, 0.6F, 3.0F, 0.8F, 1.18F, 0.12F, 6.5F, 2.2F, 12.0F, {-1.4F, 0.0F, 0.0F}, 0, 0.75F, 2.4F, 70, 1, 2, 3, 80, 80, 1, {0.389809F, 0.22911F, -1.71703F, 0.194904F}, {0.484619F, 0.234116F, 1.62703F, 0.24231F}, 2, 60, 0, 3.6F},  // CC96
 };
+
+// Roads (docs/roads.md): points in, geometry at boot.
+constexpr int ROAD_COUNT = 1;
+constexpr int ROAD_TEXTURE_COUNT = 1;
+struct RoadDefRt { int scene; int first; int pointCount; float width; int tex; };
+constexpr RoadDefRt ROAD_DEFS[1] = {
+    {0, 0, 5, 7.0F, 0},  // main-street
+};
+constexpr float ROAD_POINTS[10] = {0.0F, -60.0F, 0.0F, -10.0F, 6.0F, 40.0F, 40.0F, 80.0F, 95.0F, 105.0F};
+constexpr float ROAD_LIFT[5] = {0.0F, 0.0F, 0.0F, 2.5F, 0.0F};
+constexpr const char* ROAD_TEXTURE_PATHS[1] = {"textures/road.png"};
 constexpr int VEHICLE_COUNT = 2;
 constexpr VehicleInstData VEHICLES[2] = {
     {0, 1, 0, 1, -1, 0},
@@ -495,8 +521,8 @@ constexpr int PORTAL_VIEW_OBJECTS[1] = {-1};
 // owner by MirrorData/CamFeedData/PortalData::firstCand.
 constexpr int CATCH_CANDIDATES[1] = {-1};
 
-constexpr int SND_COUNT = 1;
-inline const char* SND_PATHS[1] = {"sfx/engine-loop.adpcm"};
+constexpr int SND_COUNT = 4;
+inline const char* SND_PATHS[4] = {"sfx/engine-loop.adpcm", "sfx/engine-high-loop.adpcm", "sfx/screech-loop.adpcm", "sfx/gear-shift.adpcm"};
 
 constexpr int PLAYER_INDEXES[SCENE_COUNT] = {0};
 constexpr int PLAYER_MODES[SCENE_COUNT] = {0};

@@ -2646,7 +2646,7 @@ void TerrainGame::loop() {
   // data.rotation, and a spinner that is ALSO a body must see the tumble's
   // value rather than fight it.
   if (!menuActive) updateSpinners();
-  if (!menuActive) { updateVehicles(g_frameScale * (1.0F / 50.0F)); updateVehicleSmoke(g_frameScale * (1.0F / 50.0F)); }
+  if (!menuActive) { updateVehicles(g_frameScale * (1.0F / 50.0F)); updateVehicleSmoke(g_frameScale * (1.0F / 50.0F)); updateVehicleSkids(g_frameScale * (1.0F / 50.0F)); }
   else muteVehicleEngines();
 
   // Portal surfaces: carry the player / physics objects that crossed a
@@ -5019,7 +5019,7 @@ static bool sndBeats(const SoundWant& a, const SoundWant& b, int margin) {
 static std::vector<SoundWant> sndWants;
 
 static bool sndHoldsSlot(int obj) {
-  for (int s = 0; s < 7; ++s)
+  for (int s = 0; s < 4; ++s)
     if (sndSlotOwner[s] == obj) return true;
   return false;
 }
@@ -5042,11 +5042,11 @@ static const SoundWant* sndWantOf(const std::vector<SoundWant>& wants, int obj) 
 // A channel that changes hands has its volume/pan cache invalidated here, at
 // the assignment - the same thing a bus switch does, and for the same reason.
 static void pickSoundSlots(const std::vector<SoundWant>& wants) {
-  for (int s = 0; s < 7; ++s)
+  for (int s = 0; s < 4; ++s)
     if (sndSlotOwner[s] >= 0 && !sndWantOf(wants, sndSlotOwner[s]))
       sndSlotOwner[s] = -1;
 
-  for (int s = 0; s < 7; ++s) {
+  for (int s = 0; s < 4; ++s) {
     if (sndSlotOwner[s] >= 0) continue;
     const SoundWant* best = 0;
     for (int k = 0; k < (int)wants.size(); ++k) {
@@ -5061,7 +5061,7 @@ static void pickSoundSlots(const std::vector<SoundWant>& wants) {
 
   // Bounded by the channel count: every pass moves exactly one emitter in and
   // one out, so eight is already more than can ever be useful.
-  for (int pass = 0; pass < 7; ++pass) {
+  for (int pass = 0; pass < 4; ++pass) {
     const SoundWant* cand = 0;
     for (int k = 0; k < (int)wants.size(); ++k) {
       if (sndHoldsSlot(wants[k].obj)) continue;
@@ -5070,7 +5070,7 @@ static void pickSoundSlots(const std::vector<SoundWant>& wants) {
     if (!cand) break;
     int worst = -1;
     const SoundWant* worstWant = 0;
-    for (int s = 0; s < 7; ++s) {
+    for (int s = 0; s < 4; ++s) {
       const SoundWant* w = sndWantOf(wants, sndSlotOwner[s]);
       if (!w) continue;
       if (!worstWant || sndBeats(*worstWant, *w, 0)) { worstWant = w; worst = s; }
@@ -5395,6 +5395,13 @@ void TerrainGame::loadScene(int sceneIndex) {
     }
   }
 
+  // Roads AFTER the procedural build: that block clears procChunks (nothing
+  // generated survives a scene switch), and the first placement of this call
+  // sat ten lines above it - five road chunks built and wiped before the
+  // first frame, a road only the boot log ever saw.
+  buildRoads(sceneIndex);
+
+
   // Raytraced mirrors (VU0 PoC): create this scene's reflection textures
   // before the lazy geometry rebuild binds them to the glass quads.
   buildRtMirrors();
@@ -5630,7 +5637,7 @@ void TerrainGame::updateSoundEmitters() {
   // BUS: +0 on core 1, +24 on core 0 (docs/reverb.md). A room change moves an
   // emitter to a different channel, and its next trigger is heard through the
   // incoming room while whatever it has in flight finishes in the outgoing one.
-  for (int s = 0; s < 7; ++s) {
+  for (int s = 0; s < 4; ++s) {
     const s8 ch = (s8)(scriptCtx.reverbBusBase + 16 + s);
     if (sndChBus[s] != scriptCtx.reverbBusBase) {
       // The cached volume/pan describe the channel on the bus we just left, so
@@ -10789,6 +10796,7 @@ bool TerrainGame::objectCollides(const SceneObjectData& d) {
     case 9:   // point light
     case 11:  // empty
     case 13:  // decal
+    case 21:  // road - the surface is procChunks; the OBJECT is authoring only
     case 14:  // camera marker
     case 17:  // area (a volume, not a wall)
     case 18:  // procedural volume (authoring only)
@@ -11872,6 +11880,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
           addAreaWireframe(p0.vertices, p0.colors, p0.sts, o.data);
         break;
       case 18: break;  // scatter volume - editor authoring region only
+      case 21: break;  // road - buildRoads tessellates it into procChunks
       case 12: addPlane(p0.vertices, p0.colors, p0.sts, o.data); break;
       case 13: {
         // Projecting decal: a world-space mesh conforming to the receiver
@@ -12998,8 +13007,9 @@ void TerrainGame::procFinishChunks() {
     c.bag->vertices = c.vertices.data();
     c.bag->count = static_cast<u32>(c.vertices.size());
     c.bag->bboxVersion = ++g_bboxStamp;
-    const Tyra::Texture* tex = nullptr;
-    if (c.model >= 0 && c.model < (int)gameModels.size() &&
+    const Tyra::Texture* tex = c.roadTex;
+    if (tex) {
+    } else if (c.model >= 0 && c.model < (int)gameModels.size() &&
         c.part < (int)gameModels[c.model].parts.size())
       tex = gameModels[c.model].parts[c.part].texture;
     else if (c.material >= 0 && c.material < (int)gameMaterials.size())
@@ -13101,6 +13111,275 @@ void TerrainGame::renderVehicleSmoke() {
   smokeBag_->count = (u32)kVehSmokeMax;
   smokeBag_->bboxVersion = ++g_bboxStamp;  // centres move every frame
   stapip.core.render(smokeBag_.get());
+}
+
+// SKID MARKS. Decay is colors-only; geometry (and bboxVersion) changes only
+// when a quad spawns, so a fading track costs the GS blending and nothing
+// else. Spawning is DISTANCE-paced (a quad every half unit of travel), which
+// is what makes a long drift read as a continuous stripe at any speed.
+void TerrainGame::updateVehicleSkids(float dt) {
+  skidAlive_ = 0;
+  for (int i = 0; i < kVehSkidMax; ++i) {
+    if (skidLife_[i] <= 0.0F) continue;
+    skidLife_[i] -= dt;
+    const float t = skidLife_[i] > 0.0F ? skidLife_[i] / 6.0F : 0.0F;
+    const float a = 58.0F * t;
+    for (int k = 0; k < 6; ++k) skidCols_[i * 6 + k].a = a;
+    ++skidAlive_;
+  }
+  for (int vi = 0; vi < vehicleCount_; ++vi) {
+    VehicleRt& v = vehicles_[vi];
+    if (!v.active || v.def < 0 || !v.grounded || v.slip < 0.4F) {
+      if (v.active) v.skidAcc = 0.0F;
+      continue;
+    }
+    const VehicleDefData& s = VEHICLE_DEFS[v.def];
+    const float SC = v.scale;
+    const float spd = v.speed < 0.0F ? -v.speed : v.speed;
+    if (spd < 2.0F) continue;
+    v.skidAcc += spd * dt;
+    if (v.skidAcc < 0.5F) continue;
+    v.skidAcc = 0.0F;
+    const float cy = cosf(v.yaw * 0.017453293F), sy = sinf(v.yaw * 0.017453293F);
+    const float hx = 0.5F * s.track * SC, hz = 0.5F * s.wheelBase * SC;
+    const float hw = 0.10F * SC, hl = 0.32F * SC;
+    for (int w = 2; w < 4; ++w) {  // the rear pair - the driven wheels
+      const float lx = (w == 2 ? -hx : hx), lz = -hz;
+      const float ax = v.pos[0] + lx * cy + lz * sy;
+      const float az = v.pos[2] - lx * sy + lz * cy;
+      const float ay = v.wheelY[w] + 0.03F;
+      const float fx = sy * hl, fz = cy * hl;
+      const float rx = cy * hw, rz = -sy * hw;
+      const int q = skidNext_;
+      skidNext_ = (skidNext_ + 1) % kVehSkidMax;
+      skidLife_[q] = 6.0F;
+      Tyra::Vec4* qv = &skidVerts_[q * 6];
+      qv[0].set(ax - rx - fx, ay, az - rz - fz, 1.0F);
+      qv[1].set(ax + rx - fx, ay, az + rz - fz, 1.0F);
+      qv[2].set(ax + rx + fx, ay, az + rz + fz, 1.0F);
+      qv[3].set(ax - rx - fx, ay, az - rz - fz, 1.0F);
+      qv[4].set(ax + rx + fx, ay, az + rz + fz, 1.0F);
+      qv[5].set(ax - rx + fx, ay, az - rz + fz, 1.0F);
+      for (int k = 0; k < 6; ++k)
+        skidCols_[q * 6 + k] = Tyra::Color(16.0F, 16.0F, 16.0F, 58.0F);
+      skidDirty_ = 1;
+      ++skidAlive_;
+    }
+  }
+}
+
+void TerrainGame::renderVehicleSkids() {
+  if (skidAlive_ <= 0) return;
+  if (!skidBag_) {
+    skidInfoBag_ = std::make_unique<StaPipInfoBag>();
+    skidInfoBag_->model = &model;
+    skidInfoBag_->shadingType = TyraShadingGouraud;
+    // Full clip checks ON: these are plain world quads the camera drives
+    // straight over, and a near-plane crosser without them is the giant
+    // smeared polygon of engine legend.
+    skidInfoBag_->fullClipChecks = true;
+    // Precise culling is REQUIRED with full clip checks (the engine asserts
+    // on the None combination) - and it is also what we want: parked skid
+    // trails across the map cull away by bbox, spawn bumps bboxVersion.
+    skidInfoBag_->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    skidInfoBag_->zTestType = PipelineZTest_TestOnly;
+    skidColorBag_ = std::make_unique<StaPipColorBag>();
+    skidColorBag_->many = skidCols_;
+    skidBag_ = std::make_unique<StaPipBag>();
+    skidBag_->info = skidInfoBag_.get();
+    skidBag_->color = skidColorBag_.get();
+    skidBag_->lighting = nullptr;
+    skidBag_->texture = nullptr;
+    skidBag_->vertices = skidVerts_;
+  }
+  skidBag_->count = (u32)(kVehSkidMax * 6);
+  if (skidDirty_) {
+    skidDirty_ = 0;
+    skidBag_->bboxVersion = ++g_bboxStamp;
+  }
+  stapip.core.render(skidBag_.get());
+}
+
+// The GLOW bag: one ADDITIVE submit for everything a car adds light with -
+// rebuilt every frame from the vehicles (it is tiny), submitted only when
+// anything glows. Headlight pools are the scene lights' ground-pool trick:
+// a terrain-hugging trapezoid, bright at the nose, gone at the far end -
+// gouraud does the falloff. The backfire is a vertical quad at the exhaust
+// for a tenth of a second on every upshift, the shift sound's visual twin.
+void TerrainGame::renderVehicleGlow() {
+  glowCount_ = 0;
+  const float kDeg = 0.017453293F;
+  for (int vi = 0; vi < vehicleCount_ && glowCount_ + 3 <= kVehGlowMax; ++vi) {
+    VehicleRt& v = vehicles_[vi];
+    if (!v.active || v.def < 0) continue;
+    const VehicleDefData& s = VEHICLE_DEFS[v.def];
+    const float SC = v.scale;
+    const float cy = cosf(v.yaw * kDeg), sy = sinf(v.yaw * kDeg);
+    const float hz = 0.5F * s.wheelBase * SC;
+    // EMISSIVE LAMP PARTS (docs/vehicles.md): a model whose materials marked
+    // its lamps carries them as their own body parts, and the runtime
+    // brightens those parts' vertex colors PER INSTANCE - lamps that are
+    // body mesh stick to every shape by construction. Written every frame:
+    // a lamp part is a few dozen verts, and bookkeeping a rebuild
+    // generation would cost more than the writes.
+    if (v.object >= 0 && v.object < (int)objectGeometry.size()) {
+      ObjectGeometry& og2 = objectGeometry[(size_t)v.object];
+      // ONE lamp part, two corner RANGES: [0, lampRearVerts) is the rear
+      // lamps, the rest the front - one submit for every lamp on the car.
+      // The vehicle bake never gives that part LOD tiers (a collapse would
+      // reorder the corners), so part.colors is the whole story.
+      if (s.lampPart >= 0 && s.lampPart < (int)og2.parts.size()) {
+        auto& cols = og2.parts[(size_t)s.lampPart].colors;
+        const Tyra::Color rc =
+            v.brakeOn ? Tyra::Color(255.0F, 45.0F, 35.0F, 128.0F)
+                      : (v.lightsOn > 0
+                             ? Tyra::Color(175.0F, 32.0F, 24.0F, 128.0F)
+                             : Tyra::Color(78.0F, 14.0F, 12.0F, 128.0F));
+        const Tyra::Color fc =
+            v.lightsOn > 0 ? Tyra::Color(255.0F, 245.0F, 210.0F, 128.0F)
+                           : Tyra::Color(96.0F, 94.0F, 86.0F, 128.0F);
+        const int nRear = s.lampRearVerts < (int)cols.size()
+                              ? s.lampRearVerts
+                              : (int)cols.size();
+        for (int ci = 0; ci < nRear; ++ci) cols[(size_t)ci] = rc;
+        for (int ci = nRear; ci < (int)cols.size(); ++ci) cols[(size_t)ci] = fc;
+      }
+    }
+    if (v.lightsOn > 0) {
+      // The beam starts at the measured front lamps when the model marked
+      // them, else just past the bumper.
+      const float nose = s.lampFront[3] > 0.0F
+                             ? s.lampFront[2] * SC + 0.15F * SC
+                             : hz + (s.bodyOverhang + 0.2F) * SC;
+      const float nx = v.pos[0] + sy * nose;
+      const float nz = v.pos[2] + cy * nose;
+      const float fx2 = v.pos[0] + sy * (hz + 7.5F * SC);
+      const float fz2 = v.pos[2] + cy * (hz + 7.5F * SC);
+      const float nw = 0.55F * s.track * SC, fw = 1.1F * s.track * SC;
+      const float rxn = cy * nw, rzn = -sy * nw;
+      const float rxf = cy * fw, rzf = -sy * fw;
+      Tyra::Vec4* g = &glowVerts_[glowCount_ * 6];
+      Tyra::Color* c = &glowCols_[glowCount_ * 6];
+      const float e = 0.06F;
+      g[0].set(nx - rxn, terrainHeightAt(nx - rxn, nz - rzn) + e, nz - rzn, 1.0F);
+      g[1].set(nx + rxn, terrainHeightAt(nx + rxn, nz + rzn) + e, nz + rzn, 1.0F);
+      g[2].set(fx2 + rxf, terrainHeightAt(fx2 + rxf, fz2 + rzf) + e, fz2 + rzf, 1.0F);
+      g[3] = g[0];
+      g[4] = g[2];
+      g[5].set(fx2 - rxf, terrainHeightAt(fx2 - rxf, fz2 - rzf) + e, fz2 - rzf, 1.0F);
+      const Tyra::Color nearC(210.0F, 200.0F, 140.0F, 64.0F);
+      const Tyra::Color farC(210.0F, 200.0F, 140.0F, 0.0F);
+      c[0] = nearC; c[1] = nearC; c[2] = farC; c[3] = nearC; c[4] = farC; c[5] = farC;
+      ++glowCount_;
+    }
+    // Tail lamps: two small red quads on the rear face. Dim while the
+    // lights are on, FLARED while braking - and braking lights them even
+    // with the headlights off, like the real thing.
+    if ((s.lampPart < 0 || s.lampRearVerts <= 0) && (v.lightsOn > 0 || v.brakeOn) &&
+        glowCount_ + 4 <= kVehGlowMax) {
+      const float bright = v.brakeOn ? 1.0F : 0.45F;
+      // MEASURED lamps first (docs/vehicles.md): the import pools the AABBs
+      // of lamp-named materials, so the glow sits where THIS body's lamps
+      // are - every shape is different, and the material is the one thing
+      // that knows. Size 0 = the model marked nothing; the shape-blind
+      // heuristic (sized to shoulder past the trim band, pushed past
+      // bodyOverhang so the body mesh cannot z-eat it) stays the fallback.
+      const bool measured = s.lampRear[3] > 0.0F;
+      const float flare = v.brakeOn ? 1.3F : 1.0F;
+      const float hw = measured ? s.lampRear[3] * SC * flare
+                                : (v.brakeOn ? 0.30F : 0.24F) * SC;
+      const float hh = measured ? s.lampRear[3] * SC * 0.7F * flare
+                                : (v.brakeOn ? 0.16F : 0.11F) * SC;
+      const float hxT =
+          measured ? s.lampRear[0] * SC : 0.32F * s.track * SC;
+      const float rxu = cy, rzu = -sy;  // unit right
+      const float rear = measured
+                             ? -s.lampRear[2] * SC + 0.06F * SC
+                             : hz + (s.bodyOverhang + 0.10F) * SC;
+      for (int side = -1; side <= 1; side += 2) {
+        const float bx = v.pos[0] - sy * rear + rxu * hxT * (float)side;
+        const float bz = v.pos[2] - cy * rear + rzu * hxT * (float)side;
+        const float by = v.pos[1] +
+                         (measured ? s.lampRear[1] * SC : 0.10F * SC);
+        const float rx = rxu * hw, rz = rzu * hw;
+        Tyra::Vec4* g = &glowVerts_[glowCount_ * 6];
+        Tyra::Color* c = &glowCols_[glowCount_ * 6];
+        g[0].set(bx - rx, by - hh, bz - rz, 1.0F);
+        g[1].set(bx + rx, by - hh, bz + rz, 1.0F);
+        g[2].set(bx + rx, by + hh, bz + rz, 1.0F);
+        g[3] = g[0];
+        g[4] = g[2];
+        g[5].set(bx - rx, by + hh, bz - rz, 1.0F);
+        const Tyra::Color red(235.0F, 22.0F, 16.0F, 110.0F * bright);
+        for (int j = 0; j < 6; ++j) c[j] = red;
+        ++glowCount_;
+        // DOUBLE-SIDED: a vertical quad has a back, and the chase camera
+        // lives exactly on the side the first winding faces away from -
+        // the pool never hit this because it lies flat. The probe said
+        // "3 quads submitted" while the screen said "no lights"; this is
+        // what the difference was.
+        Tyra::Vec4* g2 = &glowVerts_[glowCount_ * 6];
+        Tyra::Color* c2 = &glowCols_[glowCount_ * 6];
+        for (int j = 0; j < 6; ++j) {
+          g2[j] = g[5 - j];
+          c2[j] = red;
+        }
+        ++glowCount_;
+      }
+    }
+    if (v.backfireT > 0.0F) {
+      const float k = v.backfireT / 0.09F;
+      const float bx = v.pos[0] - sy * (hz + (s.bodyOverhang + 0.24F) * SC);
+      const float bz = v.pos[2] - cy * (hz + (s.bodyOverhang + 0.24F) * SC);
+      const float by = v.pos[1] - 0.02F;
+      const float hw = 0.22F * SC * (0.6F + 0.4F * k), hh = 0.18F * SC;
+      const float rx = cy * hw, rz = -sy * hw;
+      Tyra::Vec4* g = &glowVerts_[glowCount_ * 6];
+      Tyra::Color* c = &glowCols_[glowCount_ * 6];
+      g[0].set(bx - rx, by - hh, bz - rz, 1.0F);
+      g[1].set(bx + rx, by - hh, bz + rz, 1.0F);
+      g[2].set(bx + rx, by + hh, bz + rz, 1.0F);
+      g[3] = g[0];
+      g[4] = g[2];
+      g[5].set(bx - rx, by + hh, bz - rz, 1.0F);
+      const Tyra::Color fire(240.0F, 130.0F, 30.0F, 120.0F * k);
+      for (int j = 0; j < 6; ++j) c[j] = fire;
+      ++glowCount_;
+      if (glowCount_ < kVehGlowMax) {
+        Tyra::Vec4* g2 = &glowVerts_[glowCount_ * 6];
+        Tyra::Color* c2 = &glowCols_[glowCount_ * 6];
+        for (int j = 0; j < 6; ++j) {
+          g2[j] = g[5 - j];
+          c2[j] = fire;
+        }
+        ++glowCount_;
+      }
+    }
+  }
+  if (glowCount_ <= 0) return;
+  if (!glowBag_) {
+    glowInfoBag_ = std::make_unique<StaPipInfoBag>();
+    glowInfoBag_->model = &model;
+    glowInfoBag_->shadingType = TyraShadingGouraud;
+    glowInfoBag_->fullClipChecks = true;
+    glowInfoBag_->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    glowInfoBag_->zTestType = PipelineZTest_Standard;  // BISECT: TestOnly suspect
+    // Standard alpha-over, the smoke's PROVEN path - the additive FIX
+    // variant submitted five quads the probe could count and the screen
+    // could not see, and a light that only a telemetry line can observe is
+    // not a light. Alpha gradients do the falloff instead.
+    glowColorBag_ = std::make_unique<StaPipColorBag>();
+    glowColorBag_->many = glowCols_;
+    glowBag_ = std::make_unique<StaPipBag>();
+    glowBag_->info = glowInfoBag_.get();
+    glowBag_->color = glowColorBag_.get();
+    glowBag_->lighting = nullptr;
+    glowBag_->texture = nullptr;
+    glowBag_->vertices = glowVerts_;
+  }
+  glowBag_->count = (u32)(glowCount_ * 6);
+  glowBag_->bboxVersion = ++g_bboxStamp;  // it moves with the cars
+  stapip.core.render(glowBag_.get());
 }
 
 // The gearbox, the per-frame twin of vehiclesim::gearCount/gearTopSpeed/
@@ -13289,33 +13568,36 @@ void TerrainGame::updateVehicles(float dt) {
       // the runtime hardcoded before the roles existed, so a project whose
       // map lost the action (they are deletable) keeps driving; the ternary
       // folds away at compile time either way.
-      if (IA_ROLE_VEH_THROTTLE >= 0
-              ? inputPressed(engine->pad, IA_ROLE_VEH_THROTTLE)
-              : engine->pad.getPressed().Cross)
-        inThrottle = 1.0F;
-      // R2 stays a hardwired EXTRA throttle on top of the role: a stick
-      // pushed to full lock has no vertical deflection left, so a
-      // stick-only driver loses the stick's throttle exactly when steering
-      // hard - "turning brakes the car to zero", reported from a real pad.
-      // The era's racers put the gas on a button for this reason.
-      if (engine->pad.getPressed().R2) inThrottle = 1.0F;
+      // The throttle is ANALOG: a DualShock 2 reports the button's pressure,
+      // so the default R2 squeezes from a crawl to flat out - and any digital
+      // source (keyboard, an emulator without pressure mapping) reads as a
+      // clean 1. The role default moved to R2 for the original reason gas
+      // lives on a shoulder button in the era's racers: a stick at full lock
+      // has no vertical deflection left ("turning brakes the car to zero").
+      {
+        const float thr =
+            IA_ROLE_VEH_THROTTLE >= 0
+                ? inputAnalog(engine->pad, IA_ROLE_VEH_THROTTLE)
+                : (engine->pad.getPressed().R2 ? 1.0F : 0.0F);
+        if (thr > 0.02F) inThrottle = thr;
+      }
       // The D-PAD drives too. The generated game's rule is "only the analog
       // sticks", but a keyboard emulating a stick (PCSX2 in a VM above all)
       // can drop chorded key events, and full-lock-plus-throttle is exactly
       // a chord - reported as "I cannot steer and accelerate at once". The
       // d-pad buttons are independent booleans end to end, so they cannot
       // ghost against each other.
-      if (engine->pad.getPressed().DpadUp) inThrottle = 1.0F;
-      if (engine->pad.getPressed().DpadDown) inThrottle = -1.0F;
-      // Signs match the joy line above, where the negation already lives:
-      // left is joy.h = 0, i.e. inSteer = +1 in this local's convention.
-      if (engine->pad.getPressed().DpadLeft) inSteer = 1.0F;
-      if (engine->pad.getPressed().DpadRight) inSteer = -1.0F;
+      // The D-PAD is free of driving fallbacks now, by the author's call
+      // ("te fallbacki mozesz wywalic") - they were ghost-proofing for
+      // gas-on-the-stick VM keyboards, and the throttle lives on R2 since
+      // 1.69.0. DpadUp toggles the lights; the rest is unbound for future
+      // features.
+      if (engine->pad.getClicked().DpadUp) v.lightsOn = v.lightsOn ? 0 : 1;
       // L1 as the DEFAULT, not Square: Square is USE's default binding, so a
       // brake there would also throw the driver out on the same press.
       // Getting in and slowing down cannot share a button.
       if (IA_ROLE_VEH_BRAKE >= 0 ? inputPressed(engine->pad, IA_ROLE_VEH_BRAKE)
-                                 : engine->pad.getPressed().L1)
+                                 : engine->pad.getPressed().L2)
         inBrake = 1.0F;
       if (IA_ROLE_VEH_HANDBRAKE >= 0
               ? inputPressed(engine->pad, IA_ROLE_VEH_HANDBRAKE)
@@ -13323,7 +13605,7 @@ void TerrainGame::updateVehicles(float dt) {
         inHand = 1;
       if (IA_ROLE_VEH_NITROUS >= 0
               ? inputPressed(engine->pad, IA_ROLE_VEH_NITROUS)
-              : engine->pad.getPressed().R1)
+              : engine->pad.getPressed().Cross)
         inNos = 1;
       if (inSteer > -0.12F && inSteer < 0.12F) inSteer = 0.0F;
     } else if (v.wpCount > 0) {
@@ -13376,6 +13658,16 @@ void TerrainGame::updateVehicles(float dt) {
       }
     }
 
+    // Lights bookkeeping - HERE, on every vehicle every frame, not in some
+    // gated block downstream: the first cut sat inside the smoke's
+    // slip-gated section, so a car that never slipped never initialised its
+    // lights (the probe showed the DRIFTING rival lit while the parked
+    // player stayed dark, which is what finally named the bug). The
+    // definition's default lands once; the brake state feeds the tail
+    // lamps, AI brakes included - both drivers fill the same inBrake.
+    if (v.lightsOn < 0) v.lightsOn = s.headlights ? 1 : 0;
+    v.brakeOn = inBrake > 0.01F ? 1 : 0;
+
     // Steering, with the lock shrinking toward top speed: without the taper
     // a full-lock flick at speed spins the car on the spot, and a d-pad is
     // always full deflection.
@@ -13403,41 +13695,188 @@ void TerrainGame::updateVehicles(float dt) {
     const float hx = 0.5F * s.track * SC, hz = 0.5F * s.wheelBase * SC;
     const float lx[4] = {-hx, hx, -hx, hx};
     const float lz[4] = {hz, hz, -hz, -hz};
+    // GATHER the nearby colliders ONCE per vehicle per frame - the trig
+    // (boxRotate, objectCollisionBox) happens here and nowhere else; the
+    // wheels and the wall samples below then cost multiplies alone. The
+    // first cut called collidePlayer per sample point at ~1.1 ms a call in
+    // PCSX2, which at eight points times two vehicles was most of the
+    // reported frame drop. Two lists by the WALKER's own vertical rules:
+    // a top within half a unit of the feet is a FLOOR the car rides (which
+    // is what lets a car climb a ramp prop instead of nosing into it - "kolo
+    // sie wbija w glebe i hamuje" was exactly a mesh slope answered with
+    // "wall"), anything taller is a WALL, and a bottom above the roof-ish is
+    // an overpass to drive under.
+    struct VehWallBox { float bx, bz, hx, hz, yc, ys; };
+    struct VehFloorBox { float bx, bz, hx, hz, yc, ys, top; };
+    VehWallBox wallBox[12];
+    int wallBoxN = 0;
+    VehFloorBox floorBox[8];
+    int floorBoxN = 0;
+    int nearMesh[4];
+    int nearMeshN = 0;
+    const float feet0 = v.pos[1] - s.rideHeight * SC;
+    {
+      const float spd = v.speed < 0.0F ? -v.speed : v.speed;
+      const float reach = hx + hz + 1.5F + spd * dt;
+      for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+        if (oi == v.object || oi == carryIndex) continue;  // never itself
+        // Another VEHICLE is not a wall: car-vs-car is the momentum pass
+        // after this loop - both cars move, neither dead-stops. A wall
+        // answer here was "nieklimatyczne jeb i oba stoja w miejscu".
+        {
+          bool otherVeh = false;
+          for (int vk = 0; vk < vehicleCount_ && !otherVeh; ++vk)
+            otherVeh = vehicles_[vk].active && vehicles_[vk].object == oi;
+          if (otherVeh) continue;
+        }
+        const RuntimeObject& o = runtimeObjects[oi];
+        if (!o.active || !o.visible || !objectCollides(o.data)) continue;
+        const GameModel* gm = nullptr;
+        if (o.data.type == 5 && o.data.model >= 0 &&
+            o.data.model < (int)gameModels.size())
+          gm = &gameModels[o.data.model];
+        if (o.data.collision == 1 && gm && !gm->collider.empty()) {
+          // Mesh mode: rare and expensive - remember the object, pay the
+          // resolver only near it (the wheels ride its ground, the wall
+          // samples ask it to refuse).
+          const float dx = o.data.position[0] - v.pos[0];
+          const float dz = o.data.position[2] - v.pos[2];
+          const float r = reach + 0.5F * (o.data.scale[0] + o.data.scale[2]) +
+                          2.0F;
+          if (dx * dx + dz * dz < r * r && nearMeshN < 4)
+            nearMesh[nearMeshN++] = oi;
+          continue;
+        }
+        const CollisionBox cb = objectCollisionBox(o);
+        const V3 cW = boxRotate({cb.center[0], cb.center[1], cb.center[2]},
+                                o.data);
+        const float top = o.data.position[1] + cW.y + cb.half[1];
+        const float bottom = o.data.position[1] + cW.y - cb.half[1];
+        const float wx = o.data.position[0] + cW.x;
+        const float wz = o.data.position[2] + cW.z;
+        const float ddx = wx - v.pos[0], ddz = wz - v.pos[2];
+        const float yawR = (o.data.rotation[1] + cb.yaw) * PI / 180.0F;
+        if (top <= feet0 + 0.5F && top > feet0 - 3.0F) {
+          // A floor: the REAL footprint, no walker-radius inflation - a
+          // wheel rides the platform, it does not hover off its edge.
+          const float rr = reach + cb.half[0] + cb.half[2];
+          if (ddx * ddx + ddz * ddz < rr * rr && floorBoxN < 8)
+            floorBox[floorBoxN++] = {wx,          wz,          cb.half[0],
+                                     cb.half[2],  cosf(yawR),  sinf(yawR),
+                                     top};
+          continue;
+        }
+        if (top <= feet0 + 0.5F || bottom >= feet0 + 0.9F) continue;
+        const float bhx = cb.half[0] + 0.35F;  // the walker's playerRadius
+        const float bhz = cb.half[2] + 0.35F;
+        const float rr = reach + bhx + bhz;
+        if (ddx * ddx + ddz * ddz >= rr * rr || wallBoxN >= 12) continue;
+        wallBox[wallBoxN++] = {wx, wz, bhx, bhz, cosf(yawR), sinf(yawR)};
+      }
+      // Generated geometry (prefabs, procedural volumes): already
+      // axis-aligned conservative boxes, same vertical rules.
+      for (const StaticBox& b : procColliders) {
+        const float wx = 0.5F * (b.mx[0] + b.mn[0]);
+        const float wz = 0.5F * (b.mx[2] + b.mn[2]);
+        const float ddx = wx - v.pos[0], ddz = wz - v.pos[2];
+        if (b.mx[1] <= feet0 + 0.5F && b.mx[1] > feet0 - 3.0F) {
+          const float fhx = 0.5F * (b.mx[0] - b.mn[0]);
+          const float fhz = 0.5F * (b.mx[2] - b.mn[2]);
+          const float rr = reach + fhx + fhz;
+          if (ddx * ddx + ddz * ddz < rr * rr && floorBoxN < 8)
+            floorBox[floorBoxN++] = {wx, wz, fhx, fhz, 1.0F, 0.0F, b.mx[1]};
+          continue;
+        }
+        if (b.mx[1] <= feet0 + 0.5F || b.mn[1] >= feet0 + 0.9F) continue;
+        const float bhx = 0.5F * (b.mx[0] - b.mn[0]) + 0.35F;
+        const float bhz = 0.5F * (b.mx[2] - b.mn[2]) + 0.35F;
+        const float rr = reach + bhx + bhz;
+        if (ddx * ddx + ddz * ddz >= rr * rr || wallBoxN >= 12) continue;
+        wallBox[wallBoxN++] = {wx, wz, bhx, bhz, 1.0F, 0.0F};
+      }
+    }
     float gy[4];
     float sum = 0.0F;
     for (int w = 0; w < 4; ++w) {
       const float wx = v.pos[0] + lx[w] * cy + lz[w] * sy;
       const float wz = v.pos[2] - lx[w] * sy + lz[w] * cy;
       gy[w] = terrainHeightAt(wx, wz);
+      // The wheel RIDES an object floor when one is higher than the terrain
+      // under it - a platform, a ramp prop, generated prefab geometry. This
+      // is what lets a car drive ONTO things instead of nosing into their
+      // sides, and it is per wheel, so a car half on a platform tilts.
+      for (int b = 0; b < floorBoxN; ++b) {
+        const VehFloorBox& f = floorBox[b];
+        if (f.top <= gy[w]) continue;
+        const float dx = wx - f.bx, dz = wz - f.bz;
+        const float lxx = dx * f.yc - dz * f.ys;
+        const float lzz = dx * f.ys + dz * f.yc;
+        if (lxx > -f.hx && lxx < f.hx && lzz > -f.hz && lzz < f.hz)
+          gy[w] = f.top;
+      }
+      if (nearMeshN > 0) {
+        // A mesh prop's walkable ground (its shallow faces): the resolver's
+        // own floor answer, taken only when it is a floor a car can mount.
+        const int ownColW =
+            v.object >= 0 ? runtimeObjects[v.object].data.collision : 2;
+        if (v.object >= 0) runtimeObjects[v.object].data.collision = 2;
+        float nx = wx, nz = wz;
+        float gr = -1e9F, ce = 1e9F;
+        collidePlayer(wx, wz, &nx, &nz, feet0, 0.6F, &gr, &ce);
+        if (v.object >= 0) runtimeObjects[v.object].data.collision = ownColW;
+        if (gr > gy[w] && gr <= feet0 + 0.5F) gy[w] = gr;
+      }
       v.wheelY[w] = gy[w];
       sum += gy[w];
     }
     const float planeY = sum * 0.25F;
     const float restY = planeY + s.rideHeight * SC;
-    v.grounded = (v.pos[1] <= restY + 0.02F) ? 1 : 0;
+    // THE SPRUNG RIG - the host twin's exact arrangement (vehiclesim.cpp,
+    // "THE SPRUNG RIG" - change one, change both). The body used to SNAP to
+    // the plane while a rate-limited attitude hung mid-swing over every
+    // ridge, wheels riding their own samples - every "car breaks apart on a
+    // bump" was that one seam. Damped springs on the height and on the
+    // attitude instead: a ridge is a heave the body absorbs, a landing
+    // compresses and rebounds once. GROUNDED gets slack for the same
+    // reason - the binary test flickered over every bump and each flicker
+    // dropped the steering and the tyres for a frame.
+    v.grounded =
+        (v.pos[1] <= restY + 0.35F * s.rideHeight * SC + 0.02F) ? 1 : 0;
 
     if (v.grounded) {
-      // The chassis RIDES the plane, unlimited: rate-limiting this looks
-      // like suspension and is not - a climb outruns any authored rate and
-      // the body sinks through the ground for the whole hill.
-      v.pos[1] = restY;
-      v.velY = 0.0F;
+      {
+        // Heave: wn 14 rad/s, damping 0.9 of critical, damped against the
+        // velocity RELATIVE to the plane (a plain spring lags a ramp by a
+        // constant and rode half a unit under every climb).
+        const float wn = 14.0F, zeta = 0.9F;
+        const float planeVel =
+            v.lastRestY < 1e8F ? (restY - v.lastRestY) / dt : 0.0F;
+        v.velY += (wn * wn * (restY - v.pos[1]) -
+                   2.0F * zeta * wn * (v.velY - planeVel)) *
+                  dt;
+        v.pos[1] += v.velY * dt;
+        const float floorY = restY - s.suspensionTravel * SC;
+        if (v.pos[1] < floorY) {
+          v.pos[1] = floorY;
+          if (v.velY < 0.0F) v.velY = 0.0F;
+        }
+      }
       const float fY = 0.5F * (gy[0] + gy[1]), rY = 0.5F * (gy[2] + gy[3]);
       const float lY = 0.5F * (gy[0] + gy[2]), rrY = 0.5F * (gy[1] + gy[3]);
-      // Smoothed at the host twin's 180 deg/s - and this is NOT cosmetic:
-      // the grounded branch reads sin(pitch) for slope gravity, so a raw
-      // atan2 write made longitudinal speed step over every bump the host
-      // rode smoothly.
+      // Attitude: the same spring, softer (wn 11) and a touch underdamped
+      // (0.8) - the small crest overshoot is body language a snap never had.
+      // NOT cosmetic: the grounded branch reads sin(pitch) for slope
+      // gravity, so this smoothness is the longitudinal smoothness too.
       {
         const float tP =
             atan2f(fY - rY, s.wheelBase * SC > 0.01F ? s.wheelBase * SC : 0.01F) * kRad;
         const float tR =
             atan2f(rrY - lY, s.track * SC > 0.01F ? s.track * SC : 0.01F) * kRad;
-        const float aStep = 180.0F * dt;
-        if (v.pitch < tP) { v.pitch += aStep; if (v.pitch > tP) v.pitch = tP; }
-        else { v.pitch -= aStep; if (v.pitch < tP) v.pitch = tP; }
-        if (v.roll < tR) { v.roll += aStep; if (v.roll > tR) v.roll = tR; }
-        else { v.roll -= aStep; if (v.roll < tR) v.roll = tR; }
+        const float wn = 11.0F, zeta = 0.8F;
+        v.pitchVel += (wn * wn * (tP - v.pitch) - 2.0F * zeta * wn * v.pitchVel) * dt;
+        v.rollVel += (wn * wn * (tR - v.roll) - 2.0F * zeta * wn * v.rollVel) * dt;
+        v.pitch += v.pitchVel * dt;
+        v.roll += v.rollVel * dt;
       }
       // Compression is the residual against the TILTED plane, so flat
       // ground at any angle reads neutral and only bumps move a wheel.
@@ -13463,20 +13902,30 @@ void TerrainGame::updateVehicles(float dt) {
       v.velY -= s.gravity * dt;
       v.pos[1] += v.velY * dt;
       if (v.pos[1] < restY) {
-        v.pos[1] = restY;
-        v.velY = 0.0F;
+        // Touchdown: keep the fall speed - the heave spring absorbs it over
+        // the next frames (no snap, no one-frame slam). Only the hard floor
+        // holds.
+        const float floorY = restY - s.suspensionTravel * SC;
+        if (v.pos[1] < floorY) {
+          v.pos[1] = floorY;
+          if (v.velY < 0.0F) v.velY = 0.0F;
+        }
         v.grounded = 1;
       }
-      // In the air the body settles toward level at the host twin's 40 deg/s
-      // (it used to keep the attitude it left the ground with for ever).
+      // In the air the attitude GLIDES level - the same springs, much
+      // softer (wn 4), the host twin's numbers.
       {
-        const float aStep = 40.0F * dt;
-        if (v.pitch < 0.0F) { v.pitch += aStep; if (v.pitch > 0.0F) v.pitch = 0.0F; }
-        else { v.pitch -= aStep; if (v.pitch < 0.0F) v.pitch = 0.0F; }
-        if (v.roll < 0.0F) { v.roll += aStep; if (v.roll > 0.0F) v.roll = 0.0F; }
-        else { v.roll -= aStep; if (v.roll < 0.0F) v.roll = 0.0F; }
+        const float wn = 4.0F, zeta = 1.0F;
+        v.pitchVel += (wn * wn * (0.0F - v.pitch) - 2.0F * zeta * wn * v.pitchVel) * dt;
+        v.rollVel += (wn * wn * (0.0F - v.roll) - 2.0F * zeta * wn * v.rollVel) * dt;
+        v.pitch += v.pitchVel * dt;
+        v.roll += v.rollVel * dt;
       }
     }
+    // The heave spring's feed-forward frame (see above): remember the plane,
+    // forget it over the void (a restY built from TERRAIN_VOID_Y samples is
+    // not a plane to track).
+    v.lastRestY = restY > -1e8F ? restY : 1e9F;
 
     // The powertrain, before the longitudinal step. The gear is resolved from
     // the speed the car ALREADY has - derived, not simulated - and the two
@@ -13617,81 +14066,20 @@ void TerrainGame::updateVehicles(float dt) {
     // Per-corner resolution stays off the table - it would rotate a body a
     // kinematic chassis cannot represent.
     {
-      const float hx2 = 0.5F * s.track * SC, hz2 = 0.5F * s.wheelBase * SC;
+      // The BODY rectangle, not the axle rectangle (the host twin's rule):
+      // the bumpers reach bodyOverhang past the wheelbase at both ends, and
+      // sampling only to the axles let the bonnet clip into any wall.
+      const float hx2 = 0.5F * s.track * SC;
+      const float hz2 = 0.5F * s.wheelBase * SC +
+                        (s.bodyOverhang > 0.0F ? s.bodyOverhang * SC : 0.0F);
       const float cx[8] = {-hx2, hx2, -hx2, hx2, 0.0F, 0.0F, -hx2, hx2};
       const float cz[8] = {hz2, hz2, -hz2, -hz2, hz2, -hz2, 0.0F, 0.0F};
       const float feet = v.pos[1] - s.rideHeight * SC;
-      // GATHER ONCE, test cheap. The first cut called collidePlayer per
-      // sample point, and collidePlayer pays boxRotate's trig for EVERY
-      // object on EVERY call - measured ~1.1 ms per call in PCSX2, which at
-      // eight points times two vehicles was ~18 ms of a 40 ms frame (and the
-      // old four-corner sweep was already ~9 of the reported slowdown's ms).
-      // So: one pass over the objects per vehicle per frame does the trig
-      // and keeps only what is within reach - almost always zero or one
-      // entry - and the sample points then cost multiplies alone. This also
-      // makes the runtime STRUCTURALLY the host twin (point tests against
-      // solids), not a re-purposed move resolver.
-      struct VehWallBox { float bx, bz, hx, hz, yc, ys; };
-      VehWallBox nearBox[12];
-      int nearBoxN = 0;
-      int nearMesh[4];
-      int nearMeshN = 0;
-      const float spd = v.speed < 0.0F ? -v.speed : v.speed;
-      const float reach = hx2 + hz2 + 1.5F + spd * dt;
-      for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
-        if (oi == v.object || oi == carryIndex) continue;  // never itself
-        const RuntimeObject& o = runtimeObjects[oi];
-        if (!o.active || !o.visible || !objectCollides(o.data)) continue;
-        const GameModel* gm = nullptr;
-        if (o.data.type == 5 && o.data.model >= 0 &&
-            o.data.model < (int)gameModels.size())
-          gm = &gameModels[o.data.model];
-        if (o.data.collision == 1 && gm && !gm->collider.empty()) {
-          // Mesh mode: rare and expensive - remember the object, pay the
-          // resolver only for points near it (below).
-          const float dx = o.data.position[0] - prevX;
-          const float dz = o.data.position[2] - prevZ;
-          const float r = reach + 0.5F * (o.data.scale[0] + o.data.scale[2]) +
-                          2.0F;
-          if (dx * dx + dz * dz < r * r && nearMeshN < 4)
-            nearMesh[nearMeshN++] = oi;
-          continue;
-        }
-        // Box mode - the walker's own box, radius inflation included, with
-        // its vertical rules: a top at knee height is a floor (not a wall),
-        // a bottom above the roof-ish is an overpass to drive under. Cars
-        // do NOT climb props, so anything taller than half a unit blocks -
-        // the walker would put a "walkable" answer here and the car, whose
-        // height comes from the TERRAIN alone, would drive straight inside.
-        const CollisionBox cb = objectCollisionBox(o);
-        const V3 cW = boxRotate({cb.center[0], cb.center[1], cb.center[2]},
-                                o.data);
-        const float top = o.data.position[1] + cW.y + cb.half[1];
-        const float bottom = o.data.position[1] + cW.y - cb.half[1];
-        if (top <= feet + 0.5F || bottom >= feet + 0.9F) continue;
-        const float wx = o.data.position[0] + cW.x;
-        const float wz = o.data.position[2] + cW.z;
-        const float bhx = cb.half[0] + 0.35F;  // the walker's playerRadius
-        const float bhz = cb.half[2] + 0.35F;
-        const float ddx = wx - prevX, ddz = wz - prevZ;
-        const float rr = reach + bhx + bhz;
-        if (ddx * ddx + ddz * ddz >= rr * rr || nearBoxN >= 12) continue;
-        const float yawR = (o.data.rotation[1] + cb.yaw) * PI / 180.0F;
-        nearBox[nearBoxN++] = {wx, wz, bhx, bhz, cosf(yawR), sinf(yawR)};
-      }
-      // Generated geometry (prefabs, procedural volumes): already
-      // axis-aligned conservative boxes, same vertical rules.
-      for (const StaticBox& b : procColliders) {
-        const float bhx = 0.5F * (b.mx[0] - b.mn[0]) + 0.35F;
-        const float bhz = 0.5F * (b.mx[2] - b.mn[2]) + 0.35F;
-        const float wx = 0.5F * (b.mx[0] + b.mn[0]);
-        const float wz = 0.5F * (b.mx[2] + b.mn[2]);
-        if (b.mx[1] <= feet + 0.5F || b.mn[1] >= feet + 0.9F) continue;
-        const float ddx = wx - prevX, ddz = wz - prevZ;
-        const float rr = reach + bhx + bhz;
-        if (ddx * ddx + ddz * ddz >= rr * rr || nearBoxN >= 12) continue;
-        nearBox[nearBoxN++] = {wx, wz, bhx, bhz, 1.0F, 0.0F};
-      }
+      // The colliders come from THE gather at the top of this vehicle's
+      // update (one pass, all the trig): wallBox blocks, floorBox is what
+      // the wheels already ride, nearMesh pays the resolver per point. The
+      // first cut called collidePlayer per sample point at ~1.1 ms a call
+      // in PCSX2 - eight points times two vehicles was most of a frame.
       // Count AND centroid, not a boolean: once the car is already
       // overlapping, WHERE the blocked points sit is what tells "out of the
       // thing" from "deeper into it". A point is blocked inside a near box -
@@ -13708,8 +14096,8 @@ void TerrainGame::updateVehicles(float dt) {
           const float px = bx + cx[k] * c2 + cz[k] * s2;
           const float pz = bz - cx[k] * s2 + cz[k] * c2;
           bool hit = false;
-          for (int b = 0; b < nearBoxN && !hit; ++b) {
-            const VehWallBox& w = nearBox[b];
+          for (int b = 0; b < wallBoxN && !hit; ++b) {
+            const VehWallBox& w = wallBox[b];
             const float dx = px - w.bx, dz = pz - w.bz;
             const float lx = dx * w.yc - dz * w.ys;
             const float lz = dx * w.ys + dz * w.yc;
@@ -13845,6 +14233,11 @@ void TerrainGame::updateVehicles(float dt) {
     // burnouts, handbrake slides and wall grinds all smoke, because they all
     // ARE slip. The pool is a ring; a spawn overwrites the oldest puff.
     if (v.grounded && v.slip > 0.35F) {
+      // Backfire: an upshift pops the exhaust for a tenth of a second -
+      // the shift sound's visual twin, drawn by the glow bag.
+      if (v.gear > v.fxPrevGear && v.fxPrevGear >= 0) v.backfireT = 0.09F;
+      v.fxPrevGear = v.gear;
+      if (v.backfireT > 0.0F) v.backfireT -= dt;
       const float sdx = v.pos[0] - cameraPosition.x;
       const float sdz = v.pos[2] - cameraPosition.z;
       if (sdx * sdx + sdz * sdz > 70.0F * 70.0F) {
@@ -14062,6 +14455,118 @@ void TerrainGame::updateVehicles(float dt) {
     }
   }
 
+  // CAR vs CAR: momentum, not walls (runtime-only - the editor's test drive
+  // has one car, the way it has collidePlayer). Each body is two discs on
+  // its forward axis (a capsule - long like a car, cheap like a circle);
+  // the deepest overlapping pair defines the contact. The response is the
+  // arcade impulse: exchange velocity along the contact normal with the
+  // authored masses and a bit of restitution, separate the bodies
+  // mass-weighted, and let the existing rigs sell it - the lean dips the
+  // nose off the speed change and the heave spring shrugs on its own.
+  for (int a = 0; a < vehicleCount_; ++a) {
+    VehicleRt& va = vehicles_[a];
+    if (!va.active || va.def < 0) continue;
+    const VehicleDefData& sa = VEHICLE_DEFS[va.def];
+    for (int b = a + 1; b < vehicleCount_; ++b) {
+      VehicleRt& vb = vehicles_[b];
+      if (!vb.active || vb.def < 0) continue;
+      const VehicleDefData& sb = VEHICLE_DEFS[vb.def];
+      // Two discs per car: at +-30% of the wheelbase, radius half the track
+      // plus a margin - covers the body's length without a full OBB test.
+      const float ca = cosf(va.yaw * kDeg), sna = sinf(va.yaw * kDeg);
+      const float cb = cosf(vb.yaw * kDeg), snb = sinf(vb.yaw * kDeg);
+      const float ra = (0.5F * sa.track + 0.35F) * va.scale;
+      const float rb = (0.5F * sb.track + 0.35F) * vb.scale;
+      const float da = 0.3F * sa.wheelBase * va.scale;
+      const float db = 0.3F * sb.wheelBase * vb.scale;
+      float worst = 0.0F, nx = 0.0F, nz = 0.0F;
+      for (int ia = -1; ia <= 1; ia += 2)
+        for (int ib = -1; ib <= 1; ib += 2) {
+          const float ax = va.pos[0] + sna * da * (float)ia;
+          const float az = va.pos[2] + ca * da * (float)ia;
+          const float bx = vb.pos[0] + snb * db * (float)ib;
+          const float bz = vb.pos[2] + cb * db * (float)ib;
+          const float dx = bx - ax, dz = bz - az;
+          const float d2 = dx * dx + dz * dz;
+          const float rr = ra + rb;
+          if (d2 >= rr * rr) continue;
+          const float d = sqrtf(d2 > 1e-6F ? d2 : 1e-6F);
+          const float pen = rr - d;
+          if (pen > worst) {
+            worst = pen;
+            nx = dx / d;
+            nz = dz / d;
+          }
+        }
+      if (worst <= 0.0F) continue;
+      // Vertical sanity: a car on a platform does not trade paint with one
+      // underneath it.
+      {
+        const float dy = vb.pos[1] - va.pos[1];
+        if (dy > 1.5F || dy < -1.5F) continue;
+      }
+      // World-frame velocities from each car's own (speed, lateral) frame.
+      const float vax = va.speed * sna + va.lateral * ca;
+      const float vaz = va.speed * ca - va.lateral * sna;
+      const float vbx = vb.speed * snb + vb.lateral * cb;
+      const float vbz = vb.speed * cb - vb.lateral * snb;
+      const float rel = (vbx - vax) * nx + (vbz - vaz) * nz;
+      const float ma = sa.mass > 0.1F ? sa.mass : 0.1F;
+      const float mb = sb.mass > 0.1F ? sb.mass : 0.1F;
+      if (rel < -0.8F) {
+        // A HIT: the impulse, restitution 0.35 - a thump with a bit of
+        // bounce, the era's crash feel, not a snooker ball and not glue.
+        const float imp = -(1.35F * rel) / (1.0F / ma + 1.0F / mb);
+        const float ax2 = vax - nx * imp / ma, az2 = vaz - nz * imp / ma;
+        const float bx2 = vbx + nx * imp / mb, bz2 = vbz + nz * imp / mb;
+        // Back into each frame: speed = v . forward, lateral = v . right.
+        va.speed = ax2 * sna + az2 * ca;
+        va.lateral = ax2 * ca - az2 * sna;
+        vb.speed = bx2 * snb + bz2 * cb;
+        vb.lateral = bx2 * cb - bz2 * snb;
+      } else if (rel < 0.5F) {
+        // RESTING contact: bumper against bumper. The first cut kept firing
+        // the bouncy impulse here and the per-frame separation ate the
+        // pusher's throttle - the pair STALLED nose-to-tail with the gas
+        // held ("I stop dead pushing a parked car"). Momentum-conserving
+        // velocity MATCH along the normal instead (e = 0): the pusher's
+        // drive carries both, so traffic can be bulldozed - the era's shove.
+        const float vaN = vax * nx + vaz * nz;
+        const float vbN = vbx * nx + vbz * nz;
+        const float mean = (ma * vaN + mb * vbN) / (ma + mb);
+        const float ax2 = vax + nx * (mean - vaN), az2 = vaz + nz * (mean - vaN);
+        const float bx2 = vbx + nx * (mean - vbN), bz2 = vbz + nz * (mean - vbN);
+        va.speed = ax2 * sna + az2 * ca;
+        va.lateral = ax2 * ca - az2 * sna;
+        vb.speed = bx2 * snb + bz2 * cb;
+        vb.lateral = bx2 * cb - bz2 * snb;
+      }
+      // Separation, inverse-mass weighted and PARTIAL (60% of the
+      // penetration per frame): full separation acted as glue, cancelling
+      // exactly the distance the pusher's throttle bought each frame.
+      const float wa = (1.0F / ma) / (1.0F / ma + 1.0F / mb);
+      const float sep = worst * 0.6F;
+      va.pos[0] -= nx * sep * wa;
+      va.pos[2] -= nz * sep * wa;
+      vb.pos[0] += nx * sep * (1.0F - wa);
+      vb.pos[2] += nz * sep * (1.0F - wa);
+      // Both bodies moved: the matrix path has to hear about it, or one of
+      // them keeps rendering at the pre-impact transform.
+      if (va.object >= 0) {
+        RuntimeObject& oa = runtimeObjects[va.object];
+        oa.data.position[0] = va.pos[0];
+        oa.data.position[2] = va.pos[2];
+        if (oa.onMatrixPath) updateObjMat(va.object); else oa.dirty = true;
+      }
+      if (vb.object >= 0) {
+        RuntimeObject& ob = runtimeObjects[vb.object];
+        ob.data.position[0] = vb.pos[0];
+        ob.data.position[2] = vb.pos[2];
+        if (ob.onMatrixPath) updateObjMat(vb.object); else ob.dirty = true;
+      }
+    }
+  }
+
   // The AI acceptance line, driver or no driver: every patrolling car states
   // its position, waypoint and speed every ~2 s, so `grep VEHAI` PROVES a
   // patrol advanced its loop with no pad attached (docs/vehicles.md).
@@ -14104,14 +14609,66 @@ void TerrainGame::updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s
     return;
   }
   if (!driving) {
-    // Out of the car: silence the voice and forget the channel, so getting back
-    // in starts the loop again rather than inheriting a stale pitch.
+    // Out of the car: silence the whole pack and forget the channels, so
+    // getting back in starts the loops again rather than inheriting a stale
+    // pitch or a mid-squeal volume.
     if (v.engineCh >= 0) {
       engine->audio.adpcm.setVolume(0, (s8)v.engineCh);
       v.engineCh = -1;
       v.enginePitchReg = 0;
+      v.engineVolRegLow = -1;
+    }
+    if (v.engineChHigh >= 0) {
+      engine->audio.adpcm.setVolume(0, (s8)v.engineChHigh);
+      v.engineChHigh = -1;
+      v.enginePitchRegHigh = 0;
+      v.engineVolRegHigh = -1;
+    }
+    if (v.screechCh >= 0) {
+      engine->audio.adpcm.setVolume(0, (s8)v.screechCh);
+      v.screechCh = -1;
+      v.screechVolReg = -1;
     }
     return;
+  }
+  // The GEAR-SHIFT blip: a plain one-shot on any free script voice, priority
+  // 60 - a shift matters more than ambience, less than dialogue. Reverse
+  // (gear -1) counts as a change too; the box only flips there at a stop, so
+  // it cannot spam.
+  if (s.shiftSnd >= 0 && s.shiftSnd < (int)sndSamples.size() &&
+      sndSamples[s.shiftSnd] && v.gear != v.sndPrevGear) {
+    // Its OWN reserved voice (base+20), not a borrowed script one:
+    // flowPickSfxChannel exists only in projects whose flow graph plays
+    // sounds (the zero-cost rule), and a shift blip must not depend on that.
+    const s8 ch = (s8)(scriptCtx.reverbBusBase + 20);
+    engine->audio.adpcm.setVolume((u8)(s.shiftVolume * scriptCtx.sfxVolume / 100),
+                                  ch);
+    engine->audio.adpcm.forcePlay(sndSamples[s.shiftSnd], ch);
+  }
+  v.sndPrevGear = v.gear;
+  // The TYRE SQUEAL: a loop whose volume rides DriveState::slip - the one
+  // number the smoke and the telemetry already consume, so all three agree
+  // about when a tyre has let go. Quantised to 8 volume steps and written on
+  // change: a drift is one RPC every few frames, a clean drive is none.
+  if (s.screechSnd >= 0 && s.screechSnd < (int)sndSamples.size() &&
+      sndSamples[s.screechSnd]) {
+    const int ch = scriptCtx.reverbBusBase + 21;
+    if (v.screechCh != ch) {
+      if (v.screechCh >= 0) engine->audio.adpcm.setVolume(0, (s8)v.screechCh);
+      v.screechCh = ch;
+      v.screechVolReg = -1;
+      engine->audio.adpcm.forcePlay(sndSamples[s.screechSnd], (s8)ch);
+      engine->audio.adpcm.setVolume(0, (s8)ch);
+    }
+    float k = (v.slip - 0.3F) / 0.7F;
+    if (k < 0.0F) k = 0.0F;
+    if (k > 1.0F) k = 1.0F;
+    int vol = (int)((float)s.screechVolume * k * k);
+    vol &= ~7;
+    if (vol != v.screechVolReg) {
+      v.screechVolReg = vol;
+      engine->audio.adpcm.setVolume((u8)vol, (s8)v.screechCh);
+    }
   }
 
   // The bus matters: a voice can only reach the reverb unit of its OWN SPU2
@@ -14155,6 +14712,48 @@ void TerrainGame::updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s
     v.enginePitchReg = reg;
     engine->audio.adpcm.setPitch((s8)v.engineCh, (u16)reg);
   }
+
+  // THE TWO-SAMPLE ENGINE (docs/vehicles.md, "Engine sound"): with a HIGH-rev
+  // loop authored, the two loops CROSSFADE on the same f the pitch already
+  // rides - the idle sample fades out toward the redline, the high one fades
+  // in, both pitched by the same authored curve against their own natural
+  // rates. Volumes quantised to 8 steps and written on change, the pitch
+  // discipline's twin: a steady cruise is zero RPCs.
+  if (s.engineHighSnd >= 0 && s.engineHighSnd < (int)sndSamples.size() &&
+      sndSamples[s.engineHighSnd]) {
+    const int ch2 = scriptCtx.reverbBusBase + 22;
+    if (v.engineChHigh != ch2) {
+      if (v.engineChHigh >= 0)
+        engine->audio.adpcm.setVolume(0, (s8)v.engineChHigh);
+      v.engineChHigh = ch2;
+      v.enginePitchRegHigh = 0;
+      v.engineVolRegHigh = -1;
+      v.engineVolRegLow = -1;
+      engine->audio.adpcm.forcePlay(sndSamples[s.engineHighSnd], (s8)ch2);
+      engine->audio.adpcm.setVolume(0, (s8)ch2);
+    }
+    const u16 nat2 = Tyra::AudioAdpcm::naturalPitch(sndSamples[s.engineHighSnd]);
+    int reg2 = (int)((float)nat2 * mul);
+    if (reg2 < 0x80) reg2 = 0x80;
+    if (reg2 > 0x3FFF) reg2 = 0x3FFF;
+    reg2 &= ~31;
+    if (reg2 != v.enginePitchRegHigh) {
+      v.enginePitchRegHigh = reg2;
+      engine->audio.adpcm.setPitch((s8)ch2, (u16)reg2);
+    }
+    int volLow = (int)((float)s.engineVolume * (1.0F - f * 0.85F));
+    int volHigh = (int)((float)s.engineVolume * f);
+    volLow &= ~7;
+    volHigh &= ~7;
+    if (volLow != v.engineVolRegLow) {
+      v.engineVolRegLow = volLow;
+      engine->audio.adpcm.setVolume((u8)volLow, (s8)v.engineCh);
+    }
+    if (volHigh != v.engineVolRegHigh) {
+      v.engineVolRegHigh = volHigh;
+      engine->audio.adpcm.setVolume((u8)volHigh, (s8)v.engineChHigh);
+    }
+  }
 }
 
 // The paint pass's gate: only a VEHICLE's env bag gets the fresnel rim, the
@@ -14176,10 +14775,23 @@ int TerrainGame::vehiclePaintFor(int objIdx) {
 void TerrainGame::muteVehicleEngines() {
   for (int i = 0; i < vehicleCount_; ++i) {
     VehicleRt& v = vehicles_[i];
-    if (v.engineCh < 0) continue;
-    engine->audio.adpcm.setVolume(0, (s8)v.engineCh);
-    v.engineCh = -1;
-    v.enginePitchReg = 0;
+    if (v.engineCh >= 0) {
+      engine->audio.adpcm.setVolume(0, (s8)v.engineCh);
+      v.engineCh = -1;
+      v.enginePitchReg = 0;
+      v.engineVolRegLow = -1;
+    }
+    if (v.engineChHigh >= 0) {
+      engine->audio.adpcm.setVolume(0, (s8)v.engineChHigh);
+      v.engineChHigh = -1;
+      v.enginePitchRegHigh = 0;
+      v.engineVolRegHigh = -1;
+    }
+    if (v.screechCh >= 0) {
+      engine->audio.adpcm.setVolume(0, (s8)v.screechCh);
+      v.screechCh = -1;
+      v.screechVolReg = -1;
+    }
   }
 }
 
@@ -14356,6 +14968,150 @@ void TerrainGame::renderVehicleWheels() {
     wheelBag_->texture = nullptr;
   }
   stapip.core.render(wheelBag_.get());
+}
+
+
+// Roads (docs/roads.md). TWIN NOTICE: this is src/roadgen.cpp's arithmetic,
+// transcribed - CHANGE ONE AND CHANGE BOTH (the vehiclesim rule). The whole
+// road is data: at scene load the spline is sampled every 2 units, two edge
+// vertices per station glued to the terrain, V riding the arc length so one
+// small texture tiles the entire street, and the stations are packed into
+// procChunks (owner -3) roughly 24 per chunk - each chunk its own AABB, so
+// the frustum culls a road the way it culls everything else.
+void TerrainGame::buildRoads(int scene) {
+  // A scene revisit rebuilds: drop the previous scene's road chunks only.
+  for (size_t i = procChunks.size(); i > 0; --i)
+    if (procChunks[i - 1].owner == -3)
+      procChunks.erase(procChunks.begin() + (i - 1));
+  bool any = false;
+  for (int ri = 0; ri < ROAD_COUNT; ++ri) {
+    const RoadDefRt& rd = ROAD_DEFS[ri];
+    if (rd.scene != scene || rd.pointCount < 2) continue;
+    any = true;
+    Tyra::Texture* tex = nullptr;
+    if (rd.tex >= 0 && rd.tex < ROAD_TEXTURE_COUNT) {
+      if (!roadTextures_[rd.tex])
+        roadTextures_[rd.tex] = acquireTexture(ROAD_TEXTURE_PATHS[rd.tex]);
+      tex = roadTextures_[rd.tex];
+    }
+    const float* pts = &ROAD_POINTS[rd.first];
+    const float* lifts = &ROAD_LIFT[rd.first / 2];
+    const int n = rd.pointCount;
+    const float hw = 0.5F * (rd.width > 0.1F ? rd.width : 0.1F);
+    // Catmull-Rom, clamped ends - the roadgen twin's cr()/pointAt()/sample().
+    auto ptAt = [&](int i, float* x, float* z) {
+      if (i < 0) i = 0;
+      if (i > n - 1) i = n - 1;
+      *x = pts[i * 2];
+      *z = pts[i * 2 + 1];
+    };
+    auto cr = [](float p0, float p1, float p2, float p3, float t) {
+      const float t2 = t * t, t3 = t2 * t;
+      return 0.5F * ((2.0F * p1) + (-p0 + p2) * t +
+                     (2.0F * p0 - 5.0F * p1 + 4.0F * p2 - p3) * t2 +
+                     (-p0 + 3.0F * p1 - 3.0F * p2 + p3) * t3);
+    };
+    auto liftAt = [&](int i) {
+      if (i < 0) i = 0;
+      if (i > n - 1) i = n - 1;
+      return lifts[i] > 0.0F ? lifts[i] : 0.0F;
+    };
+    auto sampleLift = [&](int seg, float t) {
+      const float l = cr(liftAt(seg - 1), liftAt(seg), liftAt(seg + 1),
+                         liftAt(seg + 2), t);
+      return l > 0.0F ? l : 0.0F;
+    };
+    auto sampleAt = [&](int seg, float t, float* x, float* z) {
+      float x0, z0, x1, z1, x2, z2, x3, z3;
+      ptAt(seg - 1, &x0, &z0);
+      ptAt(seg, &x1, &z1);
+      ptAt(seg + 1, &x2, &z2);
+      ptAt(seg + 2, &x3, &z3);
+      *x = cr(x0, x1, x2, x3, t);
+      *z = cr(z0, z1, z2, z3, t);
+    };
+    ProcChunk* c = nullptr;
+    int stationsInChunk = 0;
+    float lx0 = 0.0F, lz0 = 0.0F, ly0 = 0.0F, lv0 = 0.0F;
+    float rx0 = 0.0F, rz0 = 0.0F, ry0 = 0.0F;
+    bool havePrev = false;
+    float arc = 0.0F, prevX = 0.0F, prevZ = 0.0F;
+    sampleAt(0, 0.0F, &prevX, &prevZ);
+    for (int seg = 0; seg < n - 1; ++seg) {
+      float ax, az, bx, bz;
+      ptAt(seg, &ax, &az);
+      ptAt(seg + 1, &bx, &bz);
+      const float segLen =
+          sqrtf((bx - ax) * (bx - ax) + (bz - az) * (bz - az));
+      const int steps = segLen > 2.0F ? (int)(segLen / 2.0F) + 1 : 1;
+      for (int k = (seg == 0 ? 0 : 1); k <= steps; ++k) {
+        const float t = (float)k / (float)steps;
+        float cx2, cz2, dx2, dz2;
+        sampleAt(seg, t, &cx2, &cz2);
+        if (t + 0.05F <= 1.0F)
+          sampleAt(seg, t + 0.05F, &dx2, &dz2);
+        else
+          sampleAt(seg + 1, 0.05F, &dx2, &dz2);
+        float tx = dx2 - cx2, tz = dz2 - cz2;
+        const float tl = sqrtf(tx * tx + tz * tz);
+        if (tl > 1e-6F) {
+          tx /= tl;
+          tz /= tl;
+        } else {
+          tx = 0.0F;
+          tz = 1.0F;
+        }
+        const float rxu = tz * hw, rzu = -tx * hw;
+        arc += sqrtf((cx2 - prevX) * (cx2 - prevX) +
+                     (cz2 - prevZ) * (cz2 - prevZ));
+        prevX = cx2;
+        prevZ = cz2;
+        const float v = arc / 4.0F;
+        const float nlx = cx2 - rxu, nlz = cz2 - rzu;
+        const float nrx = cx2 + rxu, nrz = cz2 + rzu;
+        const float lift = sampleLift(seg, t);
+        const float nly = terrainHeightAt(nlx, nlz) + 0.05F + lift;
+        const float nry = terrainHeightAt(nrx, nrz) + 0.05F + lift;
+        if (havePrev) {
+          if (!c || stationsInChunk >= 24) {
+            procChunks.push_back(ProcChunk());
+            c = &procChunks.back();
+            c->owner = -3;
+            c->roadTex = tex;
+            stationsInChunk = 0;
+          }
+          // Two triangles, CCW seen from above - the twin's stitch, but
+          // emitted station by station so a chunk boundary never leaves a
+          // gap (the previous station's pair is re-used as the base).
+          const Tyra::Color grey(128.0F, 128.0F, 128.0F, 128.0F);
+          Tyra::Vec4 L0(lx0, ly0, lz0, 1.0F), R0(rx0, ry0, rz0, 1.0F);
+          Tyra::Vec4 L1(nlx, nly, nlz, 1.0F), R1(nrx, nry, nrz, 1.0F);
+          const Tyra::Vec4 sL0(0.0F, lv0, 1.0F, 0.0F), sR0(1.0F, lv0, 1.0F, 0.0F);
+          const Tyra::Vec4 sL1(0.0F, v, 1.0F, 0.0F), sR1(1.0F, v, 1.0F, 0.0F);
+          c->vertices.push_back(L0); c->sts.push_back(sL0); c->colors.push_back(grey);
+          c->vertices.push_back(R0); c->sts.push_back(sR0); c->colors.push_back(grey);
+          c->vertices.push_back(R1); c->sts.push_back(sR1); c->colors.push_back(grey);
+          c->vertices.push_back(L0); c->sts.push_back(sL0); c->colors.push_back(grey);
+          c->vertices.push_back(R1); c->sts.push_back(sR1); c->colors.push_back(grey);
+          c->vertices.push_back(L1); c->sts.push_back(sL1); c->colors.push_back(grey);
+          ++stationsInChunk;
+        }
+        lx0 = nlx; lz0 = nlz; ly0 = nly;
+        rx0 = nrx; rz0 = nrz; ry0 = nry;
+        lv0 = v;
+        havePrev = true;
+      }
+    }
+  }
+  if (any) procFinishChunks();
+  int roadChunks = 0;
+  for (const ProcChunk& c : procChunks)
+    if (c.owner == -3) ++roadChunks;
+  float y0 = 0.0F;
+  for (const ProcChunk& c : procChunks)
+    if (c.owner == -3 && !c.vertices.empty()) { y0 = c.vertices[0].y; break; }
+  TYRA_LOG("ROADS scene ", scene, " chunks ", roadChunks, " y0x10 ",
+           (int)(y0 * 10.0F));
 }
 
 void TerrainGame::renderProcChunks() {
@@ -15783,7 +16539,9 @@ void TerrainGame::renderScene() {
   }
   for (ParticleSystem& ps : particles)
     if (ps.bag && ps.bag->count > 0) stapip.core.render(ps.bag.get());
+  renderVehicleSkids();
   renderVehicleSmoke();
+  renderVehicleGlow();
 
   if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
 }

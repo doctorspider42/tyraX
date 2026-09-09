@@ -1,7 +1,7 @@
 {
   "name": "vehicle-playground",
-  "formatVersion": 38,
-  "editorVersion": "1.65.0",
+  "formatVersion": 48,
+  "editorVersion": "1.79.0",
   "template": "fpp",
   "projectId": "99089f551e395d01",
   "settings": {
@@ -203,7 +203,13 @@
       { "name": "menu-up", "label": "Menu up", "role": "menu-up", "rebindable": false },
       { "name": "menu-down", "label": "Menu down", "role": "menu-down", "rebindable": false },
       { "name": "menu-left", "label": "Menu left", "role": "menu-left", "rebindable": false },
-      { "name": "menu-right", "label": "Menu right", "role": "menu-right", "rebindable": false }
+      { "name": "menu-right", "label": "Menu right", "role": "menu-right", "rebindable": false },
+      { "name": "veh-throttle", "label": "Vehicle throttle", "role": "veh-throttle" },
+      { "name": "veh-brake", "label": "Vehicle brake", "role": "veh-brake" },
+      { "name": "veh-handbrake", "label": "Vehicle handbrake", "role": "veh-handbrake" },
+      { "name": "veh-nitrous", "label": "Vehicle nitrous", "role": "veh-nitrous" },
+      { "name": "veh-camera", "label": "Vehicle camera", "role": "veh-camera" },
+      { "name": "veh-rearview", "label": "Vehicle rear view", "role": "veh-rearview" }
     ],
     "presets": [
       { "name": "Default", "bindings": [
@@ -224,17 +230,23 @@
           { "action": "menu-up", "pad": "DpadUp", "key": 82 },
           { "action": "menu-down", "pad": "DpadDown", "key": 81 },
           { "action": "menu-left", "pad": "DpadLeft", "key": 80 },
-          { "action": "menu-right", "pad": "DpadRight", "key": 79 }
+          { "action": "menu-right", "pad": "DpadRight", "key": 79 },
+          { "action": "veh-throttle", "pad": "R2", "key": 26 },
+          { "action": "veh-brake", "pad": "L2", "key": 22 },
+          { "action": "veh-handbrake", "pad": "Circle", "key": 44 },
+          { "action": "veh-nitrous", "pad": "Cross", "key": 225 },
+          { "action": "veh-camera", "pad": "Triangle", "key": 6 },
+          { "action": "veh-rearview", "pad": "R3", "key": 21 }
         ] }
     ]
   },
   "vehicles": [
-    { "id": "cc96playground01", "name": "CC96", "notes": "CC0 coupe by its author - see res/models/car1-CC0-licence.txt", "model": "res/models/car1.fbx", "bodyTris": 1500, "wheelTris": 700, "bodyShine": 0.55, "bodyReflMap": "res/textures/nfs-streaks.png", "cam": [6.5, 2.2, 12], "exit": [-1.4, 0, 0], "hud": true, "hudFont": "", "hudSpeedScale": 3.6, "engineSound": "res/sfx/engine-loop.wav", "engineHighSound": "res/sfx/engine-high-loop.wav", "screechSound": "res/sfx/screech-loop.wav", "screechVolume": 80, "shiftSound": "res/sfx/gear-shift.wav", "shiftVolume": 80, "headlights": true, "enginePitch": [0.75, 2.4], "engineVolume": 70, "drive": {"wheelBase": 2.066, "track": 1.248, "wheelRadius": 0.232, "topSpeed": 22, "reverseTopSpeed": 6, "accel": 9, "brakeDecel": 18, "engineBraking": 3, "drag": 0.0016, "maxSteerDeg": 34, "highSpeedSteerDeg": 11, "steerRateDeg": 220, "steerReturnDeg": 300, "grip": 26, "handbrakeGrip": 6, "gravity": 24, "rideHeight": 0.232, "suspensionTravel": 0.18, "suspensionRate": 8, "maxSlopeCos": 0.5, "mass": 12, "leanAmount": 0.8, "gears": 5, "gearSpread": 1.52, "idleRpm": 800, "redlineRpm": 7200, "shiftUpFrac": 0.93, "shiftDownFrac": 0.5, "shiftTime": 0.18, "gearTorque": 0.6, "nosCapacity": 3, "nosBoost": 0.8, "nosTopSpeed": 1.18, "nosRefill": 0.12 } }
+    { "id": "cc96playground01", "name": "CC96", "notes": "CC0 coupe by its author - see res/models/car1-CC0-licence.txt", "model": "res/models/car1.fbx", "bodyTris": 1500, "wheelTris": 700, "bodyShine": 0.55, "bodyReflMap": "res/textures/nfs-streaks.png", "cam": [6.5, 2.2, 12], "exit": [-1.4, 0, 0], "hud": true, "hudFont": "", "hudSpeedScale": 3.6, "engineSound": "res/sfx/engine-loop.wav", "enginePitch": [0.75, 2.4], "engineVolume": 70, "engineHighSound": "res/sfx/engine-high-loop.wav", "screechSound": "res/sfx/screech-loop.wav", "screechVolume": 80, "shiftSound": "res/sfx/gear-shift.wav", "shiftVolume": 80, "headlights": true, "lampRear": [0.389809, 0.22911, -1.71703, 0.194904], "lampPart": 2, "lampRearVerts": 60, "lampFront": [0.484619, 0.234116, 1.62703, 0.24231], "drive": {"wheelBase": 2.066, "track": 1.248, "bodyOverhang": 0.3, "wheelRadius": 0.232, "topSpeed": 22, "reverseTopSpeed": 6, "accel": 9, "brakeDecel": 18, "engineBraking": 3, "drag": 0.0016, "maxSteerDeg": 34, "highSpeedSteerDeg": 11, "steerRateDeg": 220, "steerReturnDeg": 300, "grip": 26, "handbrakeGrip": 6, "gravity": 24, "rideHeight": 0.232, "suspensionTravel": 0.18, "suspensionRate": 8, "maxSlopeCos": 0.5, "mass": 12, "leanAmount": 0.8, "gears": 5, "gearSpread": 1.52, "idleRpm": 800, "redlineRpm": 7200, "shiftUpFrac": 0.93, "shiftDownFrac": 0.5, "shiftTime": 0.18, "gearTorque": 0.6, "nosCapacity": 3, "nosBoost": 0.8, "nosTopSpeed": 1.18, "nosRefill": 0.12 } }
   ],
-  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "showFog": true, "cam": [0.8, 0.6, 90, 0, 0, 0], "breakpoints": [] },
+  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "showFog": true, "cam": [0.8, 0.6, 90, 0.555347, 0, 0.571807], "breakpoints": [] },
   "activeLayout": 0,
   "layouts": [
-    { "name": "Default", "recipe": 0, "open": ["debugger"], "ini": "" },
+    { "name": "Default", "recipe": 0, "open": ["debugger"], "ini": "[Window][Project]\nPos=0,23\nSize=444,892\nCollapsed=0\nDockId=0x00000001,0\nLastUsed=20260909\n\n[Window][Properties]\nPos=1487,23\nSize=366,892\nCollapsed=0\nDockId=0x00000004,0\nLastUsed=20260909\n\n[Window][Debugger]\nPos=1487,23\nSize=366,892\nCollapsed=0\nDockId=0x00000004,1\nLastUsed=20260909\n\n[Window][Output]\nPos=446,677\nSize=1039,238\nCollapsed=0\nDockId=0x00000006,0\nLastUsed=20260909\n\n[Window][Debug]\nPos=446,677\nSize=1039,238\nCollapsed=0\nDockId=0x00000006,1\nLastUsed=20260909\n\n[Window][Flow Graph]\nPos=446,23\nSize=1039,652\nCollapsed=0\nDockId=0x00000005,1\nLastUsed=20260909\n\n[Window][Viewport]\nPos=446,23\nSize=1039,652\nCollapsed=0\nDockId=0x00000005,0\nLastUsed=20260909\n\n[Window][WindowOverViewport_11111111]\nPos=0,23\nSize=1853,892\nCollapsed=0\nLastUsed=20260909\n\n[Window][Debug##Default]\nPos=60,60\nSize=400,400\nCollapsed=0\nLastUsed=20260909\n\n[Docking][Data]\nDockSpace       ID=0x08BD597D Window=0x1BBC0F80 Pos=0,23 Size=1853,892 Split=X\n  DockNode      ID=0x00000001 Parent=0x08BD597D SizeRef=444,915 Selected=0x9C21DE82\n  DockNode      ID=0x00000002 Parent=0x08BD597D SizeRef=1407,915 Split=X\n    DockNode    ID=0x00000003 Parent=0x00000002 SizeRef=1039,915 Split=Y\n      DockNode  ID=0x00000005 Parent=0x00000003 SizeRef=1039,675 CentralNode=1 Selected=0xC450F867\n      DockNode  ID=0x00000006 Parent=0x00000003 SizeRef=1039,238 Selected=0x6BCC3585\n    DockNode    ID=0x00000004 Parent=0x00000002 SizeRef=366,915 Selected=0x8C72BEA8\n\n" },
     { "name": "Director", "recipe": 1, "open": ["cutscene"], "ini": "" },
     { "name": "Material Designer", "recipe": 2, "open": ["material"], "ini": "" },
     { "name": "Debugger", "recipe": 3, "open": ["debugger"], "ini": "" },

@@ -30,6 +30,7 @@
 #include "livedbg.hpp"
 #include "livepad.hpp"
 #include "uiscript.hpp"
+#include "vehbake.hpp"
 #include "vehcheck.hpp"
 #include "vucap.hpp"
 #include "vuasm.hpp"
@@ -765,6 +766,13 @@ static int refreshGenFromCli(int argc, char** argv) {
     // volume is stale, so this command can rewrite the manifest too.
     if (refuseUnmigrated(p)) return 1;
     bakeProcedural(p);
+    // The vehicle bake is a codegen INPUT (the lamp part index and its ranges
+    // ride from the bake into the definition and from there into
+    // scene_data.hpp), unlike texbake, which stays a build-only step here.
+    if (std::string err = vehbake::bakeProject(
+            p, [](const std::string& l) { std::printf("%s\n", l.c_str()); });
+        !err.empty())
+        std::fprintf(stderr, "warning: %s\n", err.c_str());
     if (std::string err = project::refreshGenerated(p); !err.empty()) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;

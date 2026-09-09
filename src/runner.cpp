@@ -943,6 +943,19 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
             return;
         }
 
+        // Vehicle bake: the .glb/.fbx of every definition -> body + wheel
+        // .tmdl + colour palette in .res-baked/vehicles/ (docs/vehicles.md).
+        // BEFORE the refresh below, because the bake hands measurements back
+        // to the definitions (the lamp part and its ranges,
+        // vehbake::adoptMeasured) that scene_data.hpp then bakes in - it used
+        // to run after, and a headless build emitted -1 for a car whose lamp
+        // part the same build had just written. Before texbake too, because
+        // texbake owns the .res-baked sweep.
+        if (auto err = vehbake::bakeProject(
+                p, [this](const std::string& l) { appendLine(l); });
+            !err.empty())
+            appendLine("[editor] Warning: " + err);
+
         // Keep docker files and generated sources in sync with the project
         // data (also migrates projects created with older editor versions).
         if (auto err = project::refreshGenerated(p); !err.empty())
@@ -970,14 +983,6 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                 fs::remove(fs::path(p.dir) / "bin" / "livelink.sig", ec);
             }
         }
-
-        // Vehicle bake: the .glb/.fbx of every definition -> body + wheel
-        // .tmdl + colour palette in .res-baked/vehicles/ (docs/vehicles.md).
-        // Before texbake, because texbake owns the .res-baked sweep.
-        if (auto err = vehbake::bakeProject(
-                p, [this](const std::string& l) { appendLine(l); });
-            !err.empty())
-            appendLine("[editor] Warning: " + err);
 
         // Texture bake: res/ -> .res-baked/ (PNG quantization per the project
         // policy; the generated Makefile copies .res-baked next to the ELF).

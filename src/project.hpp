@@ -1052,11 +1052,13 @@ struct VehicleDef {
     // body: the material says where the lamps are on THIS shape.
     float lampRear[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     float lampFront[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-    // Emissive lamp PART indices in the baked body (-1 = none): the runtime
-    // brightens these parts' vertex colors per instance - lamps that are
-    // body mesh stick to every shape by construction.
-    int lampRearPart = -1;
-    int lampFrontPart = -1;
+    // The emissive lamp PART of the baked body (-1 = none) and the corner
+    // count of its rear range (the front lamps follow it): the runtime
+    // brightens the two ranges' vertex colors per instance - lamps that are
+    // body mesh stick to every shape by construction. Measured by the bake,
+    // never authored (vehbake::adoptMeasured).
+    int lampPart = -1;
+    int lampRearVerts = 0;
 
     // The engine note (docs/vehicles.md, "Engine sound"). A path into the
     // project's own sound list, NOT an index: an index would retarget itself
@@ -1123,7 +1125,7 @@ inline bool operator==(const VehicleDef& a, const VehicleDef& b) {
         a.lampRear[2] != b.lampRear[2] || a.lampRear[3] != b.lampRear[3] ||
         a.lampFront[0] != b.lampFront[0] || a.lampFront[1] != b.lampFront[1] ||
         a.lampFront[2] != b.lampFront[2] || a.lampFront[3] != b.lampFront[3] ||
-        a.lampRearPart != b.lampRearPart || a.lampFrontPart != b.lampFrontPart ||
+        a.lampPart != b.lampPart || a.lampRearVerts != b.lampRearVerts ||
         a.hudFont != b.hudFont || a.hudSpeedScale != b.hudSpeedScale)
         return false;
     for (int i = 0; i < 3; ++i)

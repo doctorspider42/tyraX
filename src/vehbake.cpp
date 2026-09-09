@@ -339,10 +339,17 @@ bool shinyMaterial(const glbparser::SkelPart& p) {
 // one and not the other. tmdl reflection is PER PART, which is exactly what
 // permits matte tyres at all; the price is one more submit, paid only when
 // the definition actually asks for shine.
+//
+// Lamp-named materials (lampMaterial) leave the merge too, whenever merging
+// is on at all - shine or no shine - and land in ONE part, "lamps", rear
+// corners first; `lampRearVertsOut` receives the rear range's corner count so
+// the runtime can brighten the two ranges separately (docs/vehicles.md, "The
+// visual pack").
 void collect(const glbparser::Skel& sk, const std::vector<M4>& g, const M4& canon,
              const std::vector<int>& nodes, const float offset[3], bool merge,
              const std::string& paletteTex, Merge& mg, tmdl::Model& out,
-             int& srcParts, int& srcTris, bool shineSplit = false) {
+             int& srcParts, int& srcTris, bool shineSplit = false,
+             int* lampRearVertsOut = nullptr) {
     std::vector<float> mergedVerts;
     std::vector<float> matteVerts;
     std::vector<float> lampRearVerts, lampFrontVerts;
@@ -376,13 +383,14 @@ void collect(const glbparser::Skel& sk, const std::vector<M4>& g, const M4& cano
             dst = &part.verts;
             v = 0.0f;  // real UVs, nothing to patch later
         } else {
-            // LAMP materials become their own parts ("lamp-rear"/"lamp-front",
-            // docs/vehicles.md): the runtime brightens their vertex colors per
-            // instance (brake flare, the lights toggle), which only works if
-            // the lamp geometry is addressable - inside the palette merge it
-            // would be just more body texels. Fullbright via ke below.
+            // LAMP materials become their own part ("lamps", docs/vehicles.md):
+            // the runtime brightens their vertex colors per instance (brake
+            // flare, the lights toggle), which only works if the lamp geometry
+            // is addressable - inside the palette merge it would be just more
+            // body texels. Fullbright via ke below. Gated on the merge alone:
+            // a matte car has lamps too.
             bool lampFront = false;
-            if (shineSplit && lampMaterial(p.material, &lampFront)) {
+            if (lampMaterial(p.material, &lampFront)) {
                 dst = lampFront ? &lampFrontVerts : &lampRearVerts;
                 float* lkd = lampFront ? lampFrontKd : lampRearKd;
                 if (lkd[0] < 0.0f)
@@ -453,28 +461,26 @@ void collect(const glbparser::Skel& sk, const std::vector<M4>& g, const M4& cano
         part.verts.swap(matteVerts);
         out.parts.push_back(std::move(part));
     }
-    // Lamp parts LAST and in a fixed order (rear before front), so the part
-    // INDEX the definition records survives every rebake of the same model.
-    // Untextured, own kd, and ke = kd: FULLBRIGHT - a lamp is a light source,
-    // the scene's shading must never darken it (the era's fullbright trick).
-    if (!lampRearVerts.empty()) {
+    // The lamp part LAST, so the part INDEX the definition records survives
+    // every rebake of the same model; rear corners first, then front, and the
+    // split point goes out through lampRearVertsOut. Untextured, and ke = kd:
+    // FULLBRIGHT - a lamp is a light source, the scene's shading must never
+    // darken it (the era's fullbright trick). The part's kd is the rear
+    // lamp's colour (the front's when a model marks only those); the runtime
+    // overwrites both ranges every frame, so kd is what the FIRST frame and
+    // any host reader that ignores the ranges see, nothing more.
+    if (lampRearVertsOut) *lampRearVertsOut = (int)(lampRearVerts.size() / 8);
+    if (!lampRearVerts.empty() || !lampFrontVerts.empty()) {
         tmdl::Part part;
-        part.name = "lamp-rear";
+        part.name = "lamps";
+        const float* lkd = lampRearVerts.empty() ? lampFrontKd : lampRearKd;
         for (int a = 0; a < 3; ++a) {
-            part.kd[a] = lampRearKd[0] < 0.0f ? 1.0f : lampRearKd[a];
+            part.kd[a] = lkd[0] < 0.0f ? 1.0f : lkd[a];
             part.ke[a] = part.kd[a];
         }
         part.verts.swap(lampRearVerts);
-        out.parts.push_back(std::move(part));
-    }
-    if (!lampFrontVerts.empty()) {
-        tmdl::Part part;
-        part.name = "lamp-front";
-        for (int a = 0; a < 3; ++a) {
-            part.kd[a] = lampFrontKd[0] < 0.0f ? 1.0f : lampFrontKd[a];
-            part.ke[a] = part.kd[a];
-        }
-        part.verts.swap(lampFrontVerts);
+        part.verts.insert(part.verts.end(), lampFrontVerts.begin(),
+                          lampFrontVerts.end());
         out.parts.push_back(std::move(part));
     }
     for (auto& kv : textured) out.parts.push_back(std::move(kv.second));
@@ -553,9 +559,10 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
         for (int a = 0; a < 3; ++a)
             bodyOrigin[a] /= (float)out.detection.wheels.size();
     }
+    int lampRearVerts = 0;
     collect(sk, g, canon, out.detection.bodyNodes, bodyOrigin, opt.mergeUntextured,
             paletteTex, mg, out.body, out.srcParts, out.srcTris,
-            /*shineSplit=*/opt.bodyShine > 0.001f);
+            /*shineSplit=*/opt.bodyShine > 0.001f, &lampRearVerts);
 
     if (!out.detection.wheels.empty()) {
         // One wheel is baked, hub at the origin. Which one does not matter for
@@ -593,7 +600,7 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
             opt.bodyReflMap.empty() ? std::string("@sky") : opt.bodyReflMap;
         for (tmdl::Part& p : out.body.parts) {
             if (p.name == "merged-matte") continue;
-            if (p.name.rfind("lamp-", 0) == 0) continue;  // lights, not paint
+            if (p.name == "lamps") continue;  // lights, not paint
             std::string n2;
             for (char c : p.name)
                 n2 += (char)(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
@@ -610,19 +617,23 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
     // The body budget covers the WHOLE body, split across its parts by their
     // share of the source - the shine split made this visible: a per-part
     // budget let a 2-part body carry 2002 triangles against an authored 1500.
+    // The lamp part is NEVER decimated: a collapse reorders its corners and
+    // the rear/front split is a corner index. It is a few dozen triangles.
     if (bodyBefore > 0)
         for (tmdl::Part& p : out.body.parts)
-            decimateTo(p.verts,
-                       (int)((long long)opt.bodyTriBudget * triCount(p.verts) /
-                             bodyBefore));
+            if (p.name != "lamps")
+                decimateTo(p.verts,
+                           (int)((long long)opt.bodyTriBudget * triCount(p.verts) /
+                                 bodyBefore));
     for (tmdl::Part& p : out.wheel.parts) decimateTo(p.verts, opt.wheelTriBudget);
 
     computeBounds(out.body);
     computeBounds(out.wheel);
-    for (size_t k = 0; k < out.body.parts.size(); ++k) {
-        if (out.body.parts[k].name == "lamp-rear") out.lampRearPart = (int)k;
-        if (out.body.parts[k].name == "lamp-front") out.lampFrontPart = (int)k;
-    }
+    for (size_t k = 0; k < out.body.parts.size(); ++k)
+        if (out.body.parts[k].name == "lamps") {
+            out.lampPart = (int)k;
+            out.lampRearVerts = lampRearVerts;
+        }
     out.bodyParts = (int)out.body.parts.size();
     out.wheelParts = (int)out.wheel.parts.size();
     out.bodyTris = modelTris(out.body);
@@ -756,7 +767,22 @@ BakedPaths pathsFor(const VehicleDef& v) {
     return b;
 }
 
-std::string bakeProject(const Project& p,
+bool adoptMeasured(VehicleDef& v, const Result& r) {
+    bool changed = false;
+    for (int k = 0; k < 4; ++k) {
+        if (v.lampRear[k] != r.lampRear[k]) changed = true;
+        if (v.lampFront[k] != r.lampFront[k]) changed = true;
+        v.lampRear[k] = r.lampRear[k];
+        v.lampFront[k] = r.lampFront[k];
+    }
+    if (v.lampPart != r.lampPart || v.lampRearVerts != r.lampRearVerts)
+        changed = true;
+    v.lampPart = r.lampPart;
+    v.lampRearVerts = r.lampRearVerts;
+    return changed;
+}
+
+std::string bakeProject(Project& p,
                         const std::function<void(const std::string&)>& log) {
     namespace fs = std::filesystem;
     std::string firstError;
@@ -782,7 +808,7 @@ std::string bakeProject(const Project& p,
             .write(bytes.data(), (std::streamsize)bytes.size());
     };
 
-    for (const VehicleDef& v : p.vehicles) {
+    for (VehicleDef& v : p.vehicles) {
         if (v.modelPath.empty() || v.id.empty()) continue;
         const BakedPaths bp = pathsFor(v);
         Options opt;
@@ -806,8 +832,18 @@ std::string bakeProject(const Project& p,
         if (!r.palettePng.empty())
             put(bp.palette, std::string((const char*)r.palettePng.data(),
                                         r.palettePng.size()));
+        adoptMeasured(v, r);
         if (log) {
             char buf[220];
+            if (r.lampPart >= 0) {
+                std::snprintf(buf, sizeof(buf),
+                              "[vehicle] %s: lamp materials -> emissive part %d "
+                              "(%d rear corners, %d front)",
+                              v.name.c_str(), r.lampPart, r.lampRearVerts,
+                              triCount(r.body.parts[(size_t)r.lampPart].verts) * 3 -
+                                  r.lampRearVerts);
+                log(buf);
+            }
             std::snprintf(buf, sizeof(buf),
                           "[vehicle] %s: body %d tris / %d part(s), wheel %d tris, "
                           "%d submit(s) per vehicle",

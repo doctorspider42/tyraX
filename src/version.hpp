@@ -16,6 +16,23 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.79.0 (the lamps, finished - docs/vehicles.md): the reference CC96 DOES
+// name its lamp materials ("headlights", "headlights2", "rear lights"), and
+// two things kept that from reaching the console. The editor adopted the
+// lamp measurements only while the drive spec still sat at its defaults, so
+// a car whose wheelbase had been adopted long before never received a lamp
+// part index; and the build bake ran AFTER refreshGenerated, so a headless
+// build wrote the lamp part and then emitted -1 for it. vehbake::adoptMeasured
+// is the one adoption now (unconditional, from the editor tick, the Runner
+// and --refresh-gen), and the bake runs before codegen. The two lamp parts
+// became ONE ("lamps": rear corners, then front, split recorded as
+// lampRearVerts; never decimated) - a submit is ~1 ms and the pair cost a
+// driven frame a fifth of its budget for a few dozen triangles. Gated on the
+// merge rather than on shine (a matte car has lamps too); the viewport draws
+// the part in the console's lights-off colours. lampRearPart/lampFrontPart
+// (v47, never shipped in an example) give way to lampPart/lampRearVerts:
+// kFormatVersion 48, additive. MINOR.
+//
 // 1.78.0 (lamps ARE the body - docs/vehicles.md): lamp-material geometry
 // splits out of the palette merge into its own parts (lamp-rear/lamp-front,
 // fixed order so the recorded indices survive rebakes), baked FULLBRIGHT
@@ -2276,7 +2293,7 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 78
+#define TYRAX_VERSION_MINOR 79
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -2557,7 +2574,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // same trick"): "spot" + "spotAngle" on a light object's light block -
 // written only when the style is on, so an untouched project resaves byte
 // for byte; off (the default) is the point light every earlier file had.
-inline constexpr int kFormatVersion = 47;
+inline constexpr int kFormatVersion = 48;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

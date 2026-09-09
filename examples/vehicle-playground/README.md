@@ -8,7 +8,10 @@ worked example for [vehicles](../../docs/vehicles.md).
 - **A CC96 coupe** imported from a single `res/models/car1.fbx`. Nothing about
   that file was prepared for this: its nodes are called `Cube` and
   `Cylinder.001`–`.003` — Blender defaults — and the importer finds the four
-  wheels by **geometry** rather than by name.
+  wheels by **geometry** rather than by name. The one thing it DID bring is
+  lamp materials — `headlights`, `headlights2`, `rear lights` — so the tail
+  lamps and headlamps are body mesh the game recolours: dark red at rest,
+  lit on **D-pad up**, a bright flare while braking.
 - **A 320x320 sculpted playground** — a flat start box with the pillar slalom,
   rolling dunes to the east, a banked bowl to the south-west to swing around,
   and a jump ridge along the western half. Every slope stays under the ~22 deg

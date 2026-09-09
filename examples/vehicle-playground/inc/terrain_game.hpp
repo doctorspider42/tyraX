@@ -492,6 +492,11 @@ class TerrainGame : public Tyra::Game {
     int model = -1;    // gameModels index the vertices came from
     int part = 0;      // that model's material part = this bag's texture
     int material = -1; // primitives: gameMaterials index
+    // Roads (docs/roads.md): a chunk built by buildRoads holds its texture
+    // DIRECTLY - road surfaces come from a project texture, not from a
+    // model part or an .mtl. Owner is -3 for these, so a scene revisit can
+    // clear and rebuild them without touching merged geometry.
+    Tyra::Texture* roadTex = nullptr;
     std::vector<Tyra::Vec4> vertices;
     std::vector<Tyra::Color> colors;
     std::vector<Tyra::Vec4> sts;
@@ -684,6 +689,26 @@ class TerrainGame : public Tyra::Game {
     // RPC and must happen only on a real change.
     int engineCh = -1;
     int enginePitchReg = 0;
+    // The rest of the sound pack: the high-rev loop's channel + last written
+    // registers (write-on-change - a SIF RPC per redundant write otherwise),
+    // the squeal's, and the last gear the shift blip heard.
+    int engineChHigh = -1;
+    int enginePitchRegHigh = 0;
+    int engineVolRegLow = -1;
+    int engineVolRegHigh = -1;
+    int screechCh = -1;
+    int screechVolReg = -1;
+    int sndPrevGear = 0;
+    // Visual fx: distance owed to the next skid quad, the backfire flash
+    // timer, and the last gear the flash heard.
+    float skidAcc = 0.0F;
+    float backfireT = 0.0F;
+    int fxPrevGear = 0;
+    // Lights: -1 = take the definition's default on first update, else the
+    // driver's DpadUp toggle. brakeOn flares the tail lamps regardless -
+    // brake lights work with the headlights off, like a real car.
+    int lightsOn = -1;
+    int brakeOn = 0;
     // Weight transfer, presentation only - degrees ON TOP of the
     // terrain-derived pitch/roll, never fed back (slope gravity reads the
     // real pitch). Twin of DriveState::leanPitch/leanRoll.
@@ -694,6 +719,11 @@ class TerrainGame : public Tyra::Game {
     // chassis. Without it the wheels rode rigidly at chassis height and the
     // computed compression never reached the screen.
     float wheelY[4] = {0.0F, 0.0F, 0.0F, 0.0F};
+    // The sprung rig (vehiclesim.cpp, "THE SPRUNG RIG" - change one, change
+    // both): attitude rates and last frame's plane height (1e9 = none).
+    float pitchVel = 0.0F;
+    float rollVel = 0.0F;
+    float lastRestY = 1e9F;
     float smokeAcc = 0.0F;  // fractional puffs owed by the slip rate
     // AI route (docs/vehicles.md, "AI drivers"): a slice of VEH_WAYPOINTS.
     // AI unstick (docs/vehicles.md): seconds spent asking for throttle and
@@ -749,11 +779,46 @@ class TerrainGame : public Tyra::Game {
   std::unique_ptr<Tyra::StaPipBillboardBag> smokeBillboardBag_;
   void updateVehicleSmoke(float dt);
   void renderVehicleSmoke();
+  // SKID MARKS - slip's fifth consumer (smoke, screech, telemetry, drift HUD
+  // one day): a ring of terrain-flat dark quads under the slipping rear
+  // wheels, fading out over seconds. Plain triangles (the collision-overlay
+  // shape), one submit, skipped when empty. bboxVersion bumps only when a
+  // quad SPAWNS - the fade touches colors alone.
+  enum { kVehSkidMax = 96 };
+  Tyra::Vec4 skidVerts_[kVehSkidMax * 6];
+  Tyra::Color skidCols_[kVehSkidMax * 6];
+  float skidLife_[kVehSkidMax] = {};
+  int skidNext_ = 0;
+  int skidAlive_ = 0;
+  int skidDirty_ = 0;
+  std::unique_ptr<Tyra::StaPipBag> skidBag_;
+  std::unique_ptr<Tyra::StaPipInfoBag> skidInfoBag_;
+  std::unique_ptr<Tyra::StaPipColorBag> skidColorBag_;
+  void updateVehicleSkids(float dt);
+  void renderVehicleSkids();
+  // The GLOW bag - everything a car ADDS light with, one additive submit:
+  // backfire flashes at the exhaust on an upshift, and the headlight pools
+  // painted on the terrain ahead (the scene lights' ground-pool trick).
+  enum { kVehGlowMax = 16 };
+  Tyra::Vec4 glowVerts_[kVehGlowMax * 6];
+  Tyra::Color glowCols_[kVehGlowMax * 6];
+  int glowCount_ = 0;
+  std::unique_ptr<Tyra::StaPipBag> glowBag_;
+  std::unique_ptr<Tyra::StaPipInfoBag> glowInfoBag_;
+  std::unique_ptr<Tyra::StaPipColorBag> glowColorBag_;
+  void renderVehicleGlow();
   void updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s, int driving);
   void muteVehicleEngines();
   void renderVehicleHud();
   // Is this runtime object a placed vehicle? The paint pass asks per part.
   int vehiclePaintFor(int objIdx);
+
+  // --- roads (docs/roads.md) ---
+  // Built at scene load from ROAD_DEFS: the tessellated chunks live in
+  // procChunks under owner -3, textures in this small cache (acquired once,
+  // shared by every chunk of every road using them).
+  Tyra::Texture* roadTextures_[ROAD_TEXTURE_COUNT > 0 ? ROAD_TEXTURE_COUNT : 1] = {};
+  void buildRoads(int scene);
 
   // Physics bodies in a walking player's path get shoved along the attempted
   // move (impulse scaled by 1/mass) and woken; called before collidePlayer so

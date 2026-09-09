@@ -3839,22 +3839,38 @@ const Viewport::ModelDraw* Viewport::modelDraw(const std::string& relPath,
 // into the shaded vertex colour, and the merged part's colours arrive through
 // the palette TEXTURE exactly as they will on the console.
 Viewport::ModelDraw Viewport::uploadTmdl(const tmdl::Model& m,
-                                         const std::string& paletteRel) {
+                                         const std::string& paletteRel,
+                                         int lampPart, int lampRearVerts) {
     ModelDraw draw;
     for (int k = 0; k < 3; ++k) draw.mn[k] = m.min[k], draw.mx[k] = m.max[k];
-    for (const tmdl::Part& sp : m.parts) {
+    for (size_t pi = 0; pi < m.parts.size(); ++pi) {
+        const tmdl::Part& sp = m.parts[pi];
+        // A vehicle's lamp part is painted by the RUNTIME per frame, so its
+        // baked kd says nothing about what the console shows: draw the two
+        // corner ranges in the runtime's own lights-off colours, fullbright
+        // (the generated renderVehicleGlow is the twin - change both).
+        const bool lamps = (int)pi == lampPart;
         std::vector<float> interleaved;
         interleaved.reserve(sp.verts.size());
         for (size_t i = 0; i + 7 < sp.verts.size(); i += 8) {
-            const Vec3 s = shadeOf({sp.verts[i + 3], sp.verts[i + 4], sp.verts[i + 5]});
+            float c[3];
+            if (lamps) {
+                const bool rear = (int)(i / 8) < lampRearVerts;
+                c[0] = rear ? 78.0f / 255.0f : 96.0f / 255.0f;
+                c[1] = rear ? 14.0f / 255.0f : 94.0f / 255.0f;
+                c[2] = rear ? 12.0f / 255.0f : 86.0f / 255.0f;
+            } else {
+                const Vec3 s =
+                    shadeOf({sp.verts[i + 3], sp.verts[i + 4], sp.verts[i + 5]});
+                c[0] = s.x * sp.kd[0], c[1] = s.y * sp.kd[1], c[2] = s.z * sp.kd[2];
+            }
             interleaved.insert(interleaved.end(),
                                {sp.verts[i], sp.verts[i + 1], sp.verts[i + 2],
-                                s.x * sp.kd[0], s.y * sp.kd[1], s.z * sp.kd[2],
-                                sp.verts[i + 6], sp.verts[i + 7]});
+                                c[0], c[1], c[2], sp.verts[i + 6], sp.verts[i + 7]});
         }
         ModelPart part;
         part.mesh = uploadMesh(interleaved);
-        for (int k = 0; k < 3; ++k) part.ke[k] = sp.ke[k];
+        for (int k = 0; k < 3; ++k) part.ke[k] = lamps ? 0.0f : sp.ke[k];
         // Reflection travels in the .tmdl part (vehbake's bodyShine writes
         // refl "@sky"), and the preview must show the same shine the console
         // draws - the matcap machinery is the model path's, reused.
@@ -3892,10 +3908,10 @@ Viewport::ModelDraw Viewport::uploadTmdl(const tmdl::Model& m,
 void Viewport::setVehicleDraw(const std::string& name, const tmdl::Model& body,
                               const tmdl::Model& wheel, const std::string& paletteRel,
                               float wheelBase, float track, float wheelRadius,
-                              float rideHeight) {
+                              float rideHeight, int lampPart, int lampRearVerts) {
     if (name.empty()) return;
     VehicleDraw v;
-    v.body = uploadTmdl(body, paletteRel);
+    v.body = uploadTmdl(body, paletteRel, lampPart, lampRearVerts);
     v.wheel = uploadTmdl(wheel, paletteRel);
     v.palette = paletteRel;
     v.wheelBase = wheelBase;
