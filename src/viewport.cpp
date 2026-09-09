@@ -575,7 +575,12 @@ vec3 litShade(vec3 base, vec3 wp, vec3 n) {
     // below or the scene is lit twice.
     bool giHere = false;
     if (uGiSkipProbe != 0) {
-        giHere = true;
+        // The terrain: never probe-lit, but "inside the baked answer" only
+        // when there IS one. With GI off this used to read as lit-by-GI too,
+        // and the ground took no point or spot light at all in the per-pixel
+        // path - a lamp over a field previewed as darkness while the console
+        // drew its pool. Reported from the spot-shadow preview.
+        giHere = uGiOn != 0;
     } else {
         vec3 gi;
         if (giProbe(wp, n, gi)) {
@@ -4529,7 +4534,17 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // what the game bakes into vertex colors; capped at the shader's 8).
     int pointLightCount = 0;
     float lightPosPrev[8 * 4] = {};
+    float lightDirPrev[8 * 4] = {};
     bool lightDynPrev[8] = {};
+    int lightObjPrev[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+    // The ONE spot light whose casters the preview shadows the volumes' way
+    // (docs/shadows.md, "Spot-light shadow volumes"): among the dynamic spots
+    // that resolve to "on" - the light's own override, or the project switch
+    // when it says "follow" - the nearest to the camera, exactly the game's
+    // slot rule minus its hysteresis (an editor camera does not drift between
+    // two lamps frame to frame). -1 = none.
+    int spotVolLight = -1;
+    float spotVolD2 = 0.0f;
     {
         float pos[8 * 4] = {};
         float col[8 * 4] = {};
@@ -4565,8 +4580,23 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                 dir[count * 4 + 3] = o.lightDynamic ? 1.6f : 2.0f;
             }
             lightDynPrev[count] = o.lightDynamic;
-            for (int c = 0; c < 4; ++c)
+            lightObjPrev[count] = (int)oi;
+            for (int c = 0; c < 4; ++c) {
                 lightPosPrev[count * 4 + c] = pos[count * 4 + c];
+                lightDirPrev[count * 4 + c] = dir[count * 4 + c];
+            }
+            if (o.lightDynamic && o.lightSpot && o.lightBright > 0.01f &&
+                (o.lightShadowVolumes == 2 ||
+                 (o.lightShadowVolumes == 0 && spotShadowVolumes_))) {
+                const float ex = o.position[0] - eye.x;
+                const float ey = o.position[1] - eye.y;
+                const float ez = o.position[2] - eye.z;
+                const float d2 = ex * ex + ey * ey + ez * ez;
+                if (spotVolLight < 0 || d2 < spotVolD2) {
+                    spotVolLight = count;
+                    spotVolD2 = d2;
+                }
+            }
             ++count;
         }
         glUniform1i(uLightCount_, count);
@@ -4668,7 +4698,14 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         // Collected for ambient occlusion OR to shadow the emissive lights -
         // the same shapes serve both, so a scene with lamps and no baked
         // occlusion still needs them uploaded.
-        if (aoOn_ || emisCount > 0) {
+        // ...and for the dynamic lights' own shadows: those tests read the
+        // same slots, and with the occluders gated on AO alone a scene with
+        // AO off previewed every lamp shadowless - the game's surprise this
+        // preview exists to spoil. A dynamic light in the scene uploads them.
+        bool anyDynLight = false;
+        for (int li = 0; li < pointLightCount; ++li)
+            anyDynLight |= lightDynPrev[li];
+        if (aoOn_ || emisCount > 0 || anyDynLight) {
             // Occluder bounds only need the model AABB, so read it through the
             // GL-free bounds path rather than modelDraw(): asking for a number
             // should not upload a whole textured model's meshes and textures to
@@ -4739,15 +4776,48 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                 };
                 Cand cand[32];
                 int cn = 0;
+                // The spot holding the volume slot picks its casters the
+                // way the game's pickVolCasters does: EVERY solid inside
+                // its cone (not only the Cast-shadow-projected ones), the
+                // nearest four to the LIGHT, nothing grouping-cell sized,
+                // nothing nearer than the extrusion margin, and never an
+                // object whose Dynamic shadow is None. The shadow itself
+                // is still the analytic box test below - a model casts its
+                // bounding box here where the console extrudes its real
+                // triangles, which is the one honest difference.
+                const bool volSlot = li == spotVolLight;
+                const float* ld = lightDirPrev + li * 4;
+                const float cosA = ld[3];
+                const float tanA =
+                    cosA > 0.01f ? std::sqrt(std::max(1.0f - cosA * cosA, 0.0f)) / cosA
+                                 : 1.0f;
                 for (size_t s = 0; s < occs.size(); ++s) {
                     const int objIdx = occs[s].objIndex;
                     if (objIdx < 0 || objIdx >= (int)objects.size()) continue;
-                    if (!objects[objIdx].projShadow) continue;
                     const float dx = occs[s].pos[0] - lp[0];
                     const float dy = occs[s].pos[1] - lp[1];
                     const float dz = occs[s].pos[2] - lp[2];
                     const float d2v = dx * dx + dy * dy + dz * dz;
-                    if (d2v > lp[3] * lp[3] * 4.0f) continue;
+                    if (volSlot) {
+                        if (objects[objIdx].shadowMode == 1) continue;
+                        const aobake::Occluder& oc = occs[s];
+                        const float br = oc.sphere
+                                             ? oc.half[0]
+                                             : std::sqrt(oc.half[0] * oc.half[0] +
+                                                         oc.half[1] * oc.half[1] +
+                                                         oc.half[2] * oc.half[2]);
+                        if (br > 20.0f) continue;
+                        const float t = dx * ld[0] + dy * ld[1] + dz * ld[2];
+                        if (t < 0.35f + 0.3f || t > lp[3]) continue;
+                        const float px = dx - ld[0] * t, py = dy - ld[1] * t,
+                                    pz = dz - ld[2] * t;
+                        if (std::sqrt(px * px + py * py + pz * pz) >
+                            t * tanA * 1.3f + br)
+                            continue;
+                    } else {
+                        if (!objects[objIdx].projShadow) continue;
+                        if (d2v > lp[3] * lp[3] * 4.0f) continue;
+                    }
                     cand[cn].d2 = d2v;
                     cand[cn].slot = (int)s;
                     if (++cn >= 32) break;

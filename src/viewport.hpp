@@ -234,6 +234,11 @@ public:
     // from the editor camera, the exact formula the PS2 runs on VU1.
     void setFlashlight(bool enabled, const float* rgb, float range,
                        float halfAngleDeg);
+    // Preferences > Spot light shadow volumes: the project-wide default a
+    // spot light's "Shadow volumes" override falls back to (docs/shadows.md).
+    // Decides which casters the preview shadows a spot through, and that one
+    // spot per frame - the nearest to the camera - carves at all.
+    void setSpotShadowVolumes(bool on) { spotShadowVolumes_ = on; }
 
     // project root for resolving relative model paths (clears the model cache)
     void setProjectDir(const std::string& dir);
@@ -882,6 +887,7 @@ private:
     // Camera flashlight preview
     int uFlashOn_ = -1, uFlashCol_ = -1, uFlashInvR2_ = -1, uFlashCut2_ = -1;
     int uFlashSoft_ = -1;
+    bool spotShadowVolumes_ = false;
     bool flashOn_ = false;
     float flashColor_[3] = {0.75f, 0.75f, 0.62f};
     float flashRange_ = 30.0f, flashAngle_ = 20.0f;

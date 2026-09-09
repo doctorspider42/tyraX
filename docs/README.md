@@ -62,6 +62,10 @@ for people building games with it. Internals live in code comments, the git log
   reverted.
 - [The flashlight](flashlight.md) — the player's torch: the per-vertex cone, the
   projected ground pool, and the gobo texture that decides its shape.
+- [Dynamic shadows](shadows.md) — the two runtime shadows an object can cast (a
+  blob or a real projected silhouette, chosen per object), and the shadow
+  volumes a scene's spot lights can carve — with the reason only one spot casts
+  per frame, and how the four silhouette slots change hands without blinking.
 - [Reflective materials (sphere-mapped "chrome")](reflective-materials.md) —
   the PS2-era fake for car paint, static or re-rendered from the live sky.
 - [Raytraced reflections (VU0, experimental PoC)](raytraced-reflections.md) — a
@@ -103,6 +107,9 @@ for people building games with it. Internals live in code comments, the git log
   the EE, and the guard-wiring flow nodes.
 - [Configurable buttons & keys](input-bindings.md) — named actions, binding
   presets, the in-game rebind menu, the On Action / On Key nodes.
+- [Where the player starts](player-start.md) — position, starting height, and
+  heading + pitch from the Player object's rotation; how to freeze the camera
+  for a repeatable screenshot.
 - [Player speeds: walk, run and sprint](player-speeds.md) — the three movement
   tiers of a Player object, how the stick's deflection ramps walk into run while
   the sprint button pins the top flat, and what an unset tier inherits.

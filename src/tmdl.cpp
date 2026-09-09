@@ -58,6 +58,10 @@ std::string write(const Model& m) {
         appendU32(out, (uint32_t)part.lods.size());
         for (const Lod& lod : part.lods) appendMesh(out, lod.verts, lod.ao);
     }
+    const uint32_t shadowCorners = (uint32_t)(m.shadowVerts.size() / 3 / 3 * 3);
+    appendU32(out, shadowCorners);
+    appendBytes(out, m.shadowVerts.data(),
+                (size_t)shadowCorners * 3 * sizeof(float));
     return out;
 }
 

@@ -162,7 +162,8 @@ per pixel by construction. Two honest divergences stay: the console lights
 each mesh with its **strongest** dynamic light only (`pickDynLight`) while
 the preview adds them all, and a dynamic **spot** light's gobo projection is
 not reproduced (its pool is skipped; the per-vertex cone still lands on
-objects).
+objects). The shadow a spot carves out of that pool previews in **Solid**
+shading instead ([shadows.md](shadows.md), "In the editor").
 
 A light's visible **beam** (*Properties > Point light > Beam*) is not part of
 this mode and never was: the corona billboard and the cone shaft are geometry

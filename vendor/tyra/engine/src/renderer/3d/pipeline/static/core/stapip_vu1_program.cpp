@@ -9,6 +9,7 @@
 */
 
 #include "renderer/3d/pipeline/static/core/stapip_vu1_program.hpp"
+#include "renderer/core/gs/renderer_core_depth.hpp"
 
 namespace Tyra {
 
@@ -78,7 +79,10 @@ void StaPipVU1Program::addStandardBufferDataToPacket(packet2_t* packet,
     // as packed XYZF2 (for GS hardware fog), which reads Z from bits 4-27
     // of the word - ftoi4 already shifts by 4, so the float range must be
     // the full 24 bits for the same effective depth precision as before.
-    packet2_add_float(packet, static_cast<float>(0xFFFFFF) / 2.0F);  // scale
+    // The RANGE itself is RendererCoreDepth's (16 bits when the framebuffer
+    // is PSMCT16, whose z buffer must be PSMZ16 for page geometry), so this
+    // constant lives in exactly one place now.
+    packet2_add_float(packet, RendererCoreDepth::scale);  // scale
     u32 packedCount = buffer->size;
     if (isClipProgram(name)) {
       TYRA_ASSERT(buffer->size <= VU1_STAPIP_COUNT_MASK,
