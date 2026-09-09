@@ -80,6 +80,12 @@ static std::string orderFiles(const Project& p, std::vector<OrderedFile>& out,
 
     take(p.elfName(), "boot");
     for (const HudImage& h : p.hud) take(binPathOf(h.imagePath), "startup");
+    for (const HudBar& b : p.hudBars) {
+        if (!b.fillImage.imagePath.empty())
+            take(binPathOf(b.fillImage.imagePath), "startup");
+        if (!b.frameImage.imagePath.empty())
+            take(binPathOf(b.frameImage.imagePath), "startup");
+    }
     take("hud/use.png", "startup");
     take("hud/loading.png", "startup");
     take("hud/loading-white.png", "startup");

@@ -144,6 +144,8 @@ for people building games with it. Internals live in code comments, the git log
 
 **The game around the game**
 
+- [Animated HUD](hud-animation.md) — live health/stamina/progress bars,
+  per-element looped motion, show/hide transitions and one-shot effects.
 - [Loading screens](loading-screens.md) — named screens with real progress
   bars, per-scene or project-default, and the start scene.
 - [Credits rolls](credits.md) — scrolled or card-mode credits from a text file,
