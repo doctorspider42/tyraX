@@ -16,6 +16,27 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.72.1 (the projected silhouette stops at the floor, and stays out of a
+// GI bake's way): the same wall as 1.72.0, in the game, threw a shadow on
+// BOTH sides of itself while the editor drew one. Two things, both in
+// renderProjShadows. The wall is planted 4.5 of its 10 units under the
+// terrain, and projecting a texture cannot tell a receiver point in front of
+// the caster from one behind it along the light ray - the ray from a sunlit
+// ground point, carried on underground, meets the buried part, which is a
+// full-length shadow on the lit side (the bake's rays only go up, so the
+// editor never had it). The silhouette render now lifts every caster vertex
+// below its floor (projSurfaceAt under the caster, collected before the
+// render) up to the floor, through a scratch copy the bag is aimed at for one
+// submit - the torch wall-patch precedent; a LOD tier re-aims the bag, so the
+// copy reads the bag's own pointer. And under a GI bake a static Default-mode
+// caster draws no live sun silhouette at all: its shadow is in the bake, per
+// texel, and the live copy landed the same shadow twice, darker, on a slot
+// something moving could use - it still draws under a live day/night clock,
+// a torch or a dynamic spot, and "Projected silhouette" forces it. Verified
+// by --refresh-gen (the fixture regenerates and the change is only in
+// renderProjShadows); the PCSX2 run of the reporter's scene is the remaining
+// human step.
+//
 // 1.72.0 (the viewport draws the baked lightmaps, and the ground grid of
 // the GI bake follows the objects): reported from a two-sphere-and-a-wall
 // scene with GI on - a row of pale blotches along the wall's foot in the
@@ -2865,7 +2886,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 72
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

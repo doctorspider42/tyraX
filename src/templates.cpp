@@ -15470,34 +15470,19 @@ void TerrainGame::renderProjShadows() {
     const bool groundOk = ddy <= -0.08F;
     if (!fromTorch && !groundOk) continue;
 
-    // FOV sized so the silhouette keeps a ~25% transparent border (CLAMP
-    // smears edge texels outward - the border guarantees the edges stay
-    // empty). Capped: a light almost touching the caster asks for a
-    // near-180-degree frustum, which no projection survives.
-    float fovDeg = 2.0F * atanf(r * 1.3F / eDist) * (180.0F / 3.14159265F);
-    if (fovDeg > 100.0F) fovDeg = 100.0F;
-    core.shadowMap.begin(s);
-    core.renderer3D.pushEnvView(Vec4(ex, ey, ez, 1.0F),
-                                Vec4(cx, cy, cz, 1.0F), fovDeg,
-                                (float)Tyra::RendererCoreShadowMap::size);
-    lightVP[s] = core.renderer3D.getViewProj();
-    if (anim) {
-      for (auto& ap : g.animParts)
-        if (ap.bag) stapip.core.render(ap.bag.get());
-    } else {
-      for (GeoPart& part : g.parts)
-        if (part.bag) stapip.core.render(part.bag.get());
-    }
-    core.renderer3D.popEnvView(mainCam);
+    // A STATIC caster's sun shadow is already in the baked lighting when the
+    // scene carries a GI bake (docs/global-illumination.md): drawing the live
+    // silhouette on top lands the same shadow twice - a second, darker copy
+    // that the editor (which shows the bake) never has - and spends a slot
+    // something that moves could use. So under GI the Default mode draws the
+    // sun silhouette only while the day/night clock runs (the bake is at one
+    // hour, the live shadow sweeps) or when a torch / dynamic spot is the
+    // light (nothing baked those). Choosing "Projected silhouette" on the
+    // object says it explicitly and keeps it (docs/shadows.md).
+    if (bestSun && !liveLight && SCENE_AO_MAP_GI && o.data.shadowMode == 0 &&
+        !anim && !g.matrixMode && !o.data.physics)
+      continue;
 
-    // Where the light ray through the caster centre meets the ground. The
-    // second sample re-lands the ray on the terrain it actually reaches - a
-    // long shadow can walk a fair way up or down a slope.
-    // The hit of a nearly level ray runs to the horizon - a light level with a
-    // wall's middle throws a shadow that genuinely has no far edge - and a
-    // patch centred out there covers nothing near the caster, which is the
-    // part anyone looks at. Walk only as far as one patch can cover: the
-    // shadow then fades out at the patch edge instead of not existing.
     // How far the ray may travel before the patch is placed. The cap is on
     // the SIDEWAYS run, not on the ray length: what runs away is a nearly
     // LEVEL ray (a light beside the caster throws a shadow with no far edge,
@@ -15511,15 +15496,85 @@ void TerrainGame::renderProjShadows() {
     const float latMax = r * 4.0F;
     const float tgMax =
         horizRun > 0.0001F ? latMax / horizRun : 1.0e9F;
-    float gx = cx, gz = cz, half = 0.0F;
-    if (groundOk) {
     // Receivers first: everything below is asking "where is the floor", and
     // indoors the floor is geometry. yMax is the caster's own underside (feet
     // for the anim/player types the lift above accounts for) plus a little,
     // so a surface it is standing ON counts and the one it is standing UNDER
-    // does not.
-    projCollectReceivers(cx, cz, tgMax + r * 3.5F, cy - r + 0.35F);
-    float gy = projSurfaceAt(cx, cz);
+    // does not. Collected BEFORE the silhouette render, because the render
+    // needs the floor height too (below).
+    float gy0 = cy - r;
+    if (groundOk) {
+      projCollectReceivers(cx, cz, tgMax + r * 3.5F, cy - r + 0.35F);
+      gy0 = projSurfaceAt(cx, cz);
+    }
+
+    // FOV sized so the silhouette keeps a ~25% transparent border (CLAMP
+    // smears edge texels outward - the border guarantees the edges stay
+    // empty). Capped: a light almost touching the caster asks for a
+    // near-180-degree frustum, which no projection survives.
+    float fovDeg = 2.0F * atanf(r * 1.3F / eDist) * (180.0F / 3.14159265F);
+    if (fovDeg > 100.0F) fovDeg = 100.0F;
+    core.shadowMap.begin(s);
+    core.renderer3D.pushEnvView(Vec4(ex, ey, ez, 1.0F),
+                                Vec4(cx, cy, cz, 1.0F), fovDeg,
+                                (float)Tyra::RendererCoreShadowMap::size);
+    lightVP[s] = core.renderer3D.getViewProj();
+    // THE SILHOUETTE STOPS AT THE FLOOR. Projecting a texture cannot tell a
+    // receiver point in FRONT of the caster from one BEHIND it along the
+    // light ray, so any part of the caster below its floor throws a second
+    // shadow onto the lit side: the ray from a sunlit ground point, carried
+    // on underground, meets the buried part. A wall sunk 4.5 of its 10 units
+    // into the terrain (the common way to plant one) drew a full shadow on
+    // BOTH sides of itself, and the editor - which shows the bake, where rays
+    // only ever go up - showed one. The buried vertices are lifted to the
+    // floor for this render only, through a scratch copy the bag is aimed at
+    // for one submit (the torch's wall patch precedent): a box loses exactly
+    // its underground part, a mesh's underground part flattens to a sliver
+    // at floor level. Read the bag's own pointer, not part.vertices - a LOD
+    // tier re-aims it.
+    static std::vector<Vec4> projClamp;
+    auto renderAtFloor = [&](StaPipBag* bag) {
+      if (!bag || !bag->vertices || bag->count == 0) return;
+      bool below = false;
+      if (groundOk && !g.matrixMode)
+        for (u32 vi = 0; vi < bag->count; ++vi)
+          if (bag->vertices[vi].y < gy0 - 0.05F) {
+            below = true;
+            break;
+          }
+      if (!below) {
+        stapip.core.render(bag);
+        return;
+      }
+      projClamp.assign(bag->vertices, bag->vertices + bag->count);
+      for (Vec4& v : projClamp)
+        if (v.y < gy0) v.y = gy0;
+      Vec4* const keepVerts = bag->vertices;
+      const u32 keepStamp = bag->bboxVersion;
+      bag->vertices = projClamp.data();
+      bag->bboxVersion = ++g_bboxStamp;
+      stapip.core.render(bag);
+      bag->vertices = keepVerts;
+      bag->bboxVersion = keepStamp;
+    };
+    if (anim) {
+      for (auto& ap : g.animParts) renderAtFloor(ap.bag.get());
+    } else {
+      for (GeoPart& part : g.parts) renderAtFloor(part.bag.get());
+    }
+    core.renderer3D.popEnvView(mainCam);
+
+    // Where the light ray through the caster centre meets the ground. The
+    // second sample re-lands the ray on the terrain it actually reaches - a
+    // long shadow can walk a fair way up or down a slope.
+    // The hit of a nearly level ray runs to the horizon - a light level with a
+    // wall's middle throws a shadow that genuinely has no far edge - and a
+    // patch centred out there covers nothing near the caster, which is the
+    // part anyone looks at. Walk only as far as one patch can cover: the
+    // shadow then fades out at the patch edge instead of not existing.
+    float gx = cx, gz = cz, half = 0.0F;
+    if (groundOk) {
+    float gy = gy0;  // the receivers were collected before the render
     float tg = (cy - gy) / -ddy;
     if (tg > tgMax) tg = tgMax;
     gx = cx + ddx * tg, gz = cz + ddz * tg;
