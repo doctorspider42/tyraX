@@ -1,0 +1,1 @@
+{ "id": "00f654b982d04638", "name": "Fallen stone 3", "type": "box", "position": [10.3868, 0.2, 16.8721], "rotation": [0, 73, 8], "scale": [0.41016, 0.4, 1.06798], "color": [0.49, 0.53, 0.39], "physics": false, "material": "res/materials/stone.mtl" }

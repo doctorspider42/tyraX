@@ -1,0 +1,1 @@
+{ "id": "1d9509a70fcfa669", "name": "Gate pillar 1", "type": "box", "position": [3.6, 2.2, 15], "rotation": [0, 0, 0], "scale": [1.2, 3.3, 1.2], "color": [0.72, 0.69, 0.56], "physics": false, "material": "res/materials/stone.mtl" }

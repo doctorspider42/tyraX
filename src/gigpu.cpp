@@ -1,4 +1,5 @@
 #include "gigpu.hpp"
+#include "bakegl.hpp"
 
 #include <chrono>
 #include <cmath>
@@ -134,21 +135,9 @@ bool ensureCtx() {
     // The editor may already own GLFW; glfwInit is safe to call again and we
     // deliberately never call glfwTerminate, which would take the editor's own
     // window down with it.
-    if (!glfwInit()) {
-        c.why = "GLFW would not initialise (no display server?)";
-        return false;
-    }
-    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     c.prev = glfwGetCurrentContext();
-    c.win = glfwCreateWindow(1, 1, "tyrax-gi-gpu", nullptr, nullptr);
-    glfwDefaultWindowHints();
-    if (!c.win) {
-        c.why = "no OpenGL 4.3 core context (compute shaders need 4.3)";
-        return false;
-    }
+    c.win = bakegl::create(4, 3, "tyrax-gi-gpu", c.why);
+    if (!c.win) return false;
     glfwMakeContextCurrent(c.win);
     if (!loadApi(c.api)) {
         c.why = "the 4.3 entry points are missing from this driver";
@@ -168,13 +157,7 @@ bool ensureProgram();
 // Makes our context current for the duration and puts back whatever was there.
 // The editor draws from its own context on the main thread; a bake that left
 // ours current would blank the viewport.
-struct ScopedCurrent {
-    GLFWwindow* prev;
-    explicit ScopedCurrent(GLFWwindow* w) : prev(glfwGetCurrentContext()) {
-        glfwMakeContextCurrent(w);
-    }
-    ~ScopedCurrent() { glfwMakeContextCurrent(prev); }
-};
+using bakegl::ScopedCurrent;
 
 
 

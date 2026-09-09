@@ -986,6 +986,12 @@ std::string objectJson(const SceneObject& o) {
         json += ", \"animLod\": " + fmtFloat(o.animLodOverride);
     if (o.meshLodOverride >= 0.0f)
         json += ", \"meshLod\": " + fmtFloat(o.meshLodOverride);
+    if (!o.impostorPath.empty()) {
+        json += ", \"impostor\": \"" + jsonEscape(o.impostorPath) + "\"";
+        json += ", \"impostorDistance\": " + fmtFloat(o.impostorDistance);
+        json += ", \"impostorBillboard\": " + std::string(o.impostorBillboard ? "true" : "false");
+        json += ", \"impostorViews\": " + std::to_string(o.impostorViews);
+    }
     if (o.modelYawOffset != 0.0f)
         json += ", \"modelYaw\": " + fmtFloat(o.modelYawOffset);
     if (!o.scripts.empty()) {
@@ -4709,6 +4715,14 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (m >= 0 && m <= 3) o.shadowMode = m;
         }
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
+        if (const auto* v = jo.find("impostor")) o.impostorPath = v->stringOr("");
+        if (const auto* v = jo.find("impostorBillboard")) o.impostorBillboard = v->boolOr(false);
+        if (const auto* v = jo.find("impostorViews")) {
+            const int count = (int)v->numberOr(8);
+            o.impostorViews = (count == 4 || count == 16) ? count : 8;
+        }
+        if (const auto* v = jo.find("impostorDistance"))
+            o.impostorDistance = std::max(0.0f, (float)v->numberOr(0));
         if (const auto* v = jo.find("material")) o.materialPath = v->stringOr("");
         if (const auto* v = jo.find("decalProject")) o.decalProject = v->boolOr(false);
         if (const auto* pl = jo.find("player")) {
@@ -6967,6 +6981,10 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, (uint64_t)o.primDetail);
     fnvMix(h, o.primRings ? 1 : 0);
     fnvMixF(h, o.drawDistance);
+    fnvMixS(h, o.impostorPath);
+    fnvMixF(h, o.impostorDistance);
+    fnvMix(h, o.impostorBillboard ? 1 : 0);
+    fnvMix(h, o.impostorViews);
     // Cast shadow feeds the build-time AO bake (occluder tables + textures);
     // a live edit of it cannot show without a rebuild.
     fnvMix(h, o.castShadow ? 1 : 0);
