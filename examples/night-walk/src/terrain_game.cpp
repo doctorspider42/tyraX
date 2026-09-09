@@ -39,6 +39,7 @@
 #include "scripts/vu_scripts.gen.hpp"   // ... and the ones written in C++
 #include "scripts/live_debug.gen.hpp"  // Live Debugger pump (no-op when off)
 #include "live_pad.gen.hpp"  // Remote Pad overlay (no-op when off)
+#include "input_replay.gen.hpp"  // input recorder / replay (no-op when off)
 // The frame-timing rig (docs/profiling.md, "Timing a frame that BLSS is in").
 // TYRA_FRAME_PROFILE is 0 in the shipped engine header, so this include costs
 // a preprocessor pass and nothing else.
@@ -2406,6 +2407,12 @@ void TerrainGame::loop() {
   // update() rebuilds the state, so an overlay applied before it would be
   // thrown away. Compiles to nothing when the feature is off.
   livepad::tick(engine, MULTIPLAYER_MODE != 0 ? &pad2 : nullptr);
+  // Input recorder (docs/input-replay.md). MUST be the LAST stage of this
+  // frame's input: while replaying it OVERWRITES the pads and the keyboard
+  // rather than merging, so anything running after it would undo the
+  // recording - a hand resting on a real controller included. Compiles to
+  // nothing when the feature is off.
+  inputreplay::tick(engine, MULTIPLAYER_MODE != 0 ? &pad2 : nullptr);
 
   // Boot sequence (the engine holds the Tyra logo ~2s before this):
   //   phase 0 - boot splash images, each shown for its duration (in order),
@@ -13648,6 +13655,12 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
     c.seed = (unsigned int)clock() * 2654435761u + (unsigned)volume * 40503u +
              animLodTick * 2246822519u + 0x9e3779b9u;
     if (c.seed == 0) c.seed = 1u;
+    // The one non-deterministic number in the whole game, so it is the one
+    // thing an input recording has to carry beside the input itself: while
+    // recording this stores it, while replaying it hands back what was stored
+    // and the world generates identically (docs/input-replay.md). A no-op
+    // otherwise.
+    c.seed = inputreplay::seed((unsigned)volume, c.seed);
   } else {
     c.seed = V.seed;
   }

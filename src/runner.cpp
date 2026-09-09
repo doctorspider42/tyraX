@@ -416,6 +416,66 @@ std::string Runner::emulatorLogPath(const Project& p) const {
     return (ini.parent_path().parent_path() / "logs" / "emulog.txt").string();
 }
 
+void Runner::stageReplayChannel(const std::string& binDir) {
+    std::error_code ec;
+    // Clear the whole channel first, unconditionally - including on a plain
+    // run. A leftover replay.in makes the fresh boot perform the LAST
+    // session's run, which reads as "the game does not respond to the
+    // controller any more"; a leftover replay.arm quietly starts recording
+    // again; a leftover replay.out would be appended to and parse as one
+    // recording with two runs in it.
+    fs::remove(fs::path(binDir) / "replay.in", ec);
+    fs::remove(fs::path(binDir) / "replay.arm", ec);
+    fs::remove(fs::path(binDir) / "replay.out", ec);
+    fs::remove(fs::path(binDir) / "replay.stop", ec);
+    fs::remove(fs::path(binDir) / "replay.st", ec);
+
+    const ReplayLaunch launch = replay_;
+    replay_ = ReplayLaunch();  // one launch, one arming
+    if (launch.mode == ReplayLaunch::None) return;
+
+    if (launch.clearSaves) {
+        // The host-side fallback saves (see the generated save system). The
+        // PCSX2 memory card is NOT covered and cannot cheaply be - it is a
+        // documented caveat, not an oversight.
+        fs::remove(fs::path(binDir) / "profile.sav", ec);
+        for (int i = 0; i < 16; ++i)
+            fs::remove(fs::path(binDir) / ("save" + std::to_string(i) + ".sav"), ec);
+        appendLine("[editor] Replay: cleared the host save files.");
+    }
+
+    if (launch.mode == ReplayLaunch::Record) {
+        std::ofstream f(fs::path(binDir) / "replay.arm");
+        if (!f) {
+            appendLine("[editor] Replay: cannot write bin/replay.arm - this run "
+                       "will NOT be recorded.");
+            return;
+        }
+        f << "armed by TyraX\n";
+        appendLine("[editor] Replay: this run will be recorded into "
+                   "bin/replay.out.");
+        return;
+    }
+
+    // Play: the recording is COPIED in rather than pointed at, because the
+    // game opens it over host: by a fixed name and the file must survive the
+    // project folder being edited underneath a long replay.
+    if (!fs::exists(launch.file, ec)) {
+        appendLine("[editor] Replay: " + launch.file +
+                   " is gone - starting a normal run instead.");
+        return;
+    }
+    fs::copy_file(launch.file, fs::path(binDir) / "replay.in",
+                  fs::copy_options::overwrite_existing, ec);
+    if (ec) {
+        appendLine("[editor] Replay: cannot stage " + launch.file + ": " +
+                   ec.message());
+        return;
+    }
+    appendLine("[editor] Replay: this run will play back " +
+               fs::path(launch.file).filename().string() + ".");
+}
+
 bool Runner::launchPCSX2(const Project& p) {
     const std::string exe = resolveEmulator(p);
     if (exe.empty()) {
@@ -486,6 +546,9 @@ bool Runner::launchPCSX2(const Project& p) {
     // and still holds whatever was held when the last session ended, so the
     // fresh boot would start walking before anyone touched anything.
     fs::remove(fs::path(p.dir) / "bin" / "livepad.bin", logEc);
+    // The input recorder (docs/input-replay.md): clears the channel and arms
+    // whatever the Debugger's Replay tab (or --record/--replay) asked for.
+    stageReplayChannel((fs::path(p.dir) / "bin").string());
 
     // Without "Host Filesystem" the ELF boots but every host: fopen fails,
     // so Tyra asserts on the first asset load. PCSX2 rewrites its ini on
@@ -890,6 +953,7 @@ bool Runner::deployToPs2(const Project& p) {
     fs::remove(fs::path(binDir) / "livetime.bin", logEc);
     fs::remove(fs::path(binDir) / "livetime.rst", logEc);
     fs::remove(fs::path(binDir) / "livepad.bin", logEc);
+    stageReplayChannel(binDir);  // see the PCSX2 path
 
     // ps2link passes execee arguments in a non-standard way that the game's
     // toolchain crt0 does not deliver, so "-ps2link" alone cannot be relied

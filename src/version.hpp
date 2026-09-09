@@ -578,7 +578,7 @@
 // makes, at 0.2 / 0.25. docs/flashlight.md says up front that BOTH modes need
 // the torch off the eye before either is worth judging.
 //
-// 1.63.0 (the torch is HELD now, not implanted in the eye - format v35):
+// 1.63.0 (the torch is HELD now, not implanted in the eye - format v36):
 // asked for as "could we give the flashlight a slight offset, so it does not
 // shoot from the eye but a little lower and to the side?" - and it is also the
 // answer to the shadow report of 1.62.1, which ended in "a light on the view
@@ -819,7 +819,7 @@
 //    hold each other's textures resident.
 //  - tyrax-editor --atlas-report <dir>: the same, headless, plus a
 //    machine-readable [atlas] line.
-//  - Per-texture control (Project::atlasControl, format v32): KEEP OUT (never
+//  - Per-texture control (Project::atlasControl, format v33): KEEP OUT (never
 //    pack it) and GROUP (pack it with everything of the same name instead of
 //    with its .mtl's folder), both authored in that window.
 //  - Packing rules: a SUBDIRECTORY map_Kd token is a member now (refusing
@@ -3090,7 +3090,20 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // same trick"): "spot" + "spotAngle" on a light object's light block -
 // written only when the style is on, so an untouched project resaves byte
 // for byte; off (the default) is the point light every earlier file had.
-// v32 (per-texture atlas control, docs/texture-atlasing.md): the
+// v32 (Input recorder, docs/input-replay.md): ProjectSettings::inputRecorder,
+// the fifth devkit channel's own switch. Always written (it sits in the same
+// always-emitted block as liveLink/liveDebug/timeMachine/remotePad), defaults
+// to FALSE both in the struct and on read - the recorder writes a growing file,
+// so a project that predates the key must not silently start doing that.
+// Purely additive: no migration step, and an older editor refuses the file
+// rather than dropping the field on its next save.
+// RENUMBERED on the merge of main's v32 (the input recorder landed on main
+// while this branch carried its own v32..v36): every format this branch
+// introduced moved up by one - atlas control v33, page depth v34, dynamic
+// shadow mode v35, the held torch v36, spot shadow volumes v37. All of them
+// are purely additive with no migration step, so a file written under the
+// old numbering opens by its keys exactly as before; only the gate moved.
+// v33 (per-texture atlas control, docs/texture-atlasing.md): the
 // "atlasControl" section - per texture, an optional "keepOut" (never pack it
 // into a page) and an optional "group" (pack it with everything carrying the
 // same name instead of with its .mtl's directory). A page is ONE VRAM
@@ -3099,15 +3112,15 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // only for textures that carry a decision and the whole section is omitted
 // while empty, so a project that never opens the Texture Atlas window resaves
 // byte for byte. Purely additive - no migration step.
-// v33 (the atlas page's depth, docs/texture-atlasing.md): "pageBits" joins the
+// v34 (the atlas page's depth, docs/texture-atlasing.md): "pageBits" joins the
 // atlasControl entry - a per-texture REQUEST for how deep the page it lands on
 // is quantized (4 / 8 / 32; absent = follow the project's texture quality), and
 // the group takes the highest request any member makes. Written only when a
 // texture asks, so a project that never opens the window resaves byte for byte.
-// Purely additive - no migration step. (v32, this branch's own, shipped hours
+// Purely additive - no migration step. (v33, this branch's own, shipped hours
 // earlier with keepOut/group; the same section gains a key rather than changing
 // one, so an older reader drops a request it never honoured anyway.)
-// v34 (a dynamic shadow is a per-OBJECT choice, docs/shadows.md):
+// v35 (a dynamic shadow is a per-OBJECT choice, docs/shadows.md):
 // SceneObject::shadowMode - 0 = follow the project (which is what every file
 // written before this key meant: a blob under the moving things while the
 // preference is on, a projected silhouette where projShadow is set), 1 = none,
@@ -3115,7 +3128,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // otherwise, so an untouched project resaves byte for byte and an older editor
 // reading a newer file simply falls back to the flag it already knows. Purely
 // additive - no migration step.
-// v36 (spot-light shadow volumes, docs/shadows.md "Spot-light shadow
+// v37 (spot-light shadow volumes, docs/shadows.md "Spot-light shadow
 // volumes"): ProjectSettings::spotShadowVolumes - the project-wide switch that
 // lets a placed SPOT light carve its own occlusion the way the torch already
 // can - plus "shadowVolumes" on a light object's light block, the per-light
@@ -3126,7 +3139,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // file did, which is spot lights taking no part in the volume machinery at
 // all. An older editor reading a newer file drops two keys whose absence is
 // the old behaviour. Purely additive - no migration step.
-inline constexpr int kFormatVersion = 36;
+inline constexpr int kFormatVersion = 37;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

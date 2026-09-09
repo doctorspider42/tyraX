@@ -235,14 +235,14 @@ anywhere must not allocate one.
 
 `SceneObject::shadowMode` — `0` follow the project, `1` none, `2` blob, `3`
 projected — written into the object's JSON only when it is not 0
-(format v34, [format-versioning.md](format-versioning.md)). An untouched
+(format v35, [format-versioning.md](format-versioning.md)). An untouched
 project therefore resaves byte for byte, and an older editor reading a newer
 file falls back to the `projShadow` flag it already understands.
 
 `ProjectSettings::spotShadowVolumes` (`"spotShadowVolumes"` in the manifest's
 settings, written only when true) and `SceneObject::lightShadowVolumes`
 (`"shadowVolumes"` inside a light object's `light` block, written only when it
-is not 0) are format **v36**, on the same terms: both defaults are what every
+is not 0) are format **v37**, on the same terms: both defaults are what every
 earlier file meant, so a project that touches neither resaves byte for byte and
 an older editor drops two keys whose absence *is* the old behaviour.
 

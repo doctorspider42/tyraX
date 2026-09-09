@@ -35,6 +35,7 @@
 #include "vucap.hpp"
 #include "livedbg.hpp"
 #include "livepad.hpp"
+#include "livereplay.hpp"
 #include "logview.hpp"  // LogView members (the Output / Debug severity split)
 #include "uiscript.hpp"
 #include "livetime.hpp"
@@ -3272,6 +3273,10 @@ private:
      * about it. Empty while the game is reporting normally. Shared by the
      * window's state block and the Stats tab so the two cannot disagree. */
     std::string dbgSilenceReason() const;
+    /** The paragraph dbgSilenceReason() no longer prints inline: which file is
+     * silent and how a running console ends up with nowhere to write. For the
+     * (?) hover next to it; only meaningful when the reason is non-empty. */
+    const char* dbgSilenceDetail() const;
     float dbgFps_ = 0.0f;           // measured against the editor's wall clock
     int dbgScrub_ = -1;             // timeline index being inspected (-1 = live)
     std::string dbgWatchFilter_;    // Watch tab search box (name or kind)
@@ -3298,6 +3303,31 @@ private:
     /** Pushes history entry `index` back into the running game. */
     void timeMachineRewind(int index);
     void drawTimeMachinePanel();
+
+    // The input recorder (docs/input-replay.md): the fifth direction of the
+    // same host: channel, and the only one that reproduces a whole SESSION.
+    // The mode is chosen for the NEXT run and staged into the Runner, which
+    // does the file work before the launch - so nothing here talks to a
+    // running game except replayTick(), which reads the status the game
+    // writes into bin/replay.st (~4 Hz, the livetimeTick shape).
+    enum class ReplayArm { None, Record, Play };
+    ReplayArm replayArm_ = ReplayArm::None;
+    std::string replayFile_;        // recordings/<name>.tyrarep for Play
+    livereplay::Status replayStatus_;
+    bool replayHaveStatus_ = false;
+    double replayNextTick_ = 0.0;   // ImGui::GetTime() gate for the reader
+    std::string replayMsg_;         // last action, shown in the panel
+    std::string replaySaveName_;    // the Save field's contents
+    std::vector<std::string> replayFiles_;  // recordings/*.tyrarep, cached
+    double replayScanAt_ = 0.0;     // when that list was last rebuilt
+    void replayTick();
+    void drawReplayPanel();
+    /** Asks the running game to finish its recording, waits for the terminal
+     * chunk, and canonicalizes bin/replay.out into recordings/<name>.tyrarep.
+     * Returns "" or an error. */
+    std::string replayStopAndSave(const std::string& name);
+    /** recordings/*.tyrarep, refreshed at most a few times a second. */
+    void replayRescan(bool force);
 
     // Remote Pad (docs/remote-pad.md): the fourth direction of the same host:
     // channel, and the only one carrying INPUT. While the window is open the
