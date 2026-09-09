@@ -11688,6 +11688,14 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   g.apronVerts.clear();  // position/size changed - the highlight ring follows
   g.hullProxyVerts.clear();  // and the shell proxy re-bakes the transform
 
+  // Invisible walls stay active/visible for collision, but submit no geometry
+  // to any camera, portal, reflection or shadow pass.
+  if (o.data.collision == 3) {
+    g.parts.clear();
+    g.outlineVerts.clear();
+    return;
+  }
+
   // models: one draw part per MTL material; everything else fills parts[0]
   const GameModel* gm = nullptr;
   if (o.data.type == 5 && o.data.model >= 0 &&
@@ -14587,7 +14595,7 @@ void TerrainGame::renderRtMirror(const MirrorData& mir) {
     const int index = MIRROR_TARGETS[mir.firstTarget + t];
     if (index < 0 || index >= (int)runtimeObjects.size()) continue;
     RuntimeObject& o = runtimeObjects[index];
-    if (!o.active || !o.visible || o.data.type == 15) continue;
+    if (!o.active || !o.visible || o.data.type == 15 || o.data.collision == 3) continue;
     const Color tint(o.data.color[0] * 255.0F, o.data.color[1] * 255.0F,
                      o.data.color[2] * 255.0F, 128.0F);
     if (o.data.type == 5 && gc < 2) {

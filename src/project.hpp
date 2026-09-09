@@ -301,7 +301,8 @@ struct SceneObject {
     bool pickThrow = false;   // carried object can be thrown with BTN_THROW
     bool saveState = false;   // position/color/visibility persisted in save slots
     // Player collision: 0 = box (models use their real mesh AABB), 1 = mesh
-    // (models only: per-triangle - ramps/stairs are walkable), 2 = none
+    // (models only: per-triangle - ramps/stairs are walkable), 2 = none,
+    // 3 = invisible wall (Box only): collision without rendered/baked geometry.
     int collisionMode = 0;
     // Streaming layer this object belongs to (SceneData::layers entry name).
     // Empty = no layer: always resident in the game, always shown in the

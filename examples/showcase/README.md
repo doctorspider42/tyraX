@@ -49,7 +49,7 @@ controls and return the gameplay camera afterward.
 | Imported geometry and mesh LOD | Complete arcades, profiled columns, dome, planters and props |
 | CC0 import and cutout textures | Quaternius ivy, supply crates and survey cart |
 | Skeletal animation and navigation | The keeper's retained `Idle` action, rig and three-waypoint patrol |
-| Terrain and collision | A support heightfield follows the paved island; mesh collision preserves arch openings |
+| Terrain and collision | A support heightfield follows the paved island; mesh collision preserves arch openings; four invisible walls protect the perimeter |
 | Baked GI and probe lighting | Warm architecture, shaded colonnades and the keeper; the GI cache ships with the project |
 | Dynamic lights and bloom | The planetarium core, blue vault light and warm lanterns |
 | Reflective materials | Gold, copper and water sample the live sky; moving brass rings use a cheaper matte surface |
@@ -71,15 +71,23 @@ examples elsewhere in the repository.
 The architectural module is an **8.4m bay**, with a 4m arch spring line. Walking
 slabs end at Y=0, foundations extend below the sea, and curbs close on the
 promenade edges. Columns and dome share a measured circular footprint. The
-water uses 2m patches; paving UVs are authored in metres.
+channel water uses 2m patches; paving UVs are authored in metres. The sea is a
+single surface with 20m patches, with no nearly coplanar underside. Neither
+water mesh uses LOD simplification. Both use a procedural ripple texture and
+the live sky reflection material; this is stylized water, not fluid simulation.
+Their authored base color uses the pre-lit route to avoid the island's finite
+GI probe grid producing broad triangular light patches across the open sea.
+The calibration guide and shortened backstop leave both sides of the east
+portal's opening clear; weights sit within the smaller court. The
+lighthouse base intersects its supporting rock instead of resting on its tip.
 
 Meshes share positions and use deliberate UV seams. Untextured surfaces have
 constant UVs so the LOD welder can collapse their interior edges; lathed stone
 has continuous cylindrical UVs. Decorative per-face UV islands on a plain
 column had prevented its LOD tiers from being produced.
 
-The recipe places 159 pieces, then joins 97 static pieces into four district
-meshes. The resulting scene has 66 runtime objects. Walking slabs and interactive
+The recipe places 163 pieces, then joins 97 static pieces into four district
+meshes. The resulting scene has 70 runtime objects. Walking slabs and interactive
 props remain independent. District meshes retain their full geometry; smaller
 props use mesh LOD. The rotating matte rings use the engine's transform fast
 path. These choices reduce submissions and avoid rebuilding reflective ring
@@ -142,6 +150,8 @@ The pad-driven save/load menu restored a one-lens save after collecting another
 lens. WASAPI reported nonzero output from the emulator's audio session.
 The profiling build measured 25 FPS in the wide garden view and 50 FPS on the
 north promenade; these are emulator observations, not a hardware benchmark.
-Portal views were visually inspected; traversal in both directions and a full
-pickup/throw circuit remain manual acceptance checks. The images above are
-unretouched game captures, not editor renders or concept art.
+The boundary update was checked with the editor's real UI (insert, toggle,
+undo, save and re-open), refreshed GI, a Docker build and pad movement against
+the perimeter. Portal traversal and low-angle sea views were exercised in
+PCSX2. A full pickup/throw circuit remains a manual acceptance check. The
+images above are unretouched game captures, not editor renders or concept art.

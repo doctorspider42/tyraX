@@ -7854,6 +7854,11 @@ void App::drawAddObjectMenu() {
     if (ImGui::BeginMenu("Object")) {
         if (ImGui::BeginMenu("Simple")) {
             if (ImGui::MenuItem("Box")) addObject(PrimitiveType::Box);
+            if (ImGui::MenuItem("Invisible wall")) {
+                addObject(PrimitiveType::Box, /*commit=*/false);
+                project_.objects().back().collisionMode = 3;
+                commitChange();
+            }
             if (ImGui::MenuItem("Sphere")) addObject(PrimitiveType::Sphere);
             if (ImGui::MenuItem("Cylinder")) addObject(PrimitiveType::Cylinder);
             if (ImGui::MenuItem("Cone")) addObject(PrimitiveType::Cone);

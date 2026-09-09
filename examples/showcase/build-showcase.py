@@ -226,6 +226,13 @@ def geometry():
     for x in range(-4,4,2):
         for z in range(-16,16,2):m.face([(x,0,z),(x,0,z+2),(x+2,0,z+2),(x+2,0,z)],'water')
     m.save('canal-water')
+    # One surface, not a thin 600 m box: its top/bottom competed for depth
+    # at grazing angles. Bound triangle size for the PS2 clipper as well.
+    m=Mesh()
+    for x in range(-300,300,20):
+        for z in range(-300,300,20):
+            m.face([(x,0,z),(x,0,z+20),(x+20,0,z+20),(x+20,0,z)],'water')
+    m.save('sea-surface')
     # Draped pennants have a shaped hem and physical folds, not flat rectangles.
     m=Mesh()
     for i in range(8):
@@ -406,8 +413,15 @@ def author():
     for z in (-17,17):box('canal-end-'+str(z),(0,-.45,z),(8,.9,1),'ivory')
     for x in (-4.18,4.18):
         for z in (-9,9):box(f'canal-curb-{x}-{z}',(x,.14,z),(.36,.28,14),'ivory')
-    model('tidal-channel','canal-water',(0,-.55,0),collision='none',castShadow=False,bakedLighting=False)
-    box('ocean',(0,-3.5,0),(600,.2,600),'water',collision='none',castShadow=False,bakedLighting=False)
+    # Water's texture supplies its authored base light. The pre-lit route
+    # prevents the island's finite probe grid from painting huge dark facets
+    # across the open sea; the sky reflection remains live.
+    model('tidal-channel','canal-water',(0,-.55,0),collision='none',castShadow=False,bakedLighting=False,meshLod=0,prelit=True)
+    model('ocean','sea-surface',(0,-3.4,0),collision='none',castShadow=False,bakedLighting=False,meshLod=0,prelit=True)
+    for name,pos,size in (
+        ('west',(-17.4,5,0),(.8,14,60)),('east',(17.4,5,0),(.8,14,60)),
+        ('north',(0,5,-29.4),(36,14,.8)),('south',(0,5,29.4),(36,14,.8))):
+        obj('boundary-'+name,'box',pos,size,collision='invisible')
     # Repeated 8.4 m bays share spring height, plinth height and coping line.
     for side in (-1,1):
         for j,z in enumerate((-12.6,-4.2,4.2,12.6)):
@@ -465,9 +479,9 @@ def author():
     obj('expedition-checkpoint','save-point',(-3.2,.55,23),(.6,.6,.6),color=[.2,.8,.85],usable=True)
     # A quiet physics nook, with containing walls and three throwable weights.
     for i in range(3):
-        obj(f'calibration-weight-{i}','sphere',(8+i*1.1,.5,22),(.4,.4,.4),detail=10,material='res/aster/gold.mtl',physics=True,pickable=True,pickThrow=True,physMass=1,physBounce=.6,physFriction=.5)
-    box('weights-backstop',(9,1,25),(6,2,.4),'shadowstone')
-    model('physics-guide','pedestal',(12,0,21),usable=True,flowGraph=use_text('CALIBRATION / Square: pick up. Circle: throw.'))
+        obj(f'calibration-weight-{i}','sphere',(7+i*1.1,.5,22),(.4,.4,.4),detail=10,material='res/aster/gold.mtl',physics=True,pickable=True,pickThrow=True,physMass=1,physBounce=.6,physFriction=.5)
+    box('weights-backstop',(8,1,25),(4,2,.4),'shadowstone')
+    model('physics-guide','pedestal',(4.3,0,26.5),usable=True,flowGraph=use_text('CALIBRATION / Square: pick up. Circle: throw.'))
     # The lens vault sits inside the rotunda: two deliberate, bounded second views.
     box('optics-backwall',(0,2.3,-27.5),(8,4.6,.55),'shadowstone')
     box('optics-cornice',(0,4.65,-27.5),(8.5,.25,.8),'gold')
@@ -494,7 +508,7 @@ def author():
     # Horizon is deliberately staged: silhouettes, clear gaps, one beacon.
     for i,(x,z,h) in enumerate(((-42,-45,1.3),(36,-62,1.7),(-62,-5,.8),(55,-24,.7),(-24,-80,1.0))):
         model(f'sea-stack-{i}','island',(x,-9,z),(2,h,2),collision='none',drawDistance=150)
-    model('distant-lighthouse','lighthouse',(-42,7.9,-45),(.8,.8,.8),collision='none')
+    model('distant-lighthouse','lighthouse',(-42,6.3,-45),(.8,.8,.8),collision='none')
     # Plaques are authored meshes with an atlas; readable in the close views.
     p['sequences']=[
         sequence('Arrival',[key(0,[21,13,32],[0,3,-9]),key(6,[12,7,18],[0,3,-14]),key(10,[0,2.5,24],[0,3,-12])]),

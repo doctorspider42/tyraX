@@ -1,1 +1,1 @@
-{ "id": "b31c8fffa1e022c7", "name": "ocean", "type": "model", "position": [0, -3.5, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "collision": "none", "castShadow": false, "bakedLighting": false, "model": "res/aster/ocean.obj" }
+{ "id": "b31c8fffa1e022c7", "name": "ocean", "type": "model", "position": [0, -3.4, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "collision": "none", "castShadow": false, "bakedLighting": false, "prelit": true, "model": "res/aster/sea-surface.obj", "meshLod": 0 }

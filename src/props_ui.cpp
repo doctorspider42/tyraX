@@ -662,6 +662,15 @@ void App::drawPropertiesWindow() {
 
     // Player collision. Solid geometry only - markers/emitters never collide.
     if (isSolid) {
+        if (o.type == PrimitiveType::Box) {
+            bool invisible = o.collisionMode == 3;
+            if (ImGui::Checkbox("Invisible wall", &invisible)) {
+                o.collisionMode = invisible ? 3 : 0;
+                committed = true;
+            }
+            if (invisible)
+                ImGui::TextDisabled("Blocks movement; editor outline only, no shadows.");
+        }
         if (animatedModel) {
             // mesh collision is a static-model feature; animated models
             // collide as their baked all-clips AABB or not at all

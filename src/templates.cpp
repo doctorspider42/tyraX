@@ -15021,6 +15021,14 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   g.apronVerts.clear();  // position/size changed - the highlight ring follows
   g.hullProxyVerts.clear();  // and the shell proxy re-bakes the transform
 
+  // Invisible walls stay active/visible for collision, but submit no geometry
+  // to any camera, portal, reflection or shadow pass.
+  if (o.data.collision == 3) {
+    g.parts.clear();
+    g.outlineVerts.clear();
+    return;
+  }
+
   // models: one draw part per MTL material; everything else fills parts[0]
   const GameModel* gm = nullptr;
   if (o.data.type == 5 && o.data.model >= 0 &&
@@ -17920,7 +17928,7 @@ void TerrainGame::renderRtMirror(const MirrorData& mir) {
     const int index = MIRROR_TARGETS[mir.firstTarget + t];
     if (index < 0 || index >= (int)runtimeObjects.size()) continue;
     RuntimeObject& o = runtimeObjects[index];
-    if (!o.active || !o.visible || o.data.type == 15) continue;
+    if (!o.active || !o.visible || o.data.type == 15 || o.data.collision == 3) continue;
     const Color tint(o.data.color[0] * 255.0F, o.data.color[1] * 255.0F,
                      o.data.color[2] * 255.0F, 128.0F);
     if (o.data.type == 5 && gc < 2) {
@@ -23336,7 +23344,8 @@ static void writeObjectDataRow(std::ostringstream& out, const Project& p,
         << (o.lightSpot ? 1 : 0) << ", " << floatLit(o.lightSpotAngle) << ", "
         << o.lightBeam << ", " << (o.saveState ? 1 : 0) << ", "
         << o.collisionMode << ", " << floatLit(o.drawDistance) << ", "
-        << (o.reflected ? 1 : 0) << ", " << (o.projShadow ? 1 : 0) << ", "
+        << (o.reflected && o.collisionMode != 3 ? 1 : 0) << ", "
+        << (o.projShadow && o.collisionMode != 3 ? 1 : 0) << ", "
         << (o.dynamicLighting ? 1 : 0) << ", " << (o.prelit ? 1 : 0) << ", "
         << animModelIndexOf(p, o)
         << ", \"" << escapeCString(o.animClip) << "\", "
@@ -24220,7 +24229,7 @@ static bool staticBatchEligible(const SceneObject& o,
         o.type == PrimitiveType::Box || o.type == PrimitiveType::Sphere ||
         o.type == PrimitiveType::Cylinder || o.type == PrimitiveType::Cone ||
         o.type == PrimitiveType::Plane;
-    if (!shape) return false;
+    if (!shape || o.collisionMode == 3) return false;
     if (o.physics) return false;      // moves every frame while falling
     if (o.usable) return false;       // highlight defers/re-submits the body
     if (o.pickable) return false;     // carried/thrown - moves at runtime
@@ -24334,7 +24343,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  int lightBeam;     // point lights: 0 none, 1 glow corona,\n"
            "                     // 2 corona + cone shaft (additive, at the source)\n"
            "  int saveState;  // 1 = position/color/visibility persisted in saves\n"
-           "  int collision;  // 0 = box (models: mesh AABB), 1 = mesh, 2 = none\n"
+           "  int collision;  // 0 = box, 1 = mesh, 2 = none, 3 = invisible Box\n"
            "  float drawDistance;  // not drawn farther than this from the camera;\n"
            "                       // 0 = unlimited (collision/logic always run)\n"
            "  int reflected;  // 1 = rendered into the dynamic (\"@sky\") env map\n"

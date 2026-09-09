@@ -664,7 +664,8 @@ std::string objectJson(const SceneObject& o) {
         (o.saveState ? ", \"saveState\": true" : "") +
         // collision: box is the default and stays implicit
         (o.collisionMode == 1 ? ", \"collision\": \"mesh\""
-                              : o.collisionMode == 2 ? ", \"collision\": \"none\"" : "") +
+                              : o.collisionMode == 2 ? ", \"collision\": \"none\""
+                              : o.collisionMode == 3 ? ", \"collision\": \"invisible\"" : "") +
         (o.layer.empty() ? "" : ", \"layer\": \"" + jsonEscape(o.layer) + "\"") +
         // geometry primitives only; the type's default detail stays implicit
         (((o.type == PrimitiveType::Box || o.type == PrimitiveType::Sphere ||
@@ -4558,7 +4559,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             o.saveState = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = jo.find("collision")) {
             const std::string mode = v->stringOr("box");
-            o.collisionMode = mode == "mesh" ? 1 : mode == "none" ? 2 : 0;
+            o.collisionMode = mode == "mesh" ? 1 : mode == "none" ? 2 :
+                mode == "invisible" && o.type == PrimitiveType::Box ? 3 : 0;
         }
         if (const auto* v = jo.find("layer")) o.layer = v->stringOr("");
         // Default depends on the shape (box baseline is 1, curved is 16); old

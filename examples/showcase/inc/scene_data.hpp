@@ -71,7 +71,7 @@ struct SceneObjectData {
   int lightBeam;     // point lights: 0 none, 1 glow corona,
                      // 2 corona + cone shaft (additive, at the source)
   int saveState;  // 1 = position/color/visibility persisted in saves
-  int collision;  // 0 = box (models: mesh AABB), 1 = mesh, 2 = none
+  int collision;  // 0 = box, 1 = mesh, 2 = none, 3 = invisible Box
   float drawDistance;  // not drawn farther than this from the camera;
                        // 0 = unlimited (collision/logic always run)
   int reflected;  // 1 = rendered into the dynamic ("@sky") env map
@@ -217,15 +217,19 @@ constexpr int SCENE_COUNT = 1;
 constexpr int START_SCENE = 0;
 
 // scene "Aster"
-constexpr SceneObjectData SCENE_0_OBJECTS[66] = {
+constexpr SceneObjectData SCENE_0_OBJECTS[70] = {
     {6, {0.0F, 0.1F, 24.0F}, {0.0F, 180.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // visitor
     {5, {0.0F, -2.5F, 23.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 0, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // arrival-terrace
     {5, {-10.0F, -2.5F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // west-promenade
     {5, {10.0F, -2.5F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 2, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // east-promenade
     {5, {0.0F, -2.5F, -23.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 3, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // observatory-terrace
     {5, {0.0F, -0.35F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 4, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // crossing
-    {5, {0.0F, -0.55F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 5, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // tidal-channel
-    {5, {0.0F, -3.5F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 6, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ocean
+    {5, {0.0F, -0.55F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 5, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 0.0F, 0, 0, 0, 1, -1, "", 1, 1, 1.0F, -1.0F, 0.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // tidal-channel
+    {5, {0.0F, -3.4F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 6, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 0.0F, 0, 0, 0, 1, -1, "", 1, 1, 1.0F, -1.0F, 0.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ocean
+    {0, {-17.4F, 5.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {0.8F, 14.0F, 60.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 3, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // boundary-west
+    {0, {17.4F, 5.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {0.8F, 14.0F, 60.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 3, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // boundary-east
+    {0, {0.0F, 5.0F, -29.4F}, {0.0F, 0.0F, 0.0F}, {36.0F, 14.0F, 0.8F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 3, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // boundary-north
+    {0, {0.0F, 5.0F, 29.4F}, {0.0F, 0.0F, 0.0F}, {36.0F, 14.0F, 0.8F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 3, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // boundary-south
     {9, {-5.4F, 3.2F, -17.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 0.66F, 0.28F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 0.65F, 5.0F, 0, 0.0F, 0, 25.0F, 1, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // -1-warm-pool--17
     {9, {-5.4F, 3.2F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 0.66F, 0.28F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 0.65F, 5.0F, 0, 0.0F, 0, 25.0F, 1, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // -1-warm-pool-0
     {9, {-5.4F, 3.2F, 17.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 0.66F, 0.28F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 0.65F, 5.0F, 0, 0.0F, 0, 25.0F, 1, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // -1-warm-pool-17
@@ -252,11 +256,11 @@ constexpr SceneObjectData SCENE_0_OBJECTS[66] = {
     {5, {0.0F, 0.0F, -6.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 16, -1, 1, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // instrument-console
     {5, {3.2F, 0.0F, 23.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 16, -1, 1, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // arrival-guide
     {10, {-3.2F, 0.55F, 23.0F}, {0.0F, 0.0F, 0.0F}, {0.6F, 0.6F, 0.6F}, {0.2F, 0.8F, 0.85F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 1, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // expedition-checkpoint
-    {1, {8.0F, 0.5F, 22.0F}, {0.0F, 0.0F, 0.0F}, {0.4F, 0.4F, 0.4F}, {1.0F, 1.0F, 1.0F}, 1, 1.0F, 0.6F, 0.5F, 1, 3.0F, -1, 1, 0, 1, 1, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 10, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // calibration-weight-0
-    {1, {9.1F, 0.5F, 22.0F}, {0.0F, 0.0F, 0.0F}, {0.4F, 0.4F, 0.4F}, {1.0F, 1.0F, 1.0F}, 1, 1.0F, 0.6F, 0.5F, 1, 3.0F, -1, 1, 0, 1, 1, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 10, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // calibration-weight-1
-    {1, {10.2F, 0.5F, 22.0F}, {0.0F, 0.0F, 0.0F}, {0.4F, 0.4F, 0.4F}, {1.0F, 1.0F, 1.0F}, 1, 1.0F, 0.6F, 0.5F, 1, 3.0F, -1, 1, 0, 1, 1, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 10, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // calibration-weight-2
-    {5, {9.0F, 1.0F, 25.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 17, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // weights-backstop
-    {5, {12.0F, 0.0F, 21.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 16, -1, 1, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // physics-guide
+    {1, {7.0F, 0.5F, 22.0F}, {0.0F, 0.0F, 0.0F}, {0.4F, 0.4F, 0.4F}, {1.0F, 1.0F, 1.0F}, 1, 1.0F, 0.6F, 0.5F, 1, 3.0F, -1, 1, 0, 1, 1, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 10, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // calibration-weight-0
+    {1, {8.1F, 0.5F, 22.0F}, {0.0F, 0.0F, 0.0F}, {0.4F, 0.4F, 0.4F}, {1.0F, 1.0F, 1.0F}, 1, 1.0F, 0.6F, 0.5F, 1, 3.0F, -1, 1, 0, 1, 1, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 10, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // calibration-weight-1
+    {1, {9.2F, 0.5F, 22.0F}, {0.0F, 0.0F, 0.0F}, {0.4F, 0.4F, 0.4F}, {1.0F, 1.0F, 1.0F}, 1, 1.0F, 0.6F, 0.5F, 1, 3.0F, -1, 1, 0, 1, 1, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 10, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // calibration-weight-2
+    {5, {8.0F, 1.0F, 25.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 17, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // weights-backstop
+    {5, {4.3F, 0.0F, 26.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 16, -1, 1, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // physics-guide
     {15, {-2.0F, 2.5F, -27.18F}, {0.0F, 0.0F, 0.0F}, {2.6F, 2.8F, 1.0F}, {0.7F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 15.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // silver-lens
     {1, {-3.0F, 1.0F, -25.3F}, {0.0F, 0.0F, 0.0F}, {0.55F, 0.55F, 0.55F}, {0.2F, 0.8F, 0.8F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, 1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 10, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // lens-standard-a
     {1, {-2.2F, 1.0F, -25.3F}, {0.0F, 0.0F, 0.0F}, {0.55F, 0.55F, 0.55F}, {1.0F, 0.65F, 0.2F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, 1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 10, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // lens-standard-b
@@ -286,10 +290,10 @@ constexpr SceneObjectData SCENE_0_OBJECTS[66] = {
     {5, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 25, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 1, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 0.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // district-rotunda
 };
 
-constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {66};
+constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {70};
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
 
-constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[66] = {0x165a1a45830d8de8ULL, 0x22e11e7ebb0f69d5ULL, 0xfb51002b4c8aa5b1ULL, 0x9c87631de7c97492ULL, 0xf7da2f5551e00400ULL, 0x20c301c0eaa6db89ULL, 0xa36eebe0f80a045fULL, 0xbe267296b0815444ULL, 0x2cd32227b5abddd7ULL, 0x566b8e9ce768e260ULL, 0xa003b1150b89b76cULL, 0x16dadad3ec3bf8bbULL, 0xe83e4d87b1579b56ULL, 0xbb0d104b328b9713ULL, 0x59fdc4fe4f47c87dULL, 0x674a8e3c84f14cfaULL, 0x5a93baab2a501038ULL, 0x4554967d00309430ULL, 0xa59aa0e15c31e12dULL, 0xe569910c401598dcULL, 0x94617d33f4fa3f2eULL, 0xe64ed3e89128cd9aULL, 0xc77518eabe5cd2f1ULL, 0x68b42aacb8cb99e9ULL, 0x7c88da5c085399e1ULL, 0x79901b6e93f859c7ULL, 0x4ee362f45d9293f2ULL, 0x1ca9673303c50685ULL, 0x91f6195071e7da00ULL, 0xc3cc668925ac14acULL, 0x28a90caba6843063ULL, 0xb235d8b17f54516eULL, 0x3893cd0047281d7dULL, 0x3a436aa82dcdb928ULL, 0xa9ad0e265d855128ULL, 0x6f54619f4e9d4335ULL, 0x3cf4c65c34a26ac8ULL, 0x75d24182a270e826ULL, 0xdb8eed2dae53dccbULL, 0x7c9f9388dbd51f69ULL, 0x33376915746c3f3aULL, 0xaab59973cbce0d3fULL, 0xb99c3c1ee67606ebULL, 0xb3be935be8d2930fULL, 0x33f0d921b79f1d28ULL, 0x3ca2750f511157f6ULL, 0x74e55e39e17036aaULL, 0x8efeeb03b70bfc50ULL, 0x1db253a0b88bf6e2ULL, 0x98259456ba0802efULL, 0x6803676186994444ULL, 0xc450bfc20dd376f1ULL, 0xd7ab59918a9ec013ULL, 0xd788edea0dc93a1fULL, 0x9858aac52c1c0e70ULL, 0x74e1dbacffc52e11ULL, 0xa8956d0f749ec00fULL, 0xb33d51612cea9a9fULL, 0x912619531e19b6a2ULL, 0xdc8e0a127a06454eULL, 0x10b68b10085ee5ccULL, 0xefe7ac5f0abb11f8ULL, 0x2ca8b03f3d1843efULL, 0x2617a397f03da867ULL, 0x437e85f43e9f582cULL, 0x8478193e41ab8178ULL};
+constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[70] = {0x165a1a45830d8de8ULL, 0x22e11e7ebb0f69d5ULL, 0xfb51002b4c8aa5b1ULL, 0x9c87631de7c97492ULL, 0xf7da2f5551e00400ULL, 0x20c301c0eaa6db89ULL, 0xa36eebe0f80a045fULL, 0xbe267296b0815444ULL, 0x58019ee71fe32e3dULL, 0x0cffcfcdd60052beULL, 0xd1a926b2e671a5ddULL, 0xee0719fbba89138fULL, 0x2cd32227b5abddd7ULL, 0x566b8e9ce768e260ULL, 0xa003b1150b89b76cULL, 0x16dadad3ec3bf8bbULL, 0xe83e4d87b1579b56ULL, 0xbb0d104b328b9713ULL, 0x59fdc4fe4f47c87dULL, 0x674a8e3c84f14cfaULL, 0x5a93baab2a501038ULL, 0x4554967d00309430ULL, 0xa59aa0e15c31e12dULL, 0xe569910c401598dcULL, 0x94617d33f4fa3f2eULL, 0xe64ed3e89128cd9aULL, 0xc77518eabe5cd2f1ULL, 0x68b42aacb8cb99e9ULL, 0x7c88da5c085399e1ULL, 0x79901b6e93f859c7ULL, 0x4ee362f45d9293f2ULL, 0x1ca9673303c50685ULL, 0x91f6195071e7da00ULL, 0xc3cc668925ac14acULL, 0x28a90caba6843063ULL, 0xb235d8b17f54516eULL, 0x3893cd0047281d7dULL, 0x3a436aa82dcdb928ULL, 0xa9ad0e265d855128ULL, 0x6f54619f4e9d4335ULL, 0x3cf4c65c34a26ac8ULL, 0x75d24182a270e826ULL, 0xdb8eed2dae53dccbULL, 0x7c9f9388dbd51f69ULL, 0x33376915746c3f3aULL, 0xaab59973cbce0d3fULL, 0xb99c3c1ee67606ebULL, 0xb3be935be8d2930fULL, 0x33f0d921b79f1d28ULL, 0x3ca2750f511157f6ULL, 0x74e55e39e17036aaULL, 0x8efeeb03b70bfc50ULL, 0x1db253a0b88bf6e2ULL, 0x98259456ba0802efULL, 0x6803676186994444ULL, 0xc450bfc20dd376f1ULL, 0xd7ab59918a9ec013ULL, 0xd788edea0dc93a1fULL, 0x9858aac52c1c0e70ULL, 0x74e1dbacffc52e11ULL, 0xa8956d0f749ec00fULL, 0xb33d51612cea9a9fULL, 0x912619531e19b6a2ULL, 0xdc8e0a127a06454eULL, 0x10b68b10085ee5ccULL, 0xefe7ac5f0abb11f8ULL, 0x2ca8b03f3d1843efULL, 0x2617a397f03da867ULL, 0x437e85f43e9f582cULL, 0x8478193e41ab8178ULL};
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
 
 // Endless scrollers (type 19). SCROLLERS holds per-belt state;
@@ -352,9 +356,9 @@ struct MirrorData {
 };
 constexpr int MIRROR_COUNT = 1;
 constexpr MirrorData MIRRORS[1] = {
-    {0, 39, 0.15F, 0, 0, 4, 1, 32, -1, 0, 0},  // silver-lens
+    {0, 43, 0.15F, 0, 0, 4, 1, 32, -1, 0, 0},  // silver-lens
 };
-constexpr int MIRROR_TARGETS[4] = {25, 40, 41, 42};
+constexpr int MIRROR_TARGETS[4] = {29, 44, 45, 46};
 
 // A room for the sound effects. While the player stands inside
 // the area, the SPU2's reverb unit runs `preset` at `amount`.
@@ -375,7 +379,7 @@ struct ReverbZoneData {
 constexpr int REVERB_ZONE_COUNT = 1;
 constexpr bool REVERB_HAS_NODE = false;
 constexpr ReverbZoneData REVERB_ZONES[1] = {
-    {0, 47, 5, 40, 64, 64, 1}
+    {0, 51, 5, 40, 64, 64, 1}
 };
 
 // Raytraced-mirror model proxies: decimated triangle lists
@@ -433,9 +437,9 @@ struct CamFeedData {
 };
 constexpr int CAM_FEED_COUNT = 1;
 constexpr CamFeedData CAM_FEEDS[1] = {
-    {0, 44, 58.0F, 0, 0, 4, -1, 0, 0},  // orrery-camera
+    {0, 48, 58.0F, 0, 0, 4, -1, 0, 0},  // orrery-camera
 };
-constexpr int CAM_FEED_VIEWS[4] = {25, 22, 23, 24};
+constexpr int CAM_FEED_VIEWS[4] = {29, 26, 27, 28};
 // Surfaces showing a live feed: kind 0 = the scene's camera
 // feed, kind 1 = a raytraced mirror's traced image (src =
 // the mirror's scene-table index).
@@ -447,7 +451,7 @@ struct ObjectFeedData {
 };
 constexpr int OBJECT_FEED_COUNT = 1;
 constexpr ObjectFeedData OBJECT_FEEDS[1] = {
-    {0, 43, 0, 44},  // optical-monitor <- camera:orrery-camera
+    {0, 47, 0, 48},  // optical-monitor <- camera:orrery-camera
 };
 
 // Portals (type 16): each entry links a surface to its target
@@ -471,10 +475,10 @@ struct PortalData {
 };
 constexpr int PORTAL_COUNT = 2;
 constexpr PortalData PORTALS[2] = {
-    {0, 52, 56, 0, 0, 0, 0, 12, -1, 0, 0},  // west-gate,
-    {0, 56, 52, 0, 0, 0, 12, 12, -1, 0, 0},  // east-gate
+    {0, 56, 60, 0, 0, 0, 0, 12, -1, 0, 0},  // west-gate,
+    {0, 60, 56, 0, 0, 0, 12, 12, -1, 0, 0},  // east-gate
 };
-constexpr int PORTAL_VIEW_OBJECTS[24] = {1, 4, 2, 3, 63, 22, 23, 24, 25, 65, 14, 16, 1, 4, 2, 3, 63, 22, 23, 24, 25, 65, 14, 16};
+constexpr int PORTAL_VIEW_OBJECTS[24] = {1, 4, 2, 3, 67, 26, 27, 28, 29, 69, 18, 20, 1, 4, 2, 3, 67, 26, 27, 28, 29, 69, 18, 20};
 
 // Objects a live catch area re-tests every frame (collectLiveCaught
 // in the game cpp). Indices are scene-table indices, sliced per

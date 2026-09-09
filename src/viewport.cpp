@@ -5031,6 +5031,12 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             // both would double every instance. A Scatter volume itself is an
             // authoring region: a wire box, never geometry.
             if (!o.procSource.empty()) continue;
+            if (o.collisionMode == 3) {
+                if (!asLines)
+                    draw(collisionCube_, GL_LINES, mul(viewProj, modelMatrix(o)),
+                         0.25f, 0.85f, 1.0f);
+                continue;
+            }
             if (o.type == PrimitiveType::Scatter) {
                 if (!asLines)
                     draw(wireCube_, GL_LINES, mul(viewProj, modelMatrix(o)), 0.4f,
@@ -5259,6 +5265,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         // one reflected draw - the static subset of the scene pass (marker
         // types never make it into a mirror list)
         auto drawReflected = [&](const SceneObject& t, const Mat4& model) {
+            if (t.collisionMode == 3) return;
             aoReceive = t.type != PrimitiveType::Model;
             ps2Flat = 1;  // the mirror redraw reuses the static (flat) bags
             const Mat4 mvp = mul(viewProj, model);

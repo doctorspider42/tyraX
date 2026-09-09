@@ -497,7 +497,8 @@ bool App::applyChatObjectProp(SceneData& sc, SceneObject& o,
         if (mode == "box") o.collisionMode = 0;
         else if (mode == "mesh") o.collisionMode = 1;
         else if (mode == "none") o.collisionMode = 2;
-        else err = "collision must be \"box\", \"mesh\" or \"none\"";
+        else if (mode == "invisible" && o.type == PrimitiveType::Box) o.collisionMode = 3;
+        else err = "collision must be \"box\", \"mesh\", \"none\", or \"invisible\" (Box only)";
         return true;
     }
     if (key == "detail") {

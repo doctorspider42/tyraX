@@ -141,14 +141,14 @@ constexpr int DYN_TEXT_LEN = 64;  // per-slot string buffer
 inline const DynTextData DYN_TEXTS[DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1] = {
     {0, 0.5F, 0.9F, 13.0F},  // scene 0, object 0, node 21
     {0, 0.5F, 0.9F, 13.0F},  // scene 0, object 0, node 22
-    {0, 0.5F, 0.85F, 14.0F},  // scene 0, object 28, node 4
-    {0, 0.5F, 0.85F, 14.0F},  // scene 0, object 29, node 4
-    {0, 0.5F, 0.85F, 14.0F},  // scene 0, object 30, node 4
-    {0, 0.5F, 0.85F, 15.0F},  // scene 0, object 31, node 21
-    {0, 0.5F, 0.84F, 16.0F},  // scene 0, object 32, node 2
-    {0, 0.5F, 0.84F, 16.0F},  // scene 0, object 38, node 2
-    {0, 0.5F, 0.84F, 16.0F},  // scene 0, object 45, node 2
-    {0, 0.5F, 0.84F, 13.0F},  // scene 0, object 51, node 4
+    {0, 0.5F, 0.85F, 14.0F},  // scene 0, object 32, node 4
+    {0, 0.5F, 0.85F, 14.0F},  // scene 0, object 33, node 4
+    {0, 0.5F, 0.85F, 14.0F},  // scene 0, object 34, node 4
+    {0, 0.5F, 0.85F, 15.0F},  // scene 0, object 35, node 21
+    {0, 0.5F, 0.84F, 16.0F},  // scene 0, object 36, node 2
+    {0, 0.5F, 0.84F, 16.0F},  // scene 0, object 42, node 2
+    {0, 0.5F, 0.84F, 16.0F},  // scene 0, object 49, node 2
+    {0, 0.5F, 0.84F, 13.0F},  // scene 0, object 55, node 4
 };
 
 }  // namespace Showcase

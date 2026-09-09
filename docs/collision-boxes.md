@@ -44,6 +44,21 @@ camera across its own body, at 90° to what was on screen — invisible unless
 you drew the box, which is half the reason this page and the two overlays
 exist.
 
+## Invisible boundary walls
+
+Use **Scene > Add > Object > Simple > Invisible wall**, or enable **Invisible wall**
+on a Box in Properties. Move, scale and rotate it like an ordinary box. The
+editor draws a cyan outline; the game keeps its collision without drawing its
+surface. Player movement, the camera boom, navigation and rigid-body obstacles
+use the same box as before. The wall casts no AO, GI or projected shadow and
+does not appear in reflections. It remains an active object: hiding it through
+gameplay is different from making its surface invisible.
+
+This is `"collision": "invisible"` on a Box (format 32). Existing box, mesh and
+none modes retain their behavior. Making a wall visible again restores box
+collision. Aster uses four tall walls just outside the island's paving, leaving
+both portal approaches inside the protected perimeter.
+
 ## Seeing them
 
 **In the editor** — *View > Collision boxes*. Every collider gets a red

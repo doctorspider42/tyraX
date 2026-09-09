@@ -261,8 +261,8 @@ class FlowGraphScript_0_0 : public Script {
   bool seqWas4 = false;
 };
 
-// Scene "Aster": graph of "meridian" (object 22)
-class FlowGraphScript_0_22 : public Script {
+// Scene "Aster": graph of "meridian" (object 26)
+class FlowGraphScript_0_26 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
@@ -279,17 +279,17 @@ class FlowGraphScript_0_22 : public Script {
     if (livedbg::forced(11)) {  // Live Debugger: fired from the editor
       livedbg::hit(11);
       livedbg::hit(12);
-      ctx.objects[22].spinRate[0] = 0.0F;
-      ctx.objects[22].spinRate[1] = 9.0F;
-      ctx.objects[22].spinRate[2] = 0.0F;
+      ctx.objects[26].spinRate[0] = 0.0F;
+      ctx.objects[26].spinRate[1] = 9.0F;
+      ctx.objects[26].spinRate[2] = 0.0F;
     }
     if (!started) {
       started = true;
       livedbg::hit(11);
       livedbg::hit(12);
-      ctx.objects[22].spinRate[0] = 0.0F;
-      ctx.objects[22].spinRate[1] = 9.0F;
-      ctx.objects[22].spinRate[2] = 0.0F;
+      ctx.objects[26].spinRate[0] = 0.0F;
+      ctx.objects[26].spinRate[1] = 9.0F;
+      ctx.objects[26].spinRate[2] = 0.0F;
     }
   }
 
@@ -299,8 +299,8 @@ class FlowGraphScript_0_22 : public Script {
   bool started = false;
 };
 
-// Scene "Aster": graph of "ecliptic" (object 23)
-class FlowGraphScript_0_23 : public Script {
+// Scene "Aster": graph of "ecliptic" (object 27)
+class FlowGraphScript_0_27 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
@@ -317,17 +317,17 @@ class FlowGraphScript_0_23 : public Script {
     if (livedbg::forced(13)) {  // Live Debugger: fired from the editor
       livedbg::hit(13);
       livedbg::hit(14);
-      ctx.objects[23].spinRate[0] = 0.0F;
-      ctx.objects[23].spinRate[1] = -14.0F;
-      ctx.objects[23].spinRate[2] = 0.0F;
+      ctx.objects[27].spinRate[0] = 0.0F;
+      ctx.objects[27].spinRate[1] = -14.0F;
+      ctx.objects[27].spinRate[2] = 0.0F;
     }
     if (!started) {
       started = true;
       livedbg::hit(13);
       livedbg::hit(14);
-      ctx.objects[23].spinRate[0] = 0.0F;
-      ctx.objects[23].spinRate[1] = -14.0F;
-      ctx.objects[23].spinRate[2] = 0.0F;
+      ctx.objects[27].spinRate[0] = 0.0F;
+      ctx.objects[27].spinRate[1] = -14.0F;
+      ctx.objects[27].spinRate[2] = 0.0F;
     }
   }
 
@@ -337,8 +337,8 @@ class FlowGraphScript_0_23 : public Script {
   bool started = false;
 };
 
-// Scene "Aster": graph of "equator" (object 24)
-class FlowGraphScript_0_24 : public Script {
+// Scene "Aster": graph of "equator" (object 28)
+class FlowGraphScript_0_28 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
@@ -355,17 +355,17 @@ class FlowGraphScript_0_24 : public Script {
     if (livedbg::forced(15)) {  // Live Debugger: fired from the editor
       livedbg::hit(15);
       livedbg::hit(16);
-      ctx.objects[24].spinRate[0] = 0.0F;
-      ctx.objects[24].spinRate[1] = 18.0F;
-      ctx.objects[24].spinRate[2] = 0.0F;
+      ctx.objects[28].spinRate[0] = 0.0F;
+      ctx.objects[28].spinRate[1] = 18.0F;
+      ctx.objects[28].spinRate[2] = 0.0F;
     }
     if (!started) {
       started = true;
       livedbg::hit(15);
       livedbg::hit(16);
-      ctx.objects[24].spinRate[0] = 0.0F;
-      ctx.objects[24].spinRate[1] = 18.0F;
-      ctx.objects[24].spinRate[2] = 0.0F;
+      ctx.objects[28].spinRate[0] = 0.0F;
+      ctx.objects[28].spinRate[1] = 18.0F;
+      ctx.objects[28].spinRate[2] = 0.0F;
     }
   }
 
@@ -375,8 +375,8 @@ class FlowGraphScript_0_24 : public Script {
   bool started = false;
 };
 
-// Scene "Aster": graph of "lens-1" (object 28)
-class FlowGraphScript_0_28 : public Script {
+// Scene "Aster": graph of "lens-1" (object 32)
+class FlowGraphScript_0_32 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
@@ -405,7 +405,7 @@ class FlowGraphScript_0_28 : public Script {
         ctx.dynTextDuration[2] = 4.0F;
         flowSetDynText(ctx, 2, std::string("LENS 1 RECOVERED / Align the central instrument."));
         livedbg::hit(21);
-        ctx.objects[28].visible = false;
+        ctx.objects[32].visible = false;
         livedbg::hit(22);
         {
           const s8 ch = (s8)flowPinSfxChannel(ctx, 1, 0);
@@ -415,7 +415,7 @@ class FlowGraphScript_0_28 : public Script {
         }
       }
     }
-    if (ctx.usedObject == 28) {
+    if (ctx.usedObject == 32) {
       livedbg::hit(17);
       livedbg::hit(18);
       if (!once2) {
@@ -427,7 +427,7 @@ class FlowGraphScript_0_28 : public Script {
         ctx.dynTextDuration[2] = 4.0F;
         flowSetDynText(ctx, 2, std::string("LENS 1 RECOVERED / Align the central instrument."));
         livedbg::hit(21);
-        ctx.objects[28].visible = false;
+        ctx.objects[32].visible = false;
         livedbg::hit(22);
         {
           const s8 ch = (s8)flowPinSfxChannel(ctx, 1, 0);
@@ -452,8 +452,8 @@ class FlowGraphScript_0_28 : public Script {
   bool once2 = false;
 };
 
-// Scene "Aster": graph of "lens-2" (object 29)
-class FlowGraphScript_0_29 : public Script {
+// Scene "Aster": graph of "lens-2" (object 33)
+class FlowGraphScript_0_33 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
@@ -482,7 +482,7 @@ class FlowGraphScript_0_29 : public Script {
         ctx.dynTextDuration[3] = 4.0F;
         flowSetDynText(ctx, 3, std::string("LENS 2 RECOVERED / Align the central instrument."));
         livedbg::hit(27);
-        ctx.objects[29].visible = false;
+        ctx.objects[33].visible = false;
         livedbg::hit(28);
         {
           const s8 ch = (s8)flowPinSfxChannel(ctx, 1, 0);
@@ -492,7 +492,7 @@ class FlowGraphScript_0_29 : public Script {
         }
       }
     }
-    if (ctx.usedObject == 29) {
+    if (ctx.usedObject == 33) {
       livedbg::hit(23);
       livedbg::hit(24);
       if (!once2) {
@@ -504,7 +504,7 @@ class FlowGraphScript_0_29 : public Script {
         ctx.dynTextDuration[3] = 4.0F;
         flowSetDynText(ctx, 3, std::string("LENS 2 RECOVERED / Align the central instrument."));
         livedbg::hit(27);
-        ctx.objects[29].visible = false;
+        ctx.objects[33].visible = false;
         livedbg::hit(28);
         {
           const s8 ch = (s8)flowPinSfxChannel(ctx, 1, 0);
@@ -529,8 +529,8 @@ class FlowGraphScript_0_29 : public Script {
   bool once2 = false;
 };
 
-// Scene "Aster": graph of "lens-3" (object 30)
-class FlowGraphScript_0_30 : public Script {
+// Scene "Aster": graph of "lens-3" (object 34)
+class FlowGraphScript_0_34 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
@@ -559,7 +559,7 @@ class FlowGraphScript_0_30 : public Script {
         ctx.dynTextDuration[4] = 4.0F;
         flowSetDynText(ctx, 4, std::string("LENS 3 RECOVERED / Align the central instrument."));
         livedbg::hit(33);
-        ctx.objects[30].visible = false;
+        ctx.objects[34].visible = false;
         livedbg::hit(34);
         {
           const s8 ch = (s8)flowPinSfxChannel(ctx, 1, 0);
@@ -569,7 +569,7 @@ class FlowGraphScript_0_30 : public Script {
         }
       }
     }
-    if (ctx.usedObject == 30) {
+    if (ctx.usedObject == 34) {
       livedbg::hit(29);
       livedbg::hit(30);
       if (!once2) {
@@ -581,7 +581,7 @@ class FlowGraphScript_0_30 : public Script {
         ctx.dynTextDuration[4] = 4.0F;
         flowSetDynText(ctx, 4, std::string("LENS 3 RECOVERED / Align the central instrument."));
         livedbg::hit(33);
-        ctx.objects[30].visible = false;
+        ctx.objects[34].visible = false;
         livedbg::hit(34);
         {
           const s8 ch = (s8)flowPinSfxChannel(ctx, 1, 0);
@@ -606,8 +606,8 @@ class FlowGraphScript_0_30 : public Script {
   bool once2 = false;
 };
 
-// Scene "Aster": graph of "instrument-console" (object 31)
-class FlowGraphScript_0_31 : public Script {
+// Scene "Aster": graph of "instrument-console" (object 35)
+class FlowGraphScript_0_35 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
@@ -639,7 +639,7 @@ class FlowGraphScript_0_31 : public Script {
         flowSetDynText(ctx, 5, std::string("Recover all three brass lenses to align the instrument."));
       }
     }
-    if (ctx.usedObject == 31) {
+    if (ctx.usedObject == 35) {
       livedbg::hit(35);
       livedbg::hit(36);
       if (((ctx.saveValues[0] >= 3.0F))) {
@@ -663,8 +663,8 @@ class FlowGraphScript_0_31 : public Script {
   bool started = false;
 };
 
-// Scene "Aster": graph of "arrival-guide" (object 32)
-class FlowGraphScript_0_32 : public Script {
+// Scene "Aster": graph of "arrival-guide" (object 36)
+class FlowGraphScript_0_36 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
@@ -687,7 +687,7 @@ class FlowGraphScript_0_32 : public Script {
       ctx.dynTextDuration[6] = 5.0F;
       flowSetDynText(ctx, 6, std::string("Collect three brass lenses. SELECT: guided tour."));
     }
-    if (ctx.usedObject == 32) {
+    if (ctx.usedObject == 36) {
       livedbg::hit(40);
       livedbg::hit(41);
       ctx.dynTextRequest[6] = 1;
@@ -702,8 +702,8 @@ class FlowGraphScript_0_32 : public Script {
   bool started = false;
 };
 
-// Scene "Aster": graph of "physics-guide" (object 38)
-class FlowGraphScript_0_38 : public Script {
+// Scene "Aster": graph of "physics-guide" (object 42)
+class FlowGraphScript_0_42 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
@@ -726,7 +726,7 @@ class FlowGraphScript_0_38 : public Script {
       ctx.dynTextDuration[7] = 5.0F;
       flowSetDynText(ctx, 7, std::string("CALIBRATION / Square: pick up. Circle: throw."));
     }
-    if (ctx.usedObject == 38) {
+    if (ctx.usedObject == 42) {
       livedbg::hit(42);
       livedbg::hit(43);
       ctx.dynTextRequest[7] = 1;
@@ -741,8 +741,8 @@ class FlowGraphScript_0_38 : public Script {
   bool started = false;
 };
 
-// Scene "Aster": graph of "optics-guide" (object 45)
-class FlowGraphScript_0_45 : public Script {
+// Scene "Aster": graph of "optics-guide" (object 49)
+class FlowGraphScript_0_49 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
@@ -765,7 +765,7 @@ class FlowGraphScript_0_45 : public Script {
       ctx.dynTextDuration[8] = 5.0F;
       flowSetDynText(ctx, 8, std::string("OPTICS / Silver traces light. Gold watches the sky."));
     }
-    if (ctx.usedObject == 45) {
+    if (ctx.usedObject == 49) {
       livedbg::hit(44);
       livedbg::hit(45);
       ctx.dynTextRequest[8] = 1;
@@ -780,8 +780,8 @@ class FlowGraphScript_0_45 : public Script {
   bool started = false;
 };
 
-// Scene "Aster": graph of "keeper" (object 51)
-class FlowGraphScript_0_51 : public Script {
+// Scene "Aster": graph of "keeper" (object 55)
+class FlowGraphScript_0_55 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
@@ -801,8 +801,8 @@ class FlowGraphScript_0_51 : public Script {
       livedbg::hit(46);
       livedbg::hit(47);
       {
-        static const int navWps2[] = {48, 49, 50};  // keeper-route-1 keeper-route-2 keeper-route-3
-        navPatrol(ctx, 51, navWps2, 3, 1.1F, 2.0F, 0);
+        static const int navWps2[] = {52, 53, 54};  // keeper-route-1 keeper-route-2 keeper-route-3
+        navPatrol(ctx, 55, navWps2, 3, 1.1F, 2.0F, 0);
       }
     }
     if (!started) {
@@ -810,8 +810,8 @@ class FlowGraphScript_0_51 : public Script {
       livedbg::hit(46);
       livedbg::hit(47);
       {
-        static const int navWps2[] = {48, 49, 50};  // keeper-route-1 keeper-route-2 keeper-route-3
-        navPatrol(ctx, 51, navWps2, 3, 1.1F, 2.0F, 0);
+        static const int navWps2[] = {52, 53, 54};  // keeper-route-1 keeper-route-2 keeper-route-3
+        navPatrol(ctx, 55, navWps2, 3, 1.1F, 2.0F, 0);
       }
     }
     if (livedbg::forced(48)) {  // Live Debugger: fired from the editor
@@ -821,7 +821,7 @@ class FlowGraphScript_0_51 : public Script {
       ctx.dynTextDuration[9] = 5.0F;
       flowSetDynText(ctx, 9, std::string("Lenses: the entrance, crossing and west garden."));
     }
-    if (ctx.usedObject == 51) {
+    if (ctx.usedObject == 55) {
       livedbg::hit(48);
       livedbg::hit(49);
       ctx.dynTextRequest[9] = 1;
@@ -847,14 +847,14 @@ void flowDbgReadVar(int index, float* out3) {
 }  // namespace Showcase
 
 TYRA_SCRIPT(Showcase::FlowGraphScript_0_0);
-TYRA_SCRIPT(Showcase::FlowGraphScript_0_22);
-TYRA_SCRIPT(Showcase::FlowGraphScript_0_23);
-TYRA_SCRIPT(Showcase::FlowGraphScript_0_24);
+TYRA_SCRIPT(Showcase::FlowGraphScript_0_26);
+TYRA_SCRIPT(Showcase::FlowGraphScript_0_27);
 TYRA_SCRIPT(Showcase::FlowGraphScript_0_28);
-TYRA_SCRIPT(Showcase::FlowGraphScript_0_29);
-TYRA_SCRIPT(Showcase::FlowGraphScript_0_30);
-TYRA_SCRIPT(Showcase::FlowGraphScript_0_31);
 TYRA_SCRIPT(Showcase::FlowGraphScript_0_32);
-TYRA_SCRIPT(Showcase::FlowGraphScript_0_38);
-TYRA_SCRIPT(Showcase::FlowGraphScript_0_45);
-TYRA_SCRIPT(Showcase::FlowGraphScript_0_51);
+TYRA_SCRIPT(Showcase::FlowGraphScript_0_33);
+TYRA_SCRIPT(Showcase::FlowGraphScript_0_34);
+TYRA_SCRIPT(Showcase::FlowGraphScript_0_35);
+TYRA_SCRIPT(Showcase::FlowGraphScript_0_36);
+TYRA_SCRIPT(Showcase::FlowGraphScript_0_42);
+TYRA_SCRIPT(Showcase::FlowGraphScript_0_49);
+TYRA_SCRIPT(Showcase::FlowGraphScript_0_55);

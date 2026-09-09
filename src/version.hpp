@@ -16,6 +16,10 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.58.0: Box collision mode "invisible" adds authorable boundary walls without
+// rendered geometry or baked shadows. Format 32 adds the new collision value.
+// Aster clears its portals, seats its lighthouse and tessellates the sea.
+//
 // 1.57.0: Aster replaces the old showcase with an authored coastal observatory,
 // playable lens hunt and bounded optical experiments. See examples/showcase.
 // The project format and generated runtime behavior are unchanged.
@@ -1765,7 +1769,7 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 57
+#define TYRAX_VERSION_MINOR 58
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -2046,7 +2050,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // same trick"): "spot" + "spotAngle" on a light object's light block -
 // written only when the style is on, so an untouched project resaves byte
 // for byte; off (the default) is the point light every earlier file had.
-inline constexpr int kFormatVersion = 31;
+inline constexpr int kFormatVersion = 32;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

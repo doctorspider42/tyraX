@@ -453,6 +453,14 @@ leave it asking forever), and the only thing that still needs a `dirty` re-bake
 is a SCALE change, because scale is baked into the local vertices. Worth 16 →
 50 FPS on examples/endless-runner.
 
+**Invisible walls** reuse Box with `collisionMode == 3` (`collision: invisible`,
+format 32), not object visibility. They remain collision/nav/physics obstacles,
+but `rebuildObjectGeometry` emits no parts and `staticBatchEligible` rejects
+them. The viewport draws a cyan wire box. AO shape/atlas collection, GI geometry
+and signature collection, projected shadows and raytraced/reflected views must
+all exclude them. The field already participates in equality and live-link
+recipe hashing. See `docs/collision-boxes.md`.
+
 **New object type** → `PrimitiveType` enum (0–19 used so far, `kPrimitiveTypeCount`
 bounds "every type" loops; keep values stable, they're serialized) →
 mesh/marker in viewport.cpp → insert menu in app.cpp →
