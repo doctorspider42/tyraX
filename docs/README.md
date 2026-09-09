@@ -62,6 +62,10 @@ for people building games with it. Internals live in code comments, the git log
   reverted.
 - [The flashlight](flashlight.md) — the player's torch: the per-vertex cone, the
   projected ground pool, and the gobo texture that decides its shape.
+- [Dynamic shadows](shadows.md) — the two runtime shadows an object can cast (a
+  blob or a real projected silhouette, chosen per object), and the shadow
+  volumes a scene's spot lights can carve — with the reason only one spot casts
+  per frame, and how the four silhouette slots change hands without blinking.
 - [Reflective materials (sphere-mapped "chrome")](reflective-materials.md) —
   the PS2-era fake for car paint, static or re-rendered from the live sky.
 - [Raytraced reflections (VU0, experimental PoC)](raytraced-reflections.md) — a
@@ -103,6 +107,9 @@ for people building games with it. Internals live in code comments, the git log
   the EE, and the guard-wiring flow nodes.
 - [Configurable buttons & keys](input-bindings.md) — named actions, binding
   presets, the in-game rebind menu, the On Action / On Key nodes.
+- [Where the player starts](player-start.md) — position, starting height, and
+  heading + pitch from the Player object's rotation; how to freeze the camera
+  for a repeatable screenshot.
 - [Player speeds: walk, run and sprint](player-speeds.md) — the three movement
   tiers of a Player object, how the stick's deflection ramps walk into run while
   the sprint button pins the top flat, and what an unset tier inherits.
@@ -159,6 +166,9 @@ for people building games with it. Internals live in code comments, the git log
 - [Remote Pad (hold the running game's controller)](remote-pad.md) — a
   clickable DualShock in the editor and a scriptable `--pad` CLI, no window
   focus needed anywhere.
+- [Input recorder (record a session, perform it again)](input-replay.md) —
+  every frame's input written to a small committable file, replayed over the top
+  of a real controller; `--replay` exits 0 when the run reproduced exactly.
 - [UI scripting (drive the editor without a human)](ui-scripting.md) —
   `--ui-script` clicks widgets by name, with assertions; where every unattended
   editor test starts.
@@ -186,6 +196,10 @@ for people building games with it. Internals live in code comments, the git log
   four themes (three of them PS2 nods), and why the choice is machine-global.
 - [Project format versioning & migrations](format-versioning.md) — what happens
   when you open an older or newer project, `--migrate`, and the bump rules.
+- [Installing TyraX and keeping it up to date](updates.md) — the Windows
+  installer, the Linux tarball/`.deb`/`.rpm` and which of them can update
+  itself, the layout they all lay down, the startup update check and how to
+  switch it off, and how every push to `main` becomes a release.
 
 Developer design docs (internals, not user guides):
 
@@ -195,8 +209,10 @@ Developer design docs (internals, not user guides):
   generate both sides, run it in the host simulator with no PS2.
 - [Authoring VU programs](vu-authoring.md) — composing VU1 programs and VU0
   kernels out of stages, no assembly.
-- [VU1 clipping plan](vu1-clipping-plan.md) — measured EE-clipper cost and the
-  milestones for moving StaPip clipping onto VU1.
+- [VU1 clipping and the guard band](vu1-clipping.md) — how the static pipeline
+  routes geometry between the cull and clip programs, why edge-of-screen
+  geometry needs no clipping at all (the GS scissor crops it), and the measured
+  cost of getting that decision wrong.
 - [GS VRAM residency](gs-vram.md) — where the 4 MB goes, 16-bit frame buffers
   and dithering, what a texture really costs, the texture heap and its eviction
   policy, measured before/after numbers.

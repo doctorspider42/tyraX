@@ -1,0 +1,1 @@
+{ "id": "aowallca000006", "name": "wall-cap-long", "type": "box", "position": [7, 3.62, -10.4], "rotation": [0, 0, 0], "scale": [26.6, 0.25, 1.1], "color": [1, 1, 1], "physics": false, "material": "res/materials/terrace.mtl" }

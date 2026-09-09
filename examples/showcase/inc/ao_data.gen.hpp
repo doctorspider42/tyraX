@@ -15,9 +15,51 @@ struct AoOccData {
   int objIndex;
 };
 
+static const AoOccData S0_AO_OCC[40] = {
+    {{-6.0F, 0.0288F, 2.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.65F, 0.25F, 0.65F}, 0, 1},
+    {{-3.0F, 0.8362F, 4.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.4F, 0.6F, 0.4F}, 0, 6},
+    {{10.0F, 2.1965F, -6.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.7F, 1.5F, 0.2F}, 0, 7},
+    {{16.0F, 3.8402F, 18.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.175F, 0.63F, 0.175F}, 0, 11},
+    {{16.0F, 5.3202F, 18.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.85F, 1.05F, 0.85F}, 0, 12},
+    {{22.0F, 3.7402F, 10.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.175F, 0.7875F, 0.175F}, 0, 13},
+    {{22.0F, 5.6402F, 10.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.85F, 1.3125F, 0.85F}, 0, 14},
+    {{12.0F, 4.3832F, 26.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.175F, 0.945F, 0.175F}, 0, 15},
+    {{12.0F, 6.7032F, 26.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.85F, 1.575F, 0.85F}, 0, 16},
+    {{-14.0F, -0.3331F, 20.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.175F, 0.63F, 0.175F}, 0, 17},
+    {{-14.0F, 1.1469F, 20.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.85F, 1.05F, 0.85F}, 0, 18},
+    {{-22.0F, -2.1483F, 14.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.175F, 0.7875F, 0.175F}, 0, 19},
+    {{-22.0F, -0.2483F, 14.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.85F, 1.3125F, 0.85F}, 0, 20},
+    {{-8.0F, 0.7355F, 28.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.175F, 0.945F, 0.175F}, 0, 21},
+    {{-8.0F, 3.0555F, 28.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.85F, 1.575F, 0.85F}, 0, 22},
+    {{30.0F, 4.4099F, 6.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.175F, 0.63F, 0.175F}, 0, 23},
+    {{30.0F, 5.8899F, 6.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.85F, 1.05F, 0.85F}, 0, 24},
+    {{-30.0F, -4.4455F, 2.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.175F, 0.7875F, 0.175F}, 0, 25},
+    {{-30.0F, -2.5455F, 2.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.85F, 1.3125F, 0.85F}, 0, 26},
+    {{18.0F, 1.1284F, -18.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.175F, 0.945F, 0.175F}, 0, 27},
+    {{18.0F, 3.4484F, -18.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.85F, 1.575F, 0.85F}, 0, 28},
+    {{-18.0F, -1.5249F, -16.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.175F, 0.63F, 0.175F}, 0, 29},
+    {{-18.0F, -0.0449F, -16.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.85F, 1.05F, 0.85F}, 0, 30},
+    {{6.0F, 1.5442F, 14.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.55F, 0.55F, 0.55F}, 1, 31},
+    {{-10.0F, 0.201F, 10.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.8F, 0.8F, 0.8F}, 1, 32},
+    {{20.0F, 1.6948F, -8.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.65F, 0.65F, 0.65F}, 1, 33},
+    {{-16.0F, -0.5702F, -6.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.45F, 0.45F, 0.45F}, 1, 34},
+    {{36.0F, 2.2762F, -39.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {3.0F, 2.5F, 3.0F}, 0, 38},
+    {{45.0F, 3.3595F, -34.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {2.5F, 3.5F, 2.5F}, 0, 39},
+    {{38.0F, 2.4039F, -30.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {3.5F, 2.0F, 2.0F}, 0, 40},
+    {{46.0F, 2.2639F, -42.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {2.0F, 3.0F, 2.0F}, 0, 41},
+    {{40.0F, 0.4192F, -36.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {1.5F, 0.15F, 1.5F}, 0, 42},
+    {{37.0F, 1.2731F, -36.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.075F, 1.2F, 0.075F}, 0, 43},
+    {{44.0F, 1.173F, -33.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.075F, 1.2F, 0.075F}, 0, 45},
+    {{-34.0F, 2.4472F, -40.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.45F, 2.5F, 0.45F}, 0, 50},
+    {{-38.1459F, -0.2751F, -34.2937F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.45F, 1.75F, 0.45F}, 0, 51},
+    {{-44.8541F, 1.5393F, -36.4733F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.45F, 3.0F, 0.45F}, 0, 52},
+    {{-44.8541F, 1.0755F, -43.5267F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.45F, 1.25F, 0.45F}, 0, 53},
+    {{-38.1459F, 3.7857F, -45.7063F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.45F, 2.25F, 0.45F}, 0, 54},
+    {{-37.0F, 1.3659F, -38.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.35F, 0.35F, 0.35F}, 1, 59},
+};
 
-static const AoOccData* const SCENE_AO_OCC_TABLES[] = {nullptr, nullptr};
-static const int SCENE_AO_OCC_COUNTS[] = {0, 0};
+static const AoOccData* const SCENE_AO_OCC_TABLES[] = {S0_AO_OCC, nullptr};
+static const int SCENE_AO_OCC_COUNTS[] = {40, 0};
 
 struct EmisLightData {
   float pos[3];
@@ -36,15 +78,19 @@ static const int SCENE_EMIS_COUNTS[] = {0, 0};
 struct AoAtlasRect {
   float u0, v0, du, dv;
 };
-static const AoAtlasRect* const SCENE_AO_ATLAS_RECTS_T[] = {nullptr, nullptr};
-static const int* const SCENE_AO_ATLAS_FIRSTS_T[] = {nullptr, nullptr};
-static const unsigned char* const SCENE_AO_ATLAS_LITS_T[] = {nullptr, nullptr};
-static const char* const SCENE_AO_ATLAS_PATHS[] = {"", ""};
-static const char* const SCENE_AO_MAP_PATHS[] = {"", ""};
-static const unsigned char SCENE_AO_MAP_OCCS[] = {0, 0};
+static const AoAtlasRect S0_AO_RECTS[7] = {{0.226562F, 0.820312F, 0.375F, 0.03125F}, {0.648438F, 0.820312F, 0.015625F, 0.015625F}, {0.0234375F, 0.820312F, 0.15625F, 0.15625F}, {0.585938F, 0.0234375F, 0.171875F, 0.515625F}, {0.0234375F, 0.0234375F, 0.265625F, 0.75F}, {0.335938F, 0.0234375F, 0.203125F, 0.609375F}, {0.804688F, 0.0234375F, 0.140625F, 0.421875F}};
+static const int S0_AO_FIRST[60] = {-1, 0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 3, 4, 5, 6, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+static const unsigned char S0_AO_LIT[60] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+static const AoAtlasRect* const SCENE_AO_ATLAS_RECTS_T[] = {S0_AO_RECTS, nullptr};
+static const int* const SCENE_AO_ATLAS_FIRSTS_T[] = {S0_AO_FIRST, nullptr};
+static const unsigned char* const SCENE_AO_ATLAS_LITS_T[] = {S0_AO_LIT, nullptr};
+static const char* const SCENE_AO_ATLAS_PATHS[] = {"aoatlas/scene0.png", ""};
+static const char* const SCENE_AO_MAP_PATHS[] = {"aomap/scene0.png", ""};
+static const unsigned char SCENE_AO_MAP_OCCS[] = {1, 0};
 static const unsigned char SCENE_AO_MAP_LITS[] = {0, 0};
 static const unsigned char SCENE_AO_ATLAS_GIS[] = {0, 0};
 static const unsigned char SCENE_AO_MAP_GIS[] = {0, 0};
+static const unsigned char SCENE_AO_MAP_GILUMS[] = {0, 0};
 }  // namespace
 
 #define SCENE_AO_OCC SCENE_AO_OCC_TABLES[g_activeScene]
@@ -60,3 +106,4 @@ static const unsigned char SCENE_AO_MAP_GIS[] = {0, 0};
 #define SCENE_AO_MAP_LIT SCENE_AO_MAP_LITS[g_activeScene]
 #define SCENE_AO_ATLAS_GI SCENE_AO_ATLAS_GIS[g_activeScene]
 #define SCENE_AO_MAP_GI SCENE_AO_MAP_GIS[g_activeScene]
+#define SCENE_AO_MAP_GILUM SCENE_AO_MAP_GILUMS[g_activeScene]

@@ -416,6 +416,66 @@ std::string Runner::emulatorLogPath(const Project& p) const {
     return (ini.parent_path().parent_path() / "logs" / "emulog.txt").string();
 }
 
+void Runner::stageReplayChannel(const std::string& binDir) {
+    std::error_code ec;
+    // Clear the whole channel first, unconditionally - including on a plain
+    // run. A leftover replay.in makes the fresh boot perform the LAST
+    // session's run, which reads as "the game does not respond to the
+    // controller any more"; a leftover replay.arm quietly starts recording
+    // again; a leftover replay.out would be appended to and parse as one
+    // recording with two runs in it.
+    fs::remove(fs::path(binDir) / "replay.in", ec);
+    fs::remove(fs::path(binDir) / "replay.arm", ec);
+    fs::remove(fs::path(binDir) / "replay.out", ec);
+    fs::remove(fs::path(binDir) / "replay.stop", ec);
+    fs::remove(fs::path(binDir) / "replay.st", ec);
+
+    const ReplayLaunch launch = replay_;
+    replay_ = ReplayLaunch();  // one launch, one arming
+    if (launch.mode == ReplayLaunch::None) return;
+
+    if (launch.clearSaves) {
+        // The host-side fallback saves (see the generated save system). The
+        // PCSX2 memory card is NOT covered and cannot cheaply be - it is a
+        // documented caveat, not an oversight.
+        fs::remove(fs::path(binDir) / "profile.sav", ec);
+        for (int i = 0; i < 16; ++i)
+            fs::remove(fs::path(binDir) / ("save" + std::to_string(i) + ".sav"), ec);
+        appendLine("[editor] Replay: cleared the host save files.");
+    }
+
+    if (launch.mode == ReplayLaunch::Record) {
+        std::ofstream f(fs::path(binDir) / "replay.arm");
+        if (!f) {
+            appendLine("[editor] Replay: cannot write bin/replay.arm - this run "
+                       "will NOT be recorded.");
+            return;
+        }
+        f << "armed by TyraX\n";
+        appendLine("[editor] Replay: this run will be recorded into "
+                   "bin/replay.out.");
+        return;
+    }
+
+    // Play: the recording is COPIED in rather than pointed at, because the
+    // game opens it over host: by a fixed name and the file must survive the
+    // project folder being edited underneath a long replay.
+    if (!fs::exists(launch.file, ec)) {
+        appendLine("[editor] Replay: " + launch.file +
+                   " is gone - starting a normal run instead.");
+        return;
+    }
+    fs::copy_file(launch.file, fs::path(binDir) / "replay.in",
+                  fs::copy_options::overwrite_existing, ec);
+    if (ec) {
+        appendLine("[editor] Replay: cannot stage " + launch.file + ": " +
+                   ec.message());
+        return;
+    }
+    appendLine("[editor] Replay: this run will play back " +
+               fs::path(launch.file).filename().string() + ".");
+}
+
 bool Runner::launchPCSX2(const Project& p) {
     const std::string exe = resolveEmulator(p);
     if (exe.empty()) {
@@ -470,6 +530,10 @@ bool Runner::launchPCSX2(const Project& p) {
     // a tick of the new game coming up.
     fs::remove(fs::path(p.dir) / "bin" / "livedbg.bin", logEc);
     fs::remove(fs::path(p.dir) / "bin" / "livedbg.cmd", logEc);
+    // The self-screenshot (docs/devkit.md): the last session's picture would
+    // read as an answer to the first capture of this one, and two runs of the
+    // same scene look alike enough that nobody would notice.
+    fs::remove(fs::path(p.dir) / "bin" / "frame.tga", logEc);
     // Live Logic: the fresh build compiles every graph natively again, so
     // a leftover patch would make the game interpret a stale program.
     fs::remove(fs::path(p.dir) / "bin" / "livelogic.bin", logEc);
@@ -482,6 +546,9 @@ bool Runner::launchPCSX2(const Project& p) {
     // and still holds whatever was held when the last session ended, so the
     // fresh boot would start walking before anyone touched anything.
     fs::remove(fs::path(p.dir) / "bin" / "livepad.bin", logEc);
+    // The input recorder (docs/input-replay.md): clears the channel and arms
+    // whatever the Debugger's Replay tab (or --record/--replay) asked for.
+    stageReplayChannel((fs::path(p.dir) / "bin").string());
 
     // Without "Host Filesystem" the ELF boots but every host: fopen fails,
     // so Tyra asserts on the first asset load. PCSX2 rewrites its ini on
@@ -778,6 +845,58 @@ void Runner::stopPs2(const Project& p) {
     });
 }
 
+// Switches the console off. This is ps2link's own `poweroff` command, not
+// anything this repo added to the patch: ps2client sends PKO_POWEROFF_CMD, the
+// IOP command thread answers it with PoweroffShutdown() from the resident
+// poweroff.irx, that runs the registered shutdown callbacks (ps2dev9's, which
+// parks the expansion bay) and then writes the CDVD registers that cut the
+// power. It is the same shutdown the console's own power button performs, and
+// it reaches a console with a game on it because the command thread runs at
+// USER_HIGHEST_PRIORITY - the priority fix r4 made for Stop (docs/ps2link-setup.md).
+//
+// The file server goes first for the same reason Stop kills it first, and the
+// same refusal applies with more force: powering off a console another editor
+// is deploying to would end their session on a button that promises to end
+// yours - and theirs cannot be recovered from this PC at all.
+void Runner::powerOffPs2(const Project& p) {
+    if (busy()) return;
+    join();
+    cancelRequested_ = false;
+    state_ = State::Running;
+    thread_ = std::thread([this, p] {
+        if (p.ps2LinkIp.empty()) {
+            appendLine("[editor] No PS2 address configured - set 'PS2 (ps2link) "
+                       "IP' in Edit > Preferences.");
+            state_ = State::Failed;
+            return;
+        }
+        appendLine("[editor] Switching the PS2 at " + p.ps2LinkIp + " off...");
+        if (!claimPs2Channel(p)) {
+            appendLine("[editor] Not powering the console off - the game running "
+                       "on it belongs to the session named above.");
+            state_ = State::Failed;
+            return;
+        }
+        const std::string client = findPs2Client();
+        if (exec(platform::shellArg(client) + " -h " + p.ps2LinkIp +
+                     " -t 10 poweroff",
+                 "") != 0) {
+            appendLine("[editor] Could not reach ps2link at " + p.ps2LinkIp + ".");
+            state_ = State::Failed;
+            return;
+        }
+        // Same fire-and-forget UDP as reset and execee: ps2client cannot tell a
+        // console that took the command from one that was never there, and this
+        // one deliberately has no witness to listen with - a console that obeys
+        // stops answering by definition. The light on the front is the report.
+        appendLine("[editor] Power-off sent. The command is fire-and-forget UDP, "
+                   "so the console's standby light is the only confirmation "
+                   "there is - and a console that was already off answers "
+                   "exactly the same way.");
+        state_ = State::Success;
+    });
+}
+
 void Runner::stopEmulator(const Project& p) {
     if (busy()) return;
     join();
@@ -829,10 +948,12 @@ bool Runner::deployToPs2(const Project& p) {
     fs::remove(fs::path(binDir) / "log.txt", logEc);
     fs::remove(fs::path(binDir) / "livedbg.bin", logEc);
     fs::remove(fs::path(binDir) / "livedbg.cmd", logEc);
+    fs::remove(fs::path(binDir) / "frame.tga", logEc);  // see the PCSX2 path
     fs::remove(fs::path(binDir) / "livelogic.bin", logEc);
     fs::remove(fs::path(binDir) / "livetime.bin", logEc);
     fs::remove(fs::path(binDir) / "livetime.rst", logEc);
     fs::remove(fs::path(binDir) / "livepad.bin", logEc);
+    stageReplayChannel(binDir);  // see the PCSX2 path
 
     // ps2link passes execee arguments in a non-standard way that the game's
     // toolchain crt0 does not deliver, so "-ps2link" alone cannot be relied
@@ -1024,6 +1145,28 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
             appendLine("[editor] Engine sources not mounted at /engine-src - the editor "
                        "must run from its repo (vendor/tyra). Recreate the container "
                        "if docker-compose.yml just changed.");
+            ok = false;
+        }
+        // The audsrv overlay below copies three files as one `&&` chain, so a
+        // missing one aborts it *silently* and the damage only surfaces two
+        // minutes later, wearing someone else's face: the header never gets
+        // copied either, the game compiles against the image's stock PS2SDK one
+        // and the build dies on "'audsrv_adpcm_set_volume_and_pan' was not
+        // declared" - which reads like an engine bug and is not. Every TyraX
+        // PACKAGED before 1.55.3 has exactly that hole (both packagers excluded
+        // '*.a' from vendor/tyra and took the committed libaudsrv.a along with
+        // the build leftovers), and a checkout has none of it, so the report
+        // always came from a user the developer could not reproduce. Name it.
+        if (ok && exec(dc + platform::shellArg(
+                           "test -f /engine-src/audsrv/bin/audsrv.irx && "
+                           "test -f /engine-src/audsrv/bin/libaudsrv.a && "
+                           "test -f /engine-src/audsrv/bin/audsrv.h"),
+                       p.dir) != 0) {
+            appendLine("[editor] The vendored audsrv overlay is incomplete at "
+                       "vendor/tyra/audsrv/bin - it needs audsrv.irx, libaudsrv.a and "
+                       "audsrv.h. A TyraX installed before 1.55.3 is missing "
+                       "libaudsrv.a: update the editor, or copy that one file into "
+                       "the install's vendor/tyra/audsrv/bin from the repo.");
             ok = false;
         }
         if (ok) {

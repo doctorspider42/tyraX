@@ -15,6 +15,62 @@ git log -p --follow -- PROGRESS.md
 
 ## Small
 
+### An input replay cannot reproduce a memory-card save
+
+The input recorder (`docs/input-replay.md`) reproduces a run by performing the
+same input against the same build. Everything the game's own behaviour depends
+on is recorded - both pads, the keyboard and mouse, `dt`, the procedural seeds -
+with one hole: the **PCSX2 memory card persists between runs**, so a game that
+reads a save starts from wherever the last session left it, and the replay
+quietly describes a different world from frame one.
+
+`--clear-saves` covers the host-side fallback (`bin/save<N>.sav`,
+`bin/profile.sav`) and is enough for most projects, because those are what a
+`host:` boot writes. The card is not cheap to reach: the editor would have to
+know which card image the emulator is configured to use, and either swap it or
+write a blank one, per launch. Two options worth measuring before choosing:
+
+- point PCSX2 at a per-project card in the launch arguments and delete it on a
+  `--clear-saves` run - simple, but it changes what the emulator does for every
+  run of that project, not just a recorded one;
+- record the save FILE into the recording as an opening block. That makes a
+  recording self-contained and would also fix "the recording works on my
+  machine", at the price of the format no longer being input-only.
+
+### The recorder's fingerprint stops at the player
+
+The per-frame divergence check records the player's position and the yaw/pitch
+of the view - twenty bytes, and enough to catch every divergence seen so far,
+because almost everything that can go different eventually moves the player. It
+will not catch a run that goes wrong somewhere the player never reaches: an NPC
+taking a different path, a flow variable landing on a different value, a spawned
+object appearing in the wrong place.
+
+The cheap extension is a rolling hash over a handful of `RuntimeObject`
+transforms rather than a second fingerprint kind - the time machine's capture
+walk (`liveTimeSource`) already knows how to enumerate exactly that state, so
+the two could share the walk. It was left out because it would have to be
+bounded (a 1000-object scene cannot hash every object every frame) and picking
+that bound is a measurement, not a guess.
+
+### The guard band, on the other two routes
+
+`docs/vu1-clipping.md` moved screen-edge packages off the clipper and onto the
+cull path; two smaller cases were left alone deliberately and are worth
+measuring before touching:
+
+- **The small-bag branch.** `StaPipCore::render` sends a bag with fewer than
+  `maxVertCount * 2` vertices straight to `renderSubpkgs` at 1/3 package size,
+  so a guard-band-only bag is batched back together by `fillByCopyMax` - a COPY
+  where the full-package path hands VU1 a pointer. Routing that branch through
+  `renderPkgs` instead would give it the pointer path; the reason it exists is
+  to skip a double classification, so the question is which costs more.
+- **A bag-level guard-band test.** The main bbox is classified before any
+  package is created. A bag entirely inside the guard band could skip package
+  classification altogether, at the price of no longer dropping its OUTSIDE
+  packages - the same trade the routing already makes one level down, but over
+  a much bigger box. Measure on a scene of large objects, not on a terrain.
+
 ### Ship the baked HUD sprites of the nine repaired examples
 
 Nine example projects (`custom-nodes`, `cutscene-demo`, `large-terrain`,
@@ -99,6 +155,38 @@ Terrain UVs grow with world position and can outrun the GS fixed-point range.
 Fold each chunk by whole texture repeats during generation, preserving the
 picture under REPEAT while bounding coordinates by chunk size.
 
+### Ship one example with sculpted terrain
+
+DONE — `examples/ambient-occlusion`. Left here only for the fact that produced
+it: every heightmap in `examples/` used to be flat, relief 0.00, all of them,
+which is how a bare 30° slope came to darken itself by 16% for several releases
+with nobody seeing it. Keep at least one example sculpted.
+
+### Let imported models receive the scene occlusion
+
+The occlusion model is now good enough for it, and that was the blocker rather
+than the plumbing. Re-measured on the console with `examples/ambient-occlusion`
+(real kit props): with models receiving, a crate under another crate reads 0.98
+of its uncovered neighbour's brightness against 0.87 for the AO-off scene, and
+nothing reads as a lump - where the old distance-based response gave 0.78 and a
+visibly darker box. Model AO (per texel, in the shipped texture) answers a
+model's SELF occlusion and is transform-invariant, so it can never answer for a
+neighbour; this is the other half.
+
+What it needs, and why it is its own commit: `g_aoOff` off for type 5 in BOTH
+the solo and the static-batch paths, model part bags switched to Gouraud (a
+per-vertex value is invisible under flat shading - the lesson from the block
+work), and a re-verification pass over the examples, because it changes how
+every textured prop in every project is shaded.
+
+### Give scene occluders more than one box each
+
+An occluder is a single oriented box or sphere per object
+(`aobake::collectOccluders`), so a chair, an L-shaped wall and a doorway arch
+are all one rectangle to the bake. Splitting a model's triangles into 2–4 boxes
+is what would lift that ceiling. Do it after the solid-angle change above, not
+before — a better response over one box may be enough for most of them.
+
 ### Model AO for animated models and for shared textures
 
 [Model AO](ambient-occlusion.md#model-ao) covers static `.obj` assets only.
@@ -121,7 +209,146 @@ from the defaults too. The honest fix is per-object bake parameters stored
 beside `prelitSig`, which is also what would let one hero wall be 256 while the
 rest of the scene is 128 — worth doing the first time somebody mixes sizes.
 
+### Linux packaging: the two things it did not do
+
+Done in 1.52.0 — `installer/build-package.sh` stages the repo-shaped tree once
+and emits a `.tar.gz`, a `.deb` and an `.rpm`; the tarball self-updates and the
+two packages are told to use the package manager (docs/updates.md). Two pieces
+were deliberately left out and are worth doing when somebody asks for them.
+
+**No AppImage**, and not for effort reasons: an AppImage's payload is a
+user-private FUSE mount under `/tmp/.mount_*`, and the game build bind-mounts
+`vendor/tyra` into a container whose daemon runs as root — which cannot traverse
+that mount. So the one format that looks tailor-made for this would ship an
+editor that cannot build a game, unless it first copied the engine out to a real
+directory, at which point the tarball is simpler and honest. Revisit only with
+that copy-out step designed.
+
+**x86_64 only.** An `aarch64` package is a runner and a second matrix row (plus
+`platformAssetSuffix` learning the architecture, which is why the suffix already
+carries it) — but the PS2 toolchain image would have to run under emulation on
+that host, so measure a game build there before promising anything.
+
+### Make the packagers prove they shipped what git tracks
+
+1.55.3 fixed one tracked file going missing from every package — an exclusion
+written as `*.a` took `vendor/tyra/audsrv/bin/libaudsrv.a` with the build
+leftovers, and every installed editor then failed every game build
+(docs/updates.md). Nothing would have caught it: both packagers describe what to
+LEAVE OUT, so a new exclusion is only ever tested by somebody installing the
+result and trying to build a game — which is the slowest feedback loop in this
+repo and the one a developer never runs. A cheap assertion closes it: take
+`git ls-files vendor/tyra tools`, drop the ignored directories, and fail the
+release job if any of it is absent from the staged tree. The awkward half is
+Windows, where the staged tree only exists inside the compiled Setup — either
+parse ISCC's `Compressing:` lines (it lists every file it packs, which is how
+the 1.55.3 fix was verified) or run the installer into a temp directory in CI
+and diff that.
+
+### Sign the Windows installer
+
+The released `TyraX-Setup-<version>.exe` is unsigned, so Windows SmartScreen
+warns on first run and the in-editor updater installs a binary whose only
+provenance is the URL it came from. A code-signing certificate plus a signing
+step in the release workflow fixes both; until then, the honest mitigation would
+be publishing the installer's SHA-256 with the release and having
+`update::download` check it (the release JSON already carries the asset's size,
+but not its digest).
+
+### Find the corona's missing 1.3x on the console
+
+Measured while bringing the beams into the viewport: a PCSX2 frame's beam
+corona adds **1.26-1.31x** what its own sprite implies, while the editor's twin
+adds 0.97-1.00x of it. The instrument is beam-on minus beam-off in each
+renderer, sampled straight up from the light and fitted against the bake's own
+alpha curve (`t^2 (0.3 + 0.7 t)` from `menubake::bakeFlareRGBA` kind 2) times
+the light colour. It is a pure AMPLITUDE factor, not a size one: fitting a free
+radius instead gives rms 12.5 against 2.4, and the fitted radius scale would
+have to be 1.18 while the glow demonstrably dies at the same radius on both
+sides. It is also independent of everything tried - the same factor at
+`lightBright` 1.3 and 0.4 (so not the `min(k, 1)` FIX clamp), in interlaced and
+progressive display modes (so not field rendering), at every radius from 20 to
+55 % of the sprite (so not a texel offset), and the shipped
+`res/hud/flare-corona.png` is byte-for-byte the bake. The sky's authored colour
+reads the same in both captures, so it is not a global capture gain either.
+Candidates left: the GS texture function or the `GS_SET_ALPHA(0,2,2,1,FIX)`
+path in `StaPipQBufferRenderer` doing something other than `Cs*FIX/128 + Cd`,
+PCSX2's software blending of a 16-bit target, or a second draw of the same
+quad. Settle it before making either side match the other - the viewport
+currently reproduces the sprite exactly, which is the defensible half.
+
+### Run the shadow A/B rig against the spot runtime
+
+`.claude/skills/tyra-testing/scripts/make-shadow-fixture.ps1` +
+`shadow-ab.ps1` exist and are proven on `flashShadowVolumes` (see the
+tyra-testing skill, "The shadow A/B rig"), but the switch they were built for -
+`spotShadowVolumes` - has only the data model, format, UI and codegen behind it
+so far. When the runtime lands, run
+
+```powershell
+powershell -File .claude\skills\tyra-testing\scripts\shadow-ab.ps1 `
+    -Editor build-dev\tyrax-editor.exe -Project $env:TEMP\tyra-editor-test\spotab `
+    -Vantages $env:TEMP\tyra-editor-test\spotab\vantages.json `
+    -Toggle spotShadowVolumes -Values true,false -OutDir <scratch>\spotab
+```
+
+and quote the deltas. Two things the fixture is already shaped for and nobody
+has read a number off yet: the `between` vantage sees both lamp groups at once,
+which is where "only the nearest spot is active" should be visible as one group
+having a shadow and the other not; and setting `"shadowVolumes": 1` or `2` on
+ONE lamp's `objects/<id>.json` turns the same run into a test of the per-light
+override, where only the other lamp may move between the arms. A real-PS2 pass
+is separate again - the rig is PCSX2 only.
+
+### A projected shadow's reach does not know how big its caster is
+
+1.70.1 stopped the four silhouette slots from blinking, but it deliberately did
+not touch WHICH four win: it is still the four casters nearest the camera, and
+DONE 1.71.1 for the ranking (view cone + distance over radius, shadows.md "Which four win"); the far cull (Preferences > Projected shadow distance since 1.71.0, dissolving over its last 30 %) is the same number for a
+crate and for a building. Both are wrong in the same direction — screen area,
+not distance, is what makes a shadow worth a slot — and on
+`examples/night-walk` the question does not arise, because every caster there
+is within a factor of 1.7 of the same bounding radius (2.50 to 4.23), which is
+why the flicker was the whole of the reported defect. Two shapes were
+considered and rejected without measurement, so neither is settled: ranking by
+`d / r` (inverse angular size), which lets a facade 45 units off outrank a prop
+at 10 while the distance fade has already dimmed it to a third; and `d - r`,
+distance to the caster's surface, which is milder and principled but still
+untested. A fixture with deliberately mixed caster sizes is what this needs
+first — the shadow A/B rig above, run as a vantage LINE, reads it straight off.
+
 ## Medium
+
+### DONE 1.70.0: a spot light's shadow on a WALL
+
+Shipped: `PipelineInfoBag::dynLightSkipSlot` is the engine lever this entry
+asked for, and the receiver pass is the torch's with the lamp substituted
+([shadows.md](shadows.md)). The original note follows for the reasoning.
+
+Spot-light shadow volumes ship in 1.67.0 ([shadows.md](shadows.md)) and carve
+the lamp's ground pool only. The torch also draws its light on the solid
+geometry in its beam - a second, additive pass over the receiver's own
+triangles with the gobo's projective STQ, `wBag`/`wTexBag`/`wColorBag` and a
+shared 3997-vertex budget - and that is what gives a torch shadow on a wall.
+The machinery is already shared for the volumes themselves (`pickVolCasters`,
+`buildVolMask` in `updateAndRenderLightPools`), so the fill is a third lambda
+away.
+
+**What blocks it is double lighting, not the fill.** The torch turns its own
+cone off on each receiver first (`setFlashSpotOff` -> `PipelineInfoBag::
+spotLit`); there is no equivalent for one SCENE light, and `dynLightPick =
+false` removes every dynamic light from the bag. A wall drawn by both paths
+reads twice as bright and its carved shadow darkens only half of it, which
+looks like a bug.
+
+The likely shape of an answer: the engine picks ONE light per bag
+(`RendererCore::pickDynLight`), so an opt-out that names a light index - "this
+bag skips light N, keeps the rest" - would be the exact analogue of `spotLit`
+and is a small engine change. Then the wall pass is the torch's, with the
+lamp's origin/aim/cone/reach substituted, inside the bracket the lamp already
+opens. Verify with the `spotvol` fixture recipe in the 1.67.0 commit: a wall
+3 u behind the caster, one capture with the override on and one with it off.
+
 
 ### ANSWERED: the guard does run under ps2link, and guards nothing
 
@@ -481,3 +708,15 @@ interface, preferably using an optional tunnel rather than exposing a raw
 listening port. Define authentication, session lifetime and failure UI before
 shipping it. LAN and mesh-VPN sessions must keep working unchanged. See
 [collaboration](collaboration.md).
+
+### A devkit self-screenshot command (works on locked desktops and real hardware)
+
+The 2026-08-17 corona session proved the game can dump its own framebuffer
+through `host:` (ps2sdk libdebug's `ps2_screenshot_file`, VIF1 reverse FIFO;
+pass the framebuffer address in BLOCKS - `fb->address / 64` - or SBP's 14 bits
+overflow and the pages scramble). Productize it as a devkit channel: a command
+bit in `livedbg.cmd` (the VU capture is the precedent), a debug-only generated
+runtime write into `bin/frame.tga`, a Debugger button, the TXDEVKIT marker +
+`kStringNeedles` entry, and stale-file cleanup in both Runner launch paths. It
+is the only capture path that survives a locked desktop, and the only one that
+exists at all on a real console. See [live-debugger](live-debugger.md).

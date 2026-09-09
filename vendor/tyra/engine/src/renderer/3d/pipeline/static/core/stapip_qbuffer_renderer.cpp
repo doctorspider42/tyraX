@@ -469,10 +469,14 @@ void StaPipQBufferRenderer::sendObjectData(
   // additiveBlendFix for Cv = Cs*FIX/128 + Cd.
   {
     const u8 fix = bag->info->additiveBlendFix;
+    const u8 sub = bag->info->subtractiveBlendFix;
+    // Subtractive wins over additive when both are set: (0 - Cs)*FIX + Cd,
+    // clamped at 0 - the shadow volumes' count-down pass.
     packet2_utils_vu_open_unpack(objectDataPacket, VU1_ALPHA_ADDR, false);
     packet2_add_2x_s64(objectDataPacket,
-                       fix != 0 ? GS_SET_ALPHA(0, 2, 2, 1, fix)
-                                : GS_SET_ALPHA(0, 1, 0, 1, 0),
+                       sub != 0   ? GS_SET_ALPHA(2, 0, 2, 1, sub)
+                       : fix != 0 ? GS_SET_ALPHA(0, 2, 2, 1, fix)
+                                  : GS_SET_ALPHA(0, 1, 0, 1, 0),
                        GS_REG_ALPHA);
     packet2_utils_vu_close_unpack(objectDataPacket);
   }

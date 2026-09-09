@@ -195,6 +195,12 @@ struct Command {
     // engine's measurement allocates every free block and frees the chain, so
     // it happens when asked and never on a timer.
     bool measureRam = false;
+    // Ask the game to photograph ITSELF: read the last finished frame out of
+    // GS VRAM and write bin/frame.tga (docs/devkit.md, "The game's own
+    // screenshot"). One-shot, like `fire`. This is the only capture path that
+    // works on real hardware - and on a locked or disconnected desktop, where
+    // every host-side one (PCSX2's F8, GDI, PrintWindow) is blind.
+    bool captureFrame = false;
     int stepFrames = 0;        // run exactly this many frames, then freeze
     std::vector<uint16_t> breakpoints;  // node keys that halt the game
     std::vector<uint16_t> fire;         // node keys to force-fire once

@@ -233,6 +233,7 @@ add_executable(tyrax-editor
     src/hud_ui.cpp
     src/mateditor_ui.cpp
     src/prefab_ui.cpp
+    src/atlas_ui.cpp
     src/procui.cpp
     src/vu_ui.cpp
     src/props_ui.cpp
@@ -244,6 +245,7 @@ add_executable(tyrax-editor
     src/livedbg.cpp
     src/livelogic.cpp
     src/livepad.cpp
+    src/livereplay.cpp
     src/livetime.cpp
     src/logview.cpp
     src/vucap.cpp
@@ -300,6 +302,8 @@ add_executable(tyrax-editor
     src/tmdl.cpp
     src/treegen.cpp
     src/uiscript.cpp
+    src/update.cpp
+    src/update_ui.cpp
     src/uvunwrap.cpp
     src/save_assets.cpp
     src/templates.cpp

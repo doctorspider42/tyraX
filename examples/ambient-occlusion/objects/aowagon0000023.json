@@ -1,0 +1,1 @@
+{ "id": "aowagon0000023", "name": "wagon", "type": "model", "position": [-3.5, 0.5, 3.4], "rotation": [0, 118, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "model": "res/models/Prop_Wagon.obj" }

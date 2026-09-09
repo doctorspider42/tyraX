@@ -126,14 +126,25 @@ class StaPipCore {
   // computed once per render(), shared by the main-bbox check and every
   // package classification in the packager.
   Plane objectSpacePlanes[6];
-  Plane clipObjectSpacePlanes[6];
+  // Modified by TyraX: EIGHT entries. 0..5 are the VU1 clip planes (near, far
+  // and the X/Y guard band) - the only ones uploaded to VU1 and the only ones
+  // the clip mask covers. 6..7 are the EXACT near/far pair (|z| <= w), which
+  // exists on the EE alone, to answer whether a package may take the cull
+  // path: that program's clipw judgement tests z against +/-w, not against
+  // the guard band's near/far constants.
+  Plane clipObjectSpacePlanes[8];
   void computeClipObjectSpacePlanes(const M4x4& mvp);
+  // Modified by TyraX: a package that leaves the VIEW frustum but stays inside
+  // the guard band needs no clipping at all - the GS scissor crops it. See
+  // the comment on the definition.
+  bool isGuardBandOnly(const StaPipBagPackage& package) const;
   StaPipBagPackager packager;
   StaPipQBufferRenderer qbufferRenderer;
   bool telemetryEnabled = false;
   StaPipTelemetry telemetry;
   void recordPackage(const StaPipBagPackage& package,
                      const CoreBBoxFrustum& route);
+  void recordGuardBandPackage(const StaPipBagPackage& package);
   void recordOutsideBag(const StaPipBag* bag);
   void renderPkgs(StaPipBagPackage* packages, const bool& doClip, u16 count);
   void renderSubpkgs(StaPipBagPackage* packages, u16 count);

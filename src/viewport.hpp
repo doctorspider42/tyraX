@@ -31,6 +31,22 @@ public:
 
     // View > Collision boxes: draw the box the GAME collides with over every
     // collider (docs/collision-boxes.md). Editor state, no project data.
+    // The orbit camera as the five numbers it actually is, so the project can
+    // store where you were looking (project.hpp viewCam*). Read at save time
+    // and applied on open; neither dirties anything.
+    void camState(float& yaw, float& pitch, float& dist, float t[3]) const {
+        yaw = yaw_, pitch = pitch_, dist = distance_;
+        t[0] = target_[0], t[1] = target_[1], t[2] = target_[2];
+    }
+    void setCamState(float yaw, float pitch, float dist, const float t[3]) {
+        yaw_ = yaw;
+        pitch_ = pitch < -kOrbitPitchLimit
+                     ? -kOrbitPitchLimit
+                     : (pitch > kOrbitPitchLimit ? kOrbitPitchLimit : pitch);
+        distance_ = dist > 0.01f ? dist : 0.01f;
+        target_[0] = t[0], target_[1] = t[1], target_[2] = t[2];
+    }
+
     void setCollisionOverlay(bool on) { collisionOverlay_ = on; }
     bool collisionOverlay() const { return collisionOverlay_; }
 
@@ -218,6 +234,11 @@ public:
     // from the editor camera, the exact formula the PS2 runs on VU1.
     void setFlashlight(bool enabled, const float* rgb, float range,
                        float halfAngleDeg);
+    // Preferences > Spot light shadow volumes: the project-wide default a
+    // spot light's "Shadow volumes" override falls back to (docs/shadows.md).
+    // Decides which casters the preview shadows a spot through, and that one
+    // spot per frame - the nearest to the camera - carves at all.
+    void setSpotShadowVolumes(bool on) { spotShadowVolumes_ = on; }
 
     // project root for resolving relative model paths (clears the model cache)
     void setProjectDir(const std::string& dir);
@@ -632,6 +653,24 @@ public:
     void setPs2Output(const Ps2Output& o) { ps2_ = o; }
     const Ps2Output& ps2Output() const { return ps2_; }
 
+    // PS2 shading simulation (docs/ps2-viewport.md): shade the scene the way
+    // the console does - every lighting term (GI probes, AO, point lights,
+    // emissive lights, flashlight, fog) evaluated per VERTEX with the
+    // triangle's own flat normal, and static geometry flat-shaded (one corner
+    // colour per triangle, TyraShadingFlat). Independent of the Ps2Output
+    // resolution mode - triangle shading is visible at any raster.
+    void setPs2Shading(bool on) { ps2Shade_ = on; }
+    bool ps2Shading() const { return ps2Shade_; }
+
+    // GS colour depth simulation (docs/ps2-viewport.md): show the picture at
+    // the 5 bits per channel a PSMCT16 framebuffer keeps, optionally through
+    // the GS's 4x4 ordered dither (the DIMX matrix the engine programs). The
+    // app resolves "match project" against ProjectSettings before calling.
+    void setGsColorSim(bool quantize, bool dither) {
+        gsQuant_ = quantize;
+        gsDither_ = quantize && dither;
+    }
+
     // Returns the index of the frontmost object under the given normalized
     // image coordinates (u, v in [0,1], origin top-left), or -1.
     int pick(float u, float v, const std::vector<SceneObject>& objects);
@@ -787,6 +826,45 @@ private:
     }
 
     uint32_t program_ = 0;
+    // PS2 shading simulation: the same vertex + fragment sources with a
+    // geometry stage between them that runs the whole lighting stack per
+    // triangle corner (the console's per-vertex shading). The u*_ location
+    // members below are re-queried against whichever of the two programs is
+    // active (useSceneProgram), so every existing uniform-setting site works
+    // unchanged for both.
+    uint32_t vtxProgram_ = 0;
+    uint32_t sceneProgActive_ = 0;  // program_ or vtxProgram_
+    bool ps2Shade_ = false;
+    void querySceneLocations(uint32_t prog);
+    void useSceneProgram(bool ps2Vertex);
+    int uPs2Flat_ = -1;   // vtx program only: TyraShadingFlat per draw
+    int uPs2NoDyn_ = -1;  // vtx program only: dynLightPick=false per draw
+    // GL_LINES cannot pass through a triangles geometry shader, so when the
+    // vtx program is active the draw helpers detour lines through program_
+    // with this small location set (unlit geometry reads nothing else).
+    struct LineLocs {
+        int mvp = -1, model = -1, tint = -1, lit = -1, useTex = -1, alpha = -1,
+            opacity = -1, emissive = -1, reflOn = -1;
+    } lineLocs_;
+    // GS colour depth simulation (setGsColorSim) - applied in the grade pass.
+    bool gsQuant_ = false, gsDither_ = false;
+    // Dynamic lights' ground pools, PS2-shading mode only: the console's
+    // terrain-conforming additive corona patch under every dynamic point
+    // light (the generated game's updateAndRenderLightPools).
+    void drawLightPools(const std::vector<SceneObject>& objects,
+                        const float* viewProj);
+    // Visible light beams (Point Light > Beam): the console's additive corona
+    // billboard and, for kind 2, its cone shaft - the twin of the generated
+    // game's updateAndRenderLightBeams. Drawn whatever the shading mode: a
+    // beam is scene CONTENT the game always renders, not a shading simulation.
+    void drawLightBeams(const std::vector<SceneObject>& objects,
+                        const float* viewProj, const float* fwdP,
+                        const float* eyeP);
+    // The corona pixels both of those draw through - the same bake the game
+    // ships as hud/flare-corona.png (menubake::bakeFlareRGBA kind 2, at
+    // kCoronaSpriteSize). Uploaded once, on the first frame that needs it.
+    uint32_t coronaTex();
+    uint32_t coronaTex_ = 0;
     int uMvp_ = -1;
     int uTint_ = -1;
     int uUseTex_ = -1;
@@ -809,6 +887,7 @@ private:
     // Camera flashlight preview
     int uFlashOn_ = -1, uFlashCol_ = -1, uFlashInvR2_ = -1, uFlashCut2_ = -1;
     int uFlashSoft_ = -1;
+    bool spotShadowVolumes_ = false;
     bool flashOn_ = false;
     float flashColor_[3] = {0.75f, 0.75f, 0.62f};
     float flashRange_ = 30.0f, flashAngle_ = 20.0f;
@@ -843,6 +922,11 @@ private:
     // for those draws.
     int uGiSkipProbe_ = -1;
     std::vector<uint8_t> giTerrLight_;  // size*size*3, empty = no lit map
+    // The MULTIPLY route (aobake::AoImage::giLumAlpha): a textured ground
+    // takes the light as a per-pixel attenuation in the alpha channel
+    // instead of an additive RGB pass it would blow out.
+    std::vector<uint8_t> giTerrAlpha_;
+    bool giTerrLum_ = false;  // size*size*3, empty = no lit map
     int giTerrSize_ = 0;
     bool giUploadPending_ = false;
     void uploadGiProbes();
@@ -929,6 +1013,11 @@ private:
         struct Part {
             Mesh mesh;
             uint32_t tex = 0;
+            // glTF baseColorFactor. An animated model with no texture carries
+            // its whole colour here (the wobbler is teal by this and nothing
+            // else), and dropping it drew every such model in the scene light
+            // alone - green in the game, orange in the viewport.
+            float kd[3] = {1.0f, 1.0f, 1.0f};
         };
         std::vector<Part> parts;  // parallel to baked.parts
         bool stale = false;  // a rebake is in flight; keep drawing this one
@@ -1196,7 +1285,8 @@ private:
     CompiledGrading grading_;
     uint32_t gradeProgram_ = 0, gradeFbo_ = 0, gradeTex_ = 0, gradeVao_ = 0;
     int uGradeSrc_ = -1, uGradeGain_ = -1, uGradeLiftPos_ = -1,
-        uGradeLiftNeg_ = -1, uGradeMixCol_ = -1, uGradeMixAmt_ = -1;
+        uGradeLiftNeg_ = -1, uGradeMixCol_ = -1, uGradeMixAmt_ = -1,
+        uGradeQuant_ = -1, uGradeDither_ = -1;
 
     float viewM_[16] = {};
     float projM_[16] = {};

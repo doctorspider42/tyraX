@@ -132,6 +132,9 @@ Two things make that visible instead of mysterious:
   ~30 s of history, and a **trail in the viewport** showing the path it took
   (the head dot is where it is right now). Watch the selected object with one
   button; see [devkit.md](devkit.md).
+- **Screen** — one button that makes the game photograph its own frame buffer,
+  and the picture it sent back. The only capture path that works on real
+  hardware or on a locked desktop; see [devkit.md](devkit.md).
 - **Nodes** — the current graph's runnable nodes: hit counts, breakpoints, Fire,
   and the frames left on an armed `Delay`.
 - **Breakpoints** — the whole project's list; click one to jump to its node.
@@ -159,12 +162,19 @@ the ps2link file server on a console):
 | File | Written by | Contents |
 |---|---|---|
 | `bin/livedbg.bin` | the game, every 6 frames (25 under ps2link) | cumulative hit count per node, a ring of the ~192 most recent fires with their age in frames, the watch values, the halted flag, the node that stopped it, the symbol-table hash |
-| `bin/livedbg.cmd` | the editor, when the desired state changes | the full breakpoint list, halt / resume / step, node keys to force-fire |
+| `bin/livedbg.cmd` | the editor, when the desired state changes | the full breakpoint list, halt / resume / step, node keys to force-fire, and the one-shot asks: a VU1 capture, a free-RAM measurement, a screenshot |
+| `bin/frame.tga` | the game, once per *Capture frame* | its own frame buffer, read back out of GS VRAM. A transport file: the editor decodes it and keeps the picture as `screenshots/frame-<date>-<time>.png` (see [devkit.md](devkit.md)) |
 
-Both are validated by an exact-size + footer-echo check on both ends, so a torn
-write is skipped rather than half-applied, and a command is applied only when its
-sequence number changes. The Runner deletes both at build start: a stale command
-must not freeze a fresh boot.
+The first two are validated by an exact-size + footer-echo check on both ends, so
+a torn write is skipped rather than half-applied, and a command is applied only
+when its sequence number changes. The Runner deletes all three at build start: a
+stale command must not freeze a fresh boot, and a stale picture must not read as
+an answer to the first capture of the new one.
+
+The one-shot asks ride spare bits of the command's flags word rather than a
+longer header, so a game built before one of them existed reads the switches it
+knows and ignores the rest — no version bump on either side. Bit 3 is the VU1
+capture, bit 5 the RAM measurement, bit 6 the screenshot.
 
 The editor-side formats live in [`src/livedbg.hpp`](../src/livedbg.hpp) (parsers,
 command writer, the timeline model — no GL, no ImGui, harness-testable); the game
@@ -237,11 +247,28 @@ So the editor stats that file every tick, independently of whether new
 snapshots are arriving, and reports one of two things from a single string that
 both the state block and the *Stats* tab read:
 
-- **no file at all** — nothing has reported yet; build and run, or (if the game
-  *is* running) rebuild it, because it predates the preference being switched on;
+- **no file at all** — *"Nothing is reporting yet — Build & Run (F5 / F6)."*;
 - **a stale file** — the chip goes amber, reads **STALE SNAPSHOT** rather than
-  *WAITING FOR THE GAME*, and the text names **how old the snapshot is** and
-  that the cure is a redeploy rather than a retry.
+  *WAITING FOR THE GAME*, and the line names **how old the snapshot is** and
+  that the cure is running it again rather than retrying.
+
+Each of those is **one line ending in a `(?)`**, and hovering the line gives the
+rest: which key does what, which file is silent, and how a console that is still
+visibly running ends up with nowhere to write (over ps2link the file server is a
+`ps2client` this editor spawned — closing the editor, stopping the game or
+redeploying this project takes it down). The panel used to print that paragraph
+inline, which is the worst possible moment to hand somebody five sentences; the
+same split applies to the other standing messages here (*off*, *no symbols*,
+*rebuild to resync*, *the game hung*, *no flow variables*). **The remedy stays
+in the visible line** — a hover is for the explanation, never for the fix.
+
+The marker is inside the sentence rather than a separate `prefHelp` widget after
+it, and that is not cosmetic: `prefHelp` places its `(?)` with `SameLine`, which
+after a *wrapped* block lands beside the first line — or past the right edge
+entirely when the last line happens to fill the width. A docked Debugger is
+narrow enough to do both, and a `(?)` nobody can see is the same as no
+explanation at all. `textWrappedHelp` in `app_internal.hpp` is the version that
+wraps as one piece and makes the whole sentence the hover target.
 
 Because the game rewrites the file every 6 frames (25 over ps2link — roughly
 half a second either way), several seconds of silence is a dead channel and not

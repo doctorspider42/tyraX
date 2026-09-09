@@ -6,6 +6,10 @@ build/
 # no tracked path starts with "build-", and build.ps1/build.sh/build.cmd are
 # files, which this pattern (directories only) cannot match.
 build-*/
+# Packaged installers (installer/build-installer.ps1 and the release workflow
+# both write here, as does installer/build-package.sh). The published copy of
+# one of these is a GitHub release asset, never a tracked file.
+dist/
 .vs/
 *.user
 imgui.ini

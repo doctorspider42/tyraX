@@ -27,6 +27,13 @@ and estimated runtime memory before you build.
 
 ![An imported animated model selected in the scene, with its clips, playback and LOD settings in Properties.](img/animated-model-properties.png)
 
+**An untextured model's colour is its glTF `baseColorFactor`**, and the
+viewport reads it the way the game does. That is worth saying because the two
+disagreed until 1.47.0: the viewport carried only a mesh and a texture per
+part, so a model with no texture at all — `examples/showcase`'s wobbler is teal
+by its base colour and nothing else — was drawn in the scene light alone and
+came out orange in the editor while the console drew it green.
+
 Animated model properties include:
 
 - start clip, autoplay, loop and speed;
