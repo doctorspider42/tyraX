@@ -30,30 +30,31 @@ source = source.replace(entry, entry + """
 """)
 start = source.index(entry)
 head, body = source[:start], source[start:]
-needle = "        ldir = giDominantLight(gs, sun, amb, dif);"
+body = body.replace("const bool hasProbe = giProbeAt", "bool hasProbe = giProbeAt", 1)
+needle = "      const GameAnimModel& gam = gameAnimModels[o.data.animModel];"
 assert body.count(needle) == 1
-body = body.replace(needle, """      {
-        ldir = giDominantLight(gs, sun, amb, dif);
-        if (compareLegacy) {
-          ldir = sun;
-          for (int k = 0; k < 3; ++k) {
-            const float d = (2.0F / 3.0F) * (gs.l1[0][k] * sun.x +
-                gs.l1[1][k] * sun.y + gs.l1[2][k] * sun.z);
-            dif[k] = d > 0 ? d : 0;
-          }
+body = body.replace(needle, """
+      if (hasProbe && compareLegacy) {
+        ldir = {0.299F*gs.l1[0][0] + 0.587F*gs.l1[0][1] + 0.114F*gs.l1[0][2],
+                0.299F*gs.l1[1][0] + 0.587F*gs.l1[1][1] + 0.114F*gs.l1[1][2],
+                0.299F*gs.l1[2][0] + 0.587F*gs.l1[2][1] + 0.114F*gs.l1[2][2]};
+        const float length = sqrtf(ldir.x*ldir.x + ldir.y*ldir.y + ldir.z*ldir.z);
+        ldir = length > 0.0001F ? V3{ldir.x/length,ldir.y/length,ldir.z/length} : sun;
+        for (int k = 0; k < 3; ++k) {
+          amb[k] = gs.l0[k] > 0 ? gs.l0[k] : 0;
+          const float d = (2.0F / 3.0F) * (gs.l1[0][k]*ldir.x +
+                            gs.l1[1][k]*ldir.y + gs.l1[2][k]*ldir.z);
+          dif[k] = d > 0 ? d : 0;
         }
+        hasProbe = false; // select the original one-lobe path
       }
       if (compareReport) {
-        char line[320];
-        snprintf(line, sizeof(line), "PROBECOMPARE legacy=%d object=%d pos=%.2f,%.2f,%.2f "
-               "dir=%.3f,%.3f,%.3f ambient=%.3f,%.3f,%.3f "
-               "diffuse=%.3f,%.3f,%.3f", compareLegacy, i,
-               o.data.position[0], o.data.position[1], o.data.position[2],
-               ldir.x, ldir.y, ldir.z, amb[0], amb[1], amb[2],
-               dif[0], dif[1], dif[2]);
+        char line[160];
+        snprintf(line, sizeof(line), "PROBECOMPARE dominant=%d object=%d pos=%.2f,%.2f,%.2f",
+                 compareLegacy, i, o.data.position[0],o.data.position[1],o.data.position[2]);
         TYRA_LOG(line);
       }
-""")
-path.write_text("// Scratch comparison: poses frozen; L1 toggles sun projection.\n" +
+""" + needle)
+path.write_text("// Scratch comparison: poses frozen; L1 toggles dominant projection / full RGB SH.\n" +
                 head + body, encoding="utf-8")
 print(path)

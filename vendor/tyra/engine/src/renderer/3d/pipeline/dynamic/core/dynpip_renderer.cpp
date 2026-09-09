@@ -109,10 +109,13 @@ void DynPipRenderer::sendObjectData(
     packet2_utils_vu_add_unpack_data(
         objectDataPacket, VU1_LIGHTS_DIRS_ADDR,
         bag->lighting->dirLights->getLightDirections(), 3, false);
-
+    Vec4 colors[4];
+    const Vec4* sourceColors = bag->lighting->dirLights->getLightColors();
+    for (int i = 0; i < 4; ++i) colors[i] = sourceColors[i];
+    // Ambient alpha is unused by lighting (output alpha is always 128).
+    colors[3].w = bag->lighting->dirLights->signedSH ? -1.0F : 0.0F;
     packet2_utils_vu_add_unpack_data(objectDataPacket, VU1_LIGHTS_COLORS_ADDR,
-                                     bag->lighting->dirLights->getLightColors(),
-                                     4, false);
+                                     colors, 4, false);
   }
 
   u8 singleColorEnabled = bag->color->single != nullptr;

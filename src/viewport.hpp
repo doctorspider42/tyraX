@@ -913,7 +913,7 @@ private:
     int uAoHeight_ = -1, uAoHmRect_ = -1, uAoHmOn_ = -1;
     // Baked GI probe grid (see setGiProbes)
     int uGiOn_ = -1, uGiProbes_ = -1, uGiOrigin_ = -1, uGiStep_ = -1,
-        uGiDim_ = -1, uGiScale_ = -1, uGiReceiver_ = -1, uGiFallback_ = -1;
+        uGiDim_ = -1, uGiScale_ = -1, uGiReceiver_ = -1;
     uint32_t giTex_ = 0;
     float giOrigin_[3] = {0, 0, 0};
     float giStep_[3] = {1, 1, 1};

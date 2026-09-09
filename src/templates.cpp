@@ -3912,29 +3912,20 @@ V3 giShade(const GiSample& s, const V3& n) {
   return V3{c[0], c[1], c[2]};
 }
 
-// Project the RGB L1 field onto one luminance-weighted direction for the
-// existing clamped-cosine VU1 slot. Shared by rigid and skinned receivers.
-// This is a single-lobe approximation, not a full signed SH reconstruction.
-V3 giDominantLight(const GiSample& sample, const V3& fallback,
-                   float* ambient, float* diffuse) {
-  V3 direction = {
-      0.299F * sample.l1[0][0] + 0.587F * sample.l1[0][1] + 0.114F * sample.l1[0][2],
-      0.299F * sample.l1[1][0] + 0.587F * sample.l1[1][1] + 0.114F * sample.l1[1][2],
-      0.299F * sample.l1[2][0] + 0.587F * sample.l1[2][1] + 0.114F * sample.l1[2][2]};
-  const float length = sqrtf(direction.x * direction.x +
-                            direction.y * direction.y + direction.z * direction.z);
-  if (length > 0.0001F)
-    direction = {direction.x / length, direction.y / length, direction.z / length};
-  else
-    direction = fallback;
-  for (int k = 0; k < 3; ++k) {
-    ambient[k] = sample.l0[k] > 0.0F ? sample.l0[k] : 0.0F;
-    const float d = (2.0F / 3.0F) *
-        (sample.l1[0][k] * direction.x + sample.l1[1][k] * direction.y +
-         sample.l1[2][k] * direction.z);
-    diffuse[k] = d > 0.0F ? d : 0.0F;
-  }
-  return direction;
+// The three VU1 slots are Cartesian SH basis terms, each with an RGB
+// coefficient. Signed normals survive until the final RGB sum is clamped.
+void giSHLights(const GiSample& sample, const float* live, const float* albedo,
+                float scale, Vec4* directions, Vec4* colors) {
+  directions[0].set(1.0F, 0.0F, 0.0F, 0.0F);
+  directions[1].set(0.0F, 1.0F, 0.0F, 0.0F);
+  directions[2].set(0.0F, 0.0F, 1.0F, 0.0F);
+  for (int axis = 0; axis < 3; ++axis)
+    colors[axis].set(scale * (2.0F / 3.0F) * sample.l1[axis][0] * albedo[0],
+                     scale * (2.0F / 3.0F) * sample.l1[axis][1] * albedo[1],
+                     scale * (2.0F / 3.0F) * sample.l1[axis][2] * albedo[2], 0.0F);
+  colors[3].set(scale * (sample.l0[0] + live[0]) * albedo[0],
+                scale * (sample.l0[1] + live[1]) * albedo[1],
+                scale * (sample.l0[2] + live[2]) * albedo[2], 128.0F);
 }
 
 /** Staged by the geometry builders: this surface's light comes from the probe
@@ -7884,8 +7875,8 @@ void TerrainGame::fillDynLitColors(int i) {
                     SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_B};
     V3 ldir = sun;
     GiSample gs;
-    if (giProbeAt(o.data.position[0], o.data.position[1], o.data.position[2], gs))
-      ldir = giDominantLight(gs, sun, amb, dif);
+    const bool hasProbe = giProbeAt(o.data.position[0], o.data.position[1],
+                                    o.data.position[2], gs);
     float dl[3];
     dynLightAt(engine, o.data.position[0], o.data.position[1],
                o.data.position[2], dl);
@@ -7893,6 +7884,11 @@ void TerrainGame::fillDynLitColors(int i) {
       if (!part.litBag) continue;
       const float* base = part.litAlbedo;
       const float s = part.litScale;
+      part.litBag->dirLights->signedSH = hasProbe;
+      if (hasProbe) {
+        giSHLights(gs, dl, base, s, part.litDirs, part.litColors);
+        continue;
+      }
       part.litColors[0].set(s * dif[0] * base[0], s * dif[1] * base[1],
                             s * dif[2] * base[2], 1.0F);
       part.litColors[1].set(0.0F, 0.0F, 0.0F, 1.0F);
@@ -8133,14 +8129,21 @@ void TerrainGame::updateAndRenderAnimObjects() {
       const V3 sun = {SCENE_LIGHT_X, SCENE_LIGHT_Y, SCENE_LIGHT_Z};
       V3 ldir = sun;
       GiSample gs;
-      if (giProbeAt(o.data.position[0],
+      const bool hasProbe = giProbeAt(o.data.position[0],
                     o.data.position[1] + o.data.scale[1] * 0.5F,
-                    o.data.position[2], gs))
-        ldir = giDominantLight(gs, sun, amb, dif);
+                    o.data.position[2], gs);
       const GameAnimModel& gam = gameAnimModels[o.data.animModel];
       for (size_t p = 0; p < g.animParts.size(); ++p) {
         if (!g.animParts[p].bag) continue;
         const float* base = gam.src->parts[p].color;
+        auto& ap = g.animParts[p];
+        ap.animLights->signedSH = hasProbe;
+        if (hasProbe) {
+          giSHLights(gs, dl, base, 128.0F, ap.litDirs, ap.litColors);
+          continue;
+        }
+        ap.litColors[1].set(0.0F, 0.0F, 0.0F, 0.0F);
+        ap.litColors[2].set(0.0F, 0.0F, 0.0F, 0.0F);
         g.animParts[p].litDirs[0].set(ldir.x, 0.0F, 0.0F, 1.0F);
         g.animParts[p].litDirs[1].set(ldir.y, 0.0F, 0.0F, 1.0F);
         g.animParts[p].litDirs[2].set(ldir.z, 0.0F, 0.0F, 1.0F);

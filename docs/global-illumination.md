@@ -140,39 +140,50 @@ node's object output.
 
 Animated models, player avatars and NPCs sample the existing RGB L1 grid once
 per visible instance per render pass, at `position + (0, scale.y / 2, 0)`.
-This is the existing approximate receiver position, not an animated mesh centroid.
-`giDominantLight` now uses the same projection as explicitly dynamic-lit rigid
-objects: take the luminance-weighted direction of L1, keep RGB L0 as ambient,
-and project each channel of L1 along that direction for one VU1 directional slot.
-An interior lit from a side wall therefore lights that side of the character;
-the old animated path projected L1 along the sun even indoors.
+Explicitly dynamic-lit rigid objects sample at their origin. These are
+approximate receiver points, not mesh centroids. Both routes reconstruct
+**full signed RGB SH L1** on VU1:
 
-Each material part owns its three direction vectors (48 additional bytes), so
-instances sharing a skinned pose still retain their own lighting. Directions
-are world-space; `animLightMat` rotates the posed local normals and removes
-instance scale (a 64-byte matrix in ObjectGeometry). The VU1 program does not normalize that matrix's result, so
-passing the geometry matrix used to make resizing a character change its
-lighting. Rotation and uniform scale are supported; exact normal correction
-for nonuniform scale/shear remains outside this approximation.
+`RGB = max(0, L0 + (2/3) * (L1x * Nx + L1y * Ny + L1z * Nz) + liveLight)`.
 
-The console still runs the same lit VU1 program and sends the same packet size.
-The added EE work is one direction extraction/normalization per visible animated
-instance, plus light-matrix preparation; there is no per-vertex EE GI evaluation,
-new texture, lightmap pass, or probe format. The viewport's animated receivers
-use the same centre lookup and lobe in both shading modes.
+The three light slots carry Cartesian basis directions and three RGB vectors,
+so differently coloured light can arrive from different directions. Negative
+normal components survive until the RGB sum; the former dominant-direction
+projection discarded them. Material albedo and the existing GS colour scale
+are folded into coefficients on the EE. Final GS colours clamp to 0..255;
+animated receivers retain their existing 128-unit material convention. Unlike
+the static `giShade` route, this does not clamp irradiance to 1 before albedo.
 
-This is **not full PRT or full L1 reconstruction**: `L0 + D * max(N dot L, 0)`
-cannot represent the negative half of signed SH, and one direction cannot
-retain differently coloured light arriving from several directions. The side
-facing away retains L0. A nearly directionless field uses the sun as a stable
-fallback; an absent/dead probe neighbourhood keeps classic scene lighting.
-Outside the grid, the existing sampler clamps to its boundary probes. Baked
-lighting replaces the scene ambient/direct term; live lights remain separate.
+`PipelineDirLightsBag::signedSH` selects the mode explicitly (default false).
+The packet writer encodes the dot-product lower bound in **ambient.w**: -1 for
+SH, 0 for classic directional lights. The macro loads that lane and clamps the
+RGB sum before VU clipping. Output alpha is unchanged. Both packet writers,
+shared clip images, standalone cull/clip programs and generated as-is programs
+follow this contract. The EE clipping route still interpolates normals before
+the as-is shader, as it did for classic lighting.
 
-[probe-lighting](../examples/probe-lighting) is the focused walking demo:
-open courtyard, a roofed room, warm/cool side sources and animated receivers.
-Its README includes fixed-pose console comparisons and a reproducible L1 toggle
-script for scratch copies.
+Each material part owns its coefficients, so pose-sharing instances retain
+independent lighting. `animLightMat` rotates posed local normals and removes
+instance scale. Rotation and uniform scale are supported; exact normals under
+nonuniform scale/shear remain future work. The viewport uses signed
+reconstruction and centre lookup for animated receivers in both shading modes.
+
+The packet size and probe format are unchanged: four RGB coefficients per
+probe, with no new texture, pass or per-vertex EE GI evaluation. Compared with
+the dominant-lobe shader the VU macro adds three instructions per vertex for the final RGB clamp. There
+is no direction extraction/normalization on the EE. An absent/dead probe
+neighbourhood keeps classic scene lighting; outside the grid the sampler
+clamps to boundary probes. Baked sun/sky/bounce replace scene lighting, while
+live lights keep their existing per-object ambient pickup.
+
+This is **full L1, not L2 or precomputed surface transfer (PRT)**. It adds no
+animated self-shadowing, contact occlusion or runtime bounce tracing.
+[probe-lighting](../examples/probe-lighting) supplies the walking demo and a
+fixed-pose dominant-lobe/full-SH comparison helper. `--vu-check` covers signed
+coefficients and an independent RGB numeric oracle as well as the
+handwritten/generated microprogram pairs. The compiled all-class VU1 clipping
+set occupies 1,700 instruction slots for its eight resident images, below the
+2,048-slot limit with room for the draw-finish helper.
 
 ---
 

@@ -288,7 +288,6 @@ uniform int uAoHmOn;             // 0 = flat terrain (ground plane at y = 0)
 // gibake::sampleProbes on the host - change one, change all three.
 uniform int uGiOn;
 // Animated receivers sample at the instance centre and use the console lobe.
-uniform vec3 uGiFallback;
 uniform vec4 uGiReceiver; // xyz sample position, w = animated receiver
 
 // 1 while the TERRAIN draws with a baked GI lightmap: its light is already in
@@ -346,15 +345,8 @@ bool giProbe(vec3 wp, vec3 n, out vec3 res) {
     if (wsum <= 0.00001) return false;
     float s = uGiScale / (127.0 * wsum);
     if (uGiReceiver.w > 0.5) {
-        vec3 weights = vec3(0.299, 0.587, 0.114);
-        vec3 direction = vec3(dot(acc[1] * s, weights), dot(acc[2] * s, weights),
-                              dot(acc[3] * s, weights));
-        float len = length(direction);
-        direction = len > 0.0001 ? direction / len : uGiFallback;
-        vec3 diffuse = max((2.0 / 3.0) * s *
-            (acc[1] * direction.x + acc[2] * direction.y + acc[3] * direction.z),
-            vec3(0.0));
-        res = max(acc[0] * s, vec3(0.0)) + diffuse * max(dot(n, direction), 0.0);
+        res = max(acc[0] * s + (2.0 / 3.0) * s *
+            (acc[1] * n.x + acc[2] * n.y + acc[3] * n.z), vec3(0.0));
     } else {
         res = clamp(acc[0] * s + (2.0 / 3.0) * (acc[1] * s * n.x + acc[2] * s * n.y +
                                                 acc[3] * s * n.z),
@@ -1507,7 +1499,6 @@ void Viewport::querySceneLocations(uint32_t prog) {
     uAoHmOn_ = glGetUniformLocation(prog, "uAoHmOn");
     uGiOn_ = glGetUniformLocation(prog, "uGiOn");
     uGiReceiver_ = glGetUniformLocation(prog, "uGiReceiver");
-    uGiFallback_ = glGetUniformLocation(prog, "uGiFallback");
     uGiSkipProbe_ = glGetUniformLocation(prog, "uGiSkipProbe");
     uGiProbes_ = glGetUniformLocation(prog, "uGiProbes");
     uGiOrigin_ = glGetUniformLocation(prog, "uGiOrigin");
@@ -5184,7 +5175,6 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     auto drawAnimParts = [&](const AnimModelDraw& ad, const Mat4& mvp,
                              const Mat4* model, float shade, bool asLines,
                              const SceneObject& receiver) {
-        glUniform3f(uGiFallback_, gLightDir[0], gLightDir[1], gLightDir[2]);
         glUniform4f(uGiReceiver_, receiver.position[0],
                     receiver.position[1] + receiver.scale[1] * 0.5f,
                     receiver.position[2], 1.0f);

@@ -2048,10 +2048,20 @@ full PCSX2 e2e, screenshots — read **tyra-testing**.
 
 ## Animated probe directions
 
-`templates.cpp::giDominantLight` is shared by `fillDynLitColors` and animated
+`templates.cpp::giSHLights` is shared by `fillDynLitColors` and animated
 rendering. Both TerrainGame header templates carry AnimPart::litDirs and
 ObjectGeometry::animLightMat. Pose sharing must never share light directions.
 The latter matrix removes instance scale from the normal transform (the VU1
 lit programs do not normalize). Viewport SHADE_COMMON::giProbe uses uGiReceiver
-for the matching centre lookup and lobe; ordinary static probes stay full L1.
+for the matching centre lookup and signed RGB sum; static probes also use full L1.
 See docs/global-illumination.md for approximation limits and examples/probe-lighting.
+
+
+### Full RGB SH receivers (1.74.0)
+
+The generated `giSHLights` replaces dominant-direction extraction for animated
+and explicitly dynamic-lit receivers. It fills identity directions, signed RGB
+axis colors and L0 plus live ambient, setting each part's `signedSH` flag every
+frame. Clear all unused colors when falling back to classic lighting. The
+animated viewport twin uses the same centre sample and signed sum. See
+`docs/global-illumination.md`; probe cache/file format is unchanged.

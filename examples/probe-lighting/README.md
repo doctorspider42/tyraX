@@ -2,9 +2,8 @@
 
 Walk from a blue-sky courtyard into a roofed room with warm and cool side
 sources. The humanoid avatar and three neutral twisting meshes read the
-existing RGB L1 probe grid. Their light direction now follows the local field rather
-than the sun. The cylinder at the back is an explicitly dynamic-lit rigid
-reference, using the same dominant-direction projection.
+existing RGB L1 probe grid. Each RGB channel keeps the full signed directional field. The cylinder at the back is an explicitly dynamic-lit rigid
+reference, using the same full RGB SH reconstruction.
 
 Left stick walks, right stick orbits, Cross jumps. Walk through the doorway,
 approach each side source, and turn: the light should stay on the side facing
@@ -31,16 +30,14 @@ the incoming light's colour. See [asset credits](../../THIRD-PARTY-LICENSES.md).
 ## What this demonstrates, and what it does not
 
 The GPU performs the offline bake. PS2 does one weighted probe lookup per
-visible animated instance per render pass, then uses its existing VU1 lighting.
+visible animated instance per render pass, then evaluates all twelve RGB SH L1 coefficients on VU1.
 Instances may share a pose, but retain separate lighting bags. The normal
 matrix removes uniform instance scale, so a larger avatar does not receive a
 stronger directional term merely because it is larger.
 
-This is one dominant direction plus RGB ambient, **not full PRT**. Opposing
-coloured directions cannot all survive that reduction, and the back side
-retains ambient rather than reconstructing signed SH. No animated self-shadow
-or runtime bounce tracing is implied. See
-[global illumination](../../docs/global-illumination.md#directional-lighting-on-animated-receivers).
+This is **full signed RGB SH L1**, including opposing coloured directions.
+It is not L2 or full PRT: there is no animated self-shadowing or runtime bounce
+tracing. See [global illumination](../../docs/global-illumination.md#directional-lighting-on-animated-receivers).
 
 ## Reproducible old/new comparison
 
@@ -52,11 +49,11 @@ tyrax-editor --build SCRATCH_PROJECT --run
 ```
 
 The helper takes ownership of the scratch `src/terrain_game.cpp`, freezes poses
-and makes **L1 toggle the old sun projection / new probe direction**. Both arms
+and makes **L1 toggle the old dominant lobe / full RGB SH**. Both arms
 retain the corrected normal matrix to isolate the direction change. Start in
 the new mode. Move into the room, release the sticks, capture a frame, press
 L1 and capture again. `PROBECOMPARE` in `bin/log.txt` records the mode and each
-instance's sampled colours/direction; the camera and pose stay identical.
+instance's mode and sample position; the camera and pose stay identical.
 The helper refuses to alter this checked-in example or already-owned source.
 Restore the generated source in the scratch copy before testing animation.
 
@@ -68,31 +65,35 @@ remain unchanged. Nonuniform scale/shear is not covered by that guarantee.
 
 ## Verification
 
-Windows Release editor build and PS2 Docker build passed. The demo boots in
-PCSX2 software rendering and was driven through the doorway with Remote Pad.
-Both viewport shading modes were opened and captured. A separate GI-disabled
-copy also built and booted with classic scene lighting. A host C++ check of
-the generated projection covered a side source, a reversed blue source, a
-uniform field and negative ambient clamping.
+Windows Release editor and PS2 Docker builds pass. The VU checks include
+signed chromatic input and an independent numeric oracle for opposing
+normals, a rotated normal matrix, saturation and the classic fallback.
+The software-rendered PCSX2 fixture was walked through the doorway.
 
-The fixed-pose L1 toggle compares only the lighting projection; it keeps the
-same camera, pose and mesh LOD. The original neutral-mesh regression reproduced
-the new-mode image byte-for-byte after toggling old/new; the captures below
-are refreshed for the humanoid fixture.
+The fixed-pose L1 toggle compares the dominant lobe against full RGB SH at
+the same camera, pose and mesh LOD. These captures are lighting comparisons,
+not animation benchmarks. The full-SH/old/full-SH toggle changed 14,398 pixels
+and returned to a byte-identical full-SH image:
 
-| Old sun projection | Local probe direction |
+| Dominant lobe | Full RGB SH L1 |
 | --- | --- |
 | ![Old](../../docs/img/probe-lighting-before.png) | ![New](../../docs/img/probe-lighting-after.png) |
 
 ![PS2 shading preview in the editor](../../docs/img/probe-lighting-editor.png)
 
-The PAL counter is a capped game-rate observation, not an incremental EE
-timing measurement. A trial with three full-resolution humanoids dropped the indoor view
-to about 17 FPS; this fixture therefore keeps only the player as a humanoid.
-An aggressive mesh-LOD trial stopped advancing during the doorway walk, so
-that setting is not shipped here. With one full-mesh humanoid, the normal
-animated doorway walk measured about 25 FPS indoors. Optimizing the avatar
-or fixing its LOD path is needed to recover the previous 50 FPS budget;
-the frozen comparison below is not a gameplay performance measurement. No physical PS2 or Linux run was
-performed. Full signed SH, multiple chromatic directions and nonuniform-scale
-normal correction remain future work.
+The engine now skins each bit-identical bind corner once, copying its posed
+position and normal to duplicates. It preserves every render vertex, hard
+normal, UV and animation frame; the map costs four bytes per corner. The
+humanoid's measured skin time fell from about **10.8 to 5.6 ms** (pose evaluation
+about 0.36 ms). The ordinary one-avatar walk improved from 25 to roughly 42-50 FPS in the
+observed captures (48 FPS in the settled final room view). This is not a
+guarantee of a locked 50 FPS.
+`TYRA_SKEL_PROFILE` enables per-instance timing logs and is off in normal builds.
+These are PCSX2 observations, not physical PS2 timing claims.
+
+Three humanoids with meshLod 1.5 passed the doorway walk. A separate test forced
+all three LOD tiers every 120 frames and ran beyond 2400 ticks. The earlier hang
+was not reproduced; no specific hang fix is claimed. The final demo keeps its
+full-resolution avatar, so LOD is not hiding its animation cost. No physical
+PS2 or Linux run was performed. L2, contact shadows and nonuniform-scale normal
+correction remain future work.

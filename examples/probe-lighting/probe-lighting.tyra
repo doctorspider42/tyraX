@@ -1,7 +1,7 @@
 {
   "name": "probe-lighting",
   "formatVersion": 38,
-  "editorVersion": "1.73.1",
+  "editorVersion": "1.74.0",
   "template": "thirdperson",
   "projectId": "e1d6c51e29309482",
   "settings": {

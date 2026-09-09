@@ -738,20 +738,20 @@ fix if anyone reports it.
 
 ## Animated probe lighting
 
-Dominant-direction RGB L1 lighting now reaches animated receivers as well as
-explicitly dynamic-lit rigid objects (docs/global-illumination.md). The next
-quality step is retaining multiple coloured directions / signed L1 instead of
-one clamped lobe. Measure that against the current VU1 and EE budgets before
-adding coefficients. Exact normals under nonuniform scale/shear and animated
-self-shadowing/PRT are separate work.
+Full signed RGB SH L1 now reaches animated and explicitly dynamic-lit receivers
+without larger probe tables or extra passes (docs/global-illumination.md).
+Next quality candidates: contact occlusion around feet, visibility-aware probe
+interpolation to reduce light leaking through thin walls, then exact normals
+under nonuniform scale/shear. L2, animated self-shadowing and surface-transfer
+PRT need separate measurements and are not implied by full RGB L1.
 
+### Previous humanoid LOD hang: not reproduced
 
-### Humanoid mesh-LOD regression to investigate
-
-During the probe-lighting avatar update, three instances of Quaternius
-UAL1_Standard.fbx at meshLod 1.5 stopped advancing during a Remote Pad walk
-through the doorway in PCSX2 software mode, without a TYRA assertion in the
-log. The full-mesh trial ran (about 17 FPS for three humanoids). This is an
-observed failure, not an identified cause; investigate the skinning/LOD tier
-switch and shared-pose path on a scratch copy. The shipped example uses one
-full-mesh humanoid and lightweight side receivers.
+The earlier three-humanoid meshLod 1.5 doorway hang had no identified cause.
+After exact duplicate-corner skin reuse, the same scene passed the doorway
+walk; a second fixture forced tiers 0/1/2 every 120 frames and ran beyond
+2400 ticks without stopping. This is a successful stress test, not proof of a
+specific hang fix. If it recurs, preserve the ELF, scene, log and pad sequence
+before rebuilding. The shipped example still uses one full-mesh humanoid and
+lightweight neutral receivers. Avatar skin time fell from about 10.8 to 5.6 ms
+in PCSX2, with identical geometry and full-rate animation.
