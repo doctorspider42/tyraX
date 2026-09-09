@@ -14,6 +14,8 @@
 #include "animedit.hpp"
 #include "aobake.hpp"
 #include "gl_loader.h"
+#include "menubake.hpp"  // bakeFlareRGBA: the light pools' corona pixels
+#include "modelao.hpp"  // the ONE AO multiply, shared with texbake
 #include "objparser.hpp"
 #include "placement.hpp"
 #include "primmesh.hpp"
@@ -187,12 +189,20 @@ void main() {
 
 // Point lights are added on top of the baked directional shade, mirroring the
 // game's pointLightAt() bake: (1-d/r)^2 falloff * N.L, clamped to 1 with the
-// rest of the shade. Normals come from screen-space derivatives (flat, like
-// the PS2's flat shading), so the shared unit meshes need no extra data.
-const char* FS = R"(#version 330 core
-in vec3 vColor;
-in vec2 vUV;
-in vec3 vWorld;
+// rest of the shade. In the per-pixel path normals come from screen-space
+// derivatives (flat, like the PS2's flat shading), so the shared unit meshes
+// need no extra data.
+//
+// The scene shader exists TWICE from these chunks (docs/ps2-viewport.md):
+//   VS + SHADE_COMMON + FS_PIX_MAIN         - the editor's per-pixel look
+//   VS + SHADE_COMMON + GS_VTX + FS_VTX_MAIN - "PS2 shading": the identical
+//     lighting stack evaluated per triangle corner in a geometry stage, the
+//     way the console evaluates it per vertex, with flat shading on the draws
+//     the game submits as TyraShadingFlat.
+// Every uniform and every lighting formula lives ONCE in SHADE_COMMON, so the
+// two paths cannot drift - and the host/game twins referenced in the comments
+// below stay twins of one formula.
+const char* SHADE_COMMON = R"(
 uniform vec3 uTint;
 uniform int uUseTex;
 uniform sampler2D uTex;
@@ -201,12 +211,25 @@ uniform float uOpacity;          // constant alpha multiplier (mirror glass)
 uniform int uLit;                // 0: lines/markers/sky - skip point lights
 uniform int uLightCount;
 uniform vec4 uLightPos[8];       // xyz = world position, w = radius
+// xyz = the spot's direction; w encodes the style: 2.0 = baked point (no
+// live shadow - the bake owns it), 1.6 = dynamic point, < 1.5 = a spot's
+// cos(cutoff). Spots take the cone with NO N.L - exactly the term the
+// console's VU1 slot adds.
+uniform vec4 uLightDir[8];
+// The GAME's shadow rules, not a raytracer's: a dynamic light darkens only
+// through its nearest FOUR Cast-shadow-projected objects - these are their
+// AO-proxy slots, -1 = empty. The test point is quantized to a radius-scaled
+// grid so the edge is as blocky as the 64x64 silhouette the console actually
+// samples. The editor used to shadow nothing here, which read as looks-great
+// in the editor, then surprise in the game - reported.
+uniform int uLightOcc[32];  // 4 slots per light, flat
 uniform vec4 uLightCol[8];       // rgb = color, w = brightness
 uniform int uFogOn;              // GS hardware fog preview (lit geometry only)
 uniform vec3 uFogColor;
 uniform float uFogStart;
 uniform float uFogEnd;
 uniform vec3 uFogEye;            // camera position (world) - also flashlight
+uniform int uFoliageImpostor; // stable upright normal for cylindrical captures
 uniform vec3 uFogFwd;            // camera forward (world, normalized)
 uniform int uFlashOn;            // camera flashlight preview (VU1 twin)
 uniform vec3 uFlashCol;
@@ -265,23 +288,38 @@ uniform int uAoHmOn;             // 0 = flat terrain (ground plane at y = 0)
 // would blend L0 into L1. Twin of giProbeAt in the generated game and
 // gibake::sampleProbes on the host - change one, change all three.
 uniform int uGiOn;
+// Animated receivers sample at the instance centre and use the console lobe.
+uniform vec4 uGiReceiver; // xyz sample position, w = animated receiver
+
 // 1 while the TERRAIN draws with a baked GI lightmap: its light is already in
 // the vertex colour (buildTerrainChunkMesh), so the probe grid must not
 // replace it a second time - and, like every other GI surface, the point
 // lights and emissive pools are inside the baked answer already.
 uniform int uGiSkipProbe;
 uniform sampler3D uGiProbes;     // texture unit 3
+// Baked lightmaps read per pixel (Viewport::setGiAtlas / setGiTerrain):
+// 0 none, 1 = this draw's UV is an atlas ST (RGB = the light, A = occlusion),
+// 2 = the terrain map by world position (RGB light, A occlusion),
+// 3 = the terrain map's alpha as the light's intensity (the multiply route).
+uniform int uLmMode;
+uniform sampler2D uLmTex;  // texture unit 4
+uniform vec4 uLmRect;      // terrain: x0, z0, 1/width, 1/depth
 uniform vec3 uGiOrigin;
 uniform vec3 uGiStep;
 uniform ivec3 uGiDim;
 uniform float uGiScale;
-out vec4 FragColor;
+// PS2 shading only: 1 = this draw's console bag has dynLightPick = false -
+// the terrain, whose dynamic light is the ground POOL (drawLightPools), so
+// the per-vertex slot must not land a second copy. The per-pixel path
+// ignores it (its smooth preview paints the pool into the ground itself).
+uniform int uPs2NoDynLight;
 
 // shade(n) = L0 + (2/3) * dot(L1, n), weighted-trilinear over the 8 probes
 // around wp. Returns false when every one of them is buried in geometry.
 bool giProbe(vec3 wp, vec3 n, out vec3 res) {
     res = vec3(0.0);
     if (uGiOn == 0 || uGiDim.x <= 0) return false;
+    if (uGiReceiver.w > 0.5) wp = uGiReceiver.xyz;
     vec3 t = clamp((wp - uGiOrigin) / max(uGiStep, vec3(0.0001)),
                    vec3(0.0), vec3(uGiDim - 1));
     ivec3 i0 = clamp(ivec3(floor(t)), ivec3(0), max(uGiDim - 2, ivec3(0)));
@@ -307,9 +345,14 @@ bool giProbe(vec3 wp, vec3 n, out vec3 res) {
     }
     if (wsum <= 0.00001) return false;
     float s = uGiScale / (127.0 * wsum);
-    res = clamp(acc[0] * s + (2.0 / 3.0) * (acc[1] * s * n.x + acc[2] * s * n.y +
-                                            acc[3] * s * n.z),
-                vec3(0.0), vec3(1.0));
+    if (uGiReceiver.w > 0.5) {
+        res = max(acc[0] * s + (2.0 / 3.0) * s *
+            (acc[1] * n.x + acc[2] * n.y + acc[3] * n.z), vec3(0.0));
+    } else {
+        res = clamp(acc[0] * s + (2.0 / 3.0) * (acc[1] * s * n.x + acc[2] * s * n.y +
+                                                acc[3] * s * n.z),
+                    vec3(0.0), vec3(1.0));
+    }
     return true;
 }
 
@@ -464,8 +507,28 @@ vec3 emissiveLight(vec3 wp, vec3 n, int selfObj) {
     return add;
 }
 
+// Locality window; twin of aobake::aoRangeWindow.
+float aoRangeWindow(float dist, float range) {
+    float t = clamp((range - dist) / (0.4 * range), 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
+}
+
+// Radius of a disc with the same PROJECTED AREA as the shape seen along
+// toOcc. Twin of aobake::occProjRadius / aoProjRadius in the generated game.
+float aoProjRadius(int i, vec3 h, vec3 toOcc) {
+    if (uAoPos[i].w > 0.5) return h.x;   // sphere
+    vec3 c = abs(vec3(dot(toOcc, uAoAx[i].xyz), dot(toOcc, uAoAy[i].xyz),
+                      dot(toOcc, uAoAz[i].xyz)));
+    float a = 4.0 * (c.x * h.y * h.z + c.y * h.x * h.z + c.z * h.x * h.y);
+    return sqrt(a / 3.14159265);
+}
+
+// How much of the surface's cosine-weighted hemisphere each shape covers - NOT
+// how close it is. Twin of aobake::occluderOcclusionAt and of aoOccluderAt in
+// the generated game; the reasoning and the measurements are in aobake.cpp.
+// Blockers combine as VISIBILITY (a product), because a clamped sum saturates.
 float aoOcclusion(vec3 wp, vec3 n) {
-    float occ = 0.0;
+    float vis = 1.0;
     for (int i = 0; i < uAoCount; ++i) {
         if (uAoObj[i] == uAoSelfObj) continue;  // an object never occludes itself
         vec3 rel = wp - uAoPos[i].xyz;
@@ -489,13 +552,18 @@ float aoOcclusion(vec3 wp, vec3 n) {
                 toOcc = vec3(0.0, 1.0, 0.0);
             }
         }
-        if (dist <= 0.0) { occ += 1.0; continue; }  // touching / inside
-        float fade = 1.0 - dist / uAoRadius;
-        if (fade <= 0.0) continue;
-        fade *= fade;
-        // full occlusion facing the occluder, ~0.35 side-on, zero facing away
-        float w = clamp(0.35 + 0.65 * dot(n, toOcc), 0.0, 1.0);
-        occ += fade * w;
+        if (dist <= 0.0) { vis = 0.0; continue; }  // touching / inside
+        if (dist >= uAoRadius) continue;
+        float r = min(aoProjRadius(i, h, toOcc), uAoRadius);
+        if (r <= 0.00001) continue;
+        float cosT = dot(n, toOcc);
+        // disc when small and far, HALF-SPACE when large and near; k =
+        // sin(alpha) blends and k*k is the solid angle. See aobake.cpp.
+        float k = r / (r + dist);
+        float lit = max(cosT, 0.0);
+        float plane = (1.0 + cosT) * 0.5;
+        float occ = clamp(k * k * (lit + (plane - lit) * k), 0.0, 1.0);
+        vis *= 1.0 - occ * aoRangeWindow(dist, uAoRadius);
     }
     if (uAoGround != 0) {
         float ground = 0.0;
@@ -504,14 +572,220 @@ float aoOcclusion(vec3 wp, vec3 n) {
             ground = texture(uAoHeight, clamp(uv, 0.0, 1.0)).r;
         }
         float dy = max(wp.y - ground, 0.0);
-        if (dy < uAoRadius) {
-            float fade = 1.0 - dy / uAoRadius;
-            // 0.7: same wall-base softening as the game's aoShadeMul
-            occ += 0.7 * fade * fade * max(0.5 - 0.5 * n.y, 0.0);
+        // the same half-space, with toOcc straight down
+        vis *= 1.0 - max(0.5 - 0.5 * n.y, 0.0) * aoRangeWindow(dy, uAoRadius);
+    }
+    return clamp(0.7 * (1.0 - vis), 0.0, 1.0);  // kAoBounce
+}
+
+// The baked lightmap compose (uLmMode), in the console's pass order: the
+// alpha-over pass darkens what the base drew by (1 - a) - so a runtime term
+// already in `shade` (the VU1 light slot, the torch) is darkened too, as on
+// the console - and the additive pass then adds the RGB, modulated by the
+// ground's own tint on the terrain route and by white on the atlas route
+// (the atlas texel already carries the receiver's colour). Route 3 is the
+// textured terrain's multiply: no add, the alpha is the light's intensity.
+void lmApply(vec2 uv, vec3 wp, vec3 base, inout vec3 shade, out vec3 add) {
+    vec2 st = uLmMode == 1
+        ? uv
+        : vec2((wp.x - uLmRect.x) * uLmRect.z, (wp.z - uLmRect.y) * uLmRect.w);
+    vec4 lm = texture(uLmTex, st);
+    add = vec3(0.0);
+    if (uLmMode == 3) {
+        shade *= 1.0 - lm.a;
+        return;
+    }
+    // The occlusion pass only runs on the console when AO is on; without it
+    // the alpha is the floor every lightmap texel keeps (kMinLightmapAlpha).
+    if (uAoOn != 0) shade *= 1.0 - lm.a;
+    add = lm.rgb * (uLmMode == 2 ? base : vec3(1.0));
+}
+
+// The whole lit-surface stack in one function: GI probe replace, AO multiply,
+// point lights, emissive lights, camera flashlight - in exactly the order the
+// generated pushVert/shadeAt bakes them. Called per PIXEL by the editor path
+// and per triangle CORNER by the PS2-shading path, so the two looks differ
+// only in WHERE the formula is evaluated, never in the formula.
+vec3 litShade(vec3 base, vec3 wp, vec3 n) {
+    vec3 shade = base;
+    // Global illumination REPLACES the ambient + directional shade wherever
+    // the probe grid reaches, exactly as the generated game replaces it: the
+    // baked answer already contains the sun, the sky, the bounces, the point
+    // lights and the emissive pools, so every one of those must be skipped
+    // below or the scene is lit twice.
+    bool giHere = false;
+    if (uLmMode == 1 || uLmMode == 2) {
+        // The lightmap IS the shade: the console draws these black and puts
+        // the whole answer back per pixel through the atlas / terrain-map
+        // passes (lmApply, in the fragment stage), so the base goes black
+        // here too and only the runtime terms below may add to it.
+        shade = vec3(0.0);
+        giHere = true;
+    } else if (uLmMode == 3) {
+        // The multiply route: the ordinary shade, attenuated per pixel by the
+        // map's alpha in the fragment stage - giHere because that intensity
+        // was gathered with every light in it.
+        giHere = true;
+    } else if (uGiSkipProbe != 0) {
+        // The terrain: never probe-lit, but "inside the baked answer" only
+        // when there IS one. With GI off this used to read as lit-by-GI too,
+        // and the ground took no point or spot light at all in the per-pixel
+        // path - a lamp over a field previewed as darkness while the console
+        // drew its pool. Reported from the spot-shadow preview.
+        giHere = uGiOn != 0;
+    } else {
+        vec3 gi;
+        if (giProbe(wp, n, gi)) {
+            shade = gi;
+            giHere = true;
         }
     }
-    return min(occ, 1.0);
+    // AO multiplies the baked directional shade BEFORE the point lights add
+    // on top - mirrors the pushVert/shadeAt order in the generated game. It
+    // survives GI: the probe grid cannot resolve a contact shadow, which is
+    // exactly what this term is.
+    // With a lightmap the occlusion is its alpha channel, applied per pixel in
+    // lmApply the way the console's alpha-over pass applies it.
+    if (uAoOn != 0 && uAoReceive != 0 && uLmMode == 0)
+        shade *= 1.0 - uAoStrength * aoOcclusion(wp, n);
+#ifdef PS2_VERTEX
+    // PS2 shading: lights land exactly the way the console lands them.
+    // A DYNAMIC light is the VU1 slot (CalculateTyraSpotLight with the
+    // point constants, buildSpotForBag in the engine): pure radial
+    // 1 - d^2/r^2, the cone for spots, NO N.L and no shadow test - and it
+    // ADDS on top of everything, GI'd surfaces included, because VU1 adds
+    // after the baked colors. A BAKED light keeps the pointLightAt bake
+    // (linear falloff squared * N.L) and is inside the GI answer already.
+    // One honest divergence: the console picks its STRONGEST dynamic light
+    // per mesh (pickDynLight); the preview adds them all.
+    if (uLightCount > 0) {
+        vec3 add = vec3(0.0);
+        for (int i = 0; i < uLightCount; ++i) {
+            vec3 d = uLightPos[i].xyz - wp;
+            float radius = uLightPos[i].w;
+            float styleW = uLightDir[i].w;
+            if (styleW < 1.9) {
+                if (uPs2NoDynLight != 0) continue;  // terrain: pool instead
+                float d2 = dot(d, d);
+                float axial = clamp(1.0 - d2 / (radius * radius), 0.0, 1.0);
+                if (axial <= 0.0) continue;
+                float cone = 1.0;
+                if (styleW < 1.5) {
+                    // the engine's spot constants: cosCut^2 and
+                    // softness 3 / (r^2 * (1 - cosCut^2))
+                    float cut2 = styleW * styleW;
+                    float t = max(dot(-d, uLightDir[i].xyz), 0.0);
+                    float soft =
+                        3.0 / max(radius * radius * (1.0 - cut2), 1e-6);
+                    cone = clamp((t * t - cut2 * d2) * soft, 0.0, 1.0);
+                }
+                add += uLightCol[i].rgb * (uLightCol[i].w * axial * cone);
+            } else if (!giHere) {
+                float dist = length(d);
+                if (dist >= radius) continue;
+                float atten = 1.0 - dist / radius;
+                atten *= atten;
+                float ndotl =
+                    dist > 0.0001 ? max(dot(n, d / dist), 0.0) : 1.0;
+                add += uLightCol[i].rgb * (uLightCol[i].w * atten * ndotl);
+            }
+        }
+        shade = min(shade + add, vec3(1.0));
+    }
+#else
+    if (!giHere && uLightCount > 0) {
+        vec3 add = vec3(0.0);
+        for (int i = 0; i < uLightCount; ++i) {
+            vec3 d = uLightPos[i].xyz - wp;
+            float dist = length(d);
+            float radius = uLightPos[i].w;
+            if (dist >= radius) continue;
+            float atten = 1.0 - dist / radius;
+            atten *= atten;
+            float styleW = uLightDir[i].w;
+            float ndotl = dist > 0.0001 ? max(dot(n, d / dist), 0.0) : 1.0;
+            if (styleW < 1.5) {
+                // A spot: the cone term, soft-edged, and no N.L - the same
+                // trade the console's per-vertex slot makes.
+                float ca = dist > 0.0001 ? dot(-d / dist, uLightDir[i].xyz)
+                                         : 1.0;
+                if (ca <= styleW) continue;
+                float cone = (ca - styleW) / max(1.0 - styleW, 0.001);
+                atten *= min(cone * 1.6, 1.0);
+                ndotl = 1.0;
+            }
+            // Dynamic lights shadow the game's way: nearest-four flagged
+            // casters, hard edge, quantized to the silhouette's coarseness.
+            if (styleW < 1.9) {
+                float q = max(radius / 28.0, 0.05);
+                vec3 qp = (floor(wp / q) + 0.5) * q;
+                vec3 dq = uLightPos[i].xyz - qp;
+                float dl = length(dq);
+                bool blocked = false;
+                for (int s = 0; s < 4 && !blocked; ++s) {
+                    int k = uLightOcc[i * 4 + s];
+                    if (k < 0) break;
+                    if (uAoObj[k] == uAoSelfObj) continue;
+                    if (dl > 0.1 &&
+                        shadowHit(k, qp + n * 0.05, dq / dl, dl - 0.1))
+                        blocked = true;
+                }
+                if (blocked) continue;
+            }
+            add += uLightCol[i].rgb * (uLightCol[i].w * atten * ndotl);
+        }
+        shade = min(shade + add, vec3(1.0));
+    }
+#endif
+    // Emissive materials nearby: the same additive slot as the point lights,
+    // mirroring the generated pushVert / terrain shadeAt order.
+    if (!giHere && uEmisCount > 0)
+        shade = min(shade + emissiveLight(wp, n, uAoSelfObj), vec3(1.0));
+#ifndef PS2_VERTEX
+    // In the PS2-shading path the flashlight stays per PIXEL (FS_VTX_MAIN):
+    // the console's torch on the ground is a PROJECTED pool, per pixel by
+    // construction - per corner it would be the Gouraud diamond the pool
+    // exists to replace (docs/flashlight.md).
+    if (uFlashOn != 0) {
+        // Camera flashlight - the exact per-vertex formula the PS2 runs on
+        // VU1 (CalculateTyraSpotLight): cone + distance falloff, no N.L.
+        vec3 d = wp - uFogEye;
+        float dist2 = dot(d, d);
+        float t = max(dot(d, uFogFwd), 0.0);
+        float cone = clamp((t * t - uFlashCut2 * dist2) * uFlashSoft, 0.0, 1.0);
+        float axial = clamp(1.0 - dist2 * uFlashInvR2, 0.0, 1.0);
+        shade = min(shade + uFlashCol * (cone * axial), vec3(1.0));
+    }
+#endif
+    return shade;
 }
+
+// Spherical environment map (refl): matcap STs from the camera-space normal
+// (docs/reflective-materials.md) - the GL half of the PS2's additive second
+// pass (Cs*FIX + Cd). The console computes these STs per VERTEX and lets the
+// GS interpolate; the editor path computes them per pixel. One formula.
+vec2 envSt(vec3 n) {
+    vec3 r = normalize(cross(uFogFwd, vec3(0.0, 1.0, 0.0)));
+    vec3 u = cross(r, uFogFwd);
+    return vec2(0.5 + 0.5 * dot(n, r), 0.5 - 0.5 * dot(n, u));
+}
+
+// "@sky" dynamic mode: approximate the PS2's per-frame sky-dome render with
+// the analytic horizon/zenith gradient (st.y 0 = up); otherwise the map.
+vec3 envColor(vec2 st) {
+    return uReflOn == 2
+        ? mix(uReflSkyHorizon, uReflSkyTop, clamp(1.0 - 2.0 * st.y, 0.0, 1.0))
+        : texture(uRefl, st).rgb;
+}
+)";
+
+// The editor's per-pixel scene look: the lighting stack evaluated at every
+// fragment with a screen-space flat normal.
+const char* FS_PIX_MAIN = R"(
+in vec3 vColor;
+in vec2 vUV;
+in vec3 vWorld;
+out vec4 FragColor;
 
 void main() {
     vec4 texel = uUseTex != 0 ? texture(uTex, vUV) : vec4(1.0);
@@ -521,64 +795,17 @@ void main() {
     float a = uAlpha != 0 ? texel.a : 1.0;
     if (uAlpha != 0 && a < 0.02) discard;
     vec3 shade = vColor;
-    // Global illumination REPLACES the ambient + directional shade wherever
-    // the probe grid reaches, exactly as the generated game replaces it: the
-    // baked answer already contains the sun, the sky, the bounces, the point
-    // lights and the emissive pools, so every one of those must be skipped
-    // below or the scene is lit twice.
-    bool giHere = false;
-    if (uLit != 0 && uGiSkipProbe != 0) {
-        giHere = true;
-    } else if (uLit != 0) {
-        vec3 nGi = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
-        vec3 gi;
-        if (giProbe(vWorld, nGi, gi)) {
-            shade = gi;
-            giHere = true;
-        }
+    if (uLit != 0) {
+        vec3 n = uFoliageImpostor != 0 ? vec3(0.0, 1.0, 0.0) : normalize(cross(dFdx(vWorld), dFdy(vWorld)));
+        shade = litShade(vColor, vWorld, n);
     }
-    // AO multiplies the baked directional shade BEFORE the point lights add
-    // on top - mirrors the pushVert/shadeAt order in the generated game. It
-    // survives GI: the probe grid cannot resolve a contact shadow, which is
-    // exactly what this term is.
-    if (uLit != 0 && uAoOn != 0 && uAoReceive != 0) {
-        vec3 nAo = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
-        shade *= 1.0 - uAoStrength * aoOcclusion(vWorld, nAo);
-    }
-    if (uLit != 0 && !giHere && uLightCount > 0) {
-        vec3 n = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
-        vec3 add = vec3(0.0);
-        for (int i = 0; i < uLightCount; ++i) {
-            vec3 d = uLightPos[i].xyz - vWorld;
-            float dist = length(d);
-            float radius = uLightPos[i].w;
-            if (dist >= radius) continue;
-            float atten = 1.0 - dist / radius;
-            atten *= atten;
-            float ndotl = dist > 0.0001 ? max(dot(n, d / dist), 0.0) : 1.0;
-            add += uLightCol[i].rgb * (uLightCol[i].w * atten * ndotl);
-        }
-        shade = min(shade + add, vec3(1.0));
-    }
-    // Emissive materials nearby: the same additive slot as the point lights,
-    // mirroring the generated pushVert / terrain shadeAt order.
-    if (uLit != 0 && !giHere && uEmisCount > 0) {
-        vec3 n = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
-        shade = min(shade + emissiveLight(vWorld, n, uAoSelfObj), vec3(1.0));
-    }
-    if (uFlashOn != 0 && uLit != 0) {
-        // Camera flashlight - the exact per-vertex formula the PS2 runs on
-        // VU1 (CalculateTyraSpotLight): cone + distance falloff, no N.L.
-        vec3 d = vWorld - uFogEye;
-        float dist2 = dot(d, d);
-        float t = max(dot(d, uFogFwd), 0.0);
-        float cone = clamp((t * t - uFlashCut2 * dist2) * uFlashSoft, 0.0, 1.0);
-        float axial = clamp(1.0 - dist2 * uFlashInvR2, 0.0, 1.0);
-        shade = min(shade + uFlashCol * (cone * axial), vec3(1.0));
-    }
+    // Baked lightmaps land per pixel, after the tint the console has already
+    // folded into the base pass and before the emissive floor.
+    vec3 lmAdd = vec3(0.0);
+    if (uLit != 0 && uLmMode != 0) lmApply(vUV, vWorld, vColor, shade, lmAdd);
     // The emissive floor lands here, after every lighting term and before the
     // fog mix - the game bakes it into the vertex color and still fogs the bag.
-    vec3 color = max(shade * uTint, uEmissive) * tex;
+    vec3 color = max(shade * uTint + lmAdd, uEmissive) * tex;
     if (uFogOn != 0 && uLit != 0) {
         // View-plane distance, same metric as the PS2 (clip-space W); the
         // sky is excluded like the game's fogDisabled sky dome bag.
@@ -587,10 +814,8 @@ void main() {
         color = mix(uFogColor, color, f);
     }
     if (uReflOn != 0) {
-        // Spherical environment map (refl): matcap UVs from the camera-space
-        // normal, added on top - the GL twin of the PS2's additive second
-        // pass (Cs*FIX + Cd; that bag is fogDisabled, hence after the fog
-        // mix). Flat normals from derivatives, exactly like the PS2 pass
+        // The refl bag is fogDisabled on the console, hence after the fog
+        // mix. Flat normals from derivatives, exactly like the PS2 pass
         // built on the loader's per-face normals - keep the two in sync.
         // "-rounded": normals radiate from the part centroid instead, so a
         // flat face sweeps a gradient of the map (PS2 twin: the rebuild
@@ -598,19 +823,108 @@ void main() {
         vec3 n = uReflRounded != 0
             ? normalize(vWorld - uReflCenter)
             : normalize(cross(dFdx(vWorld), dFdy(vWorld)));
-        vec3 r = normalize(cross(uFogFwd, vec3(0.0, 1.0, 0.0)));
-        vec3 u = cross(r, uFogFwd);
-        vec2 st = vec2(0.5 + 0.5 * dot(n, r), 0.5 - 0.5 * dot(n, u));
-        // "@sky" dynamic mode: approximate the PS2's per-frame sky-dome
-        // render with the analytic horizon/zenith gradient (st.y 0 = up).
-        vec3 env = uReflOn == 2
-            ? mix(uReflSkyHorizon, uReflSkyTop,
-                  clamp(1.0 - 2.0 * st.y, 0.0, 1.0))
-            : texture(uRefl, st).rgb;
-        color += uReflStrength * env;
+        color += uReflStrength * envColor(envSt(n));
     }
     // Decals carry the texture's alpha (cutout above + blend here), mirror
     // glass a constant opacity; everything else outputs opaque.
+    FragColor = vec4(color, a * uOpacity);
+}
+)";
+
+// "PS2 shading" geometry stage (docs/ps2-viewport.md): the console's shading,
+// computed where the console computes it. Runs the SHADE_COMMON stack once per
+// triangle corner (a corner IS a vertex in these unindexed meshes) with the
+// triangle's own winding normal, folds tint and the emissive floor in exactly
+// like the generated pushVert, and hands the fragment stage nothing but
+// finished per-corner values to interpolate - Gouraud, on the console's terms.
+const char* GS_VTX = R"(
+layout(triangles) in;
+layout(triangle_strip, max_vertices = 3) out;
+in vec3 vColor[];
+in vec2 vUV[];
+in vec3 vWorld[];
+out vec2 gUV;
+out vec3 gShade;
+flat out vec3 gShadeFlat;  // provoking (last) corner - TyraShadingFlat
+out float gFog;
+out vec2 gSt;
+out vec3 gWorld;  // the per-pixel flashlight in FS_VTX_MAIN reads it
+out vec3 gTint;   // the raw corner colour - the terrain lightmap's tint
+
+void main() {
+    // The console's flat normal comes from the triangle's WINDING (the .tmdl
+    // bake's recomputeFaceNormals, the terrain grid, primmesh) - not from the
+    // screen-space derivative the per-pixel path uses, which always faces the
+    // camera. A wall seen from behind must shade the way the game shades it.
+    vec3 nf = cross(vWorld[1] - vWorld[0], vWorld[2] - vWorld[0]);
+    vec3 n = uFoliageImpostor != 0 ? vec3(0.0, 1.0, 0.0) : (dot(nf, nf) > 1e-12 ? normalize(nf) : vec3(0.0, 1.0, 0.0));
+    for (int i = 0; i < 3; ++i) {
+        vec3 shade = uLit != 0 ? litShade(vColor[i], vWorld[i], n) : vColor[i];
+        // Tint and the emissive floor fold into the corner colour in the
+        // generated pushVert's order (floor AFTER Kd, AO and the lights).
+        vec3 corner = max(shade * uTint, uEmissive);
+        float fog = 1.0;
+        if (uLit != 0 && uFogOn != 0) {
+            // The per-vertex fog coefficient, interpolated - the GS's own F.
+            float viewDist = dot(vWorld[i] - uFogEye, uFogFwd);
+            fog = clamp((uFogEnd - viewDist) / (uFogEnd - uFogStart), 0.0, 1.0);
+        }
+        vec2 st = vec2(0.5);
+        if (uReflOn != 0)
+            st = envSt(uReflRounded != 0 ? normalize(vWorld[i] - uReflCenter)
+                                         : n);
+        gUV = vUV[i];
+        gShade = corner;
+        gShadeFlat = corner;
+        gFog = fog;
+        gSt = st;
+        gWorld = vWorld[i];
+        gTint = vColor[i];
+        gl_Position = gl_in[i].gl_Position;
+        EmitVertex();
+    }
+    EndPrimitive();
+}
+)";
+
+// Fragment stage of the PS2-shading path: nothing is computed here beyond
+// what the geometry stage handed over - texture modulate, fog mix, env-map
+// add. uPs2Flat mirrors the bag's TyraShadingFlat: the flat varying carries
+// the provoking corner's colour across the whole triangle, like the GS.
+const char* FS_VTX_MAIN = R"(
+in vec2 gUV;
+in vec3 gShade;
+flat in vec3 gShadeFlat;
+in float gFog;
+in vec2 gSt;
+in vec3 gWorld;
+in vec3 gTint;
+uniform int uPs2Flat;
+out vec4 FragColor;
+
+void main() {
+    vec4 texel = uUseTex != 0 ? texture(uTex, gUV) : vec4(1.0);
+    float a = uAlpha != 0 ? texel.a : 1.0;
+    if (uAlpha != 0 && a < 0.02) discard;
+    vec3 shade = uPs2Flat != 0 ? gShadeFlat : gShade;
+    // The baked lightmaps stay per PIXEL here too: on the console they are
+    // texture passes, per pixel by construction, whatever the shading mode.
+    vec3 lmAdd = vec3(0.0);
+    if (uLit != 0 && uLmMode != 0) lmApply(gUV, gWorld, gTint, shade, lmAdd);
+    if (uFlashOn != 0 && uLit != 0) {
+        // The torch stays per PIXEL here: on the console its footprint is a
+        // projected pool (docs/flashlight.md), per pixel by construction, and
+        // VU1 adds the cone AFTER the baked colours - hence post-tint.
+        vec3 d = gWorld - uFogEye;
+        float dist2 = dot(d, d);
+        float t = max(dot(d, uFogFwd), 0.0);
+        float cone = clamp((t * t - uFlashCut2 * dist2) * uFlashSoft, 0.0, 1.0);
+        float axial = clamp(1.0 - dist2 * uFlashInvR2, 0.0, 1.0);
+        shade = min(shade + uFlashCol * (cone * axial), vec3(1.0));
+    }
+    vec3 color = (shade + lmAdd) * texel.rgb;
+    if (uFogOn != 0 && uLit != 0) color = mix(uFogColor, color, gFog);
+    if (uReflOn != 0) color += uReflStrength * envColor(gSt);
     FragColor = vec4(color, a * uOpacity);
 }
 )";
@@ -636,6 +950,15 @@ uniform vec3 uLiftPos;   // 0..255 added
 uniform vec3 uLiftNeg;   // 0..255 subtracted
 uniform vec3 uMixColor;  // 0..255 mix target
 uniform float uMixAmt;   // 0..128, 128 = full replace
+// GS colour depth simulation (docs/ps2-viewport.md): a PSMCT16 framebuffer
+// keeps 5 bits per channel, and the GS's ordered dither adds the DIMX offset
+// to the 8-bit value BEFORE that truncation. The matrix is the engine's own
+// (tyraxDitherMatrix in vendor/tyra renderer_core_gs.cpp - keep the sixteen
+// numbers identical); scan-out expands the 5 bits back by bit replication,
+// so white stays white. Applied after the grading math because the grading
+// sprites are the last thing the console writes into the 16-bit buffer.
+uniform int uQuant;   // 1 = truncate to 5 bits per channel (PSMCT16)
+uniform int uDither;  // 1 = add the DIMX offset first (DTHE on)
 out vec4 FragColor;
 void main() {
     vec3 c = floor(texture(uSrc, vUV).rgb * 255.0 + 0.5);
@@ -643,6 +966,20 @@ void main() {
     c = clamp(c + uLiftPos, 0.0, 255.0);
     c = clamp(c - uLiftNeg, 0.0, 255.0);
     c = clamp(c + floor((uMixColor - c) * uMixAmt / 128.0), 0.0, 255.0);
+    if (uQuant != 0) {
+        if (uDither != 0) {
+            const int dimx[16] = int[16](-4,  2, -3,  3,
+                                          0, -2,  1, -1,
+                                         -3,  3, -4,  2,
+                                          1, -1,  0, -2);
+            // gl_FragCoord counts rows bottom-up, the GS top-down - flip so
+            // the pattern sits on the same rows a console capture shows.
+            int gy = textureSize(uSrc, 0).y - 1 - int(gl_FragCoord.y);
+            c += vec3(float(dimx[(gy & 3) * 4 + (int(gl_FragCoord.x) & 3)]));
+        }
+        vec3 v5 = floor(clamp(c, 0.0, 255.0) / 8.0);
+        c = v5 * 8.0 + floor(v5 / 4.0);  // (v << 3) | (v >> 2)
+    }
     FragColor = vec4(c / 255.0, 1.0);
 }
 )";
@@ -1102,15 +1439,102 @@ void Viewport::destroyMesh(Mesh& m) {
     m = Mesh{};
 }
 
+// The u*_ location members describe ONE program at a time - whichever of the
+// two scene programs (per-pixel / PS2 shading) is active. Re-querying on a
+// switch is what lets every existing uniform-setting site work for both
+// without duplicating sixty member names.
+void Viewport::querySceneLocations(uint32_t prog) {
+    uMvp_ = glGetUniformLocation(prog, "uMvp");
+    uTint_ = glGetUniformLocation(prog, "uTint");
+    uUseTex_ = glGetUniformLocation(prog, "uUseTex");
+    uAlpha_ = glGetUniformLocation(prog, "uAlpha");
+    uOpacity_ = glGetUniformLocation(prog, "uOpacity");
+    uModel_ = glGetUniformLocation(prog, "uModel");
+    uLit_ = glGetUniformLocation(prog, "uLit");
+    uLightCount_ = glGetUniformLocation(prog, "uLightCount");
+    uLightPos_ = glGetUniformLocation(prog, "uLightPos");
+    uLightDir_ = glGetUniformLocation(prog, "uLightDir");
+    uLightOcc_ = glGetUniformLocation(prog, "uLightOcc");
+    uLightCol_ = glGetUniformLocation(prog, "uLightCol");
+    uFogOn_ = glGetUniformLocation(prog, "uFogOn");
+    uFogColor_ = glGetUniformLocation(prog, "uFogColor");
+    uFogStart_ = glGetUniformLocation(prog, "uFogStart");
+    uFogEnd_ = glGetUniformLocation(prog, "uFogEnd");
+    uFogEye_ = glGetUniformLocation(prog, "uFogEye");
+    uFogFwd_ = glGetUniformLocation(prog, "uFogFwd");
+    uFlashOn_ = glGetUniformLocation(prog, "uFlashOn");
+    uFlashCol_ = glGetUniformLocation(prog, "uFlashCol");
+    uFlashInvR2_ = glGetUniformLocation(prog, "uFlashInvR2");
+    uFlashCut2_ = glGetUniformLocation(prog, "uFlashCut2");
+    uFlashSoft_ = glGetUniformLocation(prog, "uFlashSoft");
+    uReflOn_ = glGetUniformLocation(prog, "uReflOn");
+    uRefl_ = glGetUniformLocation(prog, "uRefl");
+    uReflStrength_ = glGetUniformLocation(prog, "uReflStrength");
+    uReflSkyHorizon_ = glGetUniformLocation(prog, "uReflSkyHorizon");
+    uReflSkyTop_ = glGetUniformLocation(prog, "uReflSkyTop");
+    uReflRounded_ = glGetUniformLocation(prog, "uReflRounded");
+    uReflCenter_ = glGetUniformLocation(prog, "uReflCenter");
+    uEmissive_ = glGetUniformLocation(prog, "uEmissive");
+    uEmisCount_ = glGetUniformLocation(prog, "uEmisCount");
+    uEmisPos_ = glGetUniformLocation(prog, "uEmisPos");
+    uEmisAx_ = glGetUniformLocation(prog, "uEmisAx");
+    uEmisAy_ = glGetUniformLocation(prog, "uEmisAy");
+    uEmisAz_ = glGetUniformLocation(prog, "uEmisAz");
+    uEmisCol_ = glGetUniformLocation(prog, "uEmisCol");
+    uEmisRange_ = glGetUniformLocation(prog, "uEmisRange");
+    uEmisObj_ = glGetUniformLocation(prog, "uEmisObj");
+    uAoOn_ = glGetUniformLocation(prog, "uAoOn");
+    uAoStrength_ = glGetUniformLocation(prog, "uAoStrength");
+    uAoRadius_ = glGetUniformLocation(prog, "uAoRadius");
+    uAoCount_ = glGetUniformLocation(prog, "uAoCount");
+    uAoSelfObj_ = glGetUniformLocation(prog, "uAoSelfObj");
+    uAoGround_ = glGetUniformLocation(prog, "uAoGround");
+    uAoReceive_ = glGetUniformLocation(prog, "uAoReceive");
+    uAoPos_ = glGetUniformLocation(prog, "uAoPos");
+    uAoAx_ = glGetUniformLocation(prog, "uAoAx");
+    uAoAy_ = glGetUniformLocation(prog, "uAoAy");
+    uAoAz_ = glGetUniformLocation(prog, "uAoAz");
+    uAoObj_ = glGetUniformLocation(prog, "uAoObj");
+    uAoHeight_ = glGetUniformLocation(prog, "uAoHeight");
+    uAoHmRect_ = glGetUniformLocation(prog, "uAoHmRect");
+    uAoHmOn_ = glGetUniformLocation(prog, "uAoHmOn");
+    uGiOn_ = glGetUniformLocation(prog, "uGiOn");
+    uGiReceiver_ = glGetUniformLocation(prog, "uGiReceiver");
+    uGiSkipProbe_ = glGetUniformLocation(prog, "uGiSkipProbe");
+    uGiProbes_ = glGetUniformLocation(prog, "uGiProbes");
+    uGiOrigin_ = glGetUniformLocation(prog, "uGiOrigin");
+    uGiStep_ = glGetUniformLocation(prog, "uGiStep");
+    uGiDim_ = glGetUniformLocation(prog, "uGiDim");
+    uGiScale_ = glGetUniformLocation(prog, "uGiScale");
+    uLmMode_ = glGetUniformLocation(prog, "uLmMode");
+    uLmTex_ = glGetUniformLocation(prog, "uLmTex");
+    uLmRect_ = glGetUniformLocation(prog, "uLmRect");
+    // Only the PS2-shading program has these; -1 elsewhere makes the
+    // per-draw glUniform1i a no-op.
+    uPs2Flat_ = glGetUniformLocation(prog, "uPs2Flat");
+    uFoliageImpostor_ = glGetUniformLocation(prog, "uFoliageImpostor");
+    uPs2NoDyn_ = glGetUniformLocation(prog, "uPs2NoDynLight");
+}
+
+void Viewport::useSceneProgram(bool ps2Vertex) {
+    const uint32_t want = (ps2Vertex && vtxProgram_) ? vtxProgram_ : program_;
+    if (want != sceneProgActive_) {
+        sceneProgActive_ = want;
+        querySceneLocations(want);
+    }
+    glUseProgram(want);
+}
+
 bool Viewport::init() {
     GLuint vs = compile(GL_VERTEX_SHADER, VS);
-    GLuint fs = compile(GL_FRAGMENT_SHADER, FS);
+    const std::string fsPixSrc =
+        std::string("#version 330 core\n") + SHADE_COMMON + FS_PIX_MAIN;
+    GLuint fs = compile(GL_FRAGMENT_SHADER, fsPixSrc.c_str());
     if (!vs || !fs) return false;
     program_ = glCreateProgram();
     glAttachShader(program_, vs);
     glAttachShader(program_, fs);
     glLinkProgram(program_);
-    glDeleteShader(vs);
     glDeleteShader(fs);
     GLint ok = 0;
     glGetProgramiv(program_, GL_LINK_STATUS, &ok);
@@ -1118,71 +1542,74 @@ bool Viewport::init() {
         char log[1024];
         glGetProgramInfoLog(program_, sizeof(log), nullptr, log);
         std::fprintf(stderr, "program link error: %s\n", log);
+        glDeleteShader(vs);
         return false;
     }
-    uMvp_ = glGetUniformLocation(program_, "uMvp");
-    uTint_ = glGetUniformLocation(program_, "uTint");
-    uUseTex_ = glGetUniformLocation(program_, "uUseTex");
-    uAlpha_ = glGetUniformLocation(program_, "uAlpha");
-    uOpacity_ = glGetUniformLocation(program_, "uOpacity");
-    uModel_ = glGetUniformLocation(program_, "uModel");
-    uLit_ = glGetUniformLocation(program_, "uLit");
-    uLightCount_ = glGetUniformLocation(program_, "uLightCount");
-    uLightPos_ = glGetUniformLocation(program_, "uLightPos");
-    uLightCol_ = glGetUniformLocation(program_, "uLightCol");
-    uFogOn_ = glGetUniformLocation(program_, "uFogOn");
-    uFogColor_ = glGetUniformLocation(program_, "uFogColor");
-    uFogStart_ = glGetUniformLocation(program_, "uFogStart");
-    uFogEnd_ = glGetUniformLocation(program_, "uFogEnd");
-    uFogEye_ = glGetUniformLocation(program_, "uFogEye");
-    uFogFwd_ = glGetUniformLocation(program_, "uFogFwd");
-    uFlashOn_ = glGetUniformLocation(program_, "uFlashOn");
-    uFlashCol_ = glGetUniformLocation(program_, "uFlashCol");
-    uFlashInvR2_ = glGetUniformLocation(program_, "uFlashInvR2");
-    uFlashCut2_ = glGetUniformLocation(program_, "uFlashCut2");
-    uFlashSoft_ = glGetUniformLocation(program_, "uFlashSoft");
-    uReflOn_ = glGetUniformLocation(program_, "uReflOn");
-    uRefl_ = glGetUniformLocation(program_, "uRefl");
-    uReflStrength_ = glGetUniformLocation(program_, "uReflStrength");
-    uReflSkyHorizon_ = glGetUniformLocation(program_, "uReflSkyHorizon");
-    uReflSkyTop_ = glGetUniformLocation(program_, "uReflSkyTop");
-    uReflRounded_ = glGetUniformLocation(program_, "uReflRounded");
-    uReflCenter_ = glGetUniformLocation(program_, "uReflCenter");
-    uEmissive_ = glGetUniformLocation(program_, "uEmissive");
-    uEmisCount_ = glGetUniformLocation(program_, "uEmisCount");
-    uEmisPos_ = glGetUniformLocation(program_, "uEmisPos");
-    uEmisAx_ = glGetUniformLocation(program_, "uEmisAx");
-    uEmisAy_ = glGetUniformLocation(program_, "uEmisAy");
-    uEmisAz_ = glGetUniformLocation(program_, "uEmisAz");
-    uEmisCol_ = glGetUniformLocation(program_, "uEmisCol");
-    uEmisRange_ = glGetUniformLocation(program_, "uEmisRange");
-    uEmisObj_ = glGetUniformLocation(program_, "uEmisObj");
-    uAoOn_ = glGetUniformLocation(program_, "uAoOn");
-    uAoStrength_ = glGetUniformLocation(program_, "uAoStrength");
-    uAoRadius_ = glGetUniformLocation(program_, "uAoRadius");
-    uAoCount_ = glGetUniformLocation(program_, "uAoCount");
-    uAoSelfObj_ = glGetUniformLocation(program_, "uAoSelfObj");
-    uAoGround_ = glGetUniformLocation(program_, "uAoGround");
-    uAoReceive_ = glGetUniformLocation(program_, "uAoReceive");
-    uAoPos_ = glGetUniformLocation(program_, "uAoPos");
-    uAoAx_ = glGetUniformLocation(program_, "uAoAx");
-    uAoAy_ = glGetUniformLocation(program_, "uAoAy");
-    uAoAz_ = glGetUniformLocation(program_, "uAoAz");
-    uAoObj_ = glGetUniformLocation(program_, "uAoObj");
-    uAoHeight_ = glGetUniformLocation(program_, "uAoHeight");
-    uAoHmRect_ = glGetUniformLocation(program_, "uAoHmRect");
-    uAoHmOn_ = glGetUniformLocation(program_, "uAoHmOn");
-    uGiOn_ = glGetUniformLocation(program_, "uGiOn");
-    uGiSkipProbe_ = glGetUniformLocation(program_, "uGiSkipProbe");
-    uGiProbes_ = glGetUniformLocation(program_, "uGiProbes");
-    uGiOrigin_ = glGetUniformLocation(program_, "uGiOrigin");
-    uGiStep_ = glGetUniformLocation(program_, "uGiStep");
-    uGiDim_ = glGetUniformLocation(program_, "uGiDim");
-    uGiScale_ = glGetUniformLocation(program_, "uGiScale");
+
+    // PS2-shading variant: the same VS and lighting chunk with the geometry
+    // stage between them. A link failure here is NON-fatal - the toggle just
+    // falls back to the per-pixel look (useSceneProgram guards on 0).
+    {
+        // PS2_VERTEX switches SHADE_COMMON's dynamic lights onto the VU1
+        // slot formula (no N.L, no shadow test) - see litShade.
+        const std::string gsSrc =
+            std::string("#version 330 core\n#define PS2_VERTEX 1\n") +
+            SHADE_COMMON + GS_VTX;
+        const std::string fsVtxSrc =
+            std::string("#version 330 core\n#define PS2_VERTEX 1\n") +
+            SHADE_COMMON + FS_VTX_MAIN;
+        GLuint gsh = compile(GL_GEOMETRY_SHADER, gsSrc.c_str());
+        GLuint fsv = compile(GL_FRAGMENT_SHADER, fsVtxSrc.c_str());
+        if (gsh && fsv) {
+            vtxProgram_ = glCreateProgram();
+            glAttachShader(vtxProgram_, vs);
+            glAttachShader(vtxProgram_, gsh);
+            glAttachShader(vtxProgram_, fsv);
+            glLinkProgram(vtxProgram_);
+            glGetProgramiv(vtxProgram_, GL_LINK_STATUS, &ok);
+            if (!ok) {
+                char log[1024];
+                glGetProgramInfoLog(vtxProgram_, sizeof(log), nullptr, log);
+                std::fprintf(stderr, "PS2-shading program link error: %s\n",
+                             log);
+                glDeleteProgram(vtxProgram_);
+                vtxProgram_ = 0;
+            }
+        }
+        if (gsh) glDeleteShader(gsh);
+        if (fsv) glDeleteShader(fsv);
+        if (vtxProgram_) {
+            // per-program sampler bindings (see the pix set below)
+            glUseProgram(vtxProgram_);
+            glUniform1i(glGetUniformLocation(vtxProgram_, "uRefl"), 1);
+            glUniform1i(glGetUniformLocation(vtxProgram_, "uAoHeight"), 2);
+            glUniform1i(glGetUniformLocation(vtxProgram_, "uGiProbes"), 3);
+            glUniform1i(glGetUniformLocation(vtxProgram_, "uLmTex"), 4);
+            glUseProgram(0);
+        }
+    }
+    glDeleteShader(vs);
+
+    // The u*_ members always describe sceneProgActive_ (useSceneProgram
+    // re-queries them on a switch); the GL_LINES detour keeps its own tiny
+    // pix-program set, queried once here.
+    querySceneLocations(program_);
+    sceneProgActive_ = program_;
+    lineLocs_.mvp = glGetUniformLocation(program_, "uMvp");
+    lineLocs_.model = glGetUniformLocation(program_, "uModel");
+    lineLocs_.tint = glGetUniformLocation(program_, "uTint");
+    lineLocs_.lit = glGetUniformLocation(program_, "uLit");
+    lineLocs_.useTex = glGetUniformLocation(program_, "uUseTex");
+    lineLocs_.alpha = glGetUniformLocation(program_, "uAlpha");
+    lineLocs_.opacity = glGetUniformLocation(program_, "uOpacity");
+    lineLocs_.emissive = glGetUniformLocation(program_, "uEmissive");
+    lineLocs_.reflOn = glGetUniformLocation(program_, "uReflOn");
     glUseProgram(program_);
     glUniform1i(uRefl_, 1);      // sphere map lives on texture unit 1
     glUniform1i(uAoHeight_, 2);  // AO heightmap lives on texture unit 2
     glUniform1i(uGiProbes_, 3);  // GI probe grid lives on texture unit 3
+    glUniform1i(uLmTex_, 4);     // the baked lightmaps (terrain map / atlas)
+    glUniform1i(uLmMode_, 0);
     glUseProgram(0);
 
     GLuint gvs = compile(GL_VERTEX_SHADER, GRADE_VS);
@@ -1207,6 +1634,8 @@ bool Viewport::init() {
     uGradeLiftNeg_ = glGetUniformLocation(gradeProgram_, "uLiftNeg");
     uGradeMixCol_ = glGetUniformLocation(gradeProgram_, "uMixColor");
     uGradeMixAmt_ = glGetUniformLocation(gradeProgram_, "uMixAmt");
+    uGradeQuant_ = glGetUniformLocation(gradeProgram_, "uQuant");
+    uGradeDither_ = glGetUniformLocation(gradeProgram_, "uDither");
     glGenVertexArrays(1, &gradeVao_);  // empty VAO; vertices from gl_VertexID
 
     // PS2 output presentation program (shares GRADE_VS and gradeVao_)
@@ -1276,8 +1705,14 @@ void Viewport::shutdown() {
         if (j->worker.joinable()) j->worker.join();
     animBakeJobs_.clear();
     if (program_) glDeleteProgram(program_);
+    if (vtxProgram_) glDeleteProgram(vtxProgram_);
     if (particleProgram_) glDeleteProgram(particleProgram_);
     if (particleVbo_) glDeleteBuffers(1, &particleVbo_);
+    if (coronaTex_) glDeleteTextures(1, &coronaTex_);
+    if (giTerrTex_) glDeleteTextures(1, &giTerrTex_);
+    if (giAtlasTex_) glDeleteTextures(1, &giAtlasTex_);
+    giTerrTex_ = giAtlasTex_ = 0;
+    clearLmMeshes();
     if (particleVao_) glDeleteVertexArrays(1, &particleVao_);
     if (aoHmTex_) {
         glDeleteTextures(1, &aoHmTex_);
@@ -1303,6 +1738,7 @@ void Viewport::shutdown() {
     destroyMesh(collisionCube_);
     destroyMesh(lightGizmo_);
     destroyMesh(wireSphere_);
+    destroyMesh(wireCone_);
     destroyMesh(cameraBody_);
     destroyMesh(cameraFrustum_);
     destroyMesh(segment_);
@@ -1311,6 +1747,7 @@ void Viewport::shutdown() {
     destroyMesh(scatterCurveMesh_);
     destroyMesh(scatterPointsMesh_);
     clearPrimMeshCache();
+    clearLmMeshes();
     destroyMesh(skyQuad_);
     destroyMesh(skyBodyQuad_);
     for (Mesh& m : starMesh_) destroyMesh(m);
@@ -1609,6 +2046,7 @@ void Viewport::buildPrimitiveMeshes() {
     destroyMesh(collisionCube_);
     destroyMesh(lightGizmo_);
     destroyMesh(wireSphere_);
+    destroyMesh(wireCone_);
     destroyMesh(cameraBody_);
     destroyMesh(cameraFrustum_);
     destroyMesh(segment_);
@@ -1629,6 +2067,24 @@ void Viewport::buildPrimitiveMeshes() {
     collisionCube_ = uploadMesh(unitWireCube(0.5f));  // exact edges (overlay)
     lightGizmo_ = uploadMesh(unitLightBulb());
     wireSphere_ = uploadMesh(unitWireSphere());
+    {
+        // Unit wire cone for the spot-light gizmo: apex at the origin,
+        // base ring at y = -1 with radius 1 (scaled by tan(angle) * reach).
+        std::vector<float> wc;
+        constexpr int kSeg = 20;
+        for (int i = 0; i < kSeg; ++i) {
+            const float a0 = (float)i / kSeg * 2.0f * kPi;
+            const float a1 = (float)(i + 1) / kSeg * 2.0f * kPi;
+            pushVertexColor(wc, std::cos(a0), -1.0f, std::sin(a0), 1, 1, 1);
+            pushVertexColor(wc, std::cos(a1), -1.0f, std::sin(a1), 1, 1, 1);
+        }
+        for (int i = 0; i < 4; ++i) {
+            const float a = (float)i / 4 * 2.0f * kPi;
+            pushVertexColor(wc, 0.0f, 0.0f, 0.0f, 1, 1, 1);
+            pushVertexColor(wc, std::cos(a), -1.0f, std::sin(a), 1, 1, 1);
+        }
+        wireCone_ = uploadMesh(wc);
+    }
     cameraBody_ = uploadMesh(unitCameraBody());
     cameraFrustum_ = uploadMesh(unitCameraFrustum());
     {
@@ -1829,41 +2285,32 @@ void Viewport::buildTerrainChunkMesh(int cx, int cz) {
         iz = iz < 0 ? 0 : iz > hmD_ - 1 ? hmD_ - 1 : iz;
         return heights_[(size_t)iz * hmW_ + ix];
     };
-    // Baked GI on the ground: the map replaces the ambient + directional term
-    // outright, exactly as the generated game's terrainGi does (its shadeAt is
-    // this one's twin). Sampled bilinearly at the vertex - the game reads the
-    // same image per PIXEL through an additive pass, so a preview on the
-    // render grid is the one place these two differ, and it is a resolution
-    // difference rather than a different answer.
-    const bool giGround = giTerrSize_ > 0 && !giTerrLight_.empty();
-    auto giGroundAt = [&](float wx, float wz) -> Vec3 {
-        const float u = (wx - x0) / w * (giTerrSize_ - 1);
-        const float v = (wz - z0) / d * (giTerrSize_ - 1);
-        const float cu = u < 0 ? 0 : (u > giTerrSize_ - 1 ? giTerrSize_ - 1 : u);
-        const float cv = v < 0 ? 0 : (v > giTerrSize_ - 1 ? giTerrSize_ - 1 : v);
-        const int u0 = (int)cu, v0 = (int)cv;
-        const int u1 = u0 + 1 < giTerrSize_ ? u0 + 1 : u0;
-        const int v1 = v0 + 1 < giTerrSize_ ? v0 + 1 : v0;
-        const float fu = cu - u0, fv = cv - v0;
-        auto texel = [&](int a, int b, int c) {
-            return giTerrLight_[((size_t)b * giTerrSize_ + a) * 3 + c] / 255.0f;
-        };
-        Vec3 out{};
-        float* o = &out.x;
-        for (int c = 0; c < 3; ++c)
-            o[c] = (texel(u0, v0, c) * (1 - fu) + texel(u1, v0, c) * fu) * (1 - fv) +
-                   (texel(u0, v1, c) * (1 - fu) + texel(u1, v1, c) * fu) * fv;
-        return out;
-    };
+    // Baked GI on the ground (docs/global-illumination.md): the map is read
+    // PER PIXEL by the fragment shader (uLmMode 2 / 3, lmApply), exactly where
+    // the console's two chunk passes read it. Two routes, as the console has
+    // them. An UNTEXTURED terrain replaces its shade with the map's RGB: the
+    // vertex colour then carries only the ground's own tint (the console's
+    // additive pass modulates the map by the same tint) and the shade goes
+    // black. A TEXTURED one cannot take an additive map - the console applies
+    // the map's ALPHA as a per-pixel multiply over the ordinary shade instead,
+    // and so does the shader, so the vertex keeps its ordinary shade.
+    const bool giGround =
+        giTerrSize_ > 0 && !giTerrLight_.empty() && !giTerrLum_;
+    const bool giGroundMul =
+        giTerrSize_ > 0 && giTerrLum_ && !giTerrAlpha_.empty();
     auto shadeAt = [&](int ix, int iz) -> Vec3 {
         Vec3 n = {hAt(ix - 1, iz) - hAt(ix + 1, iz), 2.0f * (sx < sz ? sx : sz),
                   hAt(ix, iz - 1) - hAt(ix, iz + 1)};
-        Vec3 s = giGround ? giGroundAt(x0 + ix * sx, z0 + iz * sz)
-                          : shadeOf(normalize(n));
-        // Terrain self-AO: the same host-baked grid the game ships as
-        // TERRAIN_AO_TABLES, multiplied before everything else (the occluder
-        // contact term arrives per fragment in the shader).
-        if (aoOn_ && (int)aoGrid_.size() == hmW_ * hmD_) {
+        Vec3 s = giGround ? Vec3{1.0f, 1.0f, 1.0f} : shadeOf(normalize(n));
+        // Terrain self-AO: the same host-baked grid the game ships in the AO
+        // map's alpha, multiplied before everything else (the occluder contact
+        // term arrives per fragment in the shader). Skipped on both map
+        // routes: there the map's alpha is read per pixel by the shader
+        // instead - the occlusion on the RGB route, the gathered light on the
+        // multiply route (the console cannot apply both, and the gather
+        // already answered the sky-visibility question AO approximates).
+        if (aoOn_ && !giGroundMul && !giGround &&
+            (int)aoGrid_.size() == hmW_ * hmD_) {
             const int ax = ix < 0 ? 0 : (ix > hmW_ - 1 ? hmW_ - 1 : ix);
             const int az = iz < 0 ? 0 : (iz > hmD_ - 1 ? hmD_ - 1 : iz);
             const float aoM =
@@ -2426,6 +2873,136 @@ void Viewport::pickBounds(const SceneObject& o, float mn[3], float mx[3]) {
     }
 }
 
+// Picking and selection decorations use CPU data, never read back GL buffers.
+const objparser::Model* Viewport::pickModel(const std::string& path, const std::string& material) {
+    const std::string key = path + "|" + material;
+    auto it = pickModelCache_.find(key);
+    if (it == pickModelCache_.end()) {
+        objparser::Model mesh;
+        objparser::load((std::filesystem::path(projectDir_)/path).string(), mesh,
+            material.empty() ? "" : (std::filesystem::path(projectDir_)/material).string());
+        it = pickModelCache_.emplace(key, std::move(mesh)).first;
+    }
+    return it->second.submeshes.empty() ? nullptr : &it->second;
+}
+
+// Returns the same capture selected by the normal viewport model draw.
+int Viewport::pickVisual(const SceneObject& o, const float* eye, SceneObject& visual) {
+    visual = o;
+    if (o.type != PrimitiveType::Model || isAnimatedModelPath(o.modelPath) ||
+        o.physics || o.impostorPath.empty() || o.impostorDistance <= 0) return -1;
+    const float dx = eye[0]-o.position[0], dy = eye[1]-o.position[1], dz = eye[2]-o.position[2];
+    if (dx*dx+dy*dy+dz*dz <= o.impostorDistance*o.impostorDistance) return -1;
+    if (o.impostorBillboard && (std::fabs(o.rotation[0]) >= .001f ||
+        std::fabs(o.rotation[2]) >= .001f || o.scale[0] <= 0 || o.scale[1] <= 0 ||
+        std::fabs(o.scale[0]-o.scale[2]) >= .0001f)) return -1;
+    const auto* far = pickModel(o.impostorPath, "");
+    if (!far || (o.impostorBillboard && far->submeshes.size() != (size_t)o.impostorViews)) return -1;
+    visual.modelPath = o.impostorPath;
+    visual.materialPath.clear();
+    if (!o.impostorBillboard) return -1;
+    const float yaw = std::atan2(dx,dz);
+    const int sector = (int)std::floor((yaw-o.rotation[1]*kPi/180.0f)*(o.impostorViews/(2.0f*kPi))+.5f);
+    visual.rotation[1] = yaw*180.0f/kPi;
+    return (sector%o.impostorViews+o.impostorViews)%o.impostorViews;
+}
+
+void Viewport::selectionBounds(const SceneObject& o, float mn[3], float mx[3]) {
+    for (int k=0;k<3;++k) mn[k]=1e30f, mx[k]=-1e30f;
+    auto grow = [&](const SceneObject& transform, const float* lo, const float* hi) {
+        for (int corner=0;corner<8;++corner) {
+            Vec3 v{corner&1 ? hi[0] : lo[0], corner&2 ? hi[1] : lo[1], corner&4 ? hi[2] : lo[2]};
+            if (isAnimatedModelPath(transform.modelPath) && transform.modelYawOffset != 0) {
+                const float angle[3]={0,transform.modelYawOffset,0};
+                v=rotateEuler(v,angle);
+            }
+            v=rotateEuler(v,transform.rotation);
+            const float xyz[3]={v.x+transform.position[0],v.y+transform.position[1],v.z+transform.position[2]};
+            for(int k=0;k<3;++k) mn[k]=std::min(mn[k],xyz[k]),mx[k]=std::max(mx[k],xyz[k]);
+        }
+    };
+    float lo[3],hi[3];
+    pickBounds(o,lo,hi); // already scaled, including fixed-size editor markers
+    grow(o,lo,hi);
+    if (o.type != PrimitiveType::Model || o.impostorPath.empty()) return;
+    const CamView cam=camView(fbWidth_,fbHeight_);
+    SceneObject visual;
+    const int capture=pickVisual(o,cam.eye,visual);
+    if (visual.modelPath == o.modelPath) return;
+    const auto* mesh=pickModel(visual.modelPath,visual.materialPath);
+    if (!mesh) return;
+    for(int k=0;k<3;++k) lo[k]=1e30f,hi[k]=-1e30f;
+    for(size_t pi=0;pi<mesh->submeshes.size();++pi) {
+        if(capture>=0 && (int)pi!=capture) continue;
+        const auto& verts=mesh->submeshes[pi].verts;
+        for(size_t i=0;i+7<verts.size();i+=8)
+            for(int k=0;k<3;++k) {
+                const float x=verts[i+k]*visual.scale[k];
+                lo[k]=std::min(lo[k],x);hi[k]=std::max(hi[k],x);
+            }
+    }
+    grow(visual,lo,hi); // union includes both authored model and visible card
+}
+
+float Viewport::pickModelSurface(const SceneObject& visual, int capture,
+                                 const float* origin, const float* direction) {
+    const auto* mesh=pickModel(visual.modelPath,visual.materialPath);
+    if(!mesh) return -1;
+    Vec3 ro,rd;
+    objectLocalRay(visual,{origin[0],origin[1],origin[2]},
+                   {direction[0],direction[1],direction[2]},ro,rd);
+    if (std::fabs(visual.scale[0])<1e-8f || std::fabs(visual.scale[1])<1e-8f ||
+        std::fabs(visual.scale[2])<1e-8f) return -1;
+    ro={ro.x/visual.scale[0],ro.y/visual.scale[1],ro.z/visual.scale[2]};
+    rd={rd.x/visual.scale[0],rd.y/visual.scale[1],rd.z/visual.scale[2]};
+    float best=1e30f;
+    for(size_t pi=0;pi<mesh->submeshes.size();++pi) {
+        if(capture>=0 && (int)pi!=capture) continue;
+        const auto& part=mesh->submeshes[pi];
+        const PickAlpha* alpha=nullptr;
+        if(!part.texture.empty()) {
+            const auto dir=std::filesystem::path(visual.materialPath.empty()?visual.modelPath:visual.materialPath).parent_path();
+            const std::string path=(dir/part.texture).generic_string();
+            auto it=pickAlphaCache_.find(path);
+            if(it==pickAlphaCache_.end()) {
+                PickAlpha mask;int channels;
+                unsigned char* pixels=stbi_load((std::filesystem::path(projectDir_)/path).string().c_str(),&mask.w,&mask.h,&channels,4);
+                if(pixels) {
+                    mask.values.resize((size_t)mask.w*mask.h);
+                    for(size_t i=0;i<mask.values.size();++i) mask.values[i]=pixels[i*4+3];
+                    stbi_image_free(pixels);
+                }
+                it=pickAlphaCache_.emplace(path,std::move(mask)).first;
+            }
+            if(!it->second.values.empty()) alpha=&it->second;
+        }
+        for(size_t i=0;i+23<part.verts.size();i+=24) {
+            const float* v=&part.verts[i];
+            const Vec3 a{v[0],v[1],v[2]},b{v[8],v[9],v[10]},c{v[16],v[17],v[18]};
+            const Vec3 e1=sub(b,a),e2=sub(c,a),p=cross(rd,e2);
+            const float det=dot(e1,p);
+            if(std::fabs(det)<1e-8f) continue;
+            const Vec3 delta=sub(ro,a);
+            const float u=dot(delta,p)/det;
+            if(u<0 || u>1) continue;
+            const Vec3 q=cross(delta,e1);
+            const float w=dot(rd,q)/det;
+            if(w<0 || u+w>1) continue;
+            const float t=dot(e2,q)/det;
+            if(t<=0 || t>=best) continue;
+            if(alpha) {
+                const float tu=(1-u-w)*v[6]+u*v[14]+w*v[22];
+                const float tv=(1-u-w)*v[7]+u*v[15]+w*v[23];
+                const int x=std::min(alpha->w-1,(int)((tu-std::floor(tu))*alpha->w));
+                const int y=std::min(alpha->h-1,(int)((tv-std::floor(tv))*alpha->h));
+                if(alpha->values[(size_t)y*alpha->w+x]<128) continue;
+            }
+            best=t;
+        }
+    }
+    return best<1e30f ? best : -1;
+}
+
 void Viewport::pickAll(float u, float v, const std::vector<SceneObject>& objects,
                        std::vector<int>& out) {
     out.clear();
@@ -2461,7 +3038,7 @@ void Viewport::pickAll(float u, float v, const std::vector<SceneObject>& objects
     // repeated click reach them without leaving the viewport.
     struct Cand {
         int index;
-        int tier;  // 0 exact, 1 within the grab margin, +2 for a volume
+        int tier;  // 0 surface, 1 model-box fallback, 2 margin, +3 for a volume
         float t;
     };
     std::vector<Cand> cands;
@@ -2480,9 +3057,14 @@ void Viewport::pickAll(float u, float v, const std::vector<SceneObject>& objects
         Vec3 lo, ld;
         objectLocalRay(o, eye, dir, lo, ld);
 
+        const bool staticModel=o.type==PrimitiveType::Model && !isAnimatedModelPath(o.modelPath);
+        if(staticModel) {
+            selectionBounds(o,mn,mx);
+            lo=eye;ld=dir;
+        }
         const bool volume = o.type == PrimitiveType::Area ||
                             o.type == PrimitiveType::Scatter;
-        int tier = volume ? 2 : 0;
+        int tier = volume ? 3 : (staticModel ? 1 : 0);
         float t = rayBox(lo, ld, mn, mx);
         if (t <= 0.0f) {
             const float pad = padAt(o);
@@ -2491,7 +3073,13 @@ void Viewport::pickAll(float u, float v, const std::vector<SceneObject>& objects
                 pmn[k] = mn[k] - pad, pmx[k] = mx[k] + pad;
             t = rayBox(lo, ld, pmn, pmx);
             if (t <= 0.0f) continue;
-            tier += 1;
+            tier = volume ? 4 : 2;
+        }
+        if(staticModel) {
+            SceneObject visual;
+            const int capture=pickVisual(o,cam.eye,visual);
+            const float surface=pickModelSurface(visual,capture,ro,rd);
+            if(surface>0) { tier=0;t=surface; }
         }
         cands.push_back({(int)i, tier, t});
     }
@@ -2888,19 +3476,208 @@ void Viewport::setTerrainLayers(const std::vector<TerrainLayerDraw>& layers,
 }
 
 void Viewport::setGiTerrain(const aobake::AoImage& img) {
-    const bool on = img.size > 0 && img.hasLight && img.gi &&
-                    (int)img.light.size() == img.size * img.size * 3;
+    // Two routes, and the flag on the image says which (aobake::giLumAlpha):
+    // RGB replaces the shade for an untextured ground, ALPHA multiplies it for
+    // a textured one. Either way the answer is baked into the vertices here.
+    const bool lum = img.giLumAlpha &&
+                     (int)img.alpha.size() == img.size * img.size;
+    const bool on = img.size > 0 && img.gi &&
+                    (lum || (img.hasLight &&
+                             (int)img.light.size() == img.size * img.size * 3));
     if (!on) {
-        if (giTerrSize_ == 0 && giTerrLight_.empty()) return;
+        if (giTerrSize_ == 0 && giTerrLight_.empty() && giTerrAlpha_.empty())
+            return;
         giTerrSize_ = 0;
         giTerrLight_.clear();
+        giTerrAlpha_.clear();
+        giTerrLum_ = false;
+        giMapsUploadPending_ = true;
         if (program_) buildTerrainMesh();
         return;
     }
-    if (giTerrSize_ == img.size && giTerrLight_ == img.light) return;
+    if (giTerrSize_ == img.size && giTerrLum_ == lum &&
+        giTerrLight_ == img.light && giTerrAlpha_ == img.alpha)
+        return;
     giTerrSize_ = img.size;
+    giTerrLum_ = lum;
     giTerrLight_ = img.light;
-    if (program_) buildTerrainMesh();  // the shade is baked into the vertices
+    giTerrAlpha_ = img.alpha;
+    giMapsUploadPending_ = true;
+    if (program_) buildTerrainMesh();  // the tint is baked into the vertices
+}
+
+void Viewport::setGiAtlas(const aobake::SceneLightAtlas& atlas) {
+    const bool on = atlas.size > 0 && atlas.gi &&
+                    (int)atlas.light.size() == atlas.size * atlas.size * 3 &&
+                    !atlas.rects.empty();
+    if (!on) {
+        if (giAtlasSize_ == 0 && giAtlasRects_.empty()) return;
+        giAtlasSize_ = 0;
+        giAtlasGi_ = false;
+        giAtlasPixels_.clear();
+        giAtlasRects_.clear();
+        giAtlasFirst_.clear();
+        giAtlasLit_.clear();
+        giMapsUploadPending_ = true;
+        clearLmMeshes();
+        return;
+    }
+    auto sameRects = [&] {
+        if (giAtlasRects_.size() != atlas.rects.size()) return false;
+        for (size_t i = 0; i < atlas.rects.size(); ++i)
+            if (giAtlasRects_[i].u0 != atlas.rects[i].u0 ||
+                giAtlasRects_[i].v0 != atlas.rects[i].v0 ||
+                giAtlasRects_[i].du != atlas.rects[i].du ||
+                giAtlasRects_[i].dv != atlas.rects[i].dv)
+                return false;
+        return true;
+    };
+    if (giAtlasSize_ == atlas.size && sameRects() &&
+        giAtlasFirst_ == atlas.firstRegion && giAtlasLit_ == atlas.lit &&
+        giAtlasGi_ == atlas.gi) {
+        // Same layout - only the pixels may have moved (a re-bake).
+        std::vector<uint8_t> px((size_t)atlas.size * atlas.size * 4);
+        for (size_t i = 0; i < (size_t)atlas.size * atlas.size; ++i) {
+            px[i * 4 + 0] = atlas.light[i * 3 + 0];
+            px[i * 4 + 1] = atlas.light[i * 3 + 1];
+            px[i * 4 + 2] = atlas.light[i * 3 + 2];
+            px[i * 4 + 3] = i < atlas.alpha.size() ? atlas.alpha[i] : 0;
+        }
+        if (px == giAtlasPixels_) return;
+        giAtlasPixels_ = std::move(px);
+        giMapsUploadPending_ = true;
+        return;
+    }
+    giAtlasSize_ = atlas.size;
+    giAtlasGi_ = atlas.gi;
+    giAtlasRects_ = atlas.rects;
+    giAtlasFirst_ = atlas.firstRegion;
+    giAtlasLit_ = atlas.lit;
+    giAtlasPixels_.assign((size_t)atlas.size * atlas.size * 4, 0);
+    for (size_t i = 0; i < (size_t)atlas.size * atlas.size; ++i) {
+        giAtlasPixels_[i * 4 + 0] = atlas.light[i * 3 + 0];
+        giAtlasPixels_[i * 4 + 1] = atlas.light[i * 3 + 1];
+        giAtlasPixels_[i * 4 + 2] = atlas.light[i * 3 + 2];
+        giAtlasPixels_[i * 4 + 3] = i < atlas.alpha.size() ? atlas.alpha[i] : 0;
+    }
+    giMapsUploadPending_ = true;
+    clearLmMeshes();  // the rects moved - every per-object ST is stale
+}
+
+// Uploads the terrain map and the atlas as RGBA textures on texture unit 4
+// (never both bound at once - the draw that needs one binds it). Deferred to
+// render() like the probe grid, because the setters run before the context
+// exists on a project open. The console samples both bilinearly (GS LINEAR),
+// clamped - the atlas regions carry their own dilation ring for exactly that.
+void Viewport::uploadGiMaps() {
+    if (!giMapsUploadPending_) return;
+    giMapsUploadPending_ = false;
+    auto upload = [&](uint32_t& tex, int size, const std::vector<uint8_t>& rgba) {
+        if (size <= 0 || rgba.size() != (size_t)size * size * 4) {
+            if (tex) glDeleteTextures(1, &tex);
+            tex = 0;
+            return;
+        }
+        if (!tex) glGenTextures(1, &tex);
+        glActiveTexture(GL_TEXTURE4);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glUploadTexRgba(size, size, rgba.data());
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        glActiveTexture(GL_TEXTURE0);
+    };
+    // The terrain map ships as ONE RGBA image on the console (texbake's
+    // writeAlphaPng); the two channels are staged separately here.
+    std::vector<uint8_t> terr;
+    if (giTerrSize_ > 0) {
+        const size_t n = (size_t)giTerrSize_ * giTerrSize_;
+        terr.assign(n * 4, 0);
+        const bool hasLight = giTerrLight_.size() == n * 3;
+        const bool hasAlpha = giTerrAlpha_.size() == n;
+        for (size_t i = 0; i < n; ++i) {
+            if (hasLight)
+                for (int c = 0; c < 3; ++c) terr[i * 4 + c] = giTerrLight_[i * 3 + c];
+            terr[i * 4 + 3] = hasAlpha ? giTerrAlpha_[i] : 0;
+        }
+    }
+    upload(giTerrTex_, giTerrSize_, terr);
+    upload(giAtlasTex_, giAtlasSize_, giAtlasPixels_);
+}
+
+void Viewport::clearLmMeshes() {
+    for (auto& [key, m] : lmMeshes_) destroyMesh(m);
+    lmMeshes_.clear();
+}
+
+// The atlas-lit mesh of one primitive: primmesh's raw tessellation with the
+// UV slot rewritten to the object's atlas ST. Region = the face the vertex's
+// LOCAL normal names, in the builders' emission order the atlas is laid out
+// in (aobake regionPoint: box +X,-X,+Y,-Y,+Z,-Z; cylinder side, +Y cap, -Y
+// cap; cone side, base; plane top, bottom); (u, v) = primmesh's own face UV,
+// which is the same parametrisation regionPoint inverts - the two were
+// written against the same generated builders. Null when this object takes
+// no light from the atlas (not in it, textured, or the atlas is not a GI one).
+const Viewport::Mesh* Viewport::lmMeshFor(size_t oi, const SceneObject& o) {
+    if (!giAtlasTex_ || !giAtlasGi_ || oi >= giAtlasFirst_.size() ||
+        giAtlasFirst_[oi] < 0 || oi >= giAtlasLit_.size() || !giAtlasLit_[oi])
+        return nullptr;
+    int regions = 0;
+    switch (o.type) {
+        case PrimitiveType::Box:
+        case PrimitiveType::SavePoint: regions = 6; break;
+        case PrimitiveType::Sphere: regions = 1; break;
+        case PrimitiveType::Cylinder: regions = 3; break;
+        case PrimitiveType::Cone: regions = 2; break;
+        case PrimitiveType::Plane: regions = 2; break;
+        default: return nullptr;
+    }
+    const size_t first = (size_t)giAtlasFirst_[oi];
+    if (first + regions > giAtlasRects_.size()) return nullptr;
+    const PrimitiveType meshType =
+        o.type == PrimitiveType::SavePoint ? PrimitiveType::Box : o.type;
+    const int detail = clampPrimDetail(meshType, o.primDetail);
+    const uint64_t key = ((uint64_t)oi << 32) | ((uint64_t)(int)o.type << 24) |
+                         (o.primRings ? (1ull << 20) : 0) | (uint64_t)detail;
+    if (auto it = lmMeshes_.find(key); it != lmMeshes_.end()) return &it->second;
+    std::vector<float> raw;
+    switch (o.type) {
+        case PrimitiveType::Sphere: raw = primmesh::unitSphere(detail); break;
+        case PrimitiveType::Cylinder:
+            raw = primmesh::unitCylinder(detail, o.primRings);
+            break;
+        case PrimitiveType::Cone: raw = primmesh::unitCone(detail); break;
+        case PrimitiveType::Plane: raw = primmesh::unitPlane(); break;
+        default: raw = primmesh::unitBox(detail); break;
+    }
+    for (size_t i = 0; i + 7 < raw.size(); i += 8) {
+        const float nx = raw[i + 3], ny = raw[i + 4], nz = raw[i + 5];
+        int region = 0;
+        switch (o.type) {
+            case PrimitiveType::Sphere: region = 0; break;
+            case PrimitiveType::Cylinder:
+                region = ny > 0.5f ? 1 : (ny < -0.5f ? 2 : 0);
+                break;
+            case PrimitiveType::Cone: region = ny < -0.5f ? 1 : 0; break;
+            case PrimitiveType::Plane: region = ny > 0.0f ? 0 : 1; break;
+            default: {
+                const float ax = std::fabs(nx), ay = std::fabs(ny), az = std::fabs(nz);
+                region = ax >= ay && ax >= az ? (nx > 0 ? 0 : 1)
+                         : ay >= az          ? (ny > 0 ? 2 : 3)
+                                             : (nz > 0 ? 4 : 5);
+                break;
+            }
+        }
+        const aobake::AtlasRect& rc = giAtlasRects_[first + region];
+        const float u = raw[i + 6], v = raw[i + 7];
+        const Vec3 sh = shadeOf({nx, ny, nz});
+        raw[i + 3] = sh.x, raw[i + 4] = sh.y, raw[i + 5] = sh.z;
+        raw[i + 6] = rc.u0 + u * rc.du;
+        raw[i + 7] = rc.v0 + v * rc.dv;
+    }
+    return &lmMeshes_.emplace(key, uploadMesh(raw)).first->second;
 }
 
 void Viewport::setTerrainTint(float variation, float scaleWorld) {
@@ -2946,6 +3723,17 @@ void Viewport::clearTexCache() {
     texAlpha_.clear();  // re-derived when the images reload
 }
 
+void Viewport::setModelAoMaps(std::map<std::string, std::string> maps,
+                              float strength) {
+    if (maps == modelAoMaps_ && strength == modelAoStrength_) return;
+    modelAoMaps_ = std::move(maps);
+    modelAoStrength_ = strength;
+    // See the header: a per-texture drop is NOT enough, because the model and
+    // material caches hold the GL name. This is rare (a finished bake or a
+    // settings edit), so it takes the same route an edited asset takes.
+    invalidateAssets();
+}
+
 void Viewport::invalidateAssets() {
     clearModelCache();  // also drops materialCache_
     clearTexCache();
@@ -2973,6 +3761,12 @@ uint32_t Viewport::glTexture(const std::string& relPath) {
                     hasAlpha = true;
                     break;
                 }
+        // The editor must show what the console will: texbake multiplies the
+        // model's baked AO into this texture's RGB, so the upload does too -
+        // through the same modelao helper, never a second copy of the formula.
+        // Alpha is untouched, so the transparency scan above stays valid.
+        if (auto ao = modelAoMaps_.find(relPath); ao != modelAoMaps_.end())
+            modelao::applyMapFile(ao->second, pixels, w, h, modelAoStrength_);
         glGenTextures(1, &tex);
         glBindTexture(GL_TEXTURE_2D, tex);
         glUploadTexRgba(w, h, pixels);
@@ -2993,6 +3787,8 @@ void Viewport::clearModelCache() {
         for (auto& part : draw.parts) destroyMesh(part.mesh);
     modelCache_.clear();
     modelBoundsCache_.clear();  // re-read bounds after a disk change too
+    pickModelCache_.clear();
+    pickAlphaCache_.clear();
     materialCache_.clear();  // GL textures are owned by texCache_
     for (auto& j : animBakeJobs_)
         if (j->worker.joinable()) j->worker.join();
@@ -3222,6 +4018,7 @@ const Viewport::MatPrevModel* Viewport::matPrevModelDraw(
 
 void Viewport::updateTexturePixels(const std::string& relPath, int w, int h,
                                    const unsigned char* rgba) {
+    pickAlphaCache_.erase(relPath);
     if (relPath.empty() || w < 1 || h < 1 || !rgba) return;
     uint32_t& tex = texCache_[relPath];
     if (!tex) {
@@ -3461,6 +4258,7 @@ void Viewport::animBakeCollect() {
                 AnimModelDraw::Part part;
                 if (src.image >= 0 && src.image < (int)imageTex.size())
                     part.tex = imageTex[src.image];
+                for (int c = 0; c < 3; ++c) part.kd[c] = src.baseColor[c];
                 std::vector<float> interleaved((size_t)src.vertexCount * 8,
                                                0.0f);
                 part.mesh = uploadMesh(interleaved);
@@ -4033,10 +4831,15 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             projM_[i * 4 + 1] *= cam.boxSy;
         }
 
-    glUseProgram(program_);
+    // PS2 shading simulation: the scene pass swaps to the geometry-stage
+    // program; previews, the presentation passes and the GL_LINES detour in
+    // draw() stay per-pixel.
+    useSceneProgram(ps2Shade_);
     // uOpacity persists across draws (the sky/outline sites below don't set
     // it) - reset the mirror pass's leftover so the frame starts opaque.
     glUniform1f(uOpacity_, 1.0f);
+    glUniform1i(uFoliageImpostor_, 0);
+    glUniform1i(uPs2Flat_, 0);  // Gouraud until a flat draw says otherwise
 
     // Sky dome: centered on the camera (an "infinite" sky) and scaled well
     // past the scene but inside the far plane, drawn first with no depth so
@@ -4096,9 +4899,22 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // Point lights in the scene -> fragment shader uniforms (live preview of
     // what the game bakes into vertex colors; capped at the shader's 8).
     int pointLightCount = 0;
+    float lightPosPrev[8 * 4] = {};
+    float lightDirPrev[8 * 4] = {};
+    bool lightDynPrev[8] = {};
+    int lightObjPrev[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+    // The ONE spot light whose casters the preview shadows the volumes' way
+    // (docs/shadows.md, "Spot-light shadow volumes"): among the dynamic spots
+    // that resolve to "on" - the light's own override, or the project switch
+    // when it says "follow" - the nearest to the camera, exactly the game's
+    // slot rule minus its hysteresis (an editor camera does not drift between
+    // two lamps frame to frame). -1 = none.
+    int spotVolLight = -1;
+    float spotVolD2 = 0.0f;
     {
         float pos[8 * 4] = {};
         float col[8 * 4] = {};
+        float dir[8 * 4] = {};
         int count = 0;
         for (size_t oi = 0; oi < objects.size(); ++oi) {
             const SceneObject& o = objects[oi];
@@ -4112,11 +4928,47 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             col[count * 4 + 1] = o.color[1];
             col[count * 4 + 2] = o.color[2];
             col[count * 4 + 3] = o.lightBright;
+            // Style channel (see the shader): spots carry their direction -
+            // the object's local -Y through its rotation, the same axis the
+            // game resolves - and cos(cutoff); points carry 1.6 (dynamic,
+            // shadows the game's way) or 2.0 (baked - the bake owns those).
+            if (o.lightDynamic && o.lightSpot) {
+                const float d2r = kPi / 180.0f;
+                const Mat4 rot = mul(rotZ(o.rotation[2] * d2r),
+                                     mul(rotY(o.rotation[1] * d2r),
+                                         rotX(o.rotation[0] * d2r)));
+                dir[count * 4 + 0] = -rot.m[4];
+                dir[count * 4 + 1] = -rot.m[5];
+                dir[count * 4 + 2] = -rot.m[6];
+                dir[count * 4 + 3] =
+                    std::cos(o.lightSpotAngle * d2r);
+            } else {
+                dir[count * 4 + 3] = o.lightDynamic ? 1.6f : 2.0f;
+            }
+            lightDynPrev[count] = o.lightDynamic;
+            lightObjPrev[count] = (int)oi;
+            for (int c = 0; c < 4; ++c) {
+                lightPosPrev[count * 4 + c] = pos[count * 4 + c];
+                lightDirPrev[count * 4 + c] = dir[count * 4 + c];
+            }
+            if (o.lightDynamic && o.lightSpot && o.lightBright > 0.01f &&
+                (o.lightShadowVolumes == 2 ||
+                 (o.lightShadowVolumes == 0 && spotShadowVolumes_))) {
+                const float ex = o.position[0] - eye.x;
+                const float ey = o.position[1] - eye.y;
+                const float ez = o.position[2] - eye.z;
+                const float d2 = ex * ex + ey * ey + ez * ez;
+                if (spotVolLight < 0 || d2 < spotVolD2) {
+                    spotVolLight = count;
+                    spotVolD2 = d2;
+                }
+            }
             ++count;
         }
         glUniform1i(uLightCount_, count);
         glUniform4fv(uLightPos_, 8, pos);
         glUniform4fv(uLightCol_, 8, col);
+        glUniform4fv(uLightDir_, 8, dir);
         pointLightCount = count;
     }
 
@@ -4191,8 +5043,18 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // shader's 32 nearest the camera target. Per draw call only the
     // self-exclusion index and the ground-term toggle change (see draw()).
     int aoSelfObj = -1;
+    int lmMode = 0;  // uLmMode of the draw being issued (see lmApply)
     bool aoGroundOn = false;
     bool aoReceive = true;  // models neither receive nor self-occlude
+    // PS2 shading: which bag the game would submit the NEXT draw as. 1 =
+    // TyraShadingFlat (one corner colour per triangle - terrain, static
+    // primitives, models, batches), 0 = Gouraud (sky dome, animated models,
+    // dyn-lit objects). Consumed by draw() like aoSelfObj; only the
+    // geometry-stage program reads it.
+    int ps2Flat = 0;
+    // ...and whether that bag opted out of the dynamic-light pick the way
+    // the terrain does (dynLightPick = false - the pool is its light).
+    int ps2NoDyn = 0;
     // Emissive floor of the NEXT draw, already multiplied by the object tint
     // (see the uEmissive comment in FS). One-shot: draw() consumes it and
     // resets to zero, so every gizmo, wire, marker and overlay that does not
@@ -4203,7 +5065,14 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         // Collected for ambient occlusion OR to shadow the emissive lights -
         // the same shapes serve both, so a scene with lamps and no baked
         // occlusion still needs them uploaded.
-        if (aoOn_ || emisCount > 0) {
+        // ...and for the dynamic lights' own shadows: those tests read the
+        // same slots, and with the occluders gated on AO alone a scene with
+        // AO off previewed every lamp shadowless - the game's surprise this
+        // preview exists to spoil. A dynamic light in the scene uploads them.
+        bool anyDynLight = false;
+        for (int li = 0; li < pointLightCount; ++li)
+            anyDynLight |= lightDynPrev[li];
+        if (aoOn_ || emisCount > 0 || anyDynLight) {
             // Occluder bounds only need the model AABB, so read it through the
             // GL-free bounds path rather than modelDraw(): asking for a number
             // should not upload a whole textured model's meshes and textures to
@@ -4258,6 +5127,76 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             glUniform4fv(uAoAz_, 32, az);
             glUniform1iv(uAoObj_, 32, obj);
             aoCount = (int)occs.size();
+            // Each dynamic light's shadow casters, THE GAME'S WAY: only
+            // objects with "Cast shadow (projected)", nearest four to the
+            // light. The editor used to let everything shadow (or nothing),
+            // which is exactly the in-game surprise this preview now spoils
+            // in advance.
+            int lightOcc[8 * 4];
+            for (int i = 0; i < 8 * 4; ++i) lightOcc[i] = -1;
+            for (int li = 0; li < pointLightCount; ++li) {
+                if (!lightDynPrev[li]) continue;
+                const float* lp = lightPosPrev + li * 4;
+                struct Cand {
+                    float d2;
+                    int slot;
+                };
+                Cand cand[32];
+                int cn = 0;
+                // The spot holding the volume slot picks its casters the
+                // way the game's pickVolCasters does: EVERY solid inside
+                // its cone (not only the Cast-shadow-projected ones), the
+                // nearest four to the LIGHT, nothing grouping-cell sized,
+                // nothing nearer than the extrusion margin, and never an
+                // object whose Dynamic shadow is None. The shadow itself
+                // is still the analytic box test below - a model casts its
+                // bounding box here where the console extrudes its real
+                // triangles, which is the one honest difference.
+                const bool volSlot = li == spotVolLight;
+                const float* ld = lightDirPrev + li * 4;
+                const float cosA = ld[3];
+                const float tanA =
+                    cosA > 0.01f ? std::sqrt(std::max(1.0f - cosA * cosA, 0.0f)) / cosA
+                                 : 1.0f;
+                for (size_t s = 0; s < occs.size(); ++s) {
+                    const int objIdx = occs[s].objIndex;
+                    if (objIdx < 0 || objIdx >= (int)objects.size()) continue;
+                    const float dx = occs[s].pos[0] - lp[0];
+                    const float dy = occs[s].pos[1] - lp[1];
+                    const float dz = occs[s].pos[2] - lp[2];
+                    const float d2v = dx * dx + dy * dy + dz * dz;
+                    if (volSlot) {
+                        if (objects[objIdx].shadowMode == 1) continue;
+                        const aobake::Occluder& oc = occs[s];
+                        const float br = oc.sphere
+                                             ? oc.half[0]
+                                             : std::sqrt(oc.half[0] * oc.half[0] +
+                                                         oc.half[1] * oc.half[1] +
+                                                         oc.half[2] * oc.half[2]);
+                        if (br > 20.0f) continue;
+                        const float t = dx * ld[0] + dy * ld[1] + dz * ld[2];
+                        if (t < 0.35f + 0.3f || t > lp[3]) continue;
+                        const float px = dx - ld[0] * t, py = dy - ld[1] * t,
+                                    pz = dz - ld[2] * t;
+                        if (std::sqrt(px * px + py * py + pz * pz) >
+                            t * tanA * 1.3f + br)
+                            continue;
+                    } else {
+                        if (!objects[objIdx].projShadow) continue;
+                        if (d2v > lp[3] * lp[3] * 4.0f) continue;
+                    }
+                    cand[cn].d2 = d2v;
+                    cand[cn].slot = (int)s;
+                    if (++cn >= 32) break;
+                }
+                std::sort(cand, cand + cn,
+                          [](const Cand& a, const Cand& b) {
+                              return a.d2 < b.d2;
+                          });
+                for (int s = 0; s < cn && s < 4; ++s)
+                    lightOcc[li * 4 + s] = cand[s].slot;
+            }
+            glUniform1iv(uLightOcc_, 32, lightOcc);
         }
         glUniform1i(uAoOn_, aoOn_ ? 1 : 0);
         glUniform1f(uAoStrength_, aoStrength_);
@@ -4283,6 +5222,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // Baked GI probe grid (texture unit 3). Uploaded lazily here rather than
     // in setGiProbes: the bake finishes on a worker thread with no GL context.
     uploadGiProbes();
+    uploadGiMaps();
     if (giTex_ && giDim_[0] > 0) {
         glActiveTexture(GL_TEXTURE3);
         glBindTexture(GL_TEXTURE_3D, giTex_);
@@ -4296,6 +5236,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glUniform1i(uGiOn_, 0);
     }
     glUniform1i(uGiSkipProbe_, 0);
+    glUniform4f(uGiReceiver_, 0, 0, 0, 0);
     const Mat4 identityM = identity();
 
     auto draw = [&](const Mesh& mesh, GLenum mode, const Mat4& mvp, float r, float g,
@@ -4304,9 +5245,37 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                     uint32_t reflTex = 0, float reflStrength = 0.0f,
                     bool reflSky = false, bool reflRounded = false,
                     const float* reflCenter = nullptr) {
+        if (sceneProgActive_ != program_ && mode != GL_TRIANGLES) {
+            // Lines cannot enter the triangles-only geometry stage - detour
+            // through the per-pixel program with the few uniforms unlit
+            // geometry reads (lines are always unlit: no model matrix).
+            glUseProgram(program_);
+            glUniformMatrix4fv(lineLocs_.mvp, 1, GL_FALSE, mvp.m);
+            glUniformMatrix4fv(lineLocs_.model, 1, GL_FALSE, identityM.m);
+            glUniform1i(lineLocs_.lit, 0);
+            glUniform3f(lineLocs_.tint, r, g, b);
+            glUniform3f(lineLocs_.emissive, 0.0f, 0.0f, 0.0f);
+            glUniform1i(lineLocs_.useTex, 0);
+            glUniform1i(lineLocs_.alpha, 0);
+            glUniform1i(lineLocs_.reflOn, 0);
+            glUniform1f(lineLocs_.opacity, opacity);
+            if (opacity < 1.0f) {
+                glEnable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            }
+            glBindVertexArray(mesh.vao);
+            glDrawArrays(mode, 0, mesh.vertexCount);
+            if (opacity < 1.0f) glDisable(GL_BLEND);
+            glUseProgram(sceneProgActive_);
+            emissive[0] = emissive[1] = emissive[2] = 0.0f;  // one-shot
+            return;
+        }
         glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
         glUniformMatrix4fv(uModel_, 1, GL_FALSE, model ? model->m : identityM.m);
         glUniform1i(uLit_, model ? 1 : 0);  // world matrix given = lit geometry
+        glUniform1i(uFoliageImpostor_, ps2Flat == 2);
+        glUniform1i(uPs2Flat_, ps2Flat);    // no-op on the per-pixel program
+        glUniform1i(uPs2NoDyn_, ps2NoDyn);  // no-op on the per-pixel program
         glUniform1i(uAoSelfObj_, aoSelfObj);
         // The ground-contact term needs a ground: with the terrain removed the
         // shader would darken every object against the y = 0 plane it samples
@@ -4314,6 +5283,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         // construction - there the term reads the void height.
         glUniform1i(uAoGround_, (aoGroundOn && terrain_.enabled) ? 1 : 0);
         glUniform1i(uAoReceive_, aoReceive ? 1 : 0);
+        glUniform1i(uLmMode_, lmMode);
         glUniform3f(uTint_, r, g, b);
         glUniform3f(uEmissive_, emissive[0], emissive[1], emissive[2]);
         glUniform1i(uUseTex_, texture ? 1 : 0);
@@ -4344,19 +5314,25 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 
     // Animated models (.glb/.fbx) draw through their own helper because the
     // console lights them differently from everything else: a SkelInstance
-    // gets the scene's directional light + ambient folded into the .tskl
+    // gets the probe lobe (or scene directional + ambient) folded into the .tskl
     // part color and NOTHING else (templates.cpp, setupAnimObject's
     // litColors). So the object's own tint colour and the scene point lights
     // - both of which the game only ever bakes into STATIC vertex colours -
     // must stay out of the preview, or a cyan-tinted Player object renders a
     // cyan avatar here and a correct one on the console.
     auto drawAnimParts = [&](const AnimModelDraw& ad, const Mat4& mvp,
-                             const Mat4* model, float shade, bool asLines) {
+                             const Mat4* model, float shade, bool asLines,
+                             const SceneObject& receiver) {
+        glUniform4f(uGiReceiver_, receiver.position[0],
+                    receiver.position[1] + receiver.scale[1] * 0.5f,
+                    receiver.position[2], 1.0f);
         if (pointLightCount > 0) glUniform1i(uLightCount_, 0);
         for (const AnimModelDraw::Part& part : ad.parts)
-            draw(part.mesh, GL_TRIANGLES, mvp, shade, shade, shade,
+            draw(part.mesh, GL_TRIANGLES, mvp, shade * part.kd[0],
+                 shade * part.kd[1], shade * part.kd[2],
                  asLines ? 0 : part.tex, model);
         if (pointLightCount > 0) glUniform1i(uLightCount_, pointLightCount);
+        glUniform4f(uGiReceiver_, 0, 0, 0, 0);
     };
 
     auto meshFor = [&](const SceneObject& o) -> const Mesh* {
@@ -4393,6 +5369,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     auto drawStaticObject = [&](const SceneObject& t, const Mat4& model,
                                 bool asLines, float tintScale) {
         aoReceive = t.type != PrimitiveType::Model;
+        ps2Flat = 1;  // merged prefab geometry is a static (flat) bag
         const Mat4 mvp = mul(viewProj, model);
         const ModelDraw* md = t.type == PrimitiveType::Model
                                   ? modelDraw(t.modelPath, t.materialPath)
@@ -4441,12 +5418,42 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         aoSelfObj = -1;       // terrain belongs to no scene object
         aoGroundOn = false;   // the ground doesn't sit next to itself
         aoReceive = true;
-        const bool giGround = giTerrSize_ > 0 && !giTerrLight_.empty();
-        if (giGround) glUniform1i(uGiSkipProbe_, 1);
+        ps2Flat = 1;          // terrain chunks are TyraShadingFlat bags
+        ps2NoDyn = 1;         // ...with dynLightPick = false: pool, not slot
+        // THE GROUND NEVER TAKES PROBE LIGHT, with or without a lightmap.
+        //
+        // The probe grid is built for objects: a few levels of samples a few
+        // units apart, sized to a room. Handed a landscape it has nothing to
+        // say - and since giProbe REPLACES the shade outright rather than
+        // adding to it, a terrain that falls through to it comes out black
+        // wherever no live probe reaches, which on a hill is the whole hill.
+        // Reported as "with GI on the peaks are pitch black".
+        //
+        // This used to be gated on having a baked ground lightmap, and the
+        // gap that opened is exactly a TEXTURED terrain: it deliberately gets
+        // no lightmap (the pass is additive and would blow out its dark
+        // texels - see docs/ambient-occlusion.md), so it had neither the map
+        // nor its own shading. Without a map the right answer is the ordinary
+        // directional + ambient term, which is what skipping the probe keeps.
+        glUniform1i(uGiSkipProbe_, 1);
+        // The baked terrain map, per pixel: the vertex colour carries only
+        // the ground's tint on route 2 (buildTerrainMesh), the map's RGB is
+        // added and its alpha multiplied here, exactly where the console's
+        // two chunk passes do it.
+        if (!asLines && giTerrTex_ && giTerrSize_ > 0) {
+            lmMode = giTerrLum_ ? 3 : 2;
+            const float tw = (float)terrain_.width, td = (float)terrain_.depth;
+            glUniform4f(uLmRect_, -tw * 0.5f, -td * 0.5f,
+                        tw > 0 ? 1.0f / tw : 0.0f, td > 0 ? 1.0f / td : 0.0f);
+            glActiveTexture(GL_TEXTURE4);
+            glBindTexture(GL_TEXTURE_2D, giTerrTex_);
+            glActiveTexture(GL_TEXTURE0);
+        }
         for (const Mesh& chunk : terrainChunkMeshes_)
             draw(chunk, GL_TRIANGLES, viewProj, tintScale, tintScale, tintScale,
                  terrainTex, asLines ? nullptr : &identityM);
-        if (giGround) glUniform1i(uGiSkipProbe_, 0);
+        lmMode = 0;
+        glUniform1i(uGiSkipProbe_, 0);
 
         // Painted terrain layers: alpha-blend each layer's pass over the base
         // chunks - the GL twin of the PS2's two-pass splatting (renderTerrain
@@ -4473,8 +5480,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             }
             glDepthMask(GL_TRUE);
             glDisable(GL_BLEND);
-            glUseProgram(program_);
+            glUseProgram(sceneProgActive_);
         }
+        ps2NoDyn = 0;  // objects keep the console's per-vertex light slot
         for (size_t oi = 0; oi < objects.size(); ++oi) {
             if (hiddenAt(oi)) continue;
             const SceneObject& o = objects[oi];
@@ -4494,6 +5502,12 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             // models don't receive AO (matches the game - see modelDraw note)
             aoReceive = o.type != PrimitiveType::Model &&
                         !(o.type == PrimitiveType::Player && o.playerMode == 2);
+            // Static geometry is a TyraShadingFlat bag on the console; a
+            // dyn-lit object's lit bag shades Gouraud (templates.cpp), and
+            // the bulb gizmo is an editor marker with no console twin.
+            ps2Flat = (o.dynamicLighting || o.type == PrimitiveType::PointLight)
+                          ? 0
+                          : 1;
             // The camera(s) being previewed through don't draw their body -
             // it would sit on the near plane and cover the whole view.
             if (o.type == PrimitiveType::Camera && camHidden(o.name)) continue;
@@ -4530,8 +5544,15 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             // draws the box outline (drawing them here would fill the volume
             // and hide whatever it encloses).
             if (o.type == PrimitiveType::Area) continue;
-            const Mat4 model = modelMatrix(o);
-            const Mat4 mvp = mul(viewProj, model);
+            Mat4 model = modelMatrix(o);
+            // The bulb is a MARKER: small and constant, whatever the object
+            // scale - a unit-sized bulb hid the very point it marks and made
+            // the light's true origin a guess (reported with a screenshot).
+            if (o.type == PrimitiveType::PointLight)
+                model = mul(translation(o.position[0], o.position[1],
+                                        o.position[2]),
+                            scaleM(0.28f, 0.28f, 0.28f));
+            Mat4 mvp = mul(viewProj, model);
             // the bulb gizmo stays emissive - everything else receives light
             const bool lit = !asLines && o.type != PrimitiveType::PointLight;
             // animated .glb models: dynamic meshes re-lerped this frame. A
@@ -4545,23 +5566,49 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                 AnimModelDraw* ad = animModelDraw(o.modelPath, o.materialPath);
                 if (ad && ad->ok) {
                     updateAnimPose(*ad, o);
+                    ps2Flat = 0;  // animated models shade Gouraud (7478)
                     drawAnimParts(*ad, mvp, lit ? &model : nullptr, tintScale,
-                                  asLines);
+                                  asLines, o);
                     continue;
                 }
                 // unusable .glb falls through to the placeholder box
             }
             // .obj models draw one part per MTL material (an assigned .mtl
             // overrides the model's own libraries - same rule as the game)
+            const float ix = o.position[0] - eye.x;
+            const float iy = o.position[1] - eye.y;
+            const float iz = o.position[2] - eye.z;
+            bool farModel = !o.physics && !o.impostorPath.empty() &&
+                (!o.impostorBillboard || (std::fabs(o.rotation[0]) < .001f &&
+                 std::fabs(o.rotation[2]) < .001f && o.scale[0] > 0 && o.scale[1] > 0 &&
+                 std::fabs(o.scale[0]-o.scale[2]) < .0001f)) &&
+                o.impostorDistance > 0 &&
+                ix*ix + iy*iy + iz*iz > o.impostorDistance*o.impostorDistance;
             const ModelDraw* md = o.type == PrimitiveType::Model
-                                      ? modelDraw(o.modelPath, o.materialPath)
-                                      : nullptr;
+                ? modelDraw(farModel ? o.impostorPath : o.modelPath,
+                            farModel ? "" : o.materialPath) : nullptr;
+            if (farModel && (!md || (o.impostorBillboard && md->parts.size() != (size_t)o.impostorViews))) {
+                md = modelDraw(o.modelPath, o.materialPath);
+                farModel = false;
+            }
+            int capture = -1;
+            if (farModel && o.impostorBillboard) {
+                const float yaw = std::atan2(-ix, -iz);
+                const int sector = (int)std::floor((yaw-o.rotation[1]*kPi/180.0f)*(o.impostorViews/(2.0f*kPi))+.5f);
+                capture = (sector%o.impostorViews+o.impostorViews)%o.impostorViews;
+                ps2Flat = 2;
+                SceneObject facing = o;
+                facing.rotation[1] = yaw*180.0f/kPi;
+                model = modelMatrix(facing);
+                mvp = mul(viewProj, model);
+            }
             if (md) {
                 // Opaque parts first, cutout ones (leaf cards) after, so a
                 // blended part never darkens a trunk it was authored in front
                 // of - the same order the tree preview draws in.
                 for (int alphaPass = 0; alphaPass < 2; ++alphaPass)
                 for (const ModelPart& part : md->parts) {
+                    if (capture >= 0 && &part != &md->parts[capture]) continue;
                     const bool cutout = part.alpha && !asLines;
                     if ((int)cutout != alphaPass) continue;
                     // rounded env normals radiate from the part centroid -
@@ -4613,15 +5660,26 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                     continue;
                 }
             }
+            // A primitive the atlas lights draws from its own mesh, whose UV
+            // slot is the atlas ST (lmMeshFor) - per pixel, as the console's
+            // atlas passes draw it, instead of from the probe grid.
+            const Mesh* lmMesh = (lit && !asLines) ? lmMeshFor(oi, o) : nullptr;
+            if (lmMesh) {
+                lmMode = 1;
+                glActiveTexture(GL_TEXTURE4);
+                glBindTexture(GL_TEXTURE_2D, giAtlasTex_);
+                glActiveTexture(GL_TEXTURE0);
+            }
             // primitives are modeled around their local origin, so the
             // rounded-normal centre is simply the object's world position
-            draw(*meshFor(o), GL_TRIANGLES, mvp, o.color[0] * kr * tintScale,
-                 o.color[1] * kg * tintScale, o.color[2] * kb * tintScale,
-                 tex, lit ? &model : nullptr, decalAlpha, 1.0f,
-                 (asLines || !mat) ? 0 : mat->reflTex,
+            draw(lmMesh ? *lmMesh : *meshFor(o), GL_TRIANGLES, mvp,
+                 o.color[0] * kr * tintScale, o.color[1] * kg * tintScale,
+                 o.color[2] * kb * tintScale, tex, lit ? &model : nullptr,
+                 decalAlpha, 1.0f, (asLines || !mat) ? 0 : mat->reflTex,
                  mat ? mat->reflStrength : 0.0f,
                  (asLines || !mat) ? false : mat->reflSky,
                  mat ? mat->reflRounded : false, o.position);
+            lmMode = 0;
         }
         // Procedural scatter preview: one draw per instance part through the
         // ordinary model path, so the preview is shaded exactly like the static
@@ -4633,6 +5691,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             aoSelfObj = -1;
             aoGroundOn = true;
             aoReceive = false;  // models receive no baked AO, in game either
+            ps2Flat = 1;        // bakes to static chunks - flat bags
             const float d2r = kPi / 180.0f;
             for (const procgen::Instance& inst : scatter_.instances) {
                 if (inst.asset < 0 || inst.asset >= (int)scatter_.assets.size())
@@ -4679,6 +5738,14 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             break;
         default: scenePass(false, 1.0f); break;
     }
+    // Post-scene passes (glass, portal surfaces, gizmos) are blends and
+    // markers, not static bags - back to Gouraud interpolation.
+    ps2Flat = 0;
+    // Dynamic lights' ground pools: only the PS2-shading look draws them (the
+    // per-pixel path already paints the light into the ground per pixel, and
+    // drawing both would double it). Same order as the generated game: after
+    // the scene, additive, z-tested and never z-written.
+    if (sceneProgActive_ != program_) drawLightPools(objects, viewProj.m);
 
     // Mirror objects: draw the reflected copies first (real geometry behind
     // the plane, z-tested against the finished scene), then blend the glass
@@ -4689,12 +5756,13 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         // types never make it into a mirror list)
         auto drawReflected = [&](const SceneObject& t, const Mat4& model) {
             aoReceive = t.type != PrimitiveType::Model;
+            ps2Flat = 1;  // the mirror redraw reuses the static (flat) bags
             const Mat4 mvp = mul(viewProj, model);
             if (t.type == PrimitiveType::Model && isAnimatedModelPath(t.modelPath)) {
                 // pose already advanced by this frame's scene pass - reuse it
                 AnimModelDraw* ad = animModelDraw(t.modelPath, t.materialPath);
                 if (ad && ad->ok) {
-                    drawAnimParts(*ad, mvp, &model, 1.0f, false);
+                    drawAnimParts(*ad, mvp, &model, 1.0f, false, t);
                     return;
                 }
             }
@@ -4788,7 +5856,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                         aoReceive = false;  // animated avatar - no AO receive
                         const Mat4 model = mul(refl, modelMatrix(p));
                         const Mat4 mvp = mul(viewProj, model);
-                        drawAnimParts(*ad, mvp, &model, 1.0f, false);
+                        drawAnimParts(*ad, mvp, &model, 1.0f, false, p);
                     }
                     break;  // first player entity wins, like in the game
                 }
@@ -4974,15 +6042,32 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         }
     }
 
-    // Point-light reach: a ring sphere at each light, scaled to its radius and
-    // tinted with the light color (a rough preview of the lit volume).
+    // Point-light reach: a ring sphere scaled to the radius - or, for a
+    // SPOT, the actual cone: apex at the light, opening down the object's
+    // local -Y for the reach, base sized by the cone half-angle. The sphere
+    // said nothing about where a spot points; the cone is the light.
     for (size_t oi = 0; oi < objects.size(); ++oi) {
         const SceneObject& o = objects[oi];
         if (o.type != PrimitiveType::PointLight || hiddenAt(oi)) continue;
         const float r = o.lightRadius > 0.01f ? o.lightRadius : 0.01f;
-        const Mat4 m = mul(translation(o.position[0], o.position[1], o.position[2]),
-                           scaleM(r, r, r));
-        draw(wireSphere_, GL_LINES, mul(viewProj, m), o.color[0], o.color[1], o.color[2]);
+        if (o.lightDynamic && o.lightSpot) {
+            const float d2r = kPi / 180.0f;
+            const float t = std::tan(o.lightSpotAngle * d2r);
+            Mat4 m = scaleM(t * r, r, t * r);
+            m = mul(rotX(o.rotation[0] * d2r), m);
+            m = mul(rotY(o.rotation[1] * d2r), m);
+            m = mul(rotZ(o.rotation[2] * d2r), m);
+            m = mul(translation(o.position[0], o.position[1], o.position[2]),
+                    m);
+            draw(wireCone_, GL_LINES, mul(viewProj, m), o.color[0],
+                 o.color[1], o.color[2]);
+        } else {
+            const Mat4 m =
+                mul(translation(o.position[0], o.position[1], o.position[2]),
+                    scaleM(r, r, r));
+            draw(wireSphere_, GL_LINES, mul(viewProj, m), o.color[0],
+                 o.color[1], o.color[2]);
+        }
     }
 
     // Camera entity FOV frustum: the unit frustum scaled to the entity's FOV
@@ -5042,12 +6127,18 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         }
     }
 
+    auto selectionMatrix = [&](const SceneObject& o) {
+        float mn[3],mx[3];selectionBounds(o,mn,mx);
+        return mul(translation((mn[0]+mx[0])*.5f,(mn[1]+mx[1])*.5f,(mn[2]+mx[2])*.5f),
+                   scaleM(std::max(mx[0]-mn[0],.04f),std::max(mx[1]-mn[1],.04f),std::max(mx[2]-mn[2],.04f)));
+    };
+    glDisable(GL_DEPTH_TEST);
     // Session peers' selections first (their color), so the local outline
     // below always draws on top when both select the same object.
     for (const PeerSel& ps : peerSels_) {
         for (int idx : ps.indices) {
             if (idx < 0 || idx >= (int)objects.size() || hiddenAt((size_t)idx)) continue;
-            const Mat4 mvp = mul(viewProj, modelMatrix(objects[idx]));
+            const Mat4 mvp = mul(viewProj, selectionMatrix(objects[idx]));
             draw(wireCube_, GL_LINES, mvp, ps.color[0], ps.color[1], ps.color[2]);
         }
     }
@@ -5057,14 +6148,21 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // Objects on a hidden layer are skipped (they aren't drawn or picked).
     for (int idx : selection) {
         if (idx < 0 || idx >= (int)objects.size() || hiddenAt((size_t)idx)) continue;
-        const Mat4 mvp = mul(viewProj, modelMatrix(objects[idx]));
+        const Mat4 mvp = mul(viewProj, selectionMatrix(objects[idx]));
         if (idx == primary) draw(wireCube_, GL_LINES, mvp, 1.0f, 0.85f, 0.35f);
         else draw(wireCube_, GL_LINES, mvp, 1.0f, 0.6f, 0.1f);
     }
 
+    glEnable(GL_DEPTH_TEST);
+
     // Particle emitters last - alpha blended over the scene (same order as
     // the generated game's renderScene()).
     drawEmitterPreviews(objects, viewProj.m, &eye.x, &camFwd.x);
+    // ...and the visible light beams after them, which is the console's order
+    // too (updateAndRenderLightBeams closes renderScene, after the emitters'
+    // bags): additive over the finished picture, z-tested so a wall in front
+    // of a lamp still hides its glow.
+    drawLightBeams(objects, viewProj.m, &camFwd.x, &eye.x);
 
     glBindVertexArray(0);
 
@@ -5074,26 +6172,41 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // pass - the same order the console grades in (sprites over the finished
     // framebuffer, then scan-out).
     uint32_t sceneTex = colorTex_;
-    if (gradingOn_ && gradeProgram_) {
+    // The GS colour depth simulation rides the grade pass (the console's own
+    // order: the grading sprites are the last write into the 16-bit buffer),
+    // so with grading neutral-but-quantizing the pass still runs, with the
+    // grading math at identity.
+    if ((gradingOn_ || gsQuant_) && gradeProgram_) {
         glBindFramebuffer(GL_FRAMEBUFFER, gradeFbo_);
         glViewport(0, 0, width, height);
         glDisable(GL_DEPTH_TEST);
         glUseProgram(gradeProgram_);
         glBindTexture(GL_TEXTURE_2D, colorTex_);
         glUniform1i(uGradeSrc_, 0);
-        glUniform3f(uGradeGain_, (float)grading_.gain[0], (float)grading_.gain[1],
-                    (float)grading_.gain[2]);
-        auto liftPart = [&](int c, bool positive) {
-            const int l = grading_.lift[c];
-            return (float)(positive ? (l > 0 ? l : 0) : (l < 0 ? -l : 0));
-        };
-        glUniform3f(uGradeLiftPos_, liftPart(0, true), liftPart(1, true),
-                    liftPart(2, true));
-        glUniform3f(uGradeLiftNeg_, liftPart(0, false), liftPart(1, false),
-                    liftPart(2, false));
-        glUniform3f(uGradeMixCol_, (float)grading_.mixColor[0],
-                    (float)grading_.mixColor[1], (float)grading_.mixColor[2]);
-        glUniform1f(uGradeMixAmt_, (float)grading_.mixAmt);
+        if (gradingOn_) {
+            glUniform3f(uGradeGain_, (float)grading_.gain[0],
+                        (float)grading_.gain[1], (float)grading_.gain[2]);
+            auto liftPart = [&](int c, bool positive) {
+                const int l = grading_.lift[c];
+                return (float)(positive ? (l > 0 ? l : 0) : (l < 0 ? -l : 0));
+            };
+            glUniform3f(uGradeLiftPos_, liftPart(0, true), liftPart(1, true),
+                        liftPart(2, true));
+            glUniform3f(uGradeLiftNeg_, liftPart(0, false), liftPart(1, false),
+                        liftPart(2, false));
+            glUniform3f(uGradeMixCol_, (float)grading_.mixColor[0],
+                        (float)grading_.mixColor[1],
+                        (float)grading_.mixColor[2]);
+            glUniform1f(uGradeMixAmt_, (float)grading_.mixAmt);
+        } else {
+            glUniform3f(uGradeGain_, 128.0f, 128.0f, 128.0f);  // identity
+            glUniform3f(uGradeLiftPos_, 0.0f, 0.0f, 0.0f);
+            glUniform3f(uGradeLiftNeg_, 0.0f, 0.0f, 0.0f);
+            glUniform3f(uGradeMixCol_, 0.0f, 0.0f, 0.0f);
+            glUniform1f(uGradeMixAmt_, 0.0f);
+        }
+        glUniform1i(uGradeQuant_, gsQuant_ ? 1 : 0);
+        glUniform1i(uGradeDither_, gsDither_ ? 1 : 0);
         glBindVertexArray(gradeVao_);
         glDrawArrays(GL_TRIANGLES, 0, 3);
         glBindVertexArray(0);
@@ -5297,7 +6410,7 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
-    glUseProgram(program_);
+    useSceneProgram(false);  // previews always shade per-pixel
     glUniform1i(uLightCount_, 0);  // no point lights in the preview
     glUniform1i(uAoOn_, 0);        // no ambient occlusion either
 
@@ -5529,7 +6642,7 @@ uint32_t Viewport::renderTreePreview(int width, int height,
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
-    glUseProgram(program_);
+    useSceneProgram(false);  // previews always shade per-pixel
     glUniform1i(uLightCount_, 0);
     glUniform1i(uAoOn_, 0);
     glUniform1i(uFogOn_, 0);
@@ -5692,7 +6805,7 @@ uint32_t Viewport::renderAnimPreview(int width, int height,
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
-    glUseProgram(program_);
+    useSceneProgram(false);  // previews always shade per-pixel
     glUniform1i(uLightCount_, 0);  // console lights animated models with the
     glUniform1i(uAoOn_, 0);        // scene directional + ambient only
     glUniform1i(uFogOn_, 0);
@@ -5871,7 +6984,7 @@ uint32_t Viewport::assetThumb(const std::string& relPath, bool render) {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
-    glUseProgram(program_);
+    useSceneProgram(false);  // previews always shade per-pixel
     glUniform1i(uLightCount_, 0);
     glUniform1i(uAoOn_, 0);
     glUniform1i(uFogOn_, 0);
@@ -6049,6 +7162,248 @@ bool Viewport::materialPreviewProject(const float world[3], float& outU,
     outU = 0.5f + 0.5f * x / (z * pk.tanHalf * pk.aspect);
     outV = 0.5f - 0.5f * y / (z * pk.tanHalf);
     return true;
+}
+
+// The corona sprite, uploaded once and shared by the ground pools and the
+// beams - one bake, so the two cannot disagree about what a lamp's glow looks
+// like. kCoronaSpriteSize (128), not kFlareSpriteSize: kind 2 bakes larger
+// than the 2D lens-flare sprites (see the note in menubake.hpp), and reading
+// the wrong constant here would upload a quarter of the image.
+uint32_t Viewport::coronaTex() {
+    if (!coronaTex_) {
+        std::vector<unsigned char> rgba;
+        menubake::bakeFlareRGBA(2, rgba);
+        glGenTextures(1, &coronaTex_);
+        glBindTexture(GL_TEXTURE_2D, coronaTex_);
+        glUploadTexRgba(menubake::kCoronaSpriteSize, menubake::kCoronaSpriteSize,
+                        rgba.data());
+    }
+    return coronaTex_;
+}
+
+// Dynamic lights' ground pools - PS2-shading mode only (docs/ps2-viewport.md).
+// The console drops a terrain-conforming additive patch under every dynamic
+// point light (updateAndRenderLightPools in the generated game): per-vertex
+// lighting cannot draw a spot smaller than a terrain cell, so the pool is
+// most of what a lamp looks like on the ground there. Same geometry (4x4
+// cells over 0.9 * radius, lifted 0.04), the same corona pixels
+// (menubake::bakeFlareRGBA kind 2 - what the game ships as
+// hud/flare-corona.png) and the same additive scale (FIX = 96 * min(k, 1.4),
+// over 128). A SPOT light projects a gobo on the console and is left to the
+// flashlight-style preview; with no terrain there is nothing to drop a pool
+// onto, exactly like the game.
+void Viewport::drawLightPools(const std::vector<SceneObject>& objects,
+                              const float* viewProj) {
+    if (!terrain_.enabled) return;
+    bool any = false;
+    for (size_t oi = 0; oi < objects.size(); ++oi) {
+        const SceneObject& o = objects[oi];
+        any |= o.type == PrimitiveType::PointLight && o.lightDynamic &&
+               !o.lightSpot && !hiddenAt(oi);
+    }
+    if (!any) return;
+    const uint32_t tex = coronaTex();
+    std::vector<float> buf;
+    constexpr int kCells = 4;  // buildPoolPatch's grid
+    for (size_t oi = 0; oi < objects.size(); ++oi) {
+        const SceneObject& o = objects[oi];
+        if (o.type != PrimitiveType::PointLight || !o.lightDynamic ||
+            o.lightSpot || hiddenAt(oi))
+            continue;
+        const float r = (o.lightRadius > 0.01f ? o.lightRadius : 0.01f) * 0.9f;
+        const float k = o.lightBright > 1.4f ? 1.4f : o.lightBright;
+        float fix = 96.0f * k;
+        fix = fix > 255.0f ? 255.0f : (fix < 1.0f ? 1.0f : fix);
+        const float cr = o.color[0] * fix / 128.0f;
+        const float cg = o.color[1] * fix / 128.0f;
+        const float cb = o.color[2] * fix / 128.0f;
+        const float cx = o.position[0], cz = o.position[2];
+        auto corner = [&](float u, float v) {
+            const float x = cx + (u - 0.5f) * 2.0f * r;
+            const float z = cz + (v - 0.5f) * 2.0f * r;
+            const float vert[9] = {x,  terrainHeight(x, z) + 0.04f,
+                                   z,  cr,
+                                   cg, cb,
+                                   1.0f, u,
+                                   v};
+            buf.insert(buf.end(), vert, vert + 9);
+        };
+        for (int iz = 0; iz < kCells; ++iz)
+            for (int ix = 0; ix < kCells; ++ix) {
+                const float u0 = (float)ix / kCells;
+                const float u1 = (float)(ix + 1) / kCells;
+                const float t0 = (float)iz / kCells;
+                const float t1 = (float)(iz + 1) / kCells;
+                corner(u0, t0);
+                corner(u1, t0);
+                corner(u1, t1);
+                corner(u0, t0);
+                corner(u1, t1);
+                corner(u0, t1);
+            }
+    }
+    if (buf.empty()) return;
+    glUseProgram(particleProgram_);
+    glUniformMatrix4fv(uPartMvp_, 1, GL_FALSE, viewProj);
+    glUniform1i(uPartUseTex_, 1);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE);  // the GS additive bag: Cs*FIX + Cd
+    glDepthMask(GL_FALSE);        // zTestType TestOnly - never writes z
+    glBindVertexArray(particleVao_);
+    glBindBuffer(GL_ARRAY_BUFFER, particleVbo_);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(buf.size() * sizeof(float)),
+                 buf.data(), GL_DYNAMIC_DRAW);
+    glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(buf.size() / 9));
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    glBindVertexArray(0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glUseProgram(sceneProgActive_);
+}
+
+// Visible light beams (Point Light > Beam) - the editor twin of the generated
+// game's TerrainGame::updateAndRenderLightBeams (templates.cpp). Every number
+// here is that function's: the corona's half size (0.14 * radius), its pull
+// toward the camera (0.25 * radius, capped at 0.75 of the camera distance,
+// shrunk by the same fraction so its apparent size does not move - reproduce
+// the pull or the editor shows the very z-fight seam the console's pull fixes,
+// the corona slicing through its own lamp post), the additive scale over 128
+// (128 for the corona, 52 for the shaft, which covers far more pixels), and
+// the shaft's 8 segments running down WORLD -Y from an apex in the light's
+// colour to a black rim. Change one side, change the other.
+//
+// What the editor deliberately does not reproduce is the LEVEL the console
+// multiplies by: flicker, Set Light and a streamed-out light are runtime
+// state, so a beam previews at its authored brightness the way every other
+// light preview here does (the pool above, the per-pixel point lights, the
+// bakes). A glow pulsing over a rock-steady pool would be a new lie, not less
+// of one. Unlike those, this draws in EVERY shading mode: the beam is geometry
+// the game submits, not a simulation of how the console shades.
+void Viewport::drawLightBeams(const std::vector<SceneObject>& objects,
+                              const float* viewProj, const float* fwdP,
+                              const float* eyeP) {
+    if (!particleProgram_) return;
+    bool any = false;
+    for (size_t oi = 0; oi < objects.size(); ++oi) {
+        const SceneObject& o = objects[oi];
+        any |= o.type == PrimitiveType::PointLight && o.lightBeam != 0 &&
+               !hiddenAt(oi);
+    }
+    if (!any) return;
+
+    // The billboard basis, built the console's way: from the view direction
+    // and WORLD up, so a rolled cutscene camera spins the corona exactly as
+    // little as it does on the PS2 (the sprite is radial, the shaft is world
+    // geometry).
+    float fx = fwdP[0], fy = fwdP[1], fz = fwdP[2];
+    const float fl = std::sqrt(fx * fx + fy * fy + fz * fz);
+    if (fl < 0.0001f) return;
+    fx /= fl, fy /= fl, fz /= fl;
+    float rx = -fz, rz = fx;  // cross(fwd, worldUp)
+    const float rl = std::sqrt(rx * rx + rz * rz);
+    if (rl < 0.0001f) return;
+    rx /= rl, rz /= rl;
+    const float ux = -rz * fy, uy = rz * fx - rx * fz,
+                uz = rx * fy;  // cross(right, fwd), ry = 0
+
+    std::vector<float> corona, shaft;  // 9 floats per vertex: pos rgba uv
+    for (size_t oi = 0; oi < objects.size(); ++oi) {
+        const SceneObject& o = objects[oi];
+        if (o.type != PrimitiveType::PointLight || o.lightBeam == 0 ||
+            hiddenAt(oi))
+            continue;
+        const float k = o.lightBright;  // level 1: no runtime, see above
+        if (k <= 0.01f) continue;
+        const float kc = k > 1.0f ? 1.0f : k;  // the FIX byte saturates at 128
+        const float radius = o.lightRadius > 0.01f ? o.lightRadius : 0.01f;
+        const float cx = o.position[0], cy = o.position[1], cz = o.position[2];
+
+        // Corona: pulled toward the camera, size-compensated.
+        float pcx = cx, pcy = cy, pcz = cz, half = radius * 0.14f;
+        const float vx = eyeP[0] - cx, vy = eyeP[1] - cy, vz = eyeP[2] - cz;
+        const float vl = std::sqrt(vx * vx + vy * vy + vz * vz);
+        if (vl > 0.0001f) {
+            float pull = radius * 0.25f;
+            if (pull > vl * 0.75f) pull = vl * 0.75f;
+            pcx += vx / vl * pull;
+            pcy += vy / vl * pull;
+            pcz += vz / vl * pull;
+            half *= (vl - pull) / vl;
+        }
+        const float cr = o.color[0] * kc, cg = o.color[1] * kc,
+                    cb = o.color[2] * kc;
+        auto quad = [&](float su, float sv, float u, float v) {
+            const float vert[9] = {pcx + (su * rx + sv * ux) * half,
+                                   pcy + (sv * uy) * half,
+                                   pcz + (su * rz + sv * uz) * half,
+                                   cr,
+                                   cg,
+                                   cb,
+                                   1.0f,
+                                   u,
+                                   v};
+            corona.insert(corona.end(), vert, vert + 9);
+        };
+        quad(-1.0f, -1.0f, 0.0f, 1.0f);
+        quad(1.0f, -1.0f, 1.0f, 1.0f);
+        quad(1.0f, 1.0f, 1.0f, 0.0f);
+        quad(-1.0f, -1.0f, 0.0f, 1.0f);
+        quad(1.0f, 1.0f, 1.0f, 0.0f);
+        quad(-1.0f, 1.0f, 0.0f, 0.0f);
+
+        if (o.lightBeam != 2) continue;
+        // Shaft: an 8-segment fan at the light's TRUE position (world
+        // geometry - sliding it would visibly detach it from the lamp head),
+        // apex in the light colour, rim black, straight down world -Y.
+        const float len = radius * 0.7f, rad = radius * 0.3f;
+        const float sc = 52.0f / 128.0f * kc;  // the shaft's additive FIX
+        const float ar = o.color[0] * sc, ag = o.color[1] * sc,
+                    ab = o.color[2] * sc;
+        for (int s = 0; s < 8; ++s) {
+            const float a0 = (float)s * (3.14159265f / 4.0f);
+            const float a1 = (float)(s + 1) * (3.14159265f / 4.0f);
+            const float tri[27] = {
+                cx, cy, cz, ar, ag, ab, 1.0f, 0.5f, 0.5f,
+                cx + std::cos(a0) * rad, cy - len, cz + std::sin(a0) * rad,
+                0.0f, 0.0f, 0.0f, 1.0f, 0.5f, 0.5f,
+                cx + std::cos(a1) * rad, cy - len, cz + std::sin(a1) * rad,
+                0.0f, 0.0f, 0.0f, 1.0f, 0.5f, 0.5f};
+            shaft.insert(shaft.end(), tri, tri + 27);
+        }
+    }
+    if (corona.empty() && shaft.empty()) return;
+
+    glUseProgram(particleProgram_);
+    glUniformMatrix4fv(uPartMvp_, 1, GL_FALSE, viewProj);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE);  // the GS additive bag: Cs*FIX + Cd
+    glDepthMask(GL_FALSE);        // zTestType TestOnly - never writes z
+    glBindVertexArray(particleVao_);
+    glBindBuffer(GL_ARRAY_BUFFER, particleVbo_);
+    // The shaft first: untextured, and on the console it is submitted after
+    // its own corona but before the next light's, so with additive blending
+    // (commutative) one pass each is the same picture and two draws instead
+    // of two per light.
+    if (!shaft.empty()) {
+        glUniform1i(uPartUseTex_, 0);
+        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(shaft.size() * sizeof(float)),
+                     shaft.data(), GL_DYNAMIC_DRAW);
+        glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(shaft.size() / 9));
+    }
+    if (!corona.empty()) {
+        glUniform1i(uPartUseTex_, 1);
+        glBindTexture(GL_TEXTURE_2D, coronaTex());
+        glBufferData(GL_ARRAY_BUFFER,
+                     (GLsizeiptr)(corona.size() * sizeof(float)), corona.data(),
+                     GL_DYNAMIC_DRAW);
+        glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(corona.size() / 9));
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    glBindVertexArray(0);
+    glUseProgram(sceneProgActive_);
 }
 
 // Live preview of every enabled particle emitter. The per-kind spawn /
@@ -6296,5 +7651,5 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
 
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
-    glUseProgram(program_);
+    glUseProgram(sceneProgActive_);
 }

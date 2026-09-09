@@ -104,6 +104,16 @@ bool projectUsesFlare(const Project& p);
 // Gates the res/hud/flare-corona.png bake and BEAMS_USED in scene_data.hpp.
 bool projectUsesBeams(const Project& p);
 
+// True when any scene can show the camera flashlight (a Player object with it
+// enabled, or a Set Flashlight node that could switch one on at runtime).
+// Gates the res/hud/flashlight-gobo.png bake and FLASHLIGHT_USED in
+// scene_data.hpp - keep them equal, like projectUsesFlare and FLARE_USED.
+bool projectUsesFlashlight(const Project& p);
+// Does any spot light in the project carve shadow volumes? The ONE
+// answer - scene_data.hpp's SPOT_SHADOW_VOLUMES_USED, the gobo bake and
+// the VRAM gate all read it (docs/shadows.md).
+bool projectUsesSpotVolumes(const Project& p);
+
 // The enabled day/night cycle a scene resolves to through its ambience preset,
 // or null (docs/day-night-cycle.md). The single answer codegen, the sky-disc
 // bake and the editor all ask - never walk the presets by hand.
@@ -198,9 +208,6 @@ SaveSizeInfo saveSizeInfo(const Project& p);
 // The game's save directory on the memory card ("/TYRA-<NAME>").
 std::string saveDirName(const Project& p);
 
-// True when `content` is byte-identical to what an older editor version
-// generated for this file - i.e. the user never edited it and it is safe
-// to regenerate even though it predates the ownership marker.
 // A File::relativePath as a filesystem path. The generator writes '\\'
 // separators (and hundreds of call sites compare against literals spelled that
 // way), but a backslash is an ordinary FILENAME CHARACTER on POSIX - writing
@@ -208,9 +215,6 @@ std::string saveDirName(const Project& p);
 // instead of the directory tree. Every place a relativePath meets the file
 // system goes through here.
 std::filesystem::path nativePath(const std::string& relativePath);
-
-bool matchesLegacy(const Project& p, const std::string& relativePath,
-                   const std::string& content);
 
 // `.vscode/extensions.json` with the ids the editor knows about ensured
 // present, given whatever the project already has. "" when nothing needs

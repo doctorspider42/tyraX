@@ -36,7 +36,11 @@ class PipelineInfoBag {
     zTestType = PipelineZTest_Standard;
     fogDisabled = false;
     additiveBlendFix = 0;
+    subtractiveBlendFix = 0;
     dynLightPick = true;
+    dynLightSkipSlot = -1;
+    spotLit = true;
+    dateLit = false;
     blssProxy = true;
   }
   ~PipelineInfoBag() {}
@@ -85,6 +89,17 @@ class PipelineInfoBag {
   u8 additiveBlendFix;
 
   /**
+   * Modified by TyraX: like additiveBlendFix, but SUBTRACTIVE -
+   * Cv = Cd - Cs*FIX/128, i.e. the equation (0 - Cs)*FIX/128 + Cd with the
+   * GS clamping at 0. Rides the same in-band ALPHA qword; wins over
+   * additiveBlendFix when both are set. Exists for the flashlight shadow
+   * volumes' COUNTING pass: front faces add +N into the dedicated count
+   * target, back faces subtract it back, and the pixels the beam cannot
+   * reach are exactly the ones left non-zero (docs/flashlight.md).
+   */
+  u8 subtractiveBlendFix;
+
+  /**
    * Modified by TyraX: opt-out from the per-bag scene-dynamic-light pick
    * (RendererCore::pickDynLight). The color programs light each mesh with
    * ONE light, so a mesh split into several bags (terrain chunks) shows a
@@ -94,6 +109,46 @@ class PipelineInfoBag {
    * instead. Also for bags a nearby light must never tint (the sky dome).
    */
   bool dynLightPick;
+
+  /**
+   * Modified by TyraX: one scene light this bag must NOT be lit by through
+   * the per-vertex slot (an index into RendererCore's dynLights, -1 = none).
+   * The generated game's spot-light shadow pass draws a receiver's light a
+   * second time, projected per pixel with the volumes carved out of it, and
+   * the same lamp reaching the receiver per vertex as well would light it
+   * twice and darken only half of it. The torch has spotLit for this; a
+   * scene lamp needs its slot named (docs/shadows.md). pickDynLight skips
+   * it and picks the next best light - or the torch - for that bag.
+   */
+  int dynLightSkipSlot;
+
+  /**
+   * Modified by TyraX: opt-out from the camera SPOT light (the flashlight)
+   * as well - the global one dynLightPick = false falls back to.
+   *
+   * The spot is a per-VERTEX term, so on a mesh whose vertices are metres
+   * apart it is not a cone but a Gouraud diamond across whole cells. The
+   * terrain is exactly that mesh (a cell is never finer than one world unit),
+   * and the game already draws the beam's real shape there per pixel - the
+   * projected pool under it (docs/flashlight.md). Both at once is the worst of
+   * the two: a soft ellipse sitting inside a blocky wedge that moves in
+   * cell-sized steps. So the terrain takes the light from the pool alone and
+   * sets this false; everything small enough to be lit properly keeps it.
+   *
+   * Nothing else in the frame changes - the scene's own point lights never
+   * reached such a bag anyway (that is what dynLightPick = false means).
+   */
+  bool spotLit;
+
+  /**
+   * Modified by TyraX: gate this bag on the destination-alpha shadow mask
+   * (RendererCoreAlphaMask): TEST.DATE = 1, DATM = 0, so the GS draws its
+   * pixels only where the framebuffer alpha's MSB is 0 - i.e. where the
+   * flashlight's shadow volumes did NOT mark shadow. The mask gates LIGHT;
+   * nothing ever paints darkness. Meaningless (and off) outside the frames
+   * that build the mask.
+   */
+  bool dateLit;
 
   /**
    * Modified by TyraX: opt-out from the BLSS neural upscaler's per-tile

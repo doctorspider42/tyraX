@@ -79,6 +79,13 @@ The editor executable on this machine: `{TYRAX_EXE}`
 - `--bake-gi <projectDir>` - bake global illumination + light probes
   (explicit; a build only reads the cache in `.res-baked/gi/`, so editing
   a scene falls its lighting back to classic shading until you re-bake)
+- `--bake-model-ao <projectDir> [--texbake]` - bake every `.obj` model's own
+  ambient occlusion into `.res-baked/modelao/`, printing what was skipped and
+  why (a build does it too; `--texbake` also runs the multiply into
+  `.res-baked`)
+- `--bake-prelit <projectDir> [sceneName]` - re-bake every object marked to ship
+  pre-lit whose texture no longer matches the scene, then save + regenerate
+  (explicit, never part of a build; a second run bakes nothing)
 - `--resave <projectDir>` - load + save with validation/migrations
 - `--pad <projectDir> "<script>"` - drive the RUNNING game's controller through
   `bin/livepad.bin`, so a pad-driven behavior can be tested from a script with
@@ -91,6 +98,14 @@ The editor executable on this machine: `{TYRAX_EXE}`
   does not quote the script (pass it from a `.ps1` as a literal), and a refresh
   write can lose a race against the game reading the file, which the driver now
   reports as a warning instead of stopping.
+- `--record <projectDir> <out.tyrarep> [--pad "<script>"] [--seconds N]` -
+  build, run, and record every frame of input into a replayable file. Takes the
+  same script language `--pad` does; `--seconds` is a floor, not a cap.
+- `--replay <projectDir> <file.tyrarep>` - build, run and perform that recording
+  again. **Exit 0 = the run reproduced exactly, 3 = it diverged, 1 = it could
+  not be run**, so a recording is a regression test for a whole play session.
+  Both need debug builds with the *Input recorder* preference on (OFF by
+  default - it writes a growing file). See docs/input-replay.md.
 
 ## Building and debugging
 

@@ -364,7 +364,7 @@ struct StageDef {
 /** The catalogue. Ordered by slot, then by how often you would reach for it. */
 const std::vector<StageDef>& stageDefs();
 /** nullptr when the key names nothing - an unknown stage is DROPPED rather
- * than guessed at, the flowLegacyNodes rule. */
+ * than guessed at, the readFlowGraph rule. */
 const StageDef* stageDef(const std::string& key);
 
 /** One authored parameter value: a literal, or field `meshSlot` of the per-mesh
@@ -705,6 +705,9 @@ std::vector<float> simulateKernel(const BuiltKernel& b, const KernelDesc& k,
 
 /** Result of running two programs on identical input and diffing what they
  * staged for the GS. */
+// Independent numeric oracle for signed RGB SH and the classic fallback.
+bool checkLighting(std::string& error);
+
 struct Equivalence {
     bool ran = false;
     bool identical = false;

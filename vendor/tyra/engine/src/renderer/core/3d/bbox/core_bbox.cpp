@@ -400,9 +400,10 @@ CoreBBoxFrustum CoreBBox::frustumCheckAABB(const Plane* objectSpacePlanes,
 }
 
 u8 CoreBBox::activePlaneMaskAABB(const Plane* objectSpacePlanes,
-                                 const Vec4& min, const Vec4& max) {
+                                 const Vec4& min, const Vec4& max, u8 count) {
   u8 result = 0;
-  for (u8 i = 0; i < 6; ++i) {
+  if (count > 8) count = 8;
+  for (u8 i = 0; i < count; ++i) {
     const Vec4& n = objectSpacePlanes[i].normal;
     const float nX = n.x >= 0.0F ? min.x : max.x;
     const float nY = n.y >= 0.0F ? min.y : max.y;

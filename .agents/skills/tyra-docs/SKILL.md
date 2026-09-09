@@ -77,6 +77,26 @@ whatever the change affected.
   behind — plus it pointed at a `.Codex/` scripts path that exists in no
   checkout — before anyone noticed. That is what this bullet exists to prevent.
 
+- **`docs/img/*.png`** — when the change alters what a documented screen looks
+  like. **A screenshot is documentation and goes stale exactly like prose**, but
+  nothing warns you: the page still builds, the link still resolves, and the
+  figure quietly shows the string you just deleted. Grep `docs/` for the pages
+  that illustrate what you touched (`grep -n '^!\[' docs/*.md`) and look at the
+  images before deciding you are done.
+
+  **Retake on the SAME fixture the old one used**, so the difference in the image
+  is your change and not a different project — the old shot usually names it
+  (a scene list, a node count, a log path). Copy that example project out of the
+  tree first: `--refresh-gen` mutates a checked-in example. Then drive the editor
+  to the state you want with `--ui-script` (`shot` writes the framebuffer, no
+  focus needed, either OS) rather than by hand — see `tyra-testing`.
+
+  Two things this catches that nothing else does. Composing the shot puts you in
+  front of your own change at a real panel width, which is where layout bugs
+  live — a clipped help marker, a truncated label, a control below the fold. And
+  the same file then goes into the PR body, pinned to the commit, so a reviewer
+  sees the change without building it (see `tyra-pr`).
+
 - **Example-project READMEs** (`examples/*/README.md`) and the projects
   themselves — when codegen, the `.tyra` format, or the terrain/asset pipeline
   changes, **regenerate the affected example projects** (their committed

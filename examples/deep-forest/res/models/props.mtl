@@ -1,0 +1,18 @@
+# generated for the procedural example
+newmtl bark
+Kd 0.340 0.240 0.150
+
+newmtl needles
+Kd 0.160 0.380 0.190
+
+newmtl stone
+Kd 0.460 0.450 0.420
+
+newmtl sandstone
+Kd 0.720 0.640 0.480
+
+newmtl wood
+Kd 0.420 0.300 0.180
+
+newmtl crystal
+Kd 0.350 0.750 0.850

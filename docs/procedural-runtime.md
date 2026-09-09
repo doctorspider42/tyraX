@@ -224,6 +224,46 @@ is a wall.
 
 Only one Blocks Fill per runtime volume — there is one field.
 
+### Ambient occlusion
+
+Blocks darken where they meet each other: a corner walled in by neighbours goes
+down to the scene's **AO strength**, a corner open to the sky stays at full
+brightness, and the rasterizer reads the gradient across each face. It is what
+stops a landscape of cubes reading as flat coloured cardboard, and it is the
+only self-occlusion any runtime-generated geometry gets.
+
+It costs nothing per frame. The whole thing is computed once, at generation
+time, out of the collision field the node already publishes — the block's 3×3×3
+neighbourhood reduced to four corner levels per visible face, each one a step of
+four (two solid edge neighbours wall a corner in completely; otherwise each of
+the two edges and the diagonal takes it down a step). The result rides the
+vertex colours the merge was writing anyway, so the console draws exactly what
+it drew before.
+
+Three things follow from that, and one of them can bite:
+
+- **It is the scene's AO, not a separate feature.** *Tools > Ambience Editor >
+  Ambient occlusion* switches it off and **AO strength** sets how dark a walled-in
+  corner gets. With the scene's AO off, nothing is computed at all.
+  [ambient-occlusion.md](ambient-occlusion.md) is the rest of that story — the
+  baked occluders and the terrain contact shadows reach a block world too, and
+  land on top of this.
+- **A chunk carrying it is Gouraud-shaded**, where generated geometry is
+  otherwise flat. Flat shading takes one corner of a triangle and paints the
+  whole triangle with it, which turns the corner gradient into a hard diagonal
+  seam down the middle of every face — measured, before the shading followed:
+  one face came out as two flat plateaus 42 levels apart. The switch is per
+  chunk and free; a chunk with no block in it is unchanged.
+- **A rotated block asset does not line up.** The face mask and the AO both read
+  the *asset's* own axes while the neighbourhood is the world lattice, so a
+  block placed with a yaw gets its neighbours' darkening on the wrong side —
+  the same mismatch that already applies to face culling. Leave block assets
+  unrotated.
+
+The gradient is per vertex, so it is as fine as the block asset's own corners:
+the shipped unit cube resolves exactly the four corner levels, and a subdivided
+one interpolates between them smoothly.
+
 ---
 
 ## The loading screen

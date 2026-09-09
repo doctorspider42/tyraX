@@ -268,8 +268,8 @@ bool Command::sameStateAs(const Command& o) const {
            stepFrames == o.stepFrames && breakpoints == o.breakpoints &&
            fire == o.fire && fireAndRun == o.fireAndRun &&
            captureVu == o.captureVu && vuFlush == o.vuFlush &&
-           measureRam == o.measureRam && watchObjects == o.watchObjects &&
-           sameFactSets(o);
+           measureRam == o.measureRam && captureFrame == o.captureFrame &&
+           watchObjects == o.watchObjects && sameFactSets(o);
 }
 
 bool Command::sameFactSets(const Command& o) const {
@@ -290,8 +290,9 @@ std::vector<unsigned char> encodeCommand(const Command& c) {
     put32(v, kCmdMagic);
     put32(v, kCmdVersion);
     put32(v, c.seq);
-    // Bits 0-3 are the switches; a capture with a named flush index sets bit 4
-    // and carries the index in bits 8-23 (see Command::vuFlush). Spare bits
+    // Bits 0-3, 5 and 6 are the switches; a VU capture with a named flush index
+    // sets bit 4 and carries the index in bits 8-23 (see Command::vuFlush).
+    // Spare bits
     // rather than a longer header: a game built before this reads the switches
     // it knows and ignores the rest, so no version bump is needed on either
     // side.
@@ -300,6 +301,7 @@ std::vector<unsigned char> encodeCommand(const Command& c) {
     if (c.captureVu && c.vuFlush >= 0)
         flags |= 16u | ((uint32_t)(c.vuFlush & 0xFFFF) << 8);
     if (c.measureRam) flags |= 32u;
+    if (c.captureFrame) flags |= 64u;
     // Fact overrides ride the top byte: the header is full at 32 bytes and a
     // count capped at kMaxFactSets has nowhere better to live. A game built
     // before they existed reads those bits as 0, i.e. "no overrides".

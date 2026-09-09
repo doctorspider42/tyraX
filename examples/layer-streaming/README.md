@@ -12,10 +12,10 @@ headless: `tyrax-editor.exe --build <this folder> --run`.
 You spawn inside **building A** (warm colors, crates and an orb). Walk
 through the door into the corridor and keep going:
 
-1. A third of the way in, an invisible trigger fires **Load Layer
+1. A third of the way in, an invisible trigger fires **Set Layer Loaded (load)
    building-b** — the far building streams in ahead of you, a few objects
    per frame, while you walk.
-2. Near the far end another trigger fires **Unload Layer building-a** —
+2. Near the far end another trigger fires **Set Layer Loaded (unload) building-a** —
    the building behind you vanishes from memory.
 3. Walk back and the mirrored triggers swap them again. Endlessly.
 
@@ -34,7 +34,7 @@ unrelated to layers.)
   Properties; the corridor walls and the trigger markers have no layer,
   so they are always resident.
 - Four **Empty** markers sit in the corridor, each with a two-node flow
-  graph (`Near Object` radius 3.5 → `Load Layer` / `Unload Layer`), in
+  graph (`Near Object` radius 3.5 → `Set Layer Loaded`, load/unload pins), in
   walking order:
 
   ```

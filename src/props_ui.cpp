@@ -35,6 +35,7 @@
 #include "json.hpp"
 #include "menubake.hpp"
 #include "objparser.hpp"
+#include "impostorbake.hpp"
 #include "pngquant.hpp"
 #include "uvunwrap.hpp"
 #include "stochtile.hpp"
@@ -421,7 +422,7 @@ void App::drawPropertiesWindow() {
                 committed |= ImGui::IsItemDeactivatedAfterEdit();
                 committed |= drawLodOverrides(o);
                 ImGui::TextDisabled(
-                    "Scripts/flow graph: Play Animation, Stop Animation,\n"
+                    "Scripts/flow graph: the Animation node (play/stop),\n"
                     "On Animation Finished.");
             } else if (!o.modelPath.empty()) {
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
@@ -820,20 +821,59 @@ void App::drawPropertiesWindow() {
                 "second small render per frame. Editor preview shows the sky\n"
                 "only; check reflections in the game.");
 
-        // Real-shape projected shadow - the RUNTIME one, distinct from the
-        // baked ambient-occlusion "Cast shadow" below: a silhouette
-        // rendered from the sun into a small VRAM target and projected onto
-        // the terrain. The caster pays a second render, hence opt-in.
-        if (ImGui::Checkbox("Projected shadow (live)", &o.projShadow))
-            committed = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Real silhouette shadow on the terrain: the object renders a\n"
-                "second time each frame (64x64, from the sun) and the shape\n"
-                "is projected under it. The 4 casters nearest the camera are\n"
-                "active at a time - mark hero objects, not everything.\n"
-                "Follows animation and movement; game-only (no preview).\n"
-                "'Cast shadow' below is the baked, static one.");
+        // THE RUNTIME shadow, distinct from the baked ambient-occlusion
+        // "Cast shadow" below - and a choice per object rather than a
+        // project-wide one (docs/shadows.md): a blob is one soft quad that
+        // costs almost nothing and has no shape, a projected silhouette is a
+        // second 64x64 render of this object every frame. "Default" is what
+        // every project did before the choice existed, so an untouched object
+        // behaves exactly as it always has.
+        {
+            const char* shadowNames[] = {"Default (follow the project)",
+                                         "None", "Blob (soft quad)",
+                                         "Projected silhouette"};
+            int mode = o.shadowMode;
+            if (mode < 0 || mode > 3) mode = 0;
+            // A real label rather than "##dynshadow" plus a SameLine caption:
+            // it is the idiom the rest of these panels use, and a hidden label
+            // is a widget no UI script can name (docs/ui-scripting.md).
+            if (ImGui::Combo("Dynamic shadow", &mode, shadowNames, 4)) {
+                o.shadowMode = mode;
+                committed = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "What this object casts while the game runs.\n"
+                    "DEFAULT - the project decides: a blob under the moving\n"
+                    "things (avatar, animated models, physics) if Preferences\n"
+                    "has blob shadows on, plus the silhouette below if it is\n"
+                    "ticked.\n"
+                    "NONE - nothing, whatever the project says.\n"
+                    "BLOB - one soft dark quad that follows the ground under\n"
+                    "it. Cheap enough for a crowd, and it works on a static\n"
+                    "prop too; it has no shape of its own.\n"
+                    "PROJECTED - the real silhouette: the object renders a\n"
+                    "second time each frame (64x64, from the sun) and the\n"
+                    "shape is projected under it. The 4 casters nearest the\n"
+                    "camera are active at a time, so mark hero objects.\n"
+                    "Game-only (no preview). 'Cast shadow' below is the\n"
+                    "BAKED, static one - a different thing entirely.");
+            // The old flag still means "projected" while the mode follows the
+            // project, so it stays reachable - and stays the thing every
+            // existing .tyra carries.
+            if (o.shadowMode == 0) {
+                if (ImGui::Checkbox("Projected shadow (live)", &o.projShadow))
+                    committed = true;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "The project-default form of the choice above. Pick\n"
+                        "\"Projected silhouette\" in the combo to say it on the\n"
+                        "object instead.\n"
+                        "With a GI bake a static object's sun shadow is already\n"
+                        "baked: the live one then draws only while the day/night\n"
+                        "clock runs or under a torch. The combo forces it.");
+            }
+        }
         // Baked ambient occlusion: whether this object darkens nearby
         // terrain/objects (docs/ambient-occlusion.md; global strength in
         // the Ambience Editor).
@@ -858,6 +898,76 @@ void App::drawPropertiesWindow() {
                 "moves. The bake already excludes anything it can prove moves\n"
                 "(physics, pickable, usable, save-state, streamed, or moved by\n"
                 "a flow graph) - this is for the rest.");
+
+        // Pre-lit models (docs/prelit-models.md). Only a MODEL: an untextured
+        // primitive already has the per-texel lightmap route, which costs no
+        // extra texture at all.
+        if (o.type == PrimitiveType::Model && !o.modelPath.empty()) {
+            const int myIndex = selectedObject_;
+            const bool mine = litBaker_.objectIndex() == myIndex &&
+                              litBaker_.sceneIndex() == project_.activeScene;
+            if (litBaker_.running() && mine) {
+                ImGui::ProgressBar(litBaker_.progress(), ImVec2(-FLT_MIN, 0.0f));
+                ImGui::TextUnformatted(litBaker_.status().c_str());
+                if (ImGui::Button("Cancel##prelit")) litBaker_.cancel();
+            } else {
+                if (ImGui::Button("Bake lighting into texture")) {
+                    saveProject();  // the bake reads the model off disk
+                    litBaker_.start(project_, project_.activeScene, myIndex,
+                                    litBakeParams_);
+                }
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(scaled(90.0f));
+                ImGui::DragInt("##prelitsize", &litBakeParams_.size, 8.0f, 32,
+                               512, "%d px");
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(scaled(90.0f));
+                ImGui::DragInt("##prelitrays", &litBakeParams_.rays, 1.0f, 8,
+                               512, "%d rays");
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Bakes the scene's light INTO this object's texture and\n"
+                    "gives it its own material - the only way a TEXTURED\n"
+                    "surface gets per-pixel static light on this hardware (the\n"
+                    "lightmap is additive and the GS cannot multiply a texture\n"
+                    "by a second one in a later pass).\n"
+                    "Its vertex light then goes neutral; the flashlight and\n"
+                    "live point lights still land on top.\n"
+                    "Costs one texture per object, and goes STALE if you move\n"
+                    "the object or change the scene's lighting - re-bake it.");
+            // Fresh or stale, from the signature - the same answer the Baked
+            // lighting tab gives, out of the same cached table (asking
+            // litbake::signature per frame would content-hash every file the
+            // GI bake reads).
+            if (o.prelit) {
+                const PrelitStatus* st = prelitStatusFor(myIndex);
+                if (st && st->fresh)
+                    ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f),
+                                       "Pre-lit: its texture carries its light");
+                else
+                    ImGui::TextColored(
+                        ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
+                        "Pre-lit, but STALE: the scene or this object has "
+                        "moved since the bake");
+                if (ImGui::Button("Revert to source material"))
+                    revertPrelit(myIndex);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Puts back the material this object had before its\n"
+                        "first bake and stops shipping it pre-lit. The baked\n"
+                        "-lit.png/.mtl are left on disk (the Asset Browser\n"
+                        "lists them as unused).");
+            }
+            ImGui::TextDisabled(
+                "Every pre-lit object in this scene: Tools > Baked Lighting");
+            if (!litBaker_.error().empty() && mine)
+                ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.4f, 1.0f), "%s",
+                                   litBaker_.error().c_str());
+            // The result is applied by App::litBakerPoll, not here: a bake
+            // that finishes has to land whether or not this object is still
+            // the selected one.
+        }
     }
 
     if (isArea) {
@@ -1487,7 +1597,7 @@ void App::drawPropertiesWindow() {
                                 "X/Z near 0 and Y = height above the player.");
         ImGui::TextDisabled("Color tints the particles; scale X/Z = spawn area.\n"
                             "Rain falls from the emitter down to the terrain.\n"
-                            "Show/Hide Object nodes switch the emitter on/off.");
+                            "Set Object Visible switches the emitter on/off.");
     }
 
     if (o.type == PrimitiveType::SoundEmitter) {
@@ -1546,11 +1656,11 @@ void App::drawPropertiesWindow() {
         if (o.soundOnPlayer) {
             ImGui::TextDisabled("Plays centered at full volume everywhere -\n"
                                 "no distance falloff, no panning (dialogs,\n"
-                                "narration). Hide Object mutes.");
+                                "narration). Set Object Visible (hide) mutes.");
         } else {
             ImGui::TextDisabled("Volume fades with distance to the player.\n"
                                 "Interval 0 loops the sample seamlessly; > 0\n"
-                                "retriggers it every N seconds. Hide Object mutes.");
+                                "retriggers it every N seconds. Hiding the object mutes.");
         }
     }
 
@@ -1570,6 +1680,51 @@ void App::drawPropertiesWindow() {
                 "object and be switched by the Set Light flow node.\n"
                 "The engine lights each mesh with its strongest dynamic\n"
                 "light (one slot per mesh; max 8 per scene).");
+        if (o.lightDynamic) {
+            committed |= ImGui::Checkbox("Spot (cone)", &o.lightSpot);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "The light becomes a cone down the object's local -Y\n"
+                    "(unrotated = straight down; rotate the object to aim).\n"
+                    "Nearby meshes take the cone per vertex, and on the\n"
+                    "ground its footprint is PROJECTED per pixel with the\n"
+                    "flashlight's gobo - a street lamp that really lights\n"
+                    "the street (docs/flashlight.md).");
+            if (o.lightSpot) {
+                ImGui::DragFloat("Cone half-angle", &o.lightSpotAngle, 0.2f,
+                                 5.0f, 60.0f, "%.0f deg");
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                // Whether this cone carves shadow volumes, said on the light
+                // rather than for the whole project - the "Dynamic shadow"
+                // idiom further up this panel. A real label, not a "##id":
+                // a hidden label is a widget no UI script can name
+                // (docs/ui-scripting.md). The name does not collide with
+                // "Dynamic shadow" above, and there is no other "Shadow
+                // volumes" widget in this window - a label IS the ImGui id.
+                const char* volNames[] = {"Default (follow the project)",
+                                          "Off", "On"};
+                int vol = o.lightShadowVolumes;
+                if (vol < 0 || vol > 2) vol = 0;
+                if (ImGui::Combo("Shadow volumes", &vol, volNames, 3)) {
+                    o.lightShadowVolumes = vol;
+                    committed = true;
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Whether this spot light's cone is occluded per pixel\n"
+                        "by the solids inside it, the way the player's torch\n"
+                        "can be (docs/shadows.md).\n"
+                        "DEFAULT - the project decides (Preferences >\n"
+                        "Rendering > Spot light shadow volumes).\n"
+                        "OFF - this lamp shines through everything, whatever\n"
+                        "the project says.\n"
+                        "ON - this lamp casts, even in a project that leaves\n"
+                        "the rest of them off.\n"
+                        "Only ONE spot light casts volumes per frame - the\n"
+                        "nearest to the camera. Setting this to On is how you\n"
+                        "say which lamp deserves it. Game-only (no preview).");
+            }
+        }
         if (o.lightDynamic) {
             ImGui::DragFloat("Flicker", &o.lightFlicker, 0.01f, 0.0f, 1.0f, "%.2f");
             committed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -1869,7 +2024,7 @@ void App::drawPropertiesWindow() {
                         "run speed, so it always plays the run clip.");
                     ImGui::TextDisabled(
                         "Clip auto-selected from real speed; a script/flow\n"
-                        "\"Play Animation\" one-shot plays to the end first.");
+                        "an Animation one-shot plays to the end first.");
                     // Directional locomotion: only meaningful with the avatar
                     // facing the camera - otherwise it turns into the movement
                     // and every step is a forward step.
@@ -1968,6 +2123,27 @@ void App::drawPropertiesWindow() {
             ImGui::DragFloat("Cone half-angle (deg)", &o.flashlightAngle, 0.5f, 2.0f,
                              80.0f, "%.1f");
             committed |= ImGui::IsItemDeactivatedAfterEdit();
+            // Where the torch is HELD. At 0,0 the light sits exactly in the
+            // eye, which is what a first-person torch did until now - and a
+            // light on the view axis lights precisely the surfaces it hides,
+            // so its shadows fall behind their casters where nobody can see
+            // them.
+            ImGui::DragFloat("Held right (units)", &o.flashlightOffsetRight,
+                             0.01f, -1.0f, 1.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("Held below eye (units)", &o.flashlightOffsetDown,
+                             0.01f, -1.0f, 1.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::TextDisabled("0,0 = the light is your eye (no visible shadows).");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Moves the beam origin off the view axis, like a torch\n"
+                    "in a hand: the pool shifts a little and the shadows\n"
+                    "it casts stop hiding behind whatever casts them.\n"
+                    "The AIM still follows where you look. About 0.2\n"
+                    "right and 0.3 down reads as hand-held; past a\n"
+                    "metre it is a lamp on a pole and the cone stops\n"
+                    "agreeing with it.");
         }
         // Optional pad button the player presses to turn the beam on/off. The
         // on/off state only shows while Enabled (it respects Enabled), and the
@@ -2521,6 +2697,54 @@ bool App::drawLodOverrides(SceneObject& o, bool animated) {
     if (animated)
         row("animation LOD", o.animLodOverride, project_.settings.animLodDistance);
     row("mesh LOD", o.meshLodOverride, project_.settings.meshLodDistance);
+    if (!animated && o.type == PrimitiveType::Model) {
+        const bool supported = !o.physics && !o.modelPath.empty() &&
+            std::fabs(o.rotation[0]) < .001f && std::fabs(o.rotation[2]) < .001f &&
+            o.scale[0] > 0 && o.scale[1] > 0 && std::fabs(o.scale[0]-o.scale[2]) < .0001f;
+        if (modelImpostorObject_ != o.id) {
+            modelImpostorObject_ = o.id;
+            modelImpostorViews_ = o.impostorViews;
+        }
+        int captureChoice = modelImpostorViews_ == 4 ? 0 : modelImpostorViews_ == 16 ? 2 : 1;
+        if (ImGui::Combo("Capture views", &captureChoice, "4 views\0" "8 views\0" "16 views\0"))
+            modelImpostorViews_ = 4 << captureChoice;
+        ImGui::Checkbox("Impostor GPU", &impostorGpu_);
+        ImGui::TextDisabled("Applied on bake; GPU falls back to CPU if unavailable.");
+        ImGui::BeginDisabled(!supported);
+        if (ImGui::Button("Bake impostor")) {
+            std::string key = o.id;
+            for (char& c : key)
+                if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                      (c >= '0' && c <= '9') || c == '-')) c = '_';
+            std::string path, error, backend;
+            float extent = 0;
+            if (impostorbake::model(project_.dir, o.modelPath, o.materialPath,
+                    "res/models/impostors/model-"+key, &path, &extent, &error, 128, modelImpostorViews_, impostorGpu_, &backend)) {
+                o.impostorPath = path;
+                o.impostorBillboard = true;
+                o.impostorViews = modelImpostorViews_;
+                if (o.impostorDistance <= 0)
+                    o.impostorDistance = std::max(1.0f, extent*std::max(o.scale[0],o.scale[1])*6.0f);
+                viewport_.invalidateAssets();
+                committed = true;
+                statusMessage_ = "Baked " + std::to_string(o.impostorViews) + "-view impostor (" + backend + ") for '" + o.name + "'";
+            } else statusMessage_ = "Impostor bake failed: " + error;
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Bake this OBJ and its material into the selected number of 128px views.\n"
+                              "Requires a static, upright object with equal positive X/Z scale.\n"
+                              "Reflection and emission are unsupported. Rebuild the game after baking.");
+    }
+    if (!animated && !o.impostorPath.empty()) {
+        ImGui::TextWrapped("Impostor: %s (%d views)", o.impostorPath.c_str(), o.impostorViews);
+        ImGui::DragFloat("Impostor distance", &o.impostorDistance, 1.0f,
+                          0.0f, 2000.0f, "%.0f units");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("0 disables the distant model. Collision keeps the original mesh.\n"
+                              "Eight-view cards approximate the silhouette; the swap is not blended.");
+    }
     return committed;
 }
 

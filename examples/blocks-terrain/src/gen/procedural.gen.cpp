@@ -112,7 +112,7 @@ float remap01(float v, float lo, float hi) {
 
 void clearPt(Pt& p) {
   p.x = p.y = p.z = 0.0F; p.rx = p.ry = p.rz = 0.0F; p.sc = 1.0F;
-  p.key = 0ULL; p.asset = -1; p.prefab = -1; p.faces = 63;
+  p.key = 0ULL; p.asset = -1; p.prefab = -1; p.faces = 63; p.block = 0;
   for (int i = 0; i < PROC_ATTR_SLOTS; ++i) p.a[i] = 0.0F;
 }
 // Volume local -> world, the twin of procgen's Volume::localToWorld.
@@ -198,7 +198,7 @@ static int pgen_0(procrt::Ctx& c) {
         unsigned long long key = procrt::mix64(((unsigned long long)1 << 44) ^ ((unsigned long long)(unsigned)iy << 34) ^ ((unsigned long long)(unsigned)iz << 17) ^ (unsigned long long)(unsigned)ix);
         procrt::Pt& P = c.buf[c.count++];
         procrt::clearPt(P);
-        P.key = key; P.faces = faces; P.sc = bs;
+        P.key = key; P.faces = faces; P.sc = bs; P.block = 1;
         P.x = c.blockOx + ((float)ix + 0.5F) * bs;
         P.y = 0.0f + ((float)iy + 0.5F) * bs;
         P.z = c.blockOz + ((float)iz + 0.5F) * bs;
@@ -280,7 +280,7 @@ static int pgen_0(procrt::Ctx& c) {
         unsigned long long key = procrt::mix64(((unsigned long long)1 << 44) ^ ((unsigned long long)(unsigned)iy << 34) ^ ((unsigned long long)(unsigned)iz << 17) ^ (unsigned long long)(unsigned)ix);
         procrt::Pt& P = c.buf[c.count++];
         procrt::clearPt(P);
-        P.key = key; P.faces = faces; P.sc = bs;
+        P.key = key; P.faces = faces; P.sc = bs; P.block = 1;
         P.x = c.blockOx + ((float)ix + 0.5F) * bs;
         P.y = 0.0f + ((float)iy + 0.5F) * bs;
         P.z = c.blockOz + ((float)iz + 0.5F) * bs;
@@ -362,7 +362,7 @@ static int pgen_0(procrt::Ctx& c) {
         unsigned long long key = procrt::mix64(((unsigned long long)1 << 44) ^ ((unsigned long long)(unsigned)iy << 34) ^ ((unsigned long long)(unsigned)iz << 17) ^ (unsigned long long)(unsigned)ix);
         procrt::Pt& P = c.buf[c.count++];
         procrt::clearPt(P);
-        P.key = key; P.faces = faces; P.sc = bs;
+        P.key = key; P.faces = faces; P.sc = bs; P.block = 1;
         P.x = c.blockOx + ((float)ix + 0.5F) * bs;
         P.y = 0.0f + ((float)iy + 0.5F) * bs;
         P.z = c.blockOz + ((float)iz + 0.5F) * bs;
@@ -444,7 +444,7 @@ static int pgen_0(procrt::Ctx& c) {
         unsigned long long key = procrt::mix64(((unsigned long long)1 << 44) ^ ((unsigned long long)(unsigned)iy << 34) ^ ((unsigned long long)(unsigned)iz << 17) ^ (unsigned long long)(unsigned)ix);
         procrt::Pt& P = c.buf[c.count++];
         procrt::clearPt(P);
-        P.key = key; P.faces = faces; P.sc = bs;
+        P.key = key; P.faces = faces; P.sc = bs; P.block = 1;
         P.x = c.blockOx + ((float)ix + 0.5F) * bs;
         P.y = 0.0f + ((float)iy + 0.5F) * bs;
         P.z = c.blockOz + ((float)iz + 0.5F) * bs;
@@ -519,7 +519,7 @@ static int pgen_0(procrt::Ctx& c) {
         unsigned long long key = procrt::mix64(((unsigned long long)1 << 44) ^ ((unsigned long long)(unsigned)iy << 34) ^ ((unsigned long long)(unsigned)iz << 17) ^ (unsigned long long)(unsigned)ix);
         procrt::Pt& P = c.buf[c.count++];
         procrt::clearPt(P);
-        P.key = key; P.faces = faces; P.sc = bs;
+        P.key = key; P.faces = faces; P.sc = bs; P.block = 1;
         P.x = c.blockOx + ((float)ix + 0.5F) * bs;
         P.y = 0.0f + ((float)iy + 0.5F) * bs;
         P.z = c.blockOz + ((float)iz + 0.5F) * bs;

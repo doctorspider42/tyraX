@@ -636,6 +636,12 @@ class RendererCoreBlss {
 
   int outW = 0, outH = 0;   // PHYSICAL display buffer size
   int lowW = 0, lowH = 0;   // the low-res render target
+  // Modified by TyraX: the framebuffer's pixel format (PSMCT32, or PSMCT16
+  // in a 16bpp project - docs/gs-vram.md). Every FRAME and TEX0 in this
+  // class addresses either the low-res target or a display buffer, and
+  // both are screen-shaped, so they all take this rather than assuming
+  // 32-bit. The low-res target is allocated in it too.
+  int fbPsm = 0;
   int lowBufW = 0;          // 64-aligned FRAME/TEX buffer width of the target
   int lowVram = 0;
   int cols = 0, rows = 0;   // tile counts

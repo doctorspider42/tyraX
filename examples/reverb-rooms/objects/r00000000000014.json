@@ -1,1 +1,1 @@
-{"id": "r00000000000014", "name": "closet-wall-s", "type": "box", "position": [-28.5, 1.75, 8], "rotation": [0, 0, 0], "scale": [5, 3.5, 0.6], "color": [0.5, 0.2, 0.2], "physics": false}
+{ "id": "r00000000000014", "name": "closet-wall-s", "type": "box", "position": [-28.5, 1.75, 8], "rotation": [0, 0, 0], "scale": [5, 3.5, 0.6], "color": [0.5, 0.2, 0.2], "physics": false }

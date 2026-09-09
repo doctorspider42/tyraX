@@ -125,8 +125,9 @@ constexpr MenuEntryData MENU_1_ENTRIES[2] = {
     {8, 3, 0.0F, 3, 5, 4, -1, nullptr, -1, -1, -1, -1, 1},  // AIM CURVE
 };
 // menu "options-display"
+constexpr int MENU_2_E0_MODES[5] = {0, 1, 2, 3, 4};
 constexpr MenuEntryData MENU_2_ENTRIES[2] = {
-    {8, 4, 0.0F, 5, 0, 5, -1, nullptr, -1, -1, -1, -1, 1},  // DISPLAY
+    {8, 4, 0.0F, 5, 0, 5, -1, MENU_2_E0_MODES, -1, -1, -1, -1, 1},  // DISPLAY
     {7, 5, 0.0F, 2, 5, 6, -1, nullptr, -1, -1, -1, -1, 1},  // ASPECT
 };
 // menu "options"

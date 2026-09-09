@@ -340,6 +340,7 @@ void App::rebuildAssetUsage() {
             const SceneObject& o = scene.objects[oi];
             const std::string where = sn + " / " + o.name;
             if (!o.modelPath.empty()) note(o.modelPath, 0, where + " (model)", si, oi);
+            if (!o.impostorPath.empty()) note(o.impostorPath, 0, where + " (impostor)", si, oi);
             if (!o.materialPath.empty())
                 note(o.materialPath, 0, where + " (material)", si, oi);
             if (!o.soundPath.empty()) note(o.soundPath, 0, where + " (sound)", si, oi);
@@ -368,6 +369,7 @@ void App::rebuildAssetUsage() {
         for (const SceneObject& o : pf.objects) {
             const std::string where = "prefab \"" + pf.name + "\" / " + o.name;
             if (!o.modelPath.empty()) note(o.modelPath, 0, where + " (model)");
+            if (!o.impostorPath.empty()) note(o.impostorPath, 0, where + " (impostor)");
             if (!o.materialPath.empty())
                 note(o.materialPath, 0, where + " (material)");
             if (!o.soundPath.empty()) note(o.soundPath, 0, where + " (sound)");
@@ -378,6 +380,10 @@ void App::rebuildAssetUsage() {
     };
     for (const HudImage& h : project_.hud) noteHud(h, "HUD \"" + h.name + "\"");
     noteHud(project_.usePrompt, "USE prompt");
+    for (const HudBar& b : project_.hudBars) {
+        noteHud(b.fillImage, "HUD bar \"" + b.name + "\" (fill)");
+        noteHud(b.frameImage, "HUD bar \"" + b.name + "\" (frame)");
+    }
     for (const LoadingScreenDef& ls : project_.loadingScreens) {
         for (const HudImage& h : ls.images)
             noteHud(h, "loading screen \"" + ls.name + "\"");
@@ -605,7 +611,13 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
     for (SceneData& scene : project_.scenes) {
         for (SceneObject& o : scene.objects) {
             swap(o.modelPath);
+            swap(o.impostorPath);
             swap(o.materialPath);
+            // The material a Revert would put back (docs/prelit-models.md): a
+            // stored asset path like any other, so renaming that .mtl must
+            // follow it or Revert points a pre-lit object at a file that has
+            // moved.
+            swap(o.prelitSource);
             swap(o.soundPath);
             for (FlowNode& n : o.flowGraph.nodes) {
                 const FlowNodeType* t = flowNodeType(n.type);
@@ -624,12 +636,18 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
     for (Prefab& pf : project_.prefabs)
         for (SceneObject& o : pf.objects) {
             swap(o.modelPath);
+            swap(o.impostorPath);
             swap(o.materialPath);
+            swap(o.prelitSource);
             swap(o.soundPath);
         }
 
     for (HudImage& h : project_.hud) swap(h.imagePath);
     swap(project_.usePrompt.imagePath);
+    for (HudBar& b : project_.hudBars) {
+        swap(b.fillImage.imagePath);
+        swap(b.frameImage.imagePath);
+    }
     for (LoadingScreenDef& ls : project_.loadingScreens) {
         for (HudImage& h : ls.images) swap(h.imagePath);
         for (LoadingBar& b : ls.bars) swap(b.segImage.imagePath);
@@ -666,6 +684,16 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
         const Project::MusicBuildOpt value = it->second;
         project_.musicBuild.erase(it);
         if (!to.empty()) project_.musicBuild[to] = value;
+        ++hits;
+    }
+    // The model's automatic-AO override (docs/ambient-occlusion.md): a setting
+    // keyed by the asset path, so it has to travel with the file or a renamed
+    // model silently falls back to the project default.
+    if (auto it = project_.modelAoMode.find(from);
+        it != project_.modelAoMode.end()) {
+        const int value = it->second;
+        project_.modelAoMode.erase(it);
+        if (!to.empty()) project_.modelAoMode[to] = value;
         ++hits;
     }
     if (auto it = project_.modelLods.find(from); it != project_.modelLods.end()) {

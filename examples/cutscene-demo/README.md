@@ -31,8 +31,9 @@ The shot list (one sequence, "The Reveal"):
    across the plaza. Meanwhile the **obelisk** swells and heats from gold to
    molten orange (a scale + colour track) and the hero keeps spinning.
 4. **10.0 s** — cut to `cam-hero`, a low angle looking up as the hero
-   **ascends** spinning and the `sparks` emitter on the obelisk switches on
-   (a visibility track). This shot **blends** (Smooth easing) into the finale…
+   **ascends** spinning. The `sparks` emitter on the obelisk has already
+   switched on half a second earlier: its visibility key sits at 9.5 s, still
+   inside the dolly shot. This shot **blends** (Smooth easing) into the finale…
 5. **13.0 s** — `cam-crane`, itself craning up and back on its own object
    track, pulls away for the climax as the picture fades to black; the bars
    slide out and the game camera returns to the player.
@@ -57,6 +58,6 @@ The shot list (one sequence, "The Reveal"):
 - **Trigger** — the pedestal's flow graph fires **Play Sequence** from both
   **On Start** and **On Used** (the pedestal is marked *Usable*).
 
-Everything compiles into `src/scripts/sequences.gen.cpp` (keyframe tables +
+Everything compiles into `src/gen/sequences.gen.cpp` (keyframe tables +
 the director script + the bars/fade compositor) on every build — open the file
 to see what the editor generates from the timeline.

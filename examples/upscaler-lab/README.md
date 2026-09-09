@@ -87,11 +87,9 @@ thick enough to matter and thin enough to watch.
 | Flow graph on an Empty | 1 | **Square** turns every emitter off, **Circle** turns them back on: an in-run particle A/B with zero camera variance. |
 
 **Why `kind: "custom"` (5) and not `fog` (2)**, which is what a haze bank looks
-like it wants: `fog` peaks at alpha 36 while `custom` reaches 128
-(`templates.cpp:7860-7889`), and **`opacity` is only serialised for
-`kind == "custom"`** (`project.cpp:690`) — a `fog` emitter's opacity is silently
-dropped on save. That second one is a real data-loss bug and is filed in
-`docs/backlog.md`.
+like it wants: at the same *Opacity*, `fog` peaks at alpha 60 while `custom`
+reaches 128 (`templates.cpp:8886` and `:8894`) — more than twice the fill per
+layer, which is the whole point of the fixture.
 
 **Why the quads are enormous.** A particle quad spans `2 * size` world units. At
 a 60° vertical FOV the visible height at distance `d` is `1.155 * d`, so a
@@ -435,7 +433,7 @@ is a console table.
 
 A second cut, **the proxy budget, is measured and deliberately not shipped**: it
 takes the bill to **4.17 ms** (+0.429 [+0.427, +0.430], all of it in `proxy`) and
-break-even from 11.5 to 10.5 coverages, for one channel of description
+break-even from 13.1 to 12.0 coverages, for one channel of description
 (`coverage` 0.631 → 0.638, every other channel identical to three decimals). It
 stays at 0 because `src/blsscorpus.cpp` does not cut the same way yet, and
 flipping one half of a twin silently invalidates every trained net.
@@ -598,7 +596,7 @@ node are refused outright: `blssClashes()` emits `#error` into
 ## Assets
 
 Every art asset here is **CC0 1.0** and attributed in
-`THIRD-PARTY-NOTICES.txt`. Total committed assets under `res/`: **758 KB** (it
+`THIRD-PARTY-NOTICES.txt`. Total committed assets under `res/`: **475 KB** (it
 was 1.7 MB before the swap), of which the buildings and trucks are **217 KB** of
 Wavefront text and **45 KB** of 64² and 128² textures, and the animated model is
 **14 KB**. Nothing here is over 512 px or non-power-of-two, so `texbake` resizes
@@ -651,7 +649,7 @@ statue, and faking one was not on the table. `THIRD-PARTY-NOTICES.txt` records
 this so nobody re-derives it.
 
 **Static geometry wants `.obj`, never `.fbx`.** `.fbx` is *always* treated as an
-animated model (`project.hpp:797`, `isAnimatedModelPath`), so a building shipped
+animated model (`project.hpp:890`, `isAnimatedModelPath`), so a building shipped
 as one would go down the skeletal pipeline, pay per-frame EE pose work for
 something that never moves, and — until animated models were added to the corpus
 walk — be invisible to BLSS training. The buildings are `.obj` for that reason.

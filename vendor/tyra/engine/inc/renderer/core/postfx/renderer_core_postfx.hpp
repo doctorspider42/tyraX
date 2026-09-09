@@ -297,6 +297,19 @@ class RendererCorePostFx {
   int lowBufW;       // quarter buffer width (aligned to 64)
   int lowVram[2];    // two quarter-res work buffers (word addresses)
   int noiseVram;     // noise texture (word address)
+  // Modified by TyraX: the framebuffer's pixel format (PSMCT32 or PSMCT16 -
+  // see ColorDepth). Every blit in here both READS and WRITES framebuffer-
+  // shaped memory, so a hardcoded GS_PSM_32 would decode a 16-bit frame as
+  // 32-bit garbage. The two low-res work buffers are allocated in the same
+  // format so a blit between them needs no conversion; the noise texture is
+  // always PSMCT32 (it is uploaded, not rendered) - psmFor() is what keeps
+  // those two cases apart.
+  int fbPsm;
+
+  /** GS pixel format of a VRAM address this pass may touch. */
+  int psmFor(const int& vram) const {
+    return vram == noiseVram ? 0 /* GS_PSM_32 */ : fbPsm;
+  }
   int curFbVram;     // framebuffer of the pass in flight (custom-pass accessors)
   int curFbBufW;
 

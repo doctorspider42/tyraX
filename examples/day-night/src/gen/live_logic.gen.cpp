@@ -101,7 +101,10 @@ int progCount = 0, blockCount = 0, instrCount = 0, condCount = 0, strCount = 0;
 
 unsigned int lastSeq = 0;
 unsigned int lastGen = 0xFFFFFFFFU;  // scene generation the state belongs to
-int cooldown = 1;
+// PHASE, not a delay - see "Why the seven polls start on different frames" in
+// docs/devkit.md. Every channel used to start at 1 and re-arm to the same
+// number, so all seven stayed locked to one frame in 25 forever.
+int cooldown = 9;
 
 // One static read buffer - the EE does not allocate for this.
 unsigned char buf[LP_HEADER + 8 + MAX_PROGRAMS * 24 + MAX_BLOCKS * BLK_STRIDE +

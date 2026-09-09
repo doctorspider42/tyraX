@@ -26,9 +26,10 @@ What's in the scene:
   billboards re-expand on VU1 to face the portal viewer, so particles come
   through the opening, not just solid geometry. portal-a runs the
   experimental **All objects in view** switch (its view list is empty —
-  everything on the far side shows up); portal-b uses the classic explicit
-  list (the render budget, like a Mirror's reflected-object list), so the
-  demo shows both modes.
+  everything on the far side shows up), and so does portal-b: the switch
+  overrides its leftover explicit list (`box-green`), the classic render
+  budget that works like a Mirror's reflected-object list. Every portal in
+  the scene runs the switch.
 - **The infinite fall**, in plain view to the right of the spawn:
   **portal-floor** (purple, lying flat ON the ground — the floor-portal
   swallow rule lets bodies sink into it instead of resting on the terrain)
@@ -36,10 +37,11 @@ What's in the scene:
   down), with **Teleport physics objects** on. **box-drop**, a physics cube,
   spawns in the air between them, falls into the floor portal, pops out of
   the ceiling portal with its speed carried through, and falls again —
-  forever. Both surfaces run **All objects in view**, and up to four portal
-  views are live per frame — walk under the ceiling portal and look up to
-  watch the cube approaching *inside* it before it drops out. You can jump
-  into the floor portal yourself (the feet probe catches the drop) and join
-  the loop — strafe out to escape. Object physics clamps falls at a 50 u/s
-  terminal velocity, so the loop stays readable instead of accelerating
+  forever. Both surfaces run **All objects in view**, and exactly one portal
+  view is live per frame — the nearest linked portal the camera faces, every
+  other portal showing its tinted quad — so walk under the ceiling portal and
+  look up to watch the cube approaching *inside* it before it drops out. You
+  can jump into the floor portal yourself (the feet probe catches the drop)
+  and join the loop — strafe out to escape. Object physics clamps falls at a
+  30 u/s terminal velocity, so the loop stays readable instead of accelerating
   into a blur.

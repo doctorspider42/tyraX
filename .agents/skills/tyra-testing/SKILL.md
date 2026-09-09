@@ -32,6 +32,25 @@ wording distinguishes "verified in PCSX2" from "compiles, needs a pad test by a
 human". (That record used to live in `PROGRESS.md`, retired at ~15 800 lines;
 the honesty convention outlived the file.)
 
+**If the thing you need for a clean test does not exist, ADD IT - now, in the
+same change, not in a backlog entry.** "The start pitch cannot be authored, so
+I aimed the torch with a pad script" cost an afternoon of guessed `stick r`
+pushes before the one-line fix (the Player's rotation X is the pitch, 1.66.0,
+docs/player-start.md) made the fixture a JSON edit. The pattern recurs: a
+constant that should be a setting, a state only reachable by a human at the
+pad, a value the game computes but never logs. Each one is a small, honest
+feature (or a `--flag`, or a `TYRA_LOG` line) that makes the test repeatable
+for everyone after you - and an A/B that depends on a hand-driven input is not
+an A/B. Ask "what would make this a file edit + one command?" and build that
+first; the user has asked for exactly this.
+
+**Frozen-camera fixture** (every PCSX2 A/B of a rendering change): on the
+Player object set `walkSpeed: 0`, `lookSpeed: 0`, the `position` that frames
+the shot and `rotation: [pitchDownDeg, headingDeg, 0]` (rotation X is the
+pitch, positive = down - docs/player-start.md), plus `"keyboardMouse": false`
+in the `.tyra`. Then `--build <dir> --run`, wait ~12 s, `-PrintWindow`
+screenshot. Same frame every boot, no pad needed.
+
 ## Layer 0 — build the editor
 
 The editor builds and runs on **Windows and Linux**. Pick the script for the
@@ -149,7 +168,10 @@ TYRAX --resave <projectDir>          # load + save, no Docker
 TYRAX --migrate <projectDir>         # backup + apply format migrations
 TYRAX --refresh-gen <projectDir>     # regen sources, no Docker
 TYRAX --bake-gi <projectDir>         # bake global illumination, no Docker
+TYRAX --bake-model-ao <projectDir> [--texbake]   # per-model self-AO, no Docker
+TYRAX --bake-prelit <projectDir> [sceneName]     # re-bake STALE pre-lit objects
 TYRAX --dump <projectDir>            # JSON project summary
+TYRAX --atlas-report <projectDir>    # what texture atlasing packed, refused (with reasons), and costs
 TYRAX --chat-prompt [projectDir]     # what the AI Assistant is told (docs/ai-chat.md)
 TYRAX --list-nodes <projectDir>      # what the graph generator is told
 TYRAX --dump-graph <projectDir> <object> [scene]
@@ -335,11 +357,44 @@ mtime before trusting a run from there.
   the scene shipped GI), check `inc/probe_data.gen.hpp` has a
   `SCENE_PROBE_GRIDS` entry, then `--build --run` and A/B the screenshot
   against the same project with `"giEnabled": false` in its `.tyra`. Two
-  traps worth knowing: the bake is NEVER part of a build (a build only READS
-  the cache), so a change to the scene silently falls it back to the pre-GI
-  lighting until you re-bake; and it prints per scene how long it took plus
+  traps worth knowing: the bake is NOT part of a build by default (a build only
+  READS the cache), so a change to the scene silently falls it back to the
+  pre-GI lighting until you re-bake - `"giAutoBake": true` in the settings
+  makes `--build` (and the GUI build) re-bake exactly the STALE scenes first,
+  printing `gi: baked GI ...` / `gi: fresh ...` per scene, and the check is a
+  second build that says `fresh` for all of them; and it prints per scene how long it took plus
   the atlas/terrain/probe dimensions, which is the fastest sanity check that
   it saw any geometry at all (`atlas 0` means no eligible receivers).
+- `--bake-model-ao` bakes every eligible `.obj` model's OWN ambient occlusion
+  (docs/ambient-occlusion.md, "Model AO") into `.res-baked/modelao/` and prints
+  one line per (model, texture) pair - `baked` / `fresh` / `skipped ... :
+  reason`. It exists because the shipping path for that feature is `texbake`,
+  which runs only inside a real Docker build, so **`--bake-model-ao
+  <dir> --texbake` is how the whole chain is checkable with no container**:
+  the second flag runs the texture bake too, i.e. the actual multiply into
+  `.res-baked`, which logs `model AO: multiplied into <texture>`. The honest
+  check afterwards is a pixel one - decode `res/models/x.png` and
+  `.res-baked/models/x.png` and compare their RGB means (baked must be darker)
+  and their alpha channels (must be IDENTICAL - the GS cutout rule). Re-run to
+  confirm idempotence (`fresh`, byte-identical map). The verb refuses when the
+  project has the feature off, so a fixture needs `"modelAo": true` in its
+  `.tyra` settings (new projects get it; older ones do not).
+- `--bake-prelit <dir> [scene]` re-bakes every object marked to ship pre-lit
+  (`prelitWanted`) whose baked texture no longer matches the scene
+  (docs/prelit-models.md, "Managing pre-lit objects"), then saves and
+  regenerates. It prints `baked` or `fresh` per object plus a summary and exits
+  non-zero on a bake failure. **Two runs are the test**: the second must report
+  everything `fresh` and bake nothing, which is the only check that the
+  signature is stable rather than merely present. To see a stale one, move the
+  object (edit its `objects/<id>.json` position) and run again - it re-bakes,
+  and the reported `mean light` moves with it. The object's stamp lands in
+  `objects/<id>.json` as `prelitSig` (hex string), `prelitWanted` and - only
+  when the object had a material override before its first bake -
+  `prelitSource`. It refuses a project needing a format migration, like every
+  headless verb that writes the project. With `"prelitAutoBake": true` in the
+  project's settings, `--build` (and the GUI's build) runs the SAME loop first
+  and prints `pre-lit: ...` lines - the check is a build log that says
+  `0 baked, N already fresh` on the second build.
 - `--resave` loads a project and writes the `.tyra` (+ heights) straight back
   out — **no Docker**. Because `project::load` runs every format migration,
   this is the clean way to test/round-trip a `.tyra`-format change headlessly:
@@ -683,6 +738,49 @@ Notes:
   stdout from `--build <dir> --run-ps2 <ip>`, and the Debug window falls back to
   the same stream. A game built before 2026-08-06 logs NOTHING over ps2link (the
   EE's stdout was buffered and never flushed) — rebuild before believing silence.
+- **The game can photograph ITSELF, and that is the path that never lies about
+  which window it grabbed** (docs/devkit.md, "The game's own screenshot"). A
+  debug build with *Live Debugger* on takes a one-shot on the same command
+  channel as the VU1 capture — **flags bit 6** of `bin/livedbg.cmd`, or
+  *Debugger > Screen > Capture frame* — reads its last finished frame out of GS
+  VRAM and writes `bin/frame.tga`; the editor decodes that and keeps the picture
+  as `screenshots/frame-<date>-<time>.png` in the project, which is what *Show
+  file* opens. No desktop, no window, no focus, and it is the ONLY one that
+  exists on real hardware. Reach for it whenever a host-side grab is in doubt:
+  an occluded window, a locked or disconnected session, a parallel worktree's
+  emulator, or a console. Headless: `TYRAX --capture-frame <projectDir> -o
+  shot.png` writes the command, waits for the file and decodes it - the
+  console A/B recipe is `--build <dir> --run-ps2 <ip>` (the process that stays
+  up IS the host: server), `--pad` to move, `--capture-frame` per vantage.
+
+  **It works on a console since 1.55.1 and did not before**, which is worth
+  knowing when reading anything measured with it earlier: ps2sdk's
+  `ps2_screenshot_file()` creates its output with `open(O_CREAT|O_WRONLY)`, and
+  over ps2link that create arrives at the `host:` server as a **mkdir of the
+  target name** - the host gets a DIRECTORY called `frame.tga`, the open fails,
+  and the function has no failure path to report it with. The runtime writes the
+  file itself now (docs/devkit.md, "Why the file is written by the game rather
+  than by libdebug"). Over ps2link one capture freezes the game for about three
+  seconds; in PCSX2 it lands between two frames.
+
+  Scripted, through the editor's own encoder (the `livedbg.cpp` probe recipe
+  below), it is ~10 lines: `Command c; c.seq = n; c.captureFrame = true;
+  livedbg::writeCommand(bin + "livedbg.cmd", c);` then wait for `frame.tga` and
+  read it. The file is an uncompressed 32-bit TGA, **BGRA, bottom row first**,
+  exactly `18 + w*h*4` bytes — PIL opens it directly, and that size is also how
+  you tell a finished write from a poll that landed mid-transfer (it is written
+  a scan line at a time over `host:`, so mid-write reads are common, not rare —
+  and over ps2link the write takes SECONDS, so decide "still writing" from the
+  size still GROWING rather than from a number of tries). Its alpha is already
+  opaque; a frame buffer's alpha is a working channel rather than coverage, so
+  the game writes 255 instead of handing over a half-transparent picture.
+
+  What comes back is the **GS raster**, not the television picture — no aspect
+  correction, no letterbox — which is why it is also the cheapest way to read
+  the real buffer geometry without touching `ScreenshotSize` in PCSX2.ini. To
+  cross-check it against the emulator, crop the PrintWindow grab to its
+  non-black columns and compare resized: measured **0.91/255** mean absolute
+  difference on an fpp fixture, which is what a correct capture looks like.
 - **Screenshots**: PCSX2's F8 via SendKeys is flaky. On Windows use the bundled
   script, which has **two capture back-ends** — and picking the wrong one is how
   a whole run becomes fiction, so read this before the flags:
@@ -1629,6 +1727,61 @@ test rather than a screenshot:
 - **crop the status bar out** if you want a cleaner number: it is the only thing
   moving in an idle frame, so its rows are pure noise for every comparison.
 
+### Recording a run and proving it reproduces (docs/input-replay.md)
+
+The pixel-diff recipe above answers "did the game react". This answers the
+harder one - "did it do **the same thing** as last time" - and it needs no
+screenshots at all, because the game checks itself and the exit code is the
+verdict. Requires the debug profile and `"inputRecorder": true` in the `.tyra`.
+
+```bash
+# Record. --pad takes the same script the --pad command does; --seconds is a
+# FLOOR, so idle frames after the script still get recorded.
+tyrax-editor --record $P recordings/smoke.tyrarep \
+    --pad "wait 6; stick l 0 -127; wait 3; press cross; wait 1; neutral" --seconds 14
+
+# Perform it again. 0 = reproduced exactly, 3 = diverged, 1 = could not run.
+tyrax-editor --replay $P recordings/smoke.tyrarep ; echo "exit=$?"
+```
+
+`--replay`'s exit code is the whole point: a recording is a regression test for
+a **play session**, which is the thing `--pad` alone could never be (it can
+drive a game, but nothing afterwards could say whether the game did the same
+thing). The game logs its own verdict, and every line it prints is prefixed
+`Replay:` - one anchor for a grep over `bin/log.txt`:
+
+```text
+Replay: finished 705 frames, 0 divergences
+Replay: finished 705 frames, 304 divergences (first at frame 400)
+Replay: diverged at frame 400: pos (0 1.8 10.301) yaw 0 pitch 0, expected (0 1.8 10.5) yaw 0 pitch 0
+```
+
+Three checks make this a real test rather than a smoke test, and all three were
+run on the branch that added it:
+
+- **Read the recording back before trusting the replay.** A file of 705
+  all-neutral frames replays perfectly and proves nothing. Link `src/livereplay.cpp`
+  into a 30-line harness (the aobake/treegen shape - no GL, no ImGui, no
+  `project.hpp`) and assert the stick really left centre, a button was really
+  held, and the fingerprints really move. On the FPP fixture: 208 frames with the
+  stick off-centre, 7 with a button, 669 of 705 carrying a fingerprint (the first
+  ~36 are boot, where scripts have not started), player z 0 -> 20.8, and `dt`
+  ranging 0.020..0.080 - the loading hitches, recorded.
+- **Tamper with it.** Change ONE frame's axis byte and re-encode (so the CRC
+  stays valid - the test is "different input, different run", not "damaged file
+  refused"). It must come back `exit=3` and name that exact frame. Measured:
+  changing frame 400's left-stick vertical gave `first at frame 400`.
+- **Fight it with the Remote Pad.** Run `--pad "hold left; wait 8"` from a
+  SECOND process against a replaying game. It must still report 0 divergences -
+  that is what proves `Pad::setState`'s overwrite beats `injectVirtual`'s
+  overlay, and it is the one property a single-process test cannot see.
+
+A fourth is worth running on any project with a runtime procedural volume set to
+*a new world every run*: the seed is the one non-deterministic number the game
+asks for, so grep `bin/log.txt` for `Procedural <name>: N instances, seed S`
+after both runs and check S is identical. On `examples/cube`: 27 instances, seed
+329243691, both times.
+
 ### The motion gate: does the picture survive being MOVED?
 
 **Every check above this line freezes the camera.** That is what makes them
@@ -1892,6 +2045,163 @@ docker compose ... exec -T compiler sh -c "rsync -ac --include=*/ --include=bin/
 - **PCSX2 only.** Admissible for correctness (which is all this measures);
   never quote a GS-fill or per-function number from it.
 
+### The shadow A/B rig: one command per switch
+
+Dynamic shadows (docs/shadows.md, docs/flashlight.md) are the case the layers
+above are awkward for: the change is a **switch**, the evidence is **where the
+picture got darker**, and the honest test is the same authored frame rendered
+twice with one setting moved. Two scripts make that one command.
+
+```powershell
+# 1. the fixture, once - headless, no Docker, SHORT path
+powershell -File .claude\skills\tyra-testing\scripts\make-shadow-fixture.ps1 `
+    -Editor build-dev\tyrax-editor.exe -Force
+
+# 2. the A/B, per switch
+powershell -File .claude\skills\tyra-testing\scripts\shadow-ab.ps1 `
+    -Editor build-dev\tyrax-editor.exe `
+    -Project $env:TEMP\tyra-editor-test\spotab `
+    -Vantages $env:TEMP\tyra-editor-test\spotab\vantages.json `
+    -Toggle spotShadowVolumes -Values true,false `
+    -OutDir <scratchpad>\spotab
+```
+
+`-Toggle` is any key the manifest writes on a line of its own —
+`spotShadowVolumes`, `flashShadowVolumes`, `blobShadows` — and it is **inserted**
+when the file does not carry it, which every project that never touched the
+setting does not. For each (value x vantage) the rig patches the setting and the
+Player's pose, runs `--build --run` under a hard timeout, waits `-Settle`
+(14 s), screenshots **the emulator whose command line names this project**,
+greps the game's own `bin/log.txt` for `Assertion` / `=======` banners, and
+writes `report.md` with a per-row table plus a delta table. Build logs and a
+copy of each boot's `log.txt` land beside the screenshots.
+
+**The fixture** (`%TEMP%\tyra-editor-test\spotab`, from the `fpp` template):
+flat 100x100 terrain, **two** lamp+caster+wall groups 20 u apart — a spot light
+4 u up (half-angle 30, radius 12, `"shadowVolumes": 0` so the PROJECT switch is
+what decides), a 1.5 u box 0.9 u off the cone axis, an 8x4x1 wall 3 u behind it
+— and a frozen Player with the flashlight on. Two groups because the
+interesting failure of a per-light feature is not "does one lamp work" but
+whether the second one starves: the count band is one buffer for the whole
+frame. `vantages.json` frames lamp 1 from 8 u, **both** groups from 20 u back
+midway between them (from 8 u they are 51 degrees off the axis and a 60-degree
+frame holds neither), and lamp 2 from 8 u.
+
+Five things it had to get right, each of which produced a confident, wrong
+answer first:
+
+- **A torch that sits on the eye casts no visible shadow at all.** The camera
+  occludes exactly what the light does, so every shadow hides behind the thing
+  casting it and both switch positions photograph identically — measured, with
+  the volumes demonstrably working: **d centre 0.004, d lower third 0.000**. The
+  fixture drops the torch by the clamp's full metre (`offsetDown`) and 0.6 m to
+  the side, which puts the caster's shadow on the wall as a band ABOVE its own
+  silhouette. Same trap for a spot: a light co-located with the camera is not a
+  test.
+- **A new project applies an AMBIENCE PRESET on top of its settings.** `--new`
+  ships one ("Default", blue sky, ambient 0.55) with `defaultAmbience: 0`, so a
+  manifest that says `ambient: 0.1` still renders a sunny afternoon and every
+  shadow is washed out. The fixture sets `defaultAmbience: -1`.
+- **`-Trim` cannot be used, and neither can a plain content bounding box.** The
+  crop is found from the FIRST capture and reused for every one after it (the
+  motion gate's rule: a crop that follows the content re-registers two different
+  pictures into the same rectangle). Finding it needs a **coverage** rule rather
+  than a bounding box — PCSX2 paints its own `FPS 58.35 [P]` overlay inside the
+  black letterbox, and that one line of thin text stretched the measured picture
+  from 959x691 to 959x829, which put the FPS-strip region on pure black.
+- **`powershell -File` does not split `-Values true,false`**, so the rig gets one
+  string, writes `"key": true,false,` into the manifest, and the build fails with
+  `spotab.tyra is malformed` — which points at nothing. It splits on commas
+  itself now.
+- **A region metric reports 0.0000 for "nothing changed" AND for "the subject
+  was not in my rectangle."** The `between` vantage frames two lamp groups, so
+  both sit at the EDGES: its centre region read exactly 0.0000 for a switch the
+  whole frame scored 0.00005 on, against a 0.00000 control. There is a
+  whole-frame column for that reason — read it first, then the regions to say
+  *where*.
+
+**Read the numbers, not the pictures.** Each row reports the mean luma (0..1) of
+the **whole frame**, of the **centre region** (the caster and the wall behind
+it) and of the **lower third** (the ground), plus the **ink coverage of the FPS
+strip** — which is a liveness check and NOT a reading of the counter: a black
+window measures as a beautiful shadow everywhere, and 0.000 ink is what catches
+it.
+
+**Pass the same value twice for the noise floor.** `-Values true,true` boots one
+configuration twice; the delta table is indexed by variant, so the second row is
+what two boots of an unchanged project differ by. A delta smaller than that is
+not a finding. Measured on this fixture (frozen camera, `progressive` display,
+`--pad` never touched) the noise floor is **exactly 0.00000** — nine boots
+across three vantages produced byte-identical means for the two `false` arms, on
+every region. That zero is what makes a 0.0134 mean something.
+
+**Pass ONE value and a line of vantages and the same rig is a WALK** — which is
+how you answer "from where does this shadow stop being drawn at all", a question
+no A/B of a switch can reach. The vantages are then not three views of one
+subject but one subject seen from a sequence of standpoints, and the column to
+read is `centre mean` against the vantage name. That is how the projected-shadow
+slot flicker (1.70.1) was found: `examples/night-walk` copied to a short path,
+its twelve `projShadow` casters left alone, the Player walked sideways past the
+shed at x = 0, 4, 6, 7, 7.5, 8, 9, 10 with each pose aimed at the shed's base,
+`-Toggle showFps -Values true` (a no-op key set to what it already was, so the
+rig runs exactly one arm). The shed's ground shadow is a hard-edged black quad
+through x = 7.5 and entirely gone at x = 8.0 — frame mean 0.10289 → 0.11360,
+centre 0.187 → 0.216, the picture getting BRIGHTER as the shadow left. Half a
+unit sideways, and the numbers say which half-unit. Two things that made it
+work: aim every vantage at the same world point (compute the pitch and yaw per
+standpoint rather than reusing one rotation, or the subject walks out of the
+measured region and a real change reads as a confident 0.0000), and RENAME the
+scratch copy's project, because a Docker container is named after the project
+and the owner may be building the original in their own checkout at the same
+time (renaming means fixing the namespace in `src/scripts/*.cpp` too, or the
+Runner's pre-flight refuses the build).
+
+**Everything that can reach Docker is bounded** and killed with its children on
+timeout, because a `docker` call on this machine blocks forever instead of
+failing. And nothing is ever killed by name: the emulator the rig captures and
+closes is the one whose `-elf` names the project, the same discriminator
+`Runner::killEmulatorsFor` uses — a parallel worktree's PCSX2 is neither
+captured nor reaped.
+
+**Windows only so far**, like `motion-gate.ps1`: the capture is
+`screenshot-window.ps1`, the measurement is System.Drawing and the emulator is
+found through `Win32_Process`. Nothing in the design is platform-specific — a
+Linux twin swaps the first for `wayland-control.py shot --area`, the second for
+ten lines of PIL and the third for `/proc/<pid>/cmdline`. Say which OS a
+reported number came from.
+
+#### Proven on the flashlight (2026-08-21)
+
+The spot runtime does not exist yet, so the rig was proven on
+`flashShadowVolumes`, whose volumes have worked since 1.62.0. Nine boots
+(`-Values true,false,false` — the repeated value is the control), three
+vantages, PCSX2 software renderer, 959x691 picture, **all nine logs clean**:
+
+| vantage | frame mean, `true` -> `false` | d frame | d centre | control (arm 2 - arm 1) |
+|---|---|---|---|---|
+| lamp1-8u | 0.14608 -> 0.14846 | **+0.00238** | **+0.0134** | 0.00000 |
+| between  | 0.11111 -> 0.11115 | +0.00005 | 0.0000 | 0.00000 |
+| lamp2-8u | 0.13705 -> 0.14004 | **+0.00299** | **+0.0173** | 0.00000 |
+
+Turning the volumes OFF makes the picture BRIGHTER, which is the right sign:
+the shadow is what was removed. The control column is the load-bearing one —
+the two `false` arms came back byte-identical on every region of every vantage,
+so the fixture is deterministic to the digit and the deltas are the switch and
+nothing else. `between` is the honest 0: at 20 u the torch barely reaches those
+casters, and that vantage exists for the SPOT test, where each lamp lights its
+own group regardless of where the camera stands.
+
+The screenshots show it as plainly as the numbers do: with the switch on, the
+box lays a hard-edged rectangle across the wall and a wedge across the ground;
+with it off, the wall is evenly lit and there is no shadow anywhere.
+
+**`-Toggle spotShadowVolumes` is already wired end to end on the same fixture**,
+even without a runtime: flipping it and running `--refresh-gen` moves
+`SPOT_SHADOW_VOLUMES_USED` in `inc/scene_data.hpp` between `false` and `true`
+(the two lamps resolve the predicate). So when the runtime lands, the rig is a
+one-liner away from a number — see docs/backlog.md, "Run the shadow A/B rig
+against the spot runtime".
+
 ## Verifying the AI Assistant (docs/ai-chat.md)
 
 An AI feature looks untestable and is not: three of its four layers need no
@@ -2039,10 +2349,103 @@ And the reply is consumed by `aiChatTick`, which runs from `drawUI` whether or n
 the window is open - so a `wait` long enough for N backend invocations is what a
 multi-step turn needs, and closing the window mid-turn does not strand it.
 
+## Verifying the packages and the update check (docs/updates.md)
+
+Both halves are checkable on the machine you are on - neither needs CI, and
+neither should be believed without this.
+
+**The pure half first.** `update::compareVersions` and `update::parseRelease`
+have no ImGui, no GL and no `Project`, so they take a 40-line harness (the
+treegen/placement pattern):
+
+```bash
+g++ -std=c++20 -I src -I vendor/glfw/include harness.cpp \
+    src/update.cpp src/json.cpp src/platform.cpp build/vendor/glfw/src/libglfw3.a \
+    -o uh.exe -lshell32 -lole32 -luuid -lws2_32 -lcomdlg32 -lgdi32
+```
+
+Feed `parseRelease` a REAL payload, not only a hand-written one -
+`curl -sL https://api.github.com/repos/<any>/releases/latest` is one command and
+it is what proves the asset picker survives GitHub's actual shape. The same
+harness can call `fetchLatest()` for the live path; against a repository with no
+releases the honest answer is *no releases have been published yet*, which is a
+state and not a failure.
+
+**The UI half** is an ordinary `--ui-script` run - the modal is reachable with
+no network luck involved, because a failed check opens it too:
+
+```bash
+./build/tyrax-editor.exe --ui-script "frames 10; click Help; click 'Check for updates'; wait 3; shot upd.png; dump"
+```
+
+The automatic startup check is deliberately skipped while a UI script is running
+(`uiScriptActive_`), so no unattended run can have a dialog open itself mid-step.
+
+**The installer is verified by installing it**, and that is worth the five
+minutes because the thing it can silently get wrong is the LAYOUT. Note the
+first trap: a silent install started from a console-attached shell just sits
+there until something kills it - drive it with `Start-Process -Wait`.
+
+```powershell
+./installer/build-installer.ps1 -SkipBuild
+Start-Process dist\TyraX-Setup-<v>.exe -Wait -ArgumentList `
+  '/VERYSILENT','/SUPPRESSMSGBOXES','/CURRENTUSER',"/DIR=$env:TEMP\tyrax-test","/LOG=$env:TEMP\ins.log"
+```
+
+Then prove the installed tree WORKS rather than merely exists, which is two
+commands and covers every exe-relative lookup at once:
+
+```powershell
+$env:TEMP\tyrax-test\bin\tyrax-editor.exe --vu-check           # finds <exe>/../vendor/tyra
+$env:TEMP\tyrax-test\bin\tyrax-editor.exe --new t $env:TEMP    # then grep the engine path
+Select-String tyrax-test $env:TEMP\t\docker-compose.yml        #   in the generated compose
+```
+
+Finish with `unins000.exe /VERYSILENT` and check that the directory, the Start
+Menu folder and the `HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall`
+key are all gone - an installer that cannot uninstall itself is a worse bug than
+one that cannot install.
+
+**The Linux packages are the same idea and cost less.** All three come out of
+one staged tree, so the tarball is the one to unpack and RUN - it proves the
+layout for the other two:
+
+```bash
+./installer/build-package.sh --skip-build --all --out-dir /tmp/pkg
+tar xzf /tmp/pkg/tyrax-<v>-linux-x86_64.tar.gz -C /tmp/pkg
+/tmp/pkg/tyrax-<v>/bin/tyrax-editor --new t /tmp/pkg   # then grep the engine path
+grep engine-src /tmp/pkg/t/docker-compose.yml          #   in the generated compose
+```
+
+That last line is the whole point: it must name the UNPACKED tree's
+`vendor/tyra` and not your checkout's. `--deb` needs `dpkg-deb`
+(`apt-get install dpkg-dev`), `--rpm` needs `rpmbuild` (`apt-get install rpm`);
+inspect what they declare rather than trusting the spec - `dpkg-deb -I`/`-c` and
+`rpm -qip`/`-qRp`/`-qlp` print the metadata, the dependency list and the file
+list, and a missing `zenity | kdialog` there is an editor whose Open button does
+nothing.
+
+**The self-update is testable without a release**, and it should be, because
+every branch of it is a refusal:
+
+```bash
+g++ -std=c++20 -I src harness.cpp src/update.cpp src/json.cpp src/platform.cpp -o uh
+```
+
+Put that binary at `<root>/bin/`, write a `.tyrax-package` marker beside it and
+call `update::installKind`/`selfInstallBlocked` for each word: `tarball` (empty
+= the button appears), `deb`, `rpm`, no file at all (source checkout), and
+`tarball` in a `chmod a-w` directory. Then drive the real thing - build a
+throwaway "new release" tarball of the same harness, call
+`update::runInstaller` on it, and check afterwards that the tree carries the new
+files, that a file the new release does NOT contain survived (the overlay is
+deliberate) and that the binary was relaunched.
+
 ## Choosing the right depth
 
 | Change | Minimum honest verification |
 |---|---|
+| A package or the update check | The section above: a harness for the pure half, `--ui-script` for the modal, a real install (silent on Windows, unpack the tarball on Linux) + `--vu-check`/`--new` FROM it for the layout, then uninstall / a driven self-update |
 | Editor UI (a panel, a dialog, a toggle) | Layer 0 + a `--ui-script` run that opens it, does the thing and ASSERTS it (`expect`/`expect-checked`), plus a `shot` to look at. No focus, no coordinates, either OS |
 | Editor viewport (rendering) | Layer 0 + a screenshot of the affected panel (`shot` from a UI script, `TYRAX_SHOT` on a timer, or `screenshot-window.ps1`/`wayland-control.py` from outside) - and measure the pixels rather than eyeballing |
 | Serialization (`.tyra`) | Layer 1 `--new` + reopen; round-trip save/load diff |
@@ -2051,4 +2454,115 @@ multi-step turn needs, and closing the window mid-turn does not strand it.
 | Audio | Layer 3 + peak-meter check |
 | Anything a player DOES (buttons, walking, menus, two players) | Layer 3 + `--pad` (see the recipe above) — an idle control shot, then drive, then measure. No human, either OS; `watch` (Linux) / `-Watch` (Windows) collapses the whole drive into one contact sheet |
 | Anything that changes how a frame is BUILT or PRESENTED (the upscaler, frame pacing, extrapolation, buffer counts, a full-screen pass) | Layer 3 + **the motion gate**, two arms one knob apart. A parked A/B cannot see a fault that only exists in motion, and four of those reached the owner on this branch |
+| A dynamic-shadow switch (spot/flashlight volumes, blob shadows, a per-object shadow mode) | Layer 3 + **the shadow A/B rig** — `make-shadow-fixture.ps1` then `shadow-ab.ps1 -Toggle <key> -Values a,b`. Quote the `report.md` deltas against a same-value control run, not a pair of screenshots |
 | ISO export | Export + mount the ISO on the host + boot it in PCSX2 |
+
+
+## Animated directional GI
+
+Use examples/probe-lighting in a scratch directory. Bake with `--bake-gi DIR
+--gpu`, build and boot in PCSX2 software mode, then walk from courtyard through
+the doorway with Remote Pad. Compare frozen poses with the old dominant-lobe
+path, keeping the same baked table. Check two pose-sharing instances near the
+opposite side lights: their bags must retain separate directions. Check yaw
+and uniform scale, GI disabled/dead probes, and both viewport shading modes.
+The current signed RGB SH mode must retain independent coloured directions
+and darken back-facing normals; L2 and surface-transfer PRT are not implemented.
+
+Verified on Windows: probe-lighting GPU bake, Docker/PCSX2 software boot,
+fixed-pose L1 A/B with a byte-identical return-to-new control, both editor
+shading modes, and a separately built/booted GI-disabled fallback. The example
+README records the sampled coefficients and limits; these are not hardware
+performance measurements.
+
+
+### Animation and RGB SH regression checks
+
+`--vu-check` includes signed chromatic coefficients in the randomized comparisons
+and a numeric RGB oracle (opposing normals, rotation, both lighting modes,
+negative output and saturation). This still needs a PS2 Docker build and a
+software-renderer walk through `examples/probe-lighting`.
+
+For animation timings enable `TYRA_SKEL_PROFILE` in skel_instance.hpp, rebuild,
+and inspect per-instance `SKELTIME`. Measure ordinary playback, not the frozen
+lighting comparison. For LOD stress, use three humanoids at meshLod 1.5 in a
+scratch copy, walk through the doorway and force all three tiers in generated
+code if camera distances do not cross each threshold. Distinguish a hang that
+is reproduced from an old observation that is not.
+
+When restoring generated C++ with Copy-Item, touch its LastWriteTime or clean
+the scratch game objects: Copy-Item preserves old timestamps, and make may
+otherwise relink the previous instrumented object despite different source.
+
+
+Lighting DMA lifetime regressions need temporal checks: an arithmetic VU test
+and a single screenshot cannot expose a dangling REF to stack data. Hold the
+camera/pose fixed and compare a sequence of frames (excluding the FPS HUD),
+then restore normal animation and walk the scene. Exercise the actual packet
+submission; `--vu-check` validates microcode, not the EE source pointers.
+
+## Eight-view foliage impostors
+
+Use examples/impostor-grove (its README has reproducible generators). Verify
+`--resave` retains `impostor`, `impostorDistance` and `impostorBillboard`, `--refresh-gen` collects both
+model paths, then build/run a short-path copy. Show profiler logs representation
+transitions as `IMPOSTOR object=... far=...`; walk towards and away from a tree.
+Compare a frozen-camera control with every distance set to zero. Verify binary
+alpha and deterministic atlas bytes after regenerating assets. Rendering changes
+need a screenshot, not just the model table. Host fixture C++ helpers belong under
+`authoring/`: a root-level .cpp can expand the Makefile's unquoted find glob and
+leave SOURCES empty (`undefined reference to main`).
+
+For eight-view captures, compare a frozen single-tree near/far pair and orbit it:
+`IMPOSTOR VIEW` logs sector changes with Show profiler enabled. Verify the 512x256
+atlas, all eight ordered parts, yaw rotation and fallback for tilted transforms.
+
+Universal capture: select a non-tree multi-material OBJ, activate the Properties
+tab, click Bake impostor, save/reopen and inspect assignment plus alpha/Kd. Check
+material overrides and missing textures/reflection failures; no assignment should
+change on failure. The grove now includes Waystone for this path. Close floating
+tool windows (or remove their open flag in the scratch layout) before scripted
+scene selection; an overlapping Tree Generator can intercept the click.
+
+Selection: verify list selection shows the full model box, then a viewport click
+hits the same model. A frozen orbit camera aimed inside an empty part of a model
+AABB tests fallback. Put an alpha-cutout card in front of a smaller prop to check
+that transparent texels do not steal a surface hit. Test a distant billboard and
+rotated/scaled instances; no PS2 rebuild is required for editor-only picking.
+
+The viewport image is named `Viewport canvas` for `--ui-script` (1.74.1).
+Set a scratch project camera to aim at the test point, then `click 'Viewport canvas'`
+then `key ctrl+s` and check `editor.selectedObject` in the scratch manifest
+(scene rows are not checkable widgets). This injects a real viewport click without
+OS focus; the test hook only registers the existing image rectangle.
+
+Verified on Windows for 1.74.1: grove scene-list selection shows the whole
+Waystone bounds; a viewport click in its empty AABB selects it; a transparent
+foreground quad lets the mesh behind win, whereas its opaque version wins
+itself; a distant Waystone impostor remains clickable.
+
+Grove ground regression: freeze the player at (48, 0, 48), heading -135,
+pitch -12. The old floor material (-s 16 16) loses detail there; -s 0.5 0.5
+restores it in PCSX2 software rendering. Terrain material scale counts repeats
+per world unit, not over the whole map. Compare a fixed ground crop; do not
+infer a missing texture binding from a flat colour alone.
+
+GPU impostors: `--bake-impostor PROJECT MODEL OUTPUT_STEM 4|8|16 [--gpu]` prints
+backend and total time without assigning an object. Compare CPU/GPU atlases for
+all counts on a cutout tree and multi-material Waystone: same dimensions, binary
+alpha, close silhouette masks, matching Kd/interior colours; GL edge coverage is
+not byte-identical. Invalid counts fail before output. Verify Capture views in
+Properties only changes saved `impostorViews` after a successful bake, resave an
+old eight-view object, and boot mixed 4/8/16 assets in PCSX2 while orbiting. Run
+`--gi-gpu-check` after changes to the shared bake context and inspect the viewport
+after GPU baking to catch context restoration bugs.
+
+Verified 1.75.0 on Windows: model UI baked/saved 16 GPU views, Tree Generator
+baked/saved 4 GPU views; choosing 16 without baking kept a legacy object's 8.
+The capture oracle passed all counts (Waystone IoU 1.0, oak >0.999); forced CPU
+fallback was byte-identical to CPU PNG output and invalid counts wrote nothing.
+GI's shared-context oracle still agreed (0.0022% relative mean error). The mixed
+4/8/16 grove built and booted in PCSX2 software mode; Remote Pad motion produced
+capture-sector updates without allocation failures. Higher atlas counts consume
+VRAM: the tested mixed scene had about 35 KiB free after moving, with evictions
+during motion, so do not describe larger view counts as free.

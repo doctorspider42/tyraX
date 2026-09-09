@@ -23,8 +23,10 @@
 #include "history.hpp"
 #include "phonecam.hpp"
 #include "gibake.hpp"
+#include "litbake.hpp"
 #include "procbake.hpp"
 #include "matbake.hpp"
+#include "modelao.hpp"  // the automatic model-AO baker + its per-asset plan
 #include "menubake.hpp"  // CreditsLayout member (Credits Editor preview)
 #include "menulayout.hpp"  // the Menu Preview's row geometry
 #include "menustyle.hpp"  // the staged stylesheet the Style tab edits
@@ -33,6 +35,7 @@
 #include "vucap.hpp"
 #include "livedbg.hpp"
 #include "livepad.hpp"
+#include "livereplay.hpp"
 #include "logview.hpp"  // LogView members (the Output / Debug severity split)
 #include "uiscript.hpp"
 #include "livetime.hpp"
@@ -40,11 +43,13 @@
 #include "placement.hpp"
 #include "prefab.hpp"
 #include "project.hpp"
+#include "texatlas.hpp"
 #include "vugen.hpp"  // vugen::Built - the VU panel keeps a live preview
 #include "runner.hpp"
 #include "session.hpp"
 #include "theme.hpp"  // theme::Id theme_ member (interface theme)
 #include "treegen.hpp"
+#include "update.hpp"  // update::Release member (the update check's answer)
 #include "savebake.hpp"
 #include "viewport.hpp"
 
@@ -221,6 +226,12 @@ private:
     // RendererSettings::updateGeometry, so a new display mode is one entry in
     // both places.
     bool viewportPs2_ = false;
+    // PS2 shading (per-vertex + flat triangles) and GS colour simulation
+    // (0 = match project, 1 = full 32-bit, 2 = 16-bit, 3 = 16-bit + dither) -
+    // docs/ps2-viewport.md. Machine-global like viewportPs2_, pushed to the
+    // viewport each frame next to setPs2Output.
+    bool viewportPs2Shade_ = false;
+    int viewportGsColor_ = 0;
     Viewport::Ps2Output ps2ViewportOutput() const;
     // Draws the overlay over the viewport image. `pos`/`size` are the image rect.
     void drawSafeAreaOverlay(const ImVec2& pos, const ImVec2& size);
@@ -701,6 +712,38 @@ private:
     // on gibake::Baker's worker thread (docs/global-illumination.md).
     void giBakerPoll();
     void drawGiBakeSection();
+    // The "Baked lighting" tab of the Ambience Editor (docs/ambient-occlusion.md).
+    // One home for the light that is computed on the host and shipped as
+    // pixels; drawBakedLightingSection is a list of sections, drawModelAoSection
+    // is the first of them.
+    void modelAoPoll();
+    void drawBakedLightingSection();
+    void drawSceneAoSection();
+    void drawModelAoSection();
+    // "Pre-lit models" - the second section of that tab (docs/prelit-models.md,
+    // "Managing pre-lit objects"): which objects of the active scene are
+    // pre-lit, whether their textures still match the scene, and the batch bake.
+    void drawPrelitSection();
+    // Drains litBaker_ and applies whatever it finished, as ONE undo step.
+    // Polled every frame from drawUI and from nowhere else - the giBakerPoll
+    // rule: a batch started from the tab has to land whether or not the tab (or
+    // Properties, or the object's selection) is still there when it finishes.
+    void litBakerPoll();
+    // Puts one object back on the material it had before its first bake and
+    // forgets it was ever pre-lit. One commitChange.
+    void revertPrelit(int objIndex);
+    // What the panels draw from. litbake::signature hashes every file the GI
+    // bake reads, so it cannot be asked per row per frame: this is recomputed
+    // only when the model, the scene or the bake parameters move.
+    struct PrelitStatus {
+        int index = -1;
+        bool prelit = false;  // its texture carries light TODAY
+        bool fresh = false;   // ...and still matches the scene
+        bool movable = false;  // project::objectRuntimeMovable
+        int texSize = 0;       // the baked image's own size, 0 = not on disk
+    };
+    const std::vector<PrelitStatus>& prelitStatuses();
+    const PrelitStatus* prelitStatusFor(int objIndex);
     // (Re)builds the in-memory tree mesh + textures from treeParams_ and bumps
     // treePreviewVersion_ so the preview re-uploads. Called on any param edit.
     void rebuildTreePreview();
@@ -1498,6 +1541,40 @@ private:
     // AI assistant backend for flow-graph generation (editor.ini; Edit >
     // Preferences > AI assistant). Model "" = the backend's default.
     aigen::Config globalAi_;
+
+    // --- Update check (docs/updates.md, update.cpp + update_ui.cpp) ---------
+    // Whether the editor asks GitHub for a newer release when it starts
+    // (editor.ini, Edit > Preferences; Help > Check for updates asks
+    // regardless), and one version the user has told it to stop mentioning.
+    // Both are machine-global: which build is installed on this PC is not a
+    // property of any project.
+    bool globalUpdateCheck_ = true;
+    std::string globalUpdateSkip_;
+    // ONE worker for both jobs (the check and the download), because they are
+    // never both wanted and the UI is a single modal. Everything below it is
+    // written by that thread and read by the UI thread only after `done` flips
+    // - the Runner/aigen idiom, no mutex.
+    std::thread updateThread_;
+    std::atomic<bool> updateDone_{false};
+    std::atomic<bool> updateBusy_{false};
+    update::Release updateRelease_;
+    std::string updateError_;
+    std::filesystem::path updateFile_;  // the downloaded installer
+    enum class UpdateJob { None, Check, Download };
+    UpdateJob updateJob_ = UpdateJob::None;
+    bool updateManual_ = false;      // asked for from the menu: say so either way
+    bool updateChecking_ = false;    // a check is in flight (menu item greys out)
+    bool updateDownloading_ = false;
+    bool openUpdatePopup_ = false;   // request to open the modal next frame
+    std::string updateStatus_;       // one line under the menu item / in the modal
+    // Started at startup (when the preference is on) and from Help > Check for
+    // updates; updateTick() collects the answer each frame from drawUI.
+    void startUpdateCheck(bool manual);
+    void updateTick();
+    void drawUpdateModal();
+    // Downloads the installer, then closes the editor and lets it run.
+    void updateDownload();
+    void updateJoinWorker();
     // Selection index the orbit pivot was last snapped to; -1 = none. Lets
     // "orbit around selection" re-center only when the selection changes.
     int navFocusedIndex_ = -1;
@@ -1866,14 +1943,56 @@ private:
     // is EXPLICIT - never part of a build - so this window is where a project
     // learns that its lighting is stale, and the one place that fixes it.
     bool showGiBake_ = false;
+    // Tools > Texture Atlas (docs/texture-atlasing.md, src/atlas_ui.cpp): what
+    // the packer merged with what, why a texture was refused, and the VRAM
+    // arithmetic. The plan reads every candidate image off disk, so it is
+    // cached and recomputed only when something that feeds it changes.
+    bool showTextureAtlas_ = false;
+    bool atlasPlanDirty_ = true;
+    texatlas::Plan atlasPlan_;
+    texatlas::VramEstimate atlasVram_;
+    void drawTextureAtlasWindow();
+    // Page previews are composited from the plan rather than read back from
+    // the bake (which lags every edit) - the map lives beside HudTexture,
+    // which is declared further down.
+    void rebuildAtlasPreviews();
     gibake::Baker giBaker_;
+    // Pre-lit models (docs/prelit-models.md): the scene's light baked into ONE
+    // object's texture, from the button in Properties. Async because the bounce
+    // solve is the expensive half; the result is applied on the UI thread, so
+    // the object edit goes through commitChange like every other edit.
+    litbake::Baker litBaker_;
+    litbake::Params litBakeParams_;
+    // The active scene's pre-lit status table + the key it was computed for
+    // (scene, modelEditSerial_, the bake parameters). ~0 = recompute.
+    std::vector<PrelitStatus> prelitStatus_;
+    uint64_t prelitStatusKey_ = ~0ull;
     // The probe grid currently uploaded to the viewport: reloaded when the
     // scene changes, the model is edited (which can stale the bake) or a bake
     // finishes.
     int giViewScene_ = -1;
     uint64_t giViewSerial_ = ~0ull;
     uint64_t giViewVersion_ = ~0ull;
+    // ...and when the GI switch itself moves. Without it the preference was
+    // the one GI setting the viewport ignored: gibake::load already refuses
+    // to answer while GI is off, but nothing asked it again, so unticking the
+    // box left the baked light on screen until the scene changed.
+    int giViewEnabled_ = -1;
     uint64_t giBakerSeen_ = 0;  // last Baker version pushed to the viewport
+
+    // Automatic model AO (docs/ambient-occlusion.md, "Model AO"). The bake is
+    // a property of an ASSET, not of a scene, so it has no per-scene staleness
+    // readout - it just has to be there when the viewport uploads a texture.
+    // showBakedLighting_ is not a window flag: it is "show me that tab",
+    // exactly like showGiBake_.
+    bool showBakedLighting_ = false;
+    modelao::Baker modelAoBaker_;
+    uint64_t modelAoSeen_ = 0;  // last Baker version pushed to the viewport
+    // What the last run was started FOR: the settings plus the per-asset
+    // overrides. Re-scanning every frame would mean parsing every .obj in the
+    // project every frame, so the poll starts a run when this changes and at
+    // no other time (plus the panel's explicit Re-scan).
+    uint64_t modelAoIntent_ = 0;
 
     // Tools > Neural Upscaler (BLSS) - blss_ui.cpp, docs/neural-upscaler.md.
     // One job at a time: every verb here saturates the machine, so a second
@@ -2029,6 +2148,11 @@ private:
     char treeName_[64] = "tree";
     float treeGenAngle_ = 40.0f, treeGenPitch_ = 18.0f, treeGenZoom_ = 1.0f;
     bool treeGenSpin_ = true;
+    bool treeGenImpostor_ = true;
+    int treeImpostorViews_ = 8;
+    int modelImpostorViews_ = 8;
+    std::string modelImpostorObject_;
+    bool impostorGpu_ = true;
     int treeGenDisplayMode_ = 0;
     // Drone Generator (Tools > Drone Generator, docs/drone-generator.md).
     // droneParams_ is the whole patch; the LiveSynth and the audio device are
@@ -2085,6 +2209,11 @@ private:
     int selectedHud_ = -1;
     int uiFxSel_ = 0;
     int selectedText_ = -1;
+    // UI Editor > Bars (uiFxSel_ 9, index into Project::hudBars). The preview
+    // fraction is editor-only: what the viewport overlay fills the selected bar
+    // to, so a bar can be judged at 30% without running the game (-1 = start).
+    int selectedBar_ = -1;
+    float hudBarPreview_ = -1.0f;
     // Font Manager selection (index into Project::fonts).
     int fontSel_ = 0;
     // Cached atlas footprint line: measuring it walks all 95 glyphs, so it is
@@ -2709,6 +2838,9 @@ private:
     };
     std::map<std::string, HudTexture> hudTexCache_;
     const HudTexture* hudTexture(const std::string& relPath);
+    // Texture Atlas page previews, composited from the plan (see
+    // rebuildAtlasPreviews): keyed by page index, rebuilt with the plan.
+    std::map<int, HudTexture> atlasPagePreview_;
     // The generated drawing of a built-in text icon as a GL texture. Lets the
     // Button icons manager preview an icon whose PNG the project has not baked
     // yet, and show what "restore default" gives back. Null for a name that is
@@ -2726,6 +2858,16 @@ private:
     // Texture-bake controls (pow2 size + quantization) shared by HUD images
     // and the USE prompt in the UI Editor. Returns true on change.
     bool hudBakeControls(HudImage& h);
+    // The shared "Motion" block (loop + show/hide transition) every HUD
+    // element's property panel ends with, and the optional-image picker a bar
+    // uses twice (fill, frame). Both return true on a change.
+    bool hudMotionControls(HudAnim& anim, HudTransition& trans, bool* visibleAtStart);
+    bool hudBarImageControls(const char* id, const char* title, HudImage& img,
+                             bool withSize);
+    // Renames a HUD element's name in every flow node that references it by
+    // that kind (Set HUD Element Visible / Play HUD Effect / Set HUD Bar).
+    void renameHudElementRefs(const std::string& from, const std::string& to,
+                              bool isBar);
     // The embedded built-in USE prompt sprite (viewport overlay preview).
     const HudTexture* builtinUseTexture();
     HudTexture builtinUseTex_;
@@ -2869,6 +3011,10 @@ private:
     // The game template is not copied - it is fixed at creation and the window
     // only displays it.
     bool showProjectPrefs_ = false;
+    // A tab name for the NEXT frame of Project Preferences to select (see the
+    // beginTab lambda there); empty = leave whichever tab the author left on.
+    // One-shot: honoured once and cleared.
+    std::string prefsFocusTab_;
     bool focusProjectPrefs_ = false;  // menu/shortcut re-open raises the window
     TerrainConfig prefTerrain_;       // width/depth scratch - see prefGridDetail_
     ProjectSettings prefSettings_;
@@ -3052,6 +3198,12 @@ private:
     // track that; they are baselined on project attach so opening a project
     // with a stale dump in its log neither pops it nor looks like a shrink.
     bool errorPopupEnabled_ = true;
+    // "Bake GI on the GPU when this machine has one" - machine-global
+    // (editor.ini), edited from the Ambience Editor's Global illumination tab
+    // next to the Bake buttons, which is where a person looks for it. The
+    // errorPopup precedent: a machine-wide setting does not have to live in the
+    // Preferences modal, it just has to go through saveGlobalConfig().
+    bool giGpuBake_ = false;
     std::string errorSeenSig_;
     std::string errorModalText_;      // block shown in the open dialog
     bool openErrorPopup_ = false;     // request to open the modal next frame
@@ -3153,6 +3305,10 @@ private:
      * about it. Empty while the game is reporting normally. Shared by the
      * window's state block and the Stats tab so the two cannot disagree. */
     std::string dbgSilenceReason() const;
+    /** The paragraph dbgSilenceReason() no longer prints inline: which file is
+     * silent and how a running console ends up with nowhere to write. For the
+     * (?) hover next to it; only meaningful when the reason is non-empty. */
+    const char* dbgSilenceDetail() const;
     float dbgFps_ = 0.0f;           // measured against the editor's wall clock
     int dbgScrub_ = -1;             // timeline index being inspected (-1 = live)
     std::string dbgWatchFilter_;    // Watch tab search box (name or kind)
@@ -3179,6 +3335,31 @@ private:
     /** Pushes history entry `index` back into the running game. */
     void timeMachineRewind(int index);
     void drawTimeMachinePanel();
+
+    // The input recorder (docs/input-replay.md): the fifth direction of the
+    // same host: channel, and the only one that reproduces a whole SESSION.
+    // The mode is chosen for the NEXT run and staged into the Runner, which
+    // does the file work before the launch - so nothing here talks to a
+    // running game except replayTick(), which reads the status the game
+    // writes into bin/replay.st (~4 Hz, the livetimeTick shape).
+    enum class ReplayArm { None, Record, Play };
+    ReplayArm replayArm_ = ReplayArm::None;
+    std::string replayFile_;        // recordings/<name>.tyrarep for Play
+    livereplay::Status replayStatus_;
+    bool replayHaveStatus_ = false;
+    double replayNextTick_ = 0.0;   // ImGui::GetTime() gate for the reader
+    std::string replayMsg_;         // last action, shown in the panel
+    std::string replaySaveName_;    // the Save field's contents
+    std::vector<std::string> replayFiles_;  // recordings/*.tyrarep, cached
+    double replayScanAt_ = 0.0;     // when that list was last rebuilt
+    void replayTick();
+    void drawReplayPanel();
+    /** Asks the running game to finish its recording, waits for the terminal
+     * chunk, and canonicalizes bin/replay.out into recordings/<name>.tyrarep.
+     * Returns "" or an error. */
+    std::string replayStopAndSave(const std::string& name);
+    /** recordings/*.tyrarep, refreshed at most a few times a second. */
+    void replayRescan(bool force);
 
     // Remote Pad (docs/remote-pad.md): the fourth direction of the same host:
     // channel, and the only one carrying INPUT. While the window is open the
@@ -3263,6 +3444,21 @@ private:
     int dbgVuMesh_ = 0;  // which position stream of the flush the preview draws
     bool dbgVuPinFlush_ = false;  // re-grab one draw instead of walking them
     int dbgVuFlushWanted_ = 0;    // ...which one
+    // The game's own screenshot (docs/devkit.md): the running game reads its
+    // last finished frame out of GS VRAM and writes bin/frame.tga, which this
+    // decodes into a GL texture for the Debugger's Screen tab. The only capture
+    // path that works on real hardware - and the only one that survives a
+    // locked desktop, where PCSX2's F8 and every host-side grab go blind.
+    unsigned int dbgShotTex_ = 0;   // GL texture, or 0 when nothing decoded
+    int dbgShotW_ = 0, dbgShotH_ = 0;
+    long long dbgShotStamp_ = 0;    // last_write_time of the file we decoded
+    size_t dbgShotSize_ = 0;
+    int dbgShotTorn_ = 0;           // consecutive polls that saw NO progress
+    size_t dbgShotPartial_ = 0;     // size of the last short read - see below
+    bool dbgShotWaiting_ = false;   // asked for one, none arrived yet
+    std::string dbgShotFile_;       // the PNG this capture was kept as
+    std::string dbgShotError_;
+    void dbgReadFrameShot();
     void dbgReadVuCapture();
     void dbgReadCrashReport();
     void dbgResolveCrashNames();

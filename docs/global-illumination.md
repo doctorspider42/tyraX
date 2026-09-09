@@ -3,9 +3,9 @@
 ![Global illumination controls and bake status](img/ambience-editor.png)
 
 Static geometry gets a baked multi-bounce lightmap. Everything that moves gets
-its light from a probe grid. The PlayStation 2 pays **nothing** at run time for
-either: the ray tracing happens on your desktop and ships as one texture and one
-table.
+its light from a probe grid. Ray tracing happens on your desktop and ships as a texture and a probe table.
+The PlayStation 2 samples those baked results and shades geometry at runtime;
+it does not trace rays.
 
 Turn it on in *Tools > Ambience Editor*, on its **Global illumination** tab —
 the same window the sky, the sun and the AO are authored in — press **Bake this
@@ -73,12 +73,40 @@ lands twice.
 | --- | --- | --- |
 | Static, untextured primitives already in the atlas | **per-texel lightmap**. Vertex shade goes black; the additive pass puts every photon back per pixel | `SCENE_AO_ATLAS_GI` + per-object `SCENE_AO_ATLAS_LIT`, read by `g_giLightmap` in `pushVert` |
 | Untextured terrain | **per-texel lightmap**, same deal | `SCENE_AO_MAP_GI` |
-| Imported models, textured receivers, batched props, physics bodies, spawn-pool clones, textured terrain | **probe grid**, sampled once per vertex at scene load | `g_giProbeShade` in `pushVert` / `shadeAt` |
+| Textured terrain | **per-texel lightmap, multiplied** — the map's *alpha* carries the light's intensity and the occlusion pass applies it per pixel; the vertex shade carries only its colour | `SCENE_AO_MAP_GILUM`, `AoImage::giLumAlpha` |
+| Imported models, textured receivers, batched props, physics bodies, spawn-pool clones | **probe grid**, sampled once per vertex at scene load | `g_giProbeShade` in `pushVert` / `shadeAt` |
 | Animated models, the player, NPCs | **probe grid**, sampled once per frame at the model's centre | `updateAndRenderAnimObjects` |
+| A static textured model marked [**pre-lit**](prelit-models.md) | **its own texture** — the light was gathered per texel and multiplied into a unique `-lit.png` for that object | `SceneObject::prelit` → neutral vertex colours in `pushVert`; managed in Tools > Baked Lighting |
+
+The pre-lit row is the one route that OPTS OUT of everything above it: a pre-lit
+object's vertex colours go neutral, because the ambient, the N·L, the baked
+point lights, the emissive pools and the probe answer are all already in its
+texture. That is the "declare your route or the light lands twice" rule at its
+sharpest — and it is why the pre-lit texture goes **stale** when the scene's
+light changes rather than following it.
+
+A `.obj` model's route is the probe grid for the light it *receives*, but its
+own **self-occlusion** is a separate, per-texel answer that costs nothing:
+[Model AO](ambient-occlusion.md#model-ao) multiplies it straight into the
+model's texture at build. The two compose — flat probe light times per-pixel
+self-shadowing — and neither needs a lightmap chart.
 
 **The editor viewport takes the same routes**, and has to: it shows what the
 console will. `Viewport::setGiTerrain` feeds it the baked terrain map so the
-ground goes down the lightmap route; `setGiProbes` covers everything else.
+ground goes down the lightmap route — the RGB one when the map replaces the
+shade, the alpha MULTIPLY one when `giLumAlpha` says the map's alpha is the
+light's intensity; `Viewport::setGiAtlas` feeds it the primitives' atlas so
+every lit region draws from the same texels the console reads; `setGiProbes`
+covers everything else. **Both maps are read per PIXEL**, in the fragment
+shader, exactly where the console's passes read them (`uLmMode` / `lmApply`
+in viewport.cpp): the terrain map by world position, the atlas through a
+per-object mesh whose UV slot carries the atlas ST — a lit receiver is never
+textured, so the slot is free — and composed in the console's pass order,
+base × (1 − a) through the alpha-over pass, then + RGB through the additive
+one. That is what makes a contact shadow on a wall's foot, the hard edge of a
+box's sky shadow on the ground and the atlas's own resolution visible in the
+editor; the vertex-sampled preview it replaced smeared all three over the
+terrain's render cells and the probe grid.
 Putting the ground on the probe route instead isn't a small preview
 inaccuracy — it paints the whole terrain one flat colour AND drops the ground's
 own tint, because the terrain carries that tint in its vertex colour and the
@@ -87,8 +115,12 @@ probe answer replaces the vertex shade wholesale (PROGRESS 134).
 In every GI case the ambient + directional term, the baked point lights and the
 emissive pools are **skipped** — the baked answer already contains them.
 
-**A textured surface never takes a lightmap.** A flat additive term over a
-texture blows out its dark texels — the pre-existing rule for this atlas.
+**A textured surface never takes an ADDITIVE lightmap.** A flat additive term
+over a texture blows out its dark texels — the pre-existing rule for this
+atlas. The terrain is the one textured surface that still gets per-texel light,
+because it takes it as a *multiply* through the alpha channel instead (see the
+routing table); a textured object has no such pass to borrow and stays on the
+probe grid.
 Probes are what makes obeying it cost nothing.
 
 **Neither does anything that can move.** A lightmap glues the light to the
@@ -101,6 +133,62 @@ the light is re-read from the grid every time the geometry is rebuilt, so they
 relight as they move. *Properties > Baked lighting* is the manual override for
 the channels no build-time scan can see: Live Link, a Raycast latch, a custom
 node's object output.
+
+---
+
+## Directional lighting on animated receivers
+
+Animated models, player avatars and NPCs sample the existing RGB L1 grid once
+per visible instance per render pass, at `position + (0, scale.y / 2, 0)`.
+Explicitly dynamic-lit rigid objects sample at their origin. These are
+approximate receiver points, not mesh centroids. Both routes reconstruct
+**full signed RGB SH L1** on VU1:
+
+`RGB = max(0, L0 + (2/3) * (L1x * Nx + L1y * Ny + L1z * Nz) + liveLight)`.
+
+The three light slots carry Cartesian basis directions and three RGB vectors,
+so differently coloured light can arrive from different directions. Negative
+normal components survive until the RGB sum; the former dominant-direction
+projection discarded them. Material albedo and the existing GS colour scale
+are folded into coefficients on the EE. Final GS colours clamp to 0..255;
+animated receivers retain their existing 128-unit material convention. Unlike
+the static `giShade` route, this does not clamp irradiance to 1 before albedo.
+
+`PipelineDirLightsBag::signedSH` selects the mode explicitly (default false).
+The packet writer encodes the dot-product lower bound in **ambient.w**: -1 for
+SH, 0 for classic directional lights. The macro loads that lane and clamps the
+RGB sum before VU clipping. Output alpha is unchanged. Both packet writers,
+shared clip images, standalone cull/clip programs and generated as-is programs
+follow this contract. Since 1.74.1, the adjusted colours are copied into the
+DMA packet with CNT/UNPACK. `packet2_utils_vu_add_unpack_data` emits a **REF**,
+so a local stack array here becomes a dangling asynchronous DMA source and
+causes intermittent lighting flashes. Both renderers wait before resetting
+packet storage; their allocations include the four inline colour qwords
+(StaPip 56, DynPip 24). The EE clipping route still interpolates normals before
+the as-is shader, as it did for classic lighting.
+
+Each material part owns its coefficients, so pose-sharing instances retain
+independent lighting. `animLightMat` rotates posed local normals and removes
+instance scale. Rotation and uniform scale are supported; exact normals under
+nonuniform scale/shear remain future work. The viewport uses signed
+reconstruction and centre lookup for animated receivers in both shading modes.
+
+The VU light block and probe format are unchanged: four RGB coefficients per
+probe, with no new texture, pass or per-vertex EE GI evaluation. Compared with
+the dominant-lobe shader the VU macro adds three instructions per vertex for the final RGB clamp. There
+is no direction extraction/normalization on the EE. An absent/dead probe
+neighbourhood keeps classic scene lighting; outside the grid the sampler
+clamps to boundary probes. Baked sun/sky/bounce replace scene lighting, while
+live lights keep their existing per-object ambient pickup.
+
+This is **full L1, not L2 or precomputed surface transfer (PRT)**. It adds no
+animated self-shadowing, contact occlusion or runtime bounce tracing.
+[probe-lighting](../examples/probe-lighting) supplies the walking demo and a
+fixed-pose dominant-lobe/full-SH comparison helper. `--vu-check` covers signed
+coefficients and an independent RGB numeric oracle as well as the
+handwritten/generated microprogram pairs. The compiled all-class VU1 clipping
+set occupies 1,700 instruction slots for its eight resident images, below the
+2,048-slot limit with room for the draw-finish helper.
 
 ---
 
@@ -181,6 +269,36 @@ progress bar, cancel), or headlessly:
 tyrax-editor --bake-gi <projectDir>
 ```
 
+**Or let the build do it — for stale scenes only.** *Project > Preferences >
+Build > Re-bake stale global illumination* (the same switch sits under the
+Bake buttons on this tab; off by default, needs GI enabled). Every build — the
+toolbar, `--build`, Run on PS2 — then re-bakes exactly the scenes whose cache
+signature no longer matches, before the [pre-lit](prelit-models.md) pass and the
+source refresh, and prints one `gi: baked GI ...` / `gi: fresh ...` line per
+scene. A build with everything fresh costs one signature pass; a changed big
+scene costs the minutes it always did, but out loud instead of shipping the
+fallback in silence. The rule below still stands for the default: an expensive
+bake is pressed, not implied — this is the opt-in for a project that would rather
+never see the fallback.
+
+**A stale cache is silent, so check the generated side, not the screen.** The
+fallback is the whole point of the design - the scene keeps rendering, just with
+the pre-GI lighting - which means a project can ship for months with its bounce
+light switched off and look merely a bit flat. It happened to both example
+projects here: `examples/gi-showcase` and `examples/global-illumination` were
+committed with `giEnabled: true`, a checked-in `scene0.gi`, and codegen quietly
+emitting no GI at all. Two greps answer it with no Docker and no emulator:
+
+```bash
+grep SCENE_AO_ATLAS_GIS <projectDir>/inc/ao_data.gen.hpp   # {1} = the scene ships GI
+grep 'SCENE_PROBE_GRIDS\[\]' <projectDir>/inc/probe_data.gen.hpp   # {nullptr} = no probes
+```
+
+`{0}` and `{nullptr}` after a `--refresh-gen` mean the signature did not match -
+re-bake. Worth doing after any merge that touched the scene, and worth reading
+before believing a screenshot: the difference between "GI is subtle here" and
+"GI is off" is not reliably visible by eye.
+
 ---
 
 ## Quality knobs
@@ -203,14 +321,169 @@ at those defaults.
 
 ---
 
+## Where the time goes
+
+Almost all of it is the **lightmap texel pass**: one hemisphere gather per
+sub-sample per texel, over a 256² atlas and a terrain map of up to 256². The
+bounce solve and the whole probe grid together are a rounding error beside it —
+a 12×4×12 grid is 576 gathers against a quarter of a million.
+
+That pass runs across every core (`bakepar::parallelFor`), and the unit of work
+is one **(region, row)** rather than one region: region sizes span two orders of
+magnitude, so scheduling whole regions leaves one thread holding the biggest
+wall in the scene while the rest idle, and a scene with fewer regions than cores
+barely divides at all. The schedule is dynamic for the same reason — threads
+pull the next chunk instead of taking a fixed slice up front.
+
+Measured on this repo's own examples, 8 cores, best of three interleaved runs:
+
+| Example | Before | After |
+| --- | --- | --- |
+| [global-illumination](../examples/global-illumination) | 16.4 s (98% CPU) | **3.7 s** (475%) |
+| [gi-showcase](../examples/gi-showcase) | 34.2 s (100%) | **8.0 s** (493%) |
+
+`--bake-gi` prints the split per scene, so this is a claim you can re-run rather
+than one to take on trust:
+
+```
+baked GI: main (atlas 256, terrain 256, probes 25x5x71) 7.8s
+  build 0.01s  solve 0.05s  atlas 3.63s  terrain 3.97s  probes 0.16s  other 0.00s
+```
+
+The two lightmap passes are **98%** of it. The bounce solve, the probe grid and
+the tessellation together are hundredths of a second — so "make the bake faster"
+means those two passes and nothing else, and parallelising anything else would
+be effort spent where there is no time to save.
+
+Do not measure this on a loaded machine. The old code was one thread and got its
+core whatever else was running; the new code wants eight and does not. A desktop
+session eating two cores in the background is most of the gap between the 475%
+above and the 800% the box can give.
+
+---
+
+## The GPU backend
+
+The hemisphere gather also exists as a **GL 4.3 compute kernel** (`src/gigpu.cpp`),
+a twin of `gibake::gather` + `directAt` + `skyRadiance` + `bvh::trace`.
+
+It is an accelerator **with a reference**, not a replacement, and that is
+structural rather than cautious: `--bake-gi` runs headless on build servers and
+inside the Docker build, where there is no display and no GL context at all. So
+the CPU integrator can never be deleted, and every path has to survive
+`gigpu::available()` answering false. The context is a hidden GLFW window rather
+than EGL, because GLFW is already a dependency on both platforms and a
+per-OS pair would be a file that exists twice (see "Platform parity" in the
+`tyra-editor-dev` skill).
+
+**It does not promise bit-identity, and cannot.** Every other bake here is
+bit-identical at any core count, but that holds because one implementation runs
+everywhere. A GPU has its own transcendental units, its own FMA contraction and
+its own rounding, so `sin` and `pow` in the kernel are simply not the host's. A
+GPU bake and a CPU bake are therefore compared with a **tolerance, never with
+`cmp`**, and a cache has to record which one produced it.
+
+### The oracle
+
+The kernel is the fourth twin in a codebase that already tracks host / EE /
+viewport-shader triplets — but it is the only one that can be checked by
+machine, because a bake is a pure function. `--gi-gpu-check <projectDir>` builds
+and solves a scene exactly as a bake does, gathers the same deterministic sample
+set both ways, and reports the disagreement and the cost:
+
+```
+scene 0: 2716 triangles, 173824 sample points, 128 rays each
+  cpu 15.557s   gpu 0.233s   speedup 66.8x
+  mean |gpu-cpu| 0.000019   max 0.006315   (mean |cpu| 0.641016)
+  relative mean error 0.0030%  -> AGREE
+```
+
+Run it after touching **either** side. A relative mean error in the thousandths
+of a percent is float divergence between two transcendental implementations;
+anything above 1% is a kernel that stopped being a twin, and the verb exits
+non-zero on it.
+
+### What it is actually worth
+
+Measured on this repo's examples, against a **single** CPU core, at the batch
+size a real atlas pass hands over (~170k points):
+
+| Example | CPU, 1 core | GPU | vs 1 core | vs 8 cores |
+| --- | --- | --- | --- | --- |
+| [global-illumination](../examples/global-illumination) | 11.1 s | 0.21 s | 54× | ~7× |
+| [gi-showcase](../examples/gi-showcase) | 15.6 s | 0.23 s | 67× | ~8× |
+
+**Quote the 8-core column.** The CPU bake is parallel now, so the per-core ratio
+flatters the GPU by a factor of eight and is the wrong number to plan with.
+
+### Baking with it
+
+In the editor it is a tick box beside the Bake buttons — *Tools > Ambience
+Editor > Global illumination > **Bake on the GPU***. It is greyed out with the
+reason on hover when the machine has no usable GPU, and it is **machine-global**
+(editor.ini), not a project setting: whether this box has a GPU is a fact about
+the box. Headless it is `--bake-gi <projectDir> --gpu`.
+
+Opt-in in both, because the two backends agree to a tolerance and not
+bit-for-bit, so flipping it silently would change every existing project's
+cached bytes — and this repo's own GI examples ship that cache. End to end,
+8 cores:
+
+| Example | CPU | GPU | atlas | terrain |
+| --- | --- | --- | --- | --- |
+| global-illumination | 3.9 s | **1.4 s** | 2.97 → 0.37 s | 0.84 → 0.11 s |
+| gi-showcase | 8.0 s | **2.0 s** | 3.51 → 0.55 s | 4.21 → 0.40 s |
+
+The two lightmap passes go **~8–10×** against all eight cores. The totals do not,
+because **0.86 s of every run is starting the backend** — creating the GL context
+— and that is paid once per process, not per scene. So a one-scene project sees
+2.8×, and a twenty-scene project, which is the case this exists for, sees close
+to the per-pass number.
+
+**What the two backends agree on**, measured by re-baking both ways and
+comparing the cache:
+
+| | atlas rects / lit / firstRegion | light channels | occlusion |
+| --- | --- | --- | --- |
+| result | **identical** | 0.3–0.4% of bytes differ, **max 2 levels of 255** | **identical** |
+
+Two levels, in an image that is dithered and then drawn into a 16-bit
+framebuffer with 32 levels per channel. The occlusion channel is identical
+because it is analytic and never leaves the CPU.
+
+**The layout is identical on purpose, and that took a fix.** The importance
+pre-pass turns a continuous measurement into a *discrete* decision — how many
+texels each region gets, and from that how everything packs — so a difference far
+below one output level can tip a bisection and re-pack the whole atlas. Baked on
+the GPU it did exactly that: `rects` differed, and with them 13–34% of the atlas
+bytes, which made the two bakes incomparable and looked like a broken kernel. The
+pre-pass is therefore pinned to the CPU whatever the gather backend is
+(`aobake::bakeSceneLightAtlas`'s `giLayout`), which costs ~3% of the pass — 36
+probes a region against a quarter of a million texel samples — and buys a layout
+that is a property of the scene rather than of the machine. **Generalise the
+rule: a discrete decision must not ride on a tolerance.**
+
+**Batch size is most of the result**, which is why the gather takes a batch and
+not a point. The same scenes measured at 21k points read 20–50× against one core
+and as low as 9× cold; at 170k they read 41–67× and stop moving. A per-point
+entry point would lose all of it — the dispatch latency alone exceeds the CPU
+cost of one gather. The first measurement of all, taken on 2.6k points with no
+warm-up, read **1.2×**, which is what measuring driver start-up looks like.
+
+---
+
 ## Determinism
 
 Inherited from [matbake](material-baking.md), and load-bearing: the sample
 spiral is rotated by a hash of a per-element seed (the texel's atlas
 coordinate, the triangle's index, the probe's index) — never by shared RNG
-state. Threads partition by element range. **The same inputs give bit-identical
-bytes at any core count**, which is the only thing that makes an A/B comparison
-possible at all.
+state, and never by which thread or which chunk reached the element first.
+**The same inputs give bit-identical bytes at any core count**, which is the
+only thing that makes an A/B comparison possible at all.
+
+That is a property to *check*, not to trust: baking twice at different core
+counts and comparing `.res-baked/gi/scene<N>.gi` with `cmp` is what verified the
+parallel texel pass above, and it is the cheapest regression this feature has.
 
 ---
 
@@ -227,15 +500,88 @@ Said out loud in the Bake window too, not just here:
   see the routing table. Imported models have no lightmap UVs; running
   `uvunwrap` at bake time to give them a real chart is the road not taken,
   because probes are much cheaper and cover the moving ones anyway.
-- **The editor preview is probe-resolution.** It evaluates the same grid per
-  fragment, so the colour and direction are exact — but the console's
-  per-texel contact shadows on static geometry are sharper than what the
-  viewport shows.
+- **The editor preview is probe-resolution for what the probes light** —
+  models, textured receivers, anything that moves — and lightmap-resolution
+  for the rest: the terrain and the lit primitives draw from the baked maps
+  per pixel, so their contact shadows preview as the console draws them. What
+  the viewport still does not read from a bake is the AO-only atlas of a
+  scene with GI off (texbake writes that one at build time; the viewport keeps
+  its analytic per-fragment twin there).
 
 ---
 
 ## Traps, for whoever touches this next
 
+- **A gather ray must start on the surface the rays are TRACED against, and for
+  the ground those are two different surfaces.** The bake works on the fine
+  bilinear heightfield the game walks on; the BVH holds a *decimated* ground
+  (`build` caps it at 96×96 cells). Wherever the decimation cuts a bump the
+  bake's point sits **under** the traced triangles, the whole hemisphere hits
+  terrain, and the texel comes out black. It is not subtle at scale — it painted
+  a lattice of dark blotches across a scene with a dozen props in it, and the
+  residue lay along the coarse cells' **diagonals**, which is the tell: an
+  artefact that follows the triangulation is about the mesh, not about the
+  light. `Scene::groundX/groundZ/groundH` + `gibake::groundSurfaceY` re-derive
+  the traced height and the ground's own light function (`giGroundLight`)
+  snaps its origin onto it. The same mistake in miniature: `terrainAOMap`'s
+  sub-samples used to inherit the texel centre's height while moving half a
+  texel sideways, which on any slope is more error than a ray-origin bias can
+  absorb. Both are re-sampled now. If dark specks ever come back, check the
+  origin before you touch the ray count.
+
+- **The ground's grid lines follow the objects, because the bounce is stored
+  per triangle.** `solve` keeps ONE bounce value per ground triangle, taken at
+  its centroid, and a ground cell is coarser than a wall: on a 100-unit
+  terrain at detail 32 a cell is 3.1 units, a wall is one. A triangle that
+  runs under the wall from the sunlit side to the shadowed one carries
+  whichever side its centroid landed on to BOTH, and the wall's lowest texels
+  — which see nothing but the ground right under them — pick that up as a
+  row of teeth with the cell's period: bright on the shadowed face, dark on
+  the sunlit one (measured on a 1-unit wall: a 47-level ripple that doubled
+  its period with the cell and vanished for a wall thicker than a cell). It
+  looks like a texture-filtering artefact on the console and is nothing of the
+  kind — it is in the atlas, and dumping the wall's region shows it. So
+  `build` tessellates the objects first and lays a grid line at every edge of
+  every grounded object's footprint AABB (lines closer than 2 % of a cell are
+  merged, the count per axis is capped at 256 by widening that merge), which
+  means no ground triangle straddles an axis-aligned object at all. A rotated
+  thin wall still gets a faint version at its AABB's corners; if that ever
+  matters, the next step is splitting the cells along the rotated footprint,
+  not raising `terrainDetail`, which only makes the teeth smaller and denser.
+
+- **A TEXTURED terrain takes its light as a MULTIPLY, not as an added pass, and
+  that took three wrong answers to arrive at.** The ground pass is additive and
+  would blow out a texture's dark texels, so the first arrangement gave a
+  textured terrain no light channel at all (`terrainTextured ? nullptr :
+  &giLight`) and let the vertex path handle it. The vertex path then reached
+  for `giProbe`, which **replaces** the shade rather than adding to it — and
+  the probe grid is built for objects, a few levels a few units apart. Handed a
+  landscape it has nothing to say, so every hill came out black ("with GI on
+  the peaks are pitch black"). Making the viewport skip the probes silenced the
+  symptom and produced a *uniform* ground instead, which is worse: a textured
+  terrain is meant to be lit. What is actually wrong in both is asking a
+  **volume** grid to light a **surface** — the answer changes one probe cell at
+  a time and bands along the contour lines of the hill.
+
+  The fix is a frequency split, and the shape of it is forced by the GS.
+  `GS_SET_ALPHA(A,B,C,D,FIX)` computes `(A−B)*C>>7 + D`, and **C may only be
+  As, Ad or FIX — never a colour**, so `Cs*Cd` is inexpressible and there is no
+  pass that multiplies the framebuffer by a coloured lightmap. But the
+  occlusion pass already multiplies by an *alpha*. So the bake writes the
+  gathered light's **luminance** into that alpha (`AoImage::giLumAlpha`, set by
+  `terrainAOMap`'s `giLum` branch) and the terrain keeps its **ordinary
+  directional shade** for colour: high-frequency intensity per pixel, low-
+  frequency colour per vertex, no new table, no new pass, and no pixels on the
+  EE. `SCENE_AO_MAP_GILUM` is the flag that says which meaning that alpha
+  channel carries, and it opens `terrainMapOcc` on its own — the pass has to
+  run even in a scene with ambient occlusion switched off, because on this
+  route the channel is *light*, not occlusion.
+
+  Two things follow. `terrainProbeGi` excludes it (`!terrainGi &&
+  !terrainGiLum`), so **the ground never takes probe light** on any route. And
+  the viewport twin applies the same multiply per pixel (`uLmMode` 3 in the
+  fragment shader, the terrain keeping its ordinary vertex shade in
+  `buildTerrainMesh`) — the same texels, the same site.
 - **A lightmap texel's alpha must never be 0** (`aobake::kMinLightmapAlpha`).
   StaPip's alpha test discards alpha-0 texels and both passes sample the *same*
   texture, so a zero-occlusion texel takes the additive light pass down with
@@ -263,6 +609,15 @@ Said out loud in the Bake window too, not just here:
   geometry. Dropping it produced exactly the symptom you would not connect: a
   plate that still glowed (the `Ke` floor is a vertex-colour term, independent
   of the bake) lighting absolutely nothing around it.
+- **The bake reads a pre-lit object's SOURCE material, never its `-lit`
+  texture** (`albedoMaterial` in gibake.cpp, in both `build()` and
+  `signature()`). A [pre-lit](prelit-models.md) texture is albedo × the light
+  this very bake computes, so reading it back as albedo would fold the light
+  into the bounce a second time — and, worse, every pre-lit bake repoints the
+  object's `materialPath` and would stale the scene's GI cache for nothing. The
+  scene is hashed and tessellated **as authored**; the price is that bounce
+  light off a pre-lit neighbour's new texture is not a term at all, which is
+  what you want.
 - **The signature ignores objects that contribute nothing** — markers, spawn
   points, the player, cameras, areas, decals, mirrors, portals. They cannot
   change what the bake produces, and hashing them only manufactures false
@@ -299,5 +654,5 @@ Said out loud in the Bake window too, not just here:
 | Codegen: atlas flags + `inc/probe_data.gen.hpp` | `src/templates.cpp` (`aoDataHeader`, `probeDataHeader`) |
 | Runtime: `giProbeAt` / `giShade` / `g_giLightmap` / `g_giProbeShade` | `src/templates.cpp` (game cpp template) |
 | Baked pixels into `.res-baked/aoatlas`, `.res-baked/aomap` | `src/texbake.cpp` |
-| Viewport twin (3D texture + `giProbe()`) | `src/viewport.cpp` |
+| Viewport twin (3D texture + `giProbe()`; the per-pixel lightmaps: `setGiAtlas`, `lmMeshFor`, `uLmMode` / `lmApply`) | `src/viewport.cpp` |
 | The Bake window | `src/app.cpp` (`drawGiBakeWindow`) |

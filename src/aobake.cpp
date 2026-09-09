@@ -10,6 +10,7 @@
 #include <map>
 #include <set>
 
+#include "bakepar.hpp"
 #include "objparser.hpp"
 #include "scrollsim.hpp"
 
@@ -29,6 +30,37 @@ constexpr float kPi = 3.14159265358979f;
 inline float bayerDither(int x, int y) {
     static const int m[16] = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5};
     return m[(y & 3) * 4 + (x & 3)] * (1.0f / 16.0f) - 0.5f;
+}
+
+// The locality window every occlusion term closes with. Occlusion past
+// `range` is deliberately not counted - this is a CONTACT shadow, and the
+// bake's occluder grid prunes by exactly this radius - so the term has to
+// reach zero there rather than merely become small. Smooth over the last 40%
+// so nothing steps at the cutoff.
+inline float aoRangeWindow(float dist, float range) {
+    if (dist >= range) return 0.0f;
+    float t = (range - dist) / (0.4f * range);
+    if (t >= 1.0f) return 1.0f;
+    if (t < 0.0f) t = 0.0f;
+    return t * t * (3.0f - 2.0f * t);
+}
+
+// Sine of the tangent-plane elevation along a horizontal direction, for a
+// surface with unit normal n; `m` is the rise per unit walked.
+//
+// THIS IS THE TERM THAT STOPS A BARE SLOPE SHADING ITSELF, and both terrain
+// horizon scans below apply it. A hillside rises in every uphill sample, so a
+// scan that only asks "how high does the land get" reports a smooth open hill
+// as occluded - the slope darkens for no reason but being a slope. What
+// occludes a point is the horizon standing above its own TANGENT PLANE (the
+// horizon-based formulation), and on a constant slope those are the same line:
+// occlusion 0, which is what a bare hillside should read as at any angle.
+// Ambient occlusion is occlusion, not irradiance - a tilted bare plane still
+// sees a whole hemisphere, just a different one.
+inline float tangentSin(const float n[3], float dx, float dz) {
+    if (n[1] <= 1e-5f) return 0.0f;
+    const float m = -(n[0] * dx + n[2] * dz) / n[1];
+    return m / std::sqrt(1.0f + m * m);
 }
 
 // Reads an object's assigned .mtl (docs/emissive-materials.md). Cached per
@@ -212,20 +244,107 @@ static void occShapeAt(const Occluder& oc, const float wp[3], float& dist,
     }
 }
 
+// Independent occluders combine as VISIBILITY, not as a sum. A clamped sum
+// saturates: two shapes each taking half the sky read as fully dark instead of
+// three quarters, which is what let a neighbouring box and the ground between
+// them black out a crate that is only partly covered. Accumulate the product
+// of what each one leaves visible and take one minus it at the end.
+//
+// The twins are aoShadeMul in the generated game and aoOcclusion in the
+// viewport fragment shader - change one, change all three.
+inline void aoAccumVis(float& vis, float occ) { vis *= 1.0f - occ; }
+
+// Radius of a disc with the same PROJECTED AREA as the shape seen along the
+// unit direction `toOcc` (pointing from the receiving point at the occluder).
+// A sphere projects pi*r^2 from every side; a box projects the sum of its three
+// face pairs weighted by how square-on each is, which is what makes a thin slab
+// read as the wall it is from the front and as almost nothing from the edge.
+static float occProjRadius(const Occluder& oc, const float toOcc[3]) {
+    if (oc.sphere) return oc.half[0];
+    float a = 0.0f;
+    for (int k = 0; k < 3; ++k) {
+        const float c = std::fabs(toOcc[0] * oc.axis[k][0] +
+                                  toOcc[1] * oc.axis[k][1] +
+                                  toOcc[2] * oc.axis[k][2]);
+        a += c * 4.0f * oc.half[(k + 1) % 3] * oc.half[(k + 2) % 3];
+    }
+    return std::sqrt(a / kPi);
+}
+
 float occluderOcclusionAt(const Occluder& oc, const float wp[3],
                           const float n[3], float range) {
     float dist;
     float toOcc[3];  // direction from the point toward the occluder surface
     occShapeAt(oc, wp, dist, toOcc);
     if (dist <= 0.0f) return 1.0f;  // touching / inside
-    float fade = 1.0f - dist / range;
-    if (fade <= 0.0f) return 0.0f;
-    fade *= fade;
-    // full occlusion facing the occluder, ~0.35 side-on, zero facing away
-    float w = 0.35f + 0.65f * (n[0] * toOcc[0] + n[1] * toOcc[1] + n[2] * toOcc[2]);
-    if (w <= 0.0f) return 0.0f;
-    if (w > 1.0f) w = 1.0f;
-    return fade * w;
+    if (dist >= range) return 0.0f;
+
+    // HOW MUCH SKY THIS SHAPE TAKES, not how close it is.
+    //
+    // The old response was (1 - dist/range)^2 times a facing weight with a
+    // 0.35 FLOOR, so a surface turned 90 degrees away from an occluder it can
+    // barely see still kept a third of the term - and since the term depended
+    // only on distance, anything smaller than the AO radius darkened over its
+    // whole height as a lump. Measured on examples/ambient-occlusion: a crate
+    // with another crate resting on it read 0.30 on its side faces where the
+    // geometry says about 0.06.
+    //
+    // What actually occludes a surface is the fraction of its cosine-weighted
+    // hemisphere the shape covers. For a disc of radius r whose centre lies at
+    // distance d along toOcc that fraction is exactly cos(theta) * (r/d)^2,
+    // and taking r from the shape's projected area makes the same expression
+    // serve a sphere and a box. Placing that disc TANGENT to the nearest
+    // surface point (d = dist + r) is what keeps it honest at both ends: a
+    // shape resting against the surface gives cos(theta), a distant one falls
+    // off as the inverse square it should.
+    // Capped at the AO radius, and not as a fudge: occlusion past `range` is
+    // deliberately not counted, so the part of a 26-unit wall that can matter
+    // to a point 0.4 units from it is the part within reach.
+    float r = occProjRadius(oc, toOcc);
+    if (r > range) r = range;
+    if (r <= 1e-5f) return 0.0f;
+
+    const float cosT = n[0] * toOcc[0] + n[1] * toOcc[1] + n[2] * toOcc[2];
+
+    // A SHAPE OCCLUDES IN ONE OF TWO REGIMES, AND WHICH ONE IS THE WHOLE
+    // DIFFICULTY.
+    //
+    // Far and small, it is a disc: it takes cos(theta) * (r/d)^2 of the
+    // cosine-weighted hemisphere, an inverse square in the distance.
+    //
+    // Near and large, it is not a disc at all - it is a HALF-SPACE. A floor
+    // slab under your feet blocks every downward direction no matter where its
+    // centre happens to be, and a disc model has to be told which way to point.
+    // Every attempt to tell it fails on real geometry: aiming at the nearest
+    // point reads the floor beside a wall as 0.000 occluded (the wall touches
+    // it edge-on and the cosine falls out), and aiming at the shape's centre
+    // reads a crate standing on a 30x24 terrace as 0.66 occluded ON ITS SIDES,
+    // because that terrace's centre is ten units sideways. Both measured.
+    //
+    // The half-space needs no aiming: what it blocks is the hemisphere behind
+    // its face, which is (1 + n.toOcc)/2 - zero for a surface facing away,
+    // one half for a surface along it, one for a surface facing into it.
+    //
+    // k is sin(alpha), the sine of the shape's angular radius: 1 when it is
+    // against the surface and filling the sky, 0 when it is a distant speck.
+    // k*k is then the solid-angle fraction the disc form already used, and k
+    // is what carries the surface between the two regimes.
+    //
+    // BOTH FACTORS ARE NEEDED AND THAT IS WHAT THE FIRST ATTEMPT GOT WRONG.
+    // Blending linearly on k alone let a crate 0.6 units away - alpha of 27
+    // degrees, a speck - hand a horizontal surface the half-space's 0.5, and a
+    // ring of neighbours then summed to "half the sky is gone" on a crate top
+    // with nothing above it (measured 0.500). Scaling the whole thing by the
+    // solid angle keeps a small shape small however close it gets, while a
+    // shape that really does fill the hemisphere still reaches the plane.
+    const float k = r / (r + dist);
+    const float lit = (cosT > 0.0f) ? cosT : 0.0f;      // disc regime
+    const float plane = (1.0f + cosT) * 0.5f;           // half-space regime
+    float occ = k * k * (lit + (plane - lit) * k);
+    if (occ < 0.0f) occ = 0.0f;
+    if (occ > 1.0f) occ = 1.0f;
+
+    return occ * aoRangeWindow(dist, range);
 }
 
 std::vector<Emitter> collectEmitters(const std::string& projectDir,
@@ -434,12 +553,40 @@ std::vector<uint8_t> terrainAO(const std::vector<float>& heights, int w, int d,
     if (maxSteps < 2) maxSteps = 2;
     if (maxSteps > 48) maxSteps = 48;
 
+    // Central-difference normal straight off the grid - these samples ARE grid
+    // vertices, so neighbouring cells give it exactly and the bilinear
+    // resampling terrainAOMap needs would only blur it.
+    const auto gridNormal = [&](int x, int z, float n[3]) {
+        const auto at = [&](int a, int b) {
+            a = a < 0 ? 0 : (a >= w ? w - 1 : a);
+            b = b < 0 ? 0 : (b >= d ? d - 1 : b);
+            return heights[(size_t)b * w + a];
+        };
+        n[0] = at(x - 1, z) - at(x + 1, z);
+        n[1] = 2.0f * minStep;
+        n[2] = at(x, z - 1) - at(x, z + 1);
+        const float len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+        if (len > 1e-5f) n[0] /= len, n[1] /= len, n[2] /= len;
+    };
+
     for (int z = 0; z < d; ++z) {
         for (int x = 0; x < w; ++x) {
             const float h0 = heights[(size_t)z * w + x];
+            float n[3] = {0, 1, 0};
+            gridNormal(x, z, n);
             float occ = 0.0f;
             for (int dir = 0; dir < 8; ++dir) {
-                float maxSin = 0.0f;
+                // The horizon is tracked over EVERY sample now, falling ones
+                // included: a direction where the land drops away has its
+                // horizon below the horizontal, and clamping that to zero is
+                // what used to make a downhill azimuth read as occluded the
+                // moment the tangent term was subtracted from it.
+                float maxSin = -1.0f;
+                const float invLen =
+                    1.0f / std::sqrt((float)(dirs[dir][0] * dirs[dir][0] +
+                                             dirs[dir][1] * dirs[dir][1]));
+                const float ux = dirs[dir][0] * invLen;
+                const float uz = dirs[dir][1] * invLen;
                 for (int k = 1; k <= maxSteps; ++k) {
                     const int sx = x + dirs[dir][0] * k;
                     const int sz = z + dirs[dir][1] * k;
@@ -447,11 +594,11 @@ std::vector<uint8_t> terrainAO(const std::vector<float>& heights, int w, int d,
                     const float dist = stepLen[dir] * k;
                     if (dist > radiusWorld) break;
                     const float dh = heights[(size_t)sz * w + sx] - h0;
-                    if (dh <= 0.0f) continue;
                     const float s = dh / std::sqrt(dh * dh + dist * dist);
                     if (s > maxSin) maxSin = s;
                 }
-                occ += maxSin;
+                const float rise = maxSin - tangentSin(n, ux, uz);
+                if (rise > 0.0f) occ += rise;
             }
             occ /= 8.0f;
             if (occ < 0.0f) occ = 0.0f;
@@ -684,17 +831,30 @@ float heightAtWorld(const std::vector<float>& heights, int w, int d,
     return t * (1 - fz) + b * fz;
 }
 
-// The wall-base-softened ground contact term - the host copy of the
-// generated aoShadeMul ground branch (and the viewport shader's). Sync all
-// three when the formula moves.
+// The ground contact term - host copy of the generated aoShadeMul ground
+// branch and the viewport shader's. Sync all three when the formula moves.
+//
+// THIS IS THE SAME HALF-SPACE THE OCCLUDER RESPONSE FALLS BACK TO, and saying
+// so is the point: the ground is a plane whose `toOcc` is straight down, so
+// (1 + n.toOcc)/2 becomes (1 - n.y)/2 - which is exactly the `0.5 - 0.5*ny`
+// this term always had. It was never a separate model, only a separate
+// spelling with its own constant, and one shape hiding behind two formulas is
+// how the two drifted apart in the first place.
+//
+// kAoBounce is what is left of that constant, and it is now the ONLY place a
+// number sits between the geometry and the picture. A fully physical half
+// hemisphere is what a surface standing on a floor really loses, but this
+// engine has no indirect light to put back: the floor is lit and bounces, and
+// at 1.0 every wall base and every crate reads muddy. The original ground term
+// carried 0.7 with that reasoning in a comment; it is kept, applied once, to
+// everything - so raising it is a single, reviewable decision rather than a
+// hunt through three files.
 float groundOcclusion(float dy, float ny, float range) {
     if (dy < 0.0f) dy = 0.0f;
     if (dy >= range) return 0.0f;
-    float fade = 1.0f - dy / range;
-    fade *= fade;
     float horiz = 0.5f - 0.5f * ny;
     if (horiz < 0.0f) horiz = 0.0f;
-    return 0.7f * fade * horiz;
+    return horiz * aoRangeWindow(dy, range);
 }
 
 int pow2Up(int v) {
@@ -703,16 +863,61 @@ int pow2Up(int v) {
     return p;
 }
 
+// --- the heightmap horizon scan ---------------------------------------------
+// Both terrain self-occlusion bakes walk the same 8 azimuths and ask the same
+// question - how high does the land rise this way - but answer it for
+// different consumers: terrainAO fills the per-vertex grid the editor VIEWPORT
+// shades its terrain with, terrainAOMap the per-texel image the CONSOLE draws.
+// A preview and its subject, so the tangent term they share is `tangentSin`,
+// declared once at the top of this file.
+
+// Central-difference heightmap normal in world space.
+inline void heightNormal(const std::vector<float>& heights, int w, int d,
+                         float width, float depth, float x, float z,
+                         float stepX, float stepZ, float n[3]) {
+    const float hx0 = heightAtWorld(heights, w, d, width, depth, x - stepX, z);
+    const float hx1 = heightAtWorld(heights, w, d, width, depth, x + stepX, z);
+    const float hz0 = heightAtWorld(heights, w, d, width, depth, x, z - stepZ);
+    const float hz1 = heightAtWorld(heights, w, d, width, depth, x, z + stepZ);
+    const float minStep = std::min(stepX, stepZ);
+    n[0] = hx0 - hx1;
+    n[1] = 2.0f * minStep;
+    n[2] = hz0 - hz1;
+    const float len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+    if (len > 1e-5f) n[0] /= len, n[1] /= len, n[2] /= len;
+}
+
+// A NOTE ON THE AZIMUTH ROTATION THAT IS NOT HERE. Rotating each texel's fan
+// by a per-texel angle is the standard answer to a scan with few directions,
+// and it was implemented, measured and removed. On the fixture that shows the
+// artefact at all - a lone spire, sampled around a ring where symmetry says
+// the answer must be constant - it moved the spread by nothing that survives
+// a second ring: 13 / 27 / 23% of the mean with it against 13 / 26 / 30%
+// without, at 16 azimuths. The reason is that the scan is ONE sample per texel
+// (it is the expensive half and is deliberately not supersampled - see
+// kSuper), so a rotation has nothing downstream to average it: it decorrelates
+// the error between neighbours without making any texel's own answer better,
+// which trades a coherent star for an incoherent one of the same amplitude.
+// What DID work was raising the azimuth count - see kDirs below.
+
 }  // namespace
 
 AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                      float width, float depth,
                      const std::vector<Occluder>& occs,
                      const std::vector<Emitter>& ems, float radiusWorld,
-                     float strength, bool aoOn, const LightFn* gi) {
+                     float strength, bool aoOn, const LightFn* gi,
+                     bool giTextured) {
     AoImage out;
     if (width <= 0 || depth <= 0) return out;
     const bool bakeOcc = aoOn && strength > 0.0f;
+    // The GI multiply route (see AoImage::giLumAlpha): the light's INTENSITY
+    // takes the alpha channel and is multiplied per pixel by the pass that
+    // already exists, instead of being added over a texture it would blow out.
+    // It replaces the occlusion in that channel rather than sharing it -
+    // under GI the occlusion is already inside the gathered answer.
+    const bool giLum = gi != nullptr && giTextured;
+    out.giLumAlpha = giLum;
     // With a GI light source the RGB channel always has content - "no
     // emitters" no longer means "no light", it means daylight.
     const bool bakeLight = gi != nullptr || !ems.empty();
@@ -726,7 +931,7 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
     if (size < 64) size = 64;
     if (size > 256) size = 256;
     out.size = size;
-    if (bakeOcc) out.alpha.assign((size_t)size * size, 0);
+    if (bakeOcc || giLum) out.alpha.assign((size_t)size * size, 0);
     if (bakeLight) out.light.assign((size_t)size * size * 3, 0);
 
     // Shadow casters per emitter, pruned ONCE. Every shadow ray for emitter e
@@ -764,125 +969,287 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
     int maxSteps = (int)std::ceil(scanRadius / std::max(minStep, 0.001f));
     if (maxSteps < 2) maxSteps = 2;
     if (maxSteps > 48) maxSteps = 48;
-    const float dirs[8][2] = {{1, 0},  {-1, 0}, {0, 1},  {0, -1},
-                              {0.7071f, 0.7071f},  {0.7071f, -0.7071f},
-                              {-0.7071f, 0.7071f}, {-0.7071f, -0.7071f}};
+    // Azimuths of the horizon scan. EIGHT is not enough here and the number
+    // was measured, not chosen: a lone spire on flat ground is only found by a
+    // ray that happens to point at it, so its occlusion field comes out as an
+    // N-pointed star instead of a disc. Sampled around a ring centred on such
+    // a spire - where symmetry says the answer must be constant - 8 azimuths
+    // read a standard deviation of 91% of the mean at 16 cells out, and 16
+    // azimuths read 40%. The scan is the expensive half of this bake, so this
+    // doubles it: ~0.6 s to ~1.0 s on the heaviest example here, against a
+    // Docker build measured in minutes.
+    constexpr int kDirs = 16;
+    float dirs[kDirs][2];
+    for (int a = 0; a < kDirs; ++a) {
+        const float t = a * (2.0f * kPi / kDirs);
+        dirs[a][0] = std::cos(t);
+        dirs[a][1] = std::sin(t);
+    }
 
-    bool anyOcc = false, anyLight = false;
-    for (int j = 0; j < size; ++j) {
-        for (int i = 0; i < size; ++i) {
-            const float x = ((i + 0.5f) / size - 0.5f) * width;
-            const float z = ((j + 0.5f) / size - 0.5f) * depth;
-            float occ = 0.0f;
-            float h0 = 0.0f;
-            float n[3] = {0, 1, 0};
-            if (hasHeights) {
-                h0 = heightAtWorld(heights, w, d, width, depth, x, z);
-                // central-difference normal, same spirit as the chunk builders
-                const float hx0 = heightAtWorld(heights, w, d, width, depth, x - stepX, z);
-                const float hx1 = heightAtWorld(heights, w, d, width, depth, x + stepX, z);
-                const float hz0 = heightAtWorld(heights, w, d, width, depth, x, z - stepZ);
-                const float hz1 = heightAtWorld(heights, w, d, width, depth, x, z + stepZ);
-                n[0] = hx0 - hx1;
-                n[1] = 2.0f * minStep;
-                n[2] = hz0 - hz1;
-                const float len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
-                if (len > 1e-5f) n[0] /= len, n[1] /= len, n[2] /= len;
-                // heightmap self-occlusion: the same horizon scan as
-                // terrainAO, on bilinear heights (alpha only - an
-                // emitters-only map skips the whole scan)
-                for (int dir = 0; bakeOcc && dir < 8; ++dir) {
-                    float maxSin = 0.0f;
-                    for (int k = 1; k <= maxSteps; ++k) {
-                        const float dist = minStep * k;
-                        if (dist > scanRadius) break;
-                        const float sx = x + dirs[dir][0] * dist;
-                        const float sz = z + dirs[dir][1] * dist;
-                        if (sx < -width * 0.5f || sx > width * 0.5f ||
-                            sz < -depth * 0.5f || sz > depth * 0.5f)
-                            break;
-                        const float dh =
-                            heightAtWorld(heights, w, d, width, depth, sx, sz) - h0;
-                        if (dh <= 0.0f) continue;
-                        const float s = dh / std::sqrt(dh * dh + dist * dist);
-                        if (s > maxSin) maxSin = s;
-                    }
-                    occ += maxSin / 8.0f;
-                }
-            }
-            const float wp[3] = {x, h0, z};
-            const size_t texel = (size_t)j * size + i;
-            // Sub-sample positions inside this texel's footprint. The horizon
-            // scan above stays ONE sample - it is a slow function of position
-            // and the scan is the expensive part - but the occluder contact
-            // term and the emissive light both carry near-hard edges, and a
-            // point sample of those aliases into the staircase bilinear then
-            // reconstructs (see kSuper).
-            const float sxStep = width / size, szStep = depth / size;
-            const float invSuper = 1.0f / (kSuper * kSuper);
-            auto subPoint = [&](int sx, int sy, float p[3]) {
-                p[0] = x + ((sx + 0.5f) / kSuper - 0.5f) * sxStep;
-                p[1] = h0;
-                p[2] = z + ((sy + 0.5f) / kSuper - 0.5f) * szStep;
+    // Occluder lookup grid over the terrain footprint. The contact term dies
+    // at `radiusWorld`, so an occluder can only reach a point inside its own
+    // bounds grown by that - register it in every cell that grown box covers
+    // and a sample then reads ONE cell instead of the whole scene.
+    //
+    // Without this the loop below was |texels| * kSuper^2 * |occluders|:
+    // measured at 20.3 s for a 1100-occluder scene against 0.6 s for a
+    // 33-occluder one, i.e. the bake was linear in a number that scenes grow
+    // freely. Same lesson aoCollectLocal already learned on the EE, where
+    // scanning the whole table per vertex cost ~170 ms per chunk. Exact, not
+    // an approximation: nothing is dropped that could have contributed.
+    const float ocCell = std::max(radiusWorld, std::min(width, depth) / 64.0f);
+    const int ocNx = std::max(1, std::min(256, (int)std::ceil(width / ocCell)));
+    const int ocNz = std::max(1, std::min(256, (int)std::ceil(depth / ocCell)));
+    const float ocSx = width / ocNx, ocSz = depth / ocNz;
+    std::vector<std::vector<const Occluder*>> ocGrid((size_t)ocNx * ocNz);
+    if (bakeOcc) {
+        for (const Occluder& oc : occs) {
+            const float r = radiusWorld + std::sqrt(oc.half[0] * oc.half[0] +
+                                                    oc.half[1] * oc.half[1] +
+                                                    oc.half[2] * oc.half[2]);
+            const auto cellOf = [](float v, float ext, float step, int n) {
+                int c = (int)std::floor((v + ext * 0.5f) / step);
+                return c < 0 ? 0 : (c >= n ? n - 1 : c);
             };
-            if (bakeOcc) {
-                float occAcc = 0.0f;
-                for (int sy = 0; sy < kSuper; ++sy)
-                    for (int sx = 0; sx < kSuper; ++sx) {
+            const int x0 = cellOf(oc.pos[0] - r, width, ocSx, ocNx);
+            const int x1 = cellOf(oc.pos[0] + r, width, ocSx, ocNx);
+            const int z0 = cellOf(oc.pos[2] - r, depth, ocSz, ocNz);
+            const int z1 = cellOf(oc.pos[2] + r, depth, ocSz, ocNz);
+            for (int cz = z0; cz <= z1; ++cz)
+                for (int cx = x0; cx <= x1; ++cx)
+                    ocGrid[(size_t)cz * ocNx + cx].push_back(&oc);
+        }
+    }
+    const auto occludersAt = [&](float px, float pz) -> const std::vector<const Occluder*>& {
+        int cx = (int)std::floor((px + width * 0.5f) / ocSx);
+        int cz = (int)std::floor((pz + depth * 0.5f) / ocSz);
+        cx = cx < 0 ? 0 : (cx >= ocNx ? ocNx - 1 : cx);
+        cz = cz < 0 ? 0 : (cz >= ocNz ? ocNz - 1 : cz);
+        return ocGrid[(size_t)cz * ocNx + cx];
+    };
+
+    // Row-parallel. Every texel is a pure function of its own (i, j) against
+    // read-only inputs, and the GI gather is seeded by the texel itself, so
+    // the split changes the wall clock and not one byte (bakepar.hpp). This
+    // pass is where a GI bake spends nearly all of its time: it is one
+    // hemisphere gather per sub-sample per texel, against a handful of rays
+    // for the whole probe grid.
+    std::vector<char> rowOcc((size_t)size, 0), rowLight((size_t)size, 0);
+    // With a GI source the light channel is a SECOND pass: its samples are
+    // gathered in one batch (aobake::LightFn is batched so the callee can be a
+    // GPU), which means the per-texel NORMAL has to survive this loop. Cheap -
+    // three floats a texel, under 1 MB at the 256 cap. The height does not:
+    // every sub-sample re-samples its own (see subPoint below).
+    const bool giLight = gi != nullptr && bakeLight;
+    std::vector<float> texN(giLight ? (size_t)size * size * 3 : 0, 0.0f);
+    bakepar::parallelFor(size, nullptr, [&](int jLo, int jHi) {
+        for (int j = jLo; j < jHi; ++j) {
+            // The "did anything land in this image" flags are per ROW and
+            // folded below - a captured accumulator would be a data race.
+            char& anyOcc = rowOcc[j];
+            char& anyLight = rowLight[j];
+            for (int i = 0; i < size; ++i) {
+                const float x = ((i + 0.5f) / size - 0.5f) * width;
+                const float z = ((j + 0.5f) / size - 0.5f) * depth;
+                float occ = 0.0f;
+                float h0 = 0.0f;
+                float n[3] = {0, 1, 0};
+                if (hasHeights) {
+                    h0 = heightAtWorld(heights, w, d, width, depth, x, z);
+                    heightNormal(heights, w, d, width, depth, x, z, stepX, stepZ, n);
+                    // heightmap self-occlusion: the same horizon scan as
+                    // terrainAO, on bilinear heights (alpha only - an
+                    // emitters-only map skips the whole scan)
+                    for (int dir = 0; bakeOcc && dir < kDirs; ++dir) {
+                        const float ux = dirs[dir][0], uz = dirs[dir][1];
+                        // Falling samples count too - see terrainAO.
+                        float maxSin = -1.0f;
+                        for (int k = 1; k <= maxSteps; ++k) {
+                            const float dist = minStep * k;
+                            if (dist > scanRadius) break;
+                            const float sx = x + ux * dist;
+                            const float sz = z + uz * dist;
+                            if (sx < -width * 0.5f || sx > width * 0.5f ||
+                                sz < -depth * 0.5f || sz > depth * 0.5f)
+                                break;
+                            const float dh =
+                                heightAtWorld(heights, w, d, width, depth, sx, sz) - h0;
+                            const float s = dh / std::sqrt(dh * dh + dist * dist);
+                            if (s > maxSin) maxSin = s;
+                        }
+                        const float rise = maxSin - tangentSin(n, ux, uz);
+                        if (rise > 0.0f) occ += rise / kDirs;
+                    }
+                }
+                const size_t texel = (size_t)j * size + i;
+                // Sub-sample positions inside this texel's footprint. The horizon
+                // scan above stays ONE sample - it is a slow function of position
+                // and the scan is the expensive part - but the occluder contact
+                // term and the emissive light both carry near-hard edges, and a
+                // point sample of those aliases into the staircase bilinear then
+                // reconstructs (see kSuper).
+                const float sxStep = width / size, szStep = depth / size;
+                const float invSuper = 1.0f / (kSuper * kSuper);
+                // The height is RE-SAMPLED, never inherited from the texel centre.
+                // A sub-sample is offset up to half a texel horizontally, and on
+                // any slope that is more height error than a ray-origin bias can
+                // absorb - the sample lands under the ground, its whole hemisphere
+                // hits the terrain's own triangles, and the texel bakes dark. That
+                // is what put a lattice of cell-sized blotches across the GI
+                // ground map: acne, quantised to the heightmap's cells.
+                auto subPoint = [&](int sx, int sy, float p[3]) {
+                    p[0] = x + ((sx + 0.5f) / kSuper - 0.5f) * sxStep;
+                    p[2] = z + ((sy + 0.5f) / kSuper - 0.5f) * szStep;
+                    p[1] = heightAtWorld(heights, w, d, width, depth, p[0], p[2]);
+                };
+                if (bakeOcc && !giLum) {
+                    // Product-combined per sub-sample, then AVERAGED over the
+                    // footprint - combining first and averaging second is what
+                    // keeps the supersample an antialiasing pass rather than a
+                    // second, wrong way of adding occluders together.
+                    float occAcc = 0.0f;
+                    for (int sy = 0; sy < kSuper; ++sy)
+                        for (int sx = 0; sx < kSuper; ++sx) {
+                            float sp[3];
+                            subPoint(sx, sy, sp);
+                            float vis = 1.0f;
+                            for (const Occluder* oc : occludersAt(sp[0], sp[2]))
+                                aoAccumVis(vis,
+                                           occluderOcclusionAt(*oc, sp, n, radiusWorld));
+                            occAcc += 1.0f - vis;
+                        }
+                    // ...and the heightmap's own horizon occlusion is a third
+                    // independent blocker, so it joins the same way.
+                    occ = 1.0f - (1.0f - occ) * (1.0f - kAoBounce * occAcc * invSuper);
+                    if (occ > 1.0f) occ = 1.0f;
+                    const uint8_t a = (uint8_t)(255.0f * strength * occ + 0.5f);
+                    out.alpha[texel] = a;
+                    anyOcc |= (a != 0);
+                }
+                if (giLight) {
+                    for (int k = 0; k < 3; ++k) texN[texel * 3 + k] = n[k];
+                    continue;  // the light channel is the batched pass below
+                }
+                // Emissive light, in framebuffer units - the additive pass adds
+                // these bytes straight onto the frame, modulated by the terrain's
+                // own base tint (which rides in that pass's vertex colors, so the
+                // bake stays independent of the terrain material).
+                if (!bakeLight) continue;
+                float add[3] = {0, 0, 0};
+                // A GI source never reaches this loop (giLight above), so this
+                // is the analytic emitters' full sub-grid.
+                const int sup = kSuper;
+                const float invSup = 1.0f / (sup * sup);
+                for (int sy = 0; sy < sup; ++sy)
+                    for (int sx = 0; sx < sup; ++sx) {
                         float sp[3];
                         subPoint(sx, sy, sp);
-                        for (const Occluder& oc : occs)
-                            occAcc += occluderOcclusionAt(oc, sp, n, radiusWorld);
+                        for (size_t e = 0; e < ems.size(); ++e) {
+                            float l[3];
+                            emitterLightAt(ems[e], sp, n, l, &emBlock[e]);
+                            for (int k = 0; k < 3; ++k) add[k] += l[k] * invSup;
+                        }
                     }
-                occ += occAcc * invSuper;
-                if (occ > 1.0f) occ = 1.0f;
-                const uint8_t a = (uint8_t)(255.0f * strength * occ + 0.5f);
-                out.alpha[texel] = a;
-                anyOcc |= (a != 0);
-            }
-            // Emissive light, in framebuffer units - the additive pass adds
-            // these bytes straight onto the frame, modulated by the terrain's
-            // own base tint (which rides in that pass's vertex colors, so the
-            // bake stays independent of the terrain material).
-            if (!bakeLight) continue;
-            float add[3] = {0, 0, 0};
-            // GI samples on a coarser sub-grid - see kSuperGi.
-            const int sup = gi ? kSuperGi : kSuper;
-            const float invSup = 1.0f / (sup * sup);
-            for (int sy = 0; sy < sup; ++sy)
-                for (int sx = 0; sx < sup; ++sx) {
-                    float sp[3];
-                    // subPoint divides by kSuper; re-derive for `sup`.
-                    sp[0] = x + ((sx + 0.5f) / sup - 0.5f) * sxStep;
-                    sp[1] = h0;
-                    sp[2] = z + ((sy + 0.5f) / sup - 0.5f) * szStep;
-                    if (gi) {
-                        // Seeded by the texel AND its sub-sample, so the
-                        // sub-samples of one texel do not share a ray set and
-                        // waste the supersampling.
-                        float l[3];
-                        (*gi)(sp, n,
-                              (uint32_t)(texel * 17u + (uint32_t)(sy * sup + sx)),
-                              l);
-                        for (int k = 0; k < 3; ++k) add[k] += l[k] * invSup;
-                        continue;
-                    }
-                    for (size_t e = 0; e < ems.size(); ++e) {
-                        float l[3];
-                        emitterLightAt(ems[e], sp, n, l, &emBlock[e]);
-                        for (int k = 0; k < 3; ++k) add[k] += l[k] * invSup;
-                    }
+                const float dz = bayerDither(i, j);
+                for (int k = 0; k < 3; ++k) {
+                    float v = 255.0f * add[k] + dz;
+                    if (v <= 0.0f) continue;  // stays 0, no dither noise
+                    if (v > 255.0f) v = 255.0f;
+                    const uint8_t b = (uint8_t)(v + 0.5f);
+                    out.light[texel * 3 + k] = b;
+                    if (b) anyLight = true;
                 }
-            const float dz = bayerDither(i, j);
-            for (int k = 0; k < 3; ++k) {
-                float v = 255.0f * add[k] + dz;
-                if (v <= 0.0f) continue;  // stays 0, no dither noise
-                if (v > 255.0f) v = 255.0f;
-                const uint8_t b = (uint8_t)(v + 0.5f);
-                out.light[texel * 3 + k] = b;
-                if (b) anyLight = true;
             }
         }
+    });
+    // --- the batched GI light pass ------------------------------------------
+    // Collect every sub-sample of the whole image, hand it over in ONE call,
+    // then write. The seeds are the same (texel, sub-sample) pairs the
+    // per-point version used, so the answer does not depend on this having
+    // become a batch.
+    if (giLight) {
+        const int sup = kSuperGi;
+        const float invSup = 1.0f / (sup * sup);
+        const float sxStep = width / size, szStep = depth / size;
+        const size_t nPts = (size_t)size * size * sup * sup;
+        std::vector<float> pw(nPts * 3), pn(nPts * 3), pl(nPts * 3, 0.0f);
+        std::vector<uint32_t> ps(nPts);
+        bakepar::parallelFor(size, nullptr, [&](int jLo, int jHi) {
+            for (int j = jLo; j < jHi; ++j)
+                for (int i = 0; i < size; ++i) {
+                    const float x = ((i + 0.5f) / size - 0.5f) * width;
+                    const float z = ((j + 0.5f) / size - 0.5f) * depth;
+                    const size_t texel = (size_t)j * size + i;
+                    for (int sy = 0; sy < sup; ++sy)
+                        for (int sx = 0; sx < sup; ++sx) {
+                            const size_t q =
+                                (texel * sup + (size_t)sy) * sup + (size_t)sx;
+                            pw[q * 3 + 0] =
+                                x + ((sx + 0.5f) / sup - 0.5f) * sxStep;
+                            pw[q * 3 + 2] =
+                                z + ((sy + 0.5f) / sup - 0.5f) * szStep;
+                            // Re-sampled per sub-sample, never the texel
+                            // centre's - see subPoint: a gather ray fired
+                            // from under the ground bakes black.
+                            pw[q * 3 + 1] =
+                                heightAtWorld(heights, w, d, width, depth,
+                                              pw[q * 3 + 0], pw[q * 3 + 2]);
+                            for (int k = 0; k < 3; ++k)
+                                pn[q * 3 + k] = texN[texel * 3 + k];
+                            ps[q] = (uint32_t)(texel * 17u +
+                                               (uint32_t)(sy * sup + sx));
+                        }
+                }
+        });
+        (*gi)(pw.data(), pn.data(), ps.data(), (int)nPts, pl.data());
+        bakepar::parallelFor(size, nullptr, [&](int jLo, int jHi) {
+            for (int j = jLo; j < jHi; ++j) {
+                char& anyOcc = rowOcc[j];
+                char& anyLight = rowLight[j];
+                for (int i = 0; i < size; ++i) {
+                    const size_t texel = (size_t)j * size + i;
+                    float add[3] = {0, 0, 0};
+                    for (int sy = 0; sy < sup; ++sy)
+                        for (int sx = 0; sx < sup; ++sx) {
+                            const size_t q =
+                                (texel * sup + (size_t)sy) * sup + (size_t)sx;
+                            for (int k = 0; k < 3; ++k)
+                                add[k] += pl[q * 3 + k] * invSup;
+                        }
+                    if (giLum) {
+                        // Rec.709 luminance of the gathered light, stored as
+                        // the ATTENUATION the alpha-over pass applies: 0 =
+                        // full light, 255 = black. Floored like every
+                        // lightmap alpha, because the GS alpha test discards
+                        // a zero (aobake::kMinLightmapAlpha).
+                        float lum = 0.2126f * add[0] + 0.7152f * add[1] +
+                                    0.0722f * add[2];
+                        if (lum < 0.0f) lum = 0.0f;
+                        if (lum > 1.0f) lum = 1.0f;
+                        float av = 255.0f * (1.0f - lum) + bayerDither(i, j);
+                        if (av < (float)kMinLightmapAlpha)
+                            av = (float)kMinLightmapAlpha;
+                        if (av > 255.0f) av = 255.0f;
+                        out.alpha[texel] = (uint8_t)(av + 0.5f);
+                        anyOcc = 1;
+                    }
+                    const float dz = bayerDither(i, j);
+                    for (int k = 0; k < 3; ++k) {
+                        float v = 255.0f * add[k] + dz;
+                        if (v <= 0.0f) continue;
+                        if (v > 255.0f) v = 255.0f;
+                        const uint8_t b = (uint8_t)(v + 0.5f);
+                        out.light[texel * 3 + k] = b;
+                        if (b) anyLight = 1;
+                    }
+                }
+            }
+        });
+    }
+    bool anyOcc = false, anyLight = false;
+    for (int j = 0; j < size; ++j) {
+        anyOcc = anyOcc || rowOcc[j] != 0;
+        anyLight = anyLight || rowLight[j] != 0;
     }
     out.hasAlpha = anyOcc;
     out.hasLight = anyLight;
@@ -1023,7 +1390,11 @@ int regionCountFor(PrimitiveType t) {
 }  // namespace
 
 SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
-                              const ModelAabbFn& modelAabb, const LightFn* gi) {
+                                    const ModelAabbFn& modelAabb,
+                                    const LightFn* gi, const LightFn* giLayout) {
+    // See the header: the pre-pass decides the PACKING, so it must not ride on
+    // a backend's float noise.
+    if (!giLayout) giLayout = gi;
     SceneLightAtlas out;
     const ProjectSettings rs = project::resolvedSettings(p, sc);
     out.firstRegion.assign(sc.objects.size(), -1);
@@ -1095,24 +1466,37 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
     // The dcache lesson: the local lists are collected ONCE per object, never
     // per texel. Both passes walk the regions in object order, so one call per
     // object boundary is enough for each.
-    std::vector<const Occluder*> local;
-    std::vector<const Emitter*> localEm;
-    // Shadow casters for this object's emitters. Pruned by the EMITTER reach,
-    // which is unrelated to aoRadius, so it cannot share `local`.
-    std::vector<const Occluder*> localBlock;
-    // The additive pass adds a flat color, so the surface's own diffuse has to
-    // be folded in here - light * Kd * the object tint, in framebuffer units.
-    float recvTint[3] = {1, 1, 1};
-    bool recvTextured = false;
-    auto prepareObject = [&](int oi) {
+    // ...and they are a VALUE, not captured state, because the rasterizer below
+    // runs the regions across threads and each one needs its own copy. `obj` is
+    // the object currently staged, so a thread walking a contiguous run of
+    // regions re-prunes only at an object boundary - the same one-call-per-
+    // object the sequential version had.
+    struct ObjPrune {
+        std::vector<const Occluder*> local;
+        std::vector<const Emitter*> localEm;
+        // Shadow casters for this object's emitters. Pruned by the EMITTER
+        // reach, which is unrelated to aoRadius, so it cannot share `local`.
+        std::vector<const Occluder*> localBlock;
+        // The additive pass adds a flat color, so the surface's own diffuse has
+        // to be folded in here - light * Kd * the object tint, in framebuffer
+        // units.
+        float recvTint[3] = {1, 1, 1};
+        bool recvTextured = false;
+        int obj = -1;
+    };
+    auto prepareObject = [&](int oi, ObjPrune& st) {
         const SceneObject& o = sc.objects[oi];
+        st.obj = oi;
+        std::vector<const Occluder*>& local = st.local;
+        std::vector<const Emitter*>& localEm = st.localEm;
+        std::vector<const Occluder*>& localBlock = st.localBlock;
         local.clear();
         localEm.clear();
         localBlock.clear();
         {
             const MaterialGlow& mg = materialGlow(p.dir, o.materialPath, glowCache);
-            for (int k = 0; k < 3; ++k) recvTint[k] = o.color[k] * mg.kd[k];
-            recvTextured = mg.textured;
+            for (int k = 0; k < 3; ++k) st.recvTint[k] = o.color[k] * mg.kd[k];
+            st.recvTextured = mg.textured;
         }
         const float emReach =
             0.87f * std::sqrt(o.scale[0] * o.scale[0] + o.scale[1] * o.scale[1] +
@@ -1171,10 +1555,11 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
         wp[2] = rp.z + o.position[2];
         n[0] = rn.x, n[1] = rn.y, n[2] = rn.z;
     };
-    auto occlusionAt = [&](const float wp[3], const float n[3]) {
-        float occ = 0.0f;
-        for (const Occluder* oc : local)
-            occ += occluderOcclusionAt(*oc, wp, n, rs.aoRadius);
+    auto occlusionAt = [&](const float wp[3], const float n[3],
+                           const ObjPrune& st) {
+        float vis = 1.0f;
+        for (const Occluder* oc : st.local)
+            aoAccumVis(vis, occluderOcclusionAt(*oc, wp, n, rs.aoRadius));
         // ground term; an empty heightmap samples the y = 0 plane. With the
         // terrain REMOVED there is no ground to contact at all, so the term is
         // left out rather than taken against that plane (docs/terrain.md).
@@ -1182,20 +1567,21 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
             const float ground =
                 heightAtWorld(sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
                               (float)sc.terrain.depth, wp[0], wp[2]);
-            occ += groundOcclusion(wp[1] - ground, n[1], rs.aoRadius);
+            aoAccumVis(vis, groundOcclusion(wp[1] - ground, n[1], rs.aoRadius));
         }
+        const float occ = kAoBounce * (1.0f - vis);
         return occ > 1.0f ? 1.0f : occ;
     };
+    // The ANALYTIC emitter response, per point. GI never comes through here -
+    // it is a batched source (see aobake::LightFn) and every one of its
+    // consumers below collects points first and calls it once.
     auto lightAt = [&](const float wp[3], const float n[3], uint32_t seed,
-                       float add[3]) {
-        if (gi) {
-            (*gi)(wp, n, seed, add);
-            return;
-        }
+                       float add[3], const ObjPrune& st) {
+        (void)seed;
         add[0] = add[1] = add[2] = 0.0f;
-        for (const Emitter* em : localEm) {
+        for (const Emitter* em : st.localEm) {
             float l[3];
-            emitterLightAt(*em, wp, n, l, &localBlock);
+            emitterLightAt(*em, wp, n, l, &st.localBlock);
             for (int k = 0; k < 3; ++k) add[k] += l[k];
         }
     };
@@ -1205,7 +1591,9 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
     // does, GI or not - a flat additive term blows out its dark texels, so it
     // stays on the vertex path (which multiplies the texture instead) and
     // takes its GI from the probe grid.
-    auto hasLight = [&] { return !recvTextured && (gi || !localEm.empty()); };
+    auto hasLight = [&](const ObjPrune& st) {
+        return !st.recvTextured && (gi || !st.localEm.empty());
+    };
 
     // --- importance pre-pass ------------------------------------------------
     // Sizing every region by world area alone spends most of the atlas on
@@ -1216,11 +1604,43 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
     // region gets is proportional to what it receives.
     constexpr int kProbe = 6;             // kProbe^2 probes per region
     constexpr float kMinWeight = 0.12f;   // floor: a region never disappears
-    {
-        int lastObj = -1;
+    // Parallel over regions for the same reason the rasterizer is: with GI on
+    // each probe of this grid is a full hemisphere gather, so the pre-pass is
+    // itself a raytrace and not a cheap estimate. The seed is (region, probe),
+    // so the split does not move a texel.
+    // With GI every probe of this grid is a hemisphere gather, so it goes
+    // through the same batched seam the two texel passes do - collected for
+    // every region at once, answered in one call, and read back below. Seeds
+    // stay (region, probe), so batching moved nothing.
+    std::vector<float> preLight;
+    if (gi) {
+        const size_t per = (size_t)kProbe * kProbe;
+        const size_t nPts = per * regions.size();
+        std::vector<float> pw(nPts * 3), pn(nPts * 3);
+        std::vector<uint32_t> ps(nPts);
+        preLight.assign(nPts * 3, 0.0f);
+        bakepar::parallelFor((int)regions.size(), nullptr, [&](int lo, int hi) {
+            for (int ri = lo; ri < hi; ++ri) {
+                const Region& rg = regions[ri];
+                const SceneObject& o = sc.objects[rg.obj];
+                for (int j = 0; j < kProbe; ++j)
+                    for (int i = 0; i < kProbe; ++i) {
+                        const size_t q = (size_t)ri * per + (size_t)j * kProbe + i;
+                        surfaceAt(o, rg.idx, (i + 0.5f) / kProbe,
+                                  (j + 0.5f) / kProbe, &pw[q * 3], &pn[q * 3]);
+                        ps[q] = (uint32_t)(ri * 37 + j * kProbe + i);
+                    }
+            }
+        });
+        (*giLayout)(pw.data(), pn.data(), ps.data(), (int)nPts,
+                    preLight.data());
+    }
+    bakepar::parallelFor((int)regions.size(), nullptr, [&](int rLo, int rHi) {
+        ObjPrune st;
         std::vector<float> sig((size_t)kProbe * kProbe, 0.0f);
-        for (Region& rg : regions) {
-            if (rg.obj != lastObj) prepareObject(lastObj = rg.obj);
+        for (int ri = rLo; ri < rHi; ++ri) {
+            Region& rg = regions[ri];
+            if (rg.obj != st.obj) prepareObject(rg.obj, st);
             const SceneObject& o = sc.objects[rg.obj];
             float peak = 0.0f;
             for (int j = 0; j < kProbe; ++j)
@@ -1229,18 +1649,24 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
                     surfaceAt(o, rg.idx, (i + 0.5f) / kProbe, (j + 0.5f) / kProbe,
                               wp, n);
                     float s = 0.0f;
-                    if (aoOn) s = rs.aoStrength * occlusionAt(wp, n);
-                    if (hasLight()) {
+                    if (aoOn) s = rs.aoStrength * occlusionAt(wp, n, st);
+                    if (hasLight(st)) {
                         float add[3];
-                        // The pre-pass only decides texel BUDGET, so it may
-                        // sample coarsely - but its seed still has to be
-                        // stable, hence (region, probe).
-                        lightAt(wp, n,
-                                (uint32_t)((&rg - regions.data()) * 37 +
-                                           j * kProbe + i),
-                                add);
+                        if (gi) {
+                            const size_t q = (size_t)ri * kProbe * kProbe +
+                                             (size_t)j * kProbe + i;
+                            for (int k = 0; k < 3; ++k)
+                                add[k] = preLight[q * 3 + k];
+                        } else {
+                            // The pre-pass only decides texel BUDGET, so it may
+                            // sample coarsely - but its seed still has to be
+                            // stable, hence (region, probe).
+                            lightAt(wp, n,
+                                    (uint32_t)(ri * 37 + j * kProbe + i), add,
+                                    st);
+                        }
                         for (int k = 0; k < 3; ++k) {
-                            const float lv = add[k] * recvTint[k];
+                            const float lv = add[k] * st.recvTint[k];
                             if (lv > s) s = lv;
                         }
                     }
@@ -1278,7 +1704,7 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
             rg.wu = w * k;
             rg.wv = w / k;
         }
-    }
+    });
 
     // --- sizing + packing ---------------------------------------------------
     constexpr float kTpu = 6.0f;  // texels per world unit at density 1
@@ -1358,111 +1784,267 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
     // dropped from the atlas afterwards - no extra passes, and they stay
     // eligible for static batching.
     std::vector<char> objHasBake(sc.objects.size(), 0);
-    int lastObj = -1;
-    for (const Region& rg : regions) {
-        const SceneObject& o = sc.objects[rg.obj];
-        if (rg.obj != lastObj) prepareObject(lastObj = rg.obj);
-        // interior (the +2 padding ring stays, filled by the dilation below)
-        const int iw = rg.w - 2, ih = rg.h - 2;
-        for (int j = 0; j < ih; ++j) {
-            for (int i = 0; i < iw; ++i) {
-                // Each texel is the AVERAGE over its own footprint, not a
-                // point sample at its centre. A shadow edge is very nearly
-                // hard here - a neon strip 0.3 units off a wall casts a
-                // penumbra of a few centimetres, well under one texel - and
-                // point-sampling it writes a full-amplitude step between
-                // neighbouring texels. Bilinear then reconstructs that step as
-                // a one-texel ramp, which is exactly the staircase you see on
-                // a wall. Averaging band-limits the edge to what the texel
-                // grid can actually carry, so the reconstruction is smooth.
-                const size_t texel =
-                    (size_t)(rg.py + 1 + j) * atlasSize + rg.px + 1 + i;
-                if (aoOn) {
-                    float occAcc = 0.0f;
-                    for (int sy = 0; sy < kSuper; ++sy)
-                        for (int sx = 0; sx < kSuper; ++sx) {
-                            const float u = (i + (sx + 0.5f) / kSuper) / iw;
-                            const float v = (j + (sy + 0.5f) / kSuper) / ih;
+    // The texel pass, and it is nearly the whole bake: with GI on, every
+    // sub-sample of every texel is a full hemisphere gather. It used to run on
+    // one core while solve() and bakeProbes() beside it used all of them -
+    // measured at 98% CPU across a 17 s bake of examples/global-illumination.
+    //
+    // The unit of work is one (region, ROW), not one region. Region sizes span
+    // two orders of magnitude, so scheduling whole regions leaves one thread
+    // holding the biggest wall in the scene long after the others are done,
+    // and a scene with fewer regions than threads barely divides at all.
+    // Splitting the rows WITHIN each region in turn is the other wrong answer:
+    // it pays a thread launch per region and was measured slower than the
+    // sequential code it replaced.
+    struct RowJob {
+        int region, row;
+    };
+    std::vector<RowJob> jobs;
+    for (size_t ri = 0; ri < regions.size(); ++ri)
+        for (int j = 0; j < regions[ri].h - 2; ++j)
+            jobs.push_back({(int)ri, j});
+    // Flags per JOB, folded per region and then per object below. Several
+    // regions share one object (a box has six) and every row shares a region,
+    // so writing objHasBake[rg.obj] from the threads is a race on one byte.
+    std::vector<char> jobBake(jobs.size(), 0), jobLit(jobs.size(), 0);
+    bakepar::parallelFor((int)jobs.size(), nullptr, [&](int lo, int hi) {
+        // One staged prune per thread, re-pruned when the run of rows crosses
+        // an object boundary - the dcache lesson still holds, it is just no
+        // longer once per object globally.
+        ObjPrune st;
+        for (int q = lo; q < hi; ++q) {
+            const Region& rg = regions[jobs[q].region];
+            const SceneObject& o = sc.objects[rg.obj];
+            if (rg.obj != st.obj) prepareObject(rg.obj, st);
+            char& bakeRow = jobBake[q];
+            char& litRow = jobLit[q];
+            // interior (the +2 padding ring stays, filled by the dilation below)
+            const int iw = rg.w - 2;
+            const int ih = rg.h - 2;
+            const int j = jobs[q].row;
+            {
+                for (int i = 0; i < iw; ++i) {
+                    // Each texel is the AVERAGE over its own footprint, not a
+                    // point sample at its centre. A shadow edge is very nearly
+                    // hard here - a neon strip 0.3 units off a wall casts a
+                    // penumbra of a few centimetres, well under one texel - and
+                    // point-sampling it writes a full-amplitude step between
+                    // neighbouring texels. Bilinear then reconstructs that step as
+                    // a one-texel ramp, which is exactly the staircase you see on
+                    // a wall. Averaging band-limits the edge to what the texel
+                    // grid can actually carry, so the reconstruction is smooth.
+                    const size_t texel =
+                        (size_t)(rg.py + 1 + j) * atlasSize + rg.px + 1 + i;
+                    if (aoOn) {
+                        float occAcc = 0.0f;
+                        for (int sy = 0; sy < kSuper; ++sy)
+                            for (int sx = 0; sx < kSuper; ++sx) {
+                                const float u = (i + (sx + 0.5f) / kSuper) / iw;
+                                const float v = (j + (sy + 0.5f) / kSuper) / ih;
+                                float wp[3], n[3];
+                                surfaceAt(o, rg.idx, u, v, wp, n);
+                                occAcc += occlusionAt(wp, n, st);
+                            }
+                        const uint8_t a =
+                            (uint8_t)(255.0f * rs.aoStrength * occAcc /
+                                          (kSuper * kSuper) +
+                                      0.5f);
+                        out.alpha[texel] = a;
+                        if (a) bakeRow = 1;
+                    }
+                    // The light channel, folded with the receiver's own diffuse
+                    // and scaled to framebuffer units (255 = full white) - the
+                    // additive pass adds these bytes straight onto the frame.
+                    // GI samples on a coarser sub-grid: every one of ITS samples
+                    // is already an average over `rays` hemisphere directions, so
+                    // the 4x4 the analytic emitters need would multiply a bake
+                    // that is already the expensive half by four for no visible
+                    // gain.
+                    if (!hasLight(st)) continue;
+                    // With GI the light channel is a batched second pass below
+                    // - one gather per sub-sample is what a bake spends its
+                    // time on, and a per-point seam cannot be handed to a GPU.
+                    if (gi) continue;
+                    const int sup = kSuper;
+                    float addAcc[3] = {0, 0, 0};
+                    for (int sy = 0; sy < sup; ++sy)
+                        for (int sx = 0; sx < sup; ++sx) {
+                            const float u = (i + (sx + 0.5f) / sup) / iw;
+                            const float v = (j + (sy + 0.5f) / sup) / ih;
                             float wp[3], n[3];
                             surfaceAt(o, rg.idx, u, v, wp, n);
-                            occAcc += occlusionAt(wp, n);
+                            float add[3];
+                            lightAt(wp, n,
+                                    (uint32_t)(texel * 17u +
+                                               (uint32_t)(sy * sup + sx)),
+                                    add, st);
+                            for (int k = 0; k < 3; ++k) addAcc[k] += add[k];
                         }
-                    const uint8_t a =
-                        (uint8_t)(255.0f * rs.aoStrength * occAcc /
-                                      (kSuper * kSuper) +
-                                  0.5f);
-                    out.alpha[texel] = a;
-                    if (a) objHasBake[rg.obj] = 1;
-                }
-                // The light channel, folded with the receiver's own diffuse
-                // and scaled to framebuffer units (255 = full white) - the
-                // additive pass adds these bytes straight onto the frame.
-                // GI samples on a coarser sub-grid: every one of ITS samples
-                // is already an average over `rays` hemisphere directions, so
-                // the 4x4 the analytic emitters need would multiply a bake
-                // that is already the expensive half by four for no visible
-                // gain.
-                if (!hasLight()) continue;
-                const int sup = gi ? kSuperGi : kSuper;
-                float addAcc[3] = {0, 0, 0};
-                for (int sy = 0; sy < sup; ++sy)
-                    for (int sx = 0; sx < sup; ++sx) {
-                        const float u = (i + (sx + 0.5f) / sup) / iw;
-                        const float v = (j + (sy + 0.5f) / sup) / ih;
-                        float wp[3], n[3];
-                        surfaceAt(o, rg.idx, u, v, wp, n);
-                        float add[3];
-                        lightAt(wp, n,
-                                (uint32_t)(texel * 17u +
-                                           (uint32_t)(sy * sup + sx)),
-                                add);
-                        for (int k = 0; k < 3; ++k) addAcc[k] += add[k];
-                    }
-                const float invS = 1.0f / (sup * sup);
-                // GI owns this surface's whole shade, so its region must be
-                // kept even where the answer is (nearly) black - a dark
-                // corner is a RESULT here, not an absence. Without this the
-                // corner would fall back to the vertex path and come out
-                // BRIGHTER than the lit wall beside it.
-                if (gi) objHasBake[rg.obj] = 1, out.lit[rg.obj] = 1;
-                {
-                    const float dz = bayerDither(rg.px + 1 + i, rg.py + 1 + j);
-                    for (int k = 0; k < 3; ++k) {
-                        float v = 255.0f * addAcc[k] * invS * recvTint[k] + dz;
-                        if (v <= 0.0f) continue;  // stays 0, no dither noise
-                        if (v > 255.0f) v = 255.0f;
-                        const uint8_t b = (uint8_t)(v + 0.5f);
-                        out.light[texel * 3 + k] = b;
-                        if (b) objHasBake[rg.obj] = 1, out.lit[rg.obj] = 1;
+                    const float invS = 1.0f / (sup * sup);
+                    {
+                        const float dz = bayerDither(rg.px + 1 + i, rg.py + 1 + j);
+                        for (int k = 0; k < 3; ++k) {
+                            float v = 255.0f * addAcc[k] * invS * st.recvTint[k] + dz;
+                            if (v <= 0.0f) continue;  // stays 0, no dither noise
+                            if (v > 255.0f) v = 255.0f;
+                            const uint8_t b = (uint8_t)(v + 0.5f);
+                            out.light[texel * 3 + k] = b;
+                            if (b) bakeRow = 1, litRow = 1;
+                        }
                     }
                 }
             }
         }
-        // dilate the interior into the 1-texel padding ring (bilinear guard)
-        auto at = [&](int x, int y) -> uint8_t& {
-            return out.alpha[(size_t)(rg.py + y) * atlasSize + rg.px + x];
+    });
+    std::vector<char> regBake(regions.size(), 0), regLit(regions.size(), 0);
+    for (size_t q = 0; q < jobs.size(); ++q) {
+        if (jobBake[q]) regBake[jobs[q].region] = 1;
+        if (jobLit[q]) regLit[jobs[q].region] = 1;
+    }
+    // --- the batched GI light pass ------------------------------------------
+    // Same shape as the terrain map's: collect every sub-sample of every region
+    // that takes a light channel, hand the lot over in ONE call, then write.
+    // The seeds are the same (texel, sub-sample) pairs the per-point version
+    // used, so becoming a batch did not move the answer.
+    //
+    // The prune state is not needed here at all - with GI the only thing that
+    // decides whether a receiver has a light channel is whether it is TEXTURED
+    // (a flat additive term would blow out its dark texels), which is a
+    // property of its material and not of its neighbours.
+    if (gi) {
+        struct Recv {
+            float tint[3] = {1, 1, 1};
+            bool textured = false;
         };
-        auto lit = [&](int x, int y, int c) -> uint8_t& {
-            return out.light[((size_t)(rg.py + y) * atlasSize + rg.px + x) * 3 + c];
+        std::vector<Recv> recv(sc.objects.size());
+        for (size_t oi = 0; oi < sc.objects.size(); ++oi) {
+            const MaterialGlow& mg =
+                materialGlow(p.dir, sc.objects[oi].materialPath, glowCache);
+            for (int k = 0; k < 3; ++k)
+                recv[oi].tint[k] = sc.objects[oi].color[k] * mg.kd[k];
+            recv[oi].textured = mg.textured;
+        }
+        const int sup = kSuperGi;
+        const float invS = 1.0f / (sup * sup);
+        // One flat point list over every lit region, with each region's slice
+        // recorded so the write-back can walk it again.
+        struct Slice {
+            size_t first = 0;
+            int iw = 0, ih = 0;
         };
-        for (int i = 0; i < rg.w; ++i) {
-            const int ci = i < 1 ? 1 : (i > rg.w - 2 ? rg.w - 2 : i);
-            at(i, 0) = at(ci, 1);
-            at(i, rg.h - 1) = at(ci, rg.h - 2);
-            for (int c = 0; c < 3; ++c) {
-                lit(i, 0, c) = lit(ci, 1, c);
-                lit(i, rg.h - 1, c) = lit(ci, rg.h - 2, c);
-            }
+        std::vector<Slice> slice(regions.size());
+        size_t nPts = 0;
+        for (size_t ri = 0; ri < regions.size(); ++ri) {
+            const Region& rg = regions[ri];
+            slice[ri].iw = rg.w - 2;
+            slice[ri].ih = rg.h - 2;
+            slice[ri].first = nPts;
+            if (recv[rg.obj].textured) continue;
+            nPts += (size_t)slice[ri].iw * slice[ri].ih * sup * sup;
         }
-        for (int j = 0; j < rg.h; ++j) {
-            const int cj = j < 1 ? 1 : (j > rg.h - 2 ? rg.h - 2 : j);
-            at(0, j) = at(1, cj);
-            at(rg.w - 1, j) = at(rg.w - 2, cj);
-            for (int c = 0; c < 3; ++c) {
-                lit(0, j, c) = lit(1, cj, c);
-                lit(rg.w - 1, j, c) = lit(rg.w - 2, cj, c);
-            }
+        if (nPts > 0) {
+            std::vector<float> pw(nPts * 3), pn(nPts * 3), pl(nPts * 3, 0.0f);
+            std::vector<uint32_t> ps(nPts);
+            bakepar::parallelFor((int)regions.size(), nullptr, [&](int lo,
+                                                                   int hi) {
+                for (int ri = lo; ri < hi; ++ri) {
+                    const Region& rg = regions[ri];
+                    if (recv[rg.obj].textured) continue;
+                    const SceneObject& o = sc.objects[rg.obj];
+                    const int iw = slice[ri].iw, ih = slice[ri].ih;
+                    size_t q = slice[ri].first;
+                    for (int j = 0; j < ih; ++j)
+                        for (int i = 0; i < iw; ++i) {
+                            const size_t texel =
+                                (size_t)(rg.py + 1 + j) * atlasSize + rg.px + 1 + i;
+                            for (int sy = 0; sy < sup; ++sy)
+                                for (int sx = 0; sx < sup; ++sx, ++q) {
+                                    const float u = (i + (sx + 0.5f) / sup) / iw;
+                                    const float v = (j + (sy + 0.5f) / sup) / ih;
+                                    surfaceAt(o, rg.idx, u, v, &pw[q * 3],
+                                              &pn[q * 3]);
+                                    ps[q] = (uint32_t)(texel * 17u +
+                                                       (uint32_t)(sy * sup + sx));
+                                }
+                        }
+                }
+            });
+            (*gi)(pw.data(), pn.data(), ps.data(), (int)nPts, pl.data());
+            bakepar::parallelFor((int)regions.size(), nullptr, [&](int lo,
+                                                                   int hi) {
+                for (int ri = lo; ri < hi; ++ri) {
+                    const Region& rg = regions[ri];
+                    if (recv[rg.obj].textured) continue;
+                    const int iw = slice[ri].iw, ih = slice[ri].ih;
+                    const float* tint = recv[rg.obj].tint;
+                    size_t q = slice[ri].first;
+                    // GI owns this surface's whole shade, so the region is kept
+                    // even where the answer is (nearly) black - a dark corner
+                    // is a RESULT here, not an absence. Without this it would
+                    // fall back to the vertex path and come out BRIGHTER than
+                    // the lit wall beside it.
+                    regBake[ri] = 1;
+                    regLit[ri] = 1;
+                    for (int j = 0; j < ih; ++j)
+                        for (int i = 0; i < iw; ++i) {
+                            const size_t texel =
+                                (size_t)(rg.py + 1 + j) * atlasSize + rg.px + 1 + i;
+                            float addAcc[3] = {0, 0, 0};
+                            for (int sy = 0; sy < sup; ++sy)
+                                for (int sx = 0; sx < sup; ++sx, ++q)
+                                    for (int k = 0; k < 3; ++k)
+                                        addAcc[k] += pl[q * 3 + k];
+                            const float dz =
+                                bayerDither(rg.px + 1 + i, rg.py + 1 + j);
+                            for (int k = 0; k < 3; ++k) {
+                                float v =
+                                    255.0f * addAcc[k] * invS * tint[k] + dz;
+                                if (v <= 0.0f) continue;
+                                if (v > 255.0f) v = 255.0f;
+                                out.light[texel * 3 + k] = (uint8_t)(v + 0.5f);
+                            }
+                        }
+                }
+            });
         }
+    }
+    for (size_t ri = 0; ri < regions.size(); ++ri) {
+        if (regBake[ri]) objHasBake[regions[ri].obj] = 1;
+        if (regLit[ri]) out.lit[regions[ri].obj] = 1;
+    }
+    // The dilation reads the interior this pass just wrote, so it is a second
+    // walk rather than a tail of the first - a row job cannot know it was the
+    // last of its region. Cheap: a perimeter against an area.
+    for (const Region& rg : regions) {
+            // dilate the interior into the 1-texel padding ring (bilinear guard)
+            auto at = [&](int x, int y) -> uint8_t& {
+                return out.alpha[(size_t)(rg.py + y) * atlasSize + rg.px + x];
+            };
+            auto lit = [&](int x, int y, int c) -> uint8_t& {
+                return out.light[((size_t)(rg.py + y) * atlasSize + rg.px + x) * 3 + c];
+            };
+            for (int i = 0; i < rg.w; ++i) {
+                const int ci = i < 1 ? 1 : (i > rg.w - 2 ? rg.w - 2 : i);
+                at(i, 0) = at(ci, 1);
+                at(i, rg.h - 1) = at(ci, rg.h - 2);
+                for (int c = 0; c < 3; ++c) {
+                    lit(i, 0, c) = lit(ci, 1, c);
+                    lit(i, rg.h - 1, c) = lit(ci, rg.h - 2, c);
+                }
+            }
+            for (int j = 0; j < rg.h; ++j) {
+                const int cj = j < 1 ? 1 : (j > rg.h - 2 ? rg.h - 2 : j);
+                at(0, j) = at(1, cj);
+                at(rg.w - 1, j) = at(rg.w - 2, cj);
+                for (int c = 0; c < 3; ++c) {
+                    lit(0, j, c) = lit(1, cj, c);
+                    lit(rg.w - 1, j, c) = lit(rg.w - 2, cj, c);
+                }
+            }
+    }
+    for (size_t ri = 0; ri < regions.size(); ++ri) {
+        if (regBake[ri]) objHasBake[regions[ri].obj] = 1;
+        if (regLit[ri]) out.lit[regions[ri].obj] = 1;
     }
 
     // Emit rects (interior only, inset half a texel) + per-object firsts.

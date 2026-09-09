@@ -1,0 +1,1 @@
+{ "id": "bb22000000000001", "name": "facade-north", "type": "model", "position": [0, 0, -12], "rotation": [0, 0, 0], "scale": [3.2, 3.2, 3.2], "color": [1, 1, 1], "physics": false, "model": "res/models/kenney/facade-north.obj" }

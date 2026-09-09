@@ -1,1 +1,1 @@
-{"id": "r00000000000011", "name": "closet-floor", "type": "box", "position": [-28.5, 0.05, 10.5], "rotation": [0, 0, 0], "scale": [5, 0.1, 5], "color": [0.42, 0.16, 0.16], "physics": false, "collision": "none"}
+{ "id": "r00000000000011", "name": "closet-floor", "type": "box", "position": [-28.5, 0.05, 10.5], "rotation": [0, 0, 0], "scale": [5, 0.1, 5], "color": [0.42, 0.16, 0.16], "physics": false, "collision": "none" }

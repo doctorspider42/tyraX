@@ -1,0 +1,1 @@
+{ "id": "bb22000000000023", "name": "tree-4", "type": "model", "position": [10, 0, 6.5], "rotation": [0, 305, 0], "scale": [3.8, 3.8, 3.8], "color": [1, 1, 1], "physics": false, "collision": "none", "model": "res/models/kenney/tree-pine-large.obj" }

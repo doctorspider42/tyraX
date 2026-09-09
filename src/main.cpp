@@ -24,8 +24,15 @@
 #include "editorcfg.hpp"
 #include "elfsym.hpp"
 #include "gibake.hpp"
+#include "gigpu.hpp"
+#include "impostorgpu.hpp"
+#include "litbake.hpp"
+#include "modelao.hpp"
+#include "texbake.hpp"  // --bake-model-ao --texbake: the multiply, no Docker
 #include "livedbg.hpp"
+#include <stb_image_write.h>
 #include "livepad.hpp"
+#include "livereplay.hpp"
 #include "uiscript.hpp"
 #include "vucap.hpp"
 #include "vuasm.hpp"
@@ -37,6 +44,7 @@
 #include "platform.hpp"
 #include "procbake.hpp"
 #include "project.hpp"
+#include "texatlas.hpp"
 #include "runner.hpp"
 
 // tyrax-editor.exe --debug-state
@@ -345,6 +353,44 @@ static void bakeProcedural(Project& p) {
                      err.c_str());
 }
 
+// The opt-in pre-build GI pass (ProjectSettings::giAutoBake,
+// docs/global-illumination.md): re-bake every scene whose cache is stale so the
+// build reads a fresh one instead of silently falling back to the pre-GI
+// lighting. Runs BEFORE the pre-lit pass, which gathers from the solved scene.
+// The cache lives on disk, so nothing here needs saving.
+static void bakeStaleGi(const Project& p) {
+    if (!p.settings.giAutoBake || !p.settings.giEnabled) return;
+    const gibake::StaleReport rep = gibake::bakeStale(p, [](const std::string& l) {
+        std::printf("gi: %s\n", l.c_str());
+    });
+    if (rep.failed)
+        std::fprintf(stderr, "warning: %d GI bake(s) failed - the scene ships "
+                             "the pre-GI lighting\n",
+                     rep.failed);
+}
+
+// The opt-in pre-build pre-lit pass (ProjectSettings::prelitAutoBake,
+// docs/prelit-models.md): re-bake the STALE wanted objects and save, so what
+// ships agrees with the scene. The GUI twin is App::projectForBuild. Off by
+// default, and only stale objects are touched - a build with everything fresh
+// pays for one signature pass and nothing else.
+static void bakeStalePrelit(Project& p) {
+    if (!p.settings.prelitAutoBake) return;
+    const litbake::Params prm;
+    const litbake::StaleReport rep = litbake::bakeStale(
+        p, prm, "",
+        [](const std::string& line) { std::printf("pre-lit: %s\n", line.c_str()); });
+    if (rep.baked || rep.failed) {
+        if (std::string err = project::save(p); !err.empty())
+            std::fprintf(stderr,
+                         "warning: could not save the pre-lit scene: %s\n",
+                         err.c_str());
+    }
+    if (rep.failed)
+        std::fprintf(stderr, "warning: %d pre-lit bake(s) failed - %s\n",
+                     rep.failed, rep.firstError.c_str());
+}
+
 // Shared gate for the headless commands: a project with pending format
 // migrations is refused instead of silently and irreversibly rewritten by a
 // script/CI - migrating is an explicit act (--migrate, or opening in the GUI).
@@ -392,6 +438,8 @@ static int buildFromCli(int argc, char** argv) {
     if (refuseUnmigrated(p)) return 1;
     if (!ps2Ip.empty()) p.ps2LinkIp = ps2Ip;
     bakeProcedural(p);
+    bakeStaleGi(p);
+    bakeStalePrelit(p);
 
     Runner runner;
     if (runPs2)
@@ -427,9 +475,10 @@ static int buildFromCli(int argc, char** argv) {
 
 // Headless helper: tyrax-editor.exe --resave <projectDir>
 // Loads a project and writes it straight back out. On its own it is a no-op for
-// an up-to-date project, but the tolerant loader lifts every legacy shape (e.g.
-// stamping stable object ids on pre-id projects), so this refreshes a project
-// to the current on-disk format without opening the GUI. Projects with pending
+// an up-to-date project, but the loader defaults every field the file does not
+// carry and repairs what only the model can (stamping ids on objects that have
+// none, seeding the built-in layouts, clamping out-of-range values), so this
+// refreshes a project to the current on-disk format without opening the GUI. Projects with pending
 // REGISTERED migration steps (data transforms) are refused - that irreversible
 // path is --migrate's job.
 static int resaveFromCli(int argc, char** argv) {
@@ -560,6 +609,69 @@ static int listNodesFromCli(int argc, char** argv) {
     // agent needs - print the whole prompt minus nothing: it also documents
     // the JSON schema and link rules --apply-graph validates against.
     std::printf("%s", aigen::systemPrompt(p, -1).c_str());
+    return 0;
+}
+
+// tyrax-editor.exe --atlas-report <projectDir>
+// What the texture atlas did, and to whom (docs/texture-atlasing.md). The
+// headless twin of Tools > Texture Atlas: pages with their group and their
+// members, every rejected texture WITH THE REASON, and the VRAM arithmetic.
+// It exists because "one checkbox and a log line" is not a feature anyone can
+// judge - the shipped night-walk example atlased nothing at all and said so
+// nowhere.
+static int atlasReportFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --atlas-report <projectDir>\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (!p.settings.textureAtlas) {
+        std::printf("Texture atlasing is OFF for this project.\n");
+        return 0;
+    }
+    const texatlas::Plan plan = texatlas::plan(p);
+    const texatlas::VramEstimate v = texatlas::vram(plan, p);
+    std::printf("%s\n", plan.empty() ? "Texture atlas: nothing qualified"
+                                     : texatlas::info(plan).c_str());
+    for (size_t i = 0; i < plan.pages.size(); ++i) {
+        const std::string& grp = plan.groupOf((int)i);
+        std::string label;
+        if (!grp.empty() && grp[0] == '@')
+            label = "   [group " + grp.substr(1) + "]";
+        std::printf("\npage %zu  %s   %d-bit%s\n", i, plan.pages[i].c_str(),
+                    plan.bitsOf((int)i), label.c_str());
+        for (const texatlas::Entry& e : plan.entries)
+            if (e.page == (int)i)
+                std::printf("    %-52s %3dx%-3d at %3d,%-3d\n",
+                            e.resRel.c_str(), e.w, e.h, e.x, e.y);
+    }
+    if (!plan.excluded.empty()) {
+        std::printf("\nnot atlased (%zu):\n", plan.excluded.size());
+        for (const texatlas::Excluded& e : plan.excluded)
+            std::printf("    %-52s %s\n", e.resRel.c_str(), e.reason.c_str());
+    }
+    if (!plan.empty()) {
+        std::printf(
+            "\nGS VRAM for these textures: %d KB unpacked, %d KB as pages "
+            "(%s%d KB)\n",
+            v.membersKb, v.pagesKb, v.savedKb >= 0 ? "saves " : "COSTS ",
+            v.savedKb >= 0 ? v.savedKb : -v.savedKb);
+        if (v.savedKb < 0)
+            std::printf(
+                "    A page is a full 256x256 allocation whatever it holds, "
+                "so it only pays\n    once enough textures share it - about "
+                "eight 64x64 members at 4 bits,\n    about sixteen at 8. "
+                "Until then atlasing buys batching and allocation\n    "
+                "count, not bytes.\n");
+    }
+    std::printf("[atlas] pages=%zu members=%zu excluded=%zu savedKb=%d\n",
+                plan.pages.size(), plan.entries.size(), plan.excluded.size(),
+                v.savedKb);
     return 0;
 }
 
@@ -728,6 +840,275 @@ static int refreshGenFromCli(int argc, char** argv) {
     return 0;
 }
 
+// Bakes the scene's light INTO one object's texture (docs/prelit-models.md):
+// the only way a TEXTURED surface gets per-pixel static light on this hardware,
+// because the lightmap atlas is additive and the GS cannot multiply a texture
+// by a second one in a later pass. Writes res/materials/<name>-lit.png + .mtl,
+// points the object at it and marks it prelit, then refreshes the generated
+// files. Headless twin of the Properties button.
+static int bakeObjectLightFromCli(int argc, char** argv) {
+    if (argc < 4) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --bake-object-light <projectDir> "
+                     "<objectName> [size] [rays]\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    litbake::Params prm;
+    if (argc > 4) prm.size = std::atoi(argv[4]);
+    if (argc > 5) prm.rays = std::atoi(argv[5]);
+    const std::string want = argv[3];
+    int found = 0;
+    for (int si = 0; si < (int)p.scenes.size(); ++si) {
+        SceneData& sc = p.scenes[si];
+        // The gather needs the solved scene: build the triangle set and run the
+        // bounce passes ONCE per scene, however many objects are baked from it.
+        gibake::Settings st = gibake::settingsOf(p.settings);
+        st.enabled = true;
+        gibake::Scene scene = gibake::build(p, sc, st);
+        bool solved = false;
+        for (int oi = 0; oi < (int)sc.objects.size(); ++oi) {
+            if (sc.objects[oi].name != want) continue;
+            if (!solved) {
+                const std::atomic<bool> never{false};
+                gibake::solve(scene, st, &never, nullptr);
+                solved = true;
+            }
+            litbake::Result r;
+            std::string err;
+            const auto t0 = std::chrono::steady_clock::now();
+            if (!litbake::bakeObject(p, sc, oi, scene, prm, r, err)) {
+                std::fprintf(stderr, "error: %s\n", err.c_str());
+                return 1;
+            }
+            if (std::string e = litbake::applyToObject(p, sc, oi, r); !e.empty()) {
+                std::fprintf(stderr, "error: %s\n", e.c_str());
+                return 1;
+            }
+            const double secs =
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - t0)
+                    .count();
+            std::printf(
+                "pre-lit %s in scene '%s': %dx%d, %d texels, mean light %.3f, "
+                "%.1fs\n",
+                want.c_str(), sc.name.c_str(), r.size, r.size, r.litTexels,
+                r.meanLight, secs);
+            ++found;
+        }
+    }
+    if (!found) {
+        std::fprintf(stderr, "error: no object named '%s'\n", want.c_str());
+        return 1;
+    }
+    if (std::string err = project::save(p); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (std::string err = project::refreshGenerated(p); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    std::printf("pre-lit %d object(s)\n", found);
+    return 0;
+}
+
+// tyrax-editor --bake-prelit <projectDir> [sceneName]
+//
+// The MANAGED half of pre-lighting (docs/prelit-models.md, "Managing pre-lit
+// objects"), headless: every object the author marked `prelitWanted` whose
+// baked texture no longer matches the scene is re-baked, and the ones that
+// still match are left alone and said so. That last part is the point - a
+// pre-lit texture goes stale when the object moves or the scene's light
+// changes, and until now the only way to know was to remember.
+//
+// One gibake::build + one gibake::solve PER SCENE, however many objects come
+// out of it: the gather per object is seconds and the bounce solve is the rest.
+// Twin of the Baked lighting tab's "Bake pending" button.
+static int bakePrelitFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --bake-prelit <projectDir> "
+                     "[sceneName]\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (refuseUnmigrated(p)) return 1;  // it saves the project
+    const char* wantScene = argc > 3 ? argv[3] : nullptr;
+
+    const litbake::Params prm;  // the editor's own defaults - see the doc
+    const litbake::StaleReport rep = litbake::bakeStale(
+        p, prm, wantScene ? wantScene : "",
+        [](const std::string& line) {
+            // The verb's own summary line keeps its historic spelling.
+            if (line.rfind("summary   ", 0) == 0)
+                std::printf("pre-lit: %s\n", line.c_str() + 10);
+            else
+                std::printf("%s\n", line.c_str());
+        });
+    if (wantScene && !rep.sceneFound) {
+        std::fprintf(stderr, "error: no scene named '%s'\n", wantScene);
+        return 1;
+    }
+    if (rep.baked) {
+        if (std::string err = project::save(p); !err.empty()) {
+            std::fprintf(stderr, "error: %s\n", err.c_str());
+            return 1;
+        }
+        if (std::string err = project::refreshGenerated(p); !err.empty()) {
+            std::fprintf(stderr, "error: %s\n", err.c_str());
+            return 1;
+        }
+    }
+    if (!rep.wanted)
+        std::printf(
+            "nothing is marked to ship pre-lit - tick objects in Tools > "
+            "Baked Lighting, or use --bake-object-light for a one-off\n");
+    return rep.failed ? 1 : 0;
+}
+
+// tyrax-editor --gi-gpu-check <projectDir> [sceneIndex]
+//
+// The oracle for the GPU gather (docs/global-illumination.md, "The GPU
+// backend"). It builds and SOLVES one scene exactly as a bake does, then
+// gathers the same deterministic sample set both ways and reports how far apart
+// they are plus what each cost.
+//
+// It exists because the GLSL kernel is the fourth twin of gibake::gather, and
+// the only one that can be checked by machine: a bake is a pure function, so a
+// disagreement is a number rather than an opinion. Run it after touching either
+// side.
+static int giGpuCheckFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --gi-gpu-check <projectDir> "
+                     "[sceneIndex]\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    std::string why;
+    if (!gigpu::available(&why)) {
+        std::printf("gpu: unavailable - %s\n", why.c_str());
+        std::printf("     the CPU integrator is what a bake would use here.\n");
+        return 0;  // not a failure: headless machines are an expected state
+    }
+    const int si = argc > 3 ? std::atoi(argv[3]) : 0;
+    if (si < 0 || si >= (int)p.scenes.size()) {
+        std::fprintf(stderr, "error: no scene %d\n", si);
+        return 1;
+    }
+    const gibake::Settings st = gibake::settingsOf(p.settings);
+    gibake::Scene s = gibake::build(p, p.scenes[si], st);
+    if (s.empty()) {
+        std::fprintf(stderr, "error: scene %d tessellates to nothing\n", si);
+        return 1;
+    }
+    const std::atomic<bool> never{false};
+    gibake::solve(s, st, &never, nullptr);
+    // 262144 is the batch the atlas pass actually hands over (256^2
+    // texels x the GI sub-grid), so this measures the kernel rather
+    // than dispatch latency.
+    const gigpu::Compare c = gigpu::compare(s, st.rays, 262144);
+    if (!c.ran) {
+        std::printf("gpu: did not run - %s\n", c.note.c_str());
+        return 1;
+    }
+    std::printf("scene %d: %d triangles, %d sample points, %d rays each\n", si,
+                s.tree.triCount(), c.points, st.rays);
+    std::printf("  cpu %.3fs   gpu %.3fs   speedup %.1fx\n", c.cpuSeconds,
+                c.gpuSeconds,
+                c.gpuSeconds > 0.0 ? c.cpuSeconds / c.gpuSeconds : 0.0);
+    std::printf("  mean |gpu-cpu| %.6f   max %.6f   (mean |cpu| %.6f)\n",
+                c.meanAbs, c.maxAbs, c.meanRef);
+    // A relative mean this small is float divergence between two transcendental
+    // implementations; anything larger is a kernel that stopped being a twin.
+    const double rel = c.meanRef > 1e-9 ? c.meanAbs / c.meanRef : 0.0;
+    std::printf("  relative mean error %.4f%%  -> %s\n", rel * 100.0,
+                rel < 0.01 ? "AGREE" : "DIVERGED, the kernel is not a twin");
+    return rel < 0.01 ? 0 : 1;
+}
+
+// tyrax-editor --bake-model-ao <projectDir> [--texbake]
+//
+// Bakes every eligible model asset's own ambient occlusion into
+// .res-baked/modelao/ (docs/ambient-occlusion.md, "Model AO") and reports what
+// it did and what it deliberately skipped.
+//
+// It exists because the shipping path for this feature is texbake, which runs
+// only inside a real build - so without a verb the only way to exercise the
+// bake would be Docker, and the only way to see the skip rules would be to
+// read them. `--texbake` additionally runs the texture bake, i.e. the actual
+// multiply into .res-baked, so the whole chain is checkable with no container.
+static int bakeModelAoFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --bake-model-ao <projectDir> "
+                     "[--texbake]\n");
+        return 2;
+    }
+    bool alsoTexbake = false;
+    for (int i = 3; i < argc; ++i)
+        if (std::strcmp(argv[i], "--texbake") == 0) alsoTexbake = true;
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    const modelao::Params prm = modelao::paramsOf(p.settings);
+    if (!prm.enabled && p.modelAoMode.empty()) {
+        std::fprintf(stderr,
+                     "error: model AO is off for this project (Tools > Baked "
+                     "Lighting)\n");
+        return 1;
+    }
+    const modelao::Plan pl = modelao::plan(p, prm);
+    int baked = 0, failed = 0;
+    for (const modelao::Target& t : pl.targets) {
+        const auto t0 = std::chrono::steady_clock::now();
+        const bool had = modelao::fresh(p, t, prm);
+        const std::string err = modelao::ensure(p, t, prm);
+        const double secs =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - t0)
+                .count();
+        if (!err.empty()) {
+            std::fprintf(stderr, "error: %s: %s\n", t.textureRel.c_str(),
+                         err.c_str());
+            ++failed;
+            continue;
+        }
+        std::printf("%-9s %s (%s, %dx%d) %.1fs\n", had ? "fresh" : "baked",
+                    t.textureRel.c_str(), t.modelRel.c_str(), t.texW, t.texH,
+                    secs);
+        ++baked;
+    }
+    for (const modelao::Skipped& s : pl.skipped)
+        std::printf("skipped   %s (%s): %s\n",
+                    s.textureRel.empty() ? "-" : s.textureRel.c_str(),
+                    s.modelRel.c_str(), s.reason.c_str());
+    std::printf("model AO: %d map(s), %d skipped, %d failed\n", baked,
+                (int)pl.skipped.size(), failed);
+    if (alsoTexbake) {
+        if (std::string err = texbake::bake(
+                p, [](const std::string& l) { std::printf("%s\n", l.c_str()); });
+            !err.empty()) {
+            std::fprintf(stderr, "error: %s\n", err.c_str());
+            return 1;
+        }
+    }
+    return failed ? 1 : 0;
+}
+
 // Bakes global illumination for every scene (docs/global-illumination.md) into
 // .res-baked/gi/, then refreshes the generated files so the probe table and
 // the lightmap flags follow immediately. The GUI's Tools > Bake Global
@@ -736,7 +1117,7 @@ static int refreshGenFromCli(int argc, char** argv) {
 // how the bake gets verified without clicking anything.
 static int bakeGiFromCli(int argc, char** argv) {
     if (argc < 3) {
-        std::fprintf(stderr, "usage: tyrax-editor --bake-gi <projectDir>\n");
+        std::fprintf(stderr, "usage: tyrax-editor --bake-gi <projectDir> [--gpu]\n");
         return 2;
     }
     Project p;
@@ -750,10 +1131,19 @@ static int bakeGiFromCli(int argc, char** argv) {
                      "(Preferences > Lighting)\n");
         return 1;
     }
+    // --gpu ASKS for the compute backend (docs/global-illumination.md, "The GPU
+    // backend"). It is opt-in rather than default because the two backends
+    // agree to a tolerance and not bit-for-bit, so flipping it silently would
+    // change every existing project's cached bytes.
+    bool useGpu = false;
+    for (int i = 3; i < argc; ++i)
+        if (std::strcmp(argv[i], "--gpu") == 0) useGpu = true;
     const std::atomic<bool> never{false};
     for (int si = 0; si < (int)p.scenes.size(); ++si) {
         const auto t0 = std::chrono::steady_clock::now();
-        const gibake::Bake b = gibake::bakeScene(p, si, &never, nullptr);
+        gibake::Timings tm;
+        const gibake::Bake b =
+            gibake::bakeScene(p, si, &never, nullptr, &tm, useGpu);
         if (!b.valid) {
             std::fprintf(stderr, "error: bake failed for scene %d\n", si);
             return 1;
@@ -768,6 +1158,20 @@ static int bakeGiFromCli(int argc, char** argv) {
         std::printf("baked GI: %s (atlas %d, terrain %d, probes %dx%dx%d) %.1fs\n",
                     p.scenes[si].name.c_str(), b.atlas.size, b.terrain.size,
                     b.probes.dim[0], b.probes.dim[1], b.probes.dim[2], secs);
+        // The phase split, because the total alone hid a whole pass running on
+        // one core for years (docs/global-illumination.md, "Where the time
+        // goes"). The remainder is what bakeScene does outside the phases -
+        // resolving settings, reading the terrain material, writing the cache.
+        const double other = secs - tm.total();
+        std::printf(
+            "  build %.2fs  solve %.2fs  atlas %.2fs  terrain %.2fs  "
+            "probes %.2fs  other %.2fs\n",
+            tm.build, tm.solve, tm.atlas, tm.terrain, tm.probes,
+            other > 0.0 ? other : 0.0);
+        // Which backend ran is part of the measurement, not a footnote: the
+        // two do not produce the same bytes.
+        std::printf("  gather: %s%s%s\n", tm.gpu ? "GPU" : "CPU",
+                    tm.gpuNote.empty() ? "" : " - ", tm.gpuNote.c_str());
     }
     if (std::string err = project::refreshGenerated(p); !err.empty()) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
@@ -1144,6 +1548,81 @@ static int symbolizeFromCli(int argc, char** argv) {
 }
 
 // Headless helper:
+// Plays a parsed pad script into <projectDir>/bin/livepad.bin (docs/remote-pad.md).
+//
+// Shared by --pad and by --record, which needs to hold the controller for the
+// run it is recording: two copies of the refresh cadence would be two chances
+// to get the staleness watchdog wrong. Returns 0, or 1 when a STEP write was
+// lost (see the push lambda for why a lost refresh is not one).
+static int drivePadScript(const std::string& path,
+                          const std::vector<livepad::Step>& steps) {
+    // Seed the sequence from the clock: a second driver run must never reuse a
+    // number the still-running game already saw, or its first state reads as
+    // "nothing changed" and the staleness watchdog starts counting.
+    uint32_t seq = (uint32_t)std::chrono::duration_cast<std::chrono::seconds>(
+                       std::chrono::system_clock::now().time_since_epoch())
+                       .count();
+    bool failed = false;
+    int lostRefreshes = 0;
+    // A write carries either a NEW state (a step: losing it means the game never
+    // sees that button) or the same state again (a refresh, one of ~25 per second
+    // - losing one costs nothing, because the next is 40 ms away and the game's
+    // staleness watchdog is 120 frames). Only the first kind is worth aborting a
+    // run for; treating the second as fatal is what let a lost race on Windows
+    // (see livepad::write) kill about one 9 s hold in five.
+    auto push = [&](const livepad::State& s, bool attached, bool isStep) {
+        const std::string e = livepad::write(path, s, ++seq, attached);
+        if (e.empty()) return true;
+        if (!isStep) {
+            if (++lostRefreshes <= 3)
+                std::fprintf(stderr, "warning: lost one pad refresh: %s\n",
+                             e.c_str());
+            return true;
+        }
+        std::fprintf(stderr, "error: %s\n", e.c_str());
+        failed = true;
+        return false;
+    };
+
+    const auto t0 = std::chrono::steady_clock::now();
+    for (const livepad::Step& st : steps) {
+        std::printf("[pad] %s\n", st.source.c_str());
+        std::fflush(stdout);
+        if (!push(st.state, true, true)) break;
+        if (st.seconds <= 0.0) continue;
+        // Keep refreshing while we hold: the seq is what tells the game we are
+        // still here (see livepad::kStaleFrames), and a state written once
+        // would expire mid-hold on a long wait.
+        const auto until = std::chrono::steady_clock::now() +
+                           std::chrono::milliseconds((int)(st.seconds * 1000.0));
+        // No break on failure here: a refresh push cannot fail the run (above),
+        // and a step that did already broke out of the outer loop.
+        while (std::chrono::steady_clock::now() < until) {
+            platform::sleepMs(40);
+            push(st.state, true, false);
+        }
+    }
+    // Detach: neutral AND flagged gone, so the game drops the overlay on its
+    // next poll instead of holding the last state for the watchdog's two
+    // seconds. Not worth failing the run over either - the watchdog is the
+    // backstop that exists for exactly this.
+    push(livepad::State(), false, false);
+    const double secs =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - t0)
+            .count();
+    if (!failed) {
+        std::printf("[pad] done - %zu step(s) in %.1fs, pad released", steps.size(),
+                    secs);
+        // Report them rather than hiding them: a run that had to skip refreshes
+        // is still a run whose timing was disturbed.
+        if (lostRefreshes > 0)
+            std::printf(" (%d refresh write(s) lost to the reader)",
+                        lostRefreshes);
+        std::printf("\n");
+    }
+    return failed ? 1 : 0;
+}
+
 //   tyrax-editor.exe --pad <projectDir> "<script>" [more...]
 //   tyrax-editor.exe --pad <projectDir> --file <script.pad>
 //   tyrax-editor.exe --pad <projectDir> --stdin
@@ -1234,73 +1713,355 @@ static int padFromCli(int argc, char** argv) {
                      "project - the game was built without the channel and "
                      "will ignore this.\n");
 
-    const std::string path =
-        (std::filesystem::path(p.dir) / "bin" / "livepad.bin").string();
-    // Seed the sequence from the clock: a second driver run must never reuse a
-    // number the still-running game already saw, or its first state reads as
-    // "nothing changed" and the staleness watchdog starts counting.
-    uint32_t seq = (uint32_t)std::chrono::duration_cast<std::chrono::seconds>(
-                       std::chrono::system_clock::now().time_since_epoch())
-                       .count();
-    bool failed = false;
-    int lostRefreshes = 0;
-    // A write carries either a NEW state (a step: losing it means the game never
-    // sees that button) or the same state again (a refresh, one of ~25 per second
-    // - losing one costs nothing, because the next is 40 ms away and the game's
-    // staleness watchdog is 120 frames). Only the first kind is worth aborting a
-    // run for; treating the second as fatal is what let a lost race on Windows
-    // (see livepad::write) kill about one 9 s hold in five.
-    auto push = [&](const livepad::State& s, bool attached, bool isStep) {
-        const std::string e = livepad::write(path, s, ++seq, attached);
-        if (e.empty()) return true;
-        if (!isStep) {
-            if (++lostRefreshes <= 3)
-                std::fprintf(stderr, "warning: lost one pad refresh: %s\n",
-                             e.c_str());
-            return true;
+    return drivePadScript(
+        (std::filesystem::path(p.dir) / "bin" / "livepad.bin").string(), steps);
+}
+
+// --- The input recorder's headless half (docs/input-replay.md) --------------
+//
+// --record builds, runs, holds the controller, stops the recording and
+// canonicalizes it; --replay builds, runs, performs a recording and reports
+// whether it came out the same. Together they are a REGRESSION TEST for a
+// whole play session, which is the thing this repo has never had: --pad can
+// drive a game but nothing could say afterwards whether it did the same thing
+// as last time.
+
+namespace {
+
+/** Whole file as a string, or "" - the log tails below re-read from scratch
+ * because bin/log.txt is a few kilobytes and this runs a few times a second. */
+std::string readTextFile(const std::filesystem::path& p) {
+    std::ifstream f(p, std::ios::binary);
+    if (!f) return "";
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
+
+/** The last line containing `needle`, or "". Every line the recorder prints is
+ * prefixed "Replay:", which is the one anchor this and any grep need. */
+std::string lastLineWith(const std::string& text, const char* needle) {
+    std::string found;
+    size_t at = 0;
+    while ((at = text.find(needle, at)) != std::string::npos) {
+        const size_t begin = text.rfind('\n', at);
+        const size_t end = text.find('\n', at);
+        found = text.substr(begin == std::string::npos ? 0 : begin + 1,
+                            (end == std::string::npos ? text.size() : end) -
+                                (begin == std::string::npos ? 0 : begin + 1));
+        at += 1;
+    }
+    // The console log arrives with a \r on Windows-written lines.
+    while (!found.empty() && (found.back() == '\r' || found.back() == ' '))
+        found.pop_back();
+    return found;
+}
+
+/** Builds and launches, streaming the Runner's log. Returns false when the
+ * build failed (the log has already been printed). */
+bool buildAndLaunchForReplay(Runner& runner, Project& p) {
+    bakeProcedural(p);
+    bakeStaleGi(p);
+    bakeStalePrelit(p);
+    runner.buildAndRun(p, true);
+    size_t printed = 0;
+    auto flushLog = [&] {
+        std::string log = runner.log();
+        if (log.size() > printed) {
+            std::fwrite(log.data() + printed, 1, log.size() - printed, stdout);
+            std::fflush(stdout);
+            printed = log.size();
         }
-        std::fprintf(stderr, "error: %s\n", e.c_str());
-        failed = true;
-        return false;
     };
+    while (runner.busy()) {
+        flushLog();
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+    flushLog();
+    return runner.state() == Runner::State::Success;
+}
+
+/** Says up front what the commonest silent failure would be: a build that
+ * carries no recorder at all. */
+bool warnRecorderOff(const Project& p) {
+    if (p.settings.buildProfile != "debug") {
+        std::fprintf(stderr,
+                     "error: this project's build profile is \"%s\" - a release "
+                     "build carries no input recorder.\n",
+                     p.settings.buildProfile.c_str());
+        return false;
+    }
+    if (!p.settings.inputRecorder) {
+        std::fprintf(stderr,
+                     "error: the \"Input recorder\" preference is off for this "
+                     "project (Project > Preferences > Build).\n");
+        return false;
+    }
+    return true;
+}
+
+/** Waits for bin/replay.st to say the recorder booted. The game takes a few
+ * seconds to reach its first frame, and arming a pad script before then means
+ * the script's opening steps go into the Tyra logo. */
+bool waitForRecorder(const std::filesystem::path& binDir, int mode,
+                     int timeoutSec) {
+    for (int i = 0; i < timeoutSec * 10; ++i) {
+        livereplay::Status s;
+        if (livereplay::readStatus((binDir / "replay.st").string(), s) &&
+            s.mode == mode)
+            return true;
+        platform::sleepMs(100);
+    }
+    return false;
+}
+
+}  // namespace
+
+// Records a run:
+//   tyrax-editor --record <projectDir> <out.tyrarep>
+//                [--pad "<script>" | --pad-file <f>] [--seconds N]
+//                [--clear-saves]
+//
+// Builds, launches, optionally drives the controller with the same script
+// language --pad takes, then stops the recording and writes the canonical file.
+// Exit 0 when a finalized recording is on disk.
+static int recordFromCli(int argc, char** argv) {
+    namespace fs = std::filesystem;
+    auto usage = [] {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --record <projectDir> <out.tyrarep>\n"
+                     "                    [--pad \"<script>\" | --pad-file "
+                     "<file>]\n"
+                     "                    [--seconds N] [--clear-saves]\n"
+                     "\n"
+                     "Builds, runs and records the session into out.tyrarep\n"
+                     "(docs/input-replay.md). --pad takes the same script the\n"
+                     "--pad command does; --seconds caps the run when there is\n"
+                     "no script, or extends it past the script's own length.\n");
+        return 2;
+    };
+    if (argc < 4) return usage();
+
+    std::string padText, padFile;
+    double seconds = 0.0;
+    bool clearSaves = false;
+    for (int i = 4; i < argc; ++i) {
+        const std::string a = argv[i];
+        if (a == "--pad" && i + 1 < argc) padText = argv[++i];
+        else if (a == "--pad-file" && i + 1 < argc) padFile = argv[++i];
+        else if (a == "--seconds" && i + 1 < argc) seconds = std::atof(argv[++i]);
+        else if (a == "--clear-saves") clearSaves = true;
+        else return usage();
+    }
+    if (!padFile.empty()) {
+        std::ifstream f(padFile);
+        if (!f) {
+            std::fprintf(stderr, "error: cannot read %s\n", padFile.c_str());
+            return 1;
+        }
+        std::ostringstream ss;
+        ss << f.rdbuf();
+        padText = ss.str();
+    }
+
+    Project p;
+    std::string err = project::load(p, argv[2]);
+    if (!err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (refuseUnmigrated(p)) return 1;
+    if (!warnRecorderOff(p)) return 1;
+    // Driving the pad needs the OTHER channel, so say so before spending a
+    // build on a run that could not be steered.
+    if (!padText.empty() && !p.settings.remotePad) {
+        std::fprintf(stderr,
+                     "error: --pad needs the \"Remote Pad\" preference on "
+                     "(Project > Preferences > Build).\n");
+        return 1;
+    }
+
+    std::vector<livepad::Step> steps;
+    if (!padText.empty()) {
+        std::string perr;
+        if (!livepad::parseScript(padText, steps, perr)) {
+            std::fprintf(stderr, "error: %s\n", perr.c_str());
+            return 2;
+        }
+    }
+
+    Runner runner;
+    runner.replay_ = Runner::ReplayLaunch{Runner::ReplayLaunch::Record, "",
+                                          clearSaves};
+    if (!buildAndLaunchForReplay(runner, p)) return 1;
+
+    const fs::path binDir = fs::path(p.dir) / "bin";
+    if (!waitForRecorder(binDir, livereplay::Status::Record, 90)) {
+        std::fprintf(stderr,
+                     "error: the game never started recording - see %s\n",
+                     (binDir / "log.txt").string().c_str());
+        runner.stopEmulator(p);
+        return 1;
+    }
+    std::printf("[record] the game is recording\n");
+    std::fflush(stdout);
 
     const auto t0 = std::chrono::steady_clock::now();
-    for (const livepad::Step& st : steps) {
-        std::printf("[pad] %s\n", st.source.c_str());
-        std::fflush(stdout);
-        if (!push(st.state, true, true)) break;
-        if (st.seconds <= 0.0) continue;
-        // Keep refreshing while we hold: the seq is what tells the game we are
-        // still here (see livepad::kStaleFrames), and a state written once
-        // would expire mid-hold on a long wait.
-        const auto until = std::chrono::steady_clock::now() +
-                           std::chrono::milliseconds((int)(st.seconds * 1000.0));
-        // No break on failure here: a refresh push cannot fail the run (above),
-        // and a step that did already broke out of the outer loop.
-        while (std::chrono::steady_clock::now() < until) {
-            platform::sleepMs(40);
-            push(st.state, true, false);
-        }
+    if (!steps.empty())
+        drivePadScript((binDir / "livepad.bin").string(), steps);
+    // --seconds is a floor, not a replacement: a script shorter than it keeps
+    // recording (idle frames are part of a run), and a longer one is not cut.
+    while (seconds > 0.0) {
+        const double spent =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - t0)
+                .count();
+        if (spent >= seconds) break;
+        platform::sleepMs(100);
     }
-    // Detach: neutral AND flagged gone, so the game drops the overlay on its
-    // next poll instead of holding the last state for the watchdog's two
-    // seconds. Not worth failing the run over either - the watchdog is the
-    // backstop that exists for exactly this.
-    push(livepad::State(), false, false);
-    const double secs =
-        std::chrono::duration<double>(std::chrono::steady_clock::now() - t0)
-            .count();
-    if (!failed) {
-        std::printf("[pad] done - %zu step(s) in %.1fs, pad released", steps.size(),
-                    secs);
-        // Report them rather than hiding them: a run that had to skip refreshes
-        // is still a run whose timing was disturbed.
-        if (lostRefreshes > 0)
-            std::printf(" (%d refresh write(s) lost to the reader)",
-                        lostRefreshes);
-        std::printf("\n");
+
+    // Ask for a clean end, then wait for the game to say it wrote the terminal
+    // chunk. Not waiting is survivable - the parser tolerates a torn tail - but
+    // an unfinished chunk is up to a second of input nobody recorded.
+    {
+        std::ofstream f(binDir / "replay.stop");
+        if (f) f << "stop\n";
     }
-    return failed ? 1 : 0;
+    bool stopped = false;
+    for (int i = 0; i < 100 && !stopped; ++i) {  // up to 10 s
+        platform::sleepMs(100);
+        livereplay::Status s;
+        if (livereplay::readStatus((binDir / "replay.st").string(), s) && s.done)
+            stopped = true;
+    }
+    const std::string stopLine =
+        lastLineWith(readTextFile(binDir / "log.txt"), "Replay: stopped");
+    if (!stopLine.empty()) std::printf("%s\n", stopLine.c_str());
+    else if (!stopped)
+        std::fprintf(stderr,
+                     "warning: the game never confirmed it stopped - saving "
+                     "what it had written.\n");
+
+    std::error_code ec;
+    std::filesystem::remove(binDir / "replay.stop", ec);
+    runner.stopEmulator(p);
+
+    err = livereplay::finalize((binDir / "replay.out").string(), argv[3]);
+    if (!err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    livereplay::Recording rec;
+    std::string rerr;
+    livereplay::read(argv[3], rec, rerr);
+    std::printf("[record] wrote %s - %zu frames, %zu seed(s)\n", argv[3],
+                rec.frames.size(), rec.seeds.size());
+    return 0;
+}
+
+// Replays a recording and reports whether it came out the same:
+//   tyrax-editor --replay <projectDir> <file.tyrarep>
+//                [--timeout <s>] [--keep-running] [--clear-saves]
+//
+// Exit codes are the point of this command: 0 = reproduced exactly, 3 = the
+// run diverged, 1 = it could not be run at all (build failure, timeout).
+static int replayFromCli(int argc, char** argv) {
+    namespace fs = std::filesystem;
+    auto usage = [] {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --replay <projectDir> "
+                     "<file.tyrarep>\n"
+                     "                    [--timeout <s>] [--keep-running] "
+                     "[--clear-saves]\n"
+                     "\n"
+                     "Builds, runs and performs the recording "
+                     "(docs/input-replay.md).\n"
+                     "Exit 0 = reproduced exactly, 3 = diverged, 1 = could not "
+                     "run.\n");
+        return 2;
+    };
+    if (argc < 4) return usage();
+
+    int timeoutSec = 0;
+    bool keepRunning = false, clearSaves = false;
+    for (int i = 4; i < argc; ++i) {
+        const std::string a = argv[i];
+        if (a == "--timeout" && i + 1 < argc) timeoutSec = std::atoi(argv[++i]);
+        else if (a == "--keep-running") keepRunning = true;
+        else if (a == "--clear-saves") clearSaves = true;
+        else return usage();
+    }
+
+    Project p;
+    std::string err = project::load(p, argv[2]);
+    if (!err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (refuseUnmigrated(p)) return 1;
+    if (!warnRecorderOff(p)) return 1;
+
+    livereplay::Recording rec;
+    if (!livereplay::read(argv[3], rec, err)) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    const float projHz = p.settings.videoSystem == "ntsc" ? 60.0f : 50.0f;
+    if ((float)rec.header.frameRate != projHz) {
+        std::fprintf(stderr,
+                     "error: the recording is %u Hz and this project runs at "
+                     "%.0f Hz - the game would refuse it.\n",
+                     rec.header.frameRate, projHz);
+        return 1;
+    }
+    if (rec.header.layout != project::inputLayoutHash(p))
+        std::fprintf(stderr,
+                     "warning: the project changed since this was recorded - "
+                     "expect divergences.\n");
+    if (timeoutSec <= 0) {
+        // The run's own length plus a generous allowance for the build's tail,
+        // the boot and the scene load.
+        timeoutSec = (int)((float)rec.frames.size() / projHz) + 60;
+    }
+
+    Runner runner;
+    runner.replay_ = Runner::ReplayLaunch{
+        Runner::ReplayLaunch::Play, fs::absolute(argv[3]).string(), clearSaves};
+    if (!buildAndLaunchForReplay(runner, p)) return 1;
+
+    const fs::path binDir = fs::path(p.dir) / "bin";
+    std::printf("[replay] performing %zu frames (timeout %ds)\n",
+                rec.frames.size(), timeoutSec);
+    std::fflush(stdout);
+
+    std::string finished;
+    for (int i = 0; i < timeoutSec * 5 && finished.empty(); ++i) {
+        platform::sleepMs(200);
+        finished =
+            lastLineWith(readTextFile(binDir / "log.txt"), "Replay: finished");
+    }
+    if (!keepRunning) runner.stopEmulator(p);
+
+    if (finished.empty()) {
+        // Name the two things that produce this, because the log itself will
+        // not: the recording was refused at boot, or the game never got there.
+        const std::string log = readTextFile(binDir / "log.txt");
+        const std::string refused = lastLineWith(log, "Replay: ");
+        std::fprintf(stderr, "error: timed out after %ds waiting for the "
+                             "replay to finish.\n", timeoutSec);
+        if (!refused.empty())
+            std::fprintf(stderr, "  the game's last replay line was: %s\n",
+                         refused.c_str());
+        return 1;
+    }
+    std::printf("%s\n", finished.c_str());
+    // The line is the game's own report; "0 divergences" is the pass.
+    const bool clean = finished.find(" 0 divergences") != std::string::npos;
+    if (!clean) {
+        const std::string diverged = lastLineWith(
+            readTextFile(binDir / "log.txt"), "Replay: diverged at frame");
+        if (!diverged.empty()) std::printf("%s\n", diverged.c_str());
+    }
+    return clean ? 0 : 3;
 }
 
 // Scripted GUI run:
@@ -1380,7 +2141,119 @@ static int uiScriptFromCli(int argc, char** argv) {
 }
 
 // Headless helper:
-//   tyrax-editor.exe --dump-vucap <projectDir> [--full]
+//   tyrax-editor.exe --capture-frame <projectDir> [-o out.png] [--timeout s]
+//
+// The game's own screenshot, from a shell: writes bin/livedbg.cmd with the
+// one-shot captureFrame flag (the same channel Debugger > Screen > Capture
+// frame uses), waits for the game to finish writing bin/frame.tga, and decodes
+// it to a PNG. It is the ONLY picture that exists on a real console
+// (docs/devkit.md, "The game's own screenshot"), so it is what an unattended
+// A/B over ps2link reads. The command carries the full desired state, like
+// every livedbg command - no breakpoints, no halt - and a clock-derived seq so
+// any previous command (the GUI's, or an earlier call) reads as changed.
+// Needs a debug build with Live Debugger on; waiting is decided by the file's
+// PROGRESS (a growing file is a write in flight, ~3 s over ps2link).
+static int captureFrameFromCli(int argc, char** argv) {
+    namespace fs = std::filesystem;
+    if (argc < 3) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --capture-frame <projectDir> [-o out.png] "
+                     "[--timeout seconds]\n");
+        return 1;
+    }
+    const fs::path dir(argv[2]);
+    std::string out = (dir / "screenshots" / "frame-cli.png").string();
+    std::string alphaOut;  // --alpha: the frame's alpha channel as a grey PNG
+    double timeoutS = 40.0;
+    for (int i = 3; i + 1 < argc; ++i) {
+        if (std::strcmp(argv[i], "-o") == 0) out = argv[++i];
+        else if (std::strcmp(argv[i], "--alpha") == 0) alphaOut = argv[++i];
+        else if (std::strcmp(argv[i], "--timeout") == 0) timeoutS = std::atof(argv[++i]);
+    }
+    const fs::path tga = dir / "bin" / "frame.tga";
+    std::error_code ec;
+    fs::remove(tga, ec);
+    livedbg::Command c;
+    c.seq = (uint32_t)std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch())
+                .count();
+    c.captureFrame = true;
+    const std::string err = livedbg::writeCommand((dir / "bin" / "livedbg.cmd").string(), c);
+    if (!err.empty()) {
+        std::fprintf(stderr, "capture-frame: %s\n", err.c_str());
+        return 1;
+    }
+    // Wait for a complete file: header says the size; growth restarts the wait.
+    const auto t0 = std::chrono::steady_clock::now();
+    size_t lastSize = 0;
+    int stalled = 0;
+    std::vector<unsigned char> bytes;
+    for (;;) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(400));
+        const double el = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+        const auto sz = fs::file_size(tga, ec);
+        const size_t size = ec ? 0 : (size_t)sz;
+        if (size >= 18) {
+            std::ifstream f(tga, std::ios::binary);
+            unsigned char head[18] = {};
+            f.read(reinterpret_cast<char*>(head), 18);
+            const int w = (int)head[12] | ((int)head[13] << 8);
+            const int h = (int)head[14] | ((int)head[15] << 8);
+            const size_t want = 18 + (size_t)w * (size_t)h * 4;
+            if (head[2] == 2 && head[16] == 32 && w > 0 && h > 0 && size >= want) {
+                bytes.resize(want);
+                f.seekg(0);
+                f.read(reinterpret_cast<char*>(bytes.data()), (std::streamsize)want);
+                if (f.gcount() == (std::streamsize)want) break;
+            }
+        }
+        if (size == lastSize) {
+            if (++stalled > 15 && size > 0) {
+                std::fprintf(stderr, "capture-frame: bin/frame.tga stopped growing at %zu bytes\n", size);
+                return 1;
+            }
+        } else {
+            stalled = 0;
+            lastSize = size;
+        }
+        if (el > timeoutS) {
+            std::fprintf(stderr,
+                         "capture-frame: no complete bin/frame.tga after %.0f s (%zu bytes) - "
+                         "is the game running a debug build with Live Debugger on?\n",
+                         timeoutS, size);
+            return 1;
+        }
+    }
+    const int w = (int)bytes[12] | ((int)bytes[13] << 8);
+    const int h = (int)bytes[14] | ((int)bytes[15] << 8);
+    std::vector<unsigned char> rgba((size_t)w * (size_t)h * 4);
+    std::vector<unsigned char> alpha((size_t)w * (size_t)h);
+    for (int y = 0; y < h; ++y) {
+        const unsigned char* sp = &bytes[18 + (size_t)(h - 1 - y) * (size_t)w * 4];
+        unsigned char* d = &rgba[(size_t)y * (size_t)w * 4];
+        unsigned char* al = &alpha[(size_t)y * (size_t)w];
+        for (int x = 0; x < w; ++x, sp += 4, d += 4, ++al) {
+            d[0] = sp[2], d[1] = sp[1], d[2] = sp[0], d[3] = 255;
+            *al = sp[3];  // the frame's own alpha (the game writes it as is)
+        }
+    }
+    fs::create_directories(fs::path(out).parent_path(), ec);
+    if (!alphaOut.empty()) {
+        fs::create_directories(fs::path(alphaOut).parent_path(), ec);
+        if (!stbi_write_png(alphaOut.c_str(), w, h, 1, alpha.data(), w))
+            std::fprintf(stderr, "capture-frame: cannot write %s\n", alphaOut.c_str());
+        else
+            std::printf("capture-frame: alpha -> %s\n", alphaOut.c_str());
+    }
+    if (!stbi_write_png(out.c_str(), w, h, 4, rgba.data(), w * 4)) {
+        std::fprintf(stderr, "capture-frame: cannot write %s\n", out.c_str());
+        return 1;
+    }
+    std::printf("capture-frame: %dx%d -> %s\n", w, h, out.c_str());
+    return 0;
+}
+
+//   tyrax-editor.exe --dump-vucap <projectDir> [--full] [--peek N]
 //
 // --full prints EVERY staged packet and every vertex in it instead of the first
 // few. The short form is for reading; the long form is for comparing two builds,
@@ -2764,7 +3637,10 @@ static int vuCheckFromCli(int argc, char** argv) {
     //    C++ KERNEL, through the VU0 one.
     const int scriptFails = vuCheckScripts(engine) + vuCheckProjectKernels();
 
-    const bool ok = parseFailed == 0 && mismatches == 0 && roundTripFails == 0 &&
+    std::string lightingError;
+    const bool lightingOk = vugen::checkLighting(lightingError);
+    std::printf("  RGB SH numeric oracle: %s\n", lightingOk ? "PASS" : lightingError.c_str());
+    const bool ok = lightingOk && parseFailed == 0 && mismatches == 0 && roundTripFails == 0 &&
                     wrapperFails == 0 && stageFails == 0 && vu0Fails == 0 &&
                     scriptFails == 0;
     std::printf("%s\n", ok ? "PASS - every described program matches its "
@@ -3173,6 +4049,24 @@ static int vuReplayFromCli(int argc, char** argv) {
 }
 
 int main(int argc, char** argv) {
+    impostorbake::setGpuCapture(impostorgpu::capture);
+    if (argc > 1 && std::strcmp(argv[1], "--bake-impostor") == 0) {
+        if (argc < 6 || argc > 7 || (argc == 7 && std::strcmp(argv[6], "--gpu") != 0)) {
+            std::fprintf(stderr, "usage: --bake-impostor <projectDir> <model.obj> <outputStem> <4|8|16> [--gpu]\n");
+            return 2;
+        }
+        std::string output, error, backend;
+        float extent;
+        const auto start = std::chrono::steady_clock::now();
+        if (!impostorbake::model(argv[2], argv[3], "", argv[4], &output, &extent,
+                                 &error, 128, std::atoi(argv[5]), argc == 7, &backend)) {
+            std::fprintf(stderr, "%s\n", error.c_str()); return 1;
+        }
+        std::printf("%s: %s (%.3f s)\n", backend.c_str(), output.c_str(),
+            std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count());
+        return 0;
+    }
+
     if (argc > 1 && std::strcmp(argv[1], "--vu-check") == 0)
         return vuCheckFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--vu-emit") == 0)
@@ -3185,12 +4079,18 @@ int main(int argc, char** argv) {
         return debugStateFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--dump-vucap") == 0)
         return dumpVuCapFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--capture-frame") == 0)
+        return captureFrameFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--symbolize") == 0)
         return symbolizeFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--audit-release") == 0)
         return auditReleaseFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--pad") == 0)
         return padFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--record") == 0)
+        return recordFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--replay") == 0)
+        return replayFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--ui-script") == 0)
         return uiScriptFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--new") == 0) return createFromCli(argc, argv);
@@ -3200,14 +4100,24 @@ int main(int argc, char** argv) {
     if (argc > 1 && std::strcmp(argv[1], "--list-nodes") == 0)
         return listNodesFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--dump") == 0) return dumpFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--atlas-report") == 0)
+        return atlasReportFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--dump-graph") == 0)
         return dumpGraphFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--apply-graph") == 0)
         return applyGraphFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--refresh-gen") == 0)
         return refreshGenFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--bake-object-light") == 0)
+        return bakeObjectLightFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--bake-prelit") == 0)
+        return bakePrelitFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-gi") == 0)
         return bakeGiFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--gi-gpu-check") == 0)
+        return giGpuCheckFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--bake-model-ao") == 0)
+        return bakeModelAoFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--ai-graph") == 0)
         return aiGraphFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--add-ai-support") == 0)
@@ -3247,10 +4157,16 @@ int main(int argc, char** argv) {
             "carries no devkit code\n"
             "  --debug-state [--verbose]               what is being debugged "
             "on this machine right now\n"
+            "  --capture-frame <projectDir> [-o out.png] [--alpha a.png]  the "
+            "game's own screenshot (works over ps2link)\n"
             "  --dump-vucap <dir> [--full] [--peek N]  decode the last VU1 "
             "capture\n"
             "  --pad <projectDir> \"<script>\"           drive the running "
             "game's controller (docs/remote-pad.md)\n"
+            "  --record <projectDir> <out.tyrarep>     record a run's input "
+            "(docs/input-replay.md)\n"
+            "  --replay <projectDir> <file.tyrarep>    perform it again; exit "
+            "0 same, 3 diverged\n"
             "  --ui-script [projectDir] \"<script>\"     drive the EDITOR's own "
             "UI (docs/ui-scripting.md)\n"
             "  --vu-check [engineDir]                  run every microprogram "
@@ -3267,6 +4183,13 @@ int main(int argc, char** argv) {
             "  --refresh-gen <projectDir>\n"
             "  --bake-gi <projectDir>                  bake global "
             "illumination + light probes\n"
+            "  --bake-model-ao <projectDir> [--texbake]\n"
+            "                                          bake every model "
+            "asset's own AO into its texture\n"
+            "                                          (docs/ambient-occlusion.md)\n"
+            "  --bake-prelit <projectDir> [sceneName]  re-bake every STALE "
+            "pre-lit object\n"
+            "                                          (docs/prelit-models.md)\n"
             "Neural upscaler (docs/neural-upscaler.md):\n"
             "  --blss-train [<projectDir>] [-o blss.net] [--frames N] "
             "[--epochs N] [--dump <dir>]\n"

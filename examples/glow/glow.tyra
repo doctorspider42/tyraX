@@ -1,5 +1,7 @@
 {
   "name": "glow",
+  "formatVersion": 23,
+  "editorVersion": "1.31.1",
   "template": "fpp",
   "projectId": "7aee916c9a1877f4",
   "settings": {
@@ -12,8 +14,15 @@
     "showFps": false,
     "showMemory": false,
     "showProfiler": false,
+    "showAreas": false,
+    "showCollision": false,
     "liveLink": true,
-    "keyboardMouse": true,
+    "liveDebug": true,
+    "eeCrashHandler": false,
+    "liveLogic": true,
+    "timeMachine": true,
+    "remotePad": true,
+    "keyboardMouse": false,
     "keyboardMousePs2Link": false,
     "disableVsync": false,
     "clipping": "vu1",
@@ -56,6 +65,16 @@
     "aoEnabled": false,
     "aoStrength": 0.55,
     "aoRadius": 2.5,
+    "giEnabled": false,
+    "giRays": 128,
+    "giBounces": 2,
+    "giSkyLight": 1,
+    "giSunLight": 1,
+    "giAmbientFloor": 0.03,
+    "giProbes": true,
+    "giProbeSpacing": 3,
+    "giProbeHeight": 2,
+    "giProbeLevels": 4,
     "terrainMaterial": "res/materials/ground.mtl",
     "bloom": 1.5,
     "bloomThreshold": 0.5,
@@ -64,6 +83,16 @@
     "dofAmount": 0,
     "dofFocus": 20,
     "dofRange": 15,
+    "flare": 0,
+    "godRays": 0,
+    "blobShadows": false,
+    "blssEnabled": false,
+    "blssScale": 0,
+    "blssNetwork": true,
+    "blssSharpen": 0.5,
+    "blssTemporal": true,
+    "blssJitter": false,
+    "blssDebugView": 0,
     "fogEnabled": true,
     "fogColor": [0.01, 0.01, 0.03],
     "fogStart": 18,
@@ -80,7 +109,7 @@
   "scenes": [
     { "name": "main",
       "terrain": { "width": 64, "depth": 64 },
-      "settings": { "lighting": { "dir": [0.37, 0.82, 0.44], "ambient": 0.06, "diffuse": 0.04, "color": [0.45, 0.55, 1], "brightness": 1 }, "sky": { "color": [0.02, 0.02, 0.05], "topColor": [0.01, 0.01, 0.03], "dome": true, "zenithSize": 0.5 }, "clipping": "vu1", "terrainMaterial": "res/materials/ground.mtl", "postfx": { "bloom": 1.5, "bloomThreshold": 0.5, "bloomSpread": 0.6, "grain": 0, "dofAmount": 0, "dofFocus": 20, "dofRange": 15 }, "fog": { "enabled": true, "color": [0.01, 0.01, 0.03], "start": 18, "end": 70 }, "highlight": { "usable": false, "distance": 6, "color": [1, 0.85, 0.15], "width": 0.35, "steps": 4, "opacity": 0.56, "overlay": false } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": false, "fog": false, "highlight": false },
+      "settings": { "lighting": { "dir": [0.37, 0.82, 0.44], "ambient": 0.06, "diffuse": 0.04, "color": [0.45, 0.55, 1], "brightness": 1 }, "sky": { "color": [0.02, 0.02, 0.05], "topColor": [0.01, 0.01, 0.03], "dome": true, "zenithSize": 0.5 }, "clipping": "vu1", "terrainMaterial": "res/materials/ground.mtl", "postfx": { "bloom": 1.5, "bloomThreshold": 0.5, "bloomSpread": 0.6, "grain": 0, "dofAmount": 0, "dofFocus": 20, "dofRange": 15, "flare": 0, "godRays": 0 }, "fog": { "enabled": true, "color": [0.01, 0.01, 0.03], "start": 18, "end": 70 }, "highlight": { "usable": false, "distance": 6, "color": [1, 0.85, 0.15], "width": 0.35, "steps": 4, "opacity": 0.56, "overlay": false } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": false, "fog": false, "highlight": false },
       "objects": ["9c188c80f1d4f4ba", "glowex0100pedmatte", "glowex0101signmatt", "glowex0102pedglow", "glowex0103signglow", "glowex0200ped", "glowex0210hot", "glowex0201ped", "glowex0211hot", "glowex0202ped", "glowex0212hot", "glowex0300lavapit", "glowex0310pillar", "glowex0311pillar", "glowex0312pillar", "glowex0313pillar", "glowex0320pillarfa", "glowex0330blocker", "glowex0400wallleft", "glowex0401wallrigh", "glowex0410strip", "glowex0411strip", "glowex0412strip", "glowex0413strip", "glowex0500bloompu"] }
   ],
   "fonts": [
@@ -117,6 +146,24 @@
   "sounds": [],
   "saveValues": [],
   "saveTexts": [],
+  "saveTitle": "",
+  "saveIcon": "",
+  "saveIconModel": "",
+  "saveIconClip": "",
+  "saveIconFrames": 6,
+  "saveIconMotion": "",
+  "saveIconMotionAmount": 1,
+  "saveMenuWritesCheckpoint": false,
+  "saveAutosaveSlot": -1,
+  "saveSlotCount": 3,
+  "saveSlotsPerPage": 3,
+  "saveAsync": false,
+  "saveSpinner": true,
+  "saveSpinnerImage": "",
+  "saveSpinnerFrames": 8,
+  "saveSpinnerCorner": 3,
+  "saveSpinnerMargin": 20,
+  "saveSpinnerScale": 1,
   "gradings": [],
   "defaultGrading": -1,
   "ambience": [
@@ -126,8 +173,12 @@
   "loadingScreens": [],
   "defaultLoadingScreen": -1,
   "splashScreens": [],
+  "credits": [],
   "sequences": [],
-  "menus": [],
+  "menus": [
+    { "name": "save", "title": "SAVE GAME", "saveMenu": true, "screenPos": [0.5, 0.45], "accent": [0.47, 0.82, 1],
+      "entries": [] }
+  ],
   "input": {
     "activePreset": 0,
     "allowRebind": true,
@@ -174,11 +225,14 @@
         ] }
     ]
   },
-  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0 },
+  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "breakpoints": [] },
   "activeLayout": 0,
   "layouts": [
     { "name": "Default", "recipe": 0, "open": [], "ini": "" },
     { "name": "Director", "recipe": 1, "open": ["cutscene"], "ini": "" },
-    { "name": "Material Designer", "recipe": 2, "open": ["material"], "ini": "" }
+    { "name": "Material Designer", "recipe": 2, "open": ["material"], "ini": "" },
+    { "name": "Debugger", "recipe": 3, "open": ["debugger"], "ini": "" },
+    { "name": "Procedural", "recipe": 4, "open": ["proc", "prefabs"], "ini": "" },
+    { "name": "Menu Designer", "recipe": 5, "open": ["menus", "menupreview", "fonts"], "ini": "" }
   ]
 }

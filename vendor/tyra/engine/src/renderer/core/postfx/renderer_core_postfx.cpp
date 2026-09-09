@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include "renderer/core/postfx/renderer_core_postfx.hpp"
 #include "debug/debug.hpp"
+#include "renderer/core/gs/renderer_core_depth.hpp"
 
 namespace Tyra {
 
@@ -44,6 +45,7 @@ RendererCorePostFx::RendererCorePostFx() {
   rng = 0xC0FFEE01u;
   curFbVram = 0;
   curFbBufW = 0;
+  fbPsm = 0;  // GS_PSM_32 until init() reads the real colour depth
   // Sized for every pass at once: DoF (8 blits) + bloom (downsample + the
   // optional bright-pass quad + up to 4 soften rounds of 4 blits + the
   // add-back = 18 primitives at full spread) + god rays (downsample + a
@@ -76,8 +78,13 @@ void RendererCorePostFx::init(RendererSettings* t_settings,
   lowH = fbH / 8;
   lowBufW = -64 & (lowW + 63);  // FRAME/TEX buffer widths are 64-aligned
 
-  lowVram[0] = gs->vram.allocateBuffer(lowBufW, lowH, GS_PSM_32);
-  lowVram[1] = gs->vram.allocateBuffer(lowBufW, lowH, GS_PSM_32);
+  // Modified by TyraX: the work buffers take the framebuffer's format, so
+  // the downsample/soften chain never converts between depths (and at
+  // PSMCT16 they cost half as much too). The noise texture stays PSMCT32:
+  // it is a plain uploaded texture, read but never rendered into.
+  fbPsm = settings->getFrameBufferPsm();
+  lowVram[0] = gs->vram.allocateBuffer(lowBufW, lowH, fbPsm);
+  lowVram[1] = gs->vram.allocateBuffer(lowBufW, lowH, fbPsm);
   noiseVram = gs->vram.allocateBuffer(noiseSize, noiseSize, GS_PSM_32);
   TYRA_ASSERT(lowVram[0] >= 0 && lowVram[1] >= 0 && noiseVram >= 0,
               "Out of VRAM for post fx buffers");
@@ -123,8 +130,9 @@ qword_t* RendererCorePostFx::blit(qword_t* q, int srcVram, int srcBufW,
   PACK_GIFTAG(q, GS_SET_TEXFLUSH(0), GS_REG_TEXFLUSH);
   q++;
   PACK_GIFTAG(q,
-              GS_SET_TEX0(srcVram >> 6, srcBufW >> 6, GS_PSM_32, lg2(texW),
-                          lg2(texH), 0, 1 /* decal */, 0, 0, 0, 0, 0),
+              GS_SET_TEX0(srcVram >> 6, srcBufW >> 6, psmFor(srcVram),
+                          lg2(texW), lg2(texH), 0, 1 /* decal */, 0, 0, 0, 0,
+                          0),
               GS_REG_TEX0_1);
   q++;
   const int f = linear ? 1 : 0;
@@ -137,7 +145,7 @@ qword_t* RendererCorePostFx::blit(qword_t* q, int srcVram, int srcBufW,
                    : GS_SET_CLAMP(2, 2, 0, texW - 1, 0, texH - 1),
               GS_REG_CLAMP_1);
   q++;
-  PACK_GIFTAG(q, GS_SET_FRAME(dstVram >> 11, dstBufW >> 6, GS_PSM_32, 0),
+  PACK_GIFTAG(q, GS_SET_FRAME(dstVram >> 11, dstBufW >> 6, psmFor(dstVram), 0),
               GS_REG_FRAME_1);
   q++;
   PACK_GIFTAG(q, alpha, GS_REG_ALPHA_1);
@@ -165,7 +173,8 @@ qword_t* RendererCorePostFx::flatQuad(qword_t* q, int dstVram, int dstBufW,
   if (h < 0) h = fbH;
   PACK_GIFTAG(q, GIF_SET_TAG(6, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
   q++;
-  PACK_GIFTAG(q, GS_SET_FRAME(dstVram >> 11, dstBufW >> 6, GS_PSM_32, fbmsk),
+  PACK_GIFTAG(q,
+              GS_SET_FRAME(dstVram >> 11, dstBufW >> 6, psmFor(dstVram), fbmsk),
               GS_REG_FRAME_1);
   q++;
   PACK_GIFTAG(q, alpha, GS_REG_ALPHA_1);
@@ -188,7 +197,7 @@ qword_t* RendererCorePostFx::sizedQuad(qword_t* q, int dstVram, int dstBufW,
                                        u64 alpha) {
   PACK_GIFTAG(q, GIF_SET_TAG(6, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
   q++;
-  PACK_GIFTAG(q, GS_SET_FRAME(dstVram >> 11, dstBufW >> 6, GS_PSM_32, 0),
+  PACK_GIFTAG(q, GS_SET_FRAME(dstVram >> 11, dstBufW >> 6, psmFor(dstVram), 0),
               GS_REG_FRAME_1);
   q++;
   PACK_GIFTAG(q, alpha, GS_REG_ALPHA_1);
@@ -255,7 +264,7 @@ void RendererCorePostFx::portalMaskBegin(int x0, int y0, int x1, int y1) {
   // geometry where their bboxes overlap (first portal: no-op, z is still
   // at the frame clear's far).
   PACK_GIFTAG(q,
-              GS_SET_FRAME(fbVram >> 11, fbBufW >> 6, GS_PSM_32, 0xFFFFFFFFu),
+              GS_SET_FRAME(fbVram >> 11, fbBufW >> 6, fbPsm, 0xFFFFFFFFu),
               GS_REG_FRAME_1);
   q++;
   PACK_GIFTAG(q, GS_SET_TEST(0, 0, 0, 0, 0, 0, 1, ZTEST_METHOD_ALLPASS),
@@ -323,7 +332,7 @@ void RendererCorePostFx::portalMaskEnd(const float* xy, const u32* z,
   q++;
   // --- 1) z-only: re-far the whole bbox (kill the destination depths) ---
   PACK_GIFTAG(q,
-              GS_SET_FRAME(fbVram >> 11, fbBufW >> 6, GS_PSM_32, 0xFFFFFFFFu),
+              GS_SET_FRAME(fbVram >> 11, fbBufW >> 6, fbPsm, 0xFFFFFFFFu),
               GS_REG_FRAME_1);
   q++;
   PACK_GIFTAG(q, GS_SET_TEST(0, 0, 0, 0, 0, 0, 1, ZTEST_METHOD_ALLPASS),
@@ -358,7 +367,7 @@ void RendererCorePostFx::portalMaskEnd(const float* xy, const u32* z,
   // GEQUAL at z=0 passes exactly where step 1 left z at far and step 2 did
   // NOT re-cap - i.e. the destination pixels that spilled outside the quad
   // opening (writing z=0 over z=0 is a no-op, so no ZBUF toggle needed).
-  PACK_GIFTAG(q, GS_SET_FRAME(fbVram >> 11, fbBufW >> 6, GS_PSM_32, 0),
+  PACK_GIFTAG(q, GS_SET_FRAME(fbVram >> 11, fbBufW >> 6, fbPsm, 0),
               GS_REG_FRAME_1);
   q++;
   PACK_GIFTAG(q,
@@ -506,11 +515,15 @@ void RendererCorePostFx::apply(int passes) {
     // the pass's GEQUAL z-test exactly where the scene is d or farther.
     const float zn = settings->getNear();
     const float zf = settings->getFar();
+    // The range is RendererCoreDepth's, not a literal: a 16-bit-colour
+    // project runs a PSMZ16 z and these sprites must land on the same scale
+    // the vertex path used, or the whole DoF composite sits at wrong depths.
+    const float zMax = static_cast<float>(RendererCoreDepth::maxZ);
     auto zAt = [&](float d) -> u32 {
-      if (d <= zn) return 0xFFFFFFu;
+      if (d <= zn) return RendererCoreDepth::maxZ;
       if (d >= zf) return 0u;
-      const float z = 16777215.0F * zn * (zf - d) / (d * (zf - zn));
-      return z <= 0.0F ? 0u : (z >= 16777215.0F ? 0xFFFFFFu : (u32)z);
+      const float z = zMax * zn * (zf - d) / (d * (zf - zn));
+      return z <= 0.0F ? 0u : (z >= zMax ? RendererCoreDepth::maxZ : (u32)z);
     };
 
     // Three z-tested layers step the blur in between dofFocus and
@@ -662,7 +675,7 @@ void RendererCorePostFx::apply(int passes) {
   // Restore the drawing state the rest of the frame machinery expects.
   PACK_GIFTAG(q, GIF_SET_TAG(5, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
   q++;
-  PACK_GIFTAG(q, GS_SET_FRAME(fbVram >> 11, fbBufW >> 6, GS_PSM_32, 0),
+  PACK_GIFTAG(q, GS_SET_FRAME(fbVram >> 11, fbBufW >> 6, fbPsm, 0),
               GS_REG_FRAME_1);
   q++;
   PACK_GIFTAG(q, GS_SET_CLAMP(1, 1, 0, 0, 0, 0), GS_REG_CLAMP_1);
@@ -747,7 +760,7 @@ void RendererCorePostFx::applyCustom(CustomFxBuild build, void* user) {
   // apply()).
   PACK_GIFTAG(q, GIF_SET_TAG(5, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
   q++;
-  PACK_GIFTAG(q, GS_SET_FRAME(curFbVram >> 11, curFbBufW >> 6, GS_PSM_32, 0),
+  PACK_GIFTAG(q, GS_SET_FRAME(curFbVram >> 11, curFbBufW >> 6, fbPsm, 0),
               GS_REG_FRAME_1);
   q++;
   PACK_GIFTAG(q, GS_SET_CLAMP(1, 1, 0, 0, 0, 0), GS_REG_CLAMP_1);

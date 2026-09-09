@@ -14,8 +14,9 @@ headless: `tyrax-editor.exe --build <this folder> --run`.
 ## What to do
 
 You spawn facing a big chrome ball on a pedestal, a chrome monolith to the
-side — and a red crate, a yellow ball and a blue pillar standing **behind
-you**. Look at the chrome: the props behind your back reflect in the middle
+side — a red crate, a yellow ball and a blue pillar standing **behind
+you**, and a smaller red ball a few steps **in front**, between you and the
+pedestal. Look at the chrome: the props behind your back reflect in the middle
 of the ball, like a real mirror. **Each reflective object carries its own
 probe** — the ball and the monolith mirror *different* prop subsets in the
 same frame, from their own vantage points — and the probe pose depends only
@@ -36,9 +37,9 @@ the probe then renders from YOUR eye, not the surface's.
   crystal-ball look-back; a box's reflects off the hit face, which is why
   the monolith is rotated so its reflected cone actually contains the
   props — at its first rotation it honestly mirrored empty sky).
-- **`crate-red` / `ball-sun` / `pillar-blue`** — plain primitives with
-  **Show in reflections** checked: they render into the env map every
-  refresh (base passes, z-tested in the map).
+- **`crate-red` / `ball-sun` / `pillar-blue` / `ball-sun-copy`** — plain
+  primitives with **Show in reflections** checked: they render into the env
+  map every refresh (base passes, z-tested in the map).
 - **`envProbeReflected: true`** in the project settings — the whole feature
   is this one preference; the raycast targets are found automatically (any
   object bound to the dynamic map).

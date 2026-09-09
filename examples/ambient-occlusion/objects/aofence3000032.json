@@ -1,0 +1,1 @@
+{ "id": "aofence3000032", "name": "fence-3", "type": "model", "position": [-3.9, 0.5, 12.9], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "model": "res/models/Prop_WoodenFence_Single.obj" }

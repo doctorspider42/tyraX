@@ -13,7 +13,8 @@ You spawn facing three crates — **red** (nearest), **green**, **blue**.
 
 - **Press Cross** → the nearest still-visible crate disappears. Press again and
   the next one goes, then the last. This runs a **C++-backed** custom node whose
-  **object output** feeds a built-in **Hide Object**.
+  **object output** feeds a built-in **Set Object Visible** on its *hide* exec
+  pin.
 - **Press Square** → the green crate spins 45° each press. This runs an
   **inline-snippet** custom node.
 
@@ -26,15 +27,15 @@ nodes live in `flow-nodes/`:
   and `exec_out`. Its C++ lives in `inc/scripts/flow_nodes.hpp`
   (`flowNearestVisible`): it scans the scene for the closest visible object and
   writes it to `io.objectOut`. That is a *runtime* object reference (known only
-  in-game), and the graph wires it straight into a built-in **Hide Object** —
-  the whole point of C++-backed nodes with pins. `exec_out` fires the Hide
-  right after the pick, sequencing the two. The built-in action is
-  bounds-guarded, so once every crate is hidden the last press is a harmless
-  no-op.
+  in-game), and the graph wires it straight into a built-in **Set Object
+  Visible**, entered on its *hide* exec pin — the whole point of C++-backed
+  nodes with pins. `exec_out` fires the hide right after the pick, sequencing
+  the two. The built-in action is bounds-guarded, so once every crate is hidden
+  the last press is a harmless no-op.
 
   ```
-  On Button (Cross) ──exec──▶ Nearest Visible ──exec──▶ Hide Object
-                                    └────── object ──────┘
+  On Button (Cross) ──exec──▶ Nearest Visible ──exec──▶ Set Object Visible (hide)
+                                    └────── object ─────────────┘
   ```
 
 - **`spin.flownode`** — an **inline** node: a two-line C++ snippet with

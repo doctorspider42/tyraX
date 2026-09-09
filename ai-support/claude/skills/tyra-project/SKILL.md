@@ -45,6 +45,8 @@ build. Two kinds of files coexist here:
 | `bin/` | Build output: `<name>.elf`, runtime assets, `log.txt` (game log) | No |
 | `bin/livelogic.bin` | Live Logic patch: flow graphs the editor compiled and streamed into the running game (no rebuild) | No - runtime file |
 | `bin/livedbg.bin`, `bin/livedbg.cmd` | Live Debugger channel while a debug build runs (game -> editor telemetry, editor -> game commands) | No - runtime files |
+| `bin/frame.tga` | The last frame the game photographed of ITSELF, on request (Debugger > Screen). A 32-bit TGA of the console's own frame buffer, deleted at every launch | No - runtime file |
+| `screenshots/` | Those captures kept as PNGs, one per capture, named by the clock. Yours to keep or delete | No - git-ignored |
 | `run.sh`, `run.ps1`, `windows-pcsx2.ps1` | Launch the built game in PCSX2 (`run.sh` on Linux/macOS, the `.ps1` pair on Windows) | Rarely |
 
 **Ownership markers.** The first line of a generated file tells you its rule:
@@ -73,6 +75,8 @@ tyrax-editor binary lives.)
 | `--ai-graph <projectDir> <object> <prompt\|file> [scene] [...]` | Generate a flow graph with an AI backend (see tyra-flowgraph) |
 | `--refresh-gen <projectDir>` | Regenerate the game sources from the data, without building (fast codegen check, no Docker) |
 | `--bake-gi <projectDir>` | Bake global illumination + light probes into `.res-baked/gi/` (explicit, never part of a build - a build only READS the cache, so a scene edit falls the lighting back to the classic ambient/directional until you re-bake) |
+| `--bake-model-ao <projectDir> [--texbake]` | Bake every eligible `.obj` model's own ambient occlusion into `.res-baked/modelao/` and report what was skipped and why. A build does this itself; the verb is how you see it without Docker. `--texbake` also runs the texture bake, i.e. the multiply into `.res-baked` |
+| `--bake-prelit <projectDir> [sceneName]` | Re-bake every object marked to ship pre-lit whose baked texture no longer matches the scene (it moved, or the light did), then save + regenerate. Prints `baked` / `fresh` per object; a second run bakes nothing. Never part of a build - a pre-lit bake is explicit |
 | `--resave <projectDir>` | Load + save (runs all format migrations, validates) |
 | `--new <name> <parentDir> [w] [d] [empty\|fpp\|thirdperson] [unitsPerMeter] [--no-terrain]` | Create a fresh project (defaults: `empty` preset - the editor's dialog starts on `fpp` - 100x100 terrain, 1 unit = 1 m, debug profile + Live Link, keyboard/mouse off). The preset is fixed for the project's life - it picks the generated game sources, which you may own. `--no-terrain` starts the scene with no ground at all (see below) |
 | `--build <projectDir> [--run]` | Full Docker build; `--run` launches PCSX2 |
@@ -119,9 +123,15 @@ to see exactly what the game will compile.
   non-selectable header/spacer row. Everything static is baked into
   `res/menus/*.png` at build; menus scale themselves to the display mode.
 - Project-wide collections: music/sound lists, save values + save texts, menus,
-  HUD images/texts, color gradings, ambience presets, loading screens,
+  HUD images/texts/**live bars**, color gradings, ambience presets, loading screens,
   cutscene sequences, **credits rolls** and the **input map** (named input
   actions + binding presets). `--dump` lists all of their names.
+- **HUD elements can move without game code.** Images, baked texts and live
+  bars each carry an optional looped animation plus a show/hide transition;
+  bars can follow a numeric save value or be driven by **Set HUD Bar**. Use
+  **Set HUD Element Visible** for one element and **Play HUD Effect** for a
+  flash, bounce or shake. See `docs/hud-animation.md` for the fields and
+  runtime behaviour.
 - **Ambience presets** may carry a **day/night cycle** (`"cycle"` inside the
   preset in the `.tyra`): a time-of-day hour, sun and moon arcs, and a list of
   colour keyframes. When enabled it OVERWRITES the preset's sky, light
@@ -169,3 +179,20 @@ to see exactly what the game will compile.
   and/or keyboard key and/or mouse button per preset, and a menu "Rebind key"
   row lets the player override one at runtime (the override persists in a save
   value). In graphs use the **On Action** trigger so logic follows the binding.
+
+### Static foliage impostors
+
+A static model object may store `impostor` (project-relative far OBJ) and
+`impostorDistance` (world units, 0 disables). The Tree Generator authors eight-view billboards automatically and sets
+`impostorBillboard: true` (format v40). This mode requires eight ordered view
+parts, upright rotation and equal positive X/Z scale. Leave the flag false for
+ordinary replacement meshes. The original `model` still owns collision. Far assets keep
+their own materials and must travel with the project. Do not replace `model` to
+change the distant appearance. Runtime geometry switches with 10% hysteresis.
+
+Properties > Bake impostor captures any supported static OBJ with its material
+override, Kd colours and cutout textures. Missing inputs and reflective/emissive
+materials fail visibly. Rebuild the game after baking; exported files are assets.
+
+Impostor format v41 adds `impostorViews` (4/8/16, defaults to 8). It must match
+the baked model part count; rebake and rebuild after changing it.

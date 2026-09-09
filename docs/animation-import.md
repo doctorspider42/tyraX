@@ -30,7 +30,7 @@ pays nothing at runtime.
 
 An imported clip is an **ordinary clip of that model** from then on. It can be
 renamed, trimmed, retimed and made in-place in the same panel, picked in any
-clip combo, mapped to Player locomotion, and fired by a *Play Animation* node —
+clip combo, mapped to Player locomotion, and fired by an *Animation* node —
 none of those know it came from somewhere else.
 
 > The `.tskl` clip-name field is 32 bytes, and exporter names are long

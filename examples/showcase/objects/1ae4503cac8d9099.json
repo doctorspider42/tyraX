@@ -1,1 +1,1 @@
-{ "id": "1ae4503cac8d9099", "name": "point-light-4", "type": "point-light", "position": [-40, 2.4659, -40], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.4, 1, 0.6], "physics": false, "layer": "ruins", "light": { "brightness": 1.3, "radius": 14 } }
+{ "id": "1ae4503cac8d9099", "name": "point-light-4", "type": "point-light", "position": [-40, 2.4659, -40], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.4, 1, 0.6], "physics": false, "layer": "ruins", "light": { "brightness": 1.3, "radius": 14, "dynamic": false, "flicker": 0, "beam": 0 } }

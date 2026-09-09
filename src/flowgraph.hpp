@@ -126,6 +126,11 @@ enum class FlowParamKind {
     SequenceName,  // name of a Project::sequences entry (Cutscene Director)
     CreditsName,   // name of a Project::credits roll (Tools > Credits Editor)
     HudTextName,  // name of a Project::hudTexts entry (baked text sprite)
+    HudBarName,   // name of a Project::hudBars entry (a live bar)
+    // name of ANY HUD element - an image, a text or a bar (Tools > UI Editor).
+    // Resolved image first, then text, then bar, so a name shared across kinds
+    // reaches the image.
+    HudElementName,
     FontName,  // name of a Project::fonts entry (Tools > Font Manager)
     InputActionName,  // name of a Project::input action (Tools > Input Map)
     KeyName,   // a keyboard key label from inputKeyNames() ("Space", "F1")
@@ -1459,6 +1464,57 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                         "Hides it now, whatever the countdown was doing."},
          .desc = "Shows or hides a pre-baked text sprite. Nothing is drawn "
                  "glyph by glyph here, so it costs one textured quad."},
+        // Animated HUD (docs/hud-animation.md): per-element visibility with
+        // the element's own transition, live bars, and one-shot effects. The
+        // LOOPED motion (pulse, bob, ...) is authored on the element in the UI
+        // Editor and needs no node at all.
+        {.key = "SetHudElementVisible", .title = "Set HUD Element Visible",
+         .category = "HUD", .strKind = FlowParamKind::HudElementName,
+         .strTip = "Any HUD element from Tools > UI Editor: an image in the "
+                   "screen stack, a bar, or a text (a text here is the same "
+                   "as Set Text Visible without the auto-hide).",
+         .execInCount = 3, .execInLabels = {"show", "hide", "toggle"},
+         .execInTips = {"Shows it, playing the element's own show transition "
+                        "(Fade, Slide, Pop - set in the UI Editor).",
+                        "Hides it through the same transition in reverse.",
+                        "Flips it - one button that opens and closes a map."},
+         .desc = "Shows or hides ONE HUD element - an image, a bar or a text - "
+                 "through the transition authored on it. Set HUD Visible "
+                 "still hides the whole stack at once; this is the per-element "
+                 "half."},
+        {.key = "SetHudBar", .title = "Set HUD Bar", .category = "HUD",
+         .strKind = FlowParamKind::HudBarName,
+         .strTip = "The bar from Tools > UI Editor > Bars. A bar bound to a "
+                   "save value follows that value every frame; this node then "
+                   "writes the save value, so the two never disagree.",
+         .numCount = 1, .numLabels = {"Value"},
+         .numTips = {"The new value in the bar's own units (its Min..Max map it "
+                     "to the fill; 0..100 for a default bar). A wired number "
+                     "replaces it."},
+         .numIn = true,
+         .execInCount = 2, .execInLabels = {"set", "set instantly"},
+         .execInTips = {"The fill EASES to the new value over the bar's "
+                        "Smoothing time, and the ghost strip lingers where it "
+                        "was - the usual damage/heal feel.",
+                        "Jumps the fill there at once, ghost included - for a "
+                        "respawn or a scene start."},
+         .desc = "Sets a HUD bar's value - health after a hit, stamina while "
+                 "sprinting, coins collected. Wire a Get Save Value or any "
+                 "Math node into Value for a computed one."},
+        {.key = "PlayHudEffect", .title = "Play HUD Effect", .category = "HUD",
+         .strKind = FlowParamKind::HudElementName,
+         .strTip = "The element to play it on: an image, a bar or a text from "
+                   "Tools > UI Editor.",
+         .numCount = 2, .numLabels = {"Effect", "Seconds"},
+         .numTips = {"Flash brightens and fades back, Bounce pops the scale, "
+                     "Shake jitters the position. All are one-shots layered "
+                     "over the element's looped animation.",
+                     "How long the effect runs. 0.3-0.5 reads as a hit; a "
+                     "second or more reads as an alarm."},
+         .numChoices = {"Flash|Bounce|Shake"},
+         .desc = "Plays a one-shot effect on a HUD element - a flash on the "
+                 "health bar when it drops, a bounce on the coin counter when "
+                 "one is collected. Costs nothing while idle."},
         // Runtime text: the string is only known while the game runs, so it
         // draws glyph by glyph from a Font Manager font's atlas instead of a
         // pre-baked sprite. The atlas only reaches VRAM once shown.
@@ -2375,42 +2431,6 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
 }
 
 // ---------------------------------------------------------------------------
-// Node types retired by the exec-pin merge: each Show*/Hide*/Toggle* family
-// collapsed into one node carrying a labeled exec pin per branch. A pre-merge
-// graph would otherwise lose those nodes outright (readFlowGraph drops unknown
-// types), so project::readFlowGraph rewrites the type and retargets every exec
-// link landing on the node to `pin`.
-struct FlowLegacyNode {
-    const char* from;  // the retired FlowNode::type
-    const char* to;    // its replacement
-    int pin;           // exec input the old node's behavior now lives on
-};
-
-inline const std::vector<FlowLegacyNode>& flowLegacyNodes() {
-    static const std::vector<FlowLegacyNode> v = {
-        {"ShowObject", "SetObjectVisible", 0},
-        {"HideObject", "SetObjectVisible", 1},
-        {"ToggleObject", "SetObjectVisible", 2},
-        {"ShowHud", "SetHudVisible", 0},
-        {"HideHud", "SetHudVisible", 1},
-        {"ToggleHud", "SetHudVisible", 2},
-        {"ShowText", "SetTextVisible", 0},
-        {"HideText", "SetTextVisible", 1},
-        {"LoadLayer", "SetLayerLoaded", 0},
-        {"UnloadLayer", "SetLayerLoaded", 1},
-        {"PlayAnimation", "Animation", 0},
-        {"StopAnimation", "Animation", 1},
-    };
-    return v;
-}
-
-inline const FlowLegacyNode* flowLegacyNode(const std::string& type) {
-    for (const FlowLegacyNode& m : flowLegacyNodes())
-        if (type == m.from) return &m;
-    return nullptr;
-}
-
-// ---------------------------------------------------------------------------
 // Project-defined custom nodes (see flownode.cpp).
 //
 // A custom node is a user-authored *action* node loaded from a .flownode text
@@ -2638,6 +2658,8 @@ inline const char* flowStrLabel(const FlowNodeType& t) {
         case FlowParamKind::CreditsName: return "Credits";
         case FlowParamKind::MenuName: return "Menu";
         case FlowParamKind::HudTextName: return "Text";
+        case FlowParamKind::HudBarName: return "Bar";
+        case FlowParamKind::HudElementName: return "Element";
         case FlowParamKind::FontName: return "Font";
         case FlowParamKind::ScreenFxName: return "Effect";
         case FlowParamKind::PrefabName: return "Prefab";

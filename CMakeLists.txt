@@ -233,6 +233,7 @@ add_executable(tyrax-editor
     src/hud_ui.cpp
     src/mateditor_ui.cpp
     src/prefab_ui.cpp
+    src/atlas_ui.cpp
     src/procui.cpp
     src/vu_ui.cpp
     src/props_ui.cpp
@@ -244,11 +245,14 @@ add_executable(tyrax-editor
     src/livedbg.cpp
     src/livelogic.cpp
     src/livepad.cpp
+    src/livereplay.cpp
     src/livetime.cpp
     src/logview.cpp
     src/vucap.cpp
     src/bvh.cpp
     src/gibake.cpp
+    src/gigpu.cpp
+    src/litbake.cpp
     src/vuir.cpp
     src/vuasm.cpp
     src/vusim.cpp
@@ -260,6 +264,7 @@ add_executable(tyrax-editor
     src/vushader_palette_sample.cpp
     src/vukernel_sample.cpp
     src/matbake.cpp
+    src/modelao.cpp
     src/objparser.cpp
     src/iso9660.cpp
     src/isoexport.cpp
@@ -296,7 +301,12 @@ add_executable(tyrax-editor
     src/theme.cpp
     src/tmdl.cpp
     src/treegen.cpp
+    src/treeimpostor.cpp
+    src/impostorgpu.cpp
+    src/modelimpostor.cpp
     src/uiscript.cpp
+    src/update.cpp
+    src/update_ui.cpp
     src/uvunwrap.cpp
     src/save_assets.cpp
     src/templates.cpp

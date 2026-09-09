@@ -326,6 +326,10 @@ struct SceneObject {
     // drawn at all (collision, sounds and scripts still run). 0 = unlimited.
     // The cheapest LOD there is - era-correct for dense scenes.
     float drawDistance = 0.0f;
+    std::string impostorPath; // optional static far model; collision stays original
+    float impostorDistance = 0.0f; // 0 disables, world units
+    bool impostorBillboard = false; // ordered view parts, upright/equal XZ scale
+    int impostorViews = 8; // baked capture count: 4/8/16; legacy assets default to 8
     // Show in reflections: this object is also rendered into the dynamic
     // ("@sky") environment map, so reflective materials mirror it - the GT3
     // trick's second half. Each marked object costs a second (128x128,
@@ -368,6 +372,44 @@ struct SceneObject {
     // For things that TUMBLE it is worth all of that; for things that merely
     // slide, leaving bakedLighting off is cheaper and looks better.
     bool dynamicLighting = false;
+    // The object's TEXTURE already contains its lighting (docs/prelit-models.md
+    // - litbake bakes the scene's gathered light into a per-object map_Kd and
+    // sets this). Its vertex colours then go NEUTRAL: no ambient, no N.L, no
+    // baked point lights, no emissive pools, because every one of those is
+    // already in the albedo and adding them again lights the surface twice.
+    //
+    // This is the only route to per-PIXEL static light on a textured surface -
+    // the lightmap atlas is additive and cannot multiply a texture (see the
+    // module header) - and it is what the survival-horror games of the era did.
+    // It costs the object its own texture, so it is a per-object decision.
+    //
+    // The DYNAMIC light still lands on top: the flashlight's projected pool,
+    // its cone, and the live point lights are all added at run time.
+    bool prelit = false;
+    // --- pre-lit BOOKKEEPING (docs/prelit-models.md, "Managing pre-lit
+    // objects"). None of this reaches the game: it is what turns a one-shot
+    // button into a managed mechanism - the author's intent, what the last bake
+    // saw, and the way back.
+    //
+    // The author's statement "this object should ship pre-lit". Set by a
+    // successful bake, cleared by Revert. It is what "Bake pending" and
+    // --bake-prelit iterate: `prelit` says the texture carries light TODAY,
+    // this says it is supposed to.
+    bool prelitWanted = false;
+    // litbake::signature at the last bake - the scene's light, this object's
+    // transform, the model, the source material and the bake parameters, in one
+    // number. Fresh = it still equals the signature computed now; 0 = never
+    // baked. Serialized as a hex STRING (the ProcGraph::bakedHash precedent):
+    // a JSON number loses 64-bit precision above 2^53, which would make a
+    // freshly baked object read as stale the moment it was re-loaded.
+    uint64_t prelitSig = 0;
+    // The materialPath this object had BEFORE its first bake, so Revert can put
+    // it back. "" is a legitimate value (the model's own mtllib) and is exactly
+    // what an un-overridden model reverts to, which is why the writer may omit
+    // it at "" without losing anything. Filled on the FIRST bake only - a
+    // re-bake must never overwrite it with the -lit path it just assigned.
+    // An ASSET PATH, so it joins App::retargetAssetPath.
+    std::string prelitSource;
     // Projected silhouette shadow (runtime, NOT the baked AO above): the
     // game renders this object's silhouette from the sun into a small VRAM
     // target every frame and projects it onto the terrain under it - a
@@ -375,6 +417,15 @@ struct SceneObject {
     // casters are active at a time, each costing a 64x64 silhouette render
     // plus a small terrain patch.
     bool projShadow = false;
+    // Which DYNAMIC shadow this object casts, chosen on the object rather than
+    // for the whole project (docs/shadows.md): 0 = follow the project - which
+    // is exactly what every file written before this key did, i.e. a blob if
+    // Preferences has blob shadows on and the object is one of the moving
+    // things that get them, and a projected silhouette if projShadow is set;
+    // 1 = none; 2 = blob; 3 = projected silhouette. A mode other than 0
+    // OVERRIDES both, so "a model with a blob instead of the full cast" is one
+    // combo away and costs one quad instead of a 64x64 silhouette render.
+    int shadowMode = 0;
     std::string modelPath;    // for PrimitiveType::Model, e.g. "res/models/tree.obj"
     // Material library (.mtl) assigned to the object, e.g.
     // "res/materials/walls.mtl". Primitives take the file's FIRST material
@@ -486,6 +537,14 @@ struct SceneObject {
     float flashlightRange = 30.0f;  // world units
     float flashlightAngle = 20.0f;  // cone half-angle, degrees
     std::string flashlightToggleButton;  // pad button name, e.g. "Circle"; "" = none
+    // Where the torch is HELD, relative to the eye, in world units: right of
+    // the view axis and below it. 0,0 puts the light exactly in the eye,
+    // which is what every project did before this existed - and what makes a
+    // torch light precisely the surfaces it hides (docs/flashlight.md, "How
+    // much of a volume shadow you will actually SEE"). A small offset gives
+    // the beam a hand and its shadows somewhere to fall.
+    float flashlightOffsetRight = 0.0f;
+    float flashlightOffsetDown = 0.0f;
     // Texture of the beam's ground pool (res-relative PNG, e.g.
     // "res/hud/beam.png"). Empty = the built-in procedural corona. The
     // shape must live in the RGB channels: the pool draws additively and
@@ -550,6 +609,26 @@ struct SceneObject {
     // by the Set Light flow node. Max 8 dynamic lights per scene.
     bool lightDynamic = false;
     float lightFlicker = 0.0f;  // 0 = steady .. 1 = full torch-like flicker
+    // Spot style (dynamic lights only): the light becomes a CONE down the
+    // object's local -Y - unrotated it points straight down, a ceiling lamp
+    // or a street light; rotate the object to aim it. The cone lights
+    // nearby meshes per vertex through the same engine slot the flashlight
+    // uses, and its footprint on the ground is drawn like the flashlight's
+    // pool: the gobo texture projected per pixel from the light's own
+    // frustum (docs/flashlight.md, "A scene light with the same trick").
+    bool lightSpot = false;
+    float lightSpotAngle = 25.0f;  // cone half-angle, degrees
+    // Whether THIS spot light carves shadow volumes (docs/shadows.md,
+    // "Spot-light shadow volumes"), said on the light rather than for the
+    // whole project - the SceneObject::shadowMode idiom: 0 = follow the
+    // project (ProjectSettings::spotShadowVolumes), which is what every file
+    // written before this key meant; 1 = off; 2 = on. Only read while
+    // `lightSpot` is set - a point light has no cone to carve.
+    //
+    // A scene may hold more shadow-casting spots than the count band can
+    // serve, so only ONE is active per frame (the nearest to the camera).
+    // Setting 2 on the lamp that matters is how you say which.
+    int lightShadowVolumes = 0;
     // Visible beam drawn at the light source (additive, follows the light's
     // runtime state incl. flicker/Set Light): 0 = none, 1 = glow corona
     // (camera-facing halo), 2 = corona + a cone shaft pointing down (street
@@ -754,7 +833,7 @@ struct SceneObject {
 // ---------------------------------------------------------------------------
 
 // One authored stage. `kind` is a key from vugen::stageDefs(); an unknown one
-// is DROPPED on load rather than guessed at, the flowLegacyNodes rule - a
+// is DROPPED on load rather than guessed at, the readFlowGraph rule - a
 // project written by a newer editor must not silently compile to a different
 // microprogram here.
 struct VuStage {
@@ -908,10 +987,16 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.layer == b.layer &&
            a.primDetail == b.primDetail && a.primRings == b.primRings &&
            a.drawDistance == b.drawDistance &&
+           a.impostorPath == b.impostorPath &&
+           a.impostorDistance == b.impostorDistance &&
+           a.impostorBillboard == b.impostorBillboard &&
+           a.impostorViews == b.impostorViews &&
            a.reflected == b.reflected && a.castShadow == b.castShadow &&
-           a.projShadow == b.projShadow &&
+           a.projShadow == b.projShadow && a.shadowMode == b.shadowMode &&
            a.bakedLighting == b.bakedLighting &&
-           a.dynamicLighting == b.dynamicLighting &&
+           a.dynamicLighting == b.dynamicLighting && a.prelit == b.prelit &&
+           a.prelitWanted == b.prelitWanted && a.prelitSig == b.prelitSig &&
+           a.prelitSource == b.prelitSource &&
            a.modelPath == b.modelPath &&
            a.materialPath == b.materialPath && a.decalProject == b.decalProject &&
            a.playerMode == b.playerMode &&
@@ -945,6 +1030,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.flashlightRange == b.flashlightRange &&
            a.flashlightAngle == b.flashlightAngle &&
            a.flashlightToggleButton == b.flashlightToggleButton &&
+           a.flashlightOffsetRight == b.flashlightOffsetRight &&
+           a.flashlightOffsetDown == b.flashlightOffsetDown &&
            a.flashlightTexture == b.flashlightTexture &&
            a.emitterKind == b.emitterKind &&
            a.emitterCount == b.emitterCount && a.emitterSize == b.emitterSize &&
@@ -960,6 +1047,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.soundOnPlayer == b.soundOnPlayer && a.soundReverb == b.soundReverb &&
            a.soundPriority == b.soundPriority &&
            a.lightBright == b.lightBright && a.lightRadius == b.lightRadius &&
+           a.lightSpot == b.lightSpot && a.lightSpotAngle == b.lightSpotAngle &&
+           a.lightShadowVolumes == b.lightShadowVolumes &&
            a.lightDynamic == b.lightDynamic && a.lightFlicker == b.lightFlicker &&
            a.lightBeam == b.lightBeam &&
            a.cameraFov == b.cameraFov &&
@@ -1044,6 +1133,23 @@ struct ProjectSettings {
     // (DisplayMode::Pal576i). Resolved in the generated main.cpp before
     // engine init; fixed display modes ignore it.
     bool palFullHeight = false;
+
+    // Framebuffer colour depth (docs/gs-vram.md). "32bit" is PSMCT32, the
+    // stock 8-8-8-8 buffer. "16bit" is PSMCT16 (5-5-5-1), which HALVES what
+    // the two frame buffers cost in GS memory - 458 KB -> 229 KB at 512x448,
+    // and more at the taller scan modes - and hands all of it to the texture
+    // heap, roughly doubling it. The price is 32 levels per channel instead
+    // of 256: banding in skies, fog and the post-fx blur, which `dither`
+    // exists to break up. The z buffer FOLLOWS it (PSMZ16 over a PSMCT16
+    // frame - the GS needs the pair to share page geometry), so depth
+    // precision drops with it: keep the near plane up.
+    std::string colorDepth = "32bit";  // "32bit" | "16bit"
+
+    // GS ordered dithering (the DTHE + DIMX registers). The GS only dithers
+    // when it writes a 16-bit destination, so this does nothing at "32bit"
+    // and is what makes "16bit" look graded rather than posterized. On by
+    // default; off is for anyone who wants the flat bands on purpose.
+    bool dither = true;
 
     // 16:9 anamorphic output: widens the projection so proportions are
     // correct on a widescreen TV (the framebuffer stays the same; in 1080i
@@ -1153,6 +1259,15 @@ struct ProjectSettings {
     // file and the generated runtime is an empty translation unit.
     bool remotePad = true;
 
+    // Debug profile only: compile the input recorder into the game
+    // (docs/input-replay.md). Every frame's pad, keyboard and mouse state - and
+    // the frame's own dt - is written to bin/replay.out, and feeding one of
+    // those recordings back makes the game perform the same run again, with the
+    // Live Debugger and the time machine available throughout. Off by default,
+    // unlike the other four: a recording is a file that GROWS while the game
+    // runs, so it is opt-in rather than something a build quietly starts doing.
+    bool inputRecorder = false;
+
     // Debug profile only, EXPERIMENTAL and off by default: install the engine's
     // EE crash handler, which turns a real CPU exception (bad pointer, address
     // error, reserved instruction) into a crash.txt report instead of a silent
@@ -1196,7 +1311,7 @@ struct ProjectSettings {
     // costs EE time. "fast": VU1 cull only - fastest, may drop triangles
     // that extend far beyond the screen.
     // Triangle handling: "vu1" (default - precise clipping in the VU1 clip
-    // programs, no EE cost), "precise" (the legacy EE clipper) or "fast"
+    // programs, no EE cost), "precise" (the older EE clipper) or "fast"
     // (cull-only). Projects saved before the vu1 default keep their value.
     std::string clipping = "vu1";
 
@@ -1276,6 +1391,53 @@ struct ProjectSettings {
     // like the layer streaming). 0 = whole map resident. Large maps at high
     // detail NEED this - the full mesh would not fit in the PS2's 32 MB.
     float terrainViewDistance = 0.0f;  // world units, 0 = off
+    // Distance detail (docs/terrain-lod.md): beyond this range the game builds
+    // terrain chunks from every 2nd heightmap sample, and beyond 2.2x it from
+    // every 4th - a quarter and a sixteenth of the triangles, stitched to their
+    // neighbours so no crack shows. It is the OTHER half of the answer to a big
+    // map: the view distance decides how much terrain exists at all, this
+    // decides what the part you can see costs. 0 = every chunk at full detail,
+    // which is what every project did before the setting existed.
+    // Gameplay is unaffected - collision and every height query read the
+    // heightmap, never the mesh.
+    float terrainLodDistance = 0.0f;  // world units, 0 = off
+    // The flashlight's shadow technique (docs/flashlight.md, "The shadow").
+    // false = silhouette slots: the caster's mesh silhouette from the torch,
+    // sampled on a ground patch and painted on the wall behind - mesh-accurate
+    // SHAPES, but light still leaks through unflagged casters and the four
+    // shadow-map slots are the ceiling. true = SHADOW VOLUMES: extruded
+    // occluder boxes stencil-counted in the framebuffer's destination alpha
+    // (the survival-horror era's own arrangement), and every torch light pass
+    // draws only where the mask says lit - occlusion exact per pixel against
+    // the real z buffer, for EVERY solid in the beam, no caster flag needed.
+    // Costs the volume fill and box-shaped (not mesh-shaped) silhouettes.
+    bool flashShadowVolumes = false;
+    // HIDDEN diagnostic for the count bracket on real hardware ("shadowVolumesDebug"
+    // in the .tyra, no UI, never written unless set). Bisects "who wrote that
+    // pixel" on a console, one boot per mode, with --capture-frame [--alpha]:
+    //   0 normal
+    //   1 count, never resolve (no mask written; dither restored)
+    //   2 clear + resolve, no volumes drawn
+    //   3 resolve draws the band's texels on screen instead of the mask
+    //   5 like 3 but WITH the alpha test (does TEXA.AEM zero a zero texel?)
+    //   6 the real masked write with the alpha test OFF (does FBMSK hold?)
+    //   7 clear only (countBegin, then abort)
+    //   8 no bracket at all (maskClear + repaint only)
+    //   9 countBegin with no clear sprite, then abort
+    // docs/flashlight.md keeps the findings each of these produced.
+    int shadowVolumesDebug = 0;
+    // The same technique offered to the scene's SPOT LIGHTS (docs/shadows.md,
+    // "Spot-light shadow volumes"): a placed light with `lightSpot` on carves
+    // its own occlusion instead of leaving the street lamp shining through the
+    // wall beside it. Project-wide default; a light overrides it on itself
+    // through SceneObject::lightShadowVolumes. false is what every earlier
+    // file did - spot lights took no part in the volume machinery at all.
+    //
+    // The count band it needs is the SAME buffer the torch's volumes use (one
+    // per frame, whoever is counting into it), so switching this on next to
+    // the flashlight costs no second allocation - which is why
+    // textureHeapEstimate charges the band once for the pair.
+    bool spotShadowVolumes = false;
     float skyColor[3] = {0.25f, 0.55f, 0.78f};   // horizon / clear color
     float skyTopColor[3] = {0.08f, 0.3f, 0.65f};  // zenith (gradient dome)
     bool skyDome = true;  // render a gradient sky dome (vs flat clear color)
@@ -1391,6 +1553,41 @@ struct ProjectSettings {
     float giProbeSpacing = 3.0f; // world units between probes, horizontally
     float giProbeHeight = 2.0f;  // ...and between vertical levels
     int giProbeLevels = 4;       // vertical levels above the lowest ground
+
+    // Automatic model AO (docs/ambient-occlusion.md, "Model AO"). Project-wide
+    // for the same reason the GI knobs above are: these are bake quality, not
+    // part of the ambience-preset mood overlay. Nothing here reaches the game -
+    // the occlusion is multiplied into the model's own texture at build
+    // (modelao + texbake), so it costs no extra GS VRAM at all.
+    //
+    // FALSE in the struct, TRUE in project::create (the aoEnabled precedent):
+    // a project saved before this existed must keep its look, a new one should
+    // have it out of the box.
+    bool modelAo = false;
+    // ao' = 1 - strength * (1 - ao). An apply-time remap, so changing it
+    // re-multiplies rather than re-baking.
+    float modelAoStrength = 0.7f;
+    int modelAoRays = 64;      // hemisphere rays per texel
+    float modelAoDist = 0.0f;  // occlusion reach in world units; 0 = auto
+                               // (25% of the model's bounding-box diagonal)
+    // Pre-lit objects (docs/prelit-models.md, "Managing pre-lit objects"):
+    // re-bake every prelitWanted object whose texture went STALE right before
+    // a build, the way stale procedural volumes are baked. Off by default and
+    // deliberately so - the gibake rule is that a bake taking seconds is
+    // pressed, not implied; this is the opt-in for a project whose author
+    // would rather never see a stale texture ship. Only stale objects are
+    // touched, so a build with everything fresh costs nothing.
+    bool prelitAutoBake = false;
+    // The same opt-in for global illumination (docs/global-illumination.md,
+    // "The bake is explicit, and cached"): re-bake every scene whose GI cache
+    // is absent or STALE right before a build. Off by default for the same
+    // reason - and because a GI bake is minutes on a big scene - but the
+    // silent alternative is worse than it looks: a stale cache drops the whole
+    // scene back to the pre-GI lighting without a word, and both GI examples
+    // shipped that way for a while before anyone noticed. Only stale scenes are
+    // touched (content-hashed cache), so a build with everything fresh costs one
+    // signature pass. Requires giEnabled; does nothing otherwise.
+    bool giAutoBake = false;
 
     // Terrain material (.mtl asset; empty = checker greens). The first
     // material's Kd tints the terrain; its map_Kd (when present) textures it,
@@ -1518,6 +1715,12 @@ struct ProjectSettings {
     // the object rises. Project-wide; grounds objects visually for almost
     // nothing (one quad per object).
     bool blobShadows = false;
+    // How far from the camera a PROJECTED silhouette shadow is still drawn,
+    // in world units (docs/shadows.md, "Distance"). A caster past it takes no
+    // slot; the shadow dissolves over the last 30 % of the way there, so the
+    // edge is never a pop. Used to be a constant 50 (fading from 35); the
+    // four slots are a project-wide budget, so the reach is project-wide too.
+    float projShadowDistance = 50.0f;
 
     // In-game outline around usable objects while the player is within
     // highlightDistance (fading silhouette shells drawn after the scene).
@@ -1535,13 +1738,37 @@ struct ProjectSettings {
     bool highlightOverlay = false;
 };
 
+static_assert(sizeof(ProjectSettings) == 712,
+              "ProjectSettings changed size - a field was added or removed. "
+              "Add it to operator== below as well, or its Preferences widget "
+              "will silently do nothing; then update this number.");
+
+// EVERY FIELD MUST BE LISTED HERE. This is not tidiness: Project Preferences
+// edits a COPY of this struct and writes it back only when this operator says
+// something changed, so a field missing here makes its widget DEAD - the click
+// registers, the copy changes, the comparison says "no", and the next frame
+// re-seeds the widget from the unchanged model. It looks exactly like a
+// checkbox that does not work, with nothing in any log.
+//
+// It happened: `textureQuant` and `textureAtlas` were never added when texture
+// atlasing landed, so *Preferences > Rendering > Texture atlasing* and the
+// texture-quality combo beside it could not be changed from the UI at all -
+// only by editing the .tyra. Reported as "I click it and nothing happens".
+//
+// The static_assert below is the guard that outlives this comment: add a field
+// to ProjectSettings and the size changes, the assert fires, and you are made
+// to come here. It is a REMINDER, not a proof - if you have added your field to
+// this operator and the number is merely stale, update it.
 inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
     auto eq3 = [](const float* x, const float* y) {
         return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
     };
     return a.videoSystem == b.videoSystem && a.buildProfile == b.buildProfile &&
+           a.textureQuant == b.textureQuant &&
+           a.textureAtlas == b.textureAtlas &&
            a.displayMode == b.displayMode &&
            a.palFullHeight == b.palFullHeight &&
+           a.colorDepth == b.colorDepth && a.dither == b.dither &&
            a.supportedModes == b.supportedModes && a.widescreen == b.widescreen &&
            a.tripleBuffering == b.tripleBuffering &&
            a.frameExtrapolation == b.frameExtrapolation &&
@@ -1554,6 +1781,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.liveLink == b.liveLink && a.liveDebug == b.liveDebug &&
            a.liveLogic == b.liveLogic && a.timeMachine == b.timeMachine &&
            a.remotePad == b.remotePad &&
+           a.inputRecorder == b.inputRecorder &&
            a.eeCrashHandler == b.eeCrashHandler &&
            a.keyboardMouse == b.keyboardMouse &&
            a.keyboardMousePs2Link == b.keyboardMousePs2Link &&
@@ -1569,6 +1797,10 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.unitsPerMeter == b.unitsPerMeter &&
            a.terrainDetail == b.terrainDetail &&
            a.terrainViewDistance == b.terrainViewDistance &&
+           a.terrainLodDistance == b.terrainLodDistance &&
+           a.flashShadowVolumes == b.flashShadowVolumes &&
+           a.shadowVolumesDebug == b.shadowVolumesDebug &&
+           a.spotShadowVolumes == b.spotShadowVolumes &&
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
            a.skyDome == b.skyDome && a.zenithSize == b.zenithSize &&
            a.eyeHeight == b.eyeHeight &&
@@ -1594,6 +1826,11 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.giProbeSpacing == b.giProbeSpacing &&
            a.giProbeHeight == b.giProbeHeight &&
            a.giProbeLevels == b.giProbeLevels &&
+           a.modelAo == b.modelAo &&
+           a.modelAoStrength == b.modelAoStrength &&
+           a.modelAoRays == b.modelAoRays && a.modelAoDist == b.modelAoDist &&
+           a.prelitAutoBake == b.prelitAutoBake &&
+           a.giAutoBake == b.giAutoBake &&
            a.terrainMaterial == b.terrainMaterial && a.bloom == b.bloom &&
            a.bloomThreshold == b.bloomThreshold &&
            a.bloomSpread == b.bloomSpread &&
@@ -1601,6 +1838,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.dofFocus == b.dofFocus && a.dofRange == b.dofRange &&
            a.flare == b.flare && a.godRays == b.godRays &&
            a.blobShadows == b.blobShadows &&
+           a.projShadowDistance == b.projShadowDistance &&
            a.blssEnabled == b.blssEnabled && a.blssScale == b.blssScale &&
            a.blssNetwork == b.blssNetwork &&
            a.blssSharpen == b.blssSharpen &&
@@ -1667,6 +1905,32 @@ inline bool operator==(const SceneOverrides& a, const SceneOverrides& b) {
 
 class History;
 
+// A looped animation on a HUD element (docs/hud-animation.md). Sprite
+// properties only - position, scale, alpha - so it costs a few floats per
+// frame and never re-bakes anything. `kind` is hudanim::Kind (0 = none);
+// `period` is seconds per cycle; `amount` is pixels for the moving kinds, a
+// 0..1 depth for Pulse/Blink, a scale fraction for Breathe.
+struct HudAnim {
+    int kind = 0;
+    float period = 1.0f;
+    float amount = 4.0f;
+};
+
+inline bool operator==(const HudAnim& a, const HudAnim& b) {
+    return a.kind == b.kind && a.period == b.period && a.amount == b.amount;
+}
+
+// How a HUD element arrives and leaves when a flow node shows or hides it.
+// `kind` is hudanim::Transition (0 = cut, the classic behaviour).
+struct HudTransition {
+    int kind = 0;
+    float duration = 0.25f;  // seconds
+};
+
+inline bool operator==(const HudTransition& a, const HudTransition& b) {
+    return a.kind == b.kind && a.duration == b.duration;
+}
+
 // A HUD image (PNG sprite) drawn on top of the 3D scene.
 struct HudImage {
     std::string name;
@@ -1688,13 +1952,23 @@ struct HudImage {
     // 16-color. Lets an important HUD element keep full color while the rest
     // of the project runs quantized (or vice versa).
     std::string texQuant;
+
+    // Motion (docs/hud-animation.md). Only the HUD stack reads these - a
+    // loading-screen or splash image carries them at their defaults and
+    // ignores them. `visibleAtStart` false = hidden until a Set HUD Element
+    // Visible node shows it; the classic default is shown.
+    HudAnim anim;
+    HudTransition transition;
+    bool visibleAtStart = true;
 };
 
 inline bool operator==(const HudImage& a, const HudImage& b) {
     return a.name == b.name && a.imagePath == b.imagePath &&
            a.pos[0] == b.pos[0] && a.pos[1] == b.pos[1] &&
            a.size[0] == b.size[0] && a.size[1] == b.size[1] &&
-           a.texW == b.texW && a.texH == b.texH && a.texQuant == b.texQuant;
+           a.texW == b.texW && a.texH == b.texH && a.texQuant == b.texQuant &&
+           a.anim == b.anim && a.transition == b.transition &&
+           a.visibleAtStart == b.visibleAtStart;
 }
 
 // The built-in "USE" prompt as a customizable HUD element (Tools > UI
@@ -1886,6 +2160,11 @@ struct HudText {
     std::string font;
     bool shadow = true;           // 1px dark offset behind the glyphs
     bool visibleAtStart = false;  // shown when the scene starts
+    // Motion (docs/hud-animation.md): a loop while shown, and how the text
+    // arrives/leaves when Set Text Visible fires. Loading-screen texts and
+    // the prompts ignore both.
+    HudAnim anim;
+    HudTransition transition;
 };
 
 inline bool operator==(const HudText& a, const HudText& b) {
@@ -1893,7 +2172,69 @@ inline bool operator==(const HudText& a, const HudText& b) {
            a.pos[1] == b.pos[1] && a.size == b.size &&
            a.color[0] == b.color[0] && a.color[1] == b.color[1] &&
            a.color[2] == b.color[2] && a.font == b.font &&
-           a.shadow == b.shadow && a.visibleAtStart == b.visibleAtStart;
+           a.shadow == b.shadow && a.visibleAtStart == b.visibleAtStart &&
+           a.anim == b.anim && a.transition == b.transition;
+}
+
+// A live bar on the HUD (Tools > UI Editor > Bars, docs/hud-animation.md): a
+// health bar, a stamina bar, a "3 of 5 keys" strip. Nothing is baked for it -
+// the fill is a tinted white quad (or a cropped image) sized every frame from
+// a value the game owns, so it costs 2-4 sprites and no texture. The value
+// comes from a save value read every frame (`source`), or from the Set HUD
+// Bar flow node when there is none; either way it is mapped through
+// min/max to a 0..1 fill. The fill EASES toward the new value (`smoothing`)
+// and an optional ghost strip lingers where the fill used to be - the classic
+// "damage just taken" chip.
+struct HudBar {
+    std::string name = "bar";
+    int kind = 0;                    // 0 = continuous fill, 1 = quantized segments
+    float pos[2] = {0.5f, 0.08f};    // normalized screen position (center anchor)
+    float size[2] = {160.0f, 12.0f}; // total on-screen size in px (512x448 screen)
+    float bgColor[3] = {0.12f, 0.12f, 0.12f};   // track / unlit segment tint
+    float fillColor[3] = {0.85f, 0.2f, 0.15f};  // fill / lit segment tint
+    float ghostColor[3] = {1.0f, 0.85f, 0.35f}; // the lingering "just lost" strip
+    bool ghost = true;               // draw the ghost strip at all
+    bool rightToLeft = false;        // fill anchored on the right (a mirrored P2 bar)
+    float smoothing = 0.25f;         // seconds the fill takes to reach a new value (0 = snap)
+    float lowFraction = 0.25f;       // below this fill the bar pulses (0 = never)
+    int segments = 5;                // quantized only (2..16)
+    float spacing = 4.0f;            // quantized: gap between segments, px
+    // Value: a save value name read every frame ("" = the Set HUD Bar node
+    // alone drives it, starting at startValue). min/max map it to the fill.
+    std::string source;
+    float minValue = 0.0f;
+    float maxValue = 100.0f;
+    float startValue = 100.0f;
+    // Optional images, both baked like any HUD image (pow2 + quantization):
+    // fillImage replaces the flat fill (cropped to the fraction, tinted by
+    // fillColor - white = untinted; a quantized bar draws it per segment);
+    // frameImage is drawn over the bar at the bar's position with its own
+    // size, so a decorated border can wrap the fill. Their pos is ignored.
+    HudImage fillImage;
+    HudImage frameImage;
+    // Motion, like a HUD image: a loop, a show/hide transition, and whether
+    // it is on screen when the scene starts.
+    HudAnim anim;
+    HudTransition transition;
+    bool visibleAtStart = true;
+};
+
+inline bool operator==(const HudBar& a, const HudBar& b) {
+    auto eq3 = [](const float* x, const float* y) {
+        return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
+    };
+    return a.name == b.name && a.kind == b.kind && a.pos[0] == b.pos[0] &&
+           a.pos[1] == b.pos[1] && a.size[0] == b.size[0] &&
+           a.size[1] == b.size[1] && eq3(a.bgColor, b.bgColor) &&
+           eq3(a.fillColor, b.fillColor) && eq3(a.ghostColor, b.ghostColor) &&
+           a.ghost == b.ghost && a.rightToLeft == b.rightToLeft &&
+           a.smoothing == b.smoothing && a.lowFraction == b.lowFraction &&
+           a.segments == b.segments && a.spacing == b.spacing &&
+           a.source == b.source && a.minValue == b.minValue &&
+           a.maxValue == b.maxValue && a.startValue == b.startValue &&
+           a.fillImage == b.fillImage && a.frameImage == b.frameImage &&
+           a.anim == b.anim && a.transition == b.transition &&
+           a.visibleAtStart == b.visibleAtStart;
 }
 
 // A prompt text's starting state. HudText's own default is "New text" (right
@@ -2338,8 +2679,9 @@ struct MenuEntry {
     // BindDisplayMode rows only: the Tyra::DisplayMode each option drives
     // (parallel to `options`, values 0..4; -1 = the project-default mode,
     // resolved at boot on the player's console - region + the PAL-picture
-    // preference). Empty = the option index itself (the legacy positional
-    // mapping), so old projects behave unchanged.
+    // preference). The Menu Editor keeps it the same length as `options`;
+    // codegen fills a short one in positionally so the generated table always
+    // has an entry per option.
     std::vector<int> optionModes;
     // Ready-made "option block" binding (Menu Editor > Insert option block).
     // On a Toggle/Choice row this makes the generated game map the row's
@@ -2808,6 +3150,9 @@ struct Project {
     // On-screen texts baked to sprites at build, triggered by the Show Text /
     // Hide Text flow nodes (Tools > UI Editor > Texts).
     std::vector<HudText> hudTexts;
+    // Live bars - health, stamina, progress (Tools > UI Editor > Bars,
+    // docs/hud-animation.md). Drawn above the HUD stack, under the texts.
+    std::vector<HudBar> hudBars;
     // Where the full-screen post effects sit in the screen stack (Tools > UI
     // Editor). Bloom (with color grading) and film grain are placed
     // independently: the effect applies right before the HUD sprite at that
@@ -2923,6 +3268,37 @@ struct Project {
     // Only used when a mesh LOD distance is in play (Preferences > Rendering
     // or a per-object override) - see docs/model-pipeline.md.
     std::map<std::string, std::vector<std::string>> modelLods;
+    // Per-asset override of ProjectSettings::modelAo, keyed by the model's
+    // asset path ("res/models/shed.obj"): 1 = always bake its self-AO into its
+    // texture, 2 = never. Absent (or 0) follows the project default, which is
+    // why an untouched project writes no key at all. See modelao.hpp.
+    // Deliberately NOT part of rebuildAssetUsage - it is a SETTING keyed by an
+    // asset, not a reference to one, and counting it as a use would make every
+    // imported model read as used.
+    std::map<std::string, int> modelAoMode;
+    // Per-TEXTURE atlas control (docs/texture-atlasing.md), keyed by the
+    // texture's res-relative path ("res/models/kenney/Textures/wall.png").
+    // Two independent decisions, both absent by default:
+    //   keepOut - never pack this texture into a page. The escape hatch for
+    //     a texture whose colours must not share a page's palette, or that a
+    //     streamed layer should be able to drop on its own. (Pinning a
+    //     per-asset textureQuality has always had this side effect; this is
+    //     the same decision said out loud.)
+    //   group - pack it with everything carrying the SAME group name instead
+    //     of with its .mtl's directory. A page is one allocation and one
+    //     shared palette, so grouping should follow what is on screen
+    //     together - which the folder layout only approximates.
+    struct AtlasControl {
+        bool keepOut = false;
+        std::string group;
+        // Requested page depth for the GROUP this texture lands in: 0 = follow
+        // the project's texture quality, else 4 / 8 / 32 bits per pixel. A
+        // group takes the HIGHEST depth any member asks for - the same
+        // "highest wins" rule textureQuality uses - so pinning one texture
+        // lifts the page it shares instead of splitting it.
+        int pageBits = 0;
+    };
+    std::map<std::string, AtlasControl> atlasControl;
     // Real-world size of an imported model, keyed by its asset path:
     // how many METERS one unit of the file measures. An entry exists only
     // for models whose real size is known - written when a model is imported
@@ -3046,6 +3422,26 @@ struct Project {
     // Viewport camera projection (Viewport::Projection): 0 perspective,
     // 1 ortho (free), 2..7 the locked Top/Bottom/Front/Back/Right/Left views.
     int viewProjection = 0;
+    // Where the viewport camera was pointing, so reopening a project puts you
+    // back where you left off instead of at a default that is usually outside
+    // the scene's own fog. The orbit camera IS these five numbers (yaw, pitch,
+    // distance, pivot) - the same ones Viewport::camState reads - so there is
+    // nothing to reconstruct and no matrix to keep in sync.
+    //
+    // Editor state, exactly like viewMode above: read off the viewport at save
+    // time, never dirties the project and never enters undo. Defaults match
+    // the viewport's own, so a project that predates the key opens where it
+    // always did.
+    float viewCamYaw = 0.8f;
+    float viewCamPitch = 0.6f;
+    float viewCamDist = 90.0f;
+    float viewCamTarget[3] = {0.0f, 0.0f, 0.0f};
+    // View > Distance fog: the viewport's own fog switch, which is NOT the
+    // scene's fogEnabled - it suppresses the preview of a fog the game still
+    // has, so you can see past it while authoring. Persisted for the same
+    // reason as the camera above: it is where you left the viewport, and a
+    // view setting that resets on every open reads as one that was not saved.
+    bool viewShowFog = true;
     // Live Debugger breakpoints (docs/live-debugger.md), as
     // "<objectId>:<nodeId>" - the owning object's stable id and the flow-graph
     // node id, so they survive renames, reorders and rebuilds. Personal
@@ -3054,7 +3450,7 @@ struct Project {
     std::vector<std::string> debugBreakpoints;
     // Named window layouts (docking arrangements), switchable from the Layout
     // menu and edited by simply rearranging windows. Every project keeps at
-    // least one; seedBuiltinLayouts() fills a fresh/legacy project with the
+    // least one; seedBuiltinLayouts() fills a project that carries none with the
     // Default/Director/Material built-ins. activeLayout indexes into this list.
     std::vector<WindowLayout> windowLayouts;
     int activeLayout = 0;
@@ -3143,6 +3539,23 @@ struct TripleBufferFit {
     std::string mode;     // the display-mode key this answer is for
 };
 TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s);
+
+// What is left for TEXTURES after the renderer has taken its permanent region,
+// in KB, for the project's boot display mode. The same arithmetic the fit
+// above runs, asked the other way round - because the question an author hits
+// in practice is not "does a third buffer fit" but "why is my scene suddenly
+// re-uploading textures every frame". Flashlight shadow volumes are the usual
+// answer: their count band is 512 KB at 32-bit colour, and a 512x512 project
+// has about that much left in the first place (measured on a hand-made scene:
+// 0.375 MB free with the volumes off, 0.000 MB and ~1.6 texture re-uploads per
+// FRAME with them on). Preferences shows this beside the switch.
+struct TextureHeapEstimate {
+    int freeKb = 0;      // with the current settings
+    int withoutKb = 0;   // the same project with shadow volumes off
+    int countBandKb = 0; // what the volumes' count band takes
+};
+TextureHeapEstimate textureHeapEstimate(const Project& p,
+                                        const ProjectSettings& s);
 // The same question for an EXPLICIT display mode, which is the form that
 // matters: the boot mode is not the only one the game runs in.
 // RendererCore::setDisplayOutput re-lays the whole VRAM region on a runtime
@@ -3191,9 +3604,8 @@ std::string create(Project& out, const std::string& name, const std::string& par
 
 // Fills p.windowLayouts with the three built-in layouts (Default, Director,
 // Material Designer) as recipe-backed entries with empty ini, and resets
-// activeLayout to 0. Used for fresh projects and to migrate older projects that
-// predate named layouts. A pre-existing single "layout" dump can be preserved
-// by the caller by assigning it into windowLayouts[0].ini after seeding.
+// activeLayout to 0. Used for a fresh project and for one whose manifest
+// carries no "layouts" array.
 void seedBuiltinLayouts(Project& p);
 
 // A fresh opaque object id (16 hex chars from a 64-bit random value). Unique
@@ -3357,6 +3769,7 @@ enum class Section {
     Audio,           // "music", "musicBuild", "sounds"
     TexQuality,      // "textureQuality" (per-asset overrides)
     ModelLods,       // "modelLods" (per-model custom LOD meshes)
+    ModelAo,         // "modelAoMode" (per-model automatic-AO overrides)
     SaveData,        // "saveValues", "saveTexts"
     Gradings,        // "gradings", "defaultGrading"
     Ambience,        // "ambience", "defaultAmbience"
@@ -3373,6 +3786,7 @@ enum class Section {
     VuPrograms,      // "vu" (the project's own VU1 programs and VU0 kernel)
     Facts,           // "facts", "factQueries", "factRules", "factScenarios"
     BlssShots,       // "blssShots" (the neural upscaler's training-shot plan)
+    Atlas,           // "atlasControl" (per-texture atlas keep-out / group)
     Count            // not a section - the enum size, see kSectionCount below
 };
 // KEEP THIS EQUAL TO THE ENUM SIZE. save() loops sections by index, so a count
@@ -3384,7 +3798,7 @@ enum class Section {
 // static_assert below is the fix that outlives the comment: Section::Count is
 // maintained by the compiler, so the next section to arrive cannot repeat this.
 enum : int { kSectionCount = (int)Section::Count };
-static_assert(kSectionCount == 21,
+static_assert(kSectionCount == 23,
               "A section was added or removed - check that everything which "
               "loops sections by index (save(), the collaboration shadow) "
               "still means what it says, then update this number.");
@@ -3729,5 +4143,15 @@ bool liveLinkCanSpawnLive(const SceneObject& o);
 uint64_t liveLinkContextHash(const Project& p);
 // The whole as-built record written to bin/livelink.sig.
 std::string liveLinkSigFile(const Project& p);
+
+// --- Input recorder (docs/input-replay.md) ----------------------------------
+// Identity of the world a recording was made against: scene shapes, the input
+// map, and the settings that decide which input SOURCES exist. A replay whose
+// hash disagrees still runs - the fingerprint check is what reports the actual
+// divergence - but the mismatch is worth a line in the log, because "somebody
+// edited the scene" is by far the commonest reason a replay stops matching.
+// Baked into the recording's header by the game and re-derived here for the
+// warning, so there is exactly one definition of what "the same world" means.
+uint64_t inputLayoutHash(const Project& p);
 
 }  // namespace project

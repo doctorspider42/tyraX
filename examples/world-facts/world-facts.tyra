@@ -1,7 +1,7 @@
 {
   "name": "world-facts",
-  "formatVersion": 7,
-  "editorVersion": "1.8.0",
+  "formatVersion": 23,
+  "editorVersion": "1.31.1",
   "template": "fpp",
   "projectId": "74214fd3e0c69d8a",
   "settings": {
@@ -87,6 +87,13 @@
     "flare": 0,
     "godRays": 0,
     "blobShadows": false,
+    "blssEnabled": false,
+    "blssScale": 0,
+    "blssNetwork": true,
+    "blssSharpen": 0.5,
+    "blssTemporal": true,
+    "blssJitter": false,
+    "blssDebugView": 0,
     "fogEnabled": false,
     "fogColor": [0.5, 0.5, 0.55],
     "fogStart": 15,

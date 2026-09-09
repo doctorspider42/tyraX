@@ -77,7 +77,8 @@ void StaPipQBufferRenderer::allocateOnUse() {
   // (matcap) camera basis added two unpack blocks to sendObjectData.
   // Modified by TyraX: 48 -> 52 - the billboard basis unpack (2 qwords
   // + headers).
-  objectDataPacket = packet2_create(52, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
+  // Four inline lighting qwords replace the former REF payload.
+  objectDataPacket = packet2_create(56, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
 
   packets = new packet2_t*[2];
   for (u16 i = 0; i < 2; i++)
@@ -245,6 +246,8 @@ StaPipClipperSpot buildSpotForBag(const RendererCoreSpotLight& spot,
 
 void StaPipQBufferRenderer::sendObjectData(
     StaPipBag* bag, M4x4* mvp, RendererCoreTextureBuffers* texBuffers) {
+  // The previous DMA must finish before reusing its packet storage.
+  dma_channel_wait(DMA_CHANNEL_VIF1, 0);
   packet2_reset(objectDataPacket, false);
   packet2_utils_vu_add_unpack_data(objectDataPacket, VU1_MVP_MATRIX_ADDR,
                                    mvp->data, 4, false);
@@ -256,10 +259,18 @@ void StaPipQBufferRenderer::sendObjectData(
     packet2_utils_vu_add_unpack_data(
         objectDataPacket, VU1_LIGHTS_DIRS_ADDR,
         bag->lighting->dirLights->getLightDirections(), 3, false);
-
-    packet2_utils_vu_add_unpack_data(objectDataPacket, VU1_LIGHTS_COLORS_ADDR,
-                                     bag->lighting->dirLights->getLightColors(),
-                                     4, false);
+    // add_unpack_data emits a DMA REF, not a copy. The mode-adjusted
+    // colors must live in the packet, never in a temporary stack array.
+    const Vec4* colors = bag->lighting->dirLights->getLightColors();
+    packet2_utils_vu_open_unpack(objectDataPacket, VU1_LIGHTS_COLORS_ADDR, false);
+    for (int i = 0; i < 4; ++i) {
+      packet2_add_float(objectDataPacket, colors[i].x);
+      packet2_add_float(objectDataPacket, colors[i].y);
+      packet2_add_float(objectDataPacket, colors[i].z);
+      packet2_add_float(objectDataPacket, i == 3
+          ? (bag->lighting->dirLights->signedSH ? -1.0F : 0.0F) : colors[i].w);
+    }
+    packet2_utils_vu_close_unpack(objectDataPacket);
   }
 
   // Modified by TyraX: dynamic light for the color programs - the per-bag
@@ -370,10 +381,16 @@ void StaPipQBufferRenderer::sendObjectData(
 
     packet2_utils_gs_add_lod(objectDataPacket, lod);
 
+    // Modified by TyraX: the destination-alpha gate (PipelineInfoBag::
+    // dateLit) rides the same in-band TEST qword every mesh already emits -
+    // DATE = 1 draws this bag's pixels only where the framebuffer alpha's
+    // MSB is 0, which is how the flashlight's shadow volumes mask its light.
+    const int date = bag->info->dateLit ? 1 : 0;
     if (bag->info->zTestType == PipelineZTest_AllPass) {
-      packet2_add_2x_s64(objectDataPacket,
-                         GS_SET_TEST(0, 0, 0, 0, 0, 0, 0, ZTEST_METHOD_ALLPASS),
-                         GS_REG_TEST);
+      packet2_add_2x_s64(
+          objectDataPacket,
+          GS_SET_TEST(0, 0, 0, 0, date, 0, 0, ZTEST_METHOD_ALLPASS),
+          GS_REG_TEST);
     } else if (bag->info->zTestType == PipelineZTest_TestOnly) {
       // Depth-tested, no z write: alpha test fails every pixel and AFAIL
       // keeps the z buffer (GS FB_ONLY - color still written). The ZBUF
@@ -381,7 +398,7 @@ void StaPipQBufferRenderer::sendObjectData(
       packet2_add_2x_s64(
           objectDataPacket,
           GS_SET_TEST(DRAW_ENABLE, ATEST_METHOD_ALLFAIL, 0x00,
-                      ATEST_KEEP_ZBUFFER, DRAW_DISABLE, DRAW_DISABLE,
+                      ATEST_KEEP_ZBUFFER, date, DRAW_DISABLE,
                       DRAW_ENABLE, rendererCore->gs.zBuffer.method),
           GS_REG_TEST);
     } else {
@@ -397,7 +414,7 @@ void StaPipQBufferRenderer::sendObjectData(
       packet2_add_2x_s64(
           objectDataPacket,
           GS_SET_TEST(DRAW_ENABLE, ATEST_METHOD_NOTEQUAL, 0x00, ATEST_KEEP_ALL,
-                      DRAW_DISABLE, DRAW_DISABLE, DRAW_ENABLE,
+                      date, DRAW_DISABLE, DRAW_ENABLE,
                       rendererCore->gs.zBuffer.method),
           GS_REG_TEST);
     }
@@ -463,16 +480,19 @@ void StaPipQBufferRenderer::sendObjectData(
   // additiveBlendFix for Cv = Cs*FIX/128 + Cd.
   {
     const u8 fix = bag->info->additiveBlendFix;
+    const u8 sub = bag->info->subtractiveBlendFix;
+    // Subtractive wins over additive when both are set: (0 - Cs)*FIX + Cd,
+    // clamped at 0 - the shadow volumes' count-down pass.
     packet2_utils_vu_open_unpack(objectDataPacket, VU1_ALPHA_ADDR, false);
     packet2_add_2x_s64(objectDataPacket,
-                       fix != 0 ? GS_SET_ALPHA(0, 2, 2, 1, fix)
-                                : GS_SET_ALPHA(0, 1, 0, 1, 0),
+                       sub != 0   ? GS_SET_ALPHA(2, 0, 2, 1, sub)
+                       : fix != 0 ? GS_SET_ALPHA(0, 2, 2, 1, fix)
+                                  : GS_SET_ALPHA(0, 1, 0, 1, 0),
                        GS_REG_ALPHA);
     packet2_utils_vu_close_unpack(objectDataPacket);
   }
 
   packet2_utils_vu_add_end_tag(objectDataPacket);
-  dma_channel_wait(DMA_CHANNEL_VIF1, 0);
   dma_channel_send_packet2(objectDataPacket, DMA_CHANNEL_VIF1, true);
 }
 

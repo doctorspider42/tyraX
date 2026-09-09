@@ -1,0 +1,1 @@
+{ "id": "bb22000000000014", "name": "scaffolding", "type": "model", "position": [8.2, 0, -10.4], "rotation": [0, 0, 0], "scale": [3.2, 3.2, 3.2], "color": [1, 1, 1], "physics": false, "model": "res/models/kenney/scaffolding-structure.obj" }

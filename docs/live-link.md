@@ -49,6 +49,12 @@ Live:
 - a Player object's **walk / run / sprint speeds** (the resolved values, so the
   sprint multiplier's effect streams too) — tuning movement feel is exactly the
   edit-run loop a rebuild would ruin ([player-speeds.md](player-speeds.md));
+- a **dynamic light's** pose, color, **brightness, radius, flicker and spot
+  cone angle** — the game reads them from object data every frame, so aiming
+  a spot lamp streams like dragging a crate. (Baked lights still rebuild:
+  their light lives in vertex colors. So do a dynamic light's *Dynamic* flag,
+  its *Beam* and the *Spot* style itself — those pick bags and textures at
+  scene setup.);
 - **adding objects** — a new object is instantiated through the game's runtime
   spawn pool by cloning an authored object with the same "recipe" (same type,
   model, material, detail, layer, physics…), then patched to its own
@@ -56,8 +62,8 @@ Live:
   inserted object just appears in the game. Up to 32 live-added objects
   (the spawn pool size);
 - **deleting objects** — the deleted object is hidden in the running game
-  (its baked geometry stays until a rebuild, and — like the *Hide Object*
-  flow node — collision remains). Undo restores it live;
+  (its baked geometry stays until a rebuild, and — like the *Set Object
+  Visible* node's **hide** pin — collision remains). Undo restores it live;
 - **renames and reorders** — records address objects by a stable id, so both
   are non-events for the session.
 
@@ -75,8 +81,9 @@ Needs a build — the chip flips to amber instead of applying something wrong:
   **projecting decals** (baked host projection), **mirrors** (baked reflection
   table), **portals** (baked PORTALS link table), or objects carrying a
   **flow graph / attached scripts** (compiled per authored object);
-- editing an existing point light / projecting decal (their transforms are
-  baked at build);
+- editing an existing **baked** point light / projecting decal (their
+  transforms are baked at build) — a **dynamic** light's edits stream, see
+  above;
 - streaming-layer definitions, scene add/remove.
 
 Other non-live properties (sky, terrain sculpting, HUD…) don't endanger the
@@ -174,7 +181,7 @@ existing.
   the next build (spawning refuses such objects — amber chip — so this can't
   surprise you silently).
 - Deleting live hides the object; its collision stays until a rebuild
-  (exactly the *Hide Object* approximation).
+  (exactly the *Set Object Visible* **hide** approximation).
 - An object that physics is actively moving is snapped back once per edit —
   the same behavior a *Set Position* flow node has.
 - On a real PS2 the poll cadence is ~0.5 s to keep the ps2link file server

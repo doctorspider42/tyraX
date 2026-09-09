@@ -24,9 +24,12 @@ for people building games with it. Internals live in code comments, the git log
   plane is optional; what "no terrain" means in the editor and in the game.
 - [Terrain painting](terrain-painting.md) — blending grass/rock/path layers
   with a brush, two-pass GS splatting, stochastic tiling.
+- [Terrain distance detail (LOD)](terrain-lod.md) — far tiles built from fewer
+  heightmap samples, stitched so no crack shows; what makes a big map drawable.
 - [Areas (invisible volumes)](areas.md) — the box that replaces hand-typed
   distances: streaming zones, catch lists for mirrors/portals/feeds, the In
   Area trigger, reverb rooms.
+- [Selecting objects](object-selection.md) — visible mesh priority, AABB fallback and full-model selection outlines.
 - [Placing objects: surface snapping and deferred paste](object-placement.md) —
   objects that rest on what's below them, `End` to drop, paste that follows the
   cursor.
@@ -54,6 +57,16 @@ for people building games with it. Internals live in code comments, the git log
   256x256 pages and what that reclaims in GS VRAM.
 - [Emissive materials (glow)](emissive-materials.md) — self-lit materials, the
   white-hot core, bloom threshold and spread, and baked emissive light.
+- [Pre-lit models (light baked into the texture)](prelit-models.md) — per-pixel
+  static light on a TEXTURED model, the way the PS2 era did it, why the lightmap
+  cannot do it, and how a scene's pre-lit objects are tracked, batch-baked and
+  reverted.
+- [The flashlight](flashlight.md) — the player's torch: the per-vertex cone, the
+  projected ground pool, and the gobo texture that decides its shape.
+- [Dynamic shadows](shadows.md) — the two runtime shadows an object can cast (a
+  blob or a real projected silhouette, chosen per object), and the shadow
+  volumes a scene's spot lights can carve — with the reason only one spot casts
+  per frame, and how the four silhouette slots change hands without blinking.
 - [Reflective materials (sphere-mapped "chrome")](reflective-materials.md) —
   the PS2-era fake for car paint, static or re-rendered from the live sky.
 - [Raytraced reflections (VU0, experimental PoC)](raytraced-reflections.md) — a
@@ -63,7 +76,9 @@ for people building games with it. Internals live in code comments, the git log
 - [Portals](portals.md) — the linkable surface that shows a live through-view
   and teleports whatever walks in, velocity included.
 - [Baked ambient occlusion (contact shadows)](ambient-occlusion.md) — soft
-  shadows where geometry meets, and the knobs.
+  shadows where geometry meets, and the knobs; plus **Model AO**, each `.obj`
+  model's own self-occlusion baked automatically into the texture it already
+  ships, for no extra VRAM.
 - [Baked global illumination + light probes](global-illumination.md) — a
   multi-bounce lightmap plus a probe grid, traced on your desktop so the
   console pays nothing.
@@ -93,6 +108,9 @@ for people building games with it. Internals live in code comments, the git log
   the EE, and the guard-wiring flow nodes.
 - [Configurable buttons & keys](input-bindings.md) — named actions, binding
   presets, the in-game rebind menu, the On Action / On Key nodes.
+- [Where the player starts](player-start.md) — position, starting height, and
+  heading + pitch from the Player object's rotation; how to freeze the camera
+  for a repeatable screenshot.
 - [Player speeds: walk, run and sprint](player-speeds.md) — the three movement
   tiers of a Player object, how the stick's deflection ramps walk into run while
   the sprint button pins the top flat, and what an unset tier inherits.
@@ -112,6 +130,8 @@ for people building games with it. Internals live in code comments, the git log
   meshes; the PS2 never sees a graph.
 - [Runtime procedural generation](procedural-runtime.md) — the same graph
   evaluated on the EE at load, plus Blocks Fill for block worlds.
+- [Distant model impostors](impostors.md) - offline tree captures and distance-based model replacement.
+- [Rendering directions](rendering-directions.md) - assessed priorities for a PS2 visual showcase.
 - [Tree Generator](tree-generator.md) — procedural low-poly trees baked to
   ordinary `.obj` + textures.
 - [Drone Generator (ambient music)](drone-generator.md) — the built-in ambient
@@ -124,6 +144,8 @@ for people building games with it. Internals live in code comments, the git log
 
 **The game around the game**
 
+- [Animated HUD](hud-animation.md) — live health/stamina/progress bars,
+  per-element looped motion, show/hide transitions and one-shot effects.
 - [Loading screens](loading-screens.md) — named screens with real progress
   bars, per-scene or project-default, and the start scene.
 - [Credits rolls](credits.md) — scrolled or card-mode credits from a text file,
@@ -149,6 +171,9 @@ for people building games with it. Internals live in code comments, the git log
 - [Remote Pad (hold the running game's controller)](remote-pad.md) — a
   clickable DualShock in the editor and a scriptable `--pad` CLI, no window
   focus needed anywhere.
+- [Input recorder (record a session, perform it again)](input-replay.md) —
+  every frame's input written to a small committable file, replayed over the top
+  of a real controller; `--replay` exits 0 when the run reproduced exactly.
 - [UI scripting (drive the editor without a human)](ui-scripting.md) —
   `--ui-script` clicks widgets by name, with assertions; where every unattended
   editor test starts.
@@ -176,6 +201,10 @@ for people building games with it. Internals live in code comments, the git log
   four themes (three of them PS2 nods), and why the choice is machine-global.
 - [Project format versioning & migrations](format-versioning.md) — what happens
   when you open an older or newer project, `--migrate`, and the bump rules.
+- [Installing TyraX and keeping it up to date](updates.md) — the Windows
+  installer, the Linux tarball/`.deb`/`.rpm` and which of them can update
+  itself, the layout they all lay down, the startup update check and how to
+  switch it off, and how every push to `main` becomes a release.
 
 Developer design docs (internals, not user guides):
 
@@ -193,8 +222,13 @@ Developer design docs (internals, not user guides):
 - [What to send upstream to openvcl](upstream-openvcl.md) — the openvcl defects
   that work found, each with the mechanism and a reproducer that fires on the
   stock commit, plus the density flags, ready to hand over.
-- [GS VRAM residency](gs-vram.md) — where the 4 MB goes, the texture heap and
-  its eviction policy, measured before/after numbers.
+- [VU1 clipping and the guard band](vu1-clipping.md) — how the static pipeline
+  routes geometry between the cull and clip programs, why edge-of-screen
+  geometry needs no clipping at all (the GS scissor crops it), and the measured
+  cost of getting that decision wrong.
+- [GS VRAM residency](gs-vram.md) — where the 4 MB goes, 16-bit frame buffers
+  and dithering, what a texture really costs, the texture heap and its eviction
+  policy, measured before/after numbers.
 - [Frame extrapolation](frame-extrapolation.md) — synthesising an extra frame
   by re-drawing the last one under a newer camera: 25 Hz world, 50 Hz picture.
 - [Frame pacing](frame-pacing.md) — the vsync cliff and the triple-buffered

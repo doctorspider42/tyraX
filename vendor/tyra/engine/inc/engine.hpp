@@ -63,6 +63,30 @@ struct EngineOptions {
    * Renderer::core.setDisplayOutput. */
   bool widescreen = false;
 
+  /**
+   * Framebuffer colour depth (TyraX fork). Bits16 halves what the frame
+   * buffers cost in GS memory and hands the difference to the texture heap;
+   * see ColorDepth in renderer_settings.hpp for what it costs in picture
+   * quality, and `dither` for the mitigation.
+   */
+  ColorDepth colorDepth = ColorDepth::Bits32;
+
+  /** GS ordered dithering (TyraX fork). Only does anything at Bits16, where
+   * it is what keeps skies and blurs from banding. */
+  bool dither = true;
+
+  /**
+   * Reserve the dynamic env-map render target - 128 KB (TyraX fork). Only
+   * projects with a reflective "@sky" material read it; the editor's codegen
+   * turns it off for the rest, and then the whole feature is absent rather
+   * than idle.
+   */
+  bool envMapTarget = true;
+
+  /** Reserve the camera-feed render target - another 128 KB (TyraX fork).
+   * Only projects with a texture feed read it. */
+  bool camFeedTarget = true;
+
   /** Triple buffering (TyraX fork, docs/frame-pacing.md). Presents through a
    * vblank interrupt instead of stalling the EE on vsync, so a frame that
    * misses its field by a little is shown one field late rather than halving

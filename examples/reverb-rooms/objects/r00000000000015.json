@@ -1,1 +1,1 @@
-{"id": "r00000000000015", "name": "zone-mouth", "type": "area", "position": [0, 3, 12], "rotation": [0, 0, 0], "scale": [24, 12, 12], "color": [0.3, 0.7, 0.9], "physics": false, "reverb": {"preset": 5, "amount": 0.35, "delay": 64, "feedback": 64, "priority": 0}}
+{ "id": "r00000000000015", "name": "zone-mouth", "type": "area", "position": [0, 3, 12], "rotation": [0, 0, 0], "scale": [24, 12, 12], "color": [0.3, 0.7, 0.9], "physics": false, "reverb": { "preset": 5, "amount": 0.35, "delay": 64, "feedback": 64, "priority": 0 } }

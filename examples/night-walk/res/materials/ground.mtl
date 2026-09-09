@@ -1,0 +1,3 @@
+newmtl ground
+Kd 1 1 1
+map_Kd -s 0.125 0.125 ground.png

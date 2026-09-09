@@ -1,0 +1,1 @@
+{ "id": "aoterrac000002", "name": "terrace-step-1", "type": "box", "position": [-11, 0.08, 12.4], "rotation": [0, 0, 0], "scale": [30, 0.34, 1.2], "color": [1, 1, 1], "physics": false, "material": "res/materials/terrace.mtl" }

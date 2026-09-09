@@ -65,8 +65,16 @@ class StaPipBagPackager {
    */
   StaPipBagPackage* create(u16* o_size, const StaPipBagPackage& pkg, u16 size);
 
+  /**
+   * `o_guardBandOnly` (Modified by TyraX) answers the guard-band routing
+   * question: the box left the view frustum but is inside every VU clip plane
+   * AND inside the exact near/far pair, so it needs no clipping at all. It is
+   * only ever true with VU1 clipping on - clipObjectSpacePlanes carries the
+   * two extra half-spaces at indices 6 and 7.
+   */
   CoreBBoxFrustum checkFrustum(const StaPipBagPackage& pkg,
-                               u8* crossingMask = nullptr);
+                               u8* crossingMask = nullptr,
+                               bool* o_guardBandOnly = nullptr);
 
  private:
   u32 maxVertCount;

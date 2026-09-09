@@ -100,7 +100,7 @@ in-place render).
   where the opening sits — correct parallax with no per-pixel work.
 - Every other portal (and a portal with no/dangling target) draws as a
   translucent quad tinted with the object color. Hiding a portal (layer or
-  Show/Hide Object) disables its view *and* its teleport.
+  Set Object Visible) disables its view *and* its teleport.
 - The teleport uses the same mapping as the camera, with **no exit offset** —
   the isometry carries your overshoot past the target plane, so crossing is
   mathematically continuous (the arrival matches what the surface showed,

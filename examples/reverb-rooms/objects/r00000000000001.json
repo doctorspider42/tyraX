@@ -1,1 +1,1 @@
-{"id": "r00000000000001", "name": "mouth-floor", "type": "box", "position": [0, 0.05, 12], "rotation": [0, 0, 0], "scale": [24, 0.1, 12], "color": [0.34, 0.3, 0.26], "physics": false, "collision": "none"}
+{ "id": "r00000000000001", "name": "mouth-floor", "type": "box", "position": [0, 0.05, 12], "rotation": [0, 0, 0], "scale": [24, 0.1, 12], "color": [0.34, 0.3, 0.26], "physics": false, "collision": "none" }

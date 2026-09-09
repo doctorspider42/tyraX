@@ -1,4 +1,5 @@
 #include "project.hpp"
+#include "hudanim.hpp"
 #include "vugen.hpp"  // vugen::classTitle - VU material-class labels
 
 #include <algorithm>
@@ -138,6 +139,11 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
     // still allocates after gs.init (post fx, env map + z, camera feed + z,
     // the projected-shadow slots) plus a texture floor. Keep these two equal to
     // kThirdBufferReserveWords / kThirdBufferMinTextureWords in the engine.
+    // (Deliberately NOT discounted when a project reserves neither the env
+    // map nor the camera feed - 128 KB of that reserve is then unused, so
+    // this refuses a third buffer that would in fact fit. Erring toward two
+    // buffers is the safe direction, and the engine's own constants would
+    // have to move with it.)
     const int kNeed = 98304 + 65536;
     auto pageUp = [&](int w) { return ((w + kPage - 1) / kPage) * kPage; };
 
@@ -151,7 +157,12 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
     const DisplayModeInfo& d = displayModeInfo(modeKey);
     const int w = d.bufW;
     const int h = d.halfHeight ? d.logicalH / 2 : d.logicalH;
-    const int bufferWords = pageUp(w * h);  // PSMCT32: one word per pixel
+    // A display buffer is one word per pixel at PSMCT32 and half that at
+    // PSMCT16 (docs/gs-vram.md) - which is what most often decides this
+    // question, since 16-bit colour makes a third buffer cost what two used
+    // to. Keep in step with RendererCoreGS::allocateVramBuffers.
+    const bool halfDepth = s.colorDepth == "16bit";
+    const int bufferWords = pageUp(halfDepth ? (w * h + 1) / 2 : w * h);
 
     // THE UPSCALER IS A PER-SCENE SETTING, so `s.blssEnabled` is the project
     // DEFAULT and almost never the question (docs/neural-upscaler.md, "Per
@@ -179,14 +190,32 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
     int lowWords = 0;
     if (u.any) {
         const int lowBufW = -64 & ((w / sx) + 63);  // 64-aligned, as BLSS sizes it
-        lowWords = pageUp(lowBufW * (h / sy));
+        const int lowPixels = lowBufW * (h / sy);
+        lowWords = pageUp(halfDepth ? (lowPixels + 1) / 2 : lowPixels);
     }
+
+    // The flashlight shadow volumes' COUNT target (docs/flashlight.md "The
+    // shadow"): a raster-sized PSMCT16 buffer the generated init() claims
+    // right after the shadow-map slots whenever the technique is on and a
+    // scene has a flashlight. Allocated after the engine's own headroom
+    // check, like the upscaler's low-res target - so this twin subtracts it
+    // by hand too. Approximated as "any flashlight in the project" rather
+    // than re-deriving codegen's FLASHLIGHT_USED predicate: erring toward
+    // two buffers is the safe direction (the engine's own refusal is
+    // graceful either way - the volumes fall back to sub-boxes).
+    // ONE band serves both: the torch and the frame's active spot light count
+    // into the same buffer, so a project with both on allocates it once and
+    // this must not charge it twice.
+    int countWords = 0;
+    if (s.flashShadowVolumes || s.spotShadowVolumes)
+        countWords = pageUp((w * h + 1) / 2);
 
     TripleBufferFit f;
     f.bufferWords = bufferWords;
     f.needWords = kNeed;
-    f.leftWords =
-        kVramWords - (2 * bufferWords + zWords + lowWords) - bufferWords;
+    f.leftWords = kVramWords -
+                  (2 * bufferWords + zWords + lowWords + countWords) -
+                  bufferWords;
     f.fits = f.leftWords >= kNeed;
     f.mode = d.key;
     return f;
@@ -194,6 +223,41 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
 
 TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s) {
     return tripleBufferingFit(p, s, bootDisplayMode(s));
+}
+
+// The texture heap, from the same numbers. tripleBufferingFit already knows
+// what the renderer's permanent region costs - this asks what is LEFT when the
+// project keeps its usual two display buffers, which is the number an author
+// needs when the game starts thrashing textures.
+TextureHeapEstimate textureHeapEstimate(const Project& p,
+                                        const ProjectSettings& s) {
+    TextureHeapEstimate e;
+    // leftWords in the fit is "after taking a THIRD buffer", so add one back:
+    // this project is not asking for one.
+    const TripleBufferFit on = tripleBufferingFit(p, s, bootDisplayMode(s));
+    ProjectSettings off = s;
+    // Both users of the band go off together - countBandKb is the cost of the
+    // BAND, and clearing only one of them would report 0 for a project that
+    // has the other on.
+    off.flashShadowVolumes = false;
+    off.spotShadowVolumes = false;
+    const TripleBufferFit noVol = tripleBufferingFit(p, off, bootDisplayMode(s));
+    // What the fit reserves for post fx, the optional targets and the shadow
+    // slots is real and not available to textures either; leftWords already
+    // has it in, so subtract the same reserve the engine checks against
+    // (kNeed's texture floor is what we are reporting, so only the renderer
+    // half comes off).
+    constexpr int kRendererReserveWords = 98304;  // == kThirdBufferReserveWords
+    auto toKb = [](long long words) {
+        return (int)(words * 4 / 1024);
+    };
+    e.freeKb = toKb((long long)on.leftWords + on.bufferWords -
+                    kRendererReserveWords);
+    e.withoutKb = toKb((long long)noVol.leftWords + noVol.bufferWords -
+                       kRendererReserveWords);
+    e.countBandKb = e.withoutKb - e.freeKb;
+    if (e.freeKb < 0) e.freeKb = 0;
+    return e;
 }
 
 TripleBufferModes tripleBufferingModes(const Project& p,
@@ -345,8 +409,8 @@ static std::string jsonEscape(const std::string& s) {
 
 static void readVec3(const json::Value* v, float* out);
 
-// "flowGraph": { nodes, links, nextId } - shared by objects (per-object
-// graphs) and the legacy project-level graph reader.
+// "flowGraph": { nodes, links, nextId } - one per scene object, stored inside
+// that object's objects/<id>.json body.
 static std::string flowGraphJson(const FlowGraph& fg) {
     std::string json = "{ \"nextId\": " + std::to_string(fg.nextId) + ", \"nodes\": [";
     for (size_t i = 0; i < fg.nodes.size(); ++i) {
@@ -576,56 +640,7 @@ bool parseProcGraph(const std::string& body, ProcGraph& out) {
     return true;
 }
 
-// Pre-Font-Manager projects stored a raw TTF path on every text and menu
-// ("res/fonts/x.ttf", "impact.ttf"). Those fields now name a Project::fonts
-// entry, so fold each distinct legacy path into one entry and rewrite the
-// references to its name. A value that is already a name is left alone.
-static void migrateFontRefs(Project& out) {
-    auto looksLikePath = [](const std::string& s) {
-        if (s.find('/') != std::string::npos || s.find('\\') != std::string::npos)
-            return true;
-        if (s.size() < 4) return false;
-        std::string ext = s.substr(s.size() - 4);
-        for (char& c : ext) c = (char)tolower((unsigned char)c);
-        return ext == ".ttf" || ext == ".otf";
-    };
-    auto entryFor = [&](const std::string& path) -> std::string {
-        for (const GameFont& f : out.fonts)
-            if (f.fontPath == path) return f.name;
-        std::string base = fs::path(path).stem().string();
-        if (base.empty()) base = "font";
-        std::string name = base;
-        for (int n = 2;; ++n) {
-            bool taken = false;
-            for (const GameFont& f : out.fonts) taken |= (f.name == name);
-            if (!taken) break;
-            name = base + "-" + std::to_string(n);
-        }
-        GameFont f;
-        f.name = name;
-        f.fontPath = path;
-        out.fonts.push_back(f);
-        return name;
-    };
-    auto fix = [&](std::string& ref) {
-        if (!ref.empty() && looksLikePath(ref)) ref = entryFor(ref);
-    };
-    for (HudText& t : out.hudTexts) fix(t.font);
-    for (LoadingScreenDef& ls : out.loadingScreens)
-        for (HudText& t : ls.texts) fix(t.font);
-    for (GameMenu& m : out.menus) fix(m.font);
-}
-
 static void readFlowGraph(const json::Value& jg, FlowGraph& fg) {
-    // Pre-merge graphs name a node per branch (ShowObject / HideObject / ...);
-    // those types are gone, so each one becomes its merged type and every exec
-    // link landing on it is retargeted to the branch's pin (flowLegacyNodes).
-    struct Retarget {
-        int nodeId;
-        int pin;
-    };
-    std::vector<Retarget> retargets;
-
     if (const auto* v = jg.find("nextId")) fg.nextId = (int)v->numberOr(1);
     if (const auto* nodes = jg.find("nodes");
         nodes && nodes->type == json::Value::Type::Array) {
@@ -644,10 +659,6 @@ static void readFlowGraph(const json::Value& jg, FlowGraph& fg) {
                 v && v->type == json::Value::Type::Array)
                 for (size_t i = 0; i < 4 && i < v->arr.size(); ++i)
                     n.num[i] = (float)v->arr[i].numberOr(0);
-            if (const FlowLegacyNode* m = flowLegacyNode(n.type)) {
-                n.type = m->to;
-                if (m->pin) retargets.push_back({n.id, m->pin});
-            }
             if (n.id > 0 && flowNodeType(n.type)) fg.nodes.push_back(n);
         }
     }
@@ -678,12 +689,8 @@ static void readFlowGraph(const json::Value& jg, FlowGraph& fg) {
                 l.kind = FlowLinkNum;
             if (const auto* v = jl.find("pin")) l.toPin = (int)v->numberOr(0);
             // "fpin" = which exec OUTPUT of the source the link leaves (Branch's
-            // true/false, Sequence's 1..4). Omitted at 0, which is every link
-            // written before multi-output nodes existed.
+            // true/false, Sequence's 1..4). Omitted at 0, the first output.
             if (const auto* v = jl.find("fpin")) l.fromPin = (int)v->numberOr(0);
-            if (l.kind == FlowLinkExec && !l.toPin)
-                for (const Retarget& r : retargets)
-                    if (r.nodeId == l.toNode) l.toPin = r.pin;
             if (l.id > 0) fg.links.push_back(l);
         }
     }
@@ -733,8 +740,24 @@ std::string objectJson(const SceneObject& o) {
         (!o.castShadow ? std::string(", \"castShadow\": false") : "") +
         (!o.bakedLighting ? std::string(", \"bakedLighting\": false") : "") +
         (o.dynamicLighting ? std::string(", \"dynamicLighting\": true") : "") +
+        (o.prelit ? std::string(", \"prelit\": true") : "") +
+        // Pre-lit bookkeeping, each written only when it says something (an
+        // object that never met the baker resaves byte for byte). prelitSig is
+        // a hex STRING - 64 bits do not survive a JSON number. prelitSource is
+        // omitted at "" because "" is also what a missing key reads as, and
+        // that IS the value it would have carried: the model's own mtllib.
+        (o.prelitWanted ? std::string(", \"prelitWanted\": true") : "") +
+        (o.prelitSig ? ", \"prelitSig\": \"" + hex64(o.prelitSig) + "\"" : "") +
+        (o.prelitSource.empty()
+             ? ""
+             : ", \"prelitSource\": \"" + jsonEscape(o.prelitSource) + "\"") +
         // projected (live) silhouette shadow; default (false) stays implicit
         (o.projShadow ? std::string(", \"projShadow\": true") : "") +
+        // per-object dynamic shadow choice; 0 = follow the project, and that
+        // is what every file written before this key meant, so it stays out
+        (o.shadowMode != 0
+             ? ", \"shadowMode\": " + std::to_string(o.shadowMode)
+             : "") +
         (o.modelPath.empty() ? "" : ", \"model\": \"" + jsonEscape(o.modelPath) + "\"") +
         (o.materialPath.empty() ? ""
                                 : ", \"material\": \"" + jsonEscape(o.materialPath) + "\"") +
@@ -802,6 +825,14 @@ std::string objectJson(const SceneObject& o) {
                      ? ""
                      : ", \"texture\": \"" + jsonEscape(o.flashlightTexture) +
                            "\"") +
+                // Written only when the torch is off the view axis, so every
+                // project that never touched it resaves byte for byte.
+                (o.flashlightOffsetRight == 0.0f && o.flashlightOffsetDown == 0.0f
+                     ? ""
+                     : ", \"offsetRight\": " +
+                           fmtFloat(o.flashlightOffsetRight) +
+                           ", \"offsetDown\": " +
+                           fmtFloat(o.flashlightOffsetDown)) +
                 " }" + " }";
     }
     if (o.type == PrimitiveType::Emitter) {
@@ -850,6 +881,16 @@ std::string objectJson(const SceneObject& o) {
                 ", \"radius\": " + fmtFloat(o.lightRadius) +
                 ", \"dynamic\": " + (o.lightDynamic ? "true" : "false") +
                 ", \"flicker\": " + fmtFloat(o.lightFlicker) +
+                (o.lightSpot ? ", \"spot\": true, \"spotAngle\": " +
+                                   fmtFloat(o.lightSpotAngle)
+                             : std::string()) +
+                // Per-light shadow-volume override, written only when it is
+                // not "follow the project" - so a project that never touches
+                // the setting resaves byte for byte (the shadowMode idiom).
+                (o.lightShadowVolumes != 0
+                     ? ", \"shadowVolumes\": " +
+                           std::to_string(o.lightShadowVolumes)
+                     : std::string()) +
                 ", \"beam\": " + std::to_string(o.lightBeam) + " }";
     }
     if (o.type == PrimitiveType::Camera) {
@@ -946,6 +987,12 @@ std::string objectJson(const SceneObject& o) {
         json += ", \"animLod\": " + fmtFloat(o.animLodOverride);
     if (o.meshLodOverride >= 0.0f)
         json += ", \"meshLod\": " + fmtFloat(o.meshLodOverride);
+    if (!o.impostorPath.empty()) {
+        json += ", \"impostor\": \"" + jsonEscape(o.impostorPath) + "\"";
+        json += ", \"impostorDistance\": " + fmtFloat(o.impostorDistance);
+        json += ", \"impostorBillboard\": " + std::string(o.impostorBillboard ? "true" : "false");
+        json += ", \"impostorViews\": " + std::to_string(o.impostorViews);
+    }
     if (o.modelYawOffset != 0.0f)
         json += ", \"modelYaw\": " + fmtFloat(o.modelYawOffset);
     if (!o.scripts.empty()) {
@@ -1113,9 +1160,9 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
         j << ", \"loadingScreen\": \"" << jsonEscape(sc.loadingScreen) << "\"";
 }
 
-// Reads a scene's scene-visual settings + override flags. New files carry an
-// "overrides" object; older files carried a top-level "lighting"/"terrainTexScale"
-// per scene (always-active) - migrate those with the two flags on.
+// Reads a scene's scene-visual settings + override flags: a "settings" object
+// carrying every category's values, and an "overrides" object saying which of
+// them this scene actually overrides (the rest inherit the project's).
 static void readSceneVisuals(const json::Value& js, SceneData& sc) {
     ProjectSettings& s = sc.settings;
     auto clamp01 = [](float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
@@ -1138,13 +1185,9 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
             }
             if (const auto* v = st->find("clipping")) {
                 // "vu1" (default) = precise per-package classification +
-                // clipping on VU1; "precise" = the legacy EE clipper.
+                // clipping on VU1; "precise" = the EE clipper.
                 const std::string c = v->stringOr("vu1");
                 s.clipping = (c == "fast" || c == "precise") ? c : "vu1";
-            } else {
-                // pre-clipping-key projects were authored against the EE
-                // clipper - keep their behavior
-                s.clipping = "precise";
             }
             if (const auto* v = st->find("terrainMaterial")) s.terrainMaterial = v->stringOr("");
             if (const auto* pf = st->find("postfx")) {
@@ -1199,31 +1242,14 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
         sc.overrides.lighting = ov->find("lighting") ? ov->find("lighting")->boolOr(false) : false;
         sc.overrides.sky = ov->find("sky") ? ov->find("sky")->boolOr(false) : false;
         sc.overrides.clipping = ov->find("clipping") ? ov->find("clipping")->boolOr(false) : false;
-        // Legacy files carried this flag as "terrainTex" (it gated the terrain
-        // texture, now the terrain material). Accept both keys.
         sc.overrides.terrainMat =
-            ov->find("terrainMat")   ? ov->find("terrainMat")->boolOr(false)
-            : ov->find("terrainTex") ? ov->find("terrainTex")->boolOr(false)
-                                     : false;
+            ov->find("terrainMat") ? ov->find("terrainMat")->boolOr(false) : false;
         sc.overrides.postFx = ov->find("postFx") ? ov->find("postFx")->boolOr(false) : false;
         sc.overrides.fog = ov->find("fog") ? ov->find("fog")->boolOr(false) : false;
         sc.overrides.highlight =
             ov->find("highlight") ? ov->find("highlight")->boolOr(false) : false;
         sc.overrides.upscaler =
             ov->find("upscaler") ? ov->find("upscaler")->boolOr(false) : false;
-    } else {
-        // Legacy per-scene lighting + terrain texture were always active.
-        if (const auto* li = js.find("lighting")) {
-            readVec3(li->find("dir"), s.lightDir);
-            if (const auto* v = li->find("ambient")) s.ambient = (float)v->numberOr(0.55);
-            if (const auto* v = li->find("diffuse")) s.diffuse = (float)v->numberOr(0.45);
-            readVec3(li->find("color"), s.lightColor);
-            if (const auto* v = li->find("brightness")) s.brightness = (float)v->numberOr(1.0);
-            sc.overrides.lighting = true;
-        }
-        // Terrain was picked by raw texture + tiling scale in these legacy
-        // files; both are gone now - terrain takes a material whose map "-s"
-        // option carries the tiling. Nothing to migrate here.
     }
     if (const auto* v = js.find("ambiencePreset")) sc.ambiencePreset = v->stringOr("");
     if (const auto* v = js.find("loadingScreen")) sc.loadingScreen = v->stringOr("");
@@ -1514,6 +1540,12 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
                        }() +
                        "],\n")
          << (p.settings.palFullHeight ? "    \"palFullHeight\": true,\n" : "")
+         // Written only when set away from the default, so an existing
+         // project's manifest does not gain two keys just by being resaved.
+         << (p.settings.colorDepth == "16bit"
+                 ? "    \"colorDepth\": \"16bit\",\n"
+                 : "")
+         << (p.settings.dither ? "" : "    \"dither\": false,\n")
          << (p.settings.tripleBuffering ? "    \"tripleBuffering\": true,\n" : "")
          << (p.settings.frameExtrapolation ? "    \"frameExtrapolation\": true,\n" : "")
          << (p.settings.frameExtrapolationPlane != 0.0f
@@ -1553,6 +1585,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << (p.settings.timeMachine ? "true" : "false") << ",\n"
          << "    \"remotePad\": " << (p.settings.remotePad ? "true" : "false")
          << ",\n"
+         << "    \"inputRecorder\": "
+         << (p.settings.inputRecorder ? "true" : "false") << ",\n"
          << "    \"keyboardMouse\": "
          << (p.settings.keyboardMouse ? "true" : "false") << ",\n"
          << "    \"keyboardMousePs2Link\": "
@@ -1580,6 +1614,18 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"terrainDetail\": " << p.settings.terrainDetail << ",\n"
          << "    \"terrainViewDistance\": " << fmtFloat(p.settings.terrainViewDistance)
          << ",\n"
+         << "    \"terrainLodDistance\": "
+         << fmtFloat(p.settings.terrainLodDistance) << ",\n"
+         << (p.settings.flashShadowVolumes
+                 ? "    \"flashShadowVolumes\": true,\n"
+                 : "")
+         << (p.settings.shadowVolumesDebug
+                 ? "    \"shadowVolumesDebug\": " +
+                       std::to_string(p.settings.shadowVolumesDebug) + ",\n"
+                 : "")
+         << (p.settings.spotShadowVolumes
+                 ? "    \"spotShadowVolumes\": true,\n"
+                 : "")
          << "    \"skyColor\": " << fmtVec3(p.settings.skyColor) << ",\n"
          << "    \"skyTopColor\": " << fmtVec3(p.settings.skyTopColor) << ",\n"
          << "    \"skyDome\": " << (p.settings.skyDome ? "true" : "false") << ",\n"
@@ -1629,6 +1675,24 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"giProbeHeight\": " << fmtFloat(p.settings.giProbeHeight)
          << ",\n"
          << "    \"giProbeLevels\": " << p.settings.giProbeLevels << ",\n"
+         // Automatic model AO (docs/ambient-occlusion.md). Emitted only when it
+         // is not the struct default, so every project saved before this
+         // existed resaves byte for byte.
+         << (p.settings.modelAo ? "    \"modelAo\": true,\n" : "")
+         << (p.settings.modelAoStrength != 0.7f
+                 ? "    \"modelAoStrength\": " +
+                       fmtFloat(p.settings.modelAoStrength) + ",\n"
+                 : "")
+         << (p.settings.modelAoRays != 64
+                 ? "    \"modelAoRays\": " +
+                       std::to_string(p.settings.modelAoRays) + ",\n"
+                 : "")
+         << (p.settings.modelAoDist != 0.0f
+                 ? "    \"modelAoDist\": " + fmtFloat(p.settings.modelAoDist) +
+                       ",\n"
+                 : "")
+         << (p.settings.prelitAutoBake ? "    \"prelitAutoBake\": true,\n" : "")
+         << (p.settings.giAutoBake ? "    \"giAutoBake\": true,\n" : "")
          << "    \"terrainMaterial\": \"" << p.settings.terrainMaterial << "\",\n"
          << "    \"bloom\": " << fmtFloat(p.settings.bloom) << ",\n"
          << "    \"bloomThreshold\": " << fmtFloat(p.settings.bloomThreshold)
@@ -1642,6 +1706,10 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"godRays\": " << fmtFloat(p.settings.godRays) << ",\n"
          << "    \"blobShadows\": " << (p.settings.blobShadows ? "true" : "false")
          << ",\n"
+         << (p.settings.projShadowDistance != 50.0f
+                 ? "    \"projShadowDistance\": " +
+                       fmtFloat(p.settings.projShadowDistance) + ",\n"
+                 : "")
          // The neural upscaler (docs/neural-upscaler.md). Project-wide, always
          // emitted like the fog/highlight groups next to it.
          << "    \"blssEnabled\": " << (p.settings.blssEnabled ? "true" : "false")
@@ -1722,6 +1790,65 @@ static void writeScenesTable(std::ostream& json, const Project& p) {
 
 // Fonts ride in the Hud section (HUD text + menus reference them), so they
 // travel over the collaboration wire as part of that section's blob.
+// The motion fields of a HUD element, emitted ONLY when they differ from the
+// defaults: a project written before they existed resaves byte for byte, and
+// an image with no animation carries no `anim` key at all.
+static void writeHudMotion(std::ostream& json, const HudAnim& a,
+                           const HudTransition& t) {
+    if (a.kind != 0)
+        json << ", \"anim\": { \"kind\": " << a.kind << ", \"period\": "
+             << fmtFloat(a.period) << ", \"amount\": " << fmtFloat(a.amount)
+             << " }";
+    if (t.kind != 0)
+        json << ", \"transition\": { \"kind\": " << t.kind << ", \"duration\": "
+             << fmtFloat(t.duration) << " }";
+}
+
+static void readHudMotion(const json::Value& jh, HudAnim& a, HudTransition& t) {
+    if (const auto* ja = jh.find("anim"); ja && ja->type == json::Value::Type::Object) {
+        if (const auto* v = ja->find("kind")) a.kind = (int)v->numberOr(0);
+        if (const auto* v = ja->find("period")) a.period = (float)v->numberOr(1.0);
+        if (const auto* v = ja->find("amount")) a.amount = (float)v->numberOr(4.0);
+        if (a.kind < 0 || a.kind >= hudanim::KindCount) a.kind = 0;
+        if (a.period < 0.01f) a.period = 0.01f;
+    }
+    if (const auto* jt = jh.find("transition");
+        jt && jt->type == json::Value::Type::Object) {
+        if (const auto* v = jt->find("kind")) t.kind = (int)v->numberOr(0);
+        if (const auto* v = jt->find("duration"))
+            t.duration = (float)v->numberOr(0.25);
+        if (t.kind < 0 || t.kind >= hudanim::TransitionCount) t.kind = 0;
+        if (t.duration < 0.0f) t.duration = 0.0f;
+    }
+}
+
+// One optional bar image (fill / frame): the same bake fields a HUD image has,
+// minus the placement the bar decides.
+static void writeBarImage(std::ostream& json, const char* key, const HudImage& h) {
+    if (h.imagePath.empty()) return;
+    json << ", \"" << key << "\": { \"image\": \"" << jsonEscape(h.imagePath)
+         << "\", \"size\": [" << fmtFloat(h.size[0]) << ", " << fmtFloat(h.size[1])
+         << "], \"texW\": " << h.texW << ", \"texH\": " << h.texH
+         << ", \"texQuant\": \"" << h.texQuant << "\" }";
+}
+
+static void readBarImage(const json::Value& jb, const char* key, HudImage& h) {
+    const auto* jh = jb.find(key);
+    if (!jh || jh->type != json::Value::Type::Object) return;
+    if (const auto* v = jh->find("image")) h.imagePath = v->stringOr("");
+    if (const auto* v = jh->find("size");
+        v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+        h.size[0] = (float)v->arr[0].numberOr(64);
+        h.size[1] = (float)v->arr[1].numberOr(64);
+    }
+    if (const auto* v = jh->find("texW")) h.texW = (int)v->numberOr(0);
+    if (const auto* v = jh->find("texH")) h.texH = (int)v->numberOr(0);
+    if (const auto* v = jh->find("texQuant")) {
+        const std::string q = v->stringOr("");
+        h.texQuant = (q == "none" || q == "8bit" || q == "4bit") ? q : "";
+    }
+}
+
 static void writeHudSection(std::ostream& json, const Project& p) {
     json << "\"fonts\": [";
     for (size_t i = 0; i < p.fonts.size(); ++i) {
@@ -1740,7 +1867,10 @@ static void writeHudSection(std::ostream& json, const Project& p) {
              << h.imagePath << "\", \"pos\": [" << fmtFloat(h.pos[0]) << ", "
              << fmtFloat(h.pos[1]) << "], \"size\": [" << fmtFloat(h.size[0]) << ", "
              << fmtFloat(h.size[1]) << "], \"texW\": " << h.texW << ", \"texH\": "
-             << h.texH << ", \"texQuant\": \"" << h.texQuant << "\" }";
+             << h.texH << ", \"texQuant\": \"" << h.texQuant << "\"";
+        writeHudMotion(json, h.anim, h.transition);
+        if (!h.visibleAtStart) json << ", \"visibleAtStart\": false";
+        json << " }";
     }
     json << (p.hud.empty() ? "]" : "\n  ]");
     // The USE prompt HUD element (non-deletable; imagePath "" = built-in).
@@ -1779,10 +1909,41 @@ static void writeHudSection(std::ostream& json, const Project& p) {
              << t.size << ", \"color\": " << fmtVec3(t.color)
              << (t.font.empty() ? "" : ", \"font\": \"" + jsonEscape(t.font) + "\"")
              << ", \"shadow\": " << (t.shadow ? "true" : "false")
-             << ", \"visibleAtStart\": " << (t.visibleAtStart ? "true" : "false")
-             << " }";
+             << ", \"visibleAtStart\": " << (t.visibleAtStart ? "true" : "false");
+        writeHudMotion(json, t.anim, t.transition);
+        json << " }";
     }
     json << (p.hudTexts.empty() ? "]" : "\n  ]");
+    // Live bars (docs/hud-animation.md). The whole array is omitted while
+    // there are none, so a project without bars keeps its old shape.
+    if (!p.hudBars.empty()) {
+        json << ",\n  \"hudBars\": [";
+        for (size_t i = 0; i < p.hudBars.size(); ++i) {
+            const HudBar& b = p.hudBars[i];
+            json << (i ? ",\n    " : "\n    ") << "{ \"name\": \""
+                 << jsonEscape(b.name) << "\", \"kind\": " << b.kind
+                 << ", \"pos\": [" << fmtFloat(b.pos[0]) << ", "
+                 << fmtFloat(b.pos[1]) << "], \"size\": [" << fmtFloat(b.size[0])
+                 << ", " << fmtFloat(b.size[1]) << "], \"bgColor\": "
+                 << fmtVec3(b.bgColor) << ", \"fillColor\": "
+                 << fmtVec3(b.fillColor) << ", \"ghostColor\": "
+                 << fmtVec3(b.ghostColor) << ", \"ghost\": "
+                 << (b.ghost ? "true" : "false") << ", \"rightToLeft\": "
+                 << (b.rightToLeft ? "true" : "false") << ", \"smoothing\": "
+                 << fmtFloat(b.smoothing) << ", \"lowFraction\": "
+                 << fmtFloat(b.lowFraction) << ", \"segments\": " << b.segments
+                 << ", \"spacing\": " << fmtFloat(b.spacing) << ", \"source\": \""
+                 << jsonEscape(b.source) << "\", \"min\": " << fmtFloat(b.minValue)
+                 << ", \"max\": " << fmtFloat(b.maxValue) << ", \"start\": "
+                 << fmtFloat(b.startValue);
+            writeBarImage(json, "fillImage", b.fillImage);
+            writeBarImage(json, "frameImage", b.frameImage);
+            writeHudMotion(json, b.anim, b.transition);
+            if (!b.visibleAtStart) json << ", \"visibleAtStart\": false";
+            json << " }";
+        }
+        json << "\n  ]";
+    }
     // Inline text icons ({{name}} in any text). Emitted even at their seeded
     // defaults: the set is what a project's texts reference by name, and a
     // dropped key would silently change what {{cross}} resolves to.
@@ -1849,6 +2010,37 @@ static void writeTexQualitySection(std::ostream& json, const Project& p) {
     json << " }";
 }
 
+// Per-texture atlas control: keep-out and author-declared groups
+// (docs/texture-atlasing.md). Conditional like every per-asset map - a
+// project that never touched it writes no key.
+static void writeAtlasSection(std::ostream& json, const Project& p) {
+    bool any = false;
+    for (const auto& [tex, c] : p.atlasControl)
+        any |= c.keepOut || !c.group.empty() || c.pageBits != 0;
+    if (!any) return;
+    json << "\"atlasControl\": {";
+    bool first = true;
+    for (const auto& [tex, c] : p.atlasControl) {
+        if (!c.keepOut && c.group.empty() && c.pageBits == 0) continue;
+        json << (first ? " " : ", ") << "\"" << jsonEscape(tex) << "\": {";
+        bool inner = false;
+        if (c.keepOut) {
+            json << " \"keepOut\": true";
+            inner = true;
+        }
+        if (!c.group.empty()) {
+            json << (inner ? ", " : " ") << "\"group\": \""
+                 << jsonEscape(c.group) << "\"";
+            inner = true;
+        }
+        if (c.pageBits != 0)
+            json << (inner ? ", " : " ") << "\"pageBits\": " << c.pageBits;
+        json << " }";
+        first = false;
+    }
+    json << " }";
+}
+
 // Also conditional: no custom LOD meshes = no key at all.
 static void writeModelLodsSection(std::ostream& json, const Project& p) {
     if (p.modelLods.empty()) return;
@@ -1859,6 +2051,23 @@ static void writeModelLodsSection(std::ostream& json, const Project& p) {
         for (size_t i = 0; i < tiers.size(); ++i)
             json << (i ? ", " : "") << "\"" << jsonEscape(tiers[i]) << "\"";
         json << "]";
+        first = false;
+    }
+    json << " }";
+}
+
+// Conditional too: no per-asset automatic-AO override = no key at all, so an
+// untouched project resaves byte for byte (docs/ambient-occlusion.md).
+static void writeModelAoSection(std::ostream& json, const Project& p) {
+    bool any = false;
+    for (const auto& [asset, mode] : p.modelAoMode) any |= mode != 0;
+    if (!any) return;
+    json << "\"modelAoMode\": {";
+    bool first = true;
+    for (const auto& [asset, mode] : p.modelAoMode) {
+        if (mode == 0) continue;  // "follow the project default" IS no entry
+        json << (first ? " " : ", ") << "\"" << jsonEscape(asset)
+             << "\": " << mode;
         first = false;
     }
     json << " }";
@@ -3009,28 +3218,13 @@ static void readVuSection(const json::Value& root, Project& out) {
         }
     if (const json::Value* x = v->find("activeLook"))
         out.vu.activeLook = (int)x->numberOr(0);
-    // "looks" is the current key. "programs" with a "base" string is the
-    // one-day-old shape from before a look could span classes, migrated here so
-    // a project written in between still opens.
     const json::Value* arr = v->find("looks");
-    const bool legacy = arr == nullptr;
-    if (legacy) arr = v->find("programs");
     if (arr && arr->type == json::Value::Type::Array)
         for (const json::Value& e : arr->arr) {
             VuProgram pr;
-            if (legacy) {
-                const json::Value* b = e.find("base");
-                const std::string base = b ? b->stringOr("") : "";
-                if (base.empty()) continue;
-                pr.name = base;
-                pr.classes = base == "cullTextureColor" ? (1u << 3)
-                             : base == "cullTextureEnv" ? (1u << 4)
-                                                        : (1u << 0);
-            } else {
-                if (const json::Value* x = e.find("name")) pr.name = x->stringOr("look");
-                if (const json::Value* x = e.find("classes"))
-                    pr.classes = (unsigned)x->numberOr(1.0) & 0x1Fu;
-            }
+            if (const json::Value* x = e.find("name")) pr.name = x->stringOr("look");
+            if (const json::Value* x = e.find("classes"))
+                pr.classes = (unsigned)x->numberOr(1.0) & 0x1Fu;
             if (const json::Value* x = e.find("off")) pr.enabled = !x->boolOr(false);
             if (const json::Value* x = e.find("stages")) readVuStages(*x, pr.stages);
             if (pr.classes == 0) continue;
@@ -3063,6 +3257,8 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::Audio: writeAudioSection(ss, p); break;
         case Section::TexQuality: writeTexQualitySection(ss, p); break;
         case Section::ModelLods: writeModelLodsSection(ss, p); break;
+        case Section::ModelAo: writeModelAoSection(ss, p); break;
+        case Section::Atlas: writeAtlasSection(ss, p); break;
         case Section::SaveData: writeSaveDataSection(ss, p); break;
         case Section::Gradings: writeGradingsSection(ss, p); break;
         case Section::Ambience: writeAmbienceSection(ss, p); break;
@@ -3091,6 +3287,7 @@ const char* sectionName(Section s) {
         case Section::Audio: return "audio";
         case Section::TexQuality: return "texQuality";
         case Section::ModelLods: return "modelLods";
+        case Section::ModelAo: return "modelAo";
         case Section::SaveData: return "saveData";
         case Section::Gradings: return "gradings";
         case Section::Ambience: return "ambience";
@@ -3148,16 +3345,19 @@ static std::string manifestJson(const Project& p) {
          << ", \"gizmo\": " << p.gizmoOp << ", \"gizmoSpace\": " << p.gizmoSpace
          << ", \"viewMode\": " << p.viewMode
          << ", \"viewProjection\": " << p.viewProjection
+         << ", \"showFog\": " << (p.viewShowFog ? "true" : "false")
+         << ", \"cam\": [" << fmtFloat(p.viewCamYaw) << ", "
+         << fmtFloat(p.viewCamPitch) << ", " << fmtFloat(p.viewCamDist) << ", "
+         << fmtFloat(p.viewCamTarget[0]) << ", " << fmtFloat(p.viewCamTarget[1])
+         << ", " << fmtFloat(p.viewCamTarget[2]) << "]"
          << ", \"breakpoints\": [";
     for (size_t i = 0; i < p.debugBreakpoints.size(); ++i)
         json << (i ? ", " : "") << "\"" << jsonEscape(p.debugBreakpoints[i])
              << "\"";
     json << "] }";
-    // emulatorPath / ps2LinkIp used to live here but are now machine-global
-    // editor settings (editor.ini), no longer written per-project. The reader
-    // still accepts them to migrate older projects into the global config.
-    // Named window layouts (docking arrangements) + the active one. Replaces the
-    // former single "layout" dump; the reader still migrates that legacy key.
+    // emulatorPath / ps2LinkIp are NOT written here: they are machine-global
+    // editor settings (editor.ini), not project data.
+    // Named window layouts (docking arrangements) + the active one.
     json << ",\n  \"activeLayout\": " << p.activeLayout;
     json << ",\n  \"layouts\": [";
     for (size_t i = 0; i < p.windowLayouts.size(); ++i) {
@@ -3752,6 +3952,10 @@ std::string create(Project& out, const std::string& name, const std::string& par
     amb.name = "Default";
     amb.aoEnabled = true;
     out.ambiencePresets.push_back(amb);
+    // ...and automatic model AO, for the same reason and by the same rule: the
+    // struct default is what an older file loads as, so the new answer belongs
+    // here (docs/ambient-occlusion.md, "Model AO").
+    out.settings.modelAo = true;
     out.defaultAmbience = 0;
 
     // Seed the built-in window layouts (Default/Director/Material Designer).
@@ -3930,8 +4134,7 @@ void flattenHeightmap(Project& p, float worldX, float worldZ, float radius, floa
     }
 }
 
-// One heights file per scene: terrain-<scene>.heights; the first scene also
-// reads the legacy single-scene terrain.heights.
+// One heights file per scene: terrain-<scene>.heights.
 static fs::path heightsPath(const Project& p, const SceneData& s) {
     return fs::path(p.dir) / ("terrain-" + s.name + ".heights");
 }
@@ -4074,7 +4277,6 @@ void loadHeights(Project& p) {
     for (size_t i = 0; i < p.scenes.size(); ++i) {
         SceneData& s = p.scenes[i];
         std::ifstream f(heightsPath(p, s));
-        if (!f && i == 0) f.open(fs::path(p.dir) / "terrain.heights");  // legacy
         if (!f) continue;
         int vw = 0, vd = 0;
         f >> vw >> vd;
@@ -4594,11 +4796,29 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             o.bakedLighting = v->boolOr(true);
         if (const auto* v = jo.find("dynamicLighting"))
             o.dynamicLighting = v->boolOr(false);
+        if (const auto* v = jo.find("prelit")) o.prelit = v->boolOr(false);
+        if (const auto* v = jo.find("prelitWanted"))
+            o.prelitWanted = v->boolOr(false);
+        if (const auto* v = jo.find("prelitSig"))
+            o.prelitSig = parseHex64(v->stringOr(""));
+        if (const auto* v = jo.find("prelitSource"))
+            o.prelitSource = v->stringOr("");
         if (const auto* v = jo.find("projShadow")) o.projShadow = v->boolOr(false);
+        if (const auto* v = jo.find("shadowMode")) {
+            const int m = (int)v->numberOr(0);
+            if (m >= 0 && m <= 3) o.shadowMode = m;
+        }
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
+        if (const auto* v = jo.find("impostor")) o.impostorPath = v->stringOr("");
+        if (const auto* v = jo.find("impostorBillboard")) o.impostorBillboard = v->boolOr(false);
+        if (const auto* v = jo.find("impostorViews")) {
+            const int count = (int)v->numberOr(8);
+            o.impostorViews = (count == 4 || count == 16) ? count : 8;
+        }
+        if (const auto* v = jo.find("impostorDistance"))
+            o.impostorDistance = std::max(0.0f, (float)v->numberOr(0));
         if (const auto* v = jo.find("material")) o.materialPath = v->stringOr("");
         if (const auto* v = jo.find("decalProject")) o.decalProject = v->boolOr(false);
-        // pre-materials projects had a per-object "texture" PNG - dropped
         if (const auto* pl = jo.find("player")) {
             if (const auto* v = pl->find("mode")) {
                 const std::string m = v->stringOr("walk");
@@ -4670,6 +4890,19 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                     o.flashlightToggleButton = v->stringOr("");
                 if (const auto* v = fl->find("texture"))
                     o.flashlightTexture = v->stringOr("");
+                if (const auto* v = fl->find("offsetRight"))
+                    o.flashlightOffsetRight = (float)v->numberOr(0.0);
+                if (const auto* v = fl->find("offsetDown"))
+                    o.flashlightOffsetDown = (float)v->numberOr(0.0);
+                // A metre either way is a hand; more is a lamp on a pole, and
+                // the cone (which is still computed from the EYE) stops
+                // agreeing with the pool.
+                auto clampOff = [](float& f) {
+                    if (f < -1.0f) f = -1.0f;
+                    if (f > 1.0f) f = 1.0f;
+                };
+                clampOff(o.flashlightOffsetRight);
+                clampOff(o.flashlightOffsetDown);
                 if (o.flashlightRange < 1.0f) o.flashlightRange = 1.0f;
                 if (o.flashlightAngle < 2.0f) o.flashlightAngle = 2.0f;
                 if (o.flashlightAngle > 80.0f) o.flashlightAngle = 80.0f;
@@ -4759,6 +4992,16 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 o.lightFlicker = (float)v->numberOr(0.0);
             if (o.lightFlicker < 0.0f) o.lightFlicker = 0.0f;
             if (o.lightFlicker > 1.0f) o.lightFlicker = 1.0f;
+            if (const auto* v = lt->find("spot"))
+                o.lightSpot = v->type == json::Value::Type::Bool && v->boolean;
+            if (const auto* v = lt->find("spotAngle"))
+                o.lightSpotAngle = (float)v->numberOr(25.0);
+            if (o.lightSpotAngle < 5.0f) o.lightSpotAngle = 5.0f;
+            if (o.lightSpotAngle > 60.0f) o.lightSpotAngle = 60.0f;
+            if (const auto* v = lt->find("shadowVolumes")) {
+                const int m = (int)v->numberOr(0.0);
+                if (m >= 0 && m <= 2) o.lightShadowVolumes = m;
+            }
             if (const auto* v = lt->find("beam"))
                 o.lightBeam = (int)v->numberOr(0.0);
             if (o.lightBeam < 0 || o.lightBeam > 2) o.lightBeam = 0;
@@ -4931,19 +5174,13 @@ bool parseObject(const std::string& body, SceneObject& out) {
     return true;
 }
 
-// A scene's "objects" manifest field. New (split) layout: an array of id
-// strings, each loaded from objects/<id>.json in list order. Legacy layout: an
-// array of inline object bodies. The two are told apart by the first element's
-// type; an empty array is either. A referenced object file that is missing or
-// malformed is skipped (the object is dropped) rather than aborting the load.
+// A scene's "objects" manifest field: an array of object-id strings, each
+// loaded from objects/<id>.json in list order (the merge-friendly split - one
+// file per object). A referenced object file that is missing or malformed is
+// skipped (the object is dropped) rather than aborting the load.
 static void readSceneObjects(const Project& p, const json::Value& objs,
                              std::vector<SceneObject>& out) {
     if (objs.type != json::Value::Type::Array) return;
-    const bool split = !objs.arr.empty() && objs.arr[0].type == json::Value::Type::String;
-    if (!split) {  // legacy: bodies inline in the manifest
-        readObjectsArray(objs, out);
-        return;
-    }
     for (const auto& jid : objs.arr) {
         const std::string id = jid.stringOr("");
         if (id.empty()) continue;
@@ -4994,6 +5231,12 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         }
         if (const auto* v = s->find("palFullHeight"))
             st.palFullHeight = v->boolOr(false);
+        // Framebuffer colour depth + GS dithering (docs/gs-vram.md). Absent
+        // in every project written before they existed, and the defaults are
+        // exactly what those projects already did.
+        if (const auto* v = s->find("colorDepth"))
+            st.colorDepth = v->stringOr("32bit") == "16bit" ? "16bit" : "32bit";
+        if (const auto* v = s->find("dither")) st.dither = v->boolOr(true);
         if (const auto* v = s->find("tripleBuffering"))
             st.tripleBuffering = v->boolOr(false);
         if (const auto* v = s->find("frameExtrapolation"))
@@ -5029,6 +5272,11 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("timeMachine"))
             st.timeMachine = v->boolOr(true);
         if (const auto* v = s->find("remotePad")) st.remotePad = v->boolOr(true);
+        // Off for a project that predates the key: the recorder writes a
+        // growing file, so it is opt-in rather than something a rebuild
+        // silently switches on for everybody.
+        if (const auto* v = s->find("inputRecorder"))
+            st.inputRecorder = v->boolOr(false);
         if (const auto* v = s->find("eeCrashHandler"))
             st.eeCrashHandler = v->boolOr(false);
         if (const auto* v = s->find("keyboardMouse"))
@@ -5043,7 +5291,7 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.disableVsync = v->boolOr(false);
         if (const auto* v = s->find("clipping")) {
             // "vu1" (default) = precise per-package classification +
-            // clipping on VU1; "precise" = the legacy EE clipper.
+            // clipping on VU1; "precise" = the older EE clipper.
             const std::string c = v->stringOr("vu1");
             st.clipping = (c == "fast" || c == "precise") ? c : "vu1";
         } else {
@@ -5100,6 +5348,16 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.terrainViewDistance = (float)v->numberOr(0.0);
             if (st.terrainViewDistance < 0.0f) st.terrainViewDistance = 0.0f;
         }
+        if (const auto* v = s->find("terrainLodDistance")) {
+            st.terrainLodDistance = (float)v->numberOr(0.0);
+            if (st.terrainLodDistance < 0.0f) st.terrainLodDistance = 0.0f;
+        }
+        if (const auto* v = s->find("flashShadowVolumes"))
+            st.flashShadowVolumes = v->boolOr(false);
+        if (const auto* v = s->find("spotShadowVolumes"))
+            st.spotShadowVolumes = v->boolOr(false);
+        if (const auto* v = s->find("shadowVolumesDebug"))
+            st.shadowVolumesDebug = (int)v->numberOr(0);
         readVec3(s->find("skyColor"), st.skyColor);
         readVec3(s->find("skyTopColor"), st.skyTopColor);
         if (const auto* v = s->find("skyDome"))
@@ -5115,11 +5373,6 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.sprintMultiplier = (float)v->numberOr(1.8);
             if (st.sprintMultiplier < 1.0f) st.sprintMultiplier = 1.0f;
             if (st.sprintMultiplier > 4.0f) st.sprintMultiplier = 4.0f;
-        }
-        // Legacy single-value key seeds both sticks; per-stick keys override.
-        if (const auto* v = s->find("stickDeadzone")) {
-            st.stickDeadzoneL = (float)v->numberOr(0.2);
-            st.stickDeadzoneR = st.stickDeadzoneL;
         }
         if (const auto* v = s->find("stickDeadzoneL"))
             st.stickDeadzoneL = (float)v->numberOr(0.2);
@@ -5186,6 +5439,23 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.giProbeLevels = (int)v->numberOr(4);
         if (st.giProbeLevels < 1) st.giProbeLevels = 1;
         if (st.giProbeLevels > 16) st.giProbeLevels = 16;
+        // Automatic model AO. The struct defaults are what a file written
+        // before this key existed loads as, which is the whole compatibility
+        // story - see ProjectSettings::modelAo.
+        if (const auto* v = s->find("modelAo")) st.modelAo = v->boolOr(false);
+        if (const auto* v = s->find("modelAoStrength"))
+            st.modelAoStrength = clamp01((float)v->numberOr(0.7));
+        if (const auto* v = s->find("modelAoRays"))
+            st.modelAoRays = (int)v->numberOr(64);
+        if (st.modelAoRays < 8) st.modelAoRays = 8;
+        if (st.modelAoRays > 512) st.modelAoRays = 512;
+        if (const auto* v = s->find("modelAoDist"))
+            st.modelAoDist = (float)v->numberOr(0.0);
+        if (st.modelAoDist < 0.0f) st.modelAoDist = 0.0f;
+        if (const auto* v = s->find("prelitAutoBake"))
+            st.prelitAutoBake = v->boolOr(false);
+        if (const auto* v = s->find("giAutoBake"))
+            st.giAutoBake = v->boolOr(false);
         if (const auto* v = s->find("bloom")) {  // 0..2 (see the scene reader)
             const float b = (float)v->numberOr(0.0);
             st.bloom = b < 0.0f ? 0.0f : (b > 2.0f ? 2.0f : b);
@@ -5207,6 +5477,11 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.godRays = clamp01((float)v->numberOr(0.0));
         if (const auto* v = s->find("blobShadows"))
             st.blobShadows = v->type == json::Value::Type::Bool && v->boolean;
+        if (const auto* v = s->find("projShadowDistance")) {
+            st.projShadowDistance = (float)v->numberOr(50.0);
+            if (st.projShadowDistance < 10.0f) st.projShadowDistance = 10.0f;
+            if (st.projShadowDistance > 500.0f) st.projShadowDistance = 500.0f;
+        }
         // The neural upscaler (docs/neural-upscaler.md). Absent = off, which is
         // every project saved before it existed; blssTemporal defaults ON, so
         // it reads like loadingScreen (absent means the default, not false).
@@ -5332,7 +5607,55 @@ static void readHudSection(const json::Value& root, Project& out) {
                 h.texQuant =
                     (q == "none" || q == "8bit" || q == "4bit") ? q : "";
             }
+            readHudMotion(jh, h.anim, h.transition);
+            if (const auto* v = jh.find("visibleAtStart"))
+                h.visibleAtStart = !(v->type == json::Value::Type::Bool && !v->boolean);
             if (!h.imagePath.empty()) out.hud.push_back(std::move(h));
+        }
+    }
+    out.hudBars.clear();
+    if (const auto* bars = root.find("hudBars");
+        bars && bars->type == json::Value::Type::Array) {
+        for (const auto& jb : bars->arr) {
+            HudBar b;
+            if (const auto* v = jb.find("name")) b.name = v->stringOr("bar");
+            if (const auto* v = jb.find("kind")) b.kind = (int)v->numberOr(0) ? 1 : 0;
+            if (const auto* v = jb.find("pos");
+                v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                b.pos[0] = (float)v->arr[0].numberOr(0.5);
+                b.pos[1] = (float)v->arr[1].numberOr(0.08);
+            }
+            if (const auto* v = jb.find("size");
+                v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                b.size[0] = (float)v->arr[0].numberOr(160);
+                b.size[1] = (float)v->arr[1].numberOr(12);
+            }
+            readVec3(jb.find("bgColor"), b.bgColor);
+            readVec3(jb.find("fillColor"), b.fillColor);
+            readVec3(jb.find("ghostColor"), b.ghostColor);
+            if (const auto* v = jb.find("ghost")) b.ghost = v->boolOr(true);
+            if (const auto* v = jb.find("rightToLeft"))
+                b.rightToLeft = v->boolOr(false);
+            if (const auto* v = jb.find("smoothing"))
+                b.smoothing = (float)v->numberOr(0.25);
+            if (const auto* v = jb.find("lowFraction"))
+                b.lowFraction = (float)v->numberOr(0.25);
+            if (const auto* v = jb.find("segments")) b.segments = (int)v->numberOr(5);
+            b.segments = b.segments < 2 ? 2 : b.segments > 16 ? 16 : b.segments;
+            if (const auto* v = jb.find("spacing")) b.spacing = (float)v->numberOr(4);
+            if (const auto* v = jb.find("source")) b.source = v->stringOr("");
+            if (const auto* v = jb.find("min")) b.minValue = (float)v->numberOr(0);
+            if (const auto* v = jb.find("max")) b.maxValue = (float)v->numberOr(100);
+            if (const auto* v = jb.find("start")) b.startValue = (float)v->numberOr(100);
+            if (b.smoothing < 0.0f) b.smoothing = 0.0f;
+            if (b.lowFraction < 0.0f) b.lowFraction = 0.0f;
+            if (b.lowFraction > 1.0f) b.lowFraction = 1.0f;
+            readBarImage(jb, "fillImage", b.fillImage);
+            readBarImage(jb, "frameImage", b.frameImage);
+            readHudMotion(jb, b.anim, b.transition);
+            if (const auto* v = jb.find("visibleAtStart"))
+                b.visibleAtStart = !(v->type == json::Value::Type::Bool && !v->boolean);
+            if (!b.name.empty()) out.hudBars.push_back(std::move(b));
         }
     }
     // The USE prompt element; absent (older projects) = the classic built-in
@@ -5378,6 +5701,7 @@ static void readHudSection(const json::Value& root, Project& out) {
                 t.shadow = !(v->type == json::Value::Type::Bool && !v->boolean);
             if (const auto* v = jt.find("visibleAtStart"))
                 t.visibleAtStart = v->type == json::Value::Type::Bool && v->boolean;
+            readHudMotion(jt, t.anim, t.transition);
             if (!t.name.empty()) out.hudTexts.push_back(std::move(t));
         }
     }
@@ -5449,15 +5773,8 @@ static void readHudSection(const json::Value& root, Project& out) {
     // Seed/backfill the pad-button set: a project from before text icons (or one
     // whose key was trimmed) still resolves {{cross}}.
     ensureTextIcons(out);
-    // Effect layer positions; absent (older projects) or out of range = -1,
-    // i.e. the effect applies over everything at end of frame - the old
-    // behavior. "hudPostFxLayer" is the pre-split key (bloom+grain shared one
-    // layer); migrate it to both.
-    int legacyLayer = -1;
-    if (const auto* v = root.find("hudPostFxLayer"))
-        legacyLayer = (int)v->numberOr(-1.0);
-    out.hudBloomLayer = legacyLayer;
-    out.hudGrainLayer = legacyLayer;
+    // Effect layer positions; absent or out of range = -1, i.e. the effect
+    // applies over everything at end of frame.
     if (const auto* v = root.find("hudBloomLayer"))
         out.hudBloomLayer = (int)v->numberOr(-1.0);
     if (const auto* v = root.find("hudGrainLayer"))
@@ -5537,6 +5854,25 @@ static void readTexQualitySection(const json::Value& root, Project& out) {
     }
 }
 
+static void readAtlasSection(const json::Value& root, Project& out) {
+    out.atlasControl.clear();
+    if (const auto* ac = root.find("atlasControl");
+        ac && ac->type == json::Value::Type::Object) {
+        for (const auto& [tex, v] : ac->obj) {
+            if (v.type != json::Value::Type::Object) continue;
+            Project::AtlasControl c;
+            if (const auto* k = v.find("keepOut")) c.keepOut = k->boolOr(false);
+            if (const auto* g = v.find("group")) c.group = g->stringOr("");
+            if (const auto* b = v.find("pageBits")) {
+                const int bits = (int)b->numberOr(0);
+                if (bits == 4 || bits == 8 || bits == 32) c.pageBits = bits;
+            }
+            if (c.keepOut || !c.group.empty() || c.pageBits != 0)
+                out.atlasControl[tex] = c;
+        }
+    }
+}
+
 static void readModelLodsSection(const json::Value& root, Project& out) {
     out.modelLods.clear();
     if (const auto* ml = root.find("modelLods");
@@ -5549,6 +5885,17 @@ static void readModelLodsSection(const json::Value& root, Project& out) {
                 if (!path.empty()) tiers.push_back(path);
             }
             if (!tiers.empty()) out.modelLods[asset] = tiers;
+        }
+    }
+}
+
+static void readModelAoSection(const json::Value& root, Project& out) {
+    out.modelAoMode.clear();
+    if (const auto* ma = root.find("modelAoMode");
+        ma && ma->type == json::Value::Type::Object) {
+        for (const auto& [asset, v] : ma->obj) {
+            const int mode = (int)v.numberOr(0);
+            if (mode == 1 || mode == 2) out.modelAoMode[asset] = mode;
         }
     }
 }
@@ -6181,16 +6528,6 @@ static void readMenusSection(const json::Value& root, Project& out) {
                     if (!img.path.empty()) m.images.push_back(std::move(img));
                 }
             }
-            // Legacy single-image fields (pre image list)
-            if (const auto* v = jm.find("image")) {
-                MenuImage img;
-                img.path = v->stringOr("");
-                if (const auto* mode = jm.find("imageMode"))
-                    img.slot = mode->stringOr("top") == "background"
-                                   ? MenuImage::Background
-                                   : MenuImage::AboveTitle;
-                if (!img.path.empty()) m.images.push_back(std::move(img));
-            }
             readVec3(jm.find("accent"), m.accent);
             if (const auto* entries = jm.find("entries");
                 entries && entries->type == json::Value::Type::Array) {
@@ -6315,6 +6652,8 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
         case Section::Audio: readAudioSection(root, p); break;
         case Section::TexQuality: readTexQualitySection(root, p); break;
         case Section::ModelLods: readModelLodsSection(root, p); break;
+        case Section::ModelAo: readModelAoSection(root, p); break;
+        case Section::Atlas: readAtlasSection(root, p); break;
         case Section::SaveData: readSaveDataSection(root, p); break;
         case Section::Gradings: readGradingsSection(root, p); break;
         case Section::Ambience: readAmbienceSection(root, p); break;
@@ -6371,11 +6710,14 @@ std::string load(Project& out, const std::string& projectDir) {
     out = Project{};
     out.dir = fs::path(projectDir).string();
 
-    // Format gate, before anything else is read: a file written by a NEWER
-    // editor is refused outright - this editor would silently drop the fields
-    // it does not know and destroy them on the next save. Older files load
-    // normally; the caller checks migrations::stepsFor(formatVersionOnDisk)
-    // to decide whether an (irreversible) migration prompt is needed.
+    // Format gate, before anything else is read. Too NEW is refused outright -
+    // this editor would silently drop the fields it does not know and destroy
+    // them on the next save. Too OLD is refused as well, and by name: the
+    // reader carries no translations below kMinFormatVersion, so it would find
+    // nothing it recognises and open an empty project without saying why.
+    // Everything in between loads normally; the caller checks
+    // migrations::stepsFor(formatVersionOnDisk) to decide whether an
+    // (irreversible) migration prompt is needed.
     out.formatVersionOnDisk = 0;  // no field = saved before versioning existed
     if (const auto* v = root.find("formatVersion"))
         out.formatVersionOnDisk = (int)v->numberOr(0);
@@ -6388,6 +6730,15 @@ std::string load(Project& out, const std::string& projectDir) {
                ", this editor (TyraX " + version::kEditorVersion +
                ") reads up to v" + std::to_string(version::kFormatVersion) +
                ". Update TyraX to open this project.";
+    }
+    if (out.formatVersionOnDisk < version::kMinFormatVersion) {
+        return tyraPath.filename().string() +
+               " is in project format v" +
+               std::to_string(out.formatVersionOnDisk) +
+               ", which this editor (TyraX " + version::kEditorVersion +
+               ") no longer reads - it reads v" +
+               std::to_string(version::kMinFormatVersion) + " to v" +
+               std::to_string(version::kFormatVersion) + ".";
     }
 
     // Register the project's custom flow nodes BEFORE the graphs are parsed:
@@ -6416,67 +6767,45 @@ std::string load(Project& out, const std::string& projectDir) {
 
     readSettingsSection(root, out);
 
-    // Scenes. New format: [{ "name", "objects" }]; legacy: an array of scene
-    // name strings plus a project-level "objects" array (single scene).
+    // Scenes: [{ "name", "terrain", "settings", "overrides", "objects" }], the
+    // "objects" list being the ids of the objects/<id>.json bodies.
     if (const auto* v = root.find("startScene")) out.startScene = (int)v->numberOr(0.0);
     if (const auto* scenes = root.find("scenes");
         scenes && scenes->type == json::Value::Type::Array && !scenes->arr.empty()) {
-        if (scenes->arr[0].type == json::Value::Type::Object) {
-            out.scenes.clear();
-            for (const auto& js : scenes->arr) {
-                SceneData sc;
-                if (const auto* v = js.find("name")) sc.name = v->stringOr("scene");
-                if (const auto* ls = js.find("layers")) readLayersArray(*ls, sc.layers);
-                if (const auto* tl = js.find("terrainLayers"))
-                    readTerrainLayersArray(*tl, sc.terrainLayers);
-                if (const auto* v = js.find("terrainBaseStochastic"))
-                    sc.terrainBaseStochastic = v->boolOr(false);
-                if (const auto* v = js.find("terrainTintVariation"))
-                    sc.terrainTintVariation = (float)v->numberOr(0.0);
-                if (const auto* v = js.find("terrainTintScale")) {
-                    sc.terrainTintScale = (float)v->numberOr(24.0);
-                    if (sc.terrainTintScale < 1.0f) sc.terrainTintScale = 1.0f;
-                }
-                if (const auto* objs = js.find("objects"))
-                    readSceneObjects(out, *objs, sc.objects);
-                if (const auto* t = js.find("terrain")) {
-                    if (const auto* v = t->find("width"))
-                        sc.terrain.width = (int)v->numberOr(64);
-                    if (const auto* v = t->find("depth"))
-                        sc.terrain.depth = (int)v->numberOr(64);
-                    if (const auto* v = t->find("enabled"))
-                        sc.terrain.enabled = v->boolOr(true);
-                }
-                readSceneVisuals(js, sc);
-                out.scenes.push_back(std::move(sc));
+        out.scenes.clear();
+        for (const auto& js : scenes->arr) {
+            SceneData sc;
+            if (const auto* v = js.find("name")) sc.name = v->stringOr("scene");
+            if (const auto* ls = js.find("layers")) readLayersArray(*ls, sc.layers);
+            if (const auto* tl = js.find("terrainLayers"))
+                readTerrainLayersArray(*tl, sc.terrainLayers);
+            if (const auto* v = js.find("terrainBaseStochastic"))
+                sc.terrainBaseStochastic = v->boolOr(false);
+            if (const auto* v = js.find("terrainTintVariation"))
+                sc.terrainTintVariation = (float)v->numberOr(0.0);
+            if (const auto* v = js.find("terrainTintScale")) {
+                sc.terrainTintScale = (float)v->numberOr(24.0);
+                if (sc.terrainTintScale < 1.0f) sc.terrainTintScale = 1.0f;
             }
-        } else {
-            out.scenes.clear();
-            for (const auto& s : scenes->arr)
-                out.scenes.push_back(SceneData{s.stringOr("main"), {}});
+            if (const auto* objs = js.find("objects"))
+                readSceneObjects(out, *objs, sc.objects);
+            if (const auto* t = js.find("terrain")) {
+                if (const auto* v = t->find("width"))
+                    sc.terrain.width = (int)v->numberOr(64);
+                if (const auto* v = t->find("depth"))
+                    sc.terrain.depth = (int)v->numberOr(64);
+                if (const auto* v = t->find("enabled"))
+                    sc.terrain.enabled = v->boolOr(true);
+            }
+            readSceneVisuals(js, sc);
+            out.scenes.push_back(std::move(sc));
         }
     }
     if (out.scenes.empty()) out.scenes.push_back(SceneData{});
 
-    // Legacy project-level terrain size: copy into every scene. Legacy
-    // project-level lighting / terrain texture live in out.settings (read
-    // above) and reach scenes through inheritance (project::resolvedSettings),
-    // so no per-scene copy is needed here.
-    if (const auto* terrain = root.find("terrain")) {
-        TerrainConfig t{64, 64};  // legacy default, not the new-project one
-        if (const auto* v = terrain->find("width")) t.width = (int)v->numberOr(64);
-        if (const auto* v = terrain->find("depth")) t.depth = (int)v->numberOr(64);
-        for (SceneData& sc : out.scenes) sc.terrain = t;
-    }
-
-    if (const auto* objects = root.find("objects");
-        objects && objects->type == json::Value::Type::Array) {
-        readObjectsArray(*objects, out.scenes[0].objects);  // legacy single scene
-    }
-
     // Every scene object must carry a stable id before the caller snapshots the
-    // project (loadHistory compares against out.scenes). Pre-id projects get
-    // theirs here; they are written back on the next save.
+    // project (loadHistory compares against out.scenes); a just-added object
+    // has none until here, and they are written back on the next save.
     ensureObjectIds(out);
     clampStartScene(out);
 
@@ -6485,7 +6814,9 @@ std::string load(Project& out, const std::string& projectDir) {
     readAudioSection(root, out);
 
     readTexQualitySection(root, out);
+    readAtlasSection(root, out);
     readModelLodsSection(root, out);
+    readModelAoSection(root, out);
     readModelUnitsSection(root, out);
 
     readSaveDataSection(root, out);
@@ -6514,53 +6845,19 @@ std::string load(Project& out, const std::string& projectDir) {
     ensureFactIds(out);
     readBlssShotsSection(root, out);
 
-    // Migrate projects authored before the Ambience Editor: sky/lighting/fog
-    // used to live in Preferences (global + per-scene overrides). Fold them
-    // into presets so the same values keep driving the scene now that those
-    // controls have moved. Only runs when the project has no presets yet.
-    if (out.ambiencePresets.empty()) {
-        auto uniqueName = [&](std::string base) {
-            if (base.empty()) base = "Ambience";
-            std::string n = base;
-            for (int k = 2;; ++k) {
-                bool taken = false;
-                for (const auto& a : out.ambiencePresets) taken |= (a.name == n);
-                if (!taken) return n;
-                n = base + "-" + std::to_string(k);
-            }
-        };
-        auto fromSettings = [](const ProjectSettings& s, const std::string& name) {
-            AmbiencePreset a;
-            a.name = name;
-            for (int i = 0; i < 3; ++i) {
-                a.skyColor[i] = s.skyColor[i];
-                a.skyTopColor[i] = s.skyTopColor[i];
-                a.lightDir[i] = s.lightDir[i];
-                a.lightColor[i] = s.lightColor[i];
-                a.fogColor[i] = s.fogColor[i];
-            }
-            a.skyDome = s.skyDome;
-            a.zenithSize = s.zenithSize;
-            a.ambient = s.ambient, a.diffuse = s.diffuse, a.brightness = s.brightness;
-            a.aoEnabled = s.aoEnabled, a.aoStrength = s.aoStrength;
-            a.aoRadius = s.aoRadius;
-            a.fogEnabled = s.fogEnabled, a.fogStart = s.fogStart, a.fogEnd = s.fogEnd;
-            return a;
-        };
-        // Default at index 0. Keep defaultAmbience = -1 during the per-scene
-        // loop so resolvedSettings() below sees NO preset overlay and captures
-        // each scene's own overridden sky/lighting/fog, not the default's.
-        out.ambiencePresets.push_back(fromSettings(out.settings, uniqueName("Default")));
-        for (SceneData& sc : out.scenes) {
-            if (!(sc.overrides.sky || sc.overrides.lighting || sc.overrides.fog))
-                continue;
-            AmbiencePreset a = fromSettings(resolvedSettings(out, sc), uniqueName(sc.name));
-            sc.ambiencePreset = a.name;
-            sc.overrides.sky = sc.overrides.lighting = sc.overrides.fog = false;
-            out.ambiencePresets.push_back(std::move(a));
-        }
-        out.defaultAmbience = 0;
-    }
+    // NOTE there is deliberately no "fold sky/lighting/fog into presets"
+    // migration here any more. It was the pre-Ambience-Editor lift, gated on
+    // `ambiencePresets.empty()` - and that gate stopped meaning "an old file"
+    // the moment the Ambience Editor let you delete every preset (it has an
+    // empty state and no last-one guard, so this is an ORDINARY state). On such
+    // a project it re-manufactured a "Default" preset, bound each scene that
+    // overrode sky/lighting/fog to a freshly invented preset named after the
+    // scene, and CLEARED those three override flags - measured, not feared: an
+    // emptied lighting example came back with `"ambiencePreset": "main"` and
+    // its two ticks off. The values survived inside the preset, but the
+    // structure the author chose did not. A pre-versioning file is refused at
+    // the version::kMinFormatVersion gate long before this point, so the lift
+    // had no one left to help.
     if (out.defaultAmbience < -1 ||
         out.defaultAmbience >= (int)out.ambiencePresets.size())
         out.defaultAmbience = -1;
@@ -6580,16 +6877,6 @@ std::string load(Project& out, const std::string& projectDir) {
     ensureHeightmap(out);
     loadSplat(out);  // reads <scene>.splat sidecars + reconciles with the layers
 
-    // Legacy project-level flow graph (pre per-object graphs): adopt it into
-    // the first object so old projects keep working. It is written back in
-    // the new per-object format on the next save.
-    if (const auto* fg = root.find("flowGraph"); fg && !out.scenes[0].objects.empty()) {
-        FlowGraph legacy;
-        readFlowGraph(*fg, legacy);
-        if (!legacy.empty() && out.scenes[0].objects[0].flowGraph.empty())
-            out.scenes[0].objects[0].flowGraph = std::move(legacy);
-    }
-
     // Editor-side state + window layout (the .tyra file holds the whole
     // project). All are clamped/validated where they are applied.
     if (const auto* ed = root.find("editor")) {
@@ -6599,23 +6886,25 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = ed->find("gizmoSpace"))
             out.gizmoSpace = (int)v->numberOr(0);
         if (const auto* v = ed->find("viewMode")) out.viewMode = (int)v->numberOr(0);
+        if (const auto* c = ed->find("cam");
+            c && c->type == json::Value::Type::Array && c->arr.size() >= 6) {
+            out.viewCamYaw = (float)c->arr[0].numberOr(0.8);
+            out.viewCamPitch = (float)c->arr[1].numberOr(0.6);
+            out.viewCamDist = (float)c->arr[2].numberOr(90.0);
+            for (int k = 0; k < 3; ++k)
+                out.viewCamTarget[k] = (float)c->arr[3 + k].numberOr(0.0);
+        }
         if (const auto* v = ed->find("viewProjection"))
             out.viewProjection = (int)v->numberOr(0);
+        if (const auto* v = ed->find("showFog")) out.viewShowFog = v->boolOr(true);
         if (const auto* v = ed->find("breakpoints");
             v && v->type == json::Value::Type::Array)
             for (const auto& jb : v->arr)
                 if (jb.type == json::Value::Type::String && !jb.str.empty())
                     out.debugBreakpoints.push_back(jb.str);
-        // Legacy fields: emulatorPath / ps2LinkIp are now machine-global
-        // (editor.ini). Still read so the editor can migrate an older project's
-        // values into the global config on first open (see App::attachProject);
-        // no longer written back out.
-        if (const auto* v = ed->find("emulatorPath")) out.emulatorPath = v->stringOr("");
-        if (const auto* v = ed->find("ps2LinkIp")) out.ps2LinkIp = v->stringOr("");
     }
-    // Window layouts. New format: a "layouts" array + "activeLayout" index.
-    // Legacy format: a single "layout" dump - migrate it into the built-in set
-    // so older projects gain Director/Material while keeping their arrangement.
+    // Window layouts: a "layouts" array + an "activeLayout" index. A project
+    // that carries none is seeded with the built-in set.
     if (const auto* layouts = root.find("layouts");
         layouts && layouts->type == json::Value::Type::Array) {
         for (const auto& jl : layouts->arr) {
@@ -6633,10 +6922,6 @@ std::string load(Project& out, const std::string& projectDir) {
             out.activeLayout = (int)v->numberOr(0);
     } else {
         seedBuiltinLayouts(out);
-        if (const auto* v = root.find("layout")) {
-            const std::string legacy = v->stringOr("");
-            if (!legacy.empty()) out.windowLayouts[0].ini = legacy;  // keep old arrangement
-        }
     }
     // Top up the built-in set: a project saved before a built-in layout existed
     // keeps its own layouts, and would otherwise never see the new one. Only
@@ -6668,7 +6953,6 @@ std::string load(Project& out, const std::string& projectDir) {
     // Same contract as the layouts: fonts[0] is the fallback every empty font
     // reference resolves to, so the list must never be empty.
     if (out.fonts.empty()) out.fonts.push_back(GameFont{});
-    migrateFontRefs(out);
 
     return "";
 }
@@ -6834,16 +7118,22 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, (o.physics ? 1 : 0) | (o.usable ? 2 : 0) | (o.saveState ? 4 : 0) |
                   (o.pickable ? 32 : 0) | (o.pickThrow ? 64 : 0) |
                   (o.decalProject ? 8 : 0) | (o.projShadow ? 128 : 0));
+    fnvMix(h, (uint64_t)o.shadowMode);
     fnvMix(h, (uint64_t)o.collisionMode);
     fnvMixS(h, o.layer);
     fnvMix(h, (uint64_t)o.primDetail);
     fnvMix(h, o.primRings ? 1 : 0);
     fnvMixF(h, o.drawDistance);
+    fnvMixS(h, o.impostorPath);
+    fnvMixF(h, o.impostorDistance);
+    fnvMix(h, o.impostorBillboard ? 1 : 0);
+    fnvMix(h, o.impostorViews);
     // Cast shadow feeds the build-time AO bake (occluder tables + textures);
     // a live edit of it cannot show without a rebuild.
     fnvMix(h, o.castShadow ? 1 : 0);
     fnvMix(h, o.bakedLighting ? 1 : 0);
     fnvMix(h, o.dynamicLighting ? 1 : 0);
+    fnvMix(h, o.prelit ? 1 : 0);
     // The four numbers this mesh hands the project's own VU1 microprogram.
     // They are BAKED into SCENE_OBJECTS and the live-link record carries only
     // transform + colour, so an edit of them cannot show without a rebuild -
@@ -6887,6 +7177,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, o.flashlightEnabled ? 1 : 0);
     fnvMix3(h, o.flashlightColor);
     fnvMixF(h, o.flashlightRange), fnvMixF(h, o.flashlightAngle);
+    fnvMixF(h, o.flashlightOffsetRight), fnvMixF(h, o.flashlightOffsetDown);
     fnvMixS(h, o.flashlightToggleButton);
     fnvMixS(h, o.flashlightTexture);
     fnvMix(h, (uint64_t)o.emitterKind);
@@ -6959,11 +7250,27 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
         fnvMix3(h, o.position), fnvMix3(h, o.rotation), fnvMix3(h, o.scale);
     }
     if (o.type == PrimitiveType::PointLight) {
-        fnvMix3(h, o.position), fnvMix3(h, o.color);
-        fnvMixF(h, o.lightBright), fnvMixF(h, o.lightRadius);
-        // Dynamic lights live in a baked side table (DYN_LIGHTS) - flipping
-        // the flag or the flicker needs a rebuild like any baked change.
-        fnvMixF(h, o.lightDynamic ? 1.0f : 0.0f), fnvMixF(h, o.lightFlicker);
+        // A BAKED light's pose/color/falloff is baked into vertex colors, so
+        // any edit needs a rebuild. A DYNAMIC light reads its object data
+        // every frame - since livelink v4 its transform, color, brightness,
+        // radius, flicker and spot angle STREAM instead, so they stay out of
+        // the recipe. What still rebuilds: the dynamic flag itself, the beam
+        // (its bags exist per light from scene setup) and the spot STYLE
+        // (the pool's texture - gobo vs corona - is chosen at setup).
+        if (!o.lightDynamic) {
+            fnvMix3(h, o.position), fnvMix3(h, o.color);
+            fnvMixF(h, o.lightBright), fnvMixF(h, o.lightRadius);
+            fnvMixF(h, o.lightFlicker);
+        }
+        fnvMixF(h, o.lightDynamic ? 1.0f : 0.0f);
+        fnvMixF(h, o.lightSpot ? 1.0f : 0.0f);
+        // The per-light shadow-volume override is a BUILD-time statement like
+        // the spot style beside it: whether the light carves volumes decides
+        // what the boot path allocates (the count band) and which spot the
+        // frame counts into it, and the streaming record is full at 16 floats
+        // with no slot to carry it. So an edit of it flips the chip amber and
+        // asks for a rebuild rather than pretending to be live.
+        fnvMixF(h, (float)o.lightShadowVolumes);
         fnvMixF(h, (float)o.lightBeam);
     }
     // An Area's box is what mirror/portal/camera-feed target lists were
@@ -7080,6 +7387,46 @@ std::string liveLinkSigFile(const Project& p) {
         }
     }
     return out.str();
+}
+
+uint64_t inputLayoutHash(const Project& p) {
+    // Deliberately COARSE: it answers "is this the same world the recording was
+    // taken in", not "is anything different at all". Object transforms and
+    // colours are excluded on purpose - moving a prop is exactly the kind of
+    // edit somebody makes between recording a bug and replaying it, and the
+    // per-frame fingerprint reports the consequence far better than a hash
+    // that would refuse every recording after the first save.
+    uint64_t h = 1469598103934665603ull;
+    auto mix = [&h](uint64_t v) { h = (h ^ v) * 1099511628211ull; };
+    auto mixStr = [&](const std::string& s) {
+        for (char c : s) mix((uint64_t)(unsigned char)c);
+        mix(0x1F);
+    };
+    mix(1);  // layout version - bump when the mix below changes
+    mix(p.scenes.size());
+    for (const SceneData& sc : p.scenes) mix(sc.objects.size());
+    mix((uint64_t)p.startScene);
+    mixStr(p.settings.multiplayer);
+    mix(p.settings.p2JoinOnStart ? 1u : 0u);
+    mix(p.settings.keyboardMouse ? 1u : 0u);
+    mixStr(p.settings.videoSystem);
+    // The input map decides what a button MEANS, so a rebind changes the run a
+    // recording describes even though the recorded bits are unchanged.
+    mix((uint64_t)p.input.activePreset);
+    for (const InputAction& a : p.input.actions) {
+        mixStr(a.name);
+        mix((uint64_t)a.role);
+    }
+    for (const InputPreset& pr : p.input.presets) {
+        mixStr(pr.name);
+        for (const InputBinding& b : pr.bindings) {
+            mixStr(b.action);
+            mixStr(b.pad);
+            mix((uint64_t)b.key);
+            mix((uint64_t)b.mouse);
+        }
+    }
+    return h;
 }
 
 // Generated VU files (docs/vu-authoring.md). They are named after the program
@@ -7282,6 +7629,8 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "src\\gen\\livedbg.sym" ||
             f.relativePath == "src\\gen\\live_pad.gen.cpp" ||
             f.relativePath == "inc\\live_pad.gen.hpp" ||
+            f.relativePath == "src\\gen\\input_replay.gen.cpp" ||
+            f.relativePath == "inc\\input_replay.gen.hpp" ||
             f.relativePath == "src\\gen\\live_tex.gen.cpp" ||
             f.relativePath == "src\\gen\\object_scripts.gen.cpp" ||
             f.relativePath == "src\\gen\\screen_fx.gen.cpp" ||
@@ -7359,8 +7708,8 @@ std::string refreshGenerated(const Project& p) {
                    f.relativePath == "inc\\controls.hpp" ||
                    f.relativePath == "inc\\scripts\\script.hpp" ||
                    f.relativePath == "inc\\scripts\\flow_nodes.hpp") {
-            // Regenerate while the ownership marker is present, or when the
-            // file is byte-identical to an old template (never user-edited).
+            // Regenerate only while the ownership marker is present: the user
+            // deletes that line to take the file over.
             std::ifstream existing(path, std::ios::binary);
             if (!existing) {
                 write = true;
@@ -7368,12 +7717,7 @@ std::string refreshGenerated(const Project& p) {
                 std::stringstream content;
                 content << existing.rdbuf();
                 std::string firstLine = content.str().substr(0, content.str().find('\n'));
-                // Accept the current "Generated by TyraX" marker and the legacy
-                // "Generated by tyra-editor" one (projects created before the
-                // TyraX rebrand) so their ownable files keep syncing.
-                write = firstLine.find("Generated by TyraX") != std::string::npos ||
-                        firstLine.find("Generated by tyra-editor") != std::string::npos ||
-                        templates::matchesLegacy(p, f.relativePath, content.str());
+                write = firstLine.find("Generated by TyraX") != std::string::npos;
             }
         } else if (f.relativePath == ".vscode\\extensions.json") {
             // Write-once like the notices below, EXCEPT that a recommendation
@@ -7396,7 +7740,27 @@ std::string refreshGenerated(const Project& p) {
                 }
                 write = false;
             }
-        } else if (f.relativePath == "THIRD-PARTY-NOTICES.txt") {
+        } else if (f.relativePath == "THIRD-PARTY-NOTICES.txt" ||
+                   // The launcher scripts and the repo hygiene files. Same
+                   // write-once rule as the notices, and for the same reason:
+                   // they have no ownership marker, so an existing one is the
+                   // user's. What makes them belong HERE rather than only in
+                   // project::create is that a project scaffolded before one of
+                   // them existed never gets it otherwise - measured on this
+                   // repo's own examples/, where 21 of 34 projects had no
+                   // run.sh at all and a Linux user opening one found only a
+                   // PowerShell launcher. run.ps1/windows-pcsx2.ps1 are listed
+                   // beside it because the pair rule is the whole point: a
+                   // platform's launcher must never be the one that goes
+                   // missing.
+                   f.relativePath == "run.ps1" ||
+                   f.relativePath == "run.sh" ||
+                   f.relativePath == "windows-pcsx2.ps1" ||
+                   f.relativePath == ".gitattributes" ||
+                   f.relativePath == "COLLABORATION.md" ||
+                   f.relativePath == ".gitignore" ||
+                   f.relativePath == "bin\\.gitignore" ||
+                   f.relativePath == "obj\\.gitignore") {
             // Static content: write it once so existing projects pick it up on
             // the next build, but never clobber what the user may have added
             // (neither file has room for the ownership-marker line the ownable
@@ -7410,6 +7774,68 @@ std::string refreshGenerated(const Project& p) {
 
         if (write) {
             if (auto err = writeFile(path, f.content); !err.empty()) return err;
+        }
+    }
+
+    // Migration: the project's own .gitignore is write-once (above), so a
+    // project made before format migrations existed never learned to ignore
+    // `_backup/` - and `--migrate` writes exactly that directory, a full copy
+    // of the .tyra, objects/, heights, splat and node files. Without the rule
+    // the first migration of an older project offers all of it for commit.
+    // Same append-if-missing shape as res/.gitignore below.
+    {
+        const fs::path ignore = fs::path(p.dir) / ".gitignore";
+        std::error_code ec;
+        if (fs::exists(ignore, ec)) {
+            std::ifstream in(ignore, std::ios::binary);
+            std::stringstream content;
+            content << in.rdbuf();
+            in.close();
+            std::string text = content.str();
+            bool grew = false;
+            if (text.find("_backup/") == std::string::npos) {
+                if (!text.empty() && text.back() != '\n') text += '\n';
+                text +=
+                    "\n# Pre-migration snapshots of the project's own model "
+                    "files, written by a format\n# migration "
+                    "(docs/format-versioning.md). Local safety copies, not "
+                    "source: the\n# history that matters is already in git.\n"
+                    "_backup/\n";
+                grew = true;
+            }
+            // Same again for the Debugger's saved captures: the game's own
+            // screenshots land in screenshots/ as PNGs (docs/devkit.md), one
+            // per capture, and a project made before that would offer every
+            // one of them for commit.
+            if (text.find("screenshots/") == std::string::npos) {
+                if (!text.empty() && text.back() != '\n') text += '\n';
+                text +=
+                    "\n# Pictures the running game took of itself, kept by the "
+                    "Debugger's Screen tab\n# (docs/devkit.md). Yours to look "
+                    "at and to throw away.\nscreenshots/\n";
+                grew = true;
+            }
+            // And the input recorder's working files (docs/input-replay.md).
+            // bin/.gitignore already covers the whole directory, so this is
+            // the readable list and the fallback for a project that took bin/
+            // under its own control - the same reason every other channel is
+            // spelled out there. Note recordings/ is deliberately NOT ignored:
+            // a saved recording is meant to be committed next to the bug it
+            // reproduces.
+            if (text.find("bin/replay.") == std::string::npos) {
+                if (!text.empty() && text.back() != '\n') text += '\n';
+                text +=
+                    "\n# The input recorder's working files "
+                    "(docs/input-replay.md). These are the\n# CHANNEL, not the "
+                    "recordings: a recording you want to keep is saved into\n"
+                    "# recordings/*.tyrarep, which IS tracked on purpose.\n"
+                    "bin/replay.in\nbin/replay.arm\nbin/replay.out\n"
+                    "bin/replay.stop\nbin/replay.st\n";
+                grew = true;
+            }
+            if (grew) {
+                if (auto err = writeFile(ignore, text); !err.empty()) return err;
+            }
         }
     }
 
@@ -7678,7 +8104,10 @@ std::string refreshGenerated(const Project& p) {
     // Blob shadows reuse the soft glow as their alpha mask - bake it even
     // when the flare is off (kind 0 only; the flare block above already
     // wrote it otherwise).
-    if (!templates::projectUsesFlare(p) && p.settings.blobShadows) {
+    bool blobWanted = p.settings.blobShadows;
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects) blobWanted |= o.shadowMode == 2;
+    if (!templates::projectUsesFlare(p) && blobWanted) {
         std::vector<unsigned char> png;
         if (!menubake::bakeFlarePNG(0, png))
             return "Blob shadow sprite bake failed";
@@ -7741,6 +8170,25 @@ std::string refreshGenerated(const Project& p) {
             f.write(reinterpret_cast<const char*>(png.data()),
                     (std::streamsize)png.size());
         }
+    }
+
+    // The camera flashlight's gobo (docs/flashlight.md): the pool patch under
+    // the beam takes its STs from the light's own frustum, so this image IS the
+    // shape of the light. Gated exactly like the sprites above -
+    // FLASHLIGHT_USED in scene_data.hpp reads the same predicate, and a project
+    // with no flashlight pays no GS VRAM for it. Written through writeFile so
+    // an unchanged bake keeps its mtime and the build stays incremental.
+    if (templates::projectUsesFlashlight(p) ||
+        templates::projectUsesSpotVolumes(p)) {
+        std::vector<unsigned char> png;
+        if (!menubake::bakeFlashGoboPNG(png))
+            return "Flashlight gobo bake failed";
+        if (auto err = writeFile(
+                fs::path(p.dir) / "res" / "hud" / "flashlight-gobo.png",
+                std::string(reinterpret_cast<const char*>(png.data()),
+                            png.size()));
+            !err.empty())
+            return err;
     }
 
     // Game menu panels: derived from project data (labels, colors), so

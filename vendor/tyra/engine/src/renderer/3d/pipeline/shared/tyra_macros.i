@@ -86,7 +86,7 @@
    lq.xyz      t_lightsColors[0],      t_colorOffset(vi00)
    lq.xyz      t_lightsColors[1],      t_colorOffset+1(vi00)
    lq.xyz      t_lightsColors[2],      t_colorOffset+2(vi00)
-   lq.xyz      t_ambientColor,         t_colorOffset+3(vi00)
+   lq.xyzw     t_ambientColor,         t_colorOffset+3(vi00)
 #endmacro
 
 ;//---------------------------------------------------------
@@ -226,11 +226,14 @@
    madd.xyz    acc,              t_lightDirections[1],   t_normal[y]
    madd.xyz    t_outputColor,    t_lightDirections[2],   t_normal[z]
    mini.xyz    t_outputColor,    t_outputColor,          vf00[w]
-   max.xyz     t_outputColor,    t_outputColor,          vf00[x]
+   max.xyz     t_outputColor,    t_outputColor,          t_ambientColor[w]
    mula.xyz    acc,              t_lightColors[0],       t_outputColor[x]
    madda.xyz   acc,              t_lightColors[1],       t_outputColor[y]
    madda.xyz   acc,              t_lightColors[2],       t_outputColor[z]
    madd.xyz    t_outputColor,    t_ambientColor,         vf00[w]
+   loi         255
+   mini.xyz    t_outputColor,    t_outputColor,          i
+   max.xyz     t_outputColor,    t_outputColor,          vf00[x]
    loi         128
 	addi.w      t_outputColor,    vf00,    i
 #endmacro
