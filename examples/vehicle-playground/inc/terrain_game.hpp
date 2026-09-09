@@ -731,6 +731,7 @@ class TerrainGame : public Tyra::Game {
     float aiStuckT = 0.0F;
     float aiRevT = 0.0F;
     int wpFirst = -1;
+    int aiAvoid = 0;  // cars the traffic rule saw ahead this frame (telemetry)
     int wpCount = 0;
     int wpCur = 0;
   };

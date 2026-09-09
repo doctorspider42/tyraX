@@ -179,6 +179,17 @@ everything else a scene does.
   bumper now bulldozes traffic, the era's shove. Separation resolves 60% of
   the penetration per frame, inverse-mass weighted, and both bodies' matrix
   paths are told they moved.
+- **Car vs PHYSICS BODY is a shove, not a wall** (runtime-only, like car vs
+  car). The collider gather sets physics bodies aside instead of listing them
+  as walls, and after the wall pass every body whose footprint reaches the
+  car's body rectangle takes a velocity kick — along the car's motion plus a
+  radial component off its centre, scaled by the frame's travel and divided
+  by the body's mass, the player shove's own arithmetic (`PHYS_PUSH`) — with a
+  small upward kick, because a crate that tumbles is the look and one that
+  slides is not. The car scrubs speed by body mass over its own: a 0.6 crate
+  against a 12 car is nothing, a heavy barrel a thump. `restFrames = 0` wakes
+  a sleeping body; the physics pass then moves it and resolves it out of the
+  car's own collision box.
 - **The AI driver un-sticks itself.** Pure pursuit has no obstacle avoidance,
   so a pillar on the racing line parks the rival against itself forever the
   moment walls actually hold. Throttle held for over a second with no motion
@@ -605,12 +616,29 @@ and the baked `VEH_WAYPOINTS` table means no runtime name matching at all. The
 controller is pure pursuit: steer from the heading error, throttle backed off in
 tight corners, waypoint advanced within a radius.
 
+**Traffic.** Pure pursuit is blind to the other cars, and two rivals on one
+circuit ride each other's bumpers through every corner. So the AI reads every
+other vehicle — the parked player's included — and one AHEAD inside a
+speed-scaled lookahead (`5 + 0.8·speed` units, times the instance scale) and
+within a three-unit lane of the heading steers this car away from the side it
+sits on (weighted by how close it is and how central), lifts the throttle
+toward a third, and brakes when it is close, dead ahead and we are closing
+by more than 2 u/s. A rival therefore overtakes on the outside instead of
+pushing, and no longer rams a car left at the roadside. Two things it is
+not: a planner (it sees one frame ahead, so a car cutting across at a
+junction still gets hit), and a wall (car vs car stays the momentum pass).
+The example ships two rivals on one circuit for exactly this reason.
+
 A player can **hijack** a patrolling car — the pad branch simply outranks the AI
 branch while they drive it, and getting out resumes the patrol where it stood.
-The acceptance line is `VEHAI` telemetry every ~2 s (position, waypoint, speed):
+The acceptance line is `VEHAI` telemetry every ~2 s (position, waypoint, speed,
+and `av` — how many cars the traffic rule saw ahead in the lane that frame):
 `grep VEHAI bin/log.txt` proves a patrol advanced its loop with no pad attached,
-which is the backlog's own "done when", machine-checked. The example ships a
-`rival` on a four-Area `circuit-` loop.
+which is the backlog's own "done when", machine-checked, and `av 1` on the
+following car proves the avoidance branch fired — which a distance table alone
+cannot, because two identical cars hold a gap at top speed whether or not
+anything steers them. The example ships two rivals on a four-Area `circuit-`
+loop.
 
 ## The Vehicle Editor
 
@@ -956,12 +984,12 @@ never showed the bug.
 Honest state, so nobody looks for these. There is **no tacho** — the HUD reads
 speed, gear and nitrous, and the powertrain supplies the engine speed, but a PS2
 sprite is axis-aligned, so a swinging needle is not a sprite rotation (a
-pre-baked sheet per angle or a small bag of geometry). A vehicle does not trade
-momentum with **physics crates** (car vs car does — see the drive model). AI
-cars do not avoid **each other**, and the patrol is a baked waypoint loop, not
-navigation. The **distant one-submit tier** (wheels baked into the body for a
-parked fleet far away) is designed and not built. Nothing has timed a driven
-frame on a **real PS2**. Every one of those has an entry in docs/backlog.md.
+pre-baked sheet per angle or a small bag of geometry). The AI patrol is a
+baked waypoint loop, not navigation — it avoids other cars one frame ahead
+and nothing else. The **distant one-submit tier** (wheels baked into the body
+for a parked fleet far away) is designed and not built. Nothing has timed a
+driven frame on a **real PS2**. Every one of those has an entry in
+docs/backlog.md.
 
 The canonical vehicle frame is **forward +Z, up +Y, right +X**, and the bake is
 the one place an exporter's frame is discarded. Everything downstream — the sim,

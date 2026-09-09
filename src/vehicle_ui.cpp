@@ -277,8 +277,12 @@ void App::vehicleDriveTick() {
                 return true;
         return false;
     };
+    // The instance's uniform scale rides into the sim the way the runtime
+    // applies it (docs/vehicles.md): the example's car IS scale 1.5, and
+    // without this the test drive tuned a car the console never runs.
     vehiclesim::step(def->drive, in, ImGui::GetIO().DeltaTime, ground,
-                     vehicleDriveState_, solid);
+                     vehicleDriveState_, solid,
+                     o.scale[0] > 0.001f ? o.scale[0] : 1.0f);
 
     for (int a = 0; a < 3; ++a) o.position[a] = vehicleDriveState_.pos[a];
     // Negated like the runtime's write: the sim's pitch is "positive = nose

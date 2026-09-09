@@ -526,12 +526,25 @@ void wheelAnchors(const DriveSpec& spec, const DriveState& state, float out[4][3
     }
 }
 
-void step(const DriveSpec& spec, const DriveInput& in, float dt,
-          const HeightFn& height, DriveState& state, const SolidFn& solid) {
+void step(const DriveSpec& specIn, const DriveInput& in, float dt,
+          const HeightFn& height, DriveState& state, const SolidFn& solid,
+          float scale) {
     // A stalled frame or a paused editor must not tunnel the car through the
     // world; the sim would rather run slow than teleport.
     dt = clampf(dt, 0.0f, 0.05f);
     if (dt <= 0.0f) return;
+
+    // The instance scale, on a COPY: exactly the terms the generated runtime
+    // multiplies by the object's scale (grep "* SC" in updateVehicles - and
+    // note the wheel radius is deliberately NOT among them there either).
+    DriveSpec spec = specIn;
+    if (scale > 0.0f && scale != 1.0f) {
+        spec.wheelBase *= scale;
+        spec.track *= scale;
+        spec.rideHeight *= scale;
+        spec.suspensionTravel *= scale;
+        spec.bodyOverhang *= scale;
+    }
 
     // For the weight-transfer lean at the bottom: the speed the frame STARTED
     // with, so the lean reads the acceleration everything below produces -

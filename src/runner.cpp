@@ -672,15 +672,17 @@ bool Runner::claimPs2Channel(const Project& p) {
 // project stay apart. An instance whose command line cannot be read is left
 // alone and counted: guessing wrong is the failure this replaced.
 void Runner::killEmulatorsFor(const Project& p, const std::string& exe) {
-    int unreadable = 0;
+    int unreadable = 0, others = 0;
     for (const std::string& name : emulatorProcessNames(exe)) {
         for (const platform::RunningProcess& proc : platform::processesNamed(name)) {
             if (proc.commandLine.empty()) {
                 unreadable++;
                 continue;
             }
-            if (!platform::commandLineNamesPath(proc.commandLine, p.elfPath()))
+            if (!platform::commandLineNamesPath(proc.commandLine, p.elfPath())) {
+                others++;
                 continue;
+            }
             appendLine("[editor] Closing the PCSX2 instance running this project "
                        "(pid " + std::to_string(proc.pid) + ").");
             platform::killProcess(proc.pid);
@@ -690,6 +692,18 @@ void Runner::killEmulatorsFor(const Project& p, const std::string& exe) {
         appendLine("[editor] Left " + std::to_string(unreadable) +
                    " other PCSX2 process(es) alone - their command line could "
                    "not be read, so there is no telling whose they are.");
+    // Named rather than silent: an emulator launched by hand on this very
+    // project under a spelling the matcher does not recognise (a quoted or
+    // relative -elf) survives here and then interleaves its writes into the
+    // same bin/log.txt and polls the same livepad.bin as the fresh one - which
+    // cost an hour of "the pad is dead / the car is not at spawn" before
+    // `ps aux` named it. This line is what names it first.
+    if (others > 0)
+        appendLine("[editor] " + std::to_string(others) +
+                   " other PCSX2 instance(s) are running on a different ELF - "
+                   "left alone. If one of them is really THIS project, launched "
+                   "by hand, close it: two games on one bin/ share one log and "
+                   "one pad.");
 }
 
 // Resets ps2link, and reports whatever the console says while it happens -

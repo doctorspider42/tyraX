@@ -278,17 +278,22 @@ gaps, each with a testable end:
   measurement - nothing has timed a driven frame on a real PS2 (docs/profiling.md
   has the method). Done when docs/vehicles.md quotes measured EE ms for one
   car driving, the way the BLSS page quotes its fill numbers.
-- **Vehicle-vs-vehicle and vehicle-vs-physics.** A car stops at walls and
-  pillars; it does not yet trade momentum with physics crates (PHYS_PUSH is
-  the player's shove, unused here) or with another car. Done when driving into
-  the physics-playground crates scatters them.
+- ~~**Vehicle-vs-vehicle and vehicle-vs-physics.**~~ DONE - car vs car in
+  1.66.0 (momentum, two discs per body), car vs physics body in 1.80.0: the
+  gather sets bodies aside instead of listing them as walls, and the car
+  kicks every body its rectangle reaches along its motion (PHYS_PUSH over the
+  body's mass, plus a hop so it tumbles). The example carries three crates at
+  the end of the start straight.
 - ~~**AI traffic.**~~ DONE in 1.65.0 - a `rival` patrols the example's
   four-Area circuit with no pad attached, proven by VEHAI telemetry. What
   remains of the original idea is the A* half: the patrol is a baked waypoint
   loop, not navigation - a car that ROUTES (avoids walls it did not author,
   picks a path to a moving target) would go through navigation.gen.cpp the way
-  the walkers do, and that is its own feature. Also still open: several AI
-  cars avoiding EACH OTHER, which today they do not.
+  the walkers do, and that is its own feature. ~~Also still open: several AI
+  cars avoiding EACH OTHER, which today they do not.~~ DONE in 1.80.0, one
+  frame deep: a car ahead within a speed-scaled lookahead steers the rival
+  off it, lifts its throttle and brakes when closing. The example runs two
+  rivals on one circuit.
 - **The Runner's stale-emulator matcher misses a QUOTED -elf.** A PCSX2
   launched out-of-band with `-elf '<path>'` (single quotes, as a shell passes
   it) survived many `--build --run` cycles of the same project - two instances
@@ -350,12 +355,11 @@ gaps, each with a testable end:
   ROTATION itself: yaw is still never collision-checked, so a corner can
   still sweep INTO an overlap (and now gets stuck grinding instead of
   escaping) - refusing the yaw change is still a candidate polish.
-- **The editor test drive ignores instance scale.** The runtime multiplies
-  track, wheelbase, ride height and the camera rig by the placed object's
-  uniform scale; the host sim drives the raw spec, so a car authored at scale
-  1.5 handles differently in the two. The example's car IS scale 1.5. Done when
-  the test drive takes the instance's scale - probably a scale argument on
-  step() rather than pre-scaled spec copies, so specFields stays the one list.
+- ~~**The editor test drive ignores instance scale.**~~ DONE in 1.80.0 - a
+  `scale` argument on `vehiclesim::step`, scaled on a COPY inside (wheelbase,
+  track, ride height, suspension travel, overhang - the runtime's exact set,
+  wheel radius deliberately not), so specFields stays the one list and the
+  harness keeps calling with the raw spec.
 - **The editor test drive's walls are approximate.** World AABBs via
   placement, not the console's slide resolver - a rotated wall blocks a wider
   footprint in the editor than on the console. Fine for tuning; worth one

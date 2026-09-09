@@ -22,6 +22,11 @@ worked example for [vehicles](../../docs/vehicles.md).
   head-on stops.
 - **A slalom of pillars**, which are cylinders and therefore collide as boxes —
   a useful reminder that the collider is not the mesh.
+- **Three crates** at the end of the start straight (`crate-1..3`, physics
+  boxes of mass 0.6): drive into them and they scatter and tumble — a car
+  shoves a physics body instead of stopping at it.
+- **Two rivals** (`rival`, `rival-2`) patrolling the same four-Area circuit
+  with no pad attached — and avoiding each other, and you, one frame ahead.
 
 ## Driving it
 

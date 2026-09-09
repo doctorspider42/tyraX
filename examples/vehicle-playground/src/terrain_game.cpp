@@ -13633,6 +13633,42 @@ void TerrainGame::updateVehicles(float dt) {
       const float ae = err < 0.0F ? -err : err;
       inThrottle = ae < 45.0F ? 1.0F : (ae < 100.0F ? 0.45F : 0.15F);
       if (ae > 115.0F && v.speed > 7.0F) inBrake = 1.0F;
+      // TRAFFIC. Pure pursuit is blind to the other cars, and two rivals
+      // on one circuit ride each other's bumpers through every corner. A
+      // car AHEAD inside a speed-scaled lookahead and within a lane of the
+      // heading steers this one away from the side it sits on and lifts
+      // the throttle; one close and dead ahead while we are closing gets
+      // the brake. Same frame conventions as the wall samples: forward is
+      // (sin yaw, cos yaw), lateral +X is the side POSITIVE steer turns
+      // toward, so the correction is minus the side. The parked player is
+      // "another car" too - a rival no longer rams it at the roadside.
+      {
+        v.aiAvoid = 0;
+        const float fwx = sinf(v.yaw * kDeg), fwz = cosf(v.yaw * kDeg);
+        const float look = (5.0F + 0.8F * (v.speed > 0.0F ? v.speed : 0.0F)) * SC;
+        const float lane = 3.0F * SC;
+        for (int oj = 0; oj < vehicleCount_; ++oj) {
+          if (oj == vi || !vehicles_[oj].active) continue;
+          const float rdx = vehicles_[oj].pos[0] - v.pos[0];
+          const float rdz = vehicles_[oj].pos[2] - v.pos[2];
+          const float ahead = rdx * fwx + rdz * fwz;
+          if (ahead < 0.5F * SC || ahead > look) continue;
+          const float lat = rdx * fwz - rdz * fwx;
+          const float al = lat < 0.0F ? -lat : lat;
+          if (al > lane) continue;
+          const float w = 1.0F - ahead / look;
+          ++v.aiAvoid;
+          const float side = lat >= 0.0F ? 1.0F : -1.0F;
+          inSteer -= side * (0.5F + 0.5F * (1.0F - al / lane)) * w;
+          if (inThrottle > 0.35F)
+            inThrottle = 0.35F + (inThrottle - 0.35F) * (1.0F - w);
+          if (ahead < 0.45F * look && al < 0.5F * lane &&
+              v.speed - vehicles_[oj].speed > 2.0F)
+            inBrake = 1.0F;
+        }
+        if (inSteer > 1.0F) inSteer = 1.0F;
+        if (inSteer < -1.0F) inSteer = -1.0F;
+      }
       // UNSTICK. Pure pursuit has no obstacle avoidance, so a pillar on the
       // racing line simply parks the car against itself forever (measured:
       // the rival wedged at spd10 1 the moment the walls started holding).
@@ -13714,6 +13750,11 @@ void TerrainGame::updateVehicles(float dt) {
     int floorBoxN = 0;
     int nearMesh[4];
     int nearMeshN = 0;
+    // Physics BODIES (crates, barrels - data.physics): not walls. A car
+    // trades momentum with them after the wall pass below - the era's
+    // "drive through the boxes" - the way it already does with another car.
+    int pushIdx[8];
+    int pushN = 0;
     const float feet0 = v.pos[1] - s.rideHeight * SC;
     {
       const float spd = v.speed < 0.0F ? -v.speed : v.speed;
@@ -13731,6 +13772,13 @@ void TerrainGame::updateVehicles(float dt) {
         }
         const RuntimeObject& o = runtimeObjects[oi];
         if (!o.active || !o.visible || !objectCollides(o.data)) continue;
+        if (o.data.physics && physObstacle(o.data)) {
+          const float dx = o.data.position[0] - v.pos[0];
+          const float dz = o.data.position[2] - v.pos[2];
+          const float r = reach + 0.5F * (o.data.scale[0] + o.data.scale[2]) + 1.0F;
+          if (dx * dx + dz * dz < r * r && pushN < 8) pushIdx[pushN++] = oi;
+          continue;
+        }
         const GameModel* gm = nullptr;
         if (o.data.type == 5 && o.data.model >= 0 &&
             o.data.model < (int)gameModels.size())
@@ -14182,6 +14230,83 @@ void TerrainGame::updateVehicles(float dt) {
         }
       }
     }
+    // PHYSICS BODIES: momentum, not a wall (docs/vehicles.md). Every body
+    // the gather set aside whose footprint (a disc of its wider half-extent)
+    // reaches the car's body rectangle takes a velocity kick along the
+    // car's own motion plus a radial component off the car's centre, scaled
+    // by the frame's travel and divided by the body's mass - the player
+    // shove's arithmetic (PHYS_PUSH), with a small upward kick so a crate
+    // tumbles instead of sliding, which is the whole look. The car pays a
+    // scrub of body mass over its own: a light crate is nothing, a heavy
+    // one a thump. restFrames = 0 is what wakes a sleeper - the physics
+    // pass moves it from there and resolves it out of the car's own box.
+    if (pushN > 0) {
+      const float hx2 = 0.5F * s.track * SC;
+      const float hz2 = 0.5F * s.wheelBase * SC +
+                        (s.bodyOverhang > 0.0F ? s.bodyOverhang * SC : 0.0F);
+      const float mvX = v.pos[0] - prevX, mvZ = v.pos[2] - prevZ;
+      const float mvL = sqrtf(mvX * mvX + mvZ * mvZ);
+      for (int pk = 0; pk < pushN; ++pk) {
+        RuntimeObject& o = runtimeObjects[pushIdx[pk]];
+        const GameModel* pgm = nullptr;
+        const SkelModel* panim = nullptr;
+        if (o.data.type == 5) {
+          if (o.data.model >= 0 && o.data.model < (int)gameModels.size())
+            pgm = &gameModels[o.data.model];
+          if (o.data.animModel >= 0 &&
+              o.data.animModel < (int)gameAnimModels.size())
+            panim = gameAnimModels[o.data.animModel].src.get();
+        }
+        float cOff[3], ext[3];
+        physExtents(o.data, pgm, panim, cOff, ext);
+        const float top = o.data.position[1] + cOff[1] + ext[1];
+        const float bottom = o.data.position[1] + cOff[1] - ext[1];
+        const float feet = v.pos[1] - s.rideHeight * SC;
+        if (top <= feet + 0.1F || bottom >= feet + 1.2F * SC) continue;
+        const float r = ext[0] > ext[2] ? ext[0] : ext[2];
+        const float dx = o.data.position[0] + cOff[0] - v.pos[0];
+        const float dz = o.data.position[2] + cOff[2] - v.pos[2];
+        // Into the car's frame: lx along the track, lz along the wheelbase.
+        const float lx = dx * c2 - dz * s2;
+        const float lz = dx * s2 + dz * c2;
+        const float ax = lx < 0.0F ? -lx : lx, az = lz < 0.0F ? -lz : lz;
+        if (ax >= hx2 + r || az >= hz2 + r) continue;
+        const float dl = sqrtf(dx * dx + dz * dz);
+        const float rx = dl > 1e-4F ? dx / dl : 0.0F;
+        const float rz = dl > 1e-4F ? dz / dl : 1.0F;
+        const float mass = o.data.physMass < 0.05F ? 0.05F : o.data.physMass;
+        // The push direction: mostly the car's motion, partly radial off
+        // its centre (standing still against a crate still nudges it clear,
+        // so a car cannot rest inside one). The body is brought UP TO the
+        // car's own per-frame speed along that direction and no further -
+        // a deficit, never an accumulation. The first cut ADDED a kick on
+        // every frame of overlap, and a crate the bumper carried for a few
+        // frames left the arena at the physics clamp (150 u/s): all three
+        // crates were simply gone from the next capture.
+        const float ux = mvL > 1e-5F ? mvX / mvL : 0.0F;
+        const float uz = mvL > 1e-5F ? mvZ / mvL : 0.0F;
+        float pxd = 0.7F * ux + 0.5F * rx, pzd = 0.7F * uz + 0.5F * rz;
+        const float pl = sqrtf(pxd * pxd + pzd * pzd);
+        if (pl < 1e-5F) continue;
+        pxd /= pl, pzd /= pl;
+        const float want = mvL * 1.25F + 0.015F;
+        const float along = o.velocityX * pxd + o.velocityZ * pzd;
+        if (along >= want) continue;
+        // A heavy body takes less of the car's speed (the shove's 1/mass),
+        // a light one all of it.
+        const float take = mass > 1.0F ? 1.0F / mass : 1.0F;
+        const float dv = (want - along) * take;
+        o.velocityX += pxd * dv;
+        o.velocityZ += pzd * dv;
+        // The hop that makes it tumble - once, on the fresh contact.
+        if (mvL > 0.05F && along < 0.25F * want && o.velocityY < 0.02F)
+          o.velocityY += 0.025F + 0.15F * mvL;
+        o.restFrames = 0;
+        // The car pays the momentum it handed over: body mass over its own.
+        const float scrub = dv * mass / ((s.mass > 0.1F ? s.mass : 0.1F) * (mvL > 1e-5F ? mvL : 1.0F));
+        v.speed *= 1.0F - vehClamp(scrub, 0.0F, 0.5F);
+      }
+    }
     // Presentation, derived and costing the sim nothing: the driven wheels'
     // surface speed is the car's speed PLUS whatever drive the tyres could not
     // lay down. `grip` is already the one tyre number here, so the comparison
@@ -14569,7 +14694,10 @@ void TerrainGame::updateVehicles(float dt) {
 
   // The AI acceptance line, driver or no driver: every patrolling car states
   // its position, waypoint and speed every ~2 s, so `grep VEHAI` PROVES a
-  // patrol advanced its loop with no pad attached (docs/vehicles.md).
+  // patrol advanced its loop with no pad attached (docs/vehicles.md). `av`
+  // is how many cars the traffic rule saw ahead in the lane THIS frame -
+  // the proof that the avoidance branch fires, since two identical cars
+  // hold a gap at top speed whether or not anything steers them.
   static int aiLog = 0;
   if (++aiLog >= 100) {
     aiLog = 0;
@@ -14577,7 +14705,8 @@ void TerrainGame::updateVehicles(float dt) {
       if (ai != vehicleDriver_ && vehicles_[ai].wpCount > 0)
         TYRA_LOG("VEHAI ", ai, " pos ", (int)vehicles_[ai].pos[0], " ",
                  (int)vehicles_[ai].pos[2], " wp ", vehicles_[ai].wpCur,
-                 " spd10 ", (int)(vehicles_[ai].speed * 10.0F));
+                 " spd10 ", (int)(vehicles_[ai].speed * 10.0F), " av ",
+                 vehicles_[ai].aiAvoid);
   }
 }
 

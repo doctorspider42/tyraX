@@ -321,8 +321,17 @@ using SolidFn = std::function<bool(float x, float z, float feetY)>;
 // a head-on refuses the whole move. A slide is only a slide when that axis
 // carries real motion; per-corner resolution stays off the table because it
 // would rotate a body a kinematic chassis cannot represent.
+//
+// `scale` is the placed INSTANCE's uniform scale. The generated runtime
+// multiplies every geometric term of the spec - wheelbase, track, ride
+// height, suspension travel, bumper overhang - by the object's scale (a
+// definition is authored once and placed at any size), and the editor's test
+// drive has to do the same or a car authored at 1.5 handles differently in
+// the two. The scaling happens HERE, on a copy, so specFields() stays the one
+// list of what is authored and the harness keeps calling with the raw spec.
 void step(const DriveSpec& spec, const DriveInput& in, float dt,
-          const HeightFn& height, DriveState& state, const SolidFn& solid = {});
+          const HeightFn& height, DriveState& state, const SolidFn& solid = {},
+          float scale = 1.0f);
 
 // The four wheel anchors in WORLD space for the current state, in the same
 // order as Detection::wheels. The viewport preview and the generated runtime

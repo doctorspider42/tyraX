@@ -16,6 +16,19 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.80.0 (vehicles - the drive owes less, docs/vehicles.md): car vs PHYSICS
+// BODY is a shove, not a wall - the collider gather sets bodies aside and the
+// car brings each one its rectangle reaches up to its own per-frame speed
+// along the push direction (a deficit, never an accumulation: the first cut
+// added a kick per overlapping frame and three crates left the arena at the
+// physics clamp), with a hop so a crate tumbles. AI TRAFFIC: a rival reads
+// the other cars, steers off one ahead within a speed-scaled lookahead,
+// lifts the throttle and brakes when closing - `av` in the VEHAI line is
+// the proof it fires. The editor's test drive takes the instance SCALE
+// (vehiclesim::step's new argument, scaled on a copy - the runtime's exact
+// set of terms). The Runner names the other emulators it leaves alone. The
+// example gains a second rival and three crates. MINOR.
+//
 // 1.79.0 (the lamps, finished - docs/vehicles.md): the reference CC96 DOES
 // name its lamp materials ("headlights", "headlights2", "rear lights"), and
 // two things kept that from reaching the console. The editor adopted the
@@ -2293,7 +2306,7 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 79
+#define TYRAX_VERSION_MINOR 80
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
