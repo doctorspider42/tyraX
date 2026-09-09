@@ -83,8 +83,7 @@ touched player/scene runtime templates, boot PCSX2 once.
 
 ## PR content conventions
 
-- PR title + body in **English** (AGENTS.md rule), body ends with the
-  Claude Code footer.
+- PR title + body in **English** (AGENTS.md rule).
 - Body summarizes per-feature verification (what was proven and how) and
   names the remaining hands-on checks. Since `PROGRESS.md` was retired, the
   commit message and this body ARE the record - hold them to the honesty bar
