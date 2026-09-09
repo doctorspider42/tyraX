@@ -581,6 +581,26 @@ lamp-post vantage included, with the volumes carving. If a 16-bit project is
 too tight for the full raster the band comes back, slide and all - the log
 line says which shape it got (`512x512 CT16, 512 KB` versus `512x256`).
 
+**The count rect is clamped to the raster, cleared one pixel wider than it
+is drawn, and resolved at texel centres (1.70.5).** Three things from one
+32-bit console session beside the lamp post: 12 FPS, a dark line through the
+pool that moved with the camera, and - in an earlier session - the ground
+texture eaten into holes after a walk. A debug build that prints the rect
+(`RECTDBG`) showed `0,0 - 5115,3792`: the rect's far edge was never clamped,
+so a volume vertex projecting off the bottom of the screen (every close
+caster in front of the near plane) sent the band loop to row 3792 - fifteen
+clear + count + resolve brackets a frame instead of two, and every band past
+the raster slid `FRAME.FBP` below address 0, writing wherever the wrap took
+it, which is the likeliest author of the eaten texture. Clamped now; a rect
+wholly off the raster counts nothing. The dark line was the rect's own top
+row: the resolve mapped the band 1:1 with `UV` on the sprite's corners and a
+console's sprite sampler lands a hair outside on the first row and column -
+the texel above and left of the cleared area, stale from an earlier rect,
+read as a count. `countBegin` now clears one pixel beyond the rect on every
+side (the volume draws keep the rect's scissor) and `countResolve` samples at
+texel centres (+8 in 12.4), so whichever way a sampler rounds it reads a
+cleared zero. PCSX2 samples inside the rect and never showed either.
+
 **The television never reads the frame's alpha (1.70.3).** On the stock
 interlaced modes ps2sdk's flicker filter blends the two read circuits by the
 *per-pixel alpha of the displayed buffer* (`PMODE.MMOD = 0`), and that channel

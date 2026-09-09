@@ -1157,6 +1157,12 @@ Rules the same evening paid for:
   last; PCSX2 does not model it and no RGB capture shows it - only
   `--capture-frame --alpha` and the television do. `presentFrameBuffer`
   forces `MMOD = 1, ALP = 0x80` (1.70.3); keep it that way.
+- **A screen rect from projected vertices must be clamped on BOTH sides.**
+  The count rect clamped only its top-left; a vertex off the bottom of the
+  screen made a rect to row 3792, fifteen brackets a frame and FRAME.FBP slid
+  below zero for every band past the raster (1.70.5). Anything that walks a
+  rect in bands or slides a base by it: clamp to the raster first and skip
+  the empty rect.
 - **A slid FRAME.FBP is not a trick PCSX2 can vouch for.** The count band
   addressed its lower half by pointing FRAME below its own base (into the z
   buffer at 16-bit) so page rows landed back in the band; the arithmetic is

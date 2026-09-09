@@ -12959,9 +12959,22 @@ void TerrainGame::updateAndRenderLightPools() {
       bx0 = 0.0F, by0 = 0.0F, bx1 = volW, by1 = volH;
     }
     int rx0 = (int)(bx0 - 4.0F), ry0 = (int)(by0 - 4.0F);
-    const int rx1 = (int)(bx1 + 5.0F), ry1 = (int)(by1 + 5.0F);
+    int rx1 = (int)(bx1 + 5.0F), ry1 = (int)(by1 + 5.0F);
     if (rx0 < 0) rx0 = 0;
     if (ry0 < 0) ry0 = 0;
+    // ...AND CLAMPED TO THE RASTER ON THE FAR SIDE, which it never was. A
+    // volume vertex projecting off the bottom of the screen (every close
+    // caster, in front of the near plane but below the frustum) gave a rect
+    // like 0,0 - 5115,3792 (RECTDBG), and the band loop below walked it
+    // band by band to row 3792: fifteen clear + count + resolve brackets a
+    // frame instead of two (12 FPS beside a lamp post at 32-bit), and every
+    // band past the raster slid FRAME.FBP by its page rows into addresses
+    // below zero - writes landing wherever the wrap took them, which is the
+    // most likely author of the ground texture that came back eaten into
+    // holes after a walk. A rect wholly off the raster counts nothing.
+    if (rx1 > (int)volW) rx1 = (int)volW;
+    if (ry1 > (int)volH) ry1 = (int)volH;
+    if (rx1 <= rx0 || ry1 <= ry0) return false;
     // The mask's alpha is cleared ONCE per light ("everything lit"), then the
     // rect is counted BAND BY BAND. The count target is 32-bit for
     // page-geometry parity with the scene z it tests against (a 16-bit one
@@ -12971,6 +12984,13 @@ void TerrainGame::updateAndRenderLightPools() {
     // is an OR, so the bands compose and a tall shadow costs fill, not
     // coverage.
     rc.alphaMask.maskClear();
+    if (SHADOW_VOLUMES_DEBUG != 0) {  // the rect, for a console capture
+      static int dbgQ = 0;
+      if ((++dbgQ % 60) == 0)
+        TYRA_LOG("RECTDBG rect ", rx0, " ", ry0, " ", rx1, " ", ry1, " bands ",
+                 rc.alphaMask.countBandRows(), " front=", (int)front.size(),
+                 " back=", (int)back.size());
+    }
     if (SHADOW_VOLUMES_DEBUG == 8) return true;  // diagnostic: no bracket
     const int bandRows = rc.alphaMask.countBandRows();
     for (int by = ry0 / bandRows * bandRows; by < ry1; by += bandRows) {

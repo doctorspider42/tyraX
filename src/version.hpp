@@ -16,6 +16,26 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.70.5 (32-bit shadow volumes on a console: the rect was never clamped):
+// beside the lamp post at 32-bit colour the console ran at 12 FPS and drew
+// a dark line through the pool that moved with the camera. RECTDBG (a
+// debug-build print of the count rect) read 0,0 - 5115,3792: the rect's far
+// edge was never clamped to the raster, so a volume vertex projecting off
+// the bottom of the screen (every close caster in front of the near plane)
+// sent the band loop to row 3792 - fifteen clear + count + resolve brackets
+// a frame instead of two - and every band past the raster slid FRAME.FBP
+// by its page rows below address 0, writing wherever the wrap took it. That
+// is the likeliest author of the earlier report's ground texture eaten into
+// holes after a walk, which never reproduced over host:. Clamped now, and a
+// rect wholly off the raster counts nothing; countBegin/countResolve assert
+// a band inside the raster as the belt to those braces. The dark line was
+// the rect's own top row - the resolve's sprite sampled the texel above the
+// cleared area on a console (stale from an earlier rect, read as a count) -
+// so countBegin clears one pixel wider than the rect on every side and
+// countResolve samples at texel centres. Measured on the console at the
+// same vantage: two bands, SCENE ms and FPS in the console's normal range
+// over host:, no dark row.
+//
 // 1.70.4 (the dark rectangle was the dither, not the volumes): the last
 // item of the console report - a rectangle of sky a step darker round the
 // lamp at 16-bit colour - survived every diagnostic mode of the count
@@ -2790,7 +2810,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 70
-#define TYRAX_VERSION_PATCH 4
+#define TYRAX_VERSION_PATCH 5
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

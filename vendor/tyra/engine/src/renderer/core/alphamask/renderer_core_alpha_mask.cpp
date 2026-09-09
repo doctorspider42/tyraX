@@ -278,6 +278,11 @@ void RendererCoreAlphaMask::countBegin(int x0, int y0, int x1, int y1,
   const int w = static_cast<int>(settings->getWidth());
   const int h = static_cast<int>(settings->getRenderHeightF());
   bandY0 = bandY0 / countH * countH;  // bands step by the band height
+  // A band that starts at or past the raster has no rows to count, and its
+  // slide would put FRAME.FBP below address 0 - the caller clamps its rect,
+  // this is the belt to those braces.
+  TYRA_ASSERT(bandY0 < h, "countBegin: band starts past the raster");
+  if (bandY0 >= h) bandY0 = 0;
   if (x0 < 0) x0 = 0;
   if (x1 > w) x1 = w;
   // The drawn region is the caller's rect INTERSECTED with this band.
@@ -289,10 +294,25 @@ void RendererCoreAlphaMask::countBegin(int x0, int y0, int x1, int y1,
 
   packet2_reset(countBeginPacket, false);
   qword_t* q = countBeginPacket->next;
-  // Rows: DTHE, FRAME, SCISSOR, TEST, ZBUF, RGBAQ, PRIM, XYZ2, XYZ2 = 9.
-  // NLOOP counts every register row - a mismatch stalls the GIF forever.
-  PACK_GIFTAG(q, GIF_SET_TAG(9, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  // Rows: DTHE, FRAME, SCISSOR (clear), TEST, ZBUF, RGBAQ, PRIM, XYZ2, XYZ2,
+  // SCISSOR (rect) = 10. NLOOP counts every register row - a mismatch stalls
+  // the GIF forever.
+  PACK_GIFTAG(q, GIF_SET_TAG(10, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
   q++;
+  // THE CLEAR IS ONE PIXEL WIDER THAN THE RECT ON EVERY SIDE (within the
+  // band and the raster). The resolve samples the band with UV at texel
+  // centres, and a console's sprite sampler still lands a hair outside the
+  // rect on its first row and column - which used to be whatever the band
+  // held from an earlier, larger rect. Read as a count, that stale row set
+  // the mask along the rect's own top edge: a dark line through the pool at
+  // the row the volumes' bbox started, moving with the camera (measured on
+  // a console at 32-bit: row 272, every pixel of the pool gone). PCSX2
+  // samples inside the rect and never showed it. Cleared, the neighbour
+  // reads as zero whichever way a sampler rounds.
+  const int cx0 = x0 > 0 ? x0 - 1 : 0;
+  const int cy0 = y0 > bandY0 ? y0 - 1 : bandY0;
+  const int cx1 = x1 < w ? x1 + 1 : w;
+  const int cy1 = y1 < bandEnd ? y1 + 1 : bandEnd;
   // DITHERING OFF FOR THE WHOLE BRACKET, and this line is what makes the
   // count usable on a console. The project's GS dither (DTHE, the 4x4 DIMX
   // offsets) is meant for the 16-bit picture, and the manual's "16-bit
@@ -323,7 +343,7 @@ void RendererCoreAlphaMask::countBegin(int x0, int y0, int x1, int y1,
   // (x,y) reading the same z word the scene wrote; the SCISSOR narrows to the
   // rect so neither the clear nor the volume draws pay for pixels no volume
   // can reach.
-  PACK_GIFTAG(q, GS_SET_SCISSOR(x0, x1 - 1, y0, y1 - 1), GS_REG_SCISSOR_1);
+  PACK_GIFTAG(q, GS_SET_SCISSOR(cx0, cx1 - 1, cy0, cy1 - 1), GS_REG_SCISSOR_1);
   q++;
   // Clear sprite: all channels to zero, no tests, and Z WRITES MASKED - the
   // z bound here is the SCENE's depth, which the volume passes are about to
@@ -348,14 +368,17 @@ void RendererCoreAlphaMask::countBegin(int x0, int y0, int x1, int y1,
     q++;
   } else {
   PACK_GIFTAG(q,
-              GS_SET_XYZ(t.offsetX16 + (x0 << 4), t.offsetY16 + (y0 << 4), 0),
+              GS_SET_XYZ(t.offsetX16 + (cx0 << 4), t.offsetY16 + (cy0 << 4), 0),
               GS_REG_XYZ2);
   q++;
   PACK_GIFTAG(q,
-              GS_SET_XYZ(t.offsetX16 + (x1 << 4), t.offsetY16 + (y1 << 4), 0),
+              GS_SET_XYZ(t.offsetX16 + (cx1 << 4), t.offsetY16 + (cy1 << 4), 0),
               GS_REG_XYZ2);
   q++;
   }
+  // The volume draws stay inside the rect proper.
+  PACK_GIFTAG(q, GS_SET_SCISSOR(x0, x1 - 1, y0, y1 - 1), GS_REG_SCISSOR_1);
+  q++;
   packet2_update(countBeginPacket, q);
   packet2_update(countBeginPacket, draw_finish(countBeginPacket->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
@@ -366,6 +389,8 @@ void RendererCoreAlphaMask::countBegin(int x0, int y0, int x1, int y1,
 void RendererCoreAlphaMask::countResolve(int x0, int y0, int x1, int y1,
                                          int bandY0) {
   TYRA_ASSERT(countAllocated, "countResolve() before allocateCount()!");
+  TYRA_ASSERT(bandY0 / countH * countH < (int)settings->getRenderHeightF(),
+              "countResolve: band starts past the raster");
   // Drain the volume draws - the sprite below samples what they just wrote.
   if (path1->isVU1Configured()) sync->align3D();
 
@@ -486,13 +511,17 @@ void RendererCoreAlphaMask::countResolve(int x0, int y0, int x1, int y1,
                           1 /* uv */, 0, 0),
               GS_REG_PRIM);
   q++;
-  PACK_GIFTAG(q, GS_SET_UV(x0 << 4, (y0 - bandY0) << 4), GS_REG_UV);
+  // UV at TEXEL CENTRES (+8 in 12.4): with the corners on texel edges a
+  // console's sprite sampler took the texel above and left of the rect on
+  // its first row and column (see countBegin's wider clear, the other half
+  // of the same fix); at centres the nearest texel is unambiguous both ways.
+  PACK_GIFTAG(q, GS_SET_UV((x0 << 4) + 8, ((y0 - bandY0) << 4) + 8), GS_REG_UV);
   q++;
   PACK_GIFTAG(q,
               GS_SET_XYZ(t.offsetX16 + (x0 << 4), t.offsetY16 + (y0 << 4), 0),
               GS_REG_XYZ2);
   q++;
-  PACK_GIFTAG(q, GS_SET_UV(x1 << 4, (y1 - bandY0) << 4), GS_REG_UV);
+  PACK_GIFTAG(q, GS_SET_UV((x1 << 4) + 8, ((y1 - bandY0) << 4) + 8), GS_REG_UV);
   q++;
   PACK_GIFTAG(q,
               GS_SET_XYZ(t.offsetX16 + (x1 << 4), t.offsetY16 + (y1 << 4), 0),
