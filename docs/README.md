@@ -29,6 +29,7 @@ for people building games with it. Internals live in code comments, the git log
 - [Areas (invisible volumes)](areas.md) — the box that replaces hand-typed
   distances: streaming zones, catch lists for mirrors/portals/feeds, the In
   Area trigger, reverb rooms.
+- [Selecting objects](object-selection.md) — visible mesh priority, AABB fallback and full-model selection outlines.
 - [Placing objects: surface snapping and deferred paste](object-placement.md) —
   objects that rest on what's below them, `End` to drop, paste that follows the
   cursor.
@@ -62,6 +63,10 @@ for people building games with it. Internals live in code comments, the git log
   reverted.
 - [The flashlight](flashlight.md) — the player's torch: the per-vertex cone, the
   projected ground pool, and the gobo texture that decides its shape.
+- [Dynamic shadows](shadows.md) — the two runtime shadows an object can cast (a
+  blob or a real projected silhouette, chosen per object), and the shadow
+  volumes a scene's spot lights can carve — with the reason only one spot casts
+  per frame, and how the four silhouette slots change hands without blinking.
 - [Reflective materials (sphere-mapped "chrome")](reflective-materials.md) —
   the PS2-era fake for car paint, static or re-rendered from the live sky.
 - [Raytraced reflections (VU0, experimental PoC)](raytraced-reflections.md) — a
@@ -103,6 +108,9 @@ for people building games with it. Internals live in code comments, the git log
   the EE, and the guard-wiring flow nodes.
 - [Configurable buttons & keys](input-bindings.md) — named actions, binding
   presets, the in-game rebind menu, the On Action / On Key nodes.
+- [Where the player starts](player-start.md) — position, starting height, and
+  heading + pitch from the Player object's rotation; how to freeze the camera
+  for a repeatable screenshot.
 - [Player speeds: walk, run and sprint](player-speeds.md) — the three movement
   tiers of a Player object, how the stick's deflection ramps walk into run while
   the sprint button pins the top flat, and what an unset tier inherits.
@@ -122,6 +130,8 @@ for people building games with it. Internals live in code comments, the git log
   meshes; the PS2 never sees a graph.
 - [Runtime procedural generation](procedural-runtime.md) — the same graph
   evaluated on the EE at load, plus Blocks Fill for block worlds.
+- [Distant model impostors](impostors.md) - offline tree captures and distance-based model replacement.
+- [Rendering directions](rendering-directions.md) - assessed priorities for a PS2 visual showcase.
 - [Tree Generator](tree-generator.md) — procedural low-poly trees baked to
   ordinary `.obj` + textures.
 - [Drone Generator (ambient music)](drone-generator.md) — the built-in ambient
@@ -159,6 +169,9 @@ for people building games with it. Internals live in code comments, the git log
 - [Remote Pad (hold the running game's controller)](remote-pad.md) — a
   clickable DualShock in the editor and a scriptable `--pad` CLI, no window
   focus needed anywhere.
+- [Input recorder (record a session, perform it again)](input-replay.md) —
+  every frame's input written to a small committable file, replayed over the top
+  of a real controller; `--replay` exits 0 when the run reproduced exactly.
 - [UI scripting (drive the editor without a human)](ui-scripting.md) —
   `--ui-script` clicks widgets by name, with assertions; where every unattended
   editor test starts.

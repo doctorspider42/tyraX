@@ -98,6 +98,14 @@ The editor executable on this machine: `{TYRAX_EXE}`
   does not quote the script (pass it from a `.ps1` as a literal), and a refresh
   write can lose a race against the game reading the file, which the driver now
   reports as a warning instead of stopping.
+- `--record <projectDir> <out.tyrarep> [--pad "<script>"] [--seconds N]` -
+  build, run, and record every frame of input into a replayable file. Takes the
+  same script language `--pad` does; `--seconds` is a floor, not a cap.
+- `--replay <projectDir> <file.tyrarep>` - build, run and perform that recording
+  again. **Exit 0 = the run reproduced exactly, 3 = it diverged, 1 = it could
+  not be run**, so a recording is a regression test for a whole play session.
+  Both need debug builds with the *Input recorder* preference on (OFF by
+  default - it writes a growing file). See docs/input-replay.md.
 
 ## Building and debugging
 

@@ -35,6 +35,7 @@
 #include "vucap.hpp"
 #include "livedbg.hpp"
 #include "livepad.hpp"
+#include "livereplay.hpp"
 #include "logview.hpp"  // LogView members (the Output / Debug severity split)
 #include "uiscript.hpp"
 #include "livetime.hpp"
@@ -42,6 +43,7 @@
 #include "placement.hpp"
 #include "prefab.hpp"
 #include "project.hpp"
+#include "texatlas.hpp"
 #include "vugen.hpp"  // vugen::Built - the VU panel keeps a live preview
 #include "runner.hpp"
 #include "session.hpp"
@@ -1936,6 +1938,19 @@ private:
     // is EXPLICIT - never part of a build - so this window is where a project
     // learns that its lighting is stale, and the one place that fixes it.
     bool showGiBake_ = false;
+    // Tools > Texture Atlas (docs/texture-atlasing.md, src/atlas_ui.cpp): what
+    // the packer merged with what, why a texture was refused, and the VRAM
+    // arithmetic. The plan reads every candidate image off disk, so it is
+    // cached and recomputed only when something that feeds it changes.
+    bool showTextureAtlas_ = false;
+    bool atlasPlanDirty_ = true;
+    texatlas::Plan atlasPlan_;
+    texatlas::VramEstimate atlasVram_;
+    void drawTextureAtlasWindow();
+    // Page previews are composited from the plan rather than read back from
+    // the bake (which lags every edit) - the map lives beside HudTexture,
+    // which is declared further down.
+    void rebuildAtlasPreviews();
     gibake::Baker giBaker_;
     // Pre-lit models (docs/prelit-models.md): the scene's light baked into ONE
     // object's texture, from the button in Properties. Async because the bounce
@@ -2128,6 +2143,11 @@ private:
     char treeName_[64] = "tree";
     float treeGenAngle_ = 40.0f, treeGenPitch_ = 18.0f, treeGenZoom_ = 1.0f;
     bool treeGenSpin_ = true;
+    bool treeGenImpostor_ = true;
+    int treeImpostorViews_ = 8;
+    int modelImpostorViews_ = 8;
+    std::string modelImpostorObject_;
+    bool impostorGpu_ = true;
     int treeGenDisplayMode_ = 0;
     // Drone Generator (Tools > Drone Generator, docs/drone-generator.md).
     // droneParams_ is the whole patch; the LiveSynth and the audio device are
@@ -2808,6 +2828,9 @@ private:
     };
     std::map<std::string, HudTexture> hudTexCache_;
     const HudTexture* hudTexture(const std::string& relPath);
+    // Texture Atlas page previews, composited from the plan (see
+    // rebuildAtlasPreviews): keyed by page index, rebuilt with the plan.
+    std::map<int, HudTexture> atlasPagePreview_;
     // The generated drawing of a built-in text icon as a GL texture. Lets the
     // Button icons manager preview an icon whose PNG the project has not baked
     // yet, and show what "restore default" gives back. Null for a name that is
@@ -2968,6 +2991,10 @@ private:
     // The game template is not copied - it is fixed at creation and the window
     // only displays it.
     bool showProjectPrefs_ = false;
+    // A tab name for the NEXT frame of Project Preferences to select (see the
+    // beginTab lambda there); empty = leave whichever tab the author left on.
+    // One-shot: honoured once and cleared.
+    std::string prefsFocusTab_;
     bool focusProjectPrefs_ = false;  // menu/shortcut re-open raises the window
     TerrainConfig prefTerrain_;       // width/depth scratch - see prefGridDetail_
     ProjectSettings prefSettings_;
@@ -3150,6 +3177,12 @@ private:
     // track that; they are baselined on project attach so opening a project
     // with a stale dump in its log neither pops it nor looks like a shrink.
     bool errorPopupEnabled_ = true;
+    // "Bake GI on the GPU when this machine has one" - machine-global
+    // (editor.ini), edited from the Ambience Editor's Global illumination tab
+    // next to the Bake buttons, which is where a person looks for it. The
+    // errorPopup precedent: a machine-wide setting does not have to live in the
+    // Preferences modal, it just has to go through saveGlobalConfig().
+    bool giGpuBake_ = false;
     std::string errorSeenSig_;
     std::string errorModalText_;      // block shown in the open dialog
     bool openErrorPopup_ = false;     // request to open the modal next frame
@@ -3251,6 +3284,10 @@ private:
      * about it. Empty while the game is reporting normally. Shared by the
      * window's state block and the Stats tab so the two cannot disagree. */
     std::string dbgSilenceReason() const;
+    /** The paragraph dbgSilenceReason() no longer prints inline: which file is
+     * silent and how a running console ends up with nowhere to write. For the
+     * (?) hover next to it; only meaningful when the reason is non-empty. */
+    const char* dbgSilenceDetail() const;
     float dbgFps_ = 0.0f;           // measured against the editor's wall clock
     int dbgScrub_ = -1;             // timeline index being inspected (-1 = live)
     std::string dbgWatchFilter_;    // Watch tab search box (name or kind)
@@ -3277,6 +3314,31 @@ private:
     /** Pushes history entry `index` back into the running game. */
     void timeMachineRewind(int index);
     void drawTimeMachinePanel();
+
+    // The input recorder (docs/input-replay.md): the fifth direction of the
+    // same host: channel, and the only one that reproduces a whole SESSION.
+    // The mode is chosen for the NEXT run and staged into the Runner, which
+    // does the file work before the launch - so nothing here talks to a
+    // running game except replayTick(), which reads the status the game
+    // writes into bin/replay.st (~4 Hz, the livetimeTick shape).
+    enum class ReplayArm { None, Record, Play };
+    ReplayArm replayArm_ = ReplayArm::None;
+    std::string replayFile_;        // recordings/<name>.tyrarep for Play
+    livereplay::Status replayStatus_;
+    bool replayHaveStatus_ = false;
+    double replayNextTick_ = 0.0;   // ImGui::GetTime() gate for the reader
+    std::string replayMsg_;         // last action, shown in the panel
+    std::string replaySaveName_;    // the Save field's contents
+    std::vector<std::string> replayFiles_;  // recordings/*.tyrarep, cached
+    double replayScanAt_ = 0.0;     // when that list was last rebuilt
+    void replayTick();
+    void drawReplayPanel();
+    /** Asks the running game to finish its recording, waits for the terminal
+     * chunk, and canonicalizes bin/replay.out into recordings/<name>.tyrarep.
+     * Returns "" or an error. */
+    std::string replayStopAndSave(const std::string& name);
+    /** recordings/*.tyrarep, refreshed at most a few times a second. */
+    void replayRescan(bool force);
 
     // Remote Pad (docs/remote-pad.md): the fourth direction of the same host:
     // channel, and the only one carrying INPUT. While the window is open the

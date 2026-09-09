@@ -18,6 +18,7 @@
 #include "navmesh.hpp"
 #include "procgen.hpp"
 #include "project.hpp"
+#include "objparser.hpp"
 
 // 3D preview of the project terrain and scene objects, rendered into an
 // offscreen texture shown inside an ImGui window. Orbit camera (drag+scroll).
@@ -216,6 +217,12 @@ public:
     // its dark texels) and stays on the probe route in both.
     void setGiTerrain(const aobake::AoImage& img);
     void clearGiTerrain() { setGiTerrain(aobake::AoImage()); }
+    // The primitives' baked lightmap atlas (aobake::SceneLightAtlas, from the
+    // same GI cache): every lit region is drawn from the atlas per PIXEL,
+    // exactly as the console's two atlas passes draw it, instead of from the
+    // probe grid. An empty atlas puts those objects back on the probes.
+    void setGiAtlas(const aobake::SceneLightAtlas& atlas);
+    void clearGiAtlas() { setGiAtlas(aobake::SceneLightAtlas()); }
 
     // Baked ambient occlusion preview (docs/ambient-occlusion.md): terrain
     // self-occlusion is multiplied into the terrain vertex colors (the same
@@ -234,6 +241,11 @@ public:
     // from the editor camera, the exact formula the PS2 runs on VU1.
     void setFlashlight(bool enabled, const float* rgb, float range,
                        float halfAngleDeg);
+    // Preferences > Spot light shadow volumes: the project-wide default a
+    // spot light's "Shadow volumes" override falls back to (docs/shadows.md).
+    // Decides which casters the preview shadows a spot through, and that one
+    // spot per frame - the nearest to the camera - carves at all.
+    void setSpotShadowVolumes(bool on) { spotShadowVolumes_ = on; }
 
     // project root for resolving relative model paths (clears the model cache)
     void setProjectDir(const std::string& dir);
@@ -687,6 +699,15 @@ public:
     void pickBounds(const SceneObject& o, float mn[3], float mx[3]);
 
 private:
+    const objparser::Model* pickModel(const std::string& path, const std::string& material);
+    int pickVisual(const SceneObject& o, const float* eye, SceneObject& visual);
+    void selectionBounds(const SceneObject& o, float mn[3], float mx[3]);
+    float pickModelSurface(const SceneObject& visual, int capture,
+                           const float* origin, const float* direction);
+    std::map<std::string, objparser::Model> pickModelCache_;
+    struct PickAlpha { int w = 0, h = 0; std::vector<unsigned char> values; };
+    std::map<std::string, PickAlpha> pickAlphaCache_;
+
     struct Mesh {
         uint32_t vao = 0, vbo = 0;
         int vertexCount = 0;
@@ -832,6 +853,7 @@ private:
     bool ps2Shade_ = false;
     void querySceneLocations(uint32_t prog);
     void useSceneProgram(bool ps2Vertex);
+    int uFoliageImpostor_ = -1;
     int uPs2Flat_ = -1;   // vtx program only: TyraShadingFlat per draw
     int uPs2NoDyn_ = -1;  // vtx program only: dynLightPick=false per draw
     // GL_LINES cannot pass through a triangles geometry shader, so when the
@@ -882,6 +904,7 @@ private:
     // Camera flashlight preview
     int uFlashOn_ = -1, uFlashCol_ = -1, uFlashInvR2_ = -1, uFlashCut2_ = -1;
     int uFlashSoft_ = -1;
+    bool spotShadowVolumes_ = false;
     bool flashOn_ = false;
     float flashColor_[3] = {0.75f, 0.75f, 0.62f};
     float flashRange_ = 30.0f, flashAngle_ = 20.0f;
@@ -924,6 +947,26 @@ private:
     int giTerrSize_ = 0;
     bool giUploadPending_ = false;
     void uploadGiProbes();
+    // The two baked lightmaps, read PER PIXEL by the fragment shader
+    // (docs/global-illumination.md, "The editor viewport"): the terrain map
+    // (setGiTerrain) sampled by world position, the primitive atlas
+    // (setGiAtlas) through a per-object mesh whose UV slot carries the atlas
+    // ST - a lit receiver is never textured, so the slot is free. uLmMode is
+    // the route: 0 none, 1 atlas (RGB light + occlusion alpha), 2 terrain map
+    // RGB (+ occlusion alpha), 3 terrain map alpha as the light's intensity.
+    int uLmMode_ = -1, uLmTex_ = -1, uLmRect_ = -1;
+    uint32_t giTerrTex_ = 0, giAtlasTex_ = 0;
+    bool giMapsUploadPending_ = false;
+    int giAtlasSize_ = 0;
+    bool giAtlasGi_ = false;
+    std::vector<uint8_t> giAtlasPixels_;  // size*size*4, staged like giPixels_
+    std::vector<aobake::AtlasRect> giAtlasRects_;
+    std::vector<int> giAtlasFirst_;
+    std::vector<char> giAtlasLit_;
+    std::map<uint64_t, Mesh> lmMeshes_;  // object index + tessellation -> mesh
+    const Mesh* lmMeshFor(size_t oi, const SceneObject& o);
+    void uploadGiMaps();
+    void clearLmMeshes();
     bool aoOn_ = false;
     float aoStrength_ = 0.55f;
     float aoRadius_ = 2.5f;

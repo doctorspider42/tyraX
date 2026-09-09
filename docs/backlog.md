@@ -13,7 +13,54 @@ git show <retirement-commit>^:PROGRESS.md
 git log -p --follow -- PROGRESS.md
 ```
 
+## Visual showcase directions
+
+See [Rendering directions](rendering-directions.md) for the assessed roadmap:
+offline foliage impostors, local vegetation interaction, better probe lighting
+and source assets first; crowds and texture paging only with measured budgets.
+The eight-view cylindrical impostor implementation is documented in
+[Distant foliage impostors](impostors.md). Follow-up candidates are transition blending, elevated
+captures, screen-size thresholds, per-view rendering and grouped distant draws.
+
 ## Small
+
+### An input replay cannot reproduce a memory-card save
+
+The input recorder (`docs/input-replay.md`) reproduces a run by performing the
+same input against the same build. Everything the game's own behaviour depends
+on is recorded - both pads, the keyboard and mouse, `dt`, the procedural seeds -
+with one hole: the **PCSX2 memory card persists between runs**, so a game that
+reads a save starts from wherever the last session left it, and the replay
+quietly describes a different world from frame one.
+
+`--clear-saves` covers the host-side fallback (`bin/save<N>.sav`,
+`bin/profile.sav`) and is enough for most projects, because those are what a
+`host:` boot writes. The card is not cheap to reach: the editor would have to
+know which card image the emulator is configured to use, and either swap it or
+write a blank one, per launch. Two options worth measuring before choosing:
+
+- point PCSX2 at a per-project card in the launch arguments and delete it on a
+  `--clear-saves` run - simple, but it changes what the emulator does for every
+  run of that project, not just a recorded one;
+- record the save FILE into the recording as an opening block. That makes a
+  recording self-contained and would also fix "the recording works on my
+  machine", at the price of the format no longer being input-only.
+
+### The recorder's fingerprint stops at the player
+
+The per-frame divergence check records the player's position and the yaw/pitch
+of the view - twenty bytes, and enough to catch every divergence seen so far,
+because almost everything that can go different eventually moves the player. It
+will not catch a run that goes wrong somewhere the player never reaches: an NPC
+taking a different path, a flow variable landing on a different value, a spawned
+object appearing in the wrong place.
+
+The cheap extension is a rolling hash over a handful of `RuntimeObject`
+transforms rather than a second fingerprint kind - the time machine's capture
+walk (`liveTimeSource`) already knows how to enumerate exactly that state, so
+the two could share the walk. It was left out because it would have to be
+bounded (a 1000-object scene cannot hash every object every frame) and picking
+that bound is a measurement, not a guess.
 
 ### The guard band, on the other two routes
 
@@ -239,7 +286,78 @@ PCSX2's software blending of a 16-bit target, or a second draw of the same
 quad. Settle it before making either side match the other - the viewport
 currently reproduces the sprite exactly, which is the defensible half.
 
+### Run the shadow A/B rig against the spot runtime
+
+`.claude/skills/tyra-testing/scripts/make-shadow-fixture.ps1` +
+`shadow-ab.ps1` exist and are proven on `flashShadowVolumes` (see the
+tyra-testing skill, "The shadow A/B rig"), but the switch they were built for -
+`spotShadowVolumes` - has only the data model, format, UI and codegen behind it
+so far. When the runtime lands, run
+
+```powershell
+powershell -File .claude\skills\tyra-testing\scripts\shadow-ab.ps1 `
+    -Editor build-dev\tyrax-editor.exe -Project $env:TEMP\tyra-editor-test\spotab `
+    -Vantages $env:TEMP\tyra-editor-test\spotab\vantages.json `
+    -Toggle spotShadowVolumes -Values true,false -OutDir <scratch>\spotab
+```
+
+and quote the deltas. Two things the fixture is already shaped for and nobody
+has read a number off yet: the `between` vantage sees both lamp groups at once,
+which is where "only the nearest spot is active" should be visible as one group
+having a shadow and the other not; and setting `"shadowVolumes": 1` or `2` on
+ONE lamp's `objects/<id>.json` turns the same run into a test of the per-light
+override, where only the other lamp may move between the arms. A real-PS2 pass
+is separate again - the rig is PCSX2 only.
+
+### A projected shadow's reach does not know how big its caster is
+
+1.70.1 stopped the four silhouette slots from blinking, but it deliberately did
+not touch WHICH four win: it is still the four casters nearest the camera, and
+DONE 1.71.1 for the ranking (view cone + distance over radius, shadows.md "Which four win"); the far cull (Preferences > Projected shadow distance since 1.71.0, dissolving over its last 30 %) is the same number for a
+crate and for a building. Both are wrong in the same direction — screen area,
+not distance, is what makes a shadow worth a slot — and on
+`examples/night-walk` the question does not arise, because every caster there
+is within a factor of 1.7 of the same bounding radius (2.50 to 4.23), which is
+why the flicker was the whole of the reported defect. Two shapes were
+considered and rejected without measurement, so neither is settled: ranking by
+`d / r` (inverse angular size), which lets a facade 45 units off outrank a prop
+at 10 while the distance fade has already dimmed it to a third; and `d - r`,
+distance to the caster's surface, which is milder and principled but still
+untested. A fixture with deliberately mixed caster sizes is what this needs
+first — the shadow A/B rig above, run as a vantage LINE, reads it straight off.
+
 ## Medium
+
+### DONE 1.70.0: a spot light's shadow on a WALL
+
+Shipped: `PipelineInfoBag::dynLightSkipSlot` is the engine lever this entry
+asked for, and the receiver pass is the torch's with the lamp substituted
+([shadows.md](shadows.md)). The original note follows for the reasoning.
+
+Spot-light shadow volumes ship in 1.67.0 ([shadows.md](shadows.md)) and carve
+the lamp's ground pool only. The torch also draws its light on the solid
+geometry in its beam - a second, additive pass over the receiver's own
+triangles with the gobo's projective STQ, `wBag`/`wTexBag`/`wColorBag` and a
+shared 3997-vertex budget - and that is what gives a torch shadow on a wall.
+The machinery is already shared for the volumes themselves (`pickVolCasters`,
+`buildVolMask` in `updateAndRenderLightPools`), so the fill is a third lambda
+away.
+
+**What blocks it is double lighting, not the fill.** The torch turns its own
+cone off on each receiver first (`setFlashSpotOff` -> `PipelineInfoBag::
+spotLit`); there is no equivalent for one SCENE light, and `dynLightPick =
+false` removes every dynamic light from the bag. A wall drawn by both paths
+reads twice as bright and its carved shadow darkens only half of it, which
+looks like a bug.
+
+The likely shape of an answer: the engine picks ONE light per bag
+(`RendererCore::pickDynLight`), so an opt-out that names a light index - "this
+bag skips light N, keeps the rest" - would be the exact analogue of `spotLit`
+and is a small engine change. Then the wall pass is the torch's, with the
+lamp's origin/aim/cone/reach substituted, inside the bracket the lamp already
+opens. Verify with the `spotvol` fixture recipe in the 1.67.0 commit: a wall
+3 u behind the caster, one capture with the override on and one with it off.
+
 
 ### ANSWERED: the guard does run under ps2link, and guards nothing
 
@@ -611,3 +729,21 @@ runtime write into `bin/frame.tga`, a Debugger button, the TXDEVKIT marker +
 `kStringNeedles` entry, and stale-file cleanup in both Runner launch paths. It
 is the only capture path that survives a locked desktop, and the only one that
 exists at all on a real console. See [live-debugger](live-debugger.md).
+
+### Preview the AO-only lightmaps in the viewport
+
+The viewport now draws the GI cache's terrain map and primitive atlas per
+pixel (docs/global-illumination.md, "The editor viewport"), but a scene with
+GI off still previews its ambient occlusion through the analytic per-fragment
+twin: that atlas is written by texbake at build time and never cached, so
+there is nothing for the viewport to read. Baking it host-side on demand
+(`aobake::bakeSceneLightAtlas` is sub-second on the examples) and feeding it
+through the same `setGiAtlas` seam would make the AO preview texel-exact too.
+While there: the GI bake's ground grid follows object footprint AABBs, so a
+ROTATED thin wall still shows a faint version of the straddling teeth at its
+AABB's corners - splitting the ground cells along the rotated footprint is the
+fix if anyone reports it.
+
+- Impostor follow-up: measure cold versus warm batch GPU capture time and consider
+  background batch baking. Configurable 4/8/16 views and optional GPU capture
+  with CPU fallback are implemented; see [impostors](impostors.md).

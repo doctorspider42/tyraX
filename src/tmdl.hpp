@@ -23,7 +23,7 @@
 namespace tmdl {
 
 // Bumped when the layout changes; the loader accepts a range of versions.
-constexpr unsigned int kVersion = 2;  // 2 added Part::ke
+constexpr unsigned int kVersion = 3;  // 2 added Part::ke, 3 Model::shadowVerts
 
 // One decimated variant of a part's mesh (same layout, fewer triangles),
 // rendered instead of the full mesh beyond a distance. Baked by the build,
@@ -54,6 +54,12 @@ struct Model {
     std::vector<Part> parts;   // first-use order of usemtl
     float min[3] = {0, 0, 0};  // AABB of the FULL mesh - collision, split band
     float max[3] = {0, 0, 0};  // and physics extents all read tier 0 only
+    // Shadow proxy (version 3, meshlod::generateShadowProxy): positions only,
+    // xyz per corner, a flat triangle list under the flashlight shadow
+    // volumes' per-model triangle budget. Empty = the real mesh fits (or no
+    // proxy was wanted); the game then casts from the real triangles, or from
+    // its sub-boxes when they are over budget.
+    std::vector<float> shadowVerts;
 };
 
 // Serializes the model. Packed little-endian host layout, no padding and no
@@ -79,6 +85,8 @@ struct Model {
 //     u32  lodCount
 //     lodCount * { u32 vertexCount; f32 verts[vc*8]; u32 aoCount; u8 ao[] }
 //   }
+//   u32    shadowCornerCount    // version >= 3; a multiple of 3, 0 = none
+//   f32    shadowXyz[shadowCornerCount * 3]
 std::string write(const Model& m);
 
 }  // namespace tmdl

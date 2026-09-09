@@ -125,11 +125,21 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   volumes, each in its own `objects/<id>.json` so a team edits different objects
   without git conflicts. Picking, gizmos, rubber-band selection,
   [surface snapping and cursor-following paste](docs/object-placement.md),
+  [model bounds selection](docs/object-selection.md),
   [orthographic and axis views](docs/orthographic-views.md), and a viewport that
   can rasterize, shade and colour the way
   [the console does](docs/ps2-viewport.md) — GS raster, per-vertex flat-shaded
   lighting, 16-bit colour with the GS dither, and the lights' own
   [visible beams](docs/flashlight.md) drawn the game's way.
+- **[Dynamic shadows](docs/shadows.md)** - a blob or a real projected
+  silhouette, chosen per object; the cheap one works on a static prop too. A
+  scene's spot lights can carve per-pixel shadow volumes of their own, so a
+  street lamp stops lighting the alley behind the wall it hangs on.
+- **[A torch you hold](docs/flashlight.md)** - a per-pixel projected pool that
+  lands on walls and props, an offset that takes the light out of the
+  player's eye, where it could only ever cast shadows nobody can see, and
+  shadow volumes that carve a big model's real outline (the build decimates a
+  shadow proxy for it), not its bounding box.
 - **[Terrain](docs/terrain.md)** — optional per scene, sculpted with a brush and
   [painted with blended material layers](docs/terrain-painting.md).
 - **Models** — `.obj` compiled into a binary
@@ -145,7 +155,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [raytraced map bakes](docs/material-baking.md) with smart masks.
 - **Generators** — [procedural scatter graphs](docs/procedural-generation.md)
   baked to chunk meshes or [run on the EE](docs/procedural-runtime.md),
-  [prefabs](docs/prefabs.md), the [Tree Generator](docs/tree-generator.md) and
+  [prefabs](docs/prefabs.md), the [Tree Generator](docs/tree-generator.md),
+  [GPU/CPU impostors with 4/8/16 views](docs/impostors.md) and
   the [Drone Generator](docs/drone-generator.md) for ambient music.
 - **[World scale](docs/world-scale.md)** — one number that keeps imported reality
   the size your own content is.
@@ -233,6 +244,9 @@ build that provably carries none of it
   [the Live Debugger](docs/live-debugger.md) (breakpoints, stepping, watches),
   [the time machine](docs/time-machine.md) (put the game back where it was) and
   [the Remote Pad](docs/remote-pad.md) (hold its controller, no focus needed).
+- [The input recorder](docs/input-replay.md) — record a play session and perform
+  it again on demand; `--replay` exits 0 when the run reproduced exactly, so a
+  bug becomes a regression test.
 - VU1 packet capture, self-reporting crashes and
   [logs split by severity](docs/log-panels.md).
 - [UI scripting](docs/ui-scripting.md) — the editor drives itself by widget name.
@@ -274,6 +288,7 @@ wait for their polish pass.
 
 | Example | What it shows |
 | --- | --- |
+| [impostor-grove](examples/impostor-grove) | A walkable wooded ruin with generated trees and configurable 4/8/16-view, two-triangle distant impostors and a universal-baked waystone |
 | [script-demo](examples/script-demo) | Start here. Walk to the box, press X, and the sky obeys — one object script, and you've touched the whole pipeline |
 | [showcase](examples/showcase) | **Aster — The Tide Observatory**: a playable coastal garden with precision-built arcades, a moving planetarium, CC0 props, cinematics, skeletal animation, a portal-linked vaulted cellar, optical experiments and collectible lenses |
 | [layer-streaming](examples/layer-streaming) | Two buildings, one corridor — and the building behind you quietly stops existing, GTA3-style |
@@ -289,6 +304,7 @@ wait for their polish pass.
 | [raytraced-mirror](examples/raytraced-mirror) | Reflections ray-traced per pixel on VU0. On a PS2. There's a resolution knob |
 | [reflections](examples/reflections) | Static sphere maps vs the live `@sky` mode — with a sky cycler so you can catch the difference |
 | [probe-aim](examples/probe-aim) | A chrome ball that shows what's behind you: probes aimed along the reflected ray |
+| [texture-atlas](examples/texture-atlas) | Thirty crates, thirty tiny textures, one shared GS page - and 65 KB of VRAM back, measured both ways |
 | [texture-feeds](examples/texture-feeds) | Two monitors on a wall — one plays live CCTV, the other a raytraced mirror |
 | [lighting](examples/lighting) | One dusk plaza wearing everything at once: torches, shafts, flare, god rays, shadows, a flashlight |
 | [glow](examples/glow) | A midnight walk through four stations of things that glow |

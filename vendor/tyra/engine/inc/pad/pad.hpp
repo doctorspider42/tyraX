@@ -80,6 +80,20 @@ class Pad {
   /** Overlay slots - see injectVirtual. */
   static const int VIRT_SLOTS = 2;
 
+  /** TyraX: OVERWRITE the whole polled state (docs/input-replay.md).
+   *
+   * injectVirtual MERGES on top of the hardware, which is right for a pad
+   * overlay and wrong for a replay: a recording has to WIN over whatever a
+   * physical controller is doing, or a hand resting on a stick silently
+   * changes the run being reproduced. So this replaces `pressed`, `clicked`
+   * and both stick axes outright, and recomputes isCentered/isMoved by the
+   * same rule injectVirtual uses.
+   *
+   * Call it as the LAST stage of a frame's input - after update() and after
+   * every overlay - or whatever runs later overwrites it back. */
+  void setState(const PadButtons& pressedIn, const PadButtons& clickedIn,
+                u8 leftH, u8 leftV, u8 rightH, u8 rightV);
+
  private:
   /** TyraX: how long waitPadReady() gives a controller to settle, in ~1 ms
    * polls. Generous, because it only ever costs this much when there is no

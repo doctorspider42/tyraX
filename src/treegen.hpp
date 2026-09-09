@@ -117,4 +117,14 @@ struct Preset {
 };
 const std::vector<Preset>& presets();
 
+// Offline, 4/8/16 orthographic captures in an atlas with four columns.
+// Select ONE part (2 tris) and face it to the camera with impostorBillboard.
+// Shares the near model's origin and dimensions; intended for distant foliage.
+// Output is an ordinary OBJ/MTL/PNG, not a new console texture format.
+bool writeImpostor(const std::string& projectDir, const std::string& name,
+                   const Mesh& mesh, const Image& bark, const Image& leaf,
+                   std::string* outObjRel, std::string* outError,
+                   int size = 128, int views = 8, bool gpu = false,
+                   std::string* report = nullptr);
+
 }  // namespace treegen

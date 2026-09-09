@@ -186,3 +186,7 @@ below is only the two versions that predate those entries.
 |---|---|---|
 | 0 | pre-1.0.0 | everything before versioning existed — objects inline in the manifest, a single `"layout"` dump, a project-level terrain block and flow graph, raw TTF paths where a font name now goes. **No longer read**: the translations were retired with `kMinFormatVersion = 1`, since TyraX has never shipped publicly and no such file exists outside this repo's history. |
 | 1 | 1.0.0 | the `formatVersion` / `editorVersion` stamp itself (no migration step — nothing to transform); the oldest format this editor opens |
+
+The Aster branch merge reserves format 42 for invisible box collisions, which
+previously used its local format 32. Existing files keep their collision keys;
+no data transformation is required.

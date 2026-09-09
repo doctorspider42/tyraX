@@ -172,6 +172,17 @@ struct EditorConfig {
     // build. Off by default: everything else the assistant does is instant and
     // one Ctrl+Z away, this is neither.
     bool chatAllowBuild = false;
+    // Bake global illumination on the GPU when this machine has one
+    // (docs/global-illumination.md, "The GPU backend"). Machine-global for the
+    // same reason the emulator path is: whether there is a usable GPU here is a
+    // fact about the box, not about any project.
+    //
+    // OFF by default, and deliberately matching the CLI's --gpu rather than
+    // being helpful: the two backends agree to a tolerance, not bit-for-bit, so
+    // switching backends rewrites every byte of a scene's cached bake. The
+    // repo's own GI examples SHIP that cache, so a default-on would turn a
+    // contributor's first bake into a binary diff nobody asked for.
+    bool giGpuBake = false;
     // Update check (docs/updates.md): whether the editor asks GitHub for a
     // newer release at startup, and one version somebody has told it to stop
     // mentioning. Which build is installed is a property of this machine, so
@@ -225,6 +236,7 @@ static EditorConfig loadEditorConfig() {
         else if (match("emulatorPath", v)) cfg.emulatorPath = v;
         else if (match("ps2LinkIp", v)) cfg.ps2LinkIp = v;
         else if (match("errorPopup", v)) cfg.errorPopup = toI(v, 1) != 0;
+        else if (match("giGpuBake", v)) cfg.giGpuBake = toI(v, 0) != 0;
         else if (match("defaultProjectsDir", v)) cfg.defaultProjectsDir = v;
         else if (match("displayName", v)) cfg.displayName = v;
         else if (match("sessionCacheDir", v)) cfg.sessionCacheDir = v;
@@ -313,6 +325,7 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "emulatorPath=" << cfg.emulatorPath << "\n"
       << "ps2LinkIp=" << cfg.ps2LinkIp << "\n"
       << "errorPopup=" << (cfg.errorPopup ? 1 : 0) << "\n"
+      << "giGpuBake=" << (cfg.giGpuBake ? 1 : 0) << "\n"
       << "defaultProjectsDir=" << cfg.defaultProjectsDir << "\n"
       << "displayName=" << cfg.displayName << "\n"
       << "sessionCacheDir=" << cfg.sessionCacheDir << "\n"
@@ -574,6 +587,7 @@ int App::run(const std::string& initialProjectDir) {
         globalEmulatorPath_ = cfg.emulatorPath;
         globalPs2Ip_ = cfg.ps2LinkIp;
         errorPopupEnabled_ = cfg.errorPopup;
+        giGpuBake_ = cfg.giGpuBake;
         globalDefaultProjectsDir_ = cfg.defaultProjectsDir;
         globalDisplayName_ = cfg.displayName;
         globalSessionCacheDir_ = cfg.sessionCacheDir;
@@ -886,6 +900,7 @@ void App::drawUI() {
     // breakpoint / halt / step commands back to it (throttled).
     livedbgTick();
     livetimeTick();
+    replayTick();     // what the input recorder is doing (docs/input-replay.md)
     remotePadTick();  // the editor holds the controller (docs/remote-pad.md)
 
     // Hot-patch edited flow graphs into the running game (throttled; writes
@@ -935,6 +950,7 @@ void App::drawUI() {
     drawTreeGeneratorWindow();
     drawProceduralWindow();
     drawPrefabsWindow();
+    drawTextureAtlasWindow();
     drawWorldFactsWindow();
     drawVuProgramsWindow();
     drawDroneGeneratorWindow();
@@ -1124,7 +1140,7 @@ void App::saveGlobalConfig() {
                       viewportPs2Shade_, viewportGsColor_, runOnPs2_,
                       logOut_.mask, logDbg_.mask, logOut_.selectText,
                       logDbg_.selectText, chatAllowEdits_, chatAllowBuild_,
-                      globalUpdateCheck_, globalUpdateSkip_,
+                      giGpuBake_, globalUpdateCheck_, globalUpdateSkip_,
                       std::move(recent)});
 }
 
@@ -1639,68 +1655,45 @@ void App::drawMenuBar() {
             ImGui::EndMenu();
         }
 
+        // One flat list under labelled headers rather than submenus: every
+        // doc page, tooltip and AI prompt in the repo names a tool as
+        // "Tools > X", and a submenu would put a word into all of those
+        // paths. Groups answer "what am I working on"; inside a group the
+        // items are ALPHABETICAL, so a tool is found by reading, not by
+        // remembering where it landed the day it was added.
         if (hasProject_ && ImGui::BeginMenu("Tools")) {
-            if (ImGui::MenuItem("AI Assistant...")) showAiChat_ = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Ask about the editor - it answers from the editor's own\n"
-                    "documentation - or ask for something to be done: it can\n"
-                    "add and change objects, write flow graphs, switch scenes\n"
-                    "and open windows. Uses the AI backend from Edit >\n"
-                    "Preferences; every change it makes is one Ctrl+Z away.");
+            ImGui::SeparatorText("Assets");
+            if (ImGui::MenuItem("Animation Editor...")) showAnimEditor_ = true;
             if (ImGui::MenuItem("Asset Browser...")) {
                 showAssetBrowser_ = true;
                 scanAssetTree();
             }
-            ImGui::Separator();
-            if (ImGui::MenuItem("Material Editor...")) showMaterialEditor_ = true;
-            if (ImGui::MenuItem("Terrain Editor...")) showTerrainEditor_ = true;
-            if (ImGui::MenuItem("Menu Editor...")) showMenusEditor_ = true;
-            if (ImGui::MenuItem("Menu Preview...")) showMenuPreview_ = true;
-            if (ImGui::MenuItem("Save Editor...")) showSaveEditor_ = true;
-            if (ImGui::MenuItem("Color Grading...")) showGradingEditor_ = true;
-            if (ImGui::MenuItem("Ambience Editor...")) showAmbienceEditor_ = true;
-            if (ImGui::MenuItem("Cutscene Director...")) showCutsceneEditor_ = true;
-            if (ImGui::MenuItem("Animation Editor...")) showAnimEditor_ = true;
-            if (ImGui::MenuItem("UI Editor...")) showUiEditor_ = true;
+            if (ImGui::MenuItem("Drone Generator...")) showDroneGenerator_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Ambient / drone music generator: audition a patch live,\n"
+                    "render it into res/audio as a looping background track.");
             if (ImGui::MenuItem("Font Manager...")) showFontManager_ = true;
-            if (ImGui::MenuItem("Input Map...")) showInputMap_ = true;
-            if (ImGui::MenuItem("Loading Screens...")) showLoadingEditor_ = true;
-            if (ImGui::MenuItem("Credits Editor...")) showCreditsEditor_ = true;
+            if (ImGui::MenuItem("Material Editor...")) showMaterialEditor_ = true;
+            if (ImGui::MenuItem("Texture Atlas...")) {
+                showTextureAtlas_ = true;
+                atlasPlanDirty_ = true;
+            }
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
-                    "End credits: headings, role/name pairs, images and page\n"
-                    "breaks, imported from a text file if you like, scrolling\n"
-                    "over music with a skip button and somewhere to go after.");
-            ImGui::Separator();
-            if (ImGui::MenuItem("Debugger...", "F9")) showDebugger_ = true;
-            if (ImGui::MenuItem("Remote Pad...")) showRemotePad_ = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Hold the running game's controller from here - click the\n"
-                    "buttons or drive it with the editor's keyboard. PCSX2 does\n"
-                    "not need the focus, and the same channel is scriptable\n"
-                    "(tyrax-editor --pad). Debug builds only.");
-            ImGui::Separator();
+                    "What the build packed into shared texture pages, what it\n"
+                    "refused and why, and what it costs in GS VRAM - plus the\n"
+                    "per-texture keep-out and grouping controls. A page is ONE\n"
+                    "allocation and ONE palette, so what shares one is worth\n"
+                    "looking at.");
             if (ImGui::MenuItem("Tree Generator...")) {
                 showTreeGenerator_ = true;
                 treePreviewDirty_ = true;
             }
-            if (ImGui::MenuItem("VU Programs...")) showVuPrograms_ = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Compose a VU1 microprogram out of stages - wobble, twist,\n"
-                    "posterize - and see the micro memory it costs, the VCL it\n"
-                    "generates and what it computes, without a console. Also\n"
-                    "VU0 compute kernels.");
-            if (ImGui::MenuItem("World Facts...")) showWorldFacts_ = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "The game's central memory: named, typed facts like\n"
-                    "\"the generator is repaired\" or \"marta.trust\", the\n"
-                    "reusable conditions over them, the rules that react,\n"
-                    "and a live blackboard of every one of them while the\n"
-                    "game runs.");
+
+            ImGui::SeparatorText("Scene");
+            if (ImGui::MenuItem("Cutscene Director...")) showCutsceneEditor_ = true;
+            if (ImGui::MenuItem("Phone Camera...")) showPhoneCamWindow_ = true;
             if (ImGui::MenuItem("Prefabs...")) showPrefabs_ = true;
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
@@ -1708,22 +1701,12 @@ void App::drawMenuBar() {
                     "with its light and its script. Stamp them by hand, scatter\n"
                     "them with a procedural graph, or spawn them at runtime.");
             if (ImGui::MenuItem("Procedural...")) showProcedural_ = true;
-            if (ImGui::MenuItem("Drone Generator...")) showDroneGenerator_ = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Ambient / drone music generator: audition a patch live,\n"
-                    "render it into res/audio as a looping background track.");
-            if (ImGui::MenuItem("Phone Camera...")) showPhoneCamWindow_ = true;
-            if (ImGui::MenuItem("Neural Upscaler (BLSS)...")) showBlss_ = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Train, cross-validate and inspect the reduced-resolution\n"
-                    "reconstruction network, and look at the pictures it makes.\n"
-                    "Everything --blss-train / --blss-eval / --blss-emit can do,\n"
-                    "without a terminal. Proof of concept - read the notes.");
-            ImGui::Separator();
-            // Lives in the Ambience Editor now; the menu item still works
-            // and simply opens that window on its GI tab.
+            if (ImGui::MenuItem("Terrain Editor...")) showTerrainEditor_ = true;
+
+            ImGui::SeparatorText("Lighting & rendering");
+            if (ImGui::MenuItem("Ambience Editor...")) showAmbienceEditor_ = true;
+            // The two bakes live in the Ambience Editor now; the menu items
+            // still work and simply open that window on their tab.
             if (ImGui::MenuItem("Bake Global Illumination...")) {
                 showAmbienceEditor_ = true;
                 showGiBake_ = true;
@@ -1736,6 +1719,65 @@ void App::drawMenuBar() {
                 ImGui::SetTooltip(
                     "Light baked on the host and shipped as pixels: automatic\n"
                     "model AO multiplied into each model's own texture.");
+            if (ImGui::MenuItem("Color Grading...")) showGradingEditor_ = true;
+            if (ImGui::MenuItem("Neural Upscaler (BLSS)...")) showBlss_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Train, cross-validate and inspect the reduced-resolution\n"
+                    "reconstruction network, and look at the pictures it makes.\n"
+                    "Everything --blss-train / --blss-eval / --blss-emit can do,\n"
+                    "without a terminal. Proof of concept - read the notes.");
+            if (ImGui::MenuItem("VU Programs...")) showVuPrograms_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Compose a VU1 microprogram out of stages - wobble, twist,\n"
+                    "posterize - and see the micro memory it costs, the VCL it\n"
+                    "generates and what it computes, without a console. Also\n"
+                    "VU0 compute kernels.");
+
+            ImGui::SeparatorText("Screens & menus");
+            if (ImGui::MenuItem("Credits Editor...")) showCreditsEditor_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "End credits: headings, role/name pairs, images and page\n"
+                    "breaks, imported from a text file if you like, scrolling\n"
+                    "over music with a skip button and somewhere to go after.");
+            if (ImGui::MenuItem("Loading Screens...")) showLoadingEditor_ = true;
+            if (ImGui::MenuItem("Menu Editor...")) showMenusEditor_ = true;
+            if (ImGui::MenuItem("Menu Preview...")) showMenuPreview_ = true;
+            if (ImGui::MenuItem("UI Editor...")) showUiEditor_ = true;
+
+            ImGui::SeparatorText("Gameplay");
+            if (ImGui::MenuItem("Input Map...")) showInputMap_ = true;
+            if (ImGui::MenuItem("Save Editor...")) showSaveEditor_ = true;
+            if (ImGui::MenuItem("World Facts...")) showWorldFacts_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "The game's central memory: named, typed facts like\n"
+                    "\"the generator is repaired\" or \"marta.trust\", the\n"
+                    "reusable conditions over them, the rules that react,\n"
+                    "and a live blackboard of every one of them while the\n"
+                    "game runs.");
+
+            ImGui::SeparatorText("Running game");
+            if (ImGui::MenuItem("Debugger...", "F9")) showDebugger_ = true;
+            if (ImGui::MenuItem("Remote Pad...")) showRemotePad_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Hold the running game's controller from here - click the\n"
+                    "buttons or drive it with the editor's keyboard. PCSX2 does\n"
+                    "not need the focus, and the same channel is scriptable\n"
+                    "(tyrax-editor --pad). Debug builds only.");
+
+            ImGui::SeparatorText("AI");
+            if (ImGui::MenuItem("AI Assistant...")) showAiChat_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Ask about the editor - it answers from the editor's own\n"
+                    "documentation - or ask for something to be done: it can\n"
+                    "add and change objects, write flow graphs, switch scenes\n"
+                    "and open windows. Uses the AI backend from Edit >\n"
+                    "Preferences; every change it makes is one Ctrl+Z away.");
             ImGui::EndMenu();
         }
         // Deliberately outside the project gate: which build this is, and
@@ -2815,6 +2857,14 @@ void App::drawViewportWindow() {
         phoneCamPushPreview();
         // Flip vertically: GL texture origin is bottom-left
         ImGui::Image((ImTextureID)(intptr_t)tex, avail, ImVec2(0, 1), ImVec2(1, 0));
+#ifdef IMGUI_ENABLE_TEST_ENGINE
+        // Image has no item ID: expose its rectangle to unattended picking tests.
+        if (GImGui->TestEngineHookItems) {
+            const ImGuiID id = ImGui::GetID("Viewport canvas");
+            ImGuiTestEngineHook_ItemAdd(GImGui, id, GImGui->LastItemData.Rect, nullptr);
+            ImGuiTestEngineHook_ItemInfo(GImGui, id, "Viewport canvas", 0);
+        }
+#endif
 
         const ImVec2 imgPos = ImGui::GetItemRectMin();
         const bool imageHovered = ImGui::IsItemHovered();
@@ -4550,6 +4600,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "assets") return &showAssetBrowser_;
     if (key == "chat") return &showAiChat_;
     if (key == "blss") return &showBlss_;
+    if (key == "atlas") return &showTextureAtlas_;
     if (key == "projectprefs") return &showProjectPrefs_;
     return nullptr;
 }
@@ -4573,7 +4624,7 @@ static const char* const kLayoutWindowKeys[] = {
     // "credits" was missing here while showFlagForKey knew it - exactly the
     // leak the note above describes (the Credits Editor stayed open across
     // every layout switch while every other window reset).
-    "credits",  "vu",       "chat",     "blss",
+    "credits",  "vu",       "chat",     "blss",     "atlas",
     // Project Preferences stopped being a modal in 1.20.0 and became an
     // ordinary window, so it needs the same deterministic open/close every
     // other optional window has.
@@ -5273,6 +5324,16 @@ void App::closeProject() {
     // A build has no UI left once the toolbar goes away (Stop lives there), so
     // it would run to completion with no way to cancel it.
     if (runner_.busy()) runner_.cancel();
+    // The input recorder's staging is keyed by a path INSIDE this project, so
+    // it must not survive into whichever project opens next.
+    replayArm_ = ReplayArm::None;
+    replayFile_.clear();
+    replayFiles_.clear();
+    replayScanAt_ = 0.0;
+    replayHaveStatus_ = false;
+    replayMsg_.clear();
+    replaySaveName_.clear();
+    runner_.replay_ = Runner::ReplayLaunch();
     // The Drone Generator, in the same order the shutdown path uses (audio
     // first: the device callback holds the LiveSynth, and the render thread
     // writes into droneRenderResult_). The audition has to stop because its
@@ -13503,6 +13564,9 @@ void App::applyProjectToViewport() {
         // The ground takes the baked terrain lightmap instead of the probes -
         // the same split the console makes (see Viewport::setGiTerrain).
         viewport_.setGiTerrain(b.valid ? b.terrain : aobake::AoImage());
+        // ...and the primitives take theirs from the atlas, per pixel, the
+        // way the console's atlas passes draw it (see Viewport::setGiAtlas).
+        viewport_.setGiAtlas(b.valid ? b.atlas : aobake::SceneLightAtlas());
     }
     viewport_.setFog(rs.fogEnabled && showFog_, rs.fogColor, rs.fogStart, rs.fogEnd);
     // The flashlight is a Player object property; preview the first player's
@@ -13520,6 +13584,7 @@ void App::applyProjectToViewport() {
                                 player->flashlightAngle);
     else
         viewport_.setFlashlight(false, offColor, 30.0f, 20.0f);
+    viewport_.setSpotShadowVolumes(project_.settings.spotShadowVolumes);
 }
 
 void App::drawTerrainWindow() {
@@ -14004,8 +14069,18 @@ void App::drawPreferencesWindow() {
         ImGui::End();
         return;
     }
+    // A caller can ask for a TAB, not just for the window: the Texture Atlas
+    // window's "Open Project Preferences" means "take me to the switch I am
+    // talking about", and landing on Display with five tabs to read is the
+    // same dead end as opening the window at all. One-shot - the request is
+    // cleared as it is honoured, so the tab the author picks afterwards sticks.
     auto beginTab = [&](const char* name) {
-        if (!ImGui::BeginTabItem(name)) return false;
+        ImGuiTabItemFlags tabFlags = ImGuiTabItemFlags_None;
+        if (!prefsFocusTab_.empty() && prefsFocusTab_ == name) {
+            tabFlags = ImGuiTabItemFlags_SetSelected;
+            prefsFocusTab_.clear();
+        }
+        if (!ImGui::BeginTabItem(name, nullptr, tabFlags)) return false;
         // BeginTabItem pushes the tab's id, so one child name serves them all.
         ImGui::BeginChild("##body", ImVec2(0, -footerH));
         return true;
@@ -14115,7 +14190,7 @@ void App::drawPreferencesWindow() {
     // on whether the third display buffer below fits at all.
     {
         int depth = prefSettings_.colorDepth == "16bit" ? 1 : 0;
-        const char* depthNames[] = {"32-bit colour", "16-bit colour (2x VRAM)"};
+        const char* depthNames[] = {"32-bit colour", "16-bit colour"};
         if (ImGui::Combo("Colour depth", &depth, depthNames, 2))
             prefSettings_.colorDepth = depth == 1 ? "16bit" : "32bit";
         prefHelp(
@@ -14127,7 +14202,9 @@ void App::drawPreferencesWindow() {
             "what most often decides whether triple buffering fits.\n"
             "The cost is 32 levels per channel instead of 256, so smooth\n"
             "gradients - skies, fog, bloom - band unless Dithering is on.\n"
-            "The z buffer stays 32-bit either way. See docs/gs-vram.md.");
+            "The z buffer follows it (a 16-bit z over a 16-bit frame - the\n"
+            "GS needs the pair to share page geometry), so depth precision\n"
+            "drops with it: keep the near plane up. See docs/gs-vram.md.");
         ImGui::BeginDisabled(prefSettings_.colorDepth != "16bit");
         ImGui::Indent(scaled(16));
         ImGui::Checkbox("Dithering", &prefSettings_.dither);
@@ -14617,12 +14694,15 @@ void App::drawPreferencesWindow() {
     ImGui::Checkbox("Texture atlasing", &prefSettings_.textureAtlas);
     prefHelp(
         "Packs small (<=128) clamp-safe material textures into shared 256x256\n"
-        "pages at build: one GS VRAM allocation (+~8 KB overhead) per page\n"
-        "instead of per texture, fewer texture switches. Conservative - tiled\n"
-        "terrain textures, emitters, decals, sphere maps and textures whose\n"
-        "model UVs leave 0..1 keep their own files. Palettized projects share\n"
-        "one 256-color palette per page (the era-authentic trade). The boot\n"
-        "log prints what was packed.");
+        "pages at build: one GS VRAM allocation per page instead of one per\n"
+        "texture, and fewer texture switches. Conservative - tiled terrain\n"
+        "textures, emitters, decals, sphere maps and textures whose model UVs\n"
+        "leave 0..1 keep their own files.\n"
+        "It does NOT always save bytes: a page is quantized as one image, so\n"
+        "in a palettized project its members go up to 8 bits per pixel while\n"
+        "the page is a full allocation whatever it holds. Tools > Texture\n"
+        "Atlas prints both numbers, says why each texture was refused, and is\n"
+        "where a texture is kept out or put in a group of your own.");
 
     drawTerrainMaterialCombo("Terrain material", prefSettings_.terrainMaterial);
     prefHelp("The material's color tints the terrain; its texture (map_Kd),\n"
@@ -14645,19 +14725,81 @@ void App::drawPreferencesWindow() {
         ImGui::SetTooltip(
             "A soft dark quad on the terrain under the third-person avatar,\n"
             "animated models and physics objects, fading as they rise -\n"
-            "grounds them visually for one quad each. Project-wide.");
+            "grounds them visually for one quad each.\n"
+            "This is the DEFAULT now, not the whole story: any object can ask\n"
+            "for a blob, a silhouette or nothing in Properties > Dynamic\n"
+            "shadow - including a static prop, and with this switch off\n"
+            "(docs/shadows.md).");
+    ImGui::DragFloat("Projected shadow distance", &prefSettings_.projShadowDistance,
+                     0.5f, 10.0f, 500.0f, "%.0f u");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "How far from the camera a projected silhouette shadow is still\n"
+            "drawn. A caster beyond it takes none of the four slots; the\n"
+            "shadow dissolves over the last 30%% of the way there. 50 is the\n"
+            "old built-in; raise it for wide scenes where the slots are not\n"
+            "contested (docs/shadows.md).");
     ImGui::Checkbox("Flashlight shadow volumes",
                     &prefSettings_.flashShadowVolumes);
+    // The help marker belongs to the checkbox it FOLLOWS - it used to sit
+    // below the VRAM warning, so on a tight project it chained onto the amber
+    // line instead and the checkbox had none.
     prefHelp(
-        "How the player's torch throws shadows (docs/flashlight.md).\n"
-        "OFF - silhouette slots: mesh-accurate shadow shapes rendered from\n"
-        "the torch, but only for objects with 'Cast shadow (projected)', at\n"
-        "most four at once, and light still leaks through everything else.\n"
+        "How the PLAYER'S TORCH throws shadows (docs/flashlight.md).\n"
+        "Point lights are not affected either way; SPOT lights have their own\n"
+        "switch below (docs/shadows.md).\n"
+        "OFF - the torch shares the projected-shadow slots: mesh-accurate\n"
+        "silhouettes, but only for objects with 'Cast shadow (projected)', at\n"
+        "most four casters for every light together, and light leaks through\n"
+        "everything else.\n"
         "ON - shadow volumes, the survival-horror era's own arrangement:\n"
-        "every solid in the beam occludes, exactly per pixel against the\n"
-        "real depth buffer, self-shadowing included. Costs the volume fill\n"
-        "each frame, and the shadow shapes come from the objects' BOXES\n"
-        "rather than their meshes.");
+        "every solid in the beam occludes, exactly per pixel against the real\n"
+        "depth buffer - model casters from their REAL triangles (silhouette-\n"
+        "extruded, counted in a dedicated GS buffer), primitives from their\n"
+        "boxes - and the four slots are left to the scene's lights. Costs the\n"
+        "volume fill each frame plus a count band in GS VRAM: 512 KB at\n"
+        "32-bit colour, 256 KB at 16-bit (the band follows the frame's own\n"
+        "pixel format).");
+    ImGui::Checkbox("Spot light shadow volumes",
+                    &prefSettings_.spotShadowVolumes);
+    prefHelp(
+        "The same technique for the scene's SPOT LIGHTS (docs/shadows.md) -\n"
+        "a placed light with 'Spot (cone)' on. Without it a street lamp lights\n"
+        "the wall it is bolted to and the alley behind it alike; with it the\n"
+        "cone is occluded per pixel like the torch's, for every solid in it.\n"
+        "This is the project-wide DEFAULT - a light can say otherwise on\n"
+        "itself in Properties > Point light > Shadow volumes.\n"
+        "ONE spot light casts volumes per frame - the one nearest the camera.\n"
+        "The count bracket is per light per frame, so a room full of lamps\n"
+        "costs what a single one does; which lamp it is, is what the\n"
+        "per-light override is for.\n"
+        "COSTS NO EXTRA VRAM NEXT TO THE TORCH: both count into the SAME\n"
+        "band, so a project with either one on has already paid for it.");
+    // WHAT IT COSTS, in the currency that actually runs out. The count band is
+    // 512 KB at 32-bit colour and a 512x512 project has about that much
+    // texture heap in the first place, so switching this on can take the last
+    // of it - and the symptom is not a missing shadow, it is every texture in
+    // the scene evicting and re-uploading once a frame. Measured on the scene
+    // that reported it: 0.375 MB free with the volumes off, 0.000 MB and
+    // ~1.6 re-uploads per frame with them on.
+    //
+    // Shown for EITHER user of the band, and only once: the two share one
+    // buffer, so the warning is about the pair rather than about the torch.
+    if (prefSettings_.flashShadowVolumes || prefSettings_.spotShadowVolumes) {
+        // The DIFFERENCE is exact (it is one buffer, sized by the same
+        // arithmetic the engine uses); the absolute headroom is not - the
+        // model reads ~256 KB high against what a running game reports,
+        // because the reserve it subtracts is the engine's third-buffer
+        // constant rather than the real post-init allocations. So the warning
+        // states the cost and points at the number that IS authoritative.
+        const project::TextureHeapEstimate heap =
+            project::textureHeapEstimate(project_, prefSettings_);
+        if (heap.freeKb < 512)
+            ImGui::TextColored(
+                ImVec4(0.95f, 0.7f, 0.3f, 1),
+                "  Takes a %d KB count band - little texture VRAM left here",
+                heap.countBandKb);
+    }
 
     ImGui::SeparatorText("Usable objects");
     ImGui::Checkbox("Highlight usable objects", &prefSettings_.highlightUsable);
@@ -14981,6 +15123,20 @@ void App::drawPreferencesWindow() {
         "an unattended input test possible. Works on real hardware over\n"
         "ps2link too (polled less often - it is a network round-trip there).\n"
         "Release builds carry none of it. See docs/remote-pad.md.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Input recorder", &prefSettings_.inputRecorder);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Records every frame's input - both pads, the USB keyboard and mouse,\n"
+        "and the frame's own dt - into a file next to the ELF, and plays one\n"
+        "back over the top of whatever a real controller is doing. So a bug\n"
+        "somebody hit once can be reproduced on demand, with the Live Debugger\n"
+        "and the time machine open beside it. Only the INPUT travels, which is\n"
+        "what keeps ten minutes at about a megabyte; a saved recording lives in\n"
+        "the project's recordings/ folder and is meant to be committed next to\n"
+        "the bug it reproduces. Off by default - a recording is a file that\n"
+        "grows while the game runs. Debugger > Replay, or the command line\n"
+        "(tyrax-editor --record / --replay). See docs/input-replay.md.");
     ImGui::BeginDisabled(profile == 0);
     ImGui::Checkbox("EE crash handler", &prefSettings_.eeCrashHandler);
     ImGui::EndDisabled();

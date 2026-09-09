@@ -14,7 +14,7 @@ namespace {
 
 typedef unsigned long long llu64;
 constexpr u32 LL_MAGIC = 0x4C4C5854;  // "TXLL"
-constexpr u32 LL_VERSION = 3;
+constexpr u32 LL_VERSION = 4;
 constexpr int LL_HEADER = 24;
 constexpr int LL_STRIDE = 80;  // id + template + 12 floats + 3 speeds + pad
 // Largest authored object table across scenes - table bounds.
@@ -67,10 +67,10 @@ class LiveLink : public Script {
       const unsigned char* r = buf + LL_HEADER + i * LL_STRIDE;
       llu64 id;
       s32 tmpl;
-      float v[15];
+      float v[16];
       memcpy(&id, r + 0, 8);
       memcpy(&tmpl, r + 8, 4);
-      memcpy(v, r + 16, 60);
+      memcpy(v, r + 16, 64);
 
       const int idx = findAuthored(id);
       if (idx >= 0) {
@@ -88,6 +88,17 @@ class LiveLink : public Script {
         if (idx >= ctx.objectCount) continue;
         RuntimeObject& o = ctx.objects[idx];
         bool changed = patch(o, v);
+        // A dynamic light's record carries brightness/radius/
+        // flicker in the speeds slot and the spot angle in the
+        // tail (livelink v4) - the game reads these from object
+        // data every frame, so patching them IS the update.
+        if (o.data.type == 9 && o.data.lightDynamic != 0 &&
+            v[12] > 0.0F) {
+          o.data.lightBright = v[12];
+          o.data.lightRadius = v[13] > 0.01F ? v[13] : 0.01F;
+          o.data.lightFlicker = v[14];
+          if (v[15] > 0.0F) o.data.lightSpotAngle = v[15];
+        }
         if (hiddenByLL_[idx]) {  // deleted then undone: restore
           o.visible = prevVisible_[idx];
           hiddenByLL_[idx] = false;
@@ -128,7 +139,7 @@ class LiveLink : public Script {
 
     // Authored objects missing from the snapshot were deleted in the editor:
     // hide them (geometry stays baked until a rebuild; collision remains -
-    // an approximation, exactly like the Hide Object flow node).
+    // an approximation, exactly like Set Object Visible (hide)).
     const int authored =
         SCENE_OBJECT_COUNTS[ctx.scene] < LL_MAX_OBJECTS
             ? SCENE_OBJECT_COUNTS[ctx.scene]

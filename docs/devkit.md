@@ -11,8 +11,8 @@ game launched with **Build & Run** (`F5`) or **Run on PS2** (`F6`).
 ## Release builds stay clean
 
 Devkit code is generated only for the debug profile. A release build removes
-Live Link, the debugger, Remote Pad, Time Machine and their file polling,
-buffers and symbols.
+Live Link, the debugger, Remote Pad, Time Machine, the input recorder and
+their file polling, buffers and symbols.
 
 Every release build runs an ELF audit. You can repeat it with:
 
@@ -40,6 +40,7 @@ but do not write "compiles out" about a `TYRA_*` macro without checking.
 | [Live Debugger](live-debugger.md) | Breakpoints, stepping, counters and watches |
 | [Time Machine](time-machine.md) | Captures and restores recent game state |
 | [Remote Pad](remote-pad.md) | Drives pad 1 or 2 without window focus |
+| [Input recorder](input-replay.md) | Records a play session and performs it again |
 | Debug window | Shows game logs, frame statistics, crashes and VU1 captures |
 | Debugger > Screen | Makes the game photograph its own frame buffer |
 
@@ -49,11 +50,16 @@ small: the same scene measured **30-40 fps with the devkit polling and 50 fps
 without it**, because a poll cycle is ~21 network round trips and one of them
 writes ~10 KB in 1446-byte chunks.
 
-The seven channels start on **different frames** — phases 5, 9, 13, 17 and 21,
+The channels start on **different frames** — phases 5, 7, 9, 13, 17 and 21,
 with the livedbg flush and Remote Pad deliberately left at 1 (liveness signal,
 and latency). They used to all start at 1 and re-arm to the same number, so
 they stayed locked to one frame in 25 for ever: that frame did seven blocking
 `host:` round trips and the other 24 did none. Same total work, spread out.
+
+The input recorder is phase **7**, and it is the odd one out in period as well:
+it writes once per **chunk** — 64 frames under PCSX2, 256 over ps2link — not
+once per poll cycle. A per-frame write would be a `host:` round trip per frame
+and would change the very frame times the recording exists to capture.
 
 ## Frame statistics
 
@@ -149,6 +155,17 @@ copy. `bin/frame.tga` is a *channel*, not an album — one file, overwritten by
 the next capture and deleted at every launch — so the PNG is the one that lasts:
 it sits outside `bin/`, survives a *Clean*, opens in anything, and is
 git-ignored. Delete the ones you do not want; nothing reads them.
+
+From a shell, `tyrax-editor --capture-frame <projectDir> [-o out.png]
+[--timeout s]` does the same thing headlessly: it writes the one-shot command
+into `bin/livedbg.cmd`, waits for the game to finish `bin/frame.tga` (progress
+is what decides the wait, so the ~3 s per shot over ps2link is fine) and
+decodes it to a PNG. It is how an unattended A/B on a console gets its
+pictures - a debug build with *Live Debugger* on, deployed with `--run-ps2`.
+`--alpha <png>` writes the frame's own alpha channel as a grey image as well
+(the game stores it in `frame.tga` as is since 1.70.3; the picture readers
+force it opaque) - the only way to see an alpha-shaped artifact that the
+television shows and the RGB does not.
 
 This is the only capture path that does not need a desktop. Every host-side one
 — the emulator's F8 key, a GDI grab of the window, `PrintWindow` — needs the

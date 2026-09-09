@@ -57,7 +57,16 @@ stick, look with the right, and **Circle** switches the torch off and on.
 ## Things worth trying
 
 - *Preferences > Rendering > Flashlight shadow volumes* — flip it and rebuild;
-  same yard, same casters, two philosophies of shadow.
+  same yard, same casters, two philosophies of shadow. In volume mode a model
+  caster shadows with its **real mesh** (the street lamp throws a pole-and-arm
+  shadow, not a slab), stencil-counted per pixel in a dedicated GS buffer —
+  docs/flashlight.md "The shadow" has the whole arrangement. It works at
+  **either colour depth** — the count band follows the frame's own pixel
+  format, 512 KB at 32-bit and 256 KB at 16-bit. (For one release it was
+  refused at 16 bits, where the resolve painted green marks down two screen
+  columns; that turned out to be the resolve sampling the band through the
+  wrong base address rather than anything about 16-bit writes — same section,
+  "Counting works at BOTH colour depths".)
 - The torch's **Reach** and **Cone half-angle** (Properties on the player)
   size the pool as well as the light.
 - Replace `res/hud/flashlight-gobo.png` with your own gobo — a cross, a
