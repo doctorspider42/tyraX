@@ -1957,8 +1957,8 @@ void Viewport::camRay(const CamView& c, float u, float v, float o[3],
     d[0] = dir.x, d[1] = dir.y, d[2] = dir.z;
 }
 
-bool Viewport::projectToImage(const float world[3], float& outU,
-                              float& outV) const {
+bool Viewport::projectToImage(const float world[3], float& outU, float& outV,
+                              float* outDepth) const {
     if (fbWidth_ < 1 || fbHeight_ < 1) return false;
     const CamView c = camView(fbWidth_, fbHeight_);
     const float d[3] = {world[0] - c.eye[0], world[1] - c.eye[1],
@@ -1966,6 +1966,7 @@ bool Viewport::projectToImage(const float world[3], float& outU,
     const float x = d[0] * c.right[0] + d[1] * c.right[1] + d[2] * c.right[2];
     const float y = d[0] * c.up[0] + d[1] * c.up[1] + d[2] * c.up[2];
     const float z = d[0] * c.fwd[0] + d[1] * c.fwd[1] + d[2] * c.fwd[2];
+    if (outDepth) *outDepth = z;
     float ndcX, ndcY;
     if (c.ortho) {
         // A parallel view draws what is behind the camera too (the depth range
@@ -2859,6 +2860,15 @@ void Viewport::pickBounds(const SceneObject& o, float mn[3], float mx[3]) {
             useCube(0.15f);
             scaled = false;
             break;
+        // A comment draws as a screen-space icon and has nothing in 3D, so its
+        // hitbox is a small fixed cube on the anchor - enough for a rubber
+        // band to catch and for the gizmo to have something to sit on. The
+        // ICON's own rect is what a click really tests (App::commentIcons),
+        // which is what keeps a distant note clickable.
+        case PrimitiveType::Comment:
+            useCube(0.2f);
+            scaled = false;
+            break;
         default: break;
     }
 
@@ -3123,8 +3133,10 @@ bool Viewport::placementRaycast(float u, float v,
         // Authoring regions are wire boxes with nothing to rest on, and a
         // procedural volume's is usually map-sized - resting on its front face
         // would put the object in mid-air.
+        // A comment is not a surface either: its box is a hit target for a
+        // click, and dropping a prop onto a floating note would be nonsense.
         if (o.type == PrimitiveType::Area || o.type == PrimitiveType::Scatter ||
-            !o.procSource.empty())
+            o.type == PrimitiveType::Comment || !o.procSource.empty())
             continue;
         float mn[3], mx[3];
         pickBounds(o, mn, mx);
@@ -5514,6 +5526,11 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             // Scroller: an invisible belt marker; its gizmo + animated ghost
             // belt draw in a dedicated pass after the scene.
             if (o.type == PrimitiveType::Scroller) continue;
+            // Comments have no geometry in ANY view mode: the app draws them
+            // as a screen-space message icon over the finished image
+            // (App::drawCommentOverlay), so a note never hides the thing it is
+            // about and never changes size with the camera.
+            if (o.type == PrimitiveType::Comment) continue;
             // Emitters preview as live particles (drawn after the scene); in
             // the scene pass they only get a small fixed-size cone marker so
             // the gizmo has something to grab. Dimmed when disabled.

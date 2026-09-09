@@ -55,6 +55,7 @@ bool memberIsMarker(const SceneObject& o) {
         case PrimitiveType::Camera:
         case PrimitiveType::Area:
         case PrimitiveType::Scatter:
+        case PrimitiveType::Comment:
             return true;
         default:
             return false;

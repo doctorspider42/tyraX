@@ -16,12 +16,35 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
-// 1.78.0 (native PS2 builds): Build & Run now provisions the pinned official
+// 1.79.0 (native PS2 builds): Build & Run now provisions the pinned official
 // PS2DEV v2.0.0 release and compiles the vendored OpenVCL, vclpp, bin2s and
 // audsrv sources locally; Windows uses the same Linux toolchain through WSL.
 // Docker remains an explicit fallback and builds those same vendored VU tools.
 // OpenVCL's stale register-identity regression now checks the real no-clobber
 // scheduling invariant, and all 419 tests gate installation.
+//
+// 1.78.0 (comments in the editor, docs/comments.md): a note pinned to a place
+// in the scene - why this prop is here, what is still to do, what broke last
+// time. It is an ordinary scene object (PrimitiveType::Comment) so it gets a
+// name, a place, undo, layers, selection, the outliner and multi-user merge
+// for nothing; what it does NOT get is geometry. The viewport skips the type
+// entirely and the app draws a message icon over the finished image instead
+// (App::commentIcons / drawCommentOverlay), which is what keeps a note the
+// same size at any distance and stops it hiding the thing it is about.
+// Selecting one shows its opening beside the icon and the whole of it - any
+// length, wrapped, with a Copy button - in Properties. The icons are always
+// visible and clickable; View > Comments is off by default and only controls
+// whether every note's text is expanded or just the selected note's. ONE
+// function decides where an icon is, so the thing you
+// see and the thing a click selects cannot disagree (the axis-gizmo
+// arrangement); the icon is hit-tested in SCREEN space because a distant
+// note's 3D box shrinks below its own icon. Nothing about a note is
+// generated, baked or shipped - the object still takes a scene-table row like
+// an Area does, because object indices are baked into every generated table.
+// kFormatVersion 42 -> 43. Verified by --resave round-trips (a note with
+// newlines, quotes and 4 KB of text comes back byte for byte), --refresh-gen
+// on the examples (no generated file moves) and a --ui-script run that adds a
+// comment, types into it, screenshots both text modes and toggles View > Comments.
 //
 // 1.72.1 (the projected silhouette stops at the floor, and stays out of a
 // GI bake's way): the same wall as 1.72.0, in the game, threw a shadow on
@@ -2894,8 +2917,10 @@
 // 1.76.0: merge configurable GPU impostors with full RGB SH receivers,
 // duplicate-corner skinning reuse and DMA-safe lighting payloads.
 // 1.77.0: merge animated HUD elements with the 1.76 rendering stack.
+// 1.78.0: editor comments pinned to scenes.
+// 1.79.0: merge native PS2DEV/OpenVCL builds with editor comments.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 78
+#define TYRAX_VERSION_MINOR 79
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -3239,7 +3264,12 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // so the feature adds no noise to an unchanged HUD definition; an older
 // editor reading a newer file drops the motion and draws the classic static
 // HUD. Purely additive - no migration step.
-inline constexpr int kFormatVersion = 42;
+// v43 (editor comments, docs/comments.md): the new PrimitiveType::Comment
+// (serialized type name "comment") and SceneObject::commentText, written only
+// when a note has text. An older editor reads an unknown type name as a Box,
+// which is why this is a version bump and not just a new key - the refusal is
+// the point. Purely additive - no migration step.
+inline constexpr int kFormatVersion = 43;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

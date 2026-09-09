@@ -277,6 +277,7 @@ bool isSolidBlocker(const SceneObject& o) {
         case PrimitiveType::Decal:
         case PrimitiveType::Camera:
         case PrimitiveType::Scatter:
+        case PrimitiveType::Comment:
             return false;
         default: return true;
     }

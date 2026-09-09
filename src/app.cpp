@@ -59,8 +59,8 @@
 #include "platform.hpp"
 
 // PickKind + the pick*() wrappers, fileSizeOr0, readTextFileTail,
-// sanitizeAssetName, prefHelp and walkSpeedDrag now live in app_internal.hpp -
-// the subsystem TUs split out of this file call them too.
+// sanitizeAssetName, prefHelp, inputTextProse and walkSpeedDrag now live in
+// app_internal.hpp - the subsystem TUs split out of this file call them too.
 
 // ---------------------------------------------------------------------------
 // Global editor config. These are machine/muscle-memory properties (a 4K laptop
@@ -122,6 +122,11 @@ struct EditorConfig {
     // The axis-view gizmo in the viewport's top-right corner. On by default;
     // it can be turned off because it sits where HUD authoring wants space.
     bool axisGizmo = true;
+    // View > Comments (docs/comments.md): are all comment texts expanded?
+    // Icons are always drawn; when this is off only the selected note expands.
+    // A workflow preference like placementSnap, and one people stay in - the
+    // session-only Preview toggles beside it in the menu are the exception.
+    bool showCommentText = false;
     // Phone camera link (docs/phone-camera.md). Which port is free and how
     // much the Wi-Fi here can carry are properties of this machine, so the
     // whole thing is machine config rather than project data. The pairing code
@@ -263,6 +268,8 @@ static EditorConfig loadEditorConfig() {
         else if (match("animEdLight", v)) cfg.animEdLight = v;
         else if (match("placementSnap", v)) cfg.placementSnap = toI(v, 1) != 0;
         else if (match("axisGizmo", v)) cfg.axisGizmo = toI(v, 1) != 0;
+        else if (match("showCommentText", v))
+            cfg.showCommentText = toI(v, 0) != 0;
         else if (match("phoneCamPort", v)) cfg.phoneCamPort = toI(v, cfg.phoneCamPort);
         else if (match("phoneCamCode", v)) cfg.phoneCamCode = v;
         else if (match("phoneCamRequireCode", v)) cfg.phoneCamRequireCode = toI(v, 1) != 0;
@@ -353,6 +360,7 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "animEdLight=" << cfg.animEdLight << "\n"
       << "placementSnap=" << (cfg.placementSnap ? 1 : 0) << "\n"
       << "axisGizmo=" << (cfg.axisGizmo ? 1 : 0) << "\n"
+      << "showCommentText=" << (cfg.showCommentText ? 1 : 0) << "\n"
       << "phoneCamPort=" << cfg.phoneCamPort << "\n"
       << "phoneCamCode=" << cfg.phoneCamCode << "\n"
       << "phoneCamRequireCode=" << (cfg.phoneCamRequireCode ? 1 : 0) << "\n"
@@ -615,6 +623,7 @@ int App::run(const std::string& initialProjectDir) {
         animEdLight_ = cfg.animEdLight;
         placementSnap_ = cfg.placementSnap;
         showAxisGizmo_ = cfg.axisGizmo;
+        showCommentText_ = cfg.showCommentText;
         phoneCamPrefs_ = cfg.phoneCam;
         phoneCamPort_ = cfg.phoneCamPort;
         phoneCamCode_ = cfg.phoneCamCode;
@@ -1148,7 +1157,7 @@ void App::saveGlobalConfig() {
                       errorPopupEnabled_, globalDefaultProjectsDir_,
                       globalDisplayName_, globalSessionCacheDir_, globalAi_,
                       matEdSplit_, creditsSplit_, matEdLight_, animEdLight_,
-                      placementSnap_, showAxisGizmo_,
+                      placementSnap_, showAxisGizmo_, showCommentText_,
                       phoneCamPrefs_, phoneCamPort_, phoneCamCode_,
                       phoneCamRequireCode_, showSafeArea_, safeArea_.frame,
                       safeArea_.action, safeArea_.title, safeArea_.centre,
@@ -1481,6 +1490,19 @@ void App::drawMenuBar() {
 
             ImGui::Separator();
             ImGui::TextDisabled("Preview");
+            // Editor notes (docs/comments.md). Icons are always present; this
+            // persisted option expands every note instead of only the selected
+            // one.
+            if (ImGui::MenuItem("Comments", nullptr, showCommentText_, hasProject_)) {
+                showCommentText_ = !showCommentText_;
+                saveGlobalConfig();
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Expand every comment's text in the viewport. When off,\n"
+                    "the message icons stay visible and clickable, but only\n"
+                    "the selected comment shows its text. Off by default.\n"
+                    "Notes are editor-only either way: nothing reaches the game.");
             if (ImGui::MenuItem("Distance fog", nullptr, showFog_, hasProject_)) {
                 showFog_ = !showFog_;
                 applyProjectToViewport();  // suppress/restore fog in the viewport now
@@ -2997,6 +3019,11 @@ void App::drawViewportWindow() {
         // TV safe-area guides, over the image like the cutscene bars.
         drawSafeAreaOverlay(imgPos, avail);
 
+        // Editor notes (docs/comments.md): a message icon per comment, and the
+        // text of the selected one. Under the axis gizmo and the transform
+        // gizmo below, which both own their pixels.
+        drawCommentOverlay(imgPos, avail);
+
         // --- Axis view gizmo (top-right corner) ---
         // Drawn before the input handling so its hover can veto the click that
         // would otherwise fall through and change the selection.
@@ -3478,7 +3505,7 @@ void App::drawViewportWindow() {
             const float u = (io.MousePos.x - imgPos.x) / avail.x;
             const float v = (io.MousePos.y - imgPos.y) / avail.y;
             bool cycled = false;
-            const int hit = viewportPick(u, v, io.MousePos, &cycled);
+            const int hit = viewportPick(u, v, io.MousePos, imgPos, avail, &cycled);
             if (io.KeyCtrl) {
                 if (hit >= 0) toggleSelect(hit);
             } else {
@@ -4404,6 +4431,138 @@ void App::drawMeasureOverlay(ImVec2 imgPos, ImVec2 avail) {
     ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.35f, 1.0f), "Measure: %s   (%s)%s",
                        line1, line2,
                        measurePoints_ == 1 ? "  - click the second point" : "");
+}
+
+// --- Comments (docs/comments.md) -------------------------------------------
+// Where every visible note's icon sits on screen, farthest first. The overlay
+// draws this list and viewportPick walks it backwards, so the icon you can see
+// is the icon you click - there is no second answer to "where is that note".
+std::vector<App::CommentIcon> App::commentIcons(ImVec2 imgPos, ImVec2 avail) {
+    std::vector<CommentIcon> out;
+    if (!hasProject_ || avail.x < 1.0f || avail.y < 1.0f) return out;
+    const std::vector<SceneObject>& objs = project_.objects();
+    for (size_t i = 0; i < objs.size(); ++i) {
+        const SceneObject& o = objs[i];
+        if (o.type != PrimitiveType::Comment) continue;
+        if (isObjectHiddenInEditor(o)) continue;  // hidden layer
+        float u = 0.0f, v = 0.0f, depth = 0.0f;
+        if (!viewport_.projectToImage(o.position, u, v, &depth)) continue;
+        CommentIcon ic;
+        ic.index = (int)i;
+        ic.w = scaled(30.0f);
+        ic.h = scaled(22.0f);
+        ic.anchor = ImVec2(imgPos.x + u * avail.x, imgPos.y + v * avail.y);
+        // The bubble floats above the anchor with its tail on the point, so
+        // the note never covers the spot it is pinned to.
+        ic.center = ImVec2(ic.anchor.x, ic.anchor.y - ic.h * 0.5f - scaled(8.0f));
+        ic.depth = depth;
+        // One icon of slack around the image, so a note just off the edge is
+        // neither drawn nor clickable.
+        if (ic.center.x < imgPos.x - ic.w || ic.center.x > imgPos.x + avail.x + ic.w)
+            continue;
+        if (ic.center.y < imgPos.y - ic.h || ic.center.y > imgPos.y + avail.y + ic.h)
+            continue;
+        out.push_back(ic);
+    }
+    std::stable_sort(out.begin(), out.end(),
+                     [](const CommentIcon& a, const CommentIcon& b) {
+                         return a.depth > b.depth;  // far first: near draws over
+                     });
+    return out;
+}
+
+void App::drawCommentOverlay(ImVec2 imgPos, ImVec2 avail) {
+    const std::vector<CommentIcon> icons = commentIcons(imgPos, avail);
+    if (icons.empty()) return;
+    const std::vector<SceneObject>& objs = project_.objects();
+    const theme::Semantics& sem = theme::semantics();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->PushClipRect(imgPos, ImVec2(imgPos.x + avail.x, imgPos.y + avail.y), true);
+
+    // How much of a note the viewport shows. The whole thing lives in
+    // Properties (with a Copy button); a bubble that grew with the text would
+    // cover the scene the note is about, which is the one thing it must not do.
+    constexpr size_t kPreviewChars = 420;
+    const ImVec2 mouse = ImGui::GetIO().MousePos;
+
+    for (const CommentIcon& ic : icons) {
+        const SceneObject& o = objs[(size_t)ic.index];
+        const bool selected = isSelected(ic.index);
+        const bool hovered = std::fabs(mouse.x - ic.center.x) <= ic.w * 0.5f &&
+                             std::fabs(mouse.y - ic.center.y) <= ic.h * 0.5f;
+        // The note's own colour tints the bubble - that is what turns a scene
+        // full of notes into categories (a red one is a problem, a green one
+        // is settled). Kept light enough for dark glyphs to read on it.
+        const ImU32 fill = IM_COL32((int)(o.color[0] * 255.0f),
+                                    (int)(o.color[1] * 255.0f),
+                                    (int)(o.color[2] * 255.0f),
+                                    selected || hovered ? 255 : 215);
+        const ImU32 edge = selected ? ImGui::GetColorU32(sem.accent)
+                                    : IM_COL32(20, 20, 24, hovered ? 235 : 180);
+        const ImVec2 tl(ic.center.x - ic.w * 0.5f, ic.center.y - ic.h * 0.5f);
+        const ImVec2 br(ic.center.x + ic.w * 0.5f, ic.center.y + ic.h * 0.5f);
+        const float rounding = scaled(5.0f);
+        // Tail first, so the bubble's own outline closes over its top edge.
+        const float tw = scaled(5.0f);
+        dl->AddTriangleFilled(ImVec2(ic.center.x - tw, br.y - scaled(1.0f)),
+                              ImVec2(ic.center.x + tw, br.y - scaled(1.0f)),
+                              ImVec2(ic.anchor.x, ic.anchor.y), fill);
+        dl->AddRectFilled(tl, br, fill, rounding);
+        dl->AddRect(tl, br, edge, rounding, 0, scaled(selected ? 2.0f : 1.0f));
+        // Three dots: the message glyph, drawn rather than shipped as an asset
+        // (the editor has no icon font, and one PNG for one icon is a file to
+        // keep in step with a theme it would not follow).
+        const ImU32 dot = IM_COL32(25, 25, 30, 255);
+        const float r = scaled(1.6f);
+        for (int k = -1; k <= 1; ++k)
+            dl->AddCircleFilled(
+                ImVec2(ic.center.x + (float)k * scaled(6.0f), ic.center.y), r, dot);
+        // The anchor point itself: without it a note pinned high above a prop
+        // reads as floating for no reason.
+        dl->AddCircleFilled(ic.anchor, scaled(2.0f), fill);
+
+        if (!showCommentText_ && !selected) continue;
+
+        // --- The note's text, beside its bubble ---
+        std::string body = o.commentText;
+        bool clipped = false;
+        if (body.size() > kPreviewChars) {
+            body.resize(kPreviewChars);
+            body += " ...";
+            clipped = true;
+        }
+        if (body.empty()) body = "(empty note - type it in Properties)";
+        const std::string title = o.name;
+        const float wrap = scaled(300.0f);
+        const float pad = scaled(6.0f);
+        const ImVec2 ts = ImGui::CalcTextSize(body.c_str(), nullptr, false, wrap);
+        const ImVec2 tts = ImGui::CalcTextSize(title.c_str());
+        const float boxW = std::max(ts.x, tts.x) + pad * 2.0f;
+        // A clipped note reserves the row its "there is more" line goes in,
+        // or that line lands on top of the last line of the text.
+        const float boxH = ts.y + tts.y + pad * 2.0f + scaled(2.0f) +
+                           (clipped ? tts.y + scaled(2.0f) : 0.0f);
+        // To the right of the bubble, flipped to the left when that would run
+        // off the image - the note has to be readable wherever it is pinned.
+        float bx = br.x + scaled(6.0f);
+        if (bx + boxW > imgPos.x + avail.x) bx = tl.x - scaled(6.0f) - boxW;
+        if (bx < imgPos.x) bx = imgPos.x + scaled(2.0f);
+        float by = tl.y;
+        if (by + boxH > imgPos.y + avail.y) by = imgPos.y + avail.y - boxH;
+        if (by < imgPos.y) by = imgPos.y + scaled(2.0f);
+        const ImVec2 bmin(bx, by), bmax(bx + boxW, by + boxH);
+        dl->AddRectFilled(bmin, bmax, IM_COL32(18, 18, 22, 232), scaled(4.0f));
+        dl->AddRect(bmin, bmax, ImGui::GetColorU32(sem.accent), scaled(4.0f));
+        dl->AddText(ImVec2(bmin.x + pad, bmin.y + pad),
+                    ImGui::GetColorU32(sem.accent), title.c_str());
+        dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
+                    ImVec2(bmin.x + pad, bmin.y + pad + tts.y + scaled(2.0f)),
+                    IM_COL32(226, 226, 232, 255), body.c_str(), nullptr, wrap);
+        if (clipped)
+            dl->AddText(ImVec2(bmin.x + pad, bmax.y - pad - tts.y),
+                        IM_COL32(150, 150, 160, 255), "(full text in Properties)");
+    }
+    dl->PopClipRect();
 }
 
 bool App::objectWorldSize(const SceneObject& o, float out[3]) {
@@ -6156,8 +6315,27 @@ void App::redo() {
 // procedural volumes enclosing them, which the pick order deliberately ranks
 // last - can all be reached without leaving the viewport. Any click a few
 // pixels away starts a fresh cycle at the frontmost hit.
-int App::viewportPick(float u, float v, ImVec2 mouse, bool* cycled) {
+int App::viewportPick(float u, float v, ImVec2 mouse, ImVec2 imgPos, ImVec2 avail,
+                      bool* cycled) {
     if (cycled) *cycled = false;
+    // A comment's icon wins over everything under it, and it is tested in
+    // screen space: the icon is a fixed size whatever the distance, so the
+    // small 3D box the note also carries stops being clickable long before
+    // the thing you can see does. Nearest first (commentIcons sorts far to
+    // near for drawing, so the last one drawn is the first one hit) - the
+    // note on top is the note you clicked.
+    {
+        const std::vector<CommentIcon> icons = commentIcons(imgPos, avail);
+        for (size_t k = icons.size(); k-- > 0;) {
+            const CommentIcon& ic = icons[k];
+            if (std::fabs(mouse.x - ic.center.x) > ic.w * 0.5f) continue;
+            if (std::fabs(mouse.y - ic.center.y) > ic.h * 0.5f) continue;
+            pickCycle_.clear();  // an icon is one target, never a stack
+            pickCyclePos_ = mouse;
+            pickCycleLast_ = ic.index;
+            return ic.index;
+        }
+    }
     const float kSameSpot = 4.0f;  // a click, not a nudge of the mouse
     const bool sameSpot = std::fabs(mouse.x - pickCyclePos_.x) < kSameSpot &&
                           std::fabs(mouse.y - pickCyclePos_.y) < kSameSpot;
@@ -6731,6 +6909,23 @@ void App::addArea() {
     o.collisionMode = 2;  // a volume, never a wall
     o.castShadow = false;  // no geometry - nothing to occlude with
     commitChange();
+}
+void App::addComment() {
+    addObject(PrimitiveType::Comment, /*commit=*/false);
+    SceneObject& o = project_.objects().back();
+    // Head height above whatever it was dropped on, so the icon reads as
+    // pinned to that spot rather than lying on it.
+    o.position[1] += 1.5f;
+    // A warm note-paper yellow: it is a piece of paper stuck on the scene, and
+    // the colour is editable per note (Properties) so a project can grow its
+    // own code - red for a problem, green for something settled.
+    o.color[0] = 0.98f, o.color[1] = 0.86f, o.color[2] = 0.42f;
+    o.collisionMode = 2;   // no geometry at all - never a wall
+    o.castShadow = false;  // ...and nothing to occlude with
+    commitChange();
+    pendingFocusWindow_ = "Properties";  // it may be a tab behind another panel
+    commentFocus_ = true;
+    statusMessage_ = "Comment added - type the note in Properties";
 }
 void App::addSavePoint() {
     addObject(PrimitiveType::SavePoint, /*commit=*/false);
@@ -8038,6 +8233,16 @@ void App::drawAddObjectMenu() {
     // Pure transform without game geometry - a scene anchor for attached
     // scripts, waypoints and flow-graph logic (sphere marker in the editor).
     if (ImGui::MenuItem("Empty")) addEmpty();
+    // An editor note pinned to this spot (docs/comments.md). Top level next to
+    // Empty rather than inside a category: it is not a kind of game object,
+    // and it is reached while thinking about the scene, not about the game.
+    if (ImGui::MenuItem("Comment")) addComment();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip(
+            "A note pinned to a place in the scene - why this prop is here,\n"
+            "what still has to be done, what broke last time. Shows as a\n"
+            "message icon in the viewport and reads in full in Properties.\n"
+            "Editor only: nothing about it reaches the game.");
     if (ImGui::BeginMenu("Object")) {
         if (ImGui::BeginMenu("Simple")) {
             if (ImGui::MenuItem("Box")) addObject(PrimitiveType::Box);

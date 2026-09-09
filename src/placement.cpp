@@ -85,7 +85,8 @@ bool collides(const SceneObject& o) {
         case PrimitiveType::Camera:
         case PrimitiveType::Area:
         case PrimitiveType::Scatter:
-        case PrimitiveType::Scroller: return false;
+        case PrimitiveType::Scroller:
+        case PrimitiveType::Comment: return false;
         default: return true;
     }
 }
