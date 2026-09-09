@@ -1962,3 +1962,14 @@ without calling helpers that might clobber the running VU0 AABB. All render
 vertices remain, with a four-byte index per corner. The temporary hash table
 exists only during loading. Set `TYRA_SKEL_PROFILE` in skel_instance.hpp to 1
 for per-instance COP0 pose/skin timings every 100 skins; keep it 0 when shipping.
+
+
+### DMA REF lifetime (1.74.1)
+
+`packet2_utils_vu_add_unpack_data` does NOT copy: ps2sdk emits a DMA REF to
+the supplied pointer. Never pass a temporary/local array to asynchronous
+submission. SH initially did this for mode-adjusted colours, causing lighting
+flashes despite passing VU arithmetic tests. Both lighting senders now use
+CNT/UNPACK with inline colour floats (four extra packet-storage qwords; the
+same VU layout) and wait for VIF1 before resetting the reusable packet.
+Allocated capacities are 56 qwords for StaPip and 24 for DynPip.

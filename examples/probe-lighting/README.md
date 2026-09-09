@@ -97,3 +97,13 @@ was not reproduced; no specific hang fix is claimed. The final demo keeps its
 full-resolution avatar, so LOD is not hiding its animation cost. No physical
 PS2 or Linux run was performed. L2, contact shadows and nonuniform-scale normal
 correction remain future work.
+
+
+Version 1.74.1 fixes intermittent receiver flashes: the mode-adjusted lighting
+colours now live in the DMA packet, rather than in a temporary stack array
+referenced after its lifetime. Update/rebuild the engine as well as the game.
+
+Verified the 1.74.1 fix with Windows Release and PS2 Docker builds, a doorway
+walk and two temporal captures (30 samples at 2 Hz, then 150 at 10 Hz) in
+PCSX2 software mode. Normal animation continued without receiver flashes;
+the user also confirmed that the visible flicker disappeared.

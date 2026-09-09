@@ -2478,3 +2478,10 @@ is reproduced from an old observation that is not.
 When restoring generated C++ with Copy-Item, touch its LastWriteTime or clean
 the scratch game objects: Copy-Item preserves old timestamps, and make may
 otherwise relink the previous instrumented object despite different source.
+
+
+Lighting DMA lifetime regressions need temporal checks: an arithmetic VU test
+and a single screenshot cannot expose a dangling REF to stack data. Hold the
+camera/pose fixed and compare a sequence of frames (excluding the FPS HUD),
+then restore normal animation and walk the scene. Exercise the actual packet
+submission; `--vu-check` validates microcode, not the EE source pointers.

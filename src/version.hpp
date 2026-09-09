@@ -2884,11 +2884,13 @@
 // have, which is what MINOR means, and a number that is strictly greater than
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
+// 1.74.1: keep lighting coefficients inside the DMA packet, not a temporary
+// stack array referenced asynchronously; wait before packet reuse.
 // 1.74.0: full signed RGB SH L1 on lit VU1 receivers; exact duplicate
 // skinning reuse keeps the full-resolution animated avatar affordable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 74
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

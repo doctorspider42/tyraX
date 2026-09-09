@@ -159,7 +159,12 @@ The packet writer encodes the dot-product lower bound in **ambient.w**: -1 for
 SH, 0 for classic directional lights. The macro loads that lane and clamps the
 RGB sum before VU clipping. Output alpha is unchanged. Both packet writers,
 shared clip images, standalone cull/clip programs and generated as-is programs
-follow this contract. The EE clipping route still interpolates normals before
+follow this contract. Since 1.74.1, the adjusted colours are copied into the
+DMA packet with CNT/UNPACK. `packet2_utils_vu_add_unpack_data` emits a **REF**,
+so a local stack array here becomes a dangling asynchronous DMA source and
+causes intermittent lighting flashes. Both renderers wait before resetting
+packet storage; their allocations include the four inline colour qwords
+(StaPip 56, DynPip 24). The EE clipping route still interpolates normals before
 the as-is shader, as it did for classic lighting.
 
 Each material part owns its coefficients, so pose-sharing instances retain
@@ -168,7 +173,7 @@ instance scale. Rotation and uniform scale are supported; exact normals under
 nonuniform scale/shear remain future work. The viewport uses signed
 reconstruction and centre lookup for animated receivers in both shading modes.
 
-The packet size and probe format are unchanged: four RGB coefficients per
+The VU light block and probe format are unchanged: four RGB coefficients per
 probe, with no new texture, pass or per-vertex EE GI evaluation. Compared with
 the dominant-lobe shader the VU macro adds three instructions per vertex for the final RGB clamp. There
 is no direction extraction/normalization on the EE. An absent/dead probe
