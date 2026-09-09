@@ -180,6 +180,12 @@ over guessing from this file.
   / open menu / fire a flow event), so the graph usually needs nothing after it.
   **Stop Credits** ends one early, and **On Credits Finished** fires the frame a
   roll stops for any reason.
+  **Set HUD Element Visible** shows, hides or toggles one named HUD image,
+  baked text or live bar through its configured transition. **Set HUD Bar**
+  writes a bar value (and its backing save value when it has one), while
+  **Play HUD Effect** adds a one-shot flash, bounce or shake without replacing
+  the element's looped animation. These target the element name configured in
+  Tools > UI Editor; see `docs/hud-animation.md`.
 - **Graphs talk to each other with EVENTS, not with polled variables.**
   **Send Event** broadcasts a name (plus an optional number payload) to every
   graph in the game; every **On Event** of that name fires on the NEXT frame,

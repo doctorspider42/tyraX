@@ -2885,8 +2885,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 72
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_MINOR 73
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -3221,7 +3221,13 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // built-in 50, so an untouched project resaves byte for byte and an older
 // editor reading a newer file falls back to exactly the number it always had.
 // Purely additive - no migration step.
-inline constexpr int kFormatVersion = 38;
+// v39 (animated HUD, docs/hud-animation.md): `anim` / `transition` objects on
+// HUD images and texts, `visibleAtStart` on images, and the `hudBars` array
+// (live health/stamina/progress bars). Every key is omitted at its default,
+// so the feature adds no noise to an unchanged HUD definition; an older
+// editor reading a newer file drops the motion and draws the classic static
+// HUD. Purely additive - no migration step.
+inline constexpr int kFormatVersion = 39;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

@@ -920,6 +920,42 @@ void App::drawFlowGraphWindow() {
                     ImGui::TextDisabled("Add texts in\nTools > UI Editor (Texts).");
                 endCombo();
             }
+        } else if (t->strKind == FlowParamKind::HudBarName) {
+            if (beginCombo("Bar", n.str.empty() ? "<none>" : n.str.c_str(),
+                                   t->strTip)) {
+                for (const HudBar& hb : project_.hudBars) {
+                    if (ImGui::Selectable(hb.name.c_str(), hb.name == n.str)) {
+                        n.str = hb.name;
+                        changed = true;
+                    }
+                }
+                if (project_.hudBars.empty())
+                    ImGui::TextDisabled("Add bars in\nTools > UI Editor (Bars).");
+                endCombo();
+            }
+        } else if (t->strKind == FlowParamKind::HudElementName) {
+            // Every kind of element in one list, labelled by kind so a name
+            // shared between an image and a bar is still two rows. Each row
+            // needs an explicit id: two Selectables with one label collide.
+            if (beginCombo("Element", n.str.empty() ? "<none>" : n.str.c_str(),
+                                   t->strTip)) {
+                int row = 0;
+                auto pick = [&](const std::string& name, const char* kind) {
+                    ImGui::PushID(row++);
+                    const std::string label = name + "  (" + kind + ")";
+                    if (ImGui::Selectable(label.c_str(), name == n.str)) {
+                        n.str = name;
+                        changed = true;
+                    }
+                    ImGui::PopID();
+                };
+                for (const HudImage& hi : project_.hud) pick(hi.name, "image");
+                for (const HudBar& hb : project_.hudBars) pick(hb.name, "bar");
+                for (const HudText& ht : project_.hudTexts) pick(ht.name, "text");
+                if (row == 0)
+                    ImGui::TextDisabled("Add images, bars or texts in\nTools > UI Editor.");
+                endCombo();
+            }
         } else if (t->strKind == FlowParamKind::FontName) {
             // Empty = the project's first font (project::defaultFontName), so a
             // fresh Display Text node draws without picking anything.

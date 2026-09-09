@@ -206,7 +206,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 
 **The game around the game**
 
-- HUD sprites, fonts, baked on-screen texts and runtime text.
+- **[Animated HUD](docs/hud-animation.md)** — sprites, live health/stamina bars,
+  looped motion, show/hide transitions, one-shot effects and runtime text.
 - Menus with [CSS-shaped stylesheets](docs/menu-styles.md) and scaffolded options
   screens (volume, controls, video mode).
 - [Loading screens](docs/loading-screens.md) and boot splashes,
@@ -315,6 +316,7 @@ wait for their polish pass.
 | [cube](examples/cube) | A 3×3×3 lattice of rooms — prefabs times runtime generation, in ~4 draw calls |
 | [world-facts](examples/world-facts) | Every fact type and all four persistence tiers, exercised across a two-scene level |
 | [save-points](examples/save-points) | Both halves of saving: in-RAM checkpoints, and a 3-slot memory-card shrine with a 3D icon |
+| [hud-animation](examples/hud-animation) | Health, stamina and segmented progress bars, plus looped motion, transitions and one-shot HUD effects |
 | [credits](examples/credits) | An end roll straight from a text file — plus a card-mode dedication that remembers where you left it |
 | [two-players](examples/two-players) | Couch co-op: 1P/2P title menu, split screen, and a friend hot-joining on pad 2 |
 | [reverb-rooms](examples/reverb-rooms) | The same knock in four rooms. Only the acoustics change |

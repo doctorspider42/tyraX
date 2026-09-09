@@ -1,4 +1,5 @@
 #include "project.hpp"
+#include "hudanim.hpp"
 #include "vugen.hpp"  // vugen::classTitle - VU material-class labels
 
 #include <algorithm>
@@ -1783,6 +1784,65 @@ static void writeScenesTable(std::ostream& json, const Project& p) {
 
 // Fonts ride in the Hud section (HUD text + menus reference them), so they
 // travel over the collaboration wire as part of that section's blob.
+// The motion fields of a HUD element, emitted ONLY when they differ from the
+// defaults: a project written before they existed resaves byte for byte, and
+// an image with no animation carries no `anim` key at all.
+static void writeHudMotion(std::ostream& json, const HudAnim& a,
+                           const HudTransition& t) {
+    if (a.kind != 0)
+        json << ", \"anim\": { \"kind\": " << a.kind << ", \"period\": "
+             << fmtFloat(a.period) << ", \"amount\": " << fmtFloat(a.amount)
+             << " }";
+    if (t.kind != 0)
+        json << ", \"transition\": { \"kind\": " << t.kind << ", \"duration\": "
+             << fmtFloat(t.duration) << " }";
+}
+
+static void readHudMotion(const json::Value& jh, HudAnim& a, HudTransition& t) {
+    if (const auto* ja = jh.find("anim"); ja && ja->type == json::Value::Type::Object) {
+        if (const auto* v = ja->find("kind")) a.kind = (int)v->numberOr(0);
+        if (const auto* v = ja->find("period")) a.period = (float)v->numberOr(1.0);
+        if (const auto* v = ja->find("amount")) a.amount = (float)v->numberOr(4.0);
+        if (a.kind < 0 || a.kind >= hudanim::KindCount) a.kind = 0;
+        if (a.period < 0.01f) a.period = 0.01f;
+    }
+    if (const auto* jt = jh.find("transition");
+        jt && jt->type == json::Value::Type::Object) {
+        if (const auto* v = jt->find("kind")) t.kind = (int)v->numberOr(0);
+        if (const auto* v = jt->find("duration"))
+            t.duration = (float)v->numberOr(0.25);
+        if (t.kind < 0 || t.kind >= hudanim::TransitionCount) t.kind = 0;
+        if (t.duration < 0.0f) t.duration = 0.0f;
+    }
+}
+
+// One optional bar image (fill / frame): the same bake fields a HUD image has,
+// minus the placement the bar decides.
+static void writeBarImage(std::ostream& json, const char* key, const HudImage& h) {
+    if (h.imagePath.empty()) return;
+    json << ", \"" << key << "\": { \"image\": \"" << jsonEscape(h.imagePath)
+         << "\", \"size\": [" << fmtFloat(h.size[0]) << ", " << fmtFloat(h.size[1])
+         << "], \"texW\": " << h.texW << ", \"texH\": " << h.texH
+         << ", \"texQuant\": \"" << h.texQuant << "\" }";
+}
+
+static void readBarImage(const json::Value& jb, const char* key, HudImage& h) {
+    const auto* jh = jb.find(key);
+    if (!jh || jh->type != json::Value::Type::Object) return;
+    if (const auto* v = jh->find("image")) h.imagePath = v->stringOr("");
+    if (const auto* v = jh->find("size");
+        v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+        h.size[0] = (float)v->arr[0].numberOr(64);
+        h.size[1] = (float)v->arr[1].numberOr(64);
+    }
+    if (const auto* v = jh->find("texW")) h.texW = (int)v->numberOr(0);
+    if (const auto* v = jh->find("texH")) h.texH = (int)v->numberOr(0);
+    if (const auto* v = jh->find("texQuant")) {
+        const std::string q = v->stringOr("");
+        h.texQuant = (q == "none" || q == "8bit" || q == "4bit") ? q : "";
+    }
+}
+
 static void writeHudSection(std::ostream& json, const Project& p) {
     json << "\"fonts\": [";
     for (size_t i = 0; i < p.fonts.size(); ++i) {
@@ -1801,7 +1861,10 @@ static void writeHudSection(std::ostream& json, const Project& p) {
              << h.imagePath << "\", \"pos\": [" << fmtFloat(h.pos[0]) << ", "
              << fmtFloat(h.pos[1]) << "], \"size\": [" << fmtFloat(h.size[0]) << ", "
              << fmtFloat(h.size[1]) << "], \"texW\": " << h.texW << ", \"texH\": "
-             << h.texH << ", \"texQuant\": \"" << h.texQuant << "\" }";
+             << h.texH << ", \"texQuant\": \"" << h.texQuant << "\"";
+        writeHudMotion(json, h.anim, h.transition);
+        if (!h.visibleAtStart) json << ", \"visibleAtStart\": false";
+        json << " }";
     }
     json << (p.hud.empty() ? "]" : "\n  ]");
     // The USE prompt HUD element (non-deletable; imagePath "" = built-in).
@@ -1840,10 +1903,41 @@ static void writeHudSection(std::ostream& json, const Project& p) {
              << t.size << ", \"color\": " << fmtVec3(t.color)
              << (t.font.empty() ? "" : ", \"font\": \"" + jsonEscape(t.font) + "\"")
              << ", \"shadow\": " << (t.shadow ? "true" : "false")
-             << ", \"visibleAtStart\": " << (t.visibleAtStart ? "true" : "false")
-             << " }";
+             << ", \"visibleAtStart\": " << (t.visibleAtStart ? "true" : "false");
+        writeHudMotion(json, t.anim, t.transition);
+        json << " }";
     }
     json << (p.hudTexts.empty() ? "]" : "\n  ]");
+    // Live bars (docs/hud-animation.md). The whole array is omitted while
+    // there are none, so a project without bars keeps its old shape.
+    if (!p.hudBars.empty()) {
+        json << ",\n  \"hudBars\": [";
+        for (size_t i = 0; i < p.hudBars.size(); ++i) {
+            const HudBar& b = p.hudBars[i];
+            json << (i ? ",\n    " : "\n    ") << "{ \"name\": \""
+                 << jsonEscape(b.name) << "\", \"kind\": " << b.kind
+                 << ", \"pos\": [" << fmtFloat(b.pos[0]) << ", "
+                 << fmtFloat(b.pos[1]) << "], \"size\": [" << fmtFloat(b.size[0])
+                 << ", " << fmtFloat(b.size[1]) << "], \"bgColor\": "
+                 << fmtVec3(b.bgColor) << ", \"fillColor\": "
+                 << fmtVec3(b.fillColor) << ", \"ghostColor\": "
+                 << fmtVec3(b.ghostColor) << ", \"ghost\": "
+                 << (b.ghost ? "true" : "false") << ", \"rightToLeft\": "
+                 << (b.rightToLeft ? "true" : "false") << ", \"smoothing\": "
+                 << fmtFloat(b.smoothing) << ", \"lowFraction\": "
+                 << fmtFloat(b.lowFraction) << ", \"segments\": " << b.segments
+                 << ", \"spacing\": " << fmtFloat(b.spacing) << ", \"source\": \""
+                 << jsonEscape(b.source) << "\", \"min\": " << fmtFloat(b.minValue)
+                 << ", \"max\": " << fmtFloat(b.maxValue) << ", \"start\": "
+                 << fmtFloat(b.startValue);
+            writeBarImage(json, "fillImage", b.fillImage);
+            writeBarImage(json, "frameImage", b.frameImage);
+            writeHudMotion(json, b.anim, b.transition);
+            if (!b.visibleAtStart) json << ", \"visibleAtStart\": false";
+            json << " }";
+        }
+        json << "\n  ]";
+    }
     // Inline text icons ({{name}} in any text). Emitted even at their seeded
     // defaults: the set is what a project's texts reference by name, and a
     // dropped key would silently change what {{cross}} resolves to.
@@ -5499,7 +5593,55 @@ static void readHudSection(const json::Value& root, Project& out) {
                 h.texQuant =
                     (q == "none" || q == "8bit" || q == "4bit") ? q : "";
             }
+            readHudMotion(jh, h.anim, h.transition);
+            if (const auto* v = jh.find("visibleAtStart"))
+                h.visibleAtStart = !(v->type == json::Value::Type::Bool && !v->boolean);
             if (!h.imagePath.empty()) out.hud.push_back(std::move(h));
+        }
+    }
+    out.hudBars.clear();
+    if (const auto* bars = root.find("hudBars");
+        bars && bars->type == json::Value::Type::Array) {
+        for (const auto& jb : bars->arr) {
+            HudBar b;
+            if (const auto* v = jb.find("name")) b.name = v->stringOr("bar");
+            if (const auto* v = jb.find("kind")) b.kind = (int)v->numberOr(0) ? 1 : 0;
+            if (const auto* v = jb.find("pos");
+                v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                b.pos[0] = (float)v->arr[0].numberOr(0.5);
+                b.pos[1] = (float)v->arr[1].numberOr(0.08);
+            }
+            if (const auto* v = jb.find("size");
+                v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                b.size[0] = (float)v->arr[0].numberOr(160);
+                b.size[1] = (float)v->arr[1].numberOr(12);
+            }
+            readVec3(jb.find("bgColor"), b.bgColor);
+            readVec3(jb.find("fillColor"), b.fillColor);
+            readVec3(jb.find("ghostColor"), b.ghostColor);
+            if (const auto* v = jb.find("ghost")) b.ghost = v->boolOr(true);
+            if (const auto* v = jb.find("rightToLeft"))
+                b.rightToLeft = v->boolOr(false);
+            if (const auto* v = jb.find("smoothing"))
+                b.smoothing = (float)v->numberOr(0.25);
+            if (const auto* v = jb.find("lowFraction"))
+                b.lowFraction = (float)v->numberOr(0.25);
+            if (const auto* v = jb.find("segments")) b.segments = (int)v->numberOr(5);
+            b.segments = b.segments < 2 ? 2 : b.segments > 16 ? 16 : b.segments;
+            if (const auto* v = jb.find("spacing")) b.spacing = (float)v->numberOr(4);
+            if (const auto* v = jb.find("source")) b.source = v->stringOr("");
+            if (const auto* v = jb.find("min")) b.minValue = (float)v->numberOr(0);
+            if (const auto* v = jb.find("max")) b.maxValue = (float)v->numberOr(100);
+            if (const auto* v = jb.find("start")) b.startValue = (float)v->numberOr(100);
+            if (b.smoothing < 0.0f) b.smoothing = 0.0f;
+            if (b.lowFraction < 0.0f) b.lowFraction = 0.0f;
+            if (b.lowFraction > 1.0f) b.lowFraction = 1.0f;
+            readBarImage(jb, "fillImage", b.fillImage);
+            readBarImage(jb, "frameImage", b.frameImage);
+            readHudMotion(jb, b.anim, b.transition);
+            if (const auto* v = jb.find("visibleAtStart"))
+                b.visibleAtStart = !(v->type == json::Value::Type::Bool && !v->boolean);
+            if (!b.name.empty()) out.hudBars.push_back(std::move(b));
         }
     }
     // The USE prompt element; absent (older projects) = the classic built-in
@@ -5545,6 +5687,7 @@ static void readHudSection(const json::Value& root, Project& out) {
                 t.shadow = !(v->type == json::Value::Type::Bool && !v->boolean);
             if (const auto* v = jt.find("visibleAtStart"))
                 t.visibleAtStart = v->type == json::Value::Type::Bool && v->boolean;
+            readHudMotion(jt, t.anim, t.transition);
             if (!t.name.empty()) out.hudTexts.push_back(std::move(t));
         }
     }

@@ -1,5 +1,6 @@
 ﻿#include "app.hpp"
 #include "app_internal.hpp"
+#include "hudanim.hpp"
 
 #include <algorithm>
 #include <cfloat>
@@ -3543,15 +3544,116 @@ void App::drawViewportWindow() {
                 pMin = ImVec2(c.x - w * 0.5f, c.y - h * 0.5f);
                 pMax = ImVec2(c.x + w * 0.5f, c.y + h * 0.5f);
             };
+            // The looped animation an element carries is previewed live
+            // through hudanim::evaluate - the same formula the generated game
+            // runs (docs/hud-animation.md), on the editor's clock. A Blink's
+            // off phase draws nothing, like the console.
+            const float hudNow = (float)ImGui::GetTime();
+            auto animRect = [&](const float* pos, const float* size,
+                                const HudAnim& anim, ImVec2& pMin, ImVec2& pMax,
+                                float& alpha) {
+                const hudanim::Motion m =
+                    hudanim::evaluate(anim.kind, anim.period, anim.amount, hudNow);
+                if (!m.visible) return false;
+                const float sz[2] = {size[0] * m.scale, size[1] * m.scale};
+                const float ps[2] = {pos[0] + m.dx / 512.0f, pos[1] + m.dy / 448.0f};
+                screenRect(ps, sz, pMin, pMax);
+                alpha = m.alpha;
+                return true;
+            };
+            auto tintOf = [](float alpha) {
+                return IM_COL32(255, 255, 255, (int)(alpha * 255.0f + 0.5f));
+            };
             for (int i = 0; i < (int)project_.hud.size(); ++i) {
                 const HudImage& hi = project_.hud[i];
+                const bool isSel = showUiEditor_ && uiFxSel_ == 0 && i == selectedHud_;
+                // Hidden-at-start images show only while the editor is open,
+                // dimmed, so they can still be placed.
+                if (!hi.visibleAtStart && !showUiEditor_) continue;
                 ImVec2 pMin, pMax;
-                screenRect(hi.pos, hi.size, pMin, pMax);
+                float alpha = 1.0f;
+                if (!animRect(hi.pos, hi.size, hi.anim, pMin, pMax, alpha)) continue;
+                if (!hi.visibleAtStart) alpha *= 0.35f;
                 if (const HudTexture* t = hudTexture(hi.imagePath))
-                    dl->AddImage((ImTextureID)(intptr_t)t->tex, pMin, pMax);
+                    dl->AddImage((ImTextureID)(intptr_t)t->tex, pMin, pMax,
+                                 ImVec2(0, 0), ImVec2(1, 1), tintOf(alpha));
                 else
                     dl->AddRect(pMin, pMax, IM_COL32(255, 100, 100, 200));
-                if (showUiEditor_ && uiFxSel_ == 0 && i == selectedHud_)
+                if (isSel)
+                    dl->AddRect(pMin, pMax, IM_COL32(255, 160, 30, 255), 0.0f, 0, 2.0f);
+            }
+            // Live bars, at their start value (or the UI Editor's preview
+            // fill for the selected one). Drawn above the stack like the game.
+            for (int i = 0; i < (int)project_.hudBars.size(); ++i) {
+                const HudBar& hb = project_.hudBars[i];
+                const bool isSel = showUiEditor_ && uiFxSel_ == 9 && i == selectedBar_;
+                if (!hb.visibleAtStart && !showUiEditor_) continue;
+                ImVec2 pMin, pMax;
+                float alpha = 1.0f;
+                if (!animRect(hb.pos, hb.size, hb.anim, pMin, pMax, alpha)) continue;
+                if (!hb.visibleAtStart) alpha *= 0.35f;
+                float start = hb.startValue;
+                if (!hb.source.empty()) {
+                    start = hb.minValue;
+                    for (const SaveValue& sv : project_.saveValues)
+                        if (sv.name == hb.source) start = sv.value;
+                }
+                const float frac = (isSel && hudBarPreview_ >= 0.0f)
+                                       ? hudBarPreview_
+                                       : hudanim::fraction(start, hb.minValue, hb.maxValue);
+                auto col = [&](const float* c) {
+                    return IM_COL32((int)(c[0] * 255.0f + 0.5f), (int)(c[1] * 255.0f + 0.5f),
+                                    (int)(c[2] * 255.0f + 0.5f), (int)(alpha * 255.0f + 0.5f));
+                };
+                const float bw = pMax.x - pMin.x, bh = pMax.y - pMin.y;
+                const HudTexture* fillTex =
+                    hb.fillImage.imagePath.empty() ? nullptr : hudTexture(hb.fillImage.imagePath);
+                if (hb.kind == 0) {
+                    dl->AddRectFilled(pMin, pMax, col(hb.bgColor));
+                    const float fw = bw * frac;
+                    const float fx = hb.rightToLeft ? pMax.x - fw : pMin.x;
+                    if (fw > 0.5f) {
+                        if (fillTex)
+                            dl->AddImage((ImTextureID)(intptr_t)fillTex->tex,
+                                         ImVec2(fx, pMin.y), ImVec2(fx + fw, pMax.y),
+                                         ImVec2(hb.rightToLeft ? 1.0f - frac : 0.0f, 0),
+                                         ImVec2(hb.rightToLeft ? 1.0f : frac, 1),
+                                         col(hb.fillColor));
+                        else
+                            dl->AddRectFilled(ImVec2(fx, pMin.y), ImVec2(fx + fw, pMax.y),
+                                              col(hb.fillColor));
+                    }
+                } else {
+                    const int segs = hb.segments < 1 ? 1 : hb.segments;
+                    const int lit = (int)(frac * segs + 0.001f);
+                    const float gap = hb.spacing / 512.0f * frameSize.x;
+                    const float segW = (bw - gap * (segs - 1)) / segs;
+                    for (int k = 0; k < segs; ++k) {
+                        const int kk = hb.rightToLeft ? segs - 1 - k : k;
+                        const float sx = pMin.x + kk * (segW + gap);
+                        const float* c = (k < lit) ? hb.fillColor : hb.bgColor;
+                        if (fillTex)
+                            dl->AddImage((ImTextureID)(intptr_t)fillTex->tex,
+                                         ImVec2(sx, pMin.y), ImVec2(sx + segW, pMax.y),
+                                         ImVec2(0, 0), ImVec2(1, 1), col(c));
+                        else
+                            dl->AddRectFilled(ImVec2(sx, pMin.y), ImVec2(sx + segW, pMax.y),
+                                              col(c));
+                    }
+                }
+                if (!hb.frameImage.imagePath.empty()) {
+                    if (const HudTexture* t = hudTexture(hb.frameImage.imagePath)) {
+                        const float k = hb.size[0] > 0.0f ? bw / (hb.size[0] / 512.0f * frameSize.x) : 1.0f;
+                        const float fw = hb.frameImage.size[0] / 512.0f * frameSize.x * k;
+                        const float fh = hb.frameImage.size[1] / 448.0f * frameSize.y * k;
+                        const ImVec2 c(pMin.x + bw * 0.5f, pMin.y + bh * 0.5f);
+                        dl->AddImage((ImTextureID)(intptr_t)t->tex,
+                                     ImVec2(c.x - fw * 0.5f, c.y - fh * 0.5f),
+                                     ImVec2(c.x + fw * 0.5f, c.y + fh * 0.5f),
+                                     ImVec2(0, 0), ImVec2(1, 1), tintOf(alpha));
+                    }
+                }
+                if (isSel)
                     dl->AddRect(pMin, pMax, IM_COL32(255, 160, 30, 255), 0.0f, 0, 2.0f);
             }
             // The USE prompt (custom image or the embedded built-in sprite);
@@ -3593,8 +3695,10 @@ void App::drawViewportWindow() {
                 if (const HudTexture* t = hudTextTexture(ht)) {
                     const float size[2] = {(float)t->w, (float)t->h};
                     ImVec2 pMin, pMax;
-                    screenRect(ht.pos, size, pMin, pMax);
-                    dl->AddImage((ImTextureID)(intptr_t)t->tex, pMin, pMax);
+                    float alpha = 1.0f;
+                    if (!animRect(ht.pos, size, ht.anim, pMin, pMax, alpha)) continue;
+                    dl->AddImage((ImTextureID)(intptr_t)t->tex, pMin, pMax,
+                                 ImVec2(0, 0), ImVec2(1, 1), tintOf(alpha));
                     if (isSel)
                         dl->AddRect(pMin, pMax, IM_COL32(255, 160, 30, 255),
                                     0.0f, 0, 2.0f);
