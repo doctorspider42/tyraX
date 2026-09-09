@@ -25,6 +25,7 @@
 #include "elfsym.hpp"
 #include "gibake.hpp"
 #include "gigpu.hpp"
+#include "impostorgpu.hpp"
 #include "litbake.hpp"
 #include "modelao.hpp"
 #include "texbake.hpp"  // --bake-model-ao --texbake: the multiply, no Docker
@@ -4007,6 +4008,24 @@ static int vuReplayFromCli(int argc, char** argv) {
 }
 
 int main(int argc, char** argv) {
+    impostorbake::setGpuCapture(impostorgpu::capture);
+    if (argc > 1 && std::strcmp(argv[1], "--bake-impostor") == 0) {
+        if (argc < 6 || argc > 7 || (argc == 7 && std::strcmp(argv[6], "--gpu") != 0)) {
+            std::fprintf(stderr, "usage: --bake-impostor <projectDir> <model.obj> <outputStem> <4|8|16> [--gpu]\n");
+            return 2;
+        }
+        std::string output, error, backend;
+        float extent;
+        const auto start = std::chrono::steady_clock::now();
+        if (!impostorbake::model(argv[2], argv[3], "", argv[4], &output, &extent,
+                                 &error, 128, std::atoi(argv[5]), argc == 7, &backend)) {
+            std::fprintf(stderr, "%s\n", error.c_str()); return 1;
+        }
+        std::printf("%s: %s (%.3f s)\n", backend.c_str(), output.c_str(),
+            std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count());
+        return 0;
+    }
+
     if (argc > 1 && std::strcmp(argv[1], "--vu-check") == 0)
         return vuCheckFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--vu-emit") == 0)

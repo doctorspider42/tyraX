@@ -125,6 +125,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   volumes, each in its own `objects/<id>.json` so a team edits different objects
   without git conflicts. Picking, gizmos, rubber-band selection,
   [surface snapping and cursor-following paste](docs/object-placement.md),
+  [model bounds selection](docs/object-selection.md),
   [orthographic and axis views](docs/orthographic-views.md), and a viewport that
   can rasterize, shade and colour the way
   [the console does](docs/ps2-viewport.md) — GS raster, per-vertex flat-shaded
@@ -154,7 +155,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [raytraced map bakes](docs/material-baking.md) with smart masks.
 - **Generators** — [procedural scatter graphs](docs/procedural-generation.md)
   baked to chunk meshes or [run on the EE](docs/procedural-runtime.md),
-  [prefabs](docs/prefabs.md), the [Tree Generator](docs/tree-generator.md) and
+  [prefabs](docs/prefabs.md), the [Tree Generator](docs/tree-generator.md),
+  [GPU/CPU impostors with 4/8/16 views](docs/impostors.md) and
   the [Drone Generator](docs/drone-generator.md) for ambient music.
 - **[World scale](docs/world-scale.md)** — one number that keeps imported reality
   the size your own content is.
@@ -286,6 +288,7 @@ wait for their polish pass.
 
 | Example | What it shows |
 | --- | --- |
+| [impostor-grove](examples/impostor-grove) | A walkable wooded ruin with generated trees and configurable 4/8/16-view, two-triangle distant impostors and a universal-baked waystone |
 | [script-demo](examples/script-demo) | Start here. Walk to the box, press X, and the sky obeys — one object script, and you've touched the whole pipeline |
 | [showcase](examples/showcase) | The kitchen sink: two scenes joined by a portal, and half the manual — streaming, animation, particles, menus, post-FX — making cameos |
 | [layer-streaming](examples/layer-streaming) | Two buildings, one corridor — and the building behind you quietly stops existing, GTA3-style |

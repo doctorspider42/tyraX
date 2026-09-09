@@ -13,6 +13,15 @@ git show <retirement-commit>^:PROGRESS.md
 git log -p --follow -- PROGRESS.md
 ```
 
+## Visual showcase directions
+
+See [Rendering directions](rendering-directions.md) for the assessed roadmap:
+offline foliage impostors, local vegetation interaction, better probe lighting
+and source assets first; crowds and texture paging only with measured budgets.
+The eight-view cylindrical impostor implementation is documented in
+[Distant foliage impostors](impostors.md). Follow-up candidates are transition blending, elevated
+captures, screen-size thresholds, per-view rendering and grouped distant draws.
+
 ## Small
 
 ### An input replay cannot reproduce a memory-card save
@@ -755,3 +764,7 @@ specific hang fix. If it recurs, preserve the ELF, scene, log and pad sequence
 before rebuilding. The shipped example still uses one full-mesh humanoid and
 lightweight neutral receivers. Avatar skin time fell from about 10.8 to 5.6 ms
 in PCSX2, with identical geometry and full-rate animation.
+
+- Impostor follow-up: measure cold versus warm batch GPU capture time and consider
+  background batch baking. Configurable 4/8/16 views and optional GPU capture
+  with CPU fallback are implemented; see [impostors](impostors.md).

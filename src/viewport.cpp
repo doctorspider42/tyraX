@@ -229,6 +229,7 @@ uniform vec3 uFogColor;
 uniform float uFogStart;
 uniform float uFogEnd;
 uniform vec3 uFogEye;            // camera position (world) - also flashlight
+uniform int uFoliageImpostor; // stable upright normal for cylindrical captures
 uniform vec3 uFogFwd;            // camera forward (world, normalized)
 uniform int uFlashOn;            // camera flashlight preview (VU1 twin)
 uniform vec3 uFlashCol;
@@ -795,7 +796,7 @@ void main() {
     if (uAlpha != 0 && a < 0.02) discard;
     vec3 shade = vColor;
     if (uLit != 0) {
-        vec3 n = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
+        vec3 n = uFoliageImpostor != 0 ? vec3(0.0, 1.0, 0.0) : normalize(cross(dFdx(vWorld), dFdy(vWorld)));
         shade = litShade(vColor, vWorld, n);
     }
     // Baked lightmaps land per pixel, after the tint the console has already
@@ -856,7 +857,7 @@ void main() {
     // screen-space derivative the per-pixel path uses, which always faces the
     // camera. A wall seen from behind must shade the way the game shades it.
     vec3 nf = cross(vWorld[1] - vWorld[0], vWorld[2] - vWorld[0]);
-    vec3 n = dot(nf, nf) > 1e-12 ? normalize(nf) : vec3(0.0, 1.0, 0.0);
+    vec3 n = uFoliageImpostor != 0 ? vec3(0.0, 1.0, 0.0) : (dot(nf, nf) > 1e-12 ? normalize(nf) : vec3(0.0, 1.0, 0.0));
     for (int i = 0; i < 3; ++i) {
         vec3 shade = uLit != 0 ? litShade(vColor[i], vWorld[i], n) : vColor[i];
         // Tint and the emissive floor fold into the corner colour in the
@@ -1511,6 +1512,7 @@ void Viewport::querySceneLocations(uint32_t prog) {
     // Only the PS2-shading program has these; -1 elsewhere makes the
     // per-draw glUniform1i a no-op.
     uPs2Flat_ = glGetUniformLocation(prog, "uPs2Flat");
+    uFoliageImpostor_ = glGetUniformLocation(prog, "uFoliageImpostor");
     uPs2NoDyn_ = glGetUniformLocation(prog, "uPs2NoDynLight");
 }
 
@@ -2871,6 +2873,136 @@ void Viewport::pickBounds(const SceneObject& o, float mn[3], float mx[3]) {
     }
 }
 
+// Picking and selection decorations use CPU data, never read back GL buffers.
+const objparser::Model* Viewport::pickModel(const std::string& path, const std::string& material) {
+    const std::string key = path + "|" + material;
+    auto it = pickModelCache_.find(key);
+    if (it == pickModelCache_.end()) {
+        objparser::Model mesh;
+        objparser::load((std::filesystem::path(projectDir_)/path).string(), mesh,
+            material.empty() ? "" : (std::filesystem::path(projectDir_)/material).string());
+        it = pickModelCache_.emplace(key, std::move(mesh)).first;
+    }
+    return it->second.submeshes.empty() ? nullptr : &it->second;
+}
+
+// Returns the same capture selected by the normal viewport model draw.
+int Viewport::pickVisual(const SceneObject& o, const float* eye, SceneObject& visual) {
+    visual = o;
+    if (o.type != PrimitiveType::Model || isAnimatedModelPath(o.modelPath) ||
+        o.physics || o.impostorPath.empty() || o.impostorDistance <= 0) return -1;
+    const float dx = eye[0]-o.position[0], dy = eye[1]-o.position[1], dz = eye[2]-o.position[2];
+    if (dx*dx+dy*dy+dz*dz <= o.impostorDistance*o.impostorDistance) return -1;
+    if (o.impostorBillboard && (std::fabs(o.rotation[0]) >= .001f ||
+        std::fabs(o.rotation[2]) >= .001f || o.scale[0] <= 0 || o.scale[1] <= 0 ||
+        std::fabs(o.scale[0]-o.scale[2]) >= .0001f)) return -1;
+    const auto* far = pickModel(o.impostorPath, "");
+    if (!far || (o.impostorBillboard && far->submeshes.size() != (size_t)o.impostorViews)) return -1;
+    visual.modelPath = o.impostorPath;
+    visual.materialPath.clear();
+    if (!o.impostorBillboard) return -1;
+    const float yaw = std::atan2(dx,dz);
+    const int sector = (int)std::floor((yaw-o.rotation[1]*kPi/180.0f)*(o.impostorViews/(2.0f*kPi))+.5f);
+    visual.rotation[1] = yaw*180.0f/kPi;
+    return (sector%o.impostorViews+o.impostorViews)%o.impostorViews;
+}
+
+void Viewport::selectionBounds(const SceneObject& o, float mn[3], float mx[3]) {
+    for (int k=0;k<3;++k) mn[k]=1e30f, mx[k]=-1e30f;
+    auto grow = [&](const SceneObject& transform, const float* lo, const float* hi) {
+        for (int corner=0;corner<8;++corner) {
+            Vec3 v{corner&1 ? hi[0] : lo[0], corner&2 ? hi[1] : lo[1], corner&4 ? hi[2] : lo[2]};
+            if (isAnimatedModelPath(transform.modelPath) && transform.modelYawOffset != 0) {
+                const float angle[3]={0,transform.modelYawOffset,0};
+                v=rotateEuler(v,angle);
+            }
+            v=rotateEuler(v,transform.rotation);
+            const float xyz[3]={v.x+transform.position[0],v.y+transform.position[1],v.z+transform.position[2]};
+            for(int k=0;k<3;++k) mn[k]=std::min(mn[k],xyz[k]),mx[k]=std::max(mx[k],xyz[k]);
+        }
+    };
+    float lo[3],hi[3];
+    pickBounds(o,lo,hi); // already scaled, including fixed-size editor markers
+    grow(o,lo,hi);
+    if (o.type != PrimitiveType::Model || o.impostorPath.empty()) return;
+    const CamView cam=camView(fbWidth_,fbHeight_);
+    SceneObject visual;
+    const int capture=pickVisual(o,cam.eye,visual);
+    if (visual.modelPath == o.modelPath) return;
+    const auto* mesh=pickModel(visual.modelPath,visual.materialPath);
+    if (!mesh) return;
+    for(int k=0;k<3;++k) lo[k]=1e30f,hi[k]=-1e30f;
+    for(size_t pi=0;pi<mesh->submeshes.size();++pi) {
+        if(capture>=0 && (int)pi!=capture) continue;
+        const auto& verts=mesh->submeshes[pi].verts;
+        for(size_t i=0;i+7<verts.size();i+=8)
+            for(int k=0;k<3;++k) {
+                const float x=verts[i+k]*visual.scale[k];
+                lo[k]=std::min(lo[k],x);hi[k]=std::max(hi[k],x);
+            }
+    }
+    grow(visual,lo,hi); // union includes both authored model and visible card
+}
+
+float Viewport::pickModelSurface(const SceneObject& visual, int capture,
+                                 const float* origin, const float* direction) {
+    const auto* mesh=pickModel(visual.modelPath,visual.materialPath);
+    if(!mesh) return -1;
+    Vec3 ro,rd;
+    objectLocalRay(visual,{origin[0],origin[1],origin[2]},
+                   {direction[0],direction[1],direction[2]},ro,rd);
+    if (std::fabs(visual.scale[0])<1e-8f || std::fabs(visual.scale[1])<1e-8f ||
+        std::fabs(visual.scale[2])<1e-8f) return -1;
+    ro={ro.x/visual.scale[0],ro.y/visual.scale[1],ro.z/visual.scale[2]};
+    rd={rd.x/visual.scale[0],rd.y/visual.scale[1],rd.z/visual.scale[2]};
+    float best=1e30f;
+    for(size_t pi=0;pi<mesh->submeshes.size();++pi) {
+        if(capture>=0 && (int)pi!=capture) continue;
+        const auto& part=mesh->submeshes[pi];
+        const PickAlpha* alpha=nullptr;
+        if(!part.texture.empty()) {
+            const auto dir=std::filesystem::path(visual.materialPath.empty()?visual.modelPath:visual.materialPath).parent_path();
+            const std::string path=(dir/part.texture).generic_string();
+            auto it=pickAlphaCache_.find(path);
+            if(it==pickAlphaCache_.end()) {
+                PickAlpha mask;int channels;
+                unsigned char* pixels=stbi_load((std::filesystem::path(projectDir_)/path).string().c_str(),&mask.w,&mask.h,&channels,4);
+                if(pixels) {
+                    mask.values.resize((size_t)mask.w*mask.h);
+                    for(size_t i=0;i<mask.values.size();++i) mask.values[i]=pixels[i*4+3];
+                    stbi_image_free(pixels);
+                }
+                it=pickAlphaCache_.emplace(path,std::move(mask)).first;
+            }
+            if(!it->second.values.empty()) alpha=&it->second;
+        }
+        for(size_t i=0;i+23<part.verts.size();i+=24) {
+            const float* v=&part.verts[i];
+            const Vec3 a{v[0],v[1],v[2]},b{v[8],v[9],v[10]},c{v[16],v[17],v[18]};
+            const Vec3 e1=sub(b,a),e2=sub(c,a),p=cross(rd,e2);
+            const float det=dot(e1,p);
+            if(std::fabs(det)<1e-8f) continue;
+            const Vec3 delta=sub(ro,a);
+            const float u=dot(delta,p)/det;
+            if(u<0 || u>1) continue;
+            const Vec3 q=cross(delta,e1);
+            const float w=dot(rd,q)/det;
+            if(w<0 || u+w>1) continue;
+            const float t=dot(e2,q)/det;
+            if(t<=0 || t>=best) continue;
+            if(alpha) {
+                const float tu=(1-u-w)*v[6]+u*v[14]+w*v[22];
+                const float tv=(1-u-w)*v[7]+u*v[15]+w*v[23];
+                const int x=std::min(alpha->w-1,(int)((tu-std::floor(tu))*alpha->w));
+                const int y=std::min(alpha->h-1,(int)((tv-std::floor(tv))*alpha->h));
+                if(alpha->values[(size_t)y*alpha->w+x]<128) continue;
+            }
+            best=t;
+        }
+    }
+    return best<1e30f ? best : -1;
+}
+
 void Viewport::pickAll(float u, float v, const std::vector<SceneObject>& objects,
                        std::vector<int>& out) {
     out.clear();
@@ -2906,7 +3038,7 @@ void Viewport::pickAll(float u, float v, const std::vector<SceneObject>& objects
     // repeated click reach them without leaving the viewport.
     struct Cand {
         int index;
-        int tier;  // 0 exact, 1 within the grab margin, +2 for a volume
+        int tier;  // 0 surface, 1 model-box fallback, 2 margin, +3 for a volume
         float t;
     };
     std::vector<Cand> cands;
@@ -2925,9 +3057,14 @@ void Viewport::pickAll(float u, float v, const std::vector<SceneObject>& objects
         Vec3 lo, ld;
         objectLocalRay(o, eye, dir, lo, ld);
 
+        const bool staticModel=o.type==PrimitiveType::Model && !isAnimatedModelPath(o.modelPath);
+        if(staticModel) {
+            selectionBounds(o,mn,mx);
+            lo=eye;ld=dir;
+        }
         const bool volume = o.type == PrimitiveType::Area ||
                             o.type == PrimitiveType::Scatter;
-        int tier = volume ? 2 : 0;
+        int tier = volume ? 3 : (staticModel ? 1 : 0);
         float t = rayBox(lo, ld, mn, mx);
         if (t <= 0.0f) {
             const float pad = padAt(o);
@@ -2936,7 +3073,13 @@ void Viewport::pickAll(float u, float v, const std::vector<SceneObject>& objects
                 pmn[k] = mn[k] - pad, pmx[k] = mx[k] + pad;
             t = rayBox(lo, ld, pmn, pmx);
             if (t <= 0.0f) continue;
-            tier += 1;
+            tier = volume ? 4 : 2;
+        }
+        if(staticModel) {
+            SceneObject visual;
+            const int capture=pickVisual(o,cam.eye,visual);
+            const float surface=pickModelSurface(visual,capture,ro,rd);
+            if(surface>0) { tier=0;t=surface; }
         }
         cands.push_back({(int)i, tier, t});
     }
@@ -3644,6 +3787,8 @@ void Viewport::clearModelCache() {
         for (auto& part : draw.parts) destroyMesh(part.mesh);
     modelCache_.clear();
     modelBoundsCache_.clear();  // re-read bounds after a disk change too
+    pickModelCache_.clear();
+    pickAlphaCache_.clear();
     materialCache_.clear();  // GL textures are owned by texCache_
     for (auto& j : animBakeJobs_)
         if (j->worker.joinable()) j->worker.join();
@@ -3873,6 +4018,7 @@ const Viewport::MatPrevModel* Viewport::matPrevModelDraw(
 
 void Viewport::updateTexturePixels(const std::string& relPath, int w, int h,
                                    const unsigned char* rgba) {
+    pickAlphaCache_.erase(relPath);
     if (relPath.empty() || w < 1 || h < 1 || !rgba) return;
     uint32_t& tex = texCache_[relPath];
     if (!tex) {
@@ -4692,6 +4838,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // uOpacity persists across draws (the sky/outline sites below don't set
     // it) - reset the mirror pass's leftover so the frame starts opaque.
     glUniform1f(uOpacity_, 1.0f);
+    glUniform1i(uFoliageImpostor_, 0);
     glUniform1i(uPs2Flat_, 0);  // Gouraud until a flat draw says otherwise
 
     // Sky dome: centered on the camera (an "infinite" sky) and scaled well
@@ -5126,6 +5273,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
         glUniformMatrix4fv(uModel_, 1, GL_FALSE, model ? model->m : identityM.m);
         glUniform1i(uLit_, model ? 1 : 0);  // world matrix given = lit geometry
+        glUniform1i(uFoliageImpostor_, ps2Flat == 2);
         glUniform1i(uPs2Flat_, ps2Flat);    // no-op on the per-pixel program
         glUniform1i(uPs2NoDyn_, ps2NoDyn);  // no-op on the per-pixel program
         glUniform1i(uAoSelfObj_, aoSelfObj);
@@ -5404,7 +5552,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                 model = mul(translation(o.position[0], o.position[1],
                                         o.position[2]),
                             scaleM(0.28f, 0.28f, 0.28f));
-            const Mat4 mvp = mul(viewProj, model);
+            Mat4 mvp = mul(viewProj, model);
             // the bulb gizmo stays emissive - everything else receives light
             const bool lit = !asLines && o.type != PrimitiveType::PointLight;
             // animated .glb models: dynamic meshes re-lerped this frame. A
@@ -5427,15 +5575,40 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             }
             // .obj models draw one part per MTL material (an assigned .mtl
             // overrides the model's own libraries - same rule as the game)
+            const float ix = o.position[0] - eye.x;
+            const float iy = o.position[1] - eye.y;
+            const float iz = o.position[2] - eye.z;
+            bool farModel = !o.physics && !o.impostorPath.empty() &&
+                (!o.impostorBillboard || (std::fabs(o.rotation[0]) < .001f &&
+                 std::fabs(o.rotation[2]) < .001f && o.scale[0] > 0 && o.scale[1] > 0 &&
+                 std::fabs(o.scale[0]-o.scale[2]) < .0001f)) &&
+                o.impostorDistance > 0 &&
+                ix*ix + iy*iy + iz*iz > o.impostorDistance*o.impostorDistance;
             const ModelDraw* md = o.type == PrimitiveType::Model
-                                      ? modelDraw(o.modelPath, o.materialPath)
-                                      : nullptr;
+                ? modelDraw(farModel ? o.impostorPath : o.modelPath,
+                            farModel ? "" : o.materialPath) : nullptr;
+            if (farModel && (!md || (o.impostorBillboard && md->parts.size() != (size_t)o.impostorViews))) {
+                md = modelDraw(o.modelPath, o.materialPath);
+                farModel = false;
+            }
+            int capture = -1;
+            if (farModel && o.impostorBillboard) {
+                const float yaw = std::atan2(-ix, -iz);
+                const int sector = (int)std::floor((yaw-o.rotation[1]*kPi/180.0f)*(o.impostorViews/(2.0f*kPi))+.5f);
+                capture = (sector%o.impostorViews+o.impostorViews)%o.impostorViews;
+                ps2Flat = 2;
+                SceneObject facing = o;
+                facing.rotation[1] = yaw*180.0f/kPi;
+                model = modelMatrix(facing);
+                mvp = mul(viewProj, model);
+            }
             if (md) {
                 // Opaque parts first, cutout ones (leaf cards) after, so a
                 // blended part never darkens a trunk it was authored in front
                 // of - the same order the tree preview draws in.
                 for (int alphaPass = 0; alphaPass < 2; ++alphaPass)
                 for (const ModelPart& part : md->parts) {
+                    if (capture >= 0 && &part != &md->parts[capture]) continue;
                     const bool cutout = part.alpha && !asLines;
                     if ((int)cutout != alphaPass) continue;
                     // rounded env normals radiate from the part centroid -
@@ -5954,12 +6127,18 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         }
     }
 
+    auto selectionMatrix = [&](const SceneObject& o) {
+        float mn[3],mx[3];selectionBounds(o,mn,mx);
+        return mul(translation((mn[0]+mx[0])*.5f,(mn[1]+mx[1])*.5f,(mn[2]+mx[2])*.5f),
+                   scaleM(std::max(mx[0]-mn[0],.04f),std::max(mx[1]-mn[1],.04f),std::max(mx[2]-mn[2],.04f)));
+    };
+    glDisable(GL_DEPTH_TEST);
     // Session peers' selections first (their color), so the local outline
     // below always draws on top when both select the same object.
     for (const PeerSel& ps : peerSels_) {
         for (int idx : ps.indices) {
             if (idx < 0 || idx >= (int)objects.size() || hiddenAt((size_t)idx)) continue;
-            const Mat4 mvp = mul(viewProj, modelMatrix(objects[idx]));
+            const Mat4 mvp = mul(viewProj, selectionMatrix(objects[idx]));
             draw(wireCube_, GL_LINES, mvp, ps.color[0], ps.color[1], ps.color[2]);
         }
     }
@@ -5969,10 +6148,12 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // Objects on a hidden layer are skipped (they aren't drawn or picked).
     for (int idx : selection) {
         if (idx < 0 || idx >= (int)objects.size() || hiddenAt((size_t)idx)) continue;
-        const Mat4 mvp = mul(viewProj, modelMatrix(objects[idx]));
+        const Mat4 mvp = mul(viewProj, selectionMatrix(objects[idx]));
         if (idx == primary) draw(wireCube_, GL_LINES, mvp, 1.0f, 0.85f, 0.35f);
         else draw(wireCube_, GL_LINES, mvp, 1.0f, 0.6f, 0.1f);
     }
+
+    glEnable(GL_DEPTH_TEST);
 
     // Particle emitters last - alpha blended over the scene (same order as
     // the generated game's renderScene()).

@@ -107,3 +107,7 @@ Verified the 1.74.1 fix with Windows Release and PS2 Docker builds, a doorway
 walk and two temporal captures (30 samples at 2 Hz, then 150 at 10 Hz) in
 PCSX2 software mode. Normal animation continued without receiver flashes;
 the user also confirmed that the visible flicker disappeared.
+
+The 1.76.0 integration retains the configurable GPU impostors from main and
+refreshes this example against the combined runtime.
+The merged version passed the Windows Release build, --vu-check, a PS2 Docker build and a PCSX2 doorway walk with a captured frame.

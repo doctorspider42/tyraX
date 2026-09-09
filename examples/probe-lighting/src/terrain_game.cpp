@@ -3894,6 +3894,8 @@ void TerrainGame::applyLayerResidency() {
     const SceneObjectData& d = SCENE_OBJECTS[i];
     if (!layerOn(d.layer)) continue;
     if (d.model >= 0 && d.model < (int)modelNeed.size()) modelNeed[d.model] = 1;
+    if (d.impostorDistance > 0 && d.impostorModel >= 0 &&
+        d.impostorModel < (int)modelNeed.size()) modelNeed[d.impostorModel] = 1;
     if (d.material >= 0 && d.material < (int)materialNeed.size())
       materialNeed[d.material] = 1;
     if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
@@ -3907,6 +3909,8 @@ void TerrainGame::applyLayerResidency() {
     if (!runtimeObjects[i].active) continue;
     const SceneObjectData& d = runtimeObjects[i].data;
     if (d.model >= 0 && d.model < (int)modelNeed.size()) modelNeed[d.model] = 1;
+    if (d.impostorDistance > 0 && d.impostorModel >= 0 &&
+        d.impostorModel < (int)modelNeed.size()) modelNeed[d.impostorModel] = 1;
     if (d.material >= 0 && d.material < (int)materialNeed.size())
       materialNeed[d.material] = 1;
     if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
@@ -3931,6 +3935,8 @@ void TerrainGame::applyLayerResidency() {
     for (int m = 0; m < PREFAB_COUNTS[pf]; ++m) {
       const SceneObjectData& d = PREFAB_MEMBERS[PREFAB_FIRST[pf] + m];
       if (d.model >= 0 && d.model < (int)modelNeed.size()) modelNeed[d.model] = 1;
+      if (d.impostorDistance > 0 && d.impostorModel >= 0 &&
+          d.impostorModel < (int)modelNeed.size()) modelNeed[d.impostorModel] = 1;
       if (d.material >= 0 && d.material < (int)materialNeed.size())
         materialNeed[d.material] = 1;
       if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
@@ -13507,6 +13513,25 @@ void TerrainGame::pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags) {
     if (b && b->count != 0) b->packageSize = size;
 }
 
+// Cylindrical captures are authored upright with a common horizontal scale.
+// Legacy replacement meshes remain unrestricted by this additional contract.
+static bool billboardTransformValid(const SceneObjectData& d) {
+  return !d.impostorBillboard || (fabsf(d.rotation[0]) < .001F &&
+      fabsf(d.rotation[2]) < .001F && d.scale[0] > 0 && d.scale[1] > 0 &&
+      fabsf(d.scale[0]-d.scale[2]) < .0001F);
+}
+static int billboardView(const SceneObjectData& d, const Vec4& camera) {
+  const float yaw = atan2f(camera.x-d.position[0], camera.z-d.position[2]);
+  const float local = yaw - d.rotation[1]*PI/180.0F;
+  const int v = (int)floorf(local*(d.impostorViews/(2.0F*PI))+.5F);
+  return (v%d.impostorViews+d.impostorViews)%d.impostorViews;
+}
+static SceneObjectData billboardTransform(const SceneObjectData& d, const Vec4& camera) {
+  SceneObjectData facing = d;
+  facing.rotation[1] = atan2f(camera.x-d.position[0], camera.z-d.position[2])*180.0F/PI;
+  return facing;
+}
+
 void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
@@ -13523,7 +13548,26 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   if (o.data.type == 5 && o.data.model >= 0 &&
       o.data.model < (int)gameModels.size())
     gm = &gameModels[o.data.model];
-  const int partCount = o.data.type == 5 ? (gm ? (int)gm->parts.size() : 0) : 1;
+  if (!g.impostorInitialized) {
+    g.impostorInitialized = true;
+    const float dx = o.data.position[0] - cameraPosition.x;
+    const float dy = o.data.position[1] - cameraPosition.y;
+    const float dz = o.data.position[2] - cameraPosition.z;
+    g.impostor = !localSpace && !o.data.physics && billboardTransformValid(o.data) && o.data.impostorDistance > 0 &&
+        dx*dx + dy*dy + dz*dz > o.data.impostorDistance*o.data.impostorDistance;
+  }
+  if (localSpace || !billboardTransformValid(o.data)) g.impostor = false;
+  if (g.impostor && o.data.impostorModel >= 0 &&
+      o.data.impostorModel < (int)gameModels.size() &&
+      !gameModels[o.data.impostorModel].parts.empty() &&
+      (!o.data.impostorBillboard || gameModels[o.data.impostorModel].parts.size() == (size_t)o.data.impostorViews))
+    gm = &gameModels[o.data.impostorModel];
+  else
+    g.impostor = false;
+  const bool billboard = g.impostor && o.data.impostorBillboard;
+  if (billboard) g.impostorView = billboardView(o.data, cameraPosition);
+  const SceneObjectData visualData = billboard ? billboardTransform(o.data, cameraPosition) : o.data;
+  const int partCount = billboard ? 1 : (o.data.type == 5 ? (gm ? (int)gm->parts.size() : 0) : 1);
   if ((int)g.parts.size() != partCount) g.parts.resize(partCount);
 
   for (int pi = 0; pi < partCount; ++pi) {
@@ -13632,7 +13676,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
 
   if (o.data.type == 5) {
     for (int pi = 0; pi < partCount; ++pi) {
-      const GameModelPart& src = gm->parts[pi];
+      const GameModelPart& src = gm->parts[billboard ? g.impostorView : pi];
       GeoPart& part = g.parts[pi];
       const bool textured = src.texture != nullptr;
       // Baked raycast self-AO from the model's .aov sidecar (LeanObjLoader);
@@ -13642,8 +13686,8 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       g_envNormals = src.reflTexture ? &part.envNormals : nullptr;
       for (size_t i = 0; i + 7 < src.verts.size(); i += 8) {
         const float* v = &src.verts[i];
-        pushVert(part.vertices, part.colors, part.sts, o.data,
-                 {v[0], v[1], v[2]}, {v[3], v[4], v[5]}, v[6], v[7], src.kd,
+        pushVert(part.vertices, part.colors, part.sts, visualData,
+                 {v[0], v[1], v[2]}, billboard ? V3{0,1,0} : V3{v[3], v[4], v[5]}, v[6], v[7], src.kd,
                  textured, hasAo ? src.vertexAo[i / 8] : (unsigned char)255,
                  src.ke);
       }
@@ -13803,7 +13847,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
 
     // models: the part's own map_Kd; primitives: the assigned material's
     Texture* tex =
-        o.data.type == 5 ? gm->parts[pi].texture : (gmat ? gmat->texture : nullptr);
+        o.data.type == 5 ? gm->parts[billboard ? g.impostorView : pi].texture : (gmat ? gmat->texture : nullptr);
     // Raytraced mirror: the glass samples the VU0-traced reflection image
     // (created by buildRtMirrors before this rebuild ever runs).
     if (o.data.type == 15)
@@ -13856,10 +13900,10 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     // env bag reuses this part's vertex array and bboxVersion; all-white
     // "many" colors keep its VU1 program shape identical to a textured base
     // bag, so the frustum-bbox cache entry is shared, not recomputed.
-    Texture* envTex = o.data.type == 5 ? gm->parts[pi].reflTexture
+    Texture* envTex = o.data.type == 5 ? gm->parts[billboard ? g.impostorView : pi].reflTexture
                                        : (gmat ? gmat->reflTexture : nullptr);
     const float envStr = o.data.type == 5
-                             ? gm->parts[pi].reflStrength
+                             ? gm->parts[billboard ? g.impostorView : pi].reflStrength
                              : (gmat ? gmat->reflStrength : 0.0F);
     if (envTex && envStr > 0.004F &&
         part.envNormals.size() == part.vertices.size()) {
@@ -13896,7 +13940,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       // sweeps a gradient of the sphere map instead of showing one uniform
       // sample (the viewport shader mirrors this via uReflRounded).
       const bool envRounded = o.data.type == 5
-                                  ? gm->parts[pi].reflRounded
+                                  ? gm->parts[billboard ? g.impostorView : pi].reflRounded
                                   : (gmat && gmat->reflRounded);
       if (envRounded && !part.vertices.empty()) {
         const u32 nv = static_cast<u32>(part.vertices.size());
@@ -13999,10 +14043,10 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       // The albedo the light colors get folded into - the same product the
       // baked path would have put in the vertex colors.
       const bool litTextured = o.data.type == 5 && gm && pi < (int)gm->parts.size()
-                                   ? gm->parts[pi].texture != nullptr
+                                   ? gm->parts[billboard ? g.impostorView : pi].texture != nullptr
                                    : (gmat && gmat->texture);
       const float* kd = o.data.type == 5 && gm && pi < (int)gm->parts.size()
-                            ? gm->parts[pi].kd
+                            ? gm->parts[billboard ? g.impostorView : pi].kd
                             : (gmat ? gmat->kd : nullptr);
       for (int k = 0; k < 3; ++k)
         part.litAlbedo[k] = o.data.color[k] * (kd ? kd[k] : 1.0F);
@@ -14063,7 +14107,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
 // Everything else is fair game: the collider and the AABB are model-level, so
 // collision, physics extents and the split-band cull never see a tier.
 bool TerrainGame::modelLodEligible(int index) const {
-  if (objectGeometry[index].matrixMode) return false;
+  if (objectGeometry[index].matrixMode || objectGeometry[index].impostor) return false;
   for (int fi = 0; fi < OBJECT_FEED_COUNT; ++fi)
     if (OBJECT_FEEDS[fi].scene == currentScene &&
         OBJECT_FEEDS[fi].object == index)
@@ -15980,6 +16024,7 @@ void TerrainGame::renderScene() {
   int hlCount = 0;
   const bool hlActive = HIGHLIGHT_USABLE;
   const bool hlOverlay = HIGHLIGHT_OVERLAY;
+  int impostorSwitchBudget = 4;
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (!runtimeObjects[i].active) continue;  // streamed out with its layer
     // Batched members render via renderStaticBatches above; their dirty flag
@@ -15993,6 +16038,36 @@ void TerrainGame::renderScene() {
     // 16 FPS. This is checked BEFORE `dirty` on purpose: such an object dirties
     // itself on the frame it asks, and a world-space rebuild would clear the
     // flag and leave it asking again forever.
+    // Hysteresis avoids rebuilding geometry repeatedly on a distance boundary.
+    // Original model identity is untouched: collision, scripts and bounds keep it.
+    // Secondary views share the selected representation, just like mesh LOD.
+    if (!splitSecondPass) {
+      const SceneObjectData& d = runtimeObjects[i].data;
+      ObjectGeometry& g = objectGeometry[i];
+      bool far = false;
+      if (d.type == 5 && !d.physics && d.animModel < 0 && !g.matrixMode &&
+          !runtimeObjects[i].wantsMatrixPath && billboardTransformValid(d) &&
+          d.impostorDistance > 0 && d.impostorModel >= 0 &&
+          d.impostorModel < (int)gameModels.size() &&
+          !gameModels[d.impostorModel].parts.empty() &&
+          (!d.impostorBillboard || gameModels[d.impostorModel].parts.size() == (size_t)d.impostorViews)) {
+        const float dx = d.position[0] - cameraPosition.x;
+        const float dy = d.position[1] - cameraPosition.y;
+        const float dz = d.position[2] - cameraPosition.z;
+        const float threshold = d.impostorDistance * (g.impostor ? .9F : 1.0F);
+        far = dx*dx + dy*dy + dz*dz > threshold*threshold;
+      }
+      if (far != g.impostor && impostorSwitchBudget > 0) {
+        --impostorSwitchBudget;
+        g.impostor = far;
+        if (DEBUG_SHOW_PROFILER)
+          TYRA_LOG("IMPOSTOR object=", i, " far=", far ? 1 : 0);
+        // A different model can have a different material set. Recreate bags
+        // rather than retaining an old reflection/lightmap companion pass.
+        g.parts.clear();
+        runtimeObjects[i].dirty = true;
+      }
+    }
     if (runtimeObjects[i].wantsMatrixPath && !objectGeometry[i].matrixMode &&
         physFastPathEligible(i))
       rebuildObjectGeometry(i, true);
@@ -16004,6 +16079,34 @@ void TerrainGame::renderScene() {
     if (objectGeometry[i].matrixMode) updateObjMat(i);
     if (!runtimeObjects[i].visible) continue;
     if (beyondDrawDistance(runtimeObjects[i].data, cameraPosition)) continue;
+    // Six vertices, no allocation/rebuild: the selected capture and facing
+    // update in place. Texture coordinates come from the loaded (atlas-remapped)
+    // model, so the normal asset bake remains authoritative.
+    if (!splitSecondPass && objectGeometry[i].impostor && runtimeObjects[i].data.impostorBillboard) {
+      ObjectGeometry& g = objectGeometry[i];
+      const SceneObjectData& d = runtimeObjects[i].data;
+      const int view = billboardView(d, cameraPosition);
+      const auto& src = gameModels[d.impostorModel].parts[view];
+      if (g.parts.size() == 1 && src.verts.size() == g.parts[0].vertices.size()*8) {
+        GeoPart& part = g.parts[0];
+        const SceneObjectData facing = billboardTransform(d, cameraPosition);
+        const float yaw = facing.rotation[1]*PI/180.0F;
+        const float cr = cosf(yaw), sr = sinf(yaw);
+        for (size_t k = 0; k < part.vertices.size(); ++k) {
+          const float* v = &src.verts[k*8];
+          const float x = v[0]*d.scale[0];
+          part.vertices[k] = Vec4(d.position[0]+cr*x, d.position[1]+v[1]*d.scale[1],
+                                  d.position[2]-sr*x, 1.0F);
+          part.sts[k] = Vec4(v[6],v[7],1.0F,0.0F);
+        }
+        part.texBag->texture = src.texture;
+        part.baseStamp = ++g_bboxStamp;
+        part.bag->bboxVersion = part.baseStamp;
+        if (DEBUG_SHOW_PROFILER && g.impostorView != view)
+          TYRA_LOG("IMPOSTOR VIEW object=", i, " view=", view);
+        g.impostorView = view;
+      }
+    }
     // Split halves: whole objects above/below the visible band skip here.
     if (splitBandActive && objectOutsideSplitBand(i)) continue;
     // Static mesh LOD: hard thresholds at the distance and twice it, like the

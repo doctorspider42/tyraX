@@ -326,6 +326,10 @@ struct SceneObject {
     // drawn at all (collision, sounds and scripts still run). 0 = unlimited.
     // The cheapest LOD there is - era-correct for dense scenes.
     float drawDistance = 0.0f;
+    std::string impostorPath; // optional static far model; collision stays original
+    float impostorDistance = 0.0f; // 0 disables, world units
+    bool impostorBillboard = false; // ordered view parts, upright/equal XZ scale
+    int impostorViews = 8; // baked capture count: 4/8/16; legacy assets default to 8
     // Show in reflections: this object is also rendered into the dynamic
     // ("@sky") environment map, so reflective materials mirror it - the GT3
     // trick's second half. Each marked object costs a second (128x128,
@@ -983,6 +987,10 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.layer == b.layer &&
            a.primDetail == b.primDetail && a.primRings == b.primRings &&
            a.drawDistance == b.drawDistance &&
+           a.impostorPath == b.impostorPath &&
+           a.impostorDistance == b.impostorDistance &&
+           a.impostorBillboard == b.impostorBillboard &&
+           a.impostorViews == b.impostorViews &&
            a.reflected == b.reflected && a.castShadow == b.castShadow &&
            a.projShadow == b.projShadow && a.shadowMode == b.shadowMode &&
            a.bakedLighting == b.bakedLighting &&

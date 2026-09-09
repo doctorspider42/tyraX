@@ -218,6 +218,9 @@ class TerrainGame : public Tyra::Game {
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
+    bool impostor = false; // visual representation only; data.model owns collision
+    bool impostorInitialized = false;
+    int impostorView = 0;
     // Physics fast path (awake bodies): parts hold LOCAL-space vertices
     // (scale baked in, shading frozen at the wake pose) and every
     // part.infoBag->model points at objMat, rebuilt from position/rotation
