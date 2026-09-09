@@ -4,7 +4,7 @@ description: >
   How to build, run and VERIFY anything in this repo: compiling the editor
   (build.ps1 on Windows, build.sh on Linux), headless CLI project creation and
   game builds, checking code
-  generation without Docker, full e2e in Docker + PCSX2 (boot, emulog.txt,
+  generation without a game build, full native or Docker-fallback e2e + PCSX2 (boot, emulog.txt,
   reliable screenshots, and DRIVING both the game's controller (`--pad`) and the
   EDITOR's own UI (`--ui-script`, clicking widgets BY NAME) unattended — neither
   needs window focus — plus synthetic keyboard/mouse via the bundled scripts, GDI
@@ -346,8 +346,8 @@ mtime before trusting a run from there.
   `"enabled": false` and `inc/scene_data.hpp` reads `TERRAIN_ENABLEDS = {false}`
   with `TERRAIN_TEXTURES = {-1}`. Verifying it in PCSX2 needs a floor object in
   the scene, or the player falls at boot — which is the feature, not a bug.
-- `--build` streams the whole Docker build log to stdout and returns a real
-  exit code — the backbone of scripted e2e runs.
+- `--build` streams the whole native (or explicit `--docker` fallback) build
+  log to stdout and returns a real exit code — the backbone of scripted e2e runs.
 - `--bake-gi` runs the whole global-illumination bake for every scene
   (docs/global-illumination.md) into `.res-baked/gi/` and then refreshes the
   generated files, so the probe table and the lightmap flags follow - **no
@@ -471,12 +471,9 @@ Most features live or die in the generated code, and you can inspect it
 without building:
 
 - `--new` writes every generated file; grep them for your new constants/logic.
-- For an **existing** project, `project::refreshGenerated()` runs at the very
-  start of `--build`, *before* Docker is contacted — so even with Docker
-  stopped, a failed `--build` still refreshes `inc/scene_data.hpp`,
-  `src/gen/flow_graph.gen.cpp`, etc. for inspection. There is no
-  `--no-docker` flag; the expected outcome is "Failed to start docker
-  container..." + exit code 1 with fresh generated files on disk.
+- For an **existing** project, use `--refresh-gen <projectDir>` directly. It
+  refreshes `inc/scene_data.hpp`, `src/gen/flow_graph.gen.cpp`, etc. without
+  provisioning the native toolchain or contacting Docker.
 - When inspecting, remember the ownership split (see tyra-editor-dev): `.gen.*`
   files and `scene_data.hpp` are always rewritten — trust them after a refresh;
   `terrain_game.cpp` / `controls.hpp` / `script.hpp` regenerate only while their
@@ -569,10 +566,10 @@ machine** (the second without a project), host from A, join from B at
 `127.0.0.1` — loopback is not blocked by Windows Firewall even when the LAN
 prompt was declined.
 
-## Layer 3 — full e2e: Docker build + PCSX2 boot
+## Layer 3 — full e2e: native build + PCSX2 boot
 
-Prerequisites: Docker **running** (Docker Desktop on Windows, `docker` + the
-compose plugin on Linux) and PCSX2 with a BIOS configured — auto-detected in
+Prerequisites: WSL on Windows or the packages named by
+`tools/toolchain/setup.sh` on Linux, and PCSX2 with a BIOS configured — auto-detected in
 `Program Files\PCSX2`, or on Linux from PATH / flatpak / an AppImage under
 `~/Applications` or `~/Downloads`. Anything else: set the path in
 *Edit > Preferences*.
@@ -581,16 +578,16 @@ compose plugin on Linux) and PCSX2 with a BIOS configured — auto-detected in
 TYRAX --build <projectDir> --run
 ```
 
-What happens (see `src/runner.cpp`): generated files refresh → `docker compose
-up -d` (container `<name>-compiler-1`, straight from the stock image) → engine
-sources checksum-synced into the shared volume, `libtyra` rebuilt if changed
+What happens (see `src/runner.cpp`): generated files refresh → verified PS2DEV
+and the vendored VU tools are provisioned if needed → engine sources checksum-
+synced into the native cache, `libtyra` rebuilt if changed
 (VU1 microprograms only when a VU source changed) → project rsynced → `make -j`
 → WAV sfx converted with `adpenc` → `bin/` synced back → existing PCSX2
 processes killed → `HostFs = true` forced in PCSX2.ini → PCSX2 launched on the
 ELF.
 
 Notes:
-- First-ever build downloads the `h4570/tyra` image and compiles the engine
+- First-ever build downloads PS2DEV v2.0.0, tests OpenVCL and compiles the engine
   (minutes). Subsequent builds take seconds unless the engine changed.
 - **The whole pipeline is incremental, so measure a build by what it
   RECOMPILED, not by the clock.** `grep -c 'elf-g++ .* -c -o'` over the build
@@ -2450,7 +2447,7 @@ deliberate) and that the binary was relaunched.
 | Editor viewport (rendering) | Layer 0 + a screenshot of the affected panel (`shot` from a UI script, `TYRAX_SHOT` on a timer, or `screenshot-window.ps1`/`wayland-control.py` from outside) - and measure the pixels rather than eyeballing |
 | Serialization (`.tyra`) | Layer 1 `--new` + reopen; round-trip save/load diff |
 | Codegen / templates | Layer 2 grep or harness, then one Layer 3 boot |
-| Engine (`vendor/tyra`) | Layer 3 always — compile happens only in Docker; SW-renderer screenshot for anything visual |
+| Engine (`vendor/tyra`) | Layer 3 always — compile with the native backend (and Docker too for compatibility-sensitive changes); SW-renderer screenshot for anything visual |
 | Audio | Layer 3 + peak-meter check |
 | Anything a player DOES (buttons, walking, menus, two players) | Layer 3 + `--pad` (see the recipe above) — an idle control shot, then drive, then measure. No human, either OS; `watch` (Linux) / `-Watch` (Windows) collapses the whole drive into one contact sheet |
 | Anything that changes how a frame is BUILT or PRESENTED (the upscaler, frame pacing, extrapolation, buffer counts, a full-screen pass) | Layer 3 + **the motion gate**, two arms one knob apart. A parked A/B cannot see a fault that only exists in motion, and four of those reached the owner on this branch |

@@ -410,13 +410,13 @@ static int buildFromCli(int argc, char** argv) {
     if (argc < 3) {
         std::fprintf(stderr,
                      "usage: tyrax-editor --build <projectDir> "
-                     "[--run | --run-ps2 [ip]] [--rebuild]\n");
+                     "[--run | --run-ps2 [ip]] [--rebuild] [--docker]\n");
         return 2;
     }
     // --rebuild may sit anywhere among the optional arguments, so the flags are
     // scanned rather than read positionally; the first bare word after
     // --run-ps2 is still the console's IP.
-    bool run = false, runPs2 = false, rebuild = false;
+    bool run = false, runPs2 = false, rebuild = false, docker = false;
     std::string ps2Ip;
     for (int i = 3; i < argc; i++) {
         if (std::strcmp(argv[i], "--run") == 0)
@@ -425,6 +425,8 @@ static int buildFromCli(int argc, char** argv) {
             runPs2 = true;
         else if (std::strcmp(argv[i], "--rebuild") == 0)
             rebuild = true;
+        else if (std::strcmp(argv[i], "--docker") == 0)
+            docker = true;
         else if (runPs2 && ps2Ip.empty())
             ps2Ip = argv[i];
     }
@@ -436,6 +438,7 @@ static int buildFromCli(int argc, char** argv) {
         return 1;
     }
     if (refuseUnmigrated(p)) return 1;
+    if (docker) p.buildBackend = "docker";
     if (!ps2Ip.empty()) p.ps2LinkIp = ps2Ip;
     bakeProcedural(p);
     bakeStaleGi(p);
@@ -4152,7 +4155,7 @@ int main(int argc, char** argv) {
             "tyrax-editor [projectDir]                 open the GUI\n"
             "  --new <name> <parentDir> [w] [d] [empty|fpp|thirdperson] "
             "[unitsPerMeter] [--no-terrain]\n"
-            "  --build <projectDir> [--run | --run-ps2 [ip]] [--rebuild]\n"
+            "  --build <projectDir> [--run | --run-ps2 [ip]] [--rebuild] [--docker]\n"
             "  --audit-release <projectDir>            prove a release ELF "
             "carries no devkit code\n"
             "  --debug-state [--verbose]               what is being debugged "

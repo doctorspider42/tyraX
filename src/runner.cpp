@@ -228,12 +228,17 @@ void Runner::clean(const Project& p) {
         // locked, which is a better answer than killing somebody else's server.
         claimPs2Channel(p);
         killEmulatorsFor(p, lastEmulator_);
-        // Container game volume (obj + bin). Failure is fine - a stopped
-        // container just means there is nothing cached there to clean.
-        if (exec("docker compose exec -T compiler sh -c " +
-                     platform::shellArg("rm -rf /src/obj /src/bin"),
-                 p.dir) != 0)
-            appendLine("[editor] Container not running - cleaned the host side only.");
+        if (p.buildBackend == "docker") {
+            // Container game volume (obj + bin). Failure is fine - a stopped
+            // container just means there is nothing cached there to clean.
+            if (exec("docker compose exec -T compiler sh -c " +
+                         platform::shellArg("rm -rf /src/obj /src/bin"),
+                     p.dir) != 0)
+                appendLine("[editor] Container not running - cleaned the host side only.");
+        } else {
+            std::error_code objEc;
+            fs::remove_all(fs::path(p.dir) / "obj", objEc);
+        }
 
         // Host bin\: per-file, clearing read-only first (remove_all refuses
         // those on Windows), retrying a few times (taskkill returns before
@@ -1119,6 +1124,76 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
             !err.empty())
             appendLine("[editor] Warning: texture bake failed: " + err);
 
+        if (p.buildBackend != "docker") {
+#ifdef _WIN32
+            const std::string script = findTool("toolchain/native-build.ps1");
+#else
+            const std::string script = findTool("toolchain/native-build.sh");
+#endif
+            fs::path engineSource;
+            const std::string exe = platform::exePath();
+            if (!exe.empty()) {
+                fs::path dir = fs::path(exe).parent_path();
+                for (int up = 0; up < 3 && engineSource.empty(); ++up) {
+                    std::error_code ec;
+                    fs::path candidate = dir / "vendor" / "tyra";
+                    if (fs::exists(candidate / "Makefile.base", ec)) engineSource = candidate;
+                    dir = dir.parent_path();
+                }
+            }
+            const fs::path config = platform::configDir();
+            if (script.empty() || engineSource.empty() || config.empty()) {
+                appendLine("[editor] Native toolchain files are missing. Run the editor "
+                           "from a complete TyraX checkout/package (tools/toolchain and "
+                           "vendor/tyra are required), or select Docker fallback in "
+                           "Edit > Preferences > Build toolchain.");
+                ok = false;
+            } else {
+                const fs::path cache = config / "native-build" /
+                                       templates::engineVolumeName();
+                const fs::path toolchain = config / "toolchain" / "ps2dev";
+#ifdef _WIN32
+                std::string cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File " +
+                                  platform::shellArg(script) + " -Project " +
+                                  platform::shellArg(p.dir) + " -Engine " +
+                                  platform::shellArg(engineSource.string()) + " -Cache " +
+                                  platform::shellArg(cache.string()) + " -Toolchain " +
+                                  platform::shellArg(toolchain.string());
+                if (rebuild) cmd += " -Rebuild";
+#else
+                std::string cmd = "bash " + platform::shellArg(script) + " " +
+                                  platform::shellArg(p.dir) + " " +
+                                  platform::shellArg(engineSource.string()) + " " +
+                                  platform::shellArg(cache.string()) + " " +
+                                  platform::shellArg(toolchain.string()) +
+                                  (rebuild ? " 1" : " 0");
+#endif
+                ok = exec(cmd, p.dir) == 0;
+                if (!ok)
+                    appendLine("[editor] Native build failed. Fix the error above, or "
+                               "select Docker fallback in Edit > Preferences.");
+                if (ok) {
+                    const fs::path sdkCache = config / "ps2sdk";
+                    std::error_code ec;
+                    for (const char* part : {"ee", "common", "ports"}) {
+                        const fs::path from = toolchain / "ps2sdk" / part / "include";
+                        const fs::path to = sdkCache / part / "include";
+                        if (!fs::exists(to, ec)) {
+                            fs::create_directories(to.parent_path(), ec);
+                            fs::copy(from, to,
+                                     fs::copy_options::recursive |
+                                         fs::copy_options::overwrite_existing,
+                                     ec);
+                            if (ec) {
+                                appendLine("[editor] Warning: could not cache PS2SDK "
+                                           "headers for IntelliSense: " + ec.message());
+                                ec.clear();
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
         const std::string dc = "docker compose exec -T compiler sh -c ";
 
         // Old template used a fixed container name shared by all projects;
@@ -1547,8 +1622,9 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                           "rsync -ac --include=*/ --include=bin/** --exclude=* " +
                           (owner.empty() ? std::string() : "--chown=" + owner + " ") +
                           "/src/ /host/"),
-                      p.dir) == 0;
+                       p.dir) == 0;
         }
+        }  // Docker fallback
 
         // Per-track music build conversion (Music panel "PS2 build"): the
         // copy-back just refreshed bin/audio from the untouched res/ source,

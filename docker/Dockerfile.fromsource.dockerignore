@@ -4,7 +4,11 @@
 # of it), and the image build needs a handful of files out of it.
 *
 !tools/ps2link/tyrax.patch
-!docker/openvcl-tyrax.patch
+!tools/toolchain/bin2s/bin2s.c
+!vendor/openvcl
+!vendor/openvcl/**
+!vendor/vclpp
+!vendor/vclpp/**
 # The audsrv fork's EE half is COMPILED into this image: its libaudsrv.a has to
 # come from this image's own toolchain (the committed one carries the stock
 # image's LTO bytecode). bin/audsrv.irx is copied in as it is - an IOP module

@@ -29,28 +29,24 @@ ARG PS2DEV_IMAGE=ps2dev/ps2dev:v2.0.0
 # confusing way to discover a libc mismatch.
 FROM ${PS2DEV_BASE} AS vu-tools
 
-ARG OPENVCL_REPO=https://github.com/ps2dev/openvcl.git
-ARG OPENVCL_COMMIT=a5867c3daf03828806ee966aca4116622da3f671
-ARG VCLPP_REPO=https://github.com/glampert/vclpp.git
-ARG VCLPP_COMMIT=00e44ecf78e34e16325b173ba39b5fdacdd01666
+RUN apk add --no-cache make g++ cmake gcc
 
-RUN apk add --no-cache git make g++ cmake
+# The native and Docker backends deliberately compile the same reviewed source
+# trees. This removes two mutable network clones and prevents the fallback image
+# from silently drifting away from the compiler shipped with the editor.
+COPY vendor/openvcl /src/openvcl
+COPY vendor/vclpp /src/vclpp
+COPY tools/toolchain/bin2s/bin2s.c /src/bin2s.c
 
-COPY docker/openvcl-tyrax.patch /tmp/openvcl-tyrax.patch
-
-RUN git clone --quiet "${OPENVCL_REPO}" /src/openvcl \
-    && git -C /src/openvcl checkout --quiet "${OPENVCL_COMMIT}" \
-    && git -C /src/openvcl apply --verbose /tmp/openvcl-tyrax.patch \
-    && cmake -S /src/openvcl -B /src/openvcl/build -DCMAKE_BUILD_TYPE=Release \
-             -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF \
+RUN cmake -S /src/openvcl -B /src/openvcl/build -DCMAKE_BUILD_TYPE=Release \
+             -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=ON \
     && cmake --build /src/openvcl/build -j"$(nproc)" \
-    && install -D -m 0755 /src/openvcl/openvcl /out/bin/openvcl
+    && ctest --test-dir /src/openvcl/build --output-on-failure \
+    && install -D -m 0755 /src/openvcl/build/openvcl /out/bin/openvcl
 
 # vclpp is the VCL preprocessor Makefile.base runs before the assembler:
 # #include, one-level #define and non-nesting #macro/Name{ }. MIT, one .cpp.
-RUN git clone --quiet "${VCLPP_REPO}" /src/vclpp \
-    && git -C /src/vclpp checkout --quiet "${VCLPP_COMMIT}" \
-    && make -C /src/vclpp \
+RUN make -C /src/vclpp \
     && install -D -m 0755 /src/vclpp/vclpp /out/bin/vclpp
 
 # bin2s turns an IRX into an assembly blob with `<name>_irx` / `size_<name>_irx`
@@ -62,10 +58,7 @@ RUN git clone --quiet "${VCLPP_REPO}" /src/vclpp \
 # smuggle into an image swap, so the tool is rebuilt from the commit before its
 # removal. Still AFL-2.0 ps2sdk source, just no longer shipped; the whole
 # Makefile has to be bypassed because it wants ps2sdk's build tree around it.
-ARG PS2SDK_BIN2S_COMMIT=8f3975761d20a7aeb334ff5354300758d4b4ee4f
-RUN git clone --quiet --filter=blob:none https://github.com/ps2dev/ps2sdk.git /src/ps2sdk \
-    && git -C /src/ps2sdk checkout --quiet "${PS2SDK_BIN2S_COMMIT}" \
-    && gcc -O2 -o /out/bin/bin2s /src/ps2sdk/tools/bin2s/src/bin2s.c \
+RUN gcc -O2 -o /out/bin/bin2s /src/bin2s.c \
     && chmod 0755 /out/bin/bin2s
 
 # ------------------------------------------------------------------- audsrv --
@@ -76,14 +69,9 @@ RUN git clone --quiet --filter=blob:none https://github.com/ps2dev/ps2sdk.git /s
 #
 # Its committed bin/libaudsrv.a cannot be reused here: it carries the stock
 # image's LTO bytecode and this toolchain refuses it. So the EE half is compiled
-# here, from the same sources, by the compiler that will link it. What makes
-# that possible across both SDKs is ee/src/sif-compat.h - upstream renamed ten
-# SIF RPC entry points to sce-prefixed ones and the two SDKs export disjoint
-# sets, so the sources keep the old names and the header aliases them when
-# TYRAX_PS2SDK_SCE_SIF says the new SDK is in play. That switch is set HERE and
-# nowhere else, because this file is the one place that knows which ps2sdk the
-# result will be linked against - the compile itself cannot tell (the sources
-# are always built against the pinned OLD tree; see the header for the trap).
+# directly from the vendored sources by the compiler and installed PS2SDK it
+# will link against. Current PS2SDK headers provide their own compatibility
+# aliases for the old SIF spellings used by audsrv.
 #
 # Only the EE half. audsrv.irx is an IOP module the engine EMBEDS as data
 # (bin2s -> a blob in libtyra); no EE compiler links it, so the committed one is
@@ -91,23 +79,17 @@ RUN git clone --quiet --filter=blob:none https://github.com/ps2dev/ps2sdk.git /s
 # (mipsel-ps2-irx-gcc here, mipsel-none-elf-gcc on a current base).
 FROM ${PS2DEV_BASE} AS audsrv-build
 
-# Keep equal to PS2SDK_COMMIT in vendor/tyra/audsrv/build.sh: the last ps2sdk
-# that carries upstream positional audio and still builds without srxfixup.
-ARG AUDSRV_PS2SDK_COMMIT=e78a9cb2ea816a72a7466000c51558fd2b57f5a7
-
-RUN apk add --no-cache git make
-
 COPY vendor/tyra/audsrv/ee /fork/ee
 
-RUN git init -q /w \
-    && git -C /w fetch -q --depth 1 https://github.com/ps2dev/ps2sdk.git "${AUDSRV_PS2SDK_COMMIT}" \
-    && git -C /w checkout -q FETCH_HEAD \
-    && rm -rf /w/ee/rpc/audsrv \
-    && mkdir -p /w/ee/rpc/audsrv \
-    && cp -r /fork/ee/. /w/ee/rpc/audsrv/ \
-    && TYRAX_PS2SDK_SCE_SIF=1 PS2SDKSRC=/w make -C /w/ee/rpc/audsrv CC=gcc \
-    && install -D -m 0644 /w/ee/rpc/audsrv/lib/libaudsrv.a /out/lib/libaudsrv.a \
-    && install -D -m 0644 /w/ee/rpc/audsrv/include/audsrv.h /out/include/audsrv.h \
+RUN mkdir -p /w /out/lib /out/include \
+    && mips64r5900el-ps2-elf-gcc -O2 -G0 -Wall -Wextra -D_EE \
+       -I/fork/ee/include -I${PS2SDK}/ee/include -I${PS2SDK}/common/include \
+       -c /fork/ee/src/audsrv_rpc.c -o /w/audsrv_rpc.o \
+    && mips64r5900el-ps2-elf-gcc -O2 -G0 -Wall -Wextra -D_EE \
+       -I/fork/ee/include -I${PS2SDK}/ee/include -I${PS2SDK}/common/include \
+       -c /fork/ee/src/erl-support.c -o /w/erl-support.o \
+    && mips64r5900el-ps2-elf-ar rcs /out/lib/libaudsrv.a /w/audsrv_rpc.o /w/erl-support.o \
+    && install -m 0644 /fork/ee/include/audsrv.h /out/include/audsrv.h \
     && grep -q AUDSRV_ADPCM_CH_CORE /out/include/audsrv.h
 
 # ---------------------------------------------------------------- ps2link --

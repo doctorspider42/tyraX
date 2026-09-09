@@ -3,7 +3,7 @@ name: tyra-engine-dev
 description: >
   Guide to editing the in-tree Tyra PS2 engine fork in vendor/tyra — the
   renderer/clipper/VU1 pipeline, audio (audsrv), file loading over PS2 host fs,
-  and how engine changes reach running games through the Docker build. Use this
+  and how engine changes reach running games through native and Docker builds. Use this
   skill whenever you touch ANY file under vendor/tyra, work on PS2-side
   rendering, clipping, VU1 microprograms, textures, audio playback or asset
   loading, or when diagnosing in-game symptoms like rendering corruption, giant
@@ -45,6 +45,10 @@ Rules:
 
 You don't rebuild the engine by hand. The editor's Runner (`src/runner.cpp`)
 does it on every game build (F5 or `tyrax-editor.exe --build <projectDir>`):
+
+The native default syncs `vendor/tyra/engine` into a user cache and rebuilds it
+with pinned PS2DEV/OpenVCL; its toolchain stamp invalidates stale objects. The
+Docker fallback retains the previous sequence:
 
 1. `vendor/tyra` is bind-mounted **read-only** at `/engine-src` in the
    project's container (service `compiler`, container `<name>-compiler-1`).

@@ -767,6 +767,12 @@ skipped when the packet pointer is null, and *everything else still runs*. The
 client is always completed — `end_function`, then `iSignalSema` — because
 skipping that is what hangs the game.
 
+PS2SDK v2 renamed the public packet fields (`client/server/buff/cbuff` to
+`cd/sd/buf/cbuf`) without publishing a version macro. The guard resolves both
+layouts with compile-time member detection; do not replace that adapter with a
+single spelling, because native builds use v2 while the inherited Docker A/B
+image intentionally keeps the older SDK.
+
 That shape was arrived at the hard way, and the history is the useful part. The
 first version returned early on rejection, and under the teardown trigger below
 it **hung the game on 2 of 4 teardowns while an unguarded build survived 6 of

@@ -37,3 +37,8 @@ tools/ps2link/** text=auto eol=lf
 # because it is written by a script that normalises; a fresh clone on Windows
 # would check it out CRLF and the image build would stop there.
 docker/openvcl-tyrax.patch text eol=lf
+
+# Native PS2 builds execute these sources and scripts on Linux or in WSL.
+vendor/openvcl/** text=auto eol=lf
+vendor/vclpp/** text=auto eol=lf
+tools/toolchain/** text=auto eol=lf

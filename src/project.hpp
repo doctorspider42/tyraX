@@ -3465,6 +3465,9 @@ struct Project {
     // generated compose file's `${TYRAX_IMAGE:-h4570/tyra}` resolve from the
     // project's own .env, which is how this worked before the setting existed.
     std::string toolchainImage;
+    // Machine-local build transport. "native" uses the bundled PS2DEV/OpenVCL
+    // toolchain; "docker" preserves the old container path as a fallback.
+    std::string buildBackend = "native";
 
     bool valid() const { return !name.empty() && !dir.empty(); }
     std::string elfName() const { return name + ".elf"; }

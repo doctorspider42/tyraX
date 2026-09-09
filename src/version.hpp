@@ -16,6 +16,13 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.78.0 (native PS2 builds): Build & Run now provisions the pinned official
+// PS2DEV v2.0.0 release and compiles the vendored OpenVCL, vclpp, bin2s and
+// audsrv sources locally; Windows uses the same Linux toolchain through WSL.
+// Docker remains an explicit fallback and builds those same vendored VU tools.
+// OpenVCL's stale register-identity regression now checks the real no-clobber
+// scheduling invariant, and all 419 tests gate installation.
+//
 // 1.72.1 (the projected silhouette stops at the floor, and stays out of a
 // GI bake's way): the same wall as 1.72.0, in the game, threw a shadow on
 // BOTH sides of itself while the editor drew one. Two things, both in
@@ -2888,7 +2895,7 @@
 // duplicate-corner skinning reuse and DMA-safe lighting payloads.
 // 1.77.0: merge animated HUD elements with the 1.76 rendering stack.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 77
+#define TYRAX_VERSION_MINOR 78
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

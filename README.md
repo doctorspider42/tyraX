@@ -10,7 +10,7 @@ graph — then press one key and a PS2 runs your world. PCSX2, or a real console
 over ethernet.
 
 Under the hood TyraX writes the game as ordinary C++ against the engine and
-compiles it in Docker with the PS2 toolchain. Both halves live in this repo —
+compiles it with a native PS2DEV + OpenVCL toolchain. Both halves live in this repo —
 the editor and the engine (`vendor/tyra/engine`) — and the generated sources
 are yours to take over, file by file, whenever you want them.
 
@@ -96,15 +96,15 @@ Then, in the editor:
    size and one of three presets (FPP / third person / empty). The preset is
    fixed for the project's life; everything else is editable later.
 2. The *Viewport* shows the terrain (drag to orbit, scroll to zoom).
-3. **Build & Run** (`F5`) — the first build pulls the `h4570/tyra` image and
-   compiles the engine inside the container (minutes, once). Later builds take
-   seconds, and PCSX2 boots the ELF automatically.
+3. **Build & Run** (`F5`) — the first build downloads the pinned official
+   PS2DEV archive, compiles the in-tree OpenVCL tools and the engine (minutes,
+   once). Later builds take seconds, and PCSX2 boots the ELF automatically.
 
 ## Requirements
 
 - **Windows or Linux.**
-- [Docker](https://www.docker.com/products/docker-desktop/) running — the game is
-  compiled inside the `h4570/tyra` container.
+- On Windows, WSL with a Linux distribution. On Linux, the native host tools
+  named by `tools/toolchain/setup.sh`. Docker is an optional fallback only.
 - [PCSX2](https://pcsx2.net/) with a BIOS configured (auto-detected in
   `Program Files\PCSX2`, on `PATH`, as a flatpak or an AppImage; any other
   location goes in `Edit > Preferences`).
@@ -359,25 +359,23 @@ its own UI (`--ui-script`) and the game's controller (`--pad`) unattended.
 
 ## How Build & Run works
 
-`docker compose up -d` gives the project its own container from the `h4570/tyra`
-image. The engine sources in `vendor/tyra` are bind-mounted read-only, synced into
-a shared build volume with a checksum `rsync` and rebuilt only when they changed —
-so every project built from the same checkout shares one `libtyra`. Then the
-project's sources are rsynced in, `make -j` runs inside the container, `bin/` comes
-back to the host and PCSX2 is launched on the ELF.
+The default backend installs the pinned PS2DEV distribution into a user cache,
+builds the vendored OpenVCL, vclpp, bin2s and audsrv sources, then runs `make`
+directly. Engine sources from `vendor/tyra` are checksum-synced into a shared
+cache and rebuilt only when they or the toolchain identity change, so projects
+from one editor installation share one `libtyra`. PCSX2 is launched on the ELF.
 
 Every step is incremental, code generation included: a generated file whose content
 did not change is not rewritten, so a build with nothing to do finishes in seconds.
-**Build > Rebuild** drops the container, the objects and the compiled engine when
+**Build > Rebuild** drops the objects and the compiled engine when
 an incremental build cannot see what went wrong; *Clean* also wipes `bin\`.
 
-That image is also **built from this repo** (`docker/`), which is what makes a
-publishable toolchain possible at all: Sony's VU1 assembler is unlicensed, so the
-from-source image assembles the microcode with [openvcl](https://github.com/ps2dev/openvcl)
-instead. Point a project at another image with `TYRAX_IMAGE` in its `.env`. What can
-move in that image and what cannot is measured, not guessed, in
-[docs/toolchain-image.md](docs/toolchain-image.md) — including the seventeen
-miscompiles that migration found.
+The old Docker path remains under **Edit > Preferences > Build backend** as a
+fallback. Its from-source image builds the same vendored tools; the inherited
+image with Sony's unlicensed `vcl` remains only for compiler A/B work. See
+[the native-toolchain guide](docs/native-toolchain.md) for setup, cache and
+licensing, and [the toolchain research](docs/toolchain-image.md) for the measured
+OpenVCL migration and the seventeen miscompiles it found.
 
 While the build runs, a spinning **BUILDING** chip appears at the end of the menu
 bar, and turns into a red **BUILD FAILED** when a build did not make it. Clicking
@@ -425,14 +423,16 @@ to take ownership** of a file, and the editor stops regenerating it.
   `devkit_ui`, `chat_ui`), `assetbrowser`, `viewport` (GL preview),
   `project`+`templates` (the project generator), `runner` (Docker/PCSX2),
   `platform` (the single OS abstraction), and `vuir`/`vuasm`/`vusim`/`vugen`
-  (the [VU framework](docs/vu-framework.md)).
+  (the [VU framework](docs/vu-framework.md)); `runner` uses the native backend by
+  default and preserves Docker as a fallback.
 - `docs/` — the user guides, and the **AI Assistant's knowledge base**: every page
   is embedded into the exe at build time, so a page written for a human teaches
   the assistant too.
 - `ai-support/` — the assistant guides installed into generated projects.
 - `examples/` — the example projects listed above.
-- `vendor/` (rest) — editor dependencies, fetched at pinned commits from the one
-  list per platform (`deps.ps1` / `deps.sh`).
+- `vendor/openvcl`, `vendor/vclpp` — reviewed, licensed host-tool forks compiled
+  by both native and from-source Docker builds. Other editor dependencies are
+  fetched at pinned commits from `deps.ps1` / `deps.sh`.
 - `tools/` — the PS2 network-deploy tools (`ps2client`, the
   [TyraX ps2link](tools/ps2link/README.md)) and the
   [VS Code extension](docs/vscode-extension.md).
@@ -451,6 +451,9 @@ This project stands on the shoulders of the PS2 homebrew community:
   **[PS2SDK](https://github.com/ps2dev/ps2sdk)** by the
   [ps2dev project](https://ps2dev.github.io/) — the network link behind "Run on
   PS2" and the SDK every generated game links against
+- **[OpenVCL](https://github.com/ps2dev/openvcl)** and
+  **[vclpp](https://github.com/glampert/vclpp)** — the in-tree, source-built VU
+  assembler and preprocessor behind the default native build
 - Editor dependencies: 
   [Dear ImGui](https://github.com/ocornut/imgui),
   [GLFW](https://www.glfw.org/),

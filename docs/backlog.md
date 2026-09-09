@@ -13,17 +13,6 @@ git show <retirement-commit>^:PROGRESS.md
 git log -p --follow -- PROGRESS.md
 ```
 
-### Publish the from-source toolchain image, then make it the default
-
-The image that assembles VU1 microcode with `openvcl` instead of Sony's
-unlicensed `vcl` is built and measured (`docs/toolchain-image.md`), and projects
-can already select it with `TYRAX_IMAGE`. What is left before it can be the
-default: publish it, with the LGPL source offer for the vendored audsrv and the
-GPL offer for GCC/binutils in place and the image labels pointing at something
-that is not a 404. Then flip the default for NEW projects only, so an existing
-project stays on its own `.env`, and flip the rest once a couple of real projects
-have shipped a cycle on it.
-
 ### Judge openvcl against the ps2gl fixtures
 
 Twelve of upstream's own `test/fixtures` are real third-party VU code and no

@@ -1,7 +1,13 @@
 # The toolchain image
 
-Every generated game is compiled inside a Docker container, and that container's
-image is the PS2 toolchain: `mips64r5900el-ps2-elf-g++`, the PS2SDK, `vcl`/`vclpp`
+Docker is now the optional fallback; the default path is documented in
+[Native PS2 toolchain](native-toolchain.md). This page remains the measured
+history and operational guide for the fallback images and the OpenVCL migration.
+The from-source image compiles the same `vendor/openvcl`, `vendor/vclpp` and
+`tools/toolchain/bin2s` sources as native setup.
+
+In the fallback, every generated game is compiled inside a Docker container, and
+that container's image is the PS2 toolchain: `mips64r5900el-ps2-elf-g++`, the PS2SDK, `vcl`/`vclpp`
 for the VU1 microprograms. This page is about **where that image comes from** —
 which, as of this change, is this repository.
 

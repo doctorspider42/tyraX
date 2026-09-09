@@ -214,7 +214,9 @@ Developer design docs (internals, not user guides):
   generate both sides, run it in the host simulator with no PS2.
 - [Authoring VU programs](vu-authoring.md) — composing VU1 programs and VU0
   kernels out of stages, no assembly.
-- [The toolchain image](toolchain-image.md) — where the Docker image games are
+- [The native PS2 toolchain](native-toolchain.md) — the default Docker-free
+  build, first-run setup, caches, vendored sources, licences and Docker fallback.
+- [The toolchain image](toolchain-image.md) — where the optional Docker image is
   compiled in comes from, and the long measured account of replacing Sony's
   unlicensed `vcl` with `openvcl` so the image can be published at all:
   seventeen miscompiles, what each one broke, and the VU1 latencies measured on

@@ -83,6 +83,7 @@ struct EditorConfig {
     // pulled or built is a property of the PC, and a value baked into a shared
     // .tyra would name an image a teammate does not have.
     std::string toolchainImage;
+    std::string buildBackend = "native";
     // When true (default), a TYRA assertion from the running game pops up a
     // copyable error dialog. When false, errors go only to the console / Debug
     // window (the game already logs them there either way).
@@ -245,6 +246,8 @@ static EditorConfig loadEditorConfig() {
         else if (match("emulatorPath", v)) cfg.emulatorPath = v;
         else if (match("ps2LinkIp", v)) cfg.ps2LinkIp = v;
         else if (match("toolchainImage", v)) cfg.toolchainImage = v;
+        else if (match("buildBackend", v))
+            cfg.buildBackend = v == "docker" ? "docker" : "native";
         else if (match("errorPopup", v)) cfg.errorPopup = toI(v, 1) != 0;
         else if (match("giGpuBake", v)) cfg.giGpuBake = toI(v, 0) != 0;
         else if (match("defaultProjectsDir", v)) cfg.defaultProjectsDir = v;
@@ -335,6 +338,7 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "emulatorPath=" << cfg.emulatorPath << "\n"
       << "ps2LinkIp=" << cfg.ps2LinkIp << "\n"
       << "toolchainImage=" << cfg.toolchainImage << "\n"
+      << "buildBackend=" << cfg.buildBackend << "\n"
       << "errorPopup=" << (cfg.errorPopup ? 1 : 0) << "\n"
       << "giGpuBake=" << (cfg.giGpuBake ? 1 : 0) << "\n"
       << "defaultProjectsDir=" << cfg.defaultProjectsDir << "\n"
@@ -598,6 +602,7 @@ int App::run(const std::string& initialProjectDir) {
         globalEmulatorPath_ = cfg.emulatorPath;
         globalPs2Ip_ = cfg.ps2LinkIp;
         globalToolchainImage_ = cfg.toolchainImage;
+        globalBuildBackend_ = cfg.buildBackend;
         errorPopupEnabled_ = cfg.errorPopup;
         giGpuBake_ = cfg.giGpuBake;
         globalDefaultProjectsDir_ = cfg.defaultProjectsDir;
@@ -1139,7 +1144,7 @@ void App::saveGlobalConfig() {
     recent.reserve(recentProjects_.size());
     for (const RecentProject& r : recentProjects_) recent.push_back(r.dir);
     saveEditorConfig({uiScaleUser_, nav_, globalEmulatorPath_, globalPs2Ip_,
-                      globalToolchainImage_,
+                      globalToolchainImage_, globalBuildBackend_,
                       errorPopupEnabled_, globalDefaultProjectsDir_,
                       globalDisplayName_, globalSessionCacheDir_, globalAi_,
                       matEdSplit_, creditsSplit_, matEdLight_, animEdLight_,
@@ -1263,6 +1268,7 @@ void App::drawMenuBar() {
                 snprintf(prefPs2Ip_, sizeof(prefPs2Ip_), "%s", globalPs2Ip_.c_str());
                 snprintf(prefToolchainImage_, sizeof(prefToolchainImage_), "%s",
                          globalToolchainImage_.c_str());
+                prefBuildBackend_ = globalBuildBackend_ == "docker" ? 1 : 0;
                 snprintf(prefDefaultProjectsDir_, sizeof(prefDefaultProjectsDir_), "%s",
                          globalDefaultProjectsDir_.c_str());
                 snprintf(prefDisplayName_, sizeof(prefDisplayName_), "%s",
@@ -6496,6 +6502,7 @@ void App::attachProject() {
     project_.emulatorPath = globalEmulatorPath_;
     project_.ps2LinkIp = globalPs2Ip_;
     project_.toolchainImage = globalToolchainImage_;
+    project_.buildBackend = globalBuildBackend_;
 
     flowGraphObject_ = -1;
     flowPositionsApplied_ = false;
@@ -15440,6 +15447,15 @@ void App::drawEditorPreferencesModal() {
         "assets served from this PC - no ISO, no SMB. Leave empty to disable.");
 
     ImGui::SeparatorText("Build toolchain");
+    const char* backendLabels[] = {"Native (PS2DEV + OpenVCL)", "Docker fallback"};
+    ImGui::Combo("Build backend", &prefBuildBackend_, backendLabels, 2);
+    prefHelp(
+        "Native is the default and needs no Docker daemon. On Linux it runs the\n"
+        "bundled PS2DEV/OpenVCL toolchain directly; on Windows it runs the same\n"
+        "pinned Linux toolchain through WSL. The first build provisions it in\n"
+        "the editor cache. Docker remains available as a compatibility fallback.");
+
+    ImGui::BeginDisabled(prefBuildBackend_ != 1);
     // The buffer is the single truth and the combo is a shortcut into it: the
     // selected row is DERIVED from the text every frame, so typing an image by
     // hand cannot leave the two disagreeing. Empty is a real choice, not an
@@ -15486,6 +15502,7 @@ void App::drawEditorPreferencesModal() {
         "\n"
         "Headless builds (tyrax-editor --build) do not read this - they follow the\n"
         "project's .env, the same way they auto-detect the emulator.");
+    ImGui::EndDisabled();
 
     ImGui::SeparatorText("Collaboration sessions");
     ImGui::InputText("Display name", prefDisplayName_, sizeof(prefDisplayName_));
@@ -15587,6 +15604,7 @@ void App::drawEditorPreferencesModal() {
         globalEmulatorPath_ = prefEmulatorPath_;
         globalPs2Ip_ = prefPs2Ip_;
         globalToolchainImage_ = prefToolchainImage_;
+        globalBuildBackend_ = prefBuildBackend_ == 1 ? "docker" : "native";
         globalDefaultProjectsDir_ = prefDefaultProjectsDir_;
         globalDisplayName_ = prefDisplayName_;
         globalSessionCacheDir_ = prefSessionCacheDir_;
@@ -15602,6 +15620,7 @@ void App::drawEditorPreferencesModal() {
             // one has to be told now - otherwise the change only takes effect the
             // next time the project is opened.
             project_.toolchainImage = globalToolchainImage_;
+            project_.buildBackend = globalBuildBackend_;
         }
         ImGui::CloseCurrentPopup();
     }
