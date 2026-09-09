@@ -139,6 +139,11 @@ to see exactly what the game will compile.
   "Play credits") or the Play Credits node; a roll owns the screen and the pad
   while it plays, so nothing else runs behind it. A long roll can also be
   imported from a plain text file.
+- **Comments** (type `comment`) are editor-only notes pinned to a place in the
+  scene: the prose lives in the object's `"comment"` key and reaches NOTHING -
+  no generated file, no bake, no asset. Read them (they usually say why
+  something in the scene is the way it is) and leave them alone unless asked;
+  the object itself is inert, with no geometry, collision or behaviour.
 - **Procedural volumes** (type `scatter` in the file - the display name changed,
   the key did not) are procedural authoring regions: the object carries a node
   graph (`procGraph` in its `objects/<id>.json`) that fills its box - scattered,

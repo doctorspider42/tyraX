@@ -16,6 +16,29 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.73.0 (comments in the editor, docs/comments.md): a note pinned to a place
+// in the scene - why this prop is here, what is still to do, what broke last
+// time. It is an ordinary scene object (PrimitiveType::Comment) so it gets a
+// name, a place, undo, layers, selection, the outliner and multi-user merge
+// for nothing; what it does NOT get is geometry. The viewport skips the type
+// entirely and the app draws a message icon over the finished image instead
+// (App::commentIcons / drawCommentOverlay), which is what keeps a note the
+// same size at any distance and stops it hiding the thing it is about.
+// Selecting one shows its opening beside the icon and the whole of it - any
+// length, wrapped, with a Copy button - in Properties. View > Comments hides
+// them, and it hides them through project::isObjectHiddenInEditor, so the same
+// switch takes them out of the picture, the click picking, the rubber band and
+// the gizmo at once. ONE function decides where an icon is, so the thing you
+// see and the thing a click selects cannot disagree (the axis-gizmo
+// arrangement); the icon is hit-tested in SCREEN space because a distant
+// note's 3D box shrinks below its own icon. Nothing about a note is
+// generated, baked or shipped - the object still takes a scene-table row like
+// an Area does, because object indices are baked into every generated table.
+// kFormatVersion 38 -> 39. Verified by --resave round-trips (a note with
+// newlines, quotes and 4 KB of text comes back byte for byte), --refresh-gen
+// on the examples (no generated file moves) and a --ui-script run that adds a
+// comment, types into it, screenshots the icon and toggles View > Comments.
+//
 // 1.72.1 (the projected silhouette stops at the floor, and stays out of a
 // GI bake's way): the same wall as 1.72.0, in the game, threw a shadow on
 // BOTH sides of itself while the editor drew one. Two things, both in
@@ -2885,8 +2908,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 72
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 73
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -3221,7 +3244,12 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // built-in 50, so an untouched project resaves byte for byte and an older
 // editor reading a newer file falls back to exactly the number it always had.
 // Purely additive - no migration step.
-inline constexpr int kFormatVersion = 38;
+// v39 (editor comments, docs/comments.md): the new PrimitiveType::Comment
+// (serialized type name "comment") and SceneObject::commentText, written only
+// when a note has text. An older editor reads an unknown type name as a Box,
+// which is why this is a version bump and not just a new key - the refusal is
+// the point. Purely additive - no migration step.
+inline constexpr int kFormatVersion = 39;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

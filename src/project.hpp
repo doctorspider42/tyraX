@@ -142,11 +142,19 @@ enum class PrimitiveType {
     // on screen several times at once. See scrollSegments below and
     // docs/endless-scroller.md.
     Scroller = 19,
+    // Comment: an editor-only note pinned to a place in the scene
+    // (docs/comments.md). It draws as a message icon over the viewport - never
+    // as geometry - and its text is in commentText below. Nothing reads that
+    // text: no codegen, no bake, no runtime. The object itself still occupies
+    // a scene-table row like an Area or a procedural volume does, because
+    // object INDICES are baked into every generated table and dropping one
+    // type from the emitted list would retarget all of them.
+    Comment = 20,
 };
 
 // One past the last PrimitiveType value - loops over "every object type" (the
 // multi-select tally) bound on this instead of a hardcoded member.
-constexpr int kPrimitiveTypeCount = (int)PrimitiveType::Scroller + 1;
+constexpr int kPrimitiveTypeCount = (int)PrimitiveType::Comment + 1;
 
 // Tessellation detail for the geometry primitives, stored per object in
 // SceneObject::primDetail. Its meaning depends on the shape: for the curved
@@ -805,6 +813,14 @@ struct SceneObject {
     // record where its own members came from.
     std::string prefabSource;
 
+    // The note a Comment object carries (docs/comments.md): free text, any
+    // length, editor-only. Nothing downstream reads it - not codegen, not a
+    // bake, not the console - so it is deliberately NOT part of
+    // liveLinkRecipeHash either: rewriting a note must not ask for a rebuild.
+    // It lives on SceneObject rather than in a side list so a note is an
+    // ordinary object with a name, a place, undo, layers and selection.
+    std::string commentText;
+
     // Attached object scripts: class names registered in src/scripts/*.cpp
     // with TYRA_OBJECT_SCRIPT(Name). Each attachment becomes its own script
     // instance in the game (Unity-style components); the same class can be
@@ -1079,7 +1095,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.procGraph == b.procGraph && a.procSource == b.procSource &&
            a.vuParams[0] == b.vuParams[0] && a.vuParams[1] == b.vuParams[1] &&
            a.vuParams[2] == b.vuParams[2] && a.vuParams[3] == b.vuParams[3] &&
-           a.prefabSource == b.prefabSource;
+           a.prefabSource == b.prefabSource && a.commentText == b.commentText;
 }
 
 // General project preferences (Project > Preferences in the editor).

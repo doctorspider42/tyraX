@@ -121,8 +121,12 @@ public:
     // is behind a perspective camera. App-side ImDrawList overlays that have
     // to sit on world geometry (the measuring tape) place themselves with
     // this, so they agree with the image under every projection instead of
-    // rebuilding a camera of their own.
-    bool projectToImage(const float world[3], float& outU, float& outV) const;
+    // rebuilding a camera of their own. `outDepth`, when given, receives the
+    // point's distance ALONG the view direction - what an overlay drawing
+    // several world-anchored markers needs to order them back to front (the
+    // comment icons), and the one thing a u/v pair cannot say.
+    bool projectToImage(const float world[3], float& outU, float& outV,
+                        float* outDepth = nullptr) const;
 
     // Local-space AABB of what an object DRAWS as a model: static .obj bounds
     // (GL-free, cached) or an animated model's baked pose bounds. False for

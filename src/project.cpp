@@ -48,6 +48,7 @@ const char* primitiveTypeName(PrimitiveType t) {
         case PrimitiveType::Area: return "area";
         case PrimitiveType::Scatter: return "scatter";
         case PrimitiveType::Scroller: return "scroller";
+        case PrimitiveType::Comment: return "comment";
     }
     return "box";
 }
@@ -72,6 +73,7 @@ static PrimitiveType primitiveTypeFromName(const std::string& s) {
     if (s == "area") return PrimitiveType::Area;
     if (s == "scatter") return PrimitiveType::Scatter;
     if (s == "scroller") return PrimitiveType::Scroller;
+    if (s == "comment") return PrimitiveType::Comment;
     return PrimitiveType::Box;
 }
 
@@ -761,7 +763,14 @@ std::string objectJson(const SceneObject& o) {
         (o.materialPath.empty() ? ""
                                 : ", \"material\": \"" + jsonEscape(o.materialPath) + "\"") +
         // decal projection: off (flat quad) stays implicit
-        (o.decalProject ? ", \"decalProject\": true" : "");
+        (o.decalProject ? ", \"decalProject\": true" : "") +
+        // The note on a Comment object (docs/comments.md). Written only when
+        // it says something, so every object that is not one resaves byte for
+        // byte. jsonEscape already escapes the newlines a paragraph is made
+        // of, which is the whole reason a long note round-trips.
+        (o.commentText.empty()
+             ? ""
+             : ", \"comment\": \"" + jsonEscape(o.commentText) + "\"");
     if (o.type == PrimitiveType::Player) {
         const char* modeName = o.playerMode == 1   ? "noclip"
                                : o.playerMode == 2 ? "thirdperson"
@@ -5043,6 +5052,7 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         if (const auto* v = jo.find("procSource")) o.procSource = v->stringOr("");
         if (const auto* v = jo.find("prefabSource"))
             o.prefabSource = v->stringOr("");
+        if (const auto* v = jo.find("comment")) o.commentText = v->stringOr("");
         if (const auto* v = jo.find("vuParams"))
             if (v->type == json::Value::Type::Array)
                 for (size_t k = 0; k < v->arr.size() && k < 4; ++k)
