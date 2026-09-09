@@ -44,6 +44,26 @@ Picking anything else overrides both, in both directions:
 
 Lights and markers never cast either kind, whatever the mode says.
 
+**Under a GI bake, Default draws no sun silhouette for a static object.** Its
+sun shadow is already in the baked lighting
+([global-illumination.md](global-illumination.md)), per texel, and the editor
+shows that bake — so a live silhouette on top would land the same shadow twice
+(a second, darker copy the editor never has) and spend one of the four slots
+on something that cannot move. The live one still draws while the day/night
+clock runs (the bake is at one hour, the live shadow sweeps), under a torch or
+a dynamic spot (nothing baked those), and for anything animated, physical or
+on the matrix path. *Projected silhouette* in the combo forces it regardless.
+
+**A caster's silhouette stops at its floor.** Projecting a texture cannot
+tell a receiver point in front of the caster from one behind it along the
+light ray, so any part of a caster below the surface it stands on throws a
+second shadow onto the *lit* side — the ray from a sunlit ground point,
+carried on underground, meets the buried part. A wall sunk 4.5 of its 10
+units into the terrain (the usual way to plant one) drew a full shadow on
+both sides of itself. The silhouette render lifts every vertex below the
+floor up to it, for that render only: a box loses exactly its underground
+part, a model's underground part flattens to a sliver at floor level.
+
 ## What it costs
 
 The projected system claims its VRAM at boot **only if some object asks for a

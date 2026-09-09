@@ -172,6 +172,17 @@ struct EditorConfig {
     // build. Off by default: everything else the assistant does is instant and
     // one Ctrl+Z away, this is neither.
     bool chatAllowBuild = false;
+    // Bake global illumination on the GPU when this machine has one
+    // (docs/global-illumination.md, "The GPU backend"). Machine-global for the
+    // same reason the emulator path is: whether there is a usable GPU here is a
+    // fact about the box, not about any project.
+    //
+    // OFF by default, and deliberately matching the CLI's --gpu rather than
+    // being helpful: the two backends agree to a tolerance, not bit-for-bit, so
+    // switching backends rewrites every byte of a scene's cached bake. The
+    // repo's own GI examples SHIP that cache, so a default-on would turn a
+    // contributor's first bake into a binary diff nobody asked for.
+    bool giGpuBake = false;
     // Update check (docs/updates.md): whether the editor asks GitHub for a
     // newer release at startup, and one version somebody has told it to stop
     // mentioning. Which build is installed is a property of this machine, so
@@ -225,6 +236,7 @@ static EditorConfig loadEditorConfig() {
         else if (match("emulatorPath", v)) cfg.emulatorPath = v;
         else if (match("ps2LinkIp", v)) cfg.ps2LinkIp = v;
         else if (match("errorPopup", v)) cfg.errorPopup = toI(v, 1) != 0;
+        else if (match("giGpuBake", v)) cfg.giGpuBake = toI(v, 0) != 0;
         else if (match("defaultProjectsDir", v)) cfg.defaultProjectsDir = v;
         else if (match("displayName", v)) cfg.displayName = v;
         else if (match("sessionCacheDir", v)) cfg.sessionCacheDir = v;
@@ -313,6 +325,7 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "emulatorPath=" << cfg.emulatorPath << "\n"
       << "ps2LinkIp=" << cfg.ps2LinkIp << "\n"
       << "errorPopup=" << (cfg.errorPopup ? 1 : 0) << "\n"
+      << "giGpuBake=" << (cfg.giGpuBake ? 1 : 0) << "\n"
       << "defaultProjectsDir=" << cfg.defaultProjectsDir << "\n"
       << "displayName=" << cfg.displayName << "\n"
       << "sessionCacheDir=" << cfg.sessionCacheDir << "\n"
@@ -574,6 +587,7 @@ int App::run(const std::string& initialProjectDir) {
         globalEmulatorPath_ = cfg.emulatorPath;
         globalPs2Ip_ = cfg.ps2LinkIp;
         errorPopupEnabled_ = cfg.errorPopup;
+        giGpuBake_ = cfg.giGpuBake;
         globalDefaultProjectsDir_ = cfg.defaultProjectsDir;
         globalDisplayName_ = cfg.displayName;
         globalSessionCacheDir_ = cfg.sessionCacheDir;
@@ -1126,7 +1140,7 @@ void App::saveGlobalConfig() {
                       viewportPs2Shade_, viewportGsColor_, runOnPs2_,
                       logOut_.mask, logDbg_.mask, logOut_.selectText,
                       logDbg_.selectText, chatAllowEdits_, chatAllowBuild_,
-                      globalUpdateCheck_, globalUpdateSkip_,
+                      giGpuBake_, globalUpdateCheck_, globalUpdateSkip_,
                       std::move(recent)});
 }
 
@@ -13522,6 +13536,9 @@ void App::applyProjectToViewport() {
         // The ground takes the baked terrain lightmap instead of the probes -
         // the same split the console makes (see Viewport::setGiTerrain).
         viewport_.setGiTerrain(b.valid ? b.terrain : aobake::AoImage());
+        // ...and the primitives take theirs from the atlas, per pixel, the
+        // way the console's atlas passes draw it (see Viewport::setGiAtlas).
+        viewport_.setGiAtlas(b.valid ? b.atlas : aobake::SceneLightAtlas());
     }
     viewport_.setFog(rs.fogEnabled && showFog_, rs.fogColor, rs.fogStart, rs.fogEnd);
     // The flashlight is a Player object property; preview the first player's

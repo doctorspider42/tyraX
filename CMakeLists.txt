@@ -251,6 +251,7 @@ add_executable(tyrax-editor
     src/vucap.cpp
     src/bvh.cpp
     src/gibake.cpp
+    src/gigpu.cpp
     src/litbake.cpp
     src/vuir.cpp
     src/vuasm.cpp

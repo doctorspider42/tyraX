@@ -99,15 +99,19 @@ struct Scene {
     std::vector<float> heights;  // scene heightmap (for probe placement)
     int hmW = 0, hmD = 0;
     float hmWidth = 0, hmDepth = 0;
-    // The ground as the BVH actually has it: a DECIMATED grid of (cells+1)^2
-    // corner heights, split into triangles the way `build` splits them. The
-    // bake hands out points on the fine bilinear surface the game walks on,
-    // which sits above or below these triangles wherever the decimation cut a
-    // bump - and a gather ray fired from under them starts inside the ground.
-    // groundSurfaceY re-derives the traced height so an origin can be snapped
-    // onto it. Empty when the scene has no terrain.
-    std::vector<float> coarseH;
-    int coarseCells = 0;
+    // The ground as the BVH actually has it: a grid of node heights over the
+    // grid lines groundX x groundZ (ascending, first = the terrain's edge,
+    // last = the far edge), split into triangles the way `build` splits them.
+    // The lines are the uniform decimation PLUS one at every edge of every
+    // grounded object's footprint (see build), so the grid is not uniform.
+    // Two consumers need it: the bake hands out points on the fine bilinear
+    // surface the game walks on, which sits above or below these triangles
+    // wherever the decimation cut a bump - a gather ray fired from under them
+    // starts inside the ground - so groundSurfaceY re-derives the traced
+    // height and an origin can be snapped onto it. Empty when the scene has
+    // no terrain.
+    std::vector<float> groundX, groundZ;
+    std::vector<float> groundH;  // groundZ.size() rows of groundX.size()
 
     bool empty() const { return tree.empty(); }
 };
@@ -128,7 +132,7 @@ void skyRadiance(const Scene& s, const float dir[3], float out[3]);
 // land on. Deterministic - the sample spiral is rotated by a hash of `seed`,
 // never by a shared RNG, so the same bake twice is the same bytes twice at
 // any core count.
-// Height of the ground as the BVH holds it (see Scene::coarseH), -1e30f off
+// Height of the ground as the BVH holds it (see Scene::groundH), -1e30f off
 // the terrain. Snap a ground-bake origin onto this, not onto the fine
 // bilinear surface, or the ray starts inside the mesh it is meant to leave.
 float groundSurfaceY(const Scene& s, float x, float z);
@@ -204,10 +208,38 @@ bool read(const std::string& path, Bake& b);
 // model. valid == false means "absent or stale" - never "empty".
 Bake load(const Project& p, int sceneIndex);
 
+// Seconds per phase of one bakeScene call. Not decoration: this bake ran at
+// 98% CPU on eight cores for its whole wall clock and nobody noticed, because
+// the only number anyone could see was the total. `--bake-gi` prints this, so
+// "which phase is slow" is a question with a re-runnable answer rather than an
+// estimate. A phase that did not run reads 0.
+struct Timings {
+    double build = 0;    // tessellate the scene into the BVH
+    double solve = 0;    // interreflection passes over the triangle set
+    double atlas = 0;    // the primitive lightmap atlas (importance + texels)
+    double terrain = 0;  // the terrain lightmap
+    double probes = 0;   // the L1 probe grid
+    // Which gather backend actually ran. A bake's bytes depend on it - the GPU
+    // agrees with the CPU to a tolerance, never bit-for-bit - so a measurement
+    // quoted without this says nothing.
+    bool gpu = false;
+    std::string gpuNote;  // why the GPU was not used, when it was asked for
+    double total() const { return build + solve + atlas + terrain + probes; }
+};
+
 // The whole bake for one scene: tessellate -> bounce -> lightmap atlas ->
-// terrain map -> probes.
+// terrain map -> probes. `timings` is optional and costs a clock read per
+// phase.
+// `useGpu` ASKS for the compute backend; it is not a promise. A machine with no
+// display server (a build server, the Docker build) silently gets the CPU
+// integrator and says so through Timings::gpuNote, because that is an expected
+// state and not a failure. It deliberately does NOT enter the bake signature or
+// the cache format: the two backends differ by ~2 levels out of 255 at worst,
+// which is under the dither of the 8-bit image this ships as, so a cache from
+// either is a valid cache of the same scene.
 Bake bakeScene(const Project& p, int sceneIndex,
-               const std::atomic<bool>* cancel, const ProgressFn& progress);
+               const std::atomic<bool>* cancel, const ProgressFn& progress,
+               Timings* timings = nullptr, bool useGpu = false);
 
 // The managed bake, synchronous: every scene whose cache is absent or STALE is
 // re-baked and written, the fresh ones are left alone and said so. Nothing
@@ -233,7 +265,11 @@ class Baker {
 public:
     ~Baker() { cancel(); }
     // scenes: indices to bake; empty = every scene in the project.
-    void start(const Project& p, std::vector<int> scenes);
+    // useGpu asks for the compute backend, exactly as bakeScene's flag does.
+    // start() is a MAIN-THREAD call and primes the GPU context there before
+    // the worker begins - GLFW creates windows on the main thread only, and
+    // the bake itself runs on the worker (see gigpu::available).
+    void start(const Project& p, std::vector<int> scenes, bool useGpu = false);
     void cancel();
     bool running() const { return running_.load(); }
     float progress() const { return progress_.load(); }
@@ -243,7 +279,7 @@ public:
     uint64_t version() const { return version_.load(); }
 
 private:
-    void run(Project p, std::vector<int> scenes);
+    void run(Project p, std::vector<int> scenes, bool useGpu);
 
     std::thread worker_;
     std::atomic<bool> cancel_{false};

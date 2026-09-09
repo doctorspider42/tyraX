@@ -867,7 +867,10 @@ void App::drawPropertiesWindow() {
                     ImGui::SetTooltip(
                         "The project-default form of the choice above. Pick\n"
                         "\"Projected silhouette\" in the combo to say it on the\n"
-                        "object instead.");
+                        "object instead.\n"
+                        "With a GI bake a static object's sun shadow is already\n"
+                        "baked: the live one then draws only while the day/night\n"
+                        "clock runs or under a torch. The combo forces it.");
             }
         }
         // Baked ambient occlusion: whether this object darkens nearby
