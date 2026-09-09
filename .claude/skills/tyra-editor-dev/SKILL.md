@@ -2126,5 +2126,8 @@ uses `objectCollisionBox` and `boxRotate`, including the mesh's offset centre;
 never infer an imported object's extent from scale alone.
 
 Portal static bags crossing the exit additionally use `renderExitClipped`:
-interpolate all attributes and drain PATH1 before reusing the scratch arrays.
-Whole-front bags bypass it; animated bags retain their bounds-only path.
+interpolate all attributes. Since 1.77.2 GeoPart owns clipped streams per portal,
+keyed by source bboxVersion/pointer/count/layout, model matrix and exit plane.
+Only an invalidation drains PATH1 before replacing buffers; view-camera changes
+reuse them. Refresh live bag descriptors even on hits. Whole-front bags bypass
+it; animated bags retain their bounds-only path.

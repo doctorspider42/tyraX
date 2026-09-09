@@ -41,8 +41,8 @@ with its opening facing south. Approach from the arrival court and walk north
 through the frame. Its placement can be changed as one group. The roughly **2 × 4m exterior** opens into a **14 × 18m cellar**,
 twelve metres below the island, with a six-metre vaulted ceiling. Repeated
 ribs, stocked shelves and the far instrument table reveal its depth through
-the small doorway. The return view follows the pavilion's placement and now includes all scene
-objects in view. Inside the rotunda, the silver instrument
+the small doorway. The return view follows the pavilion's placement and uses an explicit list
+of arrival-court scenery. Inside the rotunda, the silver instrument
 traces reflections and the gold instrument shows a second camera's view.
 A save point waits at the entrance. Films use the engine's skippable-sequence
 controls and return the gameplay camera afterward.
@@ -201,8 +201,9 @@ builds, the GI bake and all 37 graph links were checked again.
 The **Portal pavilion** object group contains the pavilion mesh and surface portal.
 Select either to move or rotate the entrance as one assembly; the cellar stays
 in place. The building mesh now has its pivot at the doorway, preserving every
-world-space vertex. See [Object groups](../../docs/object-groups.md). The next build refreshes GI after moving it; both ends now show all objects
-in view, so the return list needs no manual maintenance.
+world-space vertex. See [Object groups](../../docs/object-groups.md). The next build refreshes GI after moving it. Portal views use explicit object
+lists: the cellar and its four lamps inward, 18 arrival-court objects outward.
+Update the return list if you move the pavilion to a different part of the map.
 
 Grouping validation covered real editor actions: create/rename, a rigid 90-degree
 rotation with mixed object orientations and a light, independent copy/delete,
@@ -214,9 +215,11 @@ Aster was re-baked and entered through the grouped portal in PCSX2.
 
 The **Aster golden hour** ambience preset preserves the authored sky, sun, fog
 and AO values. **Re-bake stale global illumination** is enabled, so moving the
-portal pavilion refreshes GI on the next build. Both portals use **All objects
-in view**; runtime exit rejection now measures imported mesh bounds rather than
-assuming every model is a unit cube. The canal end stones sit 2 cm below the
+portal pavilion refreshes GI on the next build. Both portals use **explicit object lists**, with **All objects in view** off.
+The inward list contains only the cellar and four lamp effects; the return list
+contains the terrace, nearby architecture, props and sea. This avoids drawing
+and exit-clipping the whole island merely to see into the cellar. Imported
+mesh bounds and exit-plane clipping still keep the doorway clear. The canal end stones sit 2 cm below the
 terrace surface to avoid coplanar faces at the overlap.
 
 Static vertex colours interpolate on PS2. Hard-normal imported assets remain
@@ -230,3 +233,14 @@ four distant corners. The compass rose uses brass/gold halves: its former dark
 halves looked like black holes or clipped triangles when viewed close up.
 The faster VU1 clipping mode is retained; switching to EE clipping did not
 change those authored compass shapes.
+
+Portal clipping also retains its result while the source geometry and exit
+plane are unchanged (1.77.2). Looking around no longer re-clips the entire cellar
+or drains DMA per material. Shading, GI and the existing pavilion transform are
+unchanged by this performance adjustment.
+
+For the 1.77.2 PCSX2 regression check, a frozen camera facing the cellar measured
+10.0 FPS before, 11.1 FPS with lists alone and 25.0 FPS with cached clipping.
+The frozen return view measured 50 FPS. These are two views, not a minimum FPS
+for the entire island; physical-console performance must be measured separately.
+See [portal measurements](../../docs/portals.md#imported-mesh-bounds-1771).

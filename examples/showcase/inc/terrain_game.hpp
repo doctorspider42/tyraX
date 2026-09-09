@@ -136,6 +136,22 @@ class TerrainGame : public Tyra::Game {
   // Scene objects at runtime (mutable by scripts/physics); geometry per
   // object, one draw part per model material (primitives use parts[0])
   struct GeoPart {
+    // Exit clipping depends on mesh/transform/exit plane, not the viewing eye.
+    // Keep buffers and descriptors alive so a static portal needs no per-draw
+    // triangle walk or PATH1 drain. Owned by the part: scene unload frees them.
+    struct PortalClip {
+      bool valid = false, textured = false, lit = false, many = false;
+      u32 sourceStamp = 0, sourceCount = 0, stamp = 0;
+      const Tyra::Vec4* sourceVertices = nullptr;
+      float plane[4] = {}, matrix[16] = {};
+      std::vector<Tyra::Vec4> vertices, sts, normals;
+      std::vector<Tyra::Color> colors;
+      Tyra::StaPipBag bag;
+      Tyra::StaPipColorBag color;
+      Tyra::StaPipTextureBag texture;
+      Tyra::StaPipLightingBag lighting;
+    };
+    std::vector<std::unique_ptr<PortalClip>> portalClips;
     std::vector<Tyra::Vec4> vertices;
     std::vector<Tyra::Color> colors;
     std::vector<Tyra::Vec4> sts;  // texture coordinates

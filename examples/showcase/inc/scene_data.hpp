@@ -501,10 +501,10 @@ struct PortalData {
 };
 constexpr int PORTAL_COUNT = 2;
 constexpr PortalData PORTALS[2] = {
-    {0, 66, 67, 0, 0, 1, 0, 5, -1, 0, 0},  // surface-gate,
-    {0, 67, 66, 1, 0, 1, 5, 7, -1, 0, 0},  // cellar-gate
+    {0, 66, 67, 0, 0, 0, 0, 5, -1, 0, 0},  // surface-gate,
+    {0, 67, 66, 1, 0, 0, 5, 18, -1, 0, 0},  // cellar-gate
 };
-constexpr int PORTAL_VIEW_OBJECTS[12] = {80, 57, 58, 59, 60, 78, 56, 7, 20, 69, 71, 76};
+constexpr int PORTAL_VIEW_OBJECTS[23] = {80, 57, 58, 59, 60, 1, 73, 79, 78, 56, 7, 18, 20, 19, 21, 38, 39, 40, 23, 24, 25, 42, 36};
 
 // Objects a live catch area re-tests every frame (collectLiveCaught
 // in the game cpp). Indices are scene-table indices, sliced per

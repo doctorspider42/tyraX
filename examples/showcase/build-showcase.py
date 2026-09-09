@@ -636,9 +636,16 @@ def author():
     p['sequences'][2]['tracks']=[{'target':'heart-of-aster','animScale':True,'animColor':True,'animPos':False,'animRot':False,'animVis':False,
         'keys':[{'t':t,'pos':[0,4.1,-12],'rot':[0,0,0],'scale':[size]*3,'color':color,'vis':True,'ease':1}
                 for t,size,color in [(0,1.7,[1,1,1]),(4,2.6,[1,.95,.7]),(8,2.1,[.8,1,1])]]}]
-    for o in objects:
-        if o['type']=='portal':o['portal']['viewAll']=True
     batched=batch_architecture()
+    # Bound each portal to its destination; the cellar view must not redraw the island.
+    portal_views={
+        'surface-gate': ['district-cellar', 'cellar-lamp-0', 'cellar-lamp-1', 'cellar-lamp-2', 'cellar-lamp-3'],
+        'cellar-gate': ['arrival-terrace', 'district-arrival', 'district-pavilion', 'district-vestibule', 'vestibule-warm-light', 'ocean', 'entry-pier--1', 'entry-pier-1', 'entry-crown--1', 'entry-crown-1', 'calibration-weight-0', 'calibration-weight-1', 'calibration-weight-2', 'survey-crate-0', 'survey-crate-1', 'survey-crate-2', 'physics-guide', 'arrival-guide'],
+    }
+    for o in objects:
+        if o['name'] in portal_views:
+            o['portal']['viewAll']=False
+            o['portal']['objects']=portal_views[o['name']]
     # The building and its live doorway move as one; the cellar stays below map.
     for o in objects:
         if o['name'] in ('district-pavilion','surface-gate'):

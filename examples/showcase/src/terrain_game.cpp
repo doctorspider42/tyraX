@@ -17302,66 +17302,98 @@ bool TerrainGame::renderOnePortalView(int pi) {
   // Whole-object bounds cannot hide the rear wall of a model that spans the
   // exit. Clip only those static bags that straddle it, preserving every corner
   // attribute. Fully front-side objects keep the ordinary submission path.
-  auto renderExitClipped = [&](StaPipBag& source) {
-    struct Corner { Vec4 p, st, normal; Color color; float d; };
-    static std::vector<Vec4> vertices, sts, normals;
-    static std::vector<Color> colors;
-    static u32 version = 0;
-    vertices.clear(); sts.clear(); normals.clear(); colors.clear();
+  auto renderExitClipped = [&](GeoPart& part) {
+    StaPipBag& source = *part.bag;
+    if (part.portalClips.size() <= (size_t)pi) part.portalClips.resize(pi + 1);
+    if (!part.portalClips[pi]) part.portalClips[pi] = std::make_unique<GeoPart::PortalClip>();
+    GeoPart::PortalClip& cache = *part.portalClips[pi];
+    auto& vertices = cache.vertices;
+    auto& sts = cache.sts;
+    auto& normals = cache.normals;
+    auto& colors = cache.colors;
     const bool textured = source.texture != nullptr;
     const bool lit = source.lighting != nullptr;
     const bool many = source.color->many != nullptr;
-    auto lerpV = [](const Vec4& a, const Vec4& b, float t) {
-      return Vec4(a.x+(b.x-a.x)*t, a.y+(b.y-a.y)*t,
-                  a.z+(b.z-a.z)*t, a.w+(b.w-a.w)*t);
-    };
-    auto emit = [&](const Corner& c) {
-      vertices.push_back(c.p);
-      if (textured) sts.push_back(c.st);
-      if (lit) normals.push_back(c.normal);
-      if (many) colors.push_back(c.color);
-    };
-    for (u32 vi=0; vi+2<source.count; vi+=3) {
-      Corner in[3], out[4];
-      for (int k=0;k<3;++k) {
-        Corner& c=in[k]; c.p=source.vertices[vi+k];
-        const Vec4 w=(*source.info->model)*c.p;
-        c.d=exitN.x*w.x+exitN.y*w.y+exitN.z*w.z-exitD-0.01F;
-        c.st=textured ? source.texture->coordinates[vi+k] : Vec4(0,0,0,0);
-        c.normal=lit ? source.lighting->normals[vi+k] : Vec4(0,0,0,0);
-        c.color=many ? source.color->many[vi+k] : *source.color->single;
-      }
-      int count=0;
-      for (int k=0;k<3;++k) {
-        const Corner& a=in[k]; const Corner& b=in[(k+1)%3];
-        if (a.d>=0.0F) out[count++]=a;
-        if ((a.d>=0.0F)!=(b.d>=0.0F)) {
-          const float t=a.d/(a.d-b.d);
-          Corner& c=out[count++];
-          c.p=lerpV(a.p,b.p,t); c.st=lerpV(a.st,b.st,t);
-          c.normal=lerpV(a.normal,b.normal,t);
-          c.color=Color(a.color.r+(b.color.r-a.color.r)*t,
-                        a.color.g+(b.color.g-a.color.g)*t,
-                        a.color.b+(b.color.b-a.color.b)*t,
-                        a.color.a+(b.color.a-a.color.a)*t);
-          c.d=0.0F;
+    const float plane[4] = {exitN.x, exitN.y, exitN.z, exitD};
+    const bool fresh = cache.valid && cache.sourceStamp == source.bboxVersion &&
+        cache.sourceCount == source.count && cache.sourceVertices == source.vertices &&
+        cache.textured == textured && cache.lit == lit && cache.many == many &&
+        memcmp(cache.plane, plane, sizeof(plane)) == 0 &&
+        memcmp(cache.matrix, source.info->model->data, sizeof(cache.matrix)) == 0;
+    if (!fresh) {
+      // A moved exit/body, rebuilt lighting or LOD change invalidates the cache.
+      // Old buffers may still be in flight in another view of this frame.
+      if (cache.valid) engine->renderer.core.sync.align3D();
+      vertices.clear(); sts.clear(); normals.clear(); colors.clear();
+      struct Corner { Vec4 p, st, normal; Color color; float d; };
+      auto lerpV = [](const Vec4& a, const Vec4& b, float t) {
+        return Vec4(a.x+(b.x-a.x)*t, a.y+(b.y-a.y)*t,
+                    a.z+(b.z-a.z)*t, a.w+(b.w-a.w)*t);
+      };
+      auto emit = [&](const Corner& c) {
+        vertices.push_back(c.p);
+        if (textured) sts.push_back(c.st);
+        if (lit) normals.push_back(c.normal);
+        if (many) colors.push_back(c.color);
+      };
+      for (u32 vi=0; vi+2<source.count; vi+=3) {
+        Corner in[3], out[4];
+        for (int k=0;k<3;++k) {
+          Corner& c=in[k]; c.p=source.vertices[vi+k];
+          const Vec4 w=(*source.info->model)*c.p;
+          c.d=exitN.x*w.x+exitN.y*w.y+exitN.z*w.z-exitD-0.01F;
+          c.st=textured ? source.texture->coordinates[vi+k] : Vec4(0,0,0,0);
+          c.normal=lit ? source.lighting->normals[vi+k] : Vec4(0,0,0,0);
+          c.color=many ? source.color->many[vi+k] : *source.color->single;
         }
+        int count=0;
+        for (int k=0;k<3;++k) {
+          const Corner& a=in[k]; const Corner& b=in[(k+1)%3];
+          if (a.d>=0.0F) out[count++]=a;
+          if ((a.d>=0.0F)!=(b.d>=0.0F)) {
+            const float t=a.d/(a.d-b.d);
+            Corner& c=out[count++];
+            c.p=lerpV(a.p,b.p,t); c.st=lerpV(a.st,b.st,t);
+            c.normal=lerpV(a.normal,b.normal,t);
+            c.color=Color(a.color.r+(b.color.r-a.color.r)*t,
+                          a.color.g+(b.color.g-a.color.g)*t,
+                          a.color.b+(b.color.b-a.color.b)*t,
+                          a.color.a+(b.color.a-a.color.a)*t);
+            c.d=0.0F;
+          }
+        }
+        for (int k=1;k+1<count;++k) { emit(out[0]);emit(out[k]);emit(out[k+1]); }
       }
-      for (int k=1;k+1<count;++k) { emit(out[0]);emit(out[k]);emit(out[k+1]); }
+      cache.sourceStamp = source.bboxVersion;
+      cache.sourceCount = source.count;
+      cache.sourceVertices = source.vertices;
+      cache.textured = textured; cache.lit = lit; cache.many = many;
+      memcpy(cache.plane, plane, sizeof(plane));
+      memcpy(cache.matrix, source.info->model->data, sizeof(cache.matrix));
+      cache.stamp = ++g_bboxStamp;
+      cache.valid = true;
     }
     if (vertices.empty()) return;
-    StaPipBag bag=source;
-    StaPipColorBag color=*source.color;
-    StaPipTextureBag texture;
-    StaPipLightingBag lighting;
-    bag.vertices=vertices.data(); bag.count=(u32)vertices.size();
-    bag.bboxVersion=++version; bag.color=&color;
-    if (many) color.many=colors.data();
-    if (textured) { texture=*source.texture; texture.coordinates=sts.data(); bag.texture=&texture; }
-    if (lit) { lighting=*source.lighting; lighting.normals=normals.data(); bag.lighting=&lighting; }
-    stapip.core.render(&bag);
-    // The scratch arrays and bag descriptors may be reused only after DMA.
-    engine->renderer.core.sync.align3D();
+    // Refresh live descriptors (textures, single colours, lights and pipeline
+    // flags) even on a hit. Only clipped vertex streams are retained.
+    cache.bag = source;
+    cache.color = *source.color;
+    cache.bag.vertices = vertices.data();
+    cache.bag.count = (u32)vertices.size();
+    cache.bag.bboxVersion = cache.stamp;
+    cache.bag.color = &cache.color;
+    if (many) cache.color.many = colors.data();
+    if (textured) {
+      cache.texture = *source.texture;
+      cache.texture.coordinates = sts.data();
+      cache.bag.texture = &cache.texture;
+    }
+    if (lit) {
+      cache.lighting = *source.lighting;
+      cache.lighting.normals = normals.data();
+      cache.bag.lighting = &cache.lighting;
+    }
+    stapip.core.render(&cache.bag);
   };
   auto renderViewObject = [&](int ti) {
     if (ti < 0 || ti >= (int)runtimeObjects.size()) return;
@@ -17424,7 +17456,7 @@ bool TerrainGame::renderOnePortalView(int pi) {
     ObjectGeometry& g = objectGeometry[ti];
     for (GeoPart& part : g.parts) {
       if (!part.bag) continue;
-      if (clipsExit) renderExitClipped(*part.bag);
+      if (clipsExit) renderExitClipped(part);
       else stapip.core.render(part.bag.get());
     }
     if (g.animInfoBag)

@@ -188,5 +188,22 @@ a unit box at the object pivot, which discarded large district meshes even in
 behind the exit are rejected early. Static bags straddling it
 are clipped against the exit plane, interpolating positions, colours, UVs and
 lighting normals. Otherwise a large model's rear wall covers the destination.
-Only straddling bags take this CPU path and its DMA drain; animated bags keep
-the existing whole-object test.
+Only straddling bags need this CPU path; animated bags keep the existing
+whole-object test. Since 1.77.2 each part retains its clipped streams per portal.
+An unchanged source geometry stamp, model matrix and exit plane reuse them,
+including the frustum-cache stamp. Moving the viewing camera does not invalidate
+world-space clipping. A rebuild/LOD/body transform/exit change drains DMA before
+replacing the buffers. Live texture, light and pipeline descriptors still refresh
+on every draw. Scene unload releases the part-owned caches.
+
+Use a bounded destination list for a small interior: **All objects in view**
+can still submit a whole outdoor scene even when most of it ends up behind the
+room walls. Aster uses five inward objects and 18 arrival-court objects outward.
+
+Aster regression measurement (PCSX2, frozen player at `(9.78103, 1.8, 21.2)`,
+heading `180.183466`, profiler enabled): all objects with uncached clipping
+measured 10.0 FPS / 93.28 ms SCENE; destination lists alone measured 11.1 FPS /
+73.24 ms; lists plus cached clipping measured 25.0 FPS / 29.87 ms. These are
+one matched doorway view, not a whole-level frame-rate guarantee. A 360 x 300
+cellar crop was pixel-identical before and after caching. The scene still
+exceeds the 20 ms budget for 50 FPS in this view.
