@@ -1811,6 +1811,15 @@ simply delegates are not.
   a `.mtl` as an override through `objparser::applyMaterialOverride`, which
   only carries `Kd` + texture - anything else (refl, Ke) has no `.tskl`/VU1
   slot and is silently ignored there; say so in the docs rather than faking it.
+- **The Tools menu is ONE flat list under `SeparatorText` headers, alphabetical
+  inside each header.** Not submenus: every doc page, tooltip and AI prompt in
+  the repo names a tool as `Tools > X`, and a submenu would put a word into all
+  of those paths (and into every `--ui-script` that clicks one). The headers
+  answer "what am I working on" - *Assets*, *Scene*, *Lighting & rendering*,
+  *Screens & menus*, *Gameplay*, *Running game*, *AI* (the assistant, last, as
+  its own group). A new tool window joins the header whose question it
+  answers, at its alphabetical place; appending it at the bottom is how the
+  menu became a 29-entry pile in the first place.
 - **DPI/zoom: wrap literal pixel sizes in `App::scaled(px)`.** `applyUiScale()`
   scales fonts (`FontScaleMain`) and style spacing (`ScaleAllSizes`) but NOT the
   pixel literals you pass to ImGui. So a hardcoded `SetNextItemWidth(180)`,
