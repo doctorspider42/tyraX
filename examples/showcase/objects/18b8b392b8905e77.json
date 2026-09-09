@@ -1,0 +1,1 @@
+{ "id": "18b8b392b8905e77", "name": "cellar-vault-fill--11", "type": "point-light", "position": [0, -7.5, -11], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 0.78, 0.52], "physics": false, "light": { "brightness": 0.65, "radius": 10, "dynamic": false, "flicker": 0, "beam": 0 } }

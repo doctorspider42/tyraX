@@ -36,19 +36,22 @@ twice. Their visibility and the expedition's progress travel in save slots.
 | Start | Pause and open the expedition save menu |
 
 The calibration court is east of the entrance. The hovering keeper patrols
-the east garden and offers a clue. A portal hidden in the east entrance's
-stone vestibule leads to a vaulted instrument cellar twelve metres below
-the rotunda. Enter the narrow passage from the north, near **(8.9, 17)**,
-then turn left into the vestibule and right towards the frame at **(11.7, 24)**.
-The return portal opens onto the enclosed vestibule, with the garden hidden
-behind two turns. Inside the rotunda, the silver instrument
+the east garden and offers a clue. A tiny stone pavilion near **(10, 20)**
+has an east-facing portal: approach from the sea side and walk west through
+the frame. The roughly **2 × 4m exterior** opens into a **14 × 18m cellar**,
+twelve metres below the island, with a six-metre vaulted ceiling. Repeated
+ribs, stocked shelves and the far instrument table reveal its depth through
+the small doorway. The return view faces a few forecourt props and the sea,
+away from the centre of the garden. Inside the rotunda, the silver instrument
 traces reflections and the gold instrument shows a second camera's view.
 A save point waits at the entrance. Films use the engine's skippable-sequence
 controls and return the gameplay camera afterward.
 
-![The screened portal into the instrument cellar](preview/cellar-portal.png)
+![The small sea-facing doorway into the large instrument cellar](preview/cellar-portal.png)
 
 ![Inside the vaulted cellar, captured from the running PS2 build](preview/cellar.png)
+
+![The return view faces the forecourt and sea](preview/cellar-return.png)
 
 ## What is running
 
@@ -61,7 +64,7 @@ controls and return the gameplay camera afterward.
 | Baked GI and probe lighting | Warm architecture, shaded colonnades and the keeper; the GI cache ships with the project |
 | Dynamic lights and bloom | The planetarium core, blue vault light and warm lanterns |
 | Reflective materials | Gold, copper and water sample the live sky; moving brass rings use a cheaper matte surface |
-| Spatial portals | A vaulted underground cellar and a screened surface vestibule, each with a complete, bounded destination mesh |
+| Spatial portals | A small sea-facing pavilion opens into a much larger vaulted cellar; bounded destination lists preserve both views |
 | VU0 ray tracing | The silver lens: a 32px experiment with analytic sphere targets, drawn within 15m |
 | Live camera textures | The gold monitor watches the moving core and rings |
 | Particles | A small firefly field around the celestial mechanism |
@@ -94,19 +97,26 @@ constant UVs so the LOD welder can collapse their interior edges; lathed stone
 has continuous cylindrical UVs. Decorative per-face UV islands on a plain
 column had prevented its LOD tiers from being produced.
 
-The recipe joins 156 static pieces into six district meshes.
-The resulting scene has 74 runtime objects. Walking slabs and interactive
+The recipe joins 191 static pieces into seven district meshes.
+The resulting scene has 80 runtime objects. Walking slabs and interactive
 props remain independent. District meshes retain their full geometry; smaller
 props use mesh LOD. The rotating matte rings use the engine's transform fast
 path. These choices reduce submissions and avoid rebuilding reflective ring
 geometry every frame.
 
-The cellar and vestibule occupy separate district meshes. Each portal lists
-only its complete destination district and disables terrain rendering. The
+The cellar, pavilion shell and forecourt occupy separate district meshes. The inward view
+lists the whole cellar; the return view adds the sea, two horizon stacks and
+the neighbouring entry pier to the forecourt mesh. Both
+disable terrain rendering. The
 cellar has a real opening in its collision mesh; the support heightfield is
 lowered below its floor so walking collision does not push visitors upstairs.
-Surface model floors remain in place. Seven vertical GI probe levels cover
+Surface model floors remain in place; an invisible support box keeps the
+tidal channel shallow above the lowered heightfield. Seven vertical GI probe levels cover
 the cellar as well as the garden, with warm baked lights and local reverb.
+The forecourt and sea pivots sit east of the exit plane, preserving their
+world geometry while keeping portal dead-zone filtering from rejecting them.
+The pavilion shell stays outside the return target list, so its backing wall
+cannot cover the view from the virtual camera behind the doorway.
 
 The committed `.tyra`, object JSON, `res/` sources and `terrain-Aster.heights`
 open and build without Python, Blender, downloads or `C:/Assets`. Generated
@@ -171,10 +181,10 @@ the perimeter. Portal traversal and low-angle sea views were exercised in
 PCSX2. A full pickup/throw circuit remains a manual acceptance check. The
 images above are unretouched game captures, not editor renders or concept art.
 
-The cellar update was checked with a fresh Release editor and Docker PS2
-build, a new GI bake, and pad traversal from the garden through both bends,
-into the cellar and back out to the garden. A temporary time-machine capture
-confirmed the eye height changes from Y=1.83 to Y=-10.2 and back; recording is
-disabled in the shipped project. Both portal views use their destination's
-enclosed geometry. The vault end walls overlap its crown to close sky/water
-gaps above the door and storage wall.
+The enlarged-cellar update was checked with a fresh Release editor and Docker
+PS2 build, a new GI bake, all 37 graph links retained, and pad movement through
+the east-facing entrance into the cellar and back onto the forecourt. Both
+destination views were captured in PCSX2, including the props and sea in the
+return view. The ocean pivot change was checked to preserve every world-space
+vertex. The vault end walls overlap its crown to close sky/water gaps above
+the door and storage wall. Time-machine recording remains disabled.

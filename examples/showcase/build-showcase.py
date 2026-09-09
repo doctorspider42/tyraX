@@ -231,7 +231,7 @@ def geometry():
     m=Mesh()
     for x in range(-300,300,20):
         for z in range(-300,300,20):
-            m.face([(x,0,z),(x,0,z+20),(x+20,0,z+20),(x+20,0,z)],'water')
+            m.face([(x-20,0,z),(x-20,0,z+20),(x,0,z+20),(x,0,z)],'water')
     m.save('sea-surface')
     # Draped pennants have a shaped hem and physical folds, not flat rectangles.
     m=Mesh()
@@ -311,7 +311,7 @@ def sequence(name,keys):
 
 
 def batch_architecture():
-    """Bake measured modules into four static districts, retaining interactions.
+    """Bake measured modules into static districts, retaining interactions.
 
     PS2 submission overhead is paid per material bag, even for tiny models.
     These are authored mesh assets, not an engine batching feature. The source
@@ -324,10 +324,11 @@ def batch_architecture():
         eligible=(o['type']=='model' and o.get('model','').endswith('.obj') and not o.get('flowGraph') and
                   not o.get('usable') and o['name'] not in floor_names and not o.get('drawDistance',0)>80)
         # Preserve the independent colliders around the throw/pickup court.
-        if z>17 and o.get('collision')!='none' and not o['name'].startswith('vestibule-'):eligible=False
+        if z>17 and o.get('collision')!='none' and not o['name'].startswith(('vestibule-','pavilion-')):eligible=False
         if not eligible:kept.append(o);continue
         region=('cellar' if o['name'].startswith('cellar-') else
                 'vestibule' if o['name'].startswith('vestibule-') else
+                'pavilion' if o['name'].startswith('pavilion-') else
                 'rotunda' if z<-17 else 'arrival' if z>17 else 'west' if x<0 else 'east')
         name='district-'+region
         mesh=groups.setdefault(name,Mesh());remap[o['name']]=name
@@ -354,8 +355,13 @@ def batch_architecture():
     # The ivy shares the district's library, including its alpha-cutout map.
     with (RES/'aster.mtl').open('a',encoding='utf-8') as f:f.write('\n'+(RES/'ivy.mtl').read_text())
     for name,mesh in groups.items():
+        # Portal dead-zone filtering uses object transforms. Keep the forecourt
+        # pivot in front of its east-facing exit, with identical world geometry.
+        pivot=(14,0,20) if name=='district-vestibule' else (0,0,0)
+        mesh.faces=[([(x-pivot[0],y-pivot[1],z-pivot[2]) for x,y,z in points],mat,uv)
+                    for points,mat,uv in mesh.faces]
         mesh.save(name)
-        model(name,name,(0,0,0),collision='none' if name=='district-arrival' else 'mesh',meshLod=0)
+        model(name,name,pivot,collision='none' if name=='district-arrival' else 'mesh',meshLod=0)
     for o in objects:
         for section,keyname in [('portal','objects'),('mirror','objects'),('camera','feedObjects')]:
             if section in o:
@@ -419,7 +425,7 @@ def author():
     # prevents the island's finite probe grid from painting huge dark facets
     # across the open sea; the sky reflection remains live.
     model('tidal-channel','canal-water',(0,-.55,0),collision='none',castShadow=False,bakedLighting=False,meshLod=0,prelit=True)
-    model('ocean','sea-surface',(0,-3.4,0),collision='none',castShadow=False,bakedLighting=False,meshLod=0,prelit=True)
+    model('ocean','sea-surface',(20,-3.4,0),collision='none',castShadow=False,bakedLighting=False,meshLod=0,prelit=True)
     for name,pos,size in (
         ('west',(-17.4,5,0),(.8,14,60)),('east',(17.4,5,0),(.8,14,60)),
         ('north',(0,5,-29.4),(36,14,.8)),('south',(0,5,29.4),(36,14,.8))):
@@ -502,77 +508,96 @@ def author():
         usable=True,projShadow=True,anim={'clip':'Idle','autoplay':True,'loop':True,'speed':.8},
         flowGraph=graph([[('OnStart','',[]),('PatrolWaypoints','keeper-route-',[1.1,2,0])],
                          [('OnUsed','',[]),('DisplayText','',[.5,.84,13,5],'Lenses: the entrance, crossing and west garden.')]]))
-    # A side-entry vestibule hides the surface view behind a right-angle turn.
-    # Its north screen spans the entire portal frustum; the door is in the west
-    # side, so the return view never needs the garden's geometry.
-    box('vestibule-floor',(11.6,-.12,22.8),(4.2,.3,7.6),'paving')
-    box('vestibule-screen',(11.6,1.9,19),(4.2,3.8,.4),'limestone')
-    box('vestibule-east-wall',(13.5,1.9,22.8),(.4,3.8,7.6),'limestone')
-    box('vestibule-west-return',(9.7,1.9,24.3),(.4,3.8,4.6),'limestone')
-    box('vestibule-back-wall',(11.6,1.9,26.5),(4.2,3.8,.4),'limestone')
-    box('vestibule-roof',(11.6,3.95,22.8),(4.5,.3,8),'ivory')
-    # A second bend screens the side door even from the portal's near edge.
-    box('vestibule-outer-screen',(8,1.9,20.4),(.3,3.8,5.6),'limestone')
-    box('vestibule-corridor-end',(8.85,1.9,23.05),(1.8,3.8,.3),'limestone')
-    box('vestibule-corridor-floor',(8.85,-.12,20.4),(1.8,.3,5.6),'paving')
-    box('vestibule-sill',(11.6,.12,19.4),(3.5,.24,.45),'ivory')
-    model('vestibule-crate','supply-crate',(10.5,0,19.9),(.65,.65,.65),rot=(0,12,0))
-    model('vestibule-lantern','lantern',(12.65,0,19.65),(.75,.75,.75),collision='none')
-    light('vestibule-warm-light',(11.7,2.7,20.2),(1,.69,.34),5)
+    # A tiny pavilion faces east, out to sea, rather than into the garden.
+    # Its exterior and a few forecourt props make the return view complete.
+    box('vestibule-floor',(12,-.12,20),(8,.3,7),'paving')
+    box('pavilion-back-wall',(8.2,1.9,20),(.3,3.8,3.6),'limestone')
+    for z in (18.35,21.65):
+        box(f'pavilion-side-{z}',(9.1,1.9,z),(2.1,3.8,.3),'limestone')
+    for z in (18.4,21.6):
+        box(f'pavilion-door-jamb-{z}',(10,1.65,z),(.4,3.3,.4),'limestone')
+    box('pavilion-door-header',(10,3.55,20),(.4,.3,3.6),'limestone')
+    box('pavilion-roof',(9.1,3.85,20),(2.5,.3,4),'ivory')
+    box('vestibule-sea-rail',(16,0.6,20),(.3,1.2,7),'limestone')
+    model('vestibule-crate','supply-crate',(14.8,0,22.3),(.8,.8,.8),rot=(0,12,0))
+    model('vestibule-lantern','lantern',(15,0,18.8),(.75,.75,.75),collision='none')
+    for z in (17.3,22.8):
+        model(f'vestibule-pot-{z}','planter',(14.5,0,z))
+        model(f'vestibule-flowers-{z}','flowers',(14.5,1.05,z),collision='none')
+    light('vestibule-warm-light',(14.8,2.4,18.8),(1,.69,.34),5)
 
     # The cellar occupies real space below the rotunda, in the same scene.
     # Its floor is twelve metres down; the support heightfield is lowered
     # below it later, leaving the surface's model floors untouched.
-    box('cellar-floor',(0,-12.2,-22.5),(8.4,.4,9.4),'paving')
-    box('cellar-west-wall',(-4.1,-10.2,-22.5),(.4,4,9.4),'shadowstone')
-    box('cellar-east-wall',(4.1,-10.2,-22.5),(.4,4,9.4),'shadowstone')
-    box('cellar-south-wall',(0,-9.95,-17.9),(8.4,4.5,.4),'shadowstone')
+    box('cellar-floor',(0,-12.2,-18),(14.4,.4,18.4),'paving')
+    box('cellar-west-wall',(-7.1,-9,-18),(.4,6,18.4),'shadowstone')
+    box('cellar-east-wall',(7.1,-9,-18),(.4,6,18.4),'shadowstone')
+    box('cellar-south-wall',(0,-8.9,-8.9),(14.4,6.2,.4),'shadowstone')
     # A real opening, not a portal painted on a solid batched collision mesh.
-    for x in (-2.825,2.825):
-        box(f'cellar-north-jamb-{x}',(x,-9.95,-27.1),(2.75,4.5,.4),'shadowstone')
-    box('cellar-north-header',(0,-8.2,-27.1),(2.9,1,.4),'shadowstone')
+    for x in (-4.325,4.325):
+        box(f'cellar-north-jamb-{x}',(x,-8.9,-27.1),(5.75,6.2,.4),'shadowstone')
+    box('cellar-north-header',(0,-7.25,-27.1),(2.9,2.9,.4),'shadowstone')
     vault=Mesh()
     for i in range(16):
         a,b=math.pi*i/16,math.pi*(i+1)/16
-        xa,ya=4.1*math.cos(a),-9.8+2.0*math.sin(a)
-        xb,yb=4.1*math.cos(b),-9.8+2.0*math.sin(b)
-        vault.face([(xa,ya,-27.3),(xb,yb,-27.3),(xb,yb,-17.7),(xa,ya,-17.7)],'limestone')
+        xa,ya=7.1*math.cos(a),-9.2+3.3*math.sin(a)
+        xb,yb=7.1*math.cos(b),-9.2+3.3*math.sin(b)
+        vault.face([(xa,ya,-27.3),(xb,yb,-27.3),(xb,yb,-8.7),(xa,ya,-8.7)],'limestone')
     vault.save('cellar-vault');model('cellar-vault','cellar-vault',(0,0,0),collision='mesh',meshLod=0)
+    # Repeated ribs and side piers establish the depth without blocking the aisle.
+    rib=Mesh()
+    for i in range(16):
+        a,b=math.pi*i/16,math.pi*(i+1)/16
+        xa,ya=7.0*math.cos(a),2.8+3.2*math.sin(a)
+        xb,yb=7.0*math.cos(b),2.8+3.2*math.sin(b)
+        rib.face([(xa,ya,-.15),(xb,yb,-.15),(xb,yb,.15),(xa,ya,.15)],'ivory')
+    rib.save('cellar-rib')
+    for z in (-23,-18,-13):
+        model(f'cellar-rib-{z}','cellar-rib',(0,-12,z),collision='none')
+        for x in (-6.7,6.7):box(f'cellar-pier-{x}-{z}',(x,-10.6,z),(.5,2.8,.5),'ivory')
     barrel=Mesh();barrel.lathe([(0,0),(.5,0),(.57,.2),(.64,.65),(.57,1.1),(.5,1.3),(0,1.3)],'bark',14)
     for h,r in ((.15,.57),(.65,.65),(1.05,.6)):
         barrel.lathe([(r,h),(r,h+.08)],'brass',14)
     barrel.save('cellar-barrel')
     bottle=Mesh();bottle.lathe([(0,0),(.14,0),(.16,.07),(.16,.38),(.075,.49),(.06,.67),(0,.67)],'leavesLight',10);bottle.save('cellar-bottle')
-    for i,(x,z) in enumerate(((-3,-19.1),(-1.7,-19.1),(-3,-20.5))):
+    for i,(x,z) in enumerate(((-5.7,-11),(-4.3,-11),(-5.7,-12.5),(-4.3,-12.5),(-5.7,-14),(-4.3,-14))):
         model(f'cellar-barrel-{i}','cellar-barrel',(x,-12,z))
-    for i,(x,z) in enumerate(((3,-19.1),(3,-20.5))):
+    for i,(x,z) in enumerate(((5.6,-11),(5.6,-12.5),(4.2,-11))):
         model(f'cellar-crate-{i}','supply-crate',(x,-12,z),(.8,.8,.8),rot=(0,8*i,0))
     for y in (-11.65,-10.65,-9.65):
-        box(f'cellar-shelf-{y}',(3.65,y,-23.3),(.65,.12,4.6),'bark')
-        for j in range(6):
-            model(f'cellar-bottle-{y}-{j}','cellar-bottle',(3.55,y+.06,-25.2+j*.72))
-    for z in (-25.5,-21.1):box(f'cellar-shelf-post-{z}',(3.65,-10.6,z),(.14,2.8,.14),'brass')
+        box(f'cellar-shelf-{y}',(6.3,y,-21),(.8,.12,8.4),'bark')
+        for j in range(10):
+            model(f'cellar-bottle-{y}-{j}','cellar-bottle',(6.2,y+.06,-24.8+j*.84))
+    for z in (-25,-21,-17):box(f'cellar-shelf-post-{z}',(6.3,-10.6,z),(.14,2.8,.14),'brass')
     box('cellar-workbench',(-2.6,-10.85,-23.9),(1.8,.2,2.6),'ivory')
     for x in (-3.25,-1.95):
         for z in (-24.85,-22.95):box(f'cellar-desk-leg-{x}-{z}',(x,-11.45,z),(.16,1.1,.16),'bark')
     model('cellar-star-chart','compass-rose',(-2.6,-10.74,-23.9),(.24,1,.24),collision='none')
-    for i,(x,z) in enumerate(((-3.3,-25.7),(2.7,-18.7))):
+    # A second instrument table gives the far end a visible destination.
+    box('cellar-display-table',(0,-10.85,-11.5),(3,.2,1.6),'ivory')
+    for x in (-1.2,1.2):box(f'cellar-display-leg-{x}',(x,-11.45,-11.5),(.25,1.1,1.2),'limestone')
+    model('cellar-display-chart','compass-rose',(0,-10.74,-11.5),(.35,1,.35),collision='none')
+    for i,(x,z) in enumerate(((-5.8,-24),(5.8,-16),(-3.4,-10.5),(3.4,-10.5))):
         model(f'cellar-lantern-{i}','lantern',(x,-12,z),(.8,.8,.8),collision='none')
-        light(f'cellar-lamp-{i}',(x,-9.45,z),(1,.64,.26),7)
-    light('cellar-vault-fill',(0,-9.3,-22.5),(1,.72,.42),8)['light']['beam']=0
-    obj('cellar-acoustics','area',(0,-10,-22.5),(8,4,9),reverb={'preset':3,'amount':.25,'priority':2})
+        light(f'cellar-lamp-{i}',(x,-9.45,z),(1,.72,.42),10)
+    for z in (-23,-17,-11):light(f'cellar-vault-fill-{z}',(0,-7.5,z),(1,.78,.52),10)['light']['beam']=0
+    obj('cellar-acoustics','area',(0,-9,-18),(14,6,18),reverb={'preset':3,'amount':.3,'priority':2})
+    # Keep the tidal channel shallow above the lowered underground heightfield.
+    obj('channel-support','box',(0,-2.5,-12),(8,2,12),collision='invisible')
 
-    for name,x,y,z,yaw,target in [('surface-gate',11.7,1.65,24,180,'cellar-gate'),('cellar-gate',0,-10.35,-26.75,0,'surface-gate')]:
-        prefix='cellar' if name=='cellar-gate' else 'vestibule'
-        for dx in (-1.3,1.3):box(f'{prefix}-portal-post-{dx}',(x+dx,y,z),(.3,3.3,.4),'ivory')
-        box(f'{prefix}-portal-lintel',(x,y+1.7,z),(2.9,.25,.5),'brass')
-        targets=[o['name'] for o in objects if o['name'].startswith('cellar-' if prefix=='vestibule' else 'vestibule-') and o['type']=='model']
+    for name,x,y,z,yaw,target in [('surface-gate',10,1.65,20,90,'cellar-gate'),('cellar-gate',0,-10.35,-26.75,0,'surface-gate')]:
+        prefix='cellar' if name=='cellar-gate' else 'pavilion'
+        for dx in (-1.3,1.3):
+            box(f'{prefix}-portal-post-{dx}',(x if yaw==90 else x+dx,y,z+dx if yaw==90 else z),(.4,3.3,.3) if yaw==90 else (.3,3.3,.4),'ivory')
+        box(f'{prefix}-portal-lintel',(x,y+1.7,z),(.5,.25,2.9) if yaw==90 else (2.9,.25,.5),'brass')
+        targets=[o['name'] for o in objects if o['name'].startswith('cellar-' if prefix=='pavilion' else 'vestibule-') and o['type']=='model']
         # Frame targets are completed after both frames have been authored.
         obj(name,'portal',(x,y,z),(2.3,3.3,1),rot=(0,yaw,0),collision='none',color=[.35,.8,.8],portal={'target':target,'objects':targets,'viewAll':False,'showTerrain':False})
     for o in objects:
         if o['name'] in ('surface-gate','cellar-gate'):
             prefix='cellar-' if o['name']=='surface-gate' else 'vestibule-'
             o['portal']['objects']=[t['name'] for t in objects if t['name'].startswith(prefix) and t['type']=='model']
+            if o['name']=='cellar-gate':o['portal']['objects']+=['ocean','entry-pier-1','sea-stack-1','sea-stack-3']
     # Horizon is deliberately staged: silhouettes, clear gaps, one beacon.
     for i,(x,z,h) in enumerate(((-42,-45,1.3),(36,-62,1.7),(-62,-5,.8),(55,-24,.7),(-24,-80,1.0))):
         model(f'sea-stack-{i}','island',(x,-9,z),(2,h,2),collision='none',drawDistance=150)
@@ -596,7 +621,7 @@ def author():
             x,z=-32+ix*2,-32+iz*2
             h=-.12 if abs(x)<=16 and abs(z)<=28 else -8
             if abs(x)<4 and abs(z)<17 and abs(z)>2:h=-1.5
-            if abs(x)<=6 and -30<=z<=-16:h=-14
+            if abs(x)<=8 and -30<=z<=-6:h=-14
             row.append(str(h))
         heights.append(' '.join(row))
     write(HERE/'terrain-Aster.heights','33 33\n'+'\n'.join(heights)+'\n')

@@ -16,6 +16,8 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.58.2: Aster's small, sea-facing portal opens into a much larger cellar.
+//
 // 1.58.1: Aster's portal connects a screened vestibule to a vaulted instrument
 // cellar below the rotunda, with bounded view lists and underground support.
 //
@@ -1773,7 +1775,7 @@
 
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 58
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
