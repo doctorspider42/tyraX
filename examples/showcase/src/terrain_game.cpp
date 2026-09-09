@@ -10583,13 +10583,16 @@ void TerrainGame::renderProjShadows() {
 // follow each light's level (flicker / Set Light / hidden object) through
 // the additive FIX value, submit. Runs at the end of renderScene so the
 // finished z-buffer occludes the beams behind walls.
-void TerrainGame::updateAndRenderLightBeams() {
+void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
+                                          const Vec4* viewAt, int portal) {
   if (lightBeams.empty() || !beamCoronaTex) return;
+  const Vec4& beamEye = viewEye ? *viewEye : cameraPosition;
+  const Vec4& beamAt = viewAt ? *viewAt : cameraLookAt;
 
   // Camera basis for the billboards.
-  float fx = cameraLookAt.x - cameraPosition.x,
-        fy = cameraLookAt.y - cameraPosition.y,
-        fz = cameraLookAt.z - cameraPosition.z;
+  float fx = beamAt.x - beamEye.x,
+        fy = beamAt.y - beamEye.y,
+        fz = beamAt.z - beamEye.z;
   const float fl = sqrtf(fx * fx + fy * fy + fz * fz);
   if (fl < 0.0001F) return;
   fx /= fl, fy /= fl, fz /= fl;
@@ -10605,6 +10608,15 @@ void TerrainGame::updateAndRenderLightBeams() {
     const RuntimeObject& ro = runtimeObjects[b.objIndex];
     if (!ro.active || !ro.visible) continue;
     const SceneObjectData& d = ro.data;
+    if (portal >= 0) {
+      if (!portalShowsObject(portal, b.objIndex) || beyondDrawDistance(d, beamEye))
+        continue;
+      // Do not pull lights from behind the destination's exit mouth into view.
+      if (portalExitPlane[0] * d.position[0] +
+              portalExitPlane[1] * d.position[1] +
+              portalExitPlane[2] * d.position[2] < portalExitPlane[3] + 0.1F)
+        continue;
+    }
 
     float level = 1.0F;  // baked lights: steady
     if (d.lightDynamic) {
@@ -10638,8 +10650,8 @@ void TerrainGame::updateAndRenderLightBeams() {
     // sliding it would visibly detach it from the lamp head.
     float pcx = cx, pcy = cy, pcz = cz, chalf = half;
     {
-      const float vx2 = cameraPosition.x - cx, vy2 = cameraPosition.y - cy,
-                  vz2 = cameraPosition.z - cz;
+      const float vx2 = beamEye.x - cx, vy2 = beamEye.y - cy,
+                  vz2 = beamEye.z - cz;
       const float vl = sqrtf(vx2 * vx2 + vy2 * vy2 + vz2 * vz2);
       if (vl > 0.0001F) {
         float pull = d.lightRadius * 0.25F;
@@ -15472,6 +15484,9 @@ bool TerrainGame::renderOnePortalView(int pi) {
     co.data.position[2] = savedCarry[2];
     co.dirty = true;  // main pass rebuilds at the real (near) position
   }
+  // Reuse the same depth-tested coronas/shafts with the virtual camera. The
+  // portal's scissor and final polygon mask bound these additive pixels too.
+  updateAndRenderLightBeams(&eye, &at, pi);
   portalExitPlaneOn = false;
   core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   core.portalViewEnd(xy, zz, n, (u8)scriptCtx.skyColor.r,

@@ -1188,7 +1188,8 @@ class TerrainGame : public Tyra::Game {
   std::vector<LightBeam> lightBeams;
   Tyra::Texture* beamCoronaTex = nullptr;
   void setupLightBeams();            // per scene load
-  void updateAndRenderLightBeams();  // per frame, end of renderScene
+  void updateAndRenderLightBeams(const Tyra::Vec4* viewEye = nullptr,
+                                const Tyra::Vec4* viewAt = nullptr, int portal = -1);
   // Ground pools of the DYNAMIC point lights: the terrain opts out of the
   // per-chunk light pick (hard seams at chunk borders), so each dynamic
   // light paints its pool as a smooth additive terrain-conforming patch

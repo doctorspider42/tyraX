@@ -8,7 +8,7 @@ constexpr int NAV_SCENE_COUNT = 1;
 // A* working arrays are sized to the largest scene grid; agents
 // cover the authored objects plus the runtime spawn pool.
 constexpr int NAV_MAX_CELLS = 4096;
-constexpr int NAV_MAX_AGENTS = 112;
+constexpr int NAV_MAX_AGENTS = 113;
 
 constexpr int NAV_WS[NAV_SCENE_COUNT] = {64};
 constexpr int NAV_DS[NAV_SCENE_COUNT] = {64};

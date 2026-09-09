@@ -16,6 +16,9 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.59.0: Portal views render listed Point Light coronas/shafts with the virtual
+// camera and destination depth. Aster's entrance sits on the sea edge.
+//
 // 1.58.2: Aster's small, sea-facing portal opens into a much larger cellar.
 //
 // 1.58.1: Aster's portal connects a screened vestibule to a vaulted instrument
@@ -1774,8 +1777,8 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 58
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_MINOR 59
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

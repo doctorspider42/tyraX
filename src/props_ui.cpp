@@ -1480,15 +1480,15 @@ void App::drawPropertiesWindow() {
         }
         if (ImGui::BeginCombo("##portalAdd", "+ Add object...")) {
             for (const SceneObject& t : project_.objects()) {
-                // same set the mirror can reflect: types the game draws as
-                // static geometry (animated models re-pose in the main view
-                // only; through a portal they would show a stale pose)
+                // Geometry and Point Light beam effects supported by the
+                // through-view (animated models reuse their latest pose).
                 const bool viewable =
                     t.type == PrimitiveType::Box || t.type == PrimitiveType::Sphere ||
                     t.type == PrimitiveType::Cylinder ||
                     t.type == PrimitiveType::Cone || t.type == PrimitiveType::Plane ||
                     t.type == PrimitiveType::SavePoint ||
-                    t.type == PrimitiveType::Model || t.type == PrimitiveType::Decal;
+                    t.type == PrimitiveType::Model || t.type == PrimitiveType::Decal ||
+                    t.type == PrimitiveType::PointLight;
                 if (!viewable || t.name == o.name) continue;
                 bool listed = false;
                 for (const std::string& n : o.portalObjects)

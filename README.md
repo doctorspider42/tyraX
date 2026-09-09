@@ -163,7 +163,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - **Surfaces** — [emissive materials](docs/emissive-materials.md),
   [sphere-mapped chrome](docs/reflective-materials.md), Mirror objects,
   [VU0-raytraced mirrors](docs/raytraced-reflections.md),
-  [live texture feeds](docs/texture-feeds.md) and [portals](docs/portals.md).
+  [live texture feeds](docs/texture-feeds.md) and [portals with visible lamp effects](docs/portals.md).
 - **Screen** — sky, fog, bloom, film grain and your own
   [`.screenfx` effects](docs/custom-screen-effects.md), plus
   [TV safe areas](docs/safe-areas.md) to frame against.

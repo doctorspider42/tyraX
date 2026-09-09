@@ -55,6 +55,13 @@ Two sibling skills cover the rest of the system:
 
 ## Source map (`src/`, one flat directory)
 
+Portal Point Light effects are authored through the portal object list
+(`props_ui.cpp`). The generated `updateAndRenderLightBeams` accepts the virtual
+eye/look target and portal index, reusing `portalShowsObject`, exit-plane and
+draw-distance filtering before rendering inside the destination depth/mask
+bracket. Its default arguments retain the ordinary camera pass. See
+`docs/portals.md`; baked GI and projected light pools are separate paths.
+
 | File | ~Lines (.cpp) | What it is |
 |---|---|---|
 | `main.cpp` | ~560 | Entry point. GUI by default; headless `--new`, `--build [--run\|--run-ps2]`, `--resave`, `--refresh-gen`, and the AI-agent commands `--dump` / `--list-nodes` / `--dump-graph` / `--apply-graph` / `--ai-graph` / `--add-ai-support` (docs/ai-tools.md). |

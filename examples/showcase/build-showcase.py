@@ -329,6 +329,7 @@ def batch_architecture():
         region=('cellar' if o['name'].startswith('cellar-') else
                 'vestibule' if o['name'].startswith('vestibule-') else
                 'pavilion' if o['name'].startswith('pavilion-') else
+                'seaward' if o['name'].startswith(('1-arcade-','1-ivy-','1-pennant-','seaward-')) else
                 'rotunda' if z<-17 else 'arrival' if z>17 else 'west' if x<0 else 'east')
         name='district-'+region
         mesh=groups.setdefault(name,Mesh());remap[o['name']]=name
@@ -357,7 +358,7 @@ def batch_architecture():
     for name,mesh in groups.items():
         # Portal dead-zone filtering uses object transforms. Keep the forecourt
         # pivot in front of its east-facing exit, with identical world geometry.
-        pivot=(14,0,20) if name=='district-vestibule' else (0,0,0)
+        pivot=(16,0,20) if name=='district-vestibule' else (16,0,0) if name=='district-seaward' else (0,0,0)
         mesh.faces=[([(x-pivot[0],y-pivot[1],z-pivot[2]) for x,y,z in points],mat,uv)
                     for points,mat,uv in mesh.faces]
         mesh.save(name)
@@ -510,21 +511,22 @@ def author():
                          [('OnUsed','',[]),('DisplayText','',[.5,.84,13,5],'Lenses: the entrance, crossing and west garden.')]]))
     # A tiny pavilion faces east, out to sea, rather than into the garden.
     # Its exterior and a few forecourt props make the return view complete.
-    box('vestibule-floor',(12,-.12,20),(8,.3,7),'paving')
-    box('pavilion-back-wall',(8.2,1.9,20),(.3,3.8,3.6),'limestone')
+    box('vestibule-floor',(15.8,-.12,20),(2.4,.3,6),'paving')
+    box('seaward-paving',(15.6,-.12,0),(.8,.3,34),'paving')
+    box('pavilion-back-wall',(13.4,1.9,20),(.3,3.8,3.6),'limestone')
     for z in (18.35,21.65):
-        box(f'pavilion-side-{z}',(9.1,1.9,z),(2.1,3.8,.3),'limestone')
+        box(f'pavilion-side-{z}',(14.3,1.9,z),(2.1,3.8,.3),'limestone')
     for z in (18.4,21.6):
-        box(f'pavilion-door-jamb-{z}',(10,1.65,z),(.4,3.3,.4),'limestone')
-    box('pavilion-door-header',(10,3.55,20),(.4,.3,3.6),'limestone')
-    box('pavilion-roof',(9.1,3.85,20),(2.5,.3,4),'ivory')
-    box('vestibule-sea-rail',(16,0.6,20),(.3,1.2,7),'limestone')
-    model('vestibule-crate','supply-crate',(14.8,0,22.3),(.8,.8,.8),rot=(0,12,0))
-    model('vestibule-lantern','lantern',(15,0,18.8),(.75,.75,.75),collision='none')
-    for z in (17.3,22.8):
-        model(f'vestibule-pot-{z}','planter',(14.5,0,z))
-        model(f'vestibule-flowers-{z}','flowers',(14.5,1.05,z),collision='none')
-    light('vestibule-warm-light',(14.8,2.4,18.8),(1,.69,.34),5)
+        box(f'pavilion-door-jamb-{z}',(15.2,1.65,z),(.4,3.3,.4),'limestone')
+    box('pavilion-door-header',(15.2,3.55,20),(.4,.3,3.6),'limestone')
+    box('pavilion-roof',(14.3,3.85,20),(2.5,.3,4),'ivory')
+    box('vestibule-sea-rail',(17,0.6,20),(.3,1.2,6),'limestone')
+    model('vestibule-crate','supply-crate',(16.5,0,21.7),(.5,.5,.5),rot=(0,12,0))
+    model('vestibule-lantern','lantern',(16.2,0,19.2),(.6,.6,.6),collision='none')
+    for z in (17.8,22.2):
+        model(f'vestibule-pot-{z}','planter',(16.45,0,z),(.45,.45,.45))
+        model(f'vestibule-flowers-{z}','flowers',(16.45,.4725,z),(.45,.45,.45),collision='none')
+    light('vestibule-warm-light',(16.2,1.98,19.2),(1,.69,.34),5)
 
     # The cellar occupies real space below the rotunda, in the same scene.
     # Its floor is twelve metres down; the support heightfield is lowered
@@ -585,19 +587,26 @@ def author():
     # Keep the tidal channel shallow above the lowered underground heightfield.
     obj('channel-support','box',(0,-2.5,-12),(8,2,12),collision='invisible')
 
-    for name,x,y,z,yaw,target in [('surface-gate',10,1.65,20,90,'cellar-gate'),('cellar-gate',0,-10.35,-26.75,0,'surface-gate')]:
+    for name,x,y,z,yaw,target in [('surface-gate',15.2,1.65,20,90,'cellar-gate'),('cellar-gate',0,-10.35,-26.75,0,'surface-gate')]:
         prefix='cellar' if name=='cellar-gate' else 'pavilion'
         for dx in (-1.3,1.3):
             box(f'{prefix}-portal-post-{dx}',(x if yaw==90 else x+dx,y,z+dx if yaw==90 else z),(.4,3.3,.3) if yaw==90 else (.3,3.3,.4),'ivory')
         box(f'{prefix}-portal-lintel',(x,y+1.7,z),(.5,.25,2.9) if yaw==90 else (2.9,.25,.5),'brass')
-        targets=[o['name'] for o in objects if o['name'].startswith('cellar-' if prefix=='pavilion' else 'vestibule-') and o['type']=='model']
+        targets=[]  # Completed below after both portal frames exist.
         # Frame targets are completed after both frames have been authored.
         obj(name,'portal',(x,y,z),(2.3,3.3,1),rot=(0,yaw,0),collision='none',color=[.35,.8,.8],portal={'target':target,'objects':targets,'viewAll':False,'showTerrain':False})
     for o in objects:
         if o['name'] in ('surface-gate','cellar-gate'):
             prefix='cellar-' if o['name']=='surface-gate' else 'vestibule-'
-            o['portal']['objects']=[t['name'] for t in objects if t['name'].startswith(prefix) and t['type']=='model']
-            if o['name']=='cellar-gate':o['portal']['objects']+=['ocean','entry-pier-1','sea-stack-1','sea-stack-3']
+            o['portal']['objects']=[t['name'] for t in objects if t['name'].startswith(prefix) and
+                                   (t['type']=='model' or (t['type']=='point-light' and t.get('light',{}).get('beam',0)))]
+            if o['name']=='cellar-gate':
+                o['portal']['objects']+=['ocean','entry-pier-1','sea-stack-1','sea-stack-3','district-seaward']
+                o['portal']['showTerrain']=True  # The same live sky as the main view.
+    # Leave a comfortable walking gap between the doorway posts and sea-side props.
+    for o in objects:
+        if o['name'].startswith('pavilion-') or o['name']=='surface-gate':
+            o['position'][0]-=.8
     # Horizon is deliberately staged: silhouettes, clear gaps, one beacon.
     for i,(x,z,h) in enumerate(((-42,-45,1.3),(36,-62,1.7),(-62,-5,.8),(55,-24,.7),(-24,-80,1.0))):
         model(f'sea-stack-{i}','island',(x,-9,z),(2,h,2),collision='none',drawDistance=150)

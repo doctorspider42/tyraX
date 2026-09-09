@@ -10,6 +10,10 @@ target portal with position, view angle and vertical velocity carried
 through**. Two portals pointed at each other make a seamless two-way door
 between distant parts of the map.
 
+The [Aster showcase](../examples/showcase/README.md) demonstrates a small
+seaside doorway into a large vaulted cellar, including lamp coronas visible
+before crossing and a bounded return view of the sea.
+
 ## Authoring
 
 1. Insert two portals (Insert > Gameplay > Portal), place them where you want
@@ -27,6 +31,13 @@ between distant parts of the map.
    through) from that frame on — see [areas.md](areas.md). Terrain and the sky
    dome have their own toggle (**Terrain + sky in view**, on by default). Keep
    the list to the landmarks that sell the destination.
+   **Point Lights can join this list too.** With **Beam** set to corona or
+   corona + shaft, their visible effects render using the portal's virtual
+   camera and destination depth, including the normal brightness/flicker
+   level. Walls still occlude them and the portal mask bounds the glow.
+   Include the lamp fixture as well as its Point Light. Baked GI already
+   travels with the destination geometry; this adds the visible light source,
+   not another GI bake or a second projected-light/shadow pass.
    Or tick **All objects in view (experimental)**: every scene object renders
    in the through-view and the list is ignored. The virtual camera's frustum
    culling drops off-view geometry EE-side and draw distances are measured

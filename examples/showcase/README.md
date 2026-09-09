@@ -36,12 +36,13 @@ twice. Their visibility and the expedition's progress travel in save slots.
 | Start | Pause and open the expedition save menu |
 
 The calibration court is east of the entrance. The hovering keeper patrols
-the east garden and offers a clue. A tiny stone pavilion near **(10, 20)**
+the east garden and offers a clue. A tiny stone pavilion near **(14.4, 20)**
 has an east-facing portal: approach from the sea side and walk west through
 the frame. The roughly **2 × 4m exterior** opens into a **14 × 18m cellar**,
 twelve metres below the island, with a six-metre vaulted ceiling. Repeated
 ribs, stocked shelves and the far instrument table reveal its depth through
-the small doorway. The return view faces a few forecourt props and the sea,
+the small doorway. The entrance sits on the sea edge; the return view faces
+a few forecourt props and the sea,
 away from the centre of the garden. Inside the rotunda, the silver instrument
 traces reflections and the gold instrument shows a second camera's view.
 A save point waits at the entrance. Films use the engine's skippable-sequence
@@ -97,23 +98,25 @@ constant UVs so the LOD welder can collapse their interior edges; lathed stone
 has continuous cylindrical UVs. Decorative per-face UV islands on a plain
 column had prevented its LOD tiers from being produced.
 
-The recipe joins 191 static pieces into seven district meshes.
-The resulting scene has 80 runtime objects. Walking slabs and interactive
+The recipe joins 192 static pieces into eight district meshes.
+The resulting scene has 81 runtime objects. Walking slabs and interactive
 props remain independent. District meshes retain their full geometry; smaller
 props use mesh LOD. The rotating matte rings use the engine's transform fast
 path. These choices reduce submissions and avoid rebuilding reflective ring
 geometry every frame.
 
 The cellar, pavilion shell and forecourt occupy separate district meshes. The inward view
-lists the whole cellar; the return view adds the sea, two horizon stacks and
-the neighbouring entry pier to the forecourt mesh. Both
-disable terrain rendering. The
+lists the whole cellar and its four lamp coronas; the return view adds the sea,
+two horizon stacks, the neighbouring entry pier and the seaward colonnade to
+the forecourt mesh and lamp. The return view also renders the live sky and
+terrain so the horizon matches the main view. The underground view disables
+terrain rendering. The
 cellar has a real opening in its collision mesh; the support heightfield is
 lowered below its floor so walking collision does not push visitors upstairs.
 Surface model floors remain in place; an invisible support box keeps the
 tidal channel shallow above the lowered heightfield. Seven vertical GI probe levels cover
 the cellar as well as the garden, with warm baked lights and local reverb.
-The forecourt and sea pivots sit east of the exit plane, preserving their
+The forecourt, seaward colonnade and sea pivots sit east of the exit plane, preserving their
 world geometry while keeping portal dead-zone filtering from rejecting them.
 The pavilion shell stays outside the return target list, so its backing wall
 cannot cover the view from the virtual camera behind the doorway.
@@ -188,3 +191,10 @@ destination views were captured in PCSX2, including the props and sea in the
 return view. The ocean pivot change was checked to preserve every world-space
 vertex. The vault end walls overlap its crown to close sky/water gaps above
 the door and storage wall. Time-machine recording remains disabled.
+
+The portal-light update adds the destination Point Lights to both view lists.
+PCSX2 checks covered the coronas before and after walking through the doorway,
+the bounded sea/sky return view, and return traversal. The editor's actual
+portal picker was used to add a Point Light and save it; the serialized list
+was checked before restoring the authored list. Fresh Release and Docker PS2
+builds, the GI bake and all 37 graph links were checked again.
