@@ -126,6 +126,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   without git conflicts. Picking, gizmos, rubber-band selection,
   [surface snapping and cursor-following paste](docs/object-placement.md),
   [model bounds selection](docs/object-selection.md),
+  [persistent object groups](docs/object-groups.md),
   [orthographic and axis views](docs/orthographic-views.md), and a viewport that
   can rasterize, shade and colour the way
   [the console does](docs/ps2-viewport.md) — GS raster, per-vertex flat-shaded

@@ -884,16 +884,21 @@ void writeFrameCapture(ScriptContext& ctx) {
                         fb->psm))
       ++refused;
     FlushCache(0);  // the line was written by DMA - see above
-    // Alpha is forced opaque: the GS keeps 0..128 there and a frame buffer's
-    // alpha is a working channel rather than coverage, so taken literally the
-    // picture reads as half transparent. Only the colour here is a picture.
+    // Alpha is the frame buffer's OWN alpha, doubled to 0..255 (the GS
+    // keeps 0..128; a 16-bit frame keeps one bit): it is a working channel
+    // - the shadow mask, and on interlaced SDTV the CRTC's flicker-filter
+    // blend weight - so a picture of it is what shows an alpha-shaped
+    // artifact the RGB cannot. Every reader that wants a PICTURE forces it
+    // opaque itself (the Debugger's Screen tab, --capture-frame's PNG);
+    // --capture-frame --alpha writes it as a grey image.
     if (fb->psm == 2) {  // PSMCT16
       const unsigned short* in = (const unsigned short*)lineIn;
       for (unsigned int x = 0; x < w; ++x) {
         const unsigned int r = (unsigned int)((in[x] & 31U) << 3);
         const unsigned int g = (unsigned int)(((in[x] >> 5) & 31U) << 3);
         const unsigned int b = (unsigned int)(((in[x] >> 10) & 31U) << 3);
-        lineOut[x] = 0xFF000000U | (r << 16) | (g << 8) | b;
+        const unsigned int a = (in[x] & 0x8000U) ? 0xFFU : 0U;
+        lineOut[x] = (a << 24) | (r << 16) | (g << 8) | b;
       }
     } else if (fb->psm == 1) {  // PSMCT24
       const unsigned char* in = (const unsigned char*)lineIn;
@@ -902,9 +907,12 @@ void writeFrameCapture(ScriptContext& ctx) {
                      ((unsigned int)in[1] << 8) | (unsigned int)in[2];
     } else {  // PSMCT32
       const unsigned char* in = (const unsigned char*)lineIn;
-      for (unsigned int x = 0; x < w; ++x, in += 4)
-        lineOut[x] = 0xFF000000U | ((unsigned int)in[0] << 16) |
+      for (unsigned int x = 0; x < w; ++x, in += 4) {
+        unsigned int a = (unsigned int)in[3] * 2U;
+        if (a > 255U) a = 255U;
+        lineOut[x] = (a << 24) | ((unsigned int)in[0] << 16) |
                      ((unsigned int)in[1] << 8) | (unsigned int)in[2];
+      }
     }
     wrote += (unsigned int)fwrite(lineOut, 1, w * 4U, f);
   }

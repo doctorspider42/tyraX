@@ -53,6 +53,16 @@ Two sibling skills cover the rest of the system:
 - **tyra-testing** — building, running and verifying anything (editor, codegen,
   PCSX2 e2e). Read it before claiming a change works.
 
+## Object grouping
+
+`SceneObject::editorGroup` is a scene-local persistent selection identity, saved
+by objectJson/parseObject and compared by operator== (history/session sync).
+App selection helpers expand membership before manipulation; the existing gizmo
+applies a world delta about the centroid. Properties uses a rigid matrix delta
+for group rotation too. Paste renames groups and internal object references;
+prefab capture clears group membership. Groups are editor-only, with no generated
+runtime hierarchy. See docs/object-groups.md.
+
 ## Source map (`src/`, one flat directory)
 
 Portal Point Light effects are authored through the portal object list

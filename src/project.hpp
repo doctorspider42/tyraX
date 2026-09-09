@@ -809,6 +809,8 @@ struct SceneObject {
     // a room is still a room); dropped by prefab::capture, which must not
     // record where its own members came from.
     std::string prefabSource;
+    // Scene-local, editor-only rigid selection group; empty = independent.
+    std::string editorGroup;
 
     // Attached object scripts: class names registered in src/scripts/*.cpp
     // with TYRA_OBJECT_SCRIPT(Name). Each attachment becomes its own script
@@ -1088,7 +1090,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.procGraph == b.procGraph && a.procSource == b.procSource &&
            a.vuParams[0] == b.vuParams[0] && a.vuParams[1] == b.vuParams[1] &&
            a.vuParams[2] == b.vuParams[2] && a.vuParams[3] == b.vuParams[3] &&
-           a.prefabSource == b.prefabSource;
+           a.prefabSource == b.prefabSource && a.editorGroup == b.editorGroup;
 }
 
 // General project preferences (Project > Preferences in the editor).

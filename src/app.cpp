@@ -1086,6 +1086,8 @@ void App::drawUI() {
             // While the Flow Graph window has focus, Ctrl+C/V act on its nodes
             // (handled in drawFlowGraphWindow); otherwise they copy scene objects.
             if (!flowGraphFocused_) {
+                if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_G)) ungroupSelection();
+                else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_G)) groupSelection();
                 if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_C)) copyObject();
                 if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_V)) pasteObject();
             }
@@ -1239,6 +1241,8 @@ void App::drawMenuBar() {
             const char* pasteLabel = pastePending_ ? "Place paste"
                                      : clipboard_.size() > 1 ? "Paste objects"
                                                              : "Paste object";
+            if (ImGui::MenuItem("Group objects", "Ctrl+G", false, selection_.size() > 1 && selectedGroup().empty())) groupSelection();
+            if (ImGui::MenuItem("Ungroup objects", "Ctrl+Shift+G", false, objectSelected)) ungroupSelection();
             if (ImGui::MenuItem(copyLabel, "Ctrl+C", false, objectSelected)) copyObject();
             if (ImGui::MenuItem(pasteLabel, "Ctrl+V", false,
                                 hasProject_ && (pastePending_ || !clipboard_.empty())))
@@ -6063,17 +6067,65 @@ int App::viewportPick(float u, float v, ImVec2 mouse, bool* cycled) {
 // selectedObject_ is kept in sync as the primary (anchor) of the set: the
 // last-clicked object, which drives the orbit pivot, the single-object gizmo
 // path and the anchor value shown in the multi-edit panel.
+void App::expandSelectionGroups() {
+    std::vector<std::string> groups;
+    for (int i : selection_)
+        if (!project_.objects()[i].editorGroup.empty())
+            groups.push_back(project_.objects()[i].editorGroup);
+    for (int i = 0; i < (int)project_.objects().size(); ++i)
+        if (!isSelected(i) && std::find(groups.begin(), groups.end(),
+                project_.objects()[i].editorGroup) != groups.end())
+            selection_.push_back(i);
+}
+
+std::string App::selectedGroup() const {
+    if (selection_.empty()) return {};
+    const std::string group = project_.objects()[selection_.front()].editorGroup;
+    for (int i : selection_)
+        if (project_.objects()[i].editorGroup != group) return {};
+    return group;
+}
+
+void App::groupSelection() {
+    if (selection_.size() < 2 || !selectedGroup().empty()) return;
+    expandSelectionGroups();
+    std::string name = "Group";
+    for (int n = 2; std::any_of(project_.objects().begin(), project_.objects().end(),
+             [&](const SceneObject& o) { return o.editorGroup == name; }); ++n)
+        name = "Group " + std::to_string(n);
+    for (int i : selection_) project_.objects()[i].editorGroup = name;
+    commitChange();
+    statusMessage_ = "Created " + name;
+}
+
+void App::ungroupSelection() {
+    expandSelectionGroups();
+    bool changed = false;
+    for (int i : selection_) {
+        changed |= !project_.objects()[i].editorGroup.empty();
+        project_.objects()[i].editorGroup.clear();
+    }
+    if (changed) { commitChange(); statusMessage_ = "Ungrouped objects"; }
+}
+
 void App::selectOnly(int i) {
     selection_.clear();
     if (i >= 0 && i < (int)project_.objects().size()) selection_.push_back(i);
+    expandSelectionGroups();
     selectedObject_ = selection_.empty() ? -1 : selection_.back();
 }
 
 void App::toggleSelect(int i) {
     if (i < 0 || i >= (int)project_.objects().size()) return;
-    auto it = std::find(selection_.begin(), selection_.end(), i);
-    if (it != selection_.end()) selection_.erase(it);
-    else selection_.push_back(i);
+    const std::string group = project_.objects()[i].editorGroup;
+    if (isSelected(i)) {
+        selection_.erase(std::remove_if(selection_.begin(), selection_.end(),
+            [&](int j) { return j == i || (!group.empty() &&
+                project_.objects()[j].editorGroup == group); }), selection_.end());
+    } else {
+        selection_.push_back(i);
+        expandSelectionGroups();
+    }
     selectedObject_ = selection_.empty() ? -1 : selection_.back();
 }
 
@@ -6092,6 +6144,7 @@ void App::pruneSelection() {
         std::remove_if(selection_.begin(), selection_.end(),
                        [n](int i) { return i < 0 || i >= n; }),
         selection_.end());
+    expandSelectionGroups();
     selectedObject_ = selection_.empty() ? -1 : selection_.back();
 }
 
@@ -6150,6 +6203,7 @@ void App::selectObjectsInBox(ImVec2 a, ImVec2 b, ImVec2 imgPos, ImVec2 avail, bo
             oMinX <= rMaxX && oMaxX >= rMinX && oMinY <= rMaxY && oMaxY >= rMinY;
         if (overlap && !isSelected(i)) selection_.push_back(i);
     }
+    expandSelectionGroups();
     selectedObject_ = selection_.empty() ? -1 : selection_.back();
 }
 
@@ -6298,6 +6352,44 @@ void App::beginPastePlacement() {
         }
         o.name = name;
         pasteStaged_.push_back(std::move(o));
+    }
+    // Only references between copied members are redirected. External targets
+    // (such as the cellar behind a copied pavilion) retain their authored link.
+    std::map<std::string, std::string> names;
+    for (size_t i = 0; i < pasteStaged_.size(); ++i) names[clipboard_[i].name] = pasteStaged_[i].name;
+    auto remap = [&](std::string& name) { auto it = names.find(name); if (it != names.end()) name = it->second; };
+    for (auto& o : pasteStaged_) {
+        remap(o.portalTarget); remap(o.catchArea);
+        for (auto& n : o.portalObjects) remap(n);
+        for (auto& n : o.mirrorObjects) remap(n);
+        for (auto& n : o.camFeedObjects) remap(n);
+        for (auto& seg : o.scrollSegments) for (auto& m : seg.objects) remap(m.name);
+        for (auto& node : o.flowGraph.nodes) {
+            const auto* type = flowNodeType(node.type);
+            if (type && (type->strKind == FlowParamKind::ObjectName || type->strKind == FlowParamKind::AreaName)) remap(node.str);
+        }
+        for (const std::string prefix : {std::string("camera:"), std::string("mirror:")})
+            if (o.textureFeed.rfind(prefix, 0) == 0) {
+                std::string name = o.textureFeed.substr(prefix.size()); remap(name); o.textureFeed = prefix + name;
+            }
+    }
+    std::map<std::string, std::string> groups;
+    for (SceneObject& o : pasteStaged_) {
+        if (o.editorGroup.empty()) continue;
+        auto it = groups.find(o.editorGroup);
+        if (it == groups.end()) {
+            const std::string base = o.editorGroup + " copy";
+            std::string name = base;
+            for (int n = 2; ; ++n) {
+                bool taken = false;
+                for (const auto& t : project_.objects()) taken |= t.editorGroup == name;
+                for (const auto& t : groups) taken |= t.second == name;
+                if (!taken) break;
+                name = base + " " + std::to_string(n);
+            }
+            it = groups.emplace(o.editorGroup, name).first;
+        }
+        o.editorGroup = it->second;
     }
     if (pasteStaged_.empty()) return;
     pastePending_ = true;
@@ -8066,7 +8158,8 @@ void App::drawSceneSection() {
         auto passesFilter = [&](const SceneObject& o) {
             if (sceneFilterType_ >= 0 && (int)o.type != sceneFilterType_) return false;
             return needle.empty() ||
-                   lowered(o.name).find(needle) != std::string::npos;
+                   lowered(o.name).find(needle) != std::string::npos ||
+                   lowered(o.editorGroup).find(needle) != std::string::npos;
         };
 
         auto layerExists = [&](const std::string& name) {
@@ -8153,21 +8246,24 @@ void App::drawSceneSection() {
         // the label to select the whole instance, the arrow to open it.
         auto selectAll = [&](const std::vector<int>& ms) {
             clearSelection();
-            for (int j : ms) toggleSelect(j);
+            for (int j : ms) if (!isSelected(j)) toggleSelect(j);
         };
         auto emitRows = [&](const std::vector<int>& idxs) {
             std::vector<std::string> done;
             for (int i : idxs) {
-                const std::string src = project_.objects()[i].prefabSource;
+                const bool persistent = !project_.objects()[i].editorGroup.empty();
+                const std::string src = persistent ? project_.objects()[i].editorGroup : project_.objects()[i].prefabSource;
+                const std::string key = (persistent ? "group:" : "prefab:") + src;
                 if (src.empty()) {
                     objectRow(i);
                     continue;
                 }
-                if (std::find(done.begin(), done.end(), src) != done.end()) continue;
-                done.push_back(src);
+                if (std::find(done.begin(), done.end(), key) != done.end()) continue;
+                done.push_back(key);
                 std::vector<int> members;
                 for (int j : idxs)
-                    if (project_.objects()[j].prefabSource == src) members.push_back(j);
+                    if (persistent ? project_.objects()[j].editorGroup == src :
+                        (project_.objects()[j].editorGroup.empty() && project_.objects()[j].prefabSource == src)) members.push_back(j);
                 bool allSel = true;
                 for (int j : members) allSel &= isSelected(j);
                 ImGuiTreeNodeFlags pflags = ImGuiTreeNodeFlags_SpanAvailWidth |
@@ -8186,7 +8282,9 @@ void App::drawSceneSection() {
                     else
                         selectAll(members);
                 }
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                if (persistent && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("Object group: click any member to select the whole group. Ctrl+Shift+G ungroups it.");
+                if (!persistent && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
                     ImGui::SetTooltip(
                         "Inserted from the prefab \"%s\" (Tools > Prefabs).\n"
                         "These are ordinary objects - editing the prefab does not\n"

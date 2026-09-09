@@ -198,3 +198,15 @@ the bounded sea/sky return view, and return traversal. The editor's actual
 portal picker was used to add a Point Light and save it; the serialized list
 was checked before restoring the authored list. Fresh Release and Docker PS2
 builds, the GI bake and all 37 graph links were checked again.
+
+The **Portal pavilion** object group contains the pavilion mesh and surface portal.
+Select either to move or rotate the entrance as one assembly; the cellar stays
+in place. The building mesh now has its pivot at the doorway, preserving every
+world-space vertex. See [Object groups](../../docs/object-groups.md). Re-bake GI
+after moving it, and adjust the return view list if its surroundings change.
+
+Grouping validation covered real editor actions: create/rename, a rigid 90-degree
+rotation with mixed object orientations and a light, independent copy/delete,
+undo/redo across reload, ungroup without transform changes, and paired-portal
+copy reference remapping. The merged Release editor and Docker PS2 build passed;
+Aster was re-baked and entered through the grouped portal in PCSX2.

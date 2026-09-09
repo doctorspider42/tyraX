@@ -358,7 +358,7 @@ def batch_architecture():
     for name,mesh in groups.items():
         # Portal dead-zone filtering uses object transforms. Keep the forecourt
         # pivot in front of its east-facing exit, with identical world geometry.
-        pivot=(16,0,20) if name=='district-vestibule' else (16,0,0) if name=='district-seaward' else (0,0,0)
+        pivot=(16,0,20) if name=='district-vestibule' else (16,0,0) if name=='district-seaward' else (14.4,1.65,20) if name=='district-pavilion' else (0,0,0)
         mesh.faces=[([(x-pivot[0],y-pivot[1],z-pivot[2]) for x,y,z in points],mat,uv)
                     for points,mat,uv in mesh.faces]
         mesh.save(name)
@@ -620,6 +620,10 @@ def author():
         'keys':[{'t':t,'pos':[0,4.1,-12],'rot':[0,0,0],'scale':[size]*3,'color':color,'vis':True,'ease':1}
                 for t,size,color in [(0,1.7,[1,1,1]),(4,2.6,[1,.95,.7]),(8,2.1,[.8,1,1])]]}]
     batched=batch_architecture()
+    # The building and its live doorway move as one; the cellar stays below map.
+    for o in objects:
+        if o['name'] in ('district-pavilion','surface-gate'):
+            o['editorGroup']='Portal pavilion'
     p['scenes']=[{'name':'Aster','terrain':{'width':64,'depth':64},'layers':[],'objects':[o['id'] for o in objects]}]
     # Hidden support terrain gives A* a real walkable surface. It follows the
     # architecture, sits below paving, and drops below the sea at the edges.

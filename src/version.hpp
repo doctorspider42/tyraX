@@ -16,6 +16,9 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.76.0: Persistent object groups with rigid transforms, independent copies
+// and ungrouping; Aster's portal pavilion is a ready-to-move group.
+//
 // 1.59.0: Portal views render listed Point Light coronas/shafts with the virtual
 // camera and destination depth. Aster's entrance sits on the sea edge.
 //
@@ -2903,7 +2906,7 @@
 // 1.75.0: universal CPU/GPU impostor capture with 4/8/16 views, grove example
 // and world-bounds selection. Includes the earlier in-branch v39/v40 stages.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 75
+#define TYRAX_VERSION_MINOR 76
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -3242,7 +3245,8 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v39/v40: optional impostor path, distance and cylindrical billboard flag.
 // v41: impostorViews (4/8/16), defaults to 8 for existing captures.
 // v42: invisible box collisions (renumbered from this branch's v32 on merge).
-inline constexpr int kFormatVersion = 42;
+// v43: optional scene-local editorGroup membership, no runtime hierarchy.
+inline constexpr int kFormatVersion = 43;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

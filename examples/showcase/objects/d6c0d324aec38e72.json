@@ -1,1 +1,1 @@
-{ "id": "d6c0d324aec38e72", "name": "district-pavilion", "type": "model", "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "collision": "mesh", "model": "res/aster/district-pavilion.obj", "meshLod": 0 }
+{ "id": "d6c0d324aec38e72", "name": "district-pavilion", "type": "model", "position": [14.4, 1.65, 20], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "collision": "mesh", "model": "res/aster/district-pavilion.obj", "meshLod": 0, "editorGroup": "Portal pavilion" }

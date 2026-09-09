@@ -227,3 +227,7 @@ Developer design docs (internals, not user guides):
   the design behind the format; the user guide is [model-pipeline.md](model-pipeline.md).
 - [BLSS reconstruction math](blss-reconstruction.md) — the twin contract
   between the upscaler's host trainer and its PS2 runtime, byte for byte.
+
+## Object groups
+
+[Object groups](object-groups.md) keep assemblies together for selection, rigid transforms, independent copying, deletion and ungrouping.

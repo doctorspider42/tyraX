@@ -214,6 +214,10 @@ void App::drawPropertiesWindow() {
     const bool isSolid =
         isShape || o.type == PrimitiveType::Model || o.type == PrimitiveType::SavePoint;
 
+    if (!o.editorGroup.empty()) {
+        ImGui::Text("Group: %s", o.editorGroup.c_str());
+        if (ImGui::Button("Ungroup objects")) ungroupSelection();
+    }
     char nameBuf[128];
     std::snprintf(nameBuf, sizeof(nameBuf), "%s", o.name.c_str());
     if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) o.name = nameBuf;
@@ -2312,6 +2316,27 @@ void App::drawMultiProperties() {
         if (i >= 0 && i < (int)project_.objects().size())
             objs.push_back(&project_.objects()[i]);
     if (objs.size() < 2) return;
+    const std::string group = selectedGroup();
+    if (group.empty()) {
+        if (ImGui::Button("Group objects")) { groupSelection(); return; }
+    } else {
+        char name[256];
+        std::snprintf(name, sizeof(name), "%s", group.c_str());
+        if (ImGui::InputText("Group name", name, sizeof(name), ImGuiInputTextFlags_EnterReturnsTrue) && name[0]) {
+            bool taken = false;
+            for (const auto& o : project_.objects())
+                taken |= o.editorGroup == name && o.editorGroup != group;
+            if (!taken) {
+                for (auto* o : objs) o->editorGroup = name;
+                commitChange();
+            } else statusMessage_ = "A group with this name already exists";
+        }
+        if (ImGui::Button("Ungroup objects")) { ungroupSelection(); return; }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Copy objects")) copyObject();
+    ImGui::SameLine();
+    if (ImGui::Button("Delete objects")) { deleteSelectedObjects(); return; }
     SceneObject& primary = *objs.back();  // anchor: seeds the transform values
     bool committed = false;
 
@@ -2486,7 +2511,33 @@ void App::drawMultiProperties() {
     // --- transforms (relative) ---
     relDrag3("Position", [](SceneObject& o) -> float* { return o.position; }, 0.1f, 0.0f,
              0.0f, "%.3f");
-    if (allRot)
+    if (!group.empty()) {
+        // Use the primary orientation as the numerical handle, but rotate every
+        // position and orientation rigidly around the same centroid as the gizmo.
+        float angle[3] = {primary.rotation[0], primary.rotation[1], primary.rotation[2]};
+        if (ImGui::DragFloat3("Rotation", angle, 1.0f, -360.0f, 360.0f, "%.0f deg")) {
+            float pivot[3] = {}, zero[3] = {}, unit[3] = {1, 1, 1};
+            for (auto* o : objs) for (int k = 0; k < 3; ++k) pivot[k] += o->position[k] / (float)objs.size();
+            float before[16], after[16], delta[16] = {};
+            ImGuizmo::RecomposeMatrixFromComponents(zero, primary.rotation, unit, before);
+            ImGuizmo::RecomposeMatrixFromComponents(zero, angle, unit, after);
+            for (int c = 0; c < 3; ++c) for (int r = 0; r < 3; ++r)
+                for (int k = 0; k < 3; ++k) delta[c*4+r] += after[k*4+r] * before[k*4+c];
+            delta[15] = 1;
+            for (int r = 0; r < 3; ++r) {
+                delta[12+r] = pivot[r];
+                for (int k = 0; k < 3; ++k) delta[12+r] -= delta[k*4+r] * pivot[k];
+            }
+            for (auto* o : objs) {
+                float model[16], result[16] = {};
+                ImGuizmo::RecomposeMatrixFromComponents(o->position, o->rotation, o->scale, model);
+                for (int c = 0; c < 4; ++c) for (int r = 0; r < 4; ++r)
+                    for (int k = 0; k < 4; ++k) result[c*4+r] += delta[k*4+r] * model[c*4+k];
+                ImGuizmo::DecomposeMatrixToComponents(result, o->position, o->rotation, o->scale);
+            }
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
+    } else if (allRot)
         relDrag3("Rotation", [](SceneObject& o) -> float* { return o.rotation; }, 1.0f,
                  -360.0f, 360.0f, "%.0f deg");
     if (allScale) {

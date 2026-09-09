@@ -1482,6 +1482,10 @@ private:
     // Selection set helpers. selectedObject_ stays the "primary" (anchor) of
     // the set - always selection_.back() (or -1) - so the many single-select
     // reads keep working; selection_ carries the full multi-selection.
+    void expandSelectionGroups();
+    void groupSelection();
+    void ungroupSelection();
+    std::string selectedGroup() const;
     void selectOnly(int i);     // replace the selection with {i} (i<0 clears)
     void toggleSelect(int i);   // add/remove i (no-op for i<0)
     void clearSelection();

@@ -190,3 +190,6 @@ below is only the two versions that predate those entries.
 The Aster branch merge reserves format 42 for invisible box collisions, which
 previously used its local format 32. Existing files keep their collision keys;
 no data transformation is required.
+
+Format 43 adds optional object `editorGroup` membership. It is editor-only and
+absent for ungrouped objects; older projects require no migration step.

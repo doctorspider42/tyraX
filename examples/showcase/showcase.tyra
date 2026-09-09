@@ -1,7 +1,7 @@
 {
   "name": "showcase",
-  "formatVersion": 32,
-  "editorVersion": "1.59.0",
+  "formatVersion": 43,
+  "editorVersion": "1.76.0",
   "template": "fpp",
   "projectId": "106bc4d00dad4897",
   "settings": {
@@ -22,6 +22,7 @@
     "liveLogic": false,
     "timeMachine": false,
     "remotePad": true,
+    "inputRecorder": false,
     "keyboardMouse": false,
     "keyboardMousePs2Link": false,
     "disableVsync": false,
