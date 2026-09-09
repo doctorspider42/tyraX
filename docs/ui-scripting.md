@@ -58,11 +58,11 @@ split point of `Window/Label` is tried, longest window prefix first.
 
 | Command | What it does |
 |---|---|
-| `click <target>` | hover, press, release — over three frames, like a real cursor |
+| `click <target> [dx,dy]` | hover, press, release — over three frames, like a real cursor; the optional offset moves off the target's centre |
 | `rightclick <target>` | the context-menu button, same three frames - how a right-click menu is reached at all |
 | `doubleclick <target>` | two clicks inside ImGui's double-click time |
 | `hold <target> [seconds]` | press and keep it down (default 0.5 s) |
-| `hover <target>` | move the cursor onto it and leave it there |
+| `hover <target> [dx,dy]` | move the cursor onto it and leave it there |
 | `drag <target> <dx> <dy>` | press on it and slide by that many pixels |
 | `wheel <target> <notches>` | scroll over it, one notch per frame (negative = down/out) |
 | `key <chord>` | `ctrl+n`, `f9`, `escape`, `shift+tab`, … |
@@ -128,6 +128,18 @@ hold, and clears when the editor exits. Neither window was ever focused.
   a script can `drag` inside it (orbiting, a sculpt stroke) but cannot name an
   object. Picking an object is a `drag`/`click` at an offset, or better, do it
   through the Project panel's list, which *is* widgets.
+- **`click`/`rightclick`/`doubleclick`/`hover` take an optional `<dx>,<dy>`
+  offset from the target's centre**, and that is what reaches anything the
+  editor *draws* over a widget instead of submitting as one — a marker, a
+  handle, a [comment icon](comments.md). Anchor on a real item near the picture
+  (a viewport toolbar button dumps its rect) and offset into it:
+
+  ```
+  click 'Viewport/Move (1)' 545,303      # the comment icon at that screen point
+  ```
+
+  Read both rects out of one `dump` and subtract; the assertions take no offset,
+  since they name a widget and never touch the mouse.
 - Same for the flow-graph canvas (imnodes) and the gizmo (ImGuizmo): they draw
   themselves rather than submitting named items. The widgets *inside* a node
   (its combos, drags, checkboxes) are ordinary items, so they show up in `dump`

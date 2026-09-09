@@ -29,6 +29,8 @@ for people building games with it. Internals live in code comments, the git log
 - [Areas (invisible volumes)](areas.md) — the box that replaces hand-typed
   distances: streaming zones, catch lists for mirrors/portals/feeds, the In
   Area trigger, reverb rooms.
+- [Comments (editor notes)](comments.md) — a note pinned to a place in the
+  scene, drawn as an always-visible message icon; editor-only, any length.
 - [Selecting objects](object-selection.md) — visible mesh priority, AABB fallback and full-model selection outlines.
 - [Placing objects: surface snapping and deferred paste](object-placement.md) —
   objects that rest on what's below them, `End` to drop, paste that follows the

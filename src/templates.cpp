@@ -9726,7 +9726,7 @@ void TerrainGame::updateUseTarget() {
     if (o.data.type == 4 || o.data.type == 6 || o.data.type == 7 ||
         o.data.type == 8 || o.data.type == 9 || o.data.type == 11 ||
         o.data.type == 14 || o.data.type == 17 || o.data.type == 18 ||
-        o.data.type == 19)
+        o.data.type == 19 || o.data.type == 20)
       continue;
 
     const float dx = o.data.position[0] - cameraPosition.x;
@@ -16535,6 +16535,7 @@ bool TerrainGame::objectCollides(const SceneObjectData& d) {
     case 17:  // area (a volume, not a wall)
     case 18:  // procedural volume (authoring only)
     case 19:  // scroller belt marker
+    case 20:  // comment (an editor note)
       return false;
     default: return true;
   }
@@ -17645,6 +17646,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
           addAreaWireframe(p0.vertices, p0.colors, p0.sts, o.data);
         break;
       case 18: break;  // scatter volume - editor authoring region only
+      case 20: break;  // comment - an editor note, invisible here
       case 12: addPlane(p0.vertices, p0.colors, p0.sts, o.data); break;
       case 13: {
         // Projecting decal: a world-space mesh conforming to the receiver
@@ -18235,7 +18237,7 @@ bool TerrainGame::physObstacle(const SceneObjectData& d) {
   if (d.collision == 2) return false;
   const int t = d.type;
   return t != 4 && t != 6 && t != 7 && t != 8 && t != 9 && t != 11 &&
-         t != 13 && t != 14 && t != 17;
+         t != 13 && t != 14 && t != 17 && t != 20;
 }
 
 // ---------------------------------------------------------------------------
@@ -26878,6 +26880,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "             //    instances are baked to static chunk meshes)\n"
            "             // 19=scroller (endless belt marker; invisible - drives\n"
            "             //    baked clone objects via SCROLLERS/SCROLLER_CLONES)\n"
+           "             // 20=comment (an editor-only note: no geometry, no\n"
+           "             //    collision, and its text never leaves the editor)\n"
            "  float position[3];\n"
            "  float rotation[3];  // degrees\n"
            "  float scale[3];\n"
@@ -32200,8 +32204,8 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
     if (!o.active || !o.visible || i == player) continue;
     const int ty = o.data.type;
     if (ty == 4 || ty == 6 || ty == 7 || ty == 8 || ty == 9 || ty == 11 ||
-        ty == 14 || ty == 17 || ty == 18)
-      continue;  // markers/emitters/areas, not geometry
+        ty == 14 || ty == 17 || ty == 18 || ty == 20)
+      continue;  // markers/emitters/areas/notes, not geometry
     // bounding sphere: half the largest scale axis (matches the USE picker)
     float half = o.data.scale[0];
     if (o.data.scale[1] > half) half = o.data.scale[1];

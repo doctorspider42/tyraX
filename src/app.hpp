@@ -336,6 +336,10 @@ private:
     void addPortal();
     void addArea();
     void addScroller();
+    // An editor note pinned into the scene (docs/comments.md). Selects it and
+    // puts the keyboard in the Properties field, because a note with no text
+    // is the one object that is useless the moment it is created.
+    void addComment();
     void drawAddObjectMenu();
     // Area picker for a "catch area" reference (Mirror/Portal/feed Camera) or
     // a layer zone: a combo of this scene's Area objects plus <none>. Returns
@@ -1651,8 +1655,11 @@ private:
     int pickCycleLast_ = -1;
     // Resolves a viewport click into an object index (-1 = empty space),
     // advancing the cycle. `cycled` reports that this click stepped through
-    // the stack rather than starting a new pick.
-    int viewportPick(float u, float v, ImVec2 mouse, bool* cycled);
+    // the stack rather than starting a new pick. The image rect is passed in
+    // because a comment icon is hit-tested in SCREEN space (it is drawn there
+    // too, and a note far from the camera has a 3D box smaller than its icon).
+    int viewportPick(float u, float v, ImVec2 mouse, ImVec2 imgPos, ImVec2 avail,
+                     bool* cycled);
     // Scene-objects list filters (view state, per session - a filter that
     // outlived a restart would hide objects nobody remembers hiding).
     // sceneFilterType_ holds a PrimitiveType value, or -1 for "every type".
@@ -1696,6 +1703,32 @@ private:
     bool measureLive_ = false;  // the end point is following the cursor
     // Draws the tape over the viewport image (line, endpoints, readout).
     void drawMeasureOverlay(ImVec2 imgPos, ImVec2 avail);
+
+    // --- Comments (docs/comments.md) ---------------------------------------
+    // Editor notes pinned into the scene. They have no geometry: the viewport
+    // skips PrimitiveType::Comment entirely and the app draws a message icon
+    // over the finished image instead, which is why the icon is the same size
+    // at any distance and never hides what the note is about.
+    //
+    // ONE function computes where those icons are (commentIcons); the overlay
+    // draws them and the picker hit-tests them, so what you see is exactly
+    // what a click selects - the axis-gizmo arrangement.
+    struct CommentIcon {
+        int index = -1;      // into project_.objects()
+        ImVec2 center{0, 0};  // screen-space centre of the bubble
+        float w = 0.0f, h = 0.0f;
+        ImVec2 anchor{0, 0};  // the object's own point, where the tail lands
+        float depth = 0.0f;   // distance along the view axis, for ordering
+    };
+    std::vector<CommentIcon> commentIcons(ImVec2 imgPos, ImVec2 avail);
+    void drawCommentOverlay(ImVec2 imgPos, ImVec2 avail);
+    // View > Comments. Machine-global (editor.ini), not project data: icons
+    // always remain visible and clickable; this only chooses whether every
+    // note's text is expanded or only the selected one's. Off by default.
+    bool showCommentText_ = false;
+    // Set by addComment(): the Properties note field takes the keyboard on the
+    // next frame it is drawn, so a fresh note is typed rather than hunted for.
+    bool commentFocus_ = false;
     // World-space size of an object as drawn: the unit primitive or the
     // model's own bounds, times its scale. False for types with no extent
     // worth quoting (markers, lights). Used by the Properties readout.

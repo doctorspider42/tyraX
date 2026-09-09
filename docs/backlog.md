@@ -326,6 +326,23 @@ distance to the caster's surface, which is milder and principled but still
 untested. A fixture with deliberately mixed caster sizes is what this needs
 first — the shadow A/B rig above, run as a vantage LINE, reads it straight off.
 
+### `physObstacle` misses two marker types `objectCollides` skips
+
+`TerrainGame::objectCollides` is the one list of "types with no geometry in the
+game", and `physObstacle` - what a falling rigid body bounces off - keeps its
+own copy by number. The two have drifted: the copy is missing **18** (a
+procedural volume) and **19** (a scroller belt marker), so a physics body
+deflects off an invisible authoring region that nothing else in the game
+collides with. Type 20 (a comment) was added to it when comments landed, which
+is what made the gap visible.
+
+The fix is almost certainly `return objectCollides(d);` - both already start
+with the same `collision == 2` opt-out and ask the same question - but it is a
+behaviour change for existing projects with a procedural volume or a belt in
+them, so it wants a PCSX2 check with a body dropped beside one, not just a
+compile. Left out of the comments change deliberately: it is somebody else's
+bug and it deserves its own before/after.
+
 ## Medium
 
 ### DONE 1.70.0: a spot light's shadow on a WALL

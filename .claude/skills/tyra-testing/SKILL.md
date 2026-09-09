@@ -1027,7 +1027,16 @@ Notes:
   point is tried. `shot` writes the same self-captured framebuffer as `TYRAX_SHOT`, and
   what it CANNOT name is anything not made of ImGui widgets - the 3D viewport
   (one big item: `drag` inside it, or work through the Project panel's list), the
-  imnodes flow canvas and the ImGuizmo gizmo. Not all modals close on `escape` -
+  imnodes flow canvas and the ImGuizmo gizmo. **The four pointing steps take an
+  optional `<dx>,<dy>` offset from the target's centre**, which is how you reach
+  something the editor DRAWS over a widget rather than submitting as one - a
+  marker, a handle, a comment icon (docs/comments.md). Anchor on a real item
+  near the picture and offset into it: `click 'Viewport/Move (1)' 545,303`
+  selected a comment by its icon, with both rects read out of one `dump`. Two
+  things about that measurement - take the icon's own pixels off a `shot`
+  (find the colour, average it) rather than eyeballing, and pair the click with
+  an `expect` that only the intended object produces (`Properties/Copy text` is
+  a comment and nothing else), or "it selected something" is all you proved. Not all modals close on `escape` -
   click their `Cancel`; `dump` shows it. **A rect in `dump` is not a promise the
   click will land**: a window taller than the room it got still submits the items
   past its bottom edge, so they are listed with rects OUTSIDE the window, and
