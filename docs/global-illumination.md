@@ -95,7 +95,18 @@ self-shadowing — and neither needs a lightmap chart.
 console will. `Viewport::setGiTerrain` feeds it the baked terrain map so the
 ground goes down the lightmap route — the RGB one when the map replaces the
 shade, the alpha MULTIPLY one when `giLumAlpha` says the map's alpha is the
-light's intensity; `setGiProbes` covers everything else.
+light's intensity; `Viewport::setGiAtlas` feeds it the primitives' atlas so
+every lit region draws from the same texels the console reads; `setGiProbes`
+covers everything else. **Both maps are read per PIXEL**, in the fragment
+shader, exactly where the console's passes read them (`uLmMode` / `lmApply`
+in viewport.cpp): the terrain map by world position, the atlas through a
+per-object mesh whose UV slot carries the atlas ST — a lit receiver is never
+textured, so the slot is free — and composed in the console's pass order,
+base × (1 − a) through the alpha-over pass, then + RGB through the additive
+one. That is what makes a contact shadow on a wall's foot, the hard edge of a
+box's sky shadow on the ground and the atlas's own resolution visible in the
+editor; the vertex-sampled preview it replaced smeared all three over the
+terrain's render cells and the probe grid.
 Putting the ground on the probe route instead isn't a small preview
 inaccuracy — it paints the whole terrain one flat colour AND drops the ground's
 own tint, because the terrain carries that tint in its vertex colour and the
@@ -433,10 +444,13 @@ Said out loud in the Bake window too, not just here:
   see the routing table. Imported models have no lightmap UVs; running
   `uvunwrap` at bake time to give them a real chart is the road not taken,
   because probes are much cheaper and cover the moving ones anyway.
-- **The editor preview is probe-resolution.** It evaluates the same grid per
-  fragment, so the colour and direction are exact — but the console's
-  per-texel contact shadows on static geometry are sharper than what the
-  viewport shows.
+- **The editor preview is probe-resolution for what the probes light** —
+  models, textured receivers, anything that moves — and lightmap-resolution
+  for the rest: the terrain and the lit primitives draw from the baked maps
+  per pixel, so their contact shadows preview as the console draws them. What
+  the viewport still does not read from a bake is the AO-only atlas of a
+  scene with GI off (texbake writes that one at build time; the viewport keeps
+  its analytic per-fragment twin there).
 
 ---
 
@@ -451,13 +465,33 @@ Said out loud in the Bake window too, not just here:
   a lattice of dark blotches across a scene with a dozen props in it, and the
   residue lay along the coarse cells' **diagonals**, which is the tell: an
   artefact that follows the triangulation is about the mesh, not about the
-  light. `Scene::coarseH` + `gibake::groundSurfaceY` re-derive the traced height
-  and the ground's own light function (`giGroundLight`) snaps its origin onto
-  it. The same mistake in miniature: `terrainAOMap`'s sub-samples used to
-  inherit the texel centre's height while moving half a texel sideways, which
-  on any slope is more error than a ray-origin bias can absorb. Both are
-  re-sampled now. If dark specks ever come back, check the origin before you
-  touch the ray count.
+  light. `Scene::groundX/groundZ/groundH` + `gibake::groundSurfaceY` re-derive
+  the traced height and the ground's own light function (`giGroundLight`)
+  snaps its origin onto it. The same mistake in miniature: `terrainAOMap`'s
+  sub-samples used to inherit the texel centre's height while moving half a
+  texel sideways, which on any slope is more error than a ray-origin bias can
+  absorb. Both are re-sampled now. If dark specks ever come back, check the
+  origin before you touch the ray count.
+
+- **The ground's grid lines follow the objects, because the bounce is stored
+  per triangle.** `solve` keeps ONE bounce value per ground triangle, taken at
+  its centroid, and a ground cell is coarser than a wall: on a 100-unit
+  terrain at detail 32 a cell is 3.1 units, a wall is one. A triangle that
+  runs under the wall from the sunlit side to the shadowed one carries
+  whichever side its centroid landed on to BOTH, and the wall's lowest texels
+  — which see nothing but the ground right under them — pick that up as a
+  row of teeth with the cell's period: bright on the shadowed face, dark on
+  the sunlit one (measured on a 1-unit wall: a 47-level ripple that doubled
+  its period with the cell and vanished for a wall thicker than a cell). It
+  looks like a texture-filtering artefact on the console and is nothing of the
+  kind — it is in the atlas, and dumping the wall's region shows it. So
+  `build` tessellates the objects first and lays a grid line at every edge of
+  every grounded object's footprint AABB (lines closer than 2 % of a cell are
+  merged, the count per axis is capped at 256 by widening that merge), which
+  means no ground triangle straddles an axis-aligned object at all. A rotated
+  thin wall still gets a faint version at its AABB's corners; if that ever
+  matters, the next step is splitting the cells along the rotated footprint,
+  not raising `terrainDetail`, which only makes the teeth smaller and denser.
 
 - **A TEXTURED terrain takes its light as a MULTIPLY, not as an added pass, and
   that took three wrong answers to arrive at.** The ground pass is additive and
@@ -489,9 +523,9 @@ Said out loud in the Bake window too, not just here:
 
   Two things follow. `terrainProbeGi` excludes it (`!terrainGi &&
   !terrainGiLum`), so **the ground never takes probe light** on any route. And
-  the viewport twin (`giGroundMul` / `giMulAt` in `buildTerrainMesh`) applies
-  the same multiply per **vertex** — a resolution difference from the console's
-  per pixel, not a different answer, which is the standing rule for this pair.
+  the viewport twin applies the same multiply per pixel (`uLmMode` 3 in the
+  fragment shader, the terrain keeping its ordinary vertex shade in
+  `buildTerrainMesh`) — the same texels, the same site.
 - **A lightmap texel's alpha must never be 0** (`aobake::kMinLightmapAlpha`).
   StaPip's alpha test discards alpha-0 texels and both passes sample the *same*
   texture, so a zero-occlusion texel takes the additive light pass down with
@@ -564,5 +598,5 @@ Said out loud in the Bake window too, not just here:
 | Codegen: atlas flags + `inc/probe_data.gen.hpp` | `src/templates.cpp` (`aoDataHeader`, `probeDataHeader`) |
 | Runtime: `giProbeAt` / `giShade` / `g_giLightmap` / `g_giProbeShade` | `src/templates.cpp` (game cpp template) |
 | Baked pixels into `.res-baked/aoatlas`, `.res-baked/aomap` | `src/texbake.cpp` |
-| Viewport twin (3D texture + `giProbe()`) | `src/viewport.cpp` |
+| Viewport twin (3D texture + `giProbe()`; the per-pixel lightmaps: `setGiAtlas`, `lmMeshFor`, `uLmMode` / `lmApply`) | `src/viewport.cpp` |
 | The Bake window | `src/app.cpp` (`drawGiBakeWindow`) |

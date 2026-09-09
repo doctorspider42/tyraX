@@ -16,6 +16,32 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.72.0 (the viewport draws the baked lightmaps, and the ground grid of
+// the GI bake follows the objects): reported from a two-sphere-and-a-wall
+// scene with GI on - a row of pale blotches along the wall's foot in the
+// game, and an editor preview that looked nothing like it. The blotches were
+// IN THE BAKE, on both big faces of the box, at the cell period of the
+// terrain: the solve keeps one bounce value per ground triangle, taken at
+// its centroid, and a 3.1-unit ground triangle running under a 1-unit wall
+// carries the sunlit side's light to the shadowed side and vice versa, which
+// the face's lowest texels - seeing nothing but the ground under them - read
+// as teeth (row spread 47; halved cell = half the period, a wall thicker
+// than a cell = no teeth). gibake::build now tessellates the objects FIRST
+// and lays the ground's grid lines through every grounded object's
+// footprint edges (Scene::groundX/groundZ/groundH replace the uniform
+// coarseH; groundSurfaceY searches the non-uniform grid), so no triangle
+// straddles an axis-aligned object; kCacheVersion 6, the example caches are
+// re-baked, --gi-gpu-check still agrees to 0.0001 %. The preview half:
+// Viewport::setGiAtlas hands the primitives' atlas to the viewport and the
+// fragment shader samples both baked maps per pixel (uLmMode / lmApply -
+// the terrain map by world position, the atlas through a per-object mesh
+// whose UV slot carries the atlas ST, a lit receiver being untextured by
+// construction), composed in the console's pass order: base x (1 - a),
+// then + RGB. The probes stay for what the atlas does not cover. Verified
+// with --ui-script shots of the reporter's scene against the console
+// screenshot, in both shading modes (identical: the maps are per pixel in
+// both), and on three examples for no regression without GI.
+//
 // 1.71.1 (the four projected-shadow slots go to what is IN THE FRAME):
 // the distance setting at 250 changed nothing at the yard - a step away from
 // the lamp post and its shadow was gone - and the slot log (PROJDBG, a
@@ -2838,8 +2864,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 71
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 72
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

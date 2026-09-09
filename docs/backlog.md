@@ -720,3 +720,17 @@ runtime write into `bin/frame.tga`, a Debugger button, the TXDEVKIT marker +
 `kStringNeedles` entry, and stale-file cleanup in both Runner launch paths. It
 is the only capture path that survives a locked desktop, and the only one that
 exists at all on a real console. See [live-debugger](live-debugger.md).
+
+### Preview the AO-only lightmaps in the viewport
+
+The viewport now draws the GI cache's terrain map and primitive atlas per
+pixel (docs/global-illumination.md, "The editor viewport"), but a scene with
+GI off still previews its ambient occlusion through the analytic per-fragment
+twin: that atlas is written by texbake at build time and never cached, so
+there is nothing for the viewport to read. Baking it host-side on demand
+(`aobake::bakeSceneLightAtlas` is sub-second on the examples) and feeding it
+through the same `setGiAtlas` seam would make the AO preview texel-exact too.
+While there: the GI bake's ground grid follows object footprint AABBs, so a
+ROTATED thin wall still shows a faint version of the straddling teeth at its
+AABB's corners - splitting the ground cells along the rotated footprint is the
+fix if anyone reports it.

@@ -28,7 +28,7 @@ namespace {
 
 constexpr float kPi = 3.14159265358979f;
 constexpr uint32_t kCacheMagic = 0x49475854u;  // "TXGI"
-constexpr uint32_t kCacheVersion = 5;  // + AoImage::giLumAlpha
+constexpr uint32_t kCacheVersion = 6;  // ground grid follows object footprints
 
 // Rotation order X, then Y, then Z - the twin of templates.cpp rotated(),
 // aobake's and the viewport's model matrix. Keep in sync.
@@ -363,7 +363,7 @@ Scene build(const Project& p, const SceneData& sc, const Settings& st) {
     MatCache matCache;
     TexMeanCache texCache;
 
-    // --- terrain ------------------------------------------------------------
+    // --- terrain extents ----------------------------------------------------
     // The extents describe the SCENE, not the ground, so they are set either
     // way (the probe grid spans them). With the terrain removed the heightmap
     // stays empty and no ground triangles are tessellated: nothing bounces off
@@ -381,80 +381,28 @@ Scene build(const Project& p, const SceneData& sc, const Settings& st) {
     s.terrainMaxX = s.hmWidth * 0.5f;
     s.terrainMinZ = -s.hmDepth * 0.5f;
     s.terrainMaxZ = s.hmDepth * 0.5f;
-    if (hasTerrain) {
-        float albedo[3] = {0.35f, 0.45f, 0.3f};  // the checker greens' average
-        if (!rs.terrainMaterial.empty()) {
-            const MatInfo& mi =
-                materialInfo(p.dir, rs.terrainMaterial, matCache, texCache);
-            if (mi.loaded)
-                for (int k = 0; k < 3; ++k)
-                    albedo[k] = mi.kd[k] * mi.texMean[k];
-        }
-        const float emission[3] = {0, 0, 0};
-        // The ground carries most of a scene's bounce, so it is worth real
-        // triangles - but a 256-detail heightmap would be 130k of them for a
-        // signal that is nearly flat. Resampled onto a grid the bake can
-        // afford; the heights themselves are still the bilinear ones the game
-        // walks on.
-        const int cells = std::min(96, std::max(2, std::max(sc.hmW, sc.hmD) - 1));
-        std::vector<float> soup;
-        soup.reserve((size_t)cells * cells * 48);
-        auto hAt = [&](float x, float z) {
-            return heightAtWorld(sc.heights, sc.hmW, sc.hmD, s.hmWidth,
-                                 s.hmDepth, x, z);
-        };
-        // Keep the decimated corner heights: they are the ground the rays
-        // actually meet, and groundSurfaceY reads them back so a gather origin
-        // can be snapped onto the same surface (see Scene::coarseH).
-        s.coarseCells = cells;
-        s.coarseH.resize((size_t)(cells + 1) * (cells + 1));
-        for (int j = 0; j <= cells; ++j)
-            for (int i = 0; i <= cells; ++i)
-                s.coarseH[(size_t)j * (cells + 1) + i] =
-                    hAt(s.terrainMinX + s.hmWidth * i / cells,
-                        s.terrainMinZ + s.hmDepth * j / cells);
-        for (int j = 0; j < cells; ++j) {
-            for (int i = 0; i < cells; ++i) {
-                const float x0 = s.terrainMinX + s.hmWidth * i / cells;
-                const float x1 = s.terrainMinX + s.hmWidth * (i + 1) / cells;
-                const float z0 = s.terrainMinZ + s.hmDepth * j / cells;
-                const float z1 = s.terrainMinZ + s.hmDepth * (j + 1) / cells;
-                const float c[4][3] = {{x0, hAt(x0, z0), z0},
-                                       {x1, hAt(x1, z0), z0},
-                                       {x1, hAt(x1, z1), z1},
-                                       {x0, hAt(x0, z1), z1}};
-                const int idx[6] = {0, 3, 2, 0, 2, 1};
-                for (int k = 0; k < 6; ++k) {
-                    const float* v = c[idx[k]];
-                    soup.insert(soup.end(), {v[0], v[1], v[2], 0, 1, 0, 0, 0});
-                }
-            }
-        }
-        // Per-triangle geometric normals (the flat pushed above is a
-        // placeholder; a sloped cell must shade as a slope).
-        for (size_t t = 0; t * 24 + 23 < soup.size(); ++t) {
-            float* a = &soup[t * 24];
-            float e1[3], e2[3], n[3];
-            for (int k = 0; k < 3; ++k) {
-                e1[k] = a[8 + k] - a[k];
-                e2[k] = a[16 + k] - a[k];
-            }
-            n[0] = e1[1] * e2[2] - e1[2] * e2[1];
-            n[1] = e1[2] * e2[0] - e1[0] * e2[2];
-            n[2] = e1[0] * e2[1] - e1[1] * e2[0];
-            const float l = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
-            float inv = l > 1e-9f ? 1.0f / l : 0.0f;
-            if (n[1] < 0.0f) inv = -inv;  // the ground always faces up
-            for (int c = 0; c < 3; ++c)
-                for (int k = 0; k < 3; ++k) a[c * 8 + 3 + k] = n[k] * inv;
-        }
-        const float unit[3] = {1, 1, 1};
-        const float zero3[3] = {0, 0, 0};
-        appendMesh(s, soup, zero3, zero3, unit, albedo, emission);
-    }
-
     // --- objects ------------------------------------------------------------
+    // Built BEFORE the ground, because the ground's grid lines are laid out
+    // around them (below): every grounded object's footprint becomes four grid
+    // lines, so no ground triangle ever straddles a wall or a crate.
+    struct Footprint {
+        float x0, x1, z0, z1, y0;  // world XZ extent + the lowest point
+    };
+    std::vector<Footprint> footprints;
+    // AABB of everything appended since `from` - one object's triangles.
+    auto footprintSince = [&](size_t from) {
+        const std::vector<float>& tv = s.tree.tv;
+        if (tv.size() <= from) return;
+        Footprint fp{1e30f, -1e30f, 1e30f, -1e30f, 1e30f};
+        for (size_t i = from; i + 2 < tv.size(); i += 3) {
+            fp.x0 = std::min(fp.x0, tv[i]), fp.x1 = std::max(fp.x1, tv[i]);
+            fp.z0 = std::min(fp.z0, tv[i + 2]), fp.z1 = std::max(fp.z1, tv[i + 2]);
+            fp.y0 = std::min(fp.y0, tv[i + 1]);
+        }
+        footprints.push_back(fp);
+    };
     for (const SceneObject& o : sc.objects) {
+        const size_t tvBefore = s.tree.tv.size();
         const std::string& matRel = albedoMaterial(o);
         const MatInfo& mi = materialInfo(p.dir, matRel, matCache, texCache);
         // "Cast shadow" off already means "light passes through me", and
@@ -502,6 +450,7 @@ Scene build(const Project& p, const SceneData& sc, const Settings& st) {
                     for (int k = 0; k < 3; ++k) e[k] = sm.ke[k] * sm.glowLight;
                 appendMesh(s, sm.verts, o.position, o.rotation, o.scale, a, e);
             }
+            footprintSince(tvBefore);
             continue;
         }
         if (o.type == PrimitiveType::PointLight) {
@@ -520,6 +469,140 @@ Scene build(const Project& p, const SceneData& sc, const Settings& st) {
             primitiveMesh(o.type, o.primDetail, o.primRings);
         if (mesh.empty()) continue;  // markers, decals, mirrors, portals, areas
         appendMesh(s, mesh, o.position, o.rotation, o.scale, albedo, emission);
+        footprintSince(tvBefore);
+    }
+
+    // --- terrain ------------------------------------------------------------
+    if (hasTerrain) {
+        float albedo[3] = {0.35f, 0.45f, 0.3f};  // the checker greens' average
+        if (!rs.terrainMaterial.empty()) {
+            const MatInfo& mi =
+                materialInfo(p.dir, rs.terrainMaterial, matCache, texCache);
+            if (mi.loaded)
+                for (int k = 0; k < 3; ++k)
+                    albedo[k] = mi.kd[k] * mi.texMean[k];
+        }
+        const float emission[3] = {0, 0, 0};
+        auto hAt = [&](float x, float z) {
+            return heightAtWorld(sc.heights, sc.hmW, sc.hmD, s.hmWidth,
+                                 s.hmDepth, x, z);
+        };
+        // The ground carries most of a scene's bounce, so it is worth real
+        // triangles - but a 256-detail heightmap would be 130k of them for a
+        // signal that is nearly flat. Resampled onto a grid the bake can
+        // afford; the heights themselves are still the bilinear ones the game
+        // walks on.
+        const int cells = std::min(96, std::max(2, std::max(sc.hmW, sc.hmD) - 1));
+        // THE GRID LINES FOLLOW THE OBJECTS, and that is not an optimisation.
+        // The solve stores ONE bounce value per triangle, taken at its
+        // centroid, and the wall at the foot of a lightmapped face is thinner
+        // than a ground cell: a triangle that runs under it from the sunlit
+        // side to the shadowed one carries whichever side its centroid landed
+        // on to BOTH, and the face's lowest texels - which see nothing but the
+        // ground right under them - pick that up as a row of bright or dark
+        // teeth with the cell's period (measured on a 1-unit wall over 3.1-unit
+        // cells: a 47-level ripple that doubled its period with the cell and
+        // vanished for a wall thicker than one). So every grounded object's
+        // footprint puts a line at each of its four AABB edges, and no ground
+        // triangle straddles an axis-aligned object at all. A rotated object's
+        // AABB still leaves its true edges inside a cell - the residue there
+        // is the footprint's corners, not a whole wall.
+        //
+        // "Grounded" = the object's lowest point is within kGroundReach of the
+        // ground under its footprint; a floating lamp splits nothing. Lines
+        // closer than a small fraction of a cell are merged (a footprint edge
+        // that lands on a uniform line, two crates side by side), and the
+        // count per axis is capped by widening that merge distance - a scene
+        // of a thousand props still gets a grid the solve can afford.
+        constexpr int kMaxGroundLines = 256;
+        constexpr float kGroundReach = 0.5f;
+        auto gridLines = [&](float lo, float hi, int axis) {
+            const float cell = (hi - lo) / cells;
+            std::vector<float> raw;
+            raw.reserve((size_t)cells + 1 + footprints.size() * 2);
+            for (int i = 0; i <= cells; ++i)
+                raw.push_back(lo + (hi - lo) * i / cells);
+            for (const Footprint& fp : footprints) {
+                const float cx = 0.5f * (fp.x0 + fp.x1), cz = 0.5f * (fp.z0 + fp.z1);
+                const float probes[5][2] = {{fp.x0, fp.z0}, {fp.x1, fp.z0},
+                                            {fp.x0, fp.z1}, {fp.x1, fp.z1},
+                                            {cx, cz}};
+                float gmax = -1e30f;
+                for (const float* c : probes) gmax = std::max(gmax, hAt(c[0], c[1]));
+                if (fp.y0 > gmax + kGroundReach) continue;  // floating
+                const float a = axis == 0 ? fp.x0 : fp.z0;
+                const float b = axis == 0 ? fp.x1 : fp.z1;
+                if (a > lo && a < hi) raw.push_back(a);
+                if (b > lo && b < hi) raw.push_back(b);
+            }
+            std::sort(raw.begin(), raw.end());
+            std::vector<float> out;
+            for (float gap = cell * 0.02f;; gap *= 2.0f) {
+                out.clear();
+                for (float v : raw)
+                    if (out.empty() || v - out.back() >= gap) out.push_back(v);
+                // The far edge must survive the merge, or the last cell stops
+                // short of the terrain.
+                if (out.back() < hi) {
+                    if (hi - out.back() < gap && out.size() > 1)
+                        out.back() = hi;
+                    else
+                        out.push_back(hi);
+                }
+                out.front() = lo;
+                if ((int)out.size() <= kMaxGroundLines) break;
+            }
+            return out;
+        };
+        s.groundX = gridLines(s.terrainMinX, s.terrainMaxX, 0);
+        s.groundZ = gridLines(s.terrainMinZ, s.terrainMaxZ, 1);
+        const int nx = (int)s.groundX.size(), nz = (int)s.groundZ.size();
+        // Keep the node heights: they are the ground the rays actually meet,
+        // and groundSurfaceY reads them back so a gather origin can be
+        // snapped onto the same surface (see Scene::groundH).
+        s.groundH.resize((size_t)nx * nz);
+        for (int j = 0; j < nz; ++j)
+            for (int i = 0; i < nx; ++i)
+                s.groundH[(size_t)j * nx + i] = hAt(s.groundX[i], s.groundZ[j]);
+        std::vector<float> soup;
+        soup.reserve((size_t)(nx - 1) * (nz - 1) * 48);
+        for (int j = 0; j + 1 < nz; ++j) {
+            for (int i = 0; i + 1 < nx; ++i) {
+                const float x0 = s.groundX[i], x1 = s.groundX[i + 1];
+                const float z0 = s.groundZ[j], z1 = s.groundZ[j + 1];
+                const float c[4][3] = {
+                    {x0, s.groundH[(size_t)j * nx + i], z0},
+                    {x1, s.groundH[(size_t)j * nx + i + 1], z0},
+                    {x1, s.groundH[(size_t)(j + 1) * nx + i + 1], z1},
+                    {x0, s.groundH[(size_t)(j + 1) * nx + i], z1}};
+                const int idx[6] = {0, 3, 2, 0, 2, 1};
+                for (int k = 0; k < 6; ++k) {
+                    const float* v = c[idx[k]];
+                    soup.insert(soup.end(), {v[0], v[1], v[2], 0, 1, 0, 0, 0});
+                }
+            }
+        }
+        // Per-triangle geometric normals (the flat pushed above is a
+        // placeholder; a sloped cell must shade as a slope).
+        for (size_t t = 0; t * 24 + 23 < soup.size(); ++t) {
+            float* a = &soup[t * 24];
+            float e1[3], e2[3], n[3];
+            for (int k = 0; k < 3; ++k) {
+                e1[k] = a[8 + k] - a[k];
+                e2[k] = a[16 + k] - a[k];
+            }
+            n[0] = e1[1] * e2[2] - e1[2] * e2[1];
+            n[1] = e1[2] * e2[0] - e1[0] * e2[2];
+            n[2] = e1[0] * e2[1] - e1[1] * e2[0];
+            const float l = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+            float inv = l > 1e-9f ? 1.0f / l : 0.0f;
+            if (n[1] < 0.0f) inv = -inv;  // the ground always faces up
+            for (int c = 0; c < 3; ++c)
+                for (int k = 0; k < 3; ++k) a[c * 8 + 3 + k] = n[k] * inv;
+        }
+        const float unit[3] = {1, 1, 1};
+        const float zero3[3] = {0, 0, 0};
+        appendMesh(s, soup, zero3, zero3, unit, albedo, emission);
     }
 
     bvh::build(s.tree);
@@ -581,24 +664,35 @@ void directAt(const Scene& s, const float o[3], const float n[3],
 
 }  // namespace
 
-// The height of the ground AS TRACED, i.e. of the decimated triangle pair the
-// BVH holds, reproducing `build`'s split (corners 0,3,2 then 0,2,1 - the
-// diagonal runs from (x0,z0) to (x1,z1)). Returns -inf off the terrain.
+// The height of the ground AS TRACED, i.e. of the triangle pair the BVH holds
+// in the grid cell under (x, z), reproducing `build`'s split (corners 0,3,2
+// then 0,2,1 - the diagonal runs from (x0,z0) to (x1,z1)). The grid lines are
+// not uniform (build adds one at every grounded footprint edge), so the cell
+// is found by search. Returns -inf off the terrain.
 float groundSurfaceY(const Scene& s, float x, float z) {
-    const int cells = s.coarseCells;
-    if (cells <= 0 || s.coarseH.empty()) return -1e30f;
-    const float u = (x - s.terrainMinX) / s.hmWidth * cells;
-    const float v = (z - s.terrainMinZ) / s.hmDepth * cells;
-    if (u < 0 || v < 0 || u > cells || v > cells) return -1e30f;
-    int i = (int)u, j = (int)v;
-    if (i >= cells) i = cells - 1;
-    if (j >= cells) j = cells - 1;
-    const float fu = u - i, fv = v - j;
-    const int st = cells + 1;
-    const float h00 = s.coarseH[(size_t)j * st + i];
-    const float h10 = s.coarseH[(size_t)j * st + i + 1];
-    const float h01 = s.coarseH[(size_t)(j + 1) * st + i];
-    const float h11 = s.coarseH[(size_t)(j + 1) * st + i + 1];
+    const int nx = (int)s.groundX.size(), nz = (int)s.groundZ.size();
+    if (nx < 2 || nz < 2 || s.groundH.size() != (size_t)nx * nz) return -1e30f;
+    if (x < s.groundX.front() || x > s.groundX.back() || z < s.groundZ.front() ||
+        z > s.groundZ.back())
+        return -1e30f;
+    // Cell i is [groundX[i], groundX[i+1]); the last line belongs to the last
+    // cell so a point on the far edge still lands on a triangle.
+    int i = (int)(std::upper_bound(s.groundX.begin(), s.groundX.end(), x) -
+                  s.groundX.begin()) - 1;
+    int j = (int)(std::upper_bound(s.groundZ.begin(), s.groundZ.end(), z) -
+                  s.groundZ.begin()) - 1;
+    if (i < 0) i = 0;
+    if (j < 0) j = 0;
+    if (i >= nx - 1) i = nx - 2;
+    if (j >= nz - 1) j = nz - 2;
+    const float w = s.groundX[i + 1] - s.groundX[i];
+    const float d = s.groundZ[j + 1] - s.groundZ[j];
+    const float fu = w > 1e-9f ? (x - s.groundX[i]) / w : 0.0f;
+    const float fv = d > 1e-9f ? (z - s.groundZ[j]) / d : 0.0f;
+    const float h00 = s.groundH[(size_t)j * nx + i];
+    const float h10 = s.groundH[(size_t)j * nx + i + 1];
+    const float h01 = s.groundH[(size_t)(j + 1) * nx + i];
+    const float h11 = s.groundH[(size_t)(j + 1) * nx + i + 1];
     return fu <= fv ? h00 + (h01 - h00) * fv + (h11 - h01) * fu
                     : h00 + (h10 - h00) * fu + (h11 - h10) * fv;
 }

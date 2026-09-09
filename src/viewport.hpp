@@ -216,6 +216,12 @@ public:
     // its dark texels) and stays on the probe route in both.
     void setGiTerrain(const aobake::AoImage& img);
     void clearGiTerrain() { setGiTerrain(aobake::AoImage()); }
+    // The primitives' baked lightmap atlas (aobake::SceneLightAtlas, from the
+    // same GI cache): every lit region is drawn from the atlas per PIXEL,
+    // exactly as the console's two atlas passes draw it, instead of from the
+    // probe grid. An empty atlas puts those objects back on the probes.
+    void setGiAtlas(const aobake::SceneLightAtlas& atlas);
+    void clearGiAtlas() { setGiAtlas(aobake::SceneLightAtlas()); }
 
     // Baked ambient occlusion preview (docs/ambient-occlusion.md): terrain
     // self-occlusion is multiplied into the terrain vertex colors (the same
@@ -930,6 +936,26 @@ private:
     int giTerrSize_ = 0;
     bool giUploadPending_ = false;
     void uploadGiProbes();
+    // The two baked lightmaps, read PER PIXEL by the fragment shader
+    // (docs/global-illumination.md, "The editor viewport"): the terrain map
+    // (setGiTerrain) sampled by world position, the primitive atlas
+    // (setGiAtlas) through a per-object mesh whose UV slot carries the atlas
+    // ST - a lit receiver is never textured, so the slot is free. uLmMode is
+    // the route: 0 none, 1 atlas (RGB light + occlusion alpha), 2 terrain map
+    // RGB (+ occlusion alpha), 3 terrain map alpha as the light's intensity.
+    int uLmMode_ = -1, uLmTex_ = -1, uLmRect_ = -1;
+    uint32_t giTerrTex_ = 0, giAtlasTex_ = 0;
+    bool giMapsUploadPending_ = false;
+    int giAtlasSize_ = 0;
+    bool giAtlasGi_ = false;
+    std::vector<uint8_t> giAtlasPixels_;  // size*size*4, staged like giPixels_
+    std::vector<aobake::AtlasRect> giAtlasRects_;
+    std::vector<int> giAtlasFirst_;
+    std::vector<char> giAtlasLit_;
+    std::map<uint64_t, Mesh> lmMeshes_;  // object index + tessellation -> mesh
+    const Mesh* lmMeshFor(size_t oi, const SceneObject& o);
+    void uploadGiMaps();
+    void clearLmMeshes();
     bool aoOn_ = false;
     float aoStrength_ = 0.55f;
     float aoRadius_ = 2.5f;
