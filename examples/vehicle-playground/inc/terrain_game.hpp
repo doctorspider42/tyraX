@@ -760,6 +760,7 @@ class TerrainGame : public Tyra::Game {
   void setupVehicles(int scene);
   void updateVehicles(float dt);
   void renderVehicleWheels();
+  int vehicleLod(int vi) const;  // the body's shown tier (telemetry)
   // Tyre smoke (docs/vehicles.md): a small pool of camera-facing puffs fed
   // by the sim's ONE slip number, so the smoke and the screech-worthy moment
   // can never disagree. Its own billboard bag - the particle system's exact

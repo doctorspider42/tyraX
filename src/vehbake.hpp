@@ -125,6 +125,11 @@ struct Result {
     int lampPart = -1;
     int lampRearVerts = 0;
 
+    // Triangles of the paint part's far tiers (body + four wheels each),
+    // coarsest last - what a distant car costs, for the Cost tab. Empty when
+    // the body was too small to tier.
+    std::vector<int> farTris;
+
     std::vector<std::string> notes;
 };
 

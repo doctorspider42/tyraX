@@ -15665,7 +15665,10 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
 // Everything else is fair game: the collider and the AABB are model-level, so
 // collision, physics extents and the split-band cull never see a tier.
 bool TerrainGame::modelLodEligible(int index) const {
-  if (objectGeometry[index].matrixMode) return false;
+  // A matrix-path body tiers too: its tiers are baked LOCAL (applyGeoLod
+  // stages g_bakeLocal from matrixMode), so they stay valid under motion -
+  // which is what a vehicle's far tier needs (docs/vehicles.md). A rebuild
+  // drops every tier, so a mode change cannot leave a wrong-space one.
   for (int fi = 0; fi < OBJECT_FEED_COUNT; ++fi)
     if (OBJECT_FEEDS[fi].scene == currentScene &&
         OBJECT_FEEDS[fi].object == index)
@@ -15718,7 +15721,9 @@ void TerrainGame::applyGeoLod(int index, int pi, int lod) {
       g_primKd = nullptr;
       g_primTextured = false;
       g_primUvRect = nullptr;
-      g_bakeLocal = false;  // fast-path bodies are excluded from LOD
+      // A matrix-path object bakes LOCAL tiers, exactly as its tier 0 was
+      // baked at promotion; objMat applies the motion to every tier alike.
+      g_bakeLocal = g.matrixMode;
       g_envNormals = part.envBag ? &tier.envNormals : nullptr;
       const bool textured = src.texture != nullptr;
       for (size_t k = 0; k + 7 < sv.size(); k += 8) {
@@ -23495,6 +23500,17 @@ static std::string vec3Init(const float* v) {
 // copies of this would drift the first time an object grew a field, and the
 // failure mode is silent - every later column shifts one field left and the
 // build dies far away in scene_data.hpp with a narrowing conversion.
+// A vehicle body's meshLod is its definition's farDistance unless the
+// object overrides it: the far tier (docs/vehicles.md) is the paint with the
+// wheels baked in, and the distance is a property of the CAR, not of the
+// project's mesh-LOD default (which is 0 = off in most projects).
+static float vehicleRowMeshLod(const Project& p, const SceneObject& o) {
+    if (o.type != PrimitiveType::Vehicle || o.meshLodOverride >= 0.0f)
+        return o.meshLodOverride;
+    const int di = vehicleDefIndex(p, o.vehicleDef);
+    return di >= 0 ? p.vehicles[(size_t)di].farDistance : o.meshLodOverride;
+}
+
 static void writeObjectDataRow(std::ostringstream& out, const Project& p,
                                const SceneObject& o, int soundIdx, int layerIdx,
                                int batchStatic) {
@@ -23542,7 +23558,7 @@ static void writeObjectDataRow(std::ostringstream& out, const Project& p,
         << ", \"" << escapeCString(o.animClip) << "\", "
         << (o.animAutoplay ? 1 : 0) << ", " << (o.animLoop ? 1 : 0) << ", "
         << floatLit(o.animSpeed) << ", " << floatLit(o.animLodOverride) << ", "
-        << floatLit(o.meshLodOverride) << ", "
+        << floatLit(vehicleRowMeshLod(p, o)) << ", "
         // The content-forward correction only means anything on the animated
         // path (it is not offered for anything else). Emitting a stale value
         // for a static model would turn its collision box away from its mesh,
@@ -27871,6 +27887,7 @@ static std::string vehicleMembers(const Project& p) {
   void setupVehicles(int scene);
   void updateVehicles(float dt);
   void renderVehicleWheels();
+  int vehicleLod(int vi) const;  // the body's shown tier (telemetry)
   // Tyre smoke (docs/vehicles.md): a small pool of camera-facing puffs fed
   // by the sim's ONE slip number, so the smoke and the screech-worthy moment
   // can never disagree. Its own billboard bag - the particle system's exact
@@ -29598,7 +29615,7 @@ void TerrainGame::updateVehicles(float dt) {
         TYRA_LOG("VEHAI ", ai, " pos ", (int)vehicles_[ai].pos[0], " ",
                  (int)vehicles_[ai].pos[2], " wp ", vehicles_[ai].wpCur,
                  " spd10 ", (int)(vehicles_[ai].speed * 10.0F), " av ",
-                 vehicles_[ai].aiAvoid);
+                 vehicles_[ai].aiAvoid, " lod ", vehicleLod(ai));
   }
 }
 
@@ -29877,6 +29894,15 @@ void TerrainGame::renderVehicleHud() {
 // The second submit: every wheel of every vehicle, transformed into world
 // space and concatenated into ONE bag. Four wheels is a few hundred
 // vertices of VU0 work against the ~1 ms a second submit would cost.
+// The body's shown LOD tier, for the telemetry: 0 = full, 1/2 = the far
+// tiers with the wheels baked in (docs/vehicles.md).
+int TerrainGame::vehicleLod(int vi) const {
+  const VehicleRt& v = vehicles_[vi];
+  if (v.object < 0 || v.object >= (int)objectGeometry.size()) return 0;
+  const ObjectGeometry& g = objectGeometry[(size_t)v.object];
+  return g.parts.empty() ? 0 : g.parts[0].shownLod;
+}
+
 void TerrainGame::renderVehicleWheels() {
   if (vehicleCount_ <= 0) return;
   const float kDeg = 3.14159265F / 180.0F;
@@ -29893,9 +29919,16 @@ void TerrainGame::renderVehicleWheels() {
       continue;
     const GameModelPart& part = gameModels[wm].parts[0];
     if (part.verts.size() < 24) continue;
-    // A vehicle 70+ units from the camera draws sub-pixel wheels for ~8k EE
-    // multiplies per frame - skip it whole. The body (the object pass) is
-    // what reads as "a car" at that size.
+    // THE FAR TIER (docs/vehicles.md): once the body shows a distance tier,
+    // that tier carries the four wheels baked in at their rest anchors, so
+    // the wheel bag must not draw a second set - a distant car is the body's
+    // one submit and nothing else. Beyond 70 units the bag stops regardless
+    // (sub-pixel wheels for ~8k EE multiplies), the rule from before the
+    // tiers existed, which a definition with farDistance 0 still gets.
+    if (v.object >= 0 && v.object < (int)objectGeometry.size() &&
+        !objectGeometry[(size_t)v.object].parts.empty() &&
+        objectGeometry[(size_t)v.object].parts[0].shownLod > 0)
+      continue;
     {
       const float ddx = v.pos[0] - cameraPosition.x;
       const float ddz = v.pos[2] - cameraPosition.z;

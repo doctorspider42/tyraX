@@ -30,7 +30,23 @@ submit would cost. This is the static-batching trade-off run in the opposite
 direction — batching merges to avoid submits, and so does this; it just does it
 every frame because the members move.
 
-Distant vehicles drop to one submit by baking the wheels into the body mesh.
+Distant vehicles drop to **one** submit by baking the wheels into the body
+mesh: the paint part's two ordinary distance tiers each carry the four wheels
+at their rest anchors, hard-decimated, and past *Far tier from* (Cost tab,
+`farDistance`, default 40 units, baked into the body row's `meshLod`) the
+generic model LOD swaps the body to that tier while `renderVehicleWheels`
+stops submitting the wheel bag. The matte trim tiers itself and the lamps
+stay tier 0 (their corner ranges must not be reordered), and those parts are
+clamped to their own tier count by the runtime — so at distance the car is
+its paint with wheels in, one bag. What made this possible: matrix-path
+objects were excluded from LOD outright, because a tier was baked in WORLD
+space at first use and a mover would have carried a stale copy; a tier is now
+baked LOCAL for a `matrixMode` object (exactly as its tier 0 was at
+promotion) and a rebuild already drops every tier, so the exclusion is gone
+for every fast-path mover, not only cars. `VEHAI ... lod N` reports the tier
+a rival is showing, which is how the switch is checked without eyes; the old
+"no wheels past 70 units" rule stays as the floor for a definition that sets
+the distance to 0.
 
 ## Importing a model
 
@@ -663,8 +679,9 @@ with no code of its own.
 - **Driver** — the camera rig while driving, and the exit offset (the driver's
   door).
 - **Cost** — the number that decides whether a scene can afford this vehicle:
-  submits per vehicle, triangles, what the source was, and what the placed
-  instances would total if they were all on screen. Measured on the reference
+  submits per vehicle, triangles, what the source was, the far tier's cost and
+  distance, and what the placed instances would total if they were all on
+  screen. Measured on the reference
   car: *submits 2 (~2.0 ms), body 1072 + 4 wheels 1664 = 2736 triangles, source
   was 18 parts and 5312 triangles.*
 
@@ -986,10 +1003,8 @@ speed, gear and nitrous, and the powertrain supplies the engine speed, but a PS2
 sprite is axis-aligned, so a swinging needle is not a sprite rotation (a
 pre-baked sheet per angle or a small bag of geometry). The AI patrol is a
 baked waypoint loop, not navigation — it avoids other cars one frame ahead
-and nothing else. The **distant one-submit tier** (wheels baked into the body
-for a parked fleet far away) is designed and not built. Nothing has timed a
-driven frame on a **real PS2**. Every one of those has an entry in
-docs/backlog.md.
+and nothing else. Nothing has timed a driven frame on a **real PS2**. Every one
+of those has an entry in docs/backlog.md.
 
 The canonical vehicle frame is **forward +Z, up +Y, right +X**, and the bake is
 the one place an exporter's frame is discarded. Everything downstream — the sim,

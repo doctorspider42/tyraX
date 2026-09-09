@@ -1044,6 +1044,13 @@ struct VehicleDef {
     // the canonical frame (x = right, y = up, z = forward): the driver's door.
     float exitOffset[3] = {-1.4f, 0.0f, 0.0f};
 
+    // The distance (world units, camera to car) past which the body swaps to
+    // its far tier - the decimated paint with the wheels baked in, ONE submit
+    // for the whole car - and the wheel bag stops. Twice that reaches the
+    // coarser tier. 0 = never (the wheel bag still stops at 70 units, the
+    // pre-tier rule). Baked into the body row's meshLod at codegen.
+    float farDistance = 40.0f;
+
     // Lamp clusters, measured off the model's own MATERIALS by the import
     // (names saying head/tail/brake/lamp/light - docs/vehicles.md, "The
     // visual pack"): {sideways |x| offset, y, z, half-size}, canonical frame.
@@ -1126,7 +1133,8 @@ inline bool operator==(const VehicleDef& a, const VehicleDef& b) {
         a.lampFront[0] != b.lampFront[0] || a.lampFront[1] != b.lampFront[1] ||
         a.lampFront[2] != b.lampFront[2] || a.lampFront[3] != b.lampFront[3] ||
         a.lampPart != b.lampPart || a.lampRearVerts != b.lampRearVerts ||
-        a.hudFont != b.hudFont || a.hudSpeedScale != b.hudSpeedScale)
+        a.hudFont != b.hudFont || a.hudSpeedScale != b.hudSpeedScale ||
+        a.farDistance != b.farDistance)
         return false;
     for (int i = 0; i < 3; ++i)
         if (a.exitOffset[i] != b.exitOffset[i]) return false;

@@ -759,6 +759,27 @@ void App::drawVehicleWindow() {
                 ImGui::Text("Triangles: body %d + 4 wheels %d = %d", r.bodyTris,
                             r.wheelTris * 4, r.bodyTris + r.wheelTris * 4);
                 ImGui::Text("Source was %d parts, %d triangles.", r.srcParts, r.srcTris);
+                // The far tier: the paint with the wheels baked in, ONE
+                // submit, past farDistance (twice it for the coarser one).
+                if (!r.farTris.empty()) {
+                    if (v.farDistance > 0.0f)
+                        ImGui::Text("Beyond %.0f units: 1 submit, %d triangles (wheels in);"
+                                    " beyond %.0f: %d.",
+                                    v.farDistance, r.farTris[0], v.farDistance * 2.0f,
+                                    r.farTris.size() > 1 ? r.farTris[1] : r.farTris[0]);
+                    else
+                        ImGui::Text("Far tier off: every instance costs the full %d "
+                                    "submits at any distance.", submits);
+                } else {
+                    ImGui::TextDisabled("Body too small to tier - full cost at any distance.");
+                }
+                ImGui::SetNextItemWidth(scaled(200));
+                ImGui::DragFloat("Far tier from", &v.farDistance, 0.5f, 0.0f, 500.0f,
+                                 "%.0f units");
+                prefHelp(
+                    "Camera distance past which the car draws as ONE submit:\n"
+                    "the decimated paint with the wheels baked in, the wheel\n"
+                    "bag silent. 0 = never.");
                 ImGui::Separator();
                 ImGui::SetNextItemWidth(scaled(200));
                 ImGui::SliderInt("Body triangles", &v.bodyTriBudget, 100, 6000);

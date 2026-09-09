@@ -16,6 +16,18 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.81.0 (the distant one-submit tier - docs/vehicles.md): the body's paint
+// part gets its two ordinary distance tiers, and each carries the four
+// WHEELS baked in at their rest anchors, hard-decimated; the matte trim
+// tiers itself, the lamps stay tier 0. At VehicleDef::farDistance (default
+// 40, baked into the body row's meshLod) the generic model machinery swaps
+// the body to the tier and renderVehicleWheels stops submitting the wheel
+// bag - a distant car is ONE submit, with wheels, instead of two to four
+// without. What made it possible: matrix-path objects were excluded from
+// LOD outright because tiers were baked world-space; a tier is baked LOCAL
+// for a matrixMode object now (applyGeoLod stages g_bakeLocal), and a
+// rebuild already drops every tier. kFormatVersion 49, additive. MINOR.
+//
 // 1.80.0 (vehicles - the drive owes less, docs/vehicles.md): car vs PHYSICS
 // BODY is a shove, not a wall - the collider gather sets bodies aside and the
 // car brings each one its rectangle reaches up to its own per-frame speed
@@ -2306,7 +2318,7 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 80
+#define TYRAX_VERSION_MINOR 81
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -2587,7 +2599,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // same trick"): "spot" + "spotAngle" on a light object's light block -
 // written only when the style is on, so an untouched project resaves byte
 // for byte; off (the default) is the point light every earlier file had.
-inline constexpr int kFormatVersion = 48;
+inline constexpr int kFormatVersion = 49;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

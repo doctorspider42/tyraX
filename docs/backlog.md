@@ -269,11 +269,11 @@ gaps, each with a testable end:
   that produced it: that line exists TWICE, once per game-cpp head, and a
   placeholder that reached only one of them would work in an orbit project and not
   in an FPP one.
-- **The distant one-submit tier.** vehbake already produces a body with the
-  wheels' geometry available; what is missing is a merged body+wheels bake and
-  a distance switch in renderVehicleWheels/the body row, so a parked fleet far
-  away costs one submit per car instead of two. Done when the telemetry (or a
-  bag count in the Stats tab) shows the switch happening at the distance.
+- ~~**The distant one-submit tier.**~~ DONE in 1.81.0 - the paint part's LOD
+  tiers carry the wheels, the body row's meshLod is the definition's
+  farDistance, the wheel bag stops when the body shows a tier, and `lod` in
+  the VEHAI line is the switch made visible. The enabling change was letting
+  matrix-path objects tier at all (local-space tier bake).
 - **Hardware frame cost.** The two submits are a design property, not a
   measurement - nothing has timed a driven frame on a real PS2 (docs/profiling.md
   has the method). Done when docs/vehicles.md quotes measured EE ms for one

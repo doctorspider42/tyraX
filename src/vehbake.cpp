@@ -627,6 +627,64 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
                                  bodyBefore));
     for (tmdl::Part& p : out.wheel.parts) decimateTo(p.verts, opt.wheelTriBudget);
 
+    // THE FAR TIERS (docs/vehicles.md, "Distant vehicles"): the body's paint
+    // part gets the two ordinary distance tiers, and each of them carries
+    // the four WHEELS at their rest anchors - decimated hard, hub-centred
+    // like the wheel bake leaves them, at (+-track/2, 0, +-wheelBase/2) in
+    // the body frame (whose origin IS the axle centre at hub height). At
+    // the LOD distance the generic model machinery swaps the body to that
+    // tier and the runtime stops submitting the wheel bag, so a distant car
+    // is ONE submit instead of two to four - and it still has wheels, which
+    // the old 70-unit "skip the wheels" rule did not give it. The matte
+    // trim tiers itself; the lamps stay tier 0 (a corner range must not be
+    // reordered). Palette UVs are already resolved on both models by now,
+    // and the wheel shares the body's palette, so its corners can simply be
+    // appended.
+    {
+        std::vector<float> wheelFar;
+        for (const tmdl::Part& wp : out.wheel.parts) {
+            if (wp.texture != paletteTex) continue;
+            wheelFar.insert(wheelFar.end(), wp.verts.begin(), wp.verts.end());
+        }
+        std::vector<float> wheelTier[2];
+        if (!wheelFar.empty()) {
+            wheelTier[0] = wheelFar;
+            decimateTo(wheelTier[0], std::max(24, opt.wheelTriBudget / 6));
+            wheelTier[1] = wheelTier[0];
+            decimateTo(wheelTier[1], std::max(16, opt.wheelTriBudget / 12));
+        }
+        const float hx = 0.5f * out.detection.track;
+        const float hz = 0.5f * out.detection.wheelBase;
+        const float ax[4] = {-hx, hx, -hx, hx};
+        const float az[4] = {hz, hz, -hz, -hz};
+        for (tmdl::Part& p : out.body.parts) {
+            if (p.name == "lamps") continue;
+            std::vector<std::vector<float>> tiers = meshlod::generateTiers(p.verts);
+            // A part too small for the policy still needs a tier when the
+            // wheels have to ride on it - the paint part is the carrier.
+            if (tiers.empty() && p.name == "merged" && !wheelFar.empty())
+                tiers = {p.verts, p.verts};
+            for (size_t t = 0; t < tiers.size() && t < 2; ++t) {
+                std::vector<float> verts = std::move(tiers[t]);
+                if (p.name == "merged" && !wheelTier[t].empty()) {
+                    for (int w = 0; w < 4; ++w) {
+                        const std::vector<float>& src = wheelTier[t];
+                        for (size_t i = 0; i + 7 < src.size(); i += 8) {
+                            verts.insert(verts.end(), {src[i] + ax[w], src[i + 1],
+                                                       src[i + 2] + az[w], src[i + 3],
+                                                       src[i + 4], src[i + 5],
+                                                       src[i + 6], src[i + 7]});
+                        }
+                    }
+                }
+                p.lods.push_back({std::move(verts), {}});
+            }
+            if (p.name == "merged")
+                for (const tmdl::Lod& l : p.lods)
+                    out.farTris.push_back(triCount(l.verts));
+        }
+    }
+
     computeBounds(out.body);
     computeBounds(out.wheel);
     for (size_t k = 0; k < out.body.parts.size(); ++k)
@@ -835,6 +893,16 @@ std::string bakeProject(Project& p,
         adoptMeasured(v, r);
         if (log) {
             char buf[220];
+            if (!r.farTris.empty()) {
+                std::snprintf(buf, sizeof(buf),
+                              "[vehicle] %s: far tier %d tris (wheels in)%s%d, "
+                              "1 submit past %.0f units",
+                              v.name.c_str(), r.farTris[0],
+                              r.farTris.size() > 1 ? ", then " : "",
+                              r.farTris.size() > 1 ? r.farTris[1] : r.farTris[0],
+                              v.farDistance);
+                log(buf);
+            }
             if (r.lampPart >= 0) {
                 std::snprintf(buf, sizeof(buf),
                               "[vehicle] %s: lamp materials -> emissive part %d "

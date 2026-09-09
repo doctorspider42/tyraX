@@ -12275,7 +12275,10 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
 // Everything else is fair game: the collider and the AABB are model-level, so
 // collision, physics extents and the split-band cull never see a tier.
 bool TerrainGame::modelLodEligible(int index) const {
-  if (objectGeometry[index].matrixMode) return false;
+  // A matrix-path body tiers too: its tiers are baked LOCAL (applyGeoLod
+  // stages g_bakeLocal from matrixMode), so they stay valid under motion -
+  // which is what a vehicle's far tier needs (docs/vehicles.md). A rebuild
+  // drops every tier, so a mode change cannot leave a wrong-space one.
   for (int fi = 0; fi < OBJECT_FEED_COUNT; ++fi)
     if (OBJECT_FEEDS[fi].scene == currentScene &&
         OBJECT_FEEDS[fi].object == index)
@@ -12328,7 +12331,9 @@ void TerrainGame::applyGeoLod(int index, int pi, int lod) {
       g_primKd = nullptr;
       g_primTextured = false;
       g_primUvRect = nullptr;
-      g_bakeLocal = false;  // fast-path bodies are excluded from LOD
+      // A matrix-path object bakes LOCAL tiers, exactly as its tier 0 was
+      // baked at promotion; objMat applies the motion to every tier alike.
+      g_bakeLocal = g.matrixMode;
       g_envNormals = part.envBag ? &tier.envNormals : nullptr;
       const bool textured = src.texture != nullptr;
       for (size_t k = 0; k + 7 < sv.size(); k += 8) {
@@ -14706,7 +14711,7 @@ void TerrainGame::updateVehicles(float dt) {
         TYRA_LOG("VEHAI ", ai, " pos ", (int)vehicles_[ai].pos[0], " ",
                  (int)vehicles_[ai].pos[2], " wp ", vehicles_[ai].wpCur,
                  " spd10 ", (int)(vehicles_[ai].speed * 10.0F), " av ",
-                 vehicles_[ai].aiAvoid);
+                 vehicles_[ai].aiAvoid, " lod ", vehicleLod(ai));
   }
 }
 
@@ -14985,6 +14990,15 @@ void TerrainGame::renderVehicleHud() {
 // The second submit: every wheel of every vehicle, transformed into world
 // space and concatenated into ONE bag. Four wheels is a few hundred
 // vertices of VU0 work against the ~1 ms a second submit would cost.
+// The body's shown LOD tier, for the telemetry: 0 = full, 1/2 = the far
+// tiers with the wheels baked in (docs/vehicles.md).
+int TerrainGame::vehicleLod(int vi) const {
+  const VehicleRt& v = vehicles_[vi];
+  if (v.object < 0 || v.object >= (int)objectGeometry.size()) return 0;
+  const ObjectGeometry& g = objectGeometry[(size_t)v.object];
+  return g.parts.empty() ? 0 : g.parts[0].shownLod;
+}
+
 void TerrainGame::renderVehicleWheels() {
   if (vehicleCount_ <= 0) return;
   const float kDeg = 3.14159265F / 180.0F;
@@ -15001,9 +15015,16 @@ void TerrainGame::renderVehicleWheels() {
       continue;
     const GameModelPart& part = gameModels[wm].parts[0];
     if (part.verts.size() < 24) continue;
-    // A vehicle 70+ units from the camera draws sub-pixel wheels for ~8k EE
-    // multiplies per frame - skip it whole. The body (the object pass) is
-    // what reads as "a car" at that size.
+    // THE FAR TIER (docs/vehicles.md): once the body shows a distance tier,
+    // that tier carries the four wheels baked in at their rest anchors, so
+    // the wheel bag must not draw a second set - a distant car is the body's
+    // one submit and nothing else. Beyond 70 units the bag stops regardless
+    // (sub-pixel wheels for ~8k EE multiplies), the rule from before the
+    // tiers existed, which a definition with farDistance 0 still gets.
+    if (v.object >= 0 && v.object < (int)objectGeometry.size() &&
+        !objectGeometry[(size_t)v.object].parts.empty() &&
+        objectGeometry[(size_t)v.object].parts[0].shownLod > 0)
+      continue;
     {
       const float ddx = v.pos[0] - cameraPosition.x;
       const float ddz = v.pos[2] - cameraPosition.z;
