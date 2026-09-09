@@ -4723,6 +4723,21 @@ void Viewport::fly(float forward, float strafe, float dt) {
     target_[2] += (fwdH.z * forward + rightH.z * strafe) * s;
 }
 
+// A local AABB against the six homogeneous clip planes. Testing the box's
+// support point avoids transforming eight corners and handles rotation,
+// negative/nonuniform scale, perspective and orthographic views alike.
+static bool modelInView(const Mat4& mvp, const float mn[3], const float mx[3]) {
+    for (int axis = 0; axis < 3; ++axis) for (int sign : {-1, 1}) {
+        float furthest = mvp.m[15] + sign * mvp.m[12 + axis];
+        for (int k = 0; k < 3; ++k) {
+            const float a = mvp.m[k*4 + 3] + sign * mvp.m[k*4 + axis];
+            furthest += a * (a >= 0.0f ? mx[k] : mn[k]);
+        }
+        if (furthest < -0.001f) return false;
+    }
+    return true;
+}
+
 uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>& objects,
                           const std::vector<int>& selection, int primary) {
     // Finished background model bakes land here, on the GL thread, before
@@ -5593,6 +5608,10 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                 mvp = mul(viewProj, model);
             }
             if (md) {
+                // The GPU cannot shade a model outside this view. Reject it
+                // before uploading per-part uniforms/materials; reflected and
+                // selected-outline passes still make their own visibility choice.
+                if (!modelInView(mvp, md->mn, md->mx)) continue;
                 // Opaque parts first, cutout ones (leaf cards) after, so a
                 // blended part never darkens a trunk it was authored in front
                 // of - the same order the tree preview draws in.

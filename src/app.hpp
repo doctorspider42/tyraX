@@ -1486,7 +1486,7 @@ private:
     void groupSelection();
     void ungroupSelection();
     std::string selectedGroup() const;
-    void selectOnly(int i);     // replace the selection with {i} (i<0 clears)
+    void selectOnly(int i, bool expandGroups = true);     // replace the selection with {i} (i<0 clears)
     void toggleSelect(int i);   // add/remove i (no-op for i<0)
     void clearSelection();
     bool isSelected(int i) const;
@@ -1638,6 +1638,7 @@ private:
     // Full multi-selection (indices into the active scene's objects, in click
     // order). selectedObject_ == (selection_.empty() ? -1 : selection_.back()).
     std::vector<int> selection_;
+    bool selectionGroupMember_ = false;  // explicit child-row inspection
     // Rubber-band box select in progress (anchor = io.MouseClickedPos[0]).
     bool boxSelecting_ = false;
     // Click cycling: clicking the same spot again walks the objects stacked

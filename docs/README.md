@@ -231,3 +231,7 @@ Developer design docs (internals, not user guides):
 ## Object groups
 
 [Object groups](object-groups.md) keep assemblies together for selection, rigid transforms, independent copying, deletion and ungrouping.
+
+## Editor viewport performance
+
+[Editor viewport performance](editor-performance.md) explains conservative offscreen model rejection and how to compare navigation costs without changing visual quality.

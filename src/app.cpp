@@ -6108,14 +6108,16 @@ void App::ungroupSelection() {
     if (changed) { commitChange(); statusMessage_ = "Ungrouped objects"; }
 }
 
-void App::selectOnly(int i) {
+void App::selectOnly(int i, bool expandGroups) {
+    selectionGroupMember_ = !expandGroups;
     selection_.clear();
     if (i >= 0 && i < (int)project_.objects().size()) selection_.push_back(i);
-    expandSelectionGroups();
+    if (expandGroups) expandSelectionGroups();
     selectedObject_ = selection_.empty() ? -1 : selection_.back();
 }
 
 void App::toggleSelect(int i) {
+    selectionGroupMember_ = false;
     if (i < 0 || i >= (int)project_.objects().size()) return;
     const std::string group = project_.objects()[i].editorGroup;
     if (isSelected(i)) {
@@ -6130,6 +6132,7 @@ void App::toggleSelect(int i) {
 }
 
 void App::clearSelection() {
+    selectionGroupMember_ = false;
     selection_.clear();
     selectedObject_ = -1;
 }
@@ -6144,11 +6147,12 @@ void App::pruneSelection() {
         std::remove_if(selection_.begin(), selection_.end(),
                        [n](int i) { return i < 0 || i >= n; }),
         selection_.end());
-    expandSelectionGroups();
+    if (!selectionGroupMember_) expandSelectionGroups();
     selectedObject_ = selection_.empty() ? -1 : selection_.back();
 }
 
 void App::selectObjectsInBox(ImVec2 a, ImVec2 b, ImVec2 imgPos, ImVec2 avail, bool add) {
+    selectionGroupMember_ = false;
     const float rMinX = std::min(a.x, b.x), rMaxX = std::max(a.x, b.x);
     const float rMinY = std::min(a.y, b.y), rMaxY = std::max(a.y, b.y);
 
@@ -8192,7 +8196,8 @@ void App::drawSceneSection() {
                 ImGui::PushStyleColor(ImGuiCol_Text,
                                       ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
             if (ImGui::Selectable(label.c_str(), isSelected(i))) {
-                if (ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift) toggleSelect(i);
+                if (inPrefabGroup && !o.editorGroup.empty()) selectOnly(i, false);
+                else if (ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift) toggleSelect(i);
                 else selectOnly(i);
             }
             if (hidden) ImGui::PopStyleColor();
@@ -8283,7 +8288,7 @@ void App::drawSceneSection() {
                         selectAll(members);
                 }
                 if (persistent && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-                    ImGui::SetTooltip("Object group: click any member to select the whole group. Ctrl+Shift+G ungroups it.");
+                    ImGui::SetTooltip("Click the header to select the group; expand it and click a member to edit that object. Ctrl+Shift+G ungroups it.");
                 if (!persistent && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
                     ImGui::SetTooltip(
                         "Inserted from the prefab \"%s\" (Tools > Prefabs).\n"

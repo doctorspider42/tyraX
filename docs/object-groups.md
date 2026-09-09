@@ -4,7 +4,7 @@ Object groups keep scene objects together for selection, movement, rotation,
 copying and deletion, without adding a runtime parent or merging their geometry.
 
 Select objects with Ctrl-click or a selection rectangle, then choose **Edit >
-Group objects** (Ctrl+G), or **Group objects** in Properties. Clicking any member
+Group objects** (Ctrl+G), or **Group objects** in Properties. Clicking a member in the viewport or the outliner group header
 selects the whole group, including members hidden by an outliner search. The
 Project panel displays a collapsible named group; search also matches its name.
 Rename it in **Properties > Group name**, confirming with Enter. Names are unique
@@ -22,7 +22,11 @@ including paired portals and flow-node object references, follow the copies;
 references to objects outside the copied selection stay unchanged. Delete removes
 all members. **Edit > Ungroup objects** (Ctrl+Shift+G) or the Properties button
 removes membership while preserving every object's current world transform.
-Ungroup to edit an individual member, then group the selection again if needed.
+Expand the group in the Project panel and click a child row to inspect and edit
+that object alone, without ungrouping. Its own Name, transform and type-specific
+Properties appear; viewport transforms apply to that one member too. Undo/redo
+preserves this individual selection. Click the group header (or an object in
+the viewport) to return to editing the complete group.
 All these edits participate in undo/redo and explicit Save.
 
 Groups are scene-local and flat. Streaming layers and prefab provenance remain

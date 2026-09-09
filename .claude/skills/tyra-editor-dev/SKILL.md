@@ -57,11 +57,18 @@ Two sibling skills cover the rest of the system:
 
 `SceneObject::editorGroup` is a scene-local persistent selection identity, saved
 by objectJson/parseObject and compared by operator== (history/session sync).
+Expanded child rows call selectOnly(i, false) for individual Properties/editing;
+selectionGroupMember_ keeps undo from expanding that selection. Other
 App selection helpers expand membership before manipulation; the existing gizmo
 applies a world delta about the centroid. Properties uses a rigid matrix delta
 for group rotation too. Paste renames groups and internal object references;
 prefab capture clears group membership. Groups are editor-only, with no generated
 runtime hierarchy. See docs/object-groups.md.
+
+Static-model viewport draws call `modelInView` on imported local bounds and the
+actual MVP before the per-material loop. Keep bounds conservative: animated
+poses bypass this rejection, and reflected views keep their own draw path.
+See docs/editor-performance.md for measurement caveats.
 
 ## Source map (`src/`, one flat directory)
 
