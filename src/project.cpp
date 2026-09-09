@@ -1699,6 +1699,10 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"godRays\": " << fmtFloat(p.settings.godRays) << ",\n"
          << "    \"blobShadows\": " << (p.settings.blobShadows ? "true" : "false")
          << ",\n"
+         << (p.settings.projShadowDistance != 50.0f
+                 ? "    \"projShadowDistance\": " +
+                       fmtFloat(p.settings.projShadowDistance) + ",\n"
+                 : "")
          // The neural upscaler (docs/neural-upscaler.md). Project-wide, always
          // emitted like the fog/highlight groups next to it.
          << "    \"blssEnabled\": " << (p.settings.blssEnabled ? "true" : "false")
@@ -5365,6 +5369,11 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.godRays = clamp01((float)v->numberOr(0.0));
         if (const auto* v = s->find("blobShadows"))
             st.blobShadows = v->type == json::Value::Type::Bool && v->boolean;
+        if (const auto* v = s->find("projShadowDistance")) {
+            st.projShadowDistance = (float)v->numberOr(50.0);
+            if (st.projShadowDistance < 10.0f) st.projShadowDistance = 10.0f;
+            if (st.projShadowDistance > 500.0f) st.projShadowDistance = 500.0f;
+        }
         // The neural upscaler (docs/neural-upscaler.md). Absent = off, which is
         // every project saved before it existed; blssTemporal defaults ON, so
         // it reads like loadingScreen (absent means the default, not false).

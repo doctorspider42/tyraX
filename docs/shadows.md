@@ -64,6 +64,18 @@ a crate's does.
 
 ### The four slots change hands slowly
 
+### Distance
+
+A caster further than **Preferences > Shadows > Projected shadow distance**
+from the camera takes no slot at all, and a shadow dissolves over the last
+30 % of the way there (35..50 units at the default of 50, which is what the
+number used to be as a built-in). It is one project-wide number because the
+four slots are one project-wide budget: on a wide scene where nothing contests
+them, raise it and the shed's shadow is there from further off; on a crowded
+one, lowering it keeps the slots for what is near. The `.tyra` carries
+`projShadowDistance` only when it is not 50 (format v38). Which four win
+within that reach is still raw camera distance ([backlog](backlog.md)).
+
 Marking twenty casters is not an error, but which four you get is then decided
 by where you stand, and the answer must not change on a footstep. It is held,
 on the same terms as the count band below:

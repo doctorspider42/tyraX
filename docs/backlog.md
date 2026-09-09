@@ -304,7 +304,7 @@ is separate again - the rig is PCSX2 only.
 
 1.70.1 stopped the four silhouette slots from blinking, but it deliberately did
 not touch WHICH four win: it is still the four casters nearest the camera, and
-the 50-unit far cull (dissolving over the last 15) is the same number for a
+the far cull (Preferences > Projected shadow distance since 1.71.0, dissolving over its last 30 %) is the same number for a
 crate and for a building. Both are wrong in the same direction — screen area,
 not distance, is what makes a shadow worth a slot — and on
 `examples/night-walk` the question does not arise, because every caster there

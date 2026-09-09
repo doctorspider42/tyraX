@@ -15048,7 +15048,7 @@ void TerrainGame::renderProjShadows() {
     const float dy = o.data.position[1] - cameraPosition.y;
     const float dz = o.data.position[2] - cameraPosition.z;
     const float d2 = dx * dx + dy * dy + dz * dz;
-    if (d2 > 50.0F * 50.0F) continue;
+    if (d2 > PROJ_SHADOW_DISTANCE * PROJ_SHADOW_DISTANCE) continue;
     cands.push_back({i, d2});
   }
   const int nSlots = (int)projShadows.size();
@@ -15509,8 +15509,12 @@ void TerrainGame::renderProjShadows() {
     sray[s][6] = r;
     syMax[s] = cy - r + 0.35F;
     const float dist = candDist(i);
+    // The far dissolve: the last 30 % of the project's reach (35..50 for the
+    // old built-in 50), so a caster walking out never pops.
+    const float fadeFrom = PROJ_SHADOW_DISTANCE * 0.7F;
+    const float fadeLen = PROJ_SHADOW_DISTANCE - fadeFrom;
     sfade[s] =
-        (dist < 35.0F ? 1.0F : 1.0F - (dist - 35.0F) / 15.0F) * reachFade;
+        (dist < fadeFrom ? 1.0F : 1.0F - (dist - fadeFrom) / fadeLen) * reachFade;
     // ...and the low-sun ramp, for the slots the sun actually threw.
     if (bestSun) sfade[s] *= sunLow;
     // ...and the slot's own dissolve, which is what makes a hand-over and an
@@ -27972,6 +27976,10 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     // sprite doubles as the shadow's alpha mask, baked when either is on).
     out << "constexpr int BLOB_SHADOWS = " << (p.settings.blobShadows ? 1 : 0)
         << ";\n";
+    // Projected shadows: how far from the camera a caster may still hold a
+    // slot (Preferences > Shadows, docs/shadows.md "Distance").
+    out << "constexpr float PROJ_SHADOW_DISTANCE = "
+        << floatLit(p.settings.projShadowDistance) << ";\n";
     // ...and whether the system exists AT ALL, which is no longer the same
     // question: an object can ask for a blob with the project preference off
     // (SceneObject::shadowMode == 2, docs/shadows.md). This is what gates the

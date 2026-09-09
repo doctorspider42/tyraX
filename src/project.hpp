@@ -1707,6 +1707,12 @@ struct ProjectSettings {
     // the object rises. Project-wide; grounds objects visually for almost
     // nothing (one quad per object).
     bool blobShadows = false;
+    // How far from the camera a PROJECTED silhouette shadow is still drawn,
+    // in world units (docs/shadows.md, "Distance"). A caster past it takes no
+    // slot; the shadow dissolves over the last 30 % of the way there, so the
+    // edge is never a pop. Used to be a constant 50 (fading from 35); the
+    // four slots are a project-wide budget, so the reach is project-wide too.
+    float projShadowDistance = 50.0f;
 
     // In-game outline around usable objects while the player is within
     // highlightDistance (fading silhouette shells drawn after the scene).
@@ -1724,7 +1730,7 @@ struct ProjectSettings {
     bool highlightOverlay = false;
 };
 
-static_assert(sizeof(ProjectSettings) == 704,
+static_assert(sizeof(ProjectSettings) == 712,
               "ProjectSettings changed size - a field was added or removed. "
               "Add it to operator== below as well, or its Preferences widget "
               "will silently do nothing; then update this number.");
@@ -1824,6 +1830,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.dofFocus == b.dofFocus && a.dofRange == b.dofRange &&
            a.flare == b.flare && a.godRays == b.godRays &&
            a.blobShadows == b.blobShadows &&
+           a.projShadowDistance == b.projShadowDistance &&
            a.blssEnabled == b.blssEnabled && a.blssScale == b.blssScale &&
            a.blssNetwork == b.blssNetwork &&
            a.blssSharpen == b.blssSharpen &&

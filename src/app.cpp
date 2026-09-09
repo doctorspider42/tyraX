@@ -14685,6 +14685,15 @@ void App::drawPreferencesWindow() {
             "for a blob, a silhouette or nothing in Properties > Dynamic\n"
             "shadow - including a static prop, and with this switch off\n"
             "(docs/shadows.md).");
+    ImGui::DragFloat("Projected shadow distance", &prefSettings_.projShadowDistance,
+                     0.5f, 10.0f, 500.0f, "%.0f u");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "How far from the camera a projected silhouette shadow is still\n"
+            "drawn. A caster beyond it takes none of the four slots; the\n"
+            "shadow dissolves over the last 30%% of the way there. 50 is the\n"
+            "old built-in; raise it for wide scenes where the slots are not\n"
+            "contested (docs/shadows.md).");
     ImGui::Checkbox("Flashlight shadow volumes",
                     &prefSettings_.flashShadowVolumes);
     // The help marker belongs to the checkbox it FOLLOWS - it used to sit

@@ -16,6 +16,21 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.71.0 (Projected shadow distance is a setting): the projected
+// silhouettes' far cull was a built-in 50 units from the camera, dissolving
+// from 35, and a question from the yard - "the shed's shadow only shows when
+// I stand near the lamp; is the distance configurable?" - had two answers.
+// The first is not this setting: a placed lamp can only throw a caster's
+// shadow inside its own Radius (the shadow fades over the outer quarter of
+// it), so a shed ten units from a nine-unit lamp is lit by the torch instead,
+// and a torch held at the eye hides its shadows behind their casters. The
+// second was the constant, which is now Preferences > Shadows > Projected
+// shadow distance (ProjectSettings::projShadowDistance, 10..500, default 50;
+// written only when it is not 50 - format v38, additive), and the dissolve
+// is the last 30 % of it so the default reproduces 35..50 exactly. Generated
+// as PROJ_SHADOW_DISTANCE and read in renderProjShadows for both the
+// candidate cull and the fade. Project-wide, because the four slots are.
+//
 // 1.70.5 (32-bit shadow volumes on a console: the rect was never clamped):
 // beside the lamp post at 32-bit colour the console ran at 12 FPS and drew
 // a dark line through the pool that moved with the camera. RECTDBG (a
@@ -2809,8 +2824,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 70
-#define TYRAX_VERSION_PATCH 5
+#define TYRAX_VERSION_MINOR 71
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -3139,7 +3154,13 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // file did, which is spot lights taking no part in the volume machinery at
 // all. An older editor reading a newer file drops two keys whose absence is
 // the old behaviour. Purely additive - no migration step.
-inline constexpr int kFormatVersion = 37;
+// v38 (projected shadow distance, docs/shadows.md "Distance"):
+// ProjectSettings::projShadowDistance - how far from the camera a projected
+// silhouette shadow is still drawn; written only when it is not the old
+// built-in 50, so an untouched project resaves byte for byte and an older
+// editor reading a newer file falls back to exactly the number it always had.
+// Purely additive - no migration step.
+inline constexpr int kFormatVersion = 38;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects
