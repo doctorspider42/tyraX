@@ -242,5 +242,15 @@ unchanged by this performance adjustment.
 For the 1.77.2 PCSX2 regression check, a frozen camera facing the cellar measured
 10.0 FPS before, 11.1 FPS with lists alone and 25.0 FPS with cached clipping.
 The frozen return view measured 50 FPS. These are two views, not a minimum FPS
-for the entire island; physical-console performance must be measured separately.
+for the entire island; physical-console performance is recorded below.
 See [portal measurements](../../docs/portals.md#imported-mesh-bounds-1771).
+
+Physical PS2 verification (2026-09-09): the same doorway view with correct
+textures runs at **12-12.5 FPS**, with 66.11 ms of scene rendering. Disabling
+the portal view alone still gives **12.5 FPS**, with 59.88 ms of scene rendering.
+The scene is therefore not yet a performant hardware showcase; portal scoping
+and caching alone do not fix its base rendering cost. These are debug builds
+served over ps2link, with Live Debugger/Remote Pad and the profiler enabled.
+
+![Physical PS2, portal enabled](preview/ps2-portal-performance.png)
+![Physical PS2, portal view disabled](preview/ps2-noportal-performance.png)

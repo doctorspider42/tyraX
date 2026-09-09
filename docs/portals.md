@@ -207,3 +207,13 @@ measured 10.0 FPS / 93.28 ms SCENE; destination lists alone measured 11.1 FPS /
 one matched doorway view, not a whole-level frame-rate guarantee. A 360 x 300
 cellar crop was pixel-identical before and after caching. The scene still
 exceeds the 20 ms budget for 50 FPS in this view.
+
+Physical PS2 follow-up (2026-09-09, same frozen view, 512 x 448 PAL,
+network deployment with Live Debugger/Remote Pad and profiler enabled):
+textures loaded successfully and the warm portal run measured 12-12.5 FPS,
+66.11 ms SCENE (80.72 ms FRAME). Removing only the source portal's target
+measured 12.5 FPS, 59.88 ms SCENE (82.32 ms FRAME). The portal adds roughly
+6 ms of scene work here, but disabling it does not solve the frame-rate problem;
+the base scene itself exceeds the budget. These debug/network runs are not
+standalone retail-build measurements. GS captures are in the showcase preview
+folder (`ps2-portal-performance.png`, `ps2-noportal-performance.png`).
