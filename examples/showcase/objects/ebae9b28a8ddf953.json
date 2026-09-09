@@ -1,0 +1,1 @@
+{ "id": "ebae9b28a8ddf953", "name": "calibration-weight-2", "type": "sphere", "position": [10.2, 0.5, 22], "rotation": [0, 0, 0], "scale": [0.4, 0.4, 0.4], "color": [1, 1, 1], "physics": true, "physMass": 1, "physBounce": 0.6, "physFriction": 0.5, "physTumble": true, "physSleep": 3, "pickable": true, "pickThrow": true, "detail": 10, "material": "res/aster/gold.mtl" }

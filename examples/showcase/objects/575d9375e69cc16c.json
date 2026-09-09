@@ -1,0 +1,1 @@
+{ "id": "575d9375e69cc16c", "name": "optical-monitor", "type": "box", "position": [2, 2.5, -26.95], "rotation": [0, 0, 0], "scale": [2.85, 2.05, 0.08], "color": [1, 1, 1], "physics": false, "collision": "none", "textureFeed": "camera:orrery-camera" }

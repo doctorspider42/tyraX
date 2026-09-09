@@ -16,6 +16,10 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.57.0: Aster replaces the old showcase with an authored coastal observatory,
+// playable lens hunt and bounded optical experiments. See examples/showcase.
+// The project format and generated runtime behavior are unchanged.
+//
 // 1.56.0 (the console can be switched off from the desk - Build > Power Off
 // PS2, docs/ps2link-setup.md): the capability was there the whole time and
 // nothing exposed it. ps2link answers PKO_POWEROFF_CMD (0xbabe0204) on the same
@@ -1761,7 +1765,7 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 56
+#define TYRAX_VERSION_MINOR 57
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

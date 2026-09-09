@@ -1,0 +1,1 @@
+{ "id": "7aa90c14311f5e8e", "name": "-1-warm-pool-0", "type": "point-light", "position": [-5.4, 3.2, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 0.66, 0.28], "physics": false, "light": { "brightness": 0.65, "radius": 5, "dynamic": false, "flicker": 0, "beam": 1 } }

@@ -72,8 +72,8 @@ int main(int argc, char** argv) {
   // has something that reads them: a reflective "@sky" material for the env
   // map, a feed camera for the camera feed. Computed at build time - see
   // projectNeedsEnvMap / projectNeedsCamFeed in the editor's templates.cpp.
-  options.envMapTarget = false;
-  options.camFeedTarget = false;
+  options.envMapTarget = true;
+  options.camFeedTarget = true;
   // Triple buffering (Preferences > Display > Triple buffering, docs/
   // frame-pacing.md): present from a vblank interrupt instead of stalling
   // the EE on vsync, so a frame that overruns its field is shown one field

@@ -1,0 +1,1 @@
+{ "id": "8812dc2b5c1e2dd5", "name": "tidal-channel", "type": "model", "position": [0, -0.55, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "collision": "none", "castShadow": false, "bakedLighting": false, "model": "res/aster/canal-water.obj" }

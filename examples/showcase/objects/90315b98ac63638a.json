@@ -1,0 +1,1 @@
+{ "id": "90315b98ac63638a", "name": "orrery-camera", "type": "camera", "position": [5, 6, -6], "rotation": [17, 220, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "camera": { "fov": 58, "feed": true, "feedTerrain": false, "feedObjects": ["heart-of-aster", "meridian", "ecliptic", "equator"] } }

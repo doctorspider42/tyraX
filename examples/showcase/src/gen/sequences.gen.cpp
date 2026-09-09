@@ -39,9 +39,22 @@ struct Seq { const char* name; float duration; int loop; int camEnabled;
              const Track* tracks; int trackCount;
              const CamKey* camKeys; int camKeyCount; };
 
-static const Seq kSeqs[] = {{"", 0.0F, 0, 0, 0, 0, 0, 0.0F, 0.0F, 0.0F, 0.0F, nullptr, 0, nullptr, 0}
+static const Track kS0Tracks[] = {{0, -1, 0, 0, 0, 0, 0, nullptr, 0}};
+static const CamKey kS0Cam[] = {{0.0F, {21.0F, 13.0F, 32.0F}, {0.0F, 3.0F, -9.0F}, 55.0F, 0.0F, 0.0F, 1, -1, -1}, {6.0F, {12.0F, 7.0F, 18.0F}, {0.0F, 3.0F, -14.0F}, 55.0F, 0.0F, 0.0F, 1, -1, -1}, {10.0F, {0.0F, 2.5F, 24.0F}, {0.0F, 3.0F, -12.0F}, 55.0F, 0.0F, 0.0F, 1, -1, -1}};
+
+static const Track kS1Tracks[] = {{0, -1, 0, 0, 0, 0, 0, nullptr, 0}};
+static const CamKey kS1Cam[] = {{0.0F, {0.0F, 3.0F, 23.0F}, {0.0F, 4.0F, -12.0F}, 55.0F, 0.0F, 0.0F, 1, -1, -1}, {5.0F, {-11.0F, 3.0F, 12.0F}, {-11.0F, 4.0F, -12.0F}, 55.0F, 0.0F, 0.0F, 1, -1, -1}, {10.0F, {-6.0F, 3.0F, -3.0F}, {0.0F, 4.0F, -12.0F}, 55.0F, 0.0F, 0.0F, 1, -1, -1}, {16.0F, {10.0F, 7.0F, -16.0F}, {0.0F, 5.0F, -23.0F}, 55.0F, 0.0F, 0.0F, 1, -1, -1}, {22.0F, {24.0F, 15.0F, 28.0F}, {0.0F, 3.0F, -9.0F}, 55.0F, 0.0F, 0.0F, 1, -1, -1}};
+
+static const ObjKey kS2T0K[] = {{0.0F, {0.0F, 4.1F, -12.0F}, {0.0F, 0.0F, 0.0F}, {1.7F, 1.7F, 1.7F}, {1.0F, 1.0F, 1.0F}, 1, 1}, {4.0F, {0.0F, 4.1F, -12.0F}, {0.0F, 0.0F, 0.0F}, {2.6F, 2.6F, 2.6F}, {1.0F, 0.95F, 0.7F}, 1, 1}, {8.0F, {0.0F, 4.1F, -12.0F}, {0.0F, 0.0F, 0.0F}, {2.1F, 2.1F, 2.1F}, {0.8F, 1.0F, 1.0F}, 1, 1}};  // "heart-of-aster" -> scene 0 obj 25
+static const Track kS2Tracks[] = {{0, 25, 0, 0, 1, 1, 0, kS2T0K, 3}};
+static const CamKey kS2Cam[] = {{0.0F, {0.0F, 2.0F, -5.0F}, {0.0F, 4.0F, -12.0F}, 50.0F, 0.0F, 0.0F, 1, -1, -1}, {4.0F, {5.0F, 5.0F, -9.0F}, {0.0F, 4.0F, -12.0F}, 48.0F, 0.0F, 0.0F, 1, -1, -1}, {8.0F, {0.0F, 8.0F, -5.0F}, {0.0F, 4.0F, -14.0F}, 58.0F, 0.0F, 0.0F, 1, -1, -1}};
+
+static const Seq kSeqs[] = {
+  {"Arrival", 10.0F, 0, 1, 1, 0, 1, 0.7F, 0.7F, 0.5F, 0.5F, kS0Tracks, 0, kS0Cam, 3},
+  {"The Grand Tour", 22.0F, 0, 1, 1, 0, 1, 0.7F, 0.7F, 0.5F, 0.5F, kS1Tracks, 0, kS1Cam, 5},
+  {"Celestial Alignment", 8.0F, 0, 1, 1, 0, 1, 0.7F, 0.7F, 0.5F, 0.5F, kS2Tracks, 1, kS2Cam, 3}
 };
-static const int kSeqCount = 0;
+static const int kSeqCount = 3;
 
 // Interpolates one component of an object channel (0 pos, 1 rot, 2 scale,
 // 3 color) across a track's keys at time t. Holds the ends.

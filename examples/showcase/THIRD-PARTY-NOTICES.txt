@@ -41,3 +41,20 @@ The generated C++ in this project came from TyraX's templates. TyraX grants
 those generated files to you with NO conditions attached - no attribution, no
 license text, no notice. See LICENSE-EXCEPTION.md in the TyraX repository. This
 section is a courtesy credit, and you may delete it.
+
+
+Aster art — CC0 source assets
+-----------------------------
+Selected props (ivy, crate, wagon): Quaternius, Medieval Village MegaKit,
+Standard edition. https://quaternius.com/packs/medievalvillagemegakit.html
+Keeper: Quaternius, Sci-Fi Essentials Kit, Standard edition, EyeDrone.
+https://quaternius.com/packs/scifiessentialskit.html
+
+Both packs are CC0 1.0 Universal:
+https://creativecommons.org/publicdomain/zero/1.0/
+The supplied license texts are retained as res/aster/CC0-Quaternius.txt and
+res/aster/CC0-Keeper.txt. Static props have centred origins and rewritten
+material paths; the keeper retains its rig and actions with a reduced mesh
+and 128px embedded textures. The architectural meshes, vegetation meshes,
+procedural surface textures, tidal composition and lens chime were authored
+for this example. No assets need to be downloaded to build the project.

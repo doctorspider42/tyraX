@@ -1,0 +1,1 @@
+{ "id": "e307b744bcf68fde", "name": "rotunda-acoustics", "type": "area", "position": [0, 2.5, -23], "rotation": [0, 0, 0], "scale": [10, 5, 10], "color": [1, 1, 1], "physics": false, "reverb": { "preset": 5, "amount": 0.4, "delay": 64, "feedback": 64, "priority": 1 } }

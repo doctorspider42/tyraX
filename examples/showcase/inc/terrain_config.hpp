@@ -10,7 +10,7 @@ namespace Showcase {
 // project-wide; sky, clipping, post-FX and the usable-highlight can be
 // overridden per scene and live as SCENE_COUNT arrays in scene_data.hpp
 // (reached through the accessor macros defined in scene_data.hpp).
-constexpr int TERRAIN_MAX_CELLS = 48;
+constexpr int TERRAIN_MAX_CELLS = 32;
 
 // Terrain streaming (Preferences > Terrain). The terrain mesh is built in
 // TERRAIN_CHUNK_CELLS x TERRAIN_CHUNK_CELLS tiles; with a view distance > 0
@@ -18,7 +18,7 @@ constexpr int TERRAIN_MAX_CELLS = 48;
 // (the rest streams in as the player moves - pair with fog to hide pop-in).
 // 0 keeps the whole map resident, like before chunking existed.
 constexpr int TERRAIN_CHUNK_CELLS = 16;
-constexpr float TERRAIN_VIEW_DISTANCE = 88.0F;
+constexpr float TERRAIN_VIEW_DISTANCE = 0.0F;
 
 // Distance detail (Preferences > World, docs/terrain-lod.md). Beyond this
 // range a tile is built from every 2nd heightmap sample, and beyond 2.2x it
@@ -37,12 +37,12 @@ constexpr float TERRAIN_LOD_DISTANCE = 0.0F;
 constexpr int FLASH_SHADOW_VOLUMES = 0;
 
 constexpr float EYE_HEIGHT = 1.8F;
-constexpr float WALK_SPEED = 0.5F;
+constexpr float WALK_SPEED = 0.1F;
 // The full-stick tier and the sprint tier, already resolved (0 = inherit is
 // applied by the editor, docs/player-speeds.md): with no run speed set these
 // are WALK_SPEED and WALK_SPEED x the sprint multiplier.
-constexpr float RUN_SPEED = 0.5F;
-constexpr float SPRINT_SPEED = 0.9F;
+constexpr float RUN_SPEED = 0.1F;
+constexpr float SPRINT_SPEED = 0.17F;
 constexpr float LOOK_SPEED = 1.0F;    // multiplier
 // Stick offsets below this fraction of full deflection read as zero
 // (worn pads rest off-center); motion rescales smoothly above it.
@@ -109,7 +109,7 @@ constexpr float ANIM_LOD_DISTANCE = 24.0F;
 // Mesh LOD (Preferences > Rendering): instances farther than this render
 // the ~50%-vertex variant baked into the .tskl, beyond twice the distance
 // the ~25% one. 0 = off (the build then bakes no LOD chains at all).
-constexpr float MESH_LOD_DISTANCE = 30.0F;
+constexpr float MESH_LOD_DISTANCE = 14.0F;
 
 // Static batching (Preferences > Rendering): merge non-moving primitive
 // objects sharing a material into combined world-space bags at scene load -
@@ -128,8 +128,8 @@ constexpr bool ENV_PROBE_REFLECTED = false;
 
 // Debug-profile HUD (Project > Preferences > Build). All forced false in a
 // release-profile build, which folds the overlay + instrumentation away.
-constexpr bool DEBUG_SHOW_FPS = true;
-constexpr bool DEBUG_SHOW_MEM = true;
+constexpr bool DEBUG_SHOW_FPS = false;
+constexpr bool DEBUG_SHOW_MEM = false;
 // Per-phase EE-time breakdown (scene / usable-highlight / particles / whole
 // frame), averaged over ~1s. The COP0-timer reads that feed it are guarded
 // by this constexpr, so a build with it false pays nothing (see drawDebugHud
