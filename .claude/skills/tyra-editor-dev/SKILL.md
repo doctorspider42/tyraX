@@ -500,11 +500,12 @@ that arrangement needs, and each of them is the reusable half:
   fixed-size icon stays clickable at any distance while the object's 3D
   `pickBounds` box shrinks below it, so the 3D box is only there for the rubber
   band and the gizmo.
-- **Hiding it goes through `App::isObjectHiddenInEditor`**, not through a
-  branch in the overlay: that one predicate is what the render, the click
-  picking, the rubber band, the placement raycast and the gizmo all consult, so
-  a View toggle takes the type out of all five at once. A per-feature `if` in
-  the drawing code would hide the picture and leave the clicking.
+- **The View toggle controls text, not existence.** Comment icons always stay
+  visible and clickable; `showCommentText_` only decides whether every note's
+  text expands or just the selected note's, and defaults off. Layer visibility
+  still goes through `App::isObjectHiddenInEditor`, so a hidden layer removes
+  its comments consistently from drawing, picking, rubber-band selection and
+  the gizmo.
 
 Its text reaches NOTHING downstream (not codegen, not a bake), which is also
 why `commentText` is deliberately out of `liveLinkRecipeHash` - the general

@@ -25,10 +25,10 @@
 // (App::commentIcons / drawCommentOverlay), which is what keeps a note the
 // same size at any distance and stops it hiding the thing it is about.
 // Selecting one shows its opening beside the icon and the whole of it - any
-// length, wrapped, with a Copy button - in Properties. View > Comments hides
-// them, and it hides them through project::isObjectHiddenInEditor, so the same
-// switch takes them out of the picture, the click picking, the rubber band and
-// the gizmo at once. ONE function decides where an icon is, so the thing you
+// length, wrapped, with a Copy button - in Properties. The icons are always
+// visible and clickable; View > Comments is off by default and only controls
+// whether every note's text is expanded or just the selected note's. ONE
+// function decides where an icon is, so the thing you
 // see and the thing a click selects cannot disagree (the axis-gizmo
 // arrangement); the icon is hit-tested in SCREEN space because a distant
 // note's 3D box shrinks below its own icon. Nothing about a note is
@@ -37,7 +37,7 @@
 // kFormatVersion 42 -> 43. Verified by --resave round-trips (a note with
 // newlines, quotes and 4 KB of text comes back byte for byte), --refresh-gen
 // on the examples (no generated file moves) and a --ui-script run that adds a
-// comment, types into it, screenshots the icon and toggles View > Comments.
+// comment, types into it, screenshots both text modes and toggles View > Comments.
 //
 // 1.72.1 (the projected silhouette stops at the floor, and stays out of a
 // GI bake's way): the same wall as 1.72.0, in the game, threw a shadow on

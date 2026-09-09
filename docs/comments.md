@@ -21,9 +21,10 @@ geometry. Two things follow from that, and both are the point:
   depth buffer, and the bubble floats above its anchor with the tail on the
   exact point it is pinned to.
 
-**Selecting it shows the text**, beside the icon and in Properties. In the
-viewport you get the note's name and its opening — enough to know which note
-this is without opening anything — and the panel holds the whole of it.
+The icons are always visible and clickable. **Selecting one shows its text**
+beside the icon and in Properties. In the viewport you get the note's name and
+its opening — enough to know which note this is without opening anything — and
+the panel holds the whole of it.
 
 ![A comment icon in the viewport with its text panel](img/comments.png)
 
@@ -41,17 +42,16 @@ The bubble in the viewport is deliberately capped instead: past about 420
 characters it ends in `...` and says *(full text in Properties)*. A bubble that
 grew with its note would cover the scene the note is about.
 
-## Hiding them
+## Showing every note
 
-**View > Comments** turns them off. That is one switch, and it does everything
-at once: the icons leave the picture, and they leave *clicking* too — a note
-pinned in front of a prop cannot be selected by accident, and the rubber band
-walks past it. Turn them back on and everything is where it was.
+**View > Comments** controls how much text the viewport shows. It is off by
+default: every message icon remains visible and clickable, but text opens only
+after you click a comment. Turn it on to keep every comment's text expanded at
+once — useful when reviewing all the notes in a scene.
 
-The setting is machine-global (`editor.ini`), not project data: whether you
-want the scene's notes on screen is a property of how you work, and it is a
-mode you stay in. Adding a comment while they are hidden turns them back on —
-a note you cannot see is not one you can write in.
+The setting is machine-global (`editor.ini`), not project data, and persists
+across restarts. Adding a comment does not change it; the new comment is
+selected, so its own text is immediately visible in either mode.
 
 ## It is an ordinary scene object
 

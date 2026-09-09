@@ -151,8 +151,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - **[Asset Browser](docs/asset-browser.md)** — a real file manager over `res/`
   that knows who references every asset and moves files with their references.
 - **[Comments](docs/comments.md)** — notes pinned into the scene, drawn as a
-  message icon and hideable from the View menu. Editor-only: nothing about a
-  note reaches the game.
+  message icon, with optional always-expanded text from the View menu.
+  Editor-only: nothing about a note reaches the game.
 - **[Materials and texture painting](docs/material-painting.md)** — `.mtl`
   authoring, a layer stack painted onto your own mesh, UV unwrap/validator, and
   [raytraced map bakes](docs/material-baking.md) with smart masks.

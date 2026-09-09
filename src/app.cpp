@@ -113,11 +113,11 @@ struct EditorConfig {
     // The axis-view gizmo in the viewport's top-right corner. On by default;
     // it can be turned off because it sits where HUD authoring wants space.
     bool axisGizmo = true;
-    // View > Comments (docs/comments.md): are the scene's editor notes drawn?
+    // View > Comments (docs/comments.md): are all comment texts expanded?
+    // Icons are always drawn; when this is off only the selected note expands.
     // A workflow preference like placementSnap, and one people stay in - the
-    // session-only Preview toggles beside it in the menu are the exception,
-    // not the rule.
-    bool showComments = true;
+    // session-only Preview toggles beside it in the menu are the exception.
+    bool showCommentText = false;
     // Phone camera link (docs/phone-camera.md). Which port is free and how
     // much the Wi-Fi here can carry are properties of this machine, so the
     // whole thing is machine config rather than project data. The pairing code
@@ -256,7 +256,8 @@ static EditorConfig loadEditorConfig() {
         else if (match("animEdLight", v)) cfg.animEdLight = v;
         else if (match("placementSnap", v)) cfg.placementSnap = toI(v, 1) != 0;
         else if (match("axisGizmo", v)) cfg.axisGizmo = toI(v, 1) != 0;
-        else if (match("showComments", v)) cfg.showComments = toI(v, 1) != 0;
+        else if (match("showCommentText", v))
+            cfg.showCommentText = toI(v, 0) != 0;
         else if (match("phoneCamPort", v)) cfg.phoneCamPort = toI(v, cfg.phoneCamPort);
         else if (match("phoneCamCode", v)) cfg.phoneCamCode = v;
         else if (match("phoneCamRequireCode", v)) cfg.phoneCamRequireCode = toI(v, 1) != 0;
@@ -345,7 +346,7 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "animEdLight=" << cfg.animEdLight << "\n"
       << "placementSnap=" << (cfg.placementSnap ? 1 : 0) << "\n"
       << "axisGizmo=" << (cfg.axisGizmo ? 1 : 0) << "\n"
-      << "showComments=" << (cfg.showComments ? 1 : 0) << "\n"
+      << "showCommentText=" << (cfg.showCommentText ? 1 : 0) << "\n"
       << "phoneCamPort=" << cfg.phoneCamPort << "\n"
       << "phoneCamCode=" << cfg.phoneCamCode << "\n"
       << "phoneCamRequireCode=" << (cfg.phoneCamRequireCode ? 1 : 0) << "\n"
@@ -606,7 +607,7 @@ int App::run(const std::string& initialProjectDir) {
         animEdLight_ = cfg.animEdLight;
         placementSnap_ = cfg.placementSnap;
         showAxisGizmo_ = cfg.axisGizmo;
-        showComments_ = cfg.showComments;
+        showCommentText_ = cfg.showCommentText;
         phoneCamPrefs_ = cfg.phoneCam;
         phoneCamPort_ = cfg.phoneCamPort;
         phoneCamCode_ = cfg.phoneCamCode;
@@ -1139,7 +1140,7 @@ void App::saveGlobalConfig() {
                       errorPopupEnabled_, globalDefaultProjectsDir_,
                       globalDisplayName_, globalSessionCacheDir_, globalAi_,
                       matEdSplit_, creditsSplit_, matEdLight_, animEdLight_,
-                      placementSnap_, showAxisGizmo_, showComments_,
+                      placementSnap_, showAxisGizmo_, showCommentText_,
                       phoneCamPrefs_, phoneCamPort_, phoneCamCode_,
                       phoneCamRequireCode_, showSafeArea_, safeArea_.frame,
                       safeArea_.action, safeArea_.title, safeArea_.centre,
@@ -1469,19 +1470,18 @@ void App::drawMenuBar() {
 
             ImGui::Separator();
             ImGui::TextDisabled("Preview");
-            // Editor notes (docs/comments.md). Persisted, unlike the session
-            // toggles below it: "I do not want to see the notes right now" is
-            // a mode you stay in across restarts.
-            if (ImGui::MenuItem("Comments", nullptr, showComments_, hasProject_)) {
-                showComments_ = !showComments_;
+            // Editor notes (docs/comments.md). Icons are always present; this
+            // persisted option expands every note instead of only the selected
+            // one.
+            if (ImGui::MenuItem("Comments", nullptr, showCommentText_, hasProject_)) {
+                showCommentText_ = !showCommentText_;
                 saveGlobalConfig();
             }
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip(
-                    "Show the scene's comments - a message icon at each note,\n"
-                    "and the text of the one that is selected. Hiding them\n"
-                    "takes them out of the picture AND out of clicking, so a\n"
-                    "note pinned in front of something cannot be in the way.\n"
+                    "Expand every comment's text in the viewport. When off,\n"
+                    "the message icons stay visible and clickable, but only\n"
+                    "the selected comment shows its text. Off by default.\n"
                     "Notes are editor-only either way: nothing reaches the game.");
             if (ImGui::MenuItem("Distance fog", nullptr, showFog_, hasProject_)) {
                 showFog_ = !showFog_;
@@ -4419,13 +4419,12 @@ void App::drawMeasureOverlay(ImVec2 imgPos, ImVec2 avail) {
 // is the icon you click - there is no second answer to "where is that note".
 std::vector<App::CommentIcon> App::commentIcons(ImVec2 imgPos, ImVec2 avail) {
     std::vector<CommentIcon> out;
-    if (!hasProject_ || !showComments_ || avail.x < 1.0f || avail.y < 1.0f)
-        return out;
+    if (!hasProject_ || avail.x < 1.0f || avail.y < 1.0f) return out;
     const std::vector<SceneObject>& objs = project_.objects();
     for (size_t i = 0; i < objs.size(); ++i) {
         const SceneObject& o = objs[i];
         if (o.type != PrimitiveType::Comment) continue;
-        if (isObjectHiddenInEditor(o)) continue;  // hidden layer, or View > Comments
+        if (isObjectHiddenInEditor(o)) continue;  // hidden layer
         float u = 0.0f, v = 0.0f, depth = 0.0f;
         if (!viewport_.projectToImage(o.position, u, v, &depth)) continue;
         CommentIcon ic;
@@ -4502,9 +4501,9 @@ void App::drawCommentOverlay(ImVec2 imgPos, ImVec2 avail) {
         // reads as floating for no reason.
         dl->AddCircleFilled(ic.anchor, scaled(2.0f), fill);
 
-        if (!selected) continue;
+        if (!showCommentText_ && !selected) continue;
 
-        // --- The selected note's text, beside its bubble ---
+        // --- The note's text, beside its bubble ---
         std::string body = o.commentText;
         bool clipped = false;
         if (body.size() > kPreviewChars) {
@@ -6902,13 +6901,6 @@ void App::addComment() {
     o.collisionMode = 2;   // no geometry at all - never a wall
     o.castShadow = false;  // ...and nothing to occlude with
     commitChange();
-    // Comments are not drawn while View > Comments is off, and an object you
-    // cannot see is not one you can write in - so asking for one turns them
-    // back on rather than silently doing nothing.
-    if (!showComments_) {
-        showComments_ = true;
-        saveGlobalConfig();
-    }
     pendingFocusWindow_ = "Properties";  // it may be a tab behind another panel
     commentFocus_ = true;
     statusMessage_ = "Comment added - type the note in Properties";
@@ -8632,11 +8624,6 @@ void App::drawSceneSection() {
 // viewport skips it (render and picking) and the object list dims it.
 // Unknown layer names count as visible.
 bool App::isObjectHiddenInEditor(const SceneObject& o) const {
-    // View > Comments. Hiding the notes is the same question as hiding a
-    // layer, so it is answered in the same place: one predicate covers the
-    // render, the click picking, the rubber band and the gizmo, and a hidden
-    // note cannot be selected by accident while you work on what it is about.
-    if (o.type == PrimitiveType::Comment && !showComments_) return true;
     if (o.layer.empty()) return false;
     for (const SceneLayer& l : project_.active().layers)
         if (l.name == o.layer) return !l.editorVisible;

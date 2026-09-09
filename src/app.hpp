@@ -1722,11 +1722,10 @@ private:
     };
     std::vector<CommentIcon> commentIcons(ImVec2 imgPos, ImVec2 avail);
     void drawCommentOverlay(ImVec2 imgPos, ImVec2 avail);
-    // View > Comments. Machine-global (editor.ini), not project data: whether
-    // somebody wants the scene's notes on screen is a property of how they
-    // work today, and it is a mode you stay in - unlike the session-only
-    // preview toggles beside it in the menu.
-    bool showComments_ = true;
+    // View > Comments. Machine-global (editor.ini), not project data: icons
+    // always remain visible and clickable; this only chooses whether every
+    // note's text is expanded or only the selected one's. Off by default.
+    bool showCommentText_ = false;
     // Set by addComment(): the Properties note field takes the keyboard on the
     // next frame it is drawn, so a fresh note is typed rather than hunted for.
     bool commentFocus_ = false;
