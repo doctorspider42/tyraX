@@ -77,7 +77,8 @@ void StaPipQBufferRenderer::allocateOnUse() {
   // (matcap) camera basis added two unpack blocks to sendObjectData.
   // Modified by TyraX: 48 -> 52 - the billboard basis unpack (2 qwords
   // + headers).
-  objectDataPacket = packet2_create(52, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
+  // Four inline lighting qwords replace the former REF payload.
+  objectDataPacket = packet2_create(56, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
 
   packets = new packet2_t*[2];
   for (u16 i = 0; i < 2; i++)
@@ -245,6 +246,8 @@ StaPipClipperSpot buildSpotForBag(const RendererCoreSpotLight& spot,
 
 void StaPipQBufferRenderer::sendObjectData(
     StaPipBag* bag, M4x4* mvp, RendererCoreTextureBuffers* texBuffers) {
+  // The previous DMA must finish before reusing its packet storage.
+  dma_channel_wait(DMA_CHANNEL_VIF1, 0);
   packet2_reset(objectDataPacket, false);
   packet2_utils_vu_add_unpack_data(objectDataPacket, VU1_MVP_MATRIX_ADDR,
                                    mvp->data, 4, false);
@@ -256,10 +259,18 @@ void StaPipQBufferRenderer::sendObjectData(
     packet2_utils_vu_add_unpack_data(
         objectDataPacket, VU1_LIGHTS_DIRS_ADDR,
         bag->lighting->dirLights->getLightDirections(), 3, false);
-
-    packet2_utils_vu_add_unpack_data(objectDataPacket, VU1_LIGHTS_COLORS_ADDR,
-                                     bag->lighting->dirLights->getLightColors(),
-                                     4, false);
+    // add_unpack_data emits a DMA REF, not a copy. The mode-adjusted
+    // colors must live in the packet, never in a temporary stack array.
+    const Vec4* colors = bag->lighting->dirLights->getLightColors();
+    packet2_utils_vu_open_unpack(objectDataPacket, VU1_LIGHTS_COLORS_ADDR, false);
+    for (int i = 0; i < 4; ++i) {
+      packet2_add_float(objectDataPacket, colors[i].x);
+      packet2_add_float(objectDataPacket, colors[i].y);
+      packet2_add_float(objectDataPacket, colors[i].z);
+      packet2_add_float(objectDataPacket, i == 3
+          ? (bag->lighting->dirLights->signedSH ? -1.0F : 0.0F) : colors[i].w);
+    }
+    packet2_utils_vu_close_unpack(objectDataPacket);
   }
 
   // Modified by TyraX: dynamic light for the color programs - the per-bag
@@ -482,7 +493,6 @@ void StaPipQBufferRenderer::sendObjectData(
   }
 
   packet2_utils_vu_add_end_tag(objectDataPacket);
-  dma_channel_wait(DMA_CHANNEL_VIF1, 0);
   dma_channel_send_packet2(objectDataPacket, DMA_CHANNEL_VIF1, true);
 }
 

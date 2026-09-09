@@ -310,6 +310,7 @@ wait for their polish pass.
 | [glow](examples/glow) | A midnight walk through four stations of things that glow |
 | [global-illumination](examples/global-illumination) | One red wall, one green wall — every other tint in the room is bounce |
 | [gi-showcase](examples/gi-showcase) | The guided GI tour, ending in a room lit by nothing but bounce |
+| [probe-lighting](examples/probe-lighting) | Full RGB SH L1 lights an animated CC0 humanoid while walking indoors |
 | [day-night](examples/day-night) | The same place at dawn, noon, dusk and night — plus one scene where the clock actually runs |
 | [material-lab](examples/material-lab) | The material pipeline on a single pedestal: baked AO, smart masks, atlasing, live reload |
 | [procedural](examples/procedural) | Every node in the scatter library at work in six volumes, baked down to 17 chunk meshes |

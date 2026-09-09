@@ -288,6 +288,9 @@ uniform int uAoHmOn;             // 0 = flat terrain (ground plane at y = 0)
 // would blend L0 into L1. Twin of giProbeAt in the generated game and
 // gibake::sampleProbes on the host - change one, change all three.
 uniform int uGiOn;
+// Animated receivers sample at the instance centre and use the console lobe.
+uniform vec4 uGiReceiver; // xyz sample position, w = animated receiver
+
 // 1 while the TERRAIN draws with a baked GI lightmap: its light is already in
 // the vertex colour (buildTerrainChunkMesh), so the probe grid must not
 // replace it a second time - and, like every other GI surface, the point
@@ -316,6 +319,7 @@ uniform int uPs2NoDynLight;
 bool giProbe(vec3 wp, vec3 n, out vec3 res) {
     res = vec3(0.0);
     if (uGiOn == 0 || uGiDim.x <= 0) return false;
+    if (uGiReceiver.w > 0.5) wp = uGiReceiver.xyz;
     vec3 t = clamp((wp - uGiOrigin) / max(uGiStep, vec3(0.0001)),
                    vec3(0.0), vec3(uGiDim - 1));
     ivec3 i0 = clamp(ivec3(floor(t)), ivec3(0), max(uGiDim - 2, ivec3(0)));
@@ -341,9 +345,14 @@ bool giProbe(vec3 wp, vec3 n, out vec3 res) {
     }
     if (wsum <= 0.00001) return false;
     float s = uGiScale / (127.0 * wsum);
-    res = clamp(acc[0] * s + (2.0 / 3.0) * (acc[1] * s * n.x + acc[2] * s * n.y +
-                                            acc[3] * s * n.z),
-                vec3(0.0), vec3(1.0));
+    if (uGiReceiver.w > 0.5) {
+        res = max(acc[0] * s + (2.0 / 3.0) * s *
+            (acc[1] * n.x + acc[2] * n.y + acc[3] * n.z), vec3(0.0));
+    } else {
+        res = clamp(acc[0] * s + (2.0 / 3.0) * (acc[1] * s * n.x + acc[2] * s * n.y +
+                                                acc[3] * s * n.z),
+                    vec3(0.0), vec3(1.0));
+    }
     return true;
 }
 
@@ -1490,6 +1499,7 @@ void Viewport::querySceneLocations(uint32_t prog) {
     uAoHmRect_ = glGetUniformLocation(prog, "uAoHmRect");
     uAoHmOn_ = glGetUniformLocation(prog, "uAoHmOn");
     uGiOn_ = glGetUniformLocation(prog, "uGiOn");
+    uGiReceiver_ = glGetUniformLocation(prog, "uGiReceiver");
     uGiSkipProbe_ = glGetUniformLocation(prog, "uGiSkipProbe");
     uGiProbes_ = glGetUniformLocation(prog, "uGiProbes");
     uGiOrigin_ = glGetUniformLocation(prog, "uGiOrigin");
@@ -5226,6 +5236,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glUniform1i(uGiOn_, 0);
     }
     glUniform1i(uGiSkipProbe_, 0);
+    glUniform4f(uGiReceiver_, 0, 0, 0, 0);
     const Mat4 identityM = identity();
 
     auto draw = [&](const Mesh& mesh, GLenum mode, const Mat4& mvp, float r, float g,
@@ -5303,20 +5314,25 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 
     // Animated models (.glb/.fbx) draw through their own helper because the
     // console lights them differently from everything else: a SkelInstance
-    // gets the scene's directional light + ambient folded into the .tskl
+    // gets the probe lobe (or scene directional + ambient) folded into the .tskl
     // part color and NOTHING else (templates.cpp, setupAnimObject's
     // litColors). So the object's own tint colour and the scene point lights
     // - both of which the game only ever bakes into STATIC vertex colours -
     // must stay out of the preview, or a cyan-tinted Player object renders a
     // cyan avatar here and a correct one on the console.
     auto drawAnimParts = [&](const AnimModelDraw& ad, const Mat4& mvp,
-                             const Mat4* model, float shade, bool asLines) {
+                             const Mat4* model, float shade, bool asLines,
+                             const SceneObject& receiver) {
+        glUniform4f(uGiReceiver_, receiver.position[0],
+                    receiver.position[1] + receiver.scale[1] * 0.5f,
+                    receiver.position[2], 1.0f);
         if (pointLightCount > 0) glUniform1i(uLightCount_, 0);
         for (const AnimModelDraw::Part& part : ad.parts)
             draw(part.mesh, GL_TRIANGLES, mvp, shade * part.kd[0],
                  shade * part.kd[1], shade * part.kd[2],
                  asLines ? 0 : part.tex, model);
         if (pointLightCount > 0) glUniform1i(uLightCount_, pointLightCount);
+        glUniform4f(uGiReceiver_, 0, 0, 0, 0);
     };
 
     auto meshFor = [&](const SceneObject& o) -> const Mesh* {
@@ -5552,7 +5568,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                     updateAnimPose(*ad, o);
                     ps2Flat = 0;  // animated models shade Gouraud (7478)
                     drawAnimParts(*ad, mvp, lit ? &model : nullptr, tintScale,
-                                  asLines);
+                                  asLines, o);
                     continue;
                 }
                 // unusable .glb falls through to the placeholder box
@@ -5746,7 +5762,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                 // pose already advanced by this frame's scene pass - reuse it
                 AnimModelDraw* ad = animModelDraw(t.modelPath, t.materialPath);
                 if (ad && ad->ok) {
-                    drawAnimParts(*ad, mvp, &model, 1.0f, false);
+                    drawAnimParts(*ad, mvp, &model, 1.0f, false, t);
                     return;
                 }
             }
@@ -5840,7 +5856,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                         aoReceive = false;  // animated avatar - no AO receive
                         const Mat4 model = mul(refl, modelMatrix(p));
                         const Mat4 mvp = mul(viewProj, model);
-                        drawAnimParts(*ad, mvp, &model, 1.0f, false);
+                        drawAnimParts(*ad, mvp, &model, 1.0f, false, p);
                     }
                     break;  // first player entity wins, like in the game
                 }

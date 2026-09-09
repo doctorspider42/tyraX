@@ -954,14 +954,16 @@ class TerrainGame : public Tyra::Game {
       // so an untextured mesh would render in the plain scene light color
       // (i.e. gray). This part's material albedo is folded into its own light
       // and ambient colors instead (outputColor = albedo * sceneLighting),
-      // matching how the editor viewport tints the .glb. Directions stay
-      // shared (animLightDirs); only the colors carry the per-part tint.
+      // matching how the editor viewport tints the .glb. Directions are
+      // owned by this part so pose-sharing instances retain independent GI.
       std::unique_ptr<Tyra::PipelineDirLightsBag> animLights;
       Tyra::Vec4 litColors[4];
+      Tyra::Vec4 litDirs[3];
     };
     std::vector<AnimPart> animParts;
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;
+    Tyra::M4x4 animLightMat;  // rotation/reflection only; scale is not light gain
     u32 animLastTick = 0;  // animLodTick of the last in-view frame; 0 = never
     // Usable-object highlight: terrain-hugging glow ring around the base,
     // built when first highlighted, cleared whenever the object rebuilds
@@ -2374,14 +2376,16 @@ class TerrainGame : public Tyra::Game {
       // so an untextured mesh would render in the plain scene light color
       // (i.e. gray). This part's material albedo is folded into its own light
       // and ambient colors instead (outputColor = albedo * sceneLighting),
-      // matching how the editor viewport tints the .glb. Directions stay
-      // shared (animLightDirs); only the colors carry the per-part tint.
+      // matching how the editor viewport tints the .glb. Directions are
+      // owned by this part so pose-sharing instances retain independent GI.
       std::unique_ptr<Tyra::PipelineDirLightsBag> animLights;
       Tyra::Vec4 litColors[4];
+      Tyra::Vec4 litDirs[3];
     };
     std::vector<AnimPart> animParts;
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;
+    Tyra::M4x4 animLightMat;  // rotation/reflection only; scale is not light gain
     u32 animLastTick = 0;  // animLodTick of the last in-view frame; 0 = never
     // Usable-object highlight: terrain-hugging glow ring around the base,
     // built when first highlighted, cleared whenever the object rebuilds
@@ -3934,6 +3938,22 @@ V3 giShade(const GiSample& s, const V3& n) {
     c[k] = t;
   }
   return V3{c[0], c[1], c[2]};
+}
+
+// The three VU1 slots are Cartesian SH basis terms, each with an RGB
+// coefficient. Signed normals survive until the final RGB sum is clamped.
+void giSHLights(const GiSample& sample, const float* live, const float* albedo,
+                float scale, Vec4* directions, Vec4* colors) {
+  directions[0].set(1.0F, 0.0F, 0.0F, 0.0F);
+  directions[1].set(0.0F, 1.0F, 0.0F, 0.0F);
+  directions[2].set(0.0F, 0.0F, 1.0F, 0.0F);
+  for (int axis = 0; axis < 3; ++axis)
+    colors[axis].set(scale * (2.0F / 3.0F) * sample.l1[axis][0] * albedo[0],
+                     scale * (2.0F / 3.0F) * sample.l1[axis][1] * albedo[1],
+                     scale * (2.0F / 3.0F) * sample.l1[axis][2] * albedo[2], 0.0F);
+  colors[3].set(scale * (sample.l0[0] + live[0]) * albedo[0],
+                scale * (sample.l0[1] + live[1]) * albedo[1],
+                scale * (sample.l0[2] + live[2]) * albedo[2], 128.0F);
 }
 
 /** Staged by the geometry builders: this surface's light comes from the probe
@@ -7734,6 +7754,7 @@ void TerrainGame::setupAnimObject(int index) {
   // skin; bboxVersion bumps keep the frustum boxes honest). One info bag
   // per object carries the model matrix; parts share it.
   g.animMat.identity();
+  g.animLightMat.identity();
   g.animInfoBag = std::make_unique<StaPipInfoBag>();
   g.animInfoBag->model = &g.animMat;
   g.animInfoBag->shadingType = TyraShadingGouraud;  // per-vertex lighting
@@ -7747,12 +7768,12 @@ void TerrainGame::setupAnimObject(int index) {
     ap.colorBag = std::make_unique<StaPipColorBag>();
     ap.colorBag->single = &mesh->materials[m]->ambient;
     ap.lightBag = std::make_unique<StaPipLightingBag>();
-    ap.lightBag->lightMatrix = &g.animMat;
+    ap.lightBag->lightMatrix = &g.animLightMat;
     ap.lightBag->normals = frame->normals;
     // Fold this part's material albedo into its light colors so the lit VU1
     // program renders the .glb material color (outputColor = albedo * light),
     // not the plain scene light color (gray). Scene light/ambient here mirror
-    // updateAndRenderAnimObjects; directions stay shared (animLightDirs).
+    // updateAndRenderAnimObjects; each part owns its probe directions.
     {
       const float* base = gam.src->parts[m].color;
       const float amb = 128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT;
@@ -7764,7 +7785,10 @@ void TerrainGame::setupAnimObject(int index) {
       ap.litColors[2].set(0.0F, 0.0F, 0.0F, 1.0F);
       ap.litColors[3].set(amb * base[0], amb * base[1], amb * base[2], 128.0F);
       ap.animLights = std::make_unique<PipelineDirLightsBag>(true);
-      ap.animLights->setLightsManually(ap.litColors, animLightDirs);
+      ap.litDirs[0].set(SCENE_LIGHT_X, 0.0F, 0.0F, 1.0F);
+      ap.litDirs[1].set(SCENE_LIGHT_Y, 0.0F, 0.0F, 1.0F);
+      ap.litDirs[2].set(SCENE_LIGHT_Z, 0.0F, 0.0F, 1.0F);
+      ap.animLights->setLightsManually(ap.litColors, ap.litDirs);
       ap.lightBag->dirLights = ap.animLights.get();
     }
     ap.bag = std::make_unique<StaPipBag>();
@@ -7883,42 +7907,10 @@ void TerrainGame::fillDynLitColors(int i) {
     float dif[3] = {SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_R,
                     SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_G,
                     SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_B};
-    // The one directional slot points where the probe says the light actually
-    // comes from, not at the sun.
-    //
-    // VU1 computes ambient + color * clamp(N.L), and the probe's answer is
-    // shade(n) = L0 + (2/3) * dot(L1, n). Evaluating L1 along the SUN (what
-    // the animated path does, and what this used to do) is only right when the
-    // sun IS the light: in a room lit by a bounce off a red wall the field's
-    // direction is the wall, so shading along the sun leans the wrong way and
-    // a surface facing the actual light gets nothing. Taking L1's own dominant
-    // direction instead makes the VU1 slot exact at that direction - the term
-    // there is the probe's own answer - and it degrades smoothly off it.
-    // L1 is per channel, so the direction is their luminance-weighted mean.
     V3 ldir = sun;
     GiSample gs;
-    if (giProbeAt(o.data.position[0], o.data.position[1], o.data.position[2],
-                  gs)) {
-      float d3[3];
-      for (int a = 0; a < 3; ++a)
-        d3[a] = 0.299F * gs.l1[a][0] + 0.587F * gs.l1[a][1] +
-                0.114F * gs.l1[a][2];
-      const float len = sqrtf(d3[0] * d3[0] + d3[1] * d3[1] + d3[2] * d3[2]);
-      // A probe with no direction at all (a uniform environment) keeps the sun
-      // - there is nothing better to point at, and L0 carries the whole answer
-      // anyway, so the directional term comes out near zero either way.
-      if (len > 0.0001F)
-        ldir = {d3[0] / len, d3[1] / len, d3[2] / len};
-      for (int k = 0; k < 3; ++k) {
-        float a = gs.l0[k];
-        if (a < 0.0F) a = 0.0F;
-        amb[k] = a;
-        float d = (2.0F / 3.0F) * (gs.l1[0][k] * ldir.x + gs.l1[1][k] * ldir.y +
-                                   gs.l1[2][k] * ldir.z);
-        if (d < 0.0F) d = 0.0F;
-        dif[k] = d;
-      }
-    }
+    const bool hasProbe = giProbeAt(o.data.position[0], o.data.position[1],
+                                    o.data.position[2], gs);
     float dl[3];
     dynLightAt(engine, o.data.position[0], o.data.position[1],
                o.data.position[2], dl);
@@ -7926,6 +7918,11 @@ void TerrainGame::fillDynLitColors(int i) {
       if (!part.litBag) continue;
       const float* base = part.litAlbedo;
       const float s = part.litScale;
+      part.litBag->dirLights->signedSH = hasProbe;
+      if (hasProbe) {
+        giSHLights(gs, dl, base, s, part.litDirs, part.litColors);
+        continue;
+      }
       part.litColors[0].set(s * dif[0] * base[0], s * dif[1] * base[1],
                             s * dif[2] * base[2], 1.0F);
       part.litColors[1].set(0.0F, 0.0F, 0.0F, 1.0F);
@@ -8041,7 +8038,7 @@ void TerrainGame::updateAndRenderAnimObjects() {
     const V3 bx = rotated(sx, o.data.rotation);
     const V3 by = rotated(sy, o.data.rotation);
     const V3 bz = rotated(sz, o.data.rotation);
-    M4x4& m = g.animMat;  // the info bag and light matrix point here
+    M4x4& m = g.animMat;  // the geometry transform
     m.identity();
     m.data[0] = bx.x, m.data[1] = bx.y, m.data[2] = bx.z;
     m.data[4] = by.x, m.data[5] = by.y, m.data[6] = by.z;
@@ -8049,6 +8046,18 @@ void TerrainGame::updateAndRenderAnimObjects() {
     m.data[12] = o.data.position[0];
     m.data[13] = o.data.position[1];
     m.data[14] = o.data.position[2];
+    // The VU1 lit programs do not normalize after this matrix multiply.
+    // Remove instance scale or resizing a model changes its light intensity.
+    // Like the existing skinner this assumes rotation/uniform-scale normals;
+    // nonuniformly scaled surfaces still need a normalized inverse transpose.
+    g.animLightMat.identity();
+    for (int axis = 0; axis < 3; ++axis) {
+      const float scale = fabsf(o.data.scale[axis]);
+      const float inv = scale > 0.00001F ? 1.0F / scale : 0.0F;
+      for (int c = 0; c < 3; ++c)
+        g.animLightMat.data[axis * 4 + c] = m.data[axis * 4 + c] * inv;
+    }
+
 
     // pose + skin + submit only when the conservative box touches the view
     if (gam.cullBox.frustumCheck(
@@ -8142,47 +8151,43 @@ void TerrainGame::updateAndRenderAnimObjects() {
       dynLightAt(engine, o.data.position[0],
                  o.data.position[1] + o.data.scale[1] * 0.5F,
                  o.data.position[2], dl);
-      // Baked global illumination for everything that moves
-      // (docs/global-illumination.md): one probe sample at the model's centre
-      // per frame. amb[] takes the probe's L0 - the average radiance around
-      // the model - instead of the scene's flat ambient, and dif[] takes the
-      // probe's L1 evaluated along the SUN direction, which is what keeps a
-      // character shaded rather than flat: the shared animLightDirs[0] still
-      // points at the sun, so reconstructing the field along it turns the
-      // grid's directionality back into the one VU1 light slot these meshes
-      // have. A character walking from sunlight into a doorway darkens and
-      // picks up the interior's colour, all for a lookup and ~10 flops.
-      float amb[3] = {128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT,
-                      128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT,
-                      128.0F * SCENE_BRIGHTNESS * SCENE_AMBIENT};
-      float dif[3] = {128.0F * SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_R,
-                      128.0F * SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_G,
-                      128.0F * SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_B};
+      // One weighted probe lookup per visible instance, independent of pose
+      // sharing and skinning LOD. Directions live in WORLD space: animLightMat
+      // transforms the skinned local normals in the existing VU1 program.
+      float amb[3] = {SCENE_BRIGHTNESS * SCENE_AMBIENT,
+                      SCENE_BRIGHTNESS * SCENE_AMBIENT,
+                      SCENE_BRIGHTNESS * SCENE_AMBIENT};
+      float dif[3] = {SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_R,
+                      SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_G,
+                      SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_B};
+      const V3 sun = {SCENE_LIGHT_X, SCENE_LIGHT_Y, SCENE_LIGHT_Z};
+      V3 ldir = sun;
       GiSample gs;
-      if (giProbeAt(o.data.position[0],
+      const bool hasProbe = giProbeAt(o.data.position[0],
                     o.data.position[1] + o.data.scale[1] * 0.5F,
-                    o.data.position[2], gs)) {
-        const V3 sun = {SCENE_LIGHT_X, SCENE_LIGHT_Y, SCENE_LIGHT_Z};
-        for (int k = 0; k < 3; ++k) {
-          float a = gs.l0[k];
-          if (a < 0.0F) a = 0.0F;
-          amb[k] = 128.0F * a;
-          float d = (2.0F / 3.0F) * (gs.l1[0][k] * sun.x + gs.l1[1][k] * sun.y +
-                                     gs.l1[2][k] * sun.z);
-          if (d < 0.0F) d = 0.0F;
-          dif[k] = 128.0F * d;
-        }
-      }
+                    o.data.position[2], gs);
       const GameAnimModel& gam = gameAnimModels[o.data.animModel];
       for (size_t p = 0; p < g.animParts.size(); ++p) {
         if (!g.animParts[p].bag) continue;
         const float* base = gam.src->parts[p].color;
-        g.animParts[p].litColors[0].set(dif[0] * base[0], dif[1] * base[1],
-                                        dif[2] * base[2], 1.0F);
+        auto& ap = g.animParts[p];
+        ap.animLights->signedSH = hasProbe;
+        if (hasProbe) {
+          giSHLights(gs, dl, base, 128.0F, ap.litDirs, ap.litColors);
+          continue;
+        }
+        ap.litColors[1].set(0.0F, 0.0F, 0.0F, 0.0F);
+        ap.litColors[2].set(0.0F, 0.0F, 0.0F, 0.0F);
+        g.animParts[p].litDirs[0].set(ldir.x, 0.0F, 0.0F, 1.0F);
+        g.animParts[p].litDirs[1].set(ldir.y, 0.0F, 0.0F, 1.0F);
+        g.animParts[p].litDirs[2].set(ldir.z, 0.0F, 0.0F, 1.0F);
+        g.animParts[p].litColors[0].set(128.0F * dif[0] * base[0],
+                                        128.0F * dif[1] * base[1],
+                                        128.0F * dif[2] * base[2], 1.0F);
         g.animParts[p].litColors[3].set(
-            (amb[0] + 128.0F * dl[0]) * base[0],
-            (amb[1] + 128.0F * dl[1]) * base[1],
-            (amb[2] + 128.0F * dl[2]) * base[2], 128.0F);
+            128.0F * (amb[0] + dl[0]) * base[0],
+            128.0F * (amb[1] + dl[1]) * base[1],
+            128.0F * (amb[2] + dl[2]) * base[2], 128.0F);
       }
     }
     for (size_t p = 0; p < g.animParts.size(); ++p) {

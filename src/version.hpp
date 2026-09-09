@@ -2884,10 +2884,10 @@
 // have, which is what MINOR means, and a number that is strictly greater than
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
-// 1.75.0: universal CPU/GPU impostor capture with 4/8/16 views, grove example
-// and world-bounds selection. Includes the earlier in-branch v39/v40 stages.
+// 1.76.0: merge configurable GPU impostors with full RGB SH receivers,
+// duplicate-corner skinning reuse and DMA-safe lighting payloads.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 75
+#define TYRAX_VERSION_MINOR 76
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

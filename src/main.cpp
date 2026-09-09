@@ -3596,7 +3596,10 @@ static int vuCheckFromCli(int argc, char** argv) {
     //    C++ KERNEL, through the VU0 one.
     const int scriptFails = vuCheckScripts(engine) + vuCheckProjectKernels();
 
-    const bool ok = parseFailed == 0 && mismatches == 0 && roundTripFails == 0 &&
+    std::string lightingError;
+    const bool lightingOk = vugen::checkLighting(lightingError);
+    std::printf("  RGB SH numeric oracle: %s\n", lightingOk ? "PASS" : lightingError.c_str());
+    const bool ok = lightingOk && parseFailed == 0 && mismatches == 0 && roundTripFails == 0 &&
                     wrapperFails == 0 && stageFails == 0 && vu0Fails == 0 &&
                     scriptFails == 0;
     std::printf("%s\n", ok ? "PASS - every described program matches its "
