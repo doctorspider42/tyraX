@@ -744,3 +744,14 @@ quality step is retaining multiple coloured directions / signed L1 instead of
 one clamped lobe. Measure that against the current VU1 and EE budgets before
 adding coefficients. Exact normals under nonuniform scale/shear and animated
 self-shadowing/PRT are separate work.
+
+
+### Humanoid mesh-LOD regression to investigate
+
+During the probe-lighting avatar update, three instances of Quaternius
+UAL1_Standard.fbx at meshLod 1.5 stopped advancing during a Remote Pad walk
+through the doorway in PCSX2 software mode, without a TYRA assertion in the
+log. The full-mesh trial ran (about 17 FPS for three humanoids). This is an
+observed failure, not an identified cause; investigate the skinning/LOD tier
+switch and shared-pose path on a scratch copy. The shipped example uses one
+full-mesh humanoid and lightweight side receivers.

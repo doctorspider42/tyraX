@@ -1,8 +1,8 @@
 # Probe lighting — animated receivers under directional baked GI
 
 Walk from a blue-sky courtyard into a roofed room with warm and cool side
-sources. The cat avatar and three white, twisting meshes read the existing
-RGB L1 probe grid. Their light direction now follows the local field rather
+sources. The humanoid avatar and three neutral twisting meshes read the
+existing RGB L1 probe grid. Their light direction now follows the local field rather
 than the sun. The cylinder at the back is an explicitly dynamic-lit rigid
 reference, using the same dominant-direction projection.
 
@@ -21,8 +21,12 @@ tyrax-editor --bake-gi examples/probe-lighting --gpu
 
 The geometry is deliberately simple. Bloom, AO, live shadows and terrain are
 off so they cannot obscure the probe response. The floor is a solid box.
-The cat and wobbler are the existing gi-showcase assets; the wobbler's material
-was made neutral to expose the incoming light's colour.
+The avatar is Quaternius's CC0 `UAL1_Standard.fbx`, copied unchanged from the
+foot-ik-stairs branch. It uses `Idle_Loop` and `Walk_Loop`, scale 1 and a 180°
+model-forward correction. The player uses the full mesh; the side receivers
+stay lightweight controls. Foot IK is not required by this lighting demo.
+The wobbler comes from gi-showcase; its material was made neutral to expose
+the incoming light's colour. See [asset credits](../../THIRD-PARTY-LICENSES.md).
 
 ## What this demonstrates, and what it does not
 
@@ -71,13 +75,10 @@ copy also built and booted with classic scene lighting. A host C++ check of
 the generated projection covered a side source, a reversed blue source, a
 uniform field and negative ambient clamping.
 
-In the fixed-pose L1 toggle comparison, the warm receiver's directional RGB
-changed from `(0, 0.018, 0.078)` along the sun to `(0.244, 0, 0)` along the
-local field, while its ambient stayed `(0.408, 0.129, 0.178)`. The warm/cool
-instances retained opposite X directions (`-0.887` / `+0.741`). The image
-comparison changed 9,452 pixels in the room crop; returning to the new mode
-reproduced that crop byte-for-byte. This is a modest directional correction,
-not a new lighting bake or an exposure boost.
+The fixed-pose L1 toggle compares only the lighting projection; it keeps the
+same camera, pose and mesh LOD. The original neutral-mesh regression reproduced
+the new-mode image byte-for-byte after toggling old/new; the captures below
+are refreshed for the humanoid fixture.
 
 | Old sun projection | Local probe direction |
 | --- | --- |
@@ -85,7 +86,13 @@ not a new lighting bake or an exposure boost.
 
 ![PS2 shading preview in the editor](../../docs/img/probe-lighting-editor.png)
 
-The game's PAL counter read 50 FPS during these captures; that capped counter
-is not an incremental EE timing measurement. No physical PS2 or Linux run was
+The PAL counter is a capped game-rate observation, not an incremental EE
+timing measurement. A trial with three full-resolution humanoids dropped the indoor view
+to about 17 FPS; this fixture therefore keeps only the player as a humanoid.
+An aggressive mesh-LOD trial stopped advancing during the doorway walk, so
+that setting is not shipped here. With one full-mesh humanoid, the normal
+animated doorway walk measured about 25 FPS indoors. Optimizing the avatar
+or fixing its LOD path is needed to recover the previous 50 FPS budget;
+the frozen comparison below is not a gameplay performance measurement. No physical PS2 or Linux run was
 performed. Full signed SH, multiple chromatic directions and nonuniform-scale
 normal correction remain future work.

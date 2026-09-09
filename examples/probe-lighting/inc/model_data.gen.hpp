@@ -24,7 +24,7 @@ constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false}
 constexpr int ANIM_MODEL_COUNT = 2;
 inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {
     "models/wobbler.tskl",
-    "models/cat.tskl",
+    "models/UAL1_Standard.tskl",
 };
 
 // .mtl libraries assigned to primitives (first material = surface)
