@@ -3265,7 +3265,12 @@ private:
     };
     DbgState dbgState_ = DbgState::Off;
     livedbg::Symbols dbgSyms_;      // src/gen/livedbg.sym (as generated)
-    livedbg::Snapshot dbgSnap_;     // newest snapshot the game wrote
+    livedbg::Snapshot dbgSnap_;  // newest snapshot the game wrote
+    livedbg::RenderCost dbgRenderCost_, dbgRenderBaseline_;
+    uint32_t dbgRenderCostSeq_ = 0;
+    bool dbgRenderCostWaiting_ = false;
+    double dbgRenderCostPoll_ = 0;
+    std::string dbgRenderCostProject_;
     livedbg::Timeline dbgTimeline_;  // per-frame fire history (the scrub)
     livedbg::Command dbgCmd_;       // last command written (state + seq)
     bool dbgCmdWritten_ = false;    // has the current dbgCmd_ reached the game?

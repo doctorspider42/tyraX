@@ -3,12 +3,12 @@
 
 namespace Showcase {
 
-constexpr int TEXTURE_COUNT = 1;
+constexpr int TEXTURE_COUNT = 0;
 inline const char* TEXTURE_PATHS[TEXTURE_COUNT > 0 ? TEXTURE_COUNT : 1] = {
-    "aster/shadowstone.png",
+    "",
 };
 
-constexpr int TERRAIN_TEXTURES[1] = {0};
+constexpr int TERRAIN_TEXTURES[1] = {-1};
 constexpr float TERRAIN_TILE_US[1] = {1.0F};
 constexpr float TERRAIN_TILE_VS[1] = {1.0F};
 constexpr bool TERRAIN_HAS_MATERIALS[1] = {true};

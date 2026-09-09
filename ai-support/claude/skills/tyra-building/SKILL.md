@@ -144,3 +144,13 @@ log for conversion warnings.
   project is portable, so the helper for the other machine ships with it.
 - ISO export and real-PS2 network deploy (`--build <dir> --run-ps2 <ip>`) exist
   but need editor-side setup; ask the user before reaching for them.
+
+### Render-cost capture
+
+`tyrax-editor --profile-frame <projectDir> [-o report.csv]` asks a running debug
+game with Live Debugger enabled for one synchronized render pass. Keep its host
+server running; do not run a second debugger command writer at the same time.
+The CLI waits up to 45 seconds for the matching complete report. Object rows
+are included in Objects; engine counters overlap phases. Use ordinary FPS for
+throughput, since this diagnostic deliberately drains VU/GS between draws.
+The GUI equivalent is Debugger > Render cost, with baseline comparison and CSV.

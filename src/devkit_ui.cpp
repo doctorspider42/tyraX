@@ -1250,6 +1250,11 @@ void App::livedbgTick() {
     const bool missing = !fs::exists(binDir / "livedbg.cmd");
     if (!dbgCmdWritten_ || missing || !want.sameStateAs(dbgCmd_)) {
         want.seq = dbgCmd_.seq + 1;
+        if (want.captureRenderCost) {
+            want.seq = (uint32_t)std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            if (!want.seq) want.seq = 1;
+        }
         if (livedbg::writeCommand((binDir / "livedbg.cmd").string(), want)
                 .empty()) {
             dbgCmd_ = want;
@@ -1264,6 +1269,8 @@ void App::livedbgTick() {
             dbgCmd_.captureVu = false;
             dbgCmd_.measureRam = false;
             dbgCmd_.captureFrame = false;
+            if (dbgCmd_.captureRenderCost) dbgRenderCostSeq_ = want.seq;
+            dbgCmd_.captureRenderCost = false;
         }
     }
 }
@@ -1850,7 +1857,7 @@ void App::drawDebuggerWindow() {
     }
 
     // --- tabs --------------------------------------------------------------
-    if (!ImGui::BeginTabBar("##dbgtabs")) {
+    if (!ImGui::BeginTabBar("##dbgtabs", ImGuiTabBarFlags_TabListPopupButton)) {
         ImGui::End();
         return;
     }
@@ -2306,6 +2313,76 @@ void App::drawDebuggerWindow() {
             ImGui::SeparatorText("Scene");
             ImGui::Text("%d objects: %d active, %d visible", st.objects,
                         st.objActive, st.objVisible);
+        }
+        ImGui::EndTabItem();
+    }
+
+    if (ImGui::BeginTabItem("Render cost")) {
+        if (dbgRenderCostProject_ != project_.dir) {
+            dbgRenderCostProject_ = project_.dir;
+            dbgRenderCost_ = {}; dbgRenderBaseline_ = {};
+            dbgRenderCostWaiting_ = false; dbgRenderCostSeq_ = 0;
+        }
+        ImGui::TextWrapped("On-demand render-pass attribution. Synchronizes VU/GS between stages; "
+                           "the measured pass is slower than normal. It excludes update, vsync and file transfer.");
+        ImGui::BeginDisabled(!live || dbgRenderCostWaiting_);
+        if (ImGui::Button("Measure render cost")) {
+            dbgCmd_.captureRenderCost = true; dbgCmdWritten_ = false;
+            dbgRenderCostWaiting_ = true; dbgRenderCostSeq_ = 0;
+        }
+        ImGui::EndDisabled();
+        if (dbgRenderCostWaiting_) {
+            ImGui::SameLine(); ImGui::TextDisabled("Waiting for game...");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Cancel measurement")) dbgRenderCostWaiting_ = false;
+        }
+        const double costNow = ImGui::GetTime();
+        if (dbgRenderCostWaiting_ && dbgRenderCostSeq_ && costNow >= dbgRenderCostPoll_) {
+            dbgRenderCostPoll_ = costNow + 0.5;
+            livedbg::RenderCost result;
+            if (livedbg::readRenderCost((std::filesystem::path(project_.dir)/"bin"/"rendercost.txt").string(),result) &&
+                result.seq == dbgRenderCostSeq_) {
+                dbgRenderCost_ = std::move(result); dbgRenderCostWaiting_ = false;
+            }
+        }
+        if (!dbgRenderCost_.seq)
+            ImGui::TextDisabled("Requires a rebuilt debug game with Live Debugger enabled (1.78+).");
+        else {
+            ImGui::Text("Synchronized render pass: %.3f ms (scene %d)",dbgRenderCost_.totalMs,dbgRenderCost_.scene);
+            if (dbgRenderBaseline_.seq && dbgRenderBaseline_.scene==dbgRenderCost_.scene)
+                ImGui::Text("Total delta: %+.3f ms",dbgRenderCost_.totalMs-dbgRenderBaseline_.totalMs);
+            if (ImGui::Button("Keep as baseline")) dbgRenderBaseline_ = dbgRenderCost_;
+            ImGui::SameLine();
+            if (ImGui::Button("Copy render cost CSV"))
+                ImGui::SetClipboardText(livedbg::renderCostCsv(dbgRenderCost_).c_str());
+            ImGui::TextDisabled("Object rows belong to Objects. Engine counters overlap phases; do not sum them.");
+            auto rows = dbgRenderCost_.rows;
+            std::stable_sort(rows.begin(),rows.end(),[](const auto& a,const auto& b) {
+                if ((a.object < 0) != (b.object < 0)) return a.object < 0;
+                return a.ms > b.ms;
+            });
+            if (ImGui::BeginTable("Render cost results",3,ImGuiTableFlags_Borders|ImGuiTableFlags_RowBg)) {
+                ImGui::TableSetupColumn("Stage / object"); ImGui::TableSetupColumn("ms");
+                ImGui::TableSetupColumn("Delta ms"); ImGui::TableHeadersRow();
+                for (const auto& row:rows) {
+                    ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0);
+                    std::string label=row.label;
+                    std::replace(label.begin(),label.end(),'_',' ');
+                    if(row.object>=0) {
+                        label="Object #"+std::to_string(row.object);
+                        const int si=dbgRenderCost_.scene;
+                        if(si>=0 && si<(int)project_.scenes.size() && row.object<(int)project_.scenes[si].objects.size())
+                            label += " "+project_.scenes[si].objects[row.object].name;
+                    }
+                    ImGui::TextUnformatted(label.c_str());
+                    ImGui::TableSetColumnIndex(1); ImGui::Text("%.3f",row.ms);
+                    ImGui::TableSetColumnIndex(2);
+                    if(dbgRenderBaseline_.seq && dbgRenderBaseline_.scene==dbgRenderCost_.scene)
+                        for(const auto& old:dbgRenderBaseline_.rows)
+                            if(old.object==row.object && old.label==row.label) { ImGui::Text("%+.3f",row.ms-old.ms); break; }
+                }
+                ImGui::EndTable();
+            }
         }
         ImGui::EndTabItem();
     }

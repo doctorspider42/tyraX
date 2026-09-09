@@ -8,6 +8,8 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 */
 
+#include "math/math.hpp"
+
 #include <math.h>
 #include "renderer/core/renderer_core.hpp"
 #include "thread/threading.hpp"
@@ -195,7 +197,7 @@ void RendererCore::setSpotLight(const Color& color, const Vec4& position,
   spot.color = color;
   spot.position = position;
   spot.direction = direction;
-  const float len = sqrtf(direction.x * direction.x +
+  const float len = Math::sqrtNonNegative(direction.x * direction.x +
                           direction.y * direction.y +
                           direction.z * direction.z);
   if (len > 1e-5F) {
@@ -240,7 +242,7 @@ int RendererCore::addDynSpotLight(const Color& color,
   auto& l = dynLights[slot];
   l.point = false;
   l.direction = direction;
-  const float len = sqrtf(direction.x * direction.x +
+  const float len = Math::sqrtNonNegative(direction.x * direction.x +
                           direction.y * direction.y +
                           direction.z * direction.z);
   if (len > 1e-5F) {
@@ -277,7 +279,7 @@ const RendererCoreSpotLight* RendererCore::pickDynLight(
     const float dx = l->position.x - worldCenter.x;
     const float dy = l->position.y - worldCenter.y;
     const float dz = l->position.z - worldCenter.z;
-    float d = sqrtf(dx * dx + dy * dy + dz * dz) - worldRadius;
+    float d = Math::sqrtNonNegative(dx * dx + dy * dy + dz * dz) - worldRadius;
     if (d < 0.0F) d = 0.0F;
     if (d >= l->range) continue;
     const float att = 1.0F - d / l->range;

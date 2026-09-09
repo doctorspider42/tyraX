@@ -2362,9 +2362,9 @@ void TerrainGame::init() {
       break;
     }
   }
-  // Feet on the ground - or at the spawn point's own height in a scene with no
-  // terrain, where there is no ground to stand on (docs/terrain.md).
-  playerY = TERRAIN_ENABLED ? terrainHeightAt(playerX, playerZ) : spawnY;
+  // The authored height may stand on a platform above the heightfield.
+  // Clamp only upward to terrain; gravity settles onto model colliders.
+  playerY = TERRAIN_ENABLED ? fmaxf(spawnY, terrainHeightAt(playerX, playerZ)) : spawnY;
 
   updatePlayer();
   buildScene();
@@ -2629,8 +2629,8 @@ void TerrainGame::loop() {
         break;
       }
     }
-    // The spawn point's own height in a scene with no terrain - see initScene.
-    playerY = TERRAIN_ENABLED ? terrainHeightAt(playerX, playerZ) : spawnY;
+    // Preserve authored platform height, with terrain as a lower bound.
+    playerY = TERRAIN_ENABLED ? fmaxf(spawnY, terrainHeightAt(playerX, playerZ)) : spawnY;
     playerVelY = 0.0F;
   }
 
@@ -5480,13 +5480,13 @@ void TerrainGame::loadScene(int sceneIndex) {
     if (P.objIndex < 0) continue;
     P.x = SCENE_OBJECTS[P.objIndex].position[0];
     P.z = SCENE_OBJECTS[P.objIndex].position[2];
-    // Feet on the ground - unless the player flies, or the scene HAS no ground
-    // (docs/terrain.md), in which case the authored height is the only sensible
-    // start: the void answer would drop the player a million units below the
-    // world before the first frame's collision could catch them.
+    // Respect authored platforms/rooms above the heightfield. Starting every
+    // walker on terrain put a raised-floor scene's player below its colliders.
+    // Keep the terrain as a lower bound; normal gravity finds the actual floor.
     P.y = (PP_MODE(pi) == 1 || !TERRAIN_ENABLED)
               ? SCENE_OBJECTS[P.objIndex].position[1]
-              : terrainHeightAt(P.x, P.z);
+              : fmaxf(SCENE_OBJECTS[P.objIndex].position[1],
+                      terrainHeightAt(P.x, P.z));
     // Heading AND elevation from the authored rotation, read the way every
     // other object's is: the player's local forward (+Z, the axis
     // sin(yaw)/cos(yaw) walks along) through rotated(). Reading rotation[1]
@@ -15844,6 +15844,22 @@ void TerrainGame::renderScene() {
   // Debug profiler: scene phase = sky + terrain + objects + anim (+ the
   // deferred usable bodies, timed separately below). Folded away entirely
   // when DEBUG_SHOW_PROFILER is false. See drawDebugHud.
+  // Explicit diagnostic only: barriers attribute asynchronous VU/GS work to
+  // its submitter. This deliberately serializes the measured pass; it is not
+  // the normal frame time. No clock reads or drains when unarmed.
+  const u32 costSeq = livedbg::takeRenderCostRequest();
+  struct CostRow { int object; const char* label; u32 ticks; };
+  std::vector<CostRow> costRows;
+  if (costSeq) { costRows.reserve(runtimeObjects.size()+20); engine->renderer.core.sync.align3D(); }
+  auto costStart = [&]() -> u32 { return costSeq ? profTicks() : 0; };
+  auto costEnd = [&](const char* label, int object, u32 start) {
+    if (!costSeq) return;
+    engine->renderer.core.sync.align3D();
+    if (costRows.size() < 4088) costRows.push_back({object,label,profTicks()-start});
+  };
+  const bool costOldTelemetry = stapip.core.isTelemetryEnabled();
+  if (costSeq) stapip.core.setTelemetryEnabled(true);
+  const u32 costTotalStart = costStart();
   const u32 profScene0 = DEBUG_SHOW_PROFILER ? profTicks() : 0;
   // Split halves: bound the visible vertical band once per pass; the chunk
   // and static-object submissions below early-out against it.
@@ -15973,8 +15989,9 @@ void TerrainGame::renderScene() {
   // player camera or the surface visibly lags). Must run right after the
   // frame clear, before any main-scene 3D - the z-carved opening survives
   // the main scene drawing around it (see renderPortalView).
-  renderPortalView();
+  { const u32 ct=costStart(); renderPortalView(); costEnd("Portal",-1,ct); }
 
+  const u32 costSkyStart=costStart();
   if (skyDome.bag) {
     // Follow the camera: park the dome's centre on the eye so however big the
     // map is, the horizon and zenith always wrap around the player. Only the
@@ -15989,6 +16006,8 @@ void TerrainGame::renderScene() {
     renderStarField();
     renderSkyBodies(cameraPosition, cameraLookAt);
   }
+  costEnd("Sky",-1,costSkyStart);
+  const u32 costTerrainStart=costStart();
   // Terrain: stream the chunk ring around the view focus (budgeted, so the
   // build cost spreads over frames), then submit the built chunks - the
   // engine drops whole out-of-frustum chunks EE-side (main-bbox classify)
@@ -16003,14 +16022,15 @@ void TerrainGame::renderScene() {
                         p2Focus ? players[1].z : 0.0F, p2Focus, 2);
   }
   renderTerrain();
+  costEnd("Terrain",-1,costTerrainStart);
   // Static batches: one submit per material x cell group of the non-moving
   // primitives (rebuilt first when a member changed). Opaque z-tested
   // geometry, so drawing before the solo objects is order-free.
-  renderStaticBatches();
+  { const u32 ct=costStart(); renderStaticBatches(); costEnd("Static_batches",-1,ct); }
   // Runtime-generated geometry (procedural volumes, prefab instances) - the
   // same deal one step further: the game built these bags itself, so they need
   // no per-object bookkeeping at all, only a distance test and a submit.
-  renderProcChunks();
+  { const u32 ct=costStart(); renderProcChunks(); costEnd("Procedural",-1,ct); }
   // Debug overlay: the collision boxes the walker and the camera boom test
   // (folds away entirely in a release build - DEBUG_SHOW_COLLISION).
   renderCollisionBoxes();
@@ -16043,6 +16063,7 @@ void TerrainGame::renderScene() {
   int hlCount = 0;
   const bool hlActive = HIGHLIGHT_USABLE;
   const bool hlOverlay = HIGHLIGHT_OVERLAY;
+  const u32 costObjectsStart=costStart();
   int impostorSwitchBudget = 4;
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (!runtimeObjects[i].active) continue;  // streamed out with its layer
@@ -16185,6 +16206,7 @@ void TerrainGame::renderScene() {
     // share whatever the batch was built with (docs/vu-authoring.md).
     if (vuprog::ENABLED)
       vuprog::setParams(stapip.core, runtimeObjects[i].data.vuParams);
+    const u32 costObjectStart=costStart();
     for (GeoPart& part : objectGeometry[i].parts)
       if (part.bag) {
         stapip.core.render(part.bag.get());
@@ -16196,6 +16218,7 @@ void TerrainGame::renderScene() {
         if (part.emisBag) stapip.core.render(part.emisBag.get());
         renderEnvPass(objectGeometry[i], part);
       }
+    costEnd("Object",i,costObjectStart);
     // Back to zero the moment this object's bags are out. The numbers are
     // RENDERER STATE, not a property of the bag, so everything drawn after an
     // object - the terrain, the sky dome, a static batch, the next object -
@@ -16207,29 +16230,31 @@ void TerrainGame::renderScene() {
       vuprog::setParams(stapip.core, none);
     }
   }
+  costEnd("Objects",-1,costObjectsStart);
   // Animated models: advance playback, then skin + draw the in-view ones
   // through the same static pipeline (see updateAndRenderAnimObjects)
-  updateAndRenderAnimObjects();
+  { const u32 ct=costStart(); updateAndRenderAnimObjects(); costEnd("Animation",-1,ct); }
   // Mirrors after the whole scene (including the skinned avatars their
   // copies re-use): reflected copies first, glass quads blended over them
-  renderMirrors();
+  { const u32 ct=costStart(); renderMirrors(); costEnd("Mirrors",-1,ct); }
   // Portals after the mirrors: tinted quads blended over the finished
   // scene, then the live through-view projected onto the winner's surface
   // (z-tested against the scene, so walls still occlude the portal).
-  renderPortals();
+  { const u32 ct=costStart(); renderPortals(); costEnd("Portal_surfaces",-1,ct); }
   // Dynamic lights' ground pools next (they ARE the terrain lighting -
   // the chunks opt out of the per-bag light pick), then the projected
   // silhouette shadows (raster redirect per caster + finished z for the
   // receiver patches), the cheap blob shadows, and the additive beams.
-  updateAndRenderLightPools();
-  renderProjShadows();
+  { const u32 ct=costStart(); updateAndRenderLightPools(); costEnd("Light_pools",-1,ct); }
+  { const u32 ct=costStart(); renderProjShadows(); costEnd("Projected_shadows",-1,ct); }
   // Blob shadows before the beams: dark quads on the terrain, z-tested
   // against the finished scene (objects standing on them still cover them).
-  updateAndRenderBlobShadows();
+  { const u32 ct=costStart(); updateAndRenderBlobShadows(); costEnd("Blob_shadows",-1,ct); }
   // Visible light beams last: additive coronas/cones depth-test against the
   // finished scene (no z writes), so walls occlude them correctly.
-  updateAndRenderLightBeams();
+  { const u32 ct=costStart(); updateAndRenderLightBeams(); costEnd("Light_beams",-1,ct); }
   if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - profScene0;
+  const u32 costHighlightStart=costStart();
   // Highlight shells after the whole scene so they depth-test against the
   // finished z-buffer and can't be punched through by a later draw. Sorted
   // far-to-near: a nearer object's rim/body correctly covers a farther one.
@@ -16266,6 +16291,8 @@ void TerrainGame::renderScene() {
       if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - pb;
     }
   }
+  costEnd("Highlights_and_outlines",-1,costHighlightStart);
+  const u32 costParticleStart=costStart();
   // particles last - alpha blended over the scene. The second split half
   // re-faces the quads at ITS camera first - billboards built during the
   // simulation face player 1's view.
@@ -16295,6 +16322,30 @@ void TerrainGame::renderScene() {
   for (ParticleSystem& ps : particles)
     if (ps.bag && ps.bag->count > 0) stapip.core.render(ps.bag.get());
   if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
+  costEnd("Particles",-1,costParticleStart);
+  if (costSeq) {
+    engine->renderer.core.sync.align3D();
+    const float totalMs=(profTicks()-costTotalStart)/294912.0F;
+    const auto pipeCost=stapip.core.takeTelemetry();
+    stapip.core.setTelemetryEnabled(costOldTelemetry);
+    costRows.push_back({-1,"DMA_submit_included",pipeCost.dmaSubmitTicks});
+    costRows.push_back({-1,"Packet_build_included",pipeCost.packetBuildTicks});
+    costRows.push_back({-1,"Bounds_included",pipeCost.boundsTicks});
+    costRows.push_back({-1,"Prepare_included",pipeCost.prepareTicks});
+    costRows.push_back({-1,"Dispatch_included",pipeCost.dispatchTicks});
+    costRows.push_back({-1,"VU1_wait_included",pipeCost.vu1WaitTicks});
+    costRows.push_back({-1,"Program_swap_wait_included",pipeCost.programSetWaitTicks});
+    // Finish footer last; the host rejects partial transfers and old sequences.
+    FILE* f=fopen(FileUtils::fromCwd("rendercost.txt").c_str(),"wb");
+    if (f) {
+      fprintf(f,"TXRP 1 %u %d %u %.3f\n",costSeq,currentScene,(unsigned)costRows.size(),totalMs);
+      for (const CostRow& r:costRows)
+        fprintf(f,"%d %s %.3f\n",r.object,r.label,r.ticks/294912.0F);
+      fprintf(f,"END %u\n",costSeq);
+      fclose(f);
+    }
+  }
+
 }
 
 // Live catch areas (docs/areas.md): the objects an area holds RIGHT NOW,

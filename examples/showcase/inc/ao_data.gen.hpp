@@ -91,12 +91,12 @@ static const AoAtlasRect* const SCENE_AO_ATLAS_RECTS_T[] = {S0_AO_RECTS};
 static const int* const SCENE_AO_ATLAS_FIRSTS_T[] = {S0_AO_FIRST};
 static const unsigned char* const SCENE_AO_ATLAS_LITS_T[] = {S0_AO_LIT};
 static const char* const SCENE_AO_ATLAS_PATHS[] = {"aoatlas/scene0.png"};
-static const char* const SCENE_AO_MAP_PATHS[] = {"aomap/scene0.png"};
-static const unsigned char SCENE_AO_MAP_OCCS[] = {1};
+static const char* const SCENE_AO_MAP_PATHS[] = {""};
+static const unsigned char SCENE_AO_MAP_OCCS[] = {0};
 static const unsigned char SCENE_AO_MAP_LITS[] = {0};
 static const unsigned char SCENE_AO_ATLAS_GIS[] = {1};
 static const unsigned char SCENE_AO_MAP_GIS[] = {0};
-static const unsigned char SCENE_AO_MAP_GILUMS[] = {1};
+static const unsigned char SCENE_AO_MAP_GILUMS[] = {0};
 }  // namespace
 
 #define SCENE_AO_OCC SCENE_AO_OCC_TABLES[g_activeScene]

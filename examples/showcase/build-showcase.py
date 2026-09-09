@@ -173,6 +173,19 @@ class Mesh:
         # constant UVs; decorative per-face UV islands would lock the LOD weld.
         lines += ['v '+' '.join(f'{c:.5f}' for c in p) for p in positions]
         lines += ['vt '+' '.join(f'{c:.5f}' for c in p) for p in texcoords]
+        # Keep neighbouring triangles in the same VU1 package. Material groups
+        # preserve first-use order; stable median splits are reproducible.
+        verts=list(positions)
+        def spatial(items):
+            if len(items)<=24:return items
+            centers=[tuple(sum(verts[v-1][a] for v,t in tri)/3 for a in range(3)) for mat,tri in items]
+            axis=max(range(3),key=lambda a:max(c[a] for c in centers)-min(c[a] for c in centers))
+            ordered=[item for _,item in sorted(zip(centers,items),key=lambda pair:pair[0][axis])]
+            half=len(ordered)//2
+            return spatial(ordered[:half])+spatial(ordered[half:])
+        groups={}
+        for face in faces:groups.setdefault(face[0],[]).append(face)
+        faces=[face for group in groups.values() for face in spatial(group)]
         previous=None
         for mat,tri in faces:
             if mat!=previous:lines.append('usemtl '+mat);previous=mat
@@ -241,9 +254,9 @@ def geometry():
     # One surface, not a thin 600 m box: its top/bottom competed for depth
     # at grazing angles. Bound triangle size for the PS2 clipper as well.
     m=Mesh()
-    for x in range(-300,300,20):
-        for z in range(-300,300,20):
-            m.face([(x-20,0,z),(x-20,0,z+20),(x,0,z+20),(x,0,z)],'water')
+    for x in range(-300,300,60):
+        for z in range(-300,300,60):
+            m.face([(x-20,0,z),(x-20,0,z+60),(x+40,0,z+60),(x+40,0,z)],'water')
     m.save('sea-surface')
     # Draped pennants have a shaped hem and physical folds, not flat rectangles.
     m=Mesh()
@@ -370,11 +383,13 @@ def batch_architecture():
     for name,mesh in groups.items():
         # Portal dead-zone filtering uses object transforms. Keep the forecourt
         # pivot in front of its east-facing exit, with identical world geometry.
-        pivot=(16,0,20) if name=='district-vestibule' else (16,0,0) if name=='district-seaward' else (14.4,1.65,20) if name=='district-pavilion' else (0,0,0)
+        pivot=(16,0,20) if name=='district-vestibule' else (16,0,0) if name=='district-seaward' else (14.4,1.65,20) if name=='district-pavilion' else (0,-10.35,-18) if name=='district-cellar' else (0,0,0)
         mesh.faces=[([(x-pivot[0],y-pivot[1],z-pivot[2]) for x,y,z in points],mat,uv)
                     for points,mat,uv in mesh.faces]
         mesh.save(name)
-        model(name,name,pivot,collision='none' if name=='district-arrival' else 'mesh',meshLod=0)
+        model(name,name,pivot,collision='none' if name=='district-arrival' else 'mesh',
+              meshLod=0,
+              drawDistance=12 if name=='district-cellar' else 0)
     for o in objects:
         for section,keyname in [('portal','objects'),('mirror','objects'),('camera','feedObjects')]:
             if section in o:
@@ -392,8 +407,8 @@ def author():
             pavilion_pose[existing['name']]={k:existing[k] for k in ('position','rotation','scale')}
     s=p['settings']
     s.update(showFps=False,showMemory=False,showProfiler=False,buildProfile='debug',remotePad=True,liveDebug=True,
-             liveLink=False,liveLogic=False,timeMachine=False,
-             clipping='vu1',unitsPerMeter=1,walkSpeed=.10,sprintMultiplier=1.7,terrainDetail=32,terrainViewDistance=0,textureQuant='8bit',
+             liveLink=False,liveLogic=False,timeMachine=False,colorDepth='16bit',dither=True,tripleBuffering=True,
+             clipping='vu1',unitsPerMeter=1,walkSpeed=.10,sprintMultiplier=1.7,terrainDetail=4,terrainViewDistance=0,textureQuant='8bit',
              meshLodDistance=14,staticBatching=True,skyColor=[.88,.65,.43],skyTopColor=[.12,.32,.46],skyDome=True,
              zenithSize=.65,lightDir=[-.6,.7,.35],lightColor=[1,.83,.60],ambient=.44,diffuse=.7,brightness=1,
              fogEnabled=True,fogColor=[.70,.70,.62],fogStart=55,fogEnd=135,aoEnabled=True,aoStrength=.55,aoRadius=2,terrainMaterial='res/aster/shadowstone.mtl',
@@ -574,11 +589,11 @@ def author():
     for z in (-23,-18,-13):
         model(f'cellar-rib-{z}','cellar-rib',(0,-12,z),collision='none')
         for x in (-6.7,6.7):box(f'cellar-pier-{x}-{z}',(x,-10.6,z),(.5,2.8,.5),'ivory')
-    barrel=Mesh();barrel.lathe([(0,0),(.5,0),(.57,.2),(.64,.65),(.57,1.1),(.5,1.3),(0,1.3)],'bark',14)
+    barrel=Mesh();barrel.lathe([(0,0),(.5,0),(.57,.2),(.64,.65),(.57,1.1),(.5,1.3),(0,1.3)],'bark',10)
     for h,r in ((.15,.57),(.65,.65),(1.05,.6)):
-        barrel.lathe([(r,h),(r,h+.08)],'brass',14)
+        barrel.lathe([(r,h),(r,h+.08)],'brass',10)
     barrel.save('cellar-barrel')
-    bottle=Mesh();bottle.lathe([(0,0),(.14,0),(.16,.07),(.16,.38),(.075,.49),(.06,.67),(0,.67)],'leavesLight',10);bottle.save('cellar-bottle')
+    bottle=Mesh();bottle.lathe([(0,0),(.14,0),(.16,.07),(.16,.38),(.075,.49),(.06,.67),(0,.67)],'leavesLight',6);bottle.save('cellar-bottle')
     for i,(x,z) in enumerate(((-5.7,-11),(-4.3,-11),(-5.7,-12.5),(-4.3,-12.5),(-5.7,-14),(-4.3,-14))):
         model(f'cellar-barrel-{i}','cellar-barrel',(x,-12,z))
     for i,(x,z) in enumerate(((5.6,-11),(5.6,-12.5),(4.2,-11))):
@@ -651,7 +666,7 @@ def author():
         if o['name'] in ('district-pavilion','surface-gate'):
             o['editorGroup']='Portal pavilion'
             if o['name'] in pavilion_pose:o.update(pavilion_pose[o['name']])
-    p['scenes']=[{'name':'Aster','terrain':{'width':64,'depth':64},'layers':[],'objects':[o['id'] for o in objects]}]
+    p['scenes']=[{'name':'Aster','terrain':{'width':64,'depth':64,'enabled':False},'layers':[],'objects':[o['id'] for o in objects]}]
     # Hidden support terrain gives A* a real walkable surface. It follows the
     # architecture, sits below paving, and drops below the sea at the edges.
     heights=[]

@@ -37,6 +37,12 @@ struct StaPipTelemetry {
   /** Clip-routed packages by conservative active-plane mask population. */
   u32 activePlanePopcount[7] = {};
 
+  // Modified by TyraX: nested render-attribution timings, opt-in only.
+  u32 dmaSubmitTicks = 0;
+  u32 packetBuildTicks = 0;
+  u32 boundsTicks = 0;
+  u32 prepareTicks = 0;
+  u32 dispatchTicks = 0;
   u32 packetFlushes = 0;
   u32 vu1WaitTicks = 0;
   u32 programSetSwaps = 0;

@@ -245,12 +245,56 @@ The frozen return view measured 50 FPS. These are two views, not a minimum FPS
 for the entire island; physical-console performance is recorded below.
 See [portal measurements](../../docs/portals.md#imported-mesh-bounds-1771).
 
-Physical PS2 verification (2026-09-09): the same doorway view with correct
+Baseline physical PS2 verification (1.77.2, 2026-09-09): the same doorway view with correct
 textures runs at **12-12.5 FPS**, with 66.11 ms of scene rendering. Disabling
 the portal view alone still gives **12.5 FPS**, with 59.88 ms of scene rendering.
-The scene is therefore not yet a performant hardware showcase; portal scoping
-and caching alone do not fix its base rendering cost. These are debug builds
+Portal scoping and caching alone did not fix its base rendering cost.
+The subsequent 1.78 changes are described below. These are debug builds
 served over ps2link, with Live Debugger/Remote Pad and the profiler enabled.
 
 ![Physical PS2, portal enabled](preview/ps2-portal-performance.png)
 ![Physical PS2, portal view disabled](preview/ps2-noportal-performance.png)
+
+## Hardware tuning (1.78)
+
+The scene retains full 512x448 output, now with 16-bit colour, GS dithering and
+triple buffering. This frees texture memory and avoids the two-buffer PAL
+frame-rate staircase. The supporting heightfield is disabled: model floors and
+invisible walls provide collision, and the terrain was hidden below them and
+the ocean. The authored height data remains available for editing.
+
+The ocean covers the same 600 m square with 200 triangles instead of 1800,
+retaining its tiled UVs and reflection. Spatially sorted triangles improve
+package culling without changing geometry or material assignment. Surface
+districts retain full detail: a trial of 14 m LOD removed thin lamp stems and
+was rejected. The cellar pivot is at
+`(0, -10.35, -18)` with a 12 m main-view draw distance, covering the walkable
+room while excluding it from surface rendering; the explicit portal list still
+draws it. Six-sided small bottles and ten-sided barrels reduce the cellar from
+6224 to 4640 triangles. `build-showcase.py` reproduces these choices and
+preserves the user's pavilion/group transforms.
+
+The new **Debugger > Render cost** tool attributes a synchronized render pass
+to phases and objects, supports a retained baseline, and exports CSV. See
+[profiling](../../docs/profiling.md). Its serialized total is not ordinary FPS.
+
+Measured on physical PAL PS2 during tuning (debug + host server): the fixed
+entrance improved from 12.5 FPS to 24.2 FPS; a walked-to cellar view gave 29.8
+FPS and a lightly loaded surface view reached 50 FPS. The entrance's diagnostic
+render pass fell to 40.647 ms; it is serialized and must not be confused with
+ordinary frame time. These numbers describe sampled views, not a map-wide
+minimum. They include the trial district LOD, which was subsequently removed
+after the final PCSX2 visual check showed missing lamp stems. The final full-detail
+district correction was built and checked in PCSX2, not remeasured on hardware:
+the final manual hardware launch lost ps2link after a missing resident-IOP marker.
+
+![Physical PS2 tuning run, doorway](preview/ps2-optimized-doorway.png)
+![Physical PS2 tuning run, inside the cellar](preview/ps2-optimized-cellar.png)
+
+Validation also includes real-console walking through the portal in both
+directions, Windows Release editor and PS2 debug/release builds, release devkit
+audit, debugger UI baseline/CSV capture, malformed-report parser checks and
+coarse-bound inheritance checks across changing geometry and partial tail groups.
+
+The grazing-angle ocean capture is pixel-identical between VU1 and legacy EE
+clipping in PCSX2. The final default arrival view retains complete lamp stems.

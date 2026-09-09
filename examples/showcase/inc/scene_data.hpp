@@ -312,7 +312,7 @@ constexpr SceneObjectData SCENE_0_OBJECTS[81] = {
     {5, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 23, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 1, 0.0F, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 0.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8},  // district-rotunda
     {5, {16.0F, 0.0F, 20.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 24, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 1, 0.0F, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 0.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8},  // district-vestibule
     {5, {9.78103F, 1.65F, 17.7259F}, {0.0054169F, -89.8161F, -0.00515755F}, {0.999998F, 1.0F, 0.999998F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 25, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 1, 0.0F, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 0.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8},  // district-pavilion
-    {5, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 26, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 1, 0.0F, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 0.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8},  // district-cellar
+    {5, {0.0F, -10.35F, -18.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 26, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 1, 12.0F, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 0.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8},  // district-cellar
 };
 
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {81};
@@ -572,7 +572,7 @@ constexpr bool PLAYER2_FACE_CAMERAS[SCENE_COUNT] = {false};
 constexpr float TERRAIN_WIDTHS[SCENE_COUNT] = {64.0F};
 constexpr float TERRAIN_DEPTHS[SCENE_COUNT] = {64.0F};
 constexpr float TERRAIN_VOID_Y = -1000000.0F;
-constexpr bool TERRAIN_ENABLEDS[SCENE_COUNT] = {true};
+constexpr bool TERRAIN_ENABLEDS[SCENE_COUNT] = {false};
 constexpr float SCENE_LIGHT_XS[SCENE_COUNT] = {-0.608424F};
 constexpr float SCENE_LIGHT_YS[SCENE_COUNT] = {0.709828F};
 constexpr float SCENE_LIGHT_ZS[SCENE_COUNT] = {0.354914F};

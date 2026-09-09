@@ -2131,3 +2131,13 @@ keyed by source bboxVersion/pointer/count/layout, model matrix and exit plane.
 Only an invalidation drains PATH1 before replacing buffers; view-camera changes
 reuse them. Refresh live bag descriptors even on hits. Whole-front bags bypass
 it; animated bags retain their bounds-only path.
+
+## Render-cost capture (1.78)
+
+Debugger command bit 7 requests one synchronized renderScene pass.
+`templates.cpp` consumes it through the generated Live Debugger hook, measures
+phases and object draws only while armed, and writes `bin/rendercost.txt`.
+`livedbg.cpp/.hpp` validates bounded rows/footer and exports CSV;
+`devkit_ui.cpp` owns the Render cost tab and baseline; `main.cpp` exposes
+`--profile-frame`. Keep generated on/off hook declarations paired. Captures
+serialize asynchronous rendering; their total is not normal frame time.

@@ -16,6 +16,9 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.78.0: Render-cost debugger/CLI; pipelined static submission, coarse
+// package culling, hardware-tuned Aster, and raised-platform player spawns.
+//
 // 1.77.2: Cache portal exit-clipped geometry between frames; Aster uses
 // bounded destination lists instead of redrawing the island into the cellar.
 //
@@ -2915,8 +2918,8 @@
 // 1.75.0: universal CPU/GPU impostor capture with 4/8/16 views, grove example
 // and world-bounds selection. Includes the earlier in-branch v39/v40 stages.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 77
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_MINOR 78
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

@@ -7,34 +7,19 @@ constexpr int NAV_ENABLED = 1;
 constexpr int NAV_SCENE_COUNT = 1;
 // A* working arrays are sized to the largest scene grid; agents
 // cover the authored objects plus the runtime spawn pool.
-constexpr int NAV_MAX_CELLS = 4096;
+constexpr int NAV_MAX_CELLS = 1;
 constexpr int NAV_MAX_AGENTS = 113;
 
-constexpr int NAV_WS[NAV_SCENE_COUNT] = {64};
-constexpr int NAV_DS[NAV_SCENE_COUNT] = {64};
-constexpr float NAV_ORIGIN_XS[NAV_SCENE_COUNT] = {-32.0F};
-constexpr float NAV_ORIGIN_ZS[NAV_SCENE_COUNT] = {-32.0F};
-constexpr float NAV_CELL_WS[NAV_SCENE_COUNT] = {1.0F};
-constexpr float NAV_CELL_DS[NAV_SCENE_COUNT] = {1.0F};
+constexpr int NAV_WS[NAV_SCENE_COUNT] = {0};
+constexpr int NAV_DS[NAV_SCENE_COUNT] = {0};
+constexpr float NAV_ORIGIN_XS[NAV_SCENE_COUNT] = {0.0F};
+constexpr float NAV_ORIGIN_ZS[NAV_SCENE_COUNT] = {0.0F};
+constexpr float NAV_CELL_WS[NAV_SCENE_COUNT] = {0.0F};
+constexpr float NAV_CELL_DS[NAV_SCENE_COUNT] = {0.0F};
 
-// scene "Aster": 64x64 cells, 3281 walkable
-constexpr unsigned int NAV_0_CELLS[128] = {
-    0x00000000, 0x00000000, 0x003ffffe, 0x7ffffc00, 0xff003ffe, 0x7ffc00ff, 0xff003ffe, 0x7ffc00ff,
-    0xff3f3ffe, 0x7ffcfcff, 0xff3f3ffe, 0x7ffcfcff, 0xff3f3ffe, 0x7ffcfcff, 0xff3f3ffe, 0x7ffcfcff,
-    0xff3f3ffe, 0x7ffcfcff, 0xff3f3ffe, 0x7ffcfcff, 0xff3f3ffe, 0x7ffcfcff, 0xff3f3ffe, 0x7ffcfcff,
-    0xff3f3ffe, 0x7ffcfcff, 0xff3f3ffe, 0x7ffcfcff, 0xff3f3ffe, 0x7ffcfcff, 0xff3f3ffe, 0x7ffcfcff,
-    0xff3f3ffe, 0x7ffcfcff, 0xff3f3ffe, 0x7ffcfcff, 0xff3f3ffe, 0x7ffcfcff, 0xff3f3ffe, 0x7ffcfcff,
-    0xff3f3ffe, 0x7ffcfcff, 0xff3f3ffe, 0x7ffcfcff, 0xff3f3ffe, 0x7ffcfcff, 0xff3f3ffe, 0x7ffcfcff,
-    0xff3f3ffe, 0x7ffcfcff, 0xff3f3ffe, 0x7ffcfcff, 0x003f3ffe, 0x7ffcfc00, 0x003f3ffe, 0x7ffcfc00,
-    0xffff3ffe, 0x7ffcffff, 0xffff3ffe, 0x7ffcffff, 0xffff3ffe, 0x7ffcffff, 0xffff3ffe, 0x7ffcffff,
-    0xffff3ffe, 0x7ffcffff, 0xffff3ffe, 0x7ffcffff, 0xffff3ffe, 0x7ffcffff, 0xffff3ffe, 0x7ffcffff,
-    0xffff3ffe, 0x7ffcffff, 0xffff3ffe, 0x7ffcffff, 0xffff3ffe, 0x7ffcffff, 0xffff3ffe, 0x7ffcffff,
-    0xffff3ffe, 0x7ffcffff, 0xffff3ffe, 0x7ffcffff, 0xffff3ffe, 0x7ffcffff, 0xffff3ffe, 0x7ffcffff,
-    0xffff3ffe, 0x7ffcffff, 0xffff3ffe, 0x7ffcffff, 0xffff3ffe, 0x7ffcffff, 0xffff3ffe, 0x7ffcffff,
-    0xffff3ffe, 0x7ffcffff, 0xffff3ffe, 0x7ffcffff, 0xffff3ffe, 0x7ffcffff, 0xffff3ffe, 0x7ffcffff,
-    0xffff3ffe, 0x7ffcffff, 0xffff3ffe, 0x7ffcfc23, 0xcf3f3ffe, 0x7ffcfc23, 0xcf383ffe, 0x7ffc1fe3,
-    0xff383ffe, 0x7ffc1c23, 0xfe183ffe, 0x7ffc1c07, 0xfe183ffe, 0x7ffc1fc7, 0xffff3ffe, 0x7ffcffc7,
-    0x00003ffe, 0x7ffc0000, 0x00003ffe, 0x7ffc0000, 0xfffffffe, 0x7fffffff, 0x00000000, 0x00000000
+// scene "Aster": 0x0 cells, 0 walkable
+constexpr unsigned int NAV_0_CELLS[1] = {
+    0x00000000
 };
 inline const unsigned int* NAV_CELL_TABLES[NAV_SCENE_COUNT] = {NAV_0_CELLS};
 

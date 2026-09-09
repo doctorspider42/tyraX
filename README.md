@@ -231,6 +231,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   picture and the GS scissor crops it, so only near-plane crossings pay for a
   real cut.
 - The in-game [frame profiler](docs/profiling.md).
+- [On-demand render costs](docs/profiling.md#on-demand-render-cost-178): debugger phase/object timings, baseline comparison and CSV export on PCSX2 and PS2.
 - The [VU framework](docs/vu-framework.md): describe a microprogram in C++,
   generate both sides of it and run it in a host simulator with no PS2 —
   and [compose VU1 programs out of stages](docs/vu-authoring.md), or write a

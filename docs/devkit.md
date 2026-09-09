@@ -277,3 +277,17 @@ channel.
 
 The devkit reports evidence; it does not prove performance on its own. Use real
 hardware for timings and the PCSX2 software renderer for visual correctness.
+
+### Manual ps2link launch: require the resident-IOP marker
+
+Prefer `--build PROJECT --run-ps2 IP`, which creates the marker automatically.
+If running ps2client manually, first create and verify **an absolute path** to
+`PROJECT/bin/ps2link.run` containing `ps2link`. Launch with `PROJECT/bin` as the
+working directory. `-ps2link` on execee alone is insufficient with this crt0.
+A missing marker resets IOP, removes the host filesystem/network service and
+can require a physical reboot; a later UDP poweroff cannot repair that loss.
+Do not chain a failed marker write into an execee command. In PowerShell use
+`-ErrorAction Stop` and `Test-Path -LiteralPath` before launching. A working
+directory already ending in `bin` must not receive another relative `bin/`.
+Also stop an emulator serving the same project before hardware captures: its
+fresh `livedbg.bin`/`frame.tga` can otherwise disguise a disconnected console.

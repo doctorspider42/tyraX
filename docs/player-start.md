@@ -34,3 +34,11 @@ and `"keyboardMouse": false` in the `.tyra`. The player then stands where you
 put it, looking 8.3 degrees down along +X, every boot. Pad scripts (`--pad`)
 are for driving a test, not for aiming it: a pitch reached by "stick r 0 60;
 wait 0.25" is a different pitch every run.
+
+## Raised platforms (1.78)
+
+Walking players and FPP spawn points retain their authored Y when it is above
+the heightfield. Terrain is a lower bound, then normal gravity/collision finds
+the floor. This prevents a player on a model platform from starting underneath
+it when terrain has been lowered for an underground room. Flying players and
+scenes without terrain keep the authored height as before.

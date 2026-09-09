@@ -1943,3 +1943,31 @@ legacy compatibility mode. See docs/vu1-clipping.md.
 
 Measure with PCSX2's FPS display on the software renderer, 3+ samples, before
 and after; pixel-compare screenshots to prove output is unchanged.
+
+## Static submission on physical PS2 (1.78)
+
+`StaPipQBufferRenderer::sendObjectData` now prepares uniforms without waiting
+for the previous mesh. The first geometry send waits and submits those uniforms,
+then waits before its own kick. A wholly culled mesh may replace the unsent
+uniform packet. Never let a draw escape `render()` with pending geometry that
+references stack MVP/light data.
+
+The uniform send's full D-cache writeback also covers the already-built first
+geometry chain and its REF streams. That immediate geometry kick skips a second
+full flush; subsequent packets and VU diagnostic hooks retain SDK writeback.
+No payload may be edited between the paired kicks without restoring the flush.
+A trial walking every REF with `SyncDCache` regressed a hardware render-cost
+capture from about 58 to 79 ms; it was discarded. Measure cache policies on EE.
+
+VU1 clipping references immutable source streams, like culling; legacy EE
+clipping still copies into writable qbuffers. Coarse AABBs cover eight full
+packages (24 one-third bounds), follow bboxVersion rebuilds, and only inherit
+whole-IN/OUT decisions; partial groups keep exact child/guard-band tests.
+Wholly visible bags skip redundant package classification. Spatially coherent
+triangle order makes the coarse level useful without altering triangle data.
+
+`Math::sqrtNonNegative` uses EE `sqrt.s` only for known nonnegative squared
+lengths. Do not substitute it for a general sqrt API with errno/domain behavior.
+Render-cost telemetry includes both uniform and geometry VIF waits; counting
+only the latter under-reports synchronization. The counters overlap stages.
+See [profiling](../../../docs/profiling.md) and the Aster example for measurements.

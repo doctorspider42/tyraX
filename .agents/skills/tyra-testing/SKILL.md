@@ -2507,3 +2507,26 @@ GI's shared-context oracle still agreed (0.0022% relative mean error). The mixed
 capture-sector updates without allocation failures. Higher atlas counts consume
 VRAM: the tested mixed scene had about 35 KiB free after moving, with evictions
 during motion, so do not describe larger view counts as free.
+
+## Render-cost capture
+
+Use `--profile-frame PROJECT -o report.csv` against a debug game with Live
+Debugger on and a live host server. Verify matching sequence/footer, finite
+phase/object values, repeated captures and CSV output. For UI changes drive
+Render cost / Measure render cost / Keep as baseline / Copy render cost CSV.
+Object rows are nested costs inside Objects. Measurements drain the pipeline;
+verify ordinary FPS separately and capture the same camera on physical PS2.
+
+### Manual ps2link launch: require the resident-IOP marker
+
+Prefer `--build PROJECT --run-ps2 IP`, which creates the marker automatically.
+If running ps2client manually, first create and verify **an absolute path** to
+`PROJECT/bin/ps2link.run` containing `ps2link`. Launch with `PROJECT/bin` as the
+working directory. `-ps2link` on execee alone is insufficient with this crt0.
+A missing marker resets IOP, removes the host filesystem/network service and
+can require a physical reboot; a later UDP poweroff cannot repair that loss.
+Do not chain a failed marker write into an execee command. In PowerShell use
+`-ErrorAction Stop` and `Test-Path -LiteralPath` before launching. A working
+directory already ending in `bin` must not receive another relative `bin/`.
+Also stop an emulator serving the same project before hardware captures: its
+fresh `livedbg.bin`/`frame.tga` can otherwise disguise a disconnected console.

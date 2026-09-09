@@ -8,6 +8,8 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 */
 
+#include "math/math.hpp"
+
 // Modified by TyraX: PipelineZTest_TestOnly branch in sendObjectData;
 // per-mesh object-space spot light (flashlight) upload for the color VU1
 // programs + EE clipper; alpha-test AFAIL fixed to ATEST_KEEP_ALL (see
@@ -95,6 +97,7 @@ void StaPipQBufferRenderer::allocateOnUse() {
 }
 
 void StaPipQBufferRenderer::deallocateOnUse() {
+  objectDataPending = false;
   packet2_free(staticDataPacket);
   packet2_free(objectDataPacket);
 
@@ -201,7 +204,7 @@ StaPipClipperSpot buildSpotForBag(const RendererCoreSpotLight& spot,
   // so |dir|^2 = 1/s^2 - reuse it to express the range in object units.
   const float objRange2 = spot.range * spot.range * dirLen2;
 
-  const float invDirLen = 1.0F / sqrtf(dirLen2);
+  const float invDirLen = 1.0F / Math::sqrtNonNegative(dirLen2);
   out.direction.x = dir.x * invDirLen;
   out.direction.y = dir.y * invDirLen;
   out.direction.z = dir.z * invDirLen;
@@ -482,8 +485,10 @@ void StaPipQBufferRenderer::sendObjectData(
   }
 
   packet2_utils_vu_add_end_tag(objectDataPacket);
-  dma_channel_wait(DMA_CHANNEL_VIF1, 0);
-  dma_channel_send_packet2(objectDataPacket, DMA_CHANNEL_VIF1, true);
+  // Modified by TyraX: build the next mesh's packages while VU1 consumes the
+  // previous mesh. Waiting here serialized CPU preparation behind that draw.
+  // A wholly culled mesh simply replaces this unsent packet on the next call.
+  objectDataPending = true;
 }
 
 void StaPipQBufferRenderer::setInfo(PipelineInfoBag* bag) {
@@ -754,6 +759,8 @@ StaPipQBuffer* StaPipQBufferRenderer::getBuffer() {
 }
 
 u16 StaPipQBufferRenderer::getQBufferIndex(StaPipQBuffer* buffer) {
+  // Modified by TyraX: render submits the buffer just acquired by getBuffer.
+  if (buffers[currentBufferIndex] == buffer) return currentBufferIndex;
   for (u16 i = 0; i < buffersCount; i++) {
     if (buffers[i] == buffer) return i;
   }
@@ -888,6 +895,7 @@ void StaPipQBufferRenderer::clearLastProgramName() {
 
 void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
                                                    const u32& to) {
+  const u32 buildStart = telemetry ? readTelemetryTicks() : 0;
   auto* currentPacket = packets[context];
   packet2_reset(currentPacket, false);
 
@@ -910,6 +918,7 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
   }
 
   packet2_utils_vu_add_end_tag(currentPacket);
+  if (telemetry) telemetry->packetBuildTicks += readTelemetryTicks()-buildStart;
 }
 
 void StaPipQBufferRenderer::sendPacket() {
@@ -917,6 +926,19 @@ void StaPipQBufferRenderer::sendPacket() {
 
   TYRA_ASSERT(packet2_get_qw_count(currentPacket) <= qbuffersPacketSize,
               "Packet is too big. Internal error");
+
+  const bool flushedWithUniforms = objectDataPending;
+  if (objectDataPending) {
+    const u32 objectWaitStart = telemetry ? readTelemetryTicks() : 0;
+    dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+    if (telemetry)
+      telemetry->vu1WaitTicks += readTelemetryTicks() - objectWaitStart;
+    const u32 submitStart = telemetry ? readTelemetryTicks() : 0;
+    dma_channel_send_packet2(objectDataPacket, DMA_CHANNEL_VIF1, true);
+    if (telemetry)
+      telemetry->dmaSubmitTicks += readTelemetryTicks() - submitStart;
+    objectDataPending = false;
+  }
 
   const u32 waitStart = telemetry != nullptr ? readTelemetryTicks() : 0;
   dma_channel_wait(DMA_CHANNEL_VIF1, 0);
@@ -935,7 +957,14 @@ void StaPipQBufferRenderer::sendPacket() {
 
   // dma_wait_fast(); // This have no impact on performance
 
-  dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1, true);
+  const u32 submitStart = telemetry != nullptr ? readTelemetryTicks() : 0;
+  // Modified by TyraX: the uniform chain's full writeback above covered the
+  // already-built geometry chain AND every REF stream. Nothing edits those
+  // payloads between the two kicks. Later half-buffer flushes still need their
+  // own writeback; a diagnostic hook also keeps the conservative SDK path.
+  dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1,
+                           !flushedWithUniforms || g_vuPacketHook != nullptr);
+  if (telemetry) telemetry->dmaSubmitTicks += readTelemetryTicks()-submitStart;
 
   // TyraX: with a VU1 memory hook installed (a devkit capture is in flight),
   // wait for the transfer AND for VU1 to finish its microprogram, then hand the

@@ -2152,7 +2152,35 @@ static int uiScriptFromCli(int argc, char** argv) {
 // every livedbg command - no breakpoints, no halt - and a clock-derived seq so
 // any previous command (the GUI's, or an earlier call) reads as changed.
 // Needs a debug build with Live Debugger on; waiting is decided by the file's
-// PROGRESS (a growing file is a write in flight, ~3 s over ps2link).
+// matching report footer, so a partial or previous capture cannot succeed.
+static int renderCostFromCli(int argc, char** argv) {
+    if (argc < 3) { std::fprintf(stderr,"usage: tyrax-editor --profile-frame <projectDir> [-o report.csv]\n"); return 2; }
+    const std::filesystem::path dir(argv[2]);
+    std::string output;
+    for (int i=3;i<argc;++i) {
+        if (std::strcmp(argv[i],"-o")==0 && i+1<argc) output=argv[++i];
+        else { std::fprintf(stderr,"profile-frame: unknown or incomplete argument: %s\n",argv[i]); return 2; }
+    }
+    livedbg::Command c;
+    c.seq=(uint32_t)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    if(!c.seq) c.seq=1;
+    c.captureRenderCost=true;
+    const std::string error=livedbg::writeCommand((dir/"bin"/"livedbg.cmd").string(),c);
+    if(!error.empty()) { std::fprintf(stderr,"%s\n",error.c_str()); return 1; }
+    const auto start=std::chrono::steady_clock::now();
+    while(std::chrono::steady_clock::now()-start<std::chrono::seconds(45)) {
+        livedbg::RenderCost report;
+        if(livedbg::readRenderCost((dir/"bin"/"rendercost.txt").string(),report) && report.seq==c.seq) {
+            const auto csv=livedbg::renderCostCsv(report);
+            if(!output.empty()) { std::ofstream f(output); f<<csv; if(!f) return 1; }
+            std::fputs(csv.c_str(),stdout); return 0;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    }
+    std::fprintf(stderr,"profile-frame: no matching complete report; rebuild with Live Debugger enabled and keep the host server alive.\n");
+    return 1;
+}
+
 static int captureFrameFromCli(int argc, char** argv) {
     namespace fs = std::filesystem;
     if (argc < 3) {
@@ -4035,6 +4063,8 @@ int main(int argc, char** argv) {
         return debugStateFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--dump-vucap") == 0)
         return dumpVuCapFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--profile-frame") == 0)
+        return renderCostFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--capture-frame") == 0)
         return captureFrameFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--symbolize") == 0)
@@ -4113,6 +4143,7 @@ int main(int argc, char** argv) {
             "carries no devkit code\n"
             "  --debug-state [--verbose]               what is being debugged "
             "on this machine right now\n"
+            "  --profile-frame <projectDir> [-o report.csv]  synchronized render costs\n"
             "  --capture-frame <projectDir> [-o out.png] [--alpha a.png]  the "
             "game's own screenshot (works over ps2link)\n"
             "  --dump-vucap <projectDir>               decode the last VU1 "
