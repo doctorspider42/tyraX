@@ -35,6 +35,16 @@ The corpus used as a stability anchor predates the clip-path rewrite, so it is
 valid for "identical inputs must give the same md5" and wrong for absolute sizes.
 Regenerate it from a real engine build, in its own commit, and re-anchor the md5.
 
+### Align the ABI metadata of embedded IOP IRX blobs
+
+The native PS2DEV linker emits one `linking abicalls files with non-abicalls
+files` warning for every IRX embedded in `libtyra.a` (`audsrv`, `padman`,
+`fileXio`, USB and related modules). They are IOP binaries converted to EE data
+objects by `bin2s`, not game code, so builds and PCSX2 launches are currently
+unaffected. Make the generated assembly object's ABI mode explicitly match the
+EE build rather than suppressing the linker warning. Verify a clean link and a
+native boot that exercises audio, pad input, host filesystem and USB input.
+
 ## Visual showcase directions
 
 See [Rendering directions](rendering-directions.md) for the assessed roadmap:
