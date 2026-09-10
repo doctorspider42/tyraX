@@ -16,6 +16,19 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.80.1: the native build survives a project an earlier Docker build wrote.
+// Docker Desktop's container writes into the project through a Windows bind
+// mount as root and WSL keeps that ownership in the file's metadata, so the
+// native backend - which runs as the ordinary user - could not delete bin/ and
+// obj/ on a toolchain change or a rebuild: `rm` failed with "Permission
+// denied" on every file and the build died on its first clean step. The clean
+// now falls back to a Windows-side delete, which ignores that metadata.
+// The same clean now also puts the dropped tree's own .gitignore back:
+// bin/.gitignore and obj/.gitignore are COMMITTED (they keep those empty
+// directories in git), and both this clean and Build > Clean deleted them,
+// so every wipe left the checkout showing a deleted tracked file.
+// PATCH: nothing new appears, a broken path starts working.
+//
 // 1.80.0: merge Aster, grouping and render-cost diagnostics with main.
 //
 // 1.78.0: Render-cost debugger/CLI; pipelined static submission, coarse
@@ -2953,7 +2966,7 @@
 // 1.79.0: merge native PS2DEV/OpenVCL builds with editor comments.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 80
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

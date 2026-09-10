@@ -228,6 +228,32 @@ void Runner::clean(const Project& p) {
         // locked, which is a better answer than killing somebody else's server.
         claimPs2Channel(p);
         killEmulatorsFor(p, lastEmulator_);
+
+        // bin/.gitignore and obj/.gitignore are COMMITTED files - they are what
+        // keeps those otherwise-empty directories in git (TPL_DIR_KEEP), and
+        // every example project ships one. Wiping the tree deleted them too, so
+        // a Clean (or a toolchain-change rebuild, which does the same thing in
+        // native-build.sh) left the checkout showing a deleted tracked file.
+        // Keep the content and put it back; a project that customised the file
+        // keeps its own version, and one that has none stays without.
+        const auto keepIgnore = [](const fs::path& f) -> std::string {
+            std::ifstream in(f, std::ios::binary);
+            if (!in) return {};
+            return std::string(std::istreambuf_iterator<char>(in),
+                               std::istreambuf_iterator<char>());
+        };
+        const auto restoreIgnore = [](const fs::path& f, const std::string& s) {
+            if (s.empty()) return;
+            std::error_code ec;
+            fs::create_directories(f.parent_path(), ec);
+            std::ofstream out(f, std::ios::binary);
+            out << s;
+        };
+        const fs::path objIgnore = fs::path(p.dir) / "obj" / ".gitignore";
+        const fs::path binIgnore = fs::path(p.dir) / "bin" / ".gitignore";
+        const std::string objKeep = keepIgnore(objIgnore);
+        const std::string binKeep = keepIgnore(binIgnore);
+
         if (p.buildBackend == "docker") {
             // Container game volume (obj + bin). Failure is fine - a stopped
             // container just means there is nothing cached there to clean.
@@ -238,6 +264,7 @@ void Runner::clean(const Project& p) {
         } else {
             std::error_code objEc;
             fs::remove_all(fs::path(p.dir) / "obj", objEc);
+            restoreIgnore(objIgnore, objKeep);
         }
 
         // Host bin\: per-file, clearing read-only first (remove_all refuses
@@ -262,6 +289,7 @@ void Runner::clean(const Project& p) {
             std::error_code rmEc;
             fs::remove_all(bin, rmEc);  // now-empty tree (dirs + leftovers)
             if (!rmEc && !fs::exists(bin, rmEc)) {
+                restoreIgnore(binIgnore, binKeep);
                 appendLine("[editor] Removed bin\\ - run a Build to regenerate.");
                 state_ = State::Success;
                 return;
