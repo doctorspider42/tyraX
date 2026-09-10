@@ -1931,6 +1931,19 @@ same leg is dropped rather than reported.
   and **warns when that lands within 0.04 of a whole number of frames** - an
   even stride samples one phase of a period-2 artefact forever, which is exactly
   how the shake survived its first harness.
+- **A ROUTE SAMPLED BY `--capture-frame` NEEDS A LENGTH COPRIME WITH THE
+  ADVANCE.** The capture path freezes the game for a fixed spell, so the game
+  advances almost exactly the same number of frames between two
+  `--capture-frame` calls. Give a frame-indexed camera route a round length and
+  the two are commensurate: every run walks the same handful of poses forever.
+  Measured on a console A/B of `examples/showcase` - a 1920-frame route sampled
+  eight distinct poses, and three DIFFERENT builds produced digit-identical
+  score sequences, which reads exactly like "the change did nothing". A prime
+  route length (1913 was used) walks the whole route instead, and because the
+  advance is deterministic every arm still walks it in the SAME order - which
+  is what makes two builds comparable frame by frame. Confirm the alignment
+  rather than assuming it: search a small offset window for the minimum mean
+  |diff| and check it lands on 0.
 - **`-PrintWindow` by default.** A GDI `CopyFromScreen` reads the SCREEN, so an
   occluded window captures whatever is physically in front of it - that once
   grabbed the owner's browser instead of the emulator and produced a perfectly

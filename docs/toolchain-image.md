@@ -4579,6 +4579,77 @@ the same binary every number above was measured with. And the microcode actually
 the console was read back out of the engine volume to confirm it carries the pad below
 `planeLoop:` before the run was believed.
 
+### The first real-hardware run: `stapip_clip_c` is still wrong, and only a PS2 says so
+
+Everything above this line was measured in PCSX2, and every entry ends "Not
+verified: hardware". On 2026-09-10 the openvcl microcode ran on a **real
+PS2** for the first time, on `examples/showcase` (Aster) over ps2link, and it
+is **not** correct there.
+
+The symptom, reported by the owner: standing in the pavilion doorway, the
+cellar seen through the portal grows long bright slivers across its vault, and
+whole panels shear away. It changes with the camera and it is invisible in
+PCSX2 **under the software renderer** — twelve parked vantages and a walked
+crossing of the same build came back clean in the emulator.
+
+The A/B, all four arms on the same console, the same scene and the same
+frame-indexed camera route:
+
+| arm | VU1 microcode | cellar frames | result |
+|---|---|---|---|
+| A | everything from openvcl (native build) | 18 | slivers on several poses; the vault visibly shatters |
+| B | everything from SCE `vcl` (Docker, `h4570/tyra`) | 24 | clean |
+| F | everything from openvcl | 33 | the paired reference below |
+| G | everything from SCE `vcl` | 34 | clean |
+
+F and G run the identical fixture, and the capture cadence is deterministic,
+so they are **frame-aligned** (the alignment search puts the minimum at offset
+0, mean |diff| 5.2 over the whole run against 11.6 one frame either side).
+Paired, the cellar half of the route agrees to `mean |diff|` **0.13-0.42 of
+255** on most poses and diverges on a handful, worst at one pose: **2.48, 6419
+pixels**. The picture says what it is: SCE draws a lamp's light **shaft** as
+one broad cone, openvcl collapses it into two or three narrow wedges at the
+wrong angles. Many wedges at once is the "shattered vault" the owner saw.
+
+Swapping single programs into an otherwise-SCE build (drop the `.o` into the
+engine volume, remove `libtyra.a` so `make` re-archives — leave the archive in
+place and the swap is silently a no-op) pins it:
+
+| arm | openvcl programs | worst pose vs all-SCE |
+|---|---|---|
+| G | none (reference) | 0 |
+| I | `stapip_clip_c` | **2.81 / 7321 px** |
+| H | `stapip_clip_c` + `stapip_cull_c` | **5.43 / 12608 px** |
+| F | all 25 | 2.48 / 6419 px |
+
+So `stapip_clip_c` **alone** reproduces it, and `cull_c` adds to it. Both are
+the untextured, coloured family, which is what the light shafts and coronas
+are drawn with — hence a defect that shows up as broken beams rather than
+broken walls.
+
+That is the same program "And four instructions per clipper that never needed
+to exist" left pixel-identical in PCSX2 after the carried-integer liveness fix.
+The emulator-visible half was real and is fixed; a hardware-visible half
+remains, and it is exactly the class PCSX2 cannot see — this assembler's
+density work rests on latencies the hardware enforces and the emulator does
+not model (`--fmac-interlock`, `--sce-latencies`, `--branch-interlock`,
+`--branch-bubble-on-dependency`, and the sinking/pairing flags added after
+them). The CLIP flag window is **not** it: measured over the shipped `.vsm`,
+every flag read in all ten resident programs sits at least 4 emitted rows
+behind its `clipw`.
+
+**How to reproduce it in ten minutes**, because none of this is findable from
+a screenshot: freeze the player, drive the camera from a **frame index** in a
+global script through a fixed route around the portal doorway, and take a
+burst of `--capture-frame` shots. Two things are load-bearing. Take the route
+length **coprime with the per-capture advance** — the capture path freezes the
+game for a fixed spell, so a round route length is commensurate with it and
+every run samples the same eight poses forever (measured: three different
+builds produced digit-identical score sequences, which reads exactly like
+"the change did nothing"). And compare arms **paired, per frame**, not by
+eyeballing contact sheets: the divergence is 2 parts in 255 averaged over the
+frame, and it hides completely in a thumbnail.
+
 ## Still open
 
 - **The GHCR package is private** until the repo is, so nobody outside can pull

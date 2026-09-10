@@ -2193,6 +2193,42 @@ Only an invalidation drains PATH1 before replacing buffers; view-camera changes
 reuse them. Refresh live bag descriptors even on hits. Whole-front bags bypass
 it; animated bags retain their bounds-only path.
 
+## The portal doorway rule (1.81.0)
+
+`TerrainGame::portalDoorwayOpens(obstacle, plane, pierce)` is the ONE
+implementation of "while a body's motion pierces a linked opening, the
+geometry that opening was cut into stops blocking". It used to be four
+hand-copied snippets — `collidePlayer` (armed by `updatePortalPass`),
+`sweepSphere` (armed by `armSweepPass`), the physics static-solid pass in
+`updateObjectPhysics`, and the render side's exit test — and the three
+collision copies all read the obstacle's extent off `0.5 * scale` and its
+centre off `o.data.position`, i.e. they described a unit primitive. Use
+`objectCollisionBox` + `boxRotate` (with the box's own off-origin centre), the
+same idiom `renderOnePortalView` carries for the exit plane; the render side
+was corrected in 1.77.1 and the collision side only in 1.81.0.
+
+**The rule has TWO halves and a merged mesh needs the second one.** Fully
+behind the plane is not enough: one exported model can hold the back wall, the
+side walls, the door jambs and the roof at once, so its box straddles the
+portal plane and can never be wholly behind it while its world box seals the
+authored opening (`examples/showcase`'s `district-pavilion`, seen with
+`showCollision`). So the box also qualifies when it CONTAINS the point where
+the motion pierces the opening. That point is `portalCarryAim`'s own
+plane-crossing point, which it used to compute and discard — it publishes it
+as `portalAimPoint`, `armSweepPass` copies it into `sweepPassPoint`, the
+physics pass keeps it beside its local `aimPlane`, and `updatePortalPass`
+(which has no motion segment) publishes the walker's probe pushed onto the
+portal plane as `portalPassPoint`. **A plane and its pierce point always
+travel together**; a new caller that arms one without the other silently loses
+half the rule.
+
+Related, and the reason this bug was reported as "the player walks through but
+the ball bounces": **mesh (per-triangle) collision exists only in
+`collidePlayer`** — the single `o.data.collision == 1` branch in the generated
+game. `sweepSphere` and the physics pass collide against the whole-mesh box
+(`objectCollisionBox` / `physExtents`), so a doorway modelled as geometry is a
+solid box to everything except the player.
+
 ## Render-cost capture (1.78)
 
 Debugger command bit 7 requests one synchronized renderScene pass.

@@ -222,6 +222,16 @@ and exit-clipping the whole island merely to see into the cellar. Imported
 mesh bounds and exit-plane clipping still keep the doorway clear. The canal end stones sit 2 cm below the
 terrace surface to avoid coplanar faces at the overlap.
 
+`district-pavilion` is also the fixture behind the 1.81.0 collision fix: it is
+ONE merged mesh holding the back wall, the side walls, the door jambs and the
+roof, so its world collision box straddles the portal plane (it reaches about
+two units in front of it) and seals the 2.3 x 3.3 opening. The player walked
+through it because mesh collision resolves per triangle, while a thrown or
+physics-driven object hit the box and bounced. See
+[the doorway rule](../../docs/portals.md) — an obstacle now also opens when
+its box contains the point where the motion pierces the opening, not only
+when the box is wholly behind the plane.
+
 Static vertex colours interpolate on PS2. Hard-normal imported assets remain
 faceted, and the district meshes use probe GI: their repeating shared UVs do
 not provide per-texel scene AO. See [GI routing](../../docs/global-illumination.md).

@@ -56,9 +56,10 @@ before crossing and a bounded return view of the sea.
 4. **A thrown (or dropped) pickable flies through any linked portal**, like
    the player does — no flag needed. The hop maps position and the full
    velocity vector through the pair, so it exits the target with the matching
-   motion, and while the flight is aimed into an opening the wall the portal
-   is mounted on stops colliding for it (the walkers' doorway rule) — wall
-   portals swallow throws instead of bouncing them back. The released body
+   motion, and while the flight is aimed into an opening the geometry that
+   opening is cut into stops colliding for it (the walkers' doorway rule, see
+   below) — wall portals swallow throws instead of bouncing them back,
+   including a portal cut into an imported mesh. The released body
    stays "portal-free" until it settles to rest.
    **Carrying** a pickable through a portal works too: walk into the opening
    holding it and both you and the object come out the far side. As the object
@@ -178,6 +179,48 @@ in-place render).
 - Portals are baked into the `PORTALS` side table at build, so Live Link can
   live-move an existing portal but cannot spawn a new one (the chip flips to
   "LIVE (rebuild)"; same rule as mirrors).
+
+### The doorway rule (1.81.0)
+
+A portal is an opening cut into something — a wall, a screen, a whole building.
+That something is still a collider, and if it kept blocking while a body was
+halfway through the opening the crossing could never happen: the wall would
+stop the body's centre a radius short of the crossing plane, the pierce would
+never be detected, and the portal would read as solid. The **doorway rule** is
+what opens it, and it is deliberately narrow — it is consulted only while the
+body's motion segment actually pierces a linked, crossable opening this frame.
+
+An obstacle stops blocking when **either**:
+
+- its collision box is wholly **behind** the portal's plane — a mounting wall
+  modelled as its own object, standing entirely on the far side; **or**
+- its collision box **contains the point where the motion pierces the
+  opening**. This is the case a single merged mesh needs: a pavilion exported
+  as one model holds the back wall, the side walls, the door jambs *and* the
+  roof, so its world box reaches in front of the plane as well and can never
+  be "wholly behind" it, even though the opening is authored right inside it.
+
+Both halves use the object's real **mesh** box — `objectCollisionBox` plus
+`boxRotate`, the same box *View > Collision boxes* and the in-game
+`showCollision` overlay draw, with its own size, its off-origin centre and its
+model heading. Reading the extent off `0.5 * scale` describes a unit primitive
+and says nothing about an imported model; that was the original bug, and it is
+the same correction the render side carries for the exit plane (below).
+
+There is one implementation, `TerrainGame::portalDoorwayOpens(obstacle, plane,
+pierce)`, called from all three places that need it: the walker collision
+(`collidePlayer`, armed by `updatePortalPass`), the swept-body collision
+(`sweepSphere`, armed by `armSweepPass` — throws, the carried object, the carry
+whisker) and the physics static-solid pass. The `pierce` point comes from
+`portalCarryAim`, which computes where the motion segment goes through the
+authored rectangle; the walker has no motion segment, so `updatePortalPass`
+publishes its own probe point pushed onto the portal plane instead.
+
+One thing the rule does not change: **mesh (per-triangle) collision only exists
+for the player**. Everything else — the camera boom, thrown and carried
+objects, rigid bodies — collides against the whole-mesh box. So a doorway a
+player walks through freely can still be a solid box to a ball, unless the
+portal's own doorway rule opens it.
 
 ### Imported mesh bounds (1.77.1)
 

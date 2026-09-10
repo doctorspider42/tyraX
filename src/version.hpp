@@ -16,6 +16,38 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.81.0: a thrown or physics-driven object can cross a portal whose opening
+// is cut into an imported mesh. The doorway rule - "while a body's motion
+// pierces a linked opening, stop colliding with the geometry that opening was
+// cut into" - existed as FOUR hand-copied snippets (collidePlayer, sweepSphere,
+// the physics static-solid pass, and the render side's exit test), and every
+// one of the three collision copies computed the obstacle's extent from
+// 0.5 * scale and its centre from the object's position. That is the extent of
+// a unit primitive; an imported model's mesh box has its own size and its own
+// off-origin centre, so a district-sized mesh read as a small box at its
+// origin and the wall it was standing in never opened. The render side had
+// already been corrected this way (renderOnePortalView, mesh-aware exit
+// culling); the collision side had not.
+//
+// Fixing that alone was not enough, and the second half is the interesting
+// one. examples/showcase's district-pavilion is ONE merged mesh holding the
+// back wall, the side walls, the door jambs AND the roof, so its box reaches
+// about two units in FRONT of the portal plane and can never be "fully
+// behind" it, while sealing the 2.3 x 3.3 opening (verified with
+// showCollision). So the rule grew a second way to qualify: the obstacle's
+// box CONTAINS the point where the motion pierces the authored opening.
+// portalCarryAim already computed that point and threw it away - it now
+// publishes it (portalAimPoint), armSweepPass and the physics pass carry it
+// beside their plane, and updatePortalPass publishes the walker's own probe
+// pushed onto the portal plane as the matching point.
+//
+// The three collision copies are now calls to ONE private helper,
+// TerrainGame::portalDoorwayOpens(obstacle, plane, pierce), which implements
+// both halves over objectCollisionBox + boxRotate. The rule stays as narrow
+// as it was: it is still only consulted while the body's motion segment
+// actually pierces a linked, crossable opening.
+// MINOR: runtime behaviour changes, the project format does not.
+//
 // 1.80.1: the native build survives a project an earlier Docker build wrote.
 // Docker Desktop's container writes into the project through a Windows bind
 // mount as root and WSL keeps that ownership in the file's metadata, so the
@@ -2965,8 +2997,8 @@
 // 1.78.0: editor comments pinned to scenes.
 // 1.79.0: merge native PS2DEV/OpenVCL builds with editor comments.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 80
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 81
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

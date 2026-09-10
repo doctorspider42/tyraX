@@ -13,6 +13,32 @@ git show <retirement-commit>^:PROGRESS.md
 git log -p --follow -- PROGRESS.md
 ```
 
+### Fix `stapip_clip_c` for real hardware, and re-verify the whole set there
+
+The openvcl-built VU1 clipper renders **wrong on a real PS2** while being
+pixel-identical in PCSX2, and the defect is pinned to one program: dropping
+only `stapip_clip_c` from openvcl into an otherwise-SCE build reproduces it
+(`stapip_cull_c` adds to it). The visible symptom is a lamp's light shaft
+collapsing from one broad cone into several narrow wedges, which on
+`examples/showcase` reads as a shattered cellar vault seen through the portal.
+The measurements, the four-arm A/B and the reproduction recipe are in
+docs/toolchain-image.md, "The first real-hardware run".
+
+The payoff is the migration itself: this is the last thing between openvcl and
+being trusted for the VU1 clipper, and it is the one class the emulator cannot
+gate — the assembler's density flags rest on latencies the hardware enforces
+and PCSX2 does not model. Ruled out already: the CLIP flag window (every read
+in all ten resident programs sits >= 4 emitted rows behind its `clipw`, checked
+on the shipped `.vsm`). Not yet ruled out: any individual density flag, because
+the resident set does not fit without them — bisect them the way the programs
+were bisected here, by mixing SCE and openvcl objects in the engine volume so
+the ceiling stops being the constraint.
+
+Until it is fixed, a project that must look right on a console can set
+`"clipping": "precise"` (the EE clipper leaves the five `clip_*` programs off
+VU1 entirely) at a measured EE cost, or be built through the Docker backend
+against an image carrying SCE's `vcl`.
+
 ### Judge openvcl against the ps2gl fixtures
 
 Twelve of upstream's own `test/fixtures` are real third-party VU code and no
@@ -374,6 +400,30 @@ behaviour change for existing projects with a procedural volume or a belt in
 them, so it wants a PCSX2 check with a body dropped beside one, not just a
 compile. Left out of the comments change deliberately: it is somebody else's
 bug and it deserves its own before/after.
+
+### Only the player has mesh collision
+
+Per-triangle collision against an imported model exists in exactly one place
+in the generated game: the `o.data.collision == 1` branch of `collidePlayer`.
+`sweepSphere` (the camera boom, a throw, the carried object, the carry
+whisker) and the static-solid pass of `updateObjectPhysics` both collide
+against the whole-mesh box - `objectCollisionBox` and `physExtents`. So an
+arch, a doorway or any concave mesh a player walks through freely is a solid
+block to a ball, and there is no authoring signal that says so.
+
+This surfaced while fixing the portal doorway rule (1.81.0): the reported
+symptom was "the player crosses the portal and a thrown object bounces off the
+wall it is cut into". The doorway rule now opens that particular obstacle -
+narrowly, only while the body's motion pierces a linked opening - but the
+general case is untouched, and a mesh doorway with no portal in it still
+stops everything except the player.
+
+A real fix means giving `sweepSphere` and the physics pass access to
+`GameModel::collider` the way `collidePlayer` has, which is an EE cost per
+swept body per frame rather than a box test, so it needs measuring on
+hardware before it is worth doing. The cheap half-measure - a per-object
+"mesh collision for everything" opt-in - would at least make the limit
+authorable instead of invisible.
 
 ## Medium
 
