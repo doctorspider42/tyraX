@@ -1,7 +1,7 @@
 {
   "name": "showcase",
-  "formatVersion": 43,
-  "editorVersion": "1.78.0",
+  "formatVersion": 44,
+  "editorVersion": "1.80.0",
   "template": "fpp",
   "projectId": "106bc4d00dad4897",
   "settings": {

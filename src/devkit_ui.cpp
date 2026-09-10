@@ -2346,7 +2346,7 @@ void App::drawDebuggerWindow() {
             }
         }
         if (!dbgRenderCost_.seq)
-            ImGui::TextDisabled("Requires a rebuilt debug game with Live Debugger enabled (1.78+).");
+            ImGui::TextDisabled("Requires a rebuilt debug game with Live Debugger enabled (1.80+).");
         else {
             ImGui::Text("Synchronized render pass: %.3f ms (scene %d)",dbgRenderCost_.totalMs,dbgRenderCost_.scene);
             if (dbgRenderBaseline_.seq && dbgRenderBaseline_.scene==dbgRenderCost_.scene)
@@ -3156,6 +3156,17 @@ void App::uiScriptTick() {
         }
         uiTargetX_ = (it->x0 + it->x1) * 0.5f;
         uiTargetY_ = (it->y0 + it->y1) * 0.5f;
+        // The pointing steps' optional offset from that centre (Drag and Wheel
+        // read dx/dy as their own motion, so they are left alone). It is how a
+        // script reaches something DRAWN over a widget instead of submitted as
+        // one - the viewport being one huge item.
+        if (s.kind == uiscript::Step::Click ||
+            s.kind == uiscript::Step::RightClick ||
+            s.kind == uiscript::Step::DoubleClick ||
+            s.kind == uiscript::Step::Hover) {
+            uiTargetX_ += s.dx;
+            uiTargetY_ += s.dy;
+        }
         if (s.kind == uiscript::Step::Expect) {
             finishStep();
             uiscript::beginFrame();

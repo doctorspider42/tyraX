@@ -3,7 +3,7 @@ name: tyra-engine-dev
 description: >
   Guide to editing the in-tree Tyra PS2 engine fork in vendor/tyra — the
   renderer/clipper/VU1 pipeline, audio (audsrv), file loading over PS2 host fs,
-  and how engine changes reach running games through the Docker build. Use this
+  and how engine changes reach running games through native and Docker builds. Use this
   skill whenever you touch ANY file under vendor/tyra, work on PS2-side
   rendering, clipping, VU1 microprograms, textures, audio playback or asset
   loading, or when diagnosing in-game symptoms like rendering corruption, giant
@@ -39,6 +39,10 @@ Rules:
 
 You don't rebuild the engine by hand. The editor's Runner (`src/runner.cpp`)
 does it on every game build (F5 or `tyrax-editor.exe --build <projectDir>`):
+
+The native default syncs `vendor/tyra/engine` into a user cache and rebuilds it
+with pinned PS2DEV/OpenVCL; its toolchain stamp invalidates stale objects. The
+Docker fallback retains the previous sequence:
 
 1. `vendor/tyra` is bind-mounted **read-only** at `/engine-src` in the
    project's container (service `compiler`, container `<name>-compiler-1`).
@@ -1757,6 +1761,16 @@ Rules the same evening paid for:
   rebuild the three artifacts in `bin/` that `src/runner.cpp` overlays into the
   build container. Change the sources and you must re-run that script and commit
   `bin/` in the same commit - nothing in the game build compiles audsrv.
+  **Except on the from-source image**, which compiles the EE half itself
+  (`docker/Dockerfile.fromsource`) because the committed `libaudsrv.a` carries
+  GCC 11.3 LTO bytecode a newer GCC refuses, and skips the Runner's overlay -
+  so a source change reaches THAT image only after the image is rebuilt. The
+  crossing is `ee/src/sif-compat.h`: upstream renamed ten EE-side SIF RPC entry
+  points to `sce`-prefixed ones and the two SDKs export disjoint sets, so the
+  header aliases them under `TYRAX_PS2SDK_SCE_SIF`, which only the image can set
+  (the compile always sees the old pinned headers - `__has_include` cannot tell
+  them apart). It is included FIRST, before any ps2sdk header, because the
+  aliases must rewrite the declarations too. See the fork's README, change 3.
   `./build.sh --check` diffs a fresh build against the committed artifacts;
   `audsrv.irx` is byte-identical while `libaudsrv.a` never is (ar stamps its
   members, gcc's LTO section names carry a random per-compilation id), so the
@@ -1971,3 +1985,38 @@ lengths. Do not substitute it for a general sqrt API with errno/domain behavior.
 Render-cost telemetry includes both uniform and geometry VIF waits; counting
 only the latter under-reports synchronization. The counters overlap stages.
 See [profiling](../../../docs/profiling.md) and the Aster example for measurements.
+
+
+## Signed RGB SH and exact skin reuse (1.74.0)
+
+`PipelineDirLightsBag::signedSH` defaults false. Both packet writers always
+set ambient.w to 0 (classic) or -1 (SH); output alpha is unchanged. The macro
+loads ambient.xyzw, uses w as the dot-product floor, then clamps the RGB sum
+before clipping. SH uses identity directions and signed RGB axis coefficients.
+Keep vugen.cpp, expanded shared clip C and generated as-is D/TD in sync; run
+`--vu-check`, including its RGB numeric oracle, then rebuild the PS2 engine.
+No extra packet qwords or probe bytes are used.
+
+`SkelInstance::PartLod::skinSource` points to the first corner with bit-identical
+position, normal, joints and weights. UV differences can share skinning; hard
+normals cannot. Skin the first corner and copy its output with VU0 loads/stores,
+without calling helpers that might clobber the running VU0 AABB. All render
+vertices remain, with a four-byte index per corner. The temporary hash table
+exists only during loading. Set `TYRA_SKEL_PROFILE` in skel_instance.hpp to 1
+for per-instance COP0 pose/skin timings every 100 skins; keep it 0 when shipping.
+
+
+### DMA REF lifetime (1.74.1)
+
+`packet2_utils_vu_add_unpack_data` does NOT copy: ps2sdk emits a DMA REF to
+the supplied pointer. Never pass a temporary/local array to asynchronous
+submission. SH initially did this for mode-adjusted colours, causing lighting
+flashes despite passing VU arithmetic tests. Both lighting senders now use
+CNT/UNPACK with inline colour floats (four extra packet-storage qwords; the
+same VU layout). DynPip waits before resetting its reusable packet; StaPip
+waits between uniform and geometry submission, as described below.
+Allocated capacities are 56 qwords for StaPip and 24 for DynPip.
+
+The 1.80 merge retains inline SH colour storage with deferred StaPip uniforms.
+Its packet is safe to reset because sendPacket waits for uniform DMA before
+starting geometry DMA; DynPip retains its own wait-before-reset contract.

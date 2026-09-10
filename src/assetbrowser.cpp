@@ -380,6 +380,10 @@ void App::rebuildAssetUsage() {
     };
     for (const HudImage& h : project_.hud) noteHud(h, "HUD \"" + h.name + "\"");
     noteHud(project_.usePrompt, "USE prompt");
+    for (const HudBar& b : project_.hudBars) {
+        noteHud(b.fillImage, "HUD bar \"" + b.name + "\" (fill)");
+        noteHud(b.frameImage, "HUD bar \"" + b.name + "\" (frame)");
+    }
     for (const LoadingScreenDef& ls : project_.loadingScreens) {
         for (const HudImage& h : ls.images)
             noteHud(h, "loading screen \"" + ls.name + "\"");
@@ -640,6 +644,10 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
 
     for (HudImage& h : project_.hud) swap(h.imagePath);
     swap(project_.usePrompt.imagePath);
+    for (HudBar& b : project_.hudBars) {
+        swap(b.fillImage.imagePath);
+        swap(b.frameImage.imagePath);
+    }
     for (LoadingScreenDef& ls : project_.loadingScreens) {
         for (HudImage& h : ls.images) swap(h.imagePath);
         for (LoadingBar& b : ls.bars) swap(b.segImage.imagePath);

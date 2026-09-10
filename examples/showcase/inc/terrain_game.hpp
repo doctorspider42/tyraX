@@ -270,14 +270,16 @@ class TerrainGame : public Tyra::Game {
       // so an untextured mesh would render in the plain scene light color
       // (i.e. gray). This part's material albedo is folded into its own light
       // and ambient colors instead (outputColor = albedo * sceneLighting),
-      // matching how the editor viewport tints the .glb. Directions stay
-      // shared (animLightDirs); only the colors carry the per-part tint.
+      // matching how the editor viewport tints the .glb. Directions are
+      // owned by this part so pose-sharing instances retain independent GI.
       std::unique_ptr<Tyra::PipelineDirLightsBag> animLights;
       Tyra::Vec4 litColors[4];
+      Tyra::Vec4 litDirs[3];
     };
     std::vector<AnimPart> animParts;
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;
+    Tyra::M4x4 animLightMat;  // rotation/reflection only; scale is not light gain
     u32 animLastTick = 0;  // animLodTick of the last in-view frame; 0 = never
     // Usable-object highlight: terrain-hugging glow ring around the base,
     // built when first highlighted, cleared whenever the object rebuilds
@@ -1179,6 +1181,28 @@ class TerrainGame : public Tyra::Game {
   std::vector<float> hudTextDur;         // ScriptContext::textDuration
   std::vector<unsigned char> hudTextOn;  // visible this frame
   std::vector<float> hudTextTimer;       // seconds left (0 = until hidden)
+  // Animated HUD (docs/hud-animation.md): every HUD element - images, texts,
+  // bars, in HUD_ELEM order - carries a show/hide transition, a one-shot
+  // effect slot and, for images and bars, its own visibility (texts keep
+  // hudTextOn). updateHudMotion poses every sprite for the frame from the
+  // baked placement plus the element's looped animation, and ticks the bars.
+  void updateHudMotion();
+  void renderHudBars();
+  float hudClock = 0.0F;                     // seconds since boot - the loop clock
+  std::vector<unsigned char> hudElemOn;      // images + bars: shown
+  std::vector<float> hudElemTrans;           // 0 = fully hidden .. 1 = fully shown
+  std::vector<unsigned char> hudElemDrawn;   // drawn this frame (after Blink/transition)
+  std::vector<signed char> hudElemReq;       // ScriptContext::hudElemRequest
+  std::vector<signed char> hudElemFxReq;     // ScriptContext::hudElemEffect
+  std::vector<float> hudElemFxSecReq;        // ScriptContext::hudElemEffectSec
+  std::vector<signed char> hudElemFx;        // running effect (0 = none)
+  std::vector<float> hudElemFxT, hudElemFxDur;
+  std::vector<float> hudBarValue;            // ScriptContext::hudBarValue (bar units)
+  std::vector<signed char> hudBarSet;        // ScriptContext::hudBarSet
+  std::vector<float> hudBarShown, hudBarGhost, hudBarHold;  // eased fill (fractions)
+  std::vector<Tyra::Sprite> hudBarFillSprites, hudBarFrameSprites;
+  std::vector<int> hudBarFillTexW, hudBarFillTexH;  // fill image size, for the crop
+  Tyra::Sprite hudBarQuad;                   // hud/loading-white.png, tinted per quad
   // Dynamic point lights (Set Light flow node), per scene-object index.
   std::vector<signed char> lightReq;     // ScriptContext::lightRequest
   std::vector<float> lightIntens;        // ScriptContext::lightIntensity

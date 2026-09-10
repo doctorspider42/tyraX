@@ -3,9 +3,9 @@
 ![Global illumination controls and bake status](img/ambience-editor.png)
 
 Static geometry gets a baked multi-bounce lightmap. Everything that moves gets
-its light from a probe grid. The PlayStation 2 pays **nothing** at run time for
-either: the ray tracing happens on your desktop and ships as one texture and one
-table.
+its light from a probe grid. Ray tracing happens on your desktop and ships as a texture and a probe table.
+The PlayStation 2 samples those baked results and shades geometry at runtime;
+it does not trace rays.
 
 Turn it on in *Tools > Ambience Editor*, on its **Global illumination** tab —
 the same window the sky, the sun and the AO are authored in — press **Bake this
@@ -133,6 +133,62 @@ the light is re-read from the grid every time the geometry is rebuilt, so they
 relight as they move. *Properties > Baked lighting* is the manual override for
 the channels no build-time scan can see: Live Link, a Raycast latch, a custom
 node's object output.
+
+---
+
+## Directional lighting on animated receivers
+
+Animated models, player avatars and NPCs sample the existing RGB L1 grid once
+per visible instance per render pass, at `position + (0, scale.y / 2, 0)`.
+Explicitly dynamic-lit rigid objects sample at their origin. These are
+approximate receiver points, not mesh centroids. Both routes reconstruct
+**full signed RGB SH L1** on VU1:
+
+`RGB = max(0, L0 + (2/3) * (L1x * Nx + L1y * Ny + L1z * Nz) + liveLight)`.
+
+The three light slots carry Cartesian basis directions and three RGB vectors,
+so differently coloured light can arrive from different directions. Negative
+normal components survive until the RGB sum; the former dominant-direction
+projection discarded them. Material albedo and the existing GS colour scale
+are folded into coefficients on the EE. Final GS colours clamp to 0..255;
+animated receivers retain their existing 128-unit material convention. Unlike
+the static `giShade` route, this does not clamp irradiance to 1 before albedo.
+
+`PipelineDirLightsBag::signedSH` selects the mode explicitly (default false).
+The packet writer encodes the dot-product lower bound in **ambient.w**: -1 for
+SH, 0 for classic directional lights. The macro loads that lane and clamps the
+RGB sum before VU clipping. Output alpha is unchanged. Both packet writers,
+shared clip images, standalone cull/clip programs and generated as-is programs
+follow this contract. Since 1.74.1, the adjusted colours are copied into the
+DMA packet with CNT/UNPACK. `packet2_utils_vu_add_unpack_data` emits a **REF**,
+so a local stack array here becomes a dangling asynchronous DMA source and
+causes intermittent lighting flashes. Both renderers wait before resetting
+packet storage; their allocations include the four inline colour qwords
+(StaPip 56, DynPip 24). The EE clipping route still interpolates normals before
+the as-is shader, as it did for classic lighting.
+
+Each material part owns its coefficients, so pose-sharing instances retain
+independent lighting. `animLightMat` rotates posed local normals and removes
+instance scale. Rotation and uniform scale are supported; exact normals under
+nonuniform scale/shear remain future work. The viewport uses signed
+reconstruction and centre lookup for animated receivers in both shading modes.
+
+The VU light block and probe format are unchanged: four RGB coefficients per
+probe, with no new texture, pass or per-vertex EE GI evaluation. Compared with
+the dominant-lobe shader the VU macro adds three instructions per vertex for the final RGB clamp. There
+is no direction extraction/normalization on the EE. An absent/dead probe
+neighbourhood keeps classic scene lighting; outside the grid the sampler
+clamps to boundary probes. Baked sun/sky/bounce replace scene lighting, while
+live lights keep their existing per-object ambient pickup.
+
+This is **full L1, not L2 or precomputed surface transfer (PRT)**. It adds no
+animated self-shadowing, contact occlusion or runtime bounce tracing.
+[probe-lighting](../examples/probe-lighting) supplies the walking demo and a
+fixed-pose dominant-lobe/full-SH comparison helper. `--vu-check` covers signed
+coefficients and an independent RGB numeric oracle as well as the
+handwritten/generated microprogram pairs. The compiled all-class VU1 clipping
+set occupies 1,700 instruction slots for its eight resident images, below the
+2,048-slot limit with room for the draw-finish helper.
 
 ---
 

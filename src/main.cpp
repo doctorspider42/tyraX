@@ -410,13 +410,13 @@ static int buildFromCli(int argc, char** argv) {
     if (argc < 3) {
         std::fprintf(stderr,
                      "usage: tyrax-editor --build <projectDir> "
-                     "[--run | --run-ps2 [ip]] [--rebuild]\n");
+                     "[--run | --run-ps2 [ip]] [--rebuild] [--docker]\n");
         return 2;
     }
     // --rebuild may sit anywhere among the optional arguments, so the flags are
     // scanned rather than read positionally; the first bare word after
     // --run-ps2 is still the console's IP.
-    bool run = false, runPs2 = false, rebuild = false;
+    bool run = false, runPs2 = false, rebuild = false, docker = false;
     std::string ps2Ip;
     for (int i = 3; i < argc; i++) {
         if (std::strcmp(argv[i], "--run") == 0)
@@ -425,6 +425,8 @@ static int buildFromCli(int argc, char** argv) {
             runPs2 = true;
         else if (std::strcmp(argv[i], "--rebuild") == 0)
             rebuild = true;
+        else if (std::strcmp(argv[i], "--docker") == 0)
+            docker = true;
         else if (runPs2 && ps2Ip.empty())
             ps2Ip = argv[i];
     }
@@ -436,6 +438,7 @@ static int buildFromCli(int argc, char** argv) {
         return 1;
     }
     if (refuseUnmigrated(p)) return 1;
+    if (docker) p.buildBackend = "docker";
     if (!ps2Ip.empty()) p.ps2LinkIp = ps2Ip;
     bakeProcedural(p);
     bakeStaleGi(p);
@@ -2281,14 +2284,37 @@ static int captureFrameFromCli(int argc, char** argv) {
     return 0;
 }
 
-//   tyrax-editor.exe --dump-vucap <projectDir>
+//   tyrax-editor.exe --dump-vucap <projectDir> [--full] [--peek N]
+//
+// --full prints EVERY staged packet and every vertex in it instead of the first
+// few. The short form is for reading; the long form is for comparing two builds,
+// where the packet that differs is rarely the first and the vertex that differs is
+// rarely among four.
+//
+// --peek <qw>[,<count>] prints raw data-memory quadwords as four floats and four
+// words, unconverted. That is how an instrumented microprogram reports intermediate
+// values: park them in spare quadwords (1016..1023 are free in the static pipeline's
+// map, see stapip_vu1_shared_defines.h) and read them back here.
 //
 // Decodes bin/vucap.bin - the VU1 DMA chain the game handed over - so the
 // packet inspector can be checked without the GUI. See docs/devkit.md.
 static int dumpVuCapFromCli(int argc, char** argv) {
     if (argc < 3) {
-        std::fprintf(stderr, "usage: tyrax-editor --dump-vucap <projectDir>\n");
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --dump-vucap <projectDir> [--full]\n");
         return 2;
+    }
+    bool full = false;
+    int peekAddr = -1;
+    int peekCount = 1;
+    for (int i = 3; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--full") == 0) full = true;
+        else if (std::strcmp(argv[i], "--peek") == 0 && i + 1 < argc) {
+            peekAddr = std::atoi(argv[++i]);
+            if (const char* comma = std::strchr(argv[i], ','))
+                peekCount = std::atoi(comma + 1);
+            if (peekCount < 1) peekCount = 1;
+        }
     }
     Project p;
     const std::string err = project::load(p, argv[2]);
@@ -2353,14 +2379,32 @@ static int dumpVuCapFromCli(int argc, char** argv) {
         }
         std::printf("scales: %.1f %.1f %.1f\n", cap.scale[0], cap.scale[1],
                     cap.scale[2]);
+        if (peekAddr >= 0) {
+            for (int q = 0; q < peekCount; ++q) {
+                const size_t base = (size_t)(peekAddr + q) * 4;
+                if (base + 3 >= cap.vuMem.size()) break;
+                float f[4];
+                for (int c = 0; c < 4; ++c) {
+                    const uint32_t w = cap.vuMem[base + c];
+                    std::memcpy(&f[c], &w, sizeof(f[c]));
+                }
+                std::printf("peek qw %d: %.6g %.6g %.6g %.6g  "
+                            "[%08x %08x %08x %08x]\n",
+                            peekAddr + q, f[0], f[1], f[2], f[3],
+                            cap.vuMem[base], cap.vuMem[base + 1],
+                            cap.vuMem[base + 2], cap.vuMem[base + 3]);
+            }
+        }
         std::printf("GIF packets staged by the program: %zu (%d GS vertices)\n",
                     cap.gifs.size(), cap.outputVerts());
-        for (size_t i = 0; i < cap.gifs.size() && i < 4; ++i) {
+        const size_t gifLimit = full ? cap.gifs.size() : 4;
+        for (size_t i = 0; i < cap.gifs.size() && i < gifLimit; ++i) {
             const vucap::GifPacket& g = cap.gifs[i];
             std::printf("  gif %zu @VU1 %d: %s nloop=%d nreg=%d [%s]%s\n", i,
                         g.vuAddr, g.primName().c_str(), g.nloop, g.nreg,
                         g.regs.c_str(), g.eop ? " EOP" : "");
-            for (size_t v = 0; v < g.verts.size() && v < 4; ++v) {
+            const size_t vertLimit = full ? g.verts.size() : 4;
+            for (size_t v = 0; v < g.verts.size() && v < vertLimit; ++v) {
                 const vucap::GsVertex& gv = g.verts[v];
                 std::printf("     out v%zu  x=%.1f y=%.1f z=%u  rgba %u,%u,%u,%u\n",
                             v, gv.px(), gv.py(), gv.z, gv.r, gv.g, gv.b, gv.a);
@@ -3624,7 +3668,10 @@ static int vuCheckFromCli(int argc, char** argv) {
     //    C++ KERNEL, through the VU0 one.
     const int scriptFails = vuCheckScripts(engine) + vuCheckProjectKernels();
 
-    const bool ok = parseFailed == 0 && mismatches == 0 && roundTripFails == 0 &&
+    std::string lightingError;
+    const bool lightingOk = vugen::checkLighting(lightingError);
+    std::printf("  RGB SH numeric oracle: %s\n", lightingOk ? "PASS" : lightingError.c_str());
+    const bool ok = lightingOk && parseFailed == 0 && mismatches == 0 && roundTripFails == 0 &&
                     wrapperFails == 0 && stageFails == 0 && vu0Fails == 0 &&
                     scriptFails == 0;
     std::printf("%s\n", ok ? "PASS - every described program matches its "
@@ -4138,7 +4185,7 @@ int main(int argc, char** argv) {
             "tyrax-editor [projectDir]                 open the GUI\n"
             "  --new <name> <parentDir> [w] [d] [empty|fpp|thirdperson] "
             "[unitsPerMeter] [--no-terrain]\n"
-            "  --build <projectDir> [--run | --run-ps2 [ip]] [--rebuild]\n"
+            "  --build <projectDir> [--run | --run-ps2 [ip]] [--rebuild] [--docker]\n"
             "  --audit-release <projectDir>            prove a release ELF "
             "carries no devkit code\n"
             "  --debug-state [--verbose]               what is being debugged "
@@ -4146,7 +4193,7 @@ int main(int argc, char** argv) {
             "  --profile-frame <projectDir> [-o report.csv]  synchronized render costs\n"
             "  --capture-frame <projectDir> [-o out.png] [--alpha a.png]  the "
             "game's own screenshot (works over ps2link)\n"
-            "  --dump-vucap <projectDir>               decode the last VU1 "
+            "  --dump-vucap <dir> [--full] [--peek N]  decode the last VU1 "
             "capture\n"
             "  --pad <projectDir> \"<script>\"           drive the running "
             "game's controller (docs/remote-pad.md)\n"

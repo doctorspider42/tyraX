@@ -336,6 +336,10 @@ private:
     void addPortal();
     void addArea();
     void addScroller();
+    // An editor note pinned into the scene (docs/comments.md). Selects it and
+    // puts the keyboard in the Properties field, because a note with no text
+    // is the one object that is useless the moment it is created.
+    void addComment();
     void drawAddObjectMenu();
     // Area picker for a "catch area" reference (Mirror/Portal/feed Camera) or
     // a layer zone: a combo of this scene's Area objects plus <none>. Returns
@@ -1530,6 +1534,12 @@ private:
     // the "Run on PS2" actions.
     std::string globalEmulatorPath_;
     std::string globalPs2Ip_;
+    // Docker image the game compiles in (Edit > Preferences > Build, editor.ini
+    // `toolchainImage`). Empty = leave the choice to the generated compose file
+    // and the project's own .env, i.e. exactly the behaviour before this setting
+    // existed. See docs/toolchain-image.md.
+    std::string globalToolchainImage_;
+    std::string globalBuildBackend_ = "native";
     // Parent folder proposed as the location for new projects (Edit >
     // Preferences). Empty = fall back to ~/TyraProjects.
     std::string globalDefaultProjectsDir_;
@@ -1656,8 +1666,11 @@ private:
     int pickCycleLast_ = -1;
     // Resolves a viewport click into an object index (-1 = empty space),
     // advancing the cycle. `cycled` reports that this click stepped through
-    // the stack rather than starting a new pick.
-    int viewportPick(float u, float v, ImVec2 mouse, bool* cycled);
+    // the stack rather than starting a new pick. The image rect is passed in
+    // because a comment icon is hit-tested in SCREEN space (it is drawn there
+    // too, and a note far from the camera has a 3D box smaller than its icon).
+    int viewportPick(float u, float v, ImVec2 mouse, ImVec2 imgPos, ImVec2 avail,
+                     bool* cycled);
     // Scene-objects list filters (view state, per session - a filter that
     // outlived a restart would hide objects nobody remembers hiding).
     // sceneFilterType_ holds a PrimitiveType value, or -1 for "every type".
@@ -1701,6 +1714,32 @@ private:
     bool measureLive_ = false;  // the end point is following the cursor
     // Draws the tape over the viewport image (line, endpoints, readout).
     void drawMeasureOverlay(ImVec2 imgPos, ImVec2 avail);
+
+    // --- Comments (docs/comments.md) ---------------------------------------
+    // Editor notes pinned into the scene. They have no geometry: the viewport
+    // skips PrimitiveType::Comment entirely and the app draws a message icon
+    // over the finished image instead, which is why the icon is the same size
+    // at any distance and never hides what the note is about.
+    //
+    // ONE function computes where those icons are (commentIcons); the overlay
+    // draws them and the picker hit-tests them, so what you see is exactly
+    // what a click selects - the axis-gizmo arrangement.
+    struct CommentIcon {
+        int index = -1;      // into project_.objects()
+        ImVec2 center{0, 0};  // screen-space centre of the bubble
+        float w = 0.0f, h = 0.0f;
+        ImVec2 anchor{0, 0};  // the object's own point, where the tail lands
+        float depth = 0.0f;   // distance along the view axis, for ordering
+    };
+    std::vector<CommentIcon> commentIcons(ImVec2 imgPos, ImVec2 avail);
+    void drawCommentOverlay(ImVec2 imgPos, ImVec2 avail);
+    // View > Comments. Machine-global (editor.ini), not project data: icons
+    // always remain visible and clickable; this only chooses whether every
+    // note's text is expanded or only the selected one's. Off by default.
+    bool showCommentText_ = false;
+    // Set by addComment(): the Properties note field takes the keyboard on the
+    // next frame it is drawn, so a fresh note is typed rather than hunted for.
+    bool commentFocus_ = false;
     // World-space size of an object as drawn: the unit primitive or the
     // model's own bounds, times its scale. False for types with no extent
     // worth quoting (markers, lights). Used by the Properties readout.
@@ -2209,6 +2248,11 @@ private:
     int selectedHud_ = -1;
     int uiFxSel_ = 0;
     int selectedText_ = -1;
+    // UI Editor > Bars (uiFxSel_ 9, index into Project::hudBars). The preview
+    // fraction is editor-only: what the viewport overlay fills the selected bar
+    // to, so a bar can be judged at 30% without running the game (-1 = start).
+    int selectedBar_ = -1;
+    float hudBarPreview_ = -1.0f;
     // Font Manager selection (index into Project::fonts).
     int fontSel_ = 0;
     // Cached atlas footprint line: measuring it walks all 95 glyphs, so it is
@@ -2853,6 +2897,16 @@ private:
     // Texture-bake controls (pow2 size + quantization) shared by HUD images
     // and the USE prompt in the UI Editor. Returns true on change.
     bool hudBakeControls(HudImage& h);
+    // The shared "Motion" block (loop + show/hide transition) every HUD
+    // element's property panel ends with, and the optional-image picker a bar
+    // uses twice (fill, frame). Both return true on a change.
+    bool hudMotionControls(HudAnim& anim, HudTransition& trans, bool* visibleAtStart);
+    bool hudBarImageControls(const char* id, const char* title, HudImage& img,
+                             bool withSize);
+    // Renames a HUD element's name in every flow node that references it by
+    // that kind (Set HUD Element Visible / Play HUD Effect / Set HUD Bar).
+    void renameHudElementRefs(const std::string& from, const std::string& to,
+                              bool isBar);
     // The embedded built-in USE prompt sprite (viewport overlay preview).
     const HudTexture* builtinUseTexture();
     HudTexture builtinUseTex_;
@@ -3022,6 +3076,8 @@ private:
     bool openEditorPrefsPopup_ = false;
     char prefEmulatorPath_[512] = "";  // PCSX2 exe path (auto-detect if empty)
     char prefPs2Ip_[64] = "";          // ps2link IP for Run on PS2
+    char prefToolchainImage_[256] = "";  // Docker image games compile in ("" = compose default)
+    int prefBuildBackend_ = 0;             // 0 native, 1 Docker fallback
     char prefDefaultProjectsDir_[512] = "";  // default parent folder for new projects
     char prefDisplayName_[48] = "";          // session display name (editor.ini)
     char prefSessionCacheDir_[512] = "";     // remote-project cache root override

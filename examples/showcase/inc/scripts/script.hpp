@@ -150,6 +150,25 @@ struct ScriptContext {
   float* textDuration = nullptr;
   int textCount = 0;
 
+  // Animated HUD (docs/hud-animation.md). Elements are indexed HUD images,
+  // then texts, then bars (HUD_ELEM_TEXT0 / HUD_ELEM_BAR0 in hud_data.gen.hpp).
+  // hudElemRequest[e]: -1 = leave, 0 = hide, 1 = show, 2 = toggle - through
+  // the element's own transition; images and bars only (a text goes through
+  // textRequest above, which accepts 2 = toggle too). hudElemEffect[e] > 0
+  // starts a one-shot (1 flash, 2 bounce, 3 shake) lasting hudElemEffectSec[e]
+  // seconds, on any element. The game applies and resets both every frame.
+  signed char* hudElemRequest = nullptr;
+  signed char* hudElemEffect = nullptr;
+  float* hudElemEffectSec = nullptr;
+  int hudElemCount = 0;
+  // Bars (HUD_BARS order): hudBarSet[b] 1 = ease the fill to hudBarValue[b],
+  // 2 = jump there, -1 = leave. A bar bound to a save value reads THAT value
+  // every frame (the Set HUD Bar node writes it as well), so hudBarValue only
+  // drives an unbound bar.
+  float* hudBarValue = nullptr;
+  signed char* hudBarSet = nullptr;
+  int hudBarCount = 0;
+
   // Dynamic point lights (Set Light flow node), indexed by scene-object
   // index like `objects`. lightRequest[i]: -1 = leave, 0 = off, 1 = on.
   // lightIntensity[i]: < 0 = leave, else a multiplier on the light's

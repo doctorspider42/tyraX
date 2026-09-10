@@ -1,0 +1,34 @@
+		.vu
+		.align 4
+		.global	vsmReproAdc_CodeStart
+		.global	vsmReproAdc_CodeEnd
+vsmReproAdc_CodeStart:
+main_loop_lid:
+                    nop                             xtop VI04
+                    nop                             iaddiu VI05, VI00, 0xffff
+                    nop                             lq VF07, 0(VI00)
+                    nop                             lq VF08, 1(VI00)
+                    nop                             lq VF09, 2(VI00)
+                    nop                             lq VF15, 3(VI00)
+                    clipw.xyz VF08, VF08w           nop
+                    clipw.xyz VF08, VF08w           nop
+                    clipw.xyz VF08, VF08w           nop
+                    clipw.xyz VF08, VF08w           nop
+                    mul.xyz VF09, VF08, VF07        nop
+                    opmula.xyz ACC, VF08, VF09      nop
+                    opmsub.xyz VF12, VF09, VF08     nop
+                    nop                             fmand VI06, VI05
+                    nop                             fcand VI01, 0x0ffffff
+                    nop                             iand VI01, VI01, VI01
+                    nop                             ior VI08, VI01, VI06
+                    nop                             iaddiu VI06, VI08, 0x7fff
+                    nop                             mfir.w VF15, VI06
+                    nop                             sq VF15, 0(VI04)
+                    nop[E]                          nop
+                    nop                             nop
+                    nop                             nop
+                    nop                             b main_loop_lid
+                    nop                             nop
+                    nop[E]                          nop
+                    nop                             nop
+vsmReproAdc_CodeEnd:

@@ -298,3 +298,8 @@ coarse-bound inheritance checks across changing geometry and partial tail groups
 
 The grazing-angle ocean capture is pixel-identical between VU1 and legacy EE
 clipping in PCSX2. The final default arrival view retains complete lamp stems.
+
+The 1.80 integration merges native-build support, editor comments, animated HUD
+and RGB SH lighting from main. Windows Release compilation, Docker-fallback
+PS2 build, PCSX2 arrival view, live render-cost capture and the VU numeric oracle
+passed after conflict resolution. Post-merge console performance is unmeasured.

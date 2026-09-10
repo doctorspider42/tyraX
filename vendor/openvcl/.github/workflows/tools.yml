@@ -1,0 +1,67 @@
+name: Tools
+
+on:
+  push:
+  pull_request:
+  repository_dispatch:
+    types: [run_build]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os[0] }}
+    strategy:
+      matrix:
+        os: [
+          [macos-latest, arm64, bash],
+          [macos-15-intel, x86_64, bash],
+          [ubuntu-latest, x86_64, bash],
+          [windows-latest, x86_64, msys2]
+        ]
+      fail-fast: false
+    defaults:
+     run:
+      shell: ${{ matrix.os[2] }} {0}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Ubuntu packages
+      if: matrix.os[0] == 'ubuntu-latest'
+      run: |
+        sudo apt-get -y update
+        sudo apt-get -y install cmake
+
+    - name: Install macOS packages (brew)
+      if: startsWith(matrix.os[0], 'macos-')
+      run: |
+        brew update
+        brew install cmake
+
+    # MacPorts path not used in current matrix; keep commented sample if needed
+
+    - name: Install MSYS2 packages
+      if: matrix.os[0] == 'windows-latest'
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW32
+        install: |
+          base-devel git
+          mingw-w64-i686-gcc mingw-w64-i686-cmake
+        update: true
+
+    - name: Compile OpenVCL
+      run: |
+        export PS2DEV=$PWD/ps2dev
+        cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+        cmake --build build -j $(getconf _NPROCESSORS_ONLN)
+        cmake --install build --prefix "$PS2DEV"
+
+    - name: Upload artifacts
+      if: ${{ success() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: tools-${{ matrix.os[0] }}-${{ matrix.os[1] }}
+        path: |
+            contrib/masp/build/src/masp
+            openvcl

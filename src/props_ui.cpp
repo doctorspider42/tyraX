@@ -85,6 +85,7 @@ static const char* typeLabel(PrimitiveType t) {
         // object to choose the generation mode.
         case PrimitiveType::Scatter: return "Procedural volume";
         case PrimitiveType::Scroller: return "Scroller";
+        case PrimitiveType::Comment: return "Comment";
     }
     return "Object";
 }
@@ -213,6 +214,10 @@ void App::drawPropertiesWindow() {
         o.type == PrimitiveType::Plane;
     const bool isSolid =
         isShape || o.type == PrimitiveType::Model || o.type == PrimitiveType::SavePoint;
+    // An editor note (docs/comments.md). Declared up here with isSolid because
+    // it is a NEGATIVE gate as much as a positive one: a comment is not a game
+    // object, so the sections that describe behaviour are skipped for it.
+    const bool isComment = o.type == PrimitiveType::Comment;
 
     if (!o.editorGroup.empty()) {
         ImGui::Text("Group: %s", o.editorGroup.c_str());
@@ -288,6 +293,52 @@ void App::drawPropertiesWindow() {
             }
             ImGui::EndCombo();
         }
+    }
+
+    // --- The note itself (docs/comments.md) ---------------------------------
+    // First, and given as much room as it has text: the viewport shows an icon
+    // and the opening lines, so this is where a long note is actually read,
+    // written and copied out of. The field grows with the text up to 24 rows
+    // and scrolls after that, and it has no length limit at all - a note is
+    // prose, and a truncating buffer would silently eat the end of one.
+    if (isComment) {
+        ImGui::SeparatorText("Note");
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        // A note that was just created is empty and is the only thing anyone
+        // wants to do with it, so addComment() hands the field the keyboard.
+        // SetWindowFocus() is applied at the end of drawUI, after this window
+        // has already been submitted. An inactive dock tab still runs this
+        // body with SkipItems set, so consuming the flag there would focus
+        // nothing and leave the newly-created note empty when the user starts
+        // typing. Keep it armed until Properties is actually the front tab.
+        if (commentFocus_ &&
+            ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
+            ImGui::SetKeyboardFocusHere();
+            commentFocus_ = false;
+        }
+        inputTextProse("##commenttext", o.commentText, &committed, 24);
+        if (ImGui::SmallButton("Copy text")) {
+            ImGui::SetClipboardText(o.commentText.c_str());
+            statusMessage_ = "Note copied to the clipboard";
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Puts the whole note on the clipboard, including\n"
+                              "the part the viewport bubble does not show.");
+        ImGui::SameLine();
+        {
+            int lines = o.commentText.empty() ? 0 : 1;
+            for (char c : o.commentText)
+                if (c == '\n') ++lines;
+            ImGui::TextDisabled("%d characters, %d line%s",
+                                (int)o.commentText.size(), lines,
+                                lines == 1 ? "" : "s");
+        }
+        ImGui::TextDisabled("Editor only - notes never reach the game.");
+        prefHelp(
+            "A comment is pinned to a place in the scene and drawn as a\n"
+            "message icon over the viewport; selecting it shows the text\n"
+            "there too. View > Comments hides them all while you work.\n"
+            "Nothing about a note is generated, baked or shipped.");
     }
 
     if (isShape) {
@@ -550,10 +601,13 @@ void App::drawPropertiesWindow() {
     // Color: mesh tint for solids, particle tint for emitters, light color
     // for point lights, marker tint + free per-object parameter for empties,
     // texture tint for decals, marker/frustum tint for camera entities, glass
-    // tint for mirrors, inactive-surface tint for portals. The remaining
-    // markers draw in fixed colors.
+    // tint for mirrors, inactive-surface tint for portals, and the icon tint
+    // for a comment (which is how a scene full of notes gets categories -
+    // red for a bug, green for something settled). The remaining markers draw
+    // in fixed colors.
     if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal || isArea ||
-        o.type == PrimitiveType::Emitter || o.type == PrimitiveType::PointLight) {
+        isComment || o.type == PrimitiveType::Emitter ||
+        o.type == PrimitiveType::PointLight) {
         ImGui::ColorEdit3("Color", o.color);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
@@ -1406,6 +1460,7 @@ void App::drawPropertiesWindow() {
                     // scenery only - not markers or the scroller itself
                     const bool ok =
                         t.type != PrimitiveType::Scroller &&
+                        t.type != PrimitiveType::Comment &&
                         t.type != PrimitiveType::Player &&
                         t.type != PrimitiveType::Camera &&
                         t.type != PrimitiveType::SpawnPoint && t.name != o.name;
@@ -2234,8 +2289,10 @@ void App::drawPropertiesWindow() {
     // src/scripts/*.cpp with TYRA_OBJECT_SCRIPT(Name). The game creates one
     // instance per attachment at scene load - the same class on five objects
     // runs as five independent instances, each seeing its object as `self`.
-    ImGui::SeparatorText("Scripts");
-    {
+    // ...but not on a comment: an editor note has no behaviour to attach
+    // anything to, and the game never sees the object at all.
+    if (!isComment) {
+        ImGui::SeparatorText("Scripts");
         const std::vector<std::string> registered = objectScriptNames();
         auto isRegistered = [&](const std::string& n) {
             for (const std::string& r : registered)
@@ -2380,7 +2437,9 @@ void App::drawMultiProperties() {
         float c[3] = {0, 0, 0};
         std::vector<std::string> names;
         for (auto* p : objs) {
-            if (p->type == PrimitiveType::Scroller) continue;
+            if (p->type == PrimitiveType::Scroller ||
+                p->type == PrimitiveType::Comment)
+                continue;
             names.push_back(p->name);
             for (int a = 0; a < 3; ++a) c[a] += p->position[a];
         }

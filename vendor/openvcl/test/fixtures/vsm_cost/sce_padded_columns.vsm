@@ -1,0 +1,5 @@
+		.vu
+		.align 4
+sce_style_lid:
+         NOP                                                        lq            VF01,62(VI00)
+         mul.xyz       VF09,VF09,VF08                               iaddiu        VI04,VI05,0x00000005

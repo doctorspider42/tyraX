@@ -29,6 +29,8 @@ for people building games with it. Internals live in code comments, the git log
 - [Areas (invisible volumes)](areas.md) — the box that replaces hand-typed
   distances: streaming zones, catch lists for mirrors/portals/feeds, the In
   Area trigger, reverb rooms.
+- [Comments (editor notes)](comments.md) — a note pinned to a place in the
+  scene, drawn as an always-visible message icon; editor-only, any length.
 - [Selecting objects](object-selection.md) — visible mesh priority, AABB fallback and full-model selection outlines.
 - [Placing objects: surface snapping and deferred paste](object-placement.md) —
   objects that rest on what's below them, `End` to drop, paste that follows the
@@ -144,6 +146,8 @@ for people building games with it. Internals live in code comments, the git log
 
 **The game around the game**
 
+- [Animated HUD](hud-animation.md) — live health/stamina/progress bars,
+  per-element looped motion, show/hide transitions and one-shot effects.
 - [Loading screens](loading-screens.md) — named screens with real progress
   bars, per-scene or project-default, and the start scene.
 - [Credits rolls](credits.md) — scrolled or card-mode credits from a text file,
@@ -212,6 +216,16 @@ Developer design docs (internals, not user guides):
   generate both sides, run it in the host simulator with no PS2.
 - [Authoring VU programs](vu-authoring.md) — composing VU1 programs and VU0
   kernels out of stages, no assembly.
+- [The native PS2 toolchain](native-toolchain.md) — the default Docker-free
+  build, first-run setup, caches, vendored sources, licences and Docker fallback.
+- [The toolchain image](toolchain-image.md) — where the optional Docker image is
+  compiled in comes from, and the long measured account of replacing Sony's
+  unlicensed `vcl` with `openvcl` so the image can be published at all:
+  seventeen miscompiles, what each one broke, and the VU1 latencies measured on
+  a real console rather than assumed.
+- [What to send upstream to openvcl](upstream-openvcl.md) — the openvcl defects
+  that work found, each with the mechanism and a reproducer that fires on the
+  stock commit, plus the density flags, ready to hand over.
 - [VU1 clipping and the guard band](vu1-clipping.md) — how the static pipeline
   routes geometry between the cull and clip programs, why edge-of-screen
   geometry needs no clipping at all (the GS scissor crops it), and the measured

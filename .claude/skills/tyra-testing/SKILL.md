@@ -4,7 +4,7 @@ description: >
   How to build, run and VERIFY anything in this repo: compiling the editor
   (build.ps1 on Windows, build.sh on Linux), headless CLI project creation and
   game builds, checking code
-  generation without Docker, full e2e in Docker + PCSX2 (boot, emulog.txt,
+  generation without a game build, full native or Docker-fallback e2e + PCSX2 (boot, emulog.txt,
   reliable screenshots, and DRIVING both the game's controller (`--pad`) and the
   EDITOR's own UI (`--ui-script`, clicking widgets BY NAME) unattended — neither
   needs window focus — plus synthetic keyboard/mouse via the bundled scripts, GDI
@@ -346,8 +346,8 @@ mtime before trusting a run from there.
   `"enabled": false` and `inc/scene_data.hpp` reads `TERRAIN_ENABLEDS = {false}`
   with `TERRAIN_TEXTURES = {-1}`. Verifying it in PCSX2 needs a floor object in
   the scene, or the player falls at boot — which is the feature, not a bug.
-- `--build` streams the whole Docker build log to stdout and returns a real
-  exit code — the backbone of scripted e2e runs.
+- `--build` streams the whole native (or explicit `--docker` fallback) build
+  log to stdout and returns a real exit code — the backbone of scripted e2e runs.
 - `--bake-gi` runs the whole global-illumination bake for every scene
   (docs/global-illumination.md) into `.res-baked/gi/` and then refreshes the
   generated files, so the probe table and the lightmap flags follow - **no
@@ -471,12 +471,9 @@ Most features live or die in the generated code, and you can inspect it
 without building:
 
 - `--new` writes every generated file; grep them for your new constants/logic.
-- For an **existing** project, `project::refreshGenerated()` runs at the very
-  start of `--build`, *before* Docker is contacted — so even with Docker
-  stopped, a failed `--build` still refreshes `inc/scene_data.hpp`,
-  `src/gen/flow_graph.gen.cpp`, etc. for inspection. There is no
-  `--no-docker` flag; the expected outcome is "Failed to start docker
-  container..." + exit code 1 with fresh generated files on disk.
+- For an **existing** project, use `--refresh-gen <projectDir>` directly. It
+  refreshes `inc/scene_data.hpp`, `src/gen/flow_graph.gen.cpp`, etc. without
+  provisioning the native toolchain or contacting Docker.
 - When inspecting, remember the ownership split (see tyra-editor-dev): `.gen.*`
   files and `scene_data.hpp` are always rewritten — trust them after a refresh;
   `terrain_game.cpp` / `controls.hpp` / `script.hpp` regenerate only while their
@@ -569,10 +566,10 @@ machine** (the second without a project), host from A, join from B at
 `127.0.0.1` — loopback is not blocked by Windows Firewall even when the LAN
 prompt was declined.
 
-## Layer 3 — full e2e: Docker build + PCSX2 boot
+## Layer 3 — full e2e: native build + PCSX2 boot
 
-Prerequisites: Docker **running** (Docker Desktop on Windows, `docker` + the
-compose plugin on Linux) and PCSX2 with a BIOS configured — auto-detected in
+Prerequisites: WSL on Windows or the packages named by
+`tools/toolchain/setup.sh` on Linux, and PCSX2 with a BIOS configured — auto-detected in
 `Program Files\PCSX2`, or on Linux from PATH / flatpak / an AppImage under
 `~/Applications` or `~/Downloads`. Anything else: set the path in
 *Edit > Preferences*.
@@ -581,17 +578,71 @@ compose plugin on Linux) and PCSX2 with a BIOS configured — auto-detected in
 TYRAX --build <projectDir> --run
 ```
 
-What happens (see `src/runner.cpp`): generated files refresh → `docker compose
-up -d` (container `<name>-compiler-1`, straight from the stock image) → engine
-sources checksum-synced into the shared volume, `libtyra` rebuilt if changed
+What happens (see `src/runner.cpp`): generated files refresh → verified PS2DEV
+and the vendored VU tools are provisioned if needed → engine sources checksum-
+synced into the native cache, `libtyra` rebuilt if changed
 (VU1 microprograms only when a VU source changed) → project rsynced → `make -j`
 → WAV sfx converted with `adpenc` → `bin/` synced back → existing PCSX2
 processes killed → `HostFs = true` forced in PCSX2.ini → PCSX2 launched on the
 ELF.
 
 Notes:
-- First-ever build downloads the `h4570/tyra` image and compiles the engine
-  (minutes). Subsequent builds take seconds unless the engine changed.
+- First-ever build downloads PS2DEV v2.0.0, tests OpenVCL and compiles the
+  engine (minutes). Subsequent builds take seconds unless the
+  engine changed.
+- **Testing a change to the toolchain image itself**: build it with
+  `docker\build.ps1` / `docker/build.sh` (add `-FromSource` / `--from-source`
+  for `docker/Dockerfile.fromsource`, the one CI publishes; without it you get
+  `docker/Dockerfile`, the inherited A/B reference, which **CI does not build at
+  all** - so local is the only check it gets). Both scripts run the same checks
+  CI does. Then point a scratch project at it with one line,
+  `TYRAX_IMAGE=tyrax-toolchain:local` in the project's `.env`, and take it all
+  the way to a PCSX2 boot. `docker compose config` in the project directory
+  prints which image will actually be used; `docker ps -a --filter
+  name=<project>` confirms which one the container was created from. Nothing in
+  the editor needs rebuilding for this - `docker-compose.yml` is regenerated per
+  build and reads that variable. See `docs/toolchain-image.md`.
+- **A VU1 packet capture can be armed WITHOUT the GUI**, which is what makes a
+  microcode A/B into numbers instead of screenshots:
+  `python .claude/skills/tyra-testing/scripts/arm-vucap.py <projectDir> <flushIndex>`
+  writes the same `bin/livedbg.cmd` the *Debugger > VU > Capture VU1 packet* button
+  **`--full` and `--peek` are what make it a comparison tool.** The plain decode
+  prints the first four staged packets and four vertices of each, which is right for
+  reading and useless for diffing two builds - the packet that differs is rarely the
+  first. `--dump-vucap <dir> --full` prints all of them; `--peek <qw>[,n]` prints raw
+  data-memory quadwords as floats and words. That second one is how a microprogram
+  reports its own intermediates: **quadwords 1016..1023 are free** in the static
+  pipeline's map, and code ABOVE `begin:` runs once per activation while `begin:`
+  loops per batch - so a slot pointer set up there turns those eight quadwords into a
+  ring with one slot per batch. Without that, every peek reports the LAST batch,
+  which is exactly the one where two builds usually agree.
+  does, the game answers with `bin/vucap.bin`, and
+  `tyrax-editor --dump-vucap <projectDir>` decodes it — chain, VU1 memory, and **the
+  GIF packets the program staged for XGKICK**. Name the flush index: "the next packet"
+  is a different draw every time, a named index is the same draw forever.
+  **Two gotchas.** The responder only exists when the project has instrumentable
+  flow-graph nodes (`liveDebugOn = liveDebugEnabled && !syms.nodes.empty()`), so a
+  bare scratch project answers nothing — give it one node
+  (`--apply-graph <dir> <object> graph.json` with an `OnStart` → `Log` pair is enough)
+  and rebuild. And the decode prints only the first few staged packets, so a
+  difference deeper in the list shows up in the header counts, not the listing.
+- **An image swap used to rebuild NOTHING, which made it the easiest A/B to get
+  wrong.** The incremental logic keys off source timestamps, and an image swap
+  touches no source, so the previous image's objects were relinked and the new
+  toolchain appeared to change nothing. This was not theoretical: three
+  consecutive `VCL_FLAGS` probes each booted the *previous* probe's VU microcode
+  and produced three identical screenshots, one of which was then chased as a
+  rendering bug. Since 2026-08-05 the Runner stamps the VU assembler itself
+  (`/tyra/.vcl-stamp`) and prints `VU assembler changed - rebuilding the
+  microprograms`. The stamp hashes the resolved `vcl`, `vclpp` AND the `openvcl`
+  binary behind the wrapper - hashing only the wrapper missed a rebuilt openvcl whose
+  flags had not changed, and the previous binary's microcode was relinked while the
+  measurements said the new one should fit. Look for that line after a swap, and in
+  general **verify from the log that the work happened** — `grep -cE '(^| )vcl '` (one line per
+  microprogram, 25 of them) and `grep -c 'elf-g++ .* -c -o'` — before you believe
+  any picture. Note that a full microcode rebuild is ~2 min under Sony's `vcl`
+  but **seconds** under openvcl, so a fast build is not by itself evidence that
+  nothing was rebuilt.
 - **The whole pipeline is incremental, so measure a build by what it
   RECOMPILED, not by the clock.** `grep -c 'elf-g++ .* -c -o'` over the build
   log is the number that means something: on `examples/showcase` (18 TUs, 6
@@ -1027,7 +1078,16 @@ Notes:
   point is tried. `shot` writes the same self-captured framebuffer as `TYRAX_SHOT`, and
   what it CANNOT name is anything not made of ImGui widgets - the 3D viewport
   (one big item: `drag` inside it, or work through the Project panel's list), the
-  imnodes flow canvas and the ImGuizmo gizmo. Not all modals close on `escape` -
+  imnodes flow canvas and the ImGuizmo gizmo. **The four pointing steps take an
+  optional `<dx>,<dy>` offset from the target's centre**, which is how you reach
+  something the editor DRAWS over a widget rather than submitting as one - a
+  marker, a handle, a comment icon (docs/comments.md). Anchor on a real item
+  near the picture and offset into it: `click 'Viewport/Move (1)' 545,303`
+  selected a comment by its icon, with both rects read out of one `dump`. Two
+  things about that measurement - take the icon's own pixels off a `shot`
+  (find the colour, average it) rather than eyeballing, and pair the click with
+  an `expect` that only the intended object produces (`Properties/Copy text` is
+  a comment and nothing else), or "it selected something" is all you proved. Not all modals close on `escape` -
   click their `Cancel`; `dump` shows it. **A rect in `dump` is not a promise the
   click will land**: a window taller than the room it got still submits the items
   past its bottom edge, so they are listed with rects OUTSIDE the window, and
@@ -1237,6 +1297,21 @@ Notes:
   the object at *positive* X. An hour went into a banding hypothesis about the
   wrong cylinder. The cheap disambiguator: force one object's colour to
   something absurd for a single run and see which one changes.
+- **A VU1 TIMING hazard is invisible in PCSX2 under EVERY renderer, and only a
+  console shows it.** The rule above is about the GS; this one is about the VU,
+  and switching renderers does nothing for it. PCSX2's VU does not model the
+  pipeline hazards the hardware has, so a microprogram that reads a register one
+  row too early runs *correctly* in the emulator. Measured the hard way: a branch
+  at a label whose condition was produced in a jump's delay slot clipped against
+  the wrong frustum planes on a real PS2 — triangles appearing and occluding the
+  screen, changing with camera movement — while the same ELF rendered a clean
+  picture in PCSX2, logged zero asserts, and passed a path-sensitive value oracle
+  over 277 traces and 2631 branch conditions. Every value oracle is blind to it by
+  construction: the defect changes WHEN a register is readable, not what is
+  computed. If a change touches VU scheduling, latency or padding, PCSX2 is a
+  smoke test and the console is the verdict. Symptom vocabulary for the related
+  ADC-bit class: **stray smeared triangles at screen edges**, which the HW
+  renderer also masks.
 - **Rendering correctness**: switch PCSX2 to the **software renderer** before
   judging visuals — the HW renderer masks GS raster-window wrap bugs that real
   hardware shows. Give the game a few seconds to reach a steady state, then
@@ -2435,12 +2510,56 @@ deliberate) and that the binary was relaunched.
 | Editor viewport (rendering) | Layer 0 + a screenshot of the affected panel (`shot` from a UI script, `TYRAX_SHOT` on a timer, or `screenshot-window.ps1`/`wayland-control.py` from outside) - and measure the pixels rather than eyeballing |
 | Serialization (`.tyra`) | Layer 1 `--new` + reopen; round-trip save/load diff |
 | Codegen / templates | Layer 2 grep or harness, then one Layer 3 boot |
-| Engine (`vendor/tyra`) | Layer 3 always — compile happens only in Docker; SW-renderer screenshot for anything visual |
+| Engine (`vendor/tyra`) | Layer 3 always — compile with the native backend (and Docker too for compatibility-sensitive changes); SW-renderer screenshot for anything visual |
 | Audio | Layer 3 + peak-meter check |
 | Anything a player DOES (buttons, walking, menus, two players) | Layer 3 + `--pad` (see the recipe above) — an idle control shot, then drive, then measure. No human, either OS; `watch` (Linux) / `-Watch` (Windows) collapses the whole drive into one contact sheet |
 | Anything that changes how a frame is BUILT or PRESENTED (the upscaler, frame pacing, extrapolation, buffer counts, a full-screen pass) | Layer 3 + **the motion gate**, two arms one knob apart. A parked A/B cannot see a fault that only exists in motion, and four of those reached the owner on this branch |
 | A dynamic-shadow switch (spot/flashlight volumes, blob shadows, a per-object shadow mode) | Layer 3 + **the shadow A/B rig** — `make-shadow-fixture.ps1` then `shadow-ab.ps1 -Toggle <key> -Values a,b`. Quote the `report.md` deltas against a same-value control run, not a pair of screenshots |
 | ISO export | Export + mount the ISO on the host + boot it in PCSX2 |
+
+
+## Animated directional GI
+
+Use examples/probe-lighting in a scratch directory. Bake with `--bake-gi DIR
+--gpu`, build and boot in PCSX2 software mode, then walk from courtyard through
+the doorway with Remote Pad. Compare frozen poses with the old dominant-lobe
+path, keeping the same baked table. Check two pose-sharing instances near the
+opposite side lights: their bags must retain separate directions. Check yaw
+and uniform scale, GI disabled/dead probes, and both viewport shading modes.
+The current signed RGB SH mode must retain independent coloured directions
+and darken back-facing normals; L2 and surface-transfer PRT are not implemented.
+
+Verified on Windows: probe-lighting GPU bake, Docker/PCSX2 software boot,
+fixed-pose L1 A/B with a byte-identical return-to-new control, both editor
+shading modes, and a separately built/booted GI-disabled fallback. The example
+README records the sampled coefficients and limits; these are not hardware
+performance measurements.
+
+
+### Animation and RGB SH regression checks
+
+`--vu-check` includes signed chromatic coefficients in the randomized comparisons
+and a numeric RGB oracle (opposing normals, rotation, both lighting modes,
+negative output and saturation). This still needs a PS2 Docker build and a
+software-renderer walk through `examples/probe-lighting`.
+
+For animation timings enable `TYRA_SKEL_PROFILE` in skel_instance.hpp, rebuild,
+and inspect per-instance `SKELTIME`. Measure ordinary playback, not the frozen
+lighting comparison. For LOD stress, use three humanoids at meshLod 1.5 in a
+scratch copy, walk through the doorway and force all three tiers in generated
+code if camera distances do not cross each threshold. Distinguish a hang that
+is reproduced from an old observation that is not.
+
+When restoring generated C++ with Copy-Item, touch its LastWriteTime or clean
+the scratch game objects: Copy-Item preserves old timestamps, and make may
+otherwise relink the previous instrumented object despite different source.
+
+
+Lighting DMA lifetime regressions need temporal checks: an arithmetic VU test
+and a single screenshot cannot expose a dangling REF to stack data. Hold the
+camera/pose fixed and compare a sequence of frames (excluding the FPS HUD),
+then restore normal animation and walk the scene. Exercise the actual packet
+submission; `--vu-check` validates microcode, not the EE source pointers.
 
 ## Eight-view foliage impostors
 

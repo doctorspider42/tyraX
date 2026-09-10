@@ -19,6 +19,8 @@ struct SceneObjectData {
              //    instances are baked to static chunk meshes)
              // 19=scroller (endless belt marker; invisible - drives
              //    baked clone objects via SCROLLERS/SCROLLER_CLONES)
+             // 20=comment (an editor-only note: no geometry, no
+             //    collision, and its text never leaves the editor)
   float position[3];
   float rotation[3];  // degrees
   float scale[3];

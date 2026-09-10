@@ -142,11 +142,19 @@ enum class PrimitiveType {
     // on screen several times at once. See scrollSegments below and
     // docs/endless-scroller.md.
     Scroller = 19,
+    // Comment: an editor-only note pinned to a place in the scene
+    // (docs/comments.md). It draws as a message icon over the viewport - never
+    // as geometry - and its text is in commentText below. Nothing reads that
+    // text: no codegen, no bake, no runtime. The object itself still occupies
+    // a scene-table row like an Area or a procedural volume does, because
+    // object INDICES are baked into every generated table and dropping one
+    // type from the emitted list would retarget all of them.
+    Comment = 20,
 };
 
 // One past the last PrimitiveType value - loops over "every object type" (the
 // multi-select tally) bound on this instead of a hardcoded member.
-constexpr int kPrimitiveTypeCount = (int)PrimitiveType::Scroller + 1;
+constexpr int kPrimitiveTypeCount = (int)PrimitiveType::Comment + 1;
 
 // Tessellation detail for the geometry primitives, stored per object in
 // SceneObject::primDetail. Its meaning depends on the shape: for the curved
@@ -812,6 +820,14 @@ struct SceneObject {
     // Scene-local, editor-only rigid selection group; empty = independent.
     std::string editorGroup;
 
+    // The note a Comment object carries (docs/comments.md): free text, any
+    // length, editor-only. Nothing downstream reads it - not codegen, not a
+    // bake, not the console - so it is deliberately NOT part of
+    // liveLinkRecipeHash either: rewriting a note must not ask for a rebuild.
+    // It lives on SceneObject rather than in a side list so a note is an
+    // ordinary object with a name, a place, undo, layers and selection.
+    std::string commentText;
+
     // Attached object scripts: class names registered in src/scripts/*.cpp
     // with TYRA_OBJECT_SCRIPT(Name). Each attachment becomes its own script
     // instance in the game (Unity-style components); the same class can be
@@ -1090,7 +1106,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.procGraph == b.procGraph && a.procSource == b.procSource &&
            a.vuParams[0] == b.vuParams[0] && a.vuParams[1] == b.vuParams[1] &&
            a.vuParams[2] == b.vuParams[2] && a.vuParams[3] == b.vuParams[3] &&
-           a.prefabSource == b.prefabSource && a.editorGroup == b.editorGroup;
+           a.prefabSource == b.prefabSource && a.editorGroup == b.editorGroup &&
+           a.commentText == b.commentText;
 }
 
 // General project preferences (Project > Preferences in the editor).
@@ -1908,6 +1925,32 @@ inline bool operator==(const SceneOverrides& a, const SceneOverrides& b) {
 
 class History;
 
+// A looped animation on a HUD element (docs/hud-animation.md). Sprite
+// properties only - position, scale, alpha - so it costs a few floats per
+// frame and never re-bakes anything. `kind` is hudanim::Kind (0 = none);
+// `period` is seconds per cycle; `amount` is pixels for the moving kinds, a
+// 0..1 depth for Pulse/Blink, a scale fraction for Breathe.
+struct HudAnim {
+    int kind = 0;
+    float period = 1.0f;
+    float amount = 4.0f;
+};
+
+inline bool operator==(const HudAnim& a, const HudAnim& b) {
+    return a.kind == b.kind && a.period == b.period && a.amount == b.amount;
+}
+
+// How a HUD element arrives and leaves when a flow node shows or hides it.
+// `kind` is hudanim::Transition (0 = cut, the classic behaviour).
+struct HudTransition {
+    int kind = 0;
+    float duration = 0.25f;  // seconds
+};
+
+inline bool operator==(const HudTransition& a, const HudTransition& b) {
+    return a.kind == b.kind && a.duration == b.duration;
+}
+
 // A HUD image (PNG sprite) drawn on top of the 3D scene.
 struct HudImage {
     std::string name;
@@ -1929,13 +1972,23 @@ struct HudImage {
     // 16-color. Lets an important HUD element keep full color while the rest
     // of the project runs quantized (or vice versa).
     std::string texQuant;
+
+    // Motion (docs/hud-animation.md). Only the HUD stack reads these - a
+    // loading-screen or splash image carries them at their defaults and
+    // ignores them. `visibleAtStart` false = hidden until a Set HUD Element
+    // Visible node shows it; the classic default is shown.
+    HudAnim anim;
+    HudTransition transition;
+    bool visibleAtStart = true;
 };
 
 inline bool operator==(const HudImage& a, const HudImage& b) {
     return a.name == b.name && a.imagePath == b.imagePath &&
            a.pos[0] == b.pos[0] && a.pos[1] == b.pos[1] &&
            a.size[0] == b.size[0] && a.size[1] == b.size[1] &&
-           a.texW == b.texW && a.texH == b.texH && a.texQuant == b.texQuant;
+           a.texW == b.texW && a.texH == b.texH && a.texQuant == b.texQuant &&
+           a.anim == b.anim && a.transition == b.transition &&
+           a.visibleAtStart == b.visibleAtStart;
 }
 
 // The built-in "USE" prompt as a customizable HUD element (Tools > UI
@@ -2127,6 +2180,11 @@ struct HudText {
     std::string font;
     bool shadow = true;           // 1px dark offset behind the glyphs
     bool visibleAtStart = false;  // shown when the scene starts
+    // Motion (docs/hud-animation.md): a loop while shown, and how the text
+    // arrives/leaves when Set Text Visible fires. Loading-screen texts and
+    // the prompts ignore both.
+    HudAnim anim;
+    HudTransition transition;
 };
 
 inline bool operator==(const HudText& a, const HudText& b) {
@@ -2134,7 +2192,69 @@ inline bool operator==(const HudText& a, const HudText& b) {
            a.pos[1] == b.pos[1] && a.size == b.size &&
            a.color[0] == b.color[0] && a.color[1] == b.color[1] &&
            a.color[2] == b.color[2] && a.font == b.font &&
-           a.shadow == b.shadow && a.visibleAtStart == b.visibleAtStart;
+           a.shadow == b.shadow && a.visibleAtStart == b.visibleAtStart &&
+           a.anim == b.anim && a.transition == b.transition;
+}
+
+// A live bar on the HUD (Tools > UI Editor > Bars, docs/hud-animation.md): a
+// health bar, a stamina bar, a "3 of 5 keys" strip. Nothing is baked for it -
+// the fill is a tinted white quad (or a cropped image) sized every frame from
+// a value the game owns, so it costs 2-4 sprites and no texture. The value
+// comes from a save value read every frame (`source`), or from the Set HUD
+// Bar flow node when there is none; either way it is mapped through
+// min/max to a 0..1 fill. The fill EASES toward the new value (`smoothing`)
+// and an optional ghost strip lingers where the fill used to be - the classic
+// "damage just taken" chip.
+struct HudBar {
+    std::string name = "bar";
+    int kind = 0;                    // 0 = continuous fill, 1 = quantized segments
+    float pos[2] = {0.5f, 0.08f};    // normalized screen position (center anchor)
+    float size[2] = {160.0f, 12.0f}; // total on-screen size in px (512x448 screen)
+    float bgColor[3] = {0.12f, 0.12f, 0.12f};   // track / unlit segment tint
+    float fillColor[3] = {0.85f, 0.2f, 0.15f};  // fill / lit segment tint
+    float ghostColor[3] = {1.0f, 0.85f, 0.35f}; // the lingering "just lost" strip
+    bool ghost = true;               // draw the ghost strip at all
+    bool rightToLeft = false;        // fill anchored on the right (a mirrored P2 bar)
+    float smoothing = 0.25f;         // seconds the fill takes to reach a new value (0 = snap)
+    float lowFraction = 0.25f;       // below this fill the bar pulses (0 = never)
+    int segments = 5;                // quantized only (2..16)
+    float spacing = 4.0f;            // quantized: gap between segments, px
+    // Value: a save value name read every frame ("" = the Set HUD Bar node
+    // alone drives it, starting at startValue). min/max map it to the fill.
+    std::string source;
+    float minValue = 0.0f;
+    float maxValue = 100.0f;
+    float startValue = 100.0f;
+    // Optional images, both baked like any HUD image (pow2 + quantization):
+    // fillImage replaces the flat fill (cropped to the fraction, tinted by
+    // fillColor - white = untinted; a quantized bar draws it per segment);
+    // frameImage is drawn over the bar at the bar's position with its own
+    // size, so a decorated border can wrap the fill. Their pos is ignored.
+    HudImage fillImage;
+    HudImage frameImage;
+    // Motion, like a HUD image: a loop, a show/hide transition, and whether
+    // it is on screen when the scene starts.
+    HudAnim anim;
+    HudTransition transition;
+    bool visibleAtStart = true;
+};
+
+inline bool operator==(const HudBar& a, const HudBar& b) {
+    auto eq3 = [](const float* x, const float* y) {
+        return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
+    };
+    return a.name == b.name && a.kind == b.kind && a.pos[0] == b.pos[0] &&
+           a.pos[1] == b.pos[1] && a.size[0] == b.size[0] &&
+           a.size[1] == b.size[1] && eq3(a.bgColor, b.bgColor) &&
+           eq3(a.fillColor, b.fillColor) && eq3(a.ghostColor, b.ghostColor) &&
+           a.ghost == b.ghost && a.rightToLeft == b.rightToLeft &&
+           a.smoothing == b.smoothing && a.lowFraction == b.lowFraction &&
+           a.segments == b.segments && a.spacing == b.spacing &&
+           a.source == b.source && a.minValue == b.minValue &&
+           a.maxValue == b.maxValue && a.startValue == b.startValue &&
+           a.fillImage == b.fillImage && a.frameImage == b.frameImage &&
+           a.anim == b.anim && a.transition == b.transition &&
+           a.visibleAtStart == b.visibleAtStart;
 }
 
 // A prompt text's starting state. HudText's own default is "New text" (right
@@ -3050,6 +3170,9 @@ struct Project {
     // On-screen texts baked to sprites at build, triggered by the Show Text /
     // Hide Text flow nodes (Tools > UI Editor > Texts).
     std::vector<HudText> hudTexts;
+    // Live bars - health, stamina, progress (Tools > UI Editor > Bars,
+    // docs/hud-animation.md). Drawn above the HUD stack, under the texts.
+    std::vector<HudBar> hudBars;
     // Where the full-screen post effects sit in the screen stack (Tools > UI
     // Editor). Bloom (with color grading) and film grain are placed
     // independently: the effect applies right before the HUD sprite at that
@@ -3358,6 +3481,13 @@ struct Project {
     // headless --build path (main.cpp) also sets ps2LinkIp here directly.
     std::string emulatorPath;  // PCSX2 exe; empty = auto-detect under Program Files
     std::string ps2LinkIp;     // ps2link IP for "Run on PS2"; empty = disabled
+    // Docker image the game compiles in. Empty = say nothing and let the
+    // generated compose file's `${TYRAX_IMAGE:-h4570/tyra}` resolve from the
+    // project's own .env, which is how this worked before the setting existed.
+    std::string toolchainImage;
+    // Machine-local build transport. "native" uses the bundled PS2DEV/OpenVCL
+    // toolchain; "docker" preserves the old container path as a fallback.
+    std::string buildBackend = "native";
 
     bool valid() const { return !name.empty() && !dir.empty(); }
     std::string elfName() const { return name + ".elf"; }

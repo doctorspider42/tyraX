@@ -91,7 +91,11 @@ std::string dumpText();
 
 struct Step {
     enum Kind {
-        Click,        // arg = target
+        // The pointing steps take an optional dx/dy offset from the target's
+        // centre, which is the only way to reach something the editor DRAWS
+        // over a widget rather than submitting as one (the viewport is a
+        // single item, so an icon or a handle inside it has no name).
+        Click,        // arg = target, dx/dy = offset from its centre
         RightClick,   // arg = target - the context-menu button
         DoubleClick,  // arg = target
         HoldClick,    // arg = target, seconds = how long to keep the button down

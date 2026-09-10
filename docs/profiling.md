@@ -1658,7 +1658,7 @@ check the contact sheet against what your fixture is supposed to look like.
   the guard band the GS scissor finishes, and the measured cost of clipping
   what did not need it.
 
-## On-demand render cost (1.78)
+## On-demand render cost (1.80)
 
 Debugger > **Render cost > Measure render cost** captures one synchronized
 render pass on PCSX2 or a physical PS2. A debug build with Live Debugger enabled

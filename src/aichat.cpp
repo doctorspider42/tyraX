@@ -1047,6 +1047,8 @@ std::string projectSummaryJson(const Project& p) {
     names("saveTexts", p.saveTexts, [](const SaveTextValue& v) { return v.name; });
     names("menus", p.menus, [](const GameMenu& m) { return m.name; });
     names("hudTexts", p.hudTexts, [](const HudText& t) { return t.name; });
+    names("hudImages", p.hud, [](const HudImage& h) { return h.name; });
+    names("hudBars", p.hudBars, [](const HudBar& b) { return b.name; });
     names("gradings", p.gradings, [](const ColorGradingPreset& g) { return g.name; });
     names("ambiencePresets", p.ambiencePresets,
           [](const AmbiencePreset& a) { return a.name; });

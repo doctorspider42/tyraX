@@ -13,6 +13,38 @@ git show <retirement-commit>^:PROGRESS.md
 git log -p --follow -- PROGRESS.md
 ```
 
+### Judge openvcl against the ps2gl fixtures
+
+Twelve of upstream's own `test/fixtures` are real third-party VU code and no
+oracle has read them yet. The immediates are handled now (operators are tokens,
+division truncates toward zero as both assemblers do — measured); what remains is
+nested-`MUL` modelling in `pb-dag.py`. At the first point the oracle disputes, the
+compiler was verified correct by hand, so this is about the instrument's reach and
+not a suspected defect. Positive control as always: the same pass over Sony's
+output for the same sources.
+
+### Send the openvcl defect reports upstream
+
+`docs/upstream-openvcl.md` carries the defects this work found, each with a
+mechanism and a reproducer, several firing on the stock commit with no flags.
+Nothing has been submitted and no pull request is open.
+
+### Regenerate the 70-program assembler snapshot
+
+The corpus used as a stability anchor predates the clip-path rewrite, so it is
+valid for "identical inputs must give the same md5" and wrong for absolute sizes.
+Regenerate it from a real engine build, in its own commit, and re-anchor the md5.
+
+### Align the ABI metadata of embedded IOP IRX blobs
+
+The native PS2DEV linker emits one `linking abicalls files with non-abicalls
+files` warning for every IRX embedded in `libtyra.a` (`audsrv`, `padman`,
+`fileXio`, USB and related modules). They are IOP binaries converted to EE data
+objects by `bin2s`, not game code, so builds and PCSX2 launches are currently
+unaffected. Make the generated assembly object's ABI mode explicitly match the
+EE build rather than suppressing the linker warning. Verify a clean link and a
+native boot that exercises audio, pad input, host filesystem and USB input.
+
 ## Visual showcase directions
 
 See [Rendering directions](rendering-directions.md) for the assessed roadmap:
@@ -325,6 +357,23 @@ at 10 while the distance fade has already dimmed it to a third; and `d - r`,
 distance to the caster's surface, which is milder and principled but still
 untested. A fixture with deliberately mixed caster sizes is what this needs
 first — the shadow A/B rig above, run as a vantage LINE, reads it straight off.
+
+### `physObstacle` misses two marker types `objectCollides` skips
+
+`TerrainGame::objectCollides` is the one list of "types with no geometry in the
+game", and `physObstacle` - what a falling rigid body bounces off - keeps its
+own copy by number. The two have drifted: the copy is missing **18** (a
+procedural volume) and **19** (a scroller belt marker), so a physics body
+deflects off an invisible authoring region that nothing else in the game
+collides with. Type 20 (a comment) was added to it when comments landed, which
+is what made the gap visible.
+
+The fix is almost certainly `return objectCollides(d);` - both already start
+with the same `collision == 2` opt-out and ask the same question - but it is a
+behaviour change for existing projects with a procedural volume or a belt in
+them, so it wants a PCSX2 check with a body dropped beside one, not just a
+compile. Left out of the comments change deliberately: it is somebody else's
+bug and it deserves its own before/after.
 
 ## Medium
 
@@ -743,6 +792,27 @@ While there: the GI bake's ground grid follows object footprint AABBs, so a
 ROTATED thin wall still shows a faint version of the straddling teeth at its
 AABB's corners - splitting the ground cells along the rotated footprint is the
 fix if anyone reports it.
+
+
+## Animated probe lighting
+
+Full signed RGB SH L1 now reaches animated and explicitly dynamic-lit receivers
+without larger probe tables or extra passes (docs/global-illumination.md).
+Next quality candidates: contact occlusion around feet, visibility-aware probe
+interpolation to reduce light leaking through thin walls, then exact normals
+under nonuniform scale/shear. L2, animated self-shadowing and surface-transfer
+PRT need separate measurements and are not implied by full RGB L1.
+
+### Previous humanoid LOD hang: not reproduced
+
+The earlier three-humanoid meshLod 1.5 doorway hang had no identified cause.
+After exact duplicate-corner skin reuse, the same scene passed the doorway
+walk; a second fixture forced tiers 0/1/2 every 120 frames and ran beyond
+2400 ticks without stopping. This is a successful stress test, not proof of a
+specific hang fix. If it recurs, preserve the ELF, scene, log and pad sequence
+before rebuilding. The shipped example still uses one full-mesh humanoid and
+lightweight neutral receivers. Avatar skin time fell from about 10.8 to 5.6 ms
+in PCSX2, with identical geometry and full-rate animation.
 
 - Impostor follow-up: measure cold versus warm batch GPU capture time and consider
   background batch baking. Configurable 4/8/16 views and optional GPU capture

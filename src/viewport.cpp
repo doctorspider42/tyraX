@@ -288,6 +288,9 @@ uniform int uAoHmOn;             // 0 = flat terrain (ground plane at y = 0)
 // would blend L0 into L1. Twin of giProbeAt in the generated game and
 // gibake::sampleProbes on the host - change one, change all three.
 uniform int uGiOn;
+// Animated receivers sample at the instance centre and use the console lobe.
+uniform vec4 uGiReceiver; // xyz sample position, w = animated receiver
+
 // 1 while the TERRAIN draws with a baked GI lightmap: its light is already in
 // the vertex colour (buildTerrainChunkMesh), so the probe grid must not
 // replace it a second time - and, like every other GI surface, the point
@@ -316,6 +319,7 @@ uniform int uPs2NoDynLight;
 bool giProbe(vec3 wp, vec3 n, out vec3 res) {
     res = vec3(0.0);
     if (uGiOn == 0 || uGiDim.x <= 0) return false;
+    if (uGiReceiver.w > 0.5) wp = uGiReceiver.xyz;
     vec3 t = clamp((wp - uGiOrigin) / max(uGiStep, vec3(0.0001)),
                    vec3(0.0), vec3(uGiDim - 1));
     ivec3 i0 = clamp(ivec3(floor(t)), ivec3(0), max(uGiDim - 2, ivec3(0)));
@@ -341,9 +345,14 @@ bool giProbe(vec3 wp, vec3 n, out vec3 res) {
     }
     if (wsum <= 0.00001) return false;
     float s = uGiScale / (127.0 * wsum);
-    res = clamp(acc[0] * s + (2.0 / 3.0) * (acc[1] * s * n.x + acc[2] * s * n.y +
-                                            acc[3] * s * n.z),
-                vec3(0.0), vec3(1.0));
+    if (uGiReceiver.w > 0.5) {
+        res = max(acc[0] * s + (2.0 / 3.0) * s *
+            (acc[1] * n.x + acc[2] * n.y + acc[3] * n.z), vec3(0.0));
+    } else {
+        res = clamp(acc[0] * s + (2.0 / 3.0) * (acc[1] * s * n.x + acc[2] * s * n.y +
+                                                acc[3] * s * n.z),
+                    vec3(0.0), vec3(1.0));
+    }
     return true;
 }
 
@@ -1490,6 +1499,7 @@ void Viewport::querySceneLocations(uint32_t prog) {
     uAoHmRect_ = glGetUniformLocation(prog, "uAoHmRect");
     uAoHmOn_ = glGetUniformLocation(prog, "uAoHmOn");
     uGiOn_ = glGetUniformLocation(prog, "uGiOn");
+    uGiReceiver_ = glGetUniformLocation(prog, "uGiReceiver");
     uGiSkipProbe_ = glGetUniformLocation(prog, "uGiSkipProbe");
     uGiProbes_ = glGetUniformLocation(prog, "uGiProbes");
     uGiOrigin_ = glGetUniformLocation(prog, "uGiOrigin");
@@ -1947,8 +1957,8 @@ void Viewport::camRay(const CamView& c, float u, float v, float o[3],
     d[0] = dir.x, d[1] = dir.y, d[2] = dir.z;
 }
 
-bool Viewport::projectToImage(const float world[3], float& outU,
-                              float& outV) const {
+bool Viewport::projectToImage(const float world[3], float& outU, float& outV,
+                              float* outDepth) const {
     if (fbWidth_ < 1 || fbHeight_ < 1) return false;
     const CamView c = camView(fbWidth_, fbHeight_);
     const float d[3] = {world[0] - c.eye[0], world[1] - c.eye[1],
@@ -1956,6 +1966,7 @@ bool Viewport::projectToImage(const float world[3], float& outU,
     const float x = d[0] * c.right[0] + d[1] * c.right[1] + d[2] * c.right[2];
     const float y = d[0] * c.up[0] + d[1] * c.up[1] + d[2] * c.up[2];
     const float z = d[0] * c.fwd[0] + d[1] * c.fwd[1] + d[2] * c.fwd[2];
+    if (outDepth) *outDepth = z;
     float ndcX, ndcY;
     if (c.ortho) {
         // A parallel view draws what is behind the camera too (the depth range
@@ -2849,6 +2860,15 @@ void Viewport::pickBounds(const SceneObject& o, float mn[3], float mx[3]) {
             useCube(0.15f);
             scaled = false;
             break;
+        // A comment draws as a screen-space icon and has nothing in 3D, so its
+        // hitbox is a small fixed cube on the anchor - enough for a rubber
+        // band to catch and for the gizmo to have something to sit on. The
+        // ICON's own rect is what a click really tests (App::commentIcons),
+        // which is what keeps a distant note clickable.
+        case PrimitiveType::Comment:
+            useCube(0.2f);
+            scaled = false;
+            break;
         default: break;
     }
 
@@ -3113,8 +3133,10 @@ bool Viewport::placementRaycast(float u, float v,
         // Authoring regions are wire boxes with nothing to rest on, and a
         // procedural volume's is usually map-sized - resting on its front face
         // would put the object in mid-air.
+        // A comment is not a surface either: its box is a hit target for a
+        // click, and dropping a prop onto a floating note would be nonsense.
         if (o.type == PrimitiveType::Area || o.type == PrimitiveType::Scatter ||
-            !o.procSource.empty())
+            o.type == PrimitiveType::Comment || !o.procSource.empty())
             continue;
         float mn[3], mx[3];
         pickBounds(o, mn, mx);
@@ -5241,6 +5263,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glUniform1i(uGiOn_, 0);
     }
     glUniform1i(uGiSkipProbe_, 0);
+    glUniform4f(uGiReceiver_, 0, 0, 0, 0);
     const Mat4 identityM = identity();
 
     auto draw = [&](const Mesh& mesh, GLenum mode, const Mat4& mvp, float r, float g,
@@ -5318,20 +5341,25 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 
     // Animated models (.glb/.fbx) draw through their own helper because the
     // console lights them differently from everything else: a SkelInstance
-    // gets the scene's directional light + ambient folded into the .tskl
+    // gets the probe lobe (or scene directional + ambient) folded into the .tskl
     // part color and NOTHING else (templates.cpp, setupAnimObject's
     // litColors). So the object's own tint colour and the scene point lights
     // - both of which the game only ever bakes into STATIC vertex colours -
     // must stay out of the preview, or a cyan-tinted Player object renders a
     // cyan avatar here and a correct one on the console.
     auto drawAnimParts = [&](const AnimModelDraw& ad, const Mat4& mvp,
-                             const Mat4* model, float shade, bool asLines) {
+                             const Mat4* model, float shade, bool asLines,
+                             const SceneObject& receiver) {
+        glUniform4f(uGiReceiver_, receiver.position[0],
+                    receiver.position[1] + receiver.scale[1] * 0.5f,
+                    receiver.position[2], 1.0f);
         if (pointLightCount > 0) glUniform1i(uLightCount_, 0);
         for (const AnimModelDraw::Part& part : ad.parts)
             draw(part.mesh, GL_TRIANGLES, mvp, shade * part.kd[0],
                  shade * part.kd[1], shade * part.kd[2],
                  asLines ? 0 : part.tex, model);
         if (pointLightCount > 0) glUniform1i(uLightCount_, pointLightCount);
+        glUniform4f(uGiReceiver_, 0, 0, 0, 0);
     };
 
     auto meshFor = [&](const SceneObject& o) -> const Mesh* {
@@ -5515,6 +5543,11 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             // Scroller: an invisible belt marker; its gizmo + animated ghost
             // belt draw in a dedicated pass after the scene.
             if (o.type == PrimitiveType::Scroller) continue;
+            // Comments have no geometry in ANY view mode: the app draws them
+            // as a screen-space message icon over the finished image
+            // (App::drawCommentOverlay), so a note never hides the thing it is
+            // about and never changes size with the camera.
+            if (o.type == PrimitiveType::Comment) continue;
             // Emitters preview as live particles (drawn after the scene); in
             // the scene pass they only get a small fixed-size cone marker so
             // the gizmo has something to grab. Dimmed when disabled.
@@ -5569,7 +5602,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                     updateAnimPose(*ad, o);
                     ps2Flat = 0;  // animated models shade Gouraud (7478)
                     drawAnimParts(*ad, mvp, lit ? &model : nullptr, tintScale,
-                                  asLines);
+                                  asLines, o);
                     continue;
                 }
                 // unusable .glb falls through to the placeholder box
@@ -5768,7 +5801,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                 // pose already advanced by this frame's scene pass - reuse it
                 AnimModelDraw* ad = animModelDraw(t.modelPath, t.materialPath);
                 if (ad && ad->ok) {
-                    drawAnimParts(*ad, mvp, &model, 1.0f, false);
+                    drawAnimParts(*ad, mvp, &model, 1.0f, false, t);
                     return;
                 }
             }
@@ -5862,7 +5895,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                         aoReceive = false;  // animated avatar - no AO receive
                         const Mat4 model = mul(refl, modelMatrix(p));
                         const Mat4 mvp = mul(viewProj, model);
-                        drawAnimParts(*ad, mvp, &model, 1.0f, false);
+                        drawAnimParts(*ad, mvp, &model, 1.0f, false, p);
                     }
                     break;  // first player entity wins, like in the game
                 }
