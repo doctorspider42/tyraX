@@ -441,6 +441,14 @@ to take ownership** of a file, and the editor stops regenerating it.
   [VS Code extension](docs/vscode-extension.md).
 - Developer architecture guides live under [.claude/skills/](.claude/skills).
 
+## Sponsor
+
+TyraX is free, Apache-2.0 and developed in the open. If it is useful to you,
+the **Sponsor** button at the top of this repository (or
+[github.com/sponsors/doctorspider42](https://github.com/sponsors/doctorspider42))
+helps keep the PS2 hardware, devkits and test consoles running. The button is
+wired from [`.github/FUNDING.yml`](.github/FUNDING.yml).
+
 ## Credits
 
 This project stands on the shoulders of the PS2 homebrew community:
