@@ -41,6 +41,38 @@ unsigned int g_reported = 0;
 unsigned int g_calls = 0;
 unsigned int g_announces = 0;
 
+// PS2SDK v2 renamed the public packet/client members without changing their
+// layout. Resolve either spelling through dependent expressions instead of a
+// toolchain-version macro (PS2SDK exposes none), so the native v2 SDK and the
+// legacy Docker fallback compile the exact same engine source.
+template <typename Request>
+auto requestClient(Request* request, int) -> decltype(request->cd) {
+  return request->cd;
+}
+
+template <typename Request>
+auto requestClient(Request* request, long) -> decltype(request->client) {
+  return request->client;
+}
+
+template <typename Client, typename Request>
+auto applyBindResult(Client* cd, Request* request, int)
+    -> decltype(cd->server = request->sd, cd->buf = request->buf,
+                cd->cbuf = request->cbuf, void()) {
+  cd->server = request->sd;
+  cd->buf = request->buf;
+  cd->cbuf = request->cbuf;
+}
+
+template <typename Client, typename Request>
+auto applyBindResult(Client* cd, Request* request, long)
+    -> decltype(cd->server = request->server, cd->buff = request->buff,
+                cd->cbuff = request->cbuff, void()) {
+  cd->server = request->server;
+  cd->buff = request->buff;
+  cd->cbuff = request->cbuff;
+}
+
 /**
  * ps2sdk's _request_end (ee/kernel/src/sifrpc.c) plus the three checks it is
  * missing. It is `static` there, so this is a reimplementation rather than a
@@ -86,12 +118,10 @@ unsigned int g_announces = 0;
 void requestEnd(void* packet, void* harg) {
   (void)harg;
 
-  // NOTE ON MEMBER NAMES. ps2sdk renamed these fields upstream (client -> cd,
-  // server -> sd, buff -> buf, cbuff -> cbuf). These are the names in the
-  // toolchain image this engine is pinned to (h4570/tyra); the field LAYOUT is
-  // identical in both, so bumping the image is a rename here and nothing more.
+  // requestClient/applyBindResult accept both generations of PS2SDK member
+  // names. The field layout and handler semantics are identical.
   SifRpcRendPkt_t* request = static_cast<SifRpcRendPkt_t*>(packet);
-  SifRpcClientData_t* cd = request->client;
+  SifRpcClientData_t* cd = requestClient(request, 0);
 
   g_seen = g_seen + 1;
 
@@ -122,9 +152,7 @@ void requestEnd(void* packet, void* harg) {
   if (request->cid == SIF_CMD_RPC_CALL) {
     if (cd->end_function) cd->end_function(cd->end_param);
   } else if (request->cid == SIF_CMD_RPC_BIND) {
-    cd->server = request->server;
-    cd->buff = request->buff;
-    cd->cbuff = request->cbuff;
+    applyBindResult(cd, request, 0);
   }
 
   if (cd->hdr.sema_id >= 0) iSignalSema(cd->hdr.sema_id);

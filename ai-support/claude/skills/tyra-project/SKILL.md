@@ -79,7 +79,7 @@ tyrax-editor binary lives.)
 | `--bake-prelit <projectDir> [sceneName]` | Re-bake every object marked to ship pre-lit whose baked texture no longer matches the scene (it moved, or the light did), then save + regenerate. Prints `baked` / `fresh` per object; a second run bakes nothing. Never part of a build - a pre-lit bake is explicit |
 | `--resave <projectDir>` | Load + save (runs all format migrations, validates) |
 | `--new <name> <parentDir> [w] [d] [empty\|fpp\|thirdperson] [unitsPerMeter] [--no-terrain]` | Create a fresh project (defaults: `empty` preset - the editor's dialog starts on `fpp` - 100x100 terrain, 1 unit = 1 m, debug profile + Live Link, keyboard/mouse off). The preset is fixed for the project's life - it picks the generated game sources, which you may own. `--no-terrain` starts the scene with no ground at all (see below) |
-| `--build <projectDir> [--run]` | Full Docker build; `--run` launches PCSX2 |
+| `--build <projectDir> [--run] [--docker]` | Full native build; `--run` launches PCSX2, `--docker` selects the fallback |
 | `--add-ai-support <projectDir> [claude] [copilot]` | (Re)install these AI skill files |
 
 Typical inspection flow: `--dump` to see the world, `--dump-graph` to read

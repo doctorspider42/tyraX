@@ -1530,6 +1530,12 @@ private:
     // the "Run on PS2" actions.
     std::string globalEmulatorPath_;
     std::string globalPs2Ip_;
+    // Docker image the game compiles in (Edit > Preferences > Build, editor.ini
+    // `toolchainImage`). Empty = leave the choice to the generated compose file
+    // and the project's own .env, i.e. exactly the behaviour before this setting
+    // existed. See docs/toolchain-image.md.
+    std::string globalToolchainImage_;
+    std::string globalBuildBackend_ = "native";
     // Parent folder proposed as the location for new projects (Edit >
     // Preferences). Empty = fall back to ~/TyraProjects.
     std::string globalDefaultProjectsDir_;
@@ -3065,6 +3071,8 @@ private:
     bool openEditorPrefsPopup_ = false;
     char prefEmulatorPath_[512] = "";  // PCSX2 exe path (auto-detect if empty)
     char prefPs2Ip_[64] = "";          // ps2link IP for Run on PS2
+    char prefToolchainImage_[256] = "";  // Docker image games compile in ("" = compose default)
+    int prefBuildBackend_ = 0;             // 0 native, 1 Docker fallback
     char prefDefaultProjectsDir_[512] = "";  // default parent folder for new projects
     char prefDisplayName_[48] = "";          // session display name (editor.ini)
     char prefSessionCacheDir_[512] = "";     // remote-project cache root override

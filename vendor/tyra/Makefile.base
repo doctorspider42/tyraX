@@ -16,7 +16,21 @@ DVP			:= dvp-as
 IRXEMBEDDEDEXT	:= irx-em
 
 #Flags, Libraries and Includes
-CFLAGS      += -D_EE -Wall -O3
+# Modified by TyraX - not upstream Tyra.
+#
+# -G0: put NOTHING in the small-data area. Without it the engine and the
+# generated game are the only things using .sdata/.sbss, they are addressed
+# GP-relative through a 16-bit offset (+/-32 KB), and the engine has outgrown
+# it. The failure is not a size error - it is dozens of
+# "relocation truncated to fit: R_MIPS_GPREL16 against Tyra::Info::writeLogsToFile"
+# at link time, naming a one-byte bool rather than the section that overflowed.
+# It bites the DEBUG profile first (more inlined logging, more references), so
+# enabling showFps on a current project stopped linking at all - which took the
+# perf benchmark recipe in docs/ with it.
+#
+# ps2sdk compiles its own libraries this way (Defs.make: `-D_EE -G0`), so this
+# is Tyra matching the SDK it links against rather than a workaround.
+CFLAGS      += -D_EE -G0 -Wall -O3
 LINKFLAGS	+= -O3 -Wl,-zmax-page-size=128
 ASFLAGS		+= -O3
 # TyraX: -lps2snd is the EE-side RPC stub library for libsd (SPU2 registers) -

@@ -30,6 +30,15 @@ std::vector<std::string> emulatorProcessNames(const std::string& exe) {
     return names;
 }
 
+// Every object built by the VU chain (vclpp -> vcl -> dvp-as), for the two cases
+// make cannot see by itself: an #included .i/.h changed, or the assembler itself
+// did. Named explicitly because the naming is not uniform - most microprograms
+// are *_vu1, the draw-finish helper and the VU0 raytracer kernel are not, and
+// leaving those two out is how an included-file change used to rebuild 23 of the
+// 25 programs. The .vcl/.vsm intermediates go with them; make regenerates both.
+constexpr const char* kPurgeVuObjects =
+    "find /tyra/engine/obj \\( -name '*vu1.o*' -o -name 'draw_finish.o*' "
+    "-o -name 'vu0_rt_kernel.o*' \\) -delete 2>/dev/null; ";
 // --- who owns the ps2link file server --------------------------------------
 //
 // Exactly one `ps2client` can serve a console: it is the host: filesystem for
@@ -219,12 +228,17 @@ void Runner::clean(const Project& p) {
         // locked, which is a better answer than killing somebody else's server.
         claimPs2Channel(p);
         killEmulatorsFor(p, lastEmulator_);
-        // Container game volume (obj + bin). Failure is fine - a stopped
-        // container just means there is nothing cached there to clean.
-        if (exec("docker compose exec -T compiler sh -c " +
-                     platform::shellArg("rm -rf /src/obj /src/bin"),
-                 p.dir) != 0)
-            appendLine("[editor] Container not running - cleaned the host side only.");
+        if (p.buildBackend == "docker") {
+            // Container game volume (obj + bin). Failure is fine - a stopped
+            // container just means there is nothing cached there to clean.
+            if (exec("docker compose exec -T compiler sh -c " +
+                         platform::shellArg("rm -rf /src/obj /src/bin"),
+                     p.dir) != 0)
+                appendLine("[editor] Container not running - cleaned the host side only.");
+        } else {
+            std::error_code objEc;
+            fs::remove_all(fs::path(p.dir) / "obj", objEc);
+        }
 
         // Host bin\: per-file, clearing read-only first (remove_all refuses
         // those on Windows), retrying a few times (taskkill returns before
@@ -284,8 +298,21 @@ void Runner::cancel() {
     if (execProc_) execProc_->kill();
 }
 
-int Runner::exec(const std::string& cmdline, const std::string& cwd) {
+int Runner::exec(const std::string& rawCmdline, const std::string& cwd) {
     if (cancelRequested_) return -1;
+
+    // The toolchain image is chosen in Edit > Preferences and reaches compose as
+    // an environment variable rather than by writing the project's .env: that
+    // file is the user's own per-machine override sheet, and rewriting it from
+    // under them is not ours to do. An exported variable also outranks .env, so
+    // an explicit choice in the editor wins - while an EMPTY choice exports
+    // nothing at all and the compose file's own default resolves exactly as it
+    // did before this setting existed. Applied here, in the single funnel every
+    // command goes through, so a compose call added later cannot forget it.
+    std::string cmdline = rawCmdline;
+    if (!toolchainImage_.empty() && cmdline.rfind("docker compose", 0) == 0)
+        cmdline = platform::envPrefix("TYRAX_IMAGE", toolchainImage_) + cmdline;
+
     appendLine("> " + cmdline);
 
     platform::Process::Options opts;
@@ -1040,6 +1067,11 @@ bool Runner::deployToPs2(const Project& p) {
 
 void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
     bool ok = true;
+    // exec() reads this to export TYRAX_IMAGE for the compose commands. Latched
+    // here rather than passed down: every compose call site would otherwise have
+    // to remember, and a new one added later would silently build in the wrong
+    // image (see Runner::exec).
+    toolchainImage_ = p.toolchainImage;
 
     if (build) {
         appendLine(rebuild ? "[editor] === Rebuild started: " + p.name + " ==="
@@ -1092,6 +1124,76 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
             !err.empty())
             appendLine("[editor] Warning: texture bake failed: " + err);
 
+        if (p.buildBackend != "docker") {
+#ifdef _WIN32
+            const std::string script = findTool("toolchain/native-build.ps1");
+#else
+            const std::string script = findTool("toolchain/native-build.sh");
+#endif
+            fs::path engineSource;
+            const std::string exe = platform::exePath();
+            if (!exe.empty()) {
+                fs::path dir = fs::path(exe).parent_path();
+                for (int up = 0; up < 3 && engineSource.empty(); ++up) {
+                    std::error_code ec;
+                    fs::path candidate = dir / "vendor" / "tyra";
+                    if (fs::exists(candidate / "Makefile.base", ec)) engineSource = candidate;
+                    dir = dir.parent_path();
+                }
+            }
+            const fs::path config = platform::configDir();
+            if (script.empty() || engineSource.empty() || config.empty()) {
+                appendLine("[editor] Native toolchain files are missing. Run the editor "
+                           "from a complete TyraX checkout/package (tools/toolchain and "
+                           "vendor/tyra are required), or select Docker fallback in "
+                           "Edit > Preferences > Build toolchain.");
+                ok = false;
+            } else {
+                const fs::path cache = config / "native-build" /
+                                       templates::engineVolumeName();
+                const fs::path toolchain = config / "toolchain" / "ps2dev";
+#ifdef _WIN32
+                std::string cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File " +
+                                  platform::shellArg(script) + " -Project " +
+                                  platform::shellArg(p.dir) + " -Engine " +
+                                  platform::shellArg(engineSource.string()) + " -Cache " +
+                                  platform::shellArg(cache.string()) + " -Toolchain " +
+                                  platform::shellArg(toolchain.string());
+                if (rebuild) cmd += " -Rebuild";
+#else
+                std::string cmd = "bash " + platform::shellArg(script) + " " +
+                                  platform::shellArg(p.dir) + " " +
+                                  platform::shellArg(engineSource.string()) + " " +
+                                  platform::shellArg(cache.string()) + " " +
+                                  platform::shellArg(toolchain.string()) +
+                                  (rebuild ? " 1" : " 0");
+#endif
+                ok = exec(cmd, p.dir) == 0;
+                if (!ok)
+                    appendLine("[editor] Native build failed. Fix the error above, or "
+                               "select Docker fallback in Edit > Preferences.");
+                if (ok) {
+                    const fs::path sdkCache = config / "ps2sdk";
+                    std::error_code ec;
+                    for (const char* part : {"ee", "common", "ports"}) {
+                        const fs::path from = toolchain / "ps2sdk" / part / "include";
+                        const fs::path to = sdkCache / part / "include";
+                        if (!fs::exists(to, ec)) {
+                            fs::create_directories(to.parent_path(), ec);
+                            fs::copy(from, to,
+                                     fs::copy_options::recursive |
+                                         fs::copy_options::overwrite_existing,
+                                     ec);
+                            if (ec) {
+                                appendLine("[editor] Warning: could not cache PS2SDK "
+                                           "headers for IntelliSense: " + ec.message());
+                                ec.clear();
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
         const std::string dc = "docker compose exec -T compiler sh -c ";
 
         // Old template used a fixed container name shared by all projects;
@@ -1190,12 +1292,44 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                            // EVERY build. That, together with the editor rewriting its
                            // generated sources, is why no build here was ever incremental.
                            //
-                           // Two stamps, because they answer two different questions.
+                           // Two stamps for the overlay, because they answer two
+                           // different questions (a third, unrelated one for the VU
+                           // assembler follows them).
                            // The container-side one guards the files that live in the
                            // IMAGE, so a recreated container has no stamp and re-applies
                            // the overlay. The /tyra one guards the compiled ENGINE in the
                            // shared volume: when the vendored IRX changes, libtyra has to
                            // be relinked so the new one gets re-embedded.
+                           // ...and it is skipped on an image whose toolchain
+                           // cannot USE the vendored library, because forcing it
+                           // there fails the link instead of the copy, and the
+                           // error names LTO rather than audsrv. `bin/libaudsrv.a`
+                           // is built by vendor/tyra/audsrv/build.* with the
+                           // stock image's compiler and carries its LTO bytecode;
+                           // a current GCC refuses it outright.
+                           //
+                           // Ask by trying the link rather than guessing from a
+                           // version string - and force --whole-archive, or the
+                           // probe is worthless: a main() referencing nothing
+                           // from the library never makes the linker OPEN its
+                           // members, so the bad bytecode is never read.
+                           // Measured - without it, an image that cannot build
+                           // the game reported success.
+                           //
+                           // Skipping is a real loss and is reported as one: the
+                           // fork is what puts ADPCM voices on both SPU2 cores,
+                           // so without it the second reverb unit is unreachable
+                           // and reverb zones stop cross-fading (docs/reverb.md).
+                           // Building the fork against such an image is a PORT,
+                           // not packaging - its sources call ps2sdk's SIF RPC by
+                           // the old unprefixed names and a current ps2sdk only
+                           // exports the sce-prefixed ones (ten symbols). That is
+                           // in docs/backlog.md.
+                           "if grep -q AUDSRV_ADPCM_CH_CORE "
+                           "/usr/local/ps2dev/ps2sdk/ee/include/audsrv.h 2>/dev/null; then "
+                           "  echo '[editor] Image already carries the TyraX audsrv "
+                           "- skipping the overlay.'; "
+                           "else "
                            "md5sum /engine-src/audsrv/bin/audsrv.irx "
                            "/engine-src/audsrv/bin/libaudsrv.a "
                            "/engine-src/audsrv/bin/audsrv.h > /tmp/audsrv.stamp; "
@@ -1211,6 +1345,39 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                            // this bin2s never re-runs and the OLD irx stays inside libtyra.
                            "rm -f /tyra/engine/bin/libtyra.a /tyra/engine/obj/irx/audsrv.o; "
                            "cp /tmp/audsrv.stamp /tyra/.audsrv-stamp; fi; "
+                           "fi; "
+                           // Third stamp, same idea, for the VU chain: WHICH ASSEMBLER built
+                           // the microcode is a build input, and nothing else here can see it.
+                           // Two implementations of `vcl` exist now (Sony's prebuilt VCL and
+                           // the from-source openvcl, plus the flags the image's wrapper
+                           // passes it - docs/toolchain-image.md), and swapping the toolchain
+                           // image touches no engine source, so every check below says
+                           // "nothing changed" and the PREVIOUS image's microcode is relinked.
+                           // That is not a slow build, it is a wrong one: three consecutive
+                           // A/B probes booted the same VU objects and produced three
+                           // identical screenshots. md5 of the resolved binaries covers both
+                           // forms - the legacy symlink resolves to the 32-bit vcl, the
+                           // openvcl form is a wrapper script whose text carries its flags.
+                           // The wrapper form has to be hashed TWICE OVER: the script
+                           // itself (it carries the flags) and the openvcl binary it
+                           // calls. Hashing only what `command -v vcl` resolves to
+                           // misses a rebuilt openvcl behind an unchanged wrapper, and
+                           // then the previous image's microcode is silently relinked -
+                           // which is the same trap this stamp exists to close.
+                           //
+                           // Unquoted on purpose: no double quotes may appear in these
+                           // commands (platform::shellArg - cmd.exe cannot pass them), and
+                           // none of these paths has a space in it.
+                           "md5sum $(readlink -f $(command -v vcl)) "
+                           "$(readlink -f $(command -v vclpp)) "
+                           "$(readlink -f $(command -v openvcl) 2>/dev/null) "
+                           "> /tmp/vcl.stamp 2>/dev/null; "
+                           "if ! cmp -s /tmp/vcl.stamp /tyra/.vcl-stamp 2>/dev/null; then "
+                           "echo '[editor] VU assembler changed - rebuilding the "
+                           "microprograms (takes a minute or two)...'; " +
+                           std::string(kPurgeVuObjects) +
+                           "rm -f /tyra/engine/bin/libtyra.a; "
+                           "cp /tmp/vcl.stamp /tyra/.vcl-stamp; fi; "
                            "rsync -rlci --delete --exclude=obj --exclude=bin "
                            "/engine-src/engine/ /tyra/engine/ "
                            "| grep -v '^.d' > /tmp/engine-sync.txt; "
@@ -1229,8 +1396,8 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                            // include (grep the .vclpp/.i files: only .i and .h).
                            "if grep -qE '[.](vclpp|vcl|vsm|i|h)$' /tmp/engine-sync.txt; then "
                            "echo '[editor] VU1 sources changed - rebuilding the "
-                           "microprograms (takes a minute or two)...'; "
-                           "find /tyra/engine/obj -name '*vu1.o*' -delete 2>/dev/null; "
+                           "microprograms (takes a minute or two)...'; " +
+                           std::string(kPurgeVuObjects) +
                            "fi; "
                            "cd /tyra/engine && make -j$(nproc) && rm -f /src/bin/*.elf; "
                           "fi"),
@@ -1304,12 +1471,25 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
             appendLine("[editor] Building the project's VU sources...");
             ok = exec(dc + platform::shellArg(
                           "set -e; "
+                          // Ask the image which package manager it has rather
+                          // than assuming Debian: the stock toolchain image is
+                          // Ubuntu, the one built from the official ps2dev base
+                          // is Alpine, and there `apt-get: not found` surfaces
+                          // as "a VU source failed to build" - a message that
+                          // sends the reader into their own C++.
                           "if ! command -v g++ >/dev/null 2>&1; then "
                           "  echo '[editor] Installing a host C++ compiler in "
                           "the container (one time)...'; "
-                          "  apt-get update -qq >/dev/null && "
-                          "  DEBIAN_FRONTEND=noninteractive apt-get install -y "
+                          "  if command -v apk >/dev/null 2>&1; then "
+                          "    apk add --no-cache g++ >/dev/null; "
+                          "  elif command -v apt-get >/dev/null 2>&1; then "
+                          "    apt-get update -qq >/dev/null && "
+                          "    DEBIAN_FRONTEND=noninteractive apt-get install -y "
                           "-qq --no-install-recommends g++ >/dev/null; "
+                          "  else "
+                          "    echo '[editor] No apk or apt-get in this image - "
+                          "install g++ in it yourself.' >&2; exit 1; "
+                          "  fi; "
                           "fi; "
                           "mkdir -p /src/src/gen /src/inc/scripts /src/obj; "
                           // TWO source directories, and either may be empty - a
@@ -1442,8 +1622,9 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                           "rsync -ac --include=*/ --include=bin/** --exclude=* " +
                           (owner.empty() ? std::string() : "--chown=" + owner + " ") +
                           "/src/ /host/"),
-                      p.dir) == 0;
+                       p.dir) == 0;
         }
+        }  // Docker fallback
 
         // Per-track music build conversion (Music panel "PS2 build"): the
         // copy-back just refreshed bin/audio from the untouched res/ source,

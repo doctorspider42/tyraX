@@ -3,7 +3,7 @@ name: tyra-engine-dev
 description: >
   Guide to editing the in-tree Tyra PS2 engine fork in vendor/tyra — the
   renderer/clipper/VU1 pipeline, audio (audsrv), file loading over PS2 host fs,
-  and how engine changes reach running games through the Docker build. Use this
+  and how engine changes reach running games through native and Docker builds. Use this
   skill whenever you touch ANY file under vendor/tyra, work on PS2-side
   rendering, clipping, VU1 microprograms, textures, audio playback or asset
   loading, or when diagnosing in-game symptoms like rendering corruption, giant
@@ -39,6 +39,10 @@ Rules:
 
 You don't rebuild the engine by hand. The editor's Runner (`src/runner.cpp`)
 does it on every game build (F5 or `tyrax-editor.exe --build <projectDir>`):
+
+The native default syncs `vendor/tyra/engine` into a user cache and rebuilds it
+with pinned PS2DEV/OpenVCL; its toolchain stamp invalidates stale objects. The
+Docker fallback retains the previous sequence:
 
 1. `vendor/tyra` is bind-mounted **read-only** at `/engine-src` in the
    project's container (service `compiler`, container `<name>-compiler-1`).
@@ -1757,6 +1761,16 @@ Rules the same evening paid for:
   rebuild the three artifacts in `bin/` that `src/runner.cpp` overlays into the
   build container. Change the sources and you must re-run that script and commit
   `bin/` in the same commit - nothing in the game build compiles audsrv.
+  **Except on the from-source image**, which compiles the EE half itself
+  (`docker/Dockerfile.fromsource`) because the committed `libaudsrv.a` carries
+  GCC 11.3 LTO bytecode a newer GCC refuses, and skips the Runner's overlay -
+  so a source change reaches THAT image only after the image is rebuilt. The
+  crossing is `ee/src/sif-compat.h`: upstream renamed ten EE-side SIF RPC entry
+  points to `sce`-prefixed ones and the two SDKs export disjoint sets, so the
+  header aliases them under `TYRAX_PS2SDK_SCE_SIF`, which only the image can set
+  (the compile always sees the old pinned headers - `__has_include` cannot tell
+  them apart). It is included FIRST, before any ps2sdk header, because the
+  aliases must rewrite the declarations too. See the fork's README, change 3.
   `./build.sh --check` diffs a fresh build against the committed artifacts;
   `audsrv.irx` is byte-identical while `libaudsrv.a` never is (ar stamps its
   members, gcc's LTO section names carry a random per-compilation id), so the

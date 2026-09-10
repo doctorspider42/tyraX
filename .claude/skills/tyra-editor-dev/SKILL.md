@@ -4,7 +4,7 @@ description: >
   Architecture map and change-making guide for the TyraX codebase — a C++20
   ImGui/GLFW/OpenGL cross-platform (Windows + Linux) editor that authors 3D
   scenes and flow graphs, then
-  generates complete Tyra PS2 game projects (built in Docker, run in PCSX2).
+  generates complete Tyra PS2 game projects (native PS2DEV by default, run in PCSX2).
   Use this skill BEFORE making ANY change to editor code in src/ — new features,
   panels, scene object types, flow-graph nodes, preferences, project.json fields,
   code generation — and whenever you need to understand how the editor, the data
@@ -30,8 +30,15 @@ OpenGL 3.3). It edits a **data model** (scenes, objects, terrain heightmaps, flo
 graphs, preferences) stored in a `<name>.tyra` manifest plus one `objects/<id>.json`
 file per scene object (merge-friendly split), and on every build
 **generates a complete PS2 game project** (C++ sources, Makefile, docker-compose.yml).
-The game is compiled inside a Docker container (`h4570/tyra` image, PS2DEV
-`mips64r5900el-ps2-elf-g++` toolchain) and launched in the PCSX2 emulator.
+The game is compiled by native PS2DEV plus vendored OpenVCL by default and
+launched in PCSX2. Docker remains a selectable fallback. Its image is also built
+from this repo - `docker/Dockerfile`, published to GHCR
+by `.github/workflows/toolchain-image.yml`; the compose file names
+`${TYRAX_IMAGE:-h4570/tyra}` so a project can be pointed elsewhere from its own
+`.env` - or from *Edit > Preferences > Build toolchain*, a machine-global setting
+the Runner exports for its compose commands (empty = say nothing, so `.env` still
+decides). Read `docs/toolchain-image.md` before touching any of it: which parts of
+that image can move and which cannot is measured there, not guessed.
 
 The one-line pipeline to keep in your head:
 
@@ -45,7 +52,7 @@ ImGui UI (app.cpp) ──edits──> Project model (project.hpp)
                 templates::generate() (templates.cpp) → game sources
                                       │ Runner (runner.cpp)
                                       ▼
-              docker compose build → make → bin/<name>.elf → PCSX2
+              native PS2DEV build → make → bin/<name>.elf → PCSX2
 ```
 
 Two sibling skills cover the rest of the system:

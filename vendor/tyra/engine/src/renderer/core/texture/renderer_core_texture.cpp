@@ -264,16 +264,18 @@ void RendererCoreTexture::registerAllocation(
 }
 
 void RendererCoreTexture::unregisterAllocation(const u32& textureId) {
-  u32 foundIndex;
-
+  // An id that is not registered used to leave foundIndex UNINITIALISED and
+  // erase at whatever offset the stack happened to hold - a corrupted vector
+  // or a crash, from a caller that merely asked twice. GCC 11 did not see it;
+  // GCC 15 does, and with -Werror that is what stops the build.
   for (u32 i = 0; i < currentAllocations.size(); i++) {
     if (currentAllocations[i].id == textureId) {
-      foundIndex = i;
-      break;
+      currentAllocations.erase(currentAllocations.begin() + i);
+      return;
     }
   }
 
-  currentAllocations.erase(currentAllocations.begin() + foundIndex);
+  TYRA_WARN("Texture allocation ", textureId, " was not registered.");
 }
 
 void RendererCoreTexture::initClut() {

@@ -13,6 +13,38 @@ git show <retirement-commit>^:PROGRESS.md
 git log -p --follow -- PROGRESS.md
 ```
 
+### Judge openvcl against the ps2gl fixtures
+
+Twelve of upstream's own `test/fixtures` are real third-party VU code and no
+oracle has read them yet. The immediates are handled now (operators are tokens,
+division truncates toward zero as both assemblers do — measured); what remains is
+nested-`MUL` modelling in `pb-dag.py`. At the first point the oracle disputes, the
+compiler was verified correct by hand, so this is about the instrument's reach and
+not a suspected defect. Positive control as always: the same pass over Sony's
+output for the same sources.
+
+### Send the openvcl defect reports upstream
+
+`docs/upstream-openvcl.md` carries the defects this work found, each with a
+mechanism and a reproducer, several firing on the stock commit with no flags.
+Nothing has been submitted and no pull request is open.
+
+### Regenerate the 70-program assembler snapshot
+
+The corpus used as a stability anchor predates the clip-path rewrite, so it is
+valid for "identical inputs must give the same md5" and wrong for absolute sizes.
+Regenerate it from a real engine build, in its own commit, and re-anchor the md5.
+
+### Align the ABI metadata of embedded IOP IRX blobs
+
+The native PS2DEV linker emits one `linking abicalls files with non-abicalls
+files` warning for every IRX embedded in `libtyra.a` (`audsrv`, `padman`,
+`fileXio`, USB and related modules). They are IOP binaries converted to EE data
+objects by `bin2s`, not game code, so builds and PCSX2 launches are currently
+unaffected. Make the generated assembly object's ABI mode explicitly match the
+EE build rather than suppressing the linker warning. Verify a clean link and a
+native boot that exercises audio, pad input, host filesystem and USB input.
+
 ## Visual showcase directions
 
 See [Rendering directions](rendering-directions.md) for the assessed roadmap:
