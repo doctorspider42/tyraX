@@ -267,6 +267,26 @@ editor freezes devkit files even if the game keeps running. Redeploy, or start
 `ps2client ... listen` from the project's `bin/` directory to restore the
 channel.
 
+### What the game already logs about itself
+
+`bin/log.txt` is not only warnings and assertions - a few events that are hard
+to reconstruct afterwards write a line each, so a report like *"I picked it up
+and something threw me across the room"* can be read off the log instead of
+guessed at. Grep for the prefix:
+
+| Line | When |
+| --- | --- |
+| `Portal: player crossed <pi> to x y z` | a walker went through portal `pi`, with the arrival position |
+| `Portal: object <oi> crossed <pi> to x y z` | a body did |
+| `Pick: grabbed <oi> at x y z, player x y z` | an object was picked up, with both halves of that frame |
+| `Pick: dropped <oi> …` / `Pick: threw <oi> … v vx vy vz` | it was put down or thrown |
+| `Pick: lost <oi> mid-carry …` | it was despawned or hidden while carried |
+
+Paired with an [input recording](input-replay.md) these turn a "it sometimes
+does X" report into a fixture: replay the session, read the order of the lines.
+That is how the carry and portal interactions are debugged here - the hop and
+the grab are one frame apart or they are not, and the log says which.
+
 ## First places to look
 
 1. **Output** for build and launch failures.

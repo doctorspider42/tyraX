@@ -16,6 +16,17 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.84.1: the game logs picking an object up, dropping it, throwing it and
+// losing it mid-carry (`Pick: ...` in bin/log.txt, beside the `Portal: ...`
+// lines that were already there). Asked for while chasing "throw the ball
+// through the portal, pick it up in the cellar, and some force moves me into
+// the corner": the recording replays that session exactly, the portal hops
+// are in the log - and nothing said WHEN the grab happened, so the one thing
+// needed to tie the two together was missing. docs/devkit.md lists them.
+// PATCH: a debugging aid, no behaviour change. The raw-string trap bit once
+// on the way in - a ')' immediately before a '"' closes the literal the whole
+// generated game lives in, so log text never ends in a parenthesis.
+//
 // 1.84.0: merge the Aster line (portal physics, the pre-lit/GI preview fixes,
 // invisible box collisions, scene-local groups) with main's cutscene HUD and
 // skip screen. MINOR above both parents, the 1.10.0 precedent: the tree now
@@ -3133,7 +3144,7 @@
 // 1.80.0: cutscenes can hide the HUD and own the skip button.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 84
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

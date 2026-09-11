@@ -9886,6 +9886,13 @@ void TerrainGame::updateUseTarget() {
       const float gy = g.data.position[1] - cameraPosition.y;
       const float gz = g.data.position[2] - cameraPosition.z;
       carryDist = sqrtf(gx * gx + gy * gy + gz * gz);
+      // Logged for the same reason the portal hops are: a report like "I
+      // picked it up and something threw me across the room" can only be
+      // read off a log if the grab is IN that log, next to the hop. The
+      // player position rides along - it is the frame's other half.
+      TYRA_LOG("Pick: grabbed ", carryIndex, " at ", g.data.position[0], " ",
+               g.data.position[1], " ", g.data.position[2], ", player ",
+               players[0].x, " ", players[0].y, " ", players[0].z);
     }
   }
 
@@ -10101,6 +10108,7 @@ void TerrainGame::updateCarriedObject() {
   // Despawned or hidden mid-carry (flow graph): the hands just open, and the
   // body wakes so it resumes falling if it is shown again mid-air.
   if (!o.active || !o.visible) {
+    TYRA_LOG("Pick: lost ", carryIndex, " mid-carry - despawned or hidden");
     releaseCarried(o, 0.0F, 0.0F, 0.0F);
     carryIndex = -1;
     carryPortalPi = -1;
@@ -10239,6 +10247,9 @@ void TerrainGame::updateCarriedObject() {
   if (carryGrabbed) {
     carryGrabbed = false;  // the press that grabbed it is not a drop
   } else if (inputClicked(engine->pad, IA_ROLE_USE)) {
+    TYRA_LOG("Pick: dropped ", carryIndex, " at ", o.data.position[0], " ",
+             o.data.position[1], " ", o.data.position[2], ", player ",
+             players[0].x, " ", players[0].y, " ", players[0].z);
     releaseCarried(runtimeObjects[carryIndex], 0.0F, 0.0F, 0.0F);
     carryIndex = -1;
     carryPortalPi = -1;
@@ -10249,6 +10260,9 @@ void TerrainGame::updateCarriedObject() {
     const float vx = dir.x * PICK_THROW_SPEED * g_frameDt;
     const float vy = dir.y * PICK_THROW_SPEED * g_frameDt;
     const float vz = dir.z * PICK_THROW_SPEED * g_frameDt;
+    TYRA_LOG("Pick: threw ", idx, " at ", o.data.position[0], " ",
+             o.data.position[1], " ", o.data.position[2], ", v ", vx, " ", vy,
+             " ", vz);
     if (!releaseCarried(runtimeObjects[idx], vx, vy, vz)) {
       // No rigid body to hand off to: fly the hand-rolled arc instead.
       thrownIndex = idx;
