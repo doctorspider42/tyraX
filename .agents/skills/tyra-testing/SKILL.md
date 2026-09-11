@@ -1595,7 +1595,15 @@ Notes:
   scripted probe selects the flush the same way the panel does: flags bit 3 arms
   a capture, bit 4 means "index in bits 8-23", and without bit 4 each capture
   walks to the next flush (that is how PROGRESS 201 was verified). **Delete
-  `livedbg.cmd` before booting a fixture** - a leftover command is applied at
+A stale `CMD_VERSION` in a hand-rolled arming script arms NOTHING, silently:
+the game drops a command whose version it does not know
+(`if (magic != CMD_MAGIC || version != CMD_VERSION) return;`), so the script
+prints "armed" and `--dump-vucap` answers "no capture yet" - on the console
+AND in the emulator, which makes it look like the transport. `arm-vucap.py`
+was stuck on version 1 against a game at 2 for exactly that long. Check the
+constant in `src/livedbg.cpp` before suspecting anything else, and note that
+one arming that DOES land sets `vuCapPending` and the tap then refuses every
+later one until the write finishes.   `livedbg.cmd` before booting a fixture** - a leftover command is applied at
   boot and eats the first capture, which reads exactly like an off-by-one in the
   walk. If
   you see tags like `refe qwc=32789` or float garbage, the walker lost sync (see

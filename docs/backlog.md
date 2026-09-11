@@ -35,13 +35,19 @@ emitted rows behind its `clipw`, and the window position matches the source),
 register reads** (zero per component in either assembler). The defect is in
 openvcl's core code generation, not in what this repo asks of it.
 
-Next instrument, and the one the earlier PCSX2 bisection already pointed at:
-the **VU1 packet tap** on the failing draw, on hardware. The pose is known —
-eye (9.78, 1.672, 17.877), yaw 180.7, pitch 3.1 on `examples/showcase`, which
-puts the broken draw in the portal through-view with a cellar lamp's light
-shaft as the visible victim. Park nearer the route's worst frame first: that
-exact pose is worth only ~0.08 mean / 237 px where the worst is thirty times
-larger.
+The packet tap has now been RUN, on hardware, on both assemblers at one
+parked pose, and it says what the defect costs: from an identical input (16
+meshes, 100 triangles either side) SCE's `clip_c` stages **37 triangles / 111
+GS vertices** and openvcl's stages **35 / 105**. Two triangles lost. The
+staged streams agree through the early packets and then diverge.
+
+So the question is no longer "is it real" or "which program" but **which clip
+decision goes the other way**. The fixture is recorded in
+docs/toolchain-image.md: parked pose, flush index 0, and the
+`--dump-vucap --full` diff. The next step is the variant method the earlier
+bisection used - neutralise one part of the edge-test path at a time in
+`stapip_clip_c_vu1.vclpp`, build BOTH assemblers with the same change, and
+find the variant where the two staged counts agree.
 
 Until it is fixed there is **no good console configuration on the native
 toolchain**: the EE clipper is not an escape hatch — it runs the `as_is_*`
