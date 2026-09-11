@@ -11469,11 +11469,34 @@ void TerrainGame::updateAndRenderBlobShadows() {
     const RuntimeObject& ro = runtimeObjects[b.objIndex];
     if (!ro.active || !ro.visible) continue;
     const SceneObjectData& d = ro.data;
-    const float cx = d.position[0], cz = d.position[2];
+    float cx = d.position[0], cz = d.position[2];
+    float halfY = d.scale[1] * 0.5F;
+    float r = d.scale[0] > d.scale[2] ? d.scale[0] : d.scale[2];
+    r = r * 0.75F + 0.2F;
+    // A model is not a unit cube. Vehicles make the mismatch especially
+    // obvious: their instance scale is usually 1..1.5 while the body is four
+    // units long, which produced a tiny blob between the axles. Use the loaded
+    // model's real bounds and rotate its off-centre origin with the object.
+    if (d.model >= 0 && d.model < (int)gameModels.size() &&
+        !gameModels[d.model].parts.empty()) {
+      const GameModel& gm = gameModels[d.model];
+      const float sx = d.scale[0] < 0.0F ? -d.scale[0] : d.scale[0];
+      const float sy = d.scale[1] < 0.0F ? -d.scale[1] : d.scale[1];
+      const float sz = d.scale[2] < 0.0F ? -d.scale[2] : d.scale[2];
+      const V3 off = rotated({0.5F * (gm.mn[0] + gm.mx[0]) * sx,
+                              0.0F,
+                              0.5F * (gm.mn[2] + gm.mx[2]) * sz},
+                             d.rotation);
+      cx += off.x;
+      cz += off.z;
+      const float hx = 0.5F * (gm.mx[0] - gm.mn[0]) * sx;
+      const float hz = 0.5F * (gm.mx[2] - gm.mn[2]) * sz;
+      r = sqrtf(hx * hx + hz * hz) * 0.9F + 0.12F;
+      halfY = -gm.mn[1] * sy;
+    }
     // Object base: the player entity sits at its feet, everything else is
     // centered (base = center - halfY).
-    const float halfY =
-        b.objIndex == PLAYER_INDEX ? 0.0F : d.scale[1] * 0.5F;
+    if (b.objIndex == PLAYER_INDEX) halfY = 0.0F;
     const float ground = terrainHeightAt(cx, cz);
     const float h = (d.position[1] - halfY) - ground;
     float fade = 1.0F - h * (1.0F / 3.0F);
@@ -11484,8 +11507,6 @@ void TerrainGame::updateAndRenderBlobShadows() {
     // on top of the low-sun window the silhouettes were already dark for.
     if (fade <= 0.02F) continue;
     if (fade > 1.0F) fade = 1.0F;
-    float r = d.scale[0] > d.scale[2] ? d.scale[0] : d.scale[2];
-    r = r * 0.75F + 0.2F;
     const float lift = 0.06F;
     b.verts[0] = Vec4(cx - r, terrainHeightAt(cx - r, cz + r) + lift, cz + r, 1.0F);
     b.verts[1] = Vec4(cx + r, terrainHeightAt(cx + r, cz + r) + lift, cz + r, 1.0F);
@@ -12027,6 +12048,34 @@ void TerrainGame::renderProjShadows() {
   // with what the alpha is about to say.
   const float sunScore = sunLow <= 0.0F ? 0.0F : SCENE_DIFFUSE * sunCol * sunLow;
 
+  // Centre and radius of the geometry the shadow camera actually renders.
+  // Primitive objects retain the historic scaled-unit-cube bound. Models use
+  // their loaded AABB, so long vehicles neither receive a postage-stamp shadow
+  // nor lose a slot to a much smaller object merely because both have scale 1.
+  auto casterSphere = [&](const RuntimeObject& o, int index, float& cx,
+                          float& cy, float& cz) -> float {
+    const SceneObjectData& d = o.data;
+    const float sx = d.scale[0] < 0.0F ? -d.scale[0] : d.scale[0];
+    const float sy = d.scale[1] < 0.0F ? -d.scale[1] : d.scale[1];
+    const float sz = d.scale[2] < 0.0F ? -d.scale[2] : d.scale[2];
+    cx = d.position[0], cy = d.position[1], cz = d.position[2];
+    if (d.model >= 0 && d.model < (int)gameModels.size() &&
+        !gameModels[d.model].parts.empty()) {
+      const GameModel& gm = gameModels[d.model];
+      const V3 off = rotated({0.5F * (gm.mn[0] + gm.mx[0]) * sx,
+                              0.5F * (gm.mn[1] + gm.mx[1]) * sy,
+                              0.5F * (gm.mn[2] + gm.mx[2]) * sz},
+                             d.rotation);
+      cx += off.x, cy += off.y, cz += off.z;
+      const float ex = (gm.mx[0] - gm.mn[0]) * sx;
+      const float ey = (gm.mx[1] - gm.mn[1]) * sy;
+      const float ez = (gm.mx[2] - gm.mn[2]) * sz;
+      return 0.5F * sqrtf(ex * ex + ey * ey + ez * ez) + 0.25F;
+    }
+    if (d.animModel >= 0 || index == PLAYER_INDEX) cy += sy * 0.5F;
+    return 0.5F * sqrtf(sx * sx + sy * sy + sz * sz) + 0.25F;
+  };
+
   // Candidates: every authored caster that is on and within the far cull.
   // Shadows fade out over the last 15 units of that reach (35..50), so
   // walking away from one dissolves it instead of switching it off.
@@ -12057,15 +12106,14 @@ void TerrainGame::renderProjShadows() {
       if (i >= (int)runtimeObjects.size()) continue;
       const RuntimeObject& o = runtimeObjects[i];
       if (!o.active || !o.visible) continue;
-      const float dx = o.data.position[0] - cameraPosition.x;
-      const float dy = o.data.position[1] - cameraPosition.y;
-      const float dz = o.data.position[2] - cameraPosition.z;
+      float ccx, ccy, ccz;
+      const float r = casterSphere(o, i, ccx, ccy, ccz);
+      const float dx = ccx - cameraPosition.x;
+      const float dy = ccy - cameraPosition.y;
+      const float dz = ccz - cameraPosition.z;
       const float d2 = dx * dx + dy * dy + dz * dz;
       if (d2 > PROJ_SHADOW_DISTANCE * PROJ_SHADOW_DISTANCE) continue;
       // The same bounding radius the slot below sizes its frustum by.
-      const float sxs = o.data.scale[0], sys = o.data.scale[1],
-                  szs = o.data.scale[2];
-      const float r = 0.5F * sqrtf(sxs * sxs + sys * sys + szs * szs) + 0.25F;
       // Margin: a radius and a half. The patch's full reach (3.5 radii) let
       // a tree at scale 3 five units BEHIND the camera stay a candidate -
       // the yard's log, again - and a caster you cannot see holding one of
@@ -12255,21 +12303,8 @@ void TerrainGame::renderProjShadows() {
     // that for free by walking past such a caster to the next candidate.
     ++sl.barren;
     RuntimeObject& o = runtimeObjects[i];
-    // Caster bounding sphere: half-diagonal of the scaled unit cube, and
-    // the center lifted for feet-anchored things (anim models, the player).
-    // The REAL half-diagonal, not 0.87 * the largest axis - identical for a
-    // uniform scale (0.5*sqrt(3) = 0.866) but a third smaller on a wall-like
-    // caster, which used to hand the light camera a frustum sized for a cube
-    // it is not and waste most of the 64x64 slot on empty margin.
-    const float sxs = o.data.scale[0], sys = o.data.scale[1],
-                szs = o.data.scale[2];
-    const float r =
-        0.5F * sqrtf(sxs * sxs + sys * sys + szs * szs) + 0.25F;
-    const float liftY =
-        (o.data.animModel >= 0 || i == PLAYER_INDEX) ? o.data.scale[1] * 0.5F
-                                                     : 0.0F;
-    const float cx = o.data.position[0], cy = o.data.position[1] + liftY,
-                cz = o.data.position[2];
+    float cx, cy, cz;
+    const float r = casterSphere(o, i, cx, cy, cz);
 
     // A statically batched caster owns no solo bag - its geometry lives only
     // in the merged batch - so the silhouette pass had nothing to submit and

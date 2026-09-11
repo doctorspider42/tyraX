@@ -23,6 +23,15 @@ the matte trim off the paint (reflection is per part), and lamp materials
 become one fullbright `lamps` part the runtime recolours per instance. The
 reference car with both is **four**.
 
+Each placed vehicle also has **Properties > Rendering > Dynamic shadow**:
+**Projected silhouette** is the higher-quality choice for the player's car,
+while **Blob** is the low-cost choice for AI traffic. The selection belongs to
+the placed instance, not the shared vehicle definition, so one CC96 can be the
+projected hero and twenty CC96 rivals can use blobs. Both use the imported
+body's actual bounds for their footprint/framing and follow player-driven and
+AI-driven transforms. See [shadows.md](shadows.md) for the four projected-slot
+budget and the project-default behaviour.
+
 Rebuilding four wheels' worth of vertices per frame on the EE sounds expensive
 and is not: a decimated wheel is a few hundred vertices, and the transform is
 VU0 macro-mode work measured in microseconds against the millisecond a second

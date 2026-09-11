@@ -16,6 +16,13 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.82.0 (vehicle shadows): Vehicle properties expose the same None / Blob /
+// Projected silhouette choice as ordinary geometry. Blob footprint and
+// projected-shadow framing use a loaded model's real bounds instead of its
+// unit-cube transform, so cars get full-body shadows and compete fairly for
+// the four projected slots. FEATURE: no project-format change; shadowMode was
+// already serialized for every scene object.
+//
 // 1.81.4 (exact road projection + surface picking): terrain height queries now
 // interpolate the same two triangles that are rendered instead of a bilinear
 // saddle. Roads sample at 1.0 x 0.5 units with a 0.12 lift, and their final
@@ -3536,8 +3543,8 @@
 // 1.78.0: editor comments pinned to scenes.
 // 1.79.0: merge native PS2DEV/OpenVCL builds with editor comments.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 81
-#define TYRAX_VERSION_PATCH 4
+#define TYRAX_VERSION_MINOR 82
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

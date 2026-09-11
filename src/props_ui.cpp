@@ -93,6 +93,54 @@ static const char* typeLabel(PrimitiveType t) {
     return "Object";
 }
 
+// The runtime shadow choice is shared by ordinary geometry and vehicles.
+// Keep it in one widget so exposing it on a new renderable type cannot leave
+// that type with a subtly different set of choices or help text.
+static bool drawDynamicShadowControls(SceneObject& o) {
+    bool changed = false;
+    const char* shadowNames[] = {"Default (follow the project)", "None",
+                                 "Blob (soft quad)",
+                                 "Projected silhouette"};
+    int mode = o.shadowMode;
+    if (mode < 0 || mode > 3) mode = 0;
+    if (ImGui::Combo("Dynamic shadow", &mode, shadowNames, 4)) {
+        o.shadowMode = mode;
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "What this object casts while the game runs.\n"
+            "DEFAULT - the project decides: a blob under the moving\n"
+            "things (avatar, animated models, physics) if Preferences\n"
+            "has blob shadows on, plus the silhouette below if it is\n"
+            "ticked.\n"
+            "NONE - nothing, whatever the project says.\n"
+            "BLOB - one soft dark quad that follows the ground under\n"
+            "it. Cheap enough for traffic and crowds; it has no shape\n"
+            "of its own.\n"
+            "PROJECTED - the real silhouette: the object renders a\n"
+            "second time each frame (64x64, from the sun). The 4\n"
+            "casters largest on screen are active at a time, so use it\n"
+            "for the player's car and other hero objects.\n"
+            "Game-only (no preview). 'Cast shadow' is the BAKED, static\n"
+            "shadow - a different thing entirely.");
+    // The old flag still means "projected" while the mode follows the
+    // project, so it stays reachable for existing projects.
+    if (o.shadowMode == 0) {
+        if (ImGui::Checkbox("Projected shadow (live)", &o.projShadow))
+            changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "The project-default form of the choice above. Pick\n"
+                "\"Projected silhouette\" in the combo to say it on the\n"
+                "object instead.\n"
+                "With a GI bake a static object's sun shadow is already\n"
+                "baked: the live one then draws only while the day/night\n"
+                "clock runs or under a torch. The combo forces it.");
+    }
+    return changed;
+}
+
 // Area reference picker (docs/areas.md): the scene's Area objects plus
 // <none>. Used for a catch area (Mirror / Portal / feed Camera) and for a
 // streaming layer's zone; a dangling name shows in red so a deleted area is
@@ -442,6 +490,10 @@ void App::drawPropertiesWindow() {
                 "corners (invisible, no collider). Empty = parked until the\n"
                 "player takes it. The player taking THIS car pauses its AI.");
         }
+        ImGui::SeparatorText("Rendering");
+        if (drawDynamicShadowControls(o)) committed = true;
+        ImGui::TextDisabled(
+            "Blob suits traffic; projected silhouette suits the hero car.");
     }
     if (o.type == PrimitiveType::Model) {
         // model file: pick among the project's res/models assets
@@ -998,58 +1050,8 @@ void App::drawPropertiesWindow() {
                 "only; check reflections in the game.");
 
         // THE RUNTIME shadow, distinct from the baked ambient-occlusion
-        // "Cast shadow" below - and a choice per object rather than a
-        // project-wide one (docs/shadows.md): a blob is one soft quad that
-        // costs almost nothing and has no shape, a projected silhouette is a
-        // second 64x64 render of this object every frame. "Default" is what
-        // every project did before the choice existed, so an untouched object
-        // behaves exactly as it always has.
-        {
-            const char* shadowNames[] = {"Default (follow the project)",
-                                         "None", "Blob (soft quad)",
-                                         "Projected silhouette"};
-            int mode = o.shadowMode;
-            if (mode < 0 || mode > 3) mode = 0;
-            // A real label rather than "##dynshadow" plus a SameLine caption:
-            // it is the idiom the rest of these panels use, and a hidden label
-            // is a widget no UI script can name (docs/ui-scripting.md).
-            if (ImGui::Combo("Dynamic shadow", &mode, shadowNames, 4)) {
-                o.shadowMode = mode;
-                committed = true;
-            }
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "What this object casts while the game runs.\n"
-                    "DEFAULT - the project decides: a blob under the moving\n"
-                    "things (avatar, animated models, physics) if Preferences\n"
-                    "has blob shadows on, plus the silhouette below if it is\n"
-                    "ticked.\n"
-                    "NONE - nothing, whatever the project says.\n"
-                    "BLOB - one soft dark quad that follows the ground under\n"
-                    "it. Cheap enough for a crowd, and it works on a static\n"
-                    "prop too; it has no shape of its own.\n"
-                    "PROJECTED - the real silhouette: the object renders a\n"
-                    "second time each frame (64x64, from the sun) and the\n"
-                    "shape is projected under it. The 4 casters nearest the\n"
-                    "camera are active at a time, so mark hero objects.\n"
-                    "Game-only (no preview). 'Cast shadow' below is the\n"
-                    "BAKED, static one - a different thing entirely.");
-            // The old flag still means "projected" while the mode follows the
-            // project, so it stays reachable - and stays the thing every
-            // existing .tyra carries.
-            if (o.shadowMode == 0) {
-                if (ImGui::Checkbox("Projected shadow (live)", &o.projShadow))
-                    committed = true;
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
-                        "The project-default form of the choice above. Pick\n"
-                        "\"Projected silhouette\" in the combo to say it on the\n"
-                        "object instead.\n"
-                        "With a GI bake a static object's sun shadow is already\n"
-                        "baked: the live one then draws only while the day/night\n"
-                        "clock runs or under a torch. The combo forces it.");
-            }
-        }
+        // "Cast shadow" below (docs/shadows.md).
+        if (drawDynamicShadowControls(o)) committed = true;
         // Baked ambient occlusion: whether this object darkens nearby
         // terrain/objects (docs/ambient-occlusion.md; global strength in
         // the Ambience Editor).
