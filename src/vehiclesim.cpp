@@ -29,6 +29,37 @@ float approach(float v, float target, float rate) {
     return std::max(target, v - rate);
 }
 
+// Canonical vehicle local -> world-vector rotation. The order and signs are
+// the generated runtime's rotated(): body pitch is positive nose-up in the
+// simulation but negative X rotation in the renderer, likewise body roll.
+void rotateVehicleLocal(float x, float y, float z, float pitch, float yaw,
+                        float roll, float out[3]) {
+    const float rx = -pitch * kDeg2Rad;
+    const float ry = yaw * kDeg2Rad;
+    const float rz = -roll * kDeg2Rad;
+    {
+        const float c = std::cos(rx), s = std::sin(rx);
+        const float yy = y * c - z * s, zz = y * s + z * c;
+        y = yy;
+        z = zz;
+    }
+    {
+        const float c = std::cos(ry), s = std::sin(ry);
+        const float xx = x * c + z * s, zz = -x * s + z * c;
+        x = xx;
+        z = zz;
+    }
+    {
+        const float c = std::cos(rz), s = std::sin(rz);
+        const float xx = x * c - y * s, yy = x * s + y * c;
+        x = xx;
+        y = yy;
+    }
+    out[0] = x;
+    out[1] = y;
+    out[2] = z;
+}
+
 std::string lower(std::string s) {
     for (char& c : s)
         if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a');
@@ -514,15 +545,22 @@ float safeShiftDownFrac(const DriveSpec& s) {
 // an exporter's opinion about axes again.
 
 void wheelAnchors(const DriveSpec& spec, const DriveState& state, float out[4][3]) {
-    const float c = std::cos(state.yaw * kDeg2Rad), s = std::sin(state.yaw * kDeg2Rad);
     const float hx = 0.5f * spec.track, hz = 0.5f * spec.wheelBase;
     // FL, FR, RL, RR - Detection::wheels order.
     const float local[4][2] = {{-hx, hz}, {hx, hz}, {-hx, -hz}, {hx, -hz}};
+    float up[3];
+    rotateVehicleLocal(0.0f, 1.0f, 0.0f, state.pitch + state.leanPitch,
+                       state.yaw, state.roll + state.leanRoll, up);
     for (int i = 0; i < 4; ++i) {
-        const float lx = local[i][0], lz = local[i][1];
-        out[i][0] = state.pos[0] + lx * c + lz * s;
-        out[i][1] = state.pos[1];
-        out[i][2] = state.pos[2] - lx * s + lz * c;
+        float hard[3];
+        rotateVehicleLocal(local[i][0], 0.0f, local[i][1],
+                           state.pitch + state.leanPitch, state.yaw,
+                           state.roll + state.leanRoll, hard);
+        const float travel =
+            (state.wheelCompress[i] - 0.5f) * 2.0f * spec.suspensionTravel;
+        out[i][0] = state.pos[0] + hard[0] + up[0] * travel;
+        out[i][1] = state.pos[1] + hard[1] + up[1] * travel;
+        out[i][2] = state.pos[2] + hard[2] + up[2] * travel;
     }
 }
 
@@ -577,7 +615,13 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
     // the roll from one query each - which is the whole reason a heightfield
     // vehicle is affordable at all.
     float anchors[4][3];
-    wheelAnchors(spec, state, anchors);
+    // Contact sampling uses the physical chassis attitude but neutral
+    // suspension. Cosmetic weight transfer and last frame's compression must
+    // not feed back into the ground plane they are derived from.
+    DriveState contactPose = state;
+    contactPose.leanPitch = contactPose.leanRoll = 0.0f;
+    for (float& c : contactPose.wheelCompress) c = 0.5f;
+    wheelAnchors(spec, contactPose, anchors);
     float gy[4];
     float sum = 0.0f;
     bool anyGround = false;
@@ -589,7 +633,30 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
         sum += gy[i];
     }
     const float planeY = sum * 0.25f;
-    const float restY = planeY + spec.rideHeight;
+    float restY = planeY + spec.rideHeight;
+    float bodyFloorY = -1e9f;
+    // Wheels define the contact plane, but the body extends beyond both axle
+    // lines. On a sharp crest the wheel plane can be valid while the bumper or
+    // bonnet is already underground. Six cheap clearance probes lift only the
+    // sprung body; steering and traction still come from the four tyres.
+    if (height) {
+        const float hx = spec.track * 0.42f;
+        const float hz = 0.5f * spec.wheelBase +
+                         std::max(spec.bodyOverhang, 0.0f);
+        const float px[6] = {0.0f, -hx, hx, 0.0f, -hx, hx};
+        const float pz[6] = {hz, hz, hz, -hz, -hz, -hz};
+        for (int i = 0; i < 6; ++i) {
+            float off[3];
+            rotateVehicleLocal(px[i], -0.65f * spec.rideHeight, pz[i],
+                               state.pitch, state.yaw, state.roll, off);
+            const float floor = height(state.pos[0] + off[0],
+                                       state.pos[2] + off[2]);
+            if (floor <= -1e5f) continue;
+            const float need = floor - off[1] + 0.03f;
+            bodyFloorY = std::max(bodyFloorY, need);
+            if (need > restY) restY = need;
+        }
+    }
 
     // THE SPRUNG RIG. The body used to snap to the plane (pos[1] = restY
     // instantly) with the attitude chasing its target at a fixed rate - and
@@ -633,7 +700,8 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
             // The spring may not put the body UNDER the ground plane by more
             // than the suspension has travel - a cliff-base slam bottoms out
             // against a hard floor instead of clipping through it.
-            const float floorY = restY - spec.suspensionTravel;
+            const float floorY = std::max(restY - spec.suspensionTravel,
+                                          bodyFloorY);
             if (state.pos[1] < floorY) {
                 state.pos[1] = floorY;
                 if (state.velY < 0.0f) state.velY = 0.0f;
@@ -685,7 +753,8 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
             // SPRING absorbs it over the next frames - no snap to the plane
             // and no instant velY kill, which used to slam a jump flat in
             // one frame. Only the hard floor holds.
-            const float floorY = restY - spec.suspensionTravel;
+            const float floorY = std::max(restY - spec.suspensionTravel,
+                                          bodyFloorY);
             if (state.pos[1] < floorY) {
                 state.pos[1] = floorY;
                 if (state.velY < 0.0f) state.velY = 0.0f;

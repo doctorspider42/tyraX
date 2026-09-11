@@ -333,10 +333,10 @@ void step(const DriveSpec& spec, const DriveInput& in, float dt,
           const HeightFn& height, DriveState& state, const SolidFn& solid = {},
           float scale = 1.0f);
 
-// The four wheel anchors in WORLD space for the current state, in the same
-// order as Detection::wheels. The viewport preview and the generated runtime
-// both place their wheel geometry with this, so neither can invent a position
-// the other does not use.
+// The four wheel centres in WORLD space for the current visual state, in the
+// same order as Detection::wheels. Full body pitch/roll, cosmetic lean and
+// suspension displacement are applied; the generated runtime uses the same
+// hardpoint + body-up construction for its separately batched wheel geometry.
 void wheelAnchors(const DriveSpec& spec, const DriveState& state, float out[4][3]);
 
 }  // namespace vehiclesim

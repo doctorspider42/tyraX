@@ -255,16 +255,23 @@ everything else a scene does.
   steering and the tyres for a frame. Held as a `--vehicle-check` property:
   full throttle across a washboard of sharp ridges keeps the per-frame
   height step under 0.3, the attitude sane and the pace up.
+- **The four wheels are an analytic rig, not IK.** Each hardpoint is transformed
+  by the chassis' full pitch/yaw/roll attitude, then its suspension displacement
+  runs along the transformed chassis-up axis. The separately batched wheel mesh
+  gets spin, steering and that same full body attitude in the same order. The
+  previous runtime transformed body vertices in all three axes but placed wheel
+  X/Z with yaw only; on a crest the wheel arch and wheel were literally in two
+  different coordinate frames. Six extra terrain probes under the front and
+  rear body overhangs now provide a hard clearance floor, so a valid four-tyre
+  contact plane cannot put the bonnet or bumper through a sharp crest.
 - **Suspension compression is presentation**, derived from each wheel's ground
   height against the *tilted* chassis plane — the residual the pitch and roll do
-  not already express. On the console the wheel bag actually DRAWS it: each hub
-  rides one radius above its own wheel's sampled ground, clamped
-  **asymmetrically** — 45% of `suspensionTravel` in droop, while upward travel
-  is capped by both 10% of suspension travel and 6% of tyre radius. The old 30%
-  travel-only cap let a scaled hub move roughly 23% of its radius into the
-  vehicle playground's tight arch. The arch height now comes from the body's
-  full pitch/yaw/roll transform too, rather than independent sine offsets that
-  diverged when yaw and lean were both non-zero.
+  not already express. On the console each hub aims for one radius above its own
+  sampled ground, solved along chassis-up and clamped **asymmetrically** — 45% of
+  `suspensionTravel` in droop, while upward travel is capped by both 10% of
+  suspension travel and 6% of tyre radius. The old 30% travel-only cap let a
+  scaled hub move roughly 23% of its radius into the vehicle playground's tight
+  arch.
   A kerb still shoves a wheel up into the arch and a crest still shows daylight
   under a tyre, but a wheel hanging a whole travel below the body read as
   falling off the car, which is exactly how it was reported. The
@@ -273,8 +280,9 @@ everything else a scene does.
   ground-stuck wheels opened daylight at the arches on flat ground (4° of squat
   over the front overhang is ~0.11 units of gap). Each hub adds the body
   plane's fully rotated offset at its own anchor; the tyre still starts from
-  its own ground sample, and only the arch-safe clamp corrects it. (The editor's
-  preview keeps the wheels at ride height — a known, stated divergence.) Measured against the mean instead, a constant slope reads
+  its own ground sample, and only the arch-safe clamp corrects it. The editor
+  preview uses the same hardpoint-plus-body-up construction. Measured against
+  the mean instead, a constant slope reads
   as fully compressed at one axle and fully extended at the other while the body
   is in fact riding it level. Driving one wheel over a kerb gives
   `[0.40 0.60 0.60 0.40]`: the diagonal racking four springs actually produce.

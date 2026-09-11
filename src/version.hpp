@@ -16,6 +16,13 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.82.1 (analytic wheel rig): wheel contact hardpoints and rendered wheel
+// centres now inherit the chassis' full pitch/yaw/roll transform, suspension
+// travels along chassis-up instead of world Y, and six body-overhang probes
+// impose a hard terrain-clearance floor at sharp crests. The separately
+// batched wheels therefore stay in their arches without requiring a skeleton
+// or IK. PATCH: simulation and generated-runtime geometry fix only.
+//
 // 1.82.0 (vehicle shadows): Vehicle properties expose the same None / Blob /
 // Projected silhouette choice as ordinary geometry. Blob footprint and
 // projected-shadow framing use a loaded model's real bounds instead of its
@@ -3544,7 +3551,7 @@
 // 1.79.0: merge native PS2DEV/OpenVCL builds with editor comments.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 82
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

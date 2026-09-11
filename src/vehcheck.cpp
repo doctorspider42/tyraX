@@ -342,6 +342,65 @@ void roughRide() {
     verdict(st.pos[2] > 350.0f, "the car keeps its pace across the ridges");
 }
 
+// 8. THE ANALYTIC FOUR-WHEEL RIG: wheel hardpoints are rigid children of the
+//    full chassis attitude, suspension moves along chassis-up rather than
+//    world Y, and the body footprint cannot pass through a crest beyond the
+//    axle lines. These are geometry properties; no skeleton or IK is involved.
+void analyticWheelRig() {
+    std::printf("-- analytic four-wheel rig --\n");
+    DriveSpec s;
+    s.wheelBase = 2.4f;
+    s.track = 1.5f;
+    s.suspensionTravel = 0.4f;
+    DriveState st;
+    st.pos[0] = 3.0f;
+    st.pos[1] = 4.0f;
+    st.pos[2] = 5.0f;
+    st.pitch = 18.0f;
+    st.yaw = 37.0f;
+    st.roll = -12.0f;
+    float neutral[4][3], compressed[4][3];
+    wheelAnchors(s, st, neutral);
+    for (float& c : st.wheelCompress) c = 0.8f;
+    wheelAnchors(s, st, compressed);
+    auto dist = [](const float a[3], const float b[3]) {
+        const float x = a[0] - b[0], y = a[1] - b[1], z = a[2] - b[2];
+        return std::sqrt(x * x + y * y + z * z);
+    };
+    const float frontTrack = dist(neutral[0], neutral[1]);
+    const float leftBase = dist(neutral[0], neutral[2]);
+    float worstTravel = 0.0f;
+    for (int i = 0; i < 4; ++i)
+        worstTravel = std::max(
+            worstTravel,
+            std::fabs(dist(neutral[i], compressed[i]) - 0.6f * s.suspensionTravel));
+    std::printf("  rigid track %.3f, base %.3f, suspension error %.6f\n",
+                frontTrack, leftBase, worstTravel);
+    verdict(std::fabs(frontTrack - s.track) < 1e-4f &&
+                std::fabs(leftBase - s.wheelBase) < 1e-4f,
+            "full-attitude hardpoints preserve track and wheelbase");
+    verdict(std::fabs(neutral[0][1] - neutral[3][1]) > 0.1f,
+            "pitch and roll move wheel centres vertically with their arches");
+    verdict(worstTravel < 1e-4f,
+            "suspension displacement follows chassis-up at authored travel");
+
+    DriveSpec crestSpec;
+    crestSpec.wheelBase = 2.4f;
+    crestSpec.bodyOverhang = 0.8f;
+    crestSpec.rideHeight = 0.5f;
+    crestSpec.suspensionTravel = 0.3f;
+    auto crest = [](float, float z) {
+        return z > 1.8f && z < 2.2f ? 1.0f : 0.0f;
+    };
+    DriveState crestState;
+    crestState.pos[1] = crestSpec.rideHeight;
+    step(crestSpec, {}, 1.0f / 50.0f, crest, crestState);
+    std::printf("  sharp-crest body y %.3f (clearance floor 1.355)\n",
+                crestState.pos[1]);
+    verdict(crestState.pos[1] >= 1.354f,
+            "body overhang cannot pass through a crest beyond the axles");
+}
+
 }  // namespace
 
 int run() {
@@ -353,6 +412,7 @@ int run() {
     lean();
     hill();
     roughRide();
+    analyticWheelRig();
     if (failures) {
         std::printf("vehicle-check: %d FAILURE(S)\n", failures);
         return 1;

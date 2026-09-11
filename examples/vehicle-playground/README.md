@@ -17,6 +17,10 @@ worked example for [vehicles](../../docs/vehicles.md).
   and a jump ridge along the western half. Every slope stays under the ~22 deg
   the car can climb at full power except the bowl's wall, which is meant to be
   ridden around, not up.
+- **An analytic four-wheel rig** keeps the separate wheel meshes attached to
+  fully transformed body hardpoints and moves suspension along body-up. The
+  dunes and jump ridge exercise the extra body-overhang clearance probes: the
+  bonnet cannot cut through a crest even though there is no skeletal IK rig.
 - **Perimeter walls** at ±152, so the wall collision has something to do — hit
   one at an angle and the car GRINDS along it, scrubbing speed by impact angle;
   head-on stops.

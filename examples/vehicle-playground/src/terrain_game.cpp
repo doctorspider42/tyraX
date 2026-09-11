@@ -16050,7 +16050,6 @@ void TerrainGame::updateVehicles(float dt) {
 
     // Ground: four height samples under the wheel anchors. They give the
     // ride height, the pitch and the roll from one query each.
-    const float cy = cosf(v.yaw * kDeg), sy = sinf(v.yaw * kDeg);
     const float hx = 0.5F * s.track * SC, hz = 0.5F * s.wheelBase * SC;
     const float lx[4] = {-hx, hx, -hx, hx};
     const float lz[4] = {hz, hz, -hz, -hz};
@@ -16168,9 +16167,15 @@ void TerrainGame::updateVehicles(float dt) {
     }
     float gy[4];
     float sum = 0.0F;
+    // The four contact hardpoints follow the PHYSICAL chassis attitude in all
+    // three axes. The previous X/Z positions used yaw only, while the body
+    // pitched and rolled around them; on a crest the arch and its wheel were
+    // therefore sampling two different pieces of ground.
+    const float contactRot[3] = {-v.pitch, v.yaw, -v.roll};
     for (int w = 0; w < 4; ++w) {
-      const float wx = v.pos[0] + lx[w] * cy + lz[w] * sy;
-      const float wz = v.pos[2] - lx[w] * sy + lz[w] * cy;
+      const V3 hard = rotated({lx[w], 0.0F, lz[w]}, contactRot);
+      const float wx = v.pos[0] + hard.x;
+      const float wz = v.pos[2] + hard.z;
       gy[w] = terrainHeightAt(wx, wz);
       // The wheel RIDES an object floor when one is higher than the terrain
       // under it - a platform, a ramp prop, generated prefab geometry. This
@@ -16201,7 +16206,29 @@ void TerrainGame::updateVehicles(float dt) {
       sum += gy[w];
     }
     const float planeY = sum * 0.25F;
-    const float restY = planeY + s.rideHeight * SC;
+    float restY = planeY + s.rideHeight * SC;
+    float bodyFloorY = -1e9F;
+    // The tyres end at the axle lines, the BODY does not. Six footprint
+    // probes under the front/rear overhangs stop a valid four-wheel plane
+    // from putting the bonnet through a sharp road crest. They lift only the
+    // sprung body; tyre grip and steering still come from the four contacts.
+    {
+      const float chx = s.track * SC * 0.42F;
+      const float chz = (0.5F * s.wheelBase +
+                         (s.bodyOverhang > 0.0F ? s.bodyOverhang : 0.0F)) * SC;
+      const float px[6] = {0.0F, -chx, chx, 0.0F, -chx, chx};
+      const float pz[6] = {chz, chz, chz, -chz, -chz, -chz};
+      for (int k = 0; k < 6; ++k) {
+        const V3 off = rotated(
+            {px[k], -0.65F * s.rideHeight * SC, pz[k]}, contactRot);
+        const float floor = terrainHeightAt(v.pos[0] + off.x,
+                                            v.pos[2] + off.z);
+        if (floor <= TERRAIN_VOID_Y * 0.5F) continue;
+        const float need = floor - off.y + 0.03F;
+        if (need > bodyFloorY) bodyFloorY = need;
+        if (need > restY) restY = need;
+      }
+    }
     // THE SPRUNG RIG - the host twin's exact arrangement (vehiclesim.cpp,
     // "THE SPRUNG RIG" - change one, change both). The body used to SNAP to
     // the plane while a rate-limited attitude hung mid-swing over every
@@ -16226,7 +16253,8 @@ void TerrainGame::updateVehicles(float dt) {
                    2.0F * zeta * wn * (v.velY - planeVel)) *
                   dt;
         v.pos[1] += v.velY * dt;
-        const float floorY = restY - s.suspensionTravel * SC;
+        const float sprungFloor = restY - s.suspensionTravel * SC;
+        const float floorY = sprungFloor > bodyFloorY ? sprungFloor : bodyFloorY;
         if (v.pos[1] < floorY) {
           v.pos[1] = floorY;
           if (v.velY < 0.0F) v.velY = 0.0F;
@@ -16276,7 +16304,8 @@ void TerrainGame::updateVehicles(float dt) {
         // Touchdown: keep the fall speed - the heave spring absorbs it over
         // the next frames (no snap, no one-frame slam). Only the hard floor
         // holds.
-        const float floorY = restY - s.suspensionTravel * SC;
+        const float sprungFloor = restY - s.suspensionTravel * SC;
+        const float floorY = sprungFloor > bodyFloorY ? sprungFloor : bodyFloorY;
         if (v.pos[1] < floorY) {
           v.pos[1] = floorY;
           if (v.velY < 0.0F) v.velY = 0.0F;
@@ -17350,7 +17379,6 @@ void TerrainGame::renderVehicleWheels() {
     }
     src = &part;
     const float SC = v.scale;
-    const float cy = cosf(v.yaw * kDeg), sy = sinf(v.yaw * kDeg);
     const float hx = 0.5F * s.track * SC, hz = 0.5F * s.wheelBase * SC;
     const float lx[4] = {-hx, hx, -hx, hx};
     const float lz[4] = {hz, hz, -hz, -hz};
@@ -17361,56 +17389,45 @@ void TerrainGame::renderVehicleWheels() {
       const float cs = cosf(st), ss = sinf(st);
       const float sp = v.wheelSpin * kDeg;
       const float cp = cosf(sp), spn = sinf(sp);
-      const float ax = v.pos[0] + lx[w] * cy + lz[w] * sy;
-      const float az = v.pos[2] - lx[w] * sy + lz[w] * cy;
       // The hub follows ITS OWN wheel's ground - one radius above it - and
       // the travel clamp keeps it inside the arch. This is the computed
       // suspension finally reaching the screen: over a crest the outer pair
       // drops, over a kerb one corner rides up, and in the air all four hang
       // at full droop. rideHeight = wheelRadius keeps the flat-ground case
       // exactly where it always was.
-      float ay = v.wheelY[w] + s.wheelRadius * SC;
-      // Clamp against the ARCH, which lives on the TILTED body plane - the
-      // FULL rotation, terrain pitch and cosmetic lean alike. The window was
-      // centred on the flat pos[1] at first and that broke twice, each end
-      // separately: the cosmetic lean rotated the arches off ground-stuck
-      // wheels on FLAT ground (daylight at a corner exit), and on a real
-      // CLIMB the front arch rides ~0.4 above the centre - past any sane
-      // window around pos[1] - so the wheels PINNED to the clamp, the front
-      // pair sank into the slope and the rear pair floated over the deck
-      // ("co sie odpierdala, jak sie pod gorke jedzie"). Measured from the
-      // plane, the clamp only bounds what suspension MAY express: the
-      // residual between a wheel's own sampled ground and the plane. The
-      // anchor below goes through rotated(), the exact function that builds
-      // the body's matrix basis, so its Euler order cannot drift from it.
-      //
-      // ASYMMETRIC: droop may still use 45% of the travel, but compression is
-      // capped by BOTH 10% of travel and 6% of tyre radius. The previous 30%
-      // travel cap let the example's scaled hub move 23% of its radius into a
-      // tight arch - mechanically plausible, visually a wheel through paint.
-      // The full rotated local anchor is used rather than independent pitch /
-      // roll sine terms, which diverged once yaw and lean were both non-zero.
+      // The suspension is a LINE in the body frame, not a world-Y slider:
+      // start at the fully transformed arch hardpoint and move along the
+      // body's local up until the tyre meets its sampled floor. This is the
+      // four-link analytic rig; no skeleton or IK is involved.
       const float bodyRot[3] = {-(v.pitch + v.leanPitch), v.yaw,
                                 -(v.roll + v.leanRoll)};
-      const V3 arch = rotated({lx[w], 0.0F, lz[w]}, bodyRot);
-      const float planeY = v.pos[1] + arch.y;
-      const float lo = planeY - s.suspensionTravel * SC * 0.45F;
+      const V3 hard = rotated({lx[w], 0.0F, lz[w]}, bodyRot);
+      const V3 up = rotated({0.0F, 1.0F, 0.0F}, bodyRot);
+      const float targetY = v.wheelY[w] + s.wheelRadius * SC;
+      float travel = up.y > 0.2F
+                         ? (targetY - (v.pos[1] + hard.y)) / up.y
+                         : 0.0F;
+      const float lo = -s.suspensionTravel * SC * 0.45F;
       const float hiTravel = s.suspensionTravel * SC * 0.10F;
       const float hiRadius = s.wheelRadius * SC * 0.06F;
-      const float hi = planeY + (hiTravel < hiRadius ? hiTravel : hiRadius);
-      if (ay < lo) ay = lo;
-      if (ay > hi) ay = hi;
+      const float hi = hiTravel < hiRadius ? hiTravel : hiRadius;
+      if (travel < lo) travel = lo;
+      if (travel > hi) travel = hi;
+      const float ax = v.pos[0] + hard.x + up.x * travel;
+      const float ay = v.pos[1] + hard.y + up.y * travel;
+      const float az = v.pos[2] + hard.z + up.z * travel;
       const u32 nv = (u32)(part.verts.size() / 8);
       for (u32 i = 0; i < nv; ++i) {
         const float* q = &part.verts[(size_t)i * 8];
-        // spin about X (the axle), then steer about Y, then the car's yaw
+        // spin about X (the axle), steer about Y, then the full body attitude
         const float y = q[1] * cp - q[2] * spn;
         const float z = q[1] * spn + q[2] * cp;
         const float x2 = q[0] * cs + z * ss;
         const float z2 = -q[0] * ss + z * cs;
-        const float wx = x2 * cy + z2 * sy;
-        const float wz = -x2 * sy + z2 * cy;
-        wheelVerts_.push_back(Tyra::Vec4(ax + wx * SC, ay + y * SC, az + wz * SC));
+        const V3 wheel = rotated({x2, y, z2}, bodyRot);
+        wheelVerts_.push_back(Tyra::Vec4(ax + wheel.x * SC,
+                                         ay + wheel.y * SC,
+                                         az + wheel.z * SC));
         // Flat mid grey: the wheel's colour comes from its palette TEXEL,
         // and 128 is the modulate identity the textured path expects.
         wheelCols_.push_back(Tyra::Color(128.0F, 128.0F, 128.0F, 128.0F));
