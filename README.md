@@ -206,8 +206,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   roads projected onto the terrain in both the editor and game, plus imported,
   budgeted cars with wheel suspension, gears, drifting and AI drivers.
 - **[NavMesh + NPC AI](docs/navigation-ai.md)** — baked on the host, A* on the EE.
-- **Cinematics** — the Cutscene Director, fed by keyframes or by a
-  [phone-recorded 6DoF take](docs/camera-takes.md) or the
+- **[Cinematics](docs/cutscenes.md)** — the Cutscene Director, fed by keyframes
+  or by a [phone-recorded 6DoF take](docs/camera-takes.md) or the
   [live phone viewfinder](docs/phone-camera.md).
 - **Input** — [named actions and rebinding](docs/input-bindings.md),
   [button glyphs in text](docs/text-icons.md), and

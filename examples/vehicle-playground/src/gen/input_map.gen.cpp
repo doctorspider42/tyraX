@@ -153,7 +153,7 @@ const char* const INPUT_CODE_LABELS[INPUT_CODE_COUNT] = {
     "F7", "F8", "F9", "F10", "F11", "F12",
     "Right", "Left", "Down", "Up", "Left Ctrl", "Left Shift",
     "Left Alt", "Right Ctrl", "Right Shift", "Right Alt", "Mouse Left", "Mouse Right",
-    "Mouse Middle", 
+    "Mouse Middle",
 };
 
 InputBind g_inputBind[INPUT_ACTION_COUNT] = {};

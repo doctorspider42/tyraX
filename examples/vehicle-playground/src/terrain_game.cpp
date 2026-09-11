@@ -2984,15 +2984,21 @@ void TerrainGame::loop() {
             Tyra::RendererCorePostFx::PassGrading);
       if (i == HUD_GRAIN_LAYER)
         engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassGrain);
-      if (scriptCtx.hudVisible && hudElemDrawn[i])
+      if (scriptCtx.hudVisible && !scriptCtx.hudSuppressed &&
+          hudElemDrawn[i])
         engine->renderer.renderer2D.render(hudSprites[i]);
     }
     // Live bars sit above the stack, under the prompts and texts.
-    if (scriptCtx.hudVisible) renderHudBars();
+    if (scriptCtx.hudVisible && !scriptCtx.hudSuppressed) renderHudBars();
     // Custom screen effects placed at the top of the stack (layer -1): drawn
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
+    // A "Hide HUD" cutscene also takes the USE prompt off. updateUseTarget
+    // already refuses to pick a target under it; this second gate is what
+    // covers the frame the flag goes UP, because that scan ran before the
+    // sequence player did (docs/cutscenes.md).
     renderVehicleHud();
-    if (useTargetIndex >= 0 || vehiclePrompt_ != 0) {
+    if ((useTargetIndex >= 0 || vehiclePrompt_ != 0) &&
+        !scriptCtx.hudSuppressed) {
       const bool pick =
           useTargetIndex >= 0 && runtimeObjects[useTargetIndex].data.pickable;
       const Sprite& prompt = pick ? pickPromptSprite : usePromptSprite;
@@ -6219,6 +6225,16 @@ void TerrainGame::updateUseTarget() {
   // Hands full: BTN_USE means "drop" (updateCarriedObject), so no use
   // targeting - and no prompt - while carrying.
   if (carryIndex >= 0) return;
+  // A "Hide HUD" cutscene suppresses the whole interaction, not just its
+  // prompt. Note this test runs from the PLAYER's camera and BEFORE the
+  // cutscene override is applied further down, so a cutscene changes nothing
+  // about it by itself: a player left standing in front of a usable prop -
+  // usually the one whose On Used started the cutscene - keeps the prompt on
+  // screen over the cinematic and can press it again. Tied to that flag and not
+  // to "a cutscene is playing", because a cutscene that animates something
+  // while the player keeps the camera must keep USE working
+  // (docs/cutscenes.md).
+  if (scriptCtx.hudSuppressed) return;
 
   Vec4 dir = cameraLookAt - cameraPosition;
   const float dirLen = sqrtf(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
@@ -7054,24 +7070,49 @@ bool TerrainGame::updateGameMenu() {
   auto pausing = [&] {
     return gameMenuIndex >= 0 && MENUS[gameMenuIndex].pause != 0;
   };
+  // Opening a menu from scratch: one sequence, three callers (a queued
+  // openMenu, the pause toggle, the cutscene skip confirmation below). The
+  // grace counter is pad-garbage protection - see updateSaveMenu.
+  auto enterMenu = [&](int target) {
+    gameMenuIndex = target;
+    gameMenuCursor = 0;
+    gameMenuScroll = 0;
+    gameMenuOpenT = 0.0F;
+    gameMenuClock = 0.0F;
+    gameMenuScrollShown = 0.0F;
+    gameMenuCursorRow = -1;
+    gameMenuStackDepth = 0;
+    gameMenuGrace = 15;
+    menuRebindRow = -1;
+    useTargetIndex = -1;
+  };
 
   if (scriptCtx.openMenu >= 0) {
     const int target = scriptCtx.openMenu;
     scriptCtx.openMenu = -1;
     if (target < MENU_COUNT && !saveMenuOpen && gameMenuIndex < 0) {
-      gameMenuIndex = target;
-      gameMenuCursor = 0;
-      gameMenuScroll = 0;
-      gameMenuOpenT = 0.0F;
-      gameMenuClock = 0.0F;
-      gameMenuScrollShown = 0.0F;
-      gameMenuCursorRow = -1;
-      gameMenuStackDepth = 0;
-      gameMenuGrace = 15;  // pad-garbage grace (see updateSaveMenu)
-      menuRebindRow = -1;
-      useTargetIndex = -1;
+      enterMenu(target);
       return pausing();
     }
+  }
+
+  // A skippable cutscene OWNS the "menu" action for its duration
+  // (docs/cutscenes.md). This has to come before the pause toggle below, and
+  // that ordering is the whole fix: a project with a pause menu could never
+  // skip a cutscene, because the press opened the menu, the open menu paused
+  // the scripts, and the director - which used to test the raw Start button
+  // itself - never ran to see it. One press does one thing.
+  if (gameMenuIndex < 0 && !saveMenuOpen && sequences::skippable() &&
+      inputClicked(engine->pad, IA_ROLE_MENU)) {
+    // Ask first, when the project designated a confirmation screen. With no
+    // such menu the mode falls back to skipping on the spot: swallowing the
+    // press and doing nothing would read as a broken button.
+    if (sequences::skipMode() == 1 && SKIP_MENU >= 0 && SKIP_MENU < MENU_COUNT) {
+      enterMenu(SKIP_MENU);
+      return pausing();
+    }
+    sequences::stop();
+    return false;
   }
 
   // The "menu" action toggles the pause menu: opens it during gameplay, closes
@@ -7079,17 +7120,7 @@ bool TerrainGame::updateGameMenu() {
   if (PAUSE_MENU >= 0 && !saveMenuOpen &&
       inputClicked(engine->pad, IA_ROLE_MENU)) {
     if (gameMenuIndex < 0) {
-      gameMenuIndex = PAUSE_MENU;
-      gameMenuCursor = 0;
-      gameMenuScroll = 0;
-      gameMenuOpenT = 0.0F;
-      gameMenuClock = 0.0F;
-      gameMenuScrollShown = 0.0F;
-      gameMenuCursorRow = -1;
-      gameMenuStackDepth = 0;
-      gameMenuGrace = 15;
-      menuRebindRow = -1;
-      useTargetIndex = -1;
+      enterMenu(PAUSE_MENU);
       return pausing();
     }
     if (gameMenuIndex == PAUSE_MENU && gameMenuStackDepth == 0 &&
@@ -7295,6 +7326,14 @@ bool TerrainGame::updateGameMenu() {
           gameMenuStackDepth = 0;
           credits::play(e.param);
         }
+        break;
+      case 13:  // confirm a cutscene skip: end it and close the menu. Anything
+        // that dismisses the menu instead (a Close row, "back") declines and
+        // the cutscene carries on from where it froze - so "no" needs no row
+        // action of its own (docs/cutscenes.md).
+        gameMenuIndex = -1;
+        gameMenuStackDepth = 0;
+        sequences::stop();
         break;
     }
   }
@@ -8143,7 +8182,13 @@ void TerrainGame::updateAndRenderHudTexts() {
       }
     }
     const int e = HUD_ELEM_TEXT0 + i;
-    if (e < (int)hudElemDrawn.size() && hudElemDrawn[e])
+    // A "Hide HUD" cutscene takes the baked texts with the rest of the HUD -
+    // but only the DRAWING: the auto-hide countdown above keeps running, or a
+    // text shown just before a cutscene would still be on screen after it
+    // (docs/cutscenes.md). Runtime text (Display Text) is deliberately not
+    // covered - that is where a cutscene's subtitles live.
+    if (e < (int)hudElemDrawn.size() && hudElemDrawn[e] &&
+        !scriptCtx.hudSuppressed)
       engine->renderer.renderer2D.render(hudTextSprites[i]);
   }
 }

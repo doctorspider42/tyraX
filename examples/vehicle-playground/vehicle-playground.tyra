@@ -1,7 +1,7 @@
 {
   "name": "vehicle-playground",
-  "formatVersion": 49,
-  "editorVersion": "1.82.1",
+  "formatVersion": 50,
+  "editorVersion": "1.83.0",
   "template": "fpp",
   "projectId": "99089f551e395d01",
   "settings": {
@@ -23,6 +23,7 @@
     "liveLogic": true,
     "timeMachine": true,
     "remotePad": true,
+    "inputRecorder": false,
     "keyboardMouse": false,
     "keyboardMousePs2Link": true,
     "disableVsync": false,

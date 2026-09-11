@@ -218,6 +218,9 @@ class TerrainGame : public Tyra::Game {
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
+    bool impostor = false; // visual representation only; data.model owns collision
+    bool impostorInitialized = false;
+    int impostorView = 0;
     // Physics fast path (awake bodies): parts hold LOCAL-space vertices
     // (scale baked in, shading frozen at the wake pose) and every
     // part.infoBag->model points at objMat, rebuilt from position/rotation
@@ -251,14 +254,16 @@ class TerrainGame : public Tyra::Game {
       // so an untextured mesh would render in the plain scene light color
       // (i.e. gray). This part's material albedo is folded into its own light
       // and ambient colors instead (outputColor = albedo * sceneLighting),
-      // matching how the editor viewport tints the .glb. Directions stay
-      // shared (animLightDirs); only the colors carry the per-part tint.
+      // matching how the editor viewport tints the .glb. Directions are
+      // owned by this part so pose-sharing instances retain independent GI.
       std::unique_ptr<Tyra::PipelineDirLightsBag> animLights;
       Tyra::Vec4 litColors[4];
+      Tyra::Vec4 litDirs[3];
     };
     std::vector<AnimPart> animParts;
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;
+    Tyra::M4x4 animLightMat;  // rotation/reflection only; scale is not light gain
     u32 animLastTick = 0;  // animLodTick of the last in-view frame; 0 = never
     // Usable-object highlight: terrain-hugging glow ring around the base,
     // built when first highlighted, cleared whenever the object rebuilds
@@ -318,6 +323,11 @@ class TerrainGame : public Tyra::Game {
     std::vector<GameModelPart> parts;  // empty = missing/unparseable model
     float mn[3] = {-0.5F, -0.5F, -0.5F};
     float mx[3] = {0.5F, 0.5F, 0.5F};
+    // Shadow proxy baked into the .tmdl (xyz per corner, under
+    // kShadowMeshMaxTris): the flashlight's shadow volumes extrude THIS when
+    // the real mesh is over budget, instead of the model's sub-boxes. Empty
+    // = cast from the real triangles (they fit) or the boxes.
+    std::vector<float> shadowVerts;
     Tyra::CollisionMesh collider;  // built only when a scene needs mesh mode
     std::vector<std::string> texPaths;  // texture-cache refs this model holds
   };
@@ -492,6 +502,11 @@ class TerrainGame : public Tyra::Game {
     int model = -1;    // gameModels index the vertices came from
     int part = 0;      // that model's material part = this bag's texture
     int material = -1; // primitives: gameMaterials index
+    // Roads (docs/roads.md): a chunk built by buildRoads holds its texture
+    // DIRECTLY - road surfaces come from a project texture, not from a
+    // model part or an .mtl. Owner is -3 for these, so a scene revisit can
+    // clear and rebuild them without touching merged geometry.
+    Tyra::Texture* roadTex = nullptr;
     std::vector<Tyra::Vec4> vertices;
     std::vector<Tyra::Color> colors;
     std::vector<Tyra::Vec4> sts;
@@ -651,6 +666,8 @@ class TerrainGame : public Tyra::Game {
   // RuntimeObject::spinRate and promotes spinners onto the per-object
   // matrix path so they cost no per-frame vertex re-bake.
   void updateSpinners();
+
+
   // Physics bodies in a walking player's path get shoved along the attempted
   // move (impulse scaled by 1/mass) and woken; called before collidePlayer so
   // a blocked step still transfers its push into the crate.
@@ -1155,6 +1172,28 @@ class TerrainGame : public Tyra::Game {
   std::vector<float> hudTextDur;         // ScriptContext::textDuration
   std::vector<unsigned char> hudTextOn;  // visible this frame
   std::vector<float> hudTextTimer;       // seconds left (0 = until hidden)
+  // Animated HUD (docs/hud-animation.md): every HUD element - images, texts,
+  // bars, in HUD_ELEM order - carries a show/hide transition, a one-shot
+  // effect slot and, for images and bars, its own visibility (texts keep
+  // hudTextOn). updateHudMotion poses every sprite for the frame from the
+  // baked placement plus the element's looped animation, and ticks the bars.
+  void updateHudMotion();
+  void renderHudBars();
+  float hudClock = 0.0F;                     // seconds since boot - the loop clock
+  std::vector<unsigned char> hudElemOn;      // images + bars: shown
+  std::vector<float> hudElemTrans;           // 0 = fully hidden .. 1 = fully shown
+  std::vector<unsigned char> hudElemDrawn;   // drawn this frame (after Blink/transition)
+  std::vector<signed char> hudElemReq;       // ScriptContext::hudElemRequest
+  std::vector<signed char> hudElemFxReq;     // ScriptContext::hudElemEffect
+  std::vector<float> hudElemFxSecReq;        // ScriptContext::hudElemEffectSec
+  std::vector<signed char> hudElemFx;        // running effect (0 = none)
+  std::vector<float> hudElemFxT, hudElemFxDur;
+  std::vector<float> hudBarValue;            // ScriptContext::hudBarValue (bar units)
+  std::vector<signed char> hudBarSet;        // ScriptContext::hudBarSet
+  std::vector<float> hudBarShown, hudBarGhost, hudBarHold;  // eased fill (fractions)
+  std::vector<Tyra::Sprite> hudBarFillSprites, hudBarFrameSprites;
+  std::vector<int> hudBarFillTexW, hudBarFillTexH;  // fill image size, for the crop
+  Tyra::Sprite hudBarQuad;                   // hud/loading-white.png, tinted per quad
   // Dynamic point lights (Set Light flow node), per scene-object index.
   std::vector<signed char> lightReq;     // ScriptContext::lightRequest
   std::vector<float> lightIntens;        // ScriptContext::lightIntensity
@@ -1216,16 +1255,28 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> wColorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> wTexBag;
     std::unique_ptr<Tyra::StaPipBag> wBag;
-    // Shadow volumes (FLASH_SHADOW_VOLUMES, docs/flashlight.md): the extruded
-    // occluder boxes, split by CAMERA facing. Front faces write destination
-    // alpha 0x80 where they are closer than the scene, back faces write 0
-    // where THEY are - two plain TestOnly draws inside the alpha-mask
-    // bracket, and the bit that survives is "this pixel is inside a volume".
+    // Shadow volumes (FLASH_SHADOW_VOLUMES, docs/flashlight.md): the
+    // silhouette-extruded volumes, split by CAMERA facing. With the count
+    // target up (alphaMask.countReady) front faces ADD +32 into it and back
+    // faces SUBTRACT it back - TestOnly vs the scene depth - and one resolve
+    // per caster ORs count>0 into the destination-alpha mask; without it the
+    // convex sub-box fallback writes the alpha bit directly (0x80 / 0).
     std::vector<Tyra::Vec4> volFront, volBack;
     Tyra::Color volSetColor, volClrColor;
-    std::unique_ptr<Tyra::StaPipInfoBag> volInfo;
+    std::unique_ptr<Tyra::StaPipInfoBag> volInfo, volClrInfo;
     std::unique_ptr<Tyra::StaPipColorBag> volSetBagC, volClrBagC;
     std::unique_ptr<Tyra::StaPipBag> volSetBag, volClrBag;
+    // The carving spot light's RECEIVER pass (docs/shadows.md): its light on
+    // the solids its cone touches, drawn a second time per pixel through the
+    // mask - the torch's wall pass on a scene lamp. Its own buffers, on the
+    // torch's pool like the volume buffers: one spot carves per frame.
+    std::vector<Tyra::Vec4> sWVerts, sWSts;
+    std::vector<Tyra::Color> sWColors;
+    Tyra::Color sWColor;
+    std::unique_ptr<Tyra::StaPipInfoBag> sWInfo;
+    std::unique_ptr<Tyra::StaPipColorBag> sWColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> sWTexBag;
+    std::unique_ptr<Tyra::StaPipBag> sWBag;
     Tyra::M4x4 mat;
     std::unique_ptr<Tyra::StaPipInfoBag> info;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
@@ -1291,6 +1342,30 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
     std::unique_ptr<Tyra::StaPipBag> bag;
+    // WHO this slot is showing, and how far its cross-dissolve has got.
+    // The set used to be re-derived from scratch every frame - "the four
+    // casters nearest the camera", sorted, nothing remembered - so two
+    // casters at nearly equal distance traded a slot frame to frame, and a
+    // caster that lost one went from full alpha to nothing between two
+    // frames. A slot is HELD now (renderProjShadows, "which four casters
+    // hold the slots"): `leaving` + `fade` are the hand-over dissolve,
+    // `want`/`wantFrames` the challenger that has to out-stay the
+    // hysteresis, `barren` how long the holder has drawn nothing.
+    int occupant = -1;
+    float fade = 0.0F;
+    bool leaving = false;
+    int barren = 0;
+    int want = -1;
+    int wantFrames = 0;
+    // ...and which LIGHT threw this slot's silhouette last frame, on the
+    // same terms: the source is picked by score, and a torch walking past a
+    // lamp crosses that line twice in a couple of steps - which swings the
+    // silhouette to the other side of the prop and back. 0 = the scene
+    // sun/moon, 1 = the player's torch, 2 = a placed light at lightPos.
+    bool lightHeld = false;
+    int lightKind = 0;
+    float lightPos[3] = {0.0F, 0.0F, 0.0F};
+    int lightWantFrames = 0;
   };
   std::vector<ProjShadow> projShadows;  // one per engine slot in use
   std::vector<int> projCasters;         // authored caster object indices
@@ -1321,6 +1396,14 @@ class TerrainGame : public Tyra::Game {
   std::vector<int> flashSpotExtra;
   void updateFlashSpotOff();
   void setFlashSpotOff(int obj, bool lit);
+  // The objects the carving spot light lit through its receiver pass this
+  // frame: their per-vertex slot must skip THAT lamp (dynLightSkipSlot), or
+  // the wall is lit twice and the carved shadow darkens only half of it.
+  // Re-applied every frame, like the torch's list; reset when the lamp moves
+  // on. The lone-batch rule is setFlashSpotOff's.
+  std::vector<int> spotSkipList;
+  std::unique_ptr<Tyra::StaPipInfoBag> batchSkipInfoBag;
+  void setDynLightSkip(int obj, int slot);
 
   // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn
   // glyph by glyph from a font atlas because the string is only known now.
