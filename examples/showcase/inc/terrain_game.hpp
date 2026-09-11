@@ -783,12 +783,28 @@ class TerrainGame : public Tyra::Game {
                           const Tyra::Vec4& a, const Tyra::Vec4& b);
   // Portal pass-through for the walkers: when the body column sits inside
   // a linked portal's opening near its plane, updatePortalPass publishes
-  // that portal's plane and collidePlayer stops colliding with objects
-  // fully BEHIND it (exact OBB extent) - the wall a portal is mounted on
-  // opens up like a doorway while everything else keeps blocking.
+  // that portal's plane plus the point of the column inside the opening,
+  // and collidePlayer hands both to portalDoorwayOpens - the wall a portal
+  // is mounted on opens up like a doorway while everything else keeps
+  // blocking.
   void updatePortalPass(float x, float feetY, float z);
   float portalPassPlane[4] = {0, 0, 0, 0};
+  float portalPassPoint[3] = {0, 0, 0};
   bool portalPassOn = false;
+  // THE doorway rule, in one place. The walker collision, the sweep and the
+  // physics static-solid pass each used to carry a hand-copied snippet of
+  // it, and every copy read the obstacle's extent off 0.5 * scale - which
+  // describes a unit primitive and says nothing about an imported mesh. An
+  // obstacle stops blocking when EITHER its mesh-aware OBB is wholly behind
+  // the aimed portal's plane (a mounting wall that is its own object, on
+  // the far side), OR that OBB contains the point where the motion pierces
+  // the opening (one merged mesh holding the back wall, the jambs and the
+  // roof also reaches in FRONT of the plane, so it can never be wholly
+  // behind it even though the opening is authored inside it). plane is
+  // (nx, ny, nz, d) and pierce a world point; the two always travel
+  // together (portalPass*, sweepPass*, the physics pass's own pair).
+  bool portalDoorwayOpens(const RuntimeObject& obstacle, const float* plane,
+                          const float* pierce) const;
   // Thrown objects fly through portals too. portalCarryAim finds the
   // linked portal whose opening the motion segment a->b pierces (front
   // face, authored rectangle + slack); -1 = none. forObj gates it through
@@ -813,12 +829,17 @@ class TerrainGame : public Tyra::Game {
   // local Y -> target world), the same isometry as the teleport/camera.
   void portalMapPoint(int pi, float& x, float& y, float& z);
   int portalCarryAim(const float* a, const float* b, int forObj);
+  // Where the segment handed to portalCarryAim pierces the opening, in
+  // world space - written whenever it returns >= 0, and the second half of
+  // the doorway rule cannot be evaluated without it.
+  float portalAimPoint[3] = {0, 0, 0};
   bool portalCarryCrossing(const float* a, float* pos, float* vel);
   // Arms sweepPass* when segment a->b pierces a linked opening (pad the
   // end by the swept body's extent). Pair with sweepPassOn = false after
   // the sweep.
   bool armSweepPass(const float* a, const float* b);
   float sweepPassPlane[4] = {0, 0, 0, 0};
+  float sweepPassPoint[3] = {0, 0, 0};
   bool sweepPassOn = false;
   // The last player-released rigid body (throw OR drop): portal-free -
   // crosses any linked portal, flag or not - until it settles to sleep.
@@ -830,6 +851,14 @@ class TerrainGame : public Tyra::Game {
   // frame-scale re-hop jitter (rect-edge bounces, resolution kicks) without
   // touching legit loops - the example's fall re-crosses every ~13 frames.
   std::vector<unsigned char> portalHopCool;
+  // Per object: the portal it last hopped through (-1 = none). From then on
+  // it SHOWS in that portal's through-view (and may cross it again), which is
+  // the converse of the owner's rule - whatever a portal shows can go through
+  // it, and whatever went through it is shown. Without this a thrown ball
+  // vanished at the plane the moment it crossed: the authored view list names
+  // the room on the far side, never the ball that just flew into it.
+  std::vector<int> portalLastCrossed;
+  int portalLastHop = -1;  // the portal the latest portalCarryCrossing took
   // Exit-plane of the through-view being rendered (nx, ny, nz, d) - set
   // around the destination render so renderTerrain can drop chunks in the
   // dead zone between the virtual camera and the target portal's plane.

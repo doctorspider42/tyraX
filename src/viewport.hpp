@@ -963,6 +963,8 @@ private:
     // the route: 0 none, 1 atlas (RGB light + occlusion alpha), 2 terrain map
     // RGB (+ occlusion alpha), 3 terrain map alpha as the light's intensity.
     int uLmMode_ = -1, uLmTex_ = -1, uLmRect_ = -1;
+    int uPrelit_ = -1;
+    int uKd_ = -1;
     uint32_t giTerrTex_ = 0, giAtlasTex_ = 0;
     bool giMapsUploadPending_ = false;
     int giAtlasSize_ = 0;
@@ -1031,6 +1033,15 @@ private:
         bool reflSky = false;      // refl "@sky" - live sky gradient
         bool reflRounded = false;  // refl "-rounded" env normals
         float centroid[3] = {0, 0, 0};  // model-space, for the rounded mode
+        // The submesh Kd. It is ALSO folded into this mesh's vertex
+        // colours (modelDraw), which is enough while the shade is only
+        // SCALED - but the GI probe branch REPLACES it, and the albedo
+        // went with it: an untextured model drew in the light's own
+        // colour, grey, while the console drew it green. Kept here so the
+        // shader can put it back the way the generated game does
+        // (`shade *= kd`, after the GI branch). The animated path already
+        // learned this - see AnimModelDraw::Part::kd.
+        float kd[3] = {1.0f, 1.0f, 1.0f};
     };
     struct ModelDraw {
         std::vector<ModelPart> parts;  // empty = missing/unparseable model

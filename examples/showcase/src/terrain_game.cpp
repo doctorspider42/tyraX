@@ -4841,29 +4841,19 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     // block nothing - one list, shared with the camera sweep (objectCollides).
     if (!o.active || !o.visible || !objectCollides(o.data)) continue;
     // Portal pass-through (updatePortalPass): while the walker stands in a
-    // linked portal's opening, objects fully behind that portal's plane
-    // stop colliding - the mounting wall becomes a doorway. Exact OBB
-    // extent along the plane normal, same math as the view dead zone.
-    if (portalPassOn) {
-      const V3 pax = rotated({1.0F, 0.0F, 0.0F}, o.data.rotation);
-      const V3 pay = rotated({0.0F, 1.0F, 0.0F}, o.data.rotation);
-      const V3 paz = rotated({0.0F, 0.0F, 1.0F}, o.data.rotation);
-      const float r =
-          fabsf(portalPassPlane[0] * pax.x + portalPassPlane[1] * pax.y +
-                portalPassPlane[2] * pax.z) *
-              0.5F * o.data.scale[0] +
-          fabsf(portalPassPlane[0] * pay.x + portalPassPlane[1] * pay.y +
-                portalPassPlane[2] * pay.z) *
-              0.5F * o.data.scale[1] +
-          fabsf(portalPassPlane[0] * paz.x + portalPassPlane[1] * paz.y +
-                portalPassPlane[2] * paz.z) *
-              0.5F * o.data.scale[2];
-      const float sd = portalPassPlane[0] * o.data.position[0] +
-                       portalPassPlane[1] * o.data.position[1] +
-                       portalPassPlane[2] * o.data.position[2] -
-                       portalPassPlane[3];
-      if (sd < -r + 0.1F) continue;
-    }
+    // linked portal's opening, the geometry that opening is cut into stops
+    // colliding - the mounting wall becomes a doorway. One rule, shared
+    // with the camera/carry sweep and the physics pass.
+    // A WALL portal's doorway opens the WALLS only. The floor the opening is
+    // cut into keeps carrying the walker - a merged cellar mesh holds its own
+    // floor, and a terrace slab's top face holds the pierce point - so
+    // skipping the whole object made the arrival side of every doorway a
+    // hole to fall through (showcase: walk through the gate, drop under the
+    // map). A FLOOR portal (plane facing up or down) still opens all of it:
+    // falling through it IS the crossing.
+    const bool doorway =
+        portalPassOn && portalDoorwayOpens(o, portalPassPlane, portalPassPoint);
+    if (doorway && fabsf(portalPassPlane[1]) >= 0.5F) continue;
 
     const GameModel* gm = nullptr;
     if (o.data.type == 5 && o.data.model >= 0 &&
@@ -4903,7 +4893,8 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
       // there and sucked fast walkers inside the mesh.
       const V3 pc = toLocal(prevX, feetY + eyeHeight * 0.5F, prevZ);
       const Vec4 prevLocal(pc.x, pc.y, pc.z, 1.0F);
-      if (gm->collider.resolveSphere(&center, playerRadius / sAvg, 0.7F,
+      if (!doorway &&
+          gm->collider.resolveSphere(&center, playerRadius / sAvg, 0.7F,
                                      Vec4(upL.x, upL.y, upL.z, 0.0F),
                                      &prevLocal)) {
         const V3 w = toWorld({center.x, center.y, center.z});
@@ -4935,7 +4926,7 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
           toLocal(*nextX, feetY + eyeHeight + EYE_CLEARANCE + 1.0F, *nextZ);
       V3 cd = {cq.x - co.x, cq.y - co.y, cq.z - co.z};
       const float cl = sqrtf(cd.x * cd.x + cd.y * cd.y + cd.z * cd.z);
-      if (cl > 0.0001F) {
+      if (!doorway && cl > 0.0001F) {
         cd.x /= cl, cd.y /= cl, cd.z /= cl;
         float t;
         if (gm->collider.raycast(Vec4(co.x, co.y, co.z, 1.0F),
@@ -5010,6 +5001,8 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     if (feetY + 0.5F >= top) {
       // low enough to walk onto - candidate floor
       if (top > *ground) *ground = top;
+    } else if (doorway) {
+      // the opened wall: its sides and underside are the doorway
     } else if (bottom >= feetY + eyeHeight) {
       // box entirely above the head - overhead surface for the jump clamp
       if (bottom < *ceiling) *ceiling = bottom;
@@ -6315,6 +6308,9 @@ void TerrainGame::applyCarryWhisker(float* nextX, float* nextZ, float probeY,
     sweepPassPlane[1] = portalPassPlane[1];
     sweepPassPlane[2] = portalPassPlane[2];
     sweepPassPlane[3] = portalPassPlane[3];
+    sweepPassPoint[0] = portalPassPoint[0];
+    sweepPassPoint[1] = portalPassPoint[1];
+    sweepPassPoint[2] = portalPassPoint[2];
     sweepPassOn = true;
   } else {
     const float reach = need + r + 0.1F;
@@ -6405,6 +6401,8 @@ void TerrainGame::updateCarriedObject() {
           hopped = true;
           if (thrownIndex < (int)portalHopCool.size())
             portalHopCool[thrownIndex] = 6;
+          if (thrownIndex < (int)portalLastCrossed.size())
+            portalLastCrossed[thrownIndex] = portalLastHop;
         }
       }
       // Ground rest matches updateObjectPhysics, so the handoff is
@@ -12515,6 +12513,12 @@ void TerrainGame::renderProjShadows() {
         stapip.core.render(bag);
         return;
       }
+      // One shared buffer for every part of every caster, handed to the
+      // pipeline by REFERENCE: the previous part's DMA may still be reading it
+      // when the next part overwrites it (assign() may even reallocate under
+      // the transfer). Only the shadow-slot brackets fence this; between two
+      // parts of one caster nothing does, so wait for the readers first.
+      dma_channel_wait(DMA_CHANNEL_VIF1, 0);
       projClamp.assign(bag->vertices, bag->vertices + bag->count);
       for (Vec4& v : projClamp)
         if (v.y < gy0) v.y = gy0;
@@ -13225,29 +13229,11 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
     // Markers, lights, decals, areas, volumes, belts and "collision: none"
     // are not blockers - one list, shared with the walker (objectCollides).
     if (!objectCollides(o.data)) continue;
-    if (sweepPassOn) {
-      // Portal pass-through for a thrown object's sweep: obstacles fully
-      // behind the aimed portal's plane open up (exact OBB extent along
-      // the plane normal - collidePlayer's doorway rule).
-      const V3 pax = rotated({1.0F, 0.0F, 0.0F}, o.data.rotation);
-      const V3 pay = rotated({0.0F, 1.0F, 0.0F}, o.data.rotation);
-      const V3 paz = rotated({0.0F, 0.0F, 1.0F}, o.data.rotation);
-      const float re =
-          fabsf(sweepPassPlane[0] * pax.x + sweepPassPlane[1] * pax.y +
-                sweepPassPlane[2] * pax.z) *
-              0.5F * o.data.scale[0] +
-          fabsf(sweepPassPlane[0] * pay.x + sweepPassPlane[1] * pay.y +
-                sweepPassPlane[2] * pay.z) *
-              0.5F * o.data.scale[1] +
-          fabsf(sweepPassPlane[0] * paz.x + sweepPassPlane[1] * paz.y +
-                sweepPassPlane[2] * paz.z) *
-              0.5F * o.data.scale[2];
-      const float sd = sweepPassPlane[0] * o.data.position[0] +
-                       sweepPassPlane[1] * o.data.position[1] +
-                       sweepPassPlane[2] * o.data.position[2] -
-                       sweepPassPlane[3];
-      if (sd < -re + 0.1F) continue;
-    }
+    // Portal pass-through for a swept body (a throw, the carried object,
+    // the carry whisker): the geometry the aimed opening is cut into opens
+    // up - collidePlayer's doorway rule, same function.
+    if (sweepPassOn && portalDoorwayOpens(o, sweepPassPlane, sweepPassPoint))
+      continue;
 
     // The shared collision box, cast in the box's OWN frame - so a rotated
     // block stops the boom at its real faces instead of leaking through the
@@ -15827,6 +15813,7 @@ void TerrainGame::updateObjectPhysics() {
     // without it the mounting wall bounces the body back ~r short of the
     // crossing plane and updatePortals never sees the pierce.
     float aimPlane[4] = {0, 0, 0, 0};
+    float aimPoint[3] = {0, 0, 0};  // where the segment pierces the opening
     bool aimOn = false;
     if (PORTAL_COUNT > 0) {
       const float a3[3] = {prevPos.x, prevPos.y, prevPos.z};
@@ -15851,6 +15838,9 @@ void TerrainGame::updateObjectPhysics() {
         aimPlane[3] = pn.x * pm.data.position[0] +
                       pn.y * pm.data.position[1] +
                       pn.z * pm.data.position[2];
+        aimPoint[0] = portalAimPoint[0];
+        aimPoint[1] = portalAimPoint[1];
+        aimPoint[2] = portalAimPoint[2];
         aimOn = true;
       }
     }
@@ -15868,26 +15858,6 @@ void TerrainGame::updateObjectPhysics() {
       // contacts (resting stacks) keep the wall treatment, so settled
       // stacks stay cheap and stable.
       if (sSleeping && vel.innerProduct(vel) > PHYS_WAKE_SPEED2) continue;
-      if (aimOn) {
-        const V3 pax = rotated({1.0F, 0.0F, 0.0F}, s.data.rotation);
-        const V3 pay = rotated({0.0F, 1.0F, 0.0F}, s.data.rotation);
-        const V3 paz = rotated({0.0F, 0.0F, 1.0F}, s.data.rotation);
-        const float re =
-            fabsf(aimPlane[0] * pax.x + aimPlane[1] * pax.y +
-                  aimPlane[2] * pax.z) *
-                0.5F * s.data.scale[0] +
-            fabsf(aimPlane[0] * pay.x + aimPlane[1] * pay.y +
-                  aimPlane[2] * pay.z) *
-                0.5F * s.data.scale[1] +
-            fabsf(aimPlane[0] * paz.x + aimPlane[1] * paz.y +
-                  aimPlane[2] * paz.z) *
-                0.5F * s.data.scale[2];
-        const float sd = aimPlane[0] * s.data.position[0] +
-                         aimPlane[1] * s.data.position[1] +
-                         aimPlane[2] * s.data.position[2] - aimPlane[3];
-        if (sd < -re + 0.1F) continue;
-      }
-
       const GameModel* sgm = nullptr;
       const SkelModel* sanim = nullptr;
       if (s.data.type == 5) {
@@ -15899,6 +15869,118 @@ void TerrainGame::updateObjectPhysics() {
       }
       float sOff[3], sExt[3];
       physExtents(s.data, sgm, sanim, sOff, sExt);
+
+      // --- a collision-mesh model: its TRIANGLES, not its box ---------------
+      // A merged building is one object whose box encloses its own rooms, so
+      // a body INSIDE it - thrown through a portal into a cellar, rolled in
+      // through a door - reads as penetrating the box and is ejected along
+      // the shortest axis: straight through the floor and out of the world.
+      // So a model authored with mesh collision collides with rigid bodies
+      // the way it does with the walker (the same CollisionMesh, in the
+      // model's local space): a downward ray finds the floor, steep faces
+      // push the body's sphere out. Its real doorways are then real openings,
+      // and the portal doorway rule below is only for box colliders.
+      if (s.data.collision == 1 && sgm && !sgm->collider.empty()) {
+        const float sx = s.data.scale[0] > 0.0001F ? s.data.scale[0] : 0.0001F;
+        const float sy = s.data.scale[1] > 0.0001F ? s.data.scale[1] : 0.0001F;
+        const float sz = s.data.scale[2] > 0.0001F ? s.data.scale[2] : 0.0001F;
+        auto toLocal = [&](float wx, float wy, float wz) {
+          V3 p = {wx - s.data.position[0], wy - s.data.position[1],
+                  wz - s.data.position[2]};
+          p = invRotated(p, s.data.rotation);
+          return V3{p.x / sx, p.y / sy, p.z / sz};
+        };
+        auto toWorld = [&](const V3& l) {
+          V3 p = {l.x * sx, l.y * sy, l.z * sz};
+          p = rotated(p, s.data.rotation);
+          return V3{p.x + s.data.position[0], p.y + s.data.position[1],
+                    p.z + s.data.position[2]};
+        };
+        const float br = radius > ext[1] ? radius : ext[1];
+        // Cheap reject against the mesh's own bounds, padded by the body:
+        // the grid query only visits nearby triangles, but most bodies are
+        // nowhere near most buildings.
+        {
+          const V3 lc = toLocal(pos.x + cOff[0], pos.y + cOff[1], pos.z + cOff[2]);
+          const float sMin = sx < sy ? (sx < sz ? sx : sz) : (sy < sz ? sy : sz);
+          const float padL = br / sMin + 0.5F;
+          const float* mn = sgm->collider.aabbMin();
+          const float* mx = sgm->collider.aabbMax();
+          if (lc.x < mn[0] - padL || lc.x > mx[0] + padL ||
+              lc.y < mn[1] - padL || lc.y > mx[1] + padL ||
+              lc.z < mn[2] - padL || lc.z > mx[2] + padL)
+            continue;
+        }
+        // Floor: a vertical ray at the NEW x/z from where the underside WAS
+        // to where it is now, so a fast faller cannot tunnel through a thin
+        // floor between two frames. Only while descending or resting - a
+        // rising body has no floor contact, and a vertical ray never reads a
+        // wall as a step (a step is a steep face, i.e. a wall to a ball).
+        const float botPrev = prevPos.y + cOff[1] - ext[1];
+        const float botNow = pos.y + cOff[1] - ext[1];
+        if (botNow < botPrev + 0.001F) {
+          const V3 ro = toLocal(pos.x + cOff[0], botPrev + 0.02F, pos.z + cOff[2]);
+          const V3 rq = toLocal(pos.x + cOff[0], botNow - 0.02F, pos.z + cOff[2]);
+          V3 rd = {rq.x - ro.x, rq.y - ro.y, rq.z - ro.z};
+          const float rl = sqrtf(rd.x * rd.x + rd.y * rd.y + rd.z * rd.z);
+          if (rl > 0.0001F) {
+            rd.x /= rl, rd.y /= rl, rd.z /= rl;
+            float t;
+            if (sgm->collider.raycast(Vec4(ro.x, ro.y, ro.z, 1.0F),
+                                      Vec4(rd.x, rd.y, rd.z, 0.0F), rl, &t)) {
+              const V3 hit =
+                  toWorld({ro.x + rd.x * t, ro.y + rd.y * t, ro.z + rd.z * t});
+              const float lift = hit.y - botNow;
+              if (lift > 0.0F) {
+                pos.y += lift;
+                if (vel.y < 0.0F) {
+                  vel.y = -vel.y * bounce;
+                  if (vel.y * vel.y < microBounce2) vel.y = 0.0F;
+                }
+                grounded = true;
+                slideTan = Vec4(vel.x, 0.0F, vel.z, 0.0F);
+                vel.x *= 1.0F - o.data.physFriction * 0.18F;
+                vel.z *= 1.0F - o.data.physFriction * 0.18F;
+              }
+            }
+          }
+        }
+        // Walls: the body's sphere out of steep faces, side-aware (ejected to
+        // the side it came from, like the walker), the velocity reflected
+        // along the push with the body's own bounce.
+        {
+          const float sAvg = (sx + sz) * 0.5F;
+          const V3 upL = invRotated({0.0F, 1.0F, 0.0F}, s.data.rotation);
+          const V3 lc = toLocal(pos.x + cOff[0], pos.y + cOff[1], pos.z + cOff[2]);
+          const V3 lp = toLocal(prevPos.x + cOff[0], prevPos.y + cOff[1],
+                                prevPos.z + cOff[2]);
+          Vec4 center(lc.x, lc.y, lc.z, 1.0F);
+          const Vec4 prevLocal(lp.x, lp.y, lp.z, 1.0F);
+          if (sgm->collider.resolveSphere(&center, br / sAvg, 0.7F,
+                                          Vec4(upL.x, upL.y, upL.z, 0.0F),
+                                          &prevLocal)) {
+            const V3 w = toWorld({center.x, center.y, center.z});
+            const Vec4 push(w.x - (pos.x + cOff[0]), w.y - (pos.y + cOff[1]),
+                            w.z - (pos.z + cOff[2]), 0.0F);
+            const float pl2 = push.innerProduct(push);
+            if (pl2 > 1e-10F) {
+              pos += push;
+              const Vec4 n = push * (1.0F / sqrtf(pl2));
+              const float vn = vel.innerProduct(n);
+              if (vn < 0.0F) vel = vel - n * (vn * (1.0F + bounce));
+            }
+          }
+        }
+        continue;
+      }
+
+      // The walkers' doorway rule, unchanged and unduplicated: the geometry
+      // the aimed opening is cut into must not resolve this body away from
+      // the crossing plane. A WALL portal opens its walls only - the floor
+      // under the opening keeps carrying the body (see collidePlayer); a
+      // FLOOR portal opens everything, falling through it is the crossing.
+      const bool doorway = aimOn && portalDoorwayOpens(s, aimPlane, aimPoint);
+      if (doorway && fabsf(aimPlane[1]) >= 0.5F) continue;
 
       const float dx = (s.data.position[0] + sOff[0]) - (pos.x + cOff[0]);
       const float px = sExt[0] + ext[0] - (dx < 0.0F ? -dx : dx);
@@ -15930,6 +16012,10 @@ void TerrainGame::updateObjectPhysics() {
         const float myTop = pos.y + cOff[1] + ext[1];
         if (sb > myTop - 0.1F && sb < myTop + 0.1F) s.restFrames = 0;
       }
+
+      // Through a wall portal's doorway only the floor answers: landing on
+      // the opened geometry's top stays, its sides and underside do not.
+      if (doorway && !(py <= px && py <= pz && dy < 0.0F)) continue;
 
       if (py <= px && py <= pz) {
         const float dir = dy > 0.0F ? -1.0F : 1.0F;  // push away from s
@@ -17974,6 +18060,18 @@ bool TerrainGame::renderOnePortalView(int pi) {
       for (int i = 0; i < (int)liveCaught.size(); ++i)
         renderViewObject(liveCaught[i]);
     }
+    // Whatever hopped THROUGH this portal shows in its view from then on
+    // (portalShowsObject agrees): the list names the room on the far side,
+    // not the ball that just flew into it, and without this the ball
+    // vanished at the plane and lay unseen on the cellar floor.
+    for (int oi = 0; oi < (int)portalLastCrossed.size() &&
+                     oi < (int)runtimeObjects.size(); ++oi) {
+      if (portalLastCrossed[oi] != pi) continue;
+      bool listed = false;
+      for (int v = 0; v < p.viewCount && !listed; ++v)
+        listed = PORTAL_VIEW_OBJECTS[p.firstView + v] == oi;
+      if (!listed) renderViewObject(oi);
+    }
   }
   if (drawCarryFar) {
     RuntimeObject& co = runtimeObjects[carryIndex];
@@ -18068,6 +18166,9 @@ bool TerrainGame::portalSwallowSwept(const RuntimeObject& m, float hx,
 bool TerrainGame::portalCanCross(const PortalData& p, int oi) {
   if (p.teleportObjects || p.viewAll) return true;
   if (oi >= 0 && oi == thrownFreeIndex) return true;
+  if (oi >= 0 && oi < (int)portalLastCrossed.size() &&
+      portalLastCrossed[oi] == (int)(&p - PORTALS))
+    return true;
   for (int v = 0; v < p.viewCount; ++v)
     if (PORTAL_VIEW_OBJECTS[p.firstView + v] == oi) return true;
   return portalLiveHolds(p, oi);
@@ -18076,6 +18177,9 @@ bool TerrainGame::portalCanCross(const PortalData& p, int oi) {
 bool TerrainGame::portalShowsObject(int pi, int oi) {
   const PortalData& p = PORTALS[pi];
   if (p.viewAll) return true;
+  if (oi >= 0 && oi < (int)portalLastCrossed.size() &&
+      portalLastCrossed[oi] == pi)
+    return true;
   for (int v = 0; v < p.viewCount; ++v)
     if (PORTAL_VIEW_OBJECTS[p.firstView + v] == oi) return true;
   return portalLiveHolds(p, oi);
@@ -18115,6 +18219,53 @@ void TerrainGame::portalMapPoint(int pi, float& x, float& y, float& z) {
   z = dst.data.position[2] + dxA.z * lx + dyA.z * ly + dzA.z * lz;
 }
 
+// The portal doorway rule, in the one place every caller reads it from.
+// It is only ever consulted while a body's motion actually pierces a
+// linked, crossable opening, which is what keeps it narrow: it opens the
+// geometry the opening was cut into, and nothing else.
+//
+// Two obstacles qualify, and a scene needs both tests. (a) The box is
+// wholly BEHIND the plane - a mounting wall modelled as its own object,
+// standing entirely on the far side. (b) The box CONTAINS the pierce point
+// - one merged mesh holding the back wall, the side walls, the door jambs
+// AND the roof reaches in FRONT of the plane too, so it can never satisfy
+// (a) while its world box seals the authored opening.
+//
+// The box is objectCollisionBox + boxRotate, i.e. the real mesh bounds with
+// their off-origin centre and model heading. Reading 0.5 * scale describes
+// a unit primitive and says nothing at all about an imported model - the
+// same correction renderOnePortalView already carries for the exit plane.
+bool TerrainGame::portalDoorwayOpens(const RuntimeObject& obstacle,
+                                     const float* plane,
+                                     const float* pierce) const {
+  const CollisionBox b = objectCollisionBox(obstacle);
+  const V3 ax = boxRotate({1.0F, 0.0F, 0.0F}, obstacle.data);
+  const V3 ay = boxRotate({0.0F, 1.0F, 0.0F}, obstacle.data);
+  const V3 az = boxRotate({0.0F, 0.0F, 1.0F}, obstacle.data);
+  const V3 cl =
+      boxRotate({b.center[0], b.center[1], b.center[2]}, obstacle.data);
+  const float cx = obstacle.data.position[0] + cl.x;
+  const float cy = obstacle.data.position[1] + cl.y;
+  const float cz = obstacle.data.position[2] + cl.z;
+  const float r =
+      fabsf(plane[0] * ax.x + plane[1] * ax.y + plane[2] * ax.z) * b.half[0] +
+      fabsf(plane[0] * ay.x + plane[1] * ay.y + plane[2] * ay.z) * b.half[1] +
+      fabsf(plane[0] * az.x + plane[1] * az.y + plane[2] * az.z) * b.half[2];
+  const float sd = plane[0] * cx + plane[1] * cy + plane[2] * cz - plane[3];
+  if (sd < -r + 0.1F) return true;  // (a) wholly behind the crossing plane
+  // (b) the opening is cut into this obstacle. The box frame is orthonormal,
+  // so projecting the pierce point onto its axes is the containment test.
+  // The padding covers a portal mounted flush with a face of the mesh.
+  const float dx = pierce[0] - cx, dy = pierce[1] - cy, dz = pierce[2] - cz;
+  const float lx = dx * ax.x + dy * ax.y + dz * ax.z;
+  const float ly = dx * ay.x + dy * ay.y + dz * ay.z;
+  const float lz = dx * az.x + dy * az.y + dz * az.z;
+  const float pad = 0.05F;
+  return lx > -b.half[0] - pad && lx < b.half[0] + pad &&
+         ly > -b.half[1] - pad && ly < b.half[1] + pad &&
+         lz > -b.half[2] - pad && lz < b.half[2] + pad;
+}
+
 bool TerrainGame::armSweepPass(const float* a, const float* b) {
   sweepPassOn = false;
   if (PORTAL_COUNT == 0) return false;
@@ -18128,6 +18279,11 @@ bool TerrainGame::armSweepPass(const float* a, const float* b) {
   sweepPassPlane[3] = pn.x * pm.data.position[0] +
                       pn.y * pm.data.position[1] +
                       pn.z * pm.data.position[2];
+  // The plane's companion: portalCarryAim just wrote where this segment
+  // goes through the opening, and the doorway rule needs both halves.
+  sweepPassPoint[0] = portalAimPoint[0];
+  sweepPassPoint[1] = portalAimPoint[1];
+  sweepPassPoint[2] = portalAimPoint[2];
   sweepPassOn = true;
   return true;
 }
@@ -18162,7 +18318,16 @@ int TerrainGame::portalCarryAim(const float* a, const float* b, int forObj) {
     const float czp = r0z + (r1z - r0z) * tt;
     const float lxp = cxp * axS.x + cyp * axS.y + czp * axS.z;
     const float lyp = cxp * ayS.x + cyp * ayS.y + czp * ayS.z;
-    if (lxp > -hx && lxp < hx && lyp > -hy && lyp < hy) return pi;
+    if (lxp > -hx && lxp < hx && lyp > -hy && lyp < hy) {
+      // The pierce point in WORLD space. The doorway rule's second half
+      // tests it against each obstacle's own box, so the caller needs the
+      // point and not just the plane - a merged mesh that carries both the
+      // wall and the opening is never wholly behind that plane.
+      portalAimPoint[0] = m.data.position[0] + cxp;
+      portalAimPoint[1] = m.data.position[1] + cyp;
+      portalAimPoint[2] = m.data.position[2] + czp;
+      return pi;
+    }
   }
   return -1;
 }
@@ -18175,6 +18340,7 @@ bool TerrainGame::portalCarryCrossing(const float* a, float* pos, float* vel) {
   // Thrown-arc objects are player-released - any linked portal carries them
   const int pi = portalCarryAim(a, pos, -1);
   if (pi < 0) return false;
+  portalLastHop = pi;
   const PortalData& p = PORTALS[pi];
   RuntimeObject& m = runtimeObjects[p.object];
   RuntimeObject& t = runtimeObjects[p.target];
@@ -18260,16 +18426,33 @@ void TerrainGame::updatePortalPass(float x, float feetY, float z) {
       return lz > -0.6F && lz < 1.2F && lx > -hx && lx < hx && ly > -hy &&
              ly < hy;
     };
-    if (inZone(feetY) || inZone(feetY + 1.0F)) {
-      portalPassPlane[0] = azS.x;
-      portalPassPlane[1] = azS.y;
-      portalPassPlane[2] = azS.z;
-      portalPassPlane[3] = azS.x * m.data.position[0] +
-                           azS.y * m.data.position[1] +
-                           azS.z * m.data.position[2];
-      portalPassOn = true;
-      return;
+    // WHICH probe height is in the opening matters now: the doorway rule's
+    // contains-the-opening half needs a point, not only a plane.
+    float zoneY = feetY;
+    if (!inZone(zoneY)) {
+      zoneY = feetY + 1.0F;
+      if (!inZone(zoneY)) continue;
     }
+    portalPassPlane[0] = azS.x;
+    portalPassPlane[1] = azS.y;
+    portalPassPlane[2] = azS.z;
+    portalPassPlane[3] = azS.x * m.data.position[0] +
+                         azS.y * m.data.position[1] +
+                         azS.z * m.data.position[2];
+    // The walker has no motion segment here, so the pierce point is the
+    // probe itself pushed onto the portal plane - where the body column
+    // passes through the opening.
+    {
+      const float rx = x - m.data.position[0];
+      const float ry = zoneY - m.data.position[1];
+      const float rz = z - m.data.position[2];
+      const float lz = rx * azS.x + ry * azS.y + rz * azS.z;
+      portalPassPoint[0] = x - azS.x * lz;
+      portalPassPoint[1] = zoneY - azS.y * lz;
+      portalPassPoint[2] = z - azS.z * lz;
+    }
+    portalPassOn = true;
+    return;
   }
 }
 
@@ -18296,6 +18479,7 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
   if (freshPrev) {
     portalPrevPos.resize(runtimeObjects.size() * 3);
     portalHopCool.assign(runtimeObjects.size(), 0);
+    portalLastCrossed.assign(runtimeObjects.size(), -1);
   }
   // A released body stays portal-free only until it settles to sleep.
   if (thrownFreeIndex >= 0 &&
@@ -18429,6 +18613,7 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
                             eyY + sinf(*ppitch),
                             *pz + cosf(*pyaw) * cosf(*ppitch));
       }
+      TYRA_LOG("Portal: player crossed ", pi, " to ", *px, " ", *py, " ", *pz);
       playerTeleported = true;
     }
 
@@ -18479,6 +18664,10 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
         ro.velocityZ = nvz;
         ro.dirty = true;  // world-space bags rebuild at the arrival
         portalHopCool[oi] = 6;
+        portalLastCrossed[oi] = pi;
+        TYRA_LOG("Portal: object ", oi, " crossed ", pi, " to ",
+                 ro.data.position[0], " ", ro.data.position[1], " ",
+                 ro.data.position[2]);
         // stamp the arrival as this object's new "previous" so the reverse
         // link of a two-way pair can't see the same hop as a crossing
         portalPrevPos[oi * 3] = ro.data.position[0];

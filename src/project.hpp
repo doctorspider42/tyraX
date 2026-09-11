@@ -1557,7 +1557,7 @@ struct ProjectSettings {
     // directly; it drives the host bake in gibake, whose OUTPUT ships as the
     // scene lightmap's RGB channel plus inc/probe_data.gen.hpp.
     //
-    // The bake is explicit (Tools > Bake Global Illumination) and cached in
+    // The bake is explicit (Tools > Global Illumination) and cached in
     // .res-baked/gi/ - a build never silently re-bakes it. A stale or missing
     // cache simply falls the scene back to the pre-GI emissive-only lighting.
     bool giEnabled = false;

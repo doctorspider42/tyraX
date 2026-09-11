@@ -184,5 +184,5 @@ rather than handing pixels to `glTexImage2D` — see PROGRESS entry 101.
 `addTreeToScene()` hands off to the existing `addModelObject()`, so naming,
 selection and `commitChange()` behave exactly like any other model import.
 
-**Impostor GPU** uses offscreen GPU capture, with automatic CPU fallback. The
+**Impostor** uses offscreen GPU capture, with automatic CPU fallback. The
 result status names the backend. See [impostors](impostors.md) for memory costs.

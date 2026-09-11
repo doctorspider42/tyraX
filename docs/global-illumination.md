@@ -91,6 +91,18 @@ own **self-occlusion** is a separate, per-texel answer that costs nothing:
 model's texture at build. The two compose — interpolated probe light times per-pixel
 self-shadowing — and neither needs a lightmap chart.
 
+**The probe answer REPLACES the shade, so the albedo has to be put back.** A
+model mesh carries its material `Kd` folded into its vertex colours, and the
+probe branch overwrites exactly that - which drew every untextured model in the
+light's own colour: a cypress whose leaves are `Kd 0.13 0.3 0.22` came out
+white in the viewport and green on the console, because the game multiplies the
+albedo back after the same branch (`pushVert`: `if (kd) shade *= kd`). The
+viewport does that too now, through `uKd` - staged per draw, 1,1,1 for anything
+whose Kd travels in the tint instead (primitives, animated models). Textured
+surfaces never showed it: their albedo is in the texture, which the shade only
+multiplies. The animated path had already been fixed this way once
+(`AnimModelDraw::Part::kd`); the static path had not.
+
 **The editor viewport takes the same routes**, and has to: it shows what the
 console will. `Viewport::setGiTerrain` feeds it the baked terrain map so the
 ground goes down the lightmap route — the RGB one when the map replaces the

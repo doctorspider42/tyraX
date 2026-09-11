@@ -1754,7 +1754,7 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("Ambience Editor...")) showAmbienceEditor_ = true;
             // The two bakes live in the Ambience Editor now; the menu items
             // still work and simply open that window on their tab.
-            if (ImGui::MenuItem("Bake Global Illumination...")) {
+            if (ImGui::MenuItem("Global Illumination...")) {
                 showAmbienceEditor_ = true;
                 showGiBake_ = true;
             }

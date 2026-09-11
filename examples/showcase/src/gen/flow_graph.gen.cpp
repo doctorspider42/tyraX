@@ -171,8 +171,6 @@ class FlowGraphScript_0_0 : public Script {
       flowSetDynText(ctx, 1, std::string("Find three brass lenses. SELECT: guided tour."));
     if (livedbg::forced(0)) {  // Live Debugger: fired from the editor
       livedbg::hit(0);
-      livedbg::hit(1);
-      sequences::play(0);  // "Arrival"
       livedbg::hit(2);
       {
         auto& song = ctx.engine->audio.song;
@@ -182,12 +180,12 @@ class FlowGraphScript_0_0 : public Script {
         song.setVolume(45);
         song.play();
       }
+      livedbg::hit(1);
+      sequences::play(0);  // "Arrival"
     }
     if (!started) {
       started = true;
       livedbg::hit(0);
-      livedbg::hit(1);
-      sequences::play(0);  // "Arrival"
       livedbg::hit(2);
       {
         auto& song = ctx.engine->audio.song;
@@ -197,6 +195,8 @@ class FlowGraphScript_0_0 : public Script {
         song.setVolume(45);
         song.play();
       }
+      livedbg::hit(1);
+      sequences::play(0);  // "Arrival"
     }
     if (livedbg::forced(3)) {  // Live Debugger: fired from the editor
       livedbg::hit(3);

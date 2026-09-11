@@ -1114,7 +1114,7 @@ static int bakeModelAoFromCli(int argc, char** argv) {
 
 // Bakes global illumination for every scene (docs/global-illumination.md) into
 // .res-baked/gi/, then refreshes the generated files so the probe table and
-// the lightmap flags follow immediately. The GUI's Tools > Bake Global
+// the lightmap flags follow immediately. The GUI's Tools > Global
 // Illumination runs the same gibake::bakeScene on a worker thread; this is the
 // headless twin - it is what a build server or a test harness uses, and it is
 // how the bake gets verified without clicking anything.

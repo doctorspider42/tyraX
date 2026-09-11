@@ -100,7 +100,7 @@ in PCSX2. A frozen-camera A/B at (48, 0, 48) restored texture detail by changing
 only this material scale. The scene generator retains the corrected scale.
 
 The mixed-count setup uses 4 views for shrubs, 8 for canopy trees and 16 for
-Waystone. In Properties select **Capture views**, leave **Impostor GPU** on and
+Waystone. In Properties select **Capture views**, leave **Impostor** on and
 click **Bake impostor** to rebake one model; Tree Generator has the matching
 controls. The status identifies GPU or CPU fallback. The reproducible asset
 helper below uses the CPU reference and emits the same capture counts.

@@ -47,14 +47,14 @@ int main(int argc, char** argv) {
   // 480i/576i (whole frames or true field rendering), progressive 480p,
   // 1080i, or the full-height PAL 576i frame (always 50 Hz). The DTV modes
   // need component cables on a real console and always run at 60 Hz.
-  options.displayMode = Tyra::DisplayMode::Interlaced;
+  options.displayMode = Tyra::DisplayMode::Progressive480p;
   // PAL picture (Preferences > Display > PAL picture): with the
   // region-following interlaced mode, a PAL console (or a forced-PAL
   // target system) boots the full-height 512-line 576i frame instead of
   // the letterboxed NTSC-size picture. Resolved here, before engine init,
   // so the whole boot (logo, loading screen) already runs in it; the menu
   // "DEFAULT" display option maps back to whatever this resolves to.
-  if (false &&
+  if (true &&
       options.displayMode == Tyra::DisplayMode::Interlaced &&
       (options.videoMode == Tyra::VideoMode::PAL ||
        (options.videoMode == Tyra::VideoMode::Auto &&

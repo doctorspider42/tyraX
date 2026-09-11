@@ -31,6 +31,16 @@
 // is refused now, with the measured range in the message and the alternatives
 // named. 160 of the 236 example .obj models still pass, so this is a guard on
 // the broken case, not a new restriction. PATCH: nothing new appears.
+// (3) And the reason the scene looked grey in the first place, found from the
+// same screenshot: the GI probe branch REPLACES the shade, and a model mesh
+// carries its material Kd folded into its vertex colours - so the albedo went
+// with it and every untextured model drew in the light's own colour. Measured
+// on a cypress (leaves Kd 0.13 0.3 0.22) in a GI-baked fixture: 754
+// green-dominant pixels in the viewport before, 23672 after, and the frame's
+// mean stopped being exactly neutral (84.5/84.4/85.0). The game multiplies it
+// back after that branch (`if (kd) shade *= kd`); the viewport now does too,
+// through uKd. The animated path had learned this already
+// (AnimModelDraw::Part::kd) - the static one had not.
 //
 // 1.83.0: a thrown ball goes through a portal cut into a merged mesh and a
 // player arriving through one stays on the floor. Two defects, one fixture

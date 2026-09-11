@@ -712,7 +712,7 @@ private:
     // 3D turntable preview (treegen). "Add to scene" bakes the .obj/.mtl/PNGs
     // into res/models/trees and drops a Model object in - see treegen.hpp.
     void drawTreeGeneratorWindow();
-    // Tools > Bake Global Illumination: per-scene staleness + the bake itself
+    // Tools > Global Illumination: per-scene staleness + the bake itself
     // on gibake::Baker's worker thread (docs/global-illumination.md).
     void giBakerPoll();
     void drawGiBakeSection();
@@ -1988,7 +1988,7 @@ private:
     // Tree Generator (Tools > Tree Generator). The preview mesh + textures are
     // rebuilt into these on any param change; treePreviewVersion_ tells the
     // viewport when to re-upload. treeName_ is the asset base name.
-    // Tools > Bake Global Illumination (docs/global-illumination.md). The bake
+    // Tools > Global Illumination (docs/global-illumination.md). The bake
     // is EXPLICIT - never part of a build - so this window is where a project
     // learns that its lighting is stale, and the one place that fixes it.
     bool showGiBake_ = false;

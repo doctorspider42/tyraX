@@ -5,7 +5,7 @@ namespace Showcase {
 
 constexpr int MODEL_COUNT = 27;
 inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
-    "aster/arrival-terrace.tmdl",
+    "aster/arrival-terrace__ovr500a.tmdl",
     "aster/west-promenade.tmdl",
     "aster/east-promenade.tmdl",
     "aster/observatory-terrace.tmdl",
@@ -36,7 +36,7 @@ inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
 // per-model .mtl override, for the .obj fallback path only (a
 // .tmdl already carries the resolved override) - "" = none
 inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
-    "",
+    "materials/arrival-terrace-lit.mtl",
     "",
     "",
     "",

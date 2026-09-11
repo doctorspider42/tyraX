@@ -2169,7 +2169,7 @@ its original authored bounds. Clear pick caches with asset invalidation and
 alpha masks on texture painting. Selection outlines disable depth only for their
 pass. Keep capture yaw/eligibility in sync with the viewport model draw.
 
-Impostor GPU/counts (1.75.0, format 41): `impostorViews` defaults to 8 and accepts
+Impostor capture/counts (1.75.0, format 41): `impostorViews` defaults to 8 and accepts
 4/8/16. The requested UI count is pending until successful bake; the committed
 count drives picking, viewport and generated runtime. `impostorgpu.cpp` supplies
 an optional capture callback registered in main, leaving CPU-only tools free of

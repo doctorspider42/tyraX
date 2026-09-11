@@ -2827,8 +2827,9 @@ bool App::drawLodOverrides(SceneObject& o, bool animated) {
         int captureChoice = modelImpostorViews_ == 4 ? 0 : modelImpostorViews_ == 16 ? 2 : 1;
         if (ImGui::Combo("Capture views", &captureChoice, "4 views\0" "8 views\0" "16 views\0"))
             modelImpostorViews_ = 4 << captureChoice;
-        ImGui::Checkbox("Impostor GPU", &impostorGpu_);
-        ImGui::TextDisabled("Applied on bake; GPU falls back to CPU if unavailable.");
+        ImGui::Checkbox("Impostor", &impostorGpu_);
+        ImGui::TextDisabled("Applied on bake; captured on the GPU, falling\n"
+                            "back to the CPU if unavailable.");
         ImGui::BeginDisabled(!supported);
         if (ImGui::Button("Bake impostor")) {
             std::string key = o.id;

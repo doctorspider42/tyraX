@@ -50,8 +50,8 @@ static const Track kS2Tracks[] = {{0, 29, 0, 0, 1, 1, 0, kS2T0K, 3}};
 static const CamKey kS2Cam[] = {{0.0F, {0.0F, 2.0F, -5.0F}, {0.0F, 4.0F, -12.0F}, 50.0F, 0.0F, 0.0F, 1, -1, -1}, {4.0F, {5.0F, 5.0F, -9.0F}, {0.0F, 4.0F, -12.0F}, 48.0F, 0.0F, 0.0F, 1, -1, -1}, {8.0F, {0.0F, 8.0F, -5.0F}, {0.0F, 4.0F, -14.0F}, 58.0F, 0.0F, 0.0F, 1, -1, -1}};
 
 static const Seq kSeqs[] = {
-  {"Arrival", 10.0F, 0, 1, 1, 0, 1, 0.7F, 0.7F, 0.5F, 0.5F, kS0Tracks, 0, kS0Cam, 3},
-  {"The Grand Tour", 22.0F, 0, 1, 1, 0, 1, 0.7F, 0.7F, 0.5F, 0.5F, kS1Tracks, 0, kS1Cam, 5},
+  {"Arrival", 10.0F, 0, 1, 1, 0, 1, 0.7F, 0.7F, 0.5F, 0.5F, kS0Tracks, 0, kS0Cam, 3}, 
+  {"The Grand Tour", 22.0F, 0, 1, 1, 0, 1, 0.7F, 0.7F, 0.5F, 0.5F, kS1Tracks, 0, kS1Cam, 5}, 
   {"Celestial Alignment", 8.0F, 0, 1, 1, 0, 1, 0.7F, 0.7F, 0.5F, 0.5F, kS2Tracks, 1, kS2Cam, 3}
 };
 static const int kSeqCount = 3;
