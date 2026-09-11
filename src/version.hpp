@@ -16,6 +16,15 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.84.0: merge the Aster line (portal physics, the pre-lit/GI preview fixes,
+// invisible box collisions, scene-local groups) with main's cutscene HUD and
+// skip screen. MINOR above both parents, the 1.10.0 precedent: the tree now
+// carries features neither side had alone, and a number strictly greater than
+// either parent is the only one that keeps "which editor wrote this file"
+// answerable. The format collided too - both lines had claimed v44 for
+// different fields - so this branch's half renumbers to v45 and main's
+// published v44 keeps its number (see kFormatVersion below).
+//
 // 1.83.1: two pre-lit defects a reporter's screenshot caught in one picture.
 // (1) The editor viewport did not know the `prelit` flag at all - no branch in
 // viewport.cpp, while the generated game sets shade = {1,1,1} for it - so the
@@ -200,6 +209,24 @@
 // 1.57.0: Aster replaces the old showcase with an authored coastal observatory,
 // playable lens hunt and bounded optical experiments. See examples/showcase.
 // The project format and generated runtime behavior are unchanged.
+// 1.80.0 (cutscenes hide the HUD and own the skip button, docs/cutscenes.md):
+// three things a cutscene could not do. **Hide HUD** takes the whole HUD stack
+// off for the duration - images, live bars, baked texts - AND, which is the
+// half that was actually reported, the USE prompt and the USE interaction
+// with it: a cutscene camera gliding past a usable prop was raising "press to
+// use" over the cinematic, and the press worked. It is tied to that flag and
+// not to playback because a cutscene that only animates something while the
+// player keeps the camera is a real use case; runtime text (Display Text)
+// stays visible, because that is where subtitles live. **The skip press now
+// reaches the cutscene**: a skippable cutscene claims the `menu` action
+// before updateGameMenu can open the pause menu on top of it, which is why a
+// skippable cutscene in a project with a pause menu was unskippable - START
+// opened the menu, the frame paused the scripts, and the director never saw
+// the click. And a skip can now **ask first**: GameMenu::skipMenu designates
+// one authored menu as the confirmation screen and a new Skip cutscene row
+// action confirms, so "are you sure" is a styled screen rather than a
+// hardcoded string. kFormatVersion 43 -> 44, purely additive.
+//
 // 1.79.0 (native PS2 builds): Build & Run now provisions the pinned official
 // PS2DEV v2.0.0 release and compiles the vendored OpenVCL, vclpp, bin2s and
 // audsrv sources locally; Windows uses the same Linux toolchain through WSL.
@@ -3103,9 +3130,10 @@
 // 1.77.0: merge animated HUD elements with the 1.76 rendering stack.
 // 1.78.0: editor comments pinned to scenes.
 // 1.79.0: merge native PS2DEV/OpenVCL builds with editor comments.
+// 1.80.0: cutscenes can hide the HUD and own the skip button.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 83
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 84
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -3453,8 +3481,17 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // when a note has text. An older editor reads an unknown type name as a Box,
 // which is why this is a version bump and not just a new key - the refusal is
 // the point. Purely additive - no migration step.
-// v44: invisible box collisions and optional scene-local editorGroup.
-inline constexpr int kFormatVersion = 44;
+// v44 (cutscene HUD + skip screen, docs/cutscenes.md): Sequence::hideHud and
+// Sequence::skipMode (always written), plus GameMenu::skipMenu and the
+// MenuEntry action "skip-cutscene" (both written only when set). An older
+// editor reads the unknown action word as Close, which would turn a confirm
+// row into a decline row - the refusal is the point. Purely additive - no
+// migration step.
+// v45: invisible box collisions and optional scene-local editorGroup.
+// Renumbered from v44 on the merge with main, which had already published a
+// different v44 (above). Two branches claiming one number is the trap this
+// file exists to make visible - the LATER arrival renumbers, always.
+inline constexpr int kFormatVersion = 45;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

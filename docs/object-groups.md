@@ -35,7 +35,7 @@ can appear under more than one layer header, but selecting any member still sele
 the whole group. Avoid nonuniform group scaling of differently rotated objects:
 the scene stores TRS transforms and cannot represent shear.
 
-The optional `editorGroup` string lives in each `objects/<id>.json` (format 44 after merging main).
+The optional `editorGroup` string lives in each `objects/<id>.json` (format 45).
 It is included in object equality/history and collaboration serialization, and
 has no PS2 runtime cost. Old files without it open with independent objects.
 

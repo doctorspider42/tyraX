@@ -202,8 +202,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [world facts](docs/world-facts.md), runtime spawning and the
   [endless scroller](docs/endless-scroller.md).
 - **[NavMesh + NPC AI](docs/navigation-ai.md)** — baked on the host, A* on the EE.
-- **Cinematics** — the Cutscene Director, fed by keyframes or by a
-  [phone-recorded 6DoF take](docs/camera-takes.md) or the
+- **[Cinematics](docs/cutscenes.md)** — the Cutscene Director, fed by keyframes
+  or by a [phone-recorded 6DoF take](docs/camera-takes.md) or the
   [live phone viewfinder](docs/phone-camera.md).
 - **Input** — [named actions and rebinding](docs/input-bindings.md),
   [button glyphs in text](docs/text-icons.md), and
@@ -443,6 +443,14 @@ to take ownership** of a file, and the editor stops regenerating it.
   [TyraX ps2link](tools/ps2link/README.md)) and the
   [VS Code extension](docs/vscode-extension.md).
 - Developer architecture guides live under [.claude/skills/](.claude/skills).
+
+## Sponsor
+
+TyraX is free, Apache-2.0 and developed in the open. If it is useful to you,
+the **Sponsor** button at the top of this repository (or
+[github.com/sponsors/doctorspider42](https://github.com/sponsors/doctorspider42))
+helps keep the PS2 hardware, devkits and test consoles running. The button is
+wired from [`.github/FUNDING.yml`](.github/FUNDING.yml).
 
 ## Credits
 

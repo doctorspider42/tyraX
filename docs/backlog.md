@@ -130,6 +130,28 @@ measuring before touching:
   packages - the same trade the routing already makes one level down, but over
   a much bigger box. Measure on a scene of large objects, not on a terrain.
 
+### Let a cutscene hide the HUD without hiding the USE prompt, and vice versa
+
+`Sequence::hideHud` is one switch covering the HUD stack, the live bars, the
+baked texts, the USE prompt AND the USE interaction (docs/cutscenes.md). That is
+the right default and it is what was asked for, but they are four separable
+questions and somebody will eventually want three of them — a cutscene that
+keeps a subtitle bar up, or one that keeps the HUD and only refuses the
+interaction. The shape is already there (`ScriptContext::hudSuppressed` is a
+flag beside `hudVisible`, not a write to it), so the change is a small bitmask
+plus one combo; do it when a real project asks, not before.
+
+### Close the one-frame USE prompt at a cutscene's first frame
+
+`updateUseTarget` runs BEFORE the scripts, so on the frame a flow graph calls
+**Play Sequence** the prompt was already decided against the previous frame's
+`hudSuppressed`. The render gate catches it in the same frame the director
+updates; what is left is the frame where `play()` happens after the director's
+own update, i.e. one frame of prompt at a cutscene's very start, under the
+fade-from-black. `hidePlayer` has had the identical one-frame lag since it
+existed, so the fix should cover both or neither, and it must not end up with
+two sources of truth for one flag.
+
 ### Ship the baked HUD sprites of the nine repaired examples
 
 Nine example projects (`custom-nodes`, `cutscene-demo`, `large-terrain`,

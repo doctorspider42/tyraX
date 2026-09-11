@@ -11715,6 +11715,33 @@ int addOptionsMenuPages(Project& p) {
     p.menus.push_back(std::move(root));
     return (int)p.menus.size() - 1;
 }
+
+// Scaffold the cutscene skip-confirmation screen (docs/cutscenes.md): a small
+// two-row menu already marked as the project's skip screen. NO is first and is
+// an ordinary Close row - declining needs no action of its own, and putting the
+// cursor on it means a stray Cross does not throw the cutscene away. Returns
+// the new menu's index, or the existing one when the project already has one
+// (the role is per project, so a second would be clamped away on load anyway).
+int addSkipScreen(Project& p) {
+    const int have = project::skipMenuIndex(p);
+    if (have >= 0) return have;
+    GameMenu m;
+    std::string name = "skip-cutscene";
+    for (int n = 2;; ++n) {
+        bool taken = false;
+        for (const GameMenu& o : p.menus) taken |= (o.name == name);
+        if (!taken) break;
+        name = "skip-cutscene-" + std::to_string(n);
+    }
+    m.name = name;
+    m.title = "SKIP CUTSCENE?";
+    m.skipMenu = true;
+    m.panelW = 256;
+    m.entries.push_back(MenuEntry{"NO, KEEP WATCHING", MenuEntry::Close, "", 0.0f});
+    m.entries.push_back(MenuEntry{"YES, SKIP", MenuEntry::SkipCutscene, "", 0.0f});
+    p.menus.push_back(std::move(m));
+    return (int)p.menus.size() - 1;
+}
 }  // namespace
 
 // Menu Editor window: menu list on the left, the selected menu's properties,
@@ -11772,6 +11799,14 @@ void App::drawMenusWindow() {
             "does). Style and edit them like any menu. Key rebinding is\n"
             "NOT included - add it deliberately with + Option block >\n"
             "Key bindings.");
+    if (ImGui::Button("+ Skip screen", ImVec2(-1, 0))) {
+        selectedMenu_ = addSkipScreen(project_);
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "A NO / YES confirmation, already marked as the project's\n"
+            "skip screen. One per project - selects the existing one.");
     ImGui::Separator();
     for (int i = 0; i < (int)project_.menus.size(); ++i) {
         ImGui::PushID(i);
@@ -11779,6 +11814,7 @@ void App::drawMenusWindow() {
         if (project_.menus[i].titleScreen) tag += "  [title]";
         if (project_.menus[i].pauseMenu) tag += "  [start]";
         if (project_.menus[i].saveMenu) tag += "  [save]";
+        if (project_.menus[i].skipMenu) tag += "  [skip]";
         if (ImGui::Selectable((project_.menus[i].name + tag).c_str(),
                               selectedMenu_ == i))
             selectedMenu_ = i;
@@ -11828,9 +11864,10 @@ void App::drawMenusWindow() {
     ImGui::SameLine();
     if (ImGui::SmallButton("Duplicate")) {
         GameMenu copy = m;
-        copy.titleScreen = false;  // the boot/Start/save roles stay unique
+        copy.titleScreen = false;  // the boot/Start/save/skip roles stay unique
         copy.pauseMenu = false;
         copy.saveMenu = false;
+        copy.skipMenu = false;
         std::string base = copy.name;
         for (int n = 2;; ++n) {
             copy.name = base + "-" + std::to_string(n);
@@ -11908,6 +11945,18 @@ void App::drawMenusWindow() {
                     if (i != selectedMenu_) project_.menus[i].pauseMenu = false;
             changed = true;
         }
+        if (ImGui::Checkbox("Cutscene skip screen", &m.skipMenu)) {
+            if (m.skipMenu)  // one confirmation screen per project
+                for (int i = 0; i < (int)project_.menus.size(); ++i)
+                    if (i != selectedMenu_) project_.menus[i].skipMenu = false;
+            changed = true;
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Opened by a cutscene set to Ask first.\n"
+                              "A \"Skip cutscene\" row confirms; anything that\n"
+                              "closes the menu declines.");
         if (ImGui::Checkbox("Pauses the game", &m.pauseGame)) changed = true;
         ImGui::SameLine();
         ImGui::TextDisabled("(?)");
@@ -12078,7 +12127,7 @@ void App::drawMenusWindow() {
             "Close menu",     "Switch scene",      "Open save menu", "Open menu",
             "Set save value", "Add to save value", "Flow event",     "Toggle",
             "Choice",         "Apply video mode",  "Rebind key",     "Play credits",
-            "Label (not selectable)"};
+            "Label (not selectable)", "Skip cutscene"};
         for (int e = 0; e < (int)m.entries.size(); ++e) {
             MenuEntry& en = m.entries[e];
             ImGui::PushID(e);
@@ -12232,6 +12281,15 @@ void App::drawMenusWindow() {
                         "the player picks APPLY (with the keep-or-revert\n"
                         "prompt). Without one, the display row switches on\n"
                         "every change, closing the menu each time.");
+                ImGui::SameLine();
+            } else if (en.action == MenuEntry::SkipCutscene) {
+                ImGui::TextDisabled(m.skipMenu ? "(?)" : "(!)");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        m.skipMenu
+                            ? "Ends the running cutscene and closes the menu."
+                            : "Unreachable: this is not the project's skip\n"
+                              "screen. Tick \"Cutscene skip screen\" above.");
                 ImGui::SameLine();
             }
 

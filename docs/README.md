@@ -138,6 +138,9 @@ for people building games with it. Internals live in code comments, the git log
   ordinary `.obj` + textures.
 - [Drone Generator (ambient music)](drone-generator.md) — the built-in ambient
   generator: signal chain, gliding chords, timeline automation, seamless loops.
+- [Cutscenes](cutscenes.md) — the Cutscene Director's sequence options: hiding
+  the HUD (and the USE prompt with it), widescreen bars and fades, and skipping
+  — instantly or through an authored confirmation screen.
 - [Camera takes (phone-recorded 6DoF moves)](camera-takes.md) — importing a
   real ARKit camera move into a Cutscene Director track.
 - [Phone camera (live viewfinder)](phone-camera.md) — the companion iOS app:
