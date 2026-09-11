@@ -1553,6 +1553,12 @@ an ELF path over ~145 characters** - it logs `ELF Loading: ...`, the EE never
 reaches `is executing`, and you get a black window with no diagnostic.
 `Runner::launchPCSX2` warns about it. A Linux home directory plus a deep
 project tree passes that far sooner than a Windows `TyraProjects` path does.
+The Runner must also pass `-elf` an **absolute, native-separator path**. PCSX2
+rebases a relative argument below the ELF directory, duplicating a path such as
+`examples/foo/bin/` and failing before the game can create `bin/log.txt`.
+`killEmulatorsFor` uses the same absolute spelling so relaunch still finds only
+this project's emulator when the project itself was opened through a relative
+CLI path.
 
 ### 4c. Platform parity: the files that exist twice
 Some things in this repo cannot be written once, because a `.ps1` cannot run on

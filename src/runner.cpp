@@ -31,6 +31,18 @@ std::vector<std::string> emulatorProcessNames(const std::string& exe) {
     return names;
 }
 
+// PCSX2 resolves a relative -elf argument from the ELF's own parent directory,
+// not from the editor's cwd. Passing examples/foo/bin/foo.elf therefore turns
+// into examples/foo/bin/examples/foo/bin/foo.elf and the emulator opens a black
+// window without ever starting the game. Keep the spelling native for PCSX2,
+// but make it absolute before it reaches either the launcher or process matcher.
+std::string absoluteNativePath(const std::string& path) {
+    std::error_code ec;
+    fs::path absolute = fs::absolute(fs::path(path), ec);
+    if (ec) absolute = fs::path(path);
+    return absolute.lexically_normal().make_preferred().string();
+}
+
 // --- who owns the ps2link file server --------------------------------------
 //
 // Exactly one `ps2client` can serve a console: it is the host: filesystem for
@@ -429,9 +441,10 @@ bool Runner::launchPCSX2(const Project& p) {
         return false;
     }
     lastEmulator_ = exe;
+    const std::string elfPath = absoluteNativePath(p.elfPath());
     std::error_code ec;
-    if (!fs::exists(p.elfPath(), ec)) {
-        appendLine("[editor] ELF not found: " + p.elfPath() + " - build the project first.");
+    if (!fs::exists(elfPath, ec)) {
+        appendLine("[editor] ELF not found: " + elfPath + " - build the project first.");
         return false;
     }
 
@@ -444,10 +457,10 @@ bool Runner::launchPCSX2(const Project& p) {
     // a home directory plus a deep project tree passes 145 far sooner than
     // C:\Users\<name>\TyraProjects\<project> does.
     constexpr size_t kMaxElfPathChars = 145;
-    if (p.elfPath().size() > kMaxElfPathChars) {
+    if (elfPath.size() > kMaxElfPathChars) {
         appendLine("[editor] WARNING: the ELF path is " +
-                   std::to_string(p.elfPath().size()) + " characters (" +
-                   p.elfPath() +
+                   std::to_string(elfPath.size()) + " characters (" +
+                   elfPath +
                    ") - PCSX2 will load it and then fail to start the game. Move "
                    "the project somewhere shorter (at most " +
                    std::to_string(kMaxElfPathChars) + " characters up to and "
@@ -529,11 +542,11 @@ bool Runner::launchPCSX2(const Project& p) {
     }
 
     appendLine("[editor] Launching PCSX2: " + exe);
-    // (The ELF path is native-separator already: Project::filePath() applies
-    // make_preferred, which is what PCSX2 needs - it refuses a boot ELF whose
-    // path mixes separators.)
+    // PCSX2 needs a native, absolute path here. A relative path is re-based on
+    // the ELF's parent by its host loader and silently points at a duplicate,
+    // non-existent path (black screen, no game log).
     if (!platform::Process::startDetached(platform::shellArg(exe) + " -elf " +
-                                          platform::shellArg(p.elfPath()))) {
+                                          platform::shellArg(elfPath))) {
         appendLine("[editor] Failed to launch PCSX2.");
         return false;
     }
@@ -672,6 +685,7 @@ bool Runner::claimPs2Channel(const Project& p) {
 // project stay apart. An instance whose command line cannot be read is left
 // alone and counted: guessing wrong is the failure this replaced.
 void Runner::killEmulatorsFor(const Project& p, const std::string& exe) {
+    const std::string elfPath = absoluteNativePath(p.elfPath());
     int unreadable = 0, others = 0;
     for (const std::string& name : emulatorProcessNames(exe)) {
         for (const platform::RunningProcess& proc : platform::processesNamed(name)) {
@@ -679,7 +693,7 @@ void Runner::killEmulatorsFor(const Project& p, const std::string& exe) {
                 unreadable++;
                 continue;
             }
-            if (!platform::commandLineNamesPath(proc.commandLine, p.elfPath())) {
+            if (!platform::commandLineNamesPath(proc.commandLine, elfPath)) {
                 others++;
                 continue;
             }

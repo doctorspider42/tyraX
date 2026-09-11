@@ -16,6 +16,13 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.81.2 (PCSX2 launch path): Build & Run resolves bin/<project>.elf to a
+// native absolute path before passing it to `-elf`. A relative project opened
+// from the CLI previously made PCSX2 rebase the same path below its bin/
+// directory, so the emulator showed a black window and the game never wrote a
+// log. The same absolute spelling now identifies the project's emulator when
+// stopping or relaunching it. PATCH: launch fix only, no format change.
+//
 // 1.81.0 (the distant one-submit tier - docs/vehicles.md): the body's paint
 // part gets its two ordinary distance tiers, and each carries the four
 // WHEELS baked in at their rest anchors, hard-decimated; the matte trim
@@ -2319,7 +2326,7 @@
 
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 81
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

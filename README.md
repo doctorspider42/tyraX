@@ -113,7 +113,9 @@ Then, in the editor:
   provides the native file dialogs on Linux.
 - **Keep the project path short.** PCSX2's `host:` loader silently refuses an ELF
   path longer than ~145 characters — the game never starts and nothing is logged.
-  The editor warns in *Output*.
+  The editor warns in *Output*. Build & Run passes an absolute native path;
+  invoking PCSX2 by hand should do the same, because its host loader can rebase
+  a relative `-elf` path below `bin/` and leave only a black screen.
 
 ## What it does
 

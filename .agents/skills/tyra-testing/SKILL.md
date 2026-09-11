@@ -708,6 +708,14 @@ Notes:
   in `~/tyra-projects/<name>` (or the Windows equivalent) instead. If a boot
   produces nothing but `TLB Miss` spam, measure the path before debugging the
   game.
+- **A relative `-elf` path is a different black-screen failure.** PCSX2 may
+  rebase it below the ELF directory, so `examples/foo/bin/foo.elf` becomes
+  `examples/foo/bin/examples/foo/bin/foo.elf`; emulog reports `Denying access`
+  or `Failed to read ELF`, the entry point is `0xFFFFFFFF`, and `bin/log.txt`
+  never appears. The editor launcher resolves an absolute native path before
+  launch; do the same when invoking PCSX2 by hand. Reproduce launcher regressions
+  with `--build ./examples/<name> --run`, deliberately keeping the CLI project
+  path relative, then inspect the running process's `-elf` argument.
 - **Docker on Linux runs the container as root**, so a `docker` group that was
   granted in the current login session is not yet active in an already-running
   shell. Either start a fresh session or accept that `docker` needs privilege
