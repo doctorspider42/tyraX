@@ -35,19 +35,22 @@ emitted rows behind its `clipw`, and the window position matches the source),
 register reads** (zero per component in either assembler). The defect is in
 openvcl's core code generation, not in what this repo asks of it.
 
-The packet tap has now been RUN, on hardware, on both assemblers at one
-parked pose, and it says what the defect costs: from an identical input (16
-meshes, 100 triangles either side) SCE's `clip_c` stages **37 triangles / 111
-GS vertices** and openvcl's stages **35 / 105**. Two triangles lost. The
-staged streams agree through the early packets and then diverge.
+The packet tap has been run on hardware and is **not usable as it stands**.
+Its staged-triangle count samples a double-buffered output area, so the same
+capture of the same flush on the same build returns 105, 93 and 99 GS
+vertices in a row - twice the difference any comparison would rest on. The
+flush INDEX is not stable either: the frame's flush count oscillates 129/131
+here, so the same index can be a different draw on the next capture. Before
+the tap can arbitrate this, it needs a single-mesh flush (the decoder says its
+host reference is exact only then), a draw identified by SIGNATURE rather than
+index, and an observable that does not depend on when the stall lands.
 
-So the question is no longer "is it real" or "which program" but **which clip
-decision goes the other way**. The fixture is recorded in
-docs/toolchain-image.md: parked pose, flush index 0, and the
-`--dump-vucap --full` diff. The next step is the variant method the earlier
-bisection used - neutralise one part of the edge-test path at a time in
-`stapip_clip_c_vu1.vclpp`, build BOTH assemblers with the same change, and
-find the variant where the two staged counts agree.
+Until then the sound instrument is the FRAME: a parked pose captured twice off
+one build differs by a mean of 0.001 of 255, so an openvcl-against-SCE
+difference of 0.08 (237 px) at that pose, or 2.5-2.8 (~7000 px) at the route's
+worst, is real. The variant method still applies - neutralise one part of the
+edge-test path at a time in `stapip_clip_c_vu1.vclpp`, build BOTH assemblers
+with the same change, and find the variant where the two PICTURES agree.
 
 Until it is fixed there is **no good console configuration on the native
 toolchain**: the EE clipper is not an escape hatch — it runs the `as_is_*`

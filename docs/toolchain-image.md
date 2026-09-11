@@ -4717,51 +4717,41 @@ shaft. Two things about that pose: it is worth ~0.08 mean / 237 px on its own
 and the divergence is sharply pose-dependent - the route's worst pose is
 thirty times larger. Park closer to the route's worst frame before tapping.
 
-### The packet tap, run on hardware: two triangles lost from identical input
+### The packet tap on hardware: the instrument is not sound, and the numbers are withdrawn
 
-The instrument the bisection kept pointing at finally ran, on the console, on
-both assemblers, at one parked pose. Same scene, same camera, same frame, the
-same bag flush index, and the same INPUT - the decoder reports 16 meshes and
-100 triangles on both sides, with the largest vertex stream 21 vertices / 7
-triangles either way. What the microprogram STAGES for the GS differs:
+The tap ran on the console, on both assemblers, at one parked pose, and it
+first appeared to answer: from an identical input (16 meshes, 100 triangles
+either side) SCE's `clip_c` staged 37 triangles / 111 GS vertices where
+openvcl staged 35 / 105. **That comparison does not hold, and it is withdrawn.**
 
-| `stapip_clip_c` built by | staged triangles | GS vertices |
-|---|---|---|
-| SCE `vcl` | **37** | **111** |
-| openvcl | **35** | **105** |
+Repeating the SAME capture, at the same flush index, on the same build, one
+after another, gives **105, 93, 99 GS vertices**. The spread is twice the
+difference the comparison rested on. The decoder says why in its own output:
+*"staged in VU1: N triangles (the LAST run(s) only - the output area is
+double buffered)"*. The snapshot samples whatever VU1's output area happens to
+hold when the stall lands, so on hardware it is a race, not a measurement.
+Take a staged count from this tap as an order of magnitude, never as a
+difference of six.
 
-Two triangles, six vertices, gone. The staged streams agree vertex for vertex
-through the early packets and then diverge. This is the same shape the earlier
-PCSX2-era bisection measured (24/72 against 17/51) - except that one is fixed
-and this one is on hardware, with the current assembler and none of the
-density flags implicated.
+A second instability sits underneath it: **the flush INDEX does not identify a
+draw across captures.** The frame's flush count oscillates here between 129
+and 131, so every index after the flushes that come and go shifts with it -
+arm the same index twice and the second capture can be a different draw
+entirely (measured: index 0 came back as `clip_c` with 16 meshes on one
+capture and as `cull_c` with 10 meshes on the next). A draw has to be
+identified by SIGNATURE - program address, mesh count, input triangle count -
+and found by scanning, which is what `scan.sh` in the session scratch did.
 
-The fixture, so the next attempt starts from a reproduction rather than a
-screenshot:
+So the tap needs two things before it can arbitrate this defect: a flush that
+carries ONE mesh (the decoder already warns its host reference is exact only
+then), and an observable that does not depend on when the stall lands.
 
-* **Pose**, parked with `ctx.cameraOverride` in a global script: eye
-  (9.78, 1.7345, 17.8393), yaw 166.666, pitch 1.571 on `examples/showcase` -
-  0.11 units in front of the surface gate, so the failing draw is in the
-  portal THROUGH-view.
-* **Flush index 0** is the clip_c draw at that pose (`microprogram start:
-  172` under openvcl, `176` under SCE - the four-word difference is
-  `cull_c`'s size shifting the packing offset, not a different program). Of
-  flushes 0..24 it is the only one that runs the clip program at all; the rest
-  are cull.
-* **Recovering the pose of a capture**: `--capture-frame` freezes the game for
-  about three seconds, which leaves a GAP in a once-per-20-frames camera log,
-  so the pose of capture N is the last line before gap N. That is how this
-  pose was found.
-
-**A trap that cost an hour, now fixed in the script**: the game drops a devkit
-command whose version it does not recognise -
-`if (magic != CMD_MAGIC || version != CMD_VERSION) return;` - and
-`arm-vucap.py` still wrote **version 1** where the game is at 2. It printed
-"armed", the game ignored every byte, and `--dump-vucap` answered "no capture
-yet" on both the console and the emulator. Worse, the first arming that DOES
-land sets `vuCapPending` and the tap refuses every later one until the write
-completes, so a single stale command can look like dead hardware. If a capture
-never arrives, check the version constant before suspecting the transport.
+**What still stands**, because it never went through the tap: the frame-level
+A/B. The same parked pose captured twice off one build differs by a mean of
+**0.001 of 255**; openvcl against SCE at that pose differs by 0.077 with 237
+pixels over threshold, and the route's worst pose by 2.5-2.8 with ~7000. That
+noise floor is what makes those frame numbers - and the flag exoneration built
+on them - measurements rather than impressions.
 
 ## Still open
 
