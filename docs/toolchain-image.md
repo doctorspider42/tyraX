@@ -4753,6 +4753,36 @@ pixels over threshold, and the route's worst pose by 2.5-2.8 with ~7000. That
 noise floor is what makes those frame numbers - and the flag exoneration built
 on them - measurements rather than impressions.
 
+### The parked single-pose fixture does not work here: the scene flickers on its own
+
+The variant method needs a fixture with a known noise floor, and the obvious
+one - park the camera, capture, compare - **does not have one in this view**.
+At the pose the route's worst frame sits at, the cellar's light shaft comes
+and goes between captures **on both assemblers**: six captures of a pure-SCE
+build differ pairwise by up to **1865 pixels**, clustering into at least two
+states (two of the six are byte-identical, the rest are not). The flicker is
+the scene, not the defect.
+
+That invalidates every number taken from that fixture, and they are withdrawn:
+a "baseline" gap of 434 px, and variants that appeared to make openvcl and SCE
+byte-identical, all sit at or below a noise floor four times their size. Two
+same-phase samples looked like a noise floor of zero. This is the stability
+gate in the tyra-testing skill, skipped: *freeze the camera AND everything that
+animates, then prove the frame is still before believing any difference.*
+
+What survives is the measurement that had the samples to support it - the
+**frame-indexed route**, 24-25 cellar frames per arm, paired: every SCE-built
+arm is clean across ~130 frames and every openvcl arm shows the artefact, with
+the worst frame 3-9x the flicker amplitude and a structural difference in the
+picture (a light shaft collapsing from one broad cone into narrow wedges, a
+vault shearing into slivers) rather than a few pixels of grain.
+
+So a usable variant fixture here has to either sample the route (many frames,
+paired by capture index, which only works while the variant does not change
+the frame rate - a "never clip" variant desynchronised the two arms by four
+captures) or park somewhere the scene is provably still. Neither is free, and
+neither was in place for the variant round.
+
 ## Still open
 
 - **The GHCR package is private** until the repo is, so nobody outside can pull

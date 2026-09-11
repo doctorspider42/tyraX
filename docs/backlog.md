@@ -27,30 +27,32 @@ docs/toolchain-image.md, "The first real-hardware run".
 The payoff is the migration itself: openvcl cannot be trusted for hardware
 until this is understood, and it is the one class the emulator cannot gate.
 
-Ruled out, each measured: **the density flags** (a `clip_c` built with no
-latency or scheduling flag at all, 504 words of conservative padding, is wrong
-by the same amount — console arm J), the **CLIP shift window** (every read >= 4
-emitted rows behind its `clipw`, and the window position matches the source),
-**hazard distances** per class against SCE's own minima, and **uninitialised
-register reads** (zero per component in either assembler). The defect is in
-openvcl's core code generation, not in what this repo asks of it.
+Ruled out on the host, against both the shipped and a no-flag build: the
+**CLIP shift window** (every read >= 4 emitted rows behind its `clipw`, and the
+window position matches the source, where SCE's does not), **hazard distances**
+per class against SCE's own minima, **uninitialised register reads** (zero per
+component either side), and the **`xgkick` block** (structurally identical).
 
-The packet tap has been run on hardware and is **not usable as it stands**.
-Its staged-triangle count samples a double-buffered output area, so the same
-capture of the same flush on the same build returns 105, 93 and 99 GS
-vertices in a row - twice the difference any comparison would rest on. The
-flush INDEX is not stable either: the frame's flush count oscillates 129/131
-here, so the same index can be a different draw on the next capture. Before
-the tap can arbitrate this, it needs a single-mesh flush (the decoder says its
-host reference is exact only then), a draw identified by SIGNATURE rather than
-index, and an observable that does not depend on when the stall lands.
+One code-shape difference IS established on the host and is worth chasing:
+openvcl emits an **FMAC write followed one row later by a store that reads it**
+— six sites in `clip_c`, three of them in `edgeCross` and three storing the
+clip polygon — where SCE never goes below two rows and annotates the one at two
+as `STALL_LATENCY ?2`. `--fmac-interlock` is what introduces them (drop it and
+the same pairs sit at four rows). The FMAC pipeline interlocks VF-to-VF, which
+is the flag's premise; a STORE reads the register file by another path, and
+SCE's output says it needs the gap. Whether that is THE defect is **not**
+established - the console arm that removed those sites still rendered wrong,
+and the fixture that seemed to say otherwise turned out to be noise (below).
 
-Until then the sound instrument is the FRAME: a parked pose captured twice off
-one build differs by a mean of 0.001 of 255, so an openvcl-against-SCE
-difference of 0.08 (237 px) at that pose, or 2.5-2.8 (~7000 px) at the route's
-worst, is real. The variant method still applies - neutralise one part of the
-edge-test path at a time in `stapip_clip_c_vu1.vclpp`, build BOTH assemblers
-with the same change, and find the variant where the two PICTURES agree.
+**The blocker is the fixture, not the ideas.** A single parked pose has no
+usable noise floor in this view - the cellar's light shaft comes and goes
+between captures on BOTH assemblers, up to 1865 pixels, so every variant
+measured there sat under its own noise. The route fixture has the samples but
+desynchronises the two arms as soon as a variant changes the frame rate. Build
+one that survives both before running more variants: park somewhere provably
+still (prove it with six captures, not two), or key the captures to the game's
+frame counter so the two arms sample the same frames rather than the same
+seconds.
 
 Until it is fixed there is **no good console configuration on the native
 toolchain**: the EE clipper is not an escape hatch — it runs the `as_is_*`
