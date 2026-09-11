@@ -111,6 +111,14 @@ Two traps around it: **changing `Makefile.base` does NOT invalidate `libtyra.a`*
 change needs `--build --rebuild` or you get objects compiled both ways and the
 same error from the stale half; and the shared engine volume is **per project**,
 so fixing one project's build leaves every other project's volume stale.
+A third, fixed in 1.81.1 but worth knowing the shape of: **a failed engine
+`make` used to leave the PREVIOUS `libtyra.a` in the volume** with the new
+sources already synced beside it, so the next build's rsync saw nothing to do,
+skipped make, linked the game against the stale library and printed
+`Build OK` - a compile error in the engine read as "the fix changed nothing"
+for four console runs in a row. The Runner now deletes `libtyra.a` when make
+fails; if a Docker build ever says `Build OK` without an `ar rcs bin/libtyra.a`
+line after you changed engine sources, that is the symptom.
 
 Verified
 byte-identical: the same project built with the old and new rules produced the
@@ -2151,6 +2159,35 @@ vertices remain, with a four-byte index per corner. The temporary hash table
 exists only during loading. Set `TYRA_SKEL_PROFILE` in skel_instance.hpp to 1
 for per-instance COP0 pose/skin timings every 100 skins; keep it 0 when shipping.
 
+
+### The slot pool is double-buffered (1.81.1) — the console-only sliver
+
+The REF rule above has a second half that took a real PS2 to find: the
+renderer's OWN copies are referenced too. `StaPipQBuffer::fillByCopyMax` /
+`fillByCopy1By2` merge small in-frustum packages by copying them into a
+per-slot pool (both clipping modes), `fillByCopy1By3` / `writeChunk` copy for
+the EE clipper, the packet's REF tags point at the pool, and
+`flushBuffers()` resets the slot indices the moment the packet is *sent*. The
+next bag copied into slot 0 while slot 0 was still being read, and the DMA
+picked up a vertex of the next object: a lamp's corona drew as a sliver to the
+screen corner in 4 of 24 frames with Sony's `vcl` and up to 19 of 30 with
+openvcl (its schedule only moves the window), and the EE clipper - which
+copies everything - drew screen-sized slabs. PCSX2 completes a DMA before the
+EE runs on and shows none of it. The pool now has two sides and
+`StaPipQBufferRenderer::sendPacket()` flips the side with `context`
+(`StaPipQBuffer::flipPoolSide`); the wait before that send is what makes the
+side being written the finished one. **Do not "fix" this class with an
+EE-side `dma_channel_wait` per bag: measured at -4 FPS.** Two cheap barriers
+came with it: a `FLUSHE` at the head of the StaPip and DynPip uniform chains
+(absolute-address unpacks of MVP/OPTIONS/clip planes while the previous batch
+may still be running), and a VIF1 wait before the projected-shadow pass
+rewrites its shared `projClamp` buffer. Story, fixture and bisection table:
+docs/vu1-clipping.md, "Real hardware: the slot-pool race". Two lessons that
+generalise: a hardware-only defect wants a **failure rate on a parked pose**,
+never a single frame; and **bisect with barriers** (GS FINISH per bag, VIF
+FLUSH per bag, VIF-stream-only FLUSH, EE wait at one site) before reading a
+line of microcode - two days went into the clipper's assembler first, and it
+was innocent.
 
 ### DMA REF lifetime (1.74.1)
 

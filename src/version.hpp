@@ -16,6 +16,29 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.81.1: the console-only rendering corruption filed against openvcl's VU1
+// clipper was an engine DMA race, and it is fixed in the engine. A lamp's
+// corona (a small textured clip bag) came out as a sliver to the screen
+// corner in some frames on a real PS2 - 4 of 24 with Sony's vcl, up to 19 of
+// 30 with openvcl - and the EE clipper drew screen-sized slabs; PCSX2 showed
+// neither. StaPipQBufferRenderer::flushBuffers() hands the slot pool to the
+// next bag the moment a packet is SENT, and fillByCopyMax/fillByCopy1By2 (both
+// clipping modes) and the EE clipper copy vertex data into that pool, which
+// the packet's REF tags then read asynchronously: the next bag's copy landed
+// under the transfer and the DMA picked up a vertex of the NEXT lamp. The
+// pool is now double-buffered alongside the packet double buffer
+// (StaPipQBuffer::flipPoolSide in sendPacket) - the guarantee the EE-side
+// wait probe gave (24/24 clean frames) without its 4 FPS. Also: a FLUSHE at the head of the StaPip/DynPip
+// uniform chains (their absolute-address unpacks could land while the previous
+// batch still ran), a VIF1 wait before the projected-shadow pass rewrites its
+// shared projClamp buffer, and the ps2link deploy note that blamed openvcl is
+// gone. The Docker backend also stops hiding a failed engine make: it used to
+// leave the previous libtyra.a in the volume beside the freshly synced
+// sources, so the next build skipped make, linked the stale library and said
+// "Build OK" (four console runs in a row tested nothing). Method and
+// bisection: docs/vu1-clipping.md, "Real hardware: the slot-pool race".
+// PATCH: a fix, no format change.
+//
 // 1.81.0: a thrown or physics-driven object can cross a portal whose opening
 // is cut into an imported mesh. The doorway rule - "while a body's motion
 // pierces a linked opening, stop colliding with the geometry that opening was
@@ -2998,7 +3021,7 @@
 // 1.79.0: merge native PS2DEV/OpenVCL builds with editor comments.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 81
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

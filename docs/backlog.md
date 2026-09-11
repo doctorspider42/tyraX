@@ -13,54 +13,24 @@ git show <retirement-commit>^:PROGRESS.md
 git log -p --follow -- PROGRESS.md
 ```
 
-### Fix `stapip_clip_c` for real hardware, and re-verify the whole set there
+### Re-verify the whole VU1 set on real hardware, now that the race is fixed
 
-The openvcl-built VU1 clipper renders **wrong on a real PS2** while being
-pixel-identical in PCSX2, and the defect is pinned to one program: dropping
-only `stapip_clip_c` from openvcl into an otherwise-SCE build reproduces it
-(`stapip_cull_c` adds to it). The visible symptom is a lamp's light shaft
-collapsing from one broad cone into several narrow wedges, which on
-`examples/showcase` reads as a shattered cellar vault seen through the portal.
-The measurements, the four-arm A/B and the reproduction recipe are in
-docs/toolchain-image.md, "The first real-hardware run".
+The console-only corruption that was filed here as "openvcl's `stapip_clip_c`
+renders wrong on a real PS2" turned out to be an engine DMA race - the StaPip
+slot pool handed to the next bag while the previous packet still read it -
+fixed in 1.81.1 by double-buffering the pool (docs/vu1-clipping.md, "Real
+hardware: the slot-pool race"). Both assemblers were failing; openvcl's
+schedule only moved the rate. The EE-wait probe that located it rendered the
+production openvcl set pixel-identically to Sony's for 24 of 24 frames.
 
-The payoff is the migration itself: openvcl cannot be trusted for hardware
-until this is understood, and it is the one class the emulator cannot gate.
-
-Ruled out on the host, against both the shipped and a no-flag build: the
-**CLIP shift window** (every read >= 4 emitted rows behind its `clipw`, and the
-window position matches the source, where SCE's does not), **hazard distances**
-per class against SCE's own minima, **uninitialised register reads** (zero per
-component either side), and the **`xgkick` block** (structurally identical).
-
-One code-shape difference IS established on the host and is worth chasing:
-openvcl emits an **FMAC write followed one row later by a store that reads it**
-— six sites in `clip_c`, three of them in `edgeCross` and three storing the
-clip polygon — where SCE never goes below two rows and annotates the one at two
-as `STALL_LATENCY ?2`. `--fmac-interlock` is what introduces them (drop it and
-the same pairs sit at four rows). The FMAC pipeline interlocks VF-to-VF, which
-is the flag's premise; a STORE reads the register file by another path, and
-SCE's output says it needs the gap. Whether that is THE defect is **not**
-established - the console arm that removed those sites still rendered wrong,
-and the fixture that seemed to say otherwise turned out to be noise (below).
-
-**The fixture blocker is SOLVED.** An input replay pins `dt` (the two arms run
-at 18 and 23 FPS, so at the same frame they had accumulated different simulated
-time and everything time-driven was in a different phase), halt/step pins the
-frame number, and masking the HUD band removes the rest. Measured: the same
-build over two separate runs is byte-identical - 0 pixels, at two frames - and
-openvcl against SCE is 312 pixels, reproduced exactly at two independent
-frames. The three rules and their traps are in docs/toolchain-image.md, "A
-fixture with a zero noise floor". So the variant bisection can now be run
-properly: two deploys per variant, and the verdict is binary - the pictures
-match or they do not.
-
-Until it is fixed there is **no good console configuration on the native
-toolchain**: the EE clipper is not an escape hatch — it runs the `as_is_*`
-family, also openvcl-built, and on hardware it is worse than the VU1 path
-(half-screen wedges, and 13-18 FPS against 20-24). Build through the **Docker
-backend** against an image carrying SCE's `vcl` for a console-accurate
-picture; the ps2link deploy path prints a note saying so.
+**First thing when the console is back:** the pool fix's own 30-frame pass on
+the Aster pose, `"clipping": "vu1"` and `"precise"`, against `SCEE_1400`-style
+references (the sampler recipe is in the `tyra-testing` skill). Then the broad
+pass this entry originally asked for: every microprogram of the resident set, on more than one map and more
+than one pose, with the failure-RATE fixture rather than single frames (parked
+pose + `--capture-frame` x30 against one reference). The `as_is_*` family and
+the EE clipper deserve the same pass - the EE clipper was catastrophically
+broken by the same race and has never been looked at on hardware since.
 
 ### Judge openvcl against the ps2gl fixtures
 

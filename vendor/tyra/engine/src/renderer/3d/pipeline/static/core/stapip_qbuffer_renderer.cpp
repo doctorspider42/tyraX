@@ -80,7 +80,7 @@ void StaPipQBufferRenderer::allocateOnUse() {
   // Modified by TyraX: 48 -> 52 - the billboard basis unpack (2 qwords
   // + headers).
   // Four inline lighting qwords replace the former REF payload.
-  objectDataPacket = packet2_create(56, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
+  objectDataPacket = packet2_create(57, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);  // +1: the FLUSHE tag
 
   packets = new packet2_t*[2];
   for (u16 i = 0; i < 2; i++)
@@ -253,6 +253,24 @@ void StaPipQBufferRenderer::sendObjectData(
   // geometry DMA. Thus this reusable packet is already free at the next bag,
   // including the inline SH colours; waiting here would serialize preparation.
   packet2_reset(objectDataPacket, false);
+  // Modified by TyraX: everything in this chain lands at an ABSOLUTE VU1
+  // address (MVP 0..3, OPTIONS 8, CLIP_CONSTS 20, ALPHA 21, the clip planes at
+  // 944..955) and the microprograms read those inside their loops. The DMA
+  // wait before this packet only proves the previous CHAIN was consumed - its
+  // final MSCAL merely started the last batch, and that program may still be
+  // running (parked on an XGKICK for as long as the GS takes to fill a big
+  // translucent triangle). The VIF performs absolute unpacks immediately and
+  // stalls only at the next MSCAL, so without a barrier the next mesh's matrix
+  // and plane table land mid-draw: one vertex through the wrong MVP is a wedge
+  // to the screen corner, a swapped plane table cuts or drops the polygon.
+  // PCSX2 never overlaps a VIF unpack with a running microprogram, so it
+  // cannot show this; a real PS2 does (docs/vu1-clipping.md). FLUSHE = wait
+  // for the end of the microprogram; the halves the GIF may still be reading
+  // are not touched by this chain, so no PATH1 drain is needed here.
+  packet2_chain_open_cnt(objectDataPacket, 0, 0, 0);
+  packet2_vif_flushe(objectDataPacket, 0);
+  packet2_vif_nop(objectDataPacket, 0);
+  packet2_chain_close_tag(objectDataPacket);
   packet2_utils_vu_add_unpack_data(objectDataPacket, VU1_MVP_MATRIX_ADDR,
                                    mvp->data, 4, false);
 
@@ -803,6 +821,15 @@ void StaPipQBufferRenderer::flushBuffers() {
   currentBufferIndex = 0;
   nextBufferIndex = 0;
 
+  // Modified by TyraX: resetting the indices hands the slots to the next bag
+  // while the packet just sent is still being read by the DMA, and the slots'
+  // own arrays are what its REF tags point at whenever a package was COPIED
+  // (fillByCopyMax / fillByCopy1By2 merge small in-frustum packages in both
+  // clipping modes; fillByCopy1By3 / writeChunk are the EE clipper's). That is
+  // safe only because those arrays live in the pool side the last send moved
+  // away from - StaPipQBuffer::flipPoolSide in sendPacket. Do not add a DMA
+  // wait here instead: measured at -4 FPS on the console (docs/vu1-clipping.md).
+
   Verbose("End flush - zeroing buffer indices.");
 }
 
@@ -991,8 +1018,10 @@ void StaPipQBufferRenderer::sendPacket() {
     g_vuMemHook((const void*)0x1100c000, 1024 * 16);
   }
 
-  // Switch packet, so we can proceed during DMA transfer
+  // Switch packet, so we can proceed during DMA transfer - and switch the
+  // slots' copy pools with it, they are referenced by the packet just sent.
   context = !context;
+  StaPipQBuffer::flipPoolSide();
 }
 
 void StaPipQBufferRenderer::setMaxVertCount(const u32& count) {

@@ -16114,6 +16114,12 @@ void TerrainGame::renderProjShadows() {
         stapip.core.render(bag);
         return;
       }
+      // One shared buffer for every part of every caster, handed to the
+      // pipeline by REFERENCE: the previous part's DMA may still be reading it
+      // when the next part overwrites it (assign() may even reallocate under
+      // the transfer). Only the shadow-slot brackets fence this; between two
+      // parts of one caster nothing does, so wait for the readers first.
+      dma_channel_wait(DMA_CHANNEL_VIF1, 0);
       projClamp.assign(bag->vertices, bag->vertices + bag->count);
       for (Vec4& v : projClamp)
         if (v.y < gy0) v.y = gy0;

@@ -2126,6 +2126,40 @@ docker compose ... exec -T compiler sh -c "rsync -ac --include=*/ --include=bin/
 - **PCSX2 only.** Admissible for correctness (which is all this measures);
   never quote a GS-fill or per-function number from it.
 
+### Measuring a console-only flicker: the failure-rate fixture
+
+Some corruption exists only on a real PS2 and only in SOME frames of a static
+scene (the 1.81.1 slot-pool race: a lamp's corona as a sliver in 4-19 of 30
+frames, never in PCSX2). A single `--capture-frame` per build is then a coin
+toss dressed as a verdict, and two builds photographed once each will "differ"
+for no reason. The fixture that works:
+
+1. **Pin the run**: an input replay (`bin/replay.in`, docs/input-replay.md)
+   pins `dt`, and a tiny script parks the camera on a fixed pose from a frame
+   number on (`examples/showcase`'s `vantagecam.cpp` shape: pose A until frame
+   1400, pose B for ever after). The same pose then renders for the rest of
+   the run, so every capture is of the same picture.
+2. **Sample, don't shoot**: wait for `--debug-state` to report a frame past the
+   park, then take 24-30 free-running `--capture-frame`s a few seconds apart.
+3. **Score each against ONE reference** of that pose (a build known good, or
+   PCSX2) with the HUD rows masked (`d[:70,:] = 0`; the FPS/MEM text differs
+   between builds), and report `pixels > 40` per sample. The number is the
+   **rate**, and the distinct values tell you how many interleavings there
+   are (a race gives a small discrete set; garbage gives all different).
+4. **Bisect with barriers, not theories**: an arm per synchronisation point
+   (GS FINISH after every bag, a VIF1 FLUSH packet the EE waits for, a FLUSH
+   in the VIF stream only, one wait at one suspected site), 24+ samples each,
+   read the FPS off the HUD too. In 1.81.1 only the arms where the EE waited
+   fixed it - that single fact located the writer.
+
+Three traps: the fixture compares CONTENT, so both arms must be the same
+project directory (two scratch copies with a moved object "differed" by exactly
+one "PICK UP" prompt and cost a day); `--capture-frame` resumes a halted game,
+so never mix it with halt/step walking inside one sample series; and
+`--debug-state` reads `bin/livedbg.bin`, which the PREVIOUS run left behind at
+its last frame - delete it before launching or the "past the park" wait
+returns at once and the series photographs the moving camera.
+
 ### The shadow A/B rig: one command per switch
 
 Dynamic shadows (docs/shadows.md, docs/flashlight.md) are the case the layers

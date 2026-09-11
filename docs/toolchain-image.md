@@ -4581,6 +4581,16 @@ the console was read back out of the engine volume to confirm it carries the pad
 
 ### The first real-hardware run: `stapip_clip_c` is still wrong, and only a PS2 says so
 
+> **Superseded (2026-09-11).** The sections from here to "Still open" record
+> two days of chasing this as an assembler defect. It was not one: the
+> corruption is an engine DMA race that a real PS2 exposes and PCSX2 cannot,
+> its rate depends on the microprogram's *timing*, and every single-frame
+> comparison below was reading that rate as a verdict. The resolution is in
+> "Resolved: an engine DMA race, not the assembler" at the end of this
+> chapter and in docs/vu1-clipping.md, "Real hardware: the slot-pool race".
+> The text is kept because the instruments it built (the replay-pinned
+> fixture, the halt/step walk) are what made the real measurement possible.
+
 Everything above this line was measured in PCSX2, and every entry ends "Not
 verified: hardware". On 2026-09-10 the openvcl microcode ran on a **real
 PS2** for the first time, on `examples/showcase` (Aster) over ps2link, and it
@@ -4794,7 +4804,11 @@ make one. Measured, on this console, on `examples/showcase`:
 | openvcl vs SCE `clip_c`, matched frame | 0.2212 | **312** |
 | the same, at a second independent frame | 0.2212 | **312** |
 
-A true zero floor, and a signal that reproduces to the pixel. What it took:
+**Correction:** the 312 pixels were not the clipper. The two arms were two
+scratch projects whose object placement differed, and the difference is the
+"PICK UP" prompt one of them shows at that pose; the same comparison on one
+project reads 0. The zero floor is real; the "signal" was not. What the floor
+took:
 
 * **An input replay pins `dt`** (docs/input-replay.md). The two arms run at
   different frame rates - 18 against 23 FPS here - so at the same frame number
@@ -4819,6 +4833,37 @@ The scripts that do this are small and live in the session scratch; the
 reusable parts are the three rules above. With the floor at zero a variant
 verdict is binary - the pictures match or they do not - which is what the
 plane-loop bisection needed and did not have.
+
+### Resolved: an engine DMA race, not the assembler
+
+The full account, the fixture and the bisection table are in
+docs/vu1-clipping.md, "Real hardware: the slot-pool race". The short form, for
+anyone who arrives here from the sections above:
+
+- The corrupted object was a lamp's corona (a `clip_tc` bag), and the SAME pose
+  rendered wrong in 4 of 24 frames with Sony's `vcl` and in 2-19 of 30 with
+  openvcl variants. Every single-frame A/B above was sampling that rate. The
+  wrong pictures form a small discrete set, PCSX2 is pixel-stable in both
+  clipping modes, and the EE clipper on the console was worse than any VU1
+  arm - a timing race, not a program defect.
+- Bisected with barriers on the console: only arms where the **EE** waited for
+  the previous bag's DMA fixed it (at -4 FPS); VIF-side barriers did not. The
+  writer was `StaPipQBufferRenderer::flushBuffers()` handing the slot pool to
+  the next bag while the packet just sent was still reading it
+  (`fillByCopyMax`/`fillByCopy1By2` copy small in-frustum packages into that
+  pool in both modes; the EE clipper copies everything, hence its slabs).
+- Fixed by double-buffering the pool alongside the packet double buffer
+  (`StaPipQBuffer::flipPoolSide` in `sendPacket`) - the same guarantee the
+  EE-wait probe gave (24/24 clean, openvcl production set vs Sony's reference)
+  at no FPS cost. The pool fix's own 30-frame console pass, in both clipping
+  modes, is pending: the console wedged on pad init (`freepad: DMA Busy`,
+  power-cycle only) as the build came ready. PCSX2 is unchanged by it.
+- The store-after-FMAC distance (88 sites at one row against SCE's minimum of
+  two) was patched in openvcl and tested on the console: it changed the failure
+  mode, not the fact, and became moot once the race was fixed. The patch is
+  not kept; the observation stays here as "checked, harmless".
+- The ps2link deploy note that called openvcl's output wrong on hardware is
+  gone; native builds are console-accurate again.
 
 ## Still open
 

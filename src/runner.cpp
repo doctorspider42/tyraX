@@ -1029,19 +1029,6 @@ bool Runner::deployToPs2(const Project& p) {
     for (int i = 0; i < 40 && !cancelRequested_; i++) platform::sleepMs(250);
     if (cancelRequested_) return false;
 
-    // A native build's VU1 microcode comes from openvcl, and openvcl's output
-    // is known to render WRONG on a real PS2 while being pixel-identical in
-    // PCSX2 - measured on this console, in BOTH clipping modes; see
-    // docs/toolchain-image.md, "The first real-hardware run". The emulator
-    // cannot gate it, so the only place to say so is here, on the one path
-    // that reaches hardware.
-    if (p.buildBackend != "docker")
-      appendLine(
-          "[editor] Note: this ELF's VU1 microcode was assembled by openvcl, "
-          "which is known to render incorrectly on real hardware (clipping "
-          "artefacts that PCSX2 does not show). Build through the Docker "
-          "backend for a console-accurate picture - docs/toolchain-image.md.");
-
     // The execee process is the host: file server for the whole game session -
     // it must outlive this build. -ps2link tells the game to skip the IOP
     // reset that would unload ps2link (see the generated main.cpp). cwd is
@@ -1440,7 +1427,14 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                            "microprograms (takes a minute or two)...'; " +
                            std::string(kPurgeVuObjects) +
                            "fi; "
-                           "cd /tyra/engine && make -j$(nproc) && rm -f /src/bin/*.elf; "
+                           // A failed make must not leave the PREVIOUS libtyra.a behind:
+                           // the sources are already synced, so the next build's rsync
+                           // sees nothing to do, skips make, links the game against the
+                           // stale library and reports success - a compile error in the
+                           // engine then reads as "the fix changed nothing" for as many
+                           // builds as it takes to notice (it took four, 1.81.1).
+                           "cd /tyra/engine && (make -j$(nproc) || { rm -f bin/libtyra.a; "
+                           "exit 1; }) && rm -f /src/bin/*.elf; "
                           "fi"),
                       p.dir) == 0;
             if (!ok) appendLine("[editor] Engine sync/build failed.");
