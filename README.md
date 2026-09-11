@@ -185,6 +185,9 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [streaming layers](docs/streaming-layers.md),
   [world facts](docs/world-facts.md), runtime spawning and the
   [endless scroller](docs/endless-scroller.md).
+- **[Roads](docs/roads.md) and [vehicles](docs/vehicles.md)** — textured spline
+  roads projected onto the terrain in both the editor and game, plus imported,
+  budgeted cars with wheel suspension, gears, drifting and AI drivers.
 - **[NavMesh + NPC AI](docs/navigation-ai.md)** — baked on the host, A* on the EE.
 - **Cinematics** — the Cutscene Director, fed by keyframes or by a
   [phone-recorded 6DoF take](docs/camera-takes.md) or the

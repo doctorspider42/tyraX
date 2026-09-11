@@ -3051,23 +3051,10 @@ void App::drawViewportWindow() {
             roadgen::tessellate(
                 ro.roadPoints, ro.roadWidth,
                 [&](float x, float z) { return viewport_.terrainHeight(x, z); },
-                strip, ro.roadHeights);
+                strip);
             ImDrawList* dl = ImGui::GetWindowDrawList();
-            // FILLED surface for every road - the map should read as a map.
-            // Station pair L0 R0 R1 / L0 R1 L1 per 6 verts; one quad each.
-            const ImU32 fill = roSel ? IM_COL32(120, 130, 140, 130)
-                                     : IM_COL32(95, 100, 108, 95);
-            for (size_t i = 0; i + 5 < strip.size(); i += 6) {
-                ImVec2 a, b, c, d;
-                if (worldToImage(strip[i].x, strip[i].y + 0.03f, strip[i].z, a) &&
-                    worldToImage(strip[i + 1].x, strip[i + 1].y + 0.03f,
-                                 strip[i + 1].z, b) &&
-                    worldToImage(strip[i + 2].x, strip[i + 2].y + 0.03f,
-                                 strip[i + 2].z, c) &&
-                    worldToImage(strip[i + 5].x, strip[i + 5].y + 0.03f,
-                                 strip[i + 5].z, d))
-                    dl->AddQuadFilled(a, b, c, d, fill);
-            }
+            // The filled, textured strip is real viewport geometry now. This
+            // overlay owns only the selected road's handles and crisp edges.
             if (roSel) {
                 const ImU32 edgeCol = IM_COL32(90, 200, 255, 220);
                 for (size_t i = 0; i + 5 < strip.size(); i += 6) {
@@ -3436,26 +3423,18 @@ void App::drawViewportWindow() {
                                     (int)((float)k / (float)dense * (np - 1));
                             }
                         }
-                        if (ro.roadHeights.size() != (size_t)np)
-                            ro.roadHeights.resize((size_t)np, 0.0f);
                         if (insertSeg >= 0) {
                             const size_t at = (size_t)(insertSeg + 1) * 2;
                             ro.roadPoints.insert(ro.roadPoints.begin() + at,
                                                  {ground[0], ground[2]});
-                            ro.roadHeights.insert(
-                                ro.roadHeights.begin() + (insertSeg + 1),
-                                0.5f * (ro.roadHeights[(size_t)insertSeg] +
-                                        ro.roadHeights[(size_t)std::min(
-                                            insertSeg + 1, np - 1)]));
+                            ro.roadHeights.clear();
                             roadDragPoint_ = insertSeg + 1;
                             statusMessage_ = "Road point inserted";
                         } else {
                             // 3) open ground: append.
                             ro.roadPoints.push_back(ground[0]);
                             ro.roadPoints.push_back(ground[2]);
-                            ro.roadHeights.push_back(
-                                ro.roadHeights.empty() ? 0.0f
-                                                       : ro.roadHeights.back());
+                            ro.roadHeights.clear();
                             roadDragPoint_ =
                                 (int)(ro.roadPoints.size() / 2) - 1;
                             statusMessage_ = "Road point added";

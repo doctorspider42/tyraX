@@ -19,6 +19,7 @@
 #include "objparser.hpp"
 #include "placement.hpp"
 #include "primmesh.hpp"
+#include "roadgen.hpp"
 #include "scrollsim.hpp"
 #include <stb_image.h>
 
@@ -1675,6 +1676,7 @@ void Viewport::shutdown() {
     destroyMesh(wireCone_);
     destroyMesh(cameraBody_);
     destroyMesh(cameraFrustum_);
+    clearRoadDraws();
     destroyMesh(segment_);
     destroyMesh(portalArrow_);
     destroyMesh(scatterMaskMesh_);
@@ -1736,6 +1738,7 @@ void Viewport::setTerrain(const TerrainConfig& terrain, int maxCells,
     heights_ = heights;
     hmW_ = hmW;
     hmD_ = hmD;
+    ++roadTerrainRevision_;
     if (!sameTerrain) {
         float diag =
             (float)(terrain_.width > terrain_.depth ? terrain_.width : terrain_.depth);
@@ -2450,6 +2453,7 @@ void Viewport::updateTerrainRegion(const std::vector<float>& heights, float worl
         return;
     }
     heights_ = heights;
+    ++roadTerrainRevision_;
 
     // Cells whose vertices (or shading neighbors: +-1 vertex) the brush
     // circle touched, padded one cell outward, mapped to chunk range.
@@ -3456,6 +3460,63 @@ void Viewport::clearModelCache() {
         }
     animModelCache_.clear();
     clearMatPrevModel();  // same disk-derived sources (obj + mtl)
+}
+
+void Viewport::clearRoadDraws() {
+    for (auto& [id, road] : roadDraws_) destroyMesh(road.mesh);
+    roadDraws_.clear();
+}
+
+void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
+    // FNV-1a over the authored shape plus the terrain revision. Float bits are
+    // hashed verbatim: this is a same-process dirtiness key, not a file format.
+    auto mix = [](uint64_t& h, const void* data, size_t size) {
+        const auto* p = static_cast<const unsigned char*>(data);
+        for (size_t i = 0; i < size; ++i) h = (h ^ p[i]) * 1099511628211ULL;
+    };
+    std::map<std::string, bool> alive;
+    for (size_t oi = 0; oi < objects.size(); ++oi) {
+        const SceneObject& o = objects[oi];
+        if (o.type != PrimitiveType::Road || o.roadPoints.size() < 4) continue;
+        const std::string key = o.id.empty() ? ("road-" + std::to_string(oi)) : o.id;
+        alive[key] = true;
+        uint64_t sig = 1469598103934665603ULL;
+        mix(sig, &roadTerrainRevision_, sizeof(roadTerrainRevision_));
+        mix(sig, &o.roadWidth, sizeof(o.roadWidth));
+        if (!o.roadPoints.empty())
+            mix(sig, o.roadPoints.data(), o.roadPoints.size() * sizeof(float));
+        mix(sig, o.roadTexture.data(), o.roadTexture.size());
+        auto it = roadDraws_.find(key);
+        if (it != roadDraws_.end() && it->second.signature == sig) continue;
+
+        std::vector<roadgen::Vertex> strip;
+        roadgen::tessellate(
+            o.roadPoints, o.roadWidth,
+            [&](float x, float z) { return terrainHeight(x, z); }, strip);
+        std::vector<float> interleaved;
+        interleaved.reserve(strip.size() * 8);
+        for (const roadgen::Vertex& v : strip)
+            interleaved.insert(interleaved.end(),
+                               {v.x, v.y, v.z, 1.0f, 1.0f, 1.0f, v.u, v.v});
+        RoadDraw next;
+        next.mesh = uploadMesh(interleaved);
+        next.texture = o.roadTexture;
+        next.signature = sig;
+        if (it != roadDraws_.end()) {
+            destroyMesh(it->second.mesh);
+            it->second = std::move(next);
+        } else {
+            roadDraws_.emplace(key, std::move(next));
+        }
+    }
+    for (auto it = roadDraws_.begin(); it != roadDraws_.end();) {
+        if (alive.find(it->first) != alive.end()) {
+            ++it;
+            continue;
+        }
+        destroyMesh(it->second.mesh);
+        it = roadDraws_.erase(it);
+    }
 }
 
 void Viewport::invalidateAnimatedModels(const std::string& relPath) {
@@ -4498,6 +4559,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // Finished background model bakes land here, on the GL thread, before
     // anything draws.
     animBakeCollect();
+    syncRoadDraws(objects);
 
     if (width < 1) width = 1;
     if (height < 1) height = 1;
@@ -5167,6 +5229,29 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                          0.85f, 0.55f);
                 continue;
             }
+            if (o.type == PrimitiveType::Road) {
+                const std::string key = o.id.empty()
+                                            ? ("road-" + std::to_string(oi))
+                                            : o.id;
+                auto ri = roadDraws_.find(key);
+                if (ri != roadDraws_.end()) {
+                    const uint32_t tex = asLines || ri->second.texture.empty()
+                                             ? 0
+                                             : glTexture(ri->second.texture);
+                    ps2Flat = 1;
+                    ps2NoDyn = 1;
+                    aoSelfObj = -1;
+                    aoGroundOn = false;
+                    aoReceive = false;
+                    // scenePass already switches polygon mode for the wire
+                    // pass; keep the triangle primitive so all three edges
+                    // survive instead of pairing arbitrary triangle corners.
+                    draw(ri->second.mesh, GL_TRIANGLES, viewProj, o.color[0],
+                         o.color[1], o.color[2], tex);
+                    ps2NoDyn = 0;  // do not leak the road's static-light mode
+                }
+                continue;
+            }
             aoSelfObj = (int)oi;  // an object never occludes itself
             aoGroundOn = true;
             // models don't receive AO (matches the game - see modelDraw note)
@@ -5829,6 +5914,10 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     for (const PeerSel& ps : peerSels_) {
         for (int idx : ps.indices) {
             if (idx < 0 || idx >= (int)objects.size() || hiddenAt((size_t)idx)) continue;
+            // A road's selected spline overlay is its outline. Its otherwise
+            // meaningless object transform must not resurrect the old ghost
+            // cube on top of the real strip.
+            if (objects[(size_t)idx].type == PrimitiveType::Road) continue;
             const Mat4 mvp = mul(viewProj, modelMatrix(objects[idx]));
             draw(wireCube_, GL_LINES, mvp, ps.color[0], ps.color[1], ps.color[2]);
         }
@@ -5839,6 +5928,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // Objects on a hidden layer are skipped (they aren't drawn or picked).
     for (int idx : selection) {
         if (idx < 0 || idx >= (int)objects.size() || hiddenAt((size_t)idx)) continue;
+        if (objects[(size_t)idx].type == PrimitiveType::Road) continue;
         const Mat4 mvp = mul(viewProj, modelMatrix(objects[idx]));
         if (idx == primary) draw(wireCube_, GL_LINES, mvp, 1.0f, 0.85f, 0.35f);
         else draw(wireCube_, GL_LINES, mvp, 1.0f, 0.6f, 0.1f);

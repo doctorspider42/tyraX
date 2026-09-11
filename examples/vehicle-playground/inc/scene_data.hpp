@@ -362,7 +362,6 @@ constexpr RoadDefRt ROAD_DEFS[1] = {
     {0, 0, 5, 7.0F, 0},  // main-street
 };
 constexpr float ROAD_POINTS[10] = {0.0F, -60.0F, 0.0F, -10.0F, 6.0F, 40.0F, 40.0F, 80.0F, 95.0F, 105.0F};
-constexpr float ROAD_LIFT[5] = {0.0F, 0.0F, 0.0F, 2.5F, 0.0F};
 constexpr const char* ROAD_TEXTURE_PATHS[1] = {"textures/road.png"};
 constexpr int VEHICLE_COUNT = 3;
 constexpr VehicleInstData VEHICLES[3] = {

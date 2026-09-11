@@ -958,6 +958,18 @@ private:
     Mesh wireCone_;    // unit spot cone: apex origin, base ring at y = -1
     Mesh cameraBody_;     // Camera entity marker (film camera, lens = +Z)
     Mesh cameraFrustum_;  // FOV wedge lines, scaled to the entity's FOV
+    // Roads are real depth-tested viewport geometry, not a translucent ImGui
+    // overlay. The cache follows authored points and the terrain revision so
+    // sculpting under a road rebuilds exactly the strip that moved.
+    struct RoadDraw {
+        Mesh mesh;
+        std::string texture;
+        uint64_t signature = 0;
+    };
+    std::map<std::string, RoadDraw> roadDraws_;  // keyed by stable object id
+    uint64_t roadTerrainRevision_ = 1;
+    void syncRoadDraws(const std::vector<SceneObject>& objects);
+    void clearRoadDraws();
     // Per-detail primitive meshes (Box/Sphere/Cylinder/Cone), built lazily and
     // shared across objects with the same detail. The fixed box_ / sphere_ /
     // cylinder_ / cone_ above stay at the default detail (markers, previews).

@@ -38,6 +38,8 @@ gear-shift thunk — all generated deterministically by
 A **road** (docs/roads.md) runs from south of the spawn through the pillar
 field toward the north-east: a five-point spline, tessellated onto the
 terrain at boot, textured by `tools/road-texture.py`'s deterministic asphalt.
+The editor shows that same depth-tested, terrain-projected strip beneath the
+spline handles, so the authored road is no longer represented by a grey overlay.
 
 Walk up to the car and press **USE** (Square by default). The camera moves to a
 lagged boom behind the car;
@@ -107,18 +109,21 @@ the loop advancing.
 
 ## What it costs
 
-The build says so on every run:
+The build says so on every run. The budgeted bake also rebuilds crease-aware
+normals, which keeps the coupe's fenders and tyres round without adding a submit:
 
 ```
-[vehicle] CC96: body 1072 tris / 1 part(s), wheel 416 tris, 2 submit(s) per vehicle
+[vehicle] CC96: body 1116 tris / 3 part(s), wheel 416 tris, 4 submit(s) per vehicle
 ```
 
-**Two submits per car** is the whole point. The source model is 40 materials and
-8780 triangles — 36 mesh parts, and a `.tmdl` part is one bag at roughly 1 ms of
-fixed EE time, so the car as authored would be nearly two PAL frames of submit
-overhead standing still. The body is one bag on the matrix fast path (VU1 moves
-it, the EE touches no vertex) and all four wheels share a second bag rebuilt in
-world space each frame.
+The base car is two submits; this fixture deliberately enables the two visual
+opt-ins that add one each: reflective paint splits matte trim, and working lamp
+materials get their own emissive part. The source model is 40 materials and 8780
+triangles — 36 mesh parts, and a `.tmdl` part is one bag at roughly 1 ms of fixed
+EE time, so the car as authored would be nearly two PAL frames of submit overhead
+standing still. The main body stays on the matrix fast path (VU1 moves it, the EE
+touches no vertex) and all four wheels share one bag rebuilt in world space each
+frame.
 
 Tune any of it in *Tools > Vehicle Editor*, and use its **Test drive** tab to
 feel a grip change immediately instead of waiting for a Docker build.

@@ -574,17 +574,11 @@ void App::drawPropertiesWindow() {
         ImGui::SeparatorText("Points");
         int removeAt = -1, insertAfter = -1;
         const int np = (int)(o.roadPoints.size() / 2);
-        if (o.roadHeights.size() != (size_t)np)
-            o.roadHeights.resize((size_t)np, 0.0f);
         for (int i = 0; i < np; ++i) {
             ImGui::PushID(i);
             float* px = &o.roadPoints[(size_t)i * 2];
             ImGui::SetNextItemWidth(scaled(170));
             ImGui::DragFloat2("##pt", px, 0.25f, 0.0f, 0.0f, "%.1f");
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(scaled(64));
-            ImGui::DragFloat("##lift", &o.roadHeights[(size_t)i], 0.1f, 0.0f,
-                             30.0f, "^%.1f");
             ImGui::SameLine();
             if (ImGui::SmallButton("+")) insertAfter = i;
             ImGui::SameLine();
@@ -603,19 +597,12 @@ void App::drawPropertiesWindow() {
                 nz = 2.0f * o.roadPoints[at - 1] - o.roadPoints[at - 3];
             }
             o.roadPoints.insert(o.roadPoints.begin() + at, {nx, nz});
-            if (o.roadHeights.size() >= (size_t)(insertAfter + 1))
-                o.roadHeights.insert(
-                    o.roadHeights.begin() + (insertAfter + 1),
-                    0.5f * (o.roadHeights[(size_t)insertAfter] +
-                            (insertAfter + 1 < (int)o.roadHeights.size()
-                                 ? o.roadHeights[(size_t)insertAfter + 1]
-                                 : o.roadHeights[(size_t)insertAfter])));
+            o.roadHeights.clear();
         }
         if (removeAt >= 0) {
             o.roadPoints.erase(o.roadPoints.begin() + (size_t)removeAt * 2,
                                o.roadPoints.begin() + (size_t)removeAt * 2 + 2);
-            if ((size_t)removeAt < o.roadHeights.size())
-                o.roadHeights.erase(o.roadHeights.begin() + removeAt);
+            o.roadHeights.clear();
         }
         if (ImGui::Button(roadEdit_ ? "Stop editing (Esc)" : "Edit in viewport"))
             roadEdit_ = !roadEdit_;

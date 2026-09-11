@@ -242,7 +242,7 @@ everything else a scene does.
   height against the *tilted* chassis plane — the residual the pitch and roll do
   not already express. On the console the wheel bag actually DRAWS it: each hub
   rides one radius above its own wheel's sampled ground, clamped
-  **asymmetrically** — 65% of `suspensionTravel` in compression, 45% in droop.
+  **asymmetrically** — 30% of `suspensionTravel` in compression, 45% in droop.
   Both ends are tighter than the sim's travel on purpose: this clamp is the
   wheel against the ARCH, not the spring — at a full travel up the wheel rode
   visibly through the bodywork.
@@ -260,6 +260,13 @@ everything else a scene does.
   as fully compressed at one axle and fully extended at the other while the body
   is in fact riding it level. Driving one wheel over a kerb gives
   `[0.40 0.60 0.60 0.40]`: the diagonal racking four springs actually produce.
+
+- **Budgeted vehicle meshes keep their curves.** A body or wheel that exceeds
+  its triangle budget still goes through the same QEM collapse, but the vehicle
+  bake now rebuilds crease-aware normals afterwards. Faces within 55 degrees
+  share their lighting; sharper bonnet, glass and panel edges remain split.
+  This removes the folded-cardboard look from curved fenders and tyres without
+  increasing the authored triangle budget or the number of runtime submits.
 
 Two traps this cost, both worth not repeating:
 

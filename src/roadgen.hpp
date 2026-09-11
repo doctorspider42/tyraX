@@ -22,7 +22,7 @@
 namespace roadgen {
 
 struct Vertex {
-    float x, y, z;  // world, y from the height function + lift
+    float x, y, z;  // world, y projected onto the height function
     float u, v;     // u 0..1 across the width, v = arc length / texLen
 };
 
@@ -42,9 +42,9 @@ inline constexpr float kLift = 0.05f;
 // triangle list, three Vertex per triangle, two triangles per segment.
 // Endpoints are clamped (the spline passes through the first and last
 // point). Returns the total arc length; `out` is cleared first.
-// `lifts` (optional, one per point) raises the surface above the terrain -
-// Catmull-Rom interpolated along the spline like the XZ, so a ramp climbs
-// smoothly between anchors. Empty = glued flat (all zero).
+// `lifts` is retained only for source/format compatibility with the short-lived
+// raised-road authoring pass. It is ignored: roads are terrain decals and every
+// generated vertex is projected onto the height function.
 float tessellate(const std::vector<float>& pointsXZ, float width,
                  const HeightFn& height, std::vector<Vertex>& out,
                  const std::vector<float>& lifts = {});
