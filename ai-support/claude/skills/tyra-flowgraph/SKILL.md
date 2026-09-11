@@ -170,7 +170,8 @@ over guessing from this file.
   on a 16:9 project the wide (16:9) style covers nothing and cinema 2.39:1 is
   thinner - that is correct, not a broken node. **Set Player Visible** drops the third-person avatar for a
   free-flying camera move. **On Sequence Finished** fires when a cutscene stops
-  for ANY reason (ran out, Stop Sequence, player skipped) - the way to chain
+  for ANY reason (ran out, Stop Sequence, player skipped - a skip is a stop, so
+  there is nothing extra to wire for one) - the way to chain
   "play the cutscene, then carry on"; its bool output is "a cutscene is playing
   right now", for gating gameplay logic out while one runs.
   **Set Sound Volume** ducks all sound effects (music has its own node).

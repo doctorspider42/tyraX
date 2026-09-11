@@ -2685,6 +2685,11 @@ struct MenuEntry {
         // being a header is the common case, so skipping happens on open too).
         // Style it with a class: `row.header { ... }`.
         Label = 12,
+        // Confirms a cutscene skip: ends the running cutscene and closes the
+        // menu. Only meaningful on the project's skip-confirmation menu (see
+        // GameMenu::skipMenu); elsewhere it is a Stop Sequence with no
+        // graph - harmless, and a no-op when nothing is playing.
+        SkipCutscene = 13,
     };
     int action = Close;
     std::string param;
@@ -2790,6 +2795,12 @@ struct GameMenu {
     // "SLOT n" into them at runtime, which is the only way a slot count in
     // the dozens can work - a baked label per slot cannot page.
     bool saveMenu = false;
+    // THIS is the "skip the cutscene?" confirmation screen (one per project).
+    // A skippable cutscene set to Ask first opens it instead of ending on the
+    // spot; a Skip cutscene row confirms, anything that dismisses the menu
+    // declines and the cutscene resumes. Ordinary menu in every other respect -
+    // authored, styled and previewed like the rest.
+    bool skipMenu = false;
     float accent[3] = {0.47f, 0.82f, 1.0f};  // border/title tint
     // Images composited into the baked panel. Flow slots (AboveTitle /
     // AboveEntries / BelowEntries) are blocks in the panel's vertical flow -
@@ -2825,7 +2836,7 @@ inline bool operator==(const GameMenu& a, const GameMenu& b) {
     return a.name == b.name && a.title == b.title &&
            a.titleScreen == b.titleScreen && a.pauseGame == b.pauseGame &&
            a.pauseMenu == b.pauseMenu && a.saveMenu == b.saveMenu &&
-           a.accent[0] == b.accent[0] &&
+           a.skipMenu == b.skipMenu && a.accent[0] == b.accent[0] &&
            a.accent[1] == b.accent[1] && a.accent[2] == b.accent[2] &&
            a.images == b.images && a.panelW == b.panelW &&
            a.screenPos[0] == b.screenPos[0] && a.screenPos[1] == b.screenPos[1] &&
@@ -3702,6 +3713,12 @@ void ensureSaveMenu(Project& p);
 // Index of the save menu in Project::menus, or -1. Cheap; call it rather than
 // caching, since the Menu Editor can reorder the list.
 int saveMenuIndex(const Project& p);
+
+// Index of the cutscene skip-confirmation menu in Project::menus, or -1 when
+// the project has not designated one - in which case a cutscene set to "Ask
+// first" falls back to skipping on the spot rather than swallowing the press
+// (docs/cutscenes.md). Same caveat as above: do not cache it.
+int skipMenuIndex(const Project& p);
 
 // The built-in action name for a role (InputAction::Role), e.g. "jump" - what
 // ensureInputActions seeds and what the codegen role slots look for. Empty for
