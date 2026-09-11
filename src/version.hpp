@@ -16,6 +16,14 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.81.3 (road skin + wheel arches): roads gain one-unit lateral
+// subdivisions and a slightly safer terrain offset, so rolling heightfields
+// cannot punch grass triangles through a wide two-edge strip. Runtime wheel
+// hubs use the body's full rotated anchor and upward compression is bounded by
+// tyre radius as well as suspension travel. New vehicle imports and the
+// playground use a 2400-triangle body baseline instead of the visibly harsh
+// 1500 cut. PATCH: presentation fixes only, no format change.
+//
 // 1.81.2 (PCSX2 launch path): Build & Run resolves bin/<project>.elf to a
 // native absolute path before passing it to `-elf`. A relative project opened
 // from the CLI previously made PCSX2 rebase the same path below its bin/
@@ -3522,7 +3530,7 @@
 // 1.79.0: merge native PS2DEV/OpenVCL builds with editor comments.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 81
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 3
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

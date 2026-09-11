@@ -1057,7 +1057,7 @@ struct VehicleDef {
     std::string modelPath;
 
     // Import (see vehbake::Options - these are its authored twin).
-    int bodyTriBudget = 1500;
+    int bodyTriBudget = 2400;
     int wheelTriBudget = 700;
     bool mergeUntextured = true;
     // Paint shine 0..1: a reflection pass on the baked body's paint (the

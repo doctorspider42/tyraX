@@ -113,15 +113,17 @@ The build says so on every run. The budgeted bake also rebuilds crease-aware
 normals, which keeps the coupe's fenders and tyres round without adding a submit:
 
 ```
-[vehicle] CC96: body 1116 tris / 3 part(s), wheel 416 tris, 4 submit(s) per vehicle
+[vehicle] CC96: body 1936 tris / 3 part(s), wheel 588 tris, 4 submit(s) per vehicle
 ```
 
 The base car is two submits; this fixture deliberately enables the two visual
 opt-ins that add one each: reflective paint splits matte trim, and working lamp
 materials get their own emissive part. The source model is 40 materials and 8780
-triangles — 36 mesh parts, and a `.tmdl` part is one bag at roughly 1 ms of fixed
-EE time, so the car as authored would be nearly two PAL frames of submit overhead
-standing still. The main body stays on the matrix fast path (VU1 moves it, the EE
+triangles; this fixture keeps a 2400-triangle body baseline so the curved
+fenders and glass survive the reduction cleanly. It starts as 36 mesh parts,
+and a `.tmdl` part is one bag at roughly 1 ms of fixed EE time, so the car as
+authored would be nearly two PAL frames of submit overhead standing still. The
+main body stays on the matrix fast path (VU1 moves it, the EE
 touches no vertex) and all four wheels share one bag rebuilt in world space each
 frame.
 

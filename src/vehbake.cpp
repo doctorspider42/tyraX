@@ -234,9 +234,16 @@ void recomputeCreasedNormals(std::vector<float>& verts) {
 void decimateTo(std::vector<float>& verts, int triBudget) {
     if (triBudget <= 0 || triCount(verts) <= triBudget) return;
     meshlod::Mesh m = meshlod::weldInterleaved(verts.data(), verts.size() / 8, false);
-    // Budget is in triangles; the collapse takes a vertex target. A closed
-    // manifold has roughly half as many vertices as triangles.
-    const size_t target = std::max<size_t>(12, (size_t)triBudget / 2);
+    // Budget is in triangles; the collapse takes a vertex target. The old
+    // fixed `/ 2` conversion only fits a closed manifold. A vehicle merged
+    // from many material shells has a very different triangle/vertex ratio,
+    // so a requested 2400-triangle body came out at 1256 and the slider felt
+    // brutally non-linear. Measure this mesh's own ratio instead.
+    const double trisPerVert =
+        (double)(m.tris.size() / 3) / (double)std::max<size_t>(m.vertexCount(), 1);
+    const size_t target = std::max<size_t>(
+        12, (size_t)std::ceil((double)triBudget /
+                              std::max(trisPerVert, 0.01)));
     if (m.vertexCount() <= target) return;
     meshlod::decimate(m, target);
     std::vector<float> out = meshlod::unweldInterleaved(m);

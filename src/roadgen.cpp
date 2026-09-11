@@ -1,6 +1,8 @@
 #include "roadgen.hpp"
 
+#include <algorithm>
 #include <cmath>
+#include <utility>
 
 // The tessellator (docs/roads.md). TWIN NOTICE: the generated runtime carries
 // this arithmetic as a raw string in templates.cpp (buildRoads) - change one
@@ -45,9 +47,14 @@ float tessellate(const std::vector<float>& pointsXZ, float width,
     if (n < 2) return 0.0f;
     const float hw = 0.5f * (width > 0.1f ? width : 0.1f);
 
-    // Sample the whole spline first: pairs of edge vertices per station,
-    // the right vector from the local tangent, V from the running arc.
-    std::vector<Vertex> left, right;
+    // Sample the whole spline first: a terrain-projected row per station,
+    // the right vector from the local tangent, V from the running arc. The
+    // lateral subdivisions matter as much as the longitudinal ones: an edge-
+    // only strip is one plane across the full width and terrain can pierce it
+    // between the shoulders.
+    const int crossSteps = std::max(
+        1, (int)std::ceil((hw * 2.0f) / kCrossSampleStep));
+    std::vector<std::vector<Vertex>> rows;
     float arc = 0.0f;
     P prev = sample(pointsXZ, 0, 0.0f);
     for (int seg = 0; seg < n - 1; ++seg) {
@@ -77,32 +84,34 @@ float tessellate(const std::vector<float>& pointsXZ, float width,
                              (c.z - prev.z) * (c.z - prev.z));
             prev = c;
             const float v = arc / kTexLen;
-            Vertex l, r;
-            l.x = c.x - rx;
-            l.z = c.z - rz;
-            l.y = (height ? height(l.x, l.z) : 0.0f) + kLift;
-            l.u = 0.0f;
-            l.v = v;
-            r.x = c.x + rx;
-            r.z = c.z + rz;
-            r.y = (height ? height(r.x, r.z) : 0.0f) + kLift;
-            r.u = 1.0f;
-            r.v = v;
-            left.push_back(l);
-            right.push_back(r);
+            std::vector<Vertex> row;
+            row.reserve((size_t)crossSteps + 1);
+            for (int j = 0; j <= crossSteps; ++j) {
+                const float u = (float)j / (float)crossSteps;
+                const float side = u * 2.0f - 1.0f;
+                Vertex q;
+                q.x = c.x + rx * side;
+                q.z = c.z + rz * side;
+                q.y = (height ? height(q.x, q.z) : 0.0f) + kLift;
+                q.u = u;
+                q.v = v;
+                row.push_back(q);
+            }
+            rows.push_back(std::move(row));
         }
     }
 
-    // Stitch: two triangles per station pair. Wound counter-clockwise seen
-    // from above (+Y), the terrain's own convention.
-    for (size_t i = 0; i + 1 < left.size(); ++i) {
-        out.push_back(left[i]);
-        out.push_back(right[i]);
-        out.push_back(right[i + 1]);
-        out.push_back(left[i]);
-        out.push_back(right[i + 1]);
-        out.push_back(left[i + 1]);
-    }
+    // Stitch every lateral cell. Wound counter-clockwise seen from above
+    // (+Y), the terrain's own convention.
+    for (size_t i = 0; i + 1 < rows.size(); ++i)
+        for (int j = 0; j < crossSteps; ++j) {
+            out.push_back(rows[i][(size_t)j]);
+            out.push_back(rows[i][(size_t)j + 1]);
+            out.push_back(rows[i + 1][(size_t)j + 1]);
+            out.push_back(rows[i][(size_t)j]);
+            out.push_back(rows[i + 1][(size_t)j + 1]);
+            out.push_back(rows[i + 1][(size_t)j]);
+        }
     return arc;
 }
 

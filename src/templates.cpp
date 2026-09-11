@@ -32638,21 +32638,24 @@ void TerrainGame::renderVehicleWheels() {
       // pair sank into the slope and the rear pair floated over the deck
       // ("co sie odpierdala, jak sie pod gorke jedzie"). Measured from the
       // plane, the clamp only bounds what suspension MAY express: the
-      // residual between a wheel's own sampled ground and the plane. Signs
-      // mirror the body's render exactly: rotX(-(pitch+leanPitch)) lifts the
-      // +lz corner by lz*sin(pitch+leanPitch), rotZ(-(roll+leanRoll)) drops
-      // the +lx corner by lx*sin(roll+leanRoll).
+      // residual between a wheel's own sampled ground and the plane. The
+      // anchor below goes through rotated(), the exact function that builds
+      // the body's matrix basis, so its Euler order cannot drift from it.
       //
-      // ASYMMETRIC: 30% of the travel in compression, 45% in droop, both
-      // tighter than the sim's travel on purpose - this is the wheel against
-      // the arch, not the spring. A kerb still tucks the wheel up, a crest
-      // still shows daylight under a tyre, the wheel just stays owned by the
-      // car in both directions.
-      const float planeY = v.pos[1] +
-                           lz[w] * sinf((v.pitch + v.leanPitch) * kDeg) -
-                           lx[w] * sinf((v.roll + v.leanRoll) * kDeg);
+      // ASYMMETRIC: droop may still use 45% of the travel, but compression is
+      // capped by BOTH 10% of travel and 6% of tyre radius. The previous 30%
+      // travel cap let the example's scaled hub move 23% of its radius into a
+      // tight arch - mechanically plausible, visually a wheel through paint.
+      // The full rotated local anchor is used rather than independent pitch /
+      // roll sine terms, which diverged once yaw and lean were both non-zero.
+      const float bodyRot[3] = {-(v.pitch + v.leanPitch), v.yaw,
+                                -(v.roll + v.leanRoll)};
+      const V3 arch = rotated({lx[w], 0.0F, lz[w]}, bodyRot);
+      const float planeY = v.pos[1] + arch.y;
       const float lo = planeY - s.suspensionTravel * SC * 0.45F;
-      const float hi = planeY + s.suspensionTravel * SC * 0.30F;
+      const float hiTravel = s.suspensionTravel * SC * 0.10F;
+      const float hiRadius = s.wheelRadius * SC * 0.06F;
+      const float hi = planeY + (hiTravel < hiRadius ? hiTravel : hiRadius);
       if (ay < lo) ay = lo;
       if (ay > hi) ay = hi;
       const u32 nv = (u32)(part.verts.size() / 8);
@@ -32780,10 +32783,10 @@ static std::string roadsImpl(const Project& p) {
     return R"(
 // Roads (docs/roads.md). TWIN NOTICE: this is src/roadgen.cpp's arithmetic,
 // transcribed - CHANGE ONE AND CHANGE BOTH (the vehiclesim rule). The whole
-// road is data: at scene load the spline is sampled every 2 units, two edge
-// vertices per station glued to the terrain, V riding the arc length so one
+// road is data: at scene load the spline is sampled every 2 units and every
+// 1 unit across its width, every vertex glued to the terrain, V riding the arc length so one
 // small texture tiles the entire street, and the stations are packed into
-// procChunks (owner -3) roughly 24 per chunk - each chunk its own AABB, so
+// procChunks (owner -3) roughly 12 per chunk - each chunk its own AABB, so
 // the frustum culls a road the way it culls everything else.
 void TerrainGame::buildRoads(int scene) {
   // A scene revisit rebuilds: drop the previous scene's road chunks only.
@@ -32804,6 +32807,8 @@ void TerrainGame::buildRoads(int scene) {
     const float* pts = &ROAD_POINTS[rd.first];
     const int n = rd.pointCount;
     const float hw = 0.5F * (rd.width > 0.1F ? rd.width : 0.1F);
+    int crossSteps = (int)ceilf((hw * 2.0F) / 1.0F);
+    if (crossSteps < 1) crossSteps = 1;
     // Catmull-Rom, clamped ends - the roadgen twin's cr()/pointAt()/sample().
     auto ptAt = [&](int i, float* x, float* z) {
       if (i < 0) i = 0;
@@ -32828,8 +32833,10 @@ void TerrainGame::buildRoads(int scene) {
     };
     ProcChunk* c = nullptr;
     int stationsInChunk = 0;
-    float lx0 = 0.0F, lz0 = 0.0F, ly0 = 0.0F, lv0 = 0.0F;
-    float rx0 = 0.0F, rz0 = 0.0F, ry0 = 0.0F;
+    std::vector<float> px0((size_t)crossSteps + 1);
+    std::vector<float> py0((size_t)crossSteps + 1);
+    std::vector<float> pz0((size_t)crossSteps + 1);
+    float lv0 = 0.0F;
     bool havePrev = false;
     float arc = 0.0F, prevX = 0.0F, prevZ = 0.0F;
     sampleAt(0, 0.0F, &prevX, &prevZ);
@@ -32863,36 +32870,56 @@ void TerrainGame::buildRoads(int scene) {
         prevX = cx2;
         prevZ = cz2;
         const float v = arc / 4.0F;
-        const float nlx = cx2 - rxu, nlz = cz2 - rzu;
-        const float nrx = cx2 + rxu, nrz = cz2 + rzu;
-        const float nly = terrainHeightAt(nlx, nlz) + 0.05F;
-        const float nry = terrainHeightAt(nrx, nrz) + 0.05F;
+        std::vector<float> nx((size_t)crossSteps + 1);
+        std::vector<float> ny((size_t)crossSteps + 1);
+        std::vector<float> nz((size_t)crossSteps + 1);
+        for (int j = 0; j <= crossSteps; ++j) {
+          const float u = (float)j / (float)crossSteps;
+          const float side = u * 2.0F - 1.0F;
+          nx[(size_t)j] = cx2 + rxu * side;
+          nz[(size_t)j] = cz2 + rzu * side;
+          ny[(size_t)j] =
+              terrainHeightAt(nx[(size_t)j], nz[(size_t)j]) + 0.08F;
+        }
         if (havePrev) {
-          if (!c || stationsInChunk >= 24) {
+          if (!c || stationsInChunk >= 12) {
             procChunks.push_back(ProcChunk());
             c = &procChunks.back();
             c->owner = -3;
             c->roadTex = tex;
             stationsInChunk = 0;
           }
-          // Two triangles, CCW seen from above - the twin's stitch, but
-          // emitted station by station so a chunk boundary never leaves a
-          // gap (the previous station's pair is re-used as the base).
+          // Two triangles per lateral cell, CCW seen from above - the twin's
+          // stitch, emitted station by station so a chunk boundary never
+          // leaves a gap (the previous row is re-used as the base).
           const Tyra::Color grey(128.0F, 128.0F, 128.0F, 128.0F);
-          Tyra::Vec4 L0(lx0, ly0, lz0, 1.0F), R0(rx0, ry0, rz0, 1.0F);
-          Tyra::Vec4 L1(nlx, nly, nlz, 1.0F), R1(nrx, nry, nrz, 1.0F);
-          const Tyra::Vec4 sL0(0.0F, lv0, 1.0F, 0.0F), sR0(1.0F, lv0, 1.0F, 0.0F);
-          const Tyra::Vec4 sL1(0.0F, v, 1.0F, 0.0F), sR1(1.0F, v, 1.0F, 0.0F);
-          c->vertices.push_back(L0); c->sts.push_back(sL0); c->colors.push_back(grey);
-          c->vertices.push_back(R0); c->sts.push_back(sR0); c->colors.push_back(grey);
-          c->vertices.push_back(R1); c->sts.push_back(sR1); c->colors.push_back(grey);
-          c->vertices.push_back(L0); c->sts.push_back(sL0); c->colors.push_back(grey);
-          c->vertices.push_back(R1); c->sts.push_back(sR1); c->colors.push_back(grey);
-          c->vertices.push_back(L1); c->sts.push_back(sL1); c->colors.push_back(grey);
+          for (int j = 0; j < crossSteps; ++j) {
+            const float u0 = (float)j / (float)crossSteps;
+            const float u1 = (float)(j + 1) / (float)crossSteps;
+            const Tyra::Vec4 A(px0[(size_t)j], py0[(size_t)j],
+                               pz0[(size_t)j], 1.0F);
+            const Tyra::Vec4 B(px0[(size_t)j + 1], py0[(size_t)j + 1],
+                               pz0[(size_t)j + 1], 1.0F);
+            const Tyra::Vec4 C(nx[(size_t)j + 1], ny[(size_t)j + 1],
+                               nz[(size_t)j + 1], 1.0F);
+            const Tyra::Vec4 D(nx[(size_t)j], ny[(size_t)j],
+                               nz[(size_t)j], 1.0F);
+            const Tyra::Vec4 sA(u0, lv0, 1.0F, 0.0F);
+            const Tyra::Vec4 sB(u1, lv0, 1.0F, 0.0F);
+            const Tyra::Vec4 sC(u1, v, 1.0F, 0.0F);
+            const Tyra::Vec4 sD(u0, v, 1.0F, 0.0F);
+            c->vertices.push_back(A); c->sts.push_back(sA); c->colors.push_back(grey);
+            c->vertices.push_back(B); c->sts.push_back(sB); c->colors.push_back(grey);
+            c->vertices.push_back(C); c->sts.push_back(sC); c->colors.push_back(grey);
+            c->vertices.push_back(A); c->sts.push_back(sA); c->colors.push_back(grey);
+            c->vertices.push_back(C); c->sts.push_back(sC); c->colors.push_back(grey);
+            c->vertices.push_back(D); c->sts.push_back(sD); c->colors.push_back(grey);
+          }
           ++stationsInChunk;
         }
-        lx0 = nlx; lz0 = nlz; ly0 = nly;
-        rx0 = nrx; rz0 = nrz; ry0 = nry;
+        px0.swap(nx);
+        py0.swap(ny);
+        pz0.swap(nz);
         lv0 = v;
         havePrev = true;
       }

@@ -131,7 +131,15 @@ colours in a 128×8 strip.**
 
 PS2-era cars are 1–3k triangles; the reference asset is 8780. The bake decimates
 through `meshlod` (the same quadric-error collapse both model bakes already
-use) toward a per-vehicle budget — body 1500, wheel 700 by default.
+use) toward a per-vehicle budget — body 2400, wheel 700 by default. The old
+1500-body default was too aggressive for curved fenders and sloped glass at the
+camera distances used by a driving game; existing definitions keep their
+authored value, while new imports and the vehicle playground use the rounder
+2400-triangle baseline. The QEM wrapper converts that triangle budget through
+the source part's measured triangle/vertex ratio. Its previous hard-coded
+closed-manifold ratio made a requested 2400-triangle multi-material body land
+at only 1256, which is why the slider removed far more shape than its label
+promised.
 
 The wheel budget is much higher than a PS2 wheel would suggest because a wheel is
 several materials, and meshlod **locks material seams**, so the collapse cannot
@@ -242,20 +250,21 @@ everything else a scene does.
   height against the *tilted* chassis plane — the residual the pitch and roll do
   not already express. On the console the wheel bag actually DRAWS it: each hub
   rides one radius above its own wheel's sampled ground, clamped
-  **asymmetrically** — 30% of `suspensionTravel` in compression, 45% in droop.
-  Both ends are tighter than the sim's travel on purpose: this clamp is the
-  wheel against the ARCH, not the spring — at a full travel up the wheel rode
-  visibly through the bodywork.
+  **asymmetrically** — 45% of `suspensionTravel` in droop, while upward travel
+  is capped by both 10% of suspension travel and 6% of tyre radius. The old 30%
+  travel-only cap let a scaled hub move roughly 23% of its radius into the
+  vehicle playground's tight arch. The arch height now comes from the body's
+  full pitch/yaw/roll transform too, rather than independent sine offsets that
+  diverged when yaw and lean were both non-zero.
   A kerb still shoves a wheel up into the arch and a crest still shows daylight
   under a tyre, but a wheel hanging a whole travel below the body read as
   falling off the car, which is exactly how it was reported. The
-  **weight-transfer lean moves the wheels WITH the body**: squat, dive and
+  **weight-transfer lean moves the wheel clamp WITH the body**: squat, dive and
   corner roll are cosmetic — no ground caused them — so a leaning body over
   ground-stuck wheels opened daylight at the arches on flat ground (4° of squat
   over the front overhang is ~0.11 units of gap). Each hub adds the body
-  plane's lean offset at its own anchor; the terrain-derived pitch and roll
-  stay out of it, because those the wheels answer with their own ground
-  sampling — which is the suspension look. (The editor's
+  plane's fully rotated offset at its own anchor; the tyre still starts from
+  its own ground sample, and only the arch-safe clamp corrects it. (The editor's
   preview keeps the wheels at ride height — a known, stated divergence.) Measured against the mean instead, a constant slope reads
   as fully compressed at one axle and fully extended at the other while the body
   is in fact riding it level. Driving one wheel over a kerb gives

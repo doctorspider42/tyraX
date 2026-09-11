@@ -2,12 +2,14 @@
 
 A **Road** object (Insert > Gameplay > Road) is a polyline of world-space XZ
 points, a width and one texture. Everything else is derived: a Catmull-Rom
-spline threads the points, and the surface is tessellated **at boot** — two
-edge vertices every ~2 units, each glued to the terrain underneath (+0.05
-lift), V running along the arc length so one texture repeat covers 4 units of
-street. That is the entire cost model: **a kilometre of road is a few hundred
-floats in the `.tyra` and ONE small texture in VRAM.** There is no baked
-geometry to store, ship or stream.
+spline threads the points, and the surface is tessellated **at boot** — a row
+every ~2 units along the spline and a vertex every ~1 unit across it, each glued
+to the terrain underneath (+0.08 lift), V running along the arc length so one
+texture repeat covers 4 units of street. The cross-road subdivisions prevent a
+single wide planar strip from dipping below a rolling heightfield and exposing
+grass triangles through the asphalt. The authored cost stays tiny: **a
+kilometre of road is a few hundred floats in the `.tyra` and ONE small texture
+in VRAM.** There is no baked geometry to store, ship or stream.
 
 ## Authoring
 
@@ -50,7 +52,7 @@ The object itself emits **no runtime geometry** (type 22 is authoring-only in
 `ROAD_DEFS` (scene, point range, width, texture slot), `ROAD_POINTS`,
 `ROAD_TEXTURE_PATHS` (deduplicated, `res/` prefix stripped: the game's asset
 root is `bin/`, which holds `.res-baked`'s content) — and `buildRoads(scene)`
-tessellates them into **procChunks** at scene load, ~24 stations per chunk
+tessellates them into **procChunks** at scene load, ~12 stations per chunk
 under owner `-3`. That buys the proc pipeline's whole economy for free:
 per-chunk AABBs and Precise frustum culling, one submit per visible chunk,
 `procFinishChunks()` building the bags. The call sits **after** the

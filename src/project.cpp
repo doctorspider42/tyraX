@@ -2796,7 +2796,7 @@ static void readVehiclesSection(const json::Value& root, Project& out) {
         if (const json::Value* x = e.find("model")) v.modelPath = x->stringOr("");
         if (v.name.empty()) continue;
         if (v.id.empty()) v.id = project::newObjectId();
-        if (const json::Value* x = e.find("bodyTris")) v.bodyTriBudget = (int)x->numberOr(1500);
+        if (const json::Value* x = e.find("bodyTris")) v.bodyTriBudget = (int)x->numberOr(2400);
         if (const json::Value* x = e.find("wheelTris")) v.wheelTriBudget = (int)x->numberOr(700);
         if (const json::Value* x = e.find("merge")) v.mergeUntextured = x->boolOr(true);
         if (const json::Value* x = e.find("bodyShine"))
