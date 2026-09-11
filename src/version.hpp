@@ -16,6 +16,30 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.82.0: an object standing inside, behind or right next to another one can
+// be selected with the mouse. Three things were in the way. Invisible walls
+// (Box, collision "invisible") were picked as SOLID boxes, and showcase's
+// boundary-south - 36 x 14 units, between the default camera and the pool -
+// took every click aimed at the pool, the curbs and the crossing; a wire box
+// now ranks behind everything like an area does, and the placement raycast
+// skips it. A press on the transform gizmo released without moving the mouse
+// was swallowed as a gizmo edit (and dirtied the project without changing
+// anything): the big merged meshes have their origin in the middle of the
+// map, so the first click on the pool parked their gizmo on the very spot and
+// the second click - the one that cycles the stack - never reached the
+// picker. Such a press is a click now, the commit on release runs only when
+// the anchor's TRS actually changed, and the same reasoning frees the
+// right-click. And the stack was invisible: the menu bar now says what was
+// picked, its place in the stack and what the next click there gives, and
+// right-click opens the stack as a menu by name and type. For unattended
+// tests the Project panel's object rows report their selection to the UI
+// script hook (uiscript::markLastItemChecked), so `expect-checked` asserts
+// what a viewport click picked. Verified with --ui-script on examples/showcase:
+// a click on the crossing picks the crossing (1/9, boundary-south last), the
+// same spot again cycles to tidal-channel, the right-click menu opens over
+// the gizmo and choosing a row selects it. MINOR: new user-visible actions,
+// nothing on disk changes shape.
+//
 // 1.81.1: the console-only rendering corruption filed against openvcl's VU1
 // clipper was an engine DMA race, and it is fixed in the engine. A lamp's
 // corona (a small textured clip bag) came out as a sliver to the screen
@@ -3021,8 +3045,8 @@
 // 1.78.0: editor comments pinned to scenes.
 // 1.79.0: merge native PS2DEV/OpenVCL builds with editor comments.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 81
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 82
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

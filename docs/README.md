@@ -31,7 +31,7 @@ for people building games with it. Internals live in code comments, the git log
   Area trigger, reverb rooms.
 - [Comments (editor notes)](comments.md) — a note pinned to a place in the
   scene, drawn as an always-visible message icon; editor-only, any length.
-- [Selecting objects](object-selection.md) — visible mesh priority, AABB fallback and full-model selection outlines.
+- [Selecting objects](object-selection.md) — visible mesh priority, AABB fallback, full-model selection outlines, and reaching an object inside or behind another (click cycling, the right-click stack menu, the status line).
 - [Placing objects: surface snapping and deferred paste](object-placement.md) —
   objects that rest on what's below them, `End` to drop, paste that follows the
   cursor.

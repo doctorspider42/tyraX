@@ -3072,8 +3072,13 @@ void Viewport::pickAll(float u, float v, const std::vector<SceneObject>& objects
             selectionBounds(o,mn,mx);
             lo=eye;ld=dir;
         }
+        // An invisible wall (docs/collision-boxes.md) is a wire box too, and
+        // usually a map-sized one standing between the camera and everything
+        // it fences in: ranked as a solid it took every click aimed through it
+        // (examples/showcase's boundary-south sat in front of the whole pool).
         const bool volume = o.type == PrimitiveType::Area ||
-                            o.type == PrimitiveType::Scatter;
+                            o.type == PrimitiveType::Scatter ||
+                            (o.type == PrimitiveType::Box && o.collisionMode == 3);
         int tier = volume ? 3 : (staticModel ? 1 : 0);
         float t = rayBox(lo, ld, mn, mx);
         if (t <= 0.0f) {
@@ -3135,8 +3140,11 @@ bool Viewport::placementRaycast(float u, float v,
         // would put the object in mid-air.
         // A comment is not a surface either: its box is a hit target for a
         // click, and dropping a prop onto a floating note would be nonsense.
+        // An invisible wall draws as a wire box as well, and a prop dropped on
+        // top of one would hang in the air in the game.
         if (o.type == PrimitiveType::Area || o.type == PrimitiveType::Scatter ||
-            o.type == PrimitiveType::Comment || !o.procSource.empty())
+            o.type == PrimitiveType::Comment || !o.procSource.empty() ||
+            (o.type == PrimitiveType::Box && o.collisionMode == 3))
             continue;
         float mn[3], mx[3];
         pickBounds(o, mn, mx);

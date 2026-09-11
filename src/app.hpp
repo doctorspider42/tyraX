@@ -1671,6 +1671,12 @@ private:
     // too, and a note far from the camera has a 3D box smaller than its icon).
     int viewportPick(float u, float v, ImVec2 mouse, ImVec2 imgPos, ImVec2 avail,
                      bool* cycled);
+    // The status-bar line after a pick: the object, its place in the stack
+    // under the cursor and what the next click there would select.
+    std::string pickStackStatus(int hit) const;
+    // The right-click menu's candidates (Viewport::pickAll order), captured
+    // when the menu opens so the rows stay stable while it is up.
+    std::vector<int> pickMenu_;
     // Scene-objects list filters (view state, per session - a filter that
     // outlived a restart would hide objects nobody remembers hiding).
     // sceneFilterType_ holds a PrimitiveType value, or -1 for "every type".
@@ -1703,6 +1709,10 @@ private:
     // scale deltas cumulatively over the whole drag, not per frame)
     float gizmoDragScale0_[3] = {1.0f, 1.0f, 1.0f};
     bool gizmoWasUsing_ = false;
+    // Whether the current gizmo drag has changed the anchor's transform at
+    // all. A press released without motion has not, and is treated as a click
+    // (it picks) rather than as an empty edit (it used to dirty the project).
+    bool gizmoEdited_ = false;
 
     // Measuring tape (docs/world-scale.md): click two points on the scene and
     // read the distance between them, in world units and in meters. A pure

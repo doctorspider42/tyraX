@@ -3130,6 +3130,16 @@ void App::drawViewportWindow() {
                               !isObjectHiddenInEditor(project_.objects()[selectedObject_]);
         if (objectSelected) {
             SceneObject& o = project_.objects()[selectedObject_];
+            // Whether the drag EDITED anything is decided by comparing the
+            // anchor's TRS before and after, not by ImGuizmo's return value:
+            // it reports a manipulation on a press that never moved too (its
+            // last-delta memory is not reset between drags), and a click that
+            // moved nothing must not become an undo step, a dirty flag or an
+            // auto-key - it is a click, and falls through to the picker below.
+            float trsBefore[9];
+            std::memcpy(trsBefore, o.position, sizeof(o.position));
+            std::memcpy(trsBefore + 3, o.rotation, sizeof(o.rotation));
+            std::memcpy(trsBefore + 6, o.scale, sizeof(o.scale));
 
             ImGuizmo::SetOrthographic(viewport_.orthographic());
             ImGuizmo::SetDrawlist();
@@ -3273,18 +3283,33 @@ void App::drawViewportWindow() {
             }
             for (float& s : o.scale)
                 if (s < 0.01f) s = 0.01f;
+            gizmoEdited_ |= std::memcmp(trsBefore, o.position, sizeof(o.position)) != 0 ||
+                            std::memcmp(trsBefore + 3, o.rotation, sizeof(o.rotation)) != 0 ||
+                            std::memcmp(trsBefore + 6, o.scale, sizeof(o.scale)) != 0;
         }
 
-        // Commit once per completed gizmo drag (not every frame). Auto-key
-        // first: the dropped cutscene keys share the drag's undo snapshot.
+        // Commit once per completed gizmo drag (not every frame), and only
+        // when the drag moved something. Auto-key first: the dropped cutscene
+        // keys share the drag's undo snapshot.
         const bool usingGizmo = ImGuizmo::IsUsing();
-        if (gizmoWasUsing_ && !usingGizmo) {
+        const bool gizmoDragEdited = gizmoEdited_;  // before the reset below
+        if (gizmoWasUsing_ && !usingGizmo && gizmoEdited_) {
             cutsceneAutoKey();
             commitChange();
         }
+        if (!usingGizmo) gizmoEdited_ = false;
         gizmoWasUsing_ = usingGizmo;
 
         const bool gizmoBusy = usingGizmo || (objectSelected && ImGuizmo::IsOver());
+        // A press on the gizmo that is released without moving the mouse is a
+        // CLICK, and a click selects what is under the cursor - the gizmo only
+        // owns a drag. Without this the gizmo of a large object (a merged
+        // district mesh whose origin sits in the middle of the map) parks
+        // itself on the very spot just clicked and eats every further click
+        // there, so the stack under it can never be cycled through.
+        const bool gizmoClick = gizmoBusy && !gizmoDragEdited &&
+                                ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
+                                io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f;
 
         // --- Camera + selection input ---
         if (imageHovered && !gizmoBusy) {
@@ -3502,8 +3527,8 @@ void App::drawViewportWindow() {
         // Click (no drag) = pick object under cursor. Ctrl toggles it in the
         // current selection; a plain click replaces (empty click clears).
         // Clicking the same spot again walks the stack under it (viewportPick).
-        if (!procClick && imageHovered && !gizmoBusy && !sculptMode_ && !paintMode_ &&
-            !measureMode_ && !pastePending_ && !overAxisGizmo &&
+        if (!procClick && imageHovered && (!gizmoBusy || gizmoClick) && !sculptMode_ &&
+            !paintMode_ && !measureMode_ && !pastePending_ && !overAxisGizmo &&
             ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
             io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f) {
             const float u = (io.MousePos.x - imgPos.x) / avail.x;
@@ -3515,11 +3540,62 @@ void App::drawViewportWindow() {
             } else {
                 selectOnly(hit);
             }
+            // Say what the click found and that there is more under it: the
+            // stack is invisible otherwise, and "click again" is the only way
+            // to reach an object standing inside or behind another one.
+            statusMessage_ = pickStackStatus(hit);
             // A cycle click is hunting through a stack, not a new framing:
             // leave the orbit pivot where it is (the block below re-snaps it
             // to the selection otherwise), or the camera walks away under the
             // cursor while you are still clicking the same spot.
             if (cycled) navFocusedIndex_ = selectedObject_;
+        }
+
+        // Right-click (no drag) lists everything under the cursor by name -
+        // the same stack a repeated click walks, but visible, so an object
+        // standing inside or behind another one is picked by reading rather
+        // than by counting clicks. A right DRAG stays with the navigation
+        // schemes that orbit or fly on it. The gizmo does not veto it: the
+        // gizmo owns left drags only, and it sits exactly where the object it
+        // belongs to was just clicked.
+        if (!procClick && imageHovered && !usingGizmo && !sculptMode_ && !paintMode_ &&
+            !measureMode_ && !pastePending_ && !overAxisGizmo &&
+            ImGui::IsMouseReleased(ImGuiMouseButton_Right) &&
+            io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Right] < 9.0f) {
+            const float u = (io.MousePos.x - imgPos.x) / avail.x;
+            const float v = (io.MousePos.y - imgPos.y) / avail.y;
+            viewport_.pickAll(u, v, project_.objects(), pickMenu_);
+            // A comment's icon is hit in screen space and is not in that list.
+            for (const CommentIcon& ic : commentIcons(imgPos, avail)) {
+                if (std::fabs(io.MousePos.x - ic.center.x) > ic.w * 0.5f) continue;
+                if (std::fabs(io.MousePos.y - ic.center.y) > ic.h * 0.5f) continue;
+                pickMenu_.insert(pickMenu_.begin(), ic.index);
+                break;
+            }
+            if (!pickMenu_.empty()) ImGui::OpenPopup("##pickmenu");
+        }
+        if (ImGui::BeginPopup("##pickmenu")) {
+            const int n = (int)project_.objects().size();
+            ImGui::TextDisabled("Under the cursor, front to back");
+            for (size_t k = 0; k < pickMenu_.size(); ++k) {
+                const int i = pickMenu_[k];
+                if (i < 0 || i >= n) continue;  // shortened since (undo, delete)
+                const SceneObject& o = project_.objects()[i];
+                const std::string label = o.name + "  (" + primitiveTypeName(o.type) + ")" +
+                                          "##pick" + std::to_string(k);
+                if (ImGui::MenuItem(label.c_str(), nullptr, isSelected(i))) {
+                    if (io.KeyCtrl) toggleSelect(i);
+                    else selectOnly(i);
+                    // Selecting from the menu is also where a later click at
+                    // this spot continues cycling from.
+                    pickCycle_ = pickMenu_;
+                    pickCyclePos_ = io.MousePos;
+                    pickCycleLast_ = i;
+                    navFocusedIndex_ = selectedObject_;  // no re-framing, as a cycle click
+                    statusMessage_ = pickStackStatus(i);
+                }
+            }
+            ImGui::EndPopup();
         }
 
         // Orbit around the selected object: snap the pivot to it whenever the
@@ -6365,6 +6441,32 @@ int App::viewportPick(float u, float v, ImVec2 mouse, ImVec2 imgPos, ImVec2 avai
     return pickCycleLast_;
 }
 
+std::string App::pickStackStatus(int hit) const {
+    const int n = (int)project_.objects().size();
+    if (hit < 0 || hit >= n) return {};
+    const SceneObject& o = project_.objects()[hit];
+    // Kept short: it shares the menu bar with the toolbar chips.
+    std::string s = o.name + "  (" + primitiveTypeName(o.type) + ")";
+    // Place in the stack, and what the next click at this spot would pick
+    // (the same walk viewportPick makes: the next still-existing candidate).
+    int live = 0, at = -1, k = -1;
+    for (size_t j = 0; j < pickCycle_.size(); ++j) {
+        const int i = pickCycle_[j];
+        if (i < 0 || i >= n) continue;
+        if (i == hit) at = live, k = (int)j;
+        ++live;
+    }
+    if (live < 2 || at < 0) return s;
+    int next = -1;
+    for (size_t step = 1; step < pickCycle_.size() && next < 0; ++step) {
+        const int cand = pickCycle_[((size_t)k + step) % pickCycle_.size()];
+        if (cand >= 0 && cand < n && cand != hit) next = cand;
+    }
+    s += " - " + std::to_string(at + 1) + "/" + std::to_string(live) + " here";
+    if (next >= 0) s += ", click again: " + project_.objects()[next].name;
+    return s;
+}
+
 // --- Selection set -------------------------------------------------------
 // selectedObject_ is kept in sync as the primary (anchor) of the set: the
 // last-clicked object, which drives the orbit pivot, the single-object gizmo
@@ -8531,6 +8633,10 @@ void App::drawSceneSection() {
                 else if (ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift) toggleSelect(i);
                 else selectOnly(i);
             }
+            // The row's selection is what a UI script asserts a viewport pick
+            // by (`expect-checked "Project/<name>  (<type>)"`); a Selectable
+            // reports none of it on its own.
+            uiscript::markLastItemChecked(isSelected(i));
             if (hidden) ImGui::PopStyleColor();
             // Session presence: a colored dot per participant who has this
             // object selected (their peer color), right-aligned on the row.

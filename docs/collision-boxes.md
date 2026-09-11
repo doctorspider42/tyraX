@@ -54,6 +54,13 @@ use the same box as before. The wall casts no AO, GI or projected shadow and
 does not appear in reflections. It remains an active object: hiding it through
 gameplay is different from making its surface invisible.
 
+In the viewport the wall is picked like the other wire boxes (areas, procedural
+volumes): a click aimed through it selects what it fences in, and the wall
+itself is reached by clicking the same spot again or from the right-click list
+([Selecting objects](object-selection.md)). Surface snapping and the drag/paste
+raycast ignore it — a prop dropped on top of one would hang in the air in the
+game.
+
 This is `"collision": "invisible"` on a Box (format 32). Existing box, mesh and
 none modes retain their behavior. Making a wall visible again restores box
 collision. Aster uses four tall walls just outside the island's paving. Its

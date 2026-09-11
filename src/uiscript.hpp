@@ -86,6 +86,15 @@ const Item* find(const std::string& target, bool clickable = false);
  * not know what a panel's buttons are called runs a script of just
  * `dump; quit`. */
 std::string dumpText();
+/** Reports the widget submitted LAST (ImGui::GetItemID()) as a checkable item
+ * in the given state. ImGui::Selectable tells the hook nothing about whether it
+ * is selected (only MenuItem and Checkbox do), so a list row - the Project
+ * panel's scene objects above all - would dump with no state and a script
+ * could never assert WHICH object a viewport click picked. The row calls this
+ * right after its Selectable; `dump` then shows `[checked]` on the selected
+ * row and `expect-checked "Project/crossing  (model)"` asserts the selection.
+ * A no-op while collection is off. */
+void markLastItemChecked(bool checked);
 
 // ------------------------------------------------------------------ script ---
 

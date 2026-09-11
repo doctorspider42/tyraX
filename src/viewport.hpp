@@ -687,9 +687,13 @@ public:
     int pick(float u, float v, const std::vector<SceneObject>& objects);
 
     // Every object under those coordinates, front to back - the click order
-    // pick() returns the first of. Repeated clicks at the same spot walk this
-    // list, which is the only way to reach something standing inside or behind
-    // another object with the mouse alone (App::viewportPick).
+    // pick() returns the first of. Exact hits come first, then hits within the
+    // grab margin, then the wire boxes (areas, procedural volumes, invisible
+    // walls), which enclose or fence whole rooms and would otherwise swallow
+    // every click inside them. Repeated clicks at the same spot walk this
+    // list and the viewport's right-click menu shows it, which is how
+    // something standing inside or behind another object is reached with the
+    // mouse alone (App::viewportPick).
     void pickAll(float u, float v, const std::vector<SceneObject>& objects,
                  std::vector<int>& out);
 

@@ -159,6 +159,15 @@ void beginFrame() {
 
 const std::vector<Item>& items() { return g_items; }
 
+void markLastItemChecked(bool checked) {
+    if (!g_enabled) return;
+    auto found = g_byId.find((uint32_t)ImGui::GetItemID());
+    if (found == g_byId.end()) return;
+    Item& it = g_items[found->second];
+    it.checkable = true;
+    it.checked = checked;
+}
+
 const Item* find(const std::string& target, bool clickable) {
     const std::string t = trim(target);
     if (t.empty()) return nullptr;
