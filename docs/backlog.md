@@ -23,10 +23,9 @@ hardware: the slot-pool race"). Both assemblers were failing; openvcl's
 schedule only moved the rate. The EE-wait probe that located it rendered the
 production openvcl set pixel-identically to Sony's for 24 of 24 frames.
 
-**First thing when the console is back:** the pool fix's own 30-frame pass on
-the Aster pose, `"clipping": "vu1"` and `"precise"`, against `SCEE_1400`-style
-references (the sampler recipe is in the `tyra-testing` skill). Then the broad
-pass this entry originally asked for: every microprogram of the resident set, on more than one map and more
+Measured with the fix on the console: `vu1` 30 of 30 frames at 0 pixels
+against Sony's reference, `precise` 24 of 24 identical. What is still owed to
+hardware is the broad pass this entry originally asked for: every microprogram of the resident set, on more than one map and more
 than one pose, with the failure-RATE fixture rather than single frames (parked
 pose + `--capture-frame` x30 against one reference). The `as_is_*` family and
 the EE clipper deserve the same pass - the EE clipper was catastrophically

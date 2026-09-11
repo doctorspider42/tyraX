@@ -27,8 +27,9 @@
 // the packet's REF tags then read asynchronously: the next bag's copy landed
 // under the transfer and the DMA picked up a vertex of the NEXT lamp. The
 // pool is now double-buffered alongside the packet double buffer
-// (StaPipQBuffer::flipPoolSide in sendPacket) - the guarantee the EE-side
-// wait probe gave (24/24 clean frames) without its 4 FPS. Also: a FLUSHE at the head of the StaPip/DynPip
+// (StaPipQBuffer::flipPoolSide in sendPacket): on the console 30 of 30 frames
+// at 0 pixels in vu1 mode and 24 of 24 identical with the EE clipper, at the
+// FPS it had before, where an EE-side wait per bag cost 4 FPS. Also: a FLUSHE at the head of the StaPip/DynPip
 // uniform chains (their absolute-address unpacks could land while the previous
 // batch still ran), a VIF1 wait before the projected-shadow pass rewrites its
 // shared projClamp buffer, and the ps2link deploy note that blamed openvcl is

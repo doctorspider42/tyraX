@@ -264,11 +264,13 @@ so the side being written is always the one whose transfer finished - the
 guarantee the packet buffers had, extended to the data they reference. It is
 the same guarantee the 24/24 EE-wait probe gave, without the EE ever idling
 (that probe cost 4 FPS, which is why it is not the fix). The EE clipper needs
-no wait of its own any more either. **Console pass of the pool fix itself:
-pending** - the console wedged on pad init (the known `freepad: DMA Busy`
-state, power-cycle only) the moment the build was ready; PCSX2 renders the
-pose unchanged with it. The 30-frame sample on both clipping modes is the
-first thing to run when the console is back.
+no wait of its own any more either. **Measured on the console with the pool
+fix**, openvcl production set: `"clipping": "vu1"` **30 of 30 frames at 0
+pixels** against Sony's reference at 22.5-23.5 FPS (23.3 before); `"precise"`
+**24 of 24 frames identical**, at a constant 223 edge pixels from the VU1
+reference (the EE clipper's own rounding; PCSX2 puts the two 291 apart) and
+the same 17.9 FPS it had while drawing slabs. PCSX2 is unchanged in both
+modes.
 
 Two more barriers went in with it, both cheap and both real even though
 neither was *the* window here: a `FLUSHE` at the head of the StaPip and DynPip

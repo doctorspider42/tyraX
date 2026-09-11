@@ -4855,9 +4855,10 @@ anyone who arrives here from the sections above:
 - Fixed by double-buffering the pool alongside the packet double buffer
   (`StaPipQBuffer::flipPoolSide` in `sendPacket`) - the same guarantee the
   EE-wait probe gave (24/24 clean, openvcl production set vs Sony's reference)
-  at no FPS cost. The pool fix's own 30-frame console pass, in both clipping
-  modes, is pending: the console wedged on pad init (`freepad: DMA Busy`,
-  power-cycle only) as the build came ready. PCSX2 is unchanged by it.
+  at no FPS cost. Measured with the fix on the console: `vu1` 30 of 30 frames
+  at 0 pixels against Sony's reference (22.5-23.5 FPS, 23.3 before), `precise`
+  24 of 24 identical (a constant 223 edge pixels from the VU1 reference, the
+  EE clipper's own rounding). PCSX2 is unchanged by it.
 - The store-after-FMAC distance (88 sites at one row against SCE's minimum of
   two) was patched in openvcl and tested on the console: it changed the failure
   mode, not the fact, and became moot once the race was fixed. The patch is
