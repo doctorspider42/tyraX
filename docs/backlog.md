@@ -44,15 +44,16 @@ SCE's output says it needs the gap. Whether that is THE defect is **not**
 established - the console arm that removed those sites still rendered wrong,
 and the fixture that seemed to say otherwise turned out to be noise (below).
 
-**The blocker is the fixture, not the ideas.** A single parked pose has no
-usable noise floor in this view - the cellar's light shaft comes and goes
-between captures on BOTH assemblers, up to 1865 pixels, so every variant
-measured there sat under its own noise. The route fixture has the samples but
-desynchronises the two arms as soon as a variant changes the frame rate. Build
-one that survives both before running more variants: park somewhere provably
-still (prove it with six captures, not two), or key the captures to the game's
-frame counter so the two arms sample the same frames rather than the same
-seconds.
+**The fixture blocker is SOLVED.** An input replay pins `dt` (the two arms run
+at 18 and 23 FPS, so at the same frame they had accumulated different simulated
+time and everything time-driven was in a different phase), halt/step pins the
+frame number, and masking the HUD band removes the rest. Measured: the same
+build over two separate runs is byte-identical - 0 pixels, at two frames - and
+openvcl against SCE is 312 pixels, reproduced exactly at two independent
+frames. The three rules and their traps are in docs/toolchain-image.md, "A
+fixture with a zero noise floor". So the variant bisection can now be run
+properly: two deploys per variant, and the verdict is binary - the pictures
+match or they do not.
 
 Until it is fixed there is **no good console configuration on the native
 toolchain**: the EE clipper is not an escape hatch — it runs the `as_is_*`
