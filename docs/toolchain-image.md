@@ -4783,6 +4783,43 @@ the frame rate - a "never clip" variant desynchronised the two arms by four
 captures) or park somewhere the scene is provably still. Neither is free, and
 neither was in place for the variant round.
 
+### A fixture with a zero noise floor: input replay + halt/step + no HUD
+
+The variant round failed for want of an instrument, and three things together
+make one. Measured, on this console, on `examples/showcase`:
+
+| | mean of 255 | pixels > 40 |
+|---|---|---|
+| same build, two separate runs, matched frame | **0.0000** | **0** |
+| openvcl vs SCE `clip_c`, matched frame | 0.2212 | **312** |
+| the same, at a second independent frame | 0.2212 | **312** |
+
+A true zero floor, and a signal that reproduces to the pixel. What it took:
+
+* **An input replay pins `dt`** (docs/input-replay.md). The two arms run at
+  different frame rates - 18 against 23 FPS here - so at the same frame number
+  they had accumulated different simulated TIME, and anything time-driven (the
+  cellar's light shaft) was in a different phase. Record any run, drop the
+  `.tyrarep` into both projects as `bin/replay.in`, and the game performs it:
+  `dt` comes from the file, so frame N is the same simulated state in any
+  build. `--record` only drives PCSX2, but the protocol is files in `bin/`, so
+  a recording made in the emulator replays on the console.
+* **Halt and step pin the frame.** Free-running captures land wherever the
+  poll happens to see, and the two arms then compare different frames. Halt
+  (`livedbg.cmd` flags bit 0), let the counter settle, then step to the
+  number. Two traps: **`--capture-frame` writes its own command WITHOUT the
+  halt flag, so every capture RESUMES the game** - re-halt before each target;
+  and a coarse step occasionally advances further than it was asked, which
+  single steps cannot undo - stop 30 short, settle again, then step by one.
+* **Mask the HUD.** FPS and free-RAM readings differ between two builds and
+  are the whole of what is left: excluding the top 70 rows takes the
+  same-build floor from 201 pixels to **0**.
+
+The scripts that do this are small and live in the session scratch; the
+reusable parts are the three rules above. With the floor at zero a variant
+verdict is binary - the pictures match or they do not - which is what the
+plane-loop bisection needed and did not have.
+
 ## Still open
 
 - **The GHCR package is private** until the repo is, so nobody outside can pull
