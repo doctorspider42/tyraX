@@ -24,20 +24,31 @@ collapsing from one broad cone into several narrow wedges, which on
 The measurements, the four-arm A/B and the reproduction recipe are in
 docs/toolchain-image.md, "The first real-hardware run".
 
-The payoff is the migration itself: this is the last thing between openvcl and
-being trusted for the VU1 clipper, and it is the one class the emulator cannot
-gate — the assembler's density flags rest on latencies the hardware enforces
-and PCSX2 does not model. Ruled out already: the CLIP flag window (every read
-in all ten resident programs sits >= 4 emitted rows behind its `clipw`, checked
-on the shipped `.vsm`). Not yet ruled out: any individual density flag, because
-the resident set does not fit without them — bisect them the way the programs
-were bisected here, by mixing SCE and openvcl objects in the engine volume so
-the ceiling stops being the constraint.
+The payoff is the migration itself: openvcl cannot be trusted for hardware
+until this is understood, and it is the one class the emulator cannot gate.
 
-Until it is fixed, a project that must look right on a console can set
-`"clipping": "precise"` (the EE clipper leaves the five `clip_*` programs off
-VU1 entirely) at a measured EE cost, or be built through the Docker backend
-against an image carrying SCE's `vcl`.
+Ruled out, each measured: **the density flags** (a `clip_c` built with no
+latency or scheduling flag at all, 504 words of conservative padding, is wrong
+by the same amount — console arm J), the **CLIP shift window** (every read >= 4
+emitted rows behind its `clipw`, and the window position matches the source),
+**hazard distances** per class against SCE's own minima, and **uninitialised
+register reads** (zero per component in either assembler). The defect is in
+openvcl's core code generation, not in what this repo asks of it.
+
+Next instrument, and the one the earlier PCSX2 bisection already pointed at:
+the **VU1 packet tap** on the failing draw, on hardware. The pose is known —
+eye (9.78, 1.672, 17.877), yaw 180.7, pitch 3.1 on `examples/showcase`, which
+puts the broken draw in the portal through-view with a cellar lamp's light
+shaft as the visible victim. Park nearer the route's worst frame first: that
+exact pose is worth only ~0.08 mean / 237 px where the worst is thirty times
+larger.
+
+Until it is fixed there is **no good console configuration on the native
+toolchain**: the EE clipper is not an escape hatch — it runs the `as_is_*`
+family, also openvcl-built, and on hardware it is worse than the VU1 path
+(half-screen wedges, and 13-18 FPS against 20-24). Build through the **Docker
+backend** against an image carrying SCE's `vcl` for a console-accurate
+picture; the ps2link deploy path prints a note saying so.
 
 ### Judge openvcl against the ps2gl fixtures
 

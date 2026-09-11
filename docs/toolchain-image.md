@@ -4650,6 +4650,73 @@ builds produced digit-identical score sequences, which reads exactly like
 eyeballing contact sheets: the divergence is 2 parts in 255 averaged over the
 frame, and it hides completely in a thumbnail.
 
+### Narrowing it: not the flags, and not only the clipper
+
+Three more console arms, same fixture, same paired comparison against the
+all-SCE reference:
+
+| arm | what changed | worst pose vs all-SCE |
+|---|---|---|
+| I | `stapip_clip_c` from openvcl, all 21 density flags | 2.81 / 7321 px |
+| **J** | `stapip_clip_c` from openvcl, **no latency or scheduling flag at all** | **2.52 / 6561 px** |
+| M | the whole native build, switched to the **EE clipper** | far worse - half-screen wedges, and 13-18 FPS against 20-24 |
+
+**J is the important one.** Built with only the allocation/liveness flags
+(`--loop-liveness-always --trim-uncarried-ranges --coalesce-float-writes
+--split-dead-float-ranges --sink-loads* --drop-dead-writes`) openvcl pads
+every wait by its own conservative model - the program goes 328 words to 504 -
+and it is **still wrong by the same amount**. So none of `--fmac-interlock`,
+`--sce-latencies`, `--branch-interlock`, `--branch-bubble-on-dependency`,
+`--schedule-flag-readers`, `--emit-delay-fillers`, `--upper-move-with-w` or
+the pairing flags is the cause. The density work is exonerated; the defect is
+in openvcl's core code generation for this program.
+
+That the whole set fits at all while the flags are off is worth writing down,
+because the arithmetic in the sections above no longer applies: **the resident
+set is eight images, not ten.** `stapip_clip_d`'s program object points at
+`StaPipVU1Clip_C_CodeStart` (and `clip_tce` at `clip_tc`'s), so `clip_d.o` is
+compiled and never uploaded - the dir-lights class executes clip_c's microcode
+with `VU1_OPTIONS_ADDR.y` selecting the shading path, and `Path1::
+createProgramsCache` aliases by symbol pointer. Five culls plus three clip
+images is **1682 words against the 2042 ceiling**, so there is ~360 words of
+headroom and every flag variant of one program fits. That is what makes a
+flag bisect possible at all.
+
+**M says the EE clipper is not an escape hatch.** It takes the five `clip_*`
+programs off VU1 and runs the `as_is_*` family instead - also openvcl-built -
+and on hardware that is *worse*: giant smeared wedges across half the frame,
+not slivers. So the problem is openvcl's output for this engine, not the
+clipping mode. The only console-accurate build today is the **Docker backend
+against an image carrying SCE's `vcl`** (`h4570/tyra`), which measured clean
+across 58 frames in two arms.
+
+Also ruled out on the host, against the shipped and the no-flag builds:
+
+* **the CLIP shift window.** Every flag read in all ten resident programs sits
+  at least 4 emitted rows behind its `clipw`, and the window POSITION matches
+  the source: openvcl reads four entries after four CLIPs and two after the
+  next two, exactly as `stapip_clip_c_vu1.vclpp` writes it. (SCE hoists the
+  last two CLIPs above the first `fcand` and is still correct - the bits of a
+  CLIP are not visible for a few rows, which is the trick the earlier sections
+  describe.)
+* **hazard distances.** Per-class minimum emitted-row gaps agree with SCE's
+  (`ialu->int` 1/1, `iload->int` 6/7, `ialu->branch` 1/1); the only class where
+  openvcl is tighter is `mtir->branch`, 5 against 6, a single `xtop`/`ibltz`
+  pair at a distance no documented hazard reaches.
+* **uninitialised registers.** Zero read-before-write sites per component in
+  either assembler's output - the hypothesis that fit "stable in an emulator,
+  wrong on a console" best, and it is not this.
+
+What is left is the instrument the earlier bisection already pointed at and
+nobody has run on hardware: the **VU1 packet tap** on the failing draw. The
+failing pose is now known and parked - eye (9.78, 1.672, 17.877), yaw 180.7,
+pitch 3.1, i.e. 0.13 units in front of the surface gate, so the broken draw is
+in the portal THROUGH-view, and the visible victim is a cellar lamp's light
+shaft. Two things about that pose: it is worth ~0.08 mean / 237 px on its own
+(against a 0.001 self-noise floor, so it is a real signal but a small one),
+and the divergence is sharply pose-dependent - the route's worst pose is
+thirty times larger. Park closer to the route's worst frame before tapping.
+
 ## Still open
 
 - **The GHCR package is private** until the repo is, so nobody outside can pull
