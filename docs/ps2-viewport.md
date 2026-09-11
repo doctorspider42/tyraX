@@ -145,6 +145,13 @@ way the game's bags do. One formula, two evaluation sites: the lighting
 functions live in a single GLSL chunk shared by both paths, so they cannot
 drift.
 
+**Baked lightmaps stay per pixel in both modes.** The GI cache's terrain map
+and primitive atlas are textures on the console, read per pixel by two extra
+passes, so the viewport samples them in the fragment stage whatever the
+shading mode (`uLmMode` / `lmApply`, docs/global-illumination.md) — the
+geometry stage only zeroes the base for those draws, the way the console
+draws them black and puts the light back per pixel.
+
 **Dynamic lights change formula, not just evaluation site.** The editor's
 per-pixel preview draws a dynamic point light with an N·L term and a
 quantized shadow test; the console cannot — on **objects** a dynamic light
@@ -162,7 +169,8 @@ per pixel by construction. Two honest divergences stay: the console lights
 each mesh with its **strongest** dynamic light only (`pickDynLight`) while
 the preview adds them all, and a dynamic **spot** light's gobo projection is
 not reproduced (its pool is skipped; the per-vertex cone still lands on
-objects).
+objects). The shadow a spot carves out of that pool previews in **Solid**
+shading instead ([shadows.md](shadows.md), "In the editor").
 
 A light's visible **beam** (*Properties > Point light > Beam*) is not part of
 this mode and never was: the corona billboard and the cone shaft are geometry

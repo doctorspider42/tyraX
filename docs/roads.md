@@ -45,7 +45,7 @@ geometry to store, ship or stream.
 
 ## How it runs
 
-The object itself emits **no runtime geometry** (type 21 is authoring-only in
+The object itself emits **no runtime geometry** (type 22 is authoring-only in
 `rebuildObjectGeometry`, like an area). Instead the codegen writes tables —
 `ROAD_DEFS` (scene, point range, width, texture slot), `ROAD_POINTS`,
 `ROAD_TEXTURE_PATHS` (deduplicated, `res/` prefix stripped: the game's asset

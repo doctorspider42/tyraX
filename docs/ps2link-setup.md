@@ -58,7 +58,7 @@ Two things worth knowing before you hit a wall:
 | A way to boot homebrew | FreeMcBoot / FreeDVDBoot / uLaunchELF / a disc-swap exploit — whatever already runs `.ELF` files off your memory card. |
 | A memory card | It holds `PS2LINK.ELF` + `IPCONFIG.DAT`. |
 | A wired LAN | Console and PC on the **same subnet**; the PS2 has no Wi-Fi and ps2link has no DHCP. |
-| Docker Desktop on the PC (plain `docker` on Linux) | The ps2link build runs inside the `ps2dev/ps2dev` toolchain image. |
+| Docker Desktop on the PC (plain `docker` on Linux) | The ps2link build runs inside the `ps2dev/ps2dev` toolchain image — or you copy the ready-made ELF out of the TyraX toolchain image, which also needs Docker. |
 
 ## 1. Build the TyraX ps2link
 
@@ -70,14 +70,26 @@ On Linux: `tools/ps2link/build.sh` (the same script, same pins). Add `-Clean` /
 `--clean` to throw the work tree away first.
 
 It clones ps2link pinned at `0c6138c`, applies `tyrax.patch`, builds inside
-`ps2dev/ps2dev:latest` and drops **`tools/ps2link/ps2link.elf`** (~120 KB) next
-to the script. Like upstream's releases it is run through `ps2-packer`, which
-is what lets a launcher boot it: an unpacked ELF has its segment at the final
-address and FreeMcBoot's menu keeps its own loader there. `-Unpacked` /
-`--unpacked` builds the raw image instead, for debugging - it only boots from
-uLaunchELF. The first run pulls the toolchain image; later runs reuse the
+`ps2dev/ps2dev:v2.0.0` and drops **`tools/ps2link/ps2link.elf`** (~285 KB) next
+to the script: high (`0x01ee8000`), unpacked, USB HID included. `-Low` /
+`--low`, `-Packed` / `--packed` and `-NoUsb` / `--no-usb` combine into the other
+variants, and **the build to flash is low + packed + no USB** — like upstream's
+releases it goes through `ps2-packer`, which is what lets FreeMcBoot's menu boot
+it at the low address (an unpacked low image lands on that loader mid-load and
+black-screens). The first run pulls the toolchain image; later runs reuse the
 clone in `tools/ps2link/build/`. The ELF is gitignored — the patch is the source
 of truth, not the binary.
+
+**Or skip this step.** Both ELFs are built into the toolchain image
+([docs/toolchain-image.md](toolchain-image.md)) from the same commit and the same
+patch, so any project's build container already has them:
+
+```powershell
+docker compose cp compiler:/usr/local/share/tyrax/ps2link/ps2link-low-nousb-packed.elf .
+```
+
+(run in a project directory, with its container up — or `docker create` the image
+directly). CI also publishes them as a `ps2link` workflow artifact.
 
 What the patch does to upstream today, in two groups.
 
@@ -428,7 +440,7 @@ Ports, if a firewall is in the way:
 | Port | Direction | What |
 |---|---|---|
 | TCP 18193 | PC → console | the file-request socket ps2link listens on; `ps2client` connects to it |
-| UDP 18194 | PC → console | commands (`reset`, `execee`) — fire-and-forget, no ack |
+| UDP 18194 | PC → console | commands (`reset`, `execee`, `poweroff`) — fire-and-forget, no ack |
 | UDP 18194 | console → PC | the console's `printf` output (udptty) — this is what the `[ps2]` lines are |
 
 Because the commands are fire-and-forget, a dead or wrong IP makes `reset` and
@@ -496,6 +508,38 @@ restarts its own image and reloads every IRX before it listens again, and
 landing a game in the middle of that gets a frozen Tyra logo waiting on a pad
 whose driver has not finished its handshake.
 
+### Switching the console off from the desk
+
+**Build > Power Off PS2** does what the console's own power button does. It is
+ps2link's `poweroff` command and not something this repo's patch added: the
+editor runs `ps2client -h <ip> poweroff`, which puts `PKO_POWEROFF_CMD`
+(`0xbabe0204`) on the same UDP command port `reset` uses; the IOP command thread
+answers it with `PoweroffShutdown()` out of the resident `poweroff.irx`, which
+runs the registered shutdown callbacks — `ps2dev9`'s parks the expansion bay, so
+an HDD is not cut off mid-spin — and then writes the CDVD registers that drop the
+power rails. It reaches a console with a game on it for the same reason *Stop*
+does: that thread runs at `USER_HIGHEST_PRIORITY`, above the `host:` file server
+a game polls ten times a frame (the r4 fix above).
+
+It clears the file server first and refuses on the same ownership rule as *Stop*
+and a deploy, only harder: powering off a console another editor is deploying to
+ends a session that cannot be recovered from this PC at all.
+
+Two things to expect. The command is **fire-and-forget UDP like every other
+ps2link command**, so a console that is off, on another address or not running
+ps2link answers exactly like one that obeyed — the standby light is the only
+report there is, and the editor says so rather than claiming success. And
+**nothing on the network can switch it back on**: ps2link is gone with the power,
+so the next `F6` needs somebody at the console.
+
+Measured on hardware (2026-08-19), with an EE payload resident and a stray
+`ps2client` holding the channel: the button reaped the orphan by its command
+line, sent the command, and the console went dark. Afterwards `execee` produced
+**no console output at all** — the liveness check that means something here —
+ping went from replying to *destination host unreachable*, and the ARP entry
+disappeared, which is a machine whose NIC has lost power rather than a wedged
+one (a wedge still answers ARP and usually ping).
+
 ## When it does not work
 
 | What you see | What it means |
@@ -521,6 +565,7 @@ whose driver has not finished its handshake.
 | Both drivers "ready" but nothing responds | The devices. `ps2kbd`/`ps2mouse` only speak the USB HID **boot protocol**; test them in uLaunchELF first. |
 | Devkit panels frozen, game still running | The editor (and with it `ps2client`) was closed. Redeploy. Before 1.22.0 a deploy of *any other* project did this to you too — see [One file server at a time](#one-file-server-at-a-time). |
 | `[editor] The ps2link channel is already taken: ps2client pid N serving host:<other>.elf` | Another editor is holding the file server; the deploy refused rather than killing its session. *Stop on PS2* in the editor it names, or close it, then run again. |
+| *Power Off PS2* says the command was sent and the console stays on | The packet went nowhere — wrong IP, console not in ps2link, link down. The command has no ack, so "sent" only ever means "the PC put it on the wire" ([above](#switching-the-console-off-from-the-desk)). |
 | `[editor] Reaping an orphaned file server` | A `ps2client` was left behind by an editor that is no longer running. Expected after a crash; the deploy continues. |
 
 ## Changing the patch
@@ -721,6 +766,12 @@ It is ps2sdk's `_request_end` with **one** thing changed: the packet free is
 skipped when the packet pointer is null, and *everything else still runs*. The
 client is always completed — `end_function`, then `iSignalSema` — because
 skipping that is what hangs the game.
+
+PS2SDK v2 renamed the public packet fields (`client/server/buff/cbuff` to
+`cd/sd/buf/cbuf`) without publishing a version macro. The guard resolves both
+layouts with compile-time member detection; do not replace that adapter with a
+single spelling, because native builds use v2 while the inherited Docker A/B
+image intentionally keeps the older SDK.
 
 That shape was arrived at the hard way, and the history is the useful part. The
 first version returned early on rejection, and under the teardown trigger below

@@ -32,12 +32,17 @@
 #vuprog StaPipVU1CullTD
 
     ResetClipFlags{ }
-    LoadTyraStaticData{ gifSetTag }
     MatrixLoad{ mvp, VU1_MVP_MATRIX_ADDR, vi00 }
     LoadTyraDirectionalLights{ lightMatrix, lightDirections, lightColors, ambientColor, VU1_LIGHTS_DIRS_ADDR, VU1_LIGHTS_COLORS_ADDR, VU1_LIGHTS_MATRIX_ADDR }
-    LoadTyraTagsTexture{ lodGifTag, testsTag, texBufferClutGifTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR, VU1_CLUT_ADDR }
-    ; Modified by TyraX: per-mesh GS blend equation, in-band
-    LoadTyraAlphaTag{ alphaGifTag, VU1_ALPHA_ADDR }
+    ; Modified by TyraX: the five GIF-tag registers are loaded INSIDE the batch
+    ; loop (below, next to the store that is their only reader) rather than here,
+    ; for the same reason the light registers are reloaded per triangle: `begin:`
+    ; is a loop, so anything loaded above it stays live across the whole body and
+    ; crowds the register file at the per-vertex peak. Free, because the tag block
+    ; is written once per batch anyway - the loads simply moved to where they are
+    ; used. It is also what lets the from-source assembler allocate this program
+    ; at all: peak pressure was 34 simultaneous values against 31 registers
+    ; (docs/toolchain-image.md).
     ; Modified by TyraX: GS hardware fog (packed XYZF2)
     LoadTyraFogParams{ fogParams, VU1_OPTIONS_ADDR }
     MakeTyraAdcMask{ adcMask }
@@ -53,6 +58,10 @@ begin:
     iadd    kickAddress,        normalData,     vertexCount
     iadd    destAddress,        normalData,     vertexCount
 
+    ; Modified by TyraX: loaded here, not above `begin:` - see the note there.
+    LoadTyraStaticData{ gifSetTag }
+    LoadTyraTagsTexture{ lodGifTag, testsTag, texBufferClutGifTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR, VU1_CLUT_ADDR }
+    LoadTyraAlphaTag{ alphaGifTag, VU1_ALPHA_ADDR }
     StoreTyraGifTagsTextureAlpha{ gifSetTag, lodGifTag, texBufferClutGifTag, alphaGifTag, primTag, testsTag, destAddress }
 
     ;--- Loop

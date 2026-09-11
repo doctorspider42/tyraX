@@ -3,7 +3,7 @@ name: tyra-engine-dev
 description: >
   Guide to editing the in-tree Tyra PS2 engine fork in vendor/tyra — the
   renderer/clipper/VU1 pipeline, audio (audsrv), file loading over PS2 host fs,
-  and how engine changes reach running games through the Docker build. Use this
+  and how engine changes reach running games through native and Docker builds. Use this
   skill whenever you touch ANY file under vendor/tyra, work on PS2-side
   rendering, clipping, VU1 microprograms, textures, audio playback or asset
   loading, or when diagnosing in-game symptoms like rendering corruption, giant
@@ -39,6 +39,10 @@ Rules:
 
 You don't rebuild the engine by hand. The editor's Runner (`src/runner.cpp`)
 does it on every game build (F5 or `tyrax-editor.exe --build <projectDir>`):
+
+The native default syncs `vendor/tyra/engine` into a user cache and rebuilds it
+with pinned PS2DEV/OpenVCL; its toolchain stamp invalidates stale objects. The
+Docker fallback retains the previous sequence:
 
 1. `vendor/tyra` is bind-mounted **read-only** at `/engine-src` in the
    project's container (service `compiler`, container `<name>-compiler-1`).
@@ -162,7 +166,9 @@ editor's `src/tmdl.hpp`, **keep the two in sync**. It returns the same
 `LeanObjMesh` so the game keeps one geometry path, with two differences the
 caller must know: texture names are already **cwd-relative** — do NOT prepend
 a directory — and `LeanObjMaterial::lods` may carry decimated tiers, which an
-`.obj` never has. Loading a 9216-vertex model went 286 ms -> 39 ms), per-bag additive blending for the
+`.obj` never has (and `LeanObjMesh::shadowVertices`, v3, a positions-only
+shadow proxy the flashlight's volumes extrude when the real mesh is over
+budget). Loading a 9216-vertex model went 286 ms -> 39 ms), per-bag additive blending for the
 reflective-material env pass (`PipelineInfoBag::additiveBlendFix` — non-zero
 makes `StaPipCore::render` drain PATH1 via `sync.align3D()` and switch the
 global GS `ALPHA` register to `Cs*FIX/128 + Cd` through
@@ -181,7 +187,42 @@ the game re-submits the caster's existing bags under a `pushEnvView` "light
 camera" and draws a terrain patch sampling the slot's VRAM-resident texture
 by light-space UVs; `allocate()` is called by generated games only when a
 project has "Cast shadow" objects, and init() re-places the buffers after a
-display-mode VRAM reset), `RendererCoreEnvMap` (128×128 VRAM render target for
+display-mode VRAM reset), `RendererCoreAlphaMask` (the shadow
+volumes' destination-alpha mask - the torch's and, since 1.67.0, the frame's
+one carving spot light's, docs/flashlight.md "The shadow" +
+docs/shadows.md "Spot-light shadow volumes"; ONE band and ONE bracket per
+LIGHT per frame, so each user clears, counts, draws its own passes and
+repaints before the next one starts: begin/
+beginKeep/end bracket FBMSK to the alpha bits for the convex 1-bit set/clear,
+repaintAlpha() is MANDATORY after the last DATE pass because the SDTV flicker
+filter displays per-pixel framebuffer alpha - and the COUNTING half for true
+mesh-shaped volumes: allocateCount() claims a raster-sized PSMCT16 count
+target (permanent-region discipline, refusal graceful via countReady()),
+countBegin() redirects FRAME there while ZBUF stays the scene's z (one pixel
+grid, two independent addresses), volume bags count with
+`PipelineInfoBag::additiveBlendFix`/`subtractiveBlendFix` (+N front faces /
+-N back faces, TestOnly z), and countResolve() converts count>0 into the
+alpha MSB with ONE textured sprite - TEXA.AEM=1 makes an all-zero texel
+alpha 0 and anything else TA0=0x80, ATEST!=0 makes the write an OR, and the
+packet restores CLAMP to REPEAT itself because emitRasterRestore does not
+know texture state. The GS cannot count in alpha - blending never writes A -
+which is why the count lives in color channels of a target that is never
+displayed; N=32 clears the 16-bit channel's 8-step quantization plus
+dithering's +-4, so DTHE needs no save/restore. COUNTING RUNS AT BOTH COLOUR
+DEPTHS (the band follows the frame's PSM: PSMCT32/512 KB, PSMCT16/256 KB). It
+was refused at 16-bit for one release over "dashed green marks down two fixed
+screen columns", blamed on the masked write at a PSMCT16 destination; BOTH
+halves of that were then measured on a console and it is neither. A four-mask
+FBMSK probe (flat sprite + a DATE-revealed alpha strip per mask) reads
+IDENTICALLY on hardware and in PCSX2 - 0x00FFFFFF is colour-neutral and its
+alpha half works - and a paired 8-vantage sweep one knob apart put the marks
+on countResolve's TEX0 base: the SLID band base scores 8/8, the band's own
+base 0/8, flipping back 8/8 (A-B-A). The write side slides FRAME by bandY0
+page rows, so the read must NOT slide as well as subtracting bandY0 from V.
+Still open: why texels sampled by an alpha-only masked pass tint the picture
+at all, and why the marks also appear above the band boundary,
+docs/flashlight.md),
+`RendererCoreEnvMap` (128×128 VRAM render target for
 `VU1_ENV_BASIS_ADDR`), the StaPip `billboard` program family
 (`StaPipBillboardBag`: the vertex slot carries PARTICLE CENTERS, the ST slot
 one qword of 2×2 basis weights per particle, colors one per particle; VU1
@@ -288,7 +329,17 @@ keys onto the pad. It takes an overlay **slot** (`Pad::VIRT_SLOTS`, one
 `virtPrev` per slot): 0 is this keyboard/mouse fold, 1 is the editor's Remote
 Pad (docs/remote-pad.md). A second source must never reuse slot 0 — the two
 would each read as the other releasing everything, so every held button
-re-clicks every frame; **skipped under ps2link**: ps2kbd/ps2mouse import usbd's
+re-clicks every frame. **`Pad::setState` and `KbdMouse::setState` are the
+OTHER shape and exist for the input recorder** (docs/input-replay.md): they
+REPLACE the polled state instead of merging into it, because a recording has to
+win over whatever a physical controller is doing — a hand resting on a stick
+must not change the run being reproduced. Two details are load-bearing.
+`Pad::setState` re-seeds **every** `virtPrev` slot from the state it wrote, or
+the first frame after a replay ends fabricates click edges out of the
+difference. And `KbdMouse` grew a `forced` flag that `isEnabled()` ORs in,
+because every reader in a generated game gates on it — without it a replayed
+keystroke is silently dropped on any machine with no USB keyboard attached,
+which is most of them; **skipped under ps2link**: ps2kbd/ps2mouse import usbd's
 symbols and drivers added to an already-running ps2link's un-reset IOP never
 come up cleanly (PS2MouseInit then spins forever on an RPC server that never
 registered — a boot freeze on the Tyra logo). The
@@ -1047,9 +1098,102 @@ Related: the engine's error blocks now print `==============  TYRAX  ===========
 (`inc/debug/debug.hpp`, two places); the editor parses that and the old TYRA
 banner both, so a previously built ELF still reports.
 
+## Debugging a GS pass you cannot see: one probe, one question
+
+Written up because it found three separate faults in one evening (the 16-bit
+FBA regression, the green count-band marks, and a torch that lit no walls), and
+because every wrong turn in that evening came from a probe that answered a
+DIFFERENT question than the one being asked.
+
+The pattern: a multi-stage GS pipeline (build a mask -> resolve it -> gate a
+later pass on it) fails silently, and reasoning about which stage is at fault
+is what costs the days. So make each stage VISIBLE, one build at a time, and
+make each probe answer exactly one question:
+
+1. **Is the CONSUMER gated at all?** Force the mask to its extreme - have the
+   resolve paint the "shadow" value over its whole rect. If the gated pass
+   disappears, the gate works and the fault is upstream. (Do not force the
+   ALPHA TEST instead: that changes which fragments are written, not what
+   value they write, so it proves nothing about the mask's contents.)
+2. **What does the intermediate buffer actually hold?** Drop the write mask
+   for one build (`FBMSK = 0`) so the resolve paints the buffer's texels into
+   the visible frame as COLOUR. A count buffer written with N = 32 shows up as
+   (32,32,32) - a screenshot plus a five-line histogram then tells you both
+   the VALUE and its SHAPE on screen, which is what says "the counts are
+   there, they just hug the caster".
+3. **Which inputs reached the stage?** One `TYRA_LOG` per frame-group in the
+   generated game (take ownership of `src/terrain_game.cpp` by deleting its
+   marker line first) beats any amount of reading: `recvN=2, recv[0] obj=1
+   sliceVerts=3999, recv[1] obj=4 sliceVerts=0` named a shared-budget bug in
+   one line, after two hours of theories about z-tests and page geometry.
+4. **A/B the whole feature.** Build the same scene with the feature's switch
+   off and diff the frames: "0 pixels changed" is the fastest proof that a
+   pass contributes nothing, and it needs no theory about why.
+
+Rules the same evening paid for:
+
+- **A probe that skips a pass also skips whatever that pass restores** - the
+  raster restore rides in the same packet, so the rest of the frame then draws
+  somewhere else and the result means nothing.
+- **Forcing a test to pass is not forcing a value to be written.** With
+  `TFX = DECAL` the fragment's alpha comes from the TEXEL (through `TEXA`), so
+  an all-zero texel still writes zero however permissive the test is.
+- **Instrument OUTSIDE the loop you are perturbing**, and log once every N
+  frames - a `TYRA_LOG` per frame over `host:` is network I/O that changes the
+  timing you are measuring.
+- **Revert the engine probes before anything else** when you are done: they
+  live in `vendor/tyra`, which is shared by every project on the machine, and
+  a forgotten `FBMSK = 0` looks exactly like a new rendering bug to whoever
+  builds next (it was reported back as "jakieś pojebane rzeczy się dzieją").
+
 ## Hard-won pitfalls (dead ends already explored — don't repeat them)
 
 **Rendering**
+- **One light per bag, and now one light a bag may REFUSE.** The colour
+  programs carry a single dynamic-light slot; `RendererCore::pickDynLight`
+  chooses it by score, and `PipelineInfoBag::dynLightSkipSlot` names a
+  `dynLights` index the pick must skip (the generated game's spot receiver
+  pass draws that lamp projected instead). `dynLightPick = false` still means
+  "no scene light at all", `spotLit = false` "no torch" - three different
+  levers, do not conflate them.
+- **DIMX entries are SIGNED 3-bit; keep them non-negative.** A dither
+  offset below zero makes the 16-bit blender store `v - 1` when a pass adds
+  zero to a pixel (`(v << 3 + dimx) >> 3`), so every additive quad - corona,
+  pool canvas, wall pass, particle - darkens its whole footprint by half a
+  step on a console. PCSX2 does not dither and shows nothing. Bayer >> 2
+  (0..3) since 1.70.4. When a console shows a rectangle the size of a sprite,
+  suspect the sprite before the pass that happens to share its frame.
+- **The interlaced flicker filter reads the frame's ALPHA unless told not
+  to.** ps2sdk's `graph_set_framebuffer_filtered` leaves `PMODE.MMOD = 0`:
+  the two read circuits blend by the displayed buffer's per-pixel alpha - a
+  working channel in this engine (shadow mask, HUD, shadow patches). On a
+  console that is moire and rectangles in the shapes of whatever wrote alpha
+  last; PCSX2 does not model it and no RGB capture shows it - only
+  `--capture-frame --alpha` and the television do. `presentFrameBuffer`
+  forces `MMOD = 1, ALP = 0x80` (1.70.3); keep it that way.
+- **A screen rect from projected vertices must be clamped on BOTH sides.**
+  The count rect clamped only its top-left; a vertex off the bottom of the
+  screen made a rect to row 3792, fifteen brackets a frame and FRAME.FBP slid
+  below zero for every band past the raster (1.70.5). Anything that walks a
+  rect in bands or slides a base by it: clamp to the raster first and skip
+  the empty rect.
+- **A slid FRAME.FBP is not a trick PCSX2 can vouch for.** The count band
+  addressed its lower half by pointing FRAME below its own base (into the z
+  buffer at 16-bit) so page rows landed back in the band; the arithmetic is
+  right and the console still drew marks along straight lines. Prefer a
+  full-height target whenever VRAM allows (`allocateCount` does at 16-bit);
+  treat any remaining slide as suspect on hardware until measured there.
+- **The GS dithers render-to-texture COUNTS; PCSX2 never will.** `DTHE` is
+  global GS state and the project leaves it on for the 16-bit picture. On a
+  console it also applied to the shadow-volume count band (`+N` / `-N` per
+  face, each with its own `DIMX` offset), so the pair stopped cancelling and
+  the mask came back with residues - green slivers along silhouettes and a
+  dark halo at 16-bit, a one-pixel checkerboard in the pool at 32-bit - while
+  PCSX2 drew the band exactly. Any arithmetic render target must bracket
+  itself with `DTHE = 0` (`countBegin` does; `emitRasterRestore` does NOT
+  carry DTHE, so restore it yourself). Bisect a console-only GS symptom with
+  the hidden `shadowVolumesDebug` key (1/2/3, docs/flashlight.md) and
+  `--capture-frame` - a PCSX2 screenshot cannot see this class at all.
 - **3D texture wrap is REPEAT, asserted once per frame - it used to be
   whatever the last unrelated draw left behind.** `GS_REG_CLAMP` is global GS
   state and NOTHING in the static or dynamic 3D pipeline emits it per mesh
@@ -1375,10 +1519,19 @@ banner both, so a previously built ELF still reports.
   allocated in the frame format so the blur chain never converts, while the
   film-grain noise stays PSMCT32 because it is uploaded rather than rendered),
   and the env-map / shadow-map brackets' restores. A hardcoded `GS_PSM_32`
-  there decodes a 16-bit frame as 32-bit garbage. The **z buffer stays 32-bit**
-  deliberately: 16-bit z would save as much again, but at `near` 0.1 / `far`
-  51200 its resolution collapses with distance and terrain fights baked
-  shadows. Two traps paid for here: **ps2sdk's `GS_SET_DIMX` masks each entry
+  there decodes a 16-bit frame as 32-bit garbage. The **z buffer FOLLOWS the
+  colour depth** (`RendererCoreDepth`): a colour buffer and the z it is tested
+  against must share page geometry on real hardware (64x32 pages at 32 bits,
+  64x64 at 16), so 16-bit colour runs a `PSMZ16` z with a 16-bit Z scale - and
+  pays for it in depth precision at distance (docs/gs-vram.md has the table).
+  Three traps paid for here: **ps2sdk's `draw_setup_environment` programs
+  `FBA = 1` for a 16-bit frame PSM** (disassembled from `libdraw.a`: the
+  register at `0x4A + context` gets `(psm & ~8) == 2`), which forces the MSB of
+  every written alpha to 1 and silently kills anything that reads destination
+  alpha - the flashlight's `TEST.DATE` shadow mask read SHADOW over the whole
+  raster and no DATE-gated torch pass drew; `initDrawingEnvironment` writes
+  `FBA = 0` straight after that call (the same shape as the CLAMP re-assert),
+  and `RendererCoreAlphaMask::begin()`/`maskClear()` re-assert it per frame; **ps2sdk's `GS_SET_DIMX` masks each entry
   with `0x03`** while a DIMX entry is 3-bit SIGNED (-4..3), so the negative
   half of the standard dither matrix (encoded 4..7) collapses to 0..3 and the
   dither comes out one-sided — `renderer_core_gs.cpp` packs the qword by hand;
@@ -1608,6 +1761,16 @@ banner both, so a previously built ELF still reports.
   rebuild the three artifacts in `bin/` that `src/runner.cpp` overlays into the
   build container. Change the sources and you must re-run that script and commit
   `bin/` in the same commit - nothing in the game build compiles audsrv.
+  **Except on the from-source image**, which compiles the EE half itself
+  (`docker/Dockerfile.fromsource`) because the committed `libaudsrv.a` carries
+  GCC 11.3 LTO bytecode a newer GCC refuses, and skips the Runner's overlay -
+  so a source change reaches THAT image only after the image is rebuilt. The
+  crossing is `ee/src/sif-compat.h`: upstream renamed ten EE-side SIF RPC entry
+  points to `sce`-prefixed ones and the two SDKs export disjoint sets, so the
+  header aliases them under `TYRAX_PS2SDK_SCE_SIF`, which only the image can set
+  (the compile always sees the old pinned headers - `__has_include` cannot tell
+  them apart). It is included FIRST, before any ps2sdk header, because the
+  aliases must rewrite the declarations too. See the fork's README, change 3.
   `./build.sh --check` diffs a fresh build against the committed artifacts;
   `audsrv.irx` is byte-identical while `libaudsrv.a` never is (ar stamps its
   members, gcc's LTO section names carry a random per-compilation id), so the
@@ -1705,7 +1868,22 @@ legacy compatibility mode. See docs/vu1-clipping.md.
   against the VIEW frustum — the screen edge — while VU1 cuts against the near/far
   pair and an X/Y band at `VU1_CLIP_XY_BAND` (0.9) of w. The projection divides
   by `projectionScale` 4096, so the screen edge is at `width/4096` of w — **0.125**
-  at 512 px — and the band is about SEVEN times that: a triangle may hang ~1590 px
+  at 512 px (so **any EE-side world→screen projection is `px = W/2 + x/w·2048`,
+  `py = H/2 + y/w·2048`, never `(x/w·0.5+0.5)·W` and never with a second y flip** —
+  the matrix already carries the GS's downward y in its `data[5] = -h`, which is why
+  `RendererCoreBlss::addBagSphere`, `Renderer3DUtility::convertVertices` and the
+  shadow-map STs all just ADD `2048·y/w`. **This mistake has now been made twice, so
+  suspect it wherever the EE places something from a world position**: the
+  flashlight's count-rect scissor had the NDC form and sliced every mesh shadow flat
+  at its rows until 1.65.0, and the god-rays / lens-flare sun (`updateSunFx` in the
+  generated game) had the NDC form *and* the extra flip until 1.65.1 — measured on
+  the dawn plaza of `examples/day-night`, a sun disc the 3D pipeline drew at
+  (410, 127) of a 512×512 raster was reported at (275, 272), i.e. 8× closer to the
+  screen centre and mirrored across it. Note also that a 2D SPRITE is not in that
+  space at all: `RendererCore2D` authors sprites in the stock 512×448 layout and
+  letterboxes it into the raster, so anything world-anchored drawn as a sprite must
+  subtract `(getHeight() − 448) / 2` — 0 in the stock modes, 32 in Pal576i, 46 in
+  HiDef1080i) — and the band is about SEVEN times that: a triangle may hang ~1590 px
   past either edge before anything is cut, and the GS scissor crops the raster
   (it acts during DDA, so unseen pixels cost no fill). So a package straddling the
   screen border typically crosses no VU clip plane at all, and it used to be split
@@ -1779,3 +1957,33 @@ legacy compatibility mode. See docs/vu1-clipping.md.
 
 Measure with PCSX2's FPS display on the software renderer, 3+ samples, before
 and after; pixel-compare screenshots to prove output is unchanged.
+
+
+## Signed RGB SH and exact skin reuse (1.74.0)
+
+`PipelineDirLightsBag::signedSH` defaults false. Both packet writers always
+set ambient.w to 0 (classic) or -1 (SH); output alpha is unchanged. The macro
+loads ambient.xyzw, uses w as the dot-product floor, then clamps the RGB sum
+before clipping. SH uses identity directions and signed RGB axis coefficients.
+Keep vugen.cpp, expanded shared clip C and generated as-is D/TD in sync; run
+`--vu-check`, including its RGB numeric oracle, then rebuild the PS2 engine.
+No extra packet qwords or probe bytes are used.
+
+`SkelInstance::PartLod::skinSource` points to the first corner with bit-identical
+position, normal, joints and weights. UV differences can share skinning; hard
+normals cannot. Skin the first corner and copy its output with VU0 loads/stores,
+without calling helpers that might clobber the running VU0 AABB. All render
+vertices remain, with a four-byte index per corner. The temporary hash table
+exists only during loading. Set `TYRA_SKEL_PROFILE` in skel_instance.hpp to 1
+for per-instance COP0 pose/skin timings every 100 skins; keep it 0 when shipping.
+
+
+### DMA REF lifetime (1.74.1)
+
+`packet2_utils_vu_add_unpack_data` does NOT copy: ps2sdk emits a DMA REF to
+the supplied pointer. Never pass a temporary/local array to asynchronous
+submission. SH initially did this for mode-adjusted colours, causing lighting
+flashes despite passing VU arithmetic tests. Both lighting senders now use
+CNT/UNPACK with inline colour floats (four extra packet-storage qwords; the
+same VU layout) and wait for VIF1 before resetting the reusable packet.
+Allocated capacities are 56 qwords for StaPip and 24 for DynPip.

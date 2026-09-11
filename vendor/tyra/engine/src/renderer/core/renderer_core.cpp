@@ -256,7 +256,7 @@ int RendererCore::addDynSpotLight(const Color& color,
 }
 
 const RendererCoreSpotLight* RendererCore::pickDynLight(
-    const Vec4& worldCenter, const float& worldRadius) const {
+    const Vec4& worldCenter, const float& worldRadius, int skipSlot) const {
   // Score = luminance * quadratic falloff at the sphere's NEAREST point, so
   // a big mesh near a torch competes fairly with the camera flashlight.
   const RendererCoreSpotLight* best = &spot;
@@ -265,7 +265,12 @@ const RendererCoreSpotLight* RendererCore::pickDynLight(
   const RendererCoreSpotLight* candidates[DYN_LIGHTS_MAX + 1];
   u32 count = 0;
   if (spot.enabled) candidates[count++] = &spot;
-  for (u32 i = 0; i < dynLightCount; i++) candidates[count++] = &dynLights[i];
+  for (u32 i = 0; i < dynLightCount; i++) {
+    // Modified by TyraX: the bag's named exclusion (its light is drawn
+    // projected, per pixel, by the game's shadow pass instead).
+    if ((int)i == skipSlot) continue;
+    candidates[count++] = &dynLights[i];
+  }
 
   for (u32 i = 0; i < count; i++) {
     const auto* l = candidates[i];

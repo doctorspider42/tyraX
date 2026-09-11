@@ -51,8 +51,10 @@ class KbdMouse {
    * before the game loop runs. No-op when init() was skipped/failed. */
   void update();
 
-  /** True when init() opened at least one driver (keyboard or mouse). */
-  bool isEnabled() const { return kbdOk || mouseOk; }
+  /** True when init() opened at least one driver (keyboard or mouse), or
+   * when something is FORCING the state (see setState) - every reader gates
+   * on this, so a replayed keystroke would be invisible without it. */
+  bool isEnabled() const { return kbdOk || mouseOk || forced; }
 
   /** Key currently held (USB HID usage code). */
   bool isKeyDown(const u8& usbCode) const {
@@ -66,8 +68,18 @@ class KbdMouse {
 
   const MouseState& getMouse() const { return mouse; }
 
+  /** TyraX: OVERWRITE the polled state (docs/input-replay.md), the twin of
+   * Pad::setState. `enabled` forces isEnabled() true for this frame, so a
+   * recording made on a machine with a USB keyboard replays on one without
+   * (and so a keystroke cannot be swallowed by a reader's isEnabled() gate).
+   * Call after update(), as the last stage of a frame's input. */
+  void setState(const u8 heldIn[32], const u8 clickedIn[32],
+                const MouseState& mouseIn, bool enabled);
+
  private:
   bool kbdOk, mouseOk;
+  // TyraX: setState is driving us this frame - see isEnabled().
+  bool forced;
   u8 held[32], clicked[32];  // 256-bit key bitmaps
   MouseState mouse;
   u8 prevButtons;

@@ -7,11 +7,16 @@ struct HudImageData {
   const char* path;  // relative to the game binary (res/ is copied there)
   float x, y;        // normalized screen position, center anchor
   float w, h;        // size in pixels
+  int anim;          // looped motion (hudanim::Kind), 0 = none
+  float animPeriod, animAmount;
+  int trans;         // show/hide transition (hudanim::Transition)
+  float transSec;
+  int visible;       // 1 = shown when the game starts
 };
 
 constexpr int HUD_COUNT = 0;
 inline const HudImageData HUD_IMAGES[HUD_COUNT > 0 ? HUD_COUNT : 1] = {
-    {"", 0, 0, 0, 0},
+    {"", 0, 0, 0, 0, 0, 1, 0, 0, 0, 1},
 };
 
 // Screen-stack positions of the full-screen effects (Tools > UI
@@ -51,7 +56,7 @@ inline const PromptIconSlot USE_PROMPT_ICONS[USE_PROMPT_ICON_COUNT > 0 ? USE_PRO
 };
 constexpr int PICK_PROMPT_ICON_COUNT = 1;
 inline const PromptIconSlot PICK_PROMPT_ICONS[PICK_PROMPT_ICON_COUNT > 0 ? PICK_PROMPT_ICON_COUNT : 1] = {
-    {6, 12, 2, 20},  // use
+    {6, 10, 2, 20},  // use
 };
 
 struct HudTextData {
@@ -59,11 +64,49 @@ struct HudTextData {
   float x, y;        // normalized screen position, center anchor
   int w, h;          // texture size (pow2; content centered)
   int visible;       // 1 = shown when the game starts
+  int anim;          // looped motion (hudanim::Kind), 0 = none
+  float animPeriod, animAmount;
+  int trans;         // show/hide transition (hudanim::Transition)
+  float transSec;
 };
 
 constexpr int HUD_TEXT_COUNT = 0;
 inline const HudTextData HUD_TEXTS[HUD_TEXT_COUNT > 0 ? HUD_TEXT_COUNT : 1] = {
-    {"", 0, 0, 0, 0, 0},
+    {"", 0, 0, 0, 0, 0, 0, 1, 0, 0, 0},
 };
+
+struct HudBarData {
+  int kind;              // 0 = continuous fill, 1 = quantized segments
+  float x, y;            // normalized screen position, center anchor
+  float w, h;            // total on-screen size in pixels
+  float bg[3], fill[3], ghost[3];  // tints, GS range (128 = 1.0)
+  int hasGhost;          // draw the lingering strip where the fill was
+  int rightToLeft;       // fill anchored on the right edge
+  float smoothing;       // seconds to reach a new value (0 = snap)
+  float lowFrac;         // pulse the fill below this fraction (0 = never)
+  int segments;          // quantized only
+  float spacing;         // quantized: gap between segments, px
+  int source;            // save value index, -1 = node-driven
+  float minV, maxV, startV;
+  const char* fillPath;  // fill image; "" = a tinted quad
+  const char* framePath; // frame drawn over the bar; "" = none
+  float frameW, frameH;  // the frame's own on-screen size
+  int anim;              // looped motion (hudanim::Kind), 0 = none
+  float animPeriod, animAmount;
+  int trans;             // show/hide transition (hudanim::Transition)
+  float transSec;
+  int visible;           // 1 = shown when the game starts
+};
+
+constexpr int HUD_BAR_COUNT = 0;
+inline const HudBarData HUD_BARS[HUD_BAR_COUNT > 0 ? HUD_BAR_COUNT : 1] = {
+    {0, 0, 0, 0, 0, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, 0, 0, 0, 0, 1, 0, -1, 0, 1, 0, "", "", 0, 0, 0, 1, 0, 0, 0, 1},
+};
+
+// Every HUD element in one index space (the Set HUD Element Visible /
+// Play HUD Effect nodes): images, then texts, then bars.
+constexpr int HUD_ELEM_TEXT0 = HUD_COUNT;
+constexpr int HUD_ELEM_BAR0 = HUD_COUNT + HUD_TEXT_COUNT;
+constexpr int HUD_ELEM_COUNT = HUD_COUNT + HUD_TEXT_COUNT + HUD_BAR_COUNT;
 
 }  // namespace Vehicle_playground

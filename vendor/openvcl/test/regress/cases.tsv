@@ -1,0 +1,90 @@
+# name	kind	arg	bug	rationale
+# kind COUNT: arg is mnemonic:minimum - the emitted output must still contain at
+#             least that many.  This is what a deleted instruction looks like,
+#             and it is the check that would have caught the two most expensive
+#             bugs on the day they landed.
+# kind ORDER: p8-flagorder replays the CLIP shift register and the ACC chains and
+#             asserts every reader observes the writers the source gives it.
+# kind PATH:  pb-dag asserts the same, path-sensitively with bounded loop
+#             unrolling. Separate kind because the straight-line oracle cannot
+#             see a loop-carried or branch-conditional defect at all.
+# kind VALUE: pa-dag asserts the expression stored at each sq/isw is the one the
+#             source computes, register naming abstracted away.
+# kind COND:  pd-cond asserts the expression a conditional branch TESTS matches
+#             the source. The other kinds compare STORED values, so a value whose
+#             only reader is a branch condition was never compared at all.
+# kind MAXCOUNT: arg is mnemonic:maximum - the emitted output must contain at
+#             MOST that many. The only kind here that can fail on an emitter
+#             which got MORE conservative; every value oracle is satisfied by
+#             one that waits for everything.
+# kind BRGAP: pz-brgap asserts that no conditional branch executes within one row
+#             of an integer producer of its condition ALONG ANY PATH. Not a value
+#             question: the defect it exists for changes when a register is
+#             readable and not what anything computes, and both value oracles
+#             passed the engine's whole corpus on a build that had it.
+# kind TIME:  arg is a bound in SECONDS - the compile must FINISH inside it.
+#             The only kind about the compiler rather than its output. A build
+#             that loops forever on one control-flow shape hangs a project
+#             build instead of failing it, and no other kind here can see that
+#             at all: they all begin by waiting for a .vsm.
+# kind XFAIL: known-unjudgeable - recorded so nobody re-derives why, never failed on.
+# arg `no:--flag`: compile THIS case with the standard list minus that one flag.
+#             Some defects live only in a flag's OFF path, and a suite that can
+#             only compile one configuration cannot assert those at all.
+#
+clip_liveout	COUNT	clipw:3	CLIP shift register	a later clipw shifts the earlier one up an entry, it does not kill it; --drop-dead-writes deleted 4 of 7 per clip program and the "entirely inside" fast path stopped firing
+clip_reorder	ORDER	-	CLIP writer order	with the four clipw restored, nothing ordered two writers of one flag and the scheduler transposed them, putting the 0xF/0xA masks on the wrong judgements
+clip_liveout_order	ORDER	-	declared live-out	out_hw_clip was honoured by the dead-write pass and ignored by the scheduler's dead-resource mask, so it could permute clipw the pass had kept
+clip_second_reader	ORDER	-	reader flush	the dependency pass cleared its pending-writer list at a reader, so the SECOND reader of a chain got no edge and could be hoisted above its writers
+clip_full_window_not_landed	ORDER	-	full-window padding	padForClipFlagWindow exempted wide masks, so a fcand 0x3FFFF issued one row after its clipw and judged the PREVIOUS primitive
+acc_fields	COUNT	mula:2	ACC field mask	ACC is per field and the resource was one bit, so add.xy acc followed by add.z acc lost the first; this deleted the environment-map seed and env mapping stopped rendering
+acc_fields_covered	VALUE	-	ACC field mask (control)	a genuinely covering write must STILL kill - without this control the case above is satisfied by a compiler that stopped eliminating dead code at all
+acc_second_reader	ORDER	-	reader flush	the ACC half of the same flush bug
+acc_second_reader_upstream	ORDER	-	reader flush (upstream)	the same, reduced to fire on stock upstream openvcl with no flags
+r_rnext	COUNT	rnext:1	R is read-modify-write	RNEXT advances the LFSR then copies it out; declared a pure read, an rnext whose destination is dead was deleted and a step silently dropped
+r_rxor	COUNT	rxor:2	R is read-modify-write	RXOR folds a source field into the current R; declared a pure write, rinit and the first rxor were both deleted
+r_order	ORDER	-	R is read-modify-write	with neither declared a writer there is no edge at all between an rnext and a following rget, so the read is hoisted above the advance - fires on stock upstream
+status_sticky	ORDER	-	status not modelled	fsand was scheduled before the mul.x whose flags it reads, and --drop-dead-writes deleted that mul.x outright
+status_accumulate	ORDER	-	status accumulates	the sticky bits OR together until fsset clears them, so every contributor since the last clear must reach every reader
+status_fsset_barrier	ORDER	-	fsset is a barrier	declaring FSSET read-and-write makes it a hard barrier under the RAW/WAR tests that already exist, with no test needing to learn what a clear is
+status_lastwriter	ORDER	-	status non-sticky half	a mask naming a non-sticky bit pins the last contributor; one naming only sticky bits pins nothing
+status_lastwriter_hoist	ORDER	-	status non-sticky half	the hoist that the pinning above prevents
+lfc3	VALUE	-	loop-carried liveness	a value carried across a back edge kept a range ending at its last use inside the body; broken on stock upstream, fixed by --loop-liveness-always
+lfc4	VALUE	-	loop-carried liveness (control)	the same shape without a branch must be correct everywhere - if this ever fails the fix has broken the straight-line case
+clip_loop_window	PATH	-	CLIP liveness across a back edge	"last CLIP reader" was a POSITION in the token list, so two clipw in a loop's last block sat past it and read as dead; the writer chain was dropped and --fmac-interlock issued the ready one first, handing the next iteration's fceq a window with two entries transposed
+clip_loop_window_ok	PATH	-	CLIP liveness across a back edge (control)	the same loop with the reader AFTER both writers, which was already correct - if this ever fails the back-edge extension has started ordering clipw that nothing reads
+predec_addressing	COND	-	pre-decrement emitted as post-increment	the parser tagged a PREDEC argument with the POSTINC flag, so Argument::PREDEC was never set on anything, the emitter's `--` branch was dead and every lqd/sqd came out as `(VIxx++)` - which dvp-as rejects, so no source using pre-decrement addressing could be built at all
+postinc_addressing	COND	-	pre-decrement emitted as post-increment (control)	the post-increment half of the same operand path, which was always right - the fix must not swap the two flags over
+q_branch_gap	PATH	-	Q latency measured down the file	blocks are clocked in file order and the latency tracker is carried along it, so the distance from a div to a mulq at a LABEL was counted down the file - twelve rows - while the taken edge of the branch above it leaves six cycles; Q has no hardware interlock and the mulq read the previous quotient
+q_branch_gap_ok	MAXCOUNT	waitq:0	Q latency measured down the file (control)	the same labelled Q reader entered by a forward branch with no edge that shortens the distance - a fix that pads at every branch target instead of measuring the shortest path puts a waitq here and passes every value oracle in this file
+old_alias_int	COUNT	iaddiu:4	old-syntax alias fields	in .syntax old the trailing xyzw of an ALIAS was stripped before anyone asked whether the argument can carry a field, and the whole argument was then rejected when it could not - so an integer alias ending in x, y, z or w was "Invalid argument" unless its last three letters were one of five hardcoded English trigrams. Sony's vcl compiles all of them
+old_alias_int_ok	COUNT	iaddiu:2	old-syntax alias fields (control)	ps2gl's indexed.vcl names its integer aliases next_index and last_index, which is what the trigram list existed for - they compiled before and must still compile, or the fix has only swapped which spellings work
+old_alias_field	COUNT	lq.x:1	old-syntax alias fields (silent half)	a FLOAT alias called `vertex` in a :dest position IS `verte` field x to Sony's vcl; the trigram list made openvcl read the name whole and emit a full-quadword lq, so the same source became a different program with no diagnostic. COUNT and not VALUE on purpose: the value oracles parse the source themselves and have no old-syntax mode, so they read `vertex` whole and report this case however it is compiled
+loop_pressure_carry	PATH	no:--loop-liveness-always	loop-carried extension abandoned wholesale	extendLoopDirectiveRange gave up on the whole loop when the aliases OVERLAPPING it outnumbered the register file - counting the body's temporaries, which it never extends, and then dropping the extension for the carried name, which it does. The value written at the bottom of the body got a temporary's register and every iteration after the first read what the temporary left. This case is also its own conservatism control: run.sh fails a case that does not compile, and a fix that answered it by extending EVERY name in the body would run this thirty-four-temporary loop out of registers instead
+loop_pressure_carry_ok	PATH	no:--loop-liveness-always	loop-carried extension abandoned wholesale (control)	the same loop with two temporaries instead of thirty-four, under the register file and never reaching the guard - correct before the fix and after it, so a change that breaks the ordinary carried-value path shows up here rather than in the case above
+# --- known-unjudgeable, recorded rather than asserted ---
+mac_latency	XFAIL	-	no MAC oracle	neither assembler preserves MAC-flag provenance: SCE inserts filler FMACs above an fmand and deletes dead ones, so there is no valid cross-assembler comparison. Zero MAC readers exist in the engine corpus
+efu_pair	XFAIL	-	EFU completion timing	Sony places NOP rows so an mfp lands between two eleng completions; judging that needs a cycle model, and guessing at one is the mistake this effort has already made twice
+fcset_hoist	XFAIL	-	SCE defect	Sony's vcl reorders CLIP readers around a SECOND fcset; openvcl is correct here. Not live - every engine source has exactly one fcset, at the top
+fcset_hoist2	XFAIL	-	SCE defect	the reduced form of the same
+lfc2	PATH	-	partial-write live-in	a loop-carried name whose first in-loop access is a PARTIAL write lost the fields that write did not cover, because live-in was classified per alias by first touch rather than per field
+delayslot_live	PATH	-	delay slot from the not-taken block	writesAreDeadFromTarget walked the token list LINEARLY from the branch target, so a backward branch re-entered rows it never visited; the filler then executed unconditionally
+loop_field_carry	PATH	-	partial-write live-in	second shape of lfc2
+delayslot_dead	PATH	-	delay slot (control)	the pointer IS re-initialised at the loop top, so the fill really is legal - if this ever fails the fix has become too conservative and is costing delay slots
+lfc5	PATH	-	partial-write live-in (control)	first in-loop access is a CONDITIONAL FULL write, already correct because the branch-state join merges the aliases; the fix must not touch it
+clip_pathgap_pz700396	ORDER	-	CLIP window across paths	the emitter padded against the file layout, so a reader four rows below its push was one row below it along a taken branch
+clip_pathgap_ok	ORDER	-	CLIP window across paths (control)	same labelled reader entered by a branch with no path that shortens it - must stay byte-identical, or the pass is padding blind
+cond_clipflag_clobber	COND	-	clip judgement clobbered	VI01 is the only legal destination of fcand/fcor/fceq, so a clip judgement must be read back out of it; the allocator placed a dead ilw in VI01 between the fcor and the ibne that reads it, and the branch tested the load
+cond_clipflag_live	COND	-	clip judgement clobbered (control)	the same shape with the loaded value LIVE, which openvcl already allocates elsewhere - if this ever fails the fix has become a blanket ban on touching VI01
+cond_loop_counter	COND	-	loop-carried integer counter	the in-loop decrement was allocated to a different register from its live-in with no copy on the back edge, so the counter recomputed initial-1 every iteration; fires on stock upstream with no flags
+cond_loop_counter_ok	COND	-	loop-carried integer counter (control)	the same loop with the decrement at the same join, which openvcl carries correctly - the fix must not cost a register on every counted loop
+loop_chain_ring	TIME	60	same-name chain became a ring	--loop-liveness-always extends a live range once per BACK EDGE, and two back edges need not nest; each loop picks the first alias of a name in ITS OWN range as the one the readers hold, so loop A ties X to Y and loop B ties Y back to X. processAliases then walked that ring for an ancestor and never stopped - 216 lines of generated VU hung for 66 minutes and was never seen to finish
+loop_chain_ring_carry	COND	-	same-name chain became a ring (control)	the same interleaved loops with the counters decremented, which compiled all along: the carried write must STILL be tied to the alias its readers hold. Refusing the closing edge is the fix; refusing every edge would also terminate, and would put the decrement in a register the test at the top never reads
+q_interlock_words	COND	-	Q latency paid in cycles that became no words	under --fmac-interlock a wait on the FMAC pipeline is kept in the cycle model and emitted as no instruction word, because the hardware stalls by itself - but FDIV has no interlock, and only a word carries the program from one cycle to the next. Three words below an rsqrt the model believed fourteen cycles had passed, chose NOP padding over waitq, and the mulq read the previous quotient
+q_interlock_words_ok	MAXCOUNT	waitq:0	Q latency paid in cycles that became no words (control)	the same rsqrt with eighteen WORDS between it and its reader, which needs no wait at all - a fix that stops trusting the interlock by padding every Q reader puts a waitq here and passes every value oracle in this file
+q_backedge_stale	PATH	-	Q producer BELOW its consumer, across a back edge	the consumer is the first row of the loop and the rsqrt that feeds it is two rows below, so on every iteration after the first the gap is four words where thirteen cycles are needed. The linear tracker has not seen that producer when it schedules the consumer; it was reported as coming out right by accident, because a division ABOVE the loop left qReadyCycle in the future - put enough work between that division and the loop and the accident stops happening. Control: q_interlock_words_ok, which asserts a Q reader far enough below in WORDS still gets no waitq
+init_after_code	VALUE	-	.init_vf after the code (compat)	both assemblers accept a .init_vf/.init_vi placed AFTER the code it initialises, and openvcl was reported as rejecting it - that report was a malformed test program (an xyz write read back as xyzw), not a defect. This case is here so the claim cannot be re-derived: it must keep compiling AND storing the value the source computes
+qstage_bail	PATH	no:--loop-liveness-always	multi-Q staging guard is dead weight	extendMultiQStageRange counts every float alias OVERLAPPING the loop against the allocatable pool while extending only the Q-stage aliases - the same over-counted guard that cost extendLoopDirectiveRange a carried range. It cannot cost one here, and the reason is structural rather than lucky: extendLoopDirectiveLiveRanges runs the line BEFORE and extends every read-first alias unconditionally, so a name live across the back edge already has its range when this guard bails. Judged with the flag REMOVED, which is the only configuration where the guard fires at all
+qstage_bail_ok	PATH	no:--loop-liveness-always	multi-Q staging guard is dead weight (control)	the same two Q stages with two temporaries instead of twelve, so the count stays under the pool and the guard never fires - if this ever diverges the multi-Q extension itself is wrong, not its guard
+branch_backedge_cond	BRGAP	-	branch condition across a back edge	--branch-bubble-on-dependency asks whether the row above the branch produces its condition in FILE order; a branch that is a loop head also has the back edge's DELAY SLOT as a predecessor, and --emit-delay-fillers puts the mask shift there, so #218's clip programs tested the previous frustum plane's bit every iteration after the first
+branch_backedge_cond_ok	MAXCOUNT	nop:25	no blind loop-head padding	the control for the case above: same delay-slot integer op and same loop-head branch, testing a register the loop never writes, so nothing is owed - an emitter that pads every loop head passes the reproducer and fails here

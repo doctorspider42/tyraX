@@ -128,6 +128,11 @@ Source: "{#EditorExe}"; DestDir: "{app}\bin"; Components: editor; Flags: ignorev
 Source: "{#SourceDir}\vendor\tyra\*"; DestDir: "{app}\vendor\tyra"; Components: editor; \
     Flags: ignoreversion recursesubdirs createallsubdirs; \
     Excludes: "\.git\*,\engine\obj\*,\engine\bin\*,\audsrv\.work\*"
+; Reviewed, redistributable host-side VU tools used by the native backend.
+Source: "{#SourceDir}\vendor\openvcl\*"; DestDir: "{app}\vendor\openvcl"; Components: editor; \
+    Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "\.git\*,\build\*,\openvcl"
+Source: "{#SourceDir}\vendor\vclpp\*"; DestDir: "{app}\vendor\vclpp"; Components: editor; \
+    Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "\.git\*,\vclpp"
 ; ps2client.exe (network deploy), the ps2link build scripts and the VS Code
 ; extension package the editor installs on request.
 Source: "{#SourceDir}\tools\*"; DestDir: "{app}\tools"; Components: editor; \

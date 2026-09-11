@@ -1,4 +1,5 @@
 #include "project.hpp"
+#include "hudanim.hpp"
 #include "vugen.hpp"  // vugen::classTitle - VU material-class labels
 
 #include <algorithm>
@@ -50,6 +51,7 @@ const char* primitiveTypeName(PrimitiveType t) {
         case PrimitiveType::Road: return "road";
         case PrimitiveType::Scroller: return "scroller";
         case PrimitiveType::Vehicle: return "vehicle";
+        case PrimitiveType::Comment: return "comment";
     }
     return "box";
 }
@@ -76,6 +78,7 @@ static PrimitiveType primitiveTypeFromName(const std::string& s) {
     if (s == "scatter") return PrimitiveType::Scatter;
     if (s == "scroller") return PrimitiveType::Scroller;
     if (s == "vehicle") return PrimitiveType::Vehicle;
+    if (s == "comment") return PrimitiveType::Comment;
     return PrimitiveType::Box;
 }
 
@@ -203,11 +206,28 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
         lowWords = pageUp(halfDepth ? (lowPixels + 1) / 2 : lowPixels);
     }
 
+    // The flashlight shadow volumes' COUNT target (docs/flashlight.md "The
+    // shadow"): a raster-sized PSMCT16 buffer the generated init() claims
+    // right after the shadow-map slots whenever the technique is on and a
+    // scene has a flashlight. Allocated after the engine's own headroom
+    // check, like the upscaler's low-res target - so this twin subtracts it
+    // by hand too. Approximated as "any flashlight in the project" rather
+    // than re-deriving codegen's FLASHLIGHT_USED predicate: erring toward
+    // two buffers is the safe direction (the engine's own refusal is
+    // graceful either way - the volumes fall back to sub-boxes).
+    // ONE band serves both: the torch and the frame's active spot light count
+    // into the same buffer, so a project with both on allocates it once and
+    // this must not charge it twice.
+    int countWords = 0;
+    if (s.flashShadowVolumes || s.spotShadowVolumes)
+        countWords = pageUp((w * h + 1) / 2);
+
     TripleBufferFit f;
     f.bufferWords = bufferWords;
     f.needWords = kNeed;
-    f.leftWords =
-        kVramWords - (2 * bufferWords + zWords + lowWords) - bufferWords;
+    f.leftWords = kVramWords -
+                  (2 * bufferWords + zWords + lowWords + countWords) -
+                  bufferWords;
     f.fits = f.leftWords >= kNeed;
     f.mode = d.key;
     return f;
@@ -215,6 +235,41 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
 
 TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s) {
     return tripleBufferingFit(p, s, bootDisplayMode(s));
+}
+
+// The texture heap, from the same numbers. tripleBufferingFit already knows
+// what the renderer's permanent region costs - this asks what is LEFT when the
+// project keeps its usual two display buffers, which is the number an author
+// needs when the game starts thrashing textures.
+TextureHeapEstimate textureHeapEstimate(const Project& p,
+                                        const ProjectSettings& s) {
+    TextureHeapEstimate e;
+    // leftWords in the fit is "after taking a THIRD buffer", so add one back:
+    // this project is not asking for one.
+    const TripleBufferFit on = tripleBufferingFit(p, s, bootDisplayMode(s));
+    ProjectSettings off = s;
+    // Both users of the band go off together - countBandKb is the cost of the
+    // BAND, and clearing only one of them would report 0 for a project that
+    // has the other on.
+    off.flashShadowVolumes = false;
+    off.spotShadowVolumes = false;
+    const TripleBufferFit noVol = tripleBufferingFit(p, off, bootDisplayMode(s));
+    // What the fit reserves for post fx, the optional targets and the shadow
+    // slots is real and not available to textures either; leftWords already
+    // has it in, so subtract the same reserve the engine checks against
+    // (kNeed's texture floor is what we are reporting, so only the renderer
+    // half comes off).
+    constexpr int kRendererReserveWords = 98304;  // == kThirdBufferReserveWords
+    auto toKb = [](long long words) {
+        return (int)(words * 4 / 1024);
+    };
+    e.freeKb = toKb((long long)on.leftWords + on.bufferWords -
+                    kRendererReserveWords);
+    e.withoutKb = toKb((long long)noVol.leftWords + noVol.bufferWords -
+                       kRendererReserveWords);
+    e.countBandKb = e.withoutKb - e.freeKb;
+    if (e.freeKb < 0) e.freeKb = 0;
+    return e;
 }
 
 TripleBufferModes tripleBufferingModes(const Project& p,
@@ -710,11 +765,23 @@ std::string objectJson(const SceneObject& o) {
              : ", \"prelitSource\": \"" + jsonEscape(o.prelitSource) + "\"") +
         // projected (live) silhouette shadow; default (false) stays implicit
         (o.projShadow ? std::string(", \"projShadow\": true") : "") +
+        // per-object dynamic shadow choice; 0 = follow the project, and that
+        // is what every file written before this key meant, so it stays out
+        (o.shadowMode != 0
+             ? ", \"shadowMode\": " + std::to_string(o.shadowMode)
+             : "") +
         (o.modelPath.empty() ? "" : ", \"model\": \"" + jsonEscape(o.modelPath) + "\"") +
         (o.materialPath.empty() ? ""
                                 : ", \"material\": \"" + jsonEscape(o.materialPath) + "\"") +
         // decal projection: off (flat quad) stays implicit
-        (o.decalProject ? ", \"decalProject\": true" : "");
+        (o.decalProject ? ", \"decalProject\": true" : "") +
+        // The note on a Comment object (docs/comments.md). Written only when
+        // it says something, so every object that is not one resaves byte for
+        // byte. jsonEscape already escapes the newlines a paragraph is made
+        // of, which is the whole reason a long note round-trips.
+        (o.commentText.empty()
+             ? ""
+             : ", \"comment\": \"" + jsonEscape(o.commentText) + "\"");
     if (o.type == PrimitiveType::Player) {
         const char* modeName = o.playerMode == 1   ? "noclip"
                                : o.playerMode == 2 ? "thirdperson"
@@ -777,6 +844,14 @@ std::string objectJson(const SceneObject& o) {
                      ? ""
                      : ", \"texture\": \"" + jsonEscape(o.flashlightTexture) +
                            "\"") +
+                // Written only when the torch is off the view axis, so every
+                // project that never touched it resaves byte for byte.
+                (o.flashlightOffsetRight == 0.0f && o.flashlightOffsetDown == 0.0f
+                     ? ""
+                     : ", \"offsetRight\": " +
+                           fmtFloat(o.flashlightOffsetRight) +
+                           ", \"offsetDown\": " +
+                           fmtFloat(o.flashlightOffsetDown)) +
                 " }" + " }";
     }
     if (o.type == PrimitiveType::Emitter) {
@@ -828,6 +903,13 @@ std::string objectJson(const SceneObject& o) {
                 (o.lightSpot ? ", \"spot\": true, \"spotAngle\": " +
                                    fmtFloat(o.lightSpotAngle)
                              : std::string()) +
+                // Per-light shadow-volume override, written only when it is
+                // not "follow the project" - so a project that never touches
+                // the setting resaves byte for byte (the shadowMode idiom).
+                (o.lightShadowVolumes != 0
+                     ? ", \"shadowVolumes\": " +
+                           std::to_string(o.lightShadowVolumes)
+                     : std::string()) +
                 ", \"beam\": " + std::to_string(o.lightBeam) + " }";
     }
     if (o.type == PrimitiveType::Camera) {
@@ -931,6 +1013,12 @@ std::string objectJson(const SceneObject& o) {
         json += ", \"animLod\": " + fmtFloat(o.animLodOverride);
     if (o.meshLodOverride >= 0.0f)
         json += ", \"meshLod\": " + fmtFloat(o.meshLodOverride);
+    if (!o.impostorPath.empty()) {
+        json += ", \"impostor\": \"" + jsonEscape(o.impostorPath) + "\"";
+        json += ", \"impostorDistance\": " + fmtFloat(o.impostorDistance);
+        json += ", \"impostorBillboard\": " + std::string(o.impostorBillboard ? "true" : "false");
+        json += ", \"impostorViews\": " + std::to_string(o.impostorViews);
+    }
     if (o.modelYawOffset != 0.0f)
         json += ", \"modelYaw\": " + fmtFloat(o.modelYawOffset);
     if (!o.scripts.empty()) {
@@ -1539,6 +1627,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << (p.settings.timeMachine ? "true" : "false") << ",\n"
          << "    \"remotePad\": " << (p.settings.remotePad ? "true" : "false")
          << ",\n"
+         << "    \"inputRecorder\": "
+         << (p.settings.inputRecorder ? "true" : "false") << ",\n"
          << "    \"keyboardMouse\": "
          << (p.settings.keyboardMouse ? "true" : "false") << ",\n"
          << "    \"keyboardMousePs2Link\": "
@@ -1570,6 +1660,13 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << fmtFloat(p.settings.terrainLodDistance) << ",\n"
          << (p.settings.flashShadowVolumes
                  ? "    \"flashShadowVolumes\": true,\n"
+                 : "")
+         << (p.settings.shadowVolumesDebug
+                 ? "    \"shadowVolumesDebug\": " +
+                       std::to_string(p.settings.shadowVolumesDebug) + ",\n"
+                 : "")
+         << (p.settings.spotShadowVolumes
+                 ? "    \"spotShadowVolumes\": true,\n"
                  : "")
          << "    \"skyColor\": " << fmtVec3(p.settings.skyColor) << ",\n"
          << "    \"skyTopColor\": " << fmtVec3(p.settings.skyTopColor) << ",\n"
@@ -1651,6 +1748,10 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"godRays\": " << fmtFloat(p.settings.godRays) << ",\n"
          << "    \"blobShadows\": " << (p.settings.blobShadows ? "true" : "false")
          << ",\n"
+         << (p.settings.projShadowDistance != 50.0f
+                 ? "    \"projShadowDistance\": " +
+                       fmtFloat(p.settings.projShadowDistance) + ",\n"
+                 : "")
          // The neural upscaler (docs/neural-upscaler.md). Project-wide, always
          // emitted like the fog/highlight groups next to it.
          << "    \"blssEnabled\": " << (p.settings.blssEnabled ? "true" : "false")
@@ -1731,6 +1832,65 @@ static void writeScenesTable(std::ostream& json, const Project& p) {
 
 // Fonts ride in the Hud section (HUD text + menus reference them), so they
 // travel over the collaboration wire as part of that section's blob.
+// The motion fields of a HUD element, emitted ONLY when they differ from the
+// defaults: a project written before they existed resaves byte for byte, and
+// an image with no animation carries no `anim` key at all.
+static void writeHudMotion(std::ostream& json, const HudAnim& a,
+                           const HudTransition& t) {
+    if (a.kind != 0)
+        json << ", \"anim\": { \"kind\": " << a.kind << ", \"period\": "
+             << fmtFloat(a.period) << ", \"amount\": " << fmtFloat(a.amount)
+             << " }";
+    if (t.kind != 0)
+        json << ", \"transition\": { \"kind\": " << t.kind << ", \"duration\": "
+             << fmtFloat(t.duration) << " }";
+}
+
+static void readHudMotion(const json::Value& jh, HudAnim& a, HudTransition& t) {
+    if (const auto* ja = jh.find("anim"); ja && ja->type == json::Value::Type::Object) {
+        if (const auto* v = ja->find("kind")) a.kind = (int)v->numberOr(0);
+        if (const auto* v = ja->find("period")) a.period = (float)v->numberOr(1.0);
+        if (const auto* v = ja->find("amount")) a.amount = (float)v->numberOr(4.0);
+        if (a.kind < 0 || a.kind >= hudanim::KindCount) a.kind = 0;
+        if (a.period < 0.01f) a.period = 0.01f;
+    }
+    if (const auto* jt = jh.find("transition");
+        jt && jt->type == json::Value::Type::Object) {
+        if (const auto* v = jt->find("kind")) t.kind = (int)v->numberOr(0);
+        if (const auto* v = jt->find("duration"))
+            t.duration = (float)v->numberOr(0.25);
+        if (t.kind < 0 || t.kind >= hudanim::TransitionCount) t.kind = 0;
+        if (t.duration < 0.0f) t.duration = 0.0f;
+    }
+}
+
+// One optional bar image (fill / frame): the same bake fields a HUD image has,
+// minus the placement the bar decides.
+static void writeBarImage(std::ostream& json, const char* key, const HudImage& h) {
+    if (h.imagePath.empty()) return;
+    json << ", \"" << key << "\": { \"image\": \"" << jsonEscape(h.imagePath)
+         << "\", \"size\": [" << fmtFloat(h.size[0]) << ", " << fmtFloat(h.size[1])
+         << "], \"texW\": " << h.texW << ", \"texH\": " << h.texH
+         << ", \"texQuant\": \"" << h.texQuant << "\" }";
+}
+
+static void readBarImage(const json::Value& jb, const char* key, HudImage& h) {
+    const auto* jh = jb.find(key);
+    if (!jh || jh->type != json::Value::Type::Object) return;
+    if (const auto* v = jh->find("image")) h.imagePath = v->stringOr("");
+    if (const auto* v = jh->find("size");
+        v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+        h.size[0] = (float)v->arr[0].numberOr(64);
+        h.size[1] = (float)v->arr[1].numberOr(64);
+    }
+    if (const auto* v = jh->find("texW")) h.texW = (int)v->numberOr(0);
+    if (const auto* v = jh->find("texH")) h.texH = (int)v->numberOr(0);
+    if (const auto* v = jh->find("texQuant")) {
+        const std::string q = v->stringOr("");
+        h.texQuant = (q == "none" || q == "8bit" || q == "4bit") ? q : "";
+    }
+}
+
 static void writeHudSection(std::ostream& json, const Project& p) {
     json << "\"fonts\": [";
     for (size_t i = 0; i < p.fonts.size(); ++i) {
@@ -1749,7 +1909,10 @@ static void writeHudSection(std::ostream& json, const Project& p) {
              << h.imagePath << "\", \"pos\": [" << fmtFloat(h.pos[0]) << ", "
              << fmtFloat(h.pos[1]) << "], \"size\": [" << fmtFloat(h.size[0]) << ", "
              << fmtFloat(h.size[1]) << "], \"texW\": " << h.texW << ", \"texH\": "
-             << h.texH << ", \"texQuant\": \"" << h.texQuant << "\" }";
+             << h.texH << ", \"texQuant\": \"" << h.texQuant << "\"";
+        writeHudMotion(json, h.anim, h.transition);
+        if (!h.visibleAtStart) json << ", \"visibleAtStart\": false";
+        json << " }";
     }
     json << (p.hud.empty() ? "]" : "\n  ]");
     // The USE prompt HUD element (non-deletable; imagePath "" = built-in).
@@ -1788,10 +1951,41 @@ static void writeHudSection(std::ostream& json, const Project& p) {
              << t.size << ", \"color\": " << fmtVec3(t.color)
              << (t.font.empty() ? "" : ", \"font\": \"" + jsonEscape(t.font) + "\"")
              << ", \"shadow\": " << (t.shadow ? "true" : "false")
-             << ", \"visibleAtStart\": " << (t.visibleAtStart ? "true" : "false")
-             << " }";
+             << ", \"visibleAtStart\": " << (t.visibleAtStart ? "true" : "false");
+        writeHudMotion(json, t.anim, t.transition);
+        json << " }";
     }
     json << (p.hudTexts.empty() ? "]" : "\n  ]");
+    // Live bars (docs/hud-animation.md). The whole array is omitted while
+    // there are none, so a project without bars keeps its old shape.
+    if (!p.hudBars.empty()) {
+        json << ",\n  \"hudBars\": [";
+        for (size_t i = 0; i < p.hudBars.size(); ++i) {
+            const HudBar& b = p.hudBars[i];
+            json << (i ? ",\n    " : "\n    ") << "{ \"name\": \""
+                 << jsonEscape(b.name) << "\", \"kind\": " << b.kind
+                 << ", \"pos\": [" << fmtFloat(b.pos[0]) << ", "
+                 << fmtFloat(b.pos[1]) << "], \"size\": [" << fmtFloat(b.size[0])
+                 << ", " << fmtFloat(b.size[1]) << "], \"bgColor\": "
+                 << fmtVec3(b.bgColor) << ", \"fillColor\": "
+                 << fmtVec3(b.fillColor) << ", \"ghostColor\": "
+                 << fmtVec3(b.ghostColor) << ", \"ghost\": "
+                 << (b.ghost ? "true" : "false") << ", \"rightToLeft\": "
+                 << (b.rightToLeft ? "true" : "false") << ", \"smoothing\": "
+                 << fmtFloat(b.smoothing) << ", \"lowFraction\": "
+                 << fmtFloat(b.lowFraction) << ", \"segments\": " << b.segments
+                 << ", \"spacing\": " << fmtFloat(b.spacing) << ", \"source\": \""
+                 << jsonEscape(b.source) << "\", \"min\": " << fmtFloat(b.minValue)
+                 << ", \"max\": " << fmtFloat(b.maxValue) << ", \"start\": "
+                 << fmtFloat(b.startValue);
+            writeBarImage(json, "fillImage", b.fillImage);
+            writeBarImage(json, "frameImage", b.frameImage);
+            writeHudMotion(json, b.anim, b.transition);
+            if (!b.visibleAtStart) json << ", \"visibleAtStart\": false";
+            json << " }";
+        }
+        json << "\n  ]";
+    }
     // Inline text icons ({{name}} in any text). Emitted even at their seeded
     // defaults: the set is what a project's texts reference by name, and a
     // dropped key would silently change what {{cross}} resolves to.
@@ -1853,6 +2047,37 @@ static void writeTexQualitySection(std::ostream& json, const Project& p) {
     for (const auto& [asset, q] : p.textureQuality) {
         json << (first ? " " : ", ") << "\"" << jsonEscape(asset) << "\": \"" << q
              << "\"";
+        first = false;
+    }
+    json << " }";
+}
+
+// Per-texture atlas control: keep-out and author-declared groups
+// (docs/texture-atlasing.md). Conditional like every per-asset map - a
+// project that never touched it writes no key.
+static void writeAtlasSection(std::ostream& json, const Project& p) {
+    bool any = false;
+    for (const auto& [tex, c] : p.atlasControl)
+        any |= c.keepOut || !c.group.empty() || c.pageBits != 0;
+    if (!any) return;
+    json << "\"atlasControl\": {";
+    bool first = true;
+    for (const auto& [tex, c] : p.atlasControl) {
+        if (!c.keepOut && c.group.empty() && c.pageBits == 0) continue;
+        json << (first ? " " : ", ") << "\"" << jsonEscape(tex) << "\": {";
+        bool inner = false;
+        if (c.keepOut) {
+            json << " \"keepOut\": true";
+            inner = true;
+        }
+        if (!c.group.empty()) {
+            json << (inner ? ", " : " ") << "\"group\": \""
+                 << jsonEscape(c.group) << "\"";
+            inner = true;
+        }
+        if (c.pageBits != 0)
+            json << (inner ? ", " : " ") << "\"pageBits\": " << c.pageBits;
+        json << " }";
         first = false;
     }
     json << " }";
@@ -3257,6 +3482,7 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::TexQuality: writeTexQualitySection(ss, p); break;
         case Section::ModelLods: writeModelLodsSection(ss, p); break;
         case Section::ModelAo: writeModelAoSection(ss, p); break;
+        case Section::Atlas: writeAtlasSection(ss, p); break;
         case Section::SaveData: writeSaveDataSection(ss, p); break;
         case Section::Gradings: writeGradingsSection(ss, p); break;
         case Section::Ambience: writeAmbienceSection(ss, p); break;
@@ -3304,6 +3530,7 @@ const char* sectionName(Section s) {
         case Section::VuPrograms: return "vu";
         case Section::Facts: return "facts";
         case Section::BlssShots: return "blssShots";
+        case Section::Atlas: return "atlas";
         case Section::Count: break;  // not a section
     }
     return "unknown";
@@ -4822,7 +5049,19 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         if (const auto* v = jo.find("prelitSource"))
             o.prelitSource = v->stringOr("");
         if (const auto* v = jo.find("projShadow")) o.projShadow = v->boolOr(false);
+        if (const auto* v = jo.find("shadowMode")) {
+            const int m = (int)v->numberOr(0);
+            if (m >= 0 && m <= 3) o.shadowMode = m;
+        }
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
+        if (const auto* v = jo.find("impostor")) o.impostorPath = v->stringOr("");
+        if (const auto* v = jo.find("impostorBillboard")) o.impostorBillboard = v->boolOr(false);
+        if (const auto* v = jo.find("impostorViews")) {
+            const int count = (int)v->numberOr(8);
+            o.impostorViews = (count == 4 || count == 16) ? count : 8;
+        }
+        if (const auto* v = jo.find("impostorDistance"))
+            o.impostorDistance = std::max(0.0f, (float)v->numberOr(0));
         if (const auto* v = jo.find("material")) o.materialPath = v->stringOr("");
         if (const auto* v = jo.find("decalProject")) o.decalProject = v->boolOr(false);
         if (const auto* pl = jo.find("player")) {
@@ -4896,6 +5135,19 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                     o.flashlightToggleButton = v->stringOr("");
                 if (const auto* v = fl->find("texture"))
                     o.flashlightTexture = v->stringOr("");
+                if (const auto* v = fl->find("offsetRight"))
+                    o.flashlightOffsetRight = (float)v->numberOr(0.0);
+                if (const auto* v = fl->find("offsetDown"))
+                    o.flashlightOffsetDown = (float)v->numberOr(0.0);
+                // A metre either way is a hand; more is a lamp on a pole, and
+                // the cone (which is still computed from the EYE) stops
+                // agreeing with the pool.
+                auto clampOff = [](float& f) {
+                    if (f < -1.0f) f = -1.0f;
+                    if (f > 1.0f) f = 1.0f;
+                };
+                clampOff(o.flashlightOffsetRight);
+                clampOff(o.flashlightOffsetDown);
                 if (o.flashlightRange < 1.0f) o.flashlightRange = 1.0f;
                 if (o.flashlightAngle < 2.0f) o.flashlightAngle = 2.0f;
                 if (o.flashlightAngle > 80.0f) o.flashlightAngle = 80.0f;
@@ -4991,6 +5243,10 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 o.lightSpotAngle = (float)v->numberOr(25.0);
             if (o.lightSpotAngle < 5.0f) o.lightSpotAngle = 5.0f;
             if (o.lightSpotAngle > 60.0f) o.lightSpotAngle = 60.0f;
+            if (const auto* v = lt->find("shadowVolumes")) {
+                const int m = (int)v->numberOr(0.0);
+                if (m >= 0 && m <= 2) o.lightShadowVolumes = m;
+            }
             if (const auto* v = lt->find("beam"))
                 o.lightBeam = (int)v->numberOr(0.0);
             if (o.lightBeam < 0 || o.lightBeam > 2) o.lightBeam = 0;
@@ -5161,6 +5417,7 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         if (const auto* v = jo.find("procSource")) o.procSource = v->stringOr("");
         if (const auto* v = jo.find("prefabSource"))
             o.prefabSource = v->stringOr("");
+        if (const auto* v = jo.find("comment")) o.commentText = v->stringOr("");
         if (const auto* v = jo.find("vuParams"))
             if (v->type == json::Value::Type::Array)
                 for (size_t k = 0; k < v->arr.size() && k < 4; ++k)
@@ -5282,6 +5539,11 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("timeMachine"))
             st.timeMachine = v->boolOr(true);
         if (const auto* v = s->find("remotePad")) st.remotePad = v->boolOr(true);
+        // Off for a project that predates the key: the recorder writes a
+        // growing file, so it is opt-in rather than something a rebuild
+        // silently switches on for everybody.
+        if (const auto* v = s->find("inputRecorder"))
+            st.inputRecorder = v->boolOr(false);
         if (const auto* v = s->find("eeCrashHandler"))
             st.eeCrashHandler = v->boolOr(false);
         if (const auto* v = s->find("keyboardMouse"))
@@ -5359,6 +5621,10 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         }
         if (const auto* v = s->find("flashShadowVolumes"))
             st.flashShadowVolumes = v->boolOr(false);
+        if (const auto* v = s->find("spotShadowVolumes"))
+            st.spotShadowVolumes = v->boolOr(false);
+        if (const auto* v = s->find("shadowVolumesDebug"))
+            st.shadowVolumesDebug = (int)v->numberOr(0);
         readVec3(s->find("skyColor"), st.skyColor);
         readVec3(s->find("skyTopColor"), st.skyTopColor);
         if (const auto* v = s->find("skyDome"))
@@ -5478,6 +5744,11 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.godRays = clamp01((float)v->numberOr(0.0));
         if (const auto* v = s->find("blobShadows"))
             st.blobShadows = v->type == json::Value::Type::Bool && v->boolean;
+        if (const auto* v = s->find("projShadowDistance")) {
+            st.projShadowDistance = (float)v->numberOr(50.0);
+            if (st.projShadowDistance < 10.0f) st.projShadowDistance = 10.0f;
+            if (st.projShadowDistance > 500.0f) st.projShadowDistance = 500.0f;
+        }
         // The neural upscaler (docs/neural-upscaler.md). Absent = off, which is
         // every project saved before it existed; blssTemporal defaults ON, so
         // it reads like loadingScreen (absent means the default, not false).
@@ -5603,7 +5874,55 @@ static void readHudSection(const json::Value& root, Project& out) {
                 h.texQuant =
                     (q == "none" || q == "8bit" || q == "4bit") ? q : "";
             }
+            readHudMotion(jh, h.anim, h.transition);
+            if (const auto* v = jh.find("visibleAtStart"))
+                h.visibleAtStart = !(v->type == json::Value::Type::Bool && !v->boolean);
             if (!h.imagePath.empty()) out.hud.push_back(std::move(h));
+        }
+    }
+    out.hudBars.clear();
+    if (const auto* bars = root.find("hudBars");
+        bars && bars->type == json::Value::Type::Array) {
+        for (const auto& jb : bars->arr) {
+            HudBar b;
+            if (const auto* v = jb.find("name")) b.name = v->stringOr("bar");
+            if (const auto* v = jb.find("kind")) b.kind = (int)v->numberOr(0) ? 1 : 0;
+            if (const auto* v = jb.find("pos");
+                v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                b.pos[0] = (float)v->arr[0].numberOr(0.5);
+                b.pos[1] = (float)v->arr[1].numberOr(0.08);
+            }
+            if (const auto* v = jb.find("size");
+                v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                b.size[0] = (float)v->arr[0].numberOr(160);
+                b.size[1] = (float)v->arr[1].numberOr(12);
+            }
+            readVec3(jb.find("bgColor"), b.bgColor);
+            readVec3(jb.find("fillColor"), b.fillColor);
+            readVec3(jb.find("ghostColor"), b.ghostColor);
+            if (const auto* v = jb.find("ghost")) b.ghost = v->boolOr(true);
+            if (const auto* v = jb.find("rightToLeft"))
+                b.rightToLeft = v->boolOr(false);
+            if (const auto* v = jb.find("smoothing"))
+                b.smoothing = (float)v->numberOr(0.25);
+            if (const auto* v = jb.find("lowFraction"))
+                b.lowFraction = (float)v->numberOr(0.25);
+            if (const auto* v = jb.find("segments")) b.segments = (int)v->numberOr(5);
+            b.segments = b.segments < 2 ? 2 : b.segments > 16 ? 16 : b.segments;
+            if (const auto* v = jb.find("spacing")) b.spacing = (float)v->numberOr(4);
+            if (const auto* v = jb.find("source")) b.source = v->stringOr("");
+            if (const auto* v = jb.find("min")) b.minValue = (float)v->numberOr(0);
+            if (const auto* v = jb.find("max")) b.maxValue = (float)v->numberOr(100);
+            if (const auto* v = jb.find("start")) b.startValue = (float)v->numberOr(100);
+            if (b.smoothing < 0.0f) b.smoothing = 0.0f;
+            if (b.lowFraction < 0.0f) b.lowFraction = 0.0f;
+            if (b.lowFraction > 1.0f) b.lowFraction = 1.0f;
+            readBarImage(jb, "fillImage", b.fillImage);
+            readBarImage(jb, "frameImage", b.frameImage);
+            readHudMotion(jb, b.anim, b.transition);
+            if (const auto* v = jb.find("visibleAtStart"))
+                b.visibleAtStart = !(v->type == json::Value::Type::Bool && !v->boolean);
+            if (!b.name.empty()) out.hudBars.push_back(std::move(b));
         }
     }
     // The USE prompt element; absent (older projects) = the classic built-in
@@ -5649,6 +5968,7 @@ static void readHudSection(const json::Value& root, Project& out) {
                 t.shadow = !(v->type == json::Value::Type::Bool && !v->boolean);
             if (const auto* v = jt.find("visibleAtStart"))
                 t.visibleAtStart = v->type == json::Value::Type::Bool && v->boolean;
+            readHudMotion(jt, t.anim, t.transition);
             if (!t.name.empty()) out.hudTexts.push_back(std::move(t));
         }
     }
@@ -5797,6 +6117,25 @@ static void readTexQualitySection(const json::Value& root, Project& out) {
             const std::string q = v.stringOr("");
             if (q == "none" || q == "8bit" || q == "4bit")
                 out.textureQuality[asset] = q;
+        }
+    }
+}
+
+static void readAtlasSection(const json::Value& root, Project& out) {
+    out.atlasControl.clear();
+    if (const auto* ac = root.find("atlasControl");
+        ac && ac->type == json::Value::Type::Object) {
+        for (const auto& [tex, v] : ac->obj) {
+            if (v.type != json::Value::Type::Object) continue;
+            Project::AtlasControl c;
+            if (const auto* k = v.find("keepOut")) c.keepOut = k->boolOr(false);
+            if (const auto* g = v.find("group")) c.group = g->stringOr("");
+            if (const auto* b = v.find("pageBits")) {
+                const int bits = (int)b->numberOr(0);
+                if (bits == 4 || bits == 8 || bits == 32) c.pageBits = bits;
+            }
+            if (c.keepOut || !c.group.empty() || c.pageBits != 0)
+                out.atlasControl[tex] = c;
         }
     }
 }
@@ -6581,6 +6920,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
         case Section::TexQuality: readTexQualitySection(root, p); break;
         case Section::ModelLods: readModelLodsSection(root, p); break;
         case Section::ModelAo: readModelAoSection(root, p); break;
+        case Section::Atlas: readAtlasSection(root, p); break;
         case Section::SaveData: readSaveDataSection(root, p); break;
         case Section::Gradings: readGradingsSection(root, p); break;
         case Section::Ambience: readAmbienceSection(root, p); break;
@@ -6742,6 +7082,7 @@ std::string load(Project& out, const std::string& projectDir) {
     readAudioSection(root, out);
 
     readTexQualitySection(root, out);
+    readAtlasSection(root, out);
     readModelLodsSection(root, out);
     readModelAoSection(root, out);
     readModelUnitsSection(root, out);
@@ -7046,11 +7387,16 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, (o.physics ? 1 : 0) | (o.usable ? 2 : 0) | (o.saveState ? 4 : 0) |
                   (o.pickable ? 32 : 0) | (o.pickThrow ? 64 : 0) |
                   (o.decalProject ? 8 : 0) | (o.projShadow ? 128 : 0));
+    fnvMix(h, (uint64_t)o.shadowMode);
     fnvMix(h, (uint64_t)o.collisionMode);
     fnvMixS(h, o.layer);
     fnvMix(h, (uint64_t)o.primDetail);
     fnvMix(h, o.primRings ? 1 : 0);
     fnvMixF(h, o.drawDistance);
+    fnvMixS(h, o.impostorPath);
+    fnvMixF(h, o.impostorDistance);
+    fnvMix(h, o.impostorBillboard ? 1 : 0);
+    fnvMix(h, o.impostorViews);
     // Cast shadow feeds the build-time AO bake (occluder tables + textures);
     // a live edit of it cannot show without a rebuild.
     fnvMix(h, o.castShadow ? 1 : 0);
@@ -7100,6 +7446,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, o.flashlightEnabled ? 1 : 0);
     fnvMix3(h, o.flashlightColor);
     fnvMixF(h, o.flashlightRange), fnvMixF(h, o.flashlightAngle);
+    fnvMixF(h, o.flashlightOffsetRight), fnvMixF(h, o.flashlightOffsetDown);
     fnvMixS(h, o.flashlightToggleButton);
     fnvMixS(h, o.flashlightTexture);
     fnvMix(h, (uint64_t)o.emitterKind);
@@ -7186,6 +7533,13 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
         }
         fnvMixF(h, o.lightDynamic ? 1.0f : 0.0f);
         fnvMixF(h, o.lightSpot ? 1.0f : 0.0f);
+        // The per-light shadow-volume override is a BUILD-time statement like
+        // the spot style beside it: whether the light carves volumes decides
+        // what the boot path allocates (the count band) and which spot the
+        // frame counts into it, and the streaming record is full at 16 floats
+        // with no slot to carry it. So an edit of it flips the chip amber and
+        // asks for a rebuild rather than pretending to be live.
+        fnvMixF(h, (float)o.lightShadowVolumes);
         fnvMixF(h, (float)o.lightBeam);
     }
     // An Area's box is what mirror/portal/camera-feed target lists were
@@ -7302,6 +7656,46 @@ std::string liveLinkSigFile(const Project& p) {
         }
     }
     return out.str();
+}
+
+uint64_t inputLayoutHash(const Project& p) {
+    // Deliberately COARSE: it answers "is this the same world the recording was
+    // taken in", not "is anything different at all". Object transforms and
+    // colours are excluded on purpose - moving a prop is exactly the kind of
+    // edit somebody makes between recording a bug and replaying it, and the
+    // per-frame fingerprint reports the consequence far better than a hash
+    // that would refuse every recording after the first save.
+    uint64_t h = 1469598103934665603ull;
+    auto mix = [&h](uint64_t v) { h = (h ^ v) * 1099511628211ull; };
+    auto mixStr = [&](const std::string& s) {
+        for (char c : s) mix((uint64_t)(unsigned char)c);
+        mix(0x1F);
+    };
+    mix(1);  // layout version - bump when the mix below changes
+    mix(p.scenes.size());
+    for (const SceneData& sc : p.scenes) mix(sc.objects.size());
+    mix((uint64_t)p.startScene);
+    mixStr(p.settings.multiplayer);
+    mix(p.settings.p2JoinOnStart ? 1u : 0u);
+    mix(p.settings.keyboardMouse ? 1u : 0u);
+    mixStr(p.settings.videoSystem);
+    // The input map decides what a button MEANS, so a rebind changes the run a
+    // recording describes even though the recorded bits are unchanged.
+    mix((uint64_t)p.input.activePreset);
+    for (const InputAction& a : p.input.actions) {
+        mixStr(a.name);
+        mix((uint64_t)a.role);
+    }
+    for (const InputPreset& pr : p.input.presets) {
+        mixStr(pr.name);
+        for (const InputBinding& b : pr.bindings) {
+            mixStr(b.action);
+            mixStr(b.pad);
+            mix((uint64_t)b.key);
+            mix((uint64_t)b.mouse);
+        }
+    }
+    return h;
 }
 
 // Generated VU files (docs/vu-authoring.md). They are named after the program
@@ -7504,6 +7898,8 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "src\\gen\\livedbg.sym" ||
             f.relativePath == "src\\gen\\live_pad.gen.cpp" ||
             f.relativePath == "inc\\live_pad.gen.hpp" ||
+            f.relativePath == "src\\gen\\input_replay.gen.cpp" ||
+            f.relativePath == "inc\\input_replay.gen.hpp" ||
             f.relativePath == "src\\gen\\live_tex.gen.cpp" ||
             f.relativePath == "src\\gen\\object_scripts.gen.cpp" ||
             f.relativePath == "src\\gen\\screen_fx.gen.cpp" ||
@@ -7686,6 +8082,24 @@ std::string refreshGenerated(const Project& p) {
                     "\n# Pictures the running game took of itself, kept by the "
                     "Debugger's Screen tab\n# (docs/devkit.md). Yours to look "
                     "at and to throw away.\nscreenshots/\n";
+                grew = true;
+            }
+            // And the input recorder's working files (docs/input-replay.md).
+            // bin/.gitignore already covers the whole directory, so this is
+            // the readable list and the fallback for a project that took bin/
+            // under its own control - the same reason every other channel is
+            // spelled out there. Note recordings/ is deliberately NOT ignored:
+            // a saved recording is meant to be committed next to the bug it
+            // reproduces.
+            if (text.find("bin/replay.") == std::string::npos) {
+                if (!text.empty() && text.back() != '\n') text += '\n';
+                text +=
+                    "\n# The input recorder's working files "
+                    "(docs/input-replay.md). These are the\n# CHANNEL, not the "
+                    "recordings: a recording you want to keep is saved into\n"
+                    "# recordings/*.tyrarep, which IS tracked on purpose.\n"
+                    "bin/replay.in\nbin/replay.arm\nbin/replay.out\n"
+                    "bin/replay.stop\nbin/replay.st\n";
                 grew = true;
             }
             if (grew) {
@@ -7959,7 +8373,10 @@ std::string refreshGenerated(const Project& p) {
     // Blob shadows reuse the soft glow as their alpha mask - bake it even
     // when the flare is off (kind 0 only; the flare block above already
     // wrote it otherwise).
-    if (!templates::projectUsesFlare(p) && p.settings.blobShadows) {
+    bool blobWanted = p.settings.blobShadows;
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects) blobWanted |= o.shadowMode == 2;
+    if (!templates::projectUsesFlare(p) && blobWanted) {
         std::vector<unsigned char> png;
         if (!menubake::bakeFlarePNG(0, png))
             return "Blob shadow sprite bake failed";
@@ -8030,7 +8447,8 @@ std::string refreshGenerated(const Project& p) {
     // FLASHLIGHT_USED in scene_data.hpp reads the same predicate, and a project
     // with no flashlight pays no GS VRAM for it. Written through writeFile so
     // an unchanged bake keeps its mtime and the build stays incremental.
-    if (templates::projectUsesFlashlight(p)) {
+    if (templates::projectUsesFlashlight(p) ||
+        templates::projectUsesSpotVolumes(p)) {
         std::vector<unsigned char> png;
         if (!menubake::bakeFlashGoboPNG(png))
             return "Flashlight gobo bake failed";

@@ -32,9 +32,39 @@ as the engine — is in [`LICENSE`](LICENSE), with the summary notice in
 | [miniaudio](https://github.com/mackron/miniaudio) | `9634bedb` | Public domain **or** MIT-0 | No — fetched |
 | [ps2client](https://github.com/ps2dev/ps2client) | v1.3.0 | no explicit license — see below | **Yes** (Windows binary only) |
 | [PS2SDK](https://github.com/ps2dev/ps2sdk) `audsrv` | `e78a9cb2`, forked in `vendor/tyra/audsrv` | **GNU Library GPL v2** (not AFL - see below) | **Yes** (source + built module) |
+| [OpenVCL](https://github.com/ps2dev/openvcl) | TyraX fork snapshot `89efa51e`, based on upstream `a5867c3` | AFL-2.0 | **Yes** — `vendor/openvcl`, modified sources tracked |
+| [vclpp](https://github.com/glampert/vclpp) | `00e44ecf` | MIT | **Yes** — `vendor/vclpp`, sources tracked |
+| PS2SDK `bin2s` | `8f397576` | AFL-2.0 | **Yes** — `tools/toolchain/bin2s`, source tracked |
+| [PS2DEV toolchain](https://github.com/ps2dev/ps2dev/releases/tag/v2.0.0) | v2.0.0 Linux release, SHA-256 pinned | component licences shipped by PS2DEV | No — downloaded directly to the user's cache |
 
 For the dual-licensed entries (stb, ufbx, miniaudio) TyraX makes no election —
 both alternatives are reproduced below, as the upstream files present them.
+
+**This file covers what the repository and the editor binary ship.** The default
+native setup downloads PS2DEV v2.0.0 directly from the official release and
+verifies its SHA-256; the archive is not copied into this repository or editor
+packages. The optional from-source **toolchain image** redistributes PS2DEV and
+therefore separately carries the GCC/binutils source-offer duty and PS2SDK terms.
+The inherited comparison image additionally contains Sony's unlicensed `vcl` and
+must never be published. The inventory and reasoning are in
+[docs/toolchain-image.md](docs/toolchain-image.md#licensing-of-the-published-image).
+
+**Our copy of openvcl is vendored in `vendor/openvcl`** and developed at
+[doctorspider42/openvcl-tyrax](https://github.com/doctorspider42/openvcl-tyrax) —
+upstream's full history with our changes on top, so the base and diff remain
+reviewable. openvcl is **AFL-2.0**, which grants copying,
+derivative works and redistribution outright (its §5 — the clause AFL 3.0 uses to
+make derivatives stay under the same terms — is intentionally omitted, so it is
+permissive, not copyleft). The two obligations it does impose are met there: §6
+*Attribution Rights* by that repo's `README.md`, which retains every upstream notice
+and states in its opening paragraphs that the Original Work was modified, and §4
+*Exclusions* by not using the authors' names to endorse the copy. Nothing has been
+submitted upstream.
+
+Both native setup and the from-source image compile that same vendored tree and
+run its test suite. `vendor/vclpp/LICENSE` carries the MIT notice; the AFL-2.0
+text for the retained PS2SDK `bin2s` source travels beside it under
+`tools/toolchain/bin2s/LICENSE`.
 
 ---
 
@@ -410,3 +440,14 @@ The editor projects this map into the moon disc of a day/night cycle
 embedded in the editor binary and is **never copied into a generated game** —
 only the small baked disc ships, so a game built with TyraX carries a derived
 image, not this file.
+
+
+### Quaternius Universal Animation Library character — CC0
+
+`examples/probe-lighting/res/models/UAL1_Standard.fbx` is the rigged humanoid
+from Quaternius's **Universal Animation Library [Standard]**, released under
+[CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/).
+Models by [Quaternius](https://quaternius.com). The unchanged source FBX was
+copied from `examples/foot-ik-stairs` on branch
+`claude/foot-ik-animations-feature-e56306`; that example records the pack's
+CC0 license. The GI example uses its Idle_Loop and Walk_Loop animations.

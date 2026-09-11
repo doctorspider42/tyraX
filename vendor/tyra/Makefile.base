@@ -16,7 +16,21 @@ DVP			:= dvp-as
 IRXEMBEDDEDEXT	:= irx-em
 
 #Flags, Libraries and Includes
-CFLAGS      += -D_EE -Wall -O3
+# Modified by TyraX - not upstream Tyra.
+#
+# -G0: put NOTHING in the small-data area. Without it the engine and the
+# generated game are the only things using .sdata/.sbss, they are addressed
+# GP-relative through a 16-bit offset (+/-32 KB), and the engine has outgrown
+# it. The failure is not a size error - it is dozens of
+# "relocation truncated to fit: R_MIPS_GPREL16 against Tyra::Info::writeLogsToFile"
+# at link time, naming a one-byte bool rather than the section that overflowed.
+# It bites the DEBUG profile first (more inlined logging, more references), so
+# enabling showFps on a current project stopped linking at all - which took the
+# perf benchmark recipe in docs/ with it.
+#
+# ps2sdk compiles its own libraries this way (Defs.make: `-D_EE -G0`), so this
+# is Tyra matching the SDK it links against rather than a workaround.
+CFLAGS      += -D_EE -G0 -Wall -O3
 LINKFLAGS	+= -O3 -Wl,-zmax-page-size=128
 ASFLAGS		+= -O3
 # TyraX: -lps2snd is the EE-side RPC stub library for libsd (SPU2 registers) -
@@ -34,19 +48,19 @@ INC         += -I$(PS2DEV)/ps2sdk/ee/include -I$(PS2DEV)/ps2sdk/common/include -
 # below; handing them to the PS2 compiler would fail on the very first include
 # (`vushader.hpp: No such file or directory` - the framework lives in vugen/,
 # outside src/, precisely so this glob cannot reach it).
-SOURCES     := $(shell find $(SRCDIR) -type f -name *.$(SRCEXT) -not -path '$(SRCDIR)/vu/*' -not -path '$(SRCDIR)/vu0/*')
+SOURCES     := $(sort $(shell find $(SRCDIR) -type f -name *.$(SRCEXT) -not -path '$(SRCDIR)/vu/*' -not -path '$(SRCDIR)/vu0/*'))
 OBJECTS     := $(patsubst $(SRCDIR)/%,$(BUILDDIR)/%,$(SOURCES:.$(SRCEXT)=.$(OBJEXT)))
 
-IRXEM_SOURCES  := $(shell find $(SRCDIR) -type f -name *.$(IRXEMBEDDEDEXT))
+IRXEM_SOURCES  := $(sort $(shell find $(SRCDIR) -type f -name *.$(IRXEMBEDDEDEXT)))
 IRXEM_OBJECTS  := $(patsubst $(SRCDIR)/%,$(BUILDDIR)/%,$(IRXEM_SOURCES:.$(IRXEMBEDDEDEXT)=.$(OBJEXT)))
 
-VU_SOURCES_VCL  := $(shell find $(SRCDIR) -type f -name *.$(VCLEXT))
+VU_SOURCES_VCL  := $(sort $(shell find $(SRCDIR) -type f -name *.$(VCLEXT)))
 VU_OBJECTS_VCL  := $(patsubst $(SRCDIR)/%,$(BUILDDIR)/%,$(VU_SOURCES_VCL:.$(VCLEXT)=.$(OBJEXT)))
 
-VU_SOURCES_VSM  := $(shell find $(SRCDIR) -type f -name *.$(VSMEXT))
+VU_SOURCES_VSM  := $(sort $(shell find $(SRCDIR) -type f -name *.$(VSMEXT)))
 VU_OBJECTS_VSM  := $(patsubst $(SRCDIR)/%,$(BUILDDIR)/%,$(VU_SOURCES_VSM:.$(VSMEXT)=.$(OBJEXT)))
 
-VCL_SOURCES  := $(shell find $(SRCDIR) -type f -name *.$(VCLPPEXT))
+VCL_SOURCES  := $(sort $(shell find $(SRCDIR) -type f -name *.$(VCLPPEXT)))
 VCL_OBJECTS  := $(patsubst $(SRCDIR)/%,$(BUILDDIR)/%,$(VCL_SOURCES:.$(VCLPPEXT)=.$(OBJEXT)))
 
 #Default Make

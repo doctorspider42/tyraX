@@ -13,6 +13,13 @@
  * audsrv EE-side RPC code.
  */
 
+/* TyraX: old vs sce-prefixed SIF names - FIRST, before any ps2sdk header. The
+ * aliases have to rewrite the DECLARATIONS too, and kernel.h carries some of
+ * them (SifSetDma, SifDmaStat); included after it, the calls are renamed while
+ * the prototypes are not, which -Werror reports as an implicit declaration of
+ * sceSifSetDma rather than as an include-order problem. */
+#include "sif-compat.h"
+
 #include <stdio.h>
 #include <kernel.h>
 #include <sifrpc.h>
