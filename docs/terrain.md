@@ -7,6 +7,12 @@ as the scene, that you can sculpt and paint ([terrain
 painting](terrain-painting.md)). It's what everything stands on — the player,
 physics bodies, dropped props, the AI.
 
+Every height query follows the same diagonal split as the two rendered
+triangles in each heightfield cell. This matters on non-planar cells: a
+bilinear interpolation would describe a smooth saddle that is not the visible
+surface, letting projected roads intersect it and making ground contact differ
+from the picture.
+
 A scene doesn't have to have one. An interior, a platformer, a space level or
 a cutscene-only scene has floors of its own, and a ground plane under them is
 geometry the console draws for nothing. So the terrain is **optional per

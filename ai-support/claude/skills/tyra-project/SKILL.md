@@ -79,7 +79,7 @@ tyrax-editor binary lives.)
 | `--bake-prelit <projectDir> [sceneName]` | Re-bake every object marked to ship pre-lit whose baked texture no longer matches the scene (it moved, or the light did), then save + regenerate. Prints `baked` / `fresh` per object; a second run bakes nothing. Never part of a build - a pre-lit bake is explicit |
 | `--resave <projectDir>` | Load + save (runs all format migrations, validates) |
 | `--new <name> <parentDir> [w] [d] [empty\|fpp\|thirdperson] [unitsPerMeter] [--no-terrain]` | Create a fresh project (defaults: `empty` preset - the editor's dialog starts on `fpp` - 100x100 terrain, 1 unit = 1 m, debug profile + Live Link, keyboard/mouse off). The preset is fixed for the project's life - it picks the generated game sources, which you may own. `--no-terrain` starts the scene with no ground at all (see below) |
-| `--build <projectDir> [--run]` | Full Docker build; `--run` launches PCSX2 |
+| `--build <projectDir> [--run] [--docker]` | Full native build; `--run` launches PCSX2, `--docker` selects the fallback |
 | `--add-ai-support <projectDir> [claude] [copilot]` | (Re)install these AI skill files |
 
 Typical inspection flow: `--dump` to see the world, `--dump-graph` to read
@@ -123,9 +123,15 @@ to see exactly what the game will compile.
   non-selectable header/spacer row. Everything static is baked into
   `res/menus/*.png` at build; menus scale themselves to the display mode.
 - Project-wide collections: music/sound lists, save values + save texts, menus,
-  HUD images/texts, color gradings, ambience presets, loading screens,
+  HUD images/texts/**live bars**, color gradings, ambience presets, loading screens,
   cutscene sequences, **credits rolls** and the **input map** (named input
   actions + binding presets). `--dump` lists all of their names.
+- **HUD elements can move without game code.** Images, baked texts and live
+  bars each carry an optional looped animation plus a show/hide transition;
+  bars can follow a numeric save value or be driven by **Set HUD Bar**. Use
+  **Set HUD Element Visible** for one element and **Play HUD Effect** for a
+  flash, bounce or shake. See `docs/hud-animation.md` for the fields and
+  runtime behaviour.
 - **Ambience presets** may carry a **day/night cycle** (`"cycle"` inside the
   preset in the `.tyra`): a time-of-day hour, sun and moon arcs, and a list of
   colour keyframes. When enabled it OVERWRITES the preset's sky, light
@@ -139,6 +145,11 @@ to see exactly what the game will compile.
   "Play credits") or the Play Credits node; a roll owns the screen and the pad
   while it plays, so nothing else runs behind it. A long roll can also be
   imported from a plain text file.
+- **Comments** (type `comment`) are editor-only notes pinned to a place in the
+  scene: the prose lives in the object's `"comment"` key and reaches NOTHING -
+  no generated file, no bake, no asset. Read them (they usually say why
+  something in the scene is the way it is) and leave them alone unless asked;
+  the object itself is inert, with no geometry, collision or behaviour.
 - **Procedural volumes** (type `scatter` in the file - the display name changed,
   the key did not) are procedural authoring regions: the object carries a node
   graph (`procGraph` in its `objects/<id>.json`) that fills its box - scattered,
@@ -173,3 +184,20 @@ to see exactly what the game will compile.
   and/or keyboard key and/or mouse button per preset, and a menu "Rebind key"
   row lets the player override one at runtime (the override persists in a save
   value). In graphs use the **On Action** trigger so logic follows the binding.
+
+### Static foliage impostors
+
+A static model object may store `impostor` (project-relative far OBJ) and
+`impostorDistance` (world units, 0 disables). The Tree Generator authors eight-view billboards automatically and sets
+`impostorBillboard: true` (format v40). This mode requires eight ordered view
+parts, upright rotation and equal positive X/Z scale. Leave the flag false for
+ordinary replacement meshes. The original `model` still owns collision. Far assets keep
+their own materials and must travel with the project. Do not replace `model` to
+change the distant appearance. Runtime geometry switches with 10% hysteresis.
+
+Properties > Bake impostor captures any supported static OBJ with its material
+override, Kd colours and cutout textures. Missing inputs and reflective/emissive
+materials fail visibly. Rebuild the game after baking; exported files are assets.
+
+Impostor format v41 adds `impostorViews` (4/8/16, defaults to 8). It must match
+the baked model part count; rebake and rebuild after changing it.

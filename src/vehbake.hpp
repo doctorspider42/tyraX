@@ -38,7 +38,7 @@ namespace vehbake {
 struct Options {
     // Triangle budgets. Decimation is meshlod's quadric-error collapse, the
     // same one both model bakes already use.  0 = leave the mesh alone.
-    int bodyTriBudget = 1500;
+    int bodyTriBudget = 2400;
     // 700 rather than the ~150 a PS2 wheel would suggest, because a wheel is
     // several MATERIALS (tyre, rim, disc, trim) and meshlod locks material
     // seams - so the collapse cannot thin the rim without destroying its

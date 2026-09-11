@@ -10,7 +10,7 @@ graph — then press one key and a PS2 runs your world. PCSX2, or a real console
 over ethernet.
 
 Under the hood TyraX writes the game as ordinary C++ against the engine and
-compiles it in Docker with the PS2 toolchain. Both halves live in this repo —
+compiles it with a native PS2DEV + OpenVCL toolchain. Both halves live in this repo —
 the editor and the engine (`vendor/tyra/engine`) — and the generated sources
 are yours to take over, file by file, whenever you want them.
 
@@ -96,15 +96,15 @@ Then, in the editor:
    size and one of three presets (FPP / third person / empty). The preset is
    fixed for the project's life; everything else is editable later.
 2. The *Viewport* shows the terrain (drag to orbit, scroll to zoom).
-3. **Build & Run** (`F5`) — the first build pulls the `h4570/tyra` image and
-   compiles the engine inside the container (minutes, once). Later builds take
-   seconds, and PCSX2 boots the ELF automatically.
+3. **Build & Run** (`F5`) — the first build downloads the pinned official
+   PS2DEV archive, compiles the in-tree OpenVCL tools and the engine (minutes,
+   once). Later builds take seconds, and PCSX2 boots the ELF automatically.
 
 ## Requirements
 
 - **Windows or Linux.**
-- [Docker](https://www.docker.com/products/docker-desktop/) running — the game is
-  compiled inside the `h4570/tyra` container.
+- On Windows, WSL with a Linux distribution. On Linux, the native host tools
+  named by `tools/toolchain/setup.sh`. Docker is an optional fallback only.
 - [PCSX2](https://pcsx2.net/) with a BIOS configured (auto-detected in
   `Program Files\PCSX2`, on `PATH`, as a flatpak or an AppImage; any other
   location goes in `Edit > Preferences`).
@@ -113,7 +113,9 @@ Then, in the editor:
   provides the native file dialogs on Linux.
 - **Keep the project path short.** PCSX2's `host:` loader silently refuses an ELF
   path longer than ~145 characters — the game never starts and nothing is logged.
-  The editor warns in *Output*.
+  The editor warns in *Output*. Build & Run passes an absolute native path;
+  invoking PCSX2 by hand should do the same, because its host loader can rebase
+  a relative `-elf` path below `bin/` and leave only a black screen.
 
 ## What it does
 
@@ -125,11 +127,22 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   volumes, each in its own `objects/<id>.json` so a team edits different objects
   without git conflicts. Picking, gizmos, rubber-band selection,
   [surface snapping and cursor-following paste](docs/object-placement.md),
+  [model bounds selection](docs/object-selection.md),
   [orthographic and axis views](docs/orthographic-views.md), and a viewport that
   can rasterize, shade and colour the way
   [the console does](docs/ps2-viewport.md) — GS raster, per-vertex flat-shaded
   lighting, 16-bit colour with the GS dither, and the lights' own
   [visible beams](docs/flashlight.md) drawn the game's way.
+- **[Dynamic shadows](docs/shadows.md)** - a blob or a real projected
+  silhouette, chosen per object — including hero and traffic vehicles; the
+  cheap one works on a static prop too. A
+  scene's spot lights can carve per-pixel shadow volumes of their own, so a
+  street lamp stops lighting the alley behind the wall it hangs on.
+- **[A torch you hold](docs/flashlight.md)** - a per-pixel projected pool that
+  lands on walls and props, an offset that takes the light out of the
+  player's eye, where it could only ever cast shadows nobody can see, and
+  shadow volumes that carve a big model's real outline (the build decimates a
+  shadow proxy for it), not its bounding box.
 - **[Terrain](docs/terrain.md)** — optional per scene, sculpted with a brush and
   [painted with blended material layers](docs/terrain-painting.md).
 - **Models** — `.obj` compiled into a binary
@@ -140,12 +153,16 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   Mixamo download onto a character you already have.
 - **[Asset Browser](docs/asset-browser.md)** — a real file manager over `res/`
   that knows who references every asset and moves files with their references.
+- **[Comments](docs/comments.md)** — notes pinned into the scene, drawn as a
+  message icon, with optional always-expanded text from the View menu.
+  Editor-only: nothing about a note reaches the game.
 - **[Materials and texture painting](docs/material-painting.md)** — `.mtl`
   authoring, a layer stack painted onto your own mesh, UV unwrap/validator, and
   [raytraced map bakes](docs/material-baking.md) with smart masks.
 - **Generators** — [procedural scatter graphs](docs/procedural-generation.md)
   baked to chunk meshes or [run on the EE](docs/procedural-runtime.md),
-  [prefabs](docs/prefabs.md), the [Tree Generator](docs/tree-generator.md) and
+  [prefabs](docs/prefabs.md), the [Tree Generator](docs/tree-generator.md),
+  [GPU/CPU impostors with 4/8/16 views](docs/impostors.md) and
   the [Drone Generator](docs/drone-generator.md) for ambient music.
 - **[World scale](docs/world-scale.md)** — one number that keeps imported reality
   the size your own content is.
@@ -185,6 +202,9 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [streaming layers](docs/streaming-layers.md),
   [world facts](docs/world-facts.md), runtime spawning and the
   [endless scroller](docs/endless-scroller.md).
+- **[Roads](docs/roads.md) and [vehicles](docs/vehicles.md)** — textured spline
+  roads projected onto the terrain in both the editor and game, plus imported,
+  budgeted cars with wheel suspension, gears, drifting and AI drivers.
 - **[NavMesh + NPC AI](docs/navigation-ai.md)** — baked on the host, A* on the EE.
 - **Cinematics** — the Cutscene Director, fed by keyframes or by a
   [phone-recorded 6DoF take](docs/camera-takes.md) or the
@@ -197,7 +217,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 
 **The game around the game**
 
-- HUD sprites, fonts, baked on-screen texts and runtime text.
+- **[Animated HUD](docs/hud-animation.md)** — sprites, live health/stamina bars,
+  looped motion, show/hide transitions, one-shot effects and runtime text.
 - Menus with [CSS-shaped stylesheets](docs/menu-styles.md) and scaffolded options
   screens (volume, controls, video mode).
 - [Loading screens](docs/loading-screens.md) and boot splashes,
@@ -233,6 +254,9 @@ build that provably carries none of it
   [the Live Debugger](docs/live-debugger.md) (breakpoints, stepping, watches),
   [the time machine](docs/time-machine.md) (put the game back where it was) and
   [the Remote Pad](docs/remote-pad.md) (hold its controller, no focus needed).
+- [The input recorder](docs/input-replay.md) — record a play session and perform
+  it again on demand; `--replay` exits 0 when the run reproduced exactly, so a
+  bug becomes a regression test.
 - VU1 packet capture, self-reporting crashes and
   [logs split by severity](docs/log-panels.md).
 - [UI scripting](docs/ui-scripting.md) — the editor drives itself by widget name.
@@ -274,6 +298,7 @@ wait for their polish pass.
 
 | Example | What it shows |
 | --- | --- |
+| [impostor-grove](examples/impostor-grove) | A walkable wooded ruin with generated trees and configurable 4/8/16-view, two-triangle distant impostors and a universal-baked waystone |
 | [script-demo](examples/script-demo) | Start here. Walk to the box, press X, and the sky obeys — one object script, and you've touched the whole pipeline |
 | [showcase](examples/showcase) | The kitchen sink: two scenes joined by a portal, and half the manual — streaming, animation, particles, menus, post-FX — making cameos |
 | [layer-streaming](examples/layer-streaming) | Two buildings, one corridor — and the building behind you quietly stops existing, GTA3-style |
@@ -289,11 +314,13 @@ wait for their polish pass.
 | [raytraced-mirror](examples/raytraced-mirror) | Reflections ray-traced per pixel on VU0. On a PS2. There's a resolution knob |
 | [reflections](examples/reflections) | Static sphere maps vs the live `@sky` mode — with a sky cycler so you can catch the difference |
 | [probe-aim](examples/probe-aim) | A chrome ball that shows what's behind you: probes aimed along the reflected ray |
+| [texture-atlas](examples/texture-atlas) | Thirty crates, thirty tiny textures, one shared GS page - and 65 KB of VRAM back, measured both ways |
 | [texture-feeds](examples/texture-feeds) | Two monitors on a wall — one plays live CCTV, the other a raytraced mirror |
 | [lighting](examples/lighting) | One dusk plaza wearing everything at once: torches, shafts, flare, god rays, shadows, a flashlight |
 | [glow](examples/glow) | A midnight walk through four stations of things that glow |
 | [global-illumination](examples/global-illumination) | One red wall, one green wall — every other tint in the room is bounce |
 | [gi-showcase](examples/gi-showcase) | The guided GI tour, ending in a room lit by nothing but bounce |
+| [probe-lighting](examples/probe-lighting) | Full RGB SH L1 lights an animated CC0 humanoid while walking indoors |
 | [day-night](examples/day-night) | The same place at dawn, noon, dusk and night — plus one scene where the clock actually runs |
 | [material-lab](examples/material-lab) | The material pipeline on a single pedestal: baked AO, smart masks, atlasing, live reload |
 | [procedural](examples/procedural) | Every node in the scatter library at work in six volumes, baked down to 17 chunk meshes |
@@ -302,6 +329,7 @@ wait for their polish pass.
 | [cube](examples/cube) | A 3×3×3 lattice of rooms — prefabs times runtime generation, in ~4 draw calls |
 | [world-facts](examples/world-facts) | Every fact type and all four persistence tiers, exercised across a two-scene level |
 | [save-points](examples/save-points) | Both halves of saving: in-RAM checkpoints, and a 3-slot memory-card shrine with a 3D icon |
+| [hud-animation](examples/hud-animation) | Health, stamina and segmented progress bars, plus looped motion, transitions and one-shot HUD effects |
 | [credits](examples/credits) | An end roll straight from a text file — plus a card-mode dedication that remembers where you left it |
 | [two-players](examples/two-players) | Couch co-op: 1P/2P title menu, split screen, and a friend hot-joining on pad 2 |
 | [reverb-rooms](examples/reverb-rooms) | The same knock in four rooms. Only the acoustics change |
@@ -340,17 +368,23 @@ its own UI (`--ui-script`) and the game's controller (`--pad`) unattended.
 
 ## How Build & Run works
 
-`docker compose up -d` gives the project its own container from the `h4570/tyra`
-image. The engine sources in `vendor/tyra` are bind-mounted read-only, synced into
-a shared build volume with a checksum `rsync` and rebuilt only when they changed —
-so every project built from the same checkout shares one `libtyra`. Then the
-project's sources are rsynced in, `make -j` runs inside the container, `bin/` comes
-back to the host and PCSX2 is launched on the ELF.
+The default backend installs the pinned PS2DEV distribution into a user cache,
+builds the vendored OpenVCL, vclpp, bin2s and audsrv sources, then runs `make`
+directly. Engine sources from `vendor/tyra` are checksum-synced into a shared
+cache and rebuilt only when they or the toolchain identity change, so projects
+from one editor installation share one `libtyra`. PCSX2 is launched on the ELF.
 
 Every step is incremental, code generation included: a generated file whose content
 did not change is not rewritten, so a build with nothing to do finishes in seconds.
-**Build > Rebuild** drops the container, the objects and the compiled engine when
+**Build > Rebuild** drops the objects and the compiled engine when
 an incremental build cannot see what went wrong; *Clean* also wipes `bin\`.
+
+The old Docker path remains under **Edit > Preferences > Build backend** as a
+fallback. Its from-source image builds the same vendored tools; the inherited
+image with Sony's unlicensed `vcl` remains only for compiler A/B work. See
+[the native-toolchain guide](docs/native-toolchain.md) for setup, cache and
+licensing, and [the toolchain research](docs/toolchain-image.md) for the measured
+OpenVCL migration and the seventeen miscompiles it found.
 
 While the build runs, a spinning **BUILDING** chip appears at the end of the menu
 bar, and turns into a red **BUILD FAILED** when a build did not make it. Clicking
@@ -363,6 +397,8 @@ With a console on the LAN running the **TyraX ps2link**, **Build > Build && Run 
 PS2** (`F6`) boots the game over ethernet: the ELF and every asset are served from
 the project's `bin\` on this PC (no ISO, no SMB) and the console's log streams into
 *Output* as `[ps2]` lines. Set the IP in `Edit > Preferences > Real PS2`.
+**Stop on PS2** ends the session and hands the console back to ps2link;
+**Power Off PS2** switches the console itself off, without leaving the desk.
 
 The console side is always **our own** ps2link — a pinned upstream plus this repo's
 patch, built in Docker by [`tools/ps2link`](tools/ps2link/README.md) and flashed to
@@ -396,18 +432,28 @@ to take ownership** of a file, and the editor stops regenerating it.
   `devkit_ui`, `chat_ui`), `assetbrowser`, `viewport` (GL preview),
   `project`+`templates` (the project generator), `runner` (Docker/PCSX2),
   `platform` (the single OS abstraction), and `vuir`/`vuasm`/`vusim`/`vugen`
-  (the [VU framework](docs/vu-framework.md)).
+  (the [VU framework](docs/vu-framework.md)); `runner` uses the native backend by
+  default and preserves Docker as a fallback.
 - `docs/` — the user guides, and the **AI Assistant's knowledge base**: every page
   is embedded into the exe at build time, so a page written for a human teaches
   the assistant too.
 - `ai-support/` — the assistant guides installed into generated projects.
 - `examples/` — the example projects listed above.
-- `vendor/` (rest) — editor dependencies, fetched at pinned commits from the one
-  list per platform (`deps.ps1` / `deps.sh`).
+- `vendor/openvcl`, `vendor/vclpp` — reviewed, licensed host-tool forks compiled
+  by both native and from-source Docker builds. Other editor dependencies are
+  fetched at pinned commits from `deps.ps1` / `deps.sh`.
 - `tools/` — the PS2 network-deploy tools (`ps2client`, the
   [TyraX ps2link](tools/ps2link/README.md)) and the
   [VS Code extension](docs/vscode-extension.md).
 - Developer architecture guides live under [.claude/skills/](.claude/skills).
+
+## Sponsor
+
+TyraX is free, Apache-2.0 and developed in the open. If it is useful to you,
+the **Sponsor** button at the top of this repository (or
+[github.com/sponsors/doctorspider42](https://github.com/sponsors/doctorspider42))
+helps keep the PS2 hardware, devkits and test consoles running. The button is
+wired from [`.github/FUNDING.yml`](.github/FUNDING.yml).
 
 ## Credits
 
@@ -422,6 +468,9 @@ This project stands on the shoulders of the PS2 homebrew community:
   **[PS2SDK](https://github.com/ps2dev/ps2sdk)** by the
   [ps2dev project](https://ps2dev.github.io/) — the network link behind "Run on
   PS2" and the SDK every generated game links against
+- **[OpenVCL](https://github.com/ps2dev/openvcl)** and
+  **[vclpp](https://github.com/glampert/vclpp)** — the in-tree, source-built VU
+  assembler and preprocessor behind the default native build
 - Editor dependencies: 
   [Dear ImGui](https://github.com/ocornut/imgui),
   [GLFW](https://www.glfw.org/),

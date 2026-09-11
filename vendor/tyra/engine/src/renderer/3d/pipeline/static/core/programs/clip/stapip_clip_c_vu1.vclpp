@@ -84,7 +84,7 @@ triLoop:
     lq.xyz     lightColors[0], 15(vi00)
     lq.xyz     lightColors[1], 16(vi00)
     lq.xyz     lightColors[2], 17(vi00)
-    lq.xyz     ambientColor, 18(vi00)
+    lq.xyzw     ambientColor, 18(vi00)
     mula.xyz   acc, lightMatrix[0], normal1[x]  ; CalculateTyraDirectionalLights
     madda.xyz  acc, lightMatrix[1], normal1[y]
     madd.xyz   normal1, lightMatrix[2], normal1[z]
@@ -92,11 +92,14 @@ triLoop:
     madda.xyz  acc, lightDirections[1], normal1[y]
     madd.xyz   color1, lightDirections[2], normal1[z]
     mini.xyz   color1, color1, vf00[w]
-    max.xyz    color1, color1, vf00[x]
+    max.xyz    color1, color1, ambientColor[w]
     mula.xyz   acc, lightColors[0], color1[x]
     madda.xyz  acc, lightColors[1], color1[y]
     madda.xyz  acc, lightColors[2], color1[z]
     madd.xyz   color1, ambientColor, vf00[w]
+    loi        255
+    mini.xyz   color1, color1, i
+    max.xyz    color1, color1, vf00[x]
     loi        128
     add.w      color1, vf00, i
     mula.xyz   acc, lightMatrix[0], normal2[x]  ; CalculateTyraDirectionalLights
@@ -106,11 +109,14 @@ triLoop:
     madda.xyz  acc, lightDirections[1], normal2[y]
     madd.xyz   color2, lightDirections[2], normal2[z]
     mini.xyz   color2, color2, vf00[w]
-    max.xyz    color2, color2, vf00[x]
+    max.xyz    color2, color2, ambientColor[w]
     mula.xyz   acc, lightColors[0], color2[x]
     madda.xyz  acc, lightColors[1], color2[y]
     madda.xyz  acc, lightColors[2], color2[z]
     madd.xyz   color2, ambientColor, vf00[w]
+    loi        255
+    mini.xyz   color2, color2, i
+    max.xyz    color2, color2, vf00[x]
     loi        128
     add.w      color2, vf00, i
     mula.xyz   acc, lightMatrix[0], normal3[x]  ; CalculateTyraDirectionalLights
@@ -120,11 +126,14 @@ triLoop:
     madda.xyz  acc, lightDirections[1], normal3[y]
     madd.xyz   color3, lightDirections[2], normal3[z]
     mini.xyz   color3, color3, vf00[w]
-    max.xyz    color3, color3, vf00[x]
+    max.xyz    color3, color3, ambientColor[w]
     mula.xyz   acc, lightColors[0], color3[x]
     madda.xyz  acc, lightColors[1], color3[y]
     madda.xyz  acc, lightColors[2], color3[z]
     madd.xyz   color3, ambientColor, vf00[w]
+    loi        255
+    mini.xyz   color3, color3, i
+    max.xyz    color3, color3, vf00[x]
     loi        128
     add.w      color3, vf00, i
     b          sharedAttributesReady

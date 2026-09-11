@@ -20,6 +20,7 @@
 #include "debug/debug.hpp"
 #include "info/info.hpp"  // Modified by TyraX: the presented-frame counter
 #include "renderer/core/gs/renderer_core_gs.hpp"
+#include "renderer/core/gs/renderer_core_depth.hpp"
 
 namespace Tyra {
 
@@ -62,8 +63,19 @@ extern "C" s32 tyraxVblankHandler(s32 cause) {
 // before - "Fix MIPTBP addresses bitmask"). Until then, do NOT "simplify"
 // this back to the macro.
 static u64 tyraxDitherMatrix() {
-  static const int kDimx[16] = {4, 2, 5, 3, 0, 6, 1, 7,
-                                5, 3, 4, 2, 1, 7, 0, 6};
+  // Modified by TyraX (1.70.4): NON-NEGATIVE offsets only. DIMX entries are
+  // signed 3-bit, so the old 0..7 table was really -4..+3, and a negative
+  // offset is what made every ADDITIVE pass at 16-bit colour darken the
+  // pixels it touched: the blender reads the 5-bit pixel as v << 3, adds the
+  // source (zero over a corona's black margin, a pool canvas's unlit
+  // corners, a wall pass's edge), and stores (sum + dimx) >> 3 - which is
+  // v - 1 wherever dimx < 0. Half a step darker over the whole quad, and on
+  // a console that is a visible dark rectangle around every glow and under
+  // every light patch (PCSX2 does not dither, so it never showed). With
+  // 0..3 the re-store of an unchanged pixel is exact and the dither still
+  // breaks banding, at half the amplitude. Bayer 4x4 >> 2.
+  static const int kDimx[16] = {0, 2, 0, 2, 3, 1, 3, 1,
+                                0, 2, 0, 2, 3, 1, 3, 1};
   u64 reg = 0;
   for (int i = 0; i < 16; i++)
     reg |= static_cast<u64>(kDimx[i] & 0x07) << (i * 4);
@@ -156,7 +168,17 @@ void RendererCoreGS::allocateVramBuffers() {
   zBuffer.enable = DRAW_ENABLE;
   zBuffer.mask = 0;
   zBuffer.method = ZTEST_METHOD_GREATER_EQUAL;
-  zBuffer.zsm = GS_ZBUF_32;
+  // Modified by TyraX: the z FORMAT follows the colour depth, because on real
+  // hardware a colour buffer and the z buffer it is tested against must share
+  // PAGE GEOMETRY - 32/24-bit pages are 64x32 pixels, 16-bit ones 64x64. A
+  // PSMCT16 frame over a PSMZ32 z put banded depth errors across the whole
+  // scene on a console while PCSX2 (which addresses each buffer from its own
+  // PSM) showed nothing at all. The vertex path's Z scale has to follow, or a
+  // 24-bit Z lands in a 16-bit buffer and models read inside-out - which is
+  // what RendererCoreDepth exists to keep in one place.
+  const bool halfDepthColor = frameBuffers[0].psm == GS_PSM_16;
+  zBuffer.zsm = halfDepthColor ? GS_ZBUF_16 : GS_ZBUF_32;
+  RendererCoreDepth::setBits(halfDepthColor ? 16 : 24);
   // Modified by TyraX (BLSS, docs/neural-upscaler.md): the z buffer covers the
   // RASTER, not the display buffer. With the raster scale on, nothing ever
   // renders 3D at display resolution - the whole scene is bracketed into the
@@ -525,6 +547,20 @@ void RendererCoreGS::presentFrameBuffer(u8 index) {
   if (settings->getDisplayMode() == DisplayMode::Interlaced ||
       settings->getDisplayMode() == DisplayMode::Pal576i) {
     graph_set_framebuffer_filtered(fb.address, fb.width, fb.psm, 0, 0);
+    // Modified by TyraX: the flicker filter blends the two read circuits by
+    // a CONSTANT, never by the frame's own alpha. ps2sdk's _filtered variant
+    // leaves PMODE.MMOD = 0, which weights the blend by the per-pixel alpha
+    // of the displayed buffer - and that channel is a WORKING channel here:
+    // the shadow mask lives in it, the HUD text and every shadow patch draw
+    // alpha 0 into it, the light pools 0x80. On a console the picture then
+    // shows every one of those as a shape - moire in a shadow volume's
+    // outline, a dark rectangle under a projected shadow, a halo around the
+    // HUD - while the RGB capture is clean (the alpha capture is not:
+    // --capture-frame --alpha). MMOD = 1 takes the weight from ALP instead,
+    // 0x80 = the even 50/50 the filter is for. repaintAlpha stays as belt
+    // and braces; nothing on screen depends on it any more.
+    *GS_REG_PMODE = GS_SET_PMODE(1, 1, 1 /* MMOD: ALP */, 1 /* AMOD */,
+                                 0 /* SLBG */, 0x80 /* ALP */);
   } else {
     graph_set_framebuffer(0, fb.address, fb.width, fb.psm, 0, 0);
     graph_set_framebuffer(1, fb.address, fb.width, fb.psm, 0, 0);
@@ -602,8 +638,8 @@ void RendererCoreGS::enableZTests() {
 
 void RendererCoreGS::initDrawingEnvironment() {
   // Modified by TyraX: 40 qwords - draw_setup_environment's register block
-  // plus the CLAMP re-assert, the DIMX/DTHE dither pair, the XYOFFSET and
-  // the finish. An undersized packet2 here overruns its own buffer.
+  // plus the CLAMP/FBA re-assert, the DIMX/DTHE dither pair, the XYOFFSET
+  // and the finish. An undersized packet2 here overruns its own buffer.
   packet2_t* packet2 = packet2_create(40, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
   packet2_update(packet2, draw_setup_environment(packet2->base, 0, frameBuffers,
                                                  &zBuffer));
@@ -615,12 +651,27 @@ void RendererCoreGS::initDrawingEnvironment() {
   // along both axes everywhere else. REPEAT is the contract here; Path3::
   // clearScreen re-asserts it every frame because the post-fx blits and 2D
   // texture uploads write the same register for their own purposes.
+  // Modified by TyraX: FBA = 0, whatever the frame format. ps2sdk's
+  // draw_setup_environment() programs FBA ("alpha correction") to 1 for a
+  // 16-bit frame PSM - disassembled from libdraw.a, the register at 0x4A +
+  // context gets `(psm & ~8) == 2`, i.e. PSMCT16/PSMCT16S - and to 0 for a
+  // 32-bit one. With FBA = 1 the GS forces the MSB of EVERY alpha it writes to
+  // 1, a convenience for 1-bit-alpha targets and death to anything that reads
+  // destination alpha back: the flashlight's shadow mask clears alpha to 0,
+  // the GS stores 1, TEST.DATE reads SHADOW over the whole raster and every
+  // DATE-gated torch pass is discarded - a 16-bit project drew no pool. The
+  // rest of this engine was written against 32-bit, where alpha lands as
+  // written, so 16-bit gets the same contract here: FBA is 0 from the first
+  // frame, like the CLAMP above, and RendererCoreAlphaMask re-asserts it at
+  // the top of each mask bracket so nothing can undo it behind its back.
   {
     qword_t* q = packet2->next;
-    PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+    PACK_GIFTAG(q, GIF_SET_TAG(2, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
     q++;
     PACK_GIFTAG(q, GS_SET_CLAMP(WRAP_REPEAT, WRAP_REPEAT, 0, 0, 0, 0),
                 GS_REG_CLAMP_1);
+    q++;
+    PACK_GIFTAG(q, GS_SET_FBA(0), GS_REG_FBA_1);
     q++;
     packet2_update(packet2, q);
   }

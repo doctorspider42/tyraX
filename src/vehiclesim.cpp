@@ -29,6 +29,35 @@ float approach(float v, float target, float rate) {
     return std::max(target, v - rate);
 }
 
+// Pitch and roll are in the CAR frame; heading rotates that whole frame.
+void rotateVehicleLocal(float x, float y, float z, float pitch, float yaw,
+                        float roll, float out[3]) {
+    const float rx = -pitch * kDeg2Rad;
+    const float ry = yaw * kDeg2Rad;
+    const float rz = roll * kDeg2Rad;
+    {
+        const float c = std::cos(rx), s = std::sin(rx);
+        const float yy = y * c - z * s, zz = y * s + z * c;
+        y = yy;
+        z = zz;
+    }
+    {
+        const float c = std::cos(rz), s = std::sin(rz);
+        const float xx = x * c - y * s, yy = x * s + y * c;
+        x = xx;
+        y = yy;
+    }
+    {
+        const float c = std::cos(ry), s = std::sin(ry);
+        const float xx = x * c + z * s, zz = -x * s + z * c;
+        x = xx;
+        z = zz;
+    }
+    out[0] = x;
+    out[1] = y;
+    out[2] = z;
+}
+
 std::string lower(std::string s) {
     for (char& c : s)
         if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a');
@@ -513,16 +542,36 @@ float safeShiftDownFrac(const DriveSpec& s) {
 // axes), so the sim, the viewport preview and the generated runtime never see
 // an exporter's opinion about axes again.
 
+void bodyRotation(float pitch, float yaw, float roll, float out[3]) {
+    const float p = pitch * kDeg2Rad, y = yaw * kDeg2Rad, r = roll * kDeg2Rad;
+    const float cp = std::cos(p), sp = std::sin(p);
+    const float cy = std::cos(y), sy = std::sin(y);
+    const float cr = std::cos(r), sr = std::sin(r);
+    const float c = std::sqrt(cy * cy * cr * cr + sr * sr);
+    out[1] = std::atan2(sy * cr, c) * kRad2Deg;
+    out[0] = (c > 1e-5f ? std::atan2(sy * sr * cp - cy * sp,
+                                    sy * sr * sp + cy * cp)
+                          : -p) * kRad2Deg;
+    out[2] = (c > 1e-5f ? std::atan2(sr, cy * cr) : 0.0f) * kRad2Deg;
+}
+
 void wheelAnchors(const DriveSpec& spec, const DriveState& state, float out[4][3]) {
-    const float c = std::cos(state.yaw * kDeg2Rad), s = std::sin(state.yaw * kDeg2Rad);
     const float hx = 0.5f * spec.track, hz = 0.5f * spec.wheelBase;
     // FL, FR, RL, RR - Detection::wheels order.
     const float local[4][2] = {{-hx, hz}, {hx, hz}, {-hx, -hz}, {hx, -hz}};
+    float up[3];
+    rotateVehicleLocal(0.0f, 1.0f, 0.0f, state.pitch + state.leanPitch,
+                       state.yaw, state.roll + state.leanRoll, up);
     for (int i = 0; i < 4; ++i) {
-        const float lx = local[i][0], lz = local[i][1];
-        out[i][0] = state.pos[0] + lx * c + lz * s;
-        out[i][1] = state.pos[1];
-        out[i][2] = state.pos[2] - lx * s + lz * c;
+        float hard[3];
+        rotateVehicleLocal(local[i][0], 0.0f, local[i][1],
+                           state.pitch + state.leanPitch, state.yaw,
+                           state.roll + state.leanRoll, hard);
+        const float travel =
+            (state.wheelCompress[i] - 0.5f) * 2.0f * spec.suspensionTravel;
+        out[i][0] = state.pos[0] + hard[0] + up[0] * travel;
+        out[i][1] = state.pos[1] + hard[1] + up[1] * travel;
+        out[i][2] = state.pos[2] + hard[2] + up[2] * travel;
     }
 }
 
@@ -577,19 +626,49 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
     // the roll from one query each - which is the whole reason a heightfield
     // vehicle is affordable at all.
     float anchors[4][3];
-    wheelAnchors(spec, state, anchors);
+    // Contact sampling uses the physical chassis attitude but neutral
+    // suspension. Cosmetic weight transfer and last frame's compression must
+    // not feed back into the ground plane they are derived from.
+    DriveState contactPose = state;
+    contactPose.leanPitch = contactPose.leanRoll = 0.0f;
+    for (float& c : contactPose.wheelCompress) c = 0.5f;
+    wheelAnchors(spec, contactPose, anchors);
     float gy[4];
     float sum = 0.0f;
-    bool anyGround = false;
+    int groundCount = 0;
     for (int i = 0; i < 4; ++i) {
         gy[i] = height ? height(anchors[i][0], anchors[i][2]) : 0.0f;
         // TERRAIN_VOID_Y: a scene with no terrain answers "unreachably low",
         // so "there is no floor here" needs no branch of its own.
-        if (gy[i] > -1e5f) anyGround = true;
-        sum += gy[i];
+        if (gy[i] > -1e5f) { ++groundCount; sum += gy[i]; }
     }
-    const float planeY = sum * 0.25f;
+    const bool anyGround = groundCount > 0;
+    const float planeY = anyGround ? sum / groundCount : -1e9f;
+    // A missing contact is not a kilometre-deep suspension sample.
+    for (float& y : gy) if (y <= -1e5f) y = planeY;
     const float restY = planeY + spec.rideHeight;
+    float bodyFloorY = -1e9f;
+    // Wheels define the contact plane, but the body extends beyond both axle
+    // lines. On a sharp crest the wheel plane can be valid while the bumper or
+    // bonnet is already underground. Six cheap clearance probes lift only the
+    // sprung body; steering and traction still come from the four tyres.
+    if (height) {
+        const float hx = spec.track * 0.42f;
+        const float hz = 0.5f * spec.wheelBase +
+                         std::max(spec.bodyOverhang, 0.0f);
+        const float px[6] = {0.0f, -hx, hx, 0.0f, -hx, hx};
+        const float pz[6] = {hz, hz, hz, -hz, -hz, -hz};
+        for (int i = 0; i < 6; ++i) {
+            float off[3];
+            rotateVehicleLocal(px[i], -0.65f * spec.rideHeight, pz[i],
+                               state.pitch, state.yaw, state.roll, off);
+            const float floor = height(state.pos[0] + off[0],
+                                       state.pos[2] + off[2]);
+            if (floor <= -1e5f) continue;
+            const float need = floor - off[1] + 0.03f;
+            bodyFloorY = std::max(bodyFloorY, need);
+        }
+    }
 
     // THE SPRUNG RIG. The body used to snap to the plane (pos[1] = restY
     // instantly) with the attitude chasing its target at a fixed rate - and
@@ -616,24 +695,32 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
     if (state.grounded) {
         // Heave: critically-ish damped spring toward the plane. wn 14 rad/s
         // (~2.2 Hz - an arcade car's body, firm but visibly alive), damping
-        // 0.9 of critical - one soft settle, no wobble. Semi-implicit Euler,
-        // stable at 50 Hz by a wide margin (wn*dt = 0.28).
+        // 0.9 of critical - one soft settle, no wobble. Implicit integration
+        // keeps the same damping sign even during a 50 ms frame.
         {
             const float wn = 14.0f, zeta = 0.9f;
             // Feed-forward: damp against the velocity RELATIVE to the
             // plane, not absolute - a plain spring lags a ramp by a
             // constant (v * 2 zeta / wn, half a unit on a fast climb) and
             // the body rode under the terrain for the whole hill.
+            // Only translation across the tyre plane supplies feed-forward.
+            // Differentiating the clearance floor injected the attitude's own
+            // corrections back as upward impulses, especially at uneven dt.
             const float planeVel =
-                state.lastRestY < 1e8f ? (restY - state.lastRestY) / dt : 0.0f;
-            state.velY += (wn * wn * (restY - state.pos[1]) -
-                           2.0f * zeta * wn * (state.velY - planeVel)) *
-                          dt;
+                0.5f * (gy[0] + gy[1] - gy[2] - gy[3]) * state.speed /
+                    std::max(spec.wheelBase, 0.01f) +
+                0.5f * (gy[1] + gy[3] - gy[0] - gy[2]) * state.lateral /
+                    std::max(spec.track, 0.01f);
+            // Implicit spring: stable throughout the accepted 0..50 ms step.
+            state.velY = (state.velY + dt * (wn * wn * (restY - state.pos[1]) +
+                           2.0f * zeta * wn * planeVel)) /
+                         (1.0f + 2.0f * zeta * wn * dt + wn * wn * dt * dt);
             state.pos[1] += state.velY * dt;
             // The spring may not put the body UNDER the ground plane by more
             // than the suspension has travel - a cliff-base slam bottoms out
             // against a hard floor instead of clipping through it.
-            const float floorY = restY - spec.suspensionTravel;
+            const float floorY = std::max(restY - spec.suspensionTravel,
+                                          bodyFloorY);
             if (state.pos[1] < floorY) {
                 state.pos[1] = floorY;
                 if (state.velY < 0.0f) state.velY = 0.0f;
@@ -642,8 +729,19 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
 
         const float frontY = 0.5f * (gy[0] + gy[1]), rearY = 0.5f * (gy[2] + gy[3]);
         const float leftY = 0.5f * (gy[0] + gy[2]), rightY = 0.5f * (gy[1] + gy[3]);
-        const float tPitch = std::atan2(frontY - rearY, std::max(spec.wheelBase, 0.01f)) * kRad2Deg;
-        const float tRoll = std::atan2(rightY - leftY, std::max(spec.track, 0.01f)) * kRad2Deg;
+        // Fit the sampled plane using the actual projected hardpoint spacing.
+        // Dividing by the unprojected wheelbase made the result depend on the
+        // old attitude; treating roll as world-Z also reversed it after a turn.
+        const float fx = 0.5f * (anchors[0][0] + anchors[1][0] - anchors[2][0] - anchors[3][0]);
+        const float fz = 0.5f * (anchors[0][2] + anchors[1][2] - anchors[2][2] - anchors[3][2]);
+        const float rx = 0.5f * (anchors[1][0] + anchors[3][0] - anchors[0][0] - anchors[2][0]);
+        const float rz = 0.5f * (anchors[1][2] + anchors[3][2] - anchors[0][2] - anchors[2][2]);
+        const float fy = frontY - rearY, ry = rightY - leftY;
+        const float nx = fy * rz - fz * ry, ny = fz * rx - fx * rz, nz = fx * ry - fy * rx;
+        const float cy = std::cos(state.yaw * kDeg2Rad), sy = std::sin(state.yaw * kDeg2Rad);
+        const float localX = nx * cy - nz * sy, localZ = nx * sy + nz * cy;
+        const float tPitch = std::atan2(-localZ, std::sqrt(localX * localX + ny * ny)) * kRad2Deg;
+        const float tRoll = std::atan2(-localX, ny) * kRad2Deg;
         // Attitude: the same spring, slightly softer (wn 11) and a touch
         // underdamped (0.8) - the small overshoot on a crest is exactly the
         // body language a snap or a rate limit never had.
@@ -685,7 +783,8 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
             // SPRING absorbs it over the next frames - no snap to the plane
             // and no instant velY kill, which used to slam a jump flat in
             // one frame. Only the hard floor holds.
-            const float floorY = restY - spec.suspensionTravel;
+            const float floorY = std::max(restY - spec.suspensionTravel,
+                                          bodyFloorY);
             if (state.pos[1] < floorY) {
                 state.pos[1] = floorY;
                 if (state.velY < 0.0f) state.velY = 0.0f;
@@ -705,8 +804,6 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
             state.roll += state.rollVel * dt;
         }
     }
-
-    state.lastRestY = anyGround ? restY : 1e9f;
 
     // --- the powertrain, before the longitudinal step -----------------------
     // The gear is resolved from the speed the car ALREADY has, which is what

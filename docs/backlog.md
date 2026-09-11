@@ -13,7 +13,86 @@ git show <retirement-commit>^:PROGRESS.md
 git log -p --follow -- PROGRESS.md
 ```
 
+### Judge openvcl against the ps2gl fixtures
+
+Twelve of upstream's own `test/fixtures` are real third-party VU code and no
+oracle has read them yet. The immediates are handled now (operators are tokens,
+division truncates toward zero as both assemblers do — measured); what remains is
+nested-`MUL` modelling in `pb-dag.py`. At the first point the oracle disputes, the
+compiler was verified correct by hand, so this is about the instrument's reach and
+not a suspected defect. Positive control as always: the same pass over Sony's
+output for the same sources.
+
+### Send the openvcl defect reports upstream
+
+`docs/upstream-openvcl.md` carries the defects this work found, each with a
+mechanism and a reproducer, several firing on the stock commit with no flags.
+Nothing has been submitted and no pull request is open.
+
+### Regenerate the 70-program assembler snapshot
+
+The corpus used as a stability anchor predates the clip-path rewrite, so it is
+valid for "identical inputs must give the same md5" and wrong for absolute sizes.
+Regenerate it from a real engine build, in its own commit, and re-anchor the md5.
+
+### Align the ABI metadata of embedded IOP IRX blobs
+
+The native PS2DEV linker emits one `linking abicalls files with non-abicalls
+files` warning for every IRX embedded in `libtyra.a` (`audsrv`, `padman`,
+`fileXio`, USB and related modules). They are IOP binaries converted to EE data
+objects by `bin2s`, not game code, so builds and PCSX2 launches are currently
+unaffected. Make the generated assembly object's ABI mode explicitly match the
+EE build rather than suppressing the linker warning. Verify a clean link and a
+native boot that exercises audio, pad input, host filesystem and USB input.
+
+## Visual showcase directions
+
+See [Rendering directions](rendering-directions.md) for the assessed roadmap:
+offline foliage impostors, local vegetation interaction, better probe lighting
+and source assets first; crowds and texture paging only with measured budgets.
+The eight-view cylindrical impostor implementation is documented in
+[Distant foliage impostors](impostors.md). Follow-up candidates are transition blending, elevated
+captures, screen-size thresholds, per-view rendering and grouped distant draws.
+
 ## Small
+
+### An input replay cannot reproduce a memory-card save
+
+The input recorder (`docs/input-replay.md`) reproduces a run by performing the
+same input against the same build. Everything the game's own behaviour depends
+on is recorded - both pads, the keyboard and mouse, `dt`, the procedural seeds -
+with one hole: the **PCSX2 memory card persists between runs**, so a game that
+reads a save starts from wherever the last session left it, and the replay
+quietly describes a different world from frame one.
+
+`--clear-saves` covers the host-side fallback (`bin/save<N>.sav`,
+`bin/profile.sav`) and is enough for most projects, because those are what a
+`host:` boot writes. The card is not cheap to reach: the editor would have to
+know which card image the emulator is configured to use, and either swap it or
+write a blank one, per launch. Two options worth measuring before choosing:
+
+- point PCSX2 at a per-project card in the launch arguments and delete it on a
+  `--clear-saves` run - simple, but it changes what the emulator does for every
+  run of that project, not just a recorded one;
+- record the save FILE into the recording as an opening block. That makes a
+  recording self-contained and would also fix "the recording works on my
+  machine", at the price of the format no longer being input-only.
+
+### The recorder's fingerprint stops at the player
+
+The per-frame divergence check records the player's position and the yaw/pitch
+of the view - twenty bytes, and enough to catch every divergence seen so far,
+because almost everything that can go different eventually moves the player. It
+will not catch a run that goes wrong somewhere the player never reaches: an NPC
+taking a different path, a flow variable landing on a different value, a spawned
+object appearing in the wrong place.
+
+The cheap extension is a rolling hash over a handful of `RuntimeObject`
+transforms rather than a second fingerprint kind - the time machine's capture
+walk (`liveTimeSource`) already knows how to enumerate exactly that state, so
+the two could share the walk. It was left out because it would have to be
+bounded (a 1000-object scene cannot hash every object every frame) and picking
+that bound is a measurement, not a guess.
 
 ### The guard band, on the other two routes
 
@@ -239,147 +318,113 @@ PCSX2's software blending of a 16-bit target, or a second draw of the same
 quad. Settle it before making either side match the other - the viewport
 currently reproduces the sprite exactly, which is the defensible half.
 
+### Run the shadow A/B rig against the spot runtime
+
+`.claude/skills/tyra-testing/scripts/make-shadow-fixture.ps1` +
+`shadow-ab.ps1` exist and are proven on `flashShadowVolumes` (see the
+tyra-testing skill, "The shadow A/B rig"), but the switch they were built for -
+`spotShadowVolumes` - has only the data model, format, UI and codegen behind it
+so far. When the runtime lands, run
+
+```powershell
+powershell -File .claude\skills\tyra-testing\scripts\shadow-ab.ps1 `
+    -Editor build-dev\tyrax-editor.exe -Project $env:TEMP\tyra-editor-test\spotab `
+    -Vantages $env:TEMP\tyra-editor-test\spotab\vantages.json `
+    -Toggle spotShadowVolumes -Values true,false -OutDir <scratch>\spotab
+```
+
+and quote the deltas. Two things the fixture is already shaped for and nobody
+has read a number off yet: the `between` vantage sees both lamp groups at once,
+which is where "only the nearest spot is active" should be visible as one group
+having a shadow and the other not; and setting `"shadowVolumes": 1` or `2` on
+ONE lamp's `objects/<id>.json` turns the same run into a test of the per-light
+override, where only the other lamp may move between the arms. A real-PS2 pass
+is separate again - the rig is PCSX2 only.
+
+### A projected shadow's reach does not know how big its caster is
+
+1.70.1 stopped the four silhouette slots from blinking, but it deliberately did
+not touch WHICH four win: it is still the four casters nearest the camera, and
+DONE 1.71.1 for the ranking (view cone + distance over radius, shadows.md "Which four win"); the far cull (Preferences > Projected shadow distance since 1.71.0, dissolving over its last 30 %) is the same number for a
+crate and for a building. Both are wrong in the same direction — screen area,
+not distance, is what makes a shadow worth a slot — and on
+`examples/night-walk` the question does not arise, because every caster there
+is within a factor of 1.7 of the same bounding radius (2.50 to 4.23), which is
+why the flicker was the whole of the reported defect. Two shapes were
+considered and rejected without measurement, so neither is settled: ranking by
+`d / r` (inverse angular size), which lets a facade 45 units off outrank a prop
+at 10 while the distance fade has already dimmed it to a third; and `d - r`,
+distance to the caster's surface, which is milder and principled but still
+untested. A fixture with deliberately mixed caster sizes is what this needs
+first — the shadow A/B rig above, run as a vantage LINE, reads it straight off.
+
+### `physObstacle` misses two marker types `objectCollides` skips
+
+`TerrainGame::objectCollides` is the one list of "types with no geometry in the
+game", and `physObstacle` - what a falling rigid body bounces off - keeps its
+own copy by number. The two have drifted: the copy is missing **18** (a
+procedural volume) and **19** (a scroller belt marker), so a physics body
+deflects off an invisible authoring region that nothing else in the game
+collides with. Type 20 (a comment) was added to it when comments landed, which
+is what made the gap visible.
+
+The fix is almost certainly `return objectCollides(d);` - both already start
+with the same `collision == 2` opt-out and ask the same question - but it is a
+behaviour change for existing projects with a procedural volume or a belt in
+them, so it wants a PCSX2 check with a body dropped beside one, not just a
+compile. Left out of the comments change deliberately: it is somebody else's
+bug and it deserves its own before/after.
+
 ## Medium
 
-### Vehicles: what a drive still owes (docs/vehicles.md)
+### DONE 1.70.0: a spot light's shadow on a WALL
 
-The feature drives - enter, steer, drift and wall collision are all
-machine-verified on the emulator via the VEH telemetry - and these are the
-gaps, each with a testable end:
+Shipped: `PipelineInfoBag::dynLightSkipSlot` is the engine lever this entry
+asked for, and the receiver pass is the torch's with the lamp substituted
+([shadows.md](shadows.md)). The original note follows for the reasoning.
 
-- ~~**A drive is silent.**~~ DONE, and the interesting part is that the blocker
-  was never the pitch. `SD_VPARAM_PITCH` was always reachable, libsd was already
-  linked and `logVoiceState` already READ that register - what was missing was
-  that nothing could LOOP, and looping turned out to live in the ENCODED sample
-  rather than in the play call (`adpenc -L` sets the SPU2 block loop flags). So
-  the build encodes any `res/sfx/*-loop.wav` that way, the engine fork gained one
-  function (`AudioAdpcm::setPitch`), and the runtime quantises the register to 32
-  steps because `sceSdSetParam` is a blocking `SifCallRpc`. Two instruments were
-  needed to call it done: the telemetry for the TRACKING (idle 800 rpm -> pitch
-  1408, 6585 -> 4192, dropping at every upshift) and a capture of PCSX2's own
-  audio output for the AUDIBILITY (spectral centroid 194 Hz idle -> 417 Hz at the
-  first-gear redline -> 243 Hz after changing up). Left here for the rule: a
-  sound feature needs both, because a correct register nobody can hear and an
-  audible noise that ignores the sim look identical in a log.
+Spot-light shadow volumes ship in 1.67.0 ([shadows.md](shadows.md)) and carve
+the lamp's ground pool only. The torch also draws its light on the solid
+geometry in its beam - a second, additive pass over the receiver's own
+triangles with the gobo's projective STQ, `wBag`/`wTexBag`/`wColorBag` and a
+shared 3997-vertex budget - and that is what gives a torch shadow on a wall.
+The machinery is already shared for the volumes themselves (`pickVolCasters`,
+`buildVolMask` in `updateAndRenderLightPools`), so the fill is a third lambda
+away.
 
-- ~~**Hide a third-person avatar while driving.**~~ DONE. `vehicleDrivingAnd`
-  ANDs `vehicleDriver_ < 0` into the line that already applies a cutscene's *Hide
-  player*, so the condition is the driver state itself - no flag to clear, and
-  getting out restores the avatar with no second writer. Left here for the fact
-  that produced it: that line exists TWICE, once per game-cpp head, and a
-  placeholder that reached only one of them would work in an orbit project and not
-  in an FPP one.
-- ~~**The distant one-submit tier.**~~ DONE in 1.81.0 - the paint part's LOD
-  tiers carry the wheels, the body row's meshLod is the definition's
-  farDistance, the wheel bag stops when the body shows a tier, and `lod` in
-  the VEHAI line is the switch made visible. The enabling change was letting
-  matrix-path objects tier at all (local-space tier bake).
-- **Hardware frame cost.** The two submits are a design property, not a
-  measurement - nothing has timed a driven frame on a real PS2 (docs/profiling.md
-  has the method). Done when docs/vehicles.md quotes measured EE ms for one
-  car driving, the way the BLSS page quotes its fill numbers.
-- ~~**Vehicle-vs-vehicle and vehicle-vs-physics.**~~ DONE - car vs car in
-  1.66.0 (momentum, two discs per body), car vs physics body in 1.80.0: the
-  gather sets bodies aside instead of listing them as walls, and the car
-  kicks every body its rectangle reaches along its motion (PHYS_PUSH over the
-  body's mass, plus a hop so it tumbles). The example carries three crates at
-  the end of the start straight.
-- ~~**AI traffic.**~~ DONE in 1.65.0 - a `rival` patrols the example's
-  four-Area circuit with no pad attached, proven by VEHAI telemetry. What
-  remains of the original idea is the A* half: the patrol is a baked waypoint
-  loop, not navigation - a car that ROUTES (avoids walls it did not author,
-  picks a path to a moving target) would go through navigation.gen.cpp the way
-  the walkers do, and that is its own feature. ~~Also still open: several AI
-  cars avoiding EACH OTHER, which today they do not.~~ DONE in 1.80.0, one
-  frame deep: a car ahead within a speed-scaled lookahead steers the rival
-  off it, lifts its throttle and brakes when closing. The example runs two
-  rivals on one circuit.
-- **The Runner's stale-emulator matcher misses a QUOTED -elf.** A PCSX2
-  launched out-of-band with `-elf '<path>'` (single quotes, as a shell passes
-  it) survived many `--build --run` cycles of the same project - two instances
-  then interleave writes into one bin/log.txt and both poll one livepad.bin,
-  which cost an hour of "the pad is dead / the car is not at spawn" phantoms
-  before `ps aux` told the truth. killEmulatorsFor should normalise quoting
-  before matching, and a diagnostic "N other emulator(s) on this ELF" line in
-  the Runner would have named it immediately.
-- **~~The example never drove with mesh lamps.~~ FIXED (1.79.0)** - the CC96
-  names `headlights`/`rear lights`, and the bake split them out, but the editor
-  adopted the lamp measurements only inside the "drive spec at defaults" guard
-  (false for every car whose wheelbase had been adopted earlier) and the build
-  bake ran AFTER refreshGenerated, so codegen read -1 for a part the same build
-  had just written. Both commit messages that said "the CC96 names no lamp
-  materials" were wrong - nothing had measured it. The lesson kept here: **a
-  "no such input" claim about a fixture is a claim to check with one grep of
-  the asset**, and a measurement the bake hands back to the definition must
-  land through one adoption function that every path calls (adoptMeasured),
-  or the GUI, the Runner and the CLI drift three ways.
-- **~~Tail/brake lamps submit and do not show.~~ FIXED** - two stacked
-  causes, neither the suspected blend path: the lights BOOKKEEPING sat in
-  the smoke's slip-gated block (a car that never slipped never initialised
-  its lights - the probe showed the drifting rival lit while the parked
-  player stayed dark), and the lamp quads were sized under the rear trim's
-  black band (the giant-quad probe proved vertical quads render fine).
-  Per-frame bookkeeping + lamps sized past the trim; verified dim vs flare
-  on camera.
+**What blocks it is double lighting, not the fill.** The torch turns its own
+cone off on each receiver first (`setFlashSpotOff` -> `PipelineInfoBag::
+spotLit`); there is no equivalent for one SCENE light, and `dynLightPick =
+false` removes every dynamic light from the bag. A wall drawn by both paths
+reads twice as bright and its carved shadow darkens only half of it, which
+looks like a bug.
 
-- **(old entry, resolved)** The glow bag counts
-  them (probe: n=5 = beam pool + two double-sided lamps) and the screen
-  shows nothing, through THREE variants: additive FIX blend, reversed
-  winding (double-sided verticals), and the smoke's proven alpha-over. The
-  beam POOL was sighted exactly once (additive, pre-bodyOverhang positions,
-  viewed from the front through R3) and never re-sighted from the chase
-  camera. Suspects, in order: the UNTEXTURED + PipelineZTest_TestOnly path
-  (the smoke that proves TestOnly is a BILLBOARD bag with a texture bag
-  attached; the collision overlay that proves untextured runs standard z),
-  the translucent-tail draw position, or per-bag state leaking from the
-  submit before. Next probe: give the glow bag a dummy texture bag like the
-  smoke's, or draw it once with standard z to bisect. The lamp code itself
-  (positions past bodyOverhang, brake flare, DpadUp toggle) is in and
-  exercised. The skid marks ride the same untextured+TestOnly recipe and
-  their on-screen sighting is ALSO unconfirmed - one bisect likely answers
-  both.
-- **Nitro speed blur (GS previous-frame feedback) - DROPPED for now** by the
-  author's call ("ten blur na razie zlejmy"). The idea stays era-correct
-  (blend the previous framebuffer over the current while nosActive); the
-  entry point is renderer_core_postfx and the frame extrapolation path, and
-  the risk is GS bandwidth on a frame already at 22-40 ms.
-- **~~A car can escape the arena through a wall corner-case.~~ FIXED** - the
-  suspect was right (a yaw change sweeps a corner through geometry with no
-  position delta to refuse), and the fix is the overlapped-case rule in both
-  twins: a car with blocked sample points may only move AWAY from their
-  centroid, so a swept-in corner can grind and back out but never cross. The
-  same round widened the test to eight points (a pillar narrower than the
-  corner spacing drove straight between four) and reproduced the escape live
-  (x 232 with the wall at 152) before closing it; --vehicle-check holds it as
-  three properties (pillar, overlapped, thin wall). What remains open is the
-  ROTATION itself: yaw is still never collision-checked, so a corner can
-  still sweep INTO an overlap (and now gets stuck grinding instead of
-  escaping) - refusing the yaw change is still a candidate polish.
-- ~~**The editor test drive ignores instance scale.**~~ DONE in 1.80.0 - a
-  `scale` argument on `vehiclesim::step`, scaled on a COPY inside (wheelbase,
-  track, ride height, suspension travel, overhang - the runtime's exact set,
-  wheel radius deliberately not), so specFields stays the one list and the
-  harness keeps calling with the raw spec.
-- **The editor test drive's walls are approximate.** World AABBs via
-  placement, not the console's slide resolver - a rotated wall blocks a wider
-  footprint in the editor than on the console. Fine for tuning; worth one
-  sentence of honesty in the panel if anyone reports it.
-- ~~**No speedometer.**~~ DONE - speed, gear and the nitrous tank through
-  `drawFontText`, verified on the console reading 88 / gear 5 / NOS 3. A TACHO is
-  still open, and the reason it is not a small addition is that a PS2 sprite is
-  AXIS-ALIGNED: a swinging needle is not a sprite rotation but either a pre-baked
-  sheet per angle or a small bag of geometry. Left here for the trap the first
-  version hit - the nitrous line sat at 0.945 of the frame height, where the
-  emulator's own picture already cut it in half and a CRT would have lost it
-  entirely. Anything added to that readout gets checked against
-  docs/safe-areas.md, from the bottom row up.
-- **~~Vehicle buttons bypass the Input Map.~~ DONE** - six roles
-  (`veh-throttle/brake/handbrake/nitrous/camera/rearview`) with seeds matching
-  the old hardcoded buttons, single-slot codegen constants, and a hardwired
-  fallback per role for maps that deleted an action. Proven the way the entry
-  asked: the fixture's throttle rebound from Cross to L2 drove on L2. The
-  analog reads (steering stick, stick throttle, d-pad ghost fallback, R2's
-  extra gas) stay hardwired by design - an axis is not an action.
+The likely shape of an answer: the engine picks ONE light per bag
+(`RendererCore::pickDynLight`), so an opt-out that names a light index - "this
+bag skips light N, keeps the rest" - would be the exact analogue of `spotLit`
+and is a small engine change. Then the wall pass is the torch's, with the
+lamp's origin/aim/cone/reach substituted, inside the bracket the lamp already
+opens. Verify with the `spotvol` fixture recipe in the 1.67.0 commit: a wall
+3 u behind the caster, one capture with the override on and one with it off.
+
+
+### ANSWERED: the guard does run under ps2link, and guards nothing
+
+```
+SIF RPC guard: seen 306,   guarded 0
+SIF RPC guard: seen 14329, guarded 0     <- ~150 completions/second
+SIF RPC guard: seen 29483, guarded 0
+```
+
+Fresh boot verified by the protocol below (two boot lines in the capture, first
+`VRAMSTAT` at `f=120`). So the handler **is** on the dispatch path on hardware -
+~29 500 completions in ~200 s - and none of them needed guarding. Every earlier
+zero was therefore a real negative, not a handler that was never asked. It also
+works in PCSX2 (429 completions), so both targets are covered.
+
+Getting to that took three retracted conclusions, and the protocol that survives
+is the useful residue:
+
 - **A deploy is only fresh if the capture proves it.** Require a boot line
   (`Clut set` / `Pad initialized`) or a low first `VRAMSTAT f=`. `bin/livedbg.bin`
   appearing proves nothing: a game still running from an earlier deploy resumes
@@ -733,3 +778,42 @@ runtime write into `bin/frame.tga`, a Debugger button, the TXDEVKIT marker +
 `kStringNeedles` entry, and stale-file cleanup in both Runner launch paths. It
 is the only capture path that survives a locked desktop, and the only one that
 exists at all on a real console. See [live-debugger](live-debugger.md).
+
+### Preview the AO-only lightmaps in the viewport
+
+The viewport now draws the GI cache's terrain map and primitive atlas per
+pixel (docs/global-illumination.md, "The editor viewport"), but a scene with
+GI off still previews its ambient occlusion through the analytic per-fragment
+twin: that atlas is written by texbake at build time and never cached, so
+there is nothing for the viewport to read. Baking it host-side on demand
+(`aobake::bakeSceneLightAtlas` is sub-second on the examples) and feeding it
+through the same `setGiAtlas` seam would make the AO preview texel-exact too.
+While there: the GI bake's ground grid follows object footprint AABBs, so a
+ROTATED thin wall still shows a faint version of the straddling teeth at its
+AABB's corners - splitting the ground cells along the rotated footprint is the
+fix if anyone reports it.
+
+
+## Animated probe lighting
+
+Full signed RGB SH L1 now reaches animated and explicitly dynamic-lit receivers
+without larger probe tables or extra passes (docs/global-illumination.md).
+Next quality candidates: contact occlusion around feet, visibility-aware probe
+interpolation to reduce light leaking through thin walls, then exact normals
+under nonuniform scale/shear. L2, animated self-shadowing and surface-transfer
+PRT need separate measurements and are not implied by full RGB L1.
+
+### Previous humanoid LOD hang: not reproduced
+
+The earlier three-humanoid meshLod 1.5 doorway hang had no identified cause.
+After exact duplicate-corner skin reuse, the same scene passed the doorway
+walk; a second fixture forced tiers 0/1/2 every 120 frames and ran beyond
+2400 ticks without stopping. This is a successful stress test, not proof of a
+specific hang fix. If it recurs, preserve the ELF, scene, log and pad sequence
+before rebuilding. The shipped example still uses one full-mesh humanoid and
+lightweight neutral receivers. Avatar skin time fell from about 10.8 to 5.6 ms
+in PCSX2, with identical geometry and full-rate animation.
+
+- Impostor follow-up: measure cold versus warm batch GPU capture time and consider
+  background batch baking. Configurable 4/8/16 views and optional GPU capture
+  with CPU fallback are implemented; see [impostors](impostors.md).

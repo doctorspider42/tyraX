@@ -36,6 +36,7 @@
 #include "json.hpp"
 #include "menubake.hpp"
 #include "objparser.hpp"
+#include "impostorbake.hpp"
 #include "pngquant.hpp"
 #include "uvunwrap.hpp"
 #include "stochtile.hpp"
@@ -87,8 +88,57 @@ static const char* typeLabel(PrimitiveType t) {
         case PrimitiveType::Scroller: return "Scroller";
         case PrimitiveType::Road: return "Road";
         case PrimitiveType::Vehicle: return "Vehicle";
+        case PrimitiveType::Comment: return "Comment";
     }
     return "Object";
+}
+
+// The runtime shadow choice is shared by ordinary geometry and vehicles.
+// Keep it in one widget so exposing it on a new renderable type cannot leave
+// that type with a subtly different set of choices or help text.
+static bool drawDynamicShadowControls(SceneObject& o) {
+    bool changed = false;
+    const char* shadowNames[] = {"Default (follow the project)", "None",
+                                 "Blob (soft quad)",
+                                 "Projected silhouette"};
+    int mode = o.shadowMode;
+    if (mode < 0 || mode > 3) mode = 0;
+    if (ImGui::Combo("Dynamic shadow", &mode, shadowNames, 4)) {
+        o.shadowMode = mode;
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "What this object casts while the game runs.\n"
+            "DEFAULT - the project decides: a blob under the moving\n"
+            "things (avatar, animated models, physics) if Preferences\n"
+            "has blob shadows on, plus the silhouette below if it is\n"
+            "ticked.\n"
+            "NONE - nothing, whatever the project says.\n"
+            "BLOB - one soft dark quad that follows the ground under\n"
+            "it. Cheap enough for traffic and crowds; it has no shape\n"
+            "of its own.\n"
+            "PROJECTED - the real silhouette: the object renders a\n"
+            "second time each frame (64x64, from the sun). The 4\n"
+            "casters largest on screen are active at a time, so use it\n"
+            "for the player's car and other hero objects.\n"
+            "Game-only (no preview). 'Cast shadow' is the BAKED, static\n"
+            "shadow - a different thing entirely.");
+    // The old flag still means "projected" while the mode follows the
+    // project, so it stays reachable for existing projects.
+    if (o.shadowMode == 0) {
+        if (ImGui::Checkbox("Projected shadow (live)", &o.projShadow))
+            changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "The project-default form of the choice above. Pick\n"
+                "\"Projected silhouette\" in the combo to say it on the\n"
+                "object instead.\n"
+                "With a GI bake a static object's sun shadow is already\n"
+                "baked: the live one then draws only while the day/night\n"
+                "clock runs or under a torch. The combo forces it.");
+    }
+    return changed;
 }
 
 // Area reference picker (docs/areas.md): the scene's Area objects plus
@@ -215,6 +265,10 @@ void App::drawPropertiesWindow() {
         o.type == PrimitiveType::Plane;
     const bool isSolid =
         isShape || o.type == PrimitiveType::Model || o.type == PrimitiveType::SavePoint;
+    // An editor note (docs/comments.md). Declared up here with isSolid because
+    // it is a NEGATIVE gate as much as a positive one: a comment is not a game
+    // object, so the sections that describe behaviour are skipped for it.
+    const bool isComment = o.type == PrimitiveType::Comment;
 
     char nameBuf[128];
     std::snprintf(nameBuf, sizeof(nameBuf), "%s", o.name.c_str());
@@ -286,6 +340,52 @@ void App::drawPropertiesWindow() {
             }
             ImGui::EndCombo();
         }
+    }
+
+    // --- The note itself (docs/comments.md) ---------------------------------
+    // First, and given as much room as it has text: the viewport shows an icon
+    // and the opening lines, so this is where a long note is actually read,
+    // written and copied out of. The field grows with the text up to 24 rows
+    // and scrolls after that, and it has no length limit at all - a note is
+    // prose, and a truncating buffer would silently eat the end of one.
+    if (isComment) {
+        ImGui::SeparatorText("Note");
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        // A note that was just created is empty and is the only thing anyone
+        // wants to do with it, so addComment() hands the field the keyboard.
+        // SetWindowFocus() is applied at the end of drawUI, after this window
+        // has already been submitted. An inactive dock tab still runs this
+        // body with SkipItems set, so consuming the flag there would focus
+        // nothing and leave the newly-created note empty when the user starts
+        // typing. Keep it armed until Properties is actually the front tab.
+        if (commentFocus_ &&
+            ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
+            ImGui::SetKeyboardFocusHere();
+            commentFocus_ = false;
+        }
+        inputTextProse("##commenttext", o.commentText, &committed, 24);
+        if (ImGui::SmallButton("Copy text")) {
+            ImGui::SetClipboardText(o.commentText.c_str());
+            statusMessage_ = "Note copied to the clipboard";
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Puts the whole note on the clipboard, including\n"
+                              "the part the viewport bubble does not show.");
+        ImGui::SameLine();
+        {
+            int lines = o.commentText.empty() ? 0 : 1;
+            for (char c : o.commentText)
+                if (c == '\n') ++lines;
+            ImGui::TextDisabled("%d characters, %d line%s",
+                                (int)o.commentText.size(), lines,
+                                lines == 1 ? "" : "s");
+        }
+        ImGui::TextDisabled("Editor only - notes never reach the game.");
+        prefHelp(
+            "A comment is pinned to a place in the scene and drawn as a\n"
+            "message icon over the viewport; selecting it shows the text\n"
+            "there too. View > Comments hides them all while you work.\n"
+            "Nothing about a note is generated, baked or shipped.");
     }
 
     if (isShape) {
@@ -390,6 +490,10 @@ void App::drawPropertiesWindow() {
                 "corners (invisible, no collider). Empty = parked until the\n"
                 "player takes it. The player taking THIS car pauses its AI.");
         }
+        ImGui::SeparatorText("Rendering");
+        if (drawDynamicShadowControls(o)) committed = true;
+        ImGui::TextDisabled(
+            "Blob suits traffic; projected silhouette suits the hero car.");
     }
     if (o.type == PrimitiveType::Model) {
         // model file: pick among the project's res/models assets
@@ -574,17 +678,11 @@ void App::drawPropertiesWindow() {
         ImGui::SeparatorText("Points");
         int removeAt = -1, insertAfter = -1;
         const int np = (int)(o.roadPoints.size() / 2);
-        if (o.roadHeights.size() != (size_t)np)
-            o.roadHeights.resize((size_t)np, 0.0f);
         for (int i = 0; i < np; ++i) {
             ImGui::PushID(i);
             float* px = &o.roadPoints[(size_t)i * 2];
             ImGui::SetNextItemWidth(scaled(170));
             ImGui::DragFloat2("##pt", px, 0.25f, 0.0f, 0.0f, "%.1f");
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(scaled(64));
-            ImGui::DragFloat("##lift", &o.roadHeights[(size_t)i], 0.1f, 0.0f,
-                             30.0f, "^%.1f");
             ImGui::SameLine();
             if (ImGui::SmallButton("+")) insertAfter = i;
             ImGui::SameLine();
@@ -603,19 +701,12 @@ void App::drawPropertiesWindow() {
                 nz = 2.0f * o.roadPoints[at - 1] - o.roadPoints[at - 3];
             }
             o.roadPoints.insert(o.roadPoints.begin() + at, {nx, nz});
-            if (o.roadHeights.size() >= (size_t)(insertAfter + 1))
-                o.roadHeights.insert(
-                    o.roadHeights.begin() + (insertAfter + 1),
-                    0.5f * (o.roadHeights[(size_t)insertAfter] +
-                            (insertAfter + 1 < (int)o.roadHeights.size()
-                                 ? o.roadHeights[(size_t)insertAfter + 1]
-                                 : o.roadHeights[(size_t)insertAfter])));
+            o.roadHeights.clear();
         }
         if (removeAt >= 0) {
             o.roadPoints.erase(o.roadPoints.begin() + (size_t)removeAt * 2,
                                o.roadPoints.begin() + (size_t)removeAt * 2 + 2);
-            if ((size_t)removeAt < o.roadHeights.size())
-                o.roadHeights.erase(o.roadHeights.begin() + removeAt);
+            o.roadHeights.clear();
         }
         if (ImGui::Button(roadEdit_ ? "Stop editing (Esc)" : "Edit in viewport"))
             roadEdit_ = !roadEdit_;
@@ -680,10 +771,13 @@ void App::drawPropertiesWindow() {
     // Color: mesh tint for solids, particle tint for emitters, light color
     // for point lights, marker tint + free per-object parameter for empties,
     // texture tint for decals, marker/frustum tint for camera entities, glass
-    // tint for mirrors, inactive-surface tint for portals. The remaining
-    // markers draw in fixed colors.
+    // tint for mirrors, inactive-surface tint for portals, and the icon tint
+    // for a comment (which is how a scene full of notes gets categories -
+    // red for a bug, green for something settled). The remaining markers draw
+    // in fixed colors.
     if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal || isArea ||
-        o.type == PrimitiveType::Emitter || o.type == PrimitiveType::PointLight) {
+        isComment || o.type == PrimitiveType::Emitter ||
+        o.type == PrimitiveType::PointLight) {
         ImGui::ColorEdit3("Color", o.color);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
@@ -955,20 +1049,9 @@ void App::drawPropertiesWindow() {
                 "second small render per frame. Editor preview shows the sky\n"
                 "only; check reflections in the game.");
 
-        // Real-shape projected shadow - the RUNTIME one, distinct from the
-        // baked ambient-occlusion "Cast shadow" below: a silhouette
-        // rendered from the sun into a small VRAM target and projected onto
-        // the terrain. The caster pays a second render, hence opt-in.
-        if (ImGui::Checkbox("Projected shadow (live)", &o.projShadow))
-            committed = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Real silhouette shadow on the terrain: the object renders a\n"
-                "second time each frame (64x64, from the sun) and the shape\n"
-                "is projected under it. The 4 casters nearest the camera are\n"
-                "active at a time - mark hero objects, not everything.\n"
-                "Follows animation and movement; game-only (no preview).\n"
-                "'Cast shadow' below is the baked, static one.");
+        // THE RUNTIME shadow, distinct from the baked ambient-occlusion
+        // "Cast shadow" below (docs/shadows.md).
+        if (drawDynamicShadowControls(o)) committed = true;
         // Baked ambient occlusion: whether this object darkens nearby
         // terrain/objects (docs/ambient-occlusion.md; global strength in
         // the Ambience Editor).
@@ -1488,6 +1571,7 @@ void App::drawPropertiesWindow() {
                     // scenery only - not markers or the scroller itself
                     const bool ok =
                         t.type != PrimitiveType::Scroller &&
+                        t.type != PrimitiveType::Comment &&
                         t.type != PrimitiveType::Player &&
                         t.type != PrimitiveType::Camera &&
                         t.type != PrimitiveType::SpawnPoint && t.name != o.name;
@@ -1789,6 +1873,35 @@ void App::drawPropertiesWindow() {
                 ImGui::DragFloat("Cone half-angle", &o.lightSpotAngle, 0.2f,
                                  5.0f, 60.0f, "%.0f deg");
                 committed |= ImGui::IsItemDeactivatedAfterEdit();
+                // Whether this cone carves shadow volumes, said on the light
+                // rather than for the whole project - the "Dynamic shadow"
+                // idiom further up this panel. A real label, not a "##id":
+                // a hidden label is a widget no UI script can name
+                // (docs/ui-scripting.md). The name does not collide with
+                // "Dynamic shadow" above, and there is no other "Shadow
+                // volumes" widget in this window - a label IS the ImGui id.
+                const char* volNames[] = {"Default (follow the project)",
+                                          "Off", "On"};
+                int vol = o.lightShadowVolumes;
+                if (vol < 0 || vol > 2) vol = 0;
+                if (ImGui::Combo("Shadow volumes", &vol, volNames, 3)) {
+                    o.lightShadowVolumes = vol;
+                    committed = true;
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Whether this spot light's cone is occluded per pixel\n"
+                        "by the solids inside it, the way the player's torch\n"
+                        "can be (docs/shadows.md).\n"
+                        "DEFAULT - the project decides (Preferences >\n"
+                        "Rendering > Spot light shadow volumes).\n"
+                        "OFF - this lamp shines through everything, whatever\n"
+                        "the project says.\n"
+                        "ON - this lamp casts, even in a project that leaves\n"
+                        "the rest of them off.\n"
+                        "Only ONE spot light casts volumes per frame - the\n"
+                        "nearest to the camera. Setting this to On is how you\n"
+                        "say which lamp deserves it. Game-only (no preview).");
             }
         }
         if (o.lightDynamic) {
@@ -2189,6 +2302,27 @@ void App::drawPropertiesWindow() {
             ImGui::DragFloat("Cone half-angle (deg)", &o.flashlightAngle, 0.5f, 2.0f,
                              80.0f, "%.1f");
             committed |= ImGui::IsItemDeactivatedAfterEdit();
+            // Where the torch is HELD. At 0,0 the light sits exactly in the
+            // eye, which is what a first-person torch did until now - and a
+            // light on the view axis lights precisely the surfaces it hides,
+            // so its shadows fall behind their casters where nobody can see
+            // them.
+            ImGui::DragFloat("Held right (units)", &o.flashlightOffsetRight,
+                             0.01f, -1.0f, 1.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("Held below eye (units)", &o.flashlightOffsetDown,
+                             0.01f, -1.0f, 1.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::TextDisabled("0,0 = the light is your eye (no visible shadows).");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Moves the beam origin off the view axis, like a torch\n"
+                    "in a hand: the pool shifts a little and the shadows\n"
+                    "it casts stop hiding behind whatever casts them.\n"
+                    "The AIM still follows where you look. About 0.2\n"
+                    "right and 0.3 down reads as hand-held; past a\n"
+                    "metre it is a lamp on a pole and the cone stops\n"
+                    "agreeing with it.");
         }
         // Optional pad button the player presses to turn the beam on/off. The
         // on/off state only shows while Enabled (it respects Enabled), and the
@@ -2266,8 +2400,10 @@ void App::drawPropertiesWindow() {
     // src/scripts/*.cpp with TYRA_OBJECT_SCRIPT(Name). The game creates one
     // instance per attachment at scene load - the same class on five objects
     // runs as five independent instances, each seeing its object as `self`.
-    ImGui::SeparatorText("Scripts");
-    {
+    // ...but not on a comment: an editor note has no behaviour to attach
+    // anything to, and the game never sees the object at all.
+    if (!isComment) {
+        ImGui::SeparatorText("Scripts");
         const std::vector<std::string> registered = objectScriptNames();
         auto isRegistered = [&](const std::string& n) {
             for (const std::string& r : registered)
@@ -2391,7 +2527,9 @@ void App::drawMultiProperties() {
         float c[3] = {0, 0, 0};
         std::vector<std::string> names;
         for (auto* p : objs) {
-            if (p->type == PrimitiveType::Scroller) continue;
+            if (p->type == PrimitiveType::Scroller ||
+                p->type == PrimitiveType::Comment)
+                continue;
             names.push_back(p->name);
             for (int a = 0; a < 3; ++a) c[a] += p->position[a];
         }
@@ -2742,6 +2880,54 @@ bool App::drawLodOverrides(SceneObject& o, bool animated) {
     if (animated)
         row("animation LOD", o.animLodOverride, project_.settings.animLodDistance);
     row("mesh LOD", o.meshLodOverride, project_.settings.meshLodDistance);
+    if (!animated && o.type == PrimitiveType::Model) {
+        const bool supported = !o.physics && !o.modelPath.empty() &&
+            std::fabs(o.rotation[0]) < .001f && std::fabs(o.rotation[2]) < .001f &&
+            o.scale[0] > 0 && o.scale[1] > 0 && std::fabs(o.scale[0]-o.scale[2]) < .0001f;
+        if (modelImpostorObject_ != o.id) {
+            modelImpostorObject_ = o.id;
+            modelImpostorViews_ = o.impostorViews;
+        }
+        int captureChoice = modelImpostorViews_ == 4 ? 0 : modelImpostorViews_ == 16 ? 2 : 1;
+        if (ImGui::Combo("Capture views", &captureChoice, "4 views\0" "8 views\0" "16 views\0"))
+            modelImpostorViews_ = 4 << captureChoice;
+        ImGui::Checkbox("Impostor GPU", &impostorGpu_);
+        ImGui::TextDisabled("Applied on bake; GPU falls back to CPU if unavailable.");
+        ImGui::BeginDisabled(!supported);
+        if (ImGui::Button("Bake impostor")) {
+            std::string key = o.id;
+            for (char& c : key)
+                if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                      (c >= '0' && c <= '9') || c == '-')) c = '_';
+            std::string path, error, backend;
+            float extent = 0;
+            if (impostorbake::model(project_.dir, o.modelPath, o.materialPath,
+                    "res/models/impostors/model-"+key, &path, &extent, &error, 128, modelImpostorViews_, impostorGpu_, &backend)) {
+                o.impostorPath = path;
+                o.impostorBillboard = true;
+                o.impostorViews = modelImpostorViews_;
+                if (o.impostorDistance <= 0)
+                    o.impostorDistance = std::max(1.0f, extent*std::max(o.scale[0],o.scale[1])*6.0f);
+                viewport_.invalidateAssets();
+                committed = true;
+                statusMessage_ = "Baked " + std::to_string(o.impostorViews) + "-view impostor (" + backend + ") for '" + o.name + "'";
+            } else statusMessage_ = "Impostor bake failed: " + error;
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Bake this OBJ and its material into the selected number of 128px views.\n"
+                              "Requires a static, upright object with equal positive X/Z scale.\n"
+                              "Reflection and emission are unsupported. Rebuild the game after baking.");
+    }
+    if (!animated && !o.impostorPath.empty()) {
+        ImGui::TextWrapped("Impostor: %s (%d views)", o.impostorPath.c_str(), o.impostorViews);
+        ImGui::DragFloat("Impostor distance", &o.impostorDistance, 1.0f,
+                          0.0f, 2000.0f, "%.0f units");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("0 disables the distant model. Collision keeps the original mesh.\n"
+                              "Eight-view cards approximate the silhouette; the swap is not blended.");
+    }
     return committed;
 }
 

@@ -1,6 +1,8 @@
 #include "roadgen.hpp"
 
+#include <algorithm>
 #include <cmath>
+#include <utility>
 
 // The tessellator (docs/roads.md). TWIN NOTICE: the generated runtime carries
 // this arithmetic as a raw string in templates.cpp (buildRoads) - change one
@@ -34,34 +36,25 @@ inline P sample(const std::vector<float>& pts, int seg, float t) {
     return {cr(p0.x, p1.x, p2.x, p3.x, t), cr(p0.z, p1.z, p2.z, p3.z, t)};
 }
 
-inline float liftOf(const std::vector<float>& lifts, int n, int i) {
-    if (lifts.empty()) return 0.0f;
-    if (i < 0) i = 0;
-    if (i > n - 1) i = n - 1;
-    return i < (int)lifts.size() ? (lifts[(size_t)i] > 0.0f ? lifts[(size_t)i] : 0.0f)
-                                 : 0.0f;
-}
-
-inline float sampleLift(const std::vector<float>& lifts, int n, int seg, float t) {
-    if (lifts.empty()) return 0.0f;
-    const float l = cr(liftOf(lifts, n, seg - 1), liftOf(lifts, n, seg),
-                       liftOf(lifts, n, seg + 1), liftOf(lifts, n, seg + 2), t);
-    return l > 0.0f ? l : 0.0f;
-}
-
 }  // namespace
 
 float tessellate(const std::vector<float>& pointsXZ, float width,
                  const HeightFn& height, std::vector<Vertex>& out,
                  const std::vector<float>& lifts) {
+    (void)lifts;  // legacy project field; roads are always terrain-projected
     out.clear();
     const int n = (int)(pointsXZ.size() / 2);
     if (n < 2) return 0.0f;
     const float hw = 0.5f * (width > 0.1f ? width : 0.1f);
 
-    // Sample the whole spline first: pairs of edge vertices per station,
-    // the right vector from the local tangent, V from the running arc.
-    std::vector<Vertex> left, right;
+    // Sample the whole spline first: a terrain-projected row per station,
+    // the right vector from the local tangent, V from the running arc. The
+    // lateral subdivisions matter as much as the longitudinal ones: an edge-
+    // only strip is one plane across the full width and terrain can pierce it
+    // between the shoulders.
+    const int crossSteps = std::max(
+        1, (int)std::ceil((hw * 2.0f) / kCrossSampleStep));
+    std::vector<std::vector<Vertex>> rows;
     float arc = 0.0f;
     P prev = sample(pointsXZ, 0, 0.0f);
     for (int seg = 0; seg < n - 1; ++seg) {
@@ -73,10 +66,21 @@ float tessellate(const std::vector<float>& pointsXZ, float width,
         for (int k = (seg == 0 ? 0 : 1); k <= steps; ++k) {
             const float t = (float)k / (float)steps;
             const P c = sample(pointsXZ, seg, t);
-            // Tangent from a small step ahead (cheap and stable at joints).
-            const P c2 = t + 0.05f <= 1.0f ? sample(pointsXZ, seg, t + 0.05f)
-                                           : sample(pointsXZ, seg + 1, 0.05f);
-            float tx = c2.x - c.x, tz = c2.z - c.z;
+            // One-sided tangent at the two ends, forward elsewhere. Sampling
+            // seg + 1 past the final segment clamps every control point to the
+            // endpoint and produces a zero vector; the old world-axis fallback
+            // then rotated the last road row abruptly and made a flared/twisted
+            // end cap.
+            P tangentFrom = c, tangentTo = c;
+            if (t + 0.05f <= 1.0f || seg + 1 < n - 1) {
+                tangentTo = t + 0.05f <= 1.0f
+                                ? sample(pointsXZ, seg, t + 0.05f)
+                                : sample(pointsXZ, seg + 1, 0.05f);
+            } else {
+                tangentFrom = sample(pointsXZ, seg, std::max(0.0f, t - 0.05f));
+            }
+            float tx = tangentTo.x - tangentFrom.x;
+            float tz = tangentTo.z - tangentFrom.z;
             const float tl = std::sqrt(tx * tx + tz * tz);
             if (tl > 1e-6f) {
                 tx /= tl;
@@ -91,33 +95,34 @@ float tessellate(const std::vector<float>& pointsXZ, float width,
                              (c.z - prev.z) * (c.z - prev.z));
             prev = c;
             const float v = arc / kTexLen;
-            const float lift = sampleLift(lifts, n, seg, t);
-            Vertex l, r;
-            l.x = c.x - rx;
-            l.z = c.z - rz;
-            l.y = (height ? height(l.x, l.z) : 0.0f) + kLift + lift;
-            l.u = 0.0f;
-            l.v = v;
-            r.x = c.x + rx;
-            r.z = c.z + rz;
-            r.y = (height ? height(r.x, r.z) : 0.0f) + kLift + lift;
-            r.u = 1.0f;
-            r.v = v;
-            left.push_back(l);
-            right.push_back(r);
+            std::vector<Vertex> row;
+            row.reserve((size_t)crossSteps + 1);
+            for (int j = 0; j <= crossSteps; ++j) {
+                const float u = (float)j / (float)crossSteps;
+                const float side = u * 2.0f - 1.0f;
+                Vertex q;
+                q.x = c.x + rx * side;
+                q.z = c.z + rz * side;
+                q.y = (height ? height(q.x, q.z) : 0.0f) + kLift;
+                q.u = u;
+                q.v = v;
+                row.push_back(q);
+            }
+            rows.push_back(std::move(row));
         }
     }
 
-    // Stitch: two triangles per station pair. Wound counter-clockwise seen
-    // from above (+Y), the terrain's own convention.
-    for (size_t i = 0; i + 1 < left.size(); ++i) {
-        out.push_back(left[i]);
-        out.push_back(right[i]);
-        out.push_back(right[i + 1]);
-        out.push_back(left[i]);
-        out.push_back(right[i + 1]);
-        out.push_back(left[i + 1]);
-    }
+    // Stitch every lateral cell. Wound counter-clockwise seen from above
+    // (+Y), the terrain's own convention.
+    for (size_t i = 0; i + 1 < rows.size(); ++i)
+        for (int j = 0; j < crossSteps; ++j) {
+            out.push_back(rows[i][(size_t)j]);
+            out.push_back(rows[i][(size_t)j + 1]);
+            out.push_back(rows[i + 1][(size_t)j + 1]);
+            out.push_back(rows[i][(size_t)j]);
+            out.push_back(rows[i + 1][(size_t)j + 1]);
+            out.push_back(rows[i + 1][(size_t)j]);
+        }
     return arc;
 }
 

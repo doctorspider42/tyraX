@@ -342,6 +342,145 @@ void roughRide() {
     verdict(st.pos[2] > 350.0f, "the car keeps its pace across the ridges");
 }
 
+// 8. THE ANALYTIC FOUR-WHEEL RIG: wheel hardpoints are rigid children of the
+//    full chassis attitude, suspension moves along chassis-up rather than
+//    world Y, and the body footprint cannot pass through a crest beyond the
+//    axle lines. These are geometry properties; no skeleton or IK is involved.
+void analyticWheelRig() {
+    std::printf("-- analytic four-wheel rig --\n");
+    DriveSpec s;
+    s.wheelBase = 2.4f;
+    s.track = 1.5f;
+    s.suspensionTravel = 0.4f;
+    DriveState st;
+    st.pos[0] = 3.0f;
+    st.pos[1] = 4.0f;
+    st.pos[2] = 5.0f;
+    st.pitch = 18.0f;
+    st.yaw = 37.0f;
+    st.roll = -12.0f;
+    float neutral[4][3], compressed[4][3];
+    wheelAnchors(s, st, neutral);
+    for (float& c : st.wheelCompress) c = 0.8f;
+    wheelAnchors(s, st, compressed);
+    auto dist = [](const float a[3], const float b[3]) {
+        const float x = a[0] - b[0], y = a[1] - b[1], z = a[2] - b[2];
+        return std::sqrt(x * x + y * y + z * z);
+    };
+    const float frontTrack = dist(neutral[0], neutral[1]);
+    const float leftBase = dist(neutral[0], neutral[2]);
+    float worstTravel = 0.0f;
+    for (int i = 0; i < 4; ++i)
+        worstTravel = std::max(
+            worstTravel,
+            std::fabs(dist(neutral[i], compressed[i]) - 0.6f * s.suspensionTravel));
+    std::printf("  rigid track %.3f, base %.3f, suspension error %.6f\n",
+                frontTrack, leftBase, worstTravel);
+    verdict(std::fabs(frontTrack - s.track) < 1e-4f &&
+                std::fabs(leftBase - s.wheelBase) < 1e-4f,
+            "full-attitude hardpoints preserve track and wheelbase");
+    verdict(std::fabs(neutral[0][1] - neutral[3][1]) > 0.1f,
+            "pitch and roll move wheel centres vertically with their arches");
+    verdict(worstTravel < 1e-4f,
+            "suspension displacement follows chassis-up at authored travel");
+
+    DriveSpec crestSpec;
+    crestSpec.wheelBase = 2.4f;
+    crestSpec.bodyOverhang = 0.8f;
+    crestSpec.rideHeight = 0.5f;
+    crestSpec.suspensionTravel = 0.3f;
+    auto crest = [](float, float z) {
+        return z > 1.8f && z < 2.2f ? 1.0f : 0.0f;
+    };
+    DriveState crestState;
+    crestState.pos[1] = crestSpec.rideHeight;
+    step(crestSpec, {}, 1.0f / 50.0f, crest, crestState);
+    std::printf("  sharp-crest body y %.3f (clearance floor 1.355)\n",
+                crestState.pos[1]);
+    verdict(crestState.pos[1] >= 1.354f,
+            "body overhang cannot pass through a crest beyond the axles");
+}
+
+void terrainStability() {
+    std::printf("-- banks, frame spikes and missing contacts --\n");
+    auto bank = [](float x, float z) { return 0.3f * x + 0.2f * z; };
+    float worstPlaneError = 0.0f;
+    for (float heading : {0.0f, 45.0f, 90.0f, 135.0f, 180.0f, 270.0f}) {
+        for (float dt : {0.008333333f, 0.02f, 0.04f, 0.05f}) {
+            DriveSpec s;
+            DriveState st;
+            st.yaw = heading;
+            st.pos[1] = s.rideHeight;
+            for (int i = 0; i < 1000; ++i) {
+                step(s, {}, dt, bank, st);
+                // Restrain translation like a parked-car fixture, retain
+                // gravity so initial clearance can settle back onto tyres.
+                st.pos[0] = st.pos[2] = st.speed = st.lateral = 0.0f;
+            }
+            st.leanPitch = st.leanRoll = 0.0f;
+            for (float& c : st.wheelCompress) c = 0.5f;
+            float a[4][3];
+            wheelAnchors(s, st, a);
+            const float base = a[0][1] - bank(a[0][0], a[0][2]);
+            for (int w = 1; w < 4; ++w)
+                worstPlaneError = std::max(worstPlaneError,
+                    std::fabs(a[w][1] - bank(a[w][0], a[w][2]) - base));
+        }
+    }
+    std::printf("  bank hardpoint plane error %.6f across headings and 20..120 Hz\n", worstPlaneError);
+    verdict(worstPlaneError < 0.002f,
+            "chassis follows the same bank in every heading and frame rate");
+
+    float worstRenderError = 0.0f;
+    for (float heading : {0.0f, 45.0f, 89.999f, 90.0f, 180.0f, 270.0f}) {
+        for (float roll : {-25.0f, 0.0f, 25.0f}) {
+            DriveSpec spec;
+            DriveState pose;
+            pose.pitch = 17.0f;
+            pose.roll = roll;
+            pose.yaw = heading;
+            float e[3], a[4][3];
+            bodyRotation(pose.pitch, pose.yaw, pose.roll, e);
+            wheelAnchors(spec, pose, a);
+            // Independently apply the generic renderer's X, Y, Z order to
+            // the front-left arch, including the Euler singular headings.
+            float x = -spec.track * 0.5f, y = 0.0f, z = spec.wheelBase * 0.5f;
+            constexpr float d = 3.14159265358979f / 180.0f;
+            float n = y * std::cos(e[0]*d) - z * std::sin(e[0]*d);
+            z = y * std::sin(e[0]*d) + z * std::cos(e[0]*d); y = n;
+            n = x * std::cos(e[1]*d) + z * std::sin(e[1]*d);
+            z = -x * std::sin(e[1]*d) + z * std::cos(e[1]*d); x = n;
+            n = x * std::cos(e[2]*d) - y * std::sin(e[2]*d);
+            y = x * std::sin(e[2]*d) + y * std::cos(e[2]*d); x = n;
+            worstRenderError = std::max(worstRenderError,
+                std::fabs(x-a[0][0]) + std::fabs(y-a[0][1]) + std::fabs(z-a[0][2]));
+        }
+    }
+    verdict(worstRenderError < 0.0001f,
+            "generic body renderer and local wheel rig agree at every heading");
+
+    DriveSpec s;
+    DriveState st;
+    st.pos[1] = s.rideHeight;
+    auto edge = [](float x, float) { return x > 0.0f ? -1e9f : 0.0f; };
+    for (int i = 0; i < 100; ++i) step(s, {}, 0.02f, edge, st);
+    verdict(st.grounded && std::fabs(st.pos[1] - s.rideHeight) < 0.01f,
+            "two missing wheel samples do not poison the support plane");
+
+    // A stationary bumper on a raised patch needs a clearance correction,
+    // never a launch. The old floor derivative kicked the body upward.
+    st = {};
+    st.pos[1] = s.rideHeight;
+    auto patch = [](float, float z) { return z > 1.2f ? 0.65f : 0.0f; };
+    float upward = 0.0f;
+    for (int i = 0; i < 400; ++i) {
+        step(s, {}, i % 2 ? 0.008333333f : 0.05f, patch, st);
+        upward = std::max(upward, st.velY);
+    }
+    std::printf("  clearance-only upward speed %.6f\n", upward);
+    verdict(upward < 0.01f, "body clearance cannot manufacture launch velocity");
+}
+
 }  // namespace
 
 int run() {
@@ -353,6 +492,8 @@ int run() {
     lean();
     hill();
     roughRide();
+    analyticWheelRig();
+    terrainStability();
     if (failures) {
         std::printf("vehicle-check: %d FAILURE(S)\n", failures);
         return 1;

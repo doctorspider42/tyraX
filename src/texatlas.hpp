@@ -34,6 +34,16 @@
 // against bilinear bleed.
 namespace texatlas {
 
+// Why a texture is NOT on a page. Every rejection is recorded so the
+// editor's Texture Atlas window can answer "why is this not atlased?" -
+// the question the feature used to answer only by silence (an entire
+// example project atlased nothing because its map_Kd tokens carried a
+// subdirectory).
+struct Excluded {
+    std::string resRel;  // best-effort res-relative path (or the raw token)
+    std::string reason;  // one short human sentence
+};
+
 struct Entry {
     std::string resRel;   // member: res-relative PNG ("res/models/x.png")
     std::string pageRel;  // its page: res-relative baked-only PNG
@@ -47,16 +57,38 @@ struct Entry {
 struct Plan {
     int pageSize = 256;
     std::vector<Entry> entries;      // sorted deterministically
-    std::vector<std::string> pages;  // res-relative page paths, by index
+    std::vector<std::string> pages;      // res-relative page paths, by index
+    std::vector<std::string> pageGroup;  // per page: the group it packs
+    // Per page: 4, 8 or 32 bits per pixel. A page is quantized as ONE image,
+    // so its depth is the group's, not the members' - it follows the project's
+    // texture quality unless a member asked for more (Project::AtlasControl::
+    // pageBits, highest wins). A 4-bit page is HALF the VRAM of an 8-bit one
+    // (32.25 KB against 65) and moves the break-even from about sixteen 64x64
+    // members to about eight; it costs one 16-colour palette for the whole
+    // page, which is why the hue bucketing below matters more at 4 bits than
+    // it ever did at 8.
+    std::vector<int> pageBits;
+    std::vector<Excluded> excluded;      // rejected candidates + why
     // page quantization: false = palettized 256-color page (the shared-CLUT
     // trade of the era), true = full color (project quantization is "none")
     bool fullColor = false;
+    // The depth of one page (32 when the plan predates the field).
+    int bitsOf(int page) const {
+        return page >= 0 && page < (int)pageBits.size() ? pageBits[page]
+                                                        : (fullColor ? 32 : 8);
+    }
     const Entry* find(const std::string& resRel) const {
         for (const Entry& e : entries)
             if (e.resRel == resRel) return &e;
         return nullptr;
     }
     bool empty() const { return entries.empty(); }
+    // The group a page packs ("" when the plan carries no group info).
+    const std::string& groupOf(int page) const {
+        static const std::string none;
+        return page >= 0 && page < (int)pageGroup.size() ? pageGroup[page]
+                                                         : none;
+    }
 };
 
 // Computes the plan. Empty when ProjectSettings::textureAtlas is off or
@@ -66,5 +98,19 @@ Plan plan(const Project& p);
 // "Texture atlas: N textures in M pages" ("" for an empty plan) - the boot
 // log line codegen bakes into the game.
 std::string info(const Plan& plan);
+
+// What the plan does to GS VRAM, in KB, for the textures it touches: what
+// its members would cost as individual allocations against what their pages
+// cost. This is the number the feature is SOLD on, so it is computed rather
+// than asserted - and it is not always a saving: a 4-bit project's members
+// are 4 bpp each while a shared page is quantized to 256 colours, i.e. 8 bpp,
+// so packing many tiny textures can cost more than it saves. The editor's
+// Texture Atlas window and --atlas-report print both sides.
+struct VramEstimate {
+    int membersKb = 0;  // the members, unpacked, at the project's own depth
+    int pagesKb = 0;    // their pages
+    int savedKb = 0;    // membersKb - pagesKb (negative = the atlas costs)
+};
+VramEstimate vram(const Plan& plan, const Project& p);
 
 }  // namespace texatlas

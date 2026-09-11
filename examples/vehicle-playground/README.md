@@ -17,6 +17,10 @@ worked example for [vehicles](../../docs/vehicles.md).
   and a jump ridge along the western half. Every slope stays under the ~22 deg
   the car can climb at full power except the bowl's wall, which is meant to be
   ridden around, not up.
+- **An analytic four-wheel rig** keeps the separate wheel meshes attached to
+  fully transformed body hardpoints and moves suspension along body-up. The
+  dunes and jump ridge exercise the extra body-overhang clearance probes: the
+  bonnet cannot cut through a crest even though there is no skeletal IK rig.
 - **Perimeter walls** at ±152, so the wall collision has something to do — hit
   one at an angle and the car GRINDS along it, scrubbing speed by impact angle;
   head-on stops.
@@ -27,6 +31,10 @@ worked example for [vehicles](../../docs/vehicles.md).
   shoves a physics body instead of stopping at it.
 - **Two rivals** (`rival`, `rival-2`) patrolling the same four-Area circuit
   with no pad attached — and avoiding each other, and you, one frame ahead.
+- **Two dynamic-shadow tiers** on the same imported model: the coupe casts its
+  real projected silhouette, while both AI rivals use cheap terrain-following
+  blobs. Select a car and change it under *Properties > Rendering > Dynamic
+  shadow*.
 
 ## Driving it
 
@@ -38,6 +46,10 @@ gear-shift thunk — all generated deterministically by
 A **road** (docs/roads.md) runs from south of the spawn through the pillar
 field toward the north-east: a five-point spline, tessellated onto the
 terrain at boot, textured by `tools/road-texture.py`'s deterministic asphalt.
+The editor shows that same depth-tested, terrain-projected strip beneath the
+spline handles, so the authored road is no longer represented by a grey overlay.
+Its vertices query the terrain's actual triangle planes and the road can be
+selected by clicking anywhere on the asphalt, not only at its authoring anchor.
 
 Walk up to the car and press **USE** (Square by default). The camera moves to a
 lagged boom behind the car;
@@ -107,18 +119,37 @@ the loop advancing.
 
 ## What it costs
 
-The build says so on every run:
+The build says so on every run. The budgeted bake also rebuilds crease-aware
+normals, which keeps the coupe's fenders and tyres round without adding a submit:
 
 ```
-[vehicle] CC96: body 1072 tris / 1 part(s), wheel 416 tris, 2 submit(s) per vehicle
+[vehicle] CC96: body 1936 tris / 3 part(s), wheel 588 tris, 4 submit(s) per vehicle
 ```
 
-**Two submits per car** is the whole point. The source model is 40 materials and
-8780 triangles — 36 mesh parts, and a `.tmdl` part is one bag at roughly 1 ms of
-fixed EE time, so the car as authored would be nearly two PAL frames of submit
-overhead standing still. The body is one bag on the matrix fast path (VU1 moves
-it, the EE touches no vertex) and all four wheels share a second bag rebuilt in
-world space each frame.
+The base car is two submits; this fixture deliberately enables the two visual
+opt-ins that add one each: reflective paint splits matte trim, and working lamp
+materials get their own emissive part. The source model is 40 materials and 8780
+triangles; this fixture keeps a 2400-triangle body baseline so the curved
+fenders and glass survive the reduction cleanly. It starts as 36 mesh parts,
+and a `.tmdl` part is one bag at roughly 1 ms of fixed EE time, so the car as
+authored would be nearly two PAL frames of submit overhead standing still. The
+main body stays on the matrix fast path (VU1 moves it, the EE
+touches no vertex) and all four wheels share one bag rebuilt in world space each
+frame.
+
+The wheel batch now composes its transform once per wheel, retaining the same
+mesh budget and appearance. Suspension clearance no longer launches a stationary
+car off a raised patch, and bank alignment uses the car's local frame at every
+heading. Run `tyrax-editor --vehicle-check` for the slope, frame-spike and
+missing-contact regression cases before a pad test on the dunes.
+
+Measured on PCSX2's software renderer at the unchanged starting camera:
+the 7056-vertex wheel batch (CPU preparation plus submit) fell from **14.519 ms
+to 5.087 ms**, about **65% less**. These are COP0-timed averages over 100-frame
+windows (31 baseline and 15 updated windows after warm-up), not an estimate
+from FPS. The two 512x512 captures differed in **zero pixels**. This prices
+the wheel path in that pose; driving, AI visibility and other scene work still
+change the total frame budget.
 
 Tune any of it in *Tools > Vehicle Editor*, and use its **Test drive** tab to
 feel a grip change immediately instead of waiting for a Docker build.

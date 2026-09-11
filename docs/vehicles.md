@@ -23,6 +23,20 @@ the matte trim off the paint (reflection is per part), and lamp materials
 become one fullbright `lamps` part the runtime recolours per instance. The
 reference car with both is **four**.
 
+Each placed vehicle also has **Properties > Rendering > Dynamic shadow**:
+**Projected silhouette** is the higher-quality choice for the player's car,
+while **Blob** is the low-cost choice for AI traffic. The selection belongs to
+the placed instance, not the shared vehicle definition, so one CC96 can be the
+projected hero and twenty CC96 rivals can use blobs. Both use the imported
+body's actual bounds for their footprint/framing and follow player-driven and
+AI-driven transforms. See [shadows.md](shadows.md) for the four projected-slot
+budget and the project-default behaviour.
+
+The wheel batch composes spin, steering, body attitude and instance scale into
+three matrix columns **once per wheel**. Each vertex then needs only a matrix
+multiply and translation; no per-vertex trigonometry. Geometry, UVs and the
+number of submits are unchanged.
+
 Rebuilding four wheels' worth of vertices per frame on the EE sounds expensive
 and is not: a decimated wheel is a few hundred vertices, and the transform is
 VU0 macro-mode work measured in microseconds against the millisecond a second
@@ -131,7 +145,15 @@ colours in a 128×8 strip.**
 
 PS2-era cars are 1–3k triangles; the reference asset is 8780. The bake decimates
 through `meshlod` (the same quadric-error collapse both model bakes already
-use) toward a per-vehicle budget — body 1500, wheel 700 by default.
+use) toward a per-vehicle budget — body 2400, wheel 700 by default. The old
+1500-body default was too aggressive for curved fenders and sloped glass at the
+camera distances used by a driving game; existing definitions keep their
+authored value, while new imports and the vehicle playground use the rounder
+2400-triangle baseline. The QEM wrapper converts that triangle budget through
+the source part's measured triangle/vertex ratio. Its previous hard-coded
+closed-manifold ratio made a requested 2400-triangle multi-material body land
+at only 1256, which is why the slider removed far more shape than its label
+promised.
 
 The wheel budget is much higher than a PS2 wheel would suggest because a wheel is
 several materials, and meshlod **locks material seams**, so the collapse cannot
@@ -222,10 +244,18 @@ everything else a scene does.
   the ride height, the pitch and the roll from one query each, which is what
   makes a heightfield vehicle affordable at all. A scene with no terrain answers
   `TERRAIN_VOID_Y`, so "there is no floor" needs no branch of its own.
+- **Contact orientation is local to the car.** Pitch and roll are applied
+  before heading. `vehiclesim::bodyRotation` and the generated
+  `vehBodyRotation` convert that frame to the ordinary renderer's XYZ Euler
+  convention; both body and wheels use it. The plane fit uses the actual
+  projected wheel spacing. Applying roll around world Z made a bank behave
+  differently after turning, and reversed the tilt at some headings.
+  Missing terrain samples are excluded from the mean and neutralized in the
+  fit, never averaged as kilometre-deep ground. No valid sample means airborne.
 - **The body is a SPRUNG RIG.** Height, pitch and roll are damped
   second-order springs pulled toward the terrain-derived targets (heave
-  wn 14 rad/s at 0.9 of critical with plane-velocity feed-forward so a climb
-  tracks with no droop; attitude wn 11 at 0.8, softly overshooting a crest;
+  wn 14 rad/s at 0.9 of critical with translation-over-slope feed-forward;
+  attitude wn 11 at 0.8, softly overshooting a crest;
   airborne both glide level at wn 4). The body used to SNAP to the plane
   while a rate-limited attitude hung mid-swing over every ridge — the mean
   of four samples jumps across a crest, so the body teleported vertically
@@ -238,28 +268,50 @@ everything else a scene does.
   steering and the tyres for a frame. Held as a `--vehicle-check` property:
   full throttle across a washboard of sharp ridges keeps the per-frame
   height step under 0.3, the attitude sane and the pace up.
+  Heave uses an implicit step throughout the accepted 0–50 ms interval.
+  The six body-clearance probes impose a position floor only: they cannot
+  raise the spring target or feed a height derivative back as launch velocity.
+  The old derivative gave a stationary bumper on a raised patch 5.46 units/s
+  upward with alternating 50/8.33 ms steps. Regression checks cover that case,
+  partial terrain support, and bank alignment at six headings and 20–120 Hz.
+- **The four wheels are an analytic rig, not IK.** Each hardpoint is transformed
+  by the chassis' full pitch/yaw/roll attitude, then its suspension displacement
+  runs along the transformed chassis-up axis. The separately batched wheel mesh
+  gets spin, steering and that same full body attitude in the same order. The
+  previous runtime transformed body vertices in all three axes but placed wheel
+  X/Z with yaw only; on a crest the wheel arch and wheel were literally in two
+  different coordinate frames. Six extra terrain probes under the front and
+  rear body overhangs now provide a hard clearance floor, so a valid four-tyre
+  contact plane cannot put the bonnet or bumper through a sharp crest.
 - **Suspension compression is presentation**, derived from each wheel's ground
   height against the *tilted* chassis plane — the residual the pitch and roll do
-  not already express. On the console the wheel bag actually DRAWS it: each hub
-  rides one radius above its own wheel's sampled ground, clamped
-  **asymmetrically** — 65% of `suspensionTravel` in compression, 45% in droop.
-  Both ends are tighter than the sim's travel on purpose: this clamp is the
-  wheel against the ARCH, not the spring — at a full travel up the wheel rode
-  visibly through the bodywork.
+  not already express. On the console each hub aims for one radius above its own
+  sampled ground, solved along chassis-up and clamped **asymmetrically** — 45% of
+  `suspensionTravel` in droop, while upward travel is capped by both 10% of
+  suspension travel and 6% of tyre radius. The old 30% travel-only cap let a
+  scaled hub move roughly 23% of its radius into the vehicle playground's tight
+  arch.
   A kerb still shoves a wheel up into the arch and a crest still shows daylight
   under a tyre, but a wheel hanging a whole travel below the body read as
   falling off the car, which is exactly how it was reported. The
-  **weight-transfer lean moves the wheels WITH the body**: squat, dive and
+  **weight-transfer lean moves the wheel clamp WITH the body**: squat, dive and
   corner roll are cosmetic — no ground caused them — so a leaning body over
   ground-stuck wheels opened daylight at the arches on flat ground (4° of squat
   over the front overhang is ~0.11 units of gap). Each hub adds the body
-  plane's lean offset at its own anchor; the terrain-derived pitch and roll
-  stay out of it, because those the wheels answer with their own ground
-  sampling — which is the suspension look. (The editor's
-  preview keeps the wheels at ride height — a known, stated divergence.) Measured against the mean instead, a constant slope reads
+  plane's fully rotated offset at its own anchor; the tyre still starts from
+  its own ground sample, and only the arch-safe clamp corrects it. The editor
+  preview uses the same hardpoint-plus-body-up construction. Measured against
+  the mean instead, a constant slope reads
   as fully compressed at one axle and fully extended at the other while the body
   is in fact riding it level. Driving one wheel over a kerb gives
   `[0.40 0.60 0.60 0.40]`: the diagonal racking four springs actually produce.
+
+- **Budgeted vehicle meshes keep their curves.** A body or wheel that exceeds
+  its triangle budget still goes through the same QEM collapse, but the vehicle
+  bake now rebuilds crease-aware normals afterwards. Faces within 55 degrees
+  share their lighting; sharper bonnet, glass and panel edges remain split.
+  This removes the folded-cardboard look from curved fenders and tyres without
+  increasing the authored triangle budget or the number of runtime submits.
 
 Two traps this cost, both worth not repeating:
 

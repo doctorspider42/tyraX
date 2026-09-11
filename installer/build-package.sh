@@ -153,6 +153,11 @@ stage_tree() {  # stage_tree <marker word>
         \( -name .git -o -path './engine/obj' -o -path './engine/bin' \
            -o -path './audsrv/.work' \) -prune -o -type f
 
+    copy_tree "$REPO/vendor/openvcl" "$STAGE/vendor/openvcl" \
+        \( -name .git -o -name build -o -name openvcl \) -prune -o -type f
+    copy_tree "$REPO/vendor/vclpp" "$STAGE/vendor/vclpp" \
+        \( -name .git -o -name vclpp \) -prune -o -type f
+
     # ps2client (network deploy), the ps2link build scripts and the VS Code
     # extension package the editor installs on request. ps2client is fetched
     # per-OS by setup.sh, so this is the Linux build of it.

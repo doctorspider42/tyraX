@@ -187,6 +187,45 @@ M4 canonicalFromDetection(const vehiclesim::Detection& d) {
 
 int triCount(const std::vector<float>& verts) { return (int)(verts.size() / 24); }
 
+// The vehicle source carries authored normals, but a collapse must discard
+// them: its welded topology no longer matches their smoothing groups. Flat
+// normals made a sensibly budgeted curved body read like folded cardboard.
+// Rebuild a crease-aware normal instead: corners at the same position share
+// light only while their faces are within 55 degrees, so fenders and tyres
+// become round again without melting the bonnet, glass or panel edges.
+void recomputeCreasedNormals(std::vector<float>& verts) {
+    if (verts.size() < 24) return;
+    meshlod::recomputeFaceNormals(verts);
+    std::map<std::string, std::vector<size_t>> atPosition;
+    for (size_t c = 0; c + 7 < verts.size(); c += 8) {
+        std::string key(reinterpret_cast<const char*>(&verts[c]),
+                        3 * sizeof(float));
+        atPosition[key].push_back(c);
+    }
+    constexpr float kCosCrease = 0.57357644f;  // cos(55 degrees)
+    for (const auto& [key, corners] : atPosition) {
+        (void)key;
+        for (size_t c : corners) {
+            const float bx = verts[c + 3], by = verts[c + 4], bz = verts[c + 5];
+            float nx = 0.0f, ny = 0.0f, nz = 0.0f;
+            for (size_t n : corners) {
+                const float dot = bx * verts[n + 3] + by * verts[n + 4] +
+                                  bz * verts[n + 5];
+                if (dot < kCosCrease) continue;
+                nx += verts[n + 3];
+                ny += verts[n + 4];
+                nz += verts[n + 5];
+            }
+            const float len = std::sqrt(nx * nx + ny * ny + nz * nz);
+            if (len > 1e-8f) {
+                verts[c + 3] = nx / len;
+                verts[c + 4] = ny / len;
+                verts[c + 5] = nz / len;
+            }
+        }
+    }
+}
+
 // Decimates an interleaved 8-float triangle list toward a triangle budget.
 // keyNormals is FALSE and the normals are recomputed afterwards, per the trap
 // meshlod's own header spells out: a static mesh derives a flat normal per
@@ -195,14 +234,21 @@ int triCount(const std::vector<float>& verts) { return (int)(verts.size() / 24);
 void decimateTo(std::vector<float>& verts, int triBudget) {
     if (triBudget <= 0 || triCount(verts) <= triBudget) return;
     meshlod::Mesh m = meshlod::weldInterleaved(verts.data(), verts.size() / 8, false);
-    // Budget is in triangles; the collapse takes a vertex target. A closed
-    // manifold has roughly half as many vertices as triangles.
-    const size_t target = std::max<size_t>(12, (size_t)triBudget / 2);
+    // Budget is in triangles; the collapse takes a vertex target. The old
+    // fixed `/ 2` conversion only fits a closed manifold. A vehicle merged
+    // from many material shells has a very different triangle/vertex ratio,
+    // so a requested 2400-triangle body came out at 1256 and the slider felt
+    // brutally non-linear. Measure this mesh's own ratio instead.
+    const double trisPerVert =
+        (double)(m.tris.size() / 3) / (double)std::max<size_t>(m.vertexCount(), 1);
+    const size_t target = std::max<size_t>(
+        12, (size_t)std::ceil((double)triBudget /
+                              std::max(trisPerVert, 0.01)));
     if (m.vertexCount() <= target) return;
     meshlod::decimate(m, target);
     std::vector<float> out = meshlod::unweldInterleaved(m);
     if (out.size() >= 24) {
-        meshlod::recomputeFaceNormals(out);
+        recomputeCreasedNormals(out);
         verts.swap(out);
     }
 }

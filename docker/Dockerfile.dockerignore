@@ -1,0 +1,7 @@
+# BuildKit reads <dockerfile>.dockerignore in preference to a context-root
+# .dockerignore, which is why this sits next to the Dockerfile instead of at the
+# repo root: the context IS the repo root (vendor/, build/, examples/ - gigabytes
+# of it), and the image build needs exactly one file out of it.
+*
+!tools/ps2link/tyrax.patch
+!docker/openvcl-tyrax.patch

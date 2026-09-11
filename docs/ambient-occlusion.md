@@ -257,7 +257,11 @@ Volume* node rebuilt mid-game — is shaded correctly with nothing shipped.
   whole scene, which is exact (identical pixels, verified byte for byte on
   every example) and is the difference between **61 ms and 32 s** on a scene
   with 1100 casters. The generated game learned the same lesson earlier;
-  `aoCollectLocal` is its version.
+  `aoCollectLocal` is its version. The two per-texel bakes also run across
+  every core, scheduled per (region, row) — see
+  [global-illumination.md](global-illumination.md), "Where the time goes", which
+  is where that split actually earns its keep: with GI on, the same loops fire a
+  hemisphere gather per sub-sample instead of a handful of slab tests.
 - **Runtime blocks**: nothing per frame and nothing in VRAM — 26 bit tests per
   block, once, inside a generation pass that was already building that block's
   vertices. The chunk changes from flat to Gouraud shading, which the GS
