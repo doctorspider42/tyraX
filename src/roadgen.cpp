@@ -66,10 +66,21 @@ float tessellate(const std::vector<float>& pointsXZ, float width,
         for (int k = (seg == 0 ? 0 : 1); k <= steps; ++k) {
             const float t = (float)k / (float)steps;
             const P c = sample(pointsXZ, seg, t);
-            // Tangent from a small step ahead (cheap and stable at joints).
-            const P c2 = t + 0.05f <= 1.0f ? sample(pointsXZ, seg, t + 0.05f)
-                                           : sample(pointsXZ, seg + 1, 0.05f);
-            float tx = c2.x - c.x, tz = c2.z - c.z;
+            // One-sided tangent at the two ends, forward elsewhere. Sampling
+            // seg + 1 past the final segment clamps every control point to the
+            // endpoint and produces a zero vector; the old world-axis fallback
+            // then rotated the last road row abruptly and made a flared/twisted
+            // end cap.
+            P tangentFrom = c, tangentTo = c;
+            if (t + 0.05f <= 1.0f || seg + 1 < n - 1) {
+                tangentTo = t + 0.05f <= 1.0f
+                                ? sample(pointsXZ, seg, t + 0.05f)
+                                : sample(pointsXZ, seg + 1, 0.05f);
+            } else {
+                tangentFrom = sample(pointsXZ, seg, std::max(0.0f, t - 0.05f));
+            }
+            float tx = tangentTo.x - tangentFrom.x;
+            float tz = tangentTo.z - tangentFrom.z;
             const float tl = std::sqrt(tx * tx + tz * tz);
             if (tl > 1e-6f) {
                 tx /= tl;

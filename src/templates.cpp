@@ -32783,8 +32783,8 @@ static std::string roadsImpl(const Project& p) {
     return R"(
 // Roads (docs/roads.md). TWIN NOTICE: this is src/roadgen.cpp's arithmetic,
 // transcribed - CHANGE ONE AND CHANGE BOTH (the vehiclesim rule). The whole
-// road is data: at scene load the spline is sampled every 2 units and every
-// 1 unit across its width, every vertex glued to the terrain, V riding the arc length so one
+// road is data: at scene load the spline is sampled every 1 unit and every
+// 0.5 unit across its width, every vertex glued to the terrain, V riding the arc length so one
 // small texture tiles the entire street, and the stations are packed into
 // procChunks (owner -3) roughly 12 per chunk - each chunk its own AABB, so
 // the frustum culls a road the way it culls everything else.
@@ -32807,7 +32807,7 @@ void TerrainGame::buildRoads(int scene) {
     const float* pts = &ROAD_POINTS[rd.first];
     const int n = rd.pointCount;
     const float hw = 0.5F * (rd.width > 0.1F ? rd.width : 0.1F);
-    int crossSteps = (int)ceilf((hw * 2.0F) / 1.0F);
+    int crossSteps = (int)ceilf((hw * 2.0F) / 0.5F);
     if (crossSteps < 1) crossSteps = 1;
     // Catmull-Rom, clamped ends - the roadgen twin's cr()/pointAt()/sample().
     auto ptAt = [&](int i, float* x, float* z) {
@@ -32846,16 +32846,23 @@ void TerrainGame::buildRoads(int scene) {
       ptAt(seg + 1, &bx, &bz);
       const float segLen =
           sqrtf((bx - ax) * (bx - ax) + (bz - az) * (bz - az));
-      const int steps = segLen > 2.0F ? (int)(segLen / 2.0F) + 1 : 1;
+      const int steps = segLen > 1.0F ? (int)(segLen / 1.0F) + 1 : 1;
       for (int k = (seg == 0 ? 0 : 1); k <= steps; ++k) {
         const float t = (float)k / (float)steps;
         float cx2, cz2, dx2, dz2;
         sampleAt(seg, t, &cx2, &cz2);
-        if (t + 0.05F <= 1.0F)
-          sampleAt(seg, t + 0.05F, &dx2, &dz2);
-        else
-          sampleAt(seg + 1, 0.05F, &dx2, &dz2);
-        float tx = dx2 - cx2, tz = dz2 - cz2;
+        float fromX = cx2, fromZ = cz2;
+        if (t + 0.05F <= 1.0F || seg + 1 < n - 1) {
+          if (t + 0.05F <= 1.0F)
+            sampleAt(seg, t + 0.05F, &dx2, &dz2);
+          else
+            sampleAt(seg + 1, 0.05F, &dx2, &dz2);
+        } else {
+          sampleAt(seg, fmaxf(0.0F, t - 0.05F), &fromX, &fromZ);
+          dx2 = cx2;
+          dz2 = cz2;
+        }
+        float tx = dx2 - fromX, tz = dz2 - fromZ;
         const float tl = sqrtf(tx * tx + tz * tz);
         if (tl > 1e-6F) {
           tx /= tl;
@@ -32879,7 +32886,7 @@ void TerrainGame::buildRoads(int scene) {
           nx[(size_t)j] = cx2 + rxu * side;
           nz[(size_t)j] = cz2 + rzu * side;
           ny[(size_t)j] =
-              terrainHeightAt(nx[(size_t)j], nz[(size_t)j]) + 0.08F;
+              terrainHeightAt(nx[(size_t)j], nz[(size_t)j]) + 0.12F;
         }
         if (havePrev) {
           if (!c || stationsInChunk >= 12) {
@@ -43677,7 +43684,7 @@ static std::string terrainHeightsHeader(const Project& p) {
             out << "nullptr";
     }
     out << "};\n\n"
-           "/** Bilinear terrain height at world coordinates in a scene. The\n"
+           "/** Rendered-triangle terrain height at world coordinates in a scene. The\n"
            " * game maps terrainHeightAt(x, z) to the active scene.\n"
            " *\n"
            " * A scene whose terrain was removed in the editor has NO ground\n"
@@ -43701,11 +43708,17 @@ static std::string terrainHeightsHeader(const Project& p) {
            "  const int iz = (int)gz;\n"
            "  const float fx = gx - ix;\n"
            "  const float fz = gz - iz;\n"
-           "  const float t = hm[iz * hw + ix] * (1.0F - fx) +\n"
-           "                  hm[iz * hw + ix + 1] * fx;\n"
-           "  const float b = hm[(iz + 1) * hw + ix] * (1.0F - fx) +\n"
-           "                  hm[(iz + 1) * hw + ix + 1] * fx;\n"
-           "  return t * (1.0F - fz) + b * fz;\n"
+           "  const float h00 = hm[iz * hw + ix];\n"
+           "  const float h10 = hm[iz * hw + ix + 1];\n"
+           "  const float h01 = hm[(iz + 1) * hw + ix];\n"
+           "  const float h11 = hm[(iz + 1) * hw + ix + 1];\n"
+           "  // The terrain mesh splits each cell along 10 -> 01. Sampling\n"
+           "  // those same two planes keeps roads, wheels and raycasts on the\n"
+           "  // surface that the GS actually draws instead of a bilinear saddle.\n"
+           "  if (fx + fz <= 1.0F)\n"
+           "    return h00 + fx * (h10 - h00) + fz * (h01 - h00);\n"
+           "  return h11 + (1.0F - fz) * (h10 - h11) +\n"
+           "         (1.0F - fx) * (h01 - h11);\n"
            "}\n\n}  // namespace "
         << ns << "\n";
     return out.str();

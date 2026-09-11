@@ -40,6 +40,8 @@ field toward the north-east: a five-point spline, tessellated onto the
 terrain at boot, textured by `tools/road-texture.py`'s deterministic asphalt.
 The editor shows that same depth-tested, terrain-projected strip beneath the
 spline handles, so the authored road is no longer represented by a grey overlay.
+Its vertices query the terrain's actual triangle planes and the road can be
+selected by clicking anywhere on the asphalt, not only at its authoring anchor.
 
 Walk up to the car and press **USE** (Square by default). The camera moves to a
 lagged boom behind the car;

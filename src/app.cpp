@@ -3162,17 +3162,30 @@ void App::drawViewportWindow() {
             // overlay owns only the selected road's handles and crisp edges.
             if (roSel) {
                 const ImU32 edgeCol = IM_COL32(90, 200, 255, 220);
-                for (size_t i = 0; i + 5 < strip.size(); i += 6) {
+                const int crossSteps = std::max(
+                    1, (int)std::ceil(std::max(ro.roadWidth, 0.1f) /
+                                      roadgen::kCrossSampleStep));
+                const size_t pairVerts = (size_t)crossSteps * 6;
+                for (size_t row = 0; row + pairVerts <= strip.size();
+                     row += pairVerts) {
                     ImVec2 a, b;
-                    if (worldToImage(strip[i].x, strip[i].y + 0.05f, strip[i].z,
-                                     a) &&
-                        worldToImage(strip[i + 5].x, strip[i + 5].y + 0.05f,
-                                     strip[i + 5].z, b))
+                    // First cell's A->D and final cell's B->C are the two
+                    // authored-road borders. Drawing both sides of every
+                    // lateral cell exposed the tessellation as a cyan comb
+                    // once the surface became dense enough to follow relief.
+                    if (worldToImage(strip[row].x, strip[row].y + 0.05f,
+                                     strip[row].z, a) &&
+                        worldToImage(strip[row + 5].x,
+                                     strip[row + 5].y + 0.05f,
+                                     strip[row + 5].z, b))
                         dl->AddLine(a, b, edgeCol, 2.0f);
-                    if (worldToImage(strip[i + 1].x, strip[i + 1].y + 0.05f,
-                                     strip[i + 1].z, a) &&
-                        worldToImage(strip[i + 2].x, strip[i + 2].y + 0.05f,
-                                     strip[i + 2].z, b))
+                    const size_t last = row + (size_t)(crossSteps - 1) * 6;
+                    if (worldToImage(strip[last + 1].x,
+                                     strip[last + 1].y + 0.05f,
+                                     strip[last + 1].z, a) &&
+                        worldToImage(strip[last + 2].x,
+                                     strip[last + 2].y + 0.05f,
+                                     strip[last + 2].z, b))
                         dl->AddLine(a, b, edgeCol, 2.0f);
                 }
                 for (size_t k = 0; k + 1 < ro.roadPoints.size(); k += 2) {
@@ -3199,6 +3212,8 @@ void App::drawViewportWindow() {
                               !pastePending_ &&
                               selectedObject_ >= 0 &&
                               selectedObject_ < (int)project_.objects().size() &&
+                              project_.objects()[selectedObject_].type !=
+                                  PrimitiveType::Road &&
                               !isObjectHiddenInEditor(project_.objects()[selectedObject_]);
         if (objectSelected) {
             SceneObject& o = project_.objects()[selectedObject_];

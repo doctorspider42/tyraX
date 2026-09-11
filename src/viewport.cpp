@@ -1844,9 +1844,16 @@ float Viewport::terrainHeight(float x, float z) const {
     const int ix = (int)gx, iz = (int)gz;
     const float fx = gx - ix, fz = gz - iz;
     auto h = [&](int a, int b) { return heights_[(size_t)b * hmW_ + a]; };
-    const float top = h(ix, iz) * (1 - fx) + h(ix + 1, iz) * fx;
-    const float bottom = h(ix, iz + 1) * (1 - fx) + h(ix + 1, iz + 1) * fx;
-    return top * (1 - fz) + bottom * fz;
+    // Match buildTerrainChunkMesh's actual diagonal (10 -> 01), rather than
+    // sampling a bilinear saddle that is not the surface on screen. Roads,
+    // wheels, placement and every other ground query must agree with the two
+    // triangles the renderer really draws.
+    if (fx + fz <= 1.0f)
+        return h(ix, iz) + fx * (h(ix + 1, iz) - h(ix, iz)) +
+               fz * (h(ix, iz + 1) - h(ix, iz));
+    return h(ix + 1, iz + 1) +
+           (1.0f - fz) * (h(ix + 1, iz) - h(ix + 1, iz + 1)) +
+           (1.0f - fx) * (h(ix, iz + 1) - h(ix + 1, iz + 1));
 }
 
 const char* Viewport::projectionName(Projection p) {
@@ -3087,6 +3094,39 @@ void Viewport::pickAll(float u, float v, const std::vector<SceneObject>& objects
         // A procedural volume's baked chunks are build output and are not
         // drawn at all, so they are not clickable either.
         if (!o.procSource.empty()) continue;
+
+        // Roads live in world space and their object transform is only a
+        // legacy authoring anchor. Test the actual tessellated asphalt, not
+        // the tiny unit box at that anchor, so every visible metre is a valid
+        // selection target and the obsolete centre cube cannot steal clicks.
+        if (o.type == PrimitiveType::Road) {
+            std::vector<roadgen::Vertex> strip;
+            roadgen::tessellate(
+                o.roadPoints, o.roadWidth,
+                [&](float x, float z) { return terrainHeight(x, z); }, strip);
+            float best = 1e30f;
+            for (size_t vi = 0; vi + 2 < strip.size(); vi += 3) {
+                const Vec3 a{strip[vi].x, strip[vi].y, strip[vi].z};
+                const Vec3 b{strip[vi + 1].x, strip[vi + 1].y,
+                             strip[vi + 1].z};
+                const Vec3 c{strip[vi + 2].x, strip[vi + 2].y,
+                             strip[vi + 2].z};
+                const Vec3 e1 = sub(b, a), e2 = sub(c, a);
+                const Vec3 p = cross(dir, e2);
+                const float det = dot(e1, p);
+                if (std::fabs(det) < 1e-8f) continue;
+                const Vec3 delta = sub(eye, a);
+                const float bu = dot(delta, p) / det;
+                if (bu < 0.0f || bu > 1.0f) continue;
+                const Vec3 q = cross(delta, e1);
+                const float bv = dot(dir, q) / det;
+                if (bv < 0.0f || bu + bv > 1.0f) continue;
+                const float t = dot(e2, q) / det;
+                if (t > 0.0f && t < best) best = t;
+            }
+            if (best < 1e30f) cands.push_back({(int)i, 0, best});
+            continue;
+        }
 
         float mn[3], mx[3];
         pickBounds(o, mn, mx);
