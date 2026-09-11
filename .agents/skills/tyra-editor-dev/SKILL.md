@@ -2216,11 +2216,32 @@ travel together**; a new caller that arms one without the other silently loses
 half the rule.
 
 Related, and the reason this bug was reported as "the player walks through but
-the ball bounces": **mesh (per-triangle) collision exists only in
-`collidePlayer`** — the single `o.data.collision == 1` branch in the generated
-game. `sweepSphere` and the physics pass collide against the whole-mesh box
-(`objectCollisionBox` / `physExtents`), so a doorway modelled as geometry is a
-solid box to everything except the player.
+the ball bounces": mesh (per-triangle) collision used to exist only in
+`collidePlayer`. Since 1.83.0 the static-solid pass of `updateObjectPhysics`
+has its own `collision == 1` branch over the same `GameModel::collider` (a
+vertical floor ray from the previous underside to the current one, then a
+side-aware `resolveSphere` for the walls, velocity reflected along the push) -
+it had to, because a body INSIDE a merged building's AABB was "penetrating"
+it and got ejected through the floor, so nothing thrown into the cellar could
+survive there. `sweepSphere` (camera boom, carried object, carry whisker, the
+non-physics thrown arc) still collides against the whole-mesh box
+(`objectCollisionBox`). **The doorway rule opens WALLS, not floors, for a wall
+portal**: both `collidePlayer` and the physics pass compute a `doorway` flag
+and, when `|plane.y| < 0.5`, keep the obstacle's ground response (the mesh
+floor ray, a box's walk-onto top / landing-on-top) while dropping its sides
+and overhead - skipping the whole obstacle dropped the walker under the map on
+arrival, since the cellar mesh IS its own floor. A floor portal still opens
+everything. **Whatever hopped through a portal is shown by it**:
+`portalLastCrossed[oi]` (set by both hop paths - updatePortals' object block
+and the thrown arc via `portalLastHop`) makes `portalShowsObject`/
+`portalCanCross` true for that portal and `renderOnePortalView` draws those
+objects on top of the authored list - the ball used to vanish at the plane
+because the list names the room, not the ball. `Portal: player crossed` /
+`Portal: object N crossed` log lines are the replay-readable signal; the
+fixture was a showcase recording (throw the three weights through the surface
+gate, walk through; not checked in). Replay with an ABSOLUTE project path or
+from the repo root: the native build script now gets `fs::absolute(p.dir)`, a
+relative `--replay examples/x` used to cd into `examples/x/examples/x`.
 
 ## Render-cost capture (1.78)
 

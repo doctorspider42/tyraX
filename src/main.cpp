@@ -2008,8 +2008,14 @@ static int replayFromCli(int argc, char** argv) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
-    const float projHz = p.settings.videoSystem == "ntsc" ? 60.0f : 50.0f;
-    if ((float)rec.header.frameRate != projHz) {
+    // "auto" follows the console's region, which only the running game can
+    // measure - it refuses a mismatched recording at boot itself, so the host
+    // check covers the two authored systems only (an "auto" project on an
+    // NTSC emulator records at 60 Hz and used to be refused here as 50).
+    const float projHz = p.settings.videoSystem == "ntsc"  ? 60.0f
+                         : p.settings.videoSystem == "pal" ? 50.0f
+                                                            : 0.0f;
+    if (projHz > 0.0f && (float)rec.header.frameRate != projHz) {
         std::fprintf(stderr,
                      "error: the recording is %u Hz and this project runs at "
                      "%.0f Hz - the game would refuse it.\n",
@@ -2023,7 +2029,8 @@ static int replayFromCli(int argc, char** argv) {
     if (timeoutSec <= 0) {
         // The run's own length plus a generous allowance for the build's tail,
         // the boot and the scene load.
-        timeoutSec = (int)((float)rec.frames.size() / projHz) + 60;
+        timeoutSec = (int)((float)rec.frames.size() /
+                           (float)(rec.header.frameRate ? rec.header.frameRate : 50)) + 60;
     }
 
     Runner runner;

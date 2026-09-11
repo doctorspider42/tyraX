@@ -5,8 +5,10 @@ against, is **a box** — not the mesh you see. This page says which box, where
 it comes from, and how to look at it, in the editor and in the running game.
 
 Mesh-accurate collision exists and is opt-in per object (*Collision: mesh*, a
-static `.obj` feature — see the Physics section of the README); everything
-else collides as the box described here.
+static `.obj` feature — see the Physics section of the README). The player and,
+since 1.83.0, rigid bodies collide with such a model's triangles; the camera
+boom and the carried/thrown-arc sweep still use the box described here, and so
+does everything without the option.
 
 ## Which box
 

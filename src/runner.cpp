@@ -1183,14 +1183,14 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
 #ifdef _WIN32
                 std::string cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File " +
                                   platform::shellArg(script) + " -Project " +
-                                  platform::shellArg(p.dir) + " -Engine " +
+                                  platform::shellArg(fs::absolute(p.dir).string()) + " -Engine " +
                                   platform::shellArg(engineSource.string()) + " -Cache " +
                                   platform::shellArg(cache.string()) + " -Toolchain " +
                                   platform::shellArg(toolchain.string());
                 if (rebuild) cmd += " -Rebuild";
 #else
                 std::string cmd = "bash " + platform::shellArg(script) + " " +
-                                  platform::shellArg(p.dir) + " " +
+                                  platform::shellArg(fs::absolute(p.dir).string()) + " " +
                                   platform::shellArg(engineSource.string()) + " " +
                                   platform::shellArg(cache.string()) + " " +
                                   platform::shellArg(toolchain.string()) +

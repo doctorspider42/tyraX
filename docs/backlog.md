@@ -393,15 +393,17 @@ them, so it wants a PCSX2 check with a body dropped beside one, not just a
 compile. Left out of the comments change deliberately: it is somebody else's
 bug and it deserves its own before/after.
 
-### Only the player has mesh collision
+### Only the player and rigid bodies have mesh collision
 
-Per-triangle collision against an imported model exists in exactly one place
-in the generated game: the `o.data.collision == 1` branch of `collidePlayer`.
-`sweepSphere` (the camera boom, a throw, the carried object, the carry
-whisker) and the static-solid pass of `updateObjectPhysics` both collide
-against the whole-mesh box - `objectCollisionBox` and `physExtents`. So an
-arch, a doorway or any concave mesh a player walks through freely is a solid
-block to a ball, and there is no authoring signal that says so.
+Per-triangle collision against an imported model exists in two places in the
+generated game: the `o.data.collision == 1` branch of `collidePlayer`, and
+(since 1.83.0) the static-solid pass of `updateObjectPhysics` - which had to
+follow, because a body INSIDE a merged building's box was ejected through its
+floor. `sweepSphere` (the camera boom, the carried object, the carry whisker
+and the hand-rolled arc of a thrown non-physics pickable) still collides
+against the whole-mesh box - `objectCollisionBox`. So an arch or a doorway a
+player walks through freely is still a solid block to a carried object and to
+the third-person camera, and there is no authoring signal that says so.
 
 This surfaced while fixing the portal doorway rule (1.81.0): the reported
 symptom was "the player crosses the portal and a thrown object bounces off the
@@ -410,14 +412,49 @@ narrowly, only while the body's motion pierces a linked opening - but the
 general case is untouched, and a mesh doorway with no portal in it still
 stops everything except the player.
 
-A real fix means giving `sweepSphere` and the physics pass access to
-`GameModel::collider` the way `collidePlayer` has, which is an EE cost per
-swept body per frame rather than a box test, so it needs measuring on
-hardware before it is worth doing. The cheap half-measure - a per-object
-"mesh collision for everything" opt-in - would at least make the limit
-authorable instead of invisible.
+The physics half is done; the sweep is the remaining half. It means giving
+`sweepSphere` access to `GameModel::collider` the way the physics pass now has
+(a swept sphere against the grid, rather than a point-in-time resolve), which
+is an EE cost per sweep per frame rather than a box test. The physics version
+has not been measured on hardware either - PCSX2 only, three bodies; a scene
+with many awake bodies inside a large mesh is the case to time first.
 
 ## Medium
+
+### Pixel-exact viewport picking (an ID buffer)
+
+Picking is a CPU ray test (`Viewport::pickAll`, viewport.cpp): `pickBounds`
+boxes for primitives and markers, `pickModelSurface` triangles for static
+models, a grab margin tier and the wire boxes last, then `App::viewportPick`
+cycles the stack and the right-click `##pickmenu` lists it (1.82.0). What it
+still gets wrong is everything the picture knows and the ray does not: a
+sphere/cylinder/cone is picked by its box corners, an animated model by its
+baked all-clips box, the terrain is not an occluder at all (a prop behind a
+hill takes the click aimed at the hill), a texture cutout is honoured only for
+static models, and the first pick is "nearest box entry", not "the pixel you
+see". The fix with the right shape is an **object-id buffer**: a second colour
+attachment on the scene FBO written by every scene draw from a per-draw
+`uObjId` uniform (both scene programs - `useSceneProgram` re-queries uniform
+locations - plus the terrain-layer particle shader and the marker/line draws;
+`glColorMaski(1, ...)` off around draws that must not write, the sky dome and
+the wire boxes), so the alpha test, the depth test, impostor cards and posed
+skins all come for free because the id rides the very fragment that is on
+screen. The click reads a small neighbourhood under the cursor - through a
+tiny blit-and-readback FBO like `grabPreviewRgb`, never a `glReadPixels` of
+the full target - and its centre pixel becomes the FIRST entry of the stack,
+with the ray list supplying the rest for cycling and the menu (an id buffer
+knows only the front-most object per pixel; the neighbourhood is the grab
+margin). Terrain writes a sentinel so it occludes; comments stay screen-space
+icons at the head of `viewportPick`. Mind `Ps2Output` (the scene renders at
+the GS size while `camRay` takes panel coordinates - read the id at the
+letterboxed, scaled position) and the AMD rule (allocate attachments with
+`nullptr`, fill textures with `glUploadTexRgba`). Verify with `--ui-script`:
+`click "Viewport/Viewport canvas" dx,dy` then `expect-checked "Project/<name>
+ (<type>)"` or a `rightclick` + `dump` of the stack menu (docs/ui-scripting.md);
+fixtures: showcase's lens spheres on pedestals and the crossing at the pool, a
+terrain example with a prop behind a hill, the animated keeper. Docs:
+object-selection.md, the tyra-editor-dev viewport row (both skill twins),
+MINOR bump.
 
 ### DONE 1.70.0: a spot light's shadow on a WALL
 

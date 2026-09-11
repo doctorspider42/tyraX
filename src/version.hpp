@@ -16,6 +16,55 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.83.1: two pre-lit defects a reporter's screenshot caught in one picture.
+// (1) The editor viewport did not know the `prelit` flag at all - no branch in
+// viewport.cpp, while the generated game sets shade = {1,1,1} for it - so the
+// preview multiplied a pre-lit object's baked light by the scene's shade a
+// SECOND time. Measured on the reporter's terrace: the floor drew at mean
+// luminance 31 where it now draws at 79, 2.5x too dark, which reads as "the
+// bake ruined it". `uPrelit` is now staged per object beside aoReceive, at
+// every site that stages one, because those uniforms leak into the next draw.
+// (2) litbake accepted a TILING model and silently produced nonsense: it
+// rasterizes one 0..1 canvas, and a terrace whose UVs run 0..17 has 319 tiles
+// of UV area, so 3% of the mesh painted the canvas and the mesh then repeated
+// it 289 times - a flat, 2x darkened texture in which no shadow can vary. It
+// is refused now, with the measured range in the message and the alternatives
+// named. 160 of the 236 example .obj models still pass, so this is a guard on
+// the broken case, not a new restriction. PATCH: nothing new appears.
+//
+// 1.83.0: a thrown ball goes through a portal cut into a merged mesh and a
+// player arriving through one stays on the floor. Two defects, one fixture
+// (a saved showcase recording replayed in PCSX2 with --replay; not checked in).
+// Rigid bodies collided with a collision-mesh model as its whole-mesh AABB:
+// the pavilion's box, jambs protruding 0.35 in front of the portal plane,
+// bounced every throw before the doorway rule's 0.1 of slack could arm, and
+// a body that did get inside the cellar - one merged mesh whose box encloses
+// its own rooms - read as penetrating that box and was ejected along the
+// shortest axis, through the floor. The physics pass now collides such a
+// model per triangle with the same CollisionMesh the walker uses (vertical
+// floor ray from the previous underside to the current one, side-aware
+// sphere push off steep faces, bounce along the push). And the doorway rule
+// opened the WHOLE obstacle while the walker stood in a wall portal's zone,
+// floor included - the cellar mesh is its own floor, the arrival terrace
+// holds the pierce point on its top face - so the ground vanished on
+// arrival: for an upright portal plane the obstacle keeps its ground response
+// in collidePlayer and in the physics pass; a floor portal still opens all.
+// Third: the ball then VANISHED at the plane for the thrower - the surface
+// gate's authored view list names the cellar and its lamps, never the weight
+// that just flew into it - so every object remembers the portal it last
+// hopped through, that portal's through-view draws it on top of its list and
+// portalShowsObject/portalCanCross agree (the converse of "whatever a portal
+// shows can go through it"). The game logs every portal hop (Portal:
+// player/object crossed), --replay no longer refuses an "auto" video-system
+// project's 60 Hz recording as 50 Hz, and the native build gets an absolute
+// project path (a relative --replay used to cd into examples/x/examples/x).
+// Replay: three "object crossed" lines and the player
+// landing at y=-12 (the cellar floor) where the recording had bounces and a
+// fall; the same recording diverges at frame 230 with the OLD codegen too
+// (identical numbers), so that divergence is the fixture's, not this
+// change's. PCSX2 only; sweepSphere is still box-only (docs/backlog.md).
+// MINOR: runtime behaviour changes, the project format does not.
+//
 // 1.82.0: an object standing inside, behind or right next to another one can
 // be selected with the mouse. Three things were in the way. Invisible walls
 // (Box, collision "invisible") were picked as SOLID boxes, and showcase's
@@ -3045,8 +3094,8 @@
 // 1.78.0: editor comments pinned to scenes.
 // 1.79.0: merge native PS2DEV/OpenVCL builds with editor comments.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 82
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_MINOR 83
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

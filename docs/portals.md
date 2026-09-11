@@ -216,11 +216,56 @@ whisker) and the physics static-solid pass. The `pierce` point comes from
 authored rectangle; the walker has no motion segment, so `updatePortalPass`
 publishes its own probe point pushed onto the portal plane instead.
 
-One thing the rule does not change: **mesh (per-triangle) collision only exists
-for the player**. Everything else — the camera boom, thrown and carried
-objects, rigid bodies — collides against the whole-mesh box. So a doorway a
-player walks through freely can still be a solid box to a ball, unless the
-portal's own doorway rule opens it.
+**A wall portal's doorway opens the walls, not the floor (1.83.0).** The rule
+used to skip the whole obstacle, and the geometry a wall portal is cut into
+usually carries the floor as well: Aster's cellar is one merged mesh holding
+its floor, walls and vault, and the arrival terrace is a slab whose top face
+holds the pierce point. So the moment the walker stood in the opening's zone
+the ground under them stopped existing — walk through the gate and drop under
+the map. Now an obstacle opened by a portal whose plane is upright (|normal.y|
+< 0.5) keeps its ground response — the mesh's downward floor ray, a box's
+walk-onto top — and only its side and overhead responses go. A floor portal
+(plane facing up or down) still opens everything: falling through it is the
+crossing. The same split applies to rigid bodies in the physics pass.
+
+**Rigid bodies collide with a mesh-collision model per triangle (1.83.0).**
+The physics pass used to test every model as its whole-mesh box, which is not
+merely coarse for a merged building — it is wrong: a body *inside* the box
+(thrown through a portal into the cellar, rolled in through a door) reads as
+penetrating it and is ejected along the shortest axis, straight through the
+floor and out of the world. So in the reference showcase a thrown weight
+could not go through the surface gate at all (the pavilion's box, with its
+jambs protruding in front of the plane, bounced it) and would have fallen out
+of the cellar if it had. A model authored with *Collision: mesh* now collides
+with bodies the way it does with the walker — the same `CollisionMesh`, in the
+model's local space: a vertical ray from where the underside was to where it
+is finds the floor (swept, so a fast faller cannot tunnel through a thin
+slab), and steep faces push the body's sphere out, side-aware, with the body's
+own bounce reflected along the push. Its real doorways are then real openings
+and need no doorway rule; the rule stays for box colliders. Still box-only:
+`sweepSphere` — the camera boom, the carried object, the carry whisker and the
+hand-rolled arc of a thrown **non-physics** pickable (docs/backlog.md).
+
+**Whatever went through a portal is shown by it (1.83.0).** The crossing rule
+is "whatever a portal shows can go through it", and its converse was missing:
+the surface gate's view list names the cellar and its lamps, never the weight
+that just flew into it, so a thrown ball crossed correctly, landed on the cellar
+floor — and vanished from the thrower's sight at the plane, which reads as
+"the ball fell into the portal and disappeared". Every object now remembers the
+portal it last hopped through (`portalLastCrossed`), that portal's through-view
+draws it on top of the authored list, and `portalShowsObject` /
+`portalCanCross` agree, so the ball is visible lying in the cellar from the
+surface and can be fetched back the way it went. Hopping through the other
+portal of the pair moves the mark there.
+
+All three fixes were verified by replaying a saved showcase recording
+(carry the three weights to the surface gate, throw them through, walk
+through; not checked in) with `--replay`: the game logs `Portal: object N
+crossed` / `Portal: player crossed` for every hop, and those lines plus the
+player's landing height (`-12`, the cellar floor) are the pass criterion. The
+recording's own divergence count is not — it diverged from its fingerprints
+at frame 230 with the pre-fix codegen as well, so the world had moved a little
+between the run and the save.
 
 ### Imported mesh bounds (1.77.1)
 

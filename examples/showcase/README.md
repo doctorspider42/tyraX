@@ -232,6 +232,18 @@ physics-driven object hit the box and bounced. See
 its box contains the point where the motion pierces the opening, not only
 when the box is wholly behind the plane.
 
+The 1.83.0 fixes were verified here with a recorded run (13 s at 60 Hz, not
+checked in): the visitor carries the three calibration weights to the surface
+gate, throws them through, then walks through. Before the fix the weights
+bounced off the pavilion's collision box and the walker dropped under the map
+on arrival, because the doorway rule opened the cellar mesh - floor included -
+while they stood in the opening. To re-check, record such a run (Debugger >
+Replay), `--replay` it and read `bin/log.txt`: three `Portal: object N crossed
+0` lines and `Portal: player crossed 0 to ... -12 ...` (the cellar floor) are
+the pass; the weights then roll to rest at y = -11.8 and stay visible through
+the gate from the surface (a hopped object joins the view of the portal it
+hopped through).
+
 Static vertex colours interpolate on PS2. Hard-normal imported assets remain
 faceted, and the district meshes use probe GI: their repeating shared UVs do
 not provide per-texel scene AO. See [GI routing](../../docs/global-illumination.md).

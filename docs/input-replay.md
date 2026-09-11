@@ -121,6 +121,10 @@ script or a `grep` over `bin/log.txt` needs.
 - **A different frame rate.** A 50 Hz recording performed at 60 Hz is a different
   run: every `dt`, every menu repeat and every animation step moves. The game
   refuses it at boot and says so rather than reporting thousands of divergences.
+  `--replay` refuses ahead of the build only when the project's video system is
+  authored (`pal` / `ntsc`); an `auto` project follows the emulator's region,
+  which only the game can measure, so there the game's own check is the one
+  that speaks (an `auto` project on an NTSC BIOS records at 60 Hz).
 - **A build without the keyboard/mouse option** replaying a recording that used
   one. The keys are in the file, and the engine accepts them, but nothing the
   project generated will be reading for them.
