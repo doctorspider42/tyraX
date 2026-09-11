@@ -30554,10 +30554,9 @@ static std::string vehicleMembers(const Project& p) {
     // computed compression never reached the screen.
     float wheelY[4] = {0.0F, 0.0F, 0.0F, 0.0F};
     // The sprung rig (vehiclesim.cpp, "THE SPRUNG RIG" - change one, change
-    // both): attitude rates and last frame's plane height (1e9 = none).
+    // both): angular rates for the sprung attitude.
     float pitchVel = 0.0F;
     float rollVel = 0.0F;
-    float lastRestY = 1e9F;
     float smokeAcc = 0.0F;  // fractional puffs owed by the slip rate
     // AI route (docs/vehicles.md, "AI drivers"): a slice of VEH_WAYPOINTS.
     // AI unstick (docs/vehicles.md): seconds spent asking for throttle and
@@ -31101,6 +31100,20 @@ void TerrainGame::setupVehicles(int scene) {
 // Per-frame twin of vehiclesim::step (src/vehiclesim.cpp). CHANGE ONE AND
 // CHANGE BOTH: the editor's test drive runs the host copy, and a car that
 // handles differently there than here makes the preview a lie.
+// Twin of vehiclesim::bodyRotation: local pitch/roll, then heading, expressed
+// in the ordinary object's XYZ Euler convention.
+static void vehBodyRotation(float pitch, float yaw, float roll, float out[3]) {
+  const float deg = 3.14159265F / 180.0F, rad = 180.0F / 3.14159265F;
+  const float p = pitch * deg, y = yaw * deg, r = roll * deg;
+  const float cp = cosf(p), sp = sinf(p), cy = cosf(y), sy = sinf(y);
+  const float cr = cosf(r), sr = sinf(r);
+  const float c = sqrtf(cy * cy * cr * cr + sr * sr);
+  out[1] = atan2f(sy * cr, c) * rad;
+  out[0] = (c > 1e-5F ? atan2f(sy * sr * cp - cy * sp,
+                               sy * sr * sp + cy * cp) : -p) * rad;
+  out[2] = (c > 1e-5F ? atan2f(sr, cy * cr) : 0.0F) * rad;
+}
+
 void TerrainGame::updateVehicles(float dt) {
   if (dt <= 0.0F) return;
   if (dt > 0.05F) dt = 0.05F;
@@ -31460,11 +31473,13 @@ void TerrainGame::updateVehicles(float dt) {
     }
     float gy[4];
     float sum = 0.0F;
+    int groundCount = 0;
     // The four contact hardpoints follow the PHYSICAL chassis attitude in all
     // three axes. The previous X/Z positions used yaw only, while the body
     // pitched and rolled around them; on a crest the arch and its wheel were
     // therefore sampling two different pieces of ground.
-    const float contactRot[3] = {-v.pitch, v.yaw, -v.roll};
+    float contactRot[3];
+    vehBodyRotation(v.pitch, v.yaw, v.roll, contactRot);
     for (int w = 0; w < 4; ++w) {
       const V3 hard = rotated({lx[w], 0.0F, lz[w]}, contactRot);
       const float wx = v.pos[0] + hard.x;
@@ -31496,10 +31511,12 @@ void TerrainGame::updateVehicles(float dt) {
         if (gr > gy[w] && gr <= feet0 + 0.5F) gy[w] = gr;
       }
       v.wheelY[w] = gy[w];
-      sum += gy[w];
+      if (gy[w] > -1e5F) { ++groundCount; sum += gy[w]; }
     }
-    const float planeY = sum * 0.25F;
-    float restY = planeY + s.rideHeight * SC;
+    const float planeY = groundCount > 0 ? sum / groundCount : -1e9F;
+    // Keep the raw wheelY sentinel for visual droop, exclude it from the fit.
+    for (int w = 0; w < 4; ++w) if (gy[w] <= -1e5F) gy[w] = planeY;
+    const float restY = planeY + s.rideHeight * SC;
     float bodyFloorY = -1e9F;
     // The tyres end at the axle lines, the BODY does not. Six footprint
     // probes under the front/rear overhangs stop a valid four-wheel plane
@@ -31519,7 +31536,6 @@ void TerrainGame::updateVehicles(float dt) {
         if (floor <= TERRAIN_VOID_Y * 0.5F) continue;
         const float need = floor - off.y + 0.03F;
         if (need > bodyFloorY) bodyFloorY = need;
-        if (need > restY) restY = need;
       }
     }
     // THE SPRUNG RIG - the host twin's exact arrangement (vehiclesim.cpp,
@@ -31532,7 +31548,7 @@ void TerrainGame::updateVehicles(float dt) {
     // reason - the binary test flickered over every bump and each flicker
     // dropped the steering and the tyres for a frame.
     v.grounded =
-        (v.pos[1] <= restY + 0.35F * s.rideHeight * SC + 0.02F) ? 1 : 0;
+        (groundCount > 0 && v.pos[1] <= restY + 0.35F * s.rideHeight * SC + 0.02F) ? 1 : 0;
 
     if (v.grounded) {
       {
@@ -31540,11 +31556,17 @@ void TerrainGame::updateVehicles(float dt) {
         // velocity RELATIVE to the plane (a plain spring lags a ramp by a
         // constant and rode half a unit under every climb).
         const float wn = 14.0F, zeta = 0.9F;
+        // Translation over the tyre plane, never the clearance correction.
+        // The latter fed the body's own attitude back as upward impulses.
         const float planeVel =
-            v.lastRestY < 1e8F ? (restY - v.lastRestY) / dt : 0.0F;
-        v.velY += (wn * wn * (restY - v.pos[1]) -
-                   2.0F * zeta * wn * (v.velY - planeVel)) *
-                  dt;
+            0.5F * (gy[0] + gy[1] - gy[2] - gy[3]) * v.speed /
+                (s.wheelBase * SC > 0.01F ? s.wheelBase * SC : 0.01F) +
+            0.5F * (gy[1] + gy[3] - gy[0] - gy[2]) * v.lateral /
+                (s.track * SC > 0.01F ? s.track * SC : 0.01F);
+        // Implicit spring, stable throughout the accepted 0..50 ms step.
+        v.velY = (v.velY + dt * (wn * wn * (restY - v.pos[1]) +
+                   2.0F * zeta * wn * planeVel)) /
+                 (1.0F + 2.0F * zeta * wn * dt + wn * wn * dt * dt);
         v.pos[1] += v.velY * dt;
         const float sprungFloor = restY - s.suspensionTravel * SC;
         const float floorY = sprungFloor > bodyFloorY ? sprungFloor : bodyFloorY;
@@ -31560,10 +31582,17 @@ void TerrainGame::updateVehicles(float dt) {
       // NOT cosmetic: the grounded branch reads sin(pitch) for slope
       // gravity, so this smoothness is the longitudinal smoothness too.
       {
-        const float tP =
-            atan2f(fY - rY, s.wheelBase * SC > 0.01F ? s.wheelBase * SC : 0.01F) * kRad;
-        const float tR =
-            atan2f(rrY - lY, s.track * SC > 0.01F ? s.track * SC : 0.01F) * kRad;
+        // Fit the plane over actual projected hardpoints, in the car frame.
+        const V3 f = rotated({0.0F, 0.0F, s.wheelBase * SC}, contactRot);
+        const V3 r = rotated({s.track * SC, 0.0F, 0.0F}, contactRot);
+        const float fy = fY - rY, ry = rrY - lY;
+        const float nx = fy * r.z - f.z * ry;
+        const float ny = f.z * r.x - f.x * r.z;
+        const float nz = f.x * ry - fy * r.x;
+        const float cy = cosf(v.yaw * kDeg), sy = sinf(v.yaw * kDeg);
+        const float localX = nx * cy - nz * sy, localZ = nx * sy + nz * cy;
+        const float tP = atan2f(-localZ, sqrtf(localX * localX + ny * ny)) * kRad;
+        const float tR = atan2f(-localX, ny) * kRad;
         const float wn = 11.0F, zeta = 0.8F;
         v.pitchVel += (wn * wn * (tP - v.pitch) - 2.0F * zeta * wn * v.pitchVel) * dt;
         v.rollVel += (wn * wn * (tR - v.roll) - 2.0F * zeta * wn * v.rollVel) * dt;
@@ -31593,7 +31622,7 @@ void TerrainGame::updateVehicles(float dt) {
     } else {
       v.velY -= s.gravity * dt;
       v.pos[1] += v.velY * dt;
-      if (v.pos[1] < restY) {
+      if (groundCount > 0 && v.pos[1] < restY) {
         // Touchdown: keep the fall speed - the heave spring absorbs it over
         // the next frames (no snap, no one-frame slam). Only the hard floor
         // holds.
@@ -31615,11 +31644,6 @@ void TerrainGame::updateVehicles(float dt) {
         v.roll += v.rollVel * dt;
       }
     }
-    // The heave spring's feed-forward frame (see above): remember the plane,
-    // forget it over the void (a restY built from TERRAIN_VOID_Y samples is
-    // not a plane to track).
-    v.lastRestY = restY > -1e8F ? restY : 1e9F;
-
     // The powertrain, before the longitudinal step. The gear is resolved from
     // the speed the car ALREADY has - derived, not simulated - and the two
     // things it hands forward are a torque multiplier and, mid-shift, a
@@ -32083,9 +32107,8 @@ void TerrainGame::updateVehicles(float dt) {
       // unnegated write had the body pitching INTO every hill while the
       // wheels rode up it ("przod sie nie podnosi"), and it survived until
       // the map grew dunes because a flat arena never pitches anything.
-      o.data.rotation[0] = -(v.pitch + v.leanPitch);
-      o.data.rotation[1] = v.yaw;
-      o.data.rotation[2] = -(v.roll + v.leanRoll);
+      vehBodyRotation(v.pitch + v.leanPitch, v.yaw, v.roll + v.leanRoll,
+                      o.data.rotation);
       // The promotion to the matrix path happens in renderScene and only once
       // the object is eligible, so it is NOT true on the first frames. Writing
       // the transform without telling anything about it left the BODY standing
@@ -32692,8 +32715,8 @@ void TerrainGame::renderVehicleWheels() {
       // start at the fully transformed arch hardpoint and move along the
       // body's local up until the tyre meets its sampled floor. This is the
       // four-link analytic rig; no skeleton or IK is involved.
-      const float bodyRot[3] = {-(v.pitch + v.leanPitch), v.yaw,
-                                -(v.roll + v.leanRoll)};
+      float bodyRot[3];
+      vehBodyRotation(v.pitch + v.leanPitch, v.yaw, v.roll + v.leanRoll, bodyRot);
       const V3 hard = rotated({lx[w], 0.0F, lz[w]}, bodyRot);
       const V3 up = rotated({0.0F, 1.0F, 0.0F}, bodyRot);
       const float targetY = v.wheelY[w] + s.wheelRadius * SC;
@@ -32709,18 +32732,18 @@ void TerrainGame::renderVehicleWheels() {
       const float ax = v.pos[0] + hard.x + up.x * travel;
       const float ay = v.pos[1] + hard.y + up.y * travel;
       const float az = v.pos[2] + hard.z + up.z * travel;
+      // Compose spin, steer and body attitude once per wheel, not once per
+      // vertex. These are the columns of the same linear transform.
+      const V3 bx = rotated({cs * SC, 0.0F, -ss * SC}, bodyRot);
+      const V3 by = rotated({spn * ss * SC, cp * SC, spn * cs * SC}, bodyRot);
+      const V3 bz = rotated({cp * ss * SC, -spn * SC, cp * cs * SC}, bodyRot);
       const u32 nv = (u32)(part.verts.size() / 8);
       for (u32 i = 0; i < nv; ++i) {
         const float* q = &part.verts[(size_t)i * 8];
-        // spin about X (the axle), steer about Y, then the full body attitude
-        const float y = q[1] * cp - q[2] * spn;
-        const float z = q[1] * spn + q[2] * cp;
-        const float x2 = q[0] * cs + z * ss;
-        const float z2 = -q[0] * ss + z * cs;
-        const V3 wheel = rotated({x2, y, z2}, bodyRot);
-        wheelVerts_.push_back(Tyra::Vec4(ax + wheel.x * SC,
-                                         ay + wheel.y * SC,
-                                         az + wheel.z * SC));
+        wheelVerts_.push_back(Tyra::Vec4(
+            ax + bx.x * q[0] + by.x * q[1] + bz.x * q[2],
+            ay + bx.y * q[0] + by.y * q[1] + bz.y * q[2],
+            az + bx.z * q[0] + by.z * q[1] + bz.z * q[2]));
         // Flat mid grey: the wheel's colour comes from its palette TEXEL,
         // and 128 is the modulate identity the textured path expects.
         wheelCols_.push_back(Tyra::Color(128.0F, 128.0F, 128.0F, 128.0F));

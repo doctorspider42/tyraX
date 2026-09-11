@@ -253,11 +253,6 @@ struct DriveState {
     // mid-swing while the wheels ride their own samples.
     float pitchVel = 0.0f;
     float rollVel = 0.0f;
-    // Last frame's contact-plane height - the heave spring tracks the plane
-    // WITH its velocity (feed-forward), because a plain spring lags a ramp
-    // by a constant and the body rode half a unit under every climb. 1e9 =
-    // "no previous frame" (the first step treats the plane as still).
-    float lastRestY = 1e9f;
     float steerAngle = 0.0f;            // degrees, the wheels' actual angle
     bool grounded = false;
 
@@ -338,5 +333,9 @@ void step(const DriveSpec& spec, const DriveInput& in, float dt,
 // suspension displacement are applied; the generated runtime uses the same
 // hardpoint + body-up construction for its separately batched wheel geometry.
 void wheelAnchors(const DriveSpec& spec, const DriveState& state, float out[4][3]);
+
+// Local pitch/roll followed by heading, expressed in the renderer's XYZ Euler
+// convention. A world-Z roll changes meaning when the vehicle turns.
+void bodyRotation(float pitch, float yaw, float roll, float out[3]);
 
 }  // namespace vehiclesim

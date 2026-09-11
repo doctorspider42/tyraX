@@ -2144,3 +2144,15 @@ GL dependencies. `bakegl.hpp` shares hidden-context creation and RAII restoratio
 with GI, but the two own separate contexts (GI may bake on a worker). GPU capture
 uses a private function table, never overwrites gl_loader's viewport pointers,
 and allocates texture storage before filling it (AMD driver workaround).
+
+## Vehicle bank and suspension invariants
+
+`vehiclesim::bodyRotation` and the generated `vehBodyRotation` are twins:
+vehicle-local pitch and roll are applied before heading, then converted to
+ordinary object XYZ Euler angles. Use that conversion for both body and wheel
+transforms; assigning roll to world Z makes the same bank heading-dependent.
+Ground-plane fitting uses the hardpoints' projected spacing. Clearance probes
+are position constraints only, never a spring target or a velocity source.
+The wheel batch composes three transform columns per wheel outside its vertex
+loop. Keep these rules in step between vehiclesim.cpp, vehicle_ui.cpp and the
+vehicle runtime in templates.cpp; docs/vehicles.md explains the regression.

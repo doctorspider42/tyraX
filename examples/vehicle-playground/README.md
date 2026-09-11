@@ -137,6 +137,20 @@ main body stays on the matrix fast path (VU1 moves it, the EE
 touches no vertex) and all four wheels share one bag rebuilt in world space each
 frame.
 
+The wheel batch now composes its transform once per wheel, retaining the same
+mesh budget and appearance. Suspension clearance no longer launches a stationary
+car off a raised patch, and bank alignment uses the car's local frame at every
+heading. Run `tyrax-editor --vehicle-check` for the slope, frame-spike and
+missing-contact regression cases before a pad test on the dunes.
+
+Measured on PCSX2's software renderer at the unchanged starting camera:
+the 7056-vertex wheel batch (CPU preparation plus submit) fell from **14.519 ms
+to 5.087 ms**, about **65% less**. These are COP0-timed averages over 100-frame
+windows (31 baseline and 15 updated windows after warm-up), not an estimate
+from FPS. The two 512x512 captures differed in **zero pixels**. This prices
+the wheel path in that pose; driving, AI visibility and other scene work still
+change the total frame budget.
+
 Tune any of it in *Tools > Vehicle Editor*, and use its **Test drive** tab to
 feel a grip change immediately instead of waiting for a Docker build.
 

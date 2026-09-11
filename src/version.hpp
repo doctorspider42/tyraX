@@ -16,6 +16,9 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.82.2: vehicle-local bank orientation, stable heave without clearance
+// feedback, missing-contact filtering, and composed wheel-batch transforms.
+//
 // 1.82.1 (analytic wheel rig): wheel contact hardpoints and rendered wheel
 // centres now inherit the chassis' full pitch/yaw/roll transform, suspension
 // travels along chassis-up instead of world Y, and six body-overhang probes
@@ -3551,7 +3554,7 @@
 // 1.79.0: merge native PS2DEV/OpenVCL builds with editor comments.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 82
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

@@ -730,10 +730,9 @@ class TerrainGame : public Tyra::Game {
     // computed compression never reached the screen.
     float wheelY[4] = {0.0F, 0.0F, 0.0F, 0.0F};
     // The sprung rig (vehiclesim.cpp, "THE SPRUNG RIG" - change one, change
-    // both): attitude rates and last frame's plane height (1e9 = none).
+    // both): angular rates for the sprung attitude.
     float pitchVel = 0.0F;
     float rollVel = 0.0F;
-    float lastRestY = 1e9F;
     float smokeAcc = 0.0F;  // fractional puffs owed by the slip rate
     // AI route (docs/vehicles.md, "AI drivers"): a slice of VEH_WAYPOINTS.
     // AI unstick (docs/vehicles.md): seconds spent asking for throttle and

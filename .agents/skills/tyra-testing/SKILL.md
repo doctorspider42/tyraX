@@ -2598,3 +2598,15 @@ GI's shared-context oracle still agreed (0.0022% relative mean error). The mixed
 capture-sector updates without allocation failures. Higher atlas counts consume
 VRAM: the tested mixed scene had about 35 KiB free after moving, with evictions
 during motion, so do not describe larger view counts as free.
+
+## Vehicle terrain stability
+
+Run `--vehicle-check` after changing vehicle contact or transforms. Its bank
+fixture restrains horizontal translation but retains gravity (zero gravity
+would prevent initial clearance from settling). It covers six headings and
+20/25/50/120 Hz, generic-renderer versus wheel-rig orientation including Euler
+singular headings, missing terrain contacts, and alternating 50/8.33 ms steps
+with only a bumper supported. The latter must not generate launch velocity.
+These are host properties, not a PS2 frame-rate measurement: build and drive
+vehicle-playground for runtime validation, and measure wheel-batch changes on
+the console/emulator with an unchanged mesh and camera.

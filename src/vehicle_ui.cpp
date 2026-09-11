@@ -287,9 +287,10 @@ void App::vehicleDriveTick() {
     for (int a = 0; a < 3; ++a) o.position[a] = vehicleDriveState_.pos[a];
     // Negated like the runtime's write: the sim's pitch is "positive = nose
     // up", a positive rotX is nose DOWN (see updateVehicles).
-    o.rotation[0] = -(vehicleDriveState_.pitch + vehicleDriveState_.leanPitch);
-    o.rotation[1] = vehicleDriveState_.yaw;
-    o.rotation[2] = -(vehicleDriveState_.roll + vehicleDriveState_.leanRoll);
+    vehiclesim::bodyRotation(vehicleDriveState_.pitch + vehicleDriveState_.leanPitch,
+                            vehicleDriveState_.yaw,
+                            vehicleDriveState_.roll + vehicleDriveState_.leanRoll,
+                            o.rotation);
 }
 
 void App::renameVehicleDef(int index, const std::string& newName) {

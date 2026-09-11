@@ -32,6 +32,11 @@ body's actual bounds for their footprint/framing and follow player-driven and
 AI-driven transforms. See [shadows.md](shadows.md) for the four projected-slot
 budget and the project-default behaviour.
 
+The wheel batch composes spin, steering, body attitude and instance scale into
+three matrix columns **once per wheel**. Each vertex then needs only a matrix
+multiply and translation; no per-vertex trigonometry. Geometry, UVs and the
+number of submits are unchanged.
+
 Rebuilding four wheels' worth of vertices per frame on the EE sounds expensive
 and is not: a decimated wheel is a few hundred vertices, and the transform is
 VU0 macro-mode work measured in microseconds against the millisecond a second
@@ -239,10 +244,18 @@ everything else a scene does.
   the ride height, the pitch and the roll from one query each, which is what
   makes a heightfield vehicle affordable at all. A scene with no terrain answers
   `TERRAIN_VOID_Y`, so "there is no floor" needs no branch of its own.
+- **Contact orientation is local to the car.** Pitch and roll are applied
+  before heading. `vehiclesim::bodyRotation` and the generated
+  `vehBodyRotation` convert that frame to the ordinary renderer's XYZ Euler
+  convention; both body and wheels use it. The plane fit uses the actual
+  projected wheel spacing. Applying roll around world Z made a bank behave
+  differently after turning, and reversed the tilt at some headings.
+  Missing terrain samples are excluded from the mean and neutralized in the
+  fit, never averaged as kilometre-deep ground. No valid sample means airborne.
 - **The body is a SPRUNG RIG.** Height, pitch and roll are damped
   second-order springs pulled toward the terrain-derived targets (heave
-  wn 14 rad/s at 0.9 of critical with plane-velocity feed-forward so a climb
-  tracks with no droop; attitude wn 11 at 0.8, softly overshooting a crest;
+  wn 14 rad/s at 0.9 of critical with translation-over-slope feed-forward;
+  attitude wn 11 at 0.8, softly overshooting a crest;
   airborne both glide level at wn 4). The body used to SNAP to the plane
   while a rate-limited attitude hung mid-swing over every ridge — the mean
   of four samples jumps across a crest, so the body teleported vertically
@@ -255,6 +268,12 @@ everything else a scene does.
   steering and the tyres for a frame. Held as a `--vehicle-check` property:
   full throttle across a washboard of sharp ridges keeps the per-frame
   height step under 0.3, the attitude sane and the pace up.
+  Heave uses an implicit step throughout the accepted 0–50 ms interval.
+  The six body-clearance probes impose a position floor only: they cannot
+  raise the spring target or feed a height derivative back as launch velocity.
+  The old derivative gave a stationary bumper on a raised patch 5.46 units/s
+  upward with alternating 50/8.33 ms steps. Regression checks cover that case,
+  partial terrain support, and bank alignment at six headings and 20–120 Hz.
 - **The four wheels are an analytic rig, not IK.** Each hardpoint is transformed
   by the chassis' full pitch/yaw/roll attitude, then its suspension displacement
   runs along the transformed chassis-up axis. The separately batched wheel mesh

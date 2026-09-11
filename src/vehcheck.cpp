@@ -401,6 +401,86 @@ void analyticWheelRig() {
             "body overhang cannot pass through a crest beyond the axles");
 }
 
+void terrainStability() {
+    std::printf("-- banks, frame spikes and missing contacts --\n");
+    auto bank = [](float x, float z) { return 0.3f * x + 0.2f * z; };
+    float worstPlaneError = 0.0f;
+    for (float heading : {0.0f, 45.0f, 90.0f, 135.0f, 180.0f, 270.0f}) {
+        for (float dt : {0.008333333f, 0.02f, 0.04f, 0.05f}) {
+            DriveSpec s;
+            DriveState st;
+            st.yaw = heading;
+            st.pos[1] = s.rideHeight;
+            for (int i = 0; i < 1000; ++i) {
+                step(s, {}, dt, bank, st);
+                // Restrain translation like a parked-car fixture, retain
+                // gravity so initial clearance can settle back onto tyres.
+                st.pos[0] = st.pos[2] = st.speed = st.lateral = 0.0f;
+            }
+            st.leanPitch = st.leanRoll = 0.0f;
+            for (float& c : st.wheelCompress) c = 0.5f;
+            float a[4][3];
+            wheelAnchors(s, st, a);
+            const float base = a[0][1] - bank(a[0][0], a[0][2]);
+            for (int w = 1; w < 4; ++w)
+                worstPlaneError = std::max(worstPlaneError,
+                    std::fabs(a[w][1] - bank(a[w][0], a[w][2]) - base));
+        }
+    }
+    std::printf("  bank hardpoint plane error %.6f across headings and 20..120 Hz\n", worstPlaneError);
+    verdict(worstPlaneError < 0.002f,
+            "chassis follows the same bank in every heading and frame rate");
+
+    float worstRenderError = 0.0f;
+    for (float heading : {0.0f, 45.0f, 89.999f, 90.0f, 180.0f, 270.0f}) {
+        for (float roll : {-25.0f, 0.0f, 25.0f}) {
+            DriveSpec spec;
+            DriveState pose;
+            pose.pitch = 17.0f;
+            pose.roll = roll;
+            pose.yaw = heading;
+            float e[3], a[4][3];
+            bodyRotation(pose.pitch, pose.yaw, pose.roll, e);
+            wheelAnchors(spec, pose, a);
+            // Independently apply the generic renderer's X, Y, Z order to
+            // the front-left arch, including the Euler singular headings.
+            float x = -spec.track * 0.5f, y = 0.0f, z = spec.wheelBase * 0.5f;
+            constexpr float d = 3.14159265358979f / 180.0f;
+            float n = y * std::cos(e[0]*d) - z * std::sin(e[0]*d);
+            z = y * std::sin(e[0]*d) + z * std::cos(e[0]*d); y = n;
+            n = x * std::cos(e[1]*d) + z * std::sin(e[1]*d);
+            z = -x * std::sin(e[1]*d) + z * std::cos(e[1]*d); x = n;
+            n = x * std::cos(e[2]*d) - y * std::sin(e[2]*d);
+            y = x * std::sin(e[2]*d) + y * std::cos(e[2]*d); x = n;
+            worstRenderError = std::max(worstRenderError,
+                std::fabs(x-a[0][0]) + std::fabs(y-a[0][1]) + std::fabs(z-a[0][2]));
+        }
+    }
+    verdict(worstRenderError < 0.0001f,
+            "generic body renderer and local wheel rig agree at every heading");
+
+    DriveSpec s;
+    DriveState st;
+    st.pos[1] = s.rideHeight;
+    auto edge = [](float x, float) { return x > 0.0f ? -1e9f : 0.0f; };
+    for (int i = 0; i < 100; ++i) step(s, {}, 0.02f, edge, st);
+    verdict(st.grounded && std::fabs(st.pos[1] - s.rideHeight) < 0.01f,
+            "two missing wheel samples do not poison the support plane");
+
+    // A stationary bumper on a raised patch needs a clearance correction,
+    // never a launch. The old floor derivative kicked the body upward.
+    st = {};
+    st.pos[1] = s.rideHeight;
+    auto patch = [](float, float z) { return z > 1.2f ? 0.65f : 0.0f; };
+    float upward = 0.0f;
+    for (int i = 0; i < 400; ++i) {
+        step(s, {}, i % 2 ? 0.008333333f : 0.05f, patch, st);
+        upward = std::max(upward, st.velY);
+    }
+    std::printf("  clearance-only upward speed %.6f\n", upward);
+    verdict(upward < 0.01f, "body clearance cannot manufacture launch velocity");
+}
+
 }  // namespace
 
 int run() {
@@ -413,6 +493,7 @@ int run() {
     hill();
     roughRide();
     analyticWheelRig();
+    terrainStability();
     if (failures) {
         std::printf("vehicle-check: %d FAILURE(S)\n", failures);
         return 1;
