@@ -112,20 +112,30 @@ struct MenuData {
   float bgScrollX, bgScrollY, bgSeconds;
 };
 
-constexpr int MENU_COUNT = 1;
+constexpr int MENU_COUNT = 2;
 
 // menu "save"
 constexpr MenuEntryData MENU_0_ENTRIES[1] = {
     {0, -1, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},
 };
+// menu "skip-cutscene"
+constexpr MenuEntryData MENU_1_ENTRIES[2] = {
+    {0, -1, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},  // NO, KEEP WATCHING
+    {13, -1, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},  // YES, SKIP
+};
 
 inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {
     {"menus/save.png", 256, 256, 138, 44, 24, 0, MENU_0_ENTRIES, 0, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, 0, "", 0, 0, 0, "", 0, 3, "", 0, 0, 0, 0, 0, 32.0F, 1, "", 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 1, 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 255, 255, 255, 0, "", 0, 0, 0, 0, 0, 0.0F, 0.0F, 1.0F},  // save
+    {"menus/skip-cutscene.png", 256, 128, 114, 44, 24, 2, MENU_1_ENTRIES, 0, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, 0, "", 0, 0, 0, "", 0, 2, "", 0, 0, 0, 0, 0, 32.0F, 1, "", 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 1, 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 255, 255, 255, 0, "", 0, 0, 0, 0, 0, 0.0F, 0.0F, 1.0F},  // skip-cutscene
 };
 
 constexpr int TITLE_MENU = -1;
 // The Start button opens/closes this menu in-game (-1 = none)
 constexpr int PAUSE_MENU = -1;
+// The "skip the cutscene?" confirmation screen (-1 = none, and a
+// cutscene set to ask first then skips on the spot instead of
+// swallowing the press - docs/cutscenes.md)
+constexpr int SKIP_MENU = 1;
 // True when any menu carries an "apply video mode" row (action
 // 9): display-mode rows then only stage a selection and that row
 // commits it; without one they switch on change (the classic

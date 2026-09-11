@@ -200,8 +200,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [world facts](docs/world-facts.md), runtime spawning and the
   [endless scroller](docs/endless-scroller.md).
 - **[NavMesh + NPC AI](docs/navigation-ai.md)** — baked on the host, A* on the EE.
-- **Cinematics** — the Cutscene Director, fed by keyframes or by a
-  [phone-recorded 6DoF take](docs/camera-takes.md) or the
+- **[Cinematics](docs/cutscenes.md)** — the Cutscene Director, fed by keyframes
+  or by a [phone-recorded 6DoF take](docs/camera-takes.md) or the
   [live phone viewfinder](docs/phone-camera.md).
 - **Input** — [named actions and rebinding](docs/input-bindings.md),
   [button glyphs in text](docs/text-icons.md), and

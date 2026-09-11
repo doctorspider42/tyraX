@@ -16,6 +16,24 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.80.0 (cutscenes hide the HUD and own the skip button, docs/cutscenes.md):
+// three things a cutscene could not do. **Hide HUD** takes the whole HUD stack
+// off for the duration - images, live bars, baked texts - AND, which is the
+// half that was actually reported, the USE prompt and the USE interaction
+// with it: a cutscene camera gliding past a usable prop was raising "press to
+// use" over the cinematic, and the press worked. It is tied to that flag and
+// not to playback because a cutscene that only animates something while the
+// player keeps the camera is a real use case; runtime text (Display Text)
+// stays visible, because that is where subtitles live. **The skip press now
+// reaches the cutscene**: a skippable cutscene claims the `menu` action
+// before updateGameMenu can open the pause menu on top of it, which is why a
+// skippable cutscene in a project with a pause menu was unskippable - START
+// opened the menu, the frame paused the scripts, and the director never saw
+// the click. And a skip can now **ask first**: GameMenu::skipMenu designates
+// one authored menu as the confirmation screen and a new Skip cutscene row
+// action confirms, so "are you sure" is a styled screen rather than a
+// hardcoded string. kFormatVersion 43 -> 44, purely additive.
+//
 // 1.79.0 (native PS2 builds): Build & Run now provisions the pinned official
 // PS2DEV v2.0.0 release and compiles the vendored OpenVCL, vclpp, bin2s and
 // audsrv sources locally; Windows uses the same Linux toolchain through WSL.
@@ -2919,8 +2937,9 @@
 // 1.77.0: merge animated HUD elements with the 1.76 rendering stack.
 // 1.78.0: editor comments pinned to scenes.
 // 1.79.0: merge native PS2DEV/OpenVCL builds with editor comments.
+// 1.80.0: cutscenes can hide the HUD and own the skip button.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 79
+#define TYRAX_VERSION_MINOR 80
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -3269,7 +3288,13 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // when a note has text. An older editor reads an unknown type name as a Box,
 // which is why this is a version bump and not just a new key - the refusal is
 // the point. Purely additive - no migration step.
-inline constexpr int kFormatVersion = 43;
+// v44 (cutscene HUD + skip screen, docs/cutscenes.md): Sequence::hideHud and
+// Sequence::skipMode (always written), plus GameMenu::skipMenu and the
+// MenuEntry action "skip-cutscene" (both written only when set). An older
+// editor reads the unknown action word as Close, which would turn a confirm
+// row into a decline row - the refusal is the point. Purely additive - no
+// migration step.
+inline constexpr int kFormatVersion = 44;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects
