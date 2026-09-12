@@ -200,6 +200,23 @@ wheel mesh, and exports GLB. The vehicle bake performs wheel reduction.
 The model is included as part of this game example, not as a standalone asset
 pack. See its usage notice below before reusing it elsewhere.
 
+## Repeating performance comparisons
+
+`python authoring/benchmark-district.py <new-directory>` creates an isolated
+fixture with parked traffic, fixed cameras and an identical sampler in debug
+and release. Add `--profile quiet-debug` or `--profile release` to compare live
+tooling overhead; add `--mesh-lod 64` and/or `--terrain-lod 96` for LOD trials.
+The original example is never overwritten.
+
+Build/run each fixture with the editor revision being tested. After 1,440 game
+updates, `bin/district-benchmark.csv` contains 32 samples across garage/outer-road
+day/night views. Each phase warms up for 120 updates; the sampler retains results
+in memory and writes only after all measurement phases finish. Use the same
+script with `--report` to summarize a completed fixture. These are rolling engine
+FPS samples, not individual-frame percentiles. Remove that fixture's old CSV
+before a repeat boot and alternate baseline/candidate runs without competing
+builds. Visual and normal-traffic driving checks are separate acceptance steps.
+
 ## Credits and licenses
 
 - **Kenney** — Retro Urban Kit 2.0, CC0. Included source OBJ/MTL files, textures

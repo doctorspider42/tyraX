@@ -16,6 +16,10 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.86.3: Reuse per-definition wheel attributes, reject off-screen wheel rigs,
+// and retain the shared reflection capture basis between updates. Extend road
+// reduction to safe planar slopes. No serialized field changes.
+//
 // 1.86.2: Combine Motor District road packing with the static-model performance
 // branch: conservative whole-model rejection and cached cross-material
 // transforms. Retain the vehicle texture, reflection and handling fixes.
@@ -3861,7 +3865,7 @@
 // 1.80.0: cutscenes can hide the HUD and own the skip button.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 86
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 3
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
