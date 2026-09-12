@@ -3449,7 +3449,10 @@ bool App::hudMotionControls(HudAnim& anim, HudTransition& trans, bool* visibleAt
             ImGui::SetTooltip(
                 anim.kind == hudanim::Pulse     ? "How far the alpha dips (1 = to invisible)."
                 : anim.kind == hudanim::Blink   ? "Fraction of each period the element is drawn."
-                : anim.kind == hudanim::Breathe ? "How much bigger it grows (0.1 = 10%)."
+                // %% - SetTooltip is printf-style, so a literal percent has to
+                // be escaped or it reads "%)" as a conversion and mangles the
+                // rest of the line.
+                : anim.kind == hudanim::Breathe ? "How much bigger it grows (0.1 = 10%%)."
                 : anim.kind == hudanim::Shake   ? "Jitter radius in pixels; a new offset every Step."
                                                 : "Travel in screen pixels (512x448 space).");
     }

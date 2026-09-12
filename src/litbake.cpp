@@ -401,18 +401,26 @@ bool bakeObject(const Project& p, const SceneData& sc, int objectIndex,
         const bool outside = ulo < -0.01f || vlo < -0.01f ||
                              uhi > 1.01f || vhi > 1.01f;
         if (uvArea > 1.5 || outside) {
-            char buf[320];
-            std::snprintf(
-                buf, sizeof buf,
-                "this model's UVs are not a unique unwrap (u %.2f..%.2f, "
-                "v %.2f..%.2f, UV area %.1f - the texture repeats about %.0fx). "
-                "Pre-lighting bakes ONE 0..1 tile and the mesh repeats it, so "
-                "the baked shadow cannot vary across the surface. Unwrap the "
-                "model into 0..1, or give the job to the terrain / an "
-                "untextured primitive - those take the per-texel lightmap by "
-                "position and cost no texture at all.",
-                ulo, uhi, vlo, vhi, uvArea, uvArea < 1.0 ? 1.0 : uvArea);
+            // Only the MEASUREMENTS go through snprintf; the advice is
+            // appended as a literal. It used to be one format string of 389
+            // bytes into a 320-byte buffer, so the message was truncated every
+            // single time - and what it lost was the whole second half, the
+            // part that says what to do about it. Keeping the constant text
+            // out of the buffer makes that impossible rather than unlikely.
+            char buf[256];  // 95 of text + six numbers; 143 at worst realistic
+            std::snprintf(buf, sizeof buf,
+                          "this model's UVs are not a unique unwrap (u "
+                          "%.2f..%.2f, v %.2f..%.2f, UV area %.1f - the "
+                          "texture repeats about %.0fx). ",
+                          ulo, uhi, vlo, vhi, uvArea,
+                          uvArea < 1.0 ? 1.0 : uvArea);
             err = buf;
+            err += "Pre-lighting bakes ONE 0..1 tile and the mesh repeats it, "
+                   "so the baked shadow cannot vary across the surface. "
+                   "Unwrap the model into 0..1, or give the job to the "
+                   "terrain / an untextured primitive - those take the "
+                   "per-texel lightmap by position and cost no texture at "
+                   "all.";
             return false;
         }
     }
