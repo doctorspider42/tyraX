@@ -129,6 +129,14 @@ float tessellate(const std::vector<float>& pointsXZ, float width,
         const float ny = uz * vx - ux * vz;
         const float nz = ux * vy - uy * vx;
         const float nl = std::sqrt(nx * nx + ny * ny + nz * nz);
+        // Retain the established horizontal path, including curved flat
+        // spans.  Its wide-triangle UV interpolation is the shipped look.
+        bool flat = true;
+        const float flatY = rows[i][0].y;
+        for (int r = 0; r < 2; ++r)
+            for (int j = 0; j <= crossSteps; ++j)
+                if (std::fabs(rows[i + (size_t)r][(size_t)j].y - flatY) >
+                    0.00001f) { flat = false; break; }
         // The two triangles interpolate ST like an affine parallelogram. A
         // curved station pair can be coplanar but still map U/V differently
         // from its dense lateral cells, so it is deliberately left dense.
@@ -146,7 +154,7 @@ float tessellate(const std::vector<float>& pointsXZ, float width,
                                              nz * (q.z - a.z)) / nl;
                 if (dist > 0.00001f) { planar = false; break; }
             }
-        const int stride = planar ? crossSteps : 1;
+        const int stride = (flat || planar) ? crossSteps : 1;
         for (int j = 0; j < crossSteps; j += stride) {
             out.push_back(rows[i][(size_t)j]);
             out.push_back(rows[i][(size_t)j + stride]);

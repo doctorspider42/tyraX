@@ -33708,6 +33708,15 @@ void TerrainGame::buildRoads(int scene) {
           const float pny = uz * vx - ux * vz;
           const float pnz = ux * vy - uy * vx;
           const float pnl = sqrtf(pnx * pnx + pny * pny + pnz * pnz);
+          // Keep the long-standing horizontal reduction, including curved
+          // spans, as the roadgen.cpp twin does.
+          bool flat = true;
+          const float flatY = py0[0];
+          for (int r = 0; r < 2; ++r)
+            for (int j = 0; j <= crossSteps; ++j) {
+              const float qy = r ? ny[(size_t)j] : py0[(size_t)j];
+              if (fabsf(qy - flatY) > 0.00001F) { flat = false; break; }
+            }
           // Coplanarity alone does not preserve interpolated ST on a curved
           // quad. Require the affine parallelogram that roadgen.cpp checks.
           const float qax = (px0[(size_t)crossSteps] - px0[0]) -
@@ -33728,7 +33737,7 @@ void TerrainGame::buildRoads(int scene) {
                                        pnz * (qz - pz0[0])) / pnl;
               if (dist > 0.00001F) { planar = false; break; }
             }
-          const int stride = planar ? crossSteps : 1;
+          const int stride = (flat || planar) ? crossSteps : 1;
           // Amortize EE bag/bounds work on flat streets, without making dense
           // slopes unbounded or joining a whole road into one culling box.
           const size_t spanVertices = (size_t)(crossSteps / stride) * 6;

@@ -2214,8 +2214,8 @@ vehicle runtime in templates.cpp; docs/vehicles.md explains the regression.
 ## Motor District and flat-road spans (1.85.0)
 
 The roadgen.cpp / templates.cpp buildRoads twins sample every lateral height,
-then collapse a span only when every dense sample lies within 0.00001 of the
-proposed 3-D quad plane. Do not infer planarity from the shoulders: an interior
+then retain the established horizontal collapse, or collapse a non-flat span only
+when every dense sample lies within 0.00001 of an affine 3-D quad. Do not infer planarity from the shoulders: an interior
 crown or saddle must retain its samples. Run examples/vehicle-playground/authoring/verify-road-twins.py
 for a compiled comparison of both actual implementations, then build/drive the
 example. ROADS now logs emitted vertices as well as chunks. The district's

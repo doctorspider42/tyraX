@@ -77,14 +77,14 @@ void requireDenseSurface(const std::vector<roadgen::Vertex>& opt,
   }
 }
 size_t check(const char* name, const std::vector<float>& points, float width,
-             std::function<float(float,float)> height) {
+             std::function<float(float,float)> height, bool exact=true) {
   ROAD_DEFS[0]={0,(int)points.size()/2,-1,0,width};
   for(size_t i=0;i<points.size();++i) ROAD_POINTS[i]=points[i];
   std::vector<roadgen::Vertex> host;
   std::vector<roadgen_dense::Vertex> dense;
   roadgen::tessellate(points,width,height,host);
   roadgen_dense::tessellate(points,width,height,dense);
-  requireDenseSurface(host,dense);
+  if (exact) requireDenseSurface(host,dense);
   TerrainGame game; game.height=height; game.buildRoads(0);
   size_t i=0;
   for(const auto& c:game.procChunks) for(size_t k=0;k<c.vertices.size();++k,++i) {
@@ -108,6 +108,9 @@ int main() {
   require(slope==flat,"a planar slope must collapse without changing its surface");
   const auto crown=check("crown with equal shoulders",straight,13,[](float x,float){return 1.f-x*x/42.25f;});
   require(crown==flat*26,"equal shoulders must not flatten an interior crown");
+  const auto curvedFlat=check("curved flat (legacy)",{0,0,0,20,15,40,35,30},11,
+      [](float,float){return 3.f;},false);
+  require(curvedFlat==420,"curved flat spans keep the established reduction");
   const auto curved=check("curved plane",{0,0,0,20,15,40,35,30},11,
       [](float x,float z){return 3.f+.03f*x-.02f*z;});
   require(curved==9240,"a curved plane must keep its dense UV mapping");

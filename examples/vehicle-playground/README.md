@@ -87,10 +87,11 @@ separates them and gives each node a distinct material slot so the importer
 retains ownership. The source texture and silhouettes are preserved.
 
 Road spans retain their sampled shoulders and discard redundant interior vertices
-only when every sample lies on the same 3-D surface plane and its station pair
-is affine, preserving texture coordinates exactly. A 13 m planar street uses
-26 times fewer vertices per station; curves, crowns, banks, saddles and changing
-terrain retain the dense 0.5 m cross samples.
+when a non-flat span lies on the same 3-D surface plane and its station pair is
+affine, preserving texture coordinates exactly. The existing curved-flat
+reduction remains unchanged. A 13 m planar street uses 26 times fewer vertices
+per station; curved non-flat spans, crowns, banks, saddles and changing terrain
+retain the dense 0.5 m cross samples.
 Chunk culling and the 1 m longitudinal sampling remain in place. This matters
 for EE RAM as well as drawing: the initial dense district exhausted its budget.
 The boot log reports `ROADS ... chunks ... vertices ...` for inspection.

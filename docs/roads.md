@@ -91,9 +91,11 @@ nobody can author.
 Both tessellators still sample all cross-road heights first. A span collapses to
 two shoulder-to-shoulder triangles only when every dense sample lies within
 0.00001 world units of the proposed 3-D quad plane. This is an exact surface and
-UV reduction for a level or sloped terrain triangle when its station pair is an
-affine parallelogram. Curved spans, crowns, ditches, saddles and terrain folds
-keep their dense mesh. Longitudinal sampling, endpoints, winding, texture arc length, terrain
+UV reduction for a sloped terrain triangle when its station pair is an affine
+parallelogram. The established horizontal reduction, including curved flat
+spans and its existing UV interpolation, remains unchanged. Curved non-flat
+spans, crowns, ditches, saddles and terrain folds keep their dense mesh.
+Longitudinal sampling, endpoints, winding, texture arc length, terrain
 contact and chunk culling remain unchanged. A 13-unit planar road reduces from
 156 to 6 vertices per station (26x); total scene savings depend on the terrain.
 The game logs the actual road vertex count.
