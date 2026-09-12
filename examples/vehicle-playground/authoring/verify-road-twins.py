@@ -1,4 +1,4 @@
-"""Compile and compare the actual host and generated PS2 road tessellators.
+"""Compile road twins and sample them against the preserved road baseline.
 
 Run with Python 3 and g++ on PATH. No emulator or third-party Python modules.
 Tiny Tyra stubs replace only storage/rendering; buildRoads is extracted verbatim.
@@ -60,15 +60,15 @@ bool sample(const std::vector<roadgen::Vertex>& mesh, float x, float z, roadgen:
     }
   } return false;
 }
-void requireDenseSurface(const std::vector<roadgen::Vertex>& opt,
-                         const std::vector<roadgen_dense::Vertex>& dense) {
+void requireBaselineSurface(const std::vector<roadgen::Vertex>& opt,
+                            const std::vector<roadgen_dense::Vertex>& dense) {
   for(size_t i=0;i+2<dense.size();i+=3) {
     const auto& a=dense[i]; const auto& b=dense[i+1]; const auto& c=dense[i+2];
     const float x=(a.x+b.x+c.x)/3.f, z=(a.z+b.z+c.z)/3.f;
     const float y=(a.y+b.y+c.y)/3.f, u=(a.u+b.u+c.u)/3.f, v=(a.v+b.v+c.v)/3.f;
     bool matched=false;
-    // A tightly looping road can overlap itself in XZ.  Test every covering
-    // triangle: the reference surface must still be represented exactly.
+    // A tightly looping road can overlap itself in XZ. Test every covering
+    // triangle: the preserved baseline surface must still be represented.
     for(size_t k=0;k+2<opt.size();k+=3) {
       std::vector<roadgen::Vertex> one={opt[k],opt[k+1],opt[k+2]}; roadgen::Vertex q;
       if(sample(one,x,z,&q) && std::fabs(q.y-y)<1e-4f && std::fabs(q.u-u)<1e-4f && std::fabs(q.v-v)<1e-4f) { matched=true; break; }
@@ -77,14 +77,14 @@ void requireDenseSurface(const std::vector<roadgen::Vertex>& opt,
   }
 }
 size_t check(const char* name, const std::vector<float>& points, float width,
-             std::function<float(float,float)> height, bool exact=true) {
+             std::function<float(float,float)> height) {
   ROAD_DEFS[0]={0,(int)points.size()/2,-1,0,width};
   for(size_t i=0;i<points.size();++i) ROAD_POINTS[i]=points[i];
   std::vector<roadgen::Vertex> host;
   std::vector<roadgen_dense::Vertex> dense;
   roadgen::tessellate(points,width,height,host);
   roadgen_dense::tessellate(points,width,height,dense);
-  if (exact) requireDenseSurface(host,dense);
+  requireBaselineSurface(host,dense);
   TerrainGame game; game.height=height; game.buildRoads(0);
   size_t i=0;
   for(const auto& c:game.procChunks) for(size_t k=0;k<c.vertices.size();++k,++i) {
@@ -109,7 +109,7 @@ int main() {
   const auto crown=check("crown with equal shoulders",straight,13,[](float x,float){return 1.f-x*x/42.25f;});
   require(crown==flat*26,"equal shoulders must not flatten an interior crown");
   const auto curvedFlat=check("curved flat (legacy)",{0,0,0,20,15,40,35,30},11,
-      [](float,float){return 3.f;},false);
+      [](float,float){return 3.f;});
   require(curvedFlat==420,"curved flat spans keep the established reduction");
   const auto curved=check("curved plane",{0,0,0,20,15,40,35,30},11,
       [](float x,float z){return 3.f+.03f*x-.02f*z;});
@@ -126,9 +126,15 @@ with tempfile.TemporaryDirectory(prefix='tyrax-roads-') as tmp:
     dense_header = Path(tmp)/'roadgen_dense.hpp'
     binary = Path(tmp)/'oracle.exe'
     dense_header.write_text(roadgen_header.replace('namespace roadgen', 'namespace roadgen_dense'))
+    baseline_stride = 'const int stride = (flat || planar) ? crossSteps : 1;'
+    if roadgen_source.count(baseline_stride) != 1:
+        raise RuntimeError('road baseline stride changed; update the oracle deliberately')
+    # The reference is the prior shipped behavior: horizontal spans collapse,
+    # every non-flat span stays dense. The candidate may additionally collapse
+    # only its proven affine/coplanar non-flat spans.
     dense_source.write_text(roadgen_source.replace('#include "roadgen.hpp"', '#include "roadgen_dense.hpp"')
                             .replace('namespace roadgen', 'namespace roadgen_dense')
-                            .replace('const int stride = planar ? crossSteps : 1;', 'const int stride = 1;'))
+                            .replace(baseline_stride, 'const int stride = flat ? crossSteps : 1;'))
     source.write_text(stub + '#include "roadgen_dense.hpp"\n' + runtime + test)
     subprocess.run(['g++','-std=c++20','-O2','-I',str(root/'src'),'-I',tmp,str(source),
                     str(root/'src/roadgen.cpp'),str(dense_source),'-o',str(binary)],check=True)

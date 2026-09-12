@@ -115,9 +115,10 @@ the original `Car4.blend` and `car4_lightorange.png`; the resulting GLB is
 already included, so Blender and `C:\Assets` are not build dependencies.
 
 Run `python authoring/verify-road-twins.py` with g++ on PATH to compare the
-actual editor tessellator against the extracted generated runtime, including
-flat terrain, crowns with equal-height shoulders, slopes, saddles, curves and
-scene revisits. Also run `tyrax-editor --vehicle-check`, build and boot the game,
+actual editor tessellator against the extracted generated runtime and a compiled
+preserved baseline (flat collapse retained; non-flat spans dense), including flat
+terrain, crowns with equal-height shoulders, slopes, saddles, curves and scene
+revisits. Also run `tyrax-editor --vehicle-check`, build and boot the game,
 then drive with `--pad` and capture with `--capture-frame`. Host checks alone
 are not evidence of console frame rate or reflection correctness.
 

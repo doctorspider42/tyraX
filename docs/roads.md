@@ -103,5 +103,6 @@ The game logs the actual road vertex count.
 The [Motor District example](../examples/vehicle-playground/README.md) exercises
 a seven-road network. Its `authoring/verify-road-twins.py` compiles the real
 host tessellator and the actual generated `buildRoads` body with storage stubs,
-then compares geometry/UVs and repeated scene loads on planar, crowned, saddle,
-curved and transition fixtures.
+then compares geometry/UVs and repeated scene loads against a compiled copy of
+the prior tessellator (horizontal collapse retained; non-flat spans dense), on
+planar, crowned, saddle, curved and transition fixtures.
