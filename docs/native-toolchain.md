@@ -25,6 +25,11 @@ vendored source invalidates both the tool install and cached VU/engine objects.
 On Windows the default cache is `%LOCALAPPDATA%\tyra-editor\toolchain`; on Linux
 it is `${XDG_CACHE_HOME:-~/.cache}/tyrax`.
 
+Sound conversion has the same contract as the Docker fallback: WAV effects
+whose names end in `-loop.wav` are encoded with `adpenc -L`. The native build
+also reads the loop byte from an existing ADPCM header, so an incorrectly
+encoded but newer output is repaired instead of being accepted as fresh.
+
 ## Host prerequisites
 
 Linux needs `build-essential`, CMake, curl and rsync. Windows needs WSL with a

@@ -16,6 +16,10 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.84.1: the native backend encodes *-loop.wav effects with adpenc -L and
+// repairs newer one-shot outputs by checking the encoded loop byte, matching
+// the Docker fallback. PATCH: build-output fix only; no project-format change.
+//
 // 1.84.0 (explicit WSL host bootstrap): native builds now share a dedicated
 // prerequisite checker/installer, setup can opt into apt-based preparation,
 // and the Windows installer offers the operation as an unchecked task that is
@@ -3566,7 +3570,7 @@
 // 1.80.0: cutscenes can hide the HUD and own the skip button.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 84
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

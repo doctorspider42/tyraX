@@ -605,6 +605,10 @@ synced into the native cache, `libtyra` rebuilt if changed
 processes killed → `HostFs = true` forced in PCSX2.ini → PCSX2 launched on the
 ELF.
 
+For every `*-loop.wav`, verify byte 6 of the generated `.adpcm` is `1` (for
+example with `od -An -tu1 -j6 -N1`). This is part of native/Docker parity: a
+newer output with byte `0` must be re-encoded with `adpenc -L`, not skipped.
+
 Notes:
 - First-ever build downloads PS2DEV v2.0.0, tests OpenVCL and compiles the
   engine (minutes). Subsequent builds take seconds unless the
