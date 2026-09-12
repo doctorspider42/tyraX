@@ -41,6 +41,23 @@ divide tick deltas by 294912 for milliseconds.
 This is enough to answer "is the highlight/particles/scene the problem?". For a
 finer breakdown you drop to the manual technique.
 
+### Cross-material transform reuse (1.86.1)
+
+An imported model normally enters StaPip once per material part even though
+every part shares one model matrix and camera. `StaPipCore` now caches the most
+recent TyraMVP transform for the current frame and reuses its MVP and transformed
+frustum planes while the key stays identical. The key compares matrix and
+view-projection contents as well as the model pointer, so in-place physics edits,
+portal cameras and split-screen views invalidate it naturally.
+
+The test fixture was a `%TEMP%` copy of `examples/showcase` with both portals and
+the ray-traced mirror removed. Across six alternating, cold-booted PCSX2 debug
+runs, median serialized `Total` moved 21.322 -> 19.172 ms and `Objects` 14.102 ->
+12.425 ms. The directly attributed `Prepare_included` counter moved only 1.375
+-> 1.341 ms, so the larger aggregate emulator delta is directional evidence,
+not a physical-console claim. The first ordinary-HUD pair moved 51.6 -> 56.3
+FPS. A real-PS2 A/B is still required before quoting the hardware gain.
+
 ## The three frame rate counters, and which one to believe
 
 Three surfaces print a frame rate. They measure **three different quantities**,

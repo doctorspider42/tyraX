@@ -16,6 +16,14 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.86.1: consecutive StaPip bags sharing one model transform and camera reuse
+// their MVP and object-space frustum planes. The frame-local cache compares
+// matrix values, so in-place motion and portal/split cameras stay exact. Six
+// alternating PCSX2 debug boots on portal/mirror-free Aster measured median
+// serialized Total 21.322 -> 19.172 ms and Objects 14.102 -> 12.425 ms; the
+// directly attributed Prepare counter moved only 1.375 -> 1.341 ms, so real
+// hardware still owes the final size of the win. PATCH; no format change.
+//
 // 1.86.0: multi-part static models cache one conservative whole-object box and
 // reject against it before their material parts enter StaPip in the main or a
 // portal view. Aster's settled PCSX2 entrance pass measured Objects 15.011 ->
@@ -3243,7 +3251,7 @@
 // 1.80.0: cutscenes can hide the HUD and own the skip button.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 86
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

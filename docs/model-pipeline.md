@@ -68,6 +68,12 @@ conservative across mesh-LOD tiers, which only remove vertices, and follows the
 matrix fast path in object space. A custom VU program that moves geometry skips
 this early rejection because its displaced vertices may leave the baked box.
 
+Consecutive material bags that point at the same model matrix also reuse their
+MVP and object-space frustum planes within the frame. The cache key includes the
+model and view-projection values, not only their addresses: physics may mutate a
+matrix in place, while portal and split-screen passes replace the camera. Frame
+end clears the cache, and projection-only (`TyraMP`) submissions bypass it.
+
 Static model parts deliberately do **not** join primitive static batches. That
 variant was measured on Aster before this optimization: grouping by material
 across districts destroyed spatial culling, while grouping only within each
