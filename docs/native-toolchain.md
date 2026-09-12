@@ -28,9 +28,24 @@ it is `${XDG_CACHE_HOME:-~/.cache}/tyrax`.
 ## Host prerequisites
 
 Linux needs `build-essential`, CMake, curl and rsync. Windows needs WSL with a
-Linux distribution and the same packages inside it. The editor reports the
-exact install command when one is missing. Docker and Docker Desktop are not
-required for normal builds.
+Debian/Ubuntu distribution and the same packages inside it. A normal build only
+checks these host prerequisites and never changes the distribution. The
+dedicated bootstrap installs them through `apt` only after an explicit
+`--install`/`-Install` choice:
+
+```bash
+bash ./tools/toolchain/prepare-host.sh --install
+```
+
+```powershell
+.\tools\toolchain\prepare-host.ps1 -Install
+```
+
+The Windows installer exposes the same operation as the unchecked **Prepare the
+native PS2 toolchain in the default WSL distribution** task. Selecting it may
+open a console for the WSL user's `sudo` password; it then provisions the pinned
+toolchain too. Updates do not silently inherit the choice. Docker and Docker
+Desktop are not required for normal builds.
 
 For a manual install:
 
@@ -39,8 +54,13 @@ For a manual install:
 ```
 
 ```powershell
-.\tools\toolchain\setup.ps1
+.\tools\toolchain\setup.ps1 -InstallHostDependencies
 ```
+
+For CI or a scripted build, `native-build.ps1 -PrepareHost` performs the same
+opt-in bootstrap before compiling. Without that switch it remains read-only with
+respect to the WSL distribution and prints the command above when a tool is
+missing.
 
 ## Docker fallback
 
@@ -86,9 +106,16 @@ customised it keeps its own version.
 
 ## Licences and provenance
 
-Every redistributed source tree carries its upstream licence file. The package
-also includes `THIRD-PARTY-LICENSES.md`, which records the exact bases and the
-modification status. The downloaded PS2DEV archive is not redistributed by
-TyraX; it comes directly from the official PS2DEV release and its upstream
-licences and source links travel inside that distribution. No Sony `vcl` binary
+Every redistributed source tree carries its upstream licence file. TyraX does
+not bundle general-purpose Linux host binaries such as CMake, GCC or `rsync`:
+they are dynamically linked to, and maintained by, the selected distribution;
+duplicating an entire Linux userland would enlarge the installer substantially
+and create a second security-update channel. The PS2-specific binaries are
+either downloaded as the pinned official PS2DEV archive or built from the
+redistributable sources shipped with TyraX.
+
+The package also includes `THIRD-PARTY-LICENSES.md`, which records the exact
+bases and the modification status. The downloaded PS2DEV archive is not
+redistributed by TyraX; it comes directly from the official PS2DEV release and
+its upstream licences and source links travel inside that distribution. No Sony `vcl` binary
 is installed by the native path.

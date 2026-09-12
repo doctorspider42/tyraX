@@ -293,6 +293,11 @@
 // 1.57.0: Aster replaces the old showcase with an authored coastal observatory,
 // playable lens hunt and bounded optical experiments. See examples/showcase.
 // The project format and generated runtime behavior are unchanged.
+// 1.81.0 (explicit WSL host bootstrap): native builds now share a dedicated
+// prerequisite checker/installer, setup can opt into apt-based preparation,
+// and the Windows installer offers the operation as an unchecked task that is
+// not inherited by updates. FEATURE: no project-format change.
+//
 // 1.80.0 (cutscenes hide the HUD and own the skip button, docs/cutscenes.md):
 // three things a cutscene could not do. **Hide HUD** takes the whole HUD stack
 // off for the duration - images, live bars, baked texts - AND, which is the

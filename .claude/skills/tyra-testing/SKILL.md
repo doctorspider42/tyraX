@@ -574,6 +574,12 @@ Prerequisites: WSL on Windows or the packages named by
 `~/Applications` or `~/Downloads`. Anything else: set the path in
 *Edit > Preferences*.
 
+Host preparation is deliberately explicit. Check it with
+`bash tools/toolchain/prepare-host.sh`; install missing Debian/Ubuntu packages
+with `--install`. On Windows, `prepare-host.ps1 -Install` reaches the same script
+inside the default WSL distribution. A normal build never runs `apt`; the
+Windows installer offers this as an unchecked, non-inherited task.
+
 ```
 TYRAX --build <projectDir> --run
 ```
