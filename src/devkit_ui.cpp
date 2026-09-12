@@ -2292,9 +2292,22 @@ void App::drawDebuggerWindow() {
                                    "fit, so textures are re-uploaded.");
 
             ImGui::SeparatorText("EE memory");
+            // ramFrame is the "it answered" signal: the game stamps it with
+            // the frame it measured on. Zero KB with a frame behind it is a
+            // FAILED measurement, and saying "not measured yet" for it is how
+            // this read as "Measure now does nothing" - the button worked, the
+            // probe came back empty, and the panel showed the same line as
+            // before (the engine's probe used to collapse to 0, see
+            // Info::allocateLargestFreeRAMBlock).
             if (st.ramFreeKB)
                 ImGui::Text("%.2f MB free at frame %u", st.ramFreeKB / 1024.0f,
                             st.ramFrame);
+            else if (st.ramFrame)
+                ImGui::TextColored(ImVec4(0.94f, 0.75f, 0.35f, 1.0f),
+                                   "measured at frame %u and found 0 MB free - "
+                                   "the game is either out of memory or the "
+                                   "probe failed",
+                                   st.ramFrame);
             else
                 ImGui::TextDisabled("not measured yet");
             ImGui::BeginDisabled(!live);

@@ -69,7 +69,14 @@ The running game reports a compact snapshot containing:
 - draw flushes, vertices and VU1 quadwords;
 - GS VRAM free, low-water and largest block;
 - resident objects by type;
-- optional free EE memory;
+- optional free EE memory - measured ON REQUEST (*Measure now*), because the
+  only way to ask this allocator how much it has left is to take all of it and
+  give it back: `Info::getFreeRAMSize` claims every free block until malloc
+  refuses, sums them and frees the chain. Thousands of allocations, so it is a
+  button and not a timer. **A measurement that comes back 0 MB is reported as a
+  failure rather than as a reading** - on a running game that number is either
+  an emergency or a broken probe, and the panel used to show it as "not
+  measured yet", which read as the button doing nothing (1.85.1);
 - one row per render-bag flush.
 
 The Debug window decodes it. Use the flush map to find a heavy draw before

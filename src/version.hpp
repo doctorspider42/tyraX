@@ -16,6 +16,33 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.85.1: the HUD's memory reading is a reading again. Reported as "the
+// showcase says MEM 32.0/32 on the console", with two details that turned out
+// to be the same bug: the Debugger's Measure now appeared to do nothing, and
+// it used to work. PCSX2 shows it too, so it was never about hardware.
+//
+// The engine finds free RAM the only way this allocator allows - claim every
+// free block until malloc refuses, sum, give it all back. The search for each
+// block started at the TOP BIT of size_t (malloc(2 GB) on the EE, eight
+// refusals before the first success), then freed the block that worked,
+// refined the size upward, and allocated the refined size AGAIN - and that
+// re-allocation can fail where the first succeeded, because the refinement's
+// own churn moved the heap. Its recovery clears the LOWEST SET BIT of the
+// size, which for a single-bit size - the everyday case - is not a smaller
+// size, it is ZERO. So the block search returned "nothing", the sum stopped at
+// the first block, and 0 free printed as 32.0/32 used. Measured on the
+// showcase mid-run: malloc(16 MB) succeeded at the same instant the probe
+// reported 0, and with the search logged it walks 13.5 MB + 64 KB + 10 KB +
+// ... = 13.6 MB free, which is the honest number.
+//
+// The search now starts at the console's 32 MB and never frees the block that
+// worked: it refines by keeping each better allocation and dropping the
+// previous one, which removes the re-allocation and its bit-clearing recovery
+// entirely. The sum is clamped to 32 MB, because a probe claiming more than
+// the machine has is a bug report rather than a reading. And the Debugger
+// separates "measured 0" from "not measured yet" - showing the second for the
+// first is what made a working button look dead. PATCH.
+//
 // 1.85.0 (recordings carry EVENTS, docs/input-replay.md): a .tyrarep was
 // input plus a position fingerprint, and the fingerprint says only where the
 // player ENDED UP - so every report started with archaeology. "Something threw
@@ -3190,7 +3217,7 @@
 // 1.80.0: cutscenes can hide the HUD and own the skip button.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 85
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

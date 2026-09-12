@@ -1182,6 +1182,25 @@ Rules the same evening paid for:
 
 ## Hard-won pitfalls (dead ends already explored — don't repeat them)
 
+**Devkit and measurement**
+- **The free-RAM probe is a measurement, not a sensor - and it used to lie.**
+  `Info::getFreeRAMSize` is the only way to ask this allocator what is left:
+  claim every free block until malloc refuses, sum, free the chain. The block
+  search used to start at the TOP BIT of `size_t` (malloc(2 GB) on the EE:
+  eight refusals before the first success), free the block that worked, refine
+  the size upward and then allocate the refined size AGAIN - and when that last
+  allocation failed, its recovery cleared the LOWEST SET BIT of the size, which
+  for a single-bit size is ZERO, not "a bit less". The probe then reported "no
+  block", the sum stopped at the first one, and the game's HUD printed
+  `MEM 32.0/32 MB` on a console with 13.6 MB free while the Debugger's
+  *Measure now* silently showed nothing. It starts at the console's 32 MB now
+  and keeps the block that worked instead of re-allocating it (1.85.1). Two
+  lessons that outlive the fix: a probe built out of failing allocations is
+  sensitive to the allocator's mood, so PROVE it against a plain
+  `malloc`/`free` ladder logged at the same instant before believing either
+  number - and a measurement that comes back 0 must be reported as a failure,
+  or it reads as "the button does nothing".
+
 **Rendering**
 - **One light per bag, and now one light a bag may REFUSE.** The colour
   programs carry a single dynamic-light slot; `RendererCore::pickDynLight`
