@@ -850,8 +850,9 @@ struct SceneObject {
     // required to render bit-identically to the untouched program.
     //
     // They are uploaded per bag, so BATCHED objects share them: the generated
-    // game merges non-moving primitives into combined bags, and one bag is one
-    // upload. Two props that need different numbers need to be different bags.
+    // game merges compatible non-moving primitives and model parts into
+    // combined bags, and one bag is one upload. Objects with non-zero custom
+    // parameters therefore stay on the solo path.
     float vuParams[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 };
 
@@ -1368,10 +1369,11 @@ struct ProjectSettings {
     // distance the 25% one. 0 = off (no LODs baked or kept in RAM).
     float meshLodDistance = 0.0f;
 
-    // Static batching: the generated game merges non-moving primitive
-    // objects that share a material into combined world-space bags at scene
-    // load, paying the fixed per-bag submit cost (~1 ms/object on real
-    // hardware) once per batch instead of once per object. Objects with
+    // Static batching: the generated game merges non-moving primitives and
+    // compact imported-model parts that share a texture into combined
+    // world-space bags at scene load, paying the fixed per-bag submit cost
+    // (~1 ms/object on real hardware) once per batch instead of per object.
+    // Large models keep their own spatial bounds. Objects with
     // physics, scripts, flow-graph references, save-state or a streaming
     // layer stay individual; runtime edits (Live Link, Raycast-driven
     // actions) trigger a batch rebuild. Off = every object submits its own

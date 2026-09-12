@@ -133,6 +133,32 @@ class TerrainGame : public Tyra::Game {
   // vertex shade off the emissive light, so it never lands twice.
   bool terrainMapOcc = false, terrainMapLit = false;
 
+  // Baked shadow decals - the "Baked" dynamic-shadow mode, docs/shadows.md.
+  // One entry per
+  // MERGED DRAW - every shadow of one streaming layer that landed on one
+  // atlas page - so a scene's shadows cost one submit each instead of one per
+  // caster. The geometry was projected onto the receivers on the host and is
+  // never touched again: this is a vertex array, a texture and a colour.
+  struct ShadowDraw {
+    std::vector<Tyra::Vec4> vertices;
+    std::vector<Tyra::Vec4> sts;
+    // ONE colour for the whole bag (StaPipColorBag::single). The page's own
+    // RGB is the shadow's tint, so the vertex colour is plain white and its
+    // ALPHA is the only thing that ever moves - which is what lets the
+    // day/night handover fade every shadow for one byte a frame.
+    Tyra::Color color;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    Tyra::Texture* texture = nullptr;
+    std::string texPath;
+    int layer = -1;  // SCENE_LAYER_* index, -1 = always resident
+  };
+  std::vector<ShadowDraw> shadowDraws;
+  std::unique_ptr<Tyra::StaPipInfoBag> shadowInfoBag;
+  void setupShadowDecals();   // per scene load: build the bags, take the pages
+  void renderShadowDecals();  // per frame: one submit per resident group
+
   // Scene objects at runtime (mutable by scripts/physics); geometry per
   // object, one draw part per model material (primitives use parts[0])
   struct GeoPart {
@@ -468,19 +494,23 @@ class TerrainGame : public Tyra::Game {
   std::vector<ObjectGeometry> objectGeometry;
   // Static batching (STATIC_BATCHING, Preferences > Rendering): authored
   // objects flagged batchStatic at build time merge into combined
-  // world-space bags at scene load, grouped by material + a coarse world
+  // world-space bags at scene load, grouped by texture + a coarse world
   // cell - one StaPip submit per batch instead of per object (the fixed
   // ~1 ms per-bag EE cost on real hardware dominates scenes made of many
-  // small primitives). Members keep their runtimeObjects entry (collision,
+  // small props). Members keep their runtimeObjects entry (collision,
   // raycasts and scripts read data as always) but skip the per-object draw
   // path. Runtime mutation of a member (Live Link edits, Raycast-driven
   // actions, global scripts - all set dirty) DEMOTES it to the solo path
   // and rebuilds the batch once without it; a visibility/residency flip
   // (caught by the shown snapshot - hide/show can skip the dirty flag)
   // only rebuilds the batch in place.
+  struct StaticBatchMember {
+    int object = -1;
+    int part = -1;  // -1 = generated primitive; >= 0 = imported-model part
+  };
   struct StaticBatch {
-    int material = -1;                 // group key (-1 = plain color)
-    std::vector<int> members;          // authored object indices
+    Tyra::Texture* texture = nullptr;  // group key; colors already carry Kd
+    std::vector<StaticBatchMember> members;
     std::vector<unsigned char> shown;  // per member: baked as visible?
     std::vector<Tyra::Vec4> vertices;  // world-space baked, like terrain
     std::vector<Tyra::Color> colors;

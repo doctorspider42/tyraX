@@ -103,6 +103,47 @@ boot and produced a correct 448x448 GS capture; PCSX2, `--vu-check`, and the
 static-batched two-player example also passed. This is measured EE/VIF headroom,
 not a claim that every fill-bound scene gains frame rate.
 
+### Spatial static-model batching (1.87.0)
+
+The static batcher now accepts compact immutable `.obj` instances as well as
+generated primitives. A model part groups by its loaded texture and coarse
+world cell; singleton groups are removed, while LOD/impostor/reflection paths
+and models wider than half a cell remain solo. This preserves the spatial bound
+that the rejected cross-district material-batching experiment lost.
+
+On a portal/mirror-free Aster copy, three supply-crate instances were moved into
+the fixed entrance view and opted out of mesh LOD. Five synchronized PCSX2 debug
+captures per arm measured mean `Total` 21.970 -> 21.608 ms (-0.362 ms, -1.6%)
+and `Objects` 15.081 -> 13.839 ms; the merged batch itself averaged 0.524 ms.
+With the same group behind the camera, the one batch-level rejection replaced
+the individual object paths and moved mean `Total` 23.256 -> 21.494 ms. Both
+views rendered correctly. These are directional EE-side emulator measurements.
+
+The matching physical-PS2 test used the visible three-crate pose, OpenVCL and
+five settled captures per arm. Median direct crate work fell
+0.853 -> 0.714 ms (-16.3%), while median `Total` moved
+34.317 -> 34.166 ms (-0.151 ms, -0.4%). The full frame remained GS-bound near
+28 FPS, so three small props are a correctness and direction check rather than
+an FPS-changing workload. The batched build ran beyond 12,000 frames and a
+448x448 capture read back from GS showed all three crates correctly.
+
+A separate texture-atlas fixture exercised the broader case: 30 visible static
+boxes, each with a distinct material, shared atlas textures. The new
+texture/cell grouping reduced them to two batches and rendered all numbered
+faces correctly. Five PCSX2 captures per arm measured mean `Total`
+4.58 -> 2.38 ms (-48.0%) and object work (`Objects` when batching was off,
+`Static_batches` when it was on) 2.39 -> 0.44 ms. This test had AO disabled so
+the immutable objects were intentionally eligible; AO-lit and other dynamic
+paths remain solo by design.
+
+On the physical PS2, five settled captures per arm made the same result less
+ambiguous: median `Total` 6.468 -> 3.281 ms (-49.3%) and object work
+4.063 -> 0.873 ms (-78.5%). Median dispatch fell 3.168 -> 1.626 ms, DMA submit
+0.644 -> 0.115 ms, bounds 0.661 -> 0.153 ms and prepare 0.716 -> 0.115 ms;
+VU1 wait stayed effectively flat at 0.567 -> 0.542 ms. A 512x512 GS capture
+showed all 30 numbered boxes with their correct atlas regions. Both arms were
+below the PAL frame budget, so ordinary gameplay remained refresh-capped.
+
 ## The three frame rate counters, and which one to believe
 
 Three surfaces print a frame rate. They measure **three different quantities**,

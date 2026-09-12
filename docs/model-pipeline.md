@@ -74,13 +74,22 @@ model and view-projection values, not only their addresses: physics may mutate a
 matrix in place, while portal and split-screen passes replace the camera. Frame
 end clears the cache, and projection-only (`TyraMP`) submissions bypass it.
 
-Static model parts deliberately do **not** join primitive static batches. That
-variant was measured on Aster before this optimization: grouping by material
-across districts destroyed spatial culling, while grouping only within each
-district still moved four large material groups into bags costing roughly
-3.8-4.5 ms in PCSX2. The individual object rows became cheaper but the widened
-batch bounds made the frame slower. Model batching needs triangle-level spatial
-chunks (or another bound-preserving representation) before it is safe to revisit.
+## Compact static-model batching
+
+Static batching also accepts compact, immutable imported models when they do
+not use distance LOD, impostors, reflections, dynamic lighting or another
+per-object runtime path. Each material part joins the batch for its actual
+loaded texture and coarse world cell; atlas-backed materials therefore merge
+even when their source material names differ. Singleton groups are discarded,
+and a model whose horizontal footprint exceeds half a cell stays solo. Runtime
+mutation demotes every part of that object from its batches before drawing it
+through the normal path.
+
+Those spatial limits are intentional. An earlier Aster experiment grouped
+model parts by material across districts: it destroyed culling, and even
+per-district groups widened four bags enough to cost roughly 3.8-4.5 ms in
+PCSX2. The retained path targets repeated props rather than architecture and
+keeps the whole-model reject above for large or LOD-switched meshes.
 
 ## What this means for your project
 

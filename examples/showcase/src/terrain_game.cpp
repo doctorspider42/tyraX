@@ -27,6 +27,7 @@
 #include "terrain_heights.gen.hpp"
 #include "texture_data.gen.hpp"
 #include "decal_data.gen.hpp"  // baked projected-decal meshes (host-computed)
+#include "shadow_data.gen.hpp"  // baked shadow decals (docs/shadows.md)
 #include "ao_data.gen.hpp"      // ambient-occlusion occluder tables (host-baked)
 #include "daynight.gen.hpp"     // day/night cycle keys (docs/day-night-cycle.md)
 #include "probe_data.gen.hpp"  // baked GI light probes (host-baked, L1 SH)
@@ -5301,6 +5302,9 @@ void TerrainGame::loadScene(int sceneIndex) {
     aoAtlasTexPath = SCENE_AO_ATLAS_PATH;
     aoAtlasTexture = acquireTexture(aoAtlasTexPath);
   }
+  // Baked shadow decals: their atlas pages swap here for the same reason the
+  // lightmaps do, and the geometry comes with them (docs/shadows.md).
+  setupShadowDecals();
 
   // Size the terrain chunk pool for this scene's grid up front (independent
   // of the streamed assets below) so the loading bar's denominator can count
@@ -5498,7 +5502,7 @@ void TerrainGame::loadScene(int sceneIndex) {
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
     if (runtimeObjects[i].active) setupAnimObject(i);
 
-  // Static batching: group the batchStatic-flagged objects (material x
+  // Static batching: group the batchStatic-flagged objects (texture x
   // coarse world cell). The always-resident assets - materials included -
   // streamed in above, so the reflective-material opt-out can decide here;
   // the batches themselves bake lazily on the first renderScene.
@@ -10414,7 +10418,7 @@ void TerrainGame::updateAndRenderLightPools() {
           // the same DIRTY caveat). The batch keeps drawing the BASE pass;
           // only this additive layer uses the solo bake.
           const bool batched =
-              oi < (int)objectBatchOf.size() && objectBatchOf[oi] >= 0;
+              oi < (int)objectBatchOf.size() && objectBatchOf[oi] != -1;
           if (batched) {
             if (objectGeometry[oi].parts.empty() && !runtimeObjects[oi].dirty)
               rebuildObjectGeometry(oi);
@@ -11342,7 +11346,7 @@ void TerrainGame::updateAndRenderLightPools() {
           const int oi = recv[ri];
           if (oi < 0 || oi >= (int)objectGeometry.size()) continue;
           const bool batched =
-              oi < (int)objectBatchOf.size() && objectBatchOf[oi] >= 0;
+              oi < (int)objectBatchOf.size() && objectBatchOf[oi] != -1;
           if (batched) {
             if (objectGeometry[oi].parts.empty() && !runtimeObjects[oi].dirty)
               rebuildObjectGeometry(oi);
@@ -11447,6 +11451,104 @@ void TerrainGame::updateAndRenderLightPools() {
 // Blob shadows: per-scene setup. A caster is anything that visibly moves -
 // the third-person avatar, animated models, physics objects. (Runtime
 // spawn-pool clones cast none - authored objects only.)
+// Baked shadow decals - the "Baked" dynamic-shadow mode, docs/shadows.md.
+// Everything here was
+// decided on the host: which surfaces the shadow lands on, where its triangles
+// are, which atlas cell each one samples. The console builds one bag per
+// merged group and then only submits it.
+//
+// The whole point of the merge is the submit count - a PS2 static submit costs
+// ~1 ms of fixed EE time whatever it contains (docs/prefabs.md), so sixteen
+// shadows as sixteen bags would be most of a PAL frame. They are one bag
+// because they share one atlas page, and they can share one page because the
+// host folded each tile's rect into the UVs at bake time.
+void TerrainGame::setupShadowDecals() {
+  // Release the previous scene's pages before taking this one's, exactly as
+  // the lightmap swap above does - two scenes' atlases resident at once is a
+  // quarter of the texture heap for no reason.
+  for (ShadowDraw& d : shadowDraws)
+    if (!d.texPath.empty()) releaseTexture(d.texPath);
+  shadowDraws.clear();
+  if (!SHADOW_DECALS_USED) return;
+  const BakedShadowDraw* table = SCENE_SHADOWS;
+  const int count = SCENE_SHADOW_COUNT;
+  if (!table || count <= 0) return;
+
+  if (!shadowInfoBag) {
+    // Alpha-over a BLACK-ish texture is an exact per-pixel darkening, which is
+    // the same trick the scene lightmap's occlusion pass uses - except the
+    // page's RGB carries a tint rather than zero, so the shadow settles toward
+    // the sky colour instead of toward black.
+    shadowInfoBag = std::make_unique<StaPipInfoBag>();
+    shadowInfoBag->model = &model;
+    shadowInfoBag->shadingType = TyraShadingFlat;
+    shadowInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    shadowInfoBag->fullClipChecks = CLIP_PRECISE;
+    shadowInfoBag->blendingEnabled = true;
+    // Never writes z: the shadow sits a hair in front of the surface it
+    // darkens, and anything drawn later must depth-test against THAT surface
+    // rather than against the shadow.
+    shadowInfoBag->zTestType = PipelineZTest_TestOnly;
+    // A dark patch must not be picked up by a dynamic light and drawn bright -
+    // the mistake the blob shadows and the projected patches already pay for.
+    shadowInfoBag->dynLightPick = false;
+    shadowInfoBag->spotLit = false;
+  }
+
+  shadowDraws.resize(count);
+  for (int i = 0; i < count; ++i) {
+    ShadowDraw& d = shadowDraws[i];
+    const BakedShadowDraw& src = table[i];
+    d.layer = src.layer;
+    d.vertices.reserve(src.vertCount);
+    d.sts.reserve(src.vertCount);
+    for (int v = 0; v < src.vertCount; ++v) {
+      const float* f = &src.verts[v * 5];
+      d.vertices.push_back(Vec4(f[0], f[1], f[2], 1.0F));
+      d.sts.push_back(Vec4(f[3], f[4], 1.0F, 0.0F));
+    }
+    // White at full alpha: MODULATE then leaves the page's own RGBA as the
+    // source colour, so the tile alone decides both the tint and how much of
+    // it a texel gets.
+    d.color = Color(128.0F, 128.0F, 128.0F, 128.0F);
+    d.texPath = src.texture;
+    d.texture = acquireTexture(d.texPath);
+    d.colorBag = std::make_unique<StaPipColorBag>();
+    d.texBag = std::make_unique<StaPipTextureBag>();
+    d.bag = std::make_unique<StaPipBag>();
+    d.bag->info = shadowInfoBag.get();
+    d.bag->color = d.colorBag.get();
+    d.bag->texture = d.texBag.get();
+    d.bag->lighting = nullptr;
+    d.bag->count = static_cast<u32>(d.vertices.size());
+    d.bag->bboxVersion = ++g_bboxStamp;
+  }
+  // The bags point INTO the vector's elements, so they are bound once the
+  // vector has stopped moving under them (the setupBlobShadows rule).
+  for (ShadowDraw& d : shadowDraws) {
+    d.colorBag->single = &d.color;
+    d.texBag->texture = d.texture;
+    d.texBag->coordinates = d.sts.data();
+    d.bag->vertices = d.vertices.data();
+  }
+}
+
+// Per frame: one submit per resident group. There is no distance test and no
+// per-caster culling here on purpose - the engine classifies each VU1 package
+// against the frustum on its own bounding box, and the host sorted the merged
+// triangles into world cells precisely so those boxes are small. A shadow off
+// screen costs the classify and nothing else.
+void TerrainGame::renderShadowDecals() {
+  if (shadowDraws.empty()) return;
+  for (ShadowDraw& d : shadowDraws) {
+    if (!d.texture || d.bag->count == 0) continue;
+    // A shadow belongs to its caster's layer, so it streams with it: when the
+    // layer is out, the thing that throws the shadow is gone from the world.
+    if (d.layer >= 0 && !layerOn(d.layer)) continue;
+    stapip.core.render(d.bag.get());
+  }
+}
+
 void TerrainGame::setupBlobShadows() {
   blobShadows.clear();
   if (!BLOB_SHADOWS_USED) return;
@@ -12330,7 +12432,7 @@ void TerrainGame::renderProjShadows() {
     // rebuildObjectGeometry would eat the flag renderStaticBatches keys its
     // demotion on, and this pass runs after it in the frame anyway).
     const bool batched =
-        i < (int)objectBatchOf.size() && objectBatchOf[i] >= 0;
+        i < (int)objectBatchOf.size() && objectBatchOf[i] != -1;
     if (batched) {
       if (objectGeometry[i].parts.empty() && !o.dirty) rebuildObjectGeometry(i);
     } else if (o.dirty) {
@@ -12757,7 +12859,7 @@ void TerrainGame::renderProjShadows() {
     const int wo = wBox.obj;
     if (wo < 0 || wo >= (int)objectGeometry.size()) break;
     const bool wBatched =
-        wo < (int)objectBatchOf.size() && objectBatchOf[wo] >= 0;
+        wo < (int)objectBatchOf.size() && objectBatchOf[wo] != -1;
     if (wBatched) {
       if (objectGeometry[wo].parts.empty() && !runtimeObjects[wo].dirty)
         rebuildObjectGeometry(wo);
@@ -14850,12 +14952,12 @@ bool TerrainGame::physObstacle(const SceneObjectData& d) {
 // ---------------------------------------------------------------------------
 // Static batching (STATIC_BATCHING): every StaPip submit costs ~0.7-1.5 ms
 // of fixed EE overhead on real hardware regardless of vertex count, so a
-// scene of many small primitive objects pays for its object COUNT, not its
-// geometry (twice over in split screen). Objects flagged batchStatic at
-// build time merge into combined world-space bags instead - grouped by
-// material within a coarse world cell so no batch spans the whole map (a
-// map-wide bbox would defeat the engine's whole-bag frustum cut, the same
-// reason the terrain is chunked).
+// scene of many small objects pays for its object COUNT, not its geometry
+// (twice over in split screen). Eligible primitives and compact imported-model
+// parts merge into combined world-space bags instead, grouped by texture in a
+// coarse world cell. Large models remain solo: widening a batch around whole
+// districts would defeat the engine's whole-bag frustum cut, the same reason
+// terrain is chunked.
 void TerrainGame::buildStaticBatchList() {
   staticBatches.clear();
   objectBatchOf.assign(SCENE_OBJECT_COUNT, -1);
@@ -14879,50 +14981,95 @@ void TerrainGame::buildStaticBatchList() {
       TERRAIN_WIDTH > TERRAIN_DEPTH ? TERRAIN_WIDTH : TERRAIN_DEPTH;
   const float cellW = mapW * 0.25F > 48.0F ? mapW * 0.25F : 48.0F;
   std::vector<int> keyX, keyZ;  // per-batch cell, only needed while grouping
-  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
-    const SceneObjectData& d = SCENE_OBJECTS[i];
-    if (!d.batchStatic) continue;
-    // Materials of always-resident objects are loaded by now; a reflective
-    // one draws a second additive env pass per bag - keep those objects on
-    // the solo path, which already handles the env bag.
-    if (d.material >= 0 && (d.material >= (int)gameMaterials.size() ||
-                            gameMaterials[d.material].reflTexture))
-      continue;
-    const int cx = (int)floorf((d.position[0] + 0.5F * mapW) / cellW);
-    const int cz = (int)floorf((d.position[2] + 0.5F * mapW) / cellW);
+  auto addMember = [&](int object, int part, Texture* texture, int cx, int cz) {
     int bi = -1;
     for (int b = 0; b < (int)staticBatches.size(); ++b)
-      if (staticBatches[b].material == d.material && keyX[b] == cx &&
+      if (staticBatches[b].texture == texture && keyX[b] == cx &&
           keyZ[b] == cz) {
         bi = b;
         break;
       }
     if (bi < 0) {
       staticBatches.emplace_back();
-      staticBatches.back().material = d.material;
+      staticBatches.back().texture = texture;
       keyX.push_back(cx);
       keyZ.push_back(cz);
       bi = (int)staticBatches.size() - 1;
     }
-    staticBatches[bi].members.push_back(i);
-    objectBatchOf[i] = (short)bi;
-    // The scene-load dirty flag is consumed by membership: the batch itself
-    // starts dirty and bakes on the first renderScene. From here on a
-    // member turning dirty means a REAL runtime mutation - the demotion
-    // check in renderStaticBatches keys on exactly that.
+    staticBatches[bi].members.push_back({object, part});
+  };
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
+    const SceneObjectData& d = SCENE_OBJECTS[i];
+    if (!d.batchStatic) continue;
+    // Materials of always-resident objects are loaded by now; a reflective
+    // one draws a second additive env pass per bag - keep those objects on
+    // the solo path, which already handles the env bag.
+    const int cx = (int)floorf((d.position[0] + 0.5F * mapW) / cellW);
+    const int cz = (int)floorf((d.position[2] + 0.5F * mapW) / cellW);
+    if (d.type == 5) {
+      if (d.model < 0 || d.model >= (int)gameModels.size()) continue;
+      const GameModel& gm = gameModels[d.model];
+      // Position-cell grouping is only a useful spatial bound for props that
+      // are small relative to that cell. Large architecture keeps its own
+      // object/part boxes; earlier material-only grouping widened those bags
+      // enough to cost more than the removed submits.
+      const float spanX = (gm.mx[0] - gm.mn[0]) * fabsf(d.scale[0]);
+      const float spanZ = (gm.mx[2] - gm.mn[2]) * fabsf(d.scale[2]);
+      if (sqrtf(spanX * spanX + spanZ * spanZ) > 0.5F * cellW) continue;
+      bool reflective = false;
+      for (const GameModelPart& p : gm.parts)
+        if (p.reflTexture) { reflective = true; break; }
+      if (reflective || gm.parts.empty()) continue;
+      for (int pi = 0; pi < (int)gm.parts.size(); ++pi)
+        addMember(i, pi, gm.parts[pi].texture, cx, cz);
+    } else {
+      if (d.material >= 0 &&
+          (d.material >= (int)gameMaterials.size() ||
+           gameMaterials[d.material].reflTexture))
+        continue;
+      Texture* texture =
+          d.material >= 0 ? gameMaterials[d.material].texture : nullptr;
+      addMember(i, -1, texture, cx, cz);
+    }
+  }
+  // A singleton saves no submit and only duplicates geometry. Drop it, then
+  // derive object membership from the batches that actually survived. This is
+  // especially important for multi-part models: two unrelated one-part bags
+  // must not hide the object's solo geometry merely because it was eligible.
+  for (size_t b = 0; b < staticBatches.size();) {
+    if (staticBatches[b].members.size() < 2)
+      staticBatches.erase(staticBatches.begin() + (long)b);
+    else
+      ++b;
+  }
+  objectBatchOf.assign(SCENE_OBJECT_COUNT, -1);
+  for (int bi = 0; bi < (int)staticBatches.size(); ++bi)
+    for (const StaticBatchMember& m : staticBatches[bi].members) {
+      // -2 means that a multi-part model belongs to more than one batch.
+      // Yes/no callers test != -1; a helper that needs one concrete batch
+      // deliberately accepts only a non-negative index.
+      if (objectBatchOf[m.object] == -1)
+        objectBatchOf[m.object] = (short)bi;
+      else if (objectBatchOf[m.object] != bi)
+        objectBatchOf[m.object] = -2;
+    }
+  int batched = 0;
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
+    if (objectBatchOf[i] == -1) continue;
+    ++batched;
+    // The scene-load dirty flag is consumed only by real membership: the
+    // batch itself starts dirty and bakes on the first renderScene. A later
+    // dirty flag therefore means a runtime mutation and triggers demotion.
     runtimeObjects[i].dirty = false;
   }
-  int batched = 0;
-  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
-    if (objectBatchOf[i] >= 0) ++batched;
   TYRA_LOG("Static batching: ", batched, " objects in ",
            (int)staticBatches.size(), " batches");
   if (TEXTURE_ATLAS_INFO[0]) TYRA_LOG(TEXTURE_ATLAS_INFO);
 }
 
-// One batch's bake: re-run the primitive builders for every shown member
-// into the combined arrays - world-space vertices with baked lighting,
-// byte-identical to what the solo path produces for the same object. The
+// One batch's bake: re-run the primitive builders or imported-model part bake
+// for every shown member into the combined arrays - world-space vertices with
+// baked lighting, byte-identical to the solo path for that object. The
 // heap arrays are reused across rebuilds; the engine's frustum-bbox cache
 // is keyed by (pointer, version), so the bboxVersion bump below is what
 // keeps reused pointers from resurrecting stale boxes.
@@ -14932,13 +15079,6 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
   b.colors.clear();
   b.sts.clear();
   b.shown.assign(b.members.size(), 0);
-  const GameMaterial* gmat =
-      (b.material >= 0 && b.material < (int)gameMaterials.size())
-          ? &gameMaterials[b.material]
-          : nullptr;
-  g_primKd = gmat ? gmat->kd : nullptr;
-  g_primKe = gmat ? gmat->ke : nullptr;  // batch members share one material
-  g_primTextured = gmat && gmat->texture;
   // A batched member never carries a lightmap region (the atlas keeps its
   // receivers solo), so its global illumination comes from the probe grid.
   // Staged explicitly: these are globals, and inheriting whatever the last
@@ -14946,7 +15086,11 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
   g_giLightmap = false;
   g_giProbeShade = SCENE_PROBES != nullptr;
   for (size_t k = 0; k < b.members.size(); ++k) {
-    RuntimeObject& o = runtimeObjects[b.members[k]];
+    const StaticBatchMember member = b.members[k];
+    RuntimeObject& o = runtimeObjects[member.object];
+    g_aoOff = false;
+    g_prelitTex = false;
+    g_giProbeShade = SCENE_PROBES != nullptr;
     // Members are never dirty here: scene load consumes the flag at
     // grouping time and renderStaticBatches demotes dirtied members before
     // calling this.
@@ -14955,29 +15099,68 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
     if (!show) continue;
     // Per-MEMBER analytic-light pruning: pushVert reads the g_*Local lists,
     // which are per object, so a batch that collected them once would shade
-    // every member with the first member's neighbours. (Members are always
-    // unit primitives here - same bounding sphere as rebuildObjectGeometry.)
+    // every member with the first member's neighbours. Use the same primitive
+    // or imported-model bounding sphere as rebuildObjectGeometry.
     {
-      const int mi = b.members[k];
+      const int mi = member.object;
       const float sx = o.data.scale[0], sy = o.data.scale[1], sz = o.data.scale[2];
-      const float rad = 0.87F * sqrtf(sx * sx + sy * sy + sz * sz);
+      float rad = 0.87F * sqrtf(sx * sx + sy * sy + sz * sz);
+      if (member.part >= 0 && o.data.model >= 0 &&
+          o.data.model < (int)gameModels.size()) {
+        const GameModel& gm = gameModels[o.data.model];
+        const float ex = fmaxf(fabsf(gm.mn[0]), fabsf(gm.mx[0])) * fabsf(sx);
+        const float ey = fmaxf(fabsf(gm.mn[1]), fabsf(gm.mx[1])) * fabsf(sy);
+        const float ez = fmaxf(fabsf(gm.mn[2]), fabsf(gm.mx[2])) * fabsf(sz);
+        rad = sqrtf(ex * ex + ey * ey + ez * ez);
+      }
       const int self = mi < SCENE_OBJECT_COUNT ? mi : -1;
       aoCollectLocal(o.data.position[0], o.data.position[1], o.data.position[2],
                      rad, self);
       emisCollectLocal(o.data.position[0], o.data.position[1],
                        o.data.position[2], rad, self);
     }
-    switch (o.data.type) {
-      case 1: addSphere(b.vertices, b.colors, b.sts, o.data); break;
-      case 2: addCylinder(b.vertices, b.colors, b.sts, o.data); break;
-      case 3: addCone(b.vertices, b.colors, b.sts, o.data); break;
-      case 12: addPlane(b.vertices, b.colors, b.sts, o.data); break;
-      default: addBox(b.vertices, b.colors, b.sts, o.data); break;
+    if (member.part >= 0 && o.data.model >= 0 &&
+        o.data.model < (int)gameModels.size() &&
+        member.part < (int)gameModels[o.data.model].parts.size()) {
+      const GameModelPart& src = gameModels[o.data.model].parts[member.part];
+      const bool textured = src.texture != nullptr;
+      const bool hasAo = src.vertexAo.size() * 8 == src.verts.size();
+      g_aoOff = true;
+      g_prelitTex = o.data.prelit != 0;
+      g_giProbeShade = !g_prelitTex && SCENE_PROBES != nullptr;
+      for (size_t vi = 0; vi + 7 < src.verts.size(); vi += 8) {
+        const float* v = &src.verts[vi];
+        pushVert(b.vertices, b.colors, b.sts, o.data, {v[0], v[1], v[2]},
+                 {v[3], v[4], v[5]}, v[6], v[7], src.kd, textured,
+                 hasAo ? src.vertexAo[vi / 8] : (unsigned char)255, src.ke);
+      }
+      g_aoOff = false;
+      g_prelitTex = false;
+    } else {
+      const GameMaterial* gmat =
+          (o.data.material >= 0 &&
+           o.data.material < (int)gameMaterials.size())
+              ? &gameMaterials[o.data.material]
+              : nullptr;
+      g_primKd = gmat ? gmat->kd : nullptr;
+      g_primKe = gmat ? gmat->ke : nullptr;
+      g_primTextured = gmat && gmat->texture;
+      g_primUvRect = g_primTextured ? gmat->uvRect : nullptr;
+      switch (o.data.type) {
+        case 1: addSphere(b.vertices, b.colors, b.sts, o.data); break;
+        case 2: addCylinder(b.vertices, b.colors, b.sts, o.data); break;
+        case 3: addCone(b.vertices, b.colors, b.sts, o.data); break;
+        case 12: addPlane(b.vertices, b.colors, b.sts, o.data); break;
+        default: addBox(b.vertices, b.colors, b.sts, o.data); break;
+      }
     }
   }
   g_primKd = nullptr;
   g_primKe = nullptr;
   g_primTextured = false;
+  g_primUvRect = nullptr;
+  g_aoOff = false;
+  g_prelitTex = false;
   g_giProbeShade = false;
   if (b.vertices.empty()) {
     b.bag.reset();
@@ -14995,9 +15178,9 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
   b.bag->vertices = b.vertices.data();
   b.bag->count = static_cast<u32>(b.vertices.size());
   b.bag->bboxVersion = ++g_bboxStamp;  // geometry changed - fresh boxes
-  if (gmat && gmat->texture) {
+  if (b.texture) {
     if (!b.texBag) b.texBag = std::make_unique<StaPipTextureBag>();
-    b.texBag->texture = gmat->texture;
+    b.texBag->texture = b.texture;
     b.texBag->coordinates = b.sts.data();
     b.bag->texture = b.texBag.get();
   } else {
@@ -15034,9 +15217,10 @@ void TerrainGame::renderStaticBatches() {
   for (StaticBatch& b : staticBatches) {
     bool stale = b.dirty;
     for (size_t k = 0; k < b.members.size(); ++k) {
-      const RuntimeObject& o = runtimeObjects[b.members[k]];
+      const int object = b.members[k].object;
+      const RuntimeObject& o = runtimeObjects[object];
       if (o.dirty) {
-        objectBatchOf[b.members[k]] = -1;  // demote: solo from now on
+        objectBatchOf[object] = -1;  // demote: solo from now on
         b.members.erase(b.members.begin() + (long)k);
         b.shown.erase(b.shown.begin() + (long)k);
         --k;
@@ -16685,7 +16869,7 @@ void TerrainGame::renderScene() {
     if (!runtimeObjects[i].active) continue;  // streamed out with its layer
     // Batched members render via renderStaticBatches above; their dirty flag
     // is consumed by the batch rebuild, never by the solo path.
-    if (i < (int)objectBatchOf.size() && objectBatchOf[i] >= 0) continue;
+    if (i < (int)objectBatchOf.size() && objectBatchOf[i] != -1) continue;
     // Something that moves EVERY frame asked for the matrix path (an endless
     // scroller's clones - see RuntimeObject::wantsMatrixPath). One local-space
     // bake buys it a whole belt's worth of per-frame motion at the price of a
@@ -16856,6 +17040,11 @@ void TerrainGame::renderScene() {
   // Animated models: advance playback, then skin + draw the in-view ones
   // through the same static pipeline (see updateAndRenderAnimObjects)
   { const u32 ct=costStart(); updateAndRenderAnimObjects(); costEnd("Animation",-1,ct); }
+  // Baked shadow decals: alpha-over darkening on surfaces whose pixels are
+  // now in the frame, so they go after all the opaque geometry and before
+  // everything that composites on top of it. One submit per merged group; no
+  // per-caster work of any kind (docs/shadows.md).
+  { const u32 ct=costStart(); renderShadowDecals(); costEnd("Shadow decals",-1,ct); }
   // Mirrors after the whole scene (including the skinned avatars their
   // copies re-use): reflected copies first, glass quads blended over them
   { const u32 ct=costStart(); renderMirrors(); costEnd("Mirrors",-1,ct); }
@@ -18109,7 +18298,7 @@ bool TerrainGame::renderOnePortalView(int pi) {
       return;  // emitters have no geometry/anim parts
     }
     const bool batched =
-        ti < (int)objectBatchOf.size() && objectBatchOf[ti] >= 0;
+        ti < (int)objectBatchOf.size() && objectBatchOf[ti] != -1;
     if (batched) {
       // Batched member: its geometry lives only in the merged batch bag,
       // and a merged bag cannot skip the members behind the exit plane -
@@ -19058,7 +19247,7 @@ void TerrainGame::renderOutlineShells() {
     // A DIRTY member is left alone - rebuildObjectGeometry would eat the flag
     // renderStaticBatches keys its demotion on, and this pass runs after it.
     const bool batched =
-        i < (int)objectBatchOf.size() && objectBatchOf[i] >= 0;
+        i < (int)objectBatchOf.size() && objectBatchOf[i] != -1;
     if (batched && objectGeometry[i].parts.empty() && !o.dirty)
       rebuildObjectGeometry(i);
 
