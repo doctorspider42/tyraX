@@ -175,7 +175,7 @@ class FlowGraphScript_0_0 : public Script {
       {
         auto& song = ctx.engine->audio.song;
         song.stop();
-        song.load(Tyra::FileUtils::fromCwd("aster/tides.wav"));
+        song.load(Tyra::FileUtils::fromCwd("audio/ambient.wav"));
         song.inLoop = true;
         song.setVolume(45);
         song.play();
@@ -190,7 +190,7 @@ class FlowGraphScript_0_0 : public Script {
       {
         auto& song = ctx.engine->audio.song;
         song.stop();
-        song.load(Tyra::FileUtils::fromCwd("aster/tides.wav"));
+        song.load(Tyra::FileUtils::fromCwd("audio/ambient.wav"));
         song.inLoop = true;
         song.setVolume(45);
         song.play();

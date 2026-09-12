@@ -22,5 +22,22 @@ void tick(Tyra::Engine* engine, Tyra::Pad* pad2);
  * identically. Off, it is `chosen`. */
 unsigned int seed(unsigned int volume, unsigned int chosen);
 
+/** Something the GAME did this frame - a grab, a throw, a portal hop. Recorded
+ * alongside the input (docs/input-replay.md, "Events"), and on a replay
+ * compared against what the recording says should have happened, which is a
+ * far sharper divergence report than a position delta: "the grab at 390 did
+ * not happen" instead of "pos differs by 0.31". Cheap enough to call from the
+ * places that already TYRA_LOG these - it is a couple of stores off a replay
+ * and nothing at all in a release build. */
+void note(int kind, int a, int b);
+
+// The kinds, matching livereplay.hpp - append, never renumber.
+const int EV_GRAB = 1;
+const int EV_DROP = 2;
+const int EV_THROW = 3;
+const int EV_CARRY_LOST = 4;
+const int EV_PORTAL_PLAYER = 5;
+const int EV_PORTAL_OBJECT = 6;
+
 }  // namespace inputreplay
 }  // namespace Showcase

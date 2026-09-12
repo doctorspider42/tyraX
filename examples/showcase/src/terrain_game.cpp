@@ -6264,6 +6264,7 @@ void TerrainGame::updateUseTarget() {
                g.data.position[1], " ", g.data.position[2], ", eye ",
                cameraPosition.x, " ", cameraPosition.y, " ",
                cameraPosition.z);
+      inputreplay::note(inputreplay::EV_GRAB, carryIndex, -1);
     }
   }
 
@@ -6498,6 +6499,7 @@ void TerrainGame::updateCarriedObject() {
   // body wakes so it resumes falling if it is shown again mid-air.
   if (!o.active || !o.visible) {
     TYRA_LOG("Pick: lost ", carryIndex, " mid-carry - despawned or hidden");
+    inputreplay::note(inputreplay::EV_CARRY_LOST, carryIndex, -1);
     releaseCarried(o, 0.0F, 0.0F, 0.0F);
     carryIndex = -1;
     carryPortalPi = -1;
@@ -6639,6 +6641,7 @@ void TerrainGame::updateCarriedObject() {
     TYRA_LOG("Pick: dropped ", carryIndex, " at ", o.data.position[0], " ",
              o.data.position[1], " ", o.data.position[2], ", eye ",
              cameraPosition.x, " ", cameraPosition.y, " ", cameraPosition.z);
+    inputreplay::note(inputreplay::EV_DROP, carryIndex, -1);
     releaseCarried(runtimeObjects[carryIndex], 0.0F, 0.0F, 0.0F);
     carryIndex = -1;
     carryPortalPi = -1;
@@ -6652,6 +6655,7 @@ void TerrainGame::updateCarriedObject() {
     TYRA_LOG("Pick: threw ", idx, " at ", o.data.position[0], " ",
              o.data.position[1], " ", o.data.position[2], ", v ", vx, " ", vy,
              " ", vz);
+    inputreplay::note(inputreplay::EV_THROW, idx, -1);
     if (!releaseCarried(runtimeObjects[idx], vx, vy, vz)) {
       // No rigid body to hand off to: fly the hand-rolled arc instead.
       thrownIndex = idx;
@@ -18691,6 +18695,7 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
                             *pz + cosf(*pyaw) * cosf(*ppitch));
       }
       TYRA_LOG("Portal: player crossed ", pi, " to ", *px, " ", *py, " ", *pz);
+      inputreplay::note(inputreplay::EV_PORTAL_PLAYER, pi, -1);
       playerTeleported = true;
     }
 
@@ -18745,6 +18750,7 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
         TYRA_LOG("Portal: object ", oi, " crossed ", pi, " to ",
                  ro.data.position[0], " ", ro.data.position[1], " ",
                  ro.data.position[2]);
+        inputreplay::note(inputreplay::EV_PORTAL_OBJECT, oi, pi);
         // stamp the arrival as this object's new "previous" so the reverse
         // link of a two-way pair can't see the same hop as a crossing
         portalPrevPos[oi * 3] = ro.data.position[0];
