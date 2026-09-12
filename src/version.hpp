@@ -16,6 +16,39 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.86.0 (baked shadow decals, docs/shadows.md): a fourth *Dynamic shadow*
+// mode, and the only one that is not a runtime shadow at all. The host traces
+// each marked caster's shadow into a small tile, packs the tiles into shared
+// 256x256 atlas pages and projects them onto the receivers with the existing
+// decalproj machinery - so the console draws ordinary static triangles and
+// pays one blended pass, with no silhouette slot and no per-frame render.
+//
+// The load-bearing decision is that the atlas is not a VRAM optimisation but
+// the thing that makes the feature affordable at all: a bag is one texture, so
+// one shared page is what lets every shadow in a layer merge into ONE submit.
+// Unmerged they would cost ~1 ms of EE each (docs/prefabs.md), which is the
+// difference between "a few hero objects" and "dozens". Folding the atlas rect
+// costs nothing at run time either - decalproj clips to the projector's unit
+// cube, so its UVs are in [0,1] by construction and the rect is an affine
+// remap at bake time, unlike the runtime multiply texatlas needs.
+//
+// Two interlocks are code, not prose: a receiver that already carries a GI
+// lightmap is left out of the projection (the sun shadow is in the lightmap
+// there, and a decal on top would darken it twice), and a caster that can move
+// is refused by name rather than silently baked. kFormatVersion 45 -> 46,
+// purely additive - every new key is written only when it is not the default,
+// so an untouched project resaves byte for byte.
+//
+// MINOR above 1.85.2, the 1.10.0 and 1.84.0 precedent: this branch grew from
+// 1.81.0 and numbered itself 1.82.0 while main went on to 1.85.2, so the two
+// disagreed about what 1.82..1.85 mean. A number strictly greater than either
+// parent is the only one that keeps "which editor wrote this file" answerable.
+// The FORMAT collided the same way and is settled the same way - both lines
+// had claimed v45 for different fields, so main's published v45 (invisible box
+// collisions, scene-local editorGroup) keeps its number and this half
+// renumbers to v46. The later arrival renumbers, always.
+//
+
 // 1.85.2: the render cost table sorts. It listed phases first and object
 // draws after them, each group dearest first, which answers "what is the most
 // expensive thing in this frame" and nothing else - finding one named object
@@ -3233,9 +3266,12 @@
 // 1.78.0: editor comments pinned to scenes.
 // 1.79.0: merge native PS2DEV/OpenVCL builds with editor comments.
 // 1.80.0: cutscenes can hide the HUD and own the skip button.
+// 1.81.0: explicit WSL host toolchain bootstrap for native builds.
+// 1.86.0: merge baked shadow decals with main's render-cost table and
+// object-group line.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 85
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_MINOR 86
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -3593,7 +3629,17 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // Renumbered from v44 on the merge with main, which had already published a
 // different v44 (above). Two branches claiming one number is the trap this
 // file exists to make visible - the LATER arrival renumbers, always.
-inline constexpr int kFormatVersion = 45;
+// v46 (baked shadow decals, docs/shadows.md): SceneObject::shadowMode gains
+// the value 4, plus six ProjectSettings keys (bakedShadows, bakedShadowRes,
+// bakedShadowSunAngle, bakedShadowStrength, bakedShadowMaxLength,
+// bakedShadowAutoBake) - all written only when they are not the default, so an
+// untouched project resaves byte for byte. An older editor clamps shadowMode
+// to 0..3 and would silently read a baked caster as "follow the project",
+// which is a different shadow and a lost setting; that is what the refusal is
+// for. Purely additive - no migration step.
+// Renumbered from v45 by the rule the entry above states: this branch had
+// claimed v45 too, and main published its v45 first.
+inline constexpr int kFormatVersion = 46;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

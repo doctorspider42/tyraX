@@ -363,6 +363,26 @@ public:
     void setProjectedDecals(const std::map<std::string, std::vector<float>>& meshes,
                             uint64_t version);
 
+    // Baked shadow decals (docs/shadows.md). The app hands over exactly what
+    // the console gets - the merged world-space meshes with their atlas UVs,
+    // and the atlas pages as RGBA - so the preview is the same triangles
+    // sampling the same texels, not a second idea of what a shadow looks like.
+    // `pageRgba` is one kPageSize^2 RGBA block per page; `meshes` is one entry
+    // per merged draw, 5 floats a vertex (pos3 + uv2), paired with its page
+    // index. Rebuilt only when `version` changes, so this can be called every
+    // frame.
+    struct ShadowPreview {
+        int pageSize = 0;
+        std::vector<std::vector<unsigned char>> pages;
+        struct Draw {
+            std::vector<float> verts;
+            int page = 0;
+        };
+        std::vector<Draw> draws;
+        uint64_t version = 0;
+    };
+    void setShadowDecals(const ShadowPreview& p);
+
     // Renders terrain + objects at the given pixel size, returns GL texture id.
     // selection: indices outlined; primary (the anchor, usually selection.back())
     // is outlined brighter so it reads as the value source for the multi-editor.
@@ -763,6 +783,16 @@ private:
     std::map<std::string, Mesh> projectedDecalMeshes_;
     uint64_t projectedDecalVersion_ = 0;
     bool projectedDecalHasVersion_ = false;
+    // Baked shadow decals (see setShadowDecals): one GL mesh per merged draw
+    // plus the atlas pages they sample, rebuilt only when the version moves.
+    struct ShadowDrawGl {
+        Mesh mesh;
+        int page = 0;
+    };
+    std::vector<ShadowDrawGl> shadowDraws_;
+    std::vector<uint32_t> shadowPageTex_;
+    uint64_t shadowVersion_ = 0;
+    bool shadowHasVersion_ = false;
     float sky_[3] = {0.25f, 0.55f, 0.78f};
     float skyTop_[3] = {0.08f, 0.3f, 0.65f};
     bool skyGradient_ = true;

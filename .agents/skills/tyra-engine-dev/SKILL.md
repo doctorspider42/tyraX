@@ -88,7 +88,10 @@ game, so an edit there moves both. TyraX changes in it: **`-G0`** (see below),
 single-pass dependency
 generation (`-MMD -MP`; it used to run the compiler a second time per file just
 to write the `.d`), `| directories` order-only prerequisites so `-j` cannot
-reach an absent `bin/`, `cp -ru` for the resource copy, and **`src/vu/` and
+reach an absent `bin/`, `cp -ru` for the resource copy **minus `RESDIR_SKIP`**
+(`gi/` and `shadow/` - host bake caches no console can read; their PIXELS ship
+in `aomap/`, `aoatlas/` and `shadowatlas/`, and `bin/` IS the game's filesystem,
+so copying them also fed them to the ISO export), and **`src/vu/` and
 `src/vu0/` excluded from `SOURCES`** - those are HOST C++ (a project's own VU1
 programs and VU0 kernels, docs/vu-authoring.md), compiled and run at build time
 by the container's g++, and handing them to the PS2 compiler fails on the very

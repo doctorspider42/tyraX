@@ -69,9 +69,17 @@ scoop install mingw cmake ninja      # editor toolchain (+ optional: scoop insta
 **Linux**
 
 ```bash
-./setup.sh --deps                    # system packages: toolchain, X11/Wayland/GL headers, zenity, ccache
+./setup.sh --deps                    # system packages, for BOTH halves (see below)
 ./build.sh --run                     # everything else, including the first-run setup
 ```
+
+That first line is the only one that needs root, and it covers the editor
+*and* the games: the compiler and the X11/Wayland/GL headers the editor links
+against, `zenity` for the file dialogs, `ccache`, plus `curl`, `tar` and
+`rsync`, which the Docker-free PS2 toolchain uses to fetch, unpack and sync
+itself on the first **Build & Run**. It knows apt, dnf, pacman and zypper; on
+anything else it prints the package list and stops. **No Docker anywhere in
+this path** — see [the native toolchain](docs/native-toolchain.md).
 
 **There is no setup step to forget.** On a fresh clone (or a stale worktree)
 the build script notices that `vendor/` is missing something and runs
@@ -97,8 +105,10 @@ Then, in the editor:
    fixed for the project's life; everything else is editable later.
 2. The *Viewport* shows the terrain (drag to orbit, scroll to zoom).
 3. **Build & Run** (`F5`) — the first build downloads the pinned official
-   PS2DEV archive, compiles the in-tree OpenVCL tools and the engine (minutes,
-   once). Later builds take seconds, and PCSX2 boots the ELF automatically.
+   PS2DEV archive, compiles the in-tree OpenVCL tools and then the whole
+   engine: about **fifteen minutes on six cores, once** (measured on Linux —
+   six for the toolchain, eight for the engine). Later builds take seconds,
+   and PCSX2 boots the ELF automatically.
 
 ## Requirements
 
@@ -106,13 +116,24 @@ Then, in the editor:
 - On Windows, WSL with a Debian/Ubuntu distribution. The installer can
   optionally prepare its host packages and pinned PS2 toolchain; the same
   explicit bootstrap is available in `tools/toolchain/prepare-host.*`. On
-  Linux, use its shell half. Docker is an optional fallback only.
+  Linux nothing extra is needed — the toolchain runs on the host. Docker is an
+  optional fallback only.
 - [PCSX2](https://pcsx2.net/) with a BIOS configured (auto-detected in
-  `Program Files\PCSX2`, on `PATH`, as a flatpak or an AppImage; any other
-  location goes in `Edit > Preferences`).
-- To build the editor: CMake, Ninja, GCC — **MinGW on Windows**, plus the
-  X11/Wayland/GL headers on Linux (`./setup.sh --deps`). `zenity` or `kdialog`
-  provides the native file dialogs on Linux.
+  `Program Files\PCSX2`, on `PATH`, in `/usr/games`, as a flatpak or an
+  AppImage; any other location goes in `Edit > Preferences`).
+- **On Linux, `./setup.sh --deps` installs everything below.** It is listed
+  here so you can install it by hand on a distro it does not know:
+  - *the editor* — CMake, Ninja, GCC, git, pkg-config, and the development
+    headers for GL, X11 (Xrandr, Xinerama, Xcursor, Xi), xkbcommon and
+    Wayland (+ `wayland-protocols`);
+  - *the games* — `curl`, `tar` and `rsync`, used to fetch, unpack and sync
+    the pinned PS2DEV toolchain on the first build. `tools/toolchain/prepare-host.sh
+    --check` reports these on their own, and `--install` gets them via apt;
+  - *optional* — `zenity` (or `kdialog`) for the native file dialogs, and
+    `ccache`, which the build picks up off `PATH` automatically.
+
+  On Windows the editor toolchain is `scoop install mingw cmake ninja`; the PS2
+  side lives inside WSL.
 - **Keep the project path short.** PCSX2's `host:` loader silently refuses an ELF
   path longer than ~145 characters — the game never starts and nothing is logged.
   The editor warns in *Output*.
@@ -135,9 +156,12 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [the console does](docs/ps2-viewport.md) — GS raster, per-vertex flat-shaded
   lighting, 16-bit colour with the GS dither, and the lights' own
   [visible beams](docs/flashlight.md) drawn the game's way.
-- **[Dynamic shadows](docs/shadows.md)** - a blob or a real projected
-  silhouette, chosen per object; the cheap one works on a static prop too. A
-  scene's spot lights can carve per-pixel shadow volumes of their own, so a
+- **[Shadows](docs/shadows.md)** - a blob, a real projected silhouette, or one
+  **baked into a projected decal**, chosen per object; the cheap one works on a
+  static prop too. The baked one is traced here and costs the console one draw
+  call per atlas page however many shadows there are — the only static shadow
+  that lands on a textured wall or an imported model, which a lightmap cannot.
+  A scene's spot lights can carve per-pixel shadow volumes of their own, so a
   street lamp stops lighting the alley behind the wall it hangs on.
 - **[A torch you hold](docs/flashlight.md)** - a per-pixel projected pool that
   lands on walls and props, an offset that takes the light out of the
@@ -324,6 +348,7 @@ wait for their polish pass.
 | [material-lab](examples/material-lab) | The material pipeline on a single pedestal: baked AO, smart masks, atlasing, live reload |
 | [procedural](examples/procedural) | Every node in the scatter library at work in six volumes, baked down to 17 chunk meshes |
 | [ambient-occlusion](examples/ambient-occlusion) | A village on sculpted ground: contact shadows, a ravine that darkens and a bare bank that does not |
+| [baked-shadows](examples/baked-shadows) | A late-afternoon yard where ten casters throw long shadows for ONE draw call — onto a textured brick wall, which is the one thing a lightmap cannot do |
 | [blocks-terrain](examples/blocks-terrain) | A cube world the EE invents at boot. Press TRIANGLE for a new one. Still 50 FPS |
 | [cube](examples/cube) | A 3×3×3 lattice of rooms — prefabs times runtime generation, in ~4 draw calls |
 | [world-facts](examples/world-facts) | Every fact type and all four persistence tiers, exercised across a two-scene level |

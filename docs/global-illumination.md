@@ -285,6 +285,14 @@ progress bar, cancel), or headlessly:
 tyrax-editor --bake-gi <projectDir>
 ```
 
+**What a lightmap cannot cover, a baked shadow decal can.** A lit receiver is
+untextured by construction — this bake needs the texture slot — so a tiled
+stone floor and every imported model take their light from the probe grid, with
+no cast shadow in it. [shadows.md](shadows.md) is the static shadow for exactly
+those surfaces, projected rather than unwrapped. The two do not overlap: with a
+fresh bake here, the shadow projection **skips** the terrain and the untextured
+primitives this one already covers, so nothing is darkened twice.
+
 **Or let the build do it — for stale scenes only.** *Project > Preferences >
 Build > Re-bake stale global illumination* (the same switch sits under the
 Bake buttons on this tab; off by default, needs GI enabled). Every build — the
