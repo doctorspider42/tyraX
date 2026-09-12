@@ -726,11 +726,11 @@ Two consequences you cannot design around:
    program over randomized vertices, and must produce an identical GIF packet.
    That is what makes installing a program safe: meshes that want nothing get
    exactly the pixels they would have got. They still pay the instructions.
-2. **Batched objects share a bag, and therefore share parameters.** The
-   generated game merges non-moving primitives into combined bags
-   (`staticBatchEligible`); one bag is one `sendObjectData`, so one parameter
-   quadword. If two props need different strengths, they need to be different
-   bags.
+2. **A custom-parameter object stays out of static batches.** The generated
+   game merges compatible non-moving primitives and compact model parts into
+   combined bags (`staticBatchEligible`), but one bag has only one
+   `sendObjectData` parameter quadword. Any non-zero per-object VU parameter
+   therefore keeps that object on its own bag.
 
 A per-object *program* would also break static batching outright — a merged bag
 cannot hold two programs, so every such object would become a batch blocker.

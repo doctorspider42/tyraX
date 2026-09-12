@@ -123,13 +123,13 @@ constexpr float ANIM_LOD_DISTANCE = 24.0F;
 // the ~25% one. 0 = off (the build then bakes no LOD chains at all).
 constexpr float MESH_LOD_DISTANCE = 14.0F;
 
-// Static batching (Preferences > Rendering): merge non-moving primitive
-// objects sharing a material into combined world-space bags at scene load -
+// Static batching (Preferences > Rendering): merge non-moving primitives and
+// compact imported-model parts sharing a texture into world-space bags -
 // each StaPip submit costs ~0.7-1.5 ms of fixed EE overhead on real
 // hardware regardless of size, so many small separate objects dominate the
 // frame (twice over in split screen). Eligibility is decided at build time
-// (SceneObjectData::batchStatic); runtime edits to a batched member rebuild
-// its batch. false = every object submits its own bag.
+// (SceneObjectData::batchStatic); runtime edits demote that member and rebuild
+// its former batches. false = every object submits its own bag.
 constexpr bool STATIC_BATCHING = true;
 
 // Dynamic reflection probe aim (Preferences > Rendering): false = the

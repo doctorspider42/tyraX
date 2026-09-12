@@ -102,6 +102,15 @@ captures, screen-size thresholds, per-view rendering and grouped distant draws.
 
 ## Small
 
+### Make headless render-cost capture accept the report it requested
+
+During the 1.87 static-model batching A/B, `--profile-frame` caused the running
+PCSX2 game to write a complete sequence/footer-matched `rendercost.txt`, but the
+client still reported a sequence mismatch and waited the full 45 seconds. The
+UI capture path remains usable. Reproduce the headless sequence comparison and
+fix it separately from renderer work so profiler changes cannot contaminate a
+performance A/B.
+
 ### An input replay cannot reproduce a memory-card save
 
 The input recorder (`docs/input-replay.md`) reproduces a run by performing the

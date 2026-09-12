@@ -127,8 +127,9 @@ already does for you:
   camera before submitting (`orientParticleQuads`), so big fire/fog sprites
   don't show up edge-on to player 2.
 - **Static batching** (*Preferences > Rendering > Static object batching*,
-  on by default): non-moving primitive objects sharing a material merge into
-  combined world-space bags at scene load, so a cluster of decor pays the
+  on by default): non-moving primitives and compact imported-model parts
+  sharing a texture and spatial cell merge into combined world-space bags at
+  scene load, so a cluster of decor pays the
   fixed ~1 ms per-bag submit cost once per batch instead of once per object
   — in both halves. Objects with physics, scripts, flow-graph references,
   save-state or a streaming layer stay individual; a batched object mutated
