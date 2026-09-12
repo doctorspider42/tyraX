@@ -37,6 +37,23 @@ three matrix columns **once per wheel**. Each vertex then needs only a matrix
 multiply and translation; no per-vertex trigonometry. Geometry, UVs and the
 number of submits are unchanged.
 
+The live positions are the only wheel data rebuilt each frame. Each definition
+owns persistent position, colour and UV runs: colours and UVs are filled only
+when a newly visible instance extends the batch, and the separate buffers stay
+alive until the scene unloads because an earlier PATH1 DMA may still read them
+while another definition is prepared. Before any wheel trig or vertex work, a
+conservative rig box is checked against the active view. It includes the full
+wheel mesh radius, track, wheelbase, suspension travel and every steer/spin/
+body-attitude rotation. The wheel pass also follows the body's active,
+visibility, draw-distance and split-band gates. Therefore a camera, split half
+or secondary view may do less CPU work without changing the visible wheel set.
+
+The opaque wheel pass runs after the body loop. Z testing keeps the image and
+draw order intact, while the live wheel gate reads the body LOD selected for
+that same view, so a transition cannot draw both the baked and live wheels.
+Debug render-cost captures report this work as a separate `Wheels` row rather
+than folding it into the scene total.
+
 Rebuilding four wheels' worth of vertices per frame on the EE sounds expensive
 and is not: a decimated wheel is a few hundred vertices, and the transform is
 VU0 macro-mode work measured in microseconds against the millisecond a second

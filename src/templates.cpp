@@ -20443,7 +20443,6 @@ void TerrainGame::renderScene() {
   // same deal one step further: the game built these bags itself, so they need
   // no per-object bookkeeping at all, only a distance test and a submit.
   { const u32 ct=costStart(); renderProcChunks(); costEnd("Procedural",-1,ct); }
-{{VEHICLE_RENDER}}
   // Debug overlay: the collision boxes the walker and the camera boom test
   // (folds away entirely in a release build - DEBUG_SHOW_COLLISION).
   renderCollisionBoxes();
@@ -20738,6 +20737,7 @@ void TerrainGame::renderScene() {
     }
   }
   costEnd("Objects",-1,costObjectsStart);
+{{VEHICLE_RENDER}}
   // Animated models: advance playback, then skin + draw the in-view ones
   // through the same static pipeline (see updateAndRenderAnimObjects)
   { const u32 ct=costStart(); updateAndRenderAnimObjects(); costEnd("Animation",-1,ct); }
@@ -31214,12 +31214,21 @@ static std::string vehicleMembers(const Project& p) {
   // Which camera the driver is looking through, cycled with Triangle.
   // 0 = chase, 1 = bumper, 2 = far. See vehicleCameraFor().
   int vehCamMode_ = 0;
-  // ONE bag for every wheel of every vehicle in the scene: the wheels move
-  // independently, so they cannot ride a matrix like the body - but they CAN
-  // share a submit, and that is the whole 2-submits-per-car design.
-  std::vector<Tyra::Vec4> wheelVerts_;
-  std::vector<Tyra::Color> wheelCols_;
-  std::vector<Tyra::Vec4> wheelSts_;
+  // ONE bag per definition's material, not per vehicle: the wheels move
+  // independently, so they cannot ride the body's matrix, but cars sharing a
+  // definition still share one submit. The buffers must also live per
+  // definition: PATH1 DMA may still read one draw while the next is prepared.
+  struct WheelBatch {
+    std::vector<Tyra::Vec4> verts;
+    std::vector<Tyra::Color> cols;
+    std::vector<Tyra::Vec4> sts;
+    u32 vertsPerCar = 0;
+    int staticCars = 0;
+    // Largest source-vertex distance from the baked hub. Scanned once after
+    // load and invalidated with the scene/model lifetime below.
+    float localRadius = -1.0F;
+  };
+  std::vector<WheelBatch> wheelBatches_;
   std::unique_ptr<Tyra::StaPipBag> wheelBag_;
   std::unique_ptr<Tyra::StaPipColorBag> wheelColorBag_;
   std::unique_ptr<Tyra::StaPipTextureBag> wheelTexBag_;
@@ -31690,6 +31699,9 @@ static float vehShiftDownFrac(const VehicleDefData& s) {
 void TerrainGame::setupVehicles(int scene) {
   vehicleCount_ = 0;
   vehicleDriver_ = -1;
+  // Source parts are resident only for this scene. Drop every pointer-derived
+  // run/radius now, before loadModelAsset can replace or free its vectors.
+  wheelBatches_.clear();
   for (int i = 0; i < VEHICLE_COUNT; ++i) {
     if (VEHICLES[i].scene != scene) continue;
     VehicleRt& v = vehicles_[vehicleCount_++];
@@ -33301,13 +33313,21 @@ void TerrainGame::renderVehicleWheels() {
   // Distinct definitions can use different palettes or source images. A single
   // shared bag would sample every car's wheel UVs through the last car's image.
   for (int drawDef = 0; drawDef < VEHICLE_DEF_COUNT; ++drawDef) {
-  wheelVerts_.clear();
-  wheelCols_.clear();
-  wheelSts_.clear();
+  if ((int)wheelBatches_.size() <= drawDef)
+    wheelBatches_.resize((size_t)drawDef + 1);
+  WheelBatch& batch = wheelBatches_[(size_t)drawDef];
+  batch.verts.clear();
   const GameModelPart* src = nullptr;
   for (int vi = 0; vi < vehicleCount_; ++vi) {
     VehicleRt& v = vehicles_[vi];
     if (!v.active || v.def != drawDef) continue;
+    // The body obeys this state in the ordinary object loop. Its separately
+    // submitted wheels must obey it too or a hidden car leaves four ghosts.
+    if (v.object < 0 || v.object >= (int)runtimeObjects.size() ||
+        !runtimeObjects[v.object].active || !runtimeObjects[v.object].visible)
+      continue;
+    if (beyondDrawDistance(runtimeObjects[v.object].data, cameraPosition))
+      continue;
     const VehicleDefData& s = VEHICLE_DEFS[v.def];
     const int wm = s.wheelModel;
     if (wm < 0 || wm >= (int)gameModels.size() || gameModels[wm].parts.empty())
@@ -33329,8 +33349,40 @@ void TerrainGame::renderVehicleWheels() {
       const float ddz = v.pos[2] - cameraPosition.z;
       if (ddx * ddx + ddz * ddz > 70.0F * 70.0F) continue;
     }
-    src = &part;
+    // Reject before any trig or vertex work. The AABB encloses a sphere around
+    // the whole rig: arbitrary body pitch/roll, wheel spin/steer and every
+    // permitted suspension position fit it. A false positive only takes the
+    // old path; a false negative would visibly pop a tyre.
+    if (batch.localRadius < 0.0F) {
+      batch.localRadius = 0.0F;
+      for (size_t q = 0; q + 2 < part.verts.size(); q += 8) {
+        const float r = sqrtf(part.verts[q] * part.verts[q] +
+                              part.verts[q + 1] * part.verts[q + 1] +
+                              part.verts[q + 2] * part.verts[q + 2]);
+        if (r > batch.localRadius) batch.localRadius = r;
+      }
+    }
     const float SC = v.scale;
+    const float rig = sqrtf(0.25F * (s.track * s.track +
+                                     s.wheelBase * s.wheelBase)) +
+                      batch.localRadius + 0.45F * s.suspensionTravel;
+    const float extent = rig * SC;
+    const Tyra::Vec4 mn(v.pos[0] - extent, v.pos[1] - extent,
+                        v.pos[2] - extent, 1.0F);
+    const Tyra::Vec4 mx(v.pos[0] + extent, v.pos[1] + extent,
+                        v.pos[2] + extent, 1.0F);
+    if (Tyra::CoreBBox::frustumCheckAABB(
+            engine->renderer.core.renderer3D.frustumPlanes.getAll(), mn, mx) ==
+        Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
+      continue;
+    // Split-screen's crop is stricter than the renderer frustum. Match the
+    // body pass so a wheel batch cannot survive in the other half's band.
+    if (splitBandActive) {
+      const float bmn[3] = {mn.x, mn.y, mn.z};
+      const float bmx[3] = {mx.x, mx.y, mx.z};
+      if (outsideSplitBand(bmn, bmx)) continue;
+    }
+    src = &part;
     const float hx = 0.5F * s.track * SC, hz = 0.5F * s.wheelBase * SC;
     const float lx[4] = {-hx, hx, -hx, hx};
     const float lz[4] = {hz, hz, -hz, -hz};
@@ -33376,18 +33428,33 @@ void TerrainGame::renderVehicleWheels() {
       const u32 nv = (u32)(part.verts.size() / 8);
       for (u32 i = 0; i < nv; ++i) {
         const float* q = &part.verts[(size_t)i * 8];
-        wheelVerts_.push_back(Tyra::Vec4(
+        batch.verts.push_back(Tyra::Vec4(
             ax + bx.x * q[0] + by.x * q[1] + bz.x * q[2],
             ay + bx.y * q[0] + by.y * q[1] + bz.y * q[2],
             az + bx.z * q[0] + by.z * q[1] + bz.z * q[2]));
-        // Flat mid grey: the wheel's colour comes from its palette TEXEL,
-        // and 128 is the modulate identity the textured path expects.
-        wheelCols_.push_back(Tyra::Color(128.0F, 128.0F, 128.0F, 128.0F));
-        wheelSts_.push_back(Tyra::Vec4(q[6], q[7], 1.0F, 0.0F));
       }
     }
   }
-  if (wheelVerts_.empty() || !src) continue;
+  if (batch.verts.empty() || !src) continue;
+  const u32 vertsPerCar = (u32)(src->verts.size() / 8) * 4;
+  const int cars = vertsPerCar > 0 ? (int)(batch.verts.size() / vertsPerCar) : 0;
+  if (batch.vertsPerCar != vertsPerCar) {
+    batch.vertsPerCar = vertsPerCar;
+    batch.staticCars = 0;
+    batch.cols.clear();
+    batch.sts.clear();
+  }
+  while (batch.staticCars < cars) {
+    for (int w = 0; w < 4; ++w)
+      for (u32 i = 0; i < vertsPerCar / 4; ++i) {
+        const float* q = &src->verts[(size_t)i * 8];
+        // Flat mid grey: the wheel's colour comes from its palette TEXEL,
+        // and 128 is the modulate identity the textured path expects.
+        batch.cols.push_back(Tyra::Color(128.0F, 128.0F, 128.0F, 128.0F));
+        batch.sts.push_back(Tyra::Vec4(q[6], q[7], 1.0F, 0.0F));
+      }
+    ++batch.staticCars;
+  }
   if (!wheelBag_) {
     wheelColorBag_ = std::make_unique<Tyra::StaPipColorBag>();
     wheelBag_ = std::make_unique<Tyra::StaPipBag>();
@@ -33395,14 +33462,14 @@ void TerrainGame::renderVehicleWheels() {
     wheelBag_->lighting = nullptr;
   }
   wheelBag_->info = batchInfoBag.get();
-  wheelColorBag_->many = wheelCols_.data();
-  wheelBag_->vertices = wheelVerts_.data();
-  wheelBag_->count = static_cast<u32>(wheelVerts_.size());
+  wheelColorBag_->many = batch.cols.data();
+  wheelBag_->vertices = batch.verts.data();
+  wheelBag_->count = static_cast<u32>(batch.verts.size());
   wheelBag_->bboxVersion = ++g_bboxStamp;
-  if (src->texture && wheelSts_.size() == wheelVerts_.size()) {
+  if (src->texture && batch.sts.size() >= batch.verts.size()) {
     if (!wheelTexBag_) wheelTexBag_ = std::make_unique<Tyra::StaPipTextureBag>();
     wheelTexBag_->texture = const_cast<Tyra::Texture*>(src->texture);
-    wheelTexBag_->coordinates = wheelSts_.data();
+    wheelTexBag_->coordinates = batch.sts.data();
     wheelBag_->texture = wheelTexBag_.get();
   } else {
     wheelBag_->texture = nullptr;
@@ -33690,13 +33757,18 @@ static std::string vehicleUpdateCall(const Project& p) {
 
 static std::string vehicleRenderCall(const Project& p) {
     if (!projectHasVehicles(p)) return "";
-    // Wheels only: opaque and z-tested, so drawing before the object pass is
-    // order-free. The SMOKE is not - a translucent quad drawn before the car
-    // body writes Z and the body's pixels behind it are rejected, which read
+    // Wheels only: opaque and z-tested, so drawing after the object pass is
+    // order-free. It also sees THIS view's just-selected body LOD, so a tier
+    // transition cannot show both the baked and live wheel set. The SMOKE is
+    // not: a translucent quad drawn before the car body writes Z and the
+    // body's pixels behind it are rejected, which read
     // on screen as a HOLE through the car ("dym robi dziure w samochodzie").
     // The smoke renders with the particles at the frame's translucent tail
     // ({{VEHICLE_SMOKE_RENDER}}).
-    return "  renderVehicleWheels();\n";
+    // Its own cost phase keeps the wheel CPU rebuild and batched submit out of
+    // the unlabelled scene total. It sits outside Objects, so rows do not
+    // double-count either pass.
+    return "  { const u32 ct=costStart(); renderVehicleWheels(); costEnd(\"Wheels\",-1,ct); }\n";
 }
 
 static std::string vehicleSmokeRenderCall(const Project& p) {

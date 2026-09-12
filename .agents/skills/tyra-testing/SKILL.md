@@ -2778,6 +2778,15 @@ Mixed vehicle definitions keep separate runtime wheel batches so a palette car
 and a textured car never sample through the last vehicle's image. Verify both
 cars together at near range; far tiers carry their own baked wheels.
 
+Wheel batches retain their per-definition position, colour and UV buffers until
+scene unload: PATH1 DMA can still read one definition while the next is being
+prepared. The conservative CPU reject must cover the actual rig (wheel mesh
+radius, track, wheelbase, full suspension travel, steer, spin and body
+attitude), and must use the active camera/frustum plus the body's visibility,
+draw-distance and split-band gates. Check a near/far LOD crossing has neither
+duplicate nor missing wheels, then capture the separate `Wheels` render-cost
+row; it is a diagnostic phase, not a hardware FPS result.
+
 ## Render-cost capture
 
 Use `--profile-frame PROJECT -o report.csv` against a debug game with Live
