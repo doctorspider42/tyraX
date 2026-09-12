@@ -133,6 +133,30 @@ Both definitions were inspected together after separating their wheel batches:
 the coupe retains its black/white tyres and Rally retains its textured wheels.
 Throttle, nitrous, handbrake and braking were exercised with automated pad input.
 
+### Performance check (2026-09-12)
+
+The district combines bounded road chunks with the conservative whole-model
+reject and cross-material transform cache from `codex/static-model-performance`
+(`54703b12`, `2afe5566`). Assets, lights and reflections remain enabled.
+
+At the unchanged on-foot spawn camera in PCSX2's software renderer (PAL,
+512 x 512, debug build), medians of 12 fresh telemetry samples at 0.5-second
+intervals were:
+
+| Build | Day FPS | Night FPS |
+|---|---:|---:|
+| District after merging main (`0f35b451`) | 20.0 | 17.3 |
+| Bounded road chunks (`bbf9ae96`) | 23.6 | 19.2 |
+| Road chunks + static-model optimizations | 25.0 | 22.1 |
+
+Samples were taken outside render-cost captures. Separate serialized day
+captures reported Total 42.861 -> 36.562 ms; those instrumented timings are
+attribution evidence, not ordinary frame times. The original and final day
+GS images differed in **zero of 262,144 pixels**. A subsequent night drive
+covered about 100 m, with the car body/wheels staying together and a working
+streetlight visible after braking. These are short emulator comparisons with
+active AI traffic, not a minimum FPS promise for the entire map or real PS2.
+
 ## Day / night from the pause menu
 
 Press **Start**, select **TIME OF DAY**, and use Cross or left/right to choose

@@ -126,6 +126,15 @@ class StaPipCore {
   // computed once per render(), shared by the main-bbox check and every
   // package classification in the packager.
   Plane objectSpacePlanes[6];
+  // Consecutive material bags of one model share the same model matrix and
+  // camera. Cache their expensive plane transform and MVP for this frame.
+  bool transformCacheValid = false;
+  bool transformCachePlanesValid = false;
+  const M4x4* transformCacheModelPtr = nullptr;
+  M4x4 transformCacheModel;
+  M4x4 transformCacheViewProj;
+  M4x4 transformCacheMvp;
+  Plane transformCacheObjectSpacePlanes[6];
   // Modified by TyraX: EIGHT entries. 0..5 are the VU1 clip planes (near, far
   // and the X/Y guard band) - the only ones uploaded to VU1 and the only ones
   // the clip mask covers. 6..7 are the EXACT near/far pair (|z| <= w), which

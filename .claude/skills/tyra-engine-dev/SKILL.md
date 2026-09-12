@@ -2131,6 +2131,25 @@ legacy compatibility mode. See docs/vu1-clipping.md.
 Measure with PCSX2's FPS display on the software renderer, 3+ samples, before
 and after; pixel-compare screenshots to prove output is unchanged.
 
+`StaPipCore` has a frame-local last-transform cache for consecutive TyraMVP
+material bags. It reuses the MVP and object-space frustum planes only when the
+model pointer, model-matrix contents and view-projection contents all match;
+this content key is required because physics mutates matrices in place and
+portal/split-screen passes switch cameras. `onFrameEnd()` invalidates it and
+TyraMP bypasses it. The portal/mirror-free Aster PCSX2 fixture measured median
+serialized Total 21.322 -> 19.172 ms and Objects 14.102 -> 12.425 ms over six
+alternating boots, but the directly attributed Prepare counter moved only
+1.375 -> 1.341 ms: treat the aggregate emulator delta as directional until the
+same ELF pair is measured on a physical PS2.
+
+Do not fuse the deferred uniform chain into the first geometry `packet2_t` by
+removing its END tag and appending it with `packet2_add`. That superficially
+valid chain compiled but stalled at the first gameplay frame in PCSX2: packet2's
+chain/TTE ownership contract is not preserved by byte-style concatenation. A
+future one-kick design must build both sections natively in one chain or use a
+real DMA NEXT/CALL link, then be verified on hardware for VIF1 ordering and EE
+D-cache visibility.
+
 ## Static submission on physical PS2 (1.78)
 
 `StaPipQBufferRenderer::sendObjectData` now prepares uniforms without waiting

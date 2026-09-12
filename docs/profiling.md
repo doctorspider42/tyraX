@@ -41,6 +41,23 @@ divide tick deltas by 294912 for milliseconds.
 This is enough to answer "is the highlight/particles/scene the problem?". For a
 finer breakdown you drop to the manual technique.
 
+### Cross-material transform reuse (1.86.1)
+
+An imported model normally enters StaPip once per material part even though
+every part shares one model matrix and camera. `StaPipCore` now caches the most
+recent TyraMVP transform for the current frame and reuses its MVP and transformed
+frustum planes while the key stays identical. The key compares matrix and
+view-projection contents as well as the model pointer, so in-place physics edits,
+portal cameras and split-screen views invalidate it naturally.
+
+The test fixture was a `%TEMP%` copy of `examples/showcase` with both portals and
+the ray-traced mirror removed. Across six alternating, cold-booted PCSX2 debug
+runs, median serialized `Total` moved 21.322 -> 19.172 ms and `Objects` 14.102 ->
+12.425 ms. The directly attributed `Prepare_included` counter moved only 1.375
+-> 1.341 ms, so the larger aggregate emulator delta is directional evidence,
+not a physical-console claim. The first ordinary-HUD pair moved 51.6 -> 56.3
+FPS. A real-PS2 A/B is still required before quoting the hardware gain.
+
 ## The three frame rate counters, and which one to believe
 
 Three surfaces print a frame rate. They measure **three different quantities**,
@@ -1706,3 +1723,24 @@ ordinary scene. The optimized engine overlaps next-mesh preparation with VU1,
 uses coarse package bounds, and avoids duplicate first-packet cache writeback.
 These improvements preserve interpolated static vertex colours. The example
 also uses spatial face order, scoped cellar visibility and a smaller ocean grid.
+
+The multi-part model coarse reject was measured on Aster at the fixed entrance
+camera (2026-09-12, PCSX2 software renderer, debug, 10 captures after a 55 s
+boot settle). The synchronized report changed as follows:
+
+| stage | baseline | coarse reject | change |
+|---|---:|---:|---:|
+| Total | 24.685 ms | 23.226 ms | -5.9% |
+| Objects | 15.011 ms | 13.723 ms | -8.6% |
+| Bounds included | 1.971 ms | 1.846 ms | -6.3% |
+| Dispatch included | 9.032 ms | 8.998 ms | -0.4% |
+| Portal (median) | 2.596 ms | 2.398 ms | -7.6% |
+
+The ordinary, non-capture frame at that camera stayed at the emulator's 45 FPS
+limit while scene time improved from 18.67 to 18.03 ms and frame time from
+22.55 to 22.17 ms. Two 448x448 GS captures differed in about 1.1% of channel
+values, confined to the profiler digits and animated water/scene content; visual
+inspection found no missing geometry. These are PCSX2 comparisons, not GS
+claims. A physical-console run was attempted, but that console remained in a
+`freepad: DMA Busy` shutdown state and its ps2link file channel did not recover
+after the remote reset, so no hardware number was accepted from that session.

@@ -234,6 +234,12 @@ class TerrainGame : public Tyra::Game {
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
+    // One conservative box over every material part. Multi-part objects use
+    // it as a cheap reject before paying the pipeline's per-part/package
+    // classification. World-space for the normal bake; local-space when the
+    // physics matrix fast path is active.
+    Tyra::CoreBBox coarseBox;
+    bool coarseBoxValid = false;
     bool impostor = false; // visual representation only; data.model owns collision
     bool impostorInitialized = false;
     int impostorView = 0;
@@ -660,6 +666,10 @@ class TerrainGame : public Tyra::Game {
   void pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags);
   // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
   void rebuildObjectGeometry(int index, bool localSpace = false);
+  // Cheap whole-object reject for multi-part static geometry. The normal
+  // pipeline still owns precise per-part/package clipping for anything that
+  // touches the view.
+  bool coarseObjectOutside(int index) const;
   // Static mesh LOD: points one model part's bags at distance tier `lod`
   // (0 = the full mesh), baking that tier's shaded buffers on first use.
   void applyGeoLod(int index, int partIndex, int lod);

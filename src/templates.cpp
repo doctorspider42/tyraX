@@ -1007,6 +1007,12 @@ class TerrainGame : public Tyra::Game {
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
+    // One conservative box over every material part. Multi-part objects use
+    // it as a cheap reject before paying the pipeline's per-part/package
+    // classification. World-space for the normal bake; local-space when the
+    // physics matrix fast path is active.
+    Tyra::CoreBBox coarseBox;
+    bool coarseBoxValid = false;
     bool impostor = false; // visual representation only; data.model owns collision
     bool impostorInitialized = false;
     int impostorView = 0;
@@ -1433,6 +1439,10 @@ class TerrainGame : public Tyra::Game {
   void pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags);
   // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
   void rebuildObjectGeometry(int index, bool localSpace = false);
+  // Cheap whole-object reject for multi-part static geometry. The normal
+  // pipeline still owns precise per-part/package clipping for anything that
+  // touches the view.
+  bool coarseObjectOutside(int index) const;
   // Static mesh LOD: points one model part's bags at distance tier `lod`
   // (0 = the full mesh), baking that tier's shaded buffers on first use.
   void applyGeoLod(int index, int partIndex, int lod);
@@ -2505,6 +2515,12 @@ class TerrainGame : public Tyra::Game {
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
+    // One conservative box over every material part. Multi-part objects use
+    // it as a cheap reject before paying the pipeline's per-part/package
+    // classification. World-space for the normal bake; local-space when the
+    // physics matrix fast path is active.
+    Tyra::CoreBBox coarseBox;
+    bool coarseBoxValid = false;
     bool impostor = false; // visual representation only; data.model owns collision
     bool impostorInitialized = false;
     int impostorView = 0;
@@ -2931,6 +2947,10 @@ class TerrainGame : public Tyra::Game {
   void pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags);
   // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
   void rebuildObjectGeometry(int index, bool localSpace = false);
+  // Cheap whole-object reject for multi-part static geometry. The normal
+  // pipeline still owns precise per-part/package clipping for anything that
+  // touches the view.
+  bool coarseObjectOutside(int index) const;
   // Static mesh LOD: points one model part's bags at distance tier `lod`
   // (0 = the full mesh), baking that tier's shaded buffers on first use.
   void applyGeoLod(int index, int partIndex, int lod);
@@ -17782,6 +17802,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
   o.dirty = false;
+  g.coarseBoxValid = false;
   g.matrixMode = localSpace;
   o.onMatrixPath = localSpace;  // the Script-visible mirror; see RuntimeObject
   g_bakeLocal = localSpace;
@@ -18356,7 +18377,46 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
                     part.emisBag.get()});
   }
   g_litNormals = nullptr;
+  // Keep a single conservative AABB across all material parts. It is built
+  // alongside geometry (never per frame), then renderScene can reject a fully
+  // off-screen model before submitting every part to StaPip. LOD tiers only
+  // remove vertices, so the tier-0 box remains conservative for them too.
+  g.coarseBoxValid = false;
+  if (g.parts.size() >= 3) {
+    Vec4 coarseMin(1e30F, 1e30F, 1e30F, 1.0F);
+    Vec4 coarseMax(-1e30F, -1e30F, -1e30F, 1.0F);
+    for (const GeoPart& part : g.parts)
+      for (const Vec4& v : part.vertices) {
+        if (v.x < coarseMin.x) coarseMin.x = v.x;
+        if (v.y < coarseMin.y) coarseMin.y = v.y;
+        if (v.z < coarseMin.z) coarseMin.z = v.z;
+        if (v.x > coarseMax.x) coarseMax.x = v.x;
+        if (v.y > coarseMax.y) coarseMax.y = v.y;
+        if (v.z > coarseMax.z) coarseMax.z = v.z;
+        g.coarseBoxValid = true;
+      }
+    if (g.coarseBoxValid) {
+      Vec4 corners[2] = {coarseMin, coarseMax};
+      g.coarseBox = CoreBBox(corners, 2);
+    }
+  }
   if (needsLitSeed) fillDynLitColors(index);
+}
+
+bool TerrainGame::coarseObjectOutside(int index) const {
+  if (index < 0 || index >= (int)objectGeometry.size()) return false;
+  const ObjectGeometry& g = objectGeometry[index];
+  if (g.parts.size() < 3 || !g.coarseBoxValid || vuscript::movesGeometry())
+    return false;
+  Plane localPlanes[6];
+  const Plane* planes =
+      engine->renderer.core.renderer3D.frustumPlanes.getAll();
+  if (g.matrixMode) {
+    CoreBBox::computeObjectSpacePlanes(localPlanes, planes, g.objMat);
+    planes = localPlanes;
+  }
+  return g.coarseBox.frustumCheckAABB(planes) ==
+         CoreBBoxFrustum::OUTSIDE_FRUSTUM;
 }
 
 // Static mesh LOD (docs/model-pipeline.md). Two object kinds keep the full
@@ -20560,6 +20620,12 @@ void TerrainGame::renderScene() {
     if (objectGeometry[i].matrixMode) updateObjMat(i);
     if (!runtimeObjects[i].visible) continue;
     if (beyondDrawDistance(runtimeObjects[i].data, cameraPosition)) continue;
+    // A model with several materials otherwise enters StaPip once per part
+    // just to discover that every package is outside. The merged box preserves
+    // part-level culling for visible/edge cases while making the common fully
+    // off-screen case one six-plane AABB test. A VU program that moves geometry
+    // can escape the baked box, so it deliberately stays on the old path.
+    if (coarseObjectOutside(i)) continue;
     // Six vertices, no allocation/rebuild: the selected capture and facing
     // update in place. Texture coordinates come from the loaded (atlas-remapped)
     // model, so the normal asset bake remains authoritative.
@@ -21947,6 +22013,10 @@ bool TerrainGame::renderOnePortalView(int pi) {
       rebuildObjectGeometry(ti);
     }
     ObjectGeometry& g = objectGeometry[ti];
+    // The portal camera has its own frustum planes active here. Reject the
+    // complete multi-material object once before the explicit through-view
+    // list feeds each of its parts into StaPip.
+    if (coarseObjectOutside(ti)) return;
     for (GeoPart& part : g.parts) {
       if (!part.bag) continue;
       if (clipsExit) renderExitClipped(part);

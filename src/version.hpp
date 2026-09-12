@@ -16,22 +16,11 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
-// 1.86.1: Pack road spans into bounded larger render chunks to reduce EE
-// submission overhead. Geometry and project format remain unchanged.
+// 1.86.2: Combine Motor District road packing with the static-model performance
+// branch: conservative whole-model rejection and cached cross-material
+// transforms. Retain the vehicle texture, reflection and handling fixes.
+// No additional project-format change.
 //
-// 1.86.0: Motor District vehicle playground and flat-road geometry reduction.
-// Retain textured vehicle images/wheel LODs and match dynamic reflection UVs
-// to the level capture camera. No project-format change.
-//
-// 1.84.2: a PS2 deploy that receives no console log keeps ps2client alive and
-// reports an unconfirmed launch instead of removing host: from a game that may
-// already be running. PATCH: deploy-lifetime fix; no project-format change.
-//
-// 1.84.1: the native backend encodes *-loop.wav effects with adpenc -L and
-// repairs newer one-shot outputs by checking the encoded loop byte, matching
-// the Docker fallback. PATCH: build-output fix only; no project-format change.
-//
-// 1.84.0 (explicit WSL host bootstrap): native builds now share a dedicated
 // 1.85.2: the render cost table sorts. It listed phases first and object
 // draws after them, each group dearest first, which answers "what is the most
 // expensive thing in this frame" and nothing else - finding one named object
@@ -3872,7 +3861,7 @@
 // 1.80.0: cutscenes can hide the HUD and own the skip button.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 86
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
