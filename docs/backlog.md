@@ -4,6 +4,14 @@ This is only unfinished work that still has a clear payoff and a testable end.
 Finished investigations belong in commit history; reusable facts belong in the
 relevant guide or developer skill.
 
+### Motor District rendering performance
+
+The [implementation plan](motor-district-performance-plan.md) assigns the next
+pass to three Terra subagents: measurement/debug overhead and reflection reuse,
+wheel preparation/culling, and adaptive roads plus environment LOD. All five
+tasks remain pending integration and measured acceptance; the current baseline
+is `1ce38d2b`. Preserve vehicles, lighting and live scenery reflections.
+
 The retired `PROGRESS.md` is still available when old implementation history is
 actually needed:
 

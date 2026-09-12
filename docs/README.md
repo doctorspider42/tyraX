@@ -7,6 +7,10 @@ for people building games with it. Internals live in code comments, the git log
 (commit messages carry what changed and how it was verified) and the
 `.claude/skills/` developer guides. What's queued is in [Backlog](backlog.md).
 
+The [Motor District performance work plan](motor-district-performance-plan.md)
+details the current wheel, road, LOD, reflection and measurement tasks, including
+their ownership and acceptance checks.
+
 **World & objects**
 
 - [Animated models (.glb / .fbx)](animated-models.md) — authoring in Blender, import,
