@@ -103,6 +103,10 @@ surfaces never showed it: their albedo is in the texture, which the shade only
 multiplies. The animated path had already been fixed this way once
 (`AnimModelDraw::Part::kd`); the static path had not.
 
+![The same viewport before and after the albedo is put back: a cypress whose
+leaves are Kd 0.13 0.3 0.22 drew white, and the console drew it green]
+(img/gi-albedo-fix.png)
+
 **The editor viewport takes the same routes**, and has to: it shows what the
 console will. `Viewport::setGiTerrain` feeds it the baked terrain map so the
 ground goes down the lightmap route — the RGB one when the map replaces the
