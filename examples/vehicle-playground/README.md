@@ -31,6 +31,7 @@ worked example for [vehicles](../../docs/vehicles.md).
   shoves a physics body instead of stopping at it.
 - **Two rivals** (`rival`, `rival-2`) patrolling the same four-Area circuit
   with no pad attached — and avoiding each other, and you, one frame ahead.
+  The first rival starts beside the player at (-2.8871, 0, -0.440529).
 - **Two dynamic-shadow tiers** on the same imported model: the coupe casts its
   real projected silhouette, while both AI rivals use cheap terrain-following
   blobs. Select a car and change it under *Properties > Rendering > Dynamic
