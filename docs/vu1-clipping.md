@@ -282,7 +282,7 @@ inside their loops - the previous batch may still be running, parked on its
 by-reference array that is rewritten between submissions; every per-view
 rewrite - beams, sky bodies - sits inside `align3D()` brackets already).
 
-### One native first packet; rejected linked-DMA experiments (1.86.2-1.86.3)
+### One native first packet; rejected linked-DMA experiments (1.86.3-1.86.4)
 
 Do not combine already-finished uniform and geometry chains by byte-appending
 them or by rewriting the uniform packet's empty `END` as a zero-QWC DMA `NEXT`.
@@ -291,7 +291,7 @@ profiled faster in PCSX2, but froze a physical PS2 on the first gameplay frame
 in three fresh boots. An otherwise identical baseline ran past 600 frames and
 returned five valid profiles.
 
-The safe 1.86.3 implementation constructs one chain from the beginning instead:
+The safe 1.86.4 implementation constructs one chain from the beginning instead:
 the current double-buffered packet receives the leading `FLUSHE`, uniform
 unpacks and geometry commands before a single final `END` is written. There is
 no cross-allocation jump and no finished chain embedded as data. It survived

@@ -898,13 +898,14 @@ void App::drawPropertiesWindow() {
         {
             const char* shadowNames[] = {"Default (follow the project)",
                                          "None", "Blob (soft quad)",
-                                         "Projected silhouette"};
+                                         "Projected silhouette",
+                                         "Baked (decal)"};
             int mode = o.shadowMode;
-            if (mode < 0 || mode > 3) mode = 0;
+            if (mode < 0 || mode > 4) mode = 0;
             // A real label rather than "##dynshadow" plus a SameLine caption:
             // it is the idiom the rest of these panels use, and a hidden label
             // is a widget no UI script can name (docs/ui-scripting.md).
-            if (ImGui::Combo("Dynamic shadow", &mode, shadowNames, 4)) {
+            if (ImGui::Combo("Dynamic shadow", &mode, shadowNames, 5)) {
                 o.shadowMode = mode;
                 committed = true;
             }
@@ -923,8 +924,32 @@ void App::drawPropertiesWindow() {
                     "second time each frame (64x64, from the sun) and the\n"
                     "shape is projected under it. The 4 casters nearest the\n"
                     "camera are active at a time, so mark hero objects.\n"
-                    "Game-only (no preview). 'Cast shadow' below is the\n"
-                    "BAKED, static one - a different thing entirely.");
+                    "Game-only (no preview).\n"
+                    "BAKED - the real shape, traced once and projected onto\n"
+                    "whatever is under it. Costs no slot and nothing per\n"
+                    "frame, reaches textured walls and models the lightmap\n"
+                    "cannot, and needs a bake (Ambience Editor > Baked\n"
+                    "lighting). The caster and what it falls on must stay\n"
+                    "put. 'Cast shadow' below is the ambient-occlusion one -\n"
+                    "a different thing entirely.");
+            // A baked shadow needs two things this panel can say straight
+            // away: the project switch, and a caster that stands still. The
+            // sentence comes from shadowbake itself (quickRefusal), so the
+            // panel and the bake cannot end up disagreeing about which objects
+            // qualify. Everything else - whether it lands on anything, how
+            // many triangles it costs - needs the bake and is reported there.
+            if (o.shadowMode == 4) {
+                const std::string why = shadowbake::quickRefusal(o);
+                if (!why.empty())
+                    ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
+                                       "No baked shadow: %s", why.c_str());
+                else if (!project_.settings.bakedShadows)
+                    ImGui::TextColored(
+                        ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
+                        "Baked shadows are off for this project");
+                else
+                    ImGui::TextDisabled("Bake it in Ambience Editor > Baked lighting");
+            }
             // The old flag still means "projected" while the mode follows the
             // project, so it stays reachable - and stays the thing every
             // existing .tyra carries.

@@ -41,7 +41,7 @@ divide tick deltas by 294912 for milliseconds.
 This is enough to answer "is the highlight/particles/scene the problem?". For a
 finer breakdown you drop to the manual technique.
 
-### Cross-material transform reuse (1.86.1)
+### Cross-material transform reuse (1.86.2)
 
 An imported model normally enters StaPip once per material part even though
 every part shares one model matrix and camera. `StaPipCore` now caches the most
@@ -58,7 +58,7 @@ runs, median serialized `Total` moved 21.322 -> 19.172 ms and `Objects` 14.102 -
 not a physical-console claim. The first ordinary-HUD pair moved 51.6 -> 56.3
 FPS. A real-PS2 A/B is still required before quoting the hardware gain.
 
-### Direct whole-IN submission (1.86.2)
+### Direct whole-IN submission (1.86.3)
 
 When the bag-level bounding box has already proved that every range is visible,
 StaPip now points qbuffers directly at contiguous ranges of the bag's vertex
@@ -81,7 +81,7 @@ but was rejected. It froze a physical PS2 on the first gameplay frame in three
 fresh boots, while an otherwise identical baseline ran past 600 frames and
 produced five valid reports. This is why PCSX2-only DMA wins are not accepted.
 
-### Native uniform + geometry chain (1.86.3)
+### Native uniform + geometry chain (1.86.4)
 
 StaPip now constructs the first packet for a visible bag as one native packet2
 chain: the leading `FLUSHE` and absolute-address uniform unpacks are written
@@ -96,7 +96,7 @@ draw.
 On the portal/mirror-free Aster fixture, five settled physical-console captures
 moved median `DMA_submit_included` 3.034 -> 2.029 ms (-1.005 ms),
 `Dispatch_included` 16.827 -> 15.544 ms (-1.283 ms) and
-`VU1_wait_included` 5.847 -> 5.130 ms (-0.717 ms) against the 1.86.2 two-kick
+`VU1_wait_included` 5.847 -> 5.130 ms (-0.717 ms) against the 1.86.3 two-kick
 path. `Objects` moved 24.951 -> 24.840 ms and serialized `Total` stayed GS-bound
 at about 34.3 ms. The candidate ran beyond 2100 frames after a fresh hardware
 boot and produced a correct 448x448 GS capture; PCSX2, `--vu-check`, and the

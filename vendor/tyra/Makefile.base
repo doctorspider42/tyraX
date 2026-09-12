@@ -78,8 +78,20 @@ remake: cleaner all
 # The plain `cp -r` re-wrote every baked texture, model and WAV into bin/ each
 # time, which then had to be hashed and rsynced back to the host - O(assets)
 # per build for a tree that had not changed.
+#
+# TyraX: gi/ and shadow/ are skipped. They are HOST bake caches that happen to
+# live under .res-baked (the global-illumination solve and the baked shadow
+# decals - the PIXELS those produce ship as ordinary textures next to them, in
+# aomap/, aoatlas/ and shadowatlas/). Nothing on the console can read either
+# file, and bin/ is the game's own filesystem: copying them wasted disk on
+# every build and, worse, put them in front of the ISO export, which walks all
+# of bin/ and would burn a multi-megabyte GI cache onto the disc.
+RESDIR_SKIP := gi shadow
 resources: directories
-	@cp -ru $(RESDIR)/* $(TARGETDIR)/ || true
+	@for d in $(RESDIR)/*; do \
+		case " $(RESDIR_SKIP) " in *" $${d##*/} "*) continue;; esac; \
+		cp -ru "$$d" $(TARGETDIR)/ || true; \
+	done
 
 #Make the Directories
 directories:

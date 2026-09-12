@@ -64,7 +64,8 @@ box you are on; they take the same flags and do the same things.
 ```
 
 ```bash
-./setup.sh --deps    # one-time on a bare box: toolchain + dev headers
+./setup.sh --deps    # one-time on a bare box: EDITOR toolchain + dev headers,
+                     # AND the game half (curl/tar/rsync) - one command, both
 ./build.sh           # → build/tyrax-editor
 ./build.sh --run     # build + launch the GUI
 ./build.sh --clean   # full rebuild
@@ -574,9 +575,24 @@ Prerequisites: WSL on Windows or the packages named by
 `~/Applications` or `~/Downloads`. Anything else: set the path in
 *Edit > Preferences*.
 
+**A relative project path is fine now, and was not before.** `--build
+examples/<name> --run` used to hand the native build script and PCSX2 a
+RELATIVE path: the script's `cd` failed outright, and PCSX2 derived the `host:`
+asset root from the relative ELF, so the game booted to an untextured scene
+with no baked shadows and nothing in any log saying why. Both are absolutised
+at the source now (`Project::elfPath`, and the Runner's native-build
+arguments); the ~145-character ELF limit is therefore measured on the path
+PCSX2 really sees.
+
 Host preparation is deliberately explicit. Check it with
 `bash tools/toolchain/prepare-host.sh`; install missing Debian/Ubuntu packages
-with `--install`. On Windows, `prepare-host.ps1 -Install` reaches the same script
+with `--install`. **On Linux `./setup.sh --deps` already covers this** - its
+four distro lists carry `curl`, `tar` and `rsync` alongside the editor's own
+dependencies, so a box set up for the editor can build games too; the split
+used to bite exactly once, at the first Build & Run. And a manual
+`tools/toolchain/setup.sh` now installs into the SAME directory the editor
+uses (`configDir()/toolchain/ps2dev`), so it is a pre-install rather than a
+second 943 MB copy. On Windows, `prepare-host.ps1 -Install` reaches the same script
 inside the default WSL distribution. A normal build never runs `apt`; the
 Windows installer offers this as an unchecked, non-inherited task.
 
@@ -2199,7 +2215,7 @@ powershell -File .claude\skills\tyra-testing\scripts\shadow-ab.ps1 `
 `-Toggle` is any key the manifest writes on a line of its own —
 `spotShadowVolumes`, `flashShadowVolumes`, `blobShadows` — and it is **inserted**
 when the file does not carry it, which every project that never touched the
-setting does not. For each (value x vantage) the rig patches the setting and the
+setting does not. **`bakedShadows` needs a step in between** (docs/shadows.md): it reads a CACHE, so run `tyrax-editor --bake-shadows <project>` once with the key true before the A/B - the cache is content-hashed and survives the toggle flipping, so one bake serves every row. For each (value x vantage) the rig patches the setting and the
 Player's pose, runs `--build --run` under a hard timeout, waits `-Settle`
 (14 s), screenshots **the emulator whose command line names this project**,
 greps the game's own `bin/log.txt` for `Assertion` / `=======` banners, and

@@ -88,7 +88,8 @@ game, so an edit there moves both. TyraX changes in it: **`-G0`** (see below),
 single-pass dependency
 generation (`-MMD -MP`; it used to run the compiler a second time per file just
 to write the `.d`), `| directories` order-only prerequisites so `-j` cannot
-reach an absent `bin/`, `cp -ru` for the resource copy, and **`src/vu/` and
+reach an absent `bin/`, `cp -ru` for the resource copy **minus `RESDIR_SKIP`**,
+and **`src/vu/` and
 `src/vu0/` excluded from `SOURCES`** - those are HOST C++ (a project's own VU1
 programs and VU0 kernels, docs/vu-authoring.md), compiled and run at build time
 by the container's g++, and handing them to the PS2 compiler fails on the very
@@ -123,6 +124,17 @@ line after you changed engine sources, that is the symptom.
 Verified
 byte-identical: the same project built with the old and new rules produced the
 same `md5` for its stripped ELF.
+
+**`RESDIR_SKIP` is the resource copy's exclusion list, and it exists because
+`bin/` IS the game's filesystem.** `.res-baked` holds two directories no
+console can read - `gi/` (the global-illumination solve) and `shadow/` (the
+baked shadow decals); what ships is the PIXELS they produce, already beside
+them in `aomap/`, `aoatlas/` and `shadowatlas/`. Copying the caches wasted disk
+on every build and, worse, put them in front of `isoexport`, which walks all of
+`bin/` and would burn a multi-megabyte GI cache onto the disc. A new host-only
+cache under `.res-baked` joins that list AND the matching skip in
+`src/isoexport.cpp` - the second one covers a `bin/` an older build already
+polluted.
 
 ## Engine layout
 
@@ -2147,7 +2159,7 @@ END and byte-appending it with `packet2_add` stalled at the first gameplay frame
 in PCSX2 because packet2's chain/TTE contract was not preserved. Rewriting the
 aligned empty END as a real zero-QWC DMA NEXT to the intact geometry chain ran
 and measured faster in PCSX2, but froze a physical PS2 on the first gameplay
-frame in three fresh boots. The safe 1.86.3 route is to construct ONE native
+frame in three fresh boots. The safe 1.86.4 route is to construct ONE native
 packet from the beginning: leading FLUSHE, uniform unpacks, geometry commands,
 then one END. Never jump between the separately allocated chains. This ran past
 2100 hardware frames and returned a correct GS capture.
@@ -2171,7 +2183,7 @@ VU1 clipping references immutable source streams, like culling; legacy EE
 clipping still copies into writable qbuffers. Coarse AABBs cover eight full
 packages (24 one-third bounds), follow bboxVersion rebuilds, and only inherit
 whole-IN/OUT decisions; partial groups keep exact child/guard-band tests.
-Wholly visible bags skip redundant package classification and, since 1.86.2,
+Wholly visible bags skip redundant package classification and, since 1.86.3,
 point each qbuffer directly at the bag's contiguous source range instead of
 constructing unused pooled package descriptors. Partial and EE-clip paths still
 use packages and writable copy pools. Spatially coherent triangle order makes
@@ -2180,7 +2192,7 @@ Aster this direct path was hardware-neutral across five settled captures
 (Total 34.349 -> 34.342 ms, Objects 25.051 -> 24.951 ms) and ran beyond 3360
 frames; describe it as removed work, not a proven FPS gain.
 
-Since 1.86.3 the native combined first packet removes one VIF1 kick and one EE
+Since 1.86.4 the native combined first packet removes one VIF1 kick and one EE
 wait per visible bag. Five settled physical Aster captures moved median DMA
 submit 3.034 -> 2.029 ms, Dispatch 16.827 -> 15.544 ms and VU1 wait 5.847 ->
 5.130 ms; Total stayed fill-bound near 34.3 ms. PCSX2 alone is not acceptance
@@ -2255,7 +2267,7 @@ qwords per side (57 reserved for worst-case uniforms/barrier plus 128 for the
 32 qbuffer command groups); DynPip's uniform packet capacity is 24 qwords.
 
 The 1.80 merge retains inline SH colour storage with deferred StaPip uniforms.
-Since 1.86.3 that data shares the first geometry packet. It is safe to reset
+Since 1.86.4 that data shares the first geometry packet. It is safe to reset
 because sendPacket waits for the prior VIF1 DMA before flipping contexts and
 the other packet is used while the submitted one drains; DynPip retains its
 own wait-before-reset contract.

@@ -431,9 +431,17 @@ struct SceneObject {
     // is exactly what every file written before this key did, i.e. a blob if
     // Preferences has blob shadows on and the object is one of the moving
     // things that get them, and a projected silhouette if projShadow is set;
-    // 1 = none; 2 = blob; 3 = projected silhouette. A mode other than 0
-    // OVERRIDES both, so "a model with a blob instead of the full cast" is one
-    // combo away and costs one quad instead of a 64x64 silhouette render.
+    // 1 = none; 2 = blob; 3 = projected silhouette; 4 = baked into a decal. A
+    // mode other than 0 OVERRIDES both, so "a model with a blob instead of the
+    // full cast" is one combo away and costs one quad instead of a 64x64
+    // silhouette render.
+    //
+    // 4 is the odd one out and the only one that is not a runtime shadow at
+    // all: the host bakes the shadow into an atlas tile and projects it with
+    // decalproj, so the console draws static triangles and the object takes no
+    // silhouette slot. It needs a bake (shadowbake.hpp) and it requires the
+    // caster AND its receivers to stand still - a moving one is refused by
+    // shadowbake::plan with its name said out loud.
     int shadowMode = 0;
     std::string modelPath;    // for PrimitiveType::Model, e.g. "res/models/tree.obj"
     // Material library (.mtl) assigned to the object, e.g.
@@ -1609,6 +1617,49 @@ struct ProjectSettings {
     // signature pass. Requires giEnabled; does nothing otherwise.
     bool giAutoBake = false;
 
+    // Baked shadow decals (docs/shadows.md, "Baked (decal)"). The static
+    // directional shadow: the host renders each marked caster's shadow into a
+    // small tile, packs the tiles into shared atlas pages and projects them
+    // onto the receivers with decalproj - so the console draws ordinary
+    // textured triangles and pays nothing per frame beyond one blended pass.
+    //
+    // Project-wide because they are bake QUALITY, not part of the ambience
+    // preset's mood overlay - the same call the GI knobs above make. The
+    // direction is not here: it is resolvedSettings().lightDir at the baked
+    // hour, i.e. exactly the sun gibake uses, so the two cannot disagree.
+    //
+    // All of these are written to the .tyra only when they are not the struct
+    // default, so a project that never touches the feature resaves byte for
+    // byte.
+    bool bakedShadows = false;
+    // Tile edge in texels: 32 / 64 / 128. A page is 256x256, so 64 gives 16
+    // shadows per page and 128 gives 4 - and a page is 23% of the 32-bit GS
+    // texture heap ([gs-vram.md](gs-vram.md)), which is the real budget here.
+    int bakedShadowRes = 64;
+    // Angular diameter of the light, in degrees, i.e. how fast the penumbra
+    // opens up with distance from the contact. The real sun is 0.53; 2 is a
+    // softer default because a PS2 scene reads better with it and because it
+    // hides the tile's own texel count.
+    float bakedShadowSunAngle = 2.0f;
+    // How much light a fully occluded texel loses, 0..1. The tile is near
+    // black and blends alpha-over, so this is a per-pixel MULTIPLY: the
+    // receiver keeps its own colour and gets darker, which is why shaded grass
+    // stays green instead of turning grey. 0 is no shadow; 1 takes the surface
+    // down to the shade tint itself. 0.55 is about what an outdoor shadow
+    // loses when only the sky still lights it.
+    float bakedShadowStrength = 0.55f;
+    // How far a shadow is allowed to stretch from its caster, in multiples of
+    // the caster's own height. A low sun throws a shadow hundreds of units
+    // long, and the tile's texels would all be spent on it; past this the
+    // projector is cut. 0 = no limit.
+    float bakedShadowMaxLength = 4.0f;
+    // The same pre-build opt-in giAutoBake and prelitAutoBake are: re-bake
+    // every scene whose shadow cache is absent or STALE right before a build.
+    // Off by default on the same terms - a bake is pressed, not implied - but
+    // this one costs seconds rather than minutes, so it is the cheap switch of
+    // the three. Requires bakedShadows; does nothing otherwise.
+    bool bakedShadowAutoBake = false;
+
     // Terrain material (.mtl asset; empty = checker greens). The first
     // material's Kd tints the terrain; its map_Kd (when present) textures it,
     // tiled by the map's "-s" scale (repeats per world unit), otherwise the
@@ -1758,7 +1809,7 @@ struct ProjectSettings {
     bool highlightOverlay = false;
 };
 
-static_assert(sizeof(ProjectSettings) == 712,
+static_assert(sizeof(ProjectSettings) == 728,
               "ProjectSettings changed size - a field was added or removed. "
               "Add it to operator== below as well, or its Preferences widget "
               "will silently do nothing; then update this number.");
@@ -1851,6 +1902,12 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.modelAoRays == b.modelAoRays && a.modelAoDist == b.modelAoDist &&
            a.prelitAutoBake == b.prelitAutoBake &&
            a.giAutoBake == b.giAutoBake &&
+           a.bakedShadows == b.bakedShadows &&
+           a.bakedShadowRes == b.bakedShadowRes &&
+           a.bakedShadowSunAngle == b.bakedShadowSunAngle &&
+           a.bakedShadowStrength == b.bakedShadowStrength &&
+           a.bakedShadowMaxLength == b.bakedShadowMaxLength &&
+           a.bakedShadowAutoBake == b.bakedShadowAutoBake &&
            a.terrainMaterial == b.terrainMaterial && a.bloom == b.bloom &&
            a.bloomThreshold == b.bloomThreshold &&
            a.bloomSpread == b.bloomSpread &&
@@ -3503,8 +3560,22 @@ struct Project {
     bool valid() const { return !name.empty() && !dir.empty(); }
     std::string elfName() const { return name + ".elf"; }
     // Handed to PCSX2 (and ps2client) on a command line, so it must come out
-    // natively separated - see filePath().
-    std::string elfPath() const { return filePath("bin/" + elfName()); }
+    // natively separated - see filePath() - AND ABSOLUTE.
+    //
+    // Absolute because PCSX2 derives the `host:` filesystem root from the boot
+    // ELF's own path: hand it a relative one and the game boots but every
+    // asset it opens resolves somewhere else, so the scene comes up untextured
+    // with no baked shadows and nothing in any log says why. `--build
+    // examples/<name> --run` from the repo root is exactly how the examples
+    // are documented to be run, so this is the common case, not a corner.
+    std::string elfPath() const {
+        const std::string rel = filePath("bin/" + elfName());
+        std::error_code ec;
+        std::filesystem::path abs = std::filesystem::absolute(rel, ec);
+        if (ec) return rel;
+        abs.make_preferred();
+        return abs.string();
+    }
 
     // A project-relative path (always stored forward-slashed: "res/models/x.obj")
     // as a real filesystem path in the platform's OWN separators. ALWAYS use

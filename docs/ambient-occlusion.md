@@ -20,8 +20,9 @@ Two knobs, two places:
   It is still a **per ambience preset** setting — a scene picks it up with the
   rest of its mood — and the section carries its own preset picker so that is
   visible rather than implied. It sits in the Baked lighting tab beside Model
-  AO and pre-lit models because that is the tab that answers "what is baked
-  into this project's light", which is the question somebody goes looking with.
+  AO, pre-lit models and [baked shadows](shadows.md) because that is the tab
+  that answers "what is baked into this project's light", which is the
+  question somebody goes looking with.
   The Presets tab keeps a one-line On/Off reminder pointing here.
 - **Per object** (*Properties > Cast shadow*, default on): whether this
   object darkens nearby terrain and objects. Off = it casts nothing but
@@ -191,6 +192,12 @@ locality window live in all three too.
   whose atlas regions come out fully lit (an isolated prop in the open) is
   dropped from the atlas and **stays eligible for static batching**; covered
   objects carry the extra pass and render solo.
+- **Does NOT receive**: anything textured, and imported models. A lightmapped
+  receiver is untextured by construction — the lightmap needs the texture
+  slot. The static shadow those surfaces *can* take is a baked shadow decal
+  ([shadows.md](shadows.md)), which is projected onto them rather than
+  unwrapped into an atlas, and which skips a receiver this bake already
+  covers so the darkening never lands twice.
 - **Spawned clones and physics bodies** receive through a per-vertex
   fallback (`aoShadeMul` at geometry rebuild — they re-shade when they move
   or wake), not the atlas.

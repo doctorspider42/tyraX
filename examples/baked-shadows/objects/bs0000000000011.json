@@ -1,0 +1,1 @@
+{ "id": "bs0000000000011", "name": "plinth", "type": "box", "position": [-3, 0.4, 12], "rotation": [0, 0, 0], "scale": [11, 0.8, 8], "color": [1, 1, 1], "physics": false, "material": "res/materials/paving.mtl" }

@@ -17,6 +17,7 @@
 #include "modelao.hpp"   // automatic per-asset model AO, multiplied into the PNG
 #include "objparser.hpp"
 #include "pngquant.hpp"
+#include "shadowbake.hpp"  // baked shadow decals - the atlas pages
 #include "stochtile.hpp"
 #include "texatlas.hpp"  // shared texture atlas plan (docs/texture-atlasing.md)
 
@@ -565,9 +566,13 @@ std::string bake(const Project& p,
         // modelao/ is the model-AO cache: content-hashed maps with no res/
         // source, kept across builds precisely so a build that changed nothing
         // does not re-raytrace them.
+        // shadow/ is the baked-shadow cache - an explicit bake like gi/, so a
+        // build must not sweep it - and shadowatlas/ its pages, regenerated
+        // wholesale from that cache below.
         const std::string top0 = rel.begin()->generic_string();
         if (top0 == "stoch" || top0 == "aomap" || top0 == "aoatlas" ||
-            top0 == "gi" || top0 == "modelao")
+            top0 == "gi" || top0 == "modelao" || top0 == "shadow" ||
+            top0 == "shadowatlas")
             continue;
         // atlas pages have no res/ source; the atlas block below removes the
         // ones the current plan no longer produces
@@ -782,6 +787,51 @@ std::string bake(const Project& p,
         if (aoTexCount)
             log("[editor] Ambient occlusion: baked " + std::to_string(aoTexCount) +
                 " AO texture(s)");
+    }
+
+    // Baked shadow decals (docs/shadows.md): the atlas pages, written from the
+    // SAME cached bake codegen reads its meshes and UVs out of - one bake, so
+    // the pixels and the texture coordinates cannot point at different cells.
+    // Regenerated wholesale like the lightmaps above, so a caster switched off
+    // leaves nothing behind.
+    fs::remove_all(baked / "shadowatlas", ec);
+    if (p.settings.bakedShadows) {
+        int shadowPages = 0;
+        for (size_t si = 0; si < p.scenes.size(); ++si) {
+            const shadowbake::Bake sb = shadowbake::load(p, (int)si);
+            if (!sb.valid) continue;
+            for (size_t pi = 0; pi < sb.pages.size(); ++pi) {
+                // Full RGBA32, for the reason the lightmaps are: the engine's
+                // palettized (tRNS -> CLUT) path loses a smooth alpha gradient,
+                // and a shadow is nothing but one. The RGB is the bake's single
+                // tint - the colour a fully shadowed texel blends toward - so
+                // the game's vertex colour stays plain white and the tile
+                // carries both what the shadow looks like and how much of it
+                // there is.
+                const int size = shadowbake::kPageSize;
+                std::vector<unsigned char> rgba((size_t)size * size * 4, 0);
+                for (size_t i = 0; i < sb.pages[pi].alpha.size(); ++i) {
+                    rgba[i * 4 + 0] = sb.tint[0];
+                    rgba[i * 4 + 1] = sb.tint[1];
+                    rgba[i * 4 + 2] = sb.tint[2];
+                    rgba[i * 4 + 3] = sb.pages[pi].alpha[i];
+                }
+                const fs::path dst =
+                    baked / "shadowatlas" /
+                    ("scene" + std::to_string(si) + "-" + std::to_string(pi) + ".png");
+                fs::create_directories(dst.parent_path(), ec);
+                std::string err;
+                if (pngquant::writePngRGBA(dst.string(), rgba.data(), size, size,
+                                           err))
+                    ++shadowPages;
+                else
+                    log("[editor] baked shadows: " + dst.filename().string() +
+                        ": " + err);
+            }
+        }
+        if (shadowPages)
+            log("[editor] Baked shadows: " + std::to_string(shadowPages) +
+                " atlas page(s)");
     }
 
     // Stochastic-tiling supertiles (docs/terrain-painting.md): one

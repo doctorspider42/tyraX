@@ -1365,6 +1365,224 @@ void App::drawBakedLightingSection() {
     drawModelAoSection();
     ImGui::Spacing();
     drawPrelitSection();
+    ImGui::Spacing();
+    drawShadowBakeSection();
+}
+
+// Baked shadow decals (docs/shadows.md). Per OBJECT, like pre-lit above it -
+// an object asks for one in Properties > Dynamic shadow and this is where the
+// project-wide quality and the bake itself live. Built as a near-twin of
+// drawGiBakeSection, deliberately: it is the same shape of thing (an explicit,
+// content-hashed, cached bake with a stale readout and a pre-build opt-in), and
+// a second vocabulary for it would read as a second mechanism.
+void App::drawShadowBakeSection() {
+    ProjectSettings& st = project_.settings;
+    bool changed = false;
+    ImGui::SeparatorText("Baked shadows (projected decals)");
+
+    bool switched = false;
+    if (ImGui::Checkbox("Enable baked shadow decals", &st.bakedShadows))
+        changed = switched = true;
+    prefHelp(
+        "The static directional shadow: traced once on this machine, projected "
+        "onto whatever is under the caster and drawn as ordinary triangles. "
+        "Mark a caster with Properties > Dynamic shadow > Baked.");
+    ImGui::TextDisabled(
+        "Reaches textured walls and models, which a lightmap cannot.\n"
+        "One submit per atlas page, whatever the shadow count.");
+
+    ImGui::BeginDisabled(!st.bakedShadows || shadowBaker_.running());
+    ImGui::SeparatorText("Quality");
+    {
+        // The tile size decides BOTH the sharpness and how many shadows fit on
+        // a page, so the combo says the second number rather than making
+        // anyone work it out: 256/res squared per page.
+        const int sizes[] = {32, 64, 128};
+        const char* labels[] = {"32 px (64 per page)", "64 px (16 per page)",
+                                "128 px (4 per page)"};
+        int sel = st.bakedShadowRes == 32 ? 0 : (st.bakedShadowRes == 128 ? 2 : 1);
+        ImGui::SetNextItemWidth(scaled(180.0f));
+        if (ImGui::Combo("Shadow detail", &sel, labels, 3)) {
+            st.bakedShadowRes = sizes[sel];
+            changed = true;
+        }
+    }
+    prefHelp("Texels per shadow. A page is 256x256 and costs 256 KB of the "
+             "~1 MB texture budget whatever is on it, so this is really a "
+             "choice of how many shadows one page holds.");
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::SliderFloat("Softness", &st.bakedShadowSunAngle, 0.5f, 8.0f,
+                           "%.1f deg"))
+        changed = true;
+    prefHelp("The light's angular size - how fast the edge opens up as the "
+             "shadow gets further from what casts it. The real sun is 0.5; 2 "
+             "reads better on a PS2 and hides the tile's own texel count.");
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::SliderFloat("Strength", &st.bakedShadowStrength, 0.0f, 1.0f, "%.2f"))
+        changed = true;
+    prefHelp("How dark full shadow gets. Never black: the shadow is tinted "
+             "with the scene's own sky colour, so this is how much of the sky "
+             "is left in it.");
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::SliderFloat("Max length", &st.bakedShadowMaxLength, 0.0f, 12.0f,
+                           "%.1f x height"))
+        changed = true;
+    prefHelp("How far a shadow stretches, in multiples of the caster's own "
+             "height. A low sun throws one hundreds of units long and every "
+             "texel of the tile goes into it. The shadow FADES OUT over this "
+             "distance rather than stopping on it, and the search runs on "
+             "further still, so one that leaves a quay edge carries on down "
+             "instead of ending on a straight line. 0 = across the map.");
+    ImGui::EndDisabled();
+
+    if (changed) commitChange();
+    // The switch changes the PICTURE rather than the next bake, and
+    // commitChange does not touch the viewport - unticking it has to take the
+    // shadows off screen now, not at the next scene change (the giEnabled
+    // precedent). The quality sliders deliberately do not refresh: they alter
+    // what a re-bake would produce.
+    if (switched) applyProjectToViewport();
+
+    ImGui::SeparatorText("Scenes");
+    const shadowbake::Options opt = shadowbake::optionsOf(st);
+    int staleCount = 0, totalCasters = 0;
+    // Casters that asked for a shadow and did not get one. The bake has always
+    // recorded these; only the CLI ever said so, which left the panel showing
+    // a clean green "baked" for a scene where a caster silently cast nothing.
+    std::vector<std::string> refusals;
+    if (ImGui::BeginTable("shadowscenes", 3,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                              ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("Scene");
+        ImGui::TableSetupColumn("Bake");
+        ImGui::TableSetupColumn("Contents");
+        ImGui::TableHeadersRow();
+        for (int si = 0; si < (int)project_.scenes.size(); ++si) {
+            // How many objects ASKED, straight off the model - cheap, and it is
+            // what makes "not baked" readable: a scene nobody marked is not a
+            // scene with a missing bake.
+            int asked = 0;
+            for (const SceneObject& o : project_.scenes[si].objects)
+                if (o.shadowMode == 4) ++asked;
+            totalCasters += asked;
+            shadowbake::Bake b;
+            const bool present =
+                shadowbake::read(shadowbake::cachePath(project_, si), b);
+            const bool fresh =
+                present && st.bakedShadows &&
+                b.signature ==
+                    shadowbake::signature(project_, project_.scenes[si], opt);
+            if (asked > 0 && !fresh) ++staleCount;
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(project_.scenes[si].name.c_str());
+            ImGui::TableNextColumn();
+            if (asked == 0)
+                ImGui::TextDisabled("no casters");
+            else if (fresh)
+                ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "baked");
+            else if (present)
+                ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f), "stale");
+            else
+                ImGui::TextDisabled("not baked");
+            ImGui::TableNextColumn();
+            // The budget, and all three numbers that can run out: VRAM pages,
+            // ELF bytes and the submit count. This is the panel's job - the
+            // feature's whole cost story is "which of these do I hit first".
+            if (present && fresh) {
+                // How many casters the bake actually PRODUCED, not how many
+                // asked. They differ whenever one is refused, and reporting
+                // `asked` here said "5 caster(s), baked" for a scene where two
+                // of the five cast nothing at all - which is the one reading
+                // that makes a refusal impossible to notice.
+                int made = 0;
+                for (const shadowbake::Group& g : b.groups) made += g.casters;
+                if (made < asked)
+                    ImGui::TextColored(
+                        ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
+                        "%d of %d caster(s), %d draw(s), %d KB VRAM, %d KB ELF",
+                        made, asked, (int)b.groups.size(),
+                        b.vramWords() * 4 / 1024, b.elfBytes() / 1024);
+                else
+                    ImGui::Text(
+                        "%d caster(s), %d draw(s), %d KB VRAM, %d KB ELF", made,
+                        (int)b.groups.size(), b.vramWords() * 4 / 1024,
+                        b.elfBytes() / 1024);
+                for (const shadowbake::Refusal& r : b.truncated)
+                    refusals.push_back(project_.scenes[si].name + " / " +
+                                       r.name + ": " + r.why);
+            }
+            else if (asked > 0)
+                ImGui::Text("%d caster(s)", asked);
+            else
+                ImGui::TextDisabled("-");
+        }
+        ImGui::EndTable();
+    }
+
+    // Named, never silently dropped - the rule the bake log already followed.
+    // A caster is refused when its projection would cost more triangles than
+    // one shadow may, which a big composite model (a whole street block, lamps
+    // included) hits easily under a low sun: the reach is long, so the shadow
+    // lands on a lot of geometry.
+    if (!refusals.empty()) {
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.35f, 1.0f),
+                           "%d caster(s) cast nothing:", (int)refusals.size());
+        for (const std::string& r : refusals)
+            ImGui::TextWrapped("  %s", r.c_str());
+        ImGui::TextDisabled(
+            "Lower Max length, or split the model so each piece casts its "
+            "own.");
+    }
+
+    ImGui::Spacing();
+    if (shadowBaker_.running()) {
+        ImGui::ProgressBar(shadowBaker_.progress(), ImVec2(-FLT_MIN, 0.0f));
+        ImGui::TextUnformatted(shadowBaker_.status().c_str());
+        if (ImGui::Button("Cancel##shadowbake", ImVec2(scaled(140.0f), 0)))
+            shadowBaker_.cancel();
+    } else {
+        ImGui::BeginDisabled(!st.bakedShadows);
+        if (ImGui::Button("Bake this scene##shadow", ImVec2(scaled(140.0f), 0))) {
+            saveProject();  // the bake reads the project from disk-backed state
+            shadowBaker_.start(project_, {project_.activeScene});
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Bake all scenes##shadow", ImVec2(scaled(140.0f), 0))) {
+            saveProject();
+            shadowBaker_.start(project_, {});
+        }
+        ImGui::EndDisabled();
+        if (st.bakedShadows && staleCount > 0) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
+                               "%d scene(s) need a bake", staleCount);
+        }
+    }
+    ImGui::BeginDisabled(!st.bakedShadows);
+    if (ImGui::Checkbox("Re-bake stale scenes before every build##shadow",
+                        &st.bakedShadowAutoBake))
+        commitChange();
+    ImGui::EndDisabled();
+    prefHelp("Seconds, not minutes - this bake traces a couple of dozen rays "
+             "per texel against ONE caster's triangles, so it is the cheapest "
+             "of the three switches on this tab. Only stale scenes are "
+             "touched.");
+    if (totalCasters == 0 && st.bakedShadows)
+        ImGui::TextDisabled(
+            "Nothing casts one yet: pick Baked in Properties > Dynamic shadow.");
+    // The one thing that makes a perfectly good bake look wrong in the game,
+    // and it cannot be seen from the bake itself. Asked cheaply - a preset
+    // lookup, not a plan() - so it can sit here every frame; plan() carries
+    // the same sentence for the CLI.
+    if (st.bakedShadows && totalCasters > 0) {
+        const int ai = project::ambienceIndexFor(project_, project_.active());
+        if (ai >= 0 && project_.ambiencePresets[ai].cycle.enabled)
+            ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
+                               "The day/night cycle moves the sun; these "
+                               "shadows stay at the baked hour.");
+    }
 }
 
 // Scene ambient occlusion (docs/ambient-occlusion.md). Per ambience PRESET,
@@ -3273,7 +3491,10 @@ bool App::hudMotionControls(HudAnim& anim, HudTransition& trans, bool* visibleAt
             ImGui::SetTooltip(
                 anim.kind == hudanim::Pulse     ? "How far the alpha dips (1 = to invisible)."
                 : anim.kind == hudanim::Blink   ? "Fraction of each period the element is drawn."
-                : anim.kind == hudanim::Breathe ? "How much bigger it grows (0.1 = 10%)."
+                // %% - SetTooltip is printf-style, so a literal percent has to
+                // be escaped or it reads "%)" as a conversion and mangles the
+                // rest of the line.
+                : anim.kind == hudanim::Breathe ? "How much bigger it grows (0.1 = 10%%)."
                 : anim.kind == hudanim::Shake   ? "Jitter radius in pixels; a new offset every Step."
                                                 : "Travel in screen pixels (512x448 space).");
     }

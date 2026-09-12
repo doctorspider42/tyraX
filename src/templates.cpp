@@ -42,6 +42,7 @@
 #include "project.hpp"
 #include "savebake.hpp"
 #include "scrollsim.hpp"
+#include "shadowbake.hpp"  // the baked shadow-decal cache (docs/shadows.md)
 #include "stochtile.hpp"
 #include "texatlas.hpp"
 #include "vugen.hpp"  // the VU program generator - a project may carry its own
@@ -850,6 +851,32 @@ class TerrainGame : public Tyra::Game {
   // per scene in loadScene. terrainMapLit ALSO switches buildTerrainChunk's
   // vertex shade off the emissive light, so it never lands twice.
   bool terrainMapOcc = false, terrainMapLit = false;
+
+  // Baked shadow decals - the "Baked" dynamic-shadow mode, docs/shadows.md.
+  // One entry per
+  // MERGED DRAW - every shadow of one streaming layer that landed on one
+  // atlas page - so a scene's shadows cost one submit each instead of one per
+  // caster. The geometry was projected onto the receivers on the host and is
+  // never touched again: this is a vertex array, a texture and a colour.
+  struct ShadowDraw {
+    std::vector<Tyra::Vec4> vertices;
+    std::vector<Tyra::Vec4> sts;
+    // ONE colour for the whole bag (StaPipColorBag::single). The page's own
+    // RGB is the shadow's tint, so the vertex colour is plain white and its
+    // ALPHA is the only thing that ever moves - which is what lets the
+    // day/night handover fade every shadow for one byte a frame.
+    Tyra::Color color;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    Tyra::Texture* texture = nullptr;
+    std::string texPath;
+    int layer = -1;  // SCENE_LAYER_* index, -1 = always resident
+  };
+  std::vector<ShadowDraw> shadowDraws;
+  std::unique_ptr<Tyra::StaPipInfoBag> shadowInfoBag;
+  void setupShadowDecals();   // per scene load: build the bags, take the pages
+  void renderShadowDecals();  // per frame: one submit per resident group
 
   // Scene objects at runtime (mutable by scripts/physics); geometry per
   // object, one draw part per model material (primitives use parts[0])
@@ -2352,6 +2379,32 @@ class TerrainGame : public Tyra::Game {
   // vertex shade off the emissive light, so it never lands twice.
   bool terrainMapOcc = false, terrainMapLit = false;
 
+  // Baked shadow decals - the "Baked" dynamic-shadow mode, docs/shadows.md.
+  // One entry per
+  // MERGED DRAW - every shadow of one streaming layer that landed on one
+  // atlas page - so a scene's shadows cost one submit each instead of one per
+  // caster. The geometry was projected onto the receivers on the host and is
+  // never touched again: this is a vertex array, a texture and a colour.
+  struct ShadowDraw {
+    std::vector<Tyra::Vec4> vertices;
+    std::vector<Tyra::Vec4> sts;
+    // ONE colour for the whole bag (StaPipColorBag::single). The page's own
+    // RGB is the shadow's tint, so the vertex colour is plain white and its
+    // ALPHA is the only thing that ever moves - which is what lets the
+    // day/night handover fade every shadow for one byte a frame.
+    Tyra::Color color;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    Tyra::Texture* texture = nullptr;
+    std::string texPath;
+    int layer = -1;  // SCENE_LAYER_* index, -1 = always resident
+  };
+  std::vector<ShadowDraw> shadowDraws;
+  std::unique_ptr<Tyra::StaPipInfoBag> shadowInfoBag;
+  void setupShadowDecals();   // per scene load: build the bags, take the pages
+  void renderShadowDecals();  // per frame: one submit per resident group
+
   // Scene objects at runtime (mutable by scripts/physics); geometry per
   // object, one draw part per model material (primitives use parts[0])
   struct GeoPart {
@@ -3748,6 +3801,7 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "terrain_heights.gen.hpp"
 #include "texture_data.gen.hpp"
 #include "decal_data.gen.hpp"  // baked projected-decal meshes (host-computed)
+#include "shadow_data.gen.hpp"  // baked shadow decals (docs/shadows.md)
 #include "ao_data.gen.hpp"      // ambient-occlusion occluder tables (host-baked)
 #include "daynight.gen.hpp"     // day/night cycle keys (docs/day-night-cycle.md)
 #include "probe_data.gen.hpp"  // baked GI light probes (host-baked, L1 SH)
@@ -8953,6 +9007,9 @@ void TerrainGame::loadScene(int sceneIndex) {
     aoAtlasTexPath = SCENE_AO_ATLAS_PATH;
     aoAtlasTexture = acquireTexture(aoAtlasTexPath);
   }
+  // Baked shadow decals: their atlas pages swap here for the same reason the
+  // lightmaps do, and the geometry comes with them (docs/shadows.md).
+  setupShadowDecals();
 
   // Size the terrain chunk pool for this scene's grid up front (independent
   // of the streamed assets below) so the loading bar's denominator can count
@@ -15099,6 +15156,104 @@ void TerrainGame::updateAndRenderLightPools() {
 // Blob shadows: per-scene setup. A caster is anything that visibly moves -
 // the third-person avatar, animated models, physics objects. (Runtime
 // spawn-pool clones cast none - authored objects only.)
+// Baked shadow decals - the "Baked" dynamic-shadow mode, docs/shadows.md.
+// Everything here was
+// decided on the host: which surfaces the shadow lands on, where its triangles
+// are, which atlas cell each one samples. The console builds one bag per
+// merged group and then only submits it.
+//
+// The whole point of the merge is the submit count - a PS2 static submit costs
+// ~1 ms of fixed EE time whatever it contains (docs/prefabs.md), so sixteen
+// shadows as sixteen bags would be most of a PAL frame. They are one bag
+// because they share one atlas page, and they can share one page because the
+// host folded each tile's rect into the UVs at bake time.
+void TerrainGame::setupShadowDecals() {
+  // Release the previous scene's pages before taking this one's, exactly as
+  // the lightmap swap above does - two scenes' atlases resident at once is a
+  // quarter of the texture heap for no reason.
+  for (ShadowDraw& d : shadowDraws)
+    if (!d.texPath.empty()) releaseTexture(d.texPath);
+  shadowDraws.clear();
+  if (!SHADOW_DECALS_USED) return;
+  const BakedShadowDraw* table = SCENE_SHADOWS;
+  const int count = SCENE_SHADOW_COUNT;
+  if (!table || count <= 0) return;
+
+  if (!shadowInfoBag) {
+    // Alpha-over a BLACK-ish texture is an exact per-pixel darkening, which is
+    // the same trick the scene lightmap's occlusion pass uses - except the
+    // page's RGB carries a tint rather than zero, so the shadow settles toward
+    // the sky colour instead of toward black.
+    shadowInfoBag = std::make_unique<StaPipInfoBag>();
+    shadowInfoBag->model = &model;
+    shadowInfoBag->shadingType = TyraShadingFlat;
+    shadowInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    shadowInfoBag->fullClipChecks = CLIP_PRECISE;
+    shadowInfoBag->blendingEnabled = true;
+    // Never writes z: the shadow sits a hair in front of the surface it
+    // darkens, and anything drawn later must depth-test against THAT surface
+    // rather than against the shadow.
+    shadowInfoBag->zTestType = PipelineZTest_TestOnly;
+    // A dark patch must not be picked up by a dynamic light and drawn bright -
+    // the mistake the blob shadows and the projected patches already pay for.
+    shadowInfoBag->dynLightPick = false;
+    shadowInfoBag->spotLit = false;
+  }
+
+  shadowDraws.resize(count);
+  for (int i = 0; i < count; ++i) {
+    ShadowDraw& d = shadowDraws[i];
+    const BakedShadowDraw& src = table[i];
+    d.layer = src.layer;
+    d.vertices.reserve(src.vertCount);
+    d.sts.reserve(src.vertCount);
+    for (int v = 0; v < src.vertCount; ++v) {
+      const float* f = &src.verts[v * 5];
+      d.vertices.push_back(Vec4(f[0], f[1], f[2], 1.0F));
+      d.sts.push_back(Vec4(f[3], f[4], 1.0F, 0.0F));
+    }
+    // White at full alpha: MODULATE then leaves the page's own RGBA as the
+    // source colour, so the tile alone decides both the tint and how much of
+    // it a texel gets.
+    d.color = Color(128.0F, 128.0F, 128.0F, 128.0F);
+    d.texPath = src.texture;
+    d.texture = acquireTexture(d.texPath);
+    d.colorBag = std::make_unique<StaPipColorBag>();
+    d.texBag = std::make_unique<StaPipTextureBag>();
+    d.bag = std::make_unique<StaPipBag>();
+    d.bag->info = shadowInfoBag.get();
+    d.bag->color = d.colorBag.get();
+    d.bag->texture = d.texBag.get();
+    d.bag->lighting = nullptr;
+    d.bag->count = static_cast<u32>(d.vertices.size());
+    d.bag->bboxVersion = ++g_bboxStamp;
+  }
+  // The bags point INTO the vector's elements, so they are bound once the
+  // vector has stopped moving under them (the setupBlobShadows rule).
+  for (ShadowDraw& d : shadowDraws) {
+    d.colorBag->single = &d.color;
+    d.texBag->texture = d.texture;
+    d.texBag->coordinates = d.sts.data();
+    d.bag->vertices = d.vertices.data();
+  }
+}
+
+// Per frame: one submit per resident group. There is no distance test and no
+// per-caster culling here on purpose - the engine classifies each VU1 package
+// against the frustum on its own bounding box, and the host sorted the merged
+// triangles into world cells precisely so those boxes are small. A shadow off
+// screen costs the classify and nothing else.
+void TerrainGame::renderShadowDecals() {
+  if (shadowDraws.empty()) return;
+  for (ShadowDraw& d : shadowDraws) {
+    if (!d.texture || d.bag->count == 0) continue;
+    // A shadow belongs to its caster's layer, so it streams with it: when the
+    // layer is out, the thing that throws the shadow is gone from the world.
+    if (d.layer >= 0 && !layerOn(d.layer)) continue;
+    stapip.core.render(d.bag.get());
+  }
+}
+
 void TerrainGame::setupBlobShadows() {
   blobShadows.clear();
   if (!BLOB_SHADOWS_USED) return;
@@ -20508,6 +20663,11 @@ void TerrainGame::renderScene() {
   // Animated models: advance playback, then skin + draw the in-view ones
   // through the same static pipeline (see updateAndRenderAnimObjects)
   { const u32 ct=costStart(); updateAndRenderAnimObjects(); costEnd("Animation",-1,ct); }
+  // Baked shadow decals: alpha-over darkening on surfaces whose pixels are
+  // now in the frame, so they go after all the opaque geometry and before
+  // everything that composites on top of it. One submit per merged group; no
+  // per-caster work of any kind (docs/shadows.md).
+  { const u32 ct=costStart(); renderShadowDecals(); costEnd("Shadow decals",-1,ct); }
   // Mirrors after the whole scene (including the skinned avatars their
   // copies re-use): reflected copies first, glass quads blended over them
   { const u32 ct=costStart(); renderMirrors(); costEnd("Mirrors",-1,ct); }
@@ -26260,14 +26420,16 @@ bin/*.elf
 bin/*.elf.sym
 *.history
 .vscode/
-# The texture-quantized mirror of res/, rebuilt by every build - EXCEPT the
-# global-illumination cache, which no build can produce (docs/global-illumination.md:
-# "codegen, texbake and the viewport only ever READ it"). A bake takes minutes
-# and its signature hashes file CONTENT, not mtime, precisely so a clone keeps
-# it - so the project has to ship it. The pattern is split because git cannot
-# re-include a path inside an excluded DIRECTORY.
+# The texture-quantized mirror of res/, rebuilt by every build - EXCEPT the two
+# explicit bakes, which no build can produce (docs/global-illumination.md:
+# "codegen, texbake and the viewport only ever READ it", and the same for the
+# baked shadow decals in docs/shadows.md). A bake is pressed rather than
+# implied and its signature hashes file CONTENT, not mtime, precisely so a
+# clone keeps it - so the project has to ship it. The pattern is split because
+# git cannot re-include a path inside an excluded DIRECTORY.
 /.res-baked/*
 !/.res-baked/gi/
+!/.res-baked/shadow/
 docker-compose.yml
 # Per-machine compose overrides, e.g. TYRAX_IMAGE to build against another
 # toolchain image (docs/toolchain-image.md). Never one person's choice for
@@ -26782,6 +26944,99 @@ static std::string decalDataHeader(const Project& p) {
         out << (si ? ", " : "")
             << (hasTable[si] ? (int)p.scenes[si].objects.size() : 0);
     out << "};\n}\n";
+    return out.str();
+}
+
+// inc/shadow_data.gen.hpp - baked shadow decals (docs/shadows.md, "Baked
+// (decal)"). Read out of the .res-baked/shadow cache, never computed here: a
+// shadow is an explicit bake like global illumination, so codegen and texbake
+// both READ one cached answer and cannot point at different cells of the same
+// atlas page. A stale or absent cache emits nothing, which drops the scene
+// back to no baked shadows rather than to a wrong one.
+//
+// One entry per MERGED DRAW - every shadow of one streaming layer that landed
+// on one atlas page, as a single world-space triangle list already carrying
+// atlas UVs. That merge is the whole reason the feature is affordable: a bag
+// is one texture, so a shared page makes a scene's shadows one submit instead
+// of ~1 ms of EE each (docs/prefabs.md).
+static std::string shadowDataHeader(const Project& p) {
+    std::ostringstream out;
+    out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
+           "#pragma once\n\n"
+           "// Baked shadow decals: world-space triangle lists (5 floats per\n"
+           "// vertex - pos3 + uv2) projected onto the receivers on the host,\n"
+           "// grouped per (streaming layer, atlas page) so each group is one\n"
+           "// bag. `layer` is an index into the SCENE_LAYER_* tables, -1 for\n"
+           "// always resident; `tint` is the colour a fully shadowed texel\n"
+           "// blends toward, and it is the page's own RGB.\n\n"
+           "namespace {\n"
+           "struct BakedShadowDraw {\n"
+           "  const float* verts;\n"
+           "  int vertCount;\n"
+           "  const char* texture;\n"
+           "  int layer;\n"
+           "};\n\n";
+    const int sceneCount = (int)p.scenes.size();
+    std::vector<bool> hasTable(sceneCount, false);
+    std::vector<int> counts(sceneCount, 0);
+    bool anyUsed = false;
+    for (int si = 0; si < sceneCount; ++si) {
+        const shadowbake::Bake b = shadowbake::load(p, si);
+        if (!b.valid || b.groups.empty()) continue;
+        // The layer NAME the bake recorded resolved to the index the scene
+        // tables use. A name that no longer exists (a layer deleted after the
+        // bake) reads as always-resident rather than as a wild index - the
+        // signature will have gone stale anyway, so this is the belt to that
+        // brace.
+        const auto layerIndex = [&](const std::string& name) {
+            if (name.empty()) return -1;
+            for (int li = 0; li < (int)p.scenes[si].layers.size(); ++li)
+                if (p.scenes[si].layers[li].name == name) return li;
+            return -1;
+        };
+        std::vector<std::string> entries;
+        for (size_t gi = 0; gi < b.groups.size(); ++gi) {
+            const shadowbake::Group& g = b.groups[gi];
+            if (g.verts.empty()) continue;
+            const std::string sym =
+                "S" + std::to_string(si) + "_SHADOW" + std::to_string(gi);
+            out << "static const float " << sym << "[] = {";
+            for (size_t k = 0; k < g.verts.size(); ++k)
+                out << (k ? "," : "") << floatLit(g.verts[k]);
+            out << "};\n";
+            entries.push_back(
+                "{" + sym + ", " + std::to_string((int)(g.verts.size() / 5)) +
+                ", \"shadowatlas/scene" + std::to_string(si) + "-" +
+                std::to_string(g.page) + ".png\", " +
+                std::to_string(layerIndex(g.layer)) + "}");
+        }
+        if (entries.empty()) continue;
+        hasTable[si] = true;
+        counts[si] = (int)entries.size();
+        anyUsed = true;
+        out << "static const BakedShadowDraw S" << si << "_SHADOWS["
+            << entries.size() << "] = {";
+        for (size_t e = 0; e < entries.size(); ++e)
+            out << (e ? ", " : "") << entries[e];
+        out << "};\n\n";
+    }
+    out << "static const BakedShadowDraw* const SCENE_SHADOW_TABLES[] = {";
+    for (int si = 0; si < sceneCount; ++si)
+        out << (si ? ", " : "")
+            << (hasTable[si] ? ("S" + std::to_string(si) + "_SHADOWS")
+                             : "nullptr");
+    out << "};\n"
+           "static const int SCENE_SHADOW_COUNTS[] = {";
+    for (int si = 0; si < sceneCount; ++si)
+        out << (si ? ", " : "") << counts[si];
+    // A project with no baked shadow anywhere folds every read away: the
+    // loader, the draw and the member arrays all sit behind this constant, so
+    // it generates no code and costs no RAM (the devkit's zero-cost rule).
+    out << "};\nconstexpr bool SHADOW_DECALS_USED = " << (anyUsed ? "true" : "false")
+        << ";\n"
+           "}  // namespace\n\n"
+           "#define SCENE_SHADOWS SCENE_SHADOW_TABLES[g_activeScene]\n"
+           "#define SCENE_SHADOW_COUNT SCENE_SHADOW_COUNTS[g_activeScene]\n";
     return out.str();
 }
 
@@ -46135,6 +46390,7 @@ std::vector<File> generate(const Project& p) {
         {"src\\gen\\navigation.gen.cpp", navigationSource(p)},
         {"inc\\texture_data.gen.hpp", textureDataHeader(p)},
         {"inc\\decal_data.gen.hpp", decalDataHeader(p)},
+        {"inc\\shadow_data.gen.hpp", shadowDataHeader(p)},
         {"inc\\ao_data.gen.hpp", aoDataHeader(p)},
         {"inc\\daynight.gen.hpp", dayNightHeader(p)},
         {"inc\\probe_data.gen.hpp", probeDataHeader(p)},
