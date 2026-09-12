@@ -65,10 +65,12 @@ for people building games with it. Internals live in code comments, the git log
   reverted.
 - [The flashlight](flashlight.md) — the player's torch: the per-vertex cone, the
   projected ground pool, and the gobo texture that decides its shape.
-- [Dynamic shadows](shadows.md) — the two runtime shadows an object can cast (a
-  blob or a real projected silhouette, chosen per object), and the shadow
-  volumes a scene's spot lights can carve — with the reason only one spot casts
-  per frame, and how the four silhouette slots change hands without blinking.
+- [Shadows](shadows.md) — the three shadows an object can cast (a blob, a real
+  projected silhouette, or one **baked into a projected decal** — the static
+  one that reaches textured walls and imported models, and costs one draw call
+  per atlas page however many you have), and the shadow volumes a scene's spot
+  lights can carve — with the reason only one spot casts per frame, and how the
+  four silhouette slots change hands without blinking.
 - [Reflective materials (sphere-mapped "chrome")](reflective-materials.md) —
   the PS2-era fake for car paint, static or re-rendered from the live sky.
 - [Raytraced reflections (VU0, experimental PoC)](raytraced-reflections.md) — a

@@ -1702,6 +1702,29 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
                  : "")
          << (p.settings.prelitAutoBake ? "    \"prelitAutoBake\": true,\n" : "")
          << (p.settings.giAutoBake ? "    \"giAutoBake\": true,\n" : "")
+         // Baked shadow decals (docs/shadows.md). Same rule as model AO above:
+         // emitted only when not the struct default, so a project that never
+         // used the feature resaves byte for byte.
+         << (p.settings.bakedShadows ? "    \"bakedShadows\": true,\n" : "")
+         << (p.settings.bakedShadowRes != 64
+                 ? "    \"bakedShadowRes\": " +
+                       std::to_string(p.settings.bakedShadowRes) + ",\n"
+                 : "")
+         << (p.settings.bakedShadowSunAngle != 2.0f
+                 ? "    \"bakedShadowSunAngle\": " +
+                       fmtFloat(p.settings.bakedShadowSunAngle) + ",\n"
+                 : "")
+         << (p.settings.bakedShadowStrength != 0.55f
+                 ? "    \"bakedShadowStrength\": " +
+                       fmtFloat(p.settings.bakedShadowStrength) + ",\n"
+                 : "")
+         << (p.settings.bakedShadowMaxLength != 4.0f
+                 ? "    \"bakedShadowMaxLength\": " +
+                       fmtFloat(p.settings.bakedShadowMaxLength) + ",\n"
+                 : "")
+         << (p.settings.bakedShadowAutoBake
+                 ? "    \"bakedShadowAutoBake\": true,\n"
+                 : "")
          << "    \"terrainMaterial\": \"" << p.settings.terrainMaterial << "\",\n"
          << "    \"bloom\": " << fmtFloat(p.settings.bloom) << ",\n"
          << "    \"bloomThreshold\": " << fmtFloat(p.settings.bloomThreshold)
@@ -4826,7 +4849,7 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         if (const auto* v = jo.find("projShadow")) o.projShadow = v->boolOr(false);
         if (const auto* v = jo.find("shadowMode")) {
             const int m = (int)v->numberOr(0);
-            if (m >= 0 && m <= 3) o.shadowMode = m;
+            if (m >= 0 && m <= 4) o.shadowMode = m;
         }
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
         if (const auto* v = jo.find("impostor")) o.impostorPath = v->stringOr("");
@@ -5477,6 +5500,26 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.prelitAutoBake = v->boolOr(false);
         if (const auto* v = s->find("giAutoBake"))
             st.giAutoBake = v->boolOr(false);
+        // Baked shadow decals (docs/shadows.md). Same story: the struct
+        // defaults are what a file written before these keys loads as.
+        if (const auto* v = s->find("bakedShadows"))
+            st.bakedShadows = v->boolOr(false);
+        if (const auto* v = s->find("bakedShadowRes")) {
+            const int r = (int)v->numberOr(64);
+            st.bakedShadowRes = (r == 32 || r == 128) ? r : 64;
+        }
+        if (const auto* v = s->find("bakedShadowSunAngle")) {
+            const float a = (float)v->numberOr(2.0);
+            st.bakedShadowSunAngle = a < 0.1f ? 0.1f : (a > 20.0f ? 20.0f : a);
+        }
+        if (const auto* v = s->find("bakedShadowStrength"))
+            st.bakedShadowStrength = clamp01((float)v->numberOr(0.55));
+        if (const auto* v = s->find("bakedShadowMaxLength")) {
+            const float m = (float)v->numberOr(4.0);
+            st.bakedShadowMaxLength = m < 0.0f ? 0.0f : m;
+        }
+        if (const auto* v = s->find("bakedShadowAutoBake"))
+            st.bakedShadowAutoBake = v->boolOr(false);
         if (const auto* v = s->find("bloom")) {  // 0..2 (see the scene reader)
             const float b = (float)v->numberOr(0.0);
             st.bloom = b < 0.0f ? 0.0f : (b > 2.0f ? 2.0f : b);
@@ -7339,6 +7382,11 @@ bool liveLinkCanSpawnLive(const SceneObject& o) {
     // be a volume nothing points at.
     if (o.type == PrimitiveType::Area) return false;
     if (o.type == PrimitiveType::Scroller) return false;  // baked clones + gen'd director
+    // A baked shadow is a host projection of THIS object onto the receivers
+    // around it, packed into an atlas page at build (docs/shadows.md). A live
+    // clone would stand in daylight with its shadow still lying under the
+    // template - the projecting-decal case, one step removed.
+    if (o.shadowMode == 4) return false;
     if (!o.flowGraph.nodes.empty() || !o.scripts.empty()) return false;
     return true;
 }
@@ -7701,6 +7749,12 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "src\\gen\\navigation.gen.cpp" ||
             f.relativePath == "inc\\texture_data.gen.hpp" ||
             f.relativePath == "inc\\decal_data.gen.hpp" ||
+            // Baked shadow decals (docs/shadows.md). Both game templates
+            // include it unconditionally, and its contents change every time
+            // somebody re-bakes - so it is refreshed, not written once at
+            // creation. A generated file that reaches only `project::create`
+            // is the live_pad.gen.cpp mistake, and it is silent.
+            f.relativePath == "inc\\shadow_data.gen.hpp" ||
             f.relativePath == "inc\\ao_data.gen.hpp" ||
             // The trained BLSS network (docs/neural-upscaler.md). Only ever IN
             // `generated` while the upscaler is enabled - but when it is there
@@ -7869,6 +7923,23 @@ std::string refreshGenerated(const Project& p) {
                     "# recordings/*.tyrarep, which IS tracked on purpose.\n"
                     "bin/replay.in\nbin/replay.arm\nbin/replay.out\n"
                     "bin/replay.stop\nbin/replay.st\n";
+                grew = true;
+            }
+            // The baked-shadow cache has to be RE-INCLUDED, not ignored: like
+            // the GI cache it is produced by an explicit bake and by no build
+            // (docs/shadows.md), so a project made before this feature would
+            // drop it on clone and every shadow would vanish with nothing to
+            // say why. Matched on the negation, since `/.res-baked/*` is
+            // already there and git cannot re-include inside an excluded
+            // DIRECTORY.
+            if (text.find("!/.res-baked/shadow/") == std::string::npos &&
+                text.find("/.res-baked/*") != std::string::npos) {
+                if (!text.empty() && text.back() != '\n') text += '\n';
+                text +=
+                    "\n# The baked shadow-decal cache (docs/shadows.md). An "
+                    "explicit bake, like the\n# GI cache above it: no build "
+                    "produces it, so the project ships it.\n"
+                    "!/.res-baked/shadow/\n";
                 grew = true;
             }
             if (grew) {

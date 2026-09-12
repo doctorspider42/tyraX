@@ -238,17 +238,51 @@ void clipPlane(std::vector<V3>& poly, int axis, bool upper) {
 
 }  // namespace
 
-DecalMesh project(const Project& p, const SceneData& s, const SceneObject& decal) {
+bool objectTriangles(const Project& p, const SceneObject& o,
+                     std::vector<float>& out) {
+    if (!isReceiverType(o.type)) return false;
+    const size_t before = out.size();
+    Aabb all;
+    all.add({-1e30f, -1e30f, -1e30f});
+    all.add({1e30f, 1e30f, 1e30f});
+    std::vector<Tri> tris;
+    addObjectReceiver(tris, p, o, all);
+    out.reserve(before + tris.size() * 9);
+    for (const Tri& t : tris)
+        for (int k = 0; k < 3; ++k) {
+            out.push_back(t.p[k].x);
+            out.push_back(t.p[k].y);
+            out.push_back(t.p[k].z);
+        }
+    return out.size() > before;
+}
+
+void projectorBasis(const SceneObject& decal, float origin[3], float axisX[3],
+                    float axisY[3], float axisZ[3]) {
+    const Xform x(decal);
+    for (int k = 0; k < 3; ++k) origin[k] = x.pos[k];
+    // rot() is linear, so rotating the three unit vectors IS the basis - and
+    // taking it this way rather than writing the matrix out keeps one
+    // definition of the rotation for every caller.
+    const V3 ax = x.rot({1, 0, 0}), ay = x.rot({0, 1, 0}), az = x.rot({0, 0, 1});
+    axisX[0] = ax.x, axisX[1] = ax.y, axisX[2] = ax.z;
+    axisY[0] = ay.x, axisY[1] = ay.y, axisY[2] = ay.z;
+    axisZ[0] = az.x, axisZ[1] = az.y, axisZ[2] = az.z;
+}
+
+DecalMesh project(const Project& p, const SceneData& s, const SceneObject& decal,
+                  const Receivers& rx) {
     DecalMesh out;
     const Xform x(decal);
     const Aabb box = projectorAabb(x);
 
     // Gather receiver triangles overlapping the projector box.
     std::vector<Tri> tris;
-    addTerrainReceiver(tris, s, box);
+    if (rx.terrain) addTerrainReceiver(tris, s, box);
     for (const SceneObject& o : s.objects) {
         if (&o == &decal || o.id == decal.id) continue;
         if (!isReceiverType(o.type)) continue;
+        if (rx.accept && !rx.accept(o)) continue;
         addObjectReceiver(tris, p, o, box);
     }
 

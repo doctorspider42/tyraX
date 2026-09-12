@@ -88,7 +88,8 @@ game, so an edit there moves both. TyraX changes in it: **`-G0`** (see below),
 single-pass dependency
 generation (`-MMD -MP`; it used to run the compiler a second time per file just
 to write the `.d`), `| directories` order-only prerequisites so `-j` cannot
-reach an absent `bin/`, `cp -ru` for the resource copy, and **`src/vu/` and
+reach an absent `bin/`, `cp -ru` for the resource copy **minus `RESDIR_SKIP`**,
+and **`src/vu/` and
 `src/vu0/` excluded from `SOURCES`** - those are HOST C++ (a project's own VU1
 programs and VU0 kernels, docs/vu-authoring.md), compiled and run at build time
 by the container's g++, and handing them to the PS2 compiler fails on the very
@@ -115,6 +116,17 @@ so fixing one project's build leaves every other project's volume stale.
 Verified
 byte-identical: the same project built with the old and new rules produced the
 same `md5` for its stripped ELF.
+
+**`RESDIR_SKIP` is the resource copy's exclusion list, and it exists because
+`bin/` IS the game's filesystem.** `.res-baked` holds two directories no
+console can read - `gi/` (the global-illumination solve) and `shadow/` (the
+baked shadow decals); what ships is the PIXELS they produce, already beside
+them in `aomap/`, `aoatlas/` and `shadowatlas/`. Copying the caches wasted disk
+on every build and, worse, put them in front of `isoexport`, which walks all of
+`bin/` and would burn a multi-megabyte GI cache onto the disc. A new host-only
+cache under `.res-baked` joins that list AND the matching skip in
+`src/isoexport.cpp` - the second one covers a `bin/` an older build already
+polluted.
 
 ## Engine layout
 

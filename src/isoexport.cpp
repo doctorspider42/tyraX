@@ -63,6 +63,12 @@ static std::string orderFiles(const Project& p, std::vector<OrderedFile>& out,
             rel == "livelink.bin" || rel == "livelink.sig" ||
             rel == "livelogic.bin" || rel == "crash.txt")
             continue;
+        // Host bake caches that a build no longer copies into bin/ (the
+        // Makefile skips them), but an older bin/ still carries: the GI solve
+        // and the baked shadow decals. Nothing on the console reads either -
+        // what ships is the PIXELS they produce, in aomap/, aoatlas/ and
+        // shadowatlas/ - and a GI cache is megabytes of disc for nothing.
+        if (rel.rfind("gi/", 0) == 0 || rel.rfind("shadow/", 0) == 0) continue;
         if (rel.size() > 4 && rel.compare(rel.size() - 4, 4, ".sym") == 0)
             continue;
         remaining.insert(rel);

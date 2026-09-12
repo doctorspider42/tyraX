@@ -13,6 +13,35 @@ git show <retirement-commit>^:PROGRESS.md
 git log -p --follow -- PROGRESS.md
 ```
 
+### Palettized shadow-atlas tiles
+
+A baked shadow tile is one alpha gradient over a single colour, and it ships as
+**RGBA32** because that is what the lightmaps ship as — 256 KB a page, 23 % of
+the 32-bit texture heap ([shadows.md](shadows.md), [gs-vram.md](gs-vram.md)).
+That is the one number that decides how many baked shadows a project can have,
+and there is a strong reason to think it can be a quarter of itself: the
+engine's PNG loader **does** carry per-entry alpha on the palettized path
+(`png_loader.cpp`, `clut[i].a = trans[i] >> 1`), so a PSMT8 tile with a black
+palette and a 128-step alpha ramp would be one byte a texel plus a 1 KB CLUT —
+roughly 60 shadows a page instead of 16.
+
+What stops it being obvious is the note in `texbake.cpp` beside the lightmap
+writer: a quantized bake of the same shape "rendered as nothing" in PCSX2. That
+was **pngquant's** output, not a hand-built CLUT, so the two are not the same
+experiment. Before promising anything: build the PLTE+tRNS by hand (256 entries,
+RGB fixed at the tint, alpha 0..255), put it on a console or PCSX2 and look —
+and be ready for the answer that the alpha test plus a CLUT lookup is the part
+that breaks, which would settle it for the lightmaps too.
+
+### A baked shadow from a placed light
+
+The direction is the scene's sun at the baked hour. A street lamp throwing a
+crisp static shadow on a textured wall is the obvious next want, and the
+machinery is already per-caster — but each extra source is its own atlas tile
+and its own projected mesh, so the VRAM and ELF budgets scale with the number
+of lights, not with the number of casters. Worth doing after the tile size
+question above, not before.
+
 ### Judge openvcl against the ps2gl fixtures
 
 Twelve of upstream's own `test/fixtures` are real third-party VU code and no

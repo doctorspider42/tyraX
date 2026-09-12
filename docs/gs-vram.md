@@ -56,6 +56,7 @@ blocks inside a single page). At 32bpp:
 | Post-fx scratch `lowVram[0..1]` + film-grain noise | ~12 288 | bloom/DoF blur chain |
 | Env-map target + its z buffer (128×128) | 32 768 | reflective materials |
 | Camera-feed target + its z buffer (128×128) | 32 768 | texture feeds |
+| Baked-shadow atlas page (256×256 RGBA32) | 65 536 each | **23% per page**, one page per 16 shadows at the default detail ([shadows.md](shadows.md)) |
 | **Left for textures** | **~282 000** | **≈ 1.08 MB** |
 
 A **CLUT** is addressed by CBP in blocks, not pages: a 16-entry palette is one

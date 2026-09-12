@@ -5,6 +5,7 @@
 #include "elfsym.hpp"
 #include "pcsx2_config.hpp"
 #include "platform.hpp"
+#include "shadowbake.hpp"  // the baked-shadow cache: warn on a stale one
 #include "templates.hpp"
 #include "texbake.hpp"
 #include "wavconvert.hpp"
@@ -1090,6 +1091,33 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
             return;
         }
 
+        // Baked shadow decals: a STALE cache emits nothing at all, so a scene
+        // that asked for shadows would ship without them and without a word -
+        // which reads as the feature being broken rather than as a bake being
+        // out of date (docs/shadows.md). Say it once per scene, before the
+        // build, naming the fix. A warning and not a refusal: shipping the
+        // scene minus its shadows is a legitimate thing to do deliberately.
+        if (p.settings.bakedShadows && !p.settings.bakedShadowAutoBake) {
+            const shadowbake::Options sopt = shadowbake::optionsOf(p.settings);
+            for (size_t si = 0; si < p.scenes.size(); ++si) {
+                int asked = 0;
+                for (const SceneObject& o : p.scenes[si].objects)
+                    if (o.shadowMode == 4) ++asked;
+                if (asked == 0) continue;
+                shadowbake::Bake have;
+                const bool fresh =
+                    shadowbake::read(shadowbake::cachePath(p, (int)si), have) &&
+                    have.signature == shadowbake::signature(p, p.scenes[si], sopt);
+                if (!fresh)
+                    appendLine("[editor] Warning: " + p.scenes[si].name + " has " +
+                               std::to_string(asked) +
+                               " baked-shadow caster(s) but no fresh bake - it "
+                               "will ship with no baked shadows. Bake it in "
+                               "Ambience Editor > Baked lighting, or tick "
+                               "\"Re-bake stale scenes before every build\".");
+            }
+        }
+
         // Keep docker files and generated sources in sync with the project
         // data (also migrates projects created with older editor versions).
         if (auto err = project::refreshGenerated(p); !err.empty())
@@ -1152,17 +1180,27 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                 const fs::path cache = config / "native-build" /
                                        templates::engineVolumeName();
                 const fs::path toolchain = config / "toolchain" / "ps2dev";
+                // ABSOLUTE, and that is not decoration: exec() runs the script
+                // with the project as its working directory, so a RELATIVE
+                // p.dir (what `--build examples/baked-shadows` from the repo
+                // root gives) is then resolved a second time from inside
+                // itself - `cd: examples/baked-shadows: No such file or
+                // directory`, from a path that plainly exists. Every other
+                // argument here is already absolute.
+                std::error_code absEc;
+                fs::path projectDir = fs::absolute(p.dir, absEc);
+                if (absEc) projectDir = p.dir;
 #ifdef _WIN32
                 std::string cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File " +
                                   platform::shellArg(script) + " -Project " +
-                                  platform::shellArg(p.dir) + " -Engine " +
+                                  platform::shellArg(projectDir.string()) + " -Engine " +
                                   platform::shellArg(engineSource.string()) + " -Cache " +
                                   platform::shellArg(cache.string()) + " -Toolchain " +
                                   platform::shellArg(toolchain.string());
                 if (rebuild) cmd += " -Rebuild";
 #else
                 std::string cmd = "bash " + platform::shellArg(script) + " " +
-                                  platform::shellArg(p.dir) + " " +
+                                  platform::shellArg(projectDir.string()) + " " +
                                   platform::shellArg(engineSource.string()) + " " +
                                   platform::shellArg(cache.string()) + " " +
                                   platform::shellArg(toolchain.string()) +

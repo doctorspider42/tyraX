@@ -1746,6 +1746,12 @@ void Viewport::shutdown() {
     destroyMesh(scatterMaskMesh_);
     destroyMesh(scatterCurveMesh_);
     destroyMesh(scatterPointsMesh_);
+    for (ShadowDrawGl& d : shadowDraws_) destroyMesh(d.mesh);
+    shadowDraws_.clear();
+    if (!shadowPageTex_.empty()) {
+        glDeleteTextures((GLsizei)shadowPageTex_.size(), shadowPageTex_.data());
+        shadowPageTex_.clear();
+    }
     clearPrimMeshCache();
     clearLmMeshes();
     destroyMesh(skyQuad_);
@@ -3341,6 +3347,53 @@ void Viewport::setProjectedDecals(
                                 1.0f, verts[i + 3], verts[i + 4]});
         }
         projectedDecalMeshes_[id] = uploadMesh(interleaved);
+    }
+}
+
+void Viewport::setShadowDecals(const ShadowPreview& p) {
+    if (shadowHasVersion_ && p.version == shadowVersion_) return;
+    shadowVersion_ = p.version;
+    shadowHasVersion_ = true;
+    for (ShadowDrawGl& d : shadowDraws_) destroyMesh(d.mesh);
+    shadowDraws_.clear();
+    if (!shadowPageTex_.empty()) {
+        glDeleteTextures((GLsizei)shadowPageTex_.size(), shadowPageTex_.data());
+        shadowPageTex_.clear();
+    }
+    if (p.pages.empty() || p.pageSize <= 0) return;
+
+    for (const std::vector<unsigned char>& px : p.pages) {
+        if ((int)px.size() != p.pageSize * p.pageSize * 4) {
+            shadowPageTex_.push_back(0);
+            continue;
+        }
+        uint32_t tex = 0;
+        glGenTextures(1, &tex);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        // Never the one-call glTexImage2D with data - it faults inside the AMD
+        // GL driver with perfectly valid arguments (gl_loader.h).
+        glUploadTexRgba(p.pageSize, p.pageSize, px.data());
+        // AFTER the upload, which sets REPEAT itself. Clamp, not repeat: a
+        // tile's UVs stay inside its own cell by construction, and wrapping
+        // would be the one way a shadow could leak into the cell beside it.
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        shadowPageTex_.push_back(tex);
+    }
+    // Same expansion the projected decals get: pos3+uv2 to the pos3+color3+uv2
+    // GL layout with a white colour, because the page's own RGB is the tint.
+    for (const ShadowPreview::Draw& d : p.draws) {
+        if (d.verts.empty()) continue;
+        std::vector<float> interleaved;
+        interleaved.reserve(d.verts.size() / 5 * 8);
+        for (size_t i = 0; i + 4 < d.verts.size(); i += 5)
+            interleaved.insert(interleaved.end(),
+                               {d.verts[i], d.verts[i + 1], d.verts[i + 2], 1.0f,
+                                1.0f, 1.0f, d.verts[i + 3], d.verts[i + 4]});
+        ShadowDrawGl g;
+        g.mesh = uploadMesh(interleaved);
+        g.page = d.page;
+        shadowDraws_.push_back(std::move(g));
     }
 }
 
@@ -5755,6 +5808,28 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             break;
         default: scenePass(false, 1.0f); break;
     }
+    // Baked shadow decals: the same merged meshes the console draws, sampling
+    // the same atlas pages (docs/shadows.md). Here, right after the scene and
+    // before every blend that composites on top of it, because that is where
+    // renderShadowDecals sits in the generated frame. Never z-written - the
+    // shadow lies a hair in front of the surface it darkens, and anything
+    // drawn later must depth-test against that surface.
+    if (!shadowDraws_.empty() && viewMode_ != ViewMode::Wireframe) {
+        glDepthMask(GL_FALSE);
+        for (const ShadowDrawGl& d : shadowDraws_) {
+            if (d.mesh.vertexCount == 0) continue;
+            if (d.page < 0 || d.page >= (int)shadowPageTex_.size()) continue;
+            const uint32_t tex = shadowPageTex_[d.page];
+            if (!tex) continue;
+            // White tint: the page's RGB IS the shadow's colour, so the
+            // fragment reads exactly what the GS reads under MODULATE with a
+            // white vertex colour.
+            draw(d.mesh, GL_TRIANGLES, viewProj, 1.0f, 1.0f, 1.0f, tex, nullptr,
+                 true);
+        }
+        glDepthMask(GL_TRUE);
+    }
+
     // Post-scene passes (glass, portal surfaces, gizmos) are blends and
     // markers, not static bags - back to Gouraud interpolation.
     ps2Flat = 0;

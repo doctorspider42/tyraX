@@ -16,6 +16,29 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.82.0 (baked shadow decals, docs/shadows.md): a fourth *Dynamic shadow*
+// mode, and the only one that is not a runtime shadow at all. The host traces
+// each marked caster's shadow into a small tile, packs the tiles into shared
+// 256x256 atlas pages and projects them onto the receivers with the existing
+// decalproj machinery - so the console draws ordinary static triangles and
+// pays one blended pass, with no silhouette slot and no per-frame render.
+//
+// The load-bearing decision is that the atlas is not a VRAM optimisation but
+// the thing that makes the feature affordable at all: a bag is one texture, so
+// one shared page is what lets every shadow in a layer merge into ONE submit.
+// Unmerged they would cost ~1 ms of EE each (docs/prefabs.md), which is the
+// difference between "a few hero objects" and "dozens". Folding the atlas rect
+// costs nothing at run time either - decalproj clips to the projector's unit
+// cube, so its UVs are in [0,1] by construction and the rect is an affine
+// remap at bake time, unlike the runtime multiply texatlas needs.
+//
+// Two interlocks are code, not prose: a receiver that already carries a GI
+// lightmap is left out of the projection (the sun shadow is in the lightmap
+// there, and a decal on top would darken it twice), and a caster that can move
+// is refused by name rather than silently baked. kFormatVersion 44 -> 45,
+// purely additive - every new key is written only when it is not the default,
+// so an untouched project resaves byte for byte.
+//
 // 1.81.0 (explicit WSL host bootstrap): native builds now share a dedicated
 // prerequisite checker/installer, setup can opt into apt-based preparation,
 // and the Windows installer offers the operation as an unchecked task that is
@@ -2943,8 +2966,10 @@
 // 1.78.0: editor comments pinned to scenes.
 // 1.79.0: merge native PS2DEV/OpenVCL builds with editor comments.
 // 1.80.0: cutscenes can hide the HUD and own the skip button.
+// 1.81.0: explicit WSL host toolchain bootstrap for native builds.
+// 1.82.0: baked shadow decals - a static directional shadow in an atlas page.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 81
+#define TYRAX_VERSION_MINOR 82
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -3299,7 +3324,15 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // editor reads the unknown action word as Close, which would turn a confirm
 // row into a decline row - the refusal is the point. Purely additive - no
 // migration step.
-inline constexpr int kFormatVersion = 44;
+// v45 (baked shadow decals, docs/shadows.md): SceneObject::shadowMode gains
+// the value 4, plus six ProjectSettings keys (bakedShadows, bakedShadowRes,
+// bakedShadowSunAngle, bakedShadowStrength, bakedShadowMaxLength,
+// bakedShadowAutoBake) - all written only when they are not the default, so an
+// untouched project resaves byte for byte. An older editor clamps shadowMode
+// to 0..3 and would silently read a baked caster as "follow the project",
+// which is a different shadow and a lost setting; that is what the refusal is
+// for. Purely additive - no migration step.
+inline constexpr int kFormatVersion = 45;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects
