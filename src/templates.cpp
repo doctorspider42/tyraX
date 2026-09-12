@@ -9896,6 +9896,7 @@ void TerrainGame::updateUseTarget() {
                g.data.position[1], " ", g.data.position[2], ", eye ",
                cameraPosition.x, " ", cameraPosition.y, " ",
                cameraPosition.z);
+      inputreplay::note(inputreplay::EV_GRAB, carryIndex, -1);
     }
   }
 
@@ -10130,6 +10131,7 @@ void TerrainGame::updateCarriedObject() {
   // body wakes so it resumes falling if it is shown again mid-air.
   if (!o.active || !o.visible) {
     TYRA_LOG("Pick: lost ", carryIndex, " mid-carry - despawned or hidden");
+    inputreplay::note(inputreplay::EV_CARRY_LOST, carryIndex, -1);
     releaseCarried(o, 0.0F, 0.0F, 0.0F);
     carryIndex = -1;
     carryPortalPi = -1;
@@ -10271,6 +10273,7 @@ void TerrainGame::updateCarriedObject() {
     TYRA_LOG("Pick: dropped ", carryIndex, " at ", o.data.position[0], " ",
              o.data.position[1], " ", o.data.position[2], ", eye ",
              cameraPosition.x, " ", cameraPosition.y, " ", cameraPosition.z);
+    inputreplay::note(inputreplay::EV_DROP, carryIndex, -1);
     releaseCarried(runtimeObjects[carryIndex], 0.0F, 0.0F, 0.0F);
     carryIndex = -1;
     carryPortalPi = -1;
@@ -10284,6 +10287,7 @@ void TerrainGame::updateCarriedObject() {
     TYRA_LOG("Pick: threw ", idx, " at ", o.data.position[0], " ",
              o.data.position[1], " ", o.data.position[2], ", v ", vx, " ", vy,
              " ", vz);
+    inputreplay::note(inputreplay::EV_THROW, idx, -1);
     if (!releaseCarried(runtimeObjects[idx], vx, vy, vz)) {
       // No rigid body to hand off to: fly the hand-rolled arc instead.
       thrownIndex = idx;
@@ -22323,6 +22327,7 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
                             *pz + cosf(*pyaw) * cosf(*ppitch));
       }
       TYRA_LOG("Portal: player crossed ", pi, " to ", *px, " ", *py, " ", *pz);
+      inputreplay::note(inputreplay::EV_PORTAL_PLAYER, pi, -1);
       playerTeleported = true;
     }
 
@@ -22377,6 +22382,7 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
         TYRA_LOG("Portal: object ", oi, " crossed ", pi, " to ",
                  ro.data.position[0], " ", ro.data.position[1], " ",
                  ro.data.position[2]);
+        inputreplay::note(inputreplay::EV_PORTAL_OBJECT, oi, pi);
         // stamp the arrival as this object's new "previous" so the reverse
         // link of a two-way pair can't see the same hop as a crossing
         portalPrevPos[oi * 3] = ro.data.position[0];
@@ -39926,6 +39932,23 @@ void tick(Tyra::Engine* engine, Tyra::Pad* pad2);
  * identically. Off, it is `chosen`. */
 unsigned int seed(unsigned int volume, unsigned int chosen);
 
+/** Something the GAME did this frame - a grab, a throw, a portal hop. Recorded
+ * alongside the input (docs/input-replay.md, "Events"), and on a replay
+ * compared against what the recording says should have happened, which is a
+ * far sharper divergence report than a position delta: "the grab at 390 did
+ * not happen" instead of "pos differs by 0.31". Cheap enough to call from the
+ * places that already TYRA_LOG these - it is a couple of stores off a replay
+ * and nothing at all in a release build. */
+void note(int kind, int a, int b);
+
+// The kinds, matching livereplay.hpp - append, never renumber.
+const int EV_GRAB = 1;
+const int EV_DROP = 2;
+const int EV_THROW = 3;
+const int EV_CARRY_LOST = 4;
+const int EV_PORTAL_PLAYER = 5;
+const int EV_PORTAL_OBJECT = 6;
+
 }  // namespace inputreplay
 }  // namespace {{NS}}
 )REP";
@@ -39944,6 +39967,13 @@ namespace inputreplay {
 
 inline void tick(Tyra::Engine*, Tyra::Pad*) {}
 inline unsigned int seed(unsigned int, unsigned int chosen) { return chosen; }
+inline void note(int, int, int) {}
+const int EV_GRAB = 1;
+const int EV_DROP = 2;
+const int EV_THROW = 3;
+const int EV_CARRY_LOST = 4;
+const int EV_PORTAL_PLAYER = 5;
+const int EV_PORTAL_OBJECT = 6;
 
 }  // namespace inputreplay
 }  // namespace {{NS}}
@@ -39996,7 +40026,7 @@ const char kDevkitMarker[] __attribute__((used)) = "TXDEVKIT-inputreplay";
 typedef unsigned long long rpu64;
 
 const unsigned int RP_MAGIC = 0x50525854U;  // "TXRP"
-const unsigned int RP_VERSION = 1U;
+const unsigned int RP_VERSION = 2U;
 const int RP_HEADER = 64;
 const int RP_STATUS = 32;
 const unsigned int RP_STATUS_FOOTER_XOR = 0x5A5A5A5AU;
@@ -40011,6 +40041,8 @@ const unsigned char RP_REC_SEED = 0x02;
 const unsigned char RP_F_PRINT = 0x01;
 const unsigned char RP_F_PAD2 = 0x02;
 const unsigned char RP_F_KBD = 0x04;
+const unsigned char RP_F_EVT = 0x08;
+const int RP_MAX_EVENTS = 8;
 
 enum Mode { ModeOff = 0, ModeRecord = 1, ModeReplay = 2, ModeDone = 3 };
 
@@ -40052,6 +40084,17 @@ int chunkFirstFrame = 0;  // frame index the chunk starts at
 int chunkFramesIn = 0;    // frames in it
 int cursor = 0;           // replay: read position inside chunkBuf
 
+// --- what the GAME did this frame (note(), docs/input-replay.md) -----------
+// Same shape as the fingerprint below and for the same reason: the events of
+// frame N are raised DURING frame N, which is after its input was captured,
+// so they are stamped with the frame they belong to and attached when that
+// frame is finally emitted.
+int evCount = 0;
+unsigned int evFrame = 0xFFFFFFFFu;
+unsigned char evKind[RP_MAX_EVENTS];
+short evA[RP_MAX_EVENTS], evB[RP_MAX_EVENTS];
+int evOverflowWarned = 0;
+
 // --- the fingerprint the ReplayFingerprint script leaves each frame ---------
 int fpValid = 0;
 unsigned int fpFrame = 0xFFFFFFFFu;
@@ -40069,6 +40112,11 @@ struct FrameRec {
   unsigned char nHeld, nClick;
   unsigned char held[RP_MAX_KEYS], clickedKeys[RP_MAX_KEYS];
   float x, y, z, yaw, pitch;
+  // What the game did this frame (note()), and what the recording says it
+  // SHOULD have done while replaying.
+  unsigned char nEvents;
+  unsigned char evKind[RP_MAX_EVENTS];
+  short evA[RP_MAX_EVENTS], evB[RP_MAX_EVENTS];
 };
 FrameRec pending;      // record: frame captured last tick, not yet emitted
 int havePending = 0;
@@ -40174,10 +40222,19 @@ void emitPending() {
     pending.x = fpX; pending.y = fpY; pending.z = fpZ;
     pending.yaw = fpYaw; pending.pitch = fpPitch;
   }
+  if (evCount && evFrame == pendingFrame) {
+    pending.nEvents = (unsigned char)evCount;
+    for (int i = 0; i < evCount; ++i) {
+      pending.evKind[i] = evKind[i];
+      pending.evA[i] = evA[i];
+      pending.evB[i] = evB[i];
+    }
+  }
   unsigned char flags = 0;
   if (pending.hasPrint) flags |= RP_F_PRINT;
   if (pending.hasPad2) flags |= RP_F_PAD2;
   if (pending.hasKbd) flags |= RP_F_KBD;
+  if (pending.nEvents) flags |= RP_F_EVT;
   // Worst case for one record; refuse rather than overrun if a chunk somehow
   // filled without flushing.
   if (chunkLen + 64 + 2 * RP_MAX_KEYS > RP_MAX_CHUNK) flushChunk();
@@ -40210,6 +40267,16 @@ void emitPending() {
     putf(p, pending.z); p += 4;
     putf(p, pending.yaw); p += 4;
     putf(p, pending.pitch); p += 4;
+  }
+  // Events last: a reader that only knows the flags up to the fingerprint
+  // still walks everything before them correctly.
+  if (flags & RP_F_EVT) {
+    *p++ = pending.nEvents;
+    for (int i = 0; i < (int)pending.nEvents; ++i) {
+      *p++ = pending.evKind[i];
+      put16(p, (unsigned short)pending.evA[i]); p += 2;
+      put16(p, (unsigned short)pending.evB[i]); p += 2;
+    }
   }
   chunkLen = (int)(p - chunkBuf);
   ++chunkRecords;
@@ -40399,6 +40466,19 @@ int nextFrame(FrameRec& f) {
       f.pitch = getf(chunkBuf + q + 16);
       q += 20;
     }
+    if (flags & RP_F_EVT) {
+      if (chunkLen - q < 1) return 0;
+      f.nEvents = chunkBuf[q];
+      q += 1;
+      if (f.nEvents > RP_MAX_EVENTS) return 0;
+      if (chunkLen - q < (int)f.nEvents * 5) return 0;
+      for (int i = 0; i < (int)f.nEvents; ++i) {
+        f.evKind[i] = chunkBuf[q];
+        f.evA[i] = (short)get16(chunkBuf + q + 1);
+        f.evB[i] = (short)get16(chunkBuf + q + 3);
+        q += 5;
+      }
+    }
     cursor = q;
     return 1;
   }
@@ -40433,6 +40513,36 @@ void applyKbd(Tyra::KbdMouse& km, const FrameRec& f) {
   // on isEnabled(), so without this a recorded keystroke would be silently
   // dropped on the machine replaying it.
   km.setState(held, clicked, m, true);
+}
+
+/** The events the recording says this frame had, against the ones it raised.
+ * Order matters and is stable: both sides are the order note() was called in,
+ * and that is the order the game's own update runs. A mismatch is reported by
+ * NAME, which is the whole reason this is in the file: "the grab at 390 did
+ * not happen" is a debugging sentence, "pos differs by 0.31" is a puzzle. */
+void compareEvents() {
+  if (!haveApplied) return;
+  const int have = (evFrame == appliedFrame) ? evCount : 0;
+  const int want = (int)applied.nEvents;
+  int same = (have == want);
+  for (int i = 0; same && i < want; ++i)
+    if (applied.evKind[i] != evKind[i] || applied.evA[i] != evA[i] ||
+        applied.evB[i] != evB[i])
+      same = 0;
+  if (same) return;
+  ++divergences;
+  if (!reportedDivergence) {
+    reportedDivergence = 1;
+    firstDivergent = appliedFrame;
+    TYRA_LOG("Replay: event mismatch at frame ", (int)appliedFrame, ": ",
+             have, " raised, ", want, " expected");
+    for (int i = 0; i < want; ++i)
+      TYRA_LOG("Replay:   expected kind ", (int)applied.evKind[i], " (",
+               (int)applied.evA[i], ", ", (int)applied.evB[i], ")");
+    for (int i = 0; i < have; ++i)
+      TYRA_LOG("Replay:   raised   kind ", (int)evKind[i], " (", (int)evA[i],
+               ", ", (int)evB[i], ")");
+  }
 }
 
 void compareFingerprint() {
@@ -40613,6 +40723,7 @@ void tick(Tyra::Engine* engine, Tyra::Pad* pad2) {
   // Replay. Compare what the world did with the frame we applied last tick
   // before overwriting the fingerprint with this frame's.
   compareFingerprint();
+  compareEvents();
   if (!nextFrame(applied)) {
     haveApplied = 0;
     mode = ModeDone;
@@ -40643,6 +40754,26 @@ void tick(Tyra::Engine* engine, Tyra::Pad* pad2) {
   g_frameScale = applied.dt * 50.0F;
   ++frameNo;
   if ((frameNo % (unsigned int)chunkFrames) == 0) writeStatus(0);
+}
+
+void note(int kind, int a, int b) {
+  if (mode != ModeRecord && mode != ModeReplay) return;
+  if (evFrame != curFrame) {  // first event of this frame
+    evFrame = curFrame;
+    evCount = 0;
+  }
+  if (evCount >= RP_MAX_EVENTS) {
+    if (!evOverflowWarned) {
+      evOverflowWarned = 1;
+      TYRA_LOG("Replay: more than ", RP_MAX_EVENTS,
+               " events in one frame - the rest are not recorded");
+    }
+    return;
+  }
+  evKind[evCount] = (unsigned char)kind;
+  evA[evCount] = (short)a;
+  evB[evCount] = (short)b;
+  ++evCount;
 }
 
 unsigned int seed(unsigned int volume, unsigned int chosen) {

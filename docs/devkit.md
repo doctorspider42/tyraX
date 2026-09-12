@@ -287,6 +287,11 @@ does X" report into a fixture: replay the session, read the order of the lines.
 That is how the carry and portal interactions are debugged here - the hop and
 the grab are one frame apart or they are not, and the log says which.
 
+Since 1.85.0 the same events are also **written into the recording itself**
+(`--replay-dump` prints them with no emulator at all, and a replay compares
+them frame by frame). The log lines stay: they carry the positions and the
+velocities, which the events deliberately do not.
+
 ## First places to look
 
 1. **Output** for build and launch failures.

@@ -32,7 +32,11 @@ namespace livereplay {
 // ------------------------------------------------------------------ format --
 
 constexpr uint32_t kMagic = 0x50525854u;  // "TXRP" little-endian
-constexpr uint32_t kVersion = 1u;
+// v2 adds the per-frame EVENT list (kFrameEvents). v1 files still open - they
+// simply carry no events - because a recording is worth keeping next to the
+// bug it reproduces, and that outlives one format revision.
+constexpr uint32_t kVersion = 2u;
+constexpr uint32_t kMinReadVersion = 1u;
 constexpr int kHeaderBytes = 64;
 // Status file the game writes for the editor's Replay tab, fixed size.
 constexpr int kStatusBytes = 32;
@@ -62,6 +66,11 @@ constexpr uint32_t kFlagFinalized = 1u << 2;    // frameCount is trustworthy
 constexpr uint8_t kFrameFingerprint = 1u << 0;
 constexpr uint8_t kFramePad2 = 1u << 1;
 constexpr uint8_t kFrameKbd = 1u << 2;
+constexpr uint8_t kFrameEvents = 1u << 3;
+
+// Events a frame may carry, at most this many (a frame that grabs, drops and
+// hops at once is already exotic; the cap bounds the record).
+constexpr int kMaxFrameEvents = 8;
 
 /** What the recording says about the game it came out of. A replay refuses a
  * frame-rate mismatch outright (the whole point is that dt is reproduced) and
@@ -103,8 +112,42 @@ struct KbdFrame {
     std::vector<uint8_t> clickedKeys;
 };
 
+/** Something the GAME did on a frame, as opposed to what the player pressed.
+ *
+ * The recording is input plus a light fingerprint, and that is what keeps it
+ * small - but the fingerprint says only WHERE the player ended up, which turns
+ * every report into an archaeology exercise: "it moved me across the room" and
+ * a position delta do not name the cause. An event names it. They cost five
+ * bytes on the frames that have one and nothing on the rest, they make the
+ * file readable without booting the game (`--replay-dump`), and on a replay
+ * they are a far sharper divergence signal than a distance: "the grab at 390
+ * did not happen" beats "pos differs by 0.31".
+ *
+ * `a` and `b` are per kind - see eventText(). Both are scene-object or portal
+ * indices, which is what the game has at hand where these fire. */
+struct Event {
+    uint8_t kind = 0;
+    int16_t a = -1;
+    int16_t b = -1;
+};
+
+// Event kinds. Numbers are the format - append, never renumber.
+constexpr uint8_t kEvGrab = 1;         // a = object picked up
+constexpr uint8_t kEvDrop = 2;         // a = object put down
+constexpr uint8_t kEvThrow = 3;        // a = object thrown
+constexpr uint8_t kEvCarryLost = 4;    // a = object despawned mid-carry
+constexpr uint8_t kEvPortalPlayer = 5; // a = portal the player crossed
+constexpr uint8_t kEvPortalObject = 6; // a = object, b = portal it crossed
+
+/** One line for a log or a dump: "grabbed object 38", "player crossed portal
+ * 1". Unknown kinds print their number rather than being dropped - a newer
+ * game writing a kind this build does not know is a thing to SAY. */
+std::string eventText(const Event& e);
+
 struct Frame {
     float dt = 0.02f;
+    // What the game did on this frame (usually empty).
+    std::vector<Event> events;
     PadFrame pad[2];
     bool hasPad2 = false;
     bool hasKbd = false;

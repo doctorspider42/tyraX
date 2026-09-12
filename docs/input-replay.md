@@ -132,6 +132,38 @@ centred while the player moved.
   to *a new world every run* asks the console's clock for a seed — the one
   genuinely non-deterministic decision the game makes. It is recorded, so the
   same world regenerates.
+- **Events** (format v2). Not reproduced — *compared*. See below.
+
+## Events: what the GAME did, not what the player pressed
+
+A recording is input plus a light fingerprint, and the fingerprint says only
+where the player ended up. That turns every report into archaeology: "something
+threw me across the room" and a position delta do not name a cause. So the
+frames that matter also carry what the game DID on them:
+
+| Event | Carries |
+| --- | --- |
+| `grabbed object N` | the object picked up |
+| `dropped object N` / `threw object N` | the object released |
+| `lost object N mid-carry` | it was despawned or hidden while carried |
+| `player crossed portal P` | the portal a walker went through |
+| `object N crossed portal P` | a body did |
+
+Five bytes on the frames that have one and nothing on the rest, capped at eight
+per frame. Two things fall out, and both are the point:
+
+- **`--replay-dump` reads them without running anything**, so a session can be
+  understood in a second instead of a PCSX2 boot: the press the player made and
+  the event the game answered with, one line under the other.
+- **A replay compares them**, and a mismatch is reported by name -
+  `Replay: event mismatch at frame 390: 0 raised, 1 expected` followed by both
+  lists - which beats a distance: "the grab did not happen" is a debugging
+  sentence, "pos differs by 0.31" is a puzzle. Order matters and is stable: it
+  is the order the game's own update raises them in.
+
+The kinds are the format: they are appended to, never renumbered. A recording
+made by a newer game prints an unknown kind as its number rather than dropping
+it - a kind this build does not know is a thing to SAY, not to swallow.
 
 ## What is not
 
@@ -227,6 +259,12 @@ Two things fall out of that framing and both matter:
 - **A file killed mid-write still parses.** Each chunk carries its own CRC, so
   the reader keeps every chunk that checks out and stops at the first that does
   not. Saving canonicalizes what survived.
+
+**Versions.** v1 is input + fingerprint; **v2 adds the per-frame event list**,
+written last in the record so everything before it sits at the same offsets. v1
+files still open - they simply carry no events - because a recording is worth
+keeping next to the bug it reproduces, and that outlives one format revision.
+The game writes whatever version it was built with; the editor reads v1 and v2.
 
 The read path **streams**: one chunk in memory at a time, never the whole file.
 Half an hour of input is ~3.6 MB and the EE's 32 MB is already spoken for by a

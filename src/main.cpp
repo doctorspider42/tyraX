@@ -2019,6 +2019,8 @@ static int replayDumpFromCli(int argc, char** argv) {
                         down.empty() ? "-" : down.c_str());
             if (f.hasFingerprint)
                 std::printf(" %8.3f %8.3f %8.3f", f.x, f.y, f.z);
+            for (const livereplay::Event& e : f.events)
+                std::printf("  [%s]", livereplay::eventText(e).c_str());
             std::printf("\n");
             continue;
         }
@@ -2031,6 +2033,12 @@ static int replayDumpFromCli(int argc, char** argv) {
         if (!names.empty())
             std::printf("f%-6d press %-16s %8.3f %8.3f %8.3f\n", (int)i,
                         names.c_str(), f.x, f.y, f.z);
+        // What the GAME did on that frame, if the recording carries it (v2+):
+        // the line the player pressed and the line the game answered with,
+        // one under the other, which is the pairing this verb exists for.
+        for (const livereplay::Event& e : f.events)
+            std::printf("f%-6d   game  %s\n", (int)i,
+                        livereplay::eventText(e).c_str());
         // A jump between two consecutive fingerprints was not walked: the
         // walker covers well under half a unit per frame at any speed the
         // templates ship, so this catches a portal hop, a scripted teleport

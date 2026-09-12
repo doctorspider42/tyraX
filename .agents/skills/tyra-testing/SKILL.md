@@ -1836,6 +1836,9 @@ run on the branch that added it:
   lines the game writes into `bin/log.txt` (docs/devkit.md): that pairing is
   what turns "it sometimes throws me across the room" into "the grab is frame
   390 and frames 391-407 move 0.75 of a unit each with the stick CENTRED".
+  Recordings made since 1.85.0 carry those events THEMSELVES, so the dump
+  prints "grabbed object 38" beside the press with no emulator involved, and a
+  replay reports a missing one by name instead of as a position delta.
   Assert the stick really left centre, a button was really held,
   and the fingerprints really move. On the FPP fixture: 208 frames with the
   stick off-centre, 7 with a button, 669 of 705 carrying a fingerprint (the first

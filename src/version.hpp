@@ -16,6 +16,26 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.85.0 (recordings carry EVENTS, docs/input-replay.md): a .tyrarep was
+// input plus a position fingerprint, and the fingerprint says only where the
+// player ENDED UP - so every report started with archaeology. "Something threw
+// me across the room" plus a position delta names no cause; it took a log line
+// added by hand, two PCSX2 runs and a frame-by-frame dump to find the last one
+// (1.84.2). The frames that matter now also carry what the GAME did on them -
+// grabbed, dropped, threw, lost mid-carry, a walker or a body crossing a
+// portal - five bytes on the frames that have one, capped at eight per frame,
+// written last in the record so every earlier field keeps its offset. Two
+// things fall out. `--replay-dump` prints them without running anything, so a
+// session is readable in a second rather than a boot. And a REPLAY compares
+// them: a mismatch reports "event mismatch at frame 390: 0 raised, 1 expected"
+// with both lists, which is a debugging sentence where "pos differs by 0.31"
+// is a puzzle. Format v1 -> v2; v1 files still open and simply carry no
+// events, because a recording is worth keeping next to the bug it reproduces
+// and that outlives a format revision. The kinds are the format - appended to,
+// never renumbered - and an unknown kind prints as its number rather than
+// being swallowed. MINOR: the capability is new, nothing changes for a project
+// that never records.
+//
 // 1.84.2: picking an object up no longer launches the player across the room.
 // The report was "throw the ball into the cellar, pick it up down there, and
 // some unknown force moves me into the corner"; the second recording
@@ -3169,8 +3189,8 @@
 // 1.79.0: merge native PS2DEV/OpenVCL builds with editor comments.
 // 1.80.0: cutscenes can hide the HUD and own the skip button.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 84
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_MINOR 85
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
