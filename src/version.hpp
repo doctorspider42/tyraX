@@ -16,6 +16,12 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.83.0 (merge cutscene control with the vehicle/road stack): cutscenes can
+// hide the complete HUD including USE prompts/interactions, claim the menu
+// action before the pause menu, and optionally open an authored confirmation
+// menu before skipping. Renumbered from main's 1.80.0 because this branch had
+// already shipped distinct 1.80-1.82 features. kFormatVersion 50, additive.
+//
 // 1.82.2: vehicle-local bank orientation, stable heave without clearance
 // feedback, missing-contact filtering, and composed wheel-batch transforms.
 //
@@ -3552,9 +3558,10 @@
 // 1.77.0: merge animated HUD elements with the 1.76 rendering stack.
 // 1.78.0: editor comments pinned to scenes.
 // 1.79.0: merge native PS2DEV/OpenVCL builds with editor comments.
+// 1.80.0: cutscenes can hide the HUD and own the skip button.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 82
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_MINOR 83
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -3902,7 +3909,14 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // when a note has text. An older editor reads an unknown type name as a Box,
 // which is why this is a version bump and not just a new key - the refusal is
 // the point. Purely additive - no migration step.
-inline constexpr int kFormatVersion = 49;
+// v50 (cutscene HUD + skip screen, docs/cutscenes.md): Sequence::hideHud and
+// Sequence::skipMode (always written), plus GameMenu::skipMenu and the
+// MenuEntry action "skip-cutscene" (both written only when set). An older
+// editor reads the unknown action word as Close, which would turn a confirm
+// row into a decline row - the refusal is the point. Purely additive - no
+// migration step. Renumbered from main's v44 because this branch already uses
+// v44-v49 for vehicle, road and rendering fields.
+inline constexpr int kFormatVersion = 50;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

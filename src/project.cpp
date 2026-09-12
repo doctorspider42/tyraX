@@ -2406,8 +2406,10 @@ static void writeSequencesSection(std::ostream& json, const Project& p) {
              << ", \"loop\": " << (s.loop ? "true" : "false")
              << ", \"cameraEnabled\": " << (s.cameraEnabled ? "true" : "false")
              << ", \"hidePlayer\": " << (s.hidePlayer ? "true" : "false")
+             << ", \"hideHud\": " << (s.hideHud ? "true" : "false")
              << ", \"bars\": " << s.bars
              << ", \"skippable\": " << (s.skippable ? "true" : "false")
+             << ", \"skipMode\": " << s.skipMode
              << ", \"fadeIn\": " << fmtFloat(s.fadeIn)
              << ", \"fadeOut\": " << fmtFloat(s.fadeOut)
              << ", \"barsSlideIn\": " << fmtFloat(s.barsSlideIn)
@@ -2455,7 +2457,7 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
                                          "menu",      "set-value", "add-value",
                                          "event",     "toggle",    "choice",
                                          "apply-video", "rebind", "credits",
-                                         "label"};
+                                         "label",     "skip-cutscene"};
     for (size_t i = 0; i < p.menus.size(); ++i) {
         const GameMenu& m = p.menus[i];
         json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << m.name
@@ -2464,6 +2466,7 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
              << (m.pauseGame ? "" : ", \"pause\": false")
              << (m.pauseMenu ? ", \"pauseMenu\": true" : "")
              << (m.saveMenu ? ", \"saveMenu\": true" : "")
+             << (m.skipMenu ? ", \"skipMenu\": true" : "")
              << (m.panelW != 256 ? ", \"panelW\": " + std::to_string(m.panelW) : "")
              << (m.showTitle ? "" : ", \"showTitle\": false")
              << (m.font.empty() ? "" : ", \"font\": \"" + jsonEscape(m.font) + "\"")
@@ -2499,7 +2502,9 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
         for (size_t e = 0; e < m.entries.size(); ++e) {
             const MenuEntry& en = m.entries[e];
             const int a =
-                (en.action >= 0 && en.action <= MenuEntry::Label) ? en.action : 0;
+                (en.action >= 0 && en.action <= MenuEntry::SkipCutscene)
+                    ? en.action
+                    : 0;
             json << (e ? ",\n        " : "\n        ") << "{ \"label\": \""
                  << en.label << "\", \"action\": \"" << kMenuActions[a] << "\""
                  << (en.param.empty() ? "" : ", \"param\": \"" + en.param + "\"")
@@ -3982,6 +3987,12 @@ void ensureTextIcons(Project& p) {
 int saveMenuIndex(const Project& p) {
     for (size_t i = 0; i < p.menus.size(); ++i)
         if (p.menus[i].saveMenu) return (int)i;
+    return -1;
+}
+
+int skipMenuIndex(const Project& p) {
+    for (size_t i = 0; i < p.menus.size(); ++i)
+        if (p.menus[i].skipMenu) return (int)i;
     return -1;
 }
 
@@ -6670,9 +6681,13 @@ static void readSequencesSection(const json::Value& root, Project& out) {
             if (const auto* v = js.find("loop")) s.loop = v->boolOr(false);
             if (const auto* v = js.find("cameraEnabled")) s.cameraEnabled = v->boolOr(false);
             if (const auto* v = js.find("hidePlayer")) s.hidePlayer = v->boolOr(false);
+            if (const auto* v = js.find("hideHud")) s.hideHud = v->boolOr(false);
             if (const auto* v = js.find("bars")) s.bars = (int)v->numberOr(0.0);
             if (s.bars < 0 || s.bars >= kSeqBarsStyleCount) s.bars = kSeqBarsNone;
             if (const auto* v = js.find("skippable")) s.skippable = v->boolOr(false);
+            if (const auto* v = js.find("skipMode")) s.skipMode = (int)v->numberOr(0.0);
+            if (s.skipMode < 0 || s.skipMode >= kSeqSkipModeCount)
+                s.skipMode = kSeqSkipInstant;
             if (const auto* v = js.find("fadeIn")) s.fadeIn = (float)v->numberOr(0.0);
             if (const auto* v = js.find("fadeOut")) s.fadeOut = (float)v->numberOr(0.0);
             if (s.fadeIn < 0.0f) s.fadeIn = 0.0f;
@@ -6746,6 +6761,8 @@ static void readMenusSection(const json::Value& root, Project& out) {
                 m.pauseMenu = v->type == json::Value::Type::Bool && v->boolean;
             if (const auto* v = jm.find("saveMenu"))
                 m.saveMenu = v->type == json::Value::Type::Bool && v->boolean;
+            if (const auto* v = jm.find("skipMenu"))
+                m.skipMenu = v->type == json::Value::Type::Bool && v->boolean;
             if (const auto* v = jm.find("panelW")) {
                 const int w = (int)v->numberOr(256);
                 m.panelW = (w == 128 || w == 512) ? w : 256;
@@ -6815,6 +6832,8 @@ static void readMenusSection(const json::Value& root, Project& out) {
                                     : a == "rebind"    ? MenuEntry::RebindKey
                                     : a == "credits"   ? MenuEntry::PlayCredits
                                     : a == "label"     ? MenuEntry::Label
+                                    : a == "skip-cutscene"
+                                        ? MenuEntry::SkipCutscene
                                                        : MenuEntry::Close;
                     }
                     if (const auto* v = je.find("param")) en.param = v->stringOr("");
@@ -6864,6 +6883,15 @@ static void readMenusSection(const json::Value& root, Project& out) {
             }
             if (!m.name.empty()) out.menus.push_back(std::move(m));
         }
+    }
+    // The skip-confirmation role is one per project (like the save menu's, and
+    // clamped for the same reason: two of them and the generated game picks
+    // arbitrarily). A hand-edited file or a merge can carry two - keep the first.
+    bool skipSeen = false;
+    for (GameMenu& m : out.menus) {
+        if (!m.skipMenu) continue;
+        if (skipSeen) m.skipMenu = false;
+        skipSeen = true;
     }
 }
 

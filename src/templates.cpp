@@ -6586,14 +6586,20 @@ void TerrainGame::loop() {
             Tyra::RendererCorePostFx::PassGrading);
       if (i == HUD_GRAIN_LAYER)
         engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassGrain);
-{{SCREEN_FX_IN_LOOP}}      if (scriptCtx.hudVisible && hudElemDrawn[i])
+{{SCREEN_FX_IN_LOOP}}      if (scriptCtx.hudVisible && !scriptCtx.hudSuppressed &&
+          hudElemDrawn[i])
         engine->renderer.renderer2D.render(hudSprites[i]);
     }
     // Live bars sit above the stack, under the prompts and texts.
-    if (scriptCtx.hudVisible) renderHudBars();
+    if (scriptCtx.hudVisible && !scriptCtx.hudSuppressed) renderHudBars();
     // Custom screen effects placed at the top of the stack (layer -1): drawn
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
-{{SCREEN_FX_TOP}}{{VEHICLE_HUD}}    if (useTargetIndex >= 0{{VEHICLE_PROMPT_OR}}) {
+    // A "Hide HUD" cutscene also takes the USE prompt off. updateUseTarget
+    // already refuses to pick a target under it; this second gate is what
+    // covers the frame the flag goes UP, because that scan ran before the
+    // sequence player did (docs/cutscenes.md).
+{{SCREEN_FX_TOP}}{{VEHICLE_HUD}}    if ((useTargetIndex >= 0{{VEHICLE_PROMPT_OR}}) &&
+        !scriptCtx.hudSuppressed) {
       const bool pick =
           useTargetIndex >= 0 && runtimeObjects[useTargetIndex].data.pickable;
       const Sprite& prompt = pick ? pickPromptSprite : usePromptSprite;
@@ -9821,6 +9827,16 @@ void TerrainGame::updateUseTarget() {
   // Hands full: BTN_USE means "drop" (updateCarriedObject), so no use
   // targeting - and no prompt - while carrying.
   if (carryIndex >= 0) return;
+  // A "Hide HUD" cutscene suppresses the whole interaction, not just its
+  // prompt. Note this test runs from the PLAYER's camera and BEFORE the
+  // cutscene override is applied further down, so a cutscene changes nothing
+  // about it by itself: a player left standing in front of a usable prop -
+  // usually the one whose On Used started the cutscene - keeps the prompt on
+  // screen over the cinematic and can press it again. Tied to that flag and not
+  // to "a cutscene is playing", because a cutscene that animates something
+  // while the player keeps the camera must keep USE working
+  // (docs/cutscenes.md).
+  if (scriptCtx.hudSuppressed) return;
 
   Vec4 dir = cameraLookAt - cameraPosition;
   const float dirLen = sqrtf(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
@@ -10656,24 +10672,49 @@ bool TerrainGame::updateGameMenu() {
   auto pausing = [&] {
     return gameMenuIndex >= 0 && MENUS[gameMenuIndex].pause != 0;
   };
+  // Opening a menu from scratch: one sequence, three callers (a queued
+  // openMenu, the pause toggle, the cutscene skip confirmation below). The
+  // grace counter is pad-garbage protection - see updateSaveMenu.
+  auto enterMenu = [&](int target) {
+    gameMenuIndex = target;
+    gameMenuCursor = 0;
+    gameMenuScroll = 0;
+    gameMenuOpenT = 0.0F;
+    gameMenuClock = 0.0F;
+    gameMenuScrollShown = 0.0F;
+    gameMenuCursorRow = -1;
+    gameMenuStackDepth = 0;
+    gameMenuGrace = 15;
+    menuRebindRow = -1;
+    useTargetIndex = -1;
+  };
 
   if (scriptCtx.openMenu >= 0) {
     const int target = scriptCtx.openMenu;
     scriptCtx.openMenu = -1;
     if (target < MENU_COUNT && !saveMenuOpen && gameMenuIndex < 0) {
-      gameMenuIndex = target;
-      gameMenuCursor = 0;
-      gameMenuScroll = 0;
-      gameMenuOpenT = 0.0F;
-      gameMenuClock = 0.0F;
-      gameMenuScrollShown = 0.0F;
-      gameMenuCursorRow = -1;
-      gameMenuStackDepth = 0;
-      gameMenuGrace = 15;  // pad-garbage grace (see updateSaveMenu)
-      menuRebindRow = -1;
-      useTargetIndex = -1;
+      enterMenu(target);
       return pausing();
     }
+  }
+
+  // A skippable cutscene OWNS the "menu" action for its duration
+  // (docs/cutscenes.md). This has to come before the pause toggle below, and
+  // that ordering is the whole fix: a project with a pause menu could never
+  // skip a cutscene, because the press opened the menu, the open menu paused
+  // the scripts, and the director - which used to test the raw Start button
+  // itself - never ran to see it. One press does one thing.
+  if (gameMenuIndex < 0 && !saveMenuOpen && sequences::skippable() &&
+      inputClicked(engine->pad, IA_ROLE_MENU)) {
+    // Ask first, when the project designated a confirmation screen. With no
+    // such menu the mode falls back to skipping on the spot: swallowing the
+    // press and doing nothing would read as a broken button.
+    if (sequences::skipMode() == 1 && SKIP_MENU >= 0 && SKIP_MENU < MENU_COUNT) {
+      enterMenu(SKIP_MENU);
+      return pausing();
+    }
+    sequences::stop();
+    return false;
   }
 
   // The "menu" action toggles the pause menu: opens it during gameplay, closes
@@ -10681,17 +10722,7 @@ bool TerrainGame::updateGameMenu() {
   if (PAUSE_MENU >= 0 && !saveMenuOpen &&
       inputClicked(engine->pad, IA_ROLE_MENU)) {
     if (gameMenuIndex < 0) {
-      gameMenuIndex = PAUSE_MENU;
-      gameMenuCursor = 0;
-      gameMenuScroll = 0;
-      gameMenuOpenT = 0.0F;
-      gameMenuClock = 0.0F;
-      gameMenuScrollShown = 0.0F;
-      gameMenuCursorRow = -1;
-      gameMenuStackDepth = 0;
-      gameMenuGrace = 15;
-      menuRebindRow = -1;
-      useTargetIndex = -1;
+      enterMenu(PAUSE_MENU);
       return pausing();
     }
     if (gameMenuIndex == PAUSE_MENU && gameMenuStackDepth == 0 &&
@@ -10897,6 +10928,14 @@ bool TerrainGame::updateGameMenu() {
           gameMenuStackDepth = 0;
           credits::play(e.param);
         }
+        break;
+      case 13:  // confirm a cutscene skip: end it and close the menu. Anything
+        // that dismisses the menu instead (a Close row, "back") declines and
+        // the cutscene carries on from where it froze - so "no" needs no row
+        // action of its own (docs/cutscenes.md).
+        gameMenuIndex = -1;
+        gameMenuStackDepth = 0;
+        sequences::stop();
         break;
     }
   }
@@ -11745,7 +11784,13 @@ void TerrainGame::updateAndRenderHudTexts() {
       }
     }
     const int e = HUD_ELEM_TEXT0 + i;
-    if (e < (int)hudElemDrawn.size() && hudElemDrawn[e])
+    // A "Hide HUD" cutscene takes the baked texts with the rest of the HUD -
+    // but only the DRAWING: the auto-hide countdown above keeps running, or a
+    // text shown just before a cutscene would still be on screen after it
+    // (docs/cutscenes.md). Runtime text (Display Text) is deliberately not
+    // covered - that is where a cutscene's subtitles live.
+    if (e < (int)hudElemDrawn.size() && hudElemDrawn[e] &&
+        !scriptCtx.hudSuppressed)
       engine->renderer.renderer2D.render(hudTextSprites[i]);
   }
 }
@@ -24210,14 +24255,20 @@ void TerrainGame::loop() {
             Tyra::RendererCorePostFx::PassGrading);
       if (i == HUD_GRAIN_LAYER)
         engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassGrain);
-{{SCREEN_FX_IN_LOOP}}      if (scriptCtx.hudVisible && hudElemDrawn[i])
+{{SCREEN_FX_IN_LOOP}}      if (scriptCtx.hudVisible && !scriptCtx.hudSuppressed &&
+          hudElemDrawn[i])
         engine->renderer.renderer2D.render(hudSprites[i]);
     }
     // Live bars sit above the stack, under the prompts and texts.
-    if (scriptCtx.hudVisible) renderHudBars();
+    if (scriptCtx.hudVisible && !scriptCtx.hudSuppressed) renderHudBars();
     // Custom screen effects placed at the top of the stack (layer -1): drawn
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
-{{SCREEN_FX_TOP}}{{VEHICLE_HUD}}    if (useTargetIndex >= 0{{VEHICLE_PROMPT_OR}}) {
+    // A "Hide HUD" cutscene also takes the USE prompt off. updateUseTarget
+    // already refuses to pick a target under it; this second gate is what
+    // covers the frame the flag goes UP, because that scan ran before the
+    // sequence player did (docs/cutscenes.md).
+{{SCREEN_FX_TOP}}{{VEHICLE_HUD}}    if ((useTargetIndex >= 0{{VEHICLE_PROMPT_OR}}) &&
+        !scriptCtx.hudSuppressed) {
       const bool pick =
           useTargetIndex >= 0 && runtimeObjects[useTargetIndex].data.pickable;
       const Sprite& prompt = pick ? pickPromptSprite : usePromptSprite;
@@ -25214,6 +25265,16 @@ struct ScriptContext {
 
   // Write to show/hide all HUD images (the USE prompt is unaffected).
   bool hudVisible = true;
+
+  // Set by the sequence player while a "Hide HUD" cutscene is active, and
+  // cleared when it ends (docs/cutscenes.md). It is a SECOND flag rather than a
+  // write to hudVisible on purpose: the Set HUD Visible node owns that one, and
+  // a cutscene restoring it to true on release would switch a HUD back on that
+  // the game had deliberately hidden. It covers more than hudVisible does -
+  // the whole HUD stack, the live bars, the baked texts, the USE prompt and the
+  // USE interaction itself - and deliberately NOT runtime text (Display Text),
+  // which is where subtitles live.
+  bool hudSuppressed = false;
 
   // On-screen texts (HUD_TEXTS order, hud_data.gen.hpp). Write 1 into
   // textRequest[i] to show a text, 0 to hide it (-1 = leave). When showing,
@@ -26228,7 +26289,11 @@ static void writeObjectDataRow(std::ostringstream& out, const Project& p,
         << ", " << batchStatic << ", {" << floatLit(o.vuParams[0]) << ", "
         << floatLit(o.vuParams[1]) << ", " << floatLit(o.vuParams[2]) << ", "
         << floatLit(o.vuParams[3]) << "}, " << impostorIndexOf(p, o) << ", "
-        << floatLit(o.impostorDistance) << ", " << (o.impostorBillboard ? "true" : "false") << ", " << o.impostorViews << "},  // " << o.name << "\n";
+        << floatLit(o.impostorDistance) << ", "
+        << (o.impostorBillboard ? "true" : "false") << ", "
+        << o.impostorViews << "},";
+    if (!o.name.empty()) out << "  // " << o.name;
+    out << "\n";
 }
 
 // inc/prefab_data.gen.hpp - the prefab library (docs/prefabs.md).
@@ -33530,6 +33595,17 @@ std::string sequencesHeader(const Project& p) {
            "// flow trigger edge-detects, and what tells a flow-graph camera or\n"
            "// letterbox that a cutscene currently owns those.\n"
            "bool playing();\n"
+           "// True while a cutscene that declares itself SKIPPABLE is playing.\n"
+           "// The game loop's cue to take the \"menu\" action away from the\n"
+           "// pause menu for the duration - without that a project with a pause\n"
+           "// menu could never skip a cutscene, because the menu opened, the\n"
+           "// frame paused the scripts and the press never reached the director\n"
+           "// (docs/cutscenes.md).\n"
+           "bool skippable();\n"
+           "// The active cutscene's skip mode: 0 = end it on the press, 1 = ask\n"
+           "// first through the project's skip-confirmation menu (SKIP_MENU in\n"
+           "// menu_data.gen.hpp). Meaningless unless skippable() is true.\n"
+           "int skipMode();\n"
            "// Letterbox mask style for the Set Letterbox Bars flow node, used\n"
            "// by renderOverlay when NO sequence is active (0 none, 1 cinema\n"
            "// 2.39:1, 2 wide 16:9, 3 pillarbox, 4 frame). The style, not its\n"
@@ -33918,7 +33994,10 @@ std::string sequencesScript(const Project& p) {
            "                int camObj; };\n"
            "struct Seq { const char* name; float duration; int loop; int camEnabled;\n"
            "             int hidePlayer;  // hide the third-person avatar while playing\n"
-           "             int bars; int skippable; float fadeIn; float fadeOut;\n"
+           "             int hideHud;     // hide the HUD, the USE prompt and USE itself\n"
+           "             int bars; int skippable;\n"
+           "             int skipMode;    // 0 skip at once, 1 ask first (SKIP_MENU)\n"
+           "             float fadeIn; float fadeOut;\n"
            "             float barsSlideIn; float barsSlideOut;  // bars reveal, s\n"
            "             const Track* tracks; int trackCount;\n"
            "             const CamKey* camKeys; int camKeyCount; };\n\n";
@@ -34015,15 +34094,16 @@ std::string sequencesScript(const Project& p) {
         out << (si ? ", " : "") << "\n  {\"" << escapeCString(s.name) << "\", "
             << floatLit(s.duration) << ", " << (s.loop ? 1 : 0) << ", "
             << (s.cameraEnabled ? 1 : 0) << ", " << (s.hidePlayer ? 1 : 0) << ", "
-            << s.bars << ", "
-            << (s.skippable ? 1 : 0) << ", " << floatLit(s.fadeIn) << ", "
+            << (s.hideHud ? 1 : 0) << ", " << s.bars << ", "
+            << (s.skippable ? 1 : 0) << ", " << s.skipMode << ", "
+            << floatLit(s.fadeIn) << ", "
             << floatLit(s.fadeOut) << ", " << floatLit(s.barsSlideIn) << ", "
             << floatLit(s.barsSlideOut) << ", " << sp << "Tracks, "
             << s.tracks.size() << ", " << sp << "Cam, " << s.cameraKeys.size()
             << "}";
     }
     if (p.sequences.empty())
-        out << "{\"\", 0.0F, 0, 0, 0, 0, 0, 0.0F, 0.0F, 0.0F, 0.0F, "
+        out << "{\"\", 0.0F, 0, 0, 0, 0, 0, 0, 0, 0.0F, 0.0F, 0.0F, 0.0F, "
                "nullptr, 0, nullptr, 0}";  // non-empty array
     out << "\n};\n"
         << "static const int kSeqCount = " << p.sequences.size() << ";\n\n";
@@ -34078,6 +34158,7 @@ class SequenceDirector : public Script {
   void release(ScriptContext& ctx) {
     ctx.cameraOverride = false;
     ctx.hidePlayer = false;
+    ctx.hudSuppressed = false;
     ctx.barsStyle = 0;
     ctx.barsAmount = 0.0F;
     ctx.fadeAlpha = 0.0F;
@@ -34099,6 +34180,17 @@ class SequenceDirector : public Script {
     active_ = -1;
   }
   int activeIndex() const { return active_; }
+  // "The player may skip what is on screen right now". Asked by the game loop
+  // BEFORE the pause menu gets a look at the "menu" action - the skip itself is
+  // then an ordinary end(), fired from there (docs/cutscenes.md). It used to be
+  // a raw Start test in update() below, which never ran: updateGameMenu had
+  // already opened the pause menu and paused the scripts.
+  bool skippable() const {
+    return active_ >= 0 && active_ < kSeqCount && kSeqs[active_].skippable != 0;
+  }
+  int skipMode() const {
+    return active_ >= 0 && active_ < kSeqCount ? kSeqs[active_].skipMode : 0;
+  }
 
   void update(ScriptContext& ctx) override {
     if (active_ < 0 || active_ >= kSeqCount) {
@@ -34106,13 +34198,10 @@ class SequenceDirector : public Script {
       return;
     }
     const Seq& s = kSeqs[active_];
-    // A skippable cutscene ends early on START.
-    if (s.skippable && ctx.engine && ctx.engine->pad.getClicked().Start) {
-      active_ = -1;
-      release(ctx);
-      return;
-    }
     ctx.hidePlayer = s.hidePlayer != 0;
+    // The whole HUD, the USE prompt and the USE interaction. Written every
+    // frame and cleared by release(), like hidePlayer beside it.
+    ctx.hudSuppressed = s.hideHud != 0;
     for (int i = 0; i < s.trackCount; ++i) {
       const Track& tr = s.tracks[i];
       if (tr.scene != ctx.scene || tr.obj < 0 || tr.obj >= ctx.objectCount) continue;
@@ -34315,6 +34404,8 @@ namespace sequences {
 void play(int index) { g_seqDirector.begin(index); }
 void stop() { g_seqDirector.end(); }
 bool playing() { return g_seqDirector.activeIndex() >= 0; }
+bool skippable() { return g_seqDirector.skippable(); }
+int skipMode() { return g_seqDirector.skipMode(); }
 
 // Set Letterbox Bars (flow graph): the mask style in force while NO cutscene is
 // active. A cutscene's own style wins, because it writes barsAmount every frame
@@ -39467,7 +39558,8 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
         out << "}\n";
     }
 
-    out << "\n}  // namespace " << ns << "\n\n" << registrations.str();
+    out << "\n}  // namespace " << ns << "\n";
+    if (!registrations.str().empty()) out << "\n" << registrations.str();
     return out.str();
 }
 
@@ -45825,8 +45917,8 @@ static std::string inputMapSource(const Project& p) {
     out << "const char* const INPUT_CODE_LABELS[INPUT_CODE_COUNT] = {\n";
     for (size_t i = 0; i < codes.size(); ++i)
         out << (i % 6 == 0 ? "    " : "") << "\"" << codes[i].label << "\","
-            << ((i % 6 == 5) ? "\n" : " ");
-    out << "\n};\n\n";
+            << ((i % 6 == 5 || i + 1 == codes.size()) ? "\n" : " ");
+    out << "};\n\n";
 
     out << "InputBind g_inputBind[INPUT_ACTION_COUNT] = {};\n"
            "int g_inputPreset = INPUT_DEFAULT_PRESET;\n"
@@ -46547,6 +46639,10 @@ static std::string menuDataHeader(const Project& p) {
         << "constexpr int TITLE_MENU = " << titleMenu << ";\n"
         << "// The Start button opens/closes this menu in-game (-1 = none)\n"
         << "constexpr int PAUSE_MENU = " << pauseMenu << ";\n"
+        << "// The \"skip the cutscene?\" confirmation screen (-1 = none, and a\n"
+        << "// cutscene set to ask first then skips on the spot instead of\n"
+        << "// swallowing the press - docs/cutscenes.md)\n"
+        << "constexpr int SKIP_MENU = " << project::skipMenuIndex(p) << ";\n"
         << "// True when any menu carries an \"apply video mode\" row (action\n"
         << "// 9): display-mode rows then only stage a selection and that row\n"
         << "// commits it; without one they switch on change (the classic\n"

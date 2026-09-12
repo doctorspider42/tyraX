@@ -126,6 +126,14 @@ to see exactly what the game will compile.
   HUD images/texts/**live bars**, color gradings, ambience presets, loading screens,
   cutscene sequences, **credits rolls** and the **input map** (named input
   actions + binding presets). `--dump` lists all of their names.
+- **A cutscene sequence carries presentation switches** (docs/cutscenes.md):
+  `"hideHud"` takes the HUD, the USE prompt AND the USE interaction off for the
+  duration (leave it off for a cutscene the player keeps playing under;
+  Display Text still draws, so subtitles keep working), and `"skippable"` makes
+  the `menu` action end it - which that cutscene then OWNS, so the pause menu
+  does not open on top of it. `"skipMode": 1` opens the project's skip screen
+  first: the one menu with `"skipMenu": true`, whose confirming row carries the
+  `"skip-cutscene"` action (anything that dismisses the menu declines).
 - **HUD elements can move without game code.** Images, baked texts and live
   bars each carry an optional looped animation plus a show/hide transition;
   bars can follow a numeric save value or be driven by **Set HUD Bar**. Use

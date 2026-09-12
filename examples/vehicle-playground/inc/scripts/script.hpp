@@ -142,6 +142,16 @@ struct ScriptContext {
   // Write to show/hide all HUD images (the USE prompt is unaffected).
   bool hudVisible = true;
 
+  // Set by the sequence player while a "Hide HUD" cutscene is active, and
+  // cleared when it ends (docs/cutscenes.md). It is a SECOND flag rather than a
+  // write to hudVisible on purpose: the Set HUD Visible node owns that one, and
+  // a cutscene restoring it to true on release would switch a HUD back on that
+  // the game had deliberately hidden. It covers more than hudVisible does -
+  // the whole HUD stack, the live bars, the baked texts, the USE prompt and the
+  // USE interaction itself - and deliberately NOT runtime text (Display Text),
+  // which is where subtitles live.
+  bool hudSuppressed = false;
+
   // On-screen texts (HUD_TEXTS order, hud_data.gen.hpp). Write 1 into
   // textRequest[i] to show a text, 0 to hide it (-1 = leave). When showing,
   // textDuration[i] > 0 auto-hides after that many seconds, 0 = the text
