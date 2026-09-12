@@ -53,6 +53,29 @@ volumes* on and the model is over the volumes' 1200-triangle budget, a
 positions-only **shadow proxy** decimated under that budget, which is what the
 torch extrudes the model's shadow from (docs/flashlight.md, "The shadow").
 
+## Whole-model frustum rejection
+
+A static model with at least three material parts gets one conservative AABB
+over all of its baked vertices. The generated game tests that box before it
+submits the individual parts in the main view and in portal through-views. A
+fully off-screen district therefore costs one six-plane AABB classification,
+not one pipeline entry and a set of package-bound tests per material. Objects
+that touch the view retain the existing per-part and per-package culling, so a
+large building crossing a screen edge does not turn into one oversized draw.
+
+The box is rebuilt only when the object's geometry is rebuilt. It remains
+conservative across mesh-LOD tiers, which only remove vertices, and follows the
+matrix fast path in object space. A custom VU program that moves geometry skips
+this early rejection because its displaced vertices may leave the baked box.
+
+Static model parts deliberately do **not** join primitive static batches. That
+variant was measured on Aster before this optimization: grouping by material
+across districts destroyed spatial culling, while grouping only within each
+district still moved four large material groups into bags costing roughly
+3.8-4.5 ms in PCSX2. The individual object rows became cheaper but the widened
+batch bounds made the frame slower. Model batching needs triangle-level spatial
+chunks (or another bound-preserving representation) before it is safe to revisit.
+
 ## What this means for your project
 
 - **You keep working with `.obj`.** Import it, replace it, re-export from

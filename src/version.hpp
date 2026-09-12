@@ -16,6 +16,14 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.86.0: multi-part static models cache one conservative whole-object box and
+// reject against it before their material parts enter StaPip in the main or a
+// portal view. Aster's settled PCSX2 entrance pass measured Objects 15.011 ->
+// 13.723 ms and Bounds 1.971 -> 1.846 ms; the ordinary scene read 18.67 ->
+// 18.03 ms. Material-only model batching was tried and rejected: widened batch
+// bounds cost more fill than the submits saved. MINOR: generated games gain a
+// new rendering optimization; project format is unchanged.
+//
 // 1.85.2: the render cost table sorts. It listed phases first and object
 // draws after them, each group dearest first, which answers "what is the most
 // expensive thing in this frame" and nothing else - finding one named object
@@ -3234,8 +3242,8 @@
 // 1.79.0: merge native PS2DEV/OpenVCL builds with editor comments.
 // 1.80.0: cutscenes can hide the HUD and own the skip button.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 85
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_MINOR 86
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

@@ -1706,3 +1706,24 @@ ordinary scene. The optimized engine overlaps next-mesh preparation with VU1,
 uses coarse package bounds, and avoids duplicate first-packet cache writeback.
 These improvements preserve interpolated static vertex colours. The example
 also uses spatial face order, scoped cellar visibility and a smaller ocean grid.
+
+The multi-part model coarse reject was measured on Aster at the fixed entrance
+camera (2026-09-12, PCSX2 software renderer, debug, 10 captures after a 55 s
+boot settle). The synchronized report changed as follows:
+
+| stage | baseline | coarse reject | change |
+|---|---:|---:|---:|
+| Total | 24.685 ms | 23.226 ms | -5.9% |
+| Objects | 15.011 ms | 13.723 ms | -8.6% |
+| Bounds included | 1.971 ms | 1.846 ms | -6.3% |
+| Dispatch included | 9.032 ms | 8.998 ms | -0.4% |
+| Portal (median) | 2.596 ms | 2.398 ms | -7.6% |
+
+The ordinary, non-capture frame at that camera stayed at the emulator's 45 FPS
+limit while scene time improved from 18.67 to 18.03 ms and frame time from
+22.55 to 22.17 ms. Two 448x448 GS captures differed in about 1.1% of channel
+values, confined to the profiler digits and animated water/scene content; visual
+inspection found no missing geometry. These are PCSX2 comparisons, not GS
+claims. A physical-console run was attempted, but that console remained in a
+`freepad: DMA Busy` shutdown state and its ps2link file channel did not recover
+after the remote reset, so no hardware number was accepted from that session.
