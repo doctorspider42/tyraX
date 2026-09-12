@@ -1634,6 +1634,13 @@ this project's emulator when the project itself was opened through a relative
 CLI path.
 
 ### 4c. Platform parity: the files that exist twice
+The native PS2 toolchain has its own deliberate pair too:
+`tools/toolchain/prepare-host.ps1` is only the Windows-to-WSL bridge, while
+`prepare-host.sh` owns both the prerequisite check and the apt package list.
+Setup and normal builds call check mode; only explicit `-Install`/`--install`
+may mutate a distribution. Keep installer integration opt-in and
+`dontinheritcheck`, or a later editor update can unexpectedly run apt again.
+
 Some things in this repo cannot be written once, because a `.ps1` cannot run on
 Linux and a `.sh` is not what a fresh Windows shell reaches for. Every such
 file therefore has a **twin**, and the failure mode is always the same: someone

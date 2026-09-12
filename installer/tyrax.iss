@@ -104,6 +104,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+Name: "wsltoolchain"; Description: "Install Debian/Ubuntu host packages in the default WSL distribution and prepare the native PS2 toolchain (~254 MB download)"; \
+    GroupDescription: "Optional build setup"; Flags: unchecked dontinheritcheck
 
 [Components]
 Name: "editor"; Description: "TyraX editor, engine and PS2 tools"; Types: full compact custom; Flags: fixed
@@ -169,6 +171,14 @@ Name: "{group}\{cm:UninstallProgram,{#AppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\bin\tyrax-editor.exe"; Tasks: desktopicon
 
 [Run]
+; Explicit opt-in: this installs Debian/Ubuntu build packages inside the user's
+; existing default WSL distribution, then downloads the SHA-verified PS2DEV
+; archive and compiles the redistributable VU tools shipped as source. Keep the
+; console visible because sudo may ask for the distribution user's password.
+Filename: "powershell.exe"; \
+    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\tools\toolchain\setup.ps1"" -InstallHostDependencies"; \
+    Description: "Prepare native PS2 build tools"; StatusMsg: "Preparing the WSL PS2 build toolchain..."; \
+    Tasks: wsltoolchain; Flags: waituntilterminated
 Filename: "{app}\bin\tyrax-editor.exe"; Description: "{cm:LaunchProgram,{#AppName}}"; \
     Flags: nowait postinstall skipifsilent
 ; The other half of the in-editor updater: it closes the editor, runs us

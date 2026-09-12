@@ -2,11 +2,24 @@
 # Windows archive still needs an MSYS environment; TyraX instead uses the same
 # pinned Linux bundle through WSL, avoiding a second subtly different toolchain.
 [CmdletBinding()]
-param([string]$Root = "$env:LOCALAPPDATA\tyra-editor\toolchain\ps2dev")
+param(
+    [string]$Root = "$env:LOCALAPPDATA\tyra-editor\toolchain\ps2dev",
+    [switch]$InstallHostDependencies
+)
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
-    throw 'WSL 2 is required for native PS2 builds on Windows. Install Ubuntu with: wsl --install -d Ubuntu'
+try {
+    if ($InstallHostDependencies) {
+        & (Join-Path $here 'prepare-host.ps1') -Install
+    } else {
+        & (Join-Path $here 'prepare-host.ps1')
+    }
+} catch {
+    if (-not $InstallHostDependencies) {
+        $prepare = Join-Path $here 'prepare-host.ps1'
+        throw "WSL host prerequisites are missing. Install them explicitly with:`n  powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$prepare`" -Install`n$($_.Exception.Message)"
+    }
+    throw
 }
 $script = (wsl.exe wslpath -a $here.Replace('\', '/')).Trim()
 $target = (wsl.exe wslpath -a ([IO.Path]::GetFullPath($Root).Replace('\', '/'))).Trim()

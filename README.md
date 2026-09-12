@@ -103,8 +103,10 @@ Then, in the editor:
 ## Requirements
 
 - **Windows or Linux.**
-- On Windows, WSL with a Linux distribution. On Linux, the native host tools
-  named by `tools/toolchain/setup.sh`. Docker is an optional fallback only.
+- On Windows, WSL with a Debian/Ubuntu distribution. The installer can
+  optionally prepare its host packages and pinned PS2 toolchain; the same
+  explicit bootstrap is available in `tools/toolchain/prepare-host.*`. On
+  Linux, use its shell half. Docker is an optional fallback only.
 - [PCSX2](https://pcsx2.net/) with a BIOS configured (auto-detected in
   `Program Files\PCSX2`, on `PATH`, as a flatpak or an AppImage; any other
   location goes in `Edit > Preferences`).
