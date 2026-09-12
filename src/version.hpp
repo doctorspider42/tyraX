@@ -16,6 +16,15 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.86.2: a wholly visible StaPip bag feeds contiguous source ranges straight
+// to qbuffers instead of constructing unused package descriptors after its
+// bag-level box has already classified all geometry as visible. Partial and EE
+// clipping paths are unchanged. Physical Aster medians were neutral (Total
+// 34.349 -> 34.342 ms, Objects 25.051 -> 24.951 ms) across five settled
+// captures; the candidate ran beyond 3360 frames. A one-kick DMA NEXT
+// experiment was rejected: it passed PCSX2 but froze a physical PS2 on the
+// first gameplay frame. PATCH; no format change.
+//
 // 1.86.1: consecutive StaPip bags sharing one model transform and camera reuse
 // their MVP and object-space frustum planes. The frame-local cache compares
 // matrix values, so in-place motion and portal/split cameras stay exact. Six
@@ -3251,7 +3260,7 @@
 // 1.80.0: cutscenes can hide the HUD and own the skip button.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 86
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

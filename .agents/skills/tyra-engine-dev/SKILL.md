@@ -2142,18 +2142,19 @@ alternating boots, but the directly attributed Prepare counter moved only
 1.375 -> 1.341 ms: treat the aggregate emulator delta as directional until the
 same ELF pair is measured on a physical PS2.
 
-Do not fuse the deferred uniform chain into the first geometry `packet2_t` by
-removing its END tag and appending it with `packet2_add`. That superficially
-valid chain compiled but stalled at the first gameplay frame in PCSX2: packet2's
-chain/TTE ownership contract is not preserved by byte-style concatenation. A
-future one-kick design must build both sections natively in one chain or use a
-real DMA NEXT/CALL link, then be verified on hardware for VIF1 ordering and EE
-D-cache visibility.
+Do not fuse the deferred uniform chain into first geometry. Removing its END and
+appending with `packet2_add` stalled at the first gameplay frame in PCSX2 because
+packet2's chain/TTE contract was not preserved. Rewriting the aligned empty END
+as a real zero-QWC DMA NEXT to the intact geometry chain ran and measured faster
+in PCSX2, but froze a physical PS2 on the first gameplay frame in three fresh
+boots. The identical two-kick baseline ran past 600 frames and returned five
+profiles. Keep two submissions until the hardware-only DMAC/VIF1 ordering or
+cache fault is isolated.
 
 ## Static submission on physical PS2 (1.78)
 
-`StaPipQBufferRenderer::sendObjectData` now prepares uniforms without waiting
-for the previous mesh. The first geometry send waits and submits those uniforms,
+`StaPipQBufferRenderer::sendObjectData` prepares uniforms without waiting for
+the previous mesh. The first geometry send waits and submits those uniforms,
 then waits before its own kick. A wholly culled mesh may replace the unsent
 uniform packet. Never let a draw escape `render()` with pending geometry that
 references stack MVP/light data.
@@ -2169,8 +2170,14 @@ VU1 clipping references immutable source streams, like culling; legacy EE
 clipping still copies into writable qbuffers. Coarse AABBs cover eight full
 packages (24 one-third bounds), follow bboxVersion rebuilds, and only inherit
 whole-IN/OUT decisions; partial groups keep exact child/guard-band tests.
-Wholly visible bags skip redundant package classification. Spatially coherent
-triangle order makes the coarse level useful without altering triangle data.
+Wholly visible bags skip redundant package classification and, since 1.86.2,
+point each qbuffer directly at the bag's contiguous source range instead of
+constructing unused pooled package descriptors. Partial and EE-clip paths still
+use packages and writable copy pools. Spatially coherent triangle order makes
+the coarse level useful without altering triangle data. On portal/mirror-free
+Aster this direct path was hardware-neutral across five settled captures
+(Total 34.349 -> 34.342 ms, Objects 25.051 -> 24.951 ms) and ran beyond 3360
+frames; describe it as removed work, not a proven FPS gain.
 
 `Math::sqrtNonNegative` uses EE `sqrt.s` only for known nonnegative squared
 lengths. Do not substitute it for a general sqrt API with errno/domain behavior.

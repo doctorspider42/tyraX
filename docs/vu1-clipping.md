@@ -282,6 +282,21 @@ inside their loops - the previous batch may still be running, parked on its
 by-reference array that is rewritten between submissions; every per-view
 rewrite - beams, sky bodies - sits inside `align3D()` brackets already).
 
+### Rejected linked-DMA experiment and the whole-IN fast path (1.86.2)
+
+Do not combine the deferred uniform and first geometry submissions by either
+byte-appending packet2 chains or rewriting the uniform packet's empty `END` as a
+zero-QWC DMA `NEXT`. The byte-appended version stalled in PCSX2. The proper-tag
+`NEXT` version ran and profiled faster in PCSX2, but froze a physical PS2 on the
+first gameplay frame in three fresh boots. An otherwise identical baseline ran
+past 600 frames and returned five valid profiles. Until the real DMAC/VIF1
+ordering or cache fault is isolated, keep the two submissions and their wait.
+
+The independent safe optimization is at the qbuffer input: when a bag-level box
+is wholly inside the frustum, qbuffers reference each contiguous source range
+directly. Package descriptors and copied pools remain mandatory for partial
+classification and EE clipping, where data can be split or rewritten.
+
 **What it is not.** The assembler. openvcl's production output puts a store
 one row behind the FMAC write it reads at 88 sites over the 25 programs where
 Sony's `vcl` never goes below two rows, and a patched openvcl that kept two

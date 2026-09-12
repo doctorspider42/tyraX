@@ -645,15 +645,21 @@ void StaPipCore::render(StaPipBag* bag) {
   // Modified by TyraX: packager.create returns pooled arrays - no
   // delete[] here (see StaPipBagPackager).
   if (checkYesFrustumInClipYes || checkYesFrustumInClipNo || checkNoClipNo) {
-    u16 packagesCount = 0;
-    auto* biggerPkgs = packager.create(&packagesCount, bag, maxVertCount);
-    Verbose("Material - in frustum. Pkgs: ", packagesCount,
-            " size: ", static_cast<int>(biggerPkgs[0].size));
-    for (u16 i = 0; i < packagesCount; i++) {
-      Verbose(i, " package - cull by data pointer");
-      recordPackage(biggerPkgs[i], IN_FRUSTUM);
+    // The whole-bag bbox already proved every range visible. Point qbuffers
+    // straight at the bag streams instead of filling pooled package records
+    // whose classification result this branch ignores.
+    u16 packageIndex = 0;
+    for (u32 offset = 0; offset < bag->count;
+         offset += maxVertCount, ++packageIndex) {
+      const u32 remaining = bag->count - offset;
+      const u32 count = remaining < maxVertCount ? remaining : maxVertCount;
+      Verbose(packageIndex, " package - direct cull by data pointer");
+      if (telemetryEnabled) {
+        ++telemetry.packagesCull;
+        telemetry.trianglesCull += count / 3;
+      }
       auto buffer = qbufferRenderer.getBuffer();
-      buffer->fillByPointer(biggerPkgs[i]);
+      buffer->fillByPointer(bag, offset, count);
       qbufferRenderer.cull(buffer);
     }
   } else if (checkYesFrustumPartialClipYes || checkYesFrustumPartialClipNo) {

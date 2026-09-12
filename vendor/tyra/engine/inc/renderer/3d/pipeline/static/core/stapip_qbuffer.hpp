@@ -36,6 +36,13 @@ class StaPipQBuffer {
   void fillByPointer(const StaPipBagPackage& pkg);
 
   /**
+   * @brief Point directly at one contiguous range of a wholly visible bag.
+   * Avoids constructing package descriptors when the bag-level bbox already
+   * proved every range is inside the frustum.
+   */
+  void fillByPointer(StaPipBag* bag, u32 offset, u32 count);
+
+  /**
    * @brief Allocate dynamic data in buffer
    * And copy input data to it.
    */

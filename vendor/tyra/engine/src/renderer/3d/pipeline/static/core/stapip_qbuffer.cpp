@@ -96,6 +96,23 @@ void StaPipQBuffer::fillByPointer(const StaPipBagPackage& pkg) {
   bag = pkg.bag;
 }
 
+void StaPipQBuffer::fillByPointer(StaPipBag* source, u32 offset, u32 count) {
+  TYRA_ASSERT(count <= maxVertCount, "VU1 buffer supports only ",
+              maxVertCount, " verts. Provided: ", count);
+
+  deallocateDynamicData();
+  vertices = source->vertices + offset;
+  sts = source->texture ? source->texture->coordinates + offset : nullptr;
+  colors = source->color->many
+               ? const_cast<Vec4*>(reinterpret_cast<const Vec4*>(
+                     source->color->many + offset))
+               : nullptr;
+  normals = source->lighting ? source->lighting->normals + offset : nullptr;
+  size = count;
+  clipPlaneMask = 0;
+  bag = source;
+}
+
 void StaPipQBuffer::fillByCopyMax(const StaPipBagPackage& pkg1,
                                   const StaPipBagPackage& pkg2,
                                   const StaPipBagPackage& pkg3) {

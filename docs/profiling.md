@@ -58,6 +58,29 @@ runs, median serialized `Total` moved 21.322 -> 19.172 ms and `Objects` 14.102 -
 not a physical-console claim. The first ordinary-HUD pair moved 51.6 -> 56.3
 FPS. A real-PS2 A/B is still required before quoting the hardware gain.
 
+### Direct whole-IN submission (1.86.2)
+
+When the bag-level bounding box has already proved that every range is visible,
+StaPip now points qbuffers directly at contiguous ranges of the bag's vertex
+streams. It no longer constructs pooled package descriptors whose classification
+the whole-IN branch would ignore. Partial-frustum and EE-clipped paths retain
+their existing package storage.
+
+In a clean two-kick PCSX2 run, six captures moved median `Prepare` from 1.390 to
+1.262 ms (-9.2%, 0.128 ms); `Dispatch` was flat and process-level `Total` was too
+noisy to claim. The physical-PS2 comparison used five settled captures per ELF
+at the same camera. `Total` was neutral at 34.349 -> 34.342 ms and `Objects`
+moved 25.051 -> 24.951 ms (-0.100 ms, -0.4%); individual included counters
+varied by roughly 0.1-0.16 ms. The candidate ran beyond 3360 frames and its GS
+capture matched the baseline scene. Treat the path as removed redundant work,
+not as a demonstrated frame-rate increase on this fixture.
+
+A separate attempt to link deferred uniforms and first geometry with a zero-QWC
+DMA `NEXT` looked substantially faster in PCSX2 (`DMA submit` 1.837 -> 0.983 ms),
+but was rejected. It froze a physical PS2 on the first gameplay frame in three
+fresh boots, while an otherwise identical baseline ran past 600 frames and
+produced five valid reports. This is why PCSX2-only DMA wins are not accepted.
+
 ## The three frame rate counters, and which one to believe
 
 Three surfaces print a frame rate. They measure **three different quantities**,
