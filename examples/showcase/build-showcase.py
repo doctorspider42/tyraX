@@ -80,17 +80,12 @@ def materials():
 
 
 def soundscape():
-    # Original, periodic additive composition: no externally licensed audio.
-    rate=22050;duration=24
-    with wave.open(str(RES/'tides.wav'),'wb') as f:
-        f.setparams((2,2,rate,0,'NONE','not compressed'))
-        data=bytearray()
-        for i in range(rate*duration):
-            t=i/rate
-            v=sum(math.sin(TAU*round(hz*duration)/duration*t)*(1+.18*math.sin(TAU*(j+1)*t/duration))/(j+2)
-                  for j,hz in enumerate((110,164.8138,220,293.6648,329.6276)))
-            data+=struct.pack('<hh',int(v*1800),int(v*1800))
-        f.writeframes(data)
+    # The music is res/audio/ambient.wav - "Neon Dusk", rendered by
+    # Tools > Drone Generator and shipped with the example, with the patch that
+    # made it beside it as ambient.drone (edit the patch, re-render, done).
+    # This script does not synthesise it, the same way it does not build the
+    # models: asset preparation is separate (see the docstring). The additive
+    # tides.wav this used to write is gone with it.
     (HERE/'res'/'sfx').mkdir(parents=True,exist_ok=True)
     with wave.open(str(HERE/'res'/'sfx'/'lens.wav'),'wb') as f:
         f.setparams((1,2,rate,0,'NONE','not compressed'))
@@ -419,7 +414,7 @@ def author():
     if '--profile' in sys.argv:
         s.update(showFps=True,showMemory=True,showProfiler=True)
     p.update(name='showcase',projectId='106bc4d00dad4897',template='fpp',ambience=[],defaultAmbience=-1,
-             gradings=[],defaultGrading=-1,music=['res/aster/tides.wav'],sounds=['res/sfx/lens.wav'],hud=[],hudTexts=[
+             gradings=[],defaultGrading=-1,music=['res/audio/ambient.wav'],sounds=['res/sfx/lens.wav'],hud=[],hudTexts=[
                  {'name':'title','text':'A S T E R','pos':[.5,.18],'size':32,'color':[1,.91,.70],'shadow':True,'visibleAtStart':True},
                  {'name':'subtitle','text':'THE TIDE OBSERVATORY','pos':[.5,.26],'size':11,'color':[.78,.92,.92],'shadow':True,'visibleAtStart':True}],sequences=[],layouts=[],activeLayout=0,
              loadingScreens=[],defaultLoadingScreen=-1,saveValues=[{'name':'lenses','default':0},{'name':'aligned','default':0}],saveTitle='ASTER / The Tide Observatory')
@@ -431,7 +426,7 @@ def author():
         {'label':'Return to garden','action':'close'},{'label':'Save expedition','action':'save-menu'}]},
         {'name':'save','title':'SAVE EXPEDITION','saveMenu':True,'entries':[]}]
     player=obj('visitor','player',(0,.1,24),rot=(0,180,0),player={'mode':'walk','walkSpeed':.10,'lookSpeed':1,'eyeHeight':1.8,'jumpSpeed':4.5,'canJump':True,'flashlight':{'enabled':False,'toggle':'Circle','color':[.8,.88,1],'range':16,'angle':22}})
-    player['flowGraph']=graph([[('OnStart','',[]),('PlaySequence','Arrival',[]),('PlayMusic','res/aster/tides.wav',[45,1])],
+    player['flowGraph']=graph([[('OnStart','',[]),('PlaySequence','Arrival',[]),('PlayMusic','res/audio/ambient.wav',[45,1])],
                                [('OnSequenceEnd','',[]),('SetTextVisible','title',[]),('SetTextVisible','subtitle',[]),('Branch','',[])],
                                [('OnButton','Select',[]),('PlaySequence','The Grand Tour',[])]])
     player['flowGraph']['nodes'] += [

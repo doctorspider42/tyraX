@@ -153,7 +153,7 @@
   ],
   "hudBloomLayer": -1,
   "hudGrainLayer": -1,
-  "music": ["res/aster/tides.wav", "res/audio/ambient.wav"],
+  "music": ["res/audio/ambient.wav"],
   "sounds": ["res/sfx/lens.wav"],
   "saveValues": [
     { "name": "lenses", "default": 0 },
