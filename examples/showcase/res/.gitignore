@@ -14,6 +14,12 @@
 # regenerated on every build - docs/model-pipeline.md).
 /models/*.tmdl
 
+# Aster's authored sources live together; these are their regenerated exports.
+/aster/*.tmdl
+/aster/*.tskl
+/aster/*.tanm
+/aster/keeper_*.png
+
 # Baked credits page strips - regenerated on every build (docs/credits.md).
 # The images an Image block points at live in res/credits/ and stay checked in.
 /credits/pages/

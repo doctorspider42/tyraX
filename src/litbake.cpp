@@ -368,6 +368,55 @@ bool bakeObject(const Project& p, const SceneData& sc, int objectIndex,
     // the model's own .mtl is what makes a re-bake idempotent - otherwise the
     // second bake would multiply light into a texture that already has it.
 
+    // A TILING model cannot be pre-lit, and saying so here is the whole point
+    // of this check. The bake writes one 0..1 canvas and the mesh's own UVs
+    // put it on the surface: if those UVs run 0..17, the canvas is one tile of
+    // the floor and the mesh repeats it 289 times, so the baked light cannot
+    // vary across the surface at all - which is exactly what somebody
+    // pre-lighting a floor is asking for. Before this, that bake SUCCEEDED and
+    // shipped a flat, darkened texture; the reporter read it as "pre-lit looks
+    // bad" rather than "this model was never a candidate".
+    //
+    // Total UV area is the honest single number: unique islands packed in the
+    // unit square sum to <= 1 by construction, tiling multiplies it by the
+    // repeat count, and MIRRORED islands - just as broken here, both halves
+    // would get one half's light - push it past 1 too.
+    {
+        double uvArea = 0.0;
+        float ulo = 1e30f, uhi = -1e30f, vlo = 1e30f, vhi = -1e30f;
+        for (const objparser::Submesh& sm : m.submeshes) {
+            const size_t tris = sm.verts.size() / 24;
+            for (size_t t = 0; t < tris; ++t) {
+                const float* v0 = &sm.verts[t * 24];
+                const float* v1 = v0 + 8;
+                const float* v2 = v0 + 16;
+                uvArea += 0.5 * std::fabs((double)(v1[6] - v0[6]) * (v2[7] - v0[7]) -
+                                          (double)(v2[6] - v0[6]) * (v1[7] - v0[7]));
+                for (const float* v : {v0, v1, v2}) {
+                    ulo = std::min(ulo, v[6]), uhi = std::max(uhi, v[6]);
+                    vlo = std::min(vlo, v[7]), vhi = std::max(vhi, v[7]);
+                }
+            }
+        }
+        const bool outside = ulo < -0.01f || vlo < -0.01f ||
+                             uhi > 1.01f || vhi > 1.01f;
+        if (uvArea > 1.5 || outside) {
+            char buf[320];
+            std::snprintf(
+                buf, sizeof buf,
+                "this model's UVs are not a unique unwrap (u %.2f..%.2f, "
+                "v %.2f..%.2f, UV area %.1f - the texture repeats about %.0fx). "
+                "Pre-lighting bakes ONE 0..1 tile and the mesh repeats it, so "
+                "the baked shadow cannot vary across the surface. Unwrap the "
+                "model into 0..1, or give the job to the terrain / an "
+                "untextured primitive - those take the per-texel lightmap by "
+                "position and cost no texture at all.",
+                ulo, uhi, vlo, vhi, uvArea, uvArea < 1.0 ? 1.0 : uvArea);
+            err = buf;
+            return false;
+        }
+    }
+
     // ...but the model's automatic AO (docs/ambient-occlusion.md, "Model AO")
     // IS part of the albedo everywhere else - texbake multiplies it into the
     // shipped texture and the viewport into the uploaded one. Without this an

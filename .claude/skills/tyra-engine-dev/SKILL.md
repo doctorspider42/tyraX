@@ -111,6 +111,14 @@ Two traps around it: **changing `Makefile.base` does NOT invalidate `libtyra.a`*
 change needs `--build --rebuild` or you get objects compiled both ways and the
 same error from the stale half; and the shared engine volume is **per project**,
 so fixing one project's build leaves every other project's volume stale.
+A third, fixed in 1.81.1 but worth knowing the shape of: **a failed engine
+`make` used to leave the PREVIOUS `libtyra.a` in the volume** with the new
+sources already synced beside it, so the next build's rsync saw nothing to do,
+skipped make, linked the game against the stale library and printed
+`Build OK` - a compile error in the engine read as "the fix changed nothing"
+for four console runs in a row. The Runner now deletes `libtyra.a` when make
+fails; if a Docker build ever says `Build OK` without an `ar rcs bin/libtyra.a`
+line after you changed engine sources, that is the symptom.
 
 Verified
 byte-identical: the same project built with the old and new rules produced the
@@ -1174,6 +1182,25 @@ Rules the same evening paid for:
 
 ## Hard-won pitfalls (dead ends already explored — don't repeat them)
 
+**Devkit and measurement**
+- **The free-RAM probe is a measurement, not a sensor - and it used to lie.**
+  `Info::getFreeRAMSize` is the only way to ask this allocator what is left:
+  claim every free block until malloc refuses, sum, free the chain. The block
+  search used to start at the TOP BIT of `size_t` (malloc(2 GB) on the EE:
+  eight refusals before the first success), free the block that worked, refine
+  the size upward and then allocate the refined size AGAIN - and when that last
+  allocation failed, its recovery cleared the LOWEST SET BIT of the size, which
+  for a single-bit size is ZERO, not "a bit less". The probe then reported "no
+  block", the sum stopped at the first one, and the game's HUD printed
+  `MEM 32.0/32 MB` on a console with 13.6 MB free while the Debugger's
+  *Measure now* silently showed nothing. It starts at the console's 32 MB now
+  and keeps the block that worked instead of re-allocating it (1.85.1). Two
+  lessons that outlive the fix: a probe built out of failing allocations is
+  sensitive to the allocator's mood, so PROVE it against a plain
+  `malloc`/`free` ladder logged at the same instant before believing either
+  number - and a measurement that comes back 0 must be reported as a failure,
+  or it reads as "the button does nothing".
+
 **Rendering**
 - **One light per bag, and now one light a bag may REFUSE.** The colour
   programs carry a single dynamic-light slot; `RendererCore::pickDynLight`
@@ -2104,6 +2131,34 @@ legacy compatibility mode. See docs/vu1-clipping.md.
 Measure with PCSX2's FPS display on the software renderer, 3+ samples, before
 and after; pixel-compare screenshots to prove output is unchanged.
 
+## Static submission on physical PS2 (1.78)
+
+`StaPipQBufferRenderer::sendObjectData` now prepares uniforms without waiting
+for the previous mesh. The first geometry send waits and submits those uniforms,
+then waits before its own kick. A wholly culled mesh may replace the unsent
+uniform packet. Never let a draw escape `render()` with pending geometry that
+references stack MVP/light data.
+
+The uniform send's full D-cache writeback also covers the already-built first
+geometry chain and its REF streams. That immediate geometry kick skips a second
+full flush; subsequent packets and VU diagnostic hooks retain SDK writeback.
+No payload may be edited between the paired kicks without restoring the flush.
+A trial walking every REF with `SyncDCache` regressed a hardware render-cost
+capture from about 58 to 79 ms; it was discarded. Measure cache policies on EE.
+
+VU1 clipping references immutable source streams, like culling; legacy EE
+clipping still copies into writable qbuffers. Coarse AABBs cover eight full
+packages (24 one-third bounds), follow bboxVersion rebuilds, and only inherit
+whole-IN/OUT decisions; partial groups keep exact child/guard-band tests.
+Wholly visible bags skip redundant package classification. Spatially coherent
+triangle order makes the coarse level useful without altering triangle data.
+
+`Math::sqrtNonNegative` uses EE `sqrt.s` only for known nonnegative squared
+lengths. Do not substitute it for a general sqrt API with errno/domain behavior.
+Render-cost telemetry includes both uniform and geometry VIF waits; counting
+only the latter under-reports synchronization. The counters overlap stages.
+See [profiling](../../../docs/profiling.md) and the Aster example for measurements.
+
 
 ## Signed RGB SH and exact skin reuse (1.74.0)
 
@@ -2124,6 +2179,35 @@ exists only during loading. Set `TYRA_SKEL_PROFILE` in skel_instance.hpp to 1
 for per-instance COP0 pose/skin timings every 100 skins; keep it 0 when shipping.
 
 
+### The slot pool is double-buffered (1.81.1) — the console-only sliver
+
+The REF rule above has a second half that took a real PS2 to find: the
+renderer's OWN copies are referenced too. `StaPipQBuffer::fillByCopyMax` /
+`fillByCopy1By2` merge small in-frustum packages by copying them into a
+per-slot pool (both clipping modes), `fillByCopy1By3` / `writeChunk` copy for
+the EE clipper, the packet's REF tags point at the pool, and
+`flushBuffers()` resets the slot indices the moment the packet is *sent*. The
+next bag copied into slot 0 while slot 0 was still being read, and the DMA
+picked up a vertex of the next object: a lamp's corona drew as a sliver to the
+screen corner in 4 of 24 frames with Sony's `vcl` and up to 19 of 30 with
+openvcl (its schedule only moves the window), and the EE clipper - which
+copies everything - drew screen-sized slabs. PCSX2 completes a DMA before the
+EE runs on and shows none of it. The pool now has two sides and
+`StaPipQBufferRenderer::sendPacket()` flips the side with `context`
+(`StaPipQBuffer::flipPoolSide`); the wait before that send is what makes the
+side being written the finished one. **Do not "fix" this class with an
+EE-side `dma_channel_wait` per bag: measured at -4 FPS.** Two cheap barriers
+came with it: a `FLUSHE` at the head of the StaPip and DynPip uniform chains
+(absolute-address unpacks of MVP/OPTIONS/clip planes while the previous batch
+may still be running), and a VIF1 wait before the projected-shadow pass
+rewrites its shared `projClamp` buffer. Story, fixture and bisection table:
+docs/vu1-clipping.md, "Real hardware: the slot-pool race". Two lessons that
+generalise: a hardware-only defect wants a **failure rate on a parked pose**,
+never a single frame; and **bisect with barriers** (GS FINISH per bag, VIF
+FLUSH per bag, VIF-stream-only FLUSH, EE wait at one site) before reading a
+line of microcode - two days went into the clipper's assembler first, and it
+was innocent.
+
 ### DMA REF lifetime (1.74.1)
 
 `packet2_utils_vu_add_unpack_data` does NOT copy: ps2sdk emits a DMA REF to
@@ -2131,5 +2215,10 @@ the supplied pointer. Never pass a temporary/local array to asynchronous
 submission. SH initially did this for mode-adjusted colours, causing lighting
 flashes despite passing VU arithmetic tests. Both lighting senders now use
 CNT/UNPACK with inline colour floats (four extra packet-storage qwords; the
-same VU layout) and wait for VIF1 before resetting the reusable packet.
+same VU layout). DynPip waits before resetting its reusable packet; StaPip
+waits between uniform and geometry submission, as described below.
 Allocated capacities are 56 qwords for StaPip and 24 for DynPip.
+
+The 1.80 merge retains inline SH colour storage with deferred StaPip uniforms.
+Its packet is safe to reset because sendPacket waits for uniform DMA before
+starting geometry DMA; DynPip retains its own wait-before-reset contract.

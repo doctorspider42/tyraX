@@ -1,0 +1,1 @@
+{ "id": "7d263e0e5c064ff6", "name": "cellar-lamp-0", "type": "point-light", "position": [-5.8, -9.45, -24], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 0.72, 0.42], "physics": false, "light": { "brightness": 0.65, "radius": 10, "dynamic": false, "flicker": 0, "beam": 1 } }

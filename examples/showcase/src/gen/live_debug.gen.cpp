@@ -49,8 +49,8 @@ const unsigned int CMD_VERSION = 2U;  // v2 appends fact overrides
 const int CMD_HEADER = 32;
 const unsigned int FOOTER_XOR = 0x5A5A5A5AU;
 
-const int NODES = 56;      // instrumented flow-graph nodes
-const int VARS = 5;        // watch slots: flow variables + save values
+const int NODES = 50;      // instrumented flow-graph nodes
+const int VARS = 2;        // watch slots: flow variables + save values
 const int FLOW_VARS = 0;  // how many of those are flow variables
 const int EVENTS = 192;    // event-ring capacity
 const int MAX_BP = 64;    // breakpoints tracked at once
@@ -60,7 +60,7 @@ const int OBJ_RING = 32;    // samples kept per watched object
 // Identity of the symbol table this ELF was built from (src/gen/livedbg.sym).
 // The editor compares it with the file on disk: a mismatch means the graphs
 // moved since this build, so node keys would point at the wrong nodes.
-const unsigned int HASH_LO = 3273439698U, HASH_HI = 3896831519U;
+const unsigned int HASH_LO = 1526238887U, HASH_HI = 360840011U;
 
 // A project with no flow graph instruments no node, and a zero-length array is
 // not a C++ array - the runtime is still built for everything else it carries.
@@ -167,6 +167,7 @@ unsigned int ramFreeKB = 0, ramFrame = 0;
 // reading a whole frame buffer back out of GS VRAM is a ~900 KB DMA plus a
 // ~900 KB host: write, which is not something to do on a timer.
 bool frameShotWanted = false;
+unsigned int renderCostRequest = 0;
 // __attribute__((unused)): the EE crash handler is opt-in (Preferences >
 // Build), and with it off nothing references this - it sits in an anonymous
 // namespace so the compiler drops it, but it would warn on the way past.
@@ -305,6 +306,7 @@ void pollCommand() {
   if ((flags & 32U) != 0) ramMeasureWanted = true;
   // Bit 6: photograph the last finished frame into frame.tga (one-shot).
   if ((flags & 64U) != 0) frameShotWanted = true;
+  if ((flags & 128U) != 0) renderCostRequest = seq;
   if ((flags & 8U) != 0) {
     vuCapArmed = true;
     vuCapExplicit = (flags & 16U) != 0;
@@ -884,16 +886,21 @@ void writeFrameCapture(ScriptContext& ctx) {
                         fb->psm))
       ++refused;
     FlushCache(0);  // the line was written by DMA - see above
-    // Alpha is forced opaque: the GS keeps 0..128 there and a frame buffer's
-    // alpha is a working channel rather than coverage, so taken literally the
-    // picture reads as half transparent. Only the colour here is a picture.
+    // Alpha is the frame buffer's OWN alpha, doubled to 0..255 (the GS
+    // keeps 0..128; a 16-bit frame keeps one bit): it is a working channel
+    // - the shadow mask, and on interlaced SDTV the CRTC's flicker-filter
+    // blend weight - so a picture of it is what shows an alpha-shaped
+    // artifact the RGB cannot. Every reader that wants a PICTURE forces it
+    // opaque itself (the Debugger's Screen tab, --capture-frame's PNG);
+    // --capture-frame --alpha writes it as a grey image.
     if (fb->psm == 2) {  // PSMCT16
       const unsigned short* in = (const unsigned short*)lineIn;
       for (unsigned int x = 0; x < w; ++x) {
         const unsigned int r = (unsigned int)((in[x] & 31U) << 3);
         const unsigned int g = (unsigned int)(((in[x] >> 5) & 31U) << 3);
         const unsigned int b = (unsigned int)(((in[x] >> 10) & 31U) << 3);
-        lineOut[x] = 0xFF000000U | (r << 16) | (g << 8) | b;
+        const unsigned int a = (in[x] & 0x8000U) ? 0xFFU : 0U;
+        lineOut[x] = (a << 24) | (r << 16) | (g << 8) | b;
       }
     } else if (fb->psm == 1) {  // PSMCT24
       const unsigned char* in = (const unsigned char*)lineIn;
@@ -902,9 +909,12 @@ void writeFrameCapture(ScriptContext& ctx) {
                      ((unsigned int)in[1] << 8) | (unsigned int)in[2];
     } else {  // PSMCT32
       const unsigned char* in = (const unsigned char*)lineIn;
-      for (unsigned int x = 0; x < w; ++x, in += 4)
-        lineOut[x] = 0xFF000000U | ((unsigned int)in[0] << 16) |
+      for (unsigned int x = 0; x < w; ++x, in += 4) {
+        unsigned int a = (unsigned int)in[3] * 2U;
+        if (a > 255U) a = 255U;
+        lineOut[x] = (a << 24) | ((unsigned int)in[0] << 16) |
                      ((unsigned int)in[1] << 8) | (unsigned int)in[2];
+      }
     }
     wrote += (unsigned int)fwrite(lineOut, 1, w * 4U, f);
   }
@@ -1011,6 +1021,12 @@ void applyFactOverrides() {
       factNum[f.slot] = f.v[0];
     }
   }
+}
+
+unsigned int takeRenderCostRequest() {
+  const unsigned int result = renderCostRequest;
+  renderCostRequest = 0;
+  return result;
 }
 
 void hit(int key) {

@@ -1,0 +1,1 @@
+{ "id": "d6c0d324aec38e72", "name": "district-pavilion", "type": "model", "position": [9.78103, 1.65, 17.7259], "rotation": [0.0054169, -89.8161, -0.00515755], "scale": [0.999998, 1, 0.999998], "color": [1, 1, 1], "physics": false, "collision": "mesh", "model": "res/aster/district-pavilion.obj", "meshLod": 0, "editorGroup": "Portal pavilion" }

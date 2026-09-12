@@ -124,10 +124,18 @@ hold, and clears when the editor exits. Neither window was ever focused.
 
 ## Limits
 
-- **The 3D viewport is not made of ImGui widgets.** Its image is one big item, so
-  a script can `drag` inside it (orbiting, a sculpt stroke) but cannot name an
-  object. Picking an object is a `drag`/`click` at an offset, or better, do it
-  through the Project panel's list, which *is* widgets.
+- **The 3D viewport is not made of ImGui widgets.** Its image is one big item
+  (registered as `Viewport/Viewport canvas`, so its rect is in `dump` and an
+  offset from its centre reaches any screen point), so a script can `drag`
+  inside it (orbiting, a sculpt stroke) but cannot name an object. Picking an
+  object is a `click` at an offset, or better, do it through the Project
+  panel's list, which *is* widgets. **What a viewport click picked is
+  assertable two ways**: the Project panel's object rows report their selection
+  (`expect-checked "Project/crossing  (model)"` — filter the list first with
+  `click "Project/##objsearch"; text cross` if the row is scrolled out of
+  view, a clipped row dumps as `-`), and a `rightclick` at the same offset
+  opens the [stack menu](object-selection.md), whose rows `dump` front to back
+  with the selected one `[checked]` — the whole pick order in one read.
 - **`click`/`rightclick`/`doubleclick`/`hover` take an optional `<dx>,<dy>`
   offset from the target's centre**, and that is what reaches anything the
   editor *draws* over a widget instead of submitting as one — a marker, a

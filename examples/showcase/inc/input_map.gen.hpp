@@ -16,7 +16,7 @@ constexpr int INPUT_DEFAULT_PRESET = 0;
 // 1 = an in-game rebind row may change bindings (Input Map).
 constexpr int INPUT_ALLOW_REBIND = 1;
 // Walk-speed factor while the sprint action is held (1 = off).
-constexpr float SPRINT_MULT = 1.8F;
+constexpr float SPRINT_MULT = 1.7F;
 
 // Action indices, in Input Map order.
 constexpr int IA_MOVE_FORWARD = 0;  // Move forward

@@ -1,0 +1,1 @@
+{ "id": "d089e9f6e7acedd3", "name": "boundary-south", "type": "box", "position": [0, 5, 29.4], "rotation": [0, 0, 0], "scale": [36, 14, 0.8], "color": [1, 1, 1], "physics": false, "collision": "invisible" }

@@ -131,6 +131,7 @@ bool animatedModelPath(const std::string& p) {
 // and the emissive-light collection - both need the exact same solid.
 static bool objectShape(const SceneObject& o, int index,
                         const ModelAabbFn& modelAabb, Occluder& out) {
+    if (o.collisionMode == 3) return false;
     {
         float cLocal[3] = {0, 0, 0};  // shape center in object-local units
         float half[3];
@@ -196,7 +197,7 @@ std::vector<Occluder> collectOccluders(const std::vector<SceneObject>& objects,
     // the player never sees (scrollsim::memberTemplateFlags).
     const std::vector<char> beltMember = scrollsim::memberTemplateFlags(objects);
     for (int i = 0; i < (int)objects.size(); ++i) {
-        if (!objects[i].castShadow) continue;  // per-object opt-out (Properties)
+        if (!objects[i].castShadow || objects[i].collisionMode == 3) continue;
         if (beltMember[(size_t)i]) continue;
         Occluder oc;
         if (objectShape(objects[i], i, modelAabb, oc)) out.push_back(oc);
@@ -1433,6 +1434,7 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
     const std::vector<char> beltMember = scrollsim::memberTemplateFlags(sc.objects);
     for (int oi = 0; oi < (int)sc.objects.size(); ++oi) {
         const SceneObject& o = sc.objects[oi];
+        if (o.collisionMode == 3) continue;
         if (beltMember[(size_t)oi]) continue;
         const int rc = regionCountFor(o.type);
         if (rc == 0) continue;

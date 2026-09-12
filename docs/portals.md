@@ -10,6 +10,10 @@ target portal with position, view angle and vertical velocity carried
 through**. Two portals pointed at each other make a seamless two-way door
 between distant parts of the map.
 
+The [Aster showcase](../examples/showcase/README.md) demonstrates a small
+seaside doorway into a large vaulted cellar, including lamp coronas visible
+before crossing and a bounded return view of the sea.
+
 ## Authoring
 
 1. Insert two portals (Insert > Gameplay > Portal), place them where you want
@@ -27,6 +31,13 @@ between distant parts of the map.
    through) from that frame on — see [areas.md](areas.md). Terrain and the sky
    dome have their own toggle (**Terrain + sky in view**, on by default). Keep
    the list to the landmarks that sell the destination.
+   **Point Lights can join this list too.** With **Beam** set to corona or
+   corona + shaft, their visible effects render using the portal's virtual
+   camera and destination depth, including the normal brightness/flicker
+   level. Walls still occlude them and the portal mask bounds the glow.
+   Include the lamp fixture as well as its Point Light. Baked GI already
+   travels with the destination geometry; this adds the visible light source,
+   not another GI bake or a second projected-light/shadow pass.
    Or tick **All objects in view (experimental)**: every scene object renders
    in the through-view and the list is ignored. The virtual camera's frustum
    culling drops off-view geometry EE-side and draw distances are measured
@@ -45,9 +56,10 @@ between distant parts of the map.
 4. **A thrown (or dropped) pickable flies through any linked portal**, like
    the player does — no flag needed. The hop maps position and the full
    velocity vector through the pair, so it exits the target with the matching
-   motion, and while the flight is aimed into an opening the wall the portal
-   is mounted on stops colliding for it (the walkers' doorway rule) — wall
-   portals swallow throws instead of bouncing them back. The released body
+   motion, and while the flight is aimed into an opening the geometry that
+   opening is cut into stops colliding for it (the walkers' doorway rule, see
+   below) — wall portals swallow throws instead of bouncing them back,
+   including a portal cut into an imported mesh. The released body
    stays "portal-free" until it settles to rest.
    **Carrying** a pickable through a portal works too: walk into the opening
    holding it and both you and the object come out the far side. As the object
@@ -167,3 +179,129 @@ in-place render).
 - Portals are baked into the `PORTALS` side table at build, so Live Link can
   live-move an existing portal but cannot spawn a new one (the chip flips to
   "LIVE (rebuild)"; same rule as mirrors).
+
+### The doorway rule (1.81.0)
+
+A portal is an opening cut into something — a wall, a screen, a whole building.
+That something is still a collider, and if it kept blocking while a body was
+halfway through the opening the crossing could never happen: the wall would
+stop the body's centre a radius short of the crossing plane, the pierce would
+never be detected, and the portal would read as solid. The **doorway rule** is
+what opens it, and it is deliberately narrow — it is consulted only while the
+body's motion segment actually pierces a linked, crossable opening this frame.
+
+An obstacle stops blocking when **either**:
+
+- its collision box is wholly **behind** the portal's plane — a mounting wall
+  modelled as its own object, standing entirely on the far side; **or**
+- its collision box **contains the point where the motion pierces the
+  opening**. This is the case a single merged mesh needs: a pavilion exported
+  as one model holds the back wall, the side walls, the door jambs *and* the
+  roof, so its world box reaches in front of the plane as well and can never
+  be "wholly behind" it, even though the opening is authored right inside it.
+
+Both halves use the object's real **mesh** box — `objectCollisionBox` plus
+`boxRotate`, the same box *View > Collision boxes* and the in-game
+`showCollision` overlay draw, with its own size, its off-origin centre and its
+model heading. Reading the extent off `0.5 * scale` describes a unit primitive
+and says nothing about an imported model; that was the original bug, and it is
+the same correction the render side carries for the exit plane (below).
+
+There is one implementation, `TerrainGame::portalDoorwayOpens(obstacle, plane,
+pierce)`, called from all three places that need it: the walker collision
+(`collidePlayer`, armed by `updatePortalPass`), the swept-body collision
+(`sweepSphere`, armed by `armSweepPass` — throws, the carried object, the carry
+whisker) and the physics static-solid pass. The `pierce` point comes from
+`portalCarryAim`, which computes where the motion segment goes through the
+authored rectangle; the walker has no motion segment, so `updatePortalPass`
+publishes its own probe point pushed onto the portal plane instead.
+
+**A wall portal's doorway opens the walls, not the floor (1.83.0).** The rule
+used to skip the whole obstacle, and the geometry a wall portal is cut into
+usually carries the floor as well: Aster's cellar is one merged mesh holding
+its floor, walls and vault, and the arrival terrace is a slab whose top face
+holds the pierce point. So the moment the walker stood in the opening's zone
+the ground under them stopped existing — walk through the gate and drop under
+the map. Now an obstacle opened by a portal whose plane is upright (|normal.y|
+< 0.5) keeps its ground response — the mesh's downward floor ray, a box's
+walk-onto top — and only its side and overhead responses go. A floor portal
+(plane facing up or down) still opens everything: falling through it is the
+crossing. The same split applies to rigid bodies in the physics pass.
+
+**Rigid bodies collide with a mesh-collision model per triangle (1.83.0).**
+The physics pass used to test every model as its whole-mesh box, which is not
+merely coarse for a merged building — it is wrong: a body *inside* the box
+(thrown through a portal into the cellar, rolled in through a door) reads as
+penetrating it and is ejected along the shortest axis, straight through the
+floor and out of the world. So in the reference showcase a thrown weight
+could not go through the surface gate at all (the pavilion's box, with its
+jambs protruding in front of the plane, bounced it) and would have fallen out
+of the cellar if it had. A model authored with *Collision: mesh* now collides
+with bodies the way it does with the walker — the same `CollisionMesh`, in the
+model's local space: a vertical ray from where the underside was to where it
+is finds the floor (swept, so a fast faller cannot tunnel through a thin
+slab), and steep faces push the body's sphere out, side-aware, with the body's
+own bounce reflected along the push. Its real doorways are then real openings
+and need no doorway rule; the rule stays for box colliders. Still box-only:
+`sweepSphere` — the camera boom, the carried object, the carry whisker and the
+hand-rolled arc of a thrown **non-physics** pickable (docs/backlog.md).
+
+**Whatever went through a portal is shown by it (1.83.0).** The crossing rule
+is "whatever a portal shows can go through it", and its converse was missing:
+the surface gate's view list names the cellar and its lamps, never the weight
+that just flew into it, so a thrown ball crossed correctly, landed on the cellar
+floor — and vanished from the thrower's sight at the plane, which reads as
+"the ball fell into the portal and disappeared". Every object now remembers the
+portal it last hopped through (`portalLastCrossed`), that portal's through-view
+draws it on top of the authored list, and `portalShowsObject` /
+`portalCanCross` agree, so the ball is visible lying in the cellar from the
+surface and can be fetched back the way it went. Hopping through the other
+portal of the pair moves the mark there.
+
+All three fixes were verified by replaying a saved showcase recording
+(carry the three weights to the surface gate, throw them through, walk
+through; not checked in) with `--replay`: the game logs `Portal: object N
+crossed` / `Portal: player crossed` for every hop, and those lines plus the
+player's landing height (`-12`, the cellar floor) are the pass criterion. The
+recording's own divergence count is not — it diverged from its fingerprints
+at frame 230 with the pre-fix codegen as well, so the world had moved a little
+between the run and the save.
+
+### Imported mesh bounds (1.77.1)
+
+The exit-plane rejection uses each model's actual local bounds, transformed
+with its offset centre, scale, rotation and model heading. Previously it tested
+a unit box at the object pivot, which discarded large district meshes even in
+**All objects in view**. Primitives retain their unit bounds. Whole objects
+behind the exit are rejected early. Static bags straddling it
+are clipped against the exit plane, interpolating positions, colours, UVs and
+lighting normals. Otherwise a large model's rear wall covers the destination.
+Only straddling bags need this CPU path; animated bags keep the existing
+whole-object test. Since 1.77.2 each part retains its clipped streams per portal.
+An unchanged source geometry stamp, model matrix and exit plane reuse them,
+including the frustum-cache stamp. Moving the viewing camera does not invalidate
+world-space clipping. A rebuild/LOD/body transform/exit change drains DMA before
+replacing the buffers. Live texture, light and pipeline descriptors still refresh
+on every draw. Scene unload releases the part-owned caches.
+
+Use a bounded destination list for a small interior: **All objects in view**
+can still submit a whole outdoor scene even when most of it ends up behind the
+room walls. Aster uses five inward objects and 18 arrival-court objects outward.
+
+Aster regression measurement (PCSX2, frozen player at `(9.78103, 1.8, 21.2)`,
+heading `180.183466`, profiler enabled): all objects with uncached clipping
+measured 10.0 FPS / 93.28 ms SCENE; destination lists alone measured 11.1 FPS /
+73.24 ms; lists plus cached clipping measured 25.0 FPS / 29.87 ms. These are
+one matched doorway view, not a whole-level frame-rate guarantee. A 360 x 300
+cellar crop was pixel-identical before and after caching. The scene still
+exceeds the 20 ms budget for 50 FPS in this view.
+
+Physical PS2 follow-up (2026-09-09, same frozen view, 512 x 448 PAL,
+network deployment with Live Debugger/Remote Pad and profiler enabled):
+textures loaded successfully and the warm portal run measured 12-12.5 FPS,
+66.11 ms SCENE (80.72 ms FRAME). Removing only the source portal's target
+measured 12.5 FPS, 59.88 ms SCENE (82.32 ms FRAME). The portal adds roughly
+6 ms of scene work here, but disabling it does not solve the frame-rate problem;
+the base scene itself exceeds the budget. These debug/network runs are not
+standalone retail-build measurements. GS captures are in the showcase preview
+folder (`ps2-portal-performance.png`, `ps2-noportal-performance.png`).

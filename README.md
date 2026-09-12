@@ -127,7 +127,9 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   volumes, each in its own `objects/<id>.json` so a team edits different objects
   without git conflicts. Picking, gizmos, rubber-band selection,
   [surface snapping and cursor-following paste](docs/object-placement.md),
-  [model bounds selection](docs/object-selection.md),
+  [mesh-accurate selection with a right-click list of what is under the cursor](docs/object-selection.md),
+  [persistent object groups](docs/object-groups.md),
+  [offscreen model culling](docs/editor-performance.md),
   [orthographic and axis views](docs/orthographic-views.md), and a viewport that
   can rasterize, shade and colour the way
   [the console does](docs/ps2-viewport.md) — GS raster, per-vertex flat-shaded
@@ -179,7 +181,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - **Surfaces** — [emissive materials](docs/emissive-materials.md),
   [sphere-mapped chrome](docs/reflective-materials.md), Mirror objects,
   [VU0-raytraced mirrors](docs/raytraced-reflections.md),
-  [live texture feeds](docs/texture-feeds.md) and [portals](docs/portals.md).
+  [live texture feeds](docs/texture-feeds.md) and [portals with visible lamp effects](docs/portals.md).
 - **Screen** — sky, fog, bloom, film grain and your own
   [`.screenfx` effects](docs/custom-screen-effects.md), plus
   [TV safe areas](docs/safe-areas.md) to frame against.
@@ -195,7 +197,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   `src/scripts/`, a directory the editor never touches.
 - **Player and physics** — FPP / third-person / noclip player entities with
   [walk, run and sprint speeds](docs/player-speeds.md), rigid
-  bodies, [collision boxes](docs/collision-boxes.md), pickable and usable
+  bodies, [collision boxes and invisible walls](docs/collision-boxes.md), pickable and usable
   objects, and [two-player shared or split screen](docs/multiplayer.md).
 - **World state** — [areas](docs/areas.md),
   [streaming layers](docs/streaming-layers.md),
@@ -235,6 +237,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   picture and the GS scissor crops it, so only near-plane crossings pay for a
   real cut.
 - The in-game [frame profiler](docs/profiling.md).
+- [On-demand render costs](docs/profiling.md#on-demand-render-cost-178): debugger phase/object timings, sortable by name, cost or delta, with baseline comparison and CSV export on PCSX2 and PS2.
 - The [VU framework](docs/vu-framework.md): describe a microprogram in C++,
   generate both sides of it and run it in a host simulator with no PS2 —
   and [compose VU1 programs out of stages](docs/vu-authoring.md), or write a
@@ -296,7 +299,7 @@ wait for their polish pass.
 | --- | --- |
 | [impostor-grove](examples/impostor-grove) | A walkable wooded ruin with generated trees and configurable 4/8/16-view, two-triangle distant impostors and a universal-baked waystone |
 | [script-demo](examples/script-demo) | Start here. Walk to the box, press X, and the sky obeys — one object script, and you've touched the whole pipeline |
-| [showcase](examples/showcase) | The kitchen sink: two scenes joined by a portal, and half the manual — streaming, animation, particles, menus, post-FX — making cameos |
+| [showcase](examples/showcase) | **Aster — The Tide Observatory**: a playable coastal garden with precision-built arcades, a moving planetarium, CC0 props, cinematics, skeletal animation, a portal-linked vaulted cellar, optical experiments and collectible lenses |
 | [layer-streaming](examples/layer-streaming) | Two buildings, one corridor — and the building behind you quietly stops existing, GTA3-style |
 | [large-terrain](examples/large-terrain) | A 2048×2048 world that could never fit in 32 MB of RAM. It doesn't have to |
 | [deep-forest](examples/deep-forest) | The same 2048×2048 in daylight with 2800 spruces — terrain detail distance, mesh LOD and draw distance carrying it at 50 FPS |

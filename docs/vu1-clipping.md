@@ -199,6 +199,99 @@ That is exactly the coplanar-package defect recorded in the `tyra-engine-dev`
 skill, and it is an argument for keeping VU1 clipping the default — both routes
 then run the same MVP multiply and the same perspective divide on the same unit.
 
+## Real hardware: the slot-pool race (and what it is not)
+
+On 2026-09-10/11 the Aster showcase ran on a real PS2 and a lamp's corona
+(6 vertices, textured, additive, `fullClipChecks`) came out wrong in some
+frames: a bright wedge or a dark hairline from the lamp to the top-left corner
+of the screen, once in a while the quad missing. PCSX2 never showed it. Two
+days of measurement went into the VU1 clipper and its assembler before the
+fixture that finally worked was built, so the conclusion and the method are
+recorded here in full.
+
+**The fixture.** An input replay (`bin/replay.in`, pins `dt`) plus a script that
+parks the camera from frame 1400 on, so the same pose renders for the rest of
+the run; then N free-running `--capture-frame`s scored against one reference
+of that pose with the HUD rows masked. A build's *failure rate* over 24-30
+frames is the number - a single frame says nothing, because the corruption is
+intermittent, and two builds photographed once each can differ for no reason
+at all.
+
+**What the rates said.** Sony's `vcl` build: 4 of 24 frames wrong. openvcl's
+production flag set: 2 of 2, 3 of 9, 19 of 30 in successive arms. openvcl
+without `--fmac-interlock`: 1 of 2. Every openvcl variant that changed
+`stapip_clip_c`'s schedule changed the rate - and the corona is not even drawn
+by `clip_c` (it is a textured single-colour bag, `clip_tc`). The EE clipper
+(`"clipping": "precise"`) was worse than any of them: giant textured slabs
+across the whole screen, different in every frame, at 18 FPS. PCSX2 rendered
+both modes pixel-stable. So: a hardware timing race whose window the
+microprogram's length merely moves, not a defect in any microprogram or in
+the assembler. The wrong pictures being a small discrete set (the same 1286-
+or 1388-pixel sliver again and again) said the same thing - a handful of
+interleavings, not random garbage.
+
+**Bisecting the window on the console** (each arm = one deploy, 24-30 frames):
+
+| arm | result |
+|---|---|
+| a GS FINISH handshake after every bag (`sync.align3D()`) | 24/24 clean, **-4 FPS** |
+| a VIF1 `FLUSH` packet after every bag, the EE waiting for it | 24/24 clean, -4 FPS |
+| `FLUSHE` at the head of the per-mesh uniform chain (kept - see below) | no change |
+| `FLUSH` at the head of the uniform chain (VIF stalls, EE runs on) | no change |
+| a VIF1 wait before the beams rewrite their billboard arrays | no change |
+
+Only the arms where the **EE** waited fixed it, and a VIF-side barrier that let
+the EE run on did not. So the EE was overwriting something the previous bag's
+DMA was still reading, and it was not the bag's own arrays. It was the
+renderer's: `StaPipQBuffer::fillByCopyMax` / `fillByCopy1By2` merge small
+in-frustum packages by **copying** them into a per-slot pool (in both clipping
+modes; `fillByCopy1By3` and the EE clipper's `writeChunk` copy too), the
+packet's REF tags point at that pool, and `flushBuffers()` resets the slot
+indices the moment the packet is *sent*. The next bag - the next of thirteen
+coronas rendered back to back - copies into slot 0 while slot 0 is still being
+read: the DMA picks up a vertex of the *next* lamp, which is why every sliver
+ended at a different lamp than the one it started from. The victim is always
+a small bag followed quickly by another small bag; the window grows with
+whatever keeps the previous transfer alive, and a big translucent fill near
+the camera keeps the GS, hence the GIF, hence the kick, hence the VIF1 chain
+behind it, busy for a long time. The EE clipper copies *everything* into the
+slots, so there it broke everything.
+
+**The fix** (`stapip_qbuffer.cpp`, `stapip_qbuffer_renderer.cpp`): the pool has
+two sides, and `sendPacket()` flips the side together with the packet double
+buffer it already had. That send waits for the previous DMA before it sends,
+so the side being written is always the one whose transfer finished - the
+guarantee the packet buffers had, extended to the data they reference. It is
+the same guarantee the 24/24 EE-wait probe gave, without the EE ever idling
+(that probe cost 4 FPS, which is why it is not the fix). The EE clipper needs
+no wait of its own any more either. **Measured on the console with the pool
+fix**, openvcl production set: `"clipping": "vu1"` **30 of 30 frames at 0
+pixels** against Sony's reference at 22.5-23.5 FPS (23.3 before); `"precise"`
+**24 of 24 frames identical**, at a constant 223 edge pixels from the VU1
+reference (the EE clipper's own rounding; PCSX2 puts the two 291 apart) and
+the same 17.9 FPS it had while drawing slabs. PCSX2 is unchanged in both
+modes.
+
+Two more barriers went in with it, both cheap and both real even though
+neither was *the* window here: a `FLUSHE` at the head of the StaPip and DynPip
+uniform chains (they unpack the MVP, OPTIONS and the six clip planes at
+absolute VU1 addresses, and the clip programs read the planes and OPTIONS
+inside their loops - the previous batch may still be running, parked on its
+`xgkick`), and a VIF1 wait before the projected-shadow pass rewrites its shared
+`projClamp` buffer between two parts of one caster (the runtime's one other
+by-reference array that is rewritten between submissions; every per-view
+rewrite - beams, sky bodies - sits inside `align3D()` brackets already).
+
+**What it is not.** The assembler. openvcl's production output puts a store
+one row behind the FMAC write it reads at 88 sites over the 25 programs where
+Sony's `vcl` never goes below two rows, and a patched openvcl that kept two
+rows (+14 words over the resident set) was built and tested: it changed the
+failure *mode* and not the fact, and the EE-wait probe rendered that very
+production set pixel-identically to Sony's for 24 of 24 frames - so that
+distance is not a hardware hazard and the patch was not kept. The lesson for
+the next hardware-only bug: measure a **rate**, on a **parked
+pose**, and bisect with **barriers** before reading microcode.
+
 ## See also
 
 - [profiling.md](profiling.md) — the frame-timing rig, the measurement protocol

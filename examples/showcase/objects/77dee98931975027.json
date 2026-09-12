@@ -1,0 +1,1 @@
+{ "id": "77dee98931975027", "name": "lens-standard-a", "type": "sphere", "position": [-3, 1, -25.3], "rotation": [0, 0, 0], "scale": [0.55, 0.55, 0.55], "color": [0.2, 0.8, 0.8], "physics": false, "collision": "none", "detail": 10, "material": "res/aster/gold.mtl" }

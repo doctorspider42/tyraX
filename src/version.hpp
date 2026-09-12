@@ -16,6 +16,296 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.85.2: the render cost table sorts. It listed phases first and object
+// draws after them, each group dearest first, which answers "what is the most
+// expensive thing in this frame" and nothing else - finding one named object
+// among eighty rows, or the rows a change actually moved, was a scroll and a
+// squint. Every column header is now a sort: by name (case-insensitive), by ms
+// or by delta, ascending or descending, and a third click clears it and puts
+// the original grouping back, so the reading nobody asked to reorder is still
+// the one the table opens with. A row the baseline does not carry has no
+// delta at all rather than a zero, so it sorts last in both directions instead
+// of pretending to be unchanged. Label and delta are resolved once, before the
+// sort, because both are what the table shows and the delta is a baseline
+// lookup that a comparator would otherwise repeat on every comparison. PATCH.
+//
+// 1.85.1: the HUD's memory reading is a reading again. Reported as "the
+// showcase says MEM 32.0/32 on the console", with two details that turned out
+// to be the same bug: the Debugger's Measure now appeared to do nothing, and
+// it used to work. PCSX2 shows it too, so it was never about hardware.
+//
+// The engine finds free RAM the only way this allocator allows - claim every
+// free block until malloc refuses, sum, give it all back. The search for each
+// block started at the TOP BIT of size_t (malloc(2 GB) on the EE, eight
+// refusals before the first success), then freed the block that worked,
+// refined the size upward, and allocated the refined size AGAIN - and that
+// re-allocation can fail where the first succeeded, because the refinement's
+// own churn moved the heap. Its recovery clears the LOWEST SET BIT of the
+// size, which for a single-bit size - the everyday case - is not a smaller
+// size, it is ZERO. So the block search returned "nothing", the sum stopped at
+// the first block, and 0 free printed as 32.0/32 used. Measured on the
+// showcase mid-run: malloc(16 MB) succeeded at the same instant the probe
+// reported 0, and with the search logged it walks 13.5 MB + 64 KB + 10 KB +
+// ... = 13.6 MB free, which is the honest number.
+//
+// The search now starts at the console's 32 MB and never frees the block that
+// worked: it refines by keeping each better allocation and dropping the
+// previous one, which removes the re-allocation and its bit-clearing recovery
+// entirely. The sum is clamped to 32 MB, because a probe claiming more than
+// the machine has is a bug report rather than a reading. And the Debugger
+// separates "measured 0" from "not measured yet" - showing the second for the
+// first is what made a working button look dead. PATCH.
+//
+// 1.85.0 (recordings carry EVENTS, docs/input-replay.md): a .tyrarep was
+// input plus a position fingerprint, and the fingerprint says only where the
+// player ENDED UP - so every report started with archaeology. "Something threw
+// me across the room" plus a position delta names no cause; it took a log line
+// added by hand, two PCSX2 runs and a frame-by-frame dump to find the last one
+// (1.84.2). The frames that matter now also carry what the GAME did on them -
+// grabbed, dropped, threw, lost mid-carry, a walker or a body crossing a
+// portal - five bytes on the frames that have one, capped at eight per frame,
+// written last in the record so every earlier field keeps its offset. Two
+// things fall out. `--replay-dump` prints them without running anything, so a
+// session is readable in a second rather than a boot. And a REPLAY compares
+// them: a mismatch reports "event mismatch at frame 390: 0 raised, 1 expected"
+// with both lists, which is a debugging sentence where "pos differs by 0.31"
+// is a puzzle. Format v1 -> v2; v1 files still open and simply carry no
+// events, because a recording is worth keeping next to the bug it reproduces
+// and that outlives a format revision. The kinds are the format - appended to,
+// never renumbered - and an unknown kind prints as its number rather than
+// being swallowed. MINOR: the capability is new, nothing changes for a project
+// that never records.
+//
+// 1.84.2: picking an object up no longer launches the player across the room.
+// The report was "throw the ball into the cellar, pick it up down there, and
+// some unknown force moves me into the corner"; the second recording
+// (portal-ball-new.tyrarep, 1352 frames, replays with 0 divergences) shows it
+// exactly - USE at frame 390, then seventeen frames of 0.75 of a unit each,
+// dead straight, stick CENTRED, ending against the back wall, and again at
+// 712. 0.75 is not a coincidence: it is applyCarryWhisker's `need`, 0.55 plus
+// the weight's 0.2 radius. The whisker pushes the walker back by need - d
+// whenever the carried object does not fit in front of the face, and a swept
+// sphere that STARTS inside geometry returns d = 0 - which is what a room
+// modelled as one collision mesh does to a probe standing in it
+// (docs/backlog.md, "Only the player and rigid bodies have mesh collision").
+// So the push fired every frame, at full strength, whatever the player did.
+// It is capped at the step actually taken now: the whisker blocks a step, it
+// never adds one, so standing still takes back nothing. The root gap -
+// sweepSphere collides against the whole-mesh BOX while the walker gets
+// triangles - is unchanged and still in the backlog.
+// Verified on that recording: before the cap it replays with 0
+// divergences (the bug reproduces), after it the run diverges at frame
+// 391 and nowhere earlier - the player stays at (-1.44 -10.2 -15.01)
+// where the grab happened, against the recording's (-1.14 -10.2 -15.70),
+// which is the first slid step. Also in this commit: --replay-dump, the
+// verb that reads a recording without running it (docs/input-replay.md),
+// and the Pick lines now print the EYE - the simple FPP template never
+// fills players[0], so that column was a constant -12. PATCH.
+//
+// 1.84.1: the game logs picking an object up, dropping it, throwing it and
+// losing it mid-carry (`Pick: ...` in bin/log.txt, beside the `Portal: ...`
+// lines that were already there). Asked for while chasing "throw the ball
+// through the portal, pick it up in the cellar, and some force moves me into
+// the corner": the recording replays that session exactly, the portal hops
+// are in the log - and nothing said WHEN the grab happened, so the one thing
+// needed to tie the two together was missing. docs/devkit.md lists them.
+// PATCH: a debugging aid, no behaviour change. The raw-string trap bit once
+// on the way in - a ')' immediately before a '"' closes the literal the whole
+// generated game lives in, so log text never ends in a parenthesis.
+//
+// 1.84.0: merge the Aster line (portal physics, the pre-lit/GI preview fixes,
+// invisible box collisions, scene-local groups) with main's cutscene HUD and
+// skip screen. MINOR above both parents, the 1.10.0 precedent: the tree now
+// carries features neither side had alone, and a number strictly greater than
+// either parent is the only one that keeps "which editor wrote this file"
+// answerable. The format collided too - both lines had claimed v44 for
+// different fields - so this branch's half renumbers to v45 and main's
+// published v44 keeps its number (see kFormatVersion below).
+//
+// 1.83.1: two pre-lit defects a reporter's screenshot caught in one picture.
+// (1) The editor viewport did not know the `prelit` flag at all - no branch in
+// viewport.cpp, while the generated game sets shade = {1,1,1} for it - so the
+// preview multiplied a pre-lit object's baked light by the scene's shade a
+// SECOND time. Measured on the reporter's terrace: the floor drew at mean
+// luminance 31 where it now draws at 79, 2.5x too dark, which reads as "the
+// bake ruined it". `uPrelit` is now staged per object beside aoReceive, at
+// every site that stages one, because those uniforms leak into the next draw.
+// (2) litbake accepted a TILING model and silently produced nonsense: it
+// rasterizes one 0..1 canvas, and a terrace whose UVs run 0..17 has 319 tiles
+// of UV area, so 3% of the mesh painted the canvas and the mesh then repeated
+// it 289 times - a flat, 2x darkened texture in which no shadow can vary. It
+// is refused now, with the measured range in the message and the alternatives
+// named. 160 of the 236 example .obj models still pass, so this is a guard on
+// the broken case, not a new restriction. PATCH: nothing new appears.
+// (3) And the reason the scene looked grey in the first place, found from the
+// same screenshot: the GI probe branch REPLACES the shade, and a model mesh
+// carries its material Kd folded into its vertex colours - so the albedo went
+// with it and every untextured model drew in the light's own colour. Measured
+// on a cypress (leaves Kd 0.13 0.3 0.22) in a GI-baked fixture: 754
+// green-dominant pixels in the viewport before, 23672 after, and the frame's
+// mean stopped being exactly neutral (84.5/84.4/85.0). The game multiplies it
+// back after that branch (`if (kd) shade *= kd`); the viewport now does too,
+// through uKd. The animated path had learned this already
+// (AnimModelDraw::Part::kd) - the static one had not.
+//
+// 1.83.0: a thrown ball goes through a portal cut into a merged mesh and a
+// player arriving through one stays on the floor. Two defects, one fixture
+// (a saved showcase recording replayed in PCSX2 with --replay; not checked in).
+// Rigid bodies collided with a collision-mesh model as its whole-mesh AABB:
+// the pavilion's box, jambs protruding 0.35 in front of the portal plane,
+// bounced every throw before the doorway rule's 0.1 of slack could arm, and
+// a body that did get inside the cellar - one merged mesh whose box encloses
+// its own rooms - read as penetrating that box and was ejected along the
+// shortest axis, through the floor. The physics pass now collides such a
+// model per triangle with the same CollisionMesh the walker uses (vertical
+// floor ray from the previous underside to the current one, side-aware
+// sphere push off steep faces, bounce along the push). And the doorway rule
+// opened the WHOLE obstacle while the walker stood in a wall portal's zone,
+// floor included - the cellar mesh is its own floor, the arrival terrace
+// holds the pierce point on its top face - so the ground vanished on
+// arrival: for an upright portal plane the obstacle keeps its ground response
+// in collidePlayer and in the physics pass; a floor portal still opens all.
+// Third: the ball then VANISHED at the plane for the thrower - the surface
+// gate's authored view list names the cellar and its lamps, never the weight
+// that just flew into it - so every object remembers the portal it last
+// hopped through, that portal's through-view draws it on top of its list and
+// portalShowsObject/portalCanCross agree (the converse of "whatever a portal
+// shows can go through it"). The game logs every portal hop (Portal:
+// player/object crossed), --replay no longer refuses an "auto" video-system
+// project's 60 Hz recording as 50 Hz, and the native build gets an absolute
+// project path (a relative --replay used to cd into examples/x/examples/x).
+// Replay: three "object crossed" lines and the player
+// landing at y=-12 (the cellar floor) where the recording had bounces and a
+// fall; the same recording diverges at frame 230 with the OLD codegen too
+// (identical numbers), so that divergence is the fixture's, not this
+// change's. PCSX2 only; sweepSphere is still box-only (docs/backlog.md).
+// MINOR: runtime behaviour changes, the project format does not.
+//
+// 1.82.0: an object standing inside, behind or right next to another one can
+// be selected with the mouse. Three things were in the way. Invisible walls
+// (Box, collision "invisible") were picked as SOLID boxes, and showcase's
+// boundary-south - 36 x 14 units, between the default camera and the pool -
+// took every click aimed at the pool, the curbs and the crossing; a wire box
+// now ranks behind everything like an area does, and the placement raycast
+// skips it. A press on the transform gizmo released without moving the mouse
+// was swallowed as a gizmo edit (and dirtied the project without changing
+// anything): the big merged meshes have their origin in the middle of the
+// map, so the first click on the pool parked their gizmo on the very spot and
+// the second click - the one that cycles the stack - never reached the
+// picker. Such a press is a click now, the commit on release runs only when
+// the anchor's TRS actually changed, and the same reasoning frees the
+// right-click. And the stack was invisible: the menu bar now says what was
+// picked, its place in the stack and what the next click there gives, and
+// right-click opens the stack as a menu by name and type. For unattended
+// tests the Project panel's object rows report their selection to the UI
+// script hook (uiscript::markLastItemChecked), so `expect-checked` asserts
+// what a viewport click picked. Verified with --ui-script on examples/showcase:
+// a click on the crossing picks the crossing (1/9, boundary-south last), the
+// same spot again cycles to tidal-channel, the right-click menu opens over
+// the gizmo and choosing a row selects it. MINOR: new user-visible actions,
+// nothing on disk changes shape.
+//
+// 1.81.1: the console-only rendering corruption filed against openvcl's VU1
+// clipper was an engine DMA race, and it is fixed in the engine. A lamp's
+// corona (a small textured clip bag) came out as a sliver to the screen
+// corner in some frames on a real PS2 - 4 of 24 with Sony's vcl, up to 19 of
+// 30 with openvcl - and the EE clipper drew screen-sized slabs; PCSX2 showed
+// neither. StaPipQBufferRenderer::flushBuffers() hands the slot pool to the
+// next bag the moment a packet is SENT, and fillByCopyMax/fillByCopy1By2 (both
+// clipping modes) and the EE clipper copy vertex data into that pool, which
+// the packet's REF tags then read asynchronously: the next bag's copy landed
+// under the transfer and the DMA picked up a vertex of the NEXT lamp. The
+// pool is now double-buffered alongside the packet double buffer
+// (StaPipQBuffer::flipPoolSide in sendPacket): on the console 30 of 30 frames
+// at 0 pixels in vu1 mode and 24 of 24 identical with the EE clipper, at the
+// FPS it had before, where an EE-side wait per bag cost 4 FPS. Also: a FLUSHE at the head of the StaPip/DynPip
+// uniform chains (their absolute-address unpacks could land while the previous
+// batch still ran), a VIF1 wait before the projected-shadow pass rewrites its
+// shared projClamp buffer, and the ps2link deploy note that blamed openvcl is
+// gone. The Docker backend also stops hiding a failed engine make: it used to
+// leave the previous libtyra.a in the volume beside the freshly synced
+// sources, so the next build skipped make, linked the stale library and said
+// "Build OK" (four console runs in a row tested nothing). Method and
+// bisection: docs/vu1-clipping.md, "Real hardware: the slot-pool race".
+// PATCH: a fix, no format change.
+//
+// 1.81.0: a thrown or physics-driven object can cross a portal whose opening
+// is cut into an imported mesh. The doorway rule - "while a body's motion
+// pierces a linked opening, stop colliding with the geometry that opening was
+// cut into" - existed as FOUR hand-copied snippets (collidePlayer, sweepSphere,
+// the physics static-solid pass, and the render side's exit test), and every
+// one of the three collision copies computed the obstacle's extent from
+// 0.5 * scale and its centre from the object's position. That is the extent of
+// a unit primitive; an imported model's mesh box has its own size and its own
+// off-origin centre, so a district-sized mesh read as a small box at its
+// origin and the wall it was standing in never opened. The render side had
+// already been corrected this way (renderOnePortalView, mesh-aware exit
+// culling); the collision side had not.
+//
+// Fixing that alone was not enough, and the second half is the interesting
+// one. examples/showcase's district-pavilion is ONE merged mesh holding the
+// back wall, the side walls, the door jambs AND the roof, so its box reaches
+// about two units in FRONT of the portal plane and can never be "fully
+// behind" it, while sealing the 2.3 x 3.3 opening (verified with
+// showCollision). So the rule grew a second way to qualify: the obstacle's
+// box CONTAINS the point where the motion pierces the authored opening.
+// portalCarryAim already computed that point and threw it away - it now
+// publishes it (portalAimPoint), armSweepPass and the physics pass carry it
+// beside their plane, and updatePortalPass publishes the walker's own probe
+// pushed onto the portal plane as the matching point.
+//
+// The three collision copies are now calls to ONE private helper,
+// TerrainGame::portalDoorwayOpens(obstacle, plane, pierce), which implements
+// both halves over objectCollisionBox + boxRotate. The rule stays as narrow
+// as it was: it is still only consulted while the body's motion segment
+// actually pierces a linked, crossable opening.
+// MINOR: runtime behaviour changes, the project format does not.
+//
+// 1.80.1: the native build survives a project an earlier Docker build wrote.
+// Docker Desktop's container writes into the project through a Windows bind
+// mount as root and WSL keeps that ownership in the file's metadata, so the
+// native backend - which runs as the ordinary user - could not delete bin/ and
+// obj/ on a toolchain change or a rebuild: `rm` failed with "Permission
+// denied" on every file and the build died on its first clean step. The clean
+// now falls back to a Windows-side delete, which ignores that metadata.
+// The same clean now also puts the dropped tree's own .gitignore back:
+// bin/.gitignore and obj/.gitignore are COMMITTED (they keep those empty
+// directories in git), and both this clean and Build > Clean deleted them,
+// so every wipe left the checkout showing a deleted tracked file.
+// PATCH: nothing new appears, a broken path starts working.
+//
+// 1.80.0: merge Aster, grouping and render-cost diagnostics with main.
+//
+// 1.78.0: Render-cost debugger/CLI; pipelined static submission, coarse
+// package culling, hardware-tuned Aster, and raised-platform player spawns.
+//
+// 1.77.2: Cache portal exit-clipped geometry between frames; Aster uses
+// bounded destination lists instead of redrawing the island into the cellar.
+//
+// 1.77.1: Mesh-aware portal exit culling and interpolated static shading.
+// Aster refreshes stale GI on build and ships a reusable ambience preset.
+//
+// 1.77.0: Reject offscreen static models before viewport material submissions;
+// expanded group rows inspect/edit individual members without ungrouping.
+//
+// 1.76.0: Persistent object groups with rigid transforms, independent copies
+// and ungrouping; Aster's portal pavilion is a ready-to-move group.
+//
+// 1.59.0: Portal views render listed Point Light coronas/shafts with the virtual
+// camera and destination depth. Aster's entrance sits on the sea edge.
+//
+// 1.58.2: Aster's small, sea-facing portal opens into a much larger cellar.
+//
+// 1.58.1: Aster's portal connects a screened vestibule to a vaulted instrument
+// cellar below the rotunda, with bounded view lists and underground support.
+//
+// 1.58.0: Box collision mode "invisible" adds authorable boundary walls without
+// rendered geometry or baked shadows. Format 32 adds the new collision value.
+// Aster clears its portals, seats its lighthouse and tessellates the sea.
+//
+// 1.57.0: Aster replaces the old showcase with an authored coastal observatory,
+// playable lens hunt and bounded optical experiments. See examples/showcase.
+// The project format and generated runtime behavior are unchanged.
 // 1.81.0 (explicit WSL host bootstrap): native builds now share a dedicated
 // prerequisite checker/installer, setup can opt into apt-based preparation,
 // and the Windows installer offers the operation as an unchecked task that is
@@ -2944,8 +3234,8 @@
 // 1.79.0: merge native PS2DEV/OpenVCL builds with editor comments.
 // 1.80.0: cutscenes can hide the HUD and own the skip button.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 81
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_MINOR 85
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -3299,7 +3589,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // editor reads the unknown action word as Close, which would turn a confirm
 // row into a decline row - the refusal is the point. Purely additive - no
 // migration step.
-inline constexpr int kFormatVersion = 44;
+// v45: invisible box collisions and optional scene-local editorGroup.
+// Renumbered from v44 on the merge with main, which had already published a
+// different v44 (above). Two branches claiming one number is the trap this
+// file exists to make visible - the LATER arrival renumbers, always.
+inline constexpr int kFormatVersion = 45;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

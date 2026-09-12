@@ -69,7 +69,14 @@ The running game reports a compact snapshot containing:
 - draw flushes, vertices and VU1 quadwords;
 - GS VRAM free, low-water and largest block;
 - resident objects by type;
-- optional free EE memory;
+- optional free EE memory - measured ON REQUEST (*Measure now*), because the
+  only way to ask this allocator how much it has left is to take all of it and
+  give it back: `Info::getFreeRAMSize` claims every free block until malloc
+  refuses, sums them and frees the chain. Thousands of allocations, so it is a
+  button and not a timer. **A measurement that comes back 0 MB is reported as a
+  failure rather than as a reading** - on a running game that number is either
+  an emergency or a broken probe, and the panel used to show it as "not
+  measured yet", which read as the button doing nothing (1.85.1);
 - one row per render-bag flush.
 
 The Debug window decodes it. Use the flush map to find a heavy draw before
@@ -267,6 +274,31 @@ editor freezes devkit files even if the game keeps running. Redeploy, or start
 `ps2client ... listen` from the project's `bin/` directory to restore the
 channel.
 
+### What the game already logs about itself
+
+`bin/log.txt` is not only warnings and assertions - a few events that are hard
+to reconstruct afterwards write a line each, so a report like *"I picked it up
+and something threw me across the room"* can be read off the log instead of
+guessed at. Grep for the prefix:
+
+| Line | When |
+| --- | --- |
+| `Portal: player crossed <pi> to x y z` | a walker went through portal `pi`, with the arrival position |
+| `Portal: object <oi> crossed <pi> to x y z` | a body did |
+| `Pick: grabbed <oi> at x y z, player x y z` | an object was picked up, with both halves of that frame |
+| `Pick: dropped <oi> …` / `Pick: threw <oi> … v vx vy vz` | it was put down or thrown |
+| `Pick: lost <oi> mid-carry …` | it was despawned or hidden while carried |
+
+Paired with an [input recording](input-replay.md) these turn a "it sometimes
+does X" report into a fixture: replay the session, read the order of the lines.
+That is how the carry and portal interactions are debugged here - the hop and
+the grab are one frame apart or they are not, and the log says which.
+
+Since 1.85.0 the same events are also **written into the recording itself**
+(`--replay-dump` prints them with no emulator at all, and a replay compares
+them frame by frame). The log lines stay: they carry the positions and the
+velocities, which the events deliberately do not.
+
 ## First places to look
 
 1. **Output** for build and launch failures.
@@ -277,3 +309,17 @@ channel.
 
 The devkit reports evidence; it does not prove performance on its own. Use real
 hardware for timings and the PCSX2 software renderer for visual correctness.
+
+### Manual ps2link launch: require the resident-IOP marker
+
+Prefer `--build PROJECT --run-ps2 IP`, which creates the marker automatically.
+If running ps2client manually, first create and verify **an absolute path** to
+`PROJECT/bin/ps2link.run` containing `ps2link`. Launch with `PROJECT/bin` as the
+working directory. `-ps2link` on execee alone is insufficient with this crt0.
+A missing marker resets IOP, removes the host filesystem/network service and
+can require a physical reboot; a later UDP poweroff cannot repair that loss.
+Do not chain a failed marker write into an execee command. In PowerShell use
+`-ErrorAction Stop` and `Test-Path -LiteralPath` before launching. A working
+directory already ending in `bin` must not receive another relative `bin/`.
+Also stop an emulator serving the same project before hardware captures: its
+fresh `livedbg.bin`/`frame.tga` can otherwise disguise a disconnected console.

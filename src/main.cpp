@@ -32,6 +32,7 @@
 #include "livedbg.hpp"
 #include <stb_image_write.h>
 #include "livepad.hpp"
+#include "input.hpp"  // kPadButtonNames - the recordings' bit order
 #include "livereplay.hpp"
 #include "uiscript.hpp"
 #include "vucap.hpp"
@@ -1114,7 +1115,7 @@ static int bakeModelAoFromCli(int argc, char** argv) {
 
 // Bakes global illumination for every scene (docs/global-illumination.md) into
 // .res-baked/gi/, then refreshes the generated files so the probe table and
-// the lightmap flags follow immediately. The GUI's Tools > Bake Global
+// the lightmap flags follow immediately. The GUI's Tools > Global
 // Illumination runs the same gibake::bakeScene on a worker thread; this is the
 // headless twin - it is what a build server or a test harness uses, and it is
 // how the bake gets verified without clicking anything.
@@ -1961,6 +1962,105 @@ static int recordFromCli(int argc, char** argv) {
     return 0;
 }
 
+// Reads a recording and prints what the player DID, without running anything:
+//   tyrax-editor --replay-dump <file.tyrarep> [firstFrame lastFrame]
+//
+// The summary is a timeline - every button press, and every jump in the player
+// fingerprint too big to have been walked. That is the half bin/log.txt cannot
+// give you: the log says the game teleported the player somewhere in an
+// 1800-frame run, this says which frame USE was pressed on, and the two laid
+// side by side answer the question. It is how "picking the ball up throws me
+// into the corner" was settled - the grab was 11 frames AFTER the hop and on
+// the other side of the map, so it was not the grab.
+//
+// With a frame range it switches to the raw per-frame view - sticks, held
+// buttons, fingerprint - which is what you want once the summary has said
+// WHERE to look. No PCSX2 and no build: it parses the file and exits.
+static int replayDumpFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --replay-dump <file.tyrarep> "
+                     "[firstFrame lastFrame]\n");
+        return 2;
+    }
+    livereplay::Recording rec;
+    std::string err;
+    if (!livereplay::read(argv[2], rec, err)) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    const livereplay::Header& h = rec.header;
+    std::printf("%s: %zu frames at %u Hz, project %s, format v%u%s%s%s\n",
+                argv[2], rec.frames.size(), h.frameRate, h.projectName.c_str(),
+                h.editorFormatVersion, h.finalized() ? "" : ", NOT finalized",
+                h.hasKeyboard() ? ", keyboard" : "",
+                h.hasPad2() ? ", 2 pads" : "");
+    for (const livereplay::SeedEvent& sd : rec.seeds)
+        std::printf("f%-6u seed volume %u = %u\n", sd.frame, sd.volume,
+                    sd.seed);
+
+    const bool ranged = argc >= 5;
+    const size_t from = ranged ? (size_t)std::atoi(argv[3]) : 0;
+    const size_t to = ranged ? (size_t)std::atoi(argv[4]) : rec.frames.size();
+    float px = 0, py = 0, pz = 0;
+    bool seen = false;
+    int heldFrames = 0;
+    for (size_t i = from; i < to && i < rec.frames.size(); ++i) {
+        const livereplay::Frame& f = rec.frames[i];
+        if (ranged) {
+            std::string down;
+            for (int b = 0; b < 16; ++b)
+                if (f.pad[0].pressed & (1u << b)) {
+                    if (!down.empty()) down += "+";
+                    down += kPadButtonNames[b];
+                }
+            std::printf("f%-6d L(%3d,%3d) R(%3d,%3d) %-18s", (int)i,
+                        f.pad[0].lh, f.pad[0].lv, f.pad[0].rh, f.pad[0].rv,
+                        down.empty() ? "-" : down.c_str());
+            if (f.hasFingerprint)
+                std::printf(" %8.3f %8.3f %8.3f", f.x, f.y, f.z);
+            for (const livereplay::Event& e : f.events)
+                std::printf("  [%s]", livereplay::eventText(e).c_str());
+            std::printf("\n");
+            continue;
+        }
+        std::string names;
+        for (int b = 0; b < 16; ++b)
+            if (f.pad[0].clicked & (1u << b)) {
+                if (!names.empty()) names += "+";
+                names += kPadButtonNames[b];
+            }
+        if (!names.empty())
+            std::printf("f%-6d press %-16s %8.3f %8.3f %8.3f\n", (int)i,
+                        names.c_str(), f.x, f.y, f.z);
+        // What the GAME did on that frame, if the recording carries it (v2+):
+        // the line the player pressed and the line the game answered with,
+        // one under the other, which is the pairing this verb exists for.
+        for (const livereplay::Event& e : f.events)
+            std::printf("f%-6d   game  %s\n", (int)i,
+                        livereplay::eventText(e).c_str());
+        // A jump between two consecutive fingerprints was not walked: the
+        // walker covers well under half a unit per frame at any speed the
+        // templates ship, so this catches a portal hop, a scripted teleport
+        // and a collision ejection alike - including a HORIZONTAL one, which
+        // a height-only test misses and which is exactly what "it moved me
+        // into the corner of the same room" looks like.
+        if (f.hasFingerprint) {
+            const float dx = f.x - px, dy = f.y - py, dz = f.z - pz;
+            const float d = std::sqrt(dx * dx + dy * dy + dz * dz);
+            if (seen && d > 0.5F)
+                std::printf("f%-6d JUMPED %.2f units to %8.3f %8.3f %8.3f\n",
+                            (int)i, d, f.x, f.y, f.z);
+            px = f.x, py = f.y, pz = f.z, seen = true;
+        }
+        if (f.pad[0].pressed) ++heldFrames;
+    }
+    if (!ranged)
+        std::printf("(%d frame(s) with a button down - pass a frame range for "
+                    "the per-frame view)\n", heldFrames);
+    return 0;
+}
+
 // Replays a recording and reports whether it came out the same:
 //   tyrax-editor --replay <projectDir> <file.tyrarep>
 //                [--timeout <s>] [--keep-running] [--clear-saves]
@@ -2008,8 +2108,14 @@ static int replayFromCli(int argc, char** argv) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
-    const float projHz = p.settings.videoSystem == "ntsc" ? 60.0f : 50.0f;
-    if ((float)rec.header.frameRate != projHz) {
+    // "auto" follows the console's region, which only the running game can
+    // measure - it refuses a mismatched recording at boot itself, so the host
+    // check covers the two authored systems only (an "auto" project on an
+    // NTSC emulator records at 60 Hz and used to be refused here as 50).
+    const float projHz = p.settings.videoSystem == "ntsc"  ? 60.0f
+                         : p.settings.videoSystem == "pal" ? 50.0f
+                                                            : 0.0f;
+    if (projHz > 0.0f && (float)rec.header.frameRate != projHz) {
         std::fprintf(stderr,
                      "error: the recording is %u Hz and this project runs at "
                      "%.0f Hz - the game would refuse it.\n",
@@ -2023,7 +2129,8 @@ static int replayFromCli(int argc, char** argv) {
     if (timeoutSec <= 0) {
         // The run's own length plus a generous allowance for the build's tail,
         // the boot and the scene load.
-        timeoutSec = (int)((float)rec.frames.size() / projHz) + 60;
+        timeoutSec = (int)((float)rec.frames.size() /
+                           (float)(rec.header.frameRate ? rec.header.frameRate : 50)) + 60;
     }
 
     Runner runner;
@@ -2155,7 +2262,35 @@ static int uiScriptFromCli(int argc, char** argv) {
 // every livedbg command - no breakpoints, no halt - and a clock-derived seq so
 // any previous command (the GUI's, or an earlier call) reads as changed.
 // Needs a debug build with Live Debugger on; waiting is decided by the file's
-// PROGRESS (a growing file is a write in flight, ~3 s over ps2link).
+// matching report footer, so a partial or previous capture cannot succeed.
+static int renderCostFromCli(int argc, char** argv) {
+    if (argc < 3) { std::fprintf(stderr,"usage: tyrax-editor --profile-frame <projectDir> [-o report.csv]\n"); return 2; }
+    const std::filesystem::path dir(argv[2]);
+    std::string output;
+    for (int i=3;i<argc;++i) {
+        if (std::strcmp(argv[i],"-o")==0 && i+1<argc) output=argv[++i];
+        else { std::fprintf(stderr,"profile-frame: unknown or incomplete argument: %s\n",argv[i]); return 2; }
+    }
+    livedbg::Command c;
+    c.seq=(uint32_t)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    if(!c.seq) c.seq=1;
+    c.captureRenderCost=true;
+    const std::string error=livedbg::writeCommand((dir/"bin"/"livedbg.cmd").string(),c);
+    if(!error.empty()) { std::fprintf(stderr,"%s\n",error.c_str()); return 1; }
+    const auto start=std::chrono::steady_clock::now();
+    while(std::chrono::steady_clock::now()-start<std::chrono::seconds(45)) {
+        livedbg::RenderCost report;
+        if(livedbg::readRenderCost((dir/"bin"/"rendercost.txt").string(),report) && report.seq==c.seq) {
+            const auto csv=livedbg::renderCostCsv(report);
+            if(!output.empty()) { std::ofstream f(output); f<<csv; if(!f) return 1; }
+            std::fputs(csv.c_str(),stdout); return 0;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    }
+    std::fprintf(stderr,"profile-frame: no matching complete report; rebuild with Live Debugger enabled and keep the host server alive.\n");
+    return 1;
+}
+
 static int captureFrameFromCli(int argc, char** argv) {
     namespace fs = std::filesystem;
     if (argc < 3) {
@@ -4082,6 +4217,8 @@ int main(int argc, char** argv) {
         return debugStateFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--dump-vucap") == 0)
         return dumpVuCapFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--profile-frame") == 0)
+        return renderCostFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--capture-frame") == 0)
         return captureFrameFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--symbolize") == 0)
@@ -4094,6 +4231,8 @@ int main(int argc, char** argv) {
         return recordFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--replay") == 0)
         return replayFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--replay-dump") == 0)
+        return replayDumpFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--ui-script") == 0)
         return uiScriptFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--new") == 0) return createFromCli(argc, argv);
@@ -4160,6 +4299,7 @@ int main(int argc, char** argv) {
             "carries no devkit code\n"
             "  --debug-state [--verbose]               what is being debugged "
             "on this machine right now\n"
+            "  --profile-frame <projectDir> [-o report.csv]  synchronized render costs\n"
             "  --capture-frame <projectDir> [-o out.png] [--alpha a.png]  the "
             "game's own screenshot (works over ps2link)\n"
             "  --dump-vucap <dir> [--full] [--peek N]  decode the last VU1 "

@@ -1,0 +1,1 @@
+{ "id": "8c93c2637bb3bb0c", "name": "district-rotunda", "type": "model", "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "collision": "mesh", "model": "res/aster/district-rotunda.obj", "meshLod": 0 }

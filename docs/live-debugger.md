@@ -319,3 +319,6 @@ a slow one. A collapsed frame rate makes the snapshot *late*, never absent.
 - `examples/script-demo` is a good playground: open it, set the build profile to
   debug (the toolbar's profile dropdown, right of Stop), and press F5 — the
   panel opens by itself.
+
+The **Render cost** tab captures synchronized phase and object timings on demand,
+with baseline deltas and CSV export. See [profiling](profiling.md#on-demand-render-cost-178).

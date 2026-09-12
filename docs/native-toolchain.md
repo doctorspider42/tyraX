@@ -74,6 +74,36 @@ so fallback does not mean a second compiler implementation. The inherited
 
 ![Native build backend selected in Editor Preferences](img/native-build-backend.png)
 
+### Coming back from the Docker fallback
+
+The container writes into the project through a bind mount **as root**, and on
+Windows WSL stores that ownership in the file's metadata. A later native build
+runs as your normal user, so every generated file the container left behind is
+undeletable from WSL - `rm` reports *"Permission denied"* for the whole of
+`bin/` and `obj/` even though the NTFS ACL grants you full control, and the
+build fails on its first clean step:
+
+```
+[editor] Toolchain changed - rebuilding engine and game objects...
+rm: cannot remove '.../examples/showcase/obj/gen': Permission denied
+[editor] Native build failed.
+```
+
+`native-build.sh` handles this itself: when a native `rm` cannot remove one of
+the generated trees it deletes it through Windows (`cmd.exe /c rd /s /q`), which
+ignores the WSL metadata, and `make` recreates the tree as the current user
+afterwards. Only `bin/`, `obj/` and the cached engine objects are ever dropped
+this way - never sources or resources. To clear it by hand, delete the
+project's `bin/` and `obj/` from Windows (Explorer, or `Remove-Item -Recurse
+-Force`), not from the WSL shell.
+
+Either clean puts the dropped tree's own `.gitignore` back. `bin/.gitignore`
+and `obj/.gitignore` are committed files - they are what keeps those
+otherwise-empty directories in git - so wiping the tree used to leave the
+checkout showing a deleted tracked file after every toolchain change and every
+*Build > Clean*. The file is preserved byte for byte, so a project that
+customised it keeps its own version.
+
 ## Licences and provenance
 
 Every redistributed source tree carries its upstream licence file. TyraX does

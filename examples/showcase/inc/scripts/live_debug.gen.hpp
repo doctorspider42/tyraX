@@ -20,6 +20,7 @@ namespace livedbg {
 /** An instrumented node ran. Bumps its counter, records it in the event ring
  * and stops the game when the editor has a breakpoint on it. */
 void hit(int key);
+unsigned int takeRenderCostRequest();
 
 /** True while the game is stopped by the debugger. The generated loop folds
  * this into its "a menu is pausing the world" condition, so a halt freezes

@@ -32,6 +32,12 @@ Rules:
   `stapip_qbuffer.cpp`, `render_bbox.cpp`, `vcl_sml.i`).
 - **LF line endings only** under `vendor/tyra/**` — enforced by
   `.gitattributes`; the `vclpp` VU1 preprocessor chokes on CRLF. Don't fight it.
+  It only fails on files that contain a `#macro`, and the message names a line
+  that is fine (`Preprocessor directive inside macro block: '#endmacro'`), so it
+  reads like a source error rather than an encoding one. Editing tools respect
+  this; a **script** that rewrites these files may not — Python's
+  `Path.write_text()` turns every `\n` back into CRLF on Windows. Write bytes, or
+  check `grep -c $'\r'` afterwards.
 - The rest of `vendor/` (imgui, glfw, imguizmo, imnodes, stb, and tyra's
   non-engine parts) is git-ignored and cloned by `setup.ps1` / `setup.sh` — never edit those.
 
@@ -78,7 +84,8 @@ throws away the whole compiled engine, VU1 objects included, and builds it
 again from source.
 
 `vendor/tyra/Makefile.base` is shared by the engine build and every generated
-game, so an edit there moves both. TyraX changes in it: single-pass dependency
+game, so an edit there moves both. TyraX changes in it: **`-G0`** (see below),
+single-pass dependency
 generation (`-MMD -MP`; it used to run the compiler a second time per file just
 to write the `.d`), `| directories` order-only prerequisites so `-j` cannot
 reach an absent `bin/`, `cp -ru` for the resource copy, and **`src/vu/` and
@@ -86,7 +93,34 @@ reach an absent `bin/`, `cp -ru` for the resource copy, and **`src/vu/` and
 programs and VU0 kernels, docs/vu-authoring.md), compiled and run at build time
 by the container's g++, and handing them to the PS2 compiler fails on the very
 first include. A new host-code directory has to be added to that `find`
-exclusion or its first file breaks every build that has one. Verified
+exclusion or its first file breaks every build that has one.
+
+**`-G0`, and the link error that names the wrong thing.** Without it the engine
+and the generated game are the only things putting data in `.sdata`/`.sbss`,
+addressed GP-relative through a 16-bit offset (+/-32 KB), and the engine has
+outgrown that window. The failure is not a size error - it is dozens of
+`relocation truncated to fit: R_MIPS_GPREL16 against Tyra::Info::writeLogsToFile`,
+naming a one-byte bool instead of the section that overflowed, so it reads as a
+missing symbol rather than as "too much small data". The DEBUG profile hits it
+first (more inlined logging, more references to that bool), which is why
+**enabling `showFps` on a current project stopped linking at all** and took the
+perf-benchmark recipe with it. ps2sdk compiles its own libraries with `-G0`
+(`Defs.make`), so this is Tyra matching the SDK it links against.
+Two traps around it: **changing `Makefile.base` does NOT invalidate `libtyra.a`**
+(the Runner only rebuilds the engine when engine SOURCES changed), so a flag
+change needs `--build --rebuild` or you get objects compiled both ways and the
+same error from the stale half; and the shared engine volume is **per project**,
+so fixing one project's build leaves every other project's volume stale.
+A third, fixed in 1.81.1 but worth knowing the shape of: **a failed engine
+`make` used to leave the PREVIOUS `libtyra.a` in the volume** with the new
+sources already synced beside it, so the next build's rsync saw nothing to do,
+skipped make, linked the game against the stale library and printed
+`Build OK` - a compile error in the engine read as "the fix changed nothing"
+for four console runs in a row. The Runner now deletes `libtyra.a` when make
+fails; if a Docker build ever says `Build OK` without an `ar rcs bin/libtyra.a`
+line after you changed engine sources, that is the symptom.
+
+Verified
 byte-identical: the same project built with the old and new rules produced the
 same `md5` for its stripped ELF.
 
@@ -1148,6 +1182,25 @@ Rules the same evening paid for:
 
 ## Hard-won pitfalls (dead ends already explored — don't repeat them)
 
+**Devkit and measurement**
+- **The free-RAM probe is a measurement, not a sensor - and it used to lie.**
+  `Info::getFreeRAMSize` is the only way to ask this allocator what is left:
+  claim every free block until malloc refuses, sum, free the chain. The block
+  search used to start at the TOP BIT of `size_t` (malloc(2 GB) on the EE:
+  eight refusals before the first success), free the block that worked, refine
+  the size upward and then allocate the refined size AGAIN - and when that last
+  allocation failed, its recovery cleared the LOWEST SET BIT of the size, which
+  for a single-bit size is ZERO, not "a bit less". The probe then reported "no
+  block", the sum stopped at the first one, and the game's HUD printed
+  `MEM 32.0/32 MB` on a console with 13.6 MB free while the Debugger's
+  *Measure now* silently showed nothing. It starts at the console's 32 MB now
+  and keeps the block that worked instead of re-allocating it (1.85.1). Two
+  lessons that outlive the fix: a probe built out of failing allocations is
+  sensitive to the allocator's mood, so PROVE it against a plain
+  `malloc`/`free` ladder logged at the same instant before believing either
+  number - and a measurement that comes back 0 must be reported as a failure,
+  or it reads as "the button does nothing".
+
 **Rendering**
 - **One light per bag, and now one light a bag may REFUSE.** The colour
   programs carry a single dynamic-light slot; `RendererCore::pickDynLight`
@@ -1765,11 +1818,12 @@ Rules the same evening paid for:
   (`docker/Dockerfile.fromsource`) because the committed `libaudsrv.a` carries
   GCC 11.3 LTO bytecode a newer GCC refuses, and skips the Runner's overlay -
   so a source change reaches THAT image only after the image is rebuilt. The
-  crossing is `ee/src/sif-compat.h`: upstream renamed ten EE-side SIF RPC entry
-  points to `sce`-prefixed ones and the two SDKs export disjoint sets, so the
-  header aliases them under `TYRAX_PS2SDK_SCE_SIF`, which only the image can set
-  (the compile always sees the old pinned headers - `__has_include` cannot tell
-  them apart). It is included FIRST, before any ps2sdk header, because the
+  same edit therefore lands in two places with different latencies, and the
+  crossing is `ee/src/sif-compat.h`: upstream renamed ten EE-side SIF RPC
+  entry points to `sce`-prefixed ones and the two SDKs export disjoint sets, so
+  the header aliases them under `TYRAX_PS2SDK_SCE_SIF`, which only the image can
+  set (the compile always sees the old pinned headers - `__has_include` cannot
+  tell them apart). It is included FIRST, before any ps2sdk header, because the
   aliases must rewrite the declarations too. See the fork's README, change 3.
   `./build.sh --check` diffs a fresh build against the committed artifacts;
   `audsrv.irx` is byte-identical while `libaudsrv.a` never is (ar stamps its
@@ -1828,6 +1882,16 @@ Rules the same evening paid for:
   a `;1` version suffix; `FileUtils::fromCwd` and the extension helpers handle
   the conversion. Test asset-loading changes on BOTH boot paths (host: via
   normal Build & Run, cdrom0: via Export PS2 ISO).
+- **Whether `getcwd()` ends with a separator is not a guarantee, and the failure
+  does not look like a path bug.** `fromCwd` used to be a plain `cwd + file`,
+  which is correct only while the SDK returns `host:/dir/bin/`; a current ps2sdk
+  returns it without the slash, so every path became `.../binlivepad.bin` and
+  PCSX2 answered *"IopHLE: Denying access to path outside of ELF directory"* —
+  which reads as the emulator's host: sandbox refusing you, not as a missing
+  character. The game then opens NOTHING, its own log included, so there is no
+  in-game diagnostic either. `fromCwd` inserts the separator itself now, and
+  leaves a trailing `:` alone (`host:` + `file` is a valid path). Any new path
+  builder owes the same care.
 
 **Build environment**
 - PS2SDK's `math3d.h` `#define`s names like `LIGHT_AMBIENT` — prefix your
@@ -1835,6 +1899,115 @@ Rules the same evening paid for:
 - The compiler is `mips64r5900el-ps2-elf-g++` inside the `h4570/tyra` image;
   there is no way to compile engine code on the host. Even a syntax check
   requires a game build (see tyra-testing).
+- **NEVER put anything between a `#macro` line and its first instruction — not
+  even a comment.** `vclpp` then expands that macro to **nothing**: no error, no
+  warning, exit 0, and every caller compiles green with the instructions simply
+  absent. This is not theoretical and not cheap: a note added inside
+  `PerformClipCheck` (`vcl_sml.i`) in `93a7657` (2026-07-14) silently removed
+  the frustum clip check from `mcpip_cull` — the blocks pipeline shipped without
+  it until it was found on 2026-08-04. Put notes ABOVE the `#macro` line, in the
+  `;//` block that is already there for exactly this purpose.
+
+  How to check a macro actually expanded, in one command (no build needed):
+
+  ```bash
+  docker run --rm -v "<repo>/vendor/tyra:/e:ro" tyrax-toolchain:local sh -c \
+    'cd /e/engine && vclpp src/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull_vu1.vclpp /tmp/o.vcl && grep -c clipw /tmp/o.vcl'
+  ```
+
+  Do this whenever you touch a `.i` macro. Instruction counts in the generated
+  `.vsm` are the other tell: a program that suddenly got ~27 instructions
+  shorter did not get optimised, it lost a macro body.
+- Related, same file: `[..]` is vclpp's **register-array index**
+  (`t_lightMatrix[0]`), so a field suffix like `[w]` on a macro parameter is not
+  a spelling choice, it breaks expansion the same silent way.
+- **`begin:` in every pipeline program is a LOOP** (`b begin` at the bottom, one
+  iteration per batch), so anything loaded above it must stay live through the
+  whole body — and one of the two assemblers does not honour that. openvcl reuses
+  those registers per vertex, and every
+  batch after the first stored garbage GIF tags: 50 FPS of missing terrain, no
+  assertion. **Load per-batch values next to the store that reads them, inside the
+  loop** — the nine `*_c` / `*_tc` / `*_tce` / `*_td` programs now do, and it cuts
+  register pressure as well. The check that finds this class (per register
+  *component*: written in the preamble, read in the body before the body writes it,
+  written in the body) is described in `docs/toolchain-image.md`, "A miscompile this
+  uncovered"; it also names the per-input-file `vcl` dispatch wrapper, which is how
+  you attribute a bad frame to ONE microprogram instead of to a whole build.
+- **A project's clipping mode decides whether the `clip_*` programs run at all**, so
+  check it before concluding anything from a green frame. `"clipping": "vu1"` in the
+  `.tyra` generates `CLIP_VU1S[...] = {true}` in `inc/scene_data.hpp` and makes
+  `StaPipQBufferRenderer` upload the five `clip_*` programs; `"precise"` and `"fast"`
+  leave them off VU1 and use the EE clipper's `as_is_*` instead. A `vclab` copy sitting
+  on `"precise"` produced a pixel-identical openvcl frame that was read as "the VU1
+  clipper works" - it was the EE clipper, and with `"vu1"` set the same build differs in
+  506784 of 514600 pixels. Grep the generated header, not the intent:
+  ```bash
+  grep -n "CLIP_VU1S" <project>/inc/scene_data.hpp
+  ```
+- **The CLIP flag is a shift window, not a value** — 24 bits, six pushed in by every
+  `CLIP`, so a mask names a POSITION in it. Reading it too soon after its `clipw` does
+  not give a half-settled answer, it gives the previous vertex's answer, and a clipper
+  then keeps and drops the wrong edges (data-dependent: correct in one scene, a blank
+  frame in another). SCE keeps positional tests 3-4 rows behind their `clipw` and reaches
+  the source's semantics by issuing the NEXT `clipw` before the read, which is safe for
+  exactly the same reason. When you touch flag scheduling, measure the window depth per
+  read (`clipflags.py` in the working notes: how many `clipw`s precede each `fcand`), not
+  just the row gap. And measure it in EMITTED ROWS: a scheduler counting cycles is
+  counting a different thing, because a wait the hardware interlocks is a cycle that
+  costs no instruction word, so four cycles of separation can come out as two rows.
+- **A microprogram too big for the resident set can still be booted — shrink the SET.**
+  `StaPipQBufferRenderer::setProgramsCache` uploads ten programs from address 0, and the
+  packet tap names the program each mesh actually runs (`program @<addr>`, matched against
+  the cache order). `vclab`'s twelve meshes all run `programs[1]`, so passing 2 instead of
+  `count` frees ~1600 words and the scene still boots. Prove the harness first by running
+  SCE's build under it — if SCE stages the same triangle count as under the full set, the
+  harness is measuring the clipper and not itself.
+- **Count VU words with `nm`, not by counting rows in the `.vsm`.** The uploader sizes
+  each program from `<name>_CodeEnd - <name>_CodeStart` (`VU1Program::calculateProgramSize`,
+  rounded up to even — MPG uploads 64-bit pairs), and row counts run 2-6 high per program
+  because they pick up what sits outside those symbols. On the resident ten that is a
+  ~7-word error — enough to call a build an overflow when it fits, or the reverse. `nm`
+  currently says **SCE 2028, openvcl 1996** against a 2042 ceiling; row counting says
+  neither. And words are NOT the perf metric: openvcl is smaller than Sony's `vcl` on all
+  three corpora, and the ~20% gap this note used to report on a VU1-bound scene was a
+  miscompile of ours rather than the price of the assembler — with it fixed the two are
+  at parity on every scene that can register a difference at all. The cost that words do
+  not show is FMAC read-after-write stalls, and a stall is not a word
+  (docs/toolchain-image.md, "Measured on the console", and "It was a miscompile of ours,
+  not the price of the assembler"). Ask the built object:
+  ```bash
+  docker run --rm -v "tyra-engine-<hash>:/tyra:ro" tyrax-toolchain:local sh -c 'mips64r5900el-ps2-elf-nm /tyra/engine/obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1.o | grep -i Code'
+  ```
+  The volume name is in the project's `docker-compose.yml`.
+- **A microprogram that does not fit can still be tested — pay for it with one that
+  is smaller.** The ceiling is on the SET (2042 instructions), not on the program,
+  so put the oversized candidate on openvcl together with the programs where openvcl
+  beats SCE (`cull_d` -4, `cull_td` -8) and the set fits again. That is what let
+  `stapip_clip_c` be booted at all, and it is how its miscompile was found back when the
+  VU1-clipper set as a whole was still 28 words over. The whole set fits on either
+  assembler now, so this trick is for a *new* oversized candidate, not for the ten.
+- **Two VU1 assemblers exist now, and which one built your microcode matters.**
+  `vcl` in the stock image is Sony's prebuilt VCL 1.4beta7 (32-bit x86, no
+  source, no license). The from-source `openvcl` compiles all 25 programs since
+  2026-08-04 (one patch to it, plus moving the GIF-tag loads inside the batch loop
+  in `stapip_clip_d` / `clip_td` / `cull_td`), and since 2026-08-05 a game built
+  with it **runs, pixel-identical to Sony's output** - on the EE clipper, and on the
+  VU1 clipper for all ten resident programs (`stapip_clip_c`, the last one to blank
+  `blocks-terrain` and `raytraced-mirror`, was fixed by the register-liveness work).
+  The resident ten fit with room to spare: **2026 against SCE's 2028**, ceiling 2042,
+  at no measurable frame cost. openvcl schedules
+  *differently* though, so **any VU1
+  timing you measure belongs to one assembler, not to the engine**. Say which one
+  in the commit message, and A/B with the same one. `VCL_IMPL=legacy|openvcl`
+  picks it when building the image; the image records its choice in
+  `/usr/local/share/tyrax/vcl-impl`. Numbers, patch and repro:
+  `docs/toolchain-image.md`.
+- **Swapping the toolchain image rebuilds NO microcode.** The engine's make keys
+  off `.vclpp` timestamps, and an image swap touches neither them nor their
+  checksums, so the previous build's VU objects are relinked and the change looks
+  like it did nothing (this produced three identical "bisection" screenshots
+  before anyone noticed). Build with `--rebuild`, and confirm the log shows 25
+  `vcl` invocations.
 
 ## Performance context
 
@@ -1958,6 +2131,34 @@ legacy compatibility mode. See docs/vu1-clipping.md.
 Measure with PCSX2's FPS display on the software renderer, 3+ samples, before
 and after; pixel-compare screenshots to prove output is unchanged.
 
+## Static submission on physical PS2 (1.78)
+
+`StaPipQBufferRenderer::sendObjectData` now prepares uniforms without waiting
+for the previous mesh. The first geometry send waits and submits those uniforms,
+then waits before its own kick. A wholly culled mesh may replace the unsent
+uniform packet. Never let a draw escape `render()` with pending geometry that
+references stack MVP/light data.
+
+The uniform send's full D-cache writeback also covers the already-built first
+geometry chain and its REF streams. That immediate geometry kick skips a second
+full flush; subsequent packets and VU diagnostic hooks retain SDK writeback.
+No payload may be edited between the paired kicks without restoring the flush.
+A trial walking every REF with `SyncDCache` regressed a hardware render-cost
+capture from about 58 to 79 ms; it was discarded. Measure cache policies on EE.
+
+VU1 clipping references immutable source streams, like culling; legacy EE
+clipping still copies into writable qbuffers. Coarse AABBs cover eight full
+packages (24 one-third bounds), follow bboxVersion rebuilds, and only inherit
+whole-IN/OUT decisions; partial groups keep exact child/guard-band tests.
+Wholly visible bags skip redundant package classification. Spatially coherent
+triangle order makes the coarse level useful without altering triangle data.
+
+`Math::sqrtNonNegative` uses EE `sqrt.s` only for known nonnegative squared
+lengths. Do not substitute it for a general sqrt API with errno/domain behavior.
+Render-cost telemetry includes both uniform and geometry VIF waits; counting
+only the latter under-reports synchronization. The counters overlap stages.
+See [profiling](../../../docs/profiling.md) and the Aster example for measurements.
+
 
 ## Signed RGB SH and exact skin reuse (1.74.0)
 
@@ -1978,6 +2179,35 @@ exists only during loading. Set `TYRA_SKEL_PROFILE` in skel_instance.hpp to 1
 for per-instance COP0 pose/skin timings every 100 skins; keep it 0 when shipping.
 
 
+### The slot pool is double-buffered (1.81.1) — the console-only sliver
+
+The REF rule above has a second half that took a real PS2 to find: the
+renderer's OWN copies are referenced too. `StaPipQBuffer::fillByCopyMax` /
+`fillByCopy1By2` merge small in-frustum packages by copying them into a
+per-slot pool (both clipping modes), `fillByCopy1By3` / `writeChunk` copy for
+the EE clipper, the packet's REF tags point at the pool, and
+`flushBuffers()` resets the slot indices the moment the packet is *sent*. The
+next bag copied into slot 0 while slot 0 was still being read, and the DMA
+picked up a vertex of the next object: a lamp's corona drew as a sliver to the
+screen corner in 4 of 24 frames with Sony's `vcl` and up to 19 of 30 with
+openvcl (its schedule only moves the window), and the EE clipper - which
+copies everything - drew screen-sized slabs. PCSX2 completes a DMA before the
+EE runs on and shows none of it. The pool now has two sides and
+`StaPipQBufferRenderer::sendPacket()` flips the side with `context`
+(`StaPipQBuffer::flipPoolSide`); the wait before that send is what makes the
+side being written the finished one. **Do not "fix" this class with an
+EE-side `dma_channel_wait` per bag: measured at -4 FPS.** Two cheap barriers
+came with it: a `FLUSHE` at the head of the StaPip and DynPip uniform chains
+(absolute-address unpacks of MVP/OPTIONS/clip planes while the previous batch
+may still be running), and a VIF1 wait before the projected-shadow pass
+rewrites its shared `projClamp` buffer. Story, fixture and bisection table:
+docs/vu1-clipping.md, "Real hardware: the slot-pool race". Two lessons that
+generalise: a hardware-only defect wants a **failure rate on a parked pose**,
+never a single frame; and **bisect with barriers** (GS FINISH per bag, VIF
+FLUSH per bag, VIF-stream-only FLUSH, EE wait at one site) before reading a
+line of microcode - two days went into the clipper's assembler first, and it
+was innocent.
+
 ### DMA REF lifetime (1.74.1)
 
 `packet2_utils_vu_add_unpack_data` does NOT copy: ps2sdk emits a DMA REF to
@@ -1985,5 +2215,10 @@ the supplied pointer. Never pass a temporary/local array to asynchronous
 submission. SH initially did this for mode-adjusted colours, causing lighting
 flashes despite passing VU arithmetic tests. Both lighting senders now use
 CNT/UNPACK with inline colour floats (four extra packet-storage qwords; the
-same VU layout) and wait for VIF1 before resetting the reusable packet.
+same VU layout). DynPip waits before resetting its reusable packet; StaPip
+waits between uniform and geometry submission, as described below.
 Allocated capacities are 56 qwords for StaPip and 24 for DynPip.
+
+The 1.80 merge retains inline SH colour storage with deferred StaPip uniforms.
+Its packet is safe to reset because sendPacket waits for uniform DMA before
+starting geometry DMA; DynPip retains its own wait-before-reset contract.

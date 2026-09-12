@@ -10,6 +10,7 @@
 #include "debug/debug.hpp"
 #include "renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.hpp"
 
+// Modified by TyraX: integer ceiling division avoids software double math on EE.
 namespace Tyra {
 
 StaPipBagPackager::StaPipBagPackager() {}
@@ -30,7 +31,7 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_size, StaPipBag* data,
   TYRA_ASSERT(size <= maxVertCount, "StaPipBagPackage can have max ",
               maxVertCount, " verts. Provided \"", size, "\"");
 
-  *o_size = ceil(data->count / static_cast<float>(size));
+  *o_size = (data->count + size - 1) / size;
   // Modified by TyraX: grow-only pool instead of new[] per submit.
   // Pool entries are reused, so pointers absent from this bag must be
   // reset - a stale sts/colors/normals from a previous bag would otherwise
@@ -38,7 +39,14 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_size, StaPipBag* data,
   if (bagPackagesPool.size() < *o_size) bagPackagesPool.resize(*o_size);
   StaPipBagPackage* result = bagPackagesPool.data();
 
+  CoreBBoxFrustum coarseRoute = PARTIALLY_IN_FRUSTUM;
+  const bool coarse = size == maxVertCount && renderBBox && objectSpacePlanes;
   for (u16 i = 0; i < *o_size; i++) {
+    if (coarse && (i & 7) == 0) {
+      coarseRoute = CoreBBox::frustumCheckAABB(objectSpacePlanes,
+          renderBBox->coarseMin(i / 8), renderBBox->coarseMax(i / 8), nullptr);
+    }
+
     result[i].bag = data;
     result[i].vertices = &data->vertices[i * size];
 
@@ -67,7 +75,10 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_size, StaPipBag* data,
 
     result[i].clipPlaneMask = 0;
     result[i].guardBandOnly = false;
-    result[i].isInFrustum = checkFrustum(
+    // A wholly inside/outside coarse box proves the same for every child.
+    // Partial groups retain the exact per-package and guard-band tests.
+    result[i].isInFrustum = coarse && coarseRoute != PARTIALLY_IN_FRUSTUM
+        ? coarseRoute : checkFrustum(
         result[i], capturePlaneMasks ? &result[i].clipPlaneMask : nullptr,
         &result[i].guardBandOnly);
   }
@@ -86,7 +97,7 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_count,
   TYRA_ASSERT(size <= maxVertCount, "StaPipBagPackage can have max ",
               maxVertCount, " verts. Provided \"", size, "\"");
 
-  *o_count = ceil(pkg.size / static_cast<float>(size));
+  *o_count = (pkg.size + size - 1) / size;
   // Modified by TyraX: grow-only pool instead of new[] per split (see
   // the bag-level overload above; separate pool - the parent package array
   // is still alive during a split).
@@ -152,7 +163,7 @@ CoreBBoxFrustum StaPipBagPackager::checkFrustum(const StaPipBagPackage& pkg,
         &min, &max);
   } else {  // Is package
     const auto& indexOfPart = pkg.indexOf1By3BBox;
-    auto partSize = ceil(pkg.size / static_cast<float>(maxVertCount / 3));
+    auto partSize = (pkg.size + maxVertCount / 3 - 1) / (maxVertCount / 3);
     renderBBox->getMergedMinMax(indexOfPart, partSize, &min, &max);
   }
 
