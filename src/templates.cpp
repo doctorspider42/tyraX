@@ -20342,7 +20342,7 @@ void TerrainGame::renderScene() {
   // object draws (renderObjectProbe) - this shared pass covers only the
   // classic level-forward aim.
   if (!ENV_PROBE_REFLECTED && g_dynamicEnvUsers > 0 && skyDome.bag &&
-      envMapTick && !splitPassActive) {
+      (envMapTick || !sharedEnvBasisValid) && !splitPassActive) {
     const u32 costSharedEnvStart = costStart();
     auto& core = engine->renderer.core;
     // Level forward: keeps the sphere map's horizon on its center line.

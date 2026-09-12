@@ -139,7 +139,9 @@ ugly patches up close. It fades back in as you step away.
   reflection is imperceptible), halving the pass's per-frame cost. The
   level-forward right/up basis is saved with each target update and reused for
   the intervening sample; applying a newer camera yaw to an older target makes
-  stationary reflected buildings swim across the material.
+  stationary reflected buildings swim across the material. A scene load marks
+  that basis invalid and forces the next non-split classic view to capture,
+  regardless of the cadence phase.
 
 The editor's GLSL twin lives in the viewport fragment shader (`uReflOn` block)
 — flat normals from screen-space derivatives, the same camera-basis formula.
