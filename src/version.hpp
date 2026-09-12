@@ -16,6 +16,19 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.85.2: the render cost table sorts. It listed phases first and object
+// draws after them, each group dearest first, which answers "what is the most
+// expensive thing in this frame" and nothing else - finding one named object
+// among eighty rows, or the rows a change actually moved, was a scroll and a
+// squint. Every column header is now a sort: by name (case-insensitive), by ms
+// or by delta, ascending or descending, and a third click clears it and puts
+// the original grouping back, so the reading nobody asked to reorder is still
+// the one the table opens with. A row the baseline does not carry has no
+// delta at all rather than a zero, so it sorts last in both directions instead
+// of pretending to be unchanged. Label and delta are resolved once, before the
+// sort, because both are what the table shows and the delta is a baseline
+// lookup that a comparator would otherwise repeat on every comparison. PATCH.
+//
 // 1.85.1: the HUD's memory reading is a reading again. Reported as "the
 // showcase says MEM 32.0/32 on the console", with two details that turned out
 // to be the same bug: the Debugger's Measure now appeared to do nothing, and
@@ -3222,7 +3235,7 @@
 // 1.80.0: cutscenes can hide the HUD and own the skip button.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 85
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

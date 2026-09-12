@@ -2369,30 +2369,110 @@ void App::drawDebuggerWindow() {
             if (ImGui::Button("Copy render cost CSV"))
                 ImGui::SetClipboardText(livedbg::renderCostCsv(dbgRenderCost_).c_str());
             ImGui::TextDisabled("Object rows belong to Objects. Engine counters overlap phases; do not sum them.");
-            auto rows = dbgRenderCost_.rows;
-            std::stable_sort(rows.begin(),rows.end(),[](const auto& a,const auto& b) {
-                if ((a.object < 0) != (b.object < 0)) return a.object < 0;
-                return a.ms > b.ms;
-            });
-            if (ImGui::BeginTable("Render cost results",3,ImGuiTableFlags_Borders|ImGuiTableFlags_RowBg)) {
-                ImGui::TableSetupColumn("Stage / object"); ImGui::TableSetupColumn("ms");
-                ImGui::TableSetupColumn("Delta ms"); ImGui::TableHeadersRow();
-                for (const auto& row:rows) {
-                    ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0);
-                    std::string label=row.label;
-                    std::replace(label.begin(),label.end(),'_',' ');
-                    if(row.object>=0) {
-                        label="Object #"+std::to_string(row.object);
-                        const int si=dbgRenderCost_.scene;
-                        if(si>=0 && si<(int)project_.scenes.size() && row.object<(int)project_.scenes[si].objects.size())
-                            label += " "+project_.scenes[si].objects[row.object].name;
+            // Resolve the label and the baseline delta ONCE, before sorting:
+            // both are what the table shows, so both are what it has to sort
+            // on, and the delta is a lookup a comparator would otherwise
+            // repeat on every comparison.
+            struct CostView {
+                std::string label;
+                double ms = 0;
+                double delta = 0;
+                bool hasDelta = false;
+                bool object = false;
+            };
+            const bool haveBase = dbgRenderBaseline_.seq &&
+                                  dbgRenderBaseline_.scene == dbgRenderCost_.scene;
+            std::vector<CostView> view;
+            view.reserve(dbgRenderCost_.rows.size());
+            for (const auto& row : dbgRenderCost_.rows) {
+                CostView v;
+                v.ms = row.ms;
+                v.object = row.object >= 0;
+                std::string label = row.label;
+                std::replace(label.begin(), label.end(), '_', ' ');
+                if (v.object) {
+                    label = "Object #" + std::to_string(row.object);
+                    const int si = dbgRenderCost_.scene;
+                    if (si >= 0 && si < (int)project_.scenes.size() &&
+                        row.object < (int)project_.scenes[si].objects.size())
+                        label += " " + project_.scenes[si].objects[row.object].name;
+                }
+                v.label = std::move(label);
+                if (haveBase)
+                    for (const auto& old : dbgRenderBaseline_.rows)
+                        if (old.object == row.object && old.label == row.label) {
+                            v.delta = row.ms - old.ms;
+                            v.hasDelta = true;
+                            break;
+                        }
+                view.push_back(std::move(v));
+            }
+            if (ImGui::BeginTable("Render cost results", 3,
+                                  ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                                      ImGuiTableFlags_Sortable |
+                                      ImGuiTableFlags_SortTristate)) {
+                ImGui::TableSetupColumn("Stage / object");
+                // Both cost columns prefer descending - the question this table
+                // answers is always "what is dearest" - but neither carries
+                // DefaultSort: with SortTristate that leaves the fresh table
+                // unsorted, so an untouched capture still reads in the grouping
+                // it always had.
+                ImGui::TableSetupColumn("ms",
+                                        ImGuiTableColumnFlags_PreferSortDescending);
+                ImGui::TableSetupColumn("Delta ms",
+                                        ImGuiTableColumnFlags_PreferSortDescending);
+                ImGui::TableHeadersRow();
+                int sortCol = -1;
+                bool sortAsc = false;
+                if (const ImGuiTableSortSpecs* specs = ImGui::TableGetSortSpecs())
+                    if (specs->SpecsCount > 0) {
+                        sortCol = specs->Specs[0].ColumnIndex;
+                        sortAsc = specs->Specs[0].SortDirection ==
+                                  ImGuiSortDirection_Ascending;
                     }
-                    ImGui::TextUnformatted(label.c_str());
-                    ImGui::TableSetColumnIndex(1); ImGui::Text("%.3f",row.ms);
+                std::stable_sort(
+                    view.begin(), view.end(),
+                    [&](const CostView& a, const CostView& b) {
+                        // Tristate: a third click clears the sort and the list
+                        // falls back to the grouping it had before it was
+                        // sortable - phases first and dearest first, objects
+                        // after them.
+                        if (sortCol < 0) {
+                            if (a.object != b.object) return !a.object;
+                            return a.ms > b.ms;
+                        }
+                        if (sortCol == 0) {
+                            std::string la = a.label, lb = b.label;
+                            auto lower = [](std::string& t) {
+                                std::transform(t.begin(), t.end(), t.begin(),
+                                               [](unsigned char c) {
+                                                   return (char)std::tolower(c);
+                                               });
+                            };
+                            lower(la);
+                            lower(lb);
+                            if (la == lb) return false;
+                            return sortAsc ? la < lb : lb < la;
+                        }
+                        if (sortCol == 2) {
+                            // A row the baseline does not carry has no delta
+                            // at all; it sorts last in both directions rather
+                            // than pretending to be a zero.
+                            if (a.hasDelta != b.hasDelta) return a.hasDelta;
+                            if (!a.hasDelta || a.delta == b.delta) return false;
+                            return sortAsc ? a.delta < b.delta : a.delta > b.delta;
+                        }
+                        if (a.ms == b.ms) return false;
+                        return sortAsc ? a.ms < b.ms : a.ms > b.ms;
+                    });
+                for (const auto& v : view) {
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::TextUnformatted(v.label.c_str());
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::Text("%.3f", v.ms);
                     ImGui::TableSetColumnIndex(2);
-                    if(dbgRenderBaseline_.seq && dbgRenderBaseline_.scene==dbgRenderCost_.scene)
-                        for(const auto& old:dbgRenderBaseline_.rows)
-                            if(old.object==row.object && old.label==row.label) { ImGui::Text("%+.3f",row.ms-old.ms); break; }
+                    if (v.hasDelta) ImGui::Text("%+.3f", v.delta);
                 }
                 ImGui::EndTable();
             }

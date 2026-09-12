@@ -1666,8 +1666,13 @@ and a live host file server is required. Normal gameplay does not perform the
 extra timing reads or pipeline drains. Older games ignore the request; rebuild
 and use Cancel measurement if no report arrives.
 
-The table sorts phases and object draws by cost, including sky, terrain
-streaming/draw, highlights/outlines and particles. **Keep as baseline** retains a
+The table lists phases and object draws, including sky, terrain
+streaming/draw, highlights/outlines and particles, dearest first. **Every
+column header sorts** - by name, by ms or by delta - and a third click on the
+same header clears the sort and restores the original grouping: phases first,
+dearest first, object rows after them. Sorting by delta puts the rows the
+baseline does not carry last in both directions rather than treating a missing
+delta as zero. **Keep as baseline** retains a
 report for delta comparisons; **Copy render cost CSV** exports the raw indices,
 stages and milliseconds. Object rows are children of the Objects phase, so do
 not sum both. Rows ending in `_included` are nested engine counters, also

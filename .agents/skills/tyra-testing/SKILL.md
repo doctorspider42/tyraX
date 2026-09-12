@@ -2702,7 +2702,9 @@ during motion, so do not describe larger view counts as free.
 Use `--profile-frame PROJECT -o report.csv` against a debug game with Live
 Debugger on and a live host server. Verify matching sequence/footer, finite
 phase/object values, repeated captures and CSV output. For UI changes drive
-Render cost / Measure render cost / Keep as baseline / Copy render cost CSV.
+Render cost / Measure render cost / Keep as baseline / Copy render cost CSV,
+and click the column headers: each sorts, and a third click on the same header
+clears the sort back to the original grouping.
 Object rows are nested costs inside Objects. Measurements drain the pipeline;
 verify ordinary FPS separately and capture the same camera on physical PS2.
 
