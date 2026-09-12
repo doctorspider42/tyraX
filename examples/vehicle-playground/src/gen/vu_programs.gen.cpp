@@ -8,7 +8,7 @@ namespace vuprog {
 namespace {
 Tyra::StaPipCore* g_core = nullptr;
 bool g_vu1Clip = true;
-unsigned g_resident = 1u;
+unsigned g_resident = 9u;
 }  // namespace
 
 void install(Tyra::StaPipCore& core) { g_core = &core; }

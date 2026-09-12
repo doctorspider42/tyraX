@@ -112,20 +112,26 @@ struct MenuData {
   float bgScrollX, bgScrollY, bgSeconds;
 };
 
-constexpr int MENU_COUNT = 1;
+constexpr int MENU_COUNT = 2;
 
 // menu "save"
 constexpr MenuEntryData MENU_0_ENTRIES[1] = {
     {0, -1, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},
 };
+// menu "district-pause"
+constexpr MenuEntryData MENU_1_ENTRIES[2] = {
+    {0, -1, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},  // RESUME
+    {7, 0, 0.0F, 2, 0, 0, -1, nullptr, -1, -1, -1, -1, 1},  // TIME OF DAY
+};
 
 inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {
     {"menus/save.png", 256, 256, 138, 44, 24, 0, MENU_0_ENTRIES, 0, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, 0, "", 0, 0, 0, "", 0, 3, "", 0, 0, 0, 0, 0, 32.0F, 1, "", 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 1, 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 255, 255, 255, 0, "", 0, 0, 0, 0, 0, 0.0F, 0.0F, 1.0F},  // save
+    {"menus/district-pause.png", 256, 128, 114, 44, 24, 2, MENU_1_ENTRIES, 0, 1, 0.5F, 0.45F, "menus/district-pause-values.png", 128, 24, 32, 104, 0, "", 0, 0, 0, "", 0, 2, "", 0, 0, 0, 0, 0, 32.0F, 1, "", 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 1, 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 255, 255, 255, 0, "", 0, 0, 0, 0, 0, 0.0F, 0.0F, 1.0F},  // district-pause
 };
 
 constexpr int TITLE_MENU = -1;
 // The Start button opens/closes this menu in-game (-1 = none)
-constexpr int PAUSE_MENU = -1;
+constexpr int PAUSE_MENU = 1;
 // The "skip the cutscene?" confirmation screen (-1 = none, and a
 // cutscene set to ask first then skips on the spot instead of
 // swallowing the press - docs/cutscenes.md)

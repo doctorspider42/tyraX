@@ -1,7 +1,7 @@
 {
   "name": "vehicle-playground",
   "formatVersion": 50,
-  "editorVersion": "1.83.0",
+  "editorVersion": "1.85.0",
   "template": "fpp",
   "projectId": "99089f551e395d01",
   "settings": {
@@ -39,10 +39,10 @@
     "navAgentRadius": 0.4,
     "unitsPerMeter": 1,
     "terrainDetail": 80,
-    "terrainViewDistance": 0,
+    "terrainViewDistance": 150,
     "terrainLodDistance": 0,
-    "skyColor": [0.25, 0.55, 0.78],
-    "skyTopColor": [0.08, 0.3, 0.65],
+    "skyColor": [0.58, 0.64, 0.66],
+    "skyTopColor": [0.12, 0.28, 0.42],
     "skyDome": true,
     "zenithSize": 0.5,
     "eyeHeight": 1.8,
@@ -60,10 +60,10 @@
     "orbitSpeed": 1,
     "gravity": 9.8,
     "jumpSpeed": 4.5,
-    "lightDir": [0.37, 0.82, 0.44],
-    "ambient": 0.55,
-    "diffuse": 0.45,
-    "lightColor": [1, 1, 1],
+    "lightDir": [-0.55, 0.65, 0.35],
+    "ambient": 0.48,
+    "diffuse": 0.52,
+    "lightColor": [1, 0.87, 0.69],
     "brightness": 1,
     "aoEnabled": false,
     "aoStrength": 0.55,
@@ -79,10 +79,10 @@
     "giProbeHeight": 2,
     "giProbeLevels": 4,
     "modelAo": true,
-    "terrainMaterial": "",
-    "bloom": 0,
-    "bloomThreshold": 0,
-    "bloomSpread": 0,
+    "terrainMaterial": "res/materials/district-ground.mtl",
+    "bloom": 0.12,
+    "bloomThreshold": 0.7,
+    "bloomSpread": 0.12,
     "grain": 0,
     "dofAmount": 0,
     "dofFocus": 20,
@@ -97,10 +97,10 @@
     "blssTemporal": true,
     "blssJitter": false,
     "blssDebugView": 0,
-    "fogEnabled": false,
-    "fogColor": [0.5, 0.5, 0.55],
-    "fogStart": 15,
-    "fogEnd": 120,
+    "fogEnabled": true,
+    "fogColor": [0.58, 0.64, 0.66],
+    "fogStart": 100,
+    "fogEnd": 165,
     "highlightUsable": false,
     "highlightDistance": 6,
     "highlightColor": [1, 0.85, 0.15],
@@ -114,7 +114,7 @@
     { "name": "main",
       "terrain": { "width": 320, "depth": 320 },
       "settings": { "lighting": { "dir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "color": [1, 1, 1], "brightness": 1 }, "sky": { "color": [0.25, 0.55, 0.78], "topColor": [0.08, 0.3, 0.65], "dome": true, "zenithSize": 0.5 }, "clipping": "vu1", "terrainMaterial": "", "postfx": { "bloom": 0, "bloomThreshold": 0, "bloomSpread": 0, "grain": 0, "dofAmount": 0, "dofFocus": 20, "dofRange": 15, "flare": 0, "godRays": 0 }, "fog": { "enabled": false, "color": [0.5, 0.5, 0.55], "start": 15, "end": 120 }, "highlight": { "usable": false, "distance": 6, "color": [1, 0.85, 0.15], "width": 0.35, "steps": 4, "opacity": 0.56, "overlay": false } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": false, "fog": false, "highlight": false },
-      "objects": ["b632d92adecbb4e9", "cc96car000000001", "cc96wall000000001", "cc96wall000000002", "cc96wall000000003", "cc96wall000000004", "cc96pill000000005", "cc96pill000000006", "cc96pill000000007", "cc96pill000000008", "cc96pill000000009", "cc96pill000000010", "cc96car000000002", "cc96car000000003", "cc96crat00000001", "cc96crat00000002", "cc96crat00000003", "cc96rout00000001", "cc96rout00000002", "cc96rout00000003", "cc96rout00000004", "cc96road000000001"] }
+      "objects": ["b632d92adecbb4e9", "cc96car000000001", "cc96wall000000001", "cc96wall000000002", "cc96wall000000003", "cc96wall000000004", "cc96car000000002", "cc96car000000003", "cc96crat00000001", "cc96crat00000002", "cc96crat00000003", "cc96rout00000001", "cc96rout00000002", "cc96rout00000003", "cc96rout00000004", "districta8365a2c", "district94b4bbe8", "district11264c0e", "district0c30316f", "district8cbf0130", "districtea35147e", "districtce0ce018", "district04189934", "districtd4ad5619", "district69b4a512", "districtf356388c", "districtb746f756", "district49593b9e", "district3096201d", "district54028563", "districte86b5822", "district766ba21c", "district41de9b9b", "district0635448e", "district5cc7afb9", "district9c40138d", "district41e41d15", "district44afe454", "districtc63f23f6", "district4d2937dd", "district70b53441", "district5d7c0d2b", "district1653b08d", "districta4f1547b", "districtdd4e3f5e", "districtf1c1ee99", "district5e206d18", "district6c396644", "district6f76eded", "district0dc12f41", "districtdb0c4711", "districtd1acdcd4", "district612b6fd9", "district45166c2a", "districtfee0e76c", "district3f2a1131", "districtb535e0fd", "district06339733", "districtb16fef2c", "district3687a454", "districta3230650", "district2b1a8120", "districta8bb30ba", "districtab76d837", "districtaddc4342", "district019e5989", "districtf16388d7", "district903ec643", "district572760fc", "district6fca5354", "districtd1638acc", "districtcc9cdeed", "district5d320832", "district308a683c", "district3804fbc3", "district591d3b91", "districtba2703cc", "district8c2f6db8", "district146a2ea4", "district4aab8a4f", "district49d39b1d", "district2eb8a350", "districtc9da3dc7", "district4cf2ee2e", "district19bf861b", "district76f9d884", "districtce25a576", "district32bce083", "district141bbd99", "district7712158f", "districtf17aa08f", "district8eee66aa", "district302a26ee", "districtc254d06a", "districtad6518b9", "district3d41a218", "district407d5232", "district22b9cad2", "district8724fa0b", "district1b7a9ff6", "district62e0f88e", "district716bc84e", "district702e415b", "district7d59dd6d", "district117ff241", "district3cf253eb", "district7c886830", "district6e7aa4fa", "districtb38f3a96", "district69194f1e", "district5eee00c7", "district470e8d17", "districtbaeed48f", "district200af1a9", "district00821b1d", "districteef90f43", "districtd3145f40", "district024af4b8", "district48964bec", "district446f4fc9", "district1d630a21", "district4f59c697", "district632d34ec", "districtd4f46781", "district578a4884", "districtf89c6a4e", "district9b893ecf", "district680e250f", "districtee693d5e", "district1614dfd4", "district9635ea45", "district135040f7", "district29658260", "districtf6b970d2", "districtb2af9b16", "districtc008c2a7", "districte67ef74a", "district0a422323", "district91e31cb1", "districtc5d836d0", "districtf8a8988c", "districtd612c515"] }
   ],
   "fonts": [
     { "name": "Default", "path": "", "atlasSize": 16, "color": [1, 1, 1], "shadow": true, "quant": "4bit" }
@@ -148,7 +148,9 @@
   "hudGrainLayer": -1,
   "music": [],
   "sounds": ["res/sfx/engine-loop.wav", "res/sfx/engine-high-loop.wav", "res/sfx/screech-loop.wav", "res/sfx/gear-shift.wav"],
-  "saveValues": [],
+  "saveValues": [
+    { "name": "district-night", "default": 0 }
+  ],
   "saveTexts": [],
   "saveTitle": "",
   "saveIcon": "",
@@ -171,7 +173,11 @@
   "gradings": [],
   "defaultGrading": -1,
   "ambience": [
-    { "name": "Default", "skyColor": [0.25, 0.55, 0.78], "skyTopColor": [0.08, 0.3, 0.65], "skyDome": true, "zenithSize": 0.5, "lightDir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "lightColor": [1, 1, 1], "brightness": 1, "aoEnabled": true, "aoStrength": 0.55, "aoRadius": 2.5, "fogEnabled": false, "fogColor": [0.5, 0.5, 0.55], "fogStart": 15, "fogEnd": 120 }
+    { "name": "Default", "skyColor": [0.58, 0.64, 0.66], "skyTopColor": [0.12, 0.28, 0.42], "skyDome": true, "zenithSize": 0.5, "lightDir": [-0.55, 0.65, 0.35], "ambient": 0.48, "diffuse": 0.52, "lightColor": [1, 0.87, 0.69], "brightness": 1, "aoEnabled": false, "aoStrength": 0.55, "aoRadius": 2.5, "fogEnabled": true, "fogColor": [0.58, 0.64, 0.66], "fogStart": 100, "fogEnd": 165,
+      "cycle": { "enabled": true, "time": 12, "sunAzimuth": 75, "sunTilt": 28, "sunrise": 6, "sunset": 18, "sunSize": 3, "moonAzimuth": 105, "moonTilt": 34, "moonOffset": 12, "moonSize": 4, "moonPhase": 0.65, "moonOpacity": 1, "moonTexture": "", "runtime": true, "dayLength": 7200, "bakeHour": 12, "runtimeGrade": true, "starsEnabled": true, "starTwinkle": 0.35, "starSeed": 4096, "starCount": 160, "starSpread": 0.7, "milkyWay": 0.6, "milkyWayTilt": 30, "starSize": 1, "keys": [
+        { "hour": 0, "skyColor": [0.035, 0.045, 0.085], "skyTopColor": [0.006, 0.012, 0.036], "lightColor": [0.48, 0.6, 0.92], "ambient": 0.2, "diffuse": 0.3, "brightness": 0.85, "fogColor": [0.035, 0.045, 0.085], "stars": 1 },
+        { "hour": 12, "skyColor": [0.58, 0.64, 0.66], "skyTopColor": [0.12, 0.28, 0.42], "lightColor": [1, 0.87, 0.69], "ambient": 0.48, "diffuse": 0.52, "brightness": 1, "fogColor": [0.58, 0.64, 0.66], "stars": 0 }
+      ] } }
   ],
   "defaultAmbience": 0,
   "loadingScreens": [],
@@ -181,7 +187,12 @@
   "sequences": [],
   "menus": [
     { "name": "save", "title": "SAVE GAME", "saveMenu": true, "screenPos": [0.5, 0.45], "accent": [0.47, 0.82, 1],
-      "entries": [] }
+      "entries": [] },
+    { "name": "district-pause", "title": "MOTOR DISTRICT", "pauseMenu": true, "screenPos": [0.5, 0.45], "accent": [0.15, 0.85, 1],
+      "entries": [
+        { "label": "RESUME", "action": "close" },
+        { "label": "TIME OF DAY", "action": "toggle", "param": "district-night", "options": ["DAY", "NIGHT"] }
+      ] }
   ],
   "input": {
     "activePreset": 0,
@@ -242,9 +253,11 @@
     ]
   },
   "vehicles": [
-    { "id": "cc96playground01", "name": "CC96", "notes": "CC0 coupe by its author - see res/models/car1-CC0-licence.txt", "model": "res/models/car1.fbx", "bodyTris": 2400, "wheelTris": 700, "bodyShine": 0.55, "bodyReflMap": "res/textures/nfs-streaks.png", "cam": [6.5, 2.2, 12], "exit": [-1.4, 0, 0], "hud": true, "hudFont": "", "hudSpeedScale": 3.6, "engineSound": "res/sfx/engine-loop.wav", "enginePitch": [0.75, 2.4], "engineVolume": 70, "engineHighSound": "res/sfx/engine-high-loop.wav", "screechSound": "res/sfx/screech-loop.wav", "screechVolume": 80, "shiftSound": "res/sfx/gear-shift.wav", "shiftVolume": 80, "headlights": true, "lampRear": [0.389809, 0.22911, -1.71703, 0.194904], "lampPart": 2, "lampRearVerts": 60, "lampFront": [0.484619, 0.234116, 1.62703, 0.24231], "drive": {"wheelBase": 2.066, "track": 1.248, "bodyOverhang": 0.3, "wheelRadius": 0.232, "topSpeed": 22, "reverseTopSpeed": 6, "accel": 9, "brakeDecel": 18, "engineBraking": 3, "drag": 0.0016, "maxSteerDeg": 34, "highSpeedSteerDeg": 11, "steerRateDeg": 220, "steerReturnDeg": 300, "grip": 26, "handbrakeGrip": 6, "gravity": 24, "rideHeight": 0.232, "suspensionTravel": 0.18, "suspensionRate": 8, "maxSlopeCos": 0.5, "mass": 12, "leanAmount": 0.8, "gears": 5, "gearSpread": 1.52, "idleRpm": 800, "redlineRpm": 7200, "shiftUpFrac": 0.93, "shiftDownFrac": 0.5, "shiftTime": 0.18, "gearTorque": 0.6, "nosCapacity": 3, "nosBoost": 0.8, "nosTopSpeed": 1.18, "nosRefill": 0.12 } }
+    { "id": "cc96playground01", "name": "CC96", "notes": "CC0 coupe by its author - see res/models/car1-CC0-licence.txt", "model": "res/models/car1.fbx", "bodyTris": 2400, "wheelTris": 700, "bodyShine": 0.45, "cam": [6.5, 2.2, 12], "exit": [-1.4, 0, 0], "hud": true, "hudFont": "", "hudSpeedScale": 3.6, "engineSound": "res/sfx/engine-loop.wav", "enginePitch": [0.75, 2.4], "engineVolume": 70, "engineHighSound": "res/sfx/engine-high-loop.wav", "screechSound": "res/sfx/screech-loop.wav", "screechVolume": 80, "shiftSound": "res/sfx/gear-shift.wav", "shiftVolume": 80, "headlights": true, "farDistance": 48, "lampRear": [0.389809, 0.22911, -1.71703, 0.194904], "lampPart": 2, "lampRearVerts": 60, "lampFront": [0.484619, 0.234116, 1.62703, 0.24231], "drive": {"wheelBase": 2.066, "track": 1.248, "bodyOverhang": 0.3, "wheelRadius": 0.232, "topSpeed": 29, "reverseTopSpeed": 6, "accel": 11, "brakeDecel": 18, "engineBraking": 3, "drag": 0.0016, "maxSteerDeg": 34, "highSpeedSteerDeg": 14, "steerRateDeg": 220, "steerReturnDeg": 300, "grip": 26, "handbrakeGrip": 6, "gravity": 24, "rideHeight": 0.232, "suspensionTravel": 0.18, "suspensionRate": 8, "maxSlopeCos": 0.5, "mass": 12, "leanAmount": 0.25, "gears": 5, "gearSpread": 1.28, "idleRpm": 800, "redlineRpm": 7200, "shiftUpFrac": 0.95, "shiftDownFrac": 0.48, "shiftTime": 0.1, "gearTorque": 0.35, "nosCapacity": 4, "nosBoost": 0.8, "nosTopSpeed": 1.18, "nosRefill": 0.18 } },
+    { "id": "ggbotrally0001", "name": "Rally 04", "notes": "Car 04 by GGBotNet (CC0); wheels separated and scaled by TyraX", "model": "res/models/ggbot-rally.glb", "bodyTris": 1800, "wheelTris": 300, "bodyShine": 0.35, "cam": [6.5, 2.2, 12], "exit": [-1.4, 0, 0], "hud": true, "hudFont": "", "hudSpeedScale": 3.6, "engineSound": "res/sfx/engine-loop.wav", "enginePitch": [0.75, 2.4], "engineVolume": 70, "engineHighSound": "res/sfx/engine-high-loop.wav", "screechSound": "res/sfx/screech-loop.wav", "screechVolume": 80, "shiftSound": "res/sfx/gear-shift.wav", "shiftVolume": 80, "farDistance": 48, "lampRear": [0.389809, 0.22911, -1.71703, 0.194904], "lampPart": 2, "lampRearVerts": 60, "lampFront": [0.484619, 0.234116, 1.62703, 0.24231], "drive": {"wheelBase": 2.733, "track": 1.562, "bodyOverhang": 0.3, "wheelRadius": 0.341, "topSpeed": 26, "reverseTopSpeed": 6, "accel": 10, "brakeDecel": 18, "engineBraking": 3, "drag": 0.0016, "maxSteerDeg": 34, "highSpeedSteerDeg": 11, "steerRateDeg": 220, "steerReturnDeg": 300, "grip": 22, "handbrakeGrip": 5, "gravity": 24, "rideHeight": 0.341, "suspensionTravel": 0.26, "suspensionRate": 8, "maxSlopeCos": 0.5, "mass": 12, "leanAmount": 0.35, "gears": 5, "gearSpread": 1.28, "idleRpm": 800, "redlineRpm": 7200, "shiftUpFrac": 0.95, "shiftDownFrac": 0.48, "shiftTime": 0.1, "gearTorque": 0.35, "nosCapacity": 4, "nosBoost": 0.8, "nosTopSpeed": 1.18, "nosRefill": 0.12 } },
+    { "id": "tristarplay01", "name": "Tristar Racer", "notes": "designersoup Low Poly Car Starter Pack; see THIRD-PARTY-NOTICES.txt", "model": "res/models/tristar-racer.glb", "bodyTris": 2400, "wheelTris": 320, "bodyShine": 0.35, "cam": [6.5, 2.2, 12], "exit": [-1.4, 0, 0], "hud": true, "hudFont": "", "hudSpeedScale": 3.6, "engineSound": "res/sfx/engine-loop.wav", "enginePitch": [0.75, 2.4], "engineVolume": 70, "engineHighSound": "res/sfx/engine-high-loop.wav", "screechSound": "res/sfx/screech-loop.wav", "screechVolume": 80, "shiftSound": "res/sfx/gear-shift.wav", "shiftVolume": 80, "farDistance": 48, "drive": {"wheelBase": 2.354, "track": 1.555, "bodyOverhang": 0.3, "wheelRadius": 0.31, "topSpeed": 32, "reverseTopSpeed": 6, "accel": 12, "brakeDecel": 18, "engineBraking": 3, "drag": 0.0016, "maxSteerDeg": 34, "highSpeedSteerDeg": 12, "steerRateDeg": 220, "steerReturnDeg": 300, "grip": 29, "handbrakeGrip": 6, "gravity": 24, "rideHeight": 0.31, "suspensionTravel": 0.18, "suspensionRate": 8, "maxSlopeCos": 0.5, "mass": 12, "leanAmount": 0.25, "gears": 5, "gearSpread": 1.28, "idleRpm": 800, "redlineRpm": 7200, "shiftUpFrac": 0.95, "shiftDownFrac": 0.48, "shiftTime": 0.1, "gearTorque": 0.35, "nosCapacity": 4, "nosBoost": 0.8, "nosTopSpeed": 1.18, "nosRefill": 0.18 } }
   ],
-  "editor": { "selectedObject": 12, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "showFog": true, "cam": [4.73, 0.93, 65.61, 0.555347, 0, 0.571807], "breakpoints": [] },
+  "editor": { "selectedObject": 1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "showFog": true, "cam": [0.75, 0.65, 145, 0, 0, 0], "breakpoints": [] },
   "activeLayout": 0,
   "layouts": [
     { "name": "Default", "recipe": 0, "open": ["debugger"], "ini": "[Window][Project]\nPos=0,23\nSize=444,986\nCollapsed=0\nDockId=0x00000001,0\nLastUsed=20260911\n\n[Window][Properties]\nPos=1554,23\nSize=366,986\nCollapsed=0\nDockId=0x00000004,0\nLastUsed=20260911\n\n[Window][Debugger]\nPos=1554,23\nSize=366,986\nCollapsed=0\nDockId=0x00000004,1\nLastUsed=20260911\n\n[Window][Output]\nPos=446,771\nSize=1106,238\nCollapsed=0\nDockId=0x00000006,0\nLastUsed=20260911\n\n[Window][Debug]\nPos=446,771\nSize=1106,238\nCollapsed=0\nDockId=0x00000006,1\nLastUsed=20260911\n\n[Window][Flow Graph]\nPos=446,23\nSize=1106,746\nCollapsed=0\nDockId=0x00000005,1\nLastUsed=20260911\n\n[Window][Viewport]\nPos=446,23\nSize=1106,746\nCollapsed=0\nDockId=0x00000005,0\nLastUsed=20260911\n\n[Window][WindowOverViewport_11111111]\nPos=0,23\nSize=1920,986\nCollapsed=0\nLastUsed=20260911\n\n[Window][Debug##Default]\nPos=60,60\nSize=400,400\nCollapsed=0\nLastUsed=20260911\n\n[Docking][Data]\nDockSpace       ID=0x08BD597D Window=0x1BBC0F80 Pos=0,23 Size=1920,986 Split=X\n  DockNode      ID=0x00000001 Parent=0x08BD597D SizeRef=444,915 Selected=0x9C21DE82\n  DockNode      ID=0x00000002 Parent=0x08BD597D SizeRef=1407,915 Split=X\n    DockNode    ID=0x00000003 Parent=0x00000002 SizeRef=1039,915 Split=Y\n      DockNode  ID=0x00000005 Parent=0x00000003 SizeRef=1039,675 CentralNode=1 Selected=0xC450F867\n      DockNode  ID=0x00000006 Parent=0x00000003 SizeRef=1039,238 Selected=0x6BCC3585\n    DockNode    ID=0x00000004 Parent=0x00000002 SizeRef=366,915 Selected=0x3571D65E\n\n" },

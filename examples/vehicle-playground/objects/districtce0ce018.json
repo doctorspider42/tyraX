@@ -1,0 +1,1 @@
+{ "id": "districtce0ce018", "name": "West service lane", "type": "road", "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "roadPoints": [-60, -58, -65, -25, -65, 0, -60, 58], "roadWidth": 9, "roadTexture": "res/textures/district-road.png" }

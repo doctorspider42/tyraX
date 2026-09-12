@@ -132,6 +132,9 @@ void App::vehicleRefreshBake(int index, bool force) {
         put("veh-" + v.id + "-palette.png",
             std::string((const char*)c.result.palettePng.data(),
                         c.result.palettePng.size()));
+    for (const auto& texture : c.result.textures)
+        put(fs::path(texture.path).filename().string(),
+            std::string((const char*)texture.png.data(), texture.png.size()));
 
     // Adopt the model's OWN measurements - but only while the definition still
     // carries the untouched defaults, so an author who set a wider track keeps

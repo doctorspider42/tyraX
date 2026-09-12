@@ -18,7 +18,7 @@ constexpr int TERRAIN_MAX_CELLS = 80;
 // (the rest streams in as the player moves - pair with fog to hide pop-in).
 // 0 keeps the whole map resident, like before chunking existed.
 constexpr int TERRAIN_CHUNK_CELLS = 16;
-constexpr float TERRAIN_VIEW_DISTANCE = 0.0F;
+constexpr float TERRAIN_VIEW_DISTANCE = 150.0F;
 
 // Distance detail (Preferences > World, docs/terrain-lod.md). Beyond this
 // range a tile is built from every 2nd heightmap sample, and beyond 2.2x it

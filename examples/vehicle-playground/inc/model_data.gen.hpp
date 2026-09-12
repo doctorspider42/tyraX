@@ -3,14 +3,44 @@
 
 namespace Vehicle_playground {
 
-constexpr int MODEL_COUNT = 2;
+constexpr int MODEL_COUNT = 17;
 inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
+    "models/urban/district-workshop.tmdl",
+    "models/urban/district-tower.tmdl",
+    "models/urban/district-loft.tmdl",
+    "models/urban/detail-light-double.tmdl",
+    "models/urban/detail-light-traffic.tmdl",
+    "models/urban/tree-park-large.tmdl",
+    "models/urban/tree-park-pine-large.tmdl",
+    "models/urban/detail-barrier-type-a.tmdl",
+    "models/urban/detail-dumpster-closed.tmdl",
+    "models/urban/detail-bench.tmdl",
+    "models/urban/pallet.tmdl",
     "vehicles/veh-cc96playground01-body.tmdl",
     "vehicles/veh-cc96playground01-wheel.tmdl",
+    "vehicles/veh-ggbotrally0001-body.tmdl",
+    "vehicles/veh-ggbotrally0001-wheel.tmdl",
+    "vehicles/veh-tristarplay01-body.tmdl",
+    "vehicles/veh-tristarplay01-wheel.tmdl",
 };
 // per-model .mtl override, for the .obj fallback path only (a
 // .tmdl already carries the resolved override) - "" = none
 inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
     "",
     "",
 };
@@ -19,10 +49,25 @@ inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
 // resolves its asset pool against, because a graph names assets the
 // way the editor does and the console only has baked .tmdl names.
 inline const char* MODEL_SOURCES[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
+    "res/models/urban/district-workshop.obj",
+    "res/models/urban/district-tower.obj",
+    "res/models/urban/district-loft.obj",
+    "res/models/urban/detail-light-double.obj",
+    "res/models/urban/detail-light-traffic.obj",
+    "res/models/urban/tree-park-large.obj",
+    "res/models/urban/tree-park-pine-large.obj",
+    "res/models/urban/detail-barrier-type-a.obj",
+    "res/models/urban/detail-dumpster-closed.obj",
+    "res/models/urban/detail-bench.obj",
+    "res/models/urban/pallet.obj",
     "res/models/car1.fbx",
     "res/models/car1.fbx",
+    "res/models/ggbot-rally.glb",
+    "res/models/ggbot-rally.glb",
+    "res/models/tristar-racer.glb",
+    "res/models/tristar-racer.glb",
 };
-constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false};
+constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false};
 
 constexpr int ANIM_MODEL_COUNT = 0;
 inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {
@@ -30,9 +75,13 @@ inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1]
 };
 
 // .mtl libraries assigned to primitives (first material = surface)
-constexpr int MATERIAL_COUNT = 0;
+constexpr int MATERIAL_COUNT = 5;
 inline const char* MATERIAL_PATHS[MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 1] = {
-    "",
+    "materials/district-asphalt.mtl",
+    "materials/district-sign.mtl",
+    "materials/night-warm.mtl",
+    "materials/night-cyan.mtl",
+    "materials/night-pink.mtl",
 };
 
 // texture atlas summary, logged at scene boot ("" = no atlas)

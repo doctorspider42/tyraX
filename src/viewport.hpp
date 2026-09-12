@@ -1027,6 +1027,7 @@ private:
     // .obj models split per material (MTL): each part carries its own GL mesh
     // (Kd baked into the vertex colors) and map_Kd texture.
     struct ModelPart {
+        std::string bakedTextureRel;  // vehicle part; resolved at draw time
         Mesh mesh;
         uint32_t tex = 0;  // GL texture from map_Kd (0 = untextured)
         // map_Kd carries transparency: draw this part cutout + blended, the

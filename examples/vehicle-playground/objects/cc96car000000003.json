@@ -1,1 +1,1 @@
-{ "id": "cc96car000000003", "name": "rival-2", "type": "vehicle", "position": [30, 0, -50], "rotation": [0, 0, 0], "scale": [1.5, 1.5, 1.5], "color": [0.6, 0.6, 0.6], "physics": false, "shadowMode": 2, "vehicle": { "def": "CC96", "driveable": true, "route": "circuit-" } }
+{ "id": "cc96car000000003", "name": "rival-2", "type": "vehicle", "position": [106, 5.36314, -90], "rotation": [0, 30, 0], "scale": [1, 1, 1], "color": [0.6, 0.6, 0.6], "physics": false, "shadowMode": 2, "vehicle": { "def": "Rally 04", "driveable": true, "route": "circuit-" } }

@@ -17403,8 +17403,8 @@ void TerrainGame::renderVehicleHud() {
   }
 }
 
-// The second submit: every wheel of every vehicle, transformed into world
-// space and concatenated into ONE bag. Four wheels is a few hundred
+// One wheel submit per vehicle definition: transform into world space and
+// concatenate cars sharing the same wheel material. Four wheels is a few hundred
 // vertices of VU0 work against the ~1 ms a second submit would cost.
 // The body's shown LOD tier, for the telemetry: 0 = full, 1/2 = the far
 // tiers with the wheels baked in (docs/vehicles.md).
@@ -17418,13 +17418,16 @@ int TerrainGame::vehicleLod(int vi) const {
 void TerrainGame::renderVehicleWheels() {
   if (vehicleCount_ <= 0) return;
   const float kDeg = 3.14159265F / 180.0F;
+  // Distinct definitions can use different palettes or source images. A single
+  // shared bag would sample every car's wheel UVs through the last car's image.
+  for (int drawDef = 0; drawDef < VEHICLE_DEF_COUNT; ++drawDef) {
   wheelVerts_.clear();
   wheelCols_.clear();
   wheelSts_.clear();
   const GameModelPart* src = nullptr;
   for (int vi = 0; vi < vehicleCount_; ++vi) {
     VehicleRt& v = vehicles_[vi];
-    if (!v.active || v.def < 0) continue;
+    if (!v.active || v.def != drawDef) continue;
     const VehicleDefData& s = VEHICLE_DEFS[v.def];
     const int wm = s.wheelModel;
     if (wm < 0 || wm >= (int)gameModels.size() || gameModels[wm].parts.empty())
@@ -17504,7 +17507,7 @@ void TerrainGame::renderVehicleWheels() {
       }
     }
   }
-  if (wheelVerts_.empty() || !src) return;
+  if (wheelVerts_.empty() || !src) continue;
   if (!wheelBag_) {
     wheelColorBag_ = std::make_unique<Tyra::StaPipColorBag>();
     wheelBag_ = std::make_unique<Tyra::StaPipBag>();
@@ -17525,6 +17528,7 @@ void TerrainGame::renderVehicleWheels() {
     wheelBag_->texture = nullptr;
   }
   stapip.core.render(wheelBag_.get());
+  }
 }
 
 
@@ -17647,15 +17651,24 @@ void TerrainGame::buildRoads(int scene) {
           // stitch, emitted station by station so a chunk boundary never
           // leaves a gap (the previous row is re-used as the base).
           const Tyra::Color grey(128.0F, 128.0F, 128.0F, 128.0F);
-          for (int j = 0; j < crossSteps; ++j) {
+          // Flat-road reduction: the roadgen.cpp twin. Inspect every sampled
+          // interior height, not just the shoulders (crowns must stay dense).
+          bool flat = true;
+          const float rowY = py0[0];
+          for (int j = 0; j <= crossSteps; ++j)
+            if (fabsf(py0[(size_t)j] - rowY) > 0.00001F ||
+                fabsf(ny[(size_t)j] - rowY) > 0.00001F)
+              flat = false;
+          const int stride = flat ? crossSteps : 1;
+          for (int j = 0; j < crossSteps; j += stride) {
             const float u0 = (float)j / (float)crossSteps;
-            const float u1 = (float)(j + 1) / (float)crossSteps;
+            const float u1 = (float)(j + stride) / (float)crossSteps;
             const Tyra::Vec4 A(px0[(size_t)j], py0[(size_t)j],
                                pz0[(size_t)j], 1.0F);
-            const Tyra::Vec4 B(px0[(size_t)j + 1], py0[(size_t)j + 1],
-                               pz0[(size_t)j + 1], 1.0F);
-            const Tyra::Vec4 C(nx[(size_t)j + 1], ny[(size_t)j + 1],
-                               nz[(size_t)j + 1], 1.0F);
+            const Tyra::Vec4 B(px0[(size_t)j + stride], py0[(size_t)j + stride],
+                               pz0[(size_t)j + stride], 1.0F);
+            const Tyra::Vec4 C(nx[(size_t)j + stride], ny[(size_t)j + stride],
+                               nz[(size_t)j + stride], 1.0F);
             const Tyra::Vec4 D(nx[(size_t)j], ny[(size_t)j],
                                nz[(size_t)j], 1.0F);
             const Tyra::Vec4 sA(u0, lv0, 1.0F, 0.0F);
@@ -17680,13 +17693,13 @@ void TerrainGame::buildRoads(int scene) {
     }
   }
   if (any) procFinishChunks();
-  int roadChunks = 0;
+  int roadChunks = 0, roadVertices = 0;
   for (const ProcChunk& c : procChunks)
-    if (c.owner == -3) ++roadChunks;
+    if (c.owner == -3) { ++roadChunks; roadVertices += (int)c.vertices.size(); }
   float y0 = 0.0F;
   for (const ProcChunk& c : procChunks)
     if (c.owner == -3 && !c.vertices.empty()) { y0 = c.vertices[0].y; break; }
-  TYRA_LOG("ROADS scene ", scene, " chunks ", roadChunks, " y0x10 ",
+  TYRA_LOG("ROADS scene ", scene, " chunks ", roadChunks, " vertices ", roadVertices, " y0x10 ",
            (int)(y0 * 10.0F));
 }
 
@@ -18846,7 +18859,13 @@ void TerrainGame::renderScene() {
       part.envTexBag->envUp = og.probeUp;
     } else {
       part.envTexBag->envRight.set(envRight.x, envRight.y, envRight.z, 0.0F);
-      part.envTexBag->envUp.set(envUp.x, envUp.y, envUp.z, 0.0F);
+      // The shared dynamic capture is LEVEL. Sampling it with the pitched
+      // chase camera's up vector sends rear/side normals below its horizon,
+      // where there is only the clear colour instead of the buildings.
+      if (part.envTexBag->texture == engine->renderer.core.envMap.getTexture())
+        part.envTexBag->envUp.set(0.0F, 1.0F, 0.0F, 0.0F);
+      else
+        part.envTexBag->envUp.set(envUp.x, envUp.y, envUp.z, 0.0F);
     }
     const M4x4& m = og.objMat;
     auto fold = [&](Tyra::Vec4& e) {

@@ -16,6 +16,10 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.85.0: Motor District vehicle playground and flat-road geometry reduction.
+// Retain textured vehicle images/wheel LODs and match dynamic reflection UVs
+// to the level capture camera. No project-format change.
+//
 // 1.84.2: a PS2 deploy that receives no console log keeps ps2client alive and
 // reports an unconfirmed launch instead of removing host: from a game that may
 // already be running. PATCH: deploy-lifetime fix; no project-format change.
@@ -3573,8 +3577,8 @@
 // 1.79.0: merge native PS2DEV/OpenVCL builds with editor comments.
 // 1.80.0: cutscenes can hide the HUD and own the skip button.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 84
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_MINOR 85
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

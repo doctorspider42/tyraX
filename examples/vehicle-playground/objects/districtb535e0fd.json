@@ -1,0 +1,1 @@
+{ "id": "districtb535e0fd", "name": "Workshop block 14", "type": "model", "position": [-92, 0, 27], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "drawDistance": 145, "castShadow": false, "model": "res/models/urban/district-workshop.obj" }

@@ -1,162 +1,177 @@
-# vehicle-playground example
+# Motor District — vehicle playground
 
-A car you can get into and drive, and some things to hit with it. This is the
-worked example for [vehicles](../../docs/vehicles.md).
+A compact PS2 driving district with a connected street network, three driveable
+car models and live scenery reflections. Open `vehicle-playground.tyra` in
+TyraX, build and run, then press Square beside the gold coupe.
 
-## What is in it
+![Motor District in PCSX2](preview/district.png)
 
-- **A CC96 coupe** imported from a single `res/models/car1.fbx`. Nothing about
-  that file was prepared for this: its nodes are called `Cube` and
-  `Cylinder.001`–`.003` — Blender defaults — and the importer finds the four
-  wheels by **geometry** rather than by name. The one thing it DID bring is
-  lamp materials — `headlights`, `headlights2`, `rear lights` — so the tail
-  lamps and headlamps are body mesh the game recolours: dark red at rest,
-  lit on **D-pad up**, a bright flare while braking.
-- **A 320x320 sculpted playground** — a flat start box with the pillar slalom,
-  rolling dunes to the east, a banked bowl to the south-west to swing around,
-  and a jump ridge along the western half. Every slope stays under the ~22 deg
-  the car can climb at full power except the bowl's wall, which is meant to be
-  ridden around, not up.
-- **An analytic four-wheel rig** keeps the separate wheel meshes attached to
-  fully transformed body hardpoints and moves suspension along body-up. The
-  dunes and jump ridge exercise the extra body-overhang clearance probes: the
-  bonnet cannot cut through a crest even though there is no skeletal IK rig.
-- **Perimeter walls** at ±152, so the wall collision has something to do — hit
-  one at an angle and the car GRINDS along it, scrubbing speed by impact angle;
-  head-on stops.
-- **A slalom of pillars**, which are cylinders and therefore collide as boxes —
-  a useful reminder that the collider is not the mesh.
-- **Three crates** at the end of the start straight (`crate-1..3`, physics
-  boxes of mass 0.6): drive into them and they scatter and tumble — a car
-  shoves a physics body instead of stopping at it.
-- **Two rivals** (`rival`, `rival-2`) patrolling the same four-Area circuit
-  with no pad attached — and avoiding each other, and you, one frame ahead.
-  The first rival starts beside the player at (-2.8871, 0, -0.440529).
-- **Two dynamic-shadow tiers** on the same imported model: the coupe casts its
-  real projected silhouette, while both AI rivals use cheap terrain-following
-  blobs. Select a car and change it under *Properties > Rendering > Dynamic
-  shadow*.
+Actual software-renderer captures: [Tristar Racer](preview/tristar.png), [coupe](preview/coupe.png) and
+[Rally 04](preview/rally.png). Night mode: [street](preview/night.png) and
+[pause-menu selection](preview/night-menu.png).
 
-## Driving it
+## The district
 
-The CC96 carries the full sound pack: a two-sample engine (idle +
-high-rev loops crossfaded on the revs), a tyre squeal riding the slip, and a
-gear-shift thunk — all generated deterministically by
-`tools/veh-sound-pack.py` and `tools/engine-loop-wav.py`.
+- Seven spline roads: a wide perimeter loop, Garage Boulevard, two cross-city
+  links, Market Street, a western service lane and the eastern crest run.
+- Fourteen workshop, loft and tower blocks assembled from Kenney's Retro Urban
+  Kit, with pavements, trees, benches, traffic signals, streetlights, dumpsters
+  and barriers. The garage sign and road/ground textures are original assets.
+- A garage apron and western yard for handbrake turns. Loose crates and pallets
+  can be pushed; buildings, street furniture and perimeter walls collide.
+- A flat city floor and gentle eastern crests. Roads and wheel contacts use the
+  same terrain. The district fits within the existing 320 × 320 metre boundary.
+- Five placed vehicles: the hero CC96 coupe, a parked orange Rally 04, a Tristar Racer and two AI
+  patrols. The rivals remain driveable and resume their route after you get out.
 
-A **road** (docs/roads.md) runs from south of the spawn through the pillar
-field toward the north-east: a five-point spline, tessellated onto the
-terrain at boot, textured by `tools/road-texture.py`'s deterministic asphalt.
-The editor shows that same depth-tested, terrain-projected strip beneath the
-spline handles, so the authored road is no longer represented by a grey overlay.
-Its vertices query the terrain's actual triangle planes and the road can be
-selected by clicking anywhere on the asphalt, not only at its authoring anchor.
+The CC96 has a 29 m/s target speed before nitrous, more steering authority at
+speed and a four-second refillable tank. Rally 04 is a lighter, deliberately
+more slippery alternative with a longer wheelbase and more suspension travel.
+These are arcade settings, not a real-world vehicle simulation.
 
-Walk up to the car and press **USE** (Square by default). The camera moves to a
-lagged boom behind the car;
-while driving, the on-foot controls are fully off (no jumping from the driver's
-seat). Press USE again to get out at the driver's door.
+The Tristar Racer parks west of the coupe, opposite the Rally. It has a 32 m/s
+target speed, stronger grip and the same refillable nitrous controls. Its source
+body stays at 2276 triangles; the vehicle bake reduces each symmetric wheel to
+416 triangles (3940 total near geometry, versus the CC96's 4288). The prepared
+GLB is 383,536 bytes. It uses a cheap blob shadow and a 48 m distance tier.
 
-| | |
+The five-speed boxes use a 1.28 spread, 0.10 s shifts and reduced ratio torque.
+Body lean is 0.25 on the coupe/Tristar and 0.35 on the van. A 60 Hz flat-ground
+full-throttle comparison against the previous settings measured:
+
+| Vehicle | First upshift before → after | Largest shift pitch swing before → after |
+|---|---|---|
+| CC96 | 18.7 → 36.8 km/h | 3.94° → 1.24° |
+| Rally 04 | 17.0 → 32.7 km/h | 3.93° → 1.60° |
+| Tristar Racer | 20.4 → 41.0 km/h | 3.95° → 1.24° |
+
+All three completed four clean upshifts. Target top speeds remain 29 / 26 / 32 m/s;
+the lower gears are longer rather than the whole car becoming faster.
+
+## Controls
+
+| Input | Action |
 |---|---|
-| left stick | steer, and throttle forward/back |
-| R2 | throttle — ANALOG: a DualShock 2 reports the button's pressure, so squeeze for a crawl |
-| L2 | brake |
-| Circle | handbrake — this is the drift button |
-| Cross | nitrous — this car carries three seconds of it |
-| Triangle | cycle the camera: chase → bumper → far |
-| right stick | glance around the car (X, up to ±60°), lift the camera (Y) — springs back on release |
-| R3 | hold for the rear view — the look-back mirror |
+| Start | Pause menu, including Day / Night |
+| Square | Enter / leave the nearest vehicle |
+| Left stick | Steer; vertical axis also supplies throttle / reverse |
+| R2 / L2 | Throttle / brake |
+| Circle | Handbrake |
+| Cross | Nitrous |
+| Triangle | Chase / bumper / far camera |
+| Right stick / R3 | Look around / rear view |
+| D-pad up | CC96 headlamps |
 
-All of the buttons above are Input Map actions (*Tools > Input Map*), so a
-project can move them; the analog stick and the d-pad stay hardwired.
+The coupe retains its engine/rev crossfade, tyre squeal, gear-shift sound,
+brake lamps, suspension and projected silhouette. The parked Rally also uses
+a projected silhouette; AI cars use cheaper blob shadows.
 
-Gas on a shoulder button is the era's own answer: a stick at full lock has no
-vertical deflection left, so gas-on-stick dies exactly when you steer hard.
-The brake avoids Square deliberately: Square is USE, and a brake there would
-also throw the driver out on the same press.
+## Reflections and cost
 
-**Try the bumper cam in a handbrake turn.** The chase camera's boom lags the car,
-so a slide reads as the body rotating underneath you; the bumper cam takes the
-car's own heading instead, so the same slide throws the whole view sideways. That
-contrast is why both exist.
+All three definitions use the dynamic `@sky` paint map, rather than the former
+`nfs-streaks.png`. Seven nearby building blocks have **Show in reflections**
+enabled: their geometry is rendered into the live 128 × 128 environment target
+along with the sky. Other scenery stays out of this extra pass. This is the
+shared PS2 sphere-map approximation, refreshed every other frame; it is not
+ray tracing, a cubemap or an accurate mirror of everything around the car.
+The editor's sky-only approximation cannot prove scenery reflections: inspect
+those in the running game.
 
-## The gearbox
+The CC96 bake remains 1936 body triangles and 588 per wheel. Rally 04 has only
+364 body triangles and 28 per wheel. Wheels share a submission within each vehicle definition; distinct models keep
+their own texture bindings.
+The GGBot source has disconnected wheel islands inside one mesh: preparation
+separates them and gives each node a distinct material slot so the importer
+retains ownership. The source texture and silhouettes are preserved.
 
-This car is set up to show the powertrain off rather than to stay neutral:
-`gearTorque` 1 (the ratio fully shapes acceleration — first gear pulls, top gear
-runs out of breath), `shiftTime` 0.18 (an audible throttle cut between gears) and a
-three-second nitrous tank. Both of the first two default to **off** on a fresh
-vehicle, precisely so an existing car drives exactly as it did before gears
-existed; this example turns them on. The paint carries **Body shine 0.55** with
-the **streak sphere map** (`res/textures/nfs-streaks.png`, generated by
-`tools/nfs-streak-map.py`) — faceted highlights that sweep across the body as
-the car turns, while the tyres and dark trim stay matte.
+Flat road spans now retain their sampled shoulders and discard redundant
+interior vertices. A 13 m flat street uses 26 times fewer vertices per station;
+crowns, banks and changing terrain retain the dense 0.5 m cross samples.
+Chunk culling and the 1 m longitudinal sampling remain in place. This matters
+for EE RAM as well as drawing: the initial dense district exhausted its budget.
+The boot log reports `ROADS ... chunks ... vertices ...` for inspection.
 
-While driving you get a **readout** bottom-right: speed (in km/h — the car sets
-`hudSpeedScale` to 3.6, i.e. one world unit is one metre), the gear, and the
-nitrous tank while any is left.
+## Reproduce and verify
 
-It also has an **engine note**: `res/sfx/engine-loop.wav`, generated by
-`tools/engine-loop-wav.py`, whose pitch follows the engine speed. The `-loop`
-suffix is what makes the build encode it with `adpenc -L` — the loop is baked
-into the sample, not asked for at runtime. Both native and Docker builds verify
-the encoded loop byte as part of their incremental staleness check.
-
-Hold Cross from a standstill and watch `bin/log.txt`:
+The committed scene and assets are ready to build. To regenerate the district:
 
 ```
-VEH ... spd10 41   gear 0 rpm 7200   ← first gear, on the redline
-VEH ... spd10 56   gear 2 rpm 5017   ← changed up, and the engine dropped
-VEH ... spd10 170  gear 4 rpm 5770   ← top gear
+python authoring/build-district.py
 ```
 
-## The rival
+Requires Python 3 and Pillow (including the sized default font API). It reads
+only the bundled Kenney OBJ inputs, writes the deterministic terrain, textures,
+building kitbashes and scene objects, and replaces authored roads / the former
+pillar course. Keep hand-authored map changes separately before rerunning it.
+Afterward use `tyrax-editor --resave <project>` and `--refresh-gen <project>`.
 
-A second CC96 patrols a four-corner circuit (`circuit-a..d`, Areas at ±55) with
-no pad attached — the AI fills the same `DriveInput` the pad fills, so it shifts
-gears, grinds walls and smokes its tyres like you do. Get close and press USE to
-**hijack it**; getting out resumes the patrol. `grep VEHAI bin/log.txt` shows
-the loop advancing.
+`authoring/prepare-ggbot.py` documents the optional Blender preparation from
+the original `Car4.blend` and `car4_lightorange.png`; the resulting GLB is
+already included, so Blender and `C:\Assets` are not build dependencies.
 
-## What it costs
+Run `python authoring/verify-road-twins.py` with g++ on PATH to compare the
+actual editor tessellator against the extracted generated runtime, including
+flat terrain, crowns with equal-height shoulders, slopes, saddles, curves and
+scene revisits. Also run `tyrax-editor --vehicle-check`, build and boot the game,
+then drive with `--pad` and capture with `--capture-frame`. Host checks alone
+are not evidence of console frame rate or reflection correctness.
 
-The build says so on every run. The budgeted bake also rebuilds crease-aware
-normals, which keeps the coupe's fenders and tyres round without adding a submit:
+## Verified on Windows / PCSX2
 
-```
-[vehicle] CC96: body 1936 tris / 3 part(s), wheel 588 tris, 4 submit(s) per vehicle
-```
+The release editor and native PS2 game build successfully. The road twin oracle
+and `--vehicle-check` pass; the game was booted and driven in PCSX2's software
+renderer. The district uses 93,150 road vertices instead of 281,748 (66.9% fewer).
+A stationary hide/show/restore probe changes 204 car pixels when reflected
+buildings disappear and restores the original car image exactly. The embedded
+128 × 128 Rally texture is preserved byte-for-byte. These are emulator checks,
+not a hardware PS2 or Linux editor validation.
+Both definitions were inspected together after separating their wheel batches:
+the coupe retains its black/white tyres and Rally retains its textured wheels.
+Throttle, nitrous, handbrake and braking were exercised with automated pad input.
 
-The base car is two submits; this fixture deliberately enables the two visual
-opt-ins that add one each: reflective paint splits matte trim, and working lamp
-materials get their own emissive part. The source model is 40 materials and 8780
-triangles; this fixture keeps a 2400-triangle body baseline so the curved
-fenders and glass survive the reduction cleanly. It starts as 36 mesh parts,
-and a `.tmdl` part is one bag at roughly 1 ms of fixed EE time, so the car as
-authored would be nearly two PAL frames of submit overhead standing still. The
-main body stays on the matrix fast path (VU1 moves it, the EE
-touches no vertex) and all four wheels share one bag rebuilt in world space each
-frame.
+## Day / night from the pause menu
 
-The wheel batch now composes its transform once per wheel, retaining the same
-mesh budget and appearance. Suspension clearance no longer launches a stationary
-car off a raised patch, and bank alignment uses the car's local frame at every
-heading. Run `tyrax-editor --vehicle-check` for the slope, frame-spike and
-missing-contact regression cases before a pad test on the dunes.
+Press **Start**, select **TIME OF DAY**, and use Cross or left/right to choose
+**DAY** or **NIGHT**. Resume with Start or Triangle. The mood applies on resume
+without reloading the scene or moving the player, cars or AI traffic.
 
-Measured on PCSX2's software renderer at the unchanged starting camera:
-the 7056-vertex wheel batch (CPU preparation plus submit) fell from **14.519 ms
-to 5.087 ms**, about **65% less**. These are COP0-timed averages over 100-frame
-windows (31 baseline and 15 updated windows after warm-up), not an estimate
-from FPS. The two 512x512 captures differed in **zero pixels**. This prices
-the wheel path in that pose; driving, AI visibility and other scene work still
-change the total frame budget.
+The same district uses a live day/night ambience track pinned to noon or
+midnight by `src/scripts/district_mood.cpp`. The menu writes the named
+`district-night` save value. The script drives the existing sky, moon, stars,
+fog and runtime world grade, then switches eight dynamic street/garage spots
+and eleven emissive window/neon pieces together. One service lamp flickers
+subtly. The day starts with the night dressing off.
 
-Tune any of it in *Tools > Vehicle Editor*, and use its **Test drive** tab to
-feel a grip change immediately instead of waiting for a Docker build.
+Eight lights are the existing scene budget; their projected pools and coronas
+provide local illumination without a second terrain or a second scene. Shadow
+volumes are disabled on these lamps. The generated authoring header records the
+night dressing indices; rerun the district authoring script after changing its
+object order. Other scene objects keep their normal visibility.
 
-## Attribution
+This uses the hybrid runtime lighting path: geometry shading stays baked at
+noon, while the world grade supplies the night brightness/tint and dynamic
+spots supply local light. It does not claim separately baked night GI or
+perfect moonlit shadows. See [Day and night cycle](../../docs/day-night-cycle.md).
 
-The car is the **CC96** model by its author, released under CC0 — see
-`res/models/car1-CC0-licence.txt`.
+`authoring/prepare-tristar.py` converts the supplied FBX with Blender, detaches
+its wheel hierarchy while preserving world transforms, copies shared mesh data
+and material slots, makes the rims visible from both sides of the repeated
+wheel mesh, and exports GLB. The vehicle bake performs wheel reduction.
+The model is included as part of this game example, not as a standalone asset
+pack. See its usage notice below before reusing it elsewhere.
+
+## Credits and licenses
+
+- **Kenney** — Retro Urban Kit 2.0, CC0. Included source OBJ/MTL files, textures
+  and `res/models/urban/LICENSE.txt`; building kitbashes are adaptations.
+- **GGBotNet** — PSX Style Cars, Car 04, CC0. Wheels separated, source scaled to
+  about 4.1 m long, orange texture retained. `res/models/ggbot-CC0.txt`.
+- **designersoup** — Tristar Racer, Low Poly Car Starter Pack. Source: [author page](https://designersoup.itch.io/low-poly-car-pack-1). The page permits use and modification in games, but pairs its CC0 label with conflicting standalone redistribution restrictions. We do not describe this model as unambiguously CC0; see `res/models/tristar-USAGE.txt`.
+- **CC96** — original coupe supplied with this example under CC0. The supplied
+  license does not identify an author; `res/models/car1-CC0-licence.txt`.
+- **TyraX contributors** — district layout, sign, asphalt and ground textures,
+  preparation scripts and synthesized vehicle sounds.
+
+The shipped `THIRD-PARTY-NOTICES.txt` repeats the asset credits. Tristar is a
+game-use asset with the published terms recorded below; the other imported
+district assets retain their CC0 notices.

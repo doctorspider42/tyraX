@@ -158,11 +158,9 @@ The editor's GLSL twin lives in the viewport fragment shader (`uReflOn` block)
   sample correctly.
 - Animated (`.glb`) models and terrain don't take reflections; static
   primitives and `.obj` models do.
-- Dynamic mode reflects the **sky only** — scene geometry (terrain, objects)
-  is not in the env render. The plumbing (`RendererCoreEnvMap::begin/end` +
-  `RendererCore3D::pushEnvView/popEnvView`) supports submitting more bags into
-  the bracket if a project ever wants true GT3 surroundings; it costs frame
-  time per extra pass.
+- Dynamic mode reflects the sky and objects marked **Show in reflections**.
+  Terrain and unmarked scenery are not submitted; each included object costs
+  an additional render in the environment pass.
 - Remaining "pro" idea: smoothed normals for the env pass.
 
 ## Probe aim: reflected ray (Preferences > Rendering)
@@ -227,3 +225,15 @@ OBJECT (`vehiclePaintFor`), so every other `refl` material keeps the exact
 MODULATE + constant-FIX look this page describes. The engine hook it rides is
 `StaPipTextureBag::textureFunction` - per-bag TFX, safe on a shared texture
 because TEX0 is re-emitted per bag.
+
+## Dynamic map camera basis (1.85.0)
+
+The shared `@sky` probe renders with a level forward direction. Its sampling
+basis must therefore use world-up, including when a chase camera tilts down.
+Previously the sampler used the viewing camera's pitched up vector: visible
+rear/side faces sampled below the captured horizon and could show only the
+clear colour, despite buildings being present in the environment target.
+The generated runtime now matches the capture basis; the viewport's analytic
+sky approximation uses the same world-up rule. Static image sphere maps retain
+their camera-relative basis, and per-object reflected-ray probes retain their
+own captured basis.

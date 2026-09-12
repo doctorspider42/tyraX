@@ -2628,3 +2628,34 @@ with only a bumper supported. The latter must not generate launch velocity.
 These are host properties, not a PS2 frame-rate measurement: build and drive
 vehicle-playground for runtime validation, and measure wheel-batch changes on
 the console/emulator with an unchanged mesh and camera.
+
+## Motor District and flat-road spans (1.85.0)
+
+The roadgen.cpp / templates.cpp buildRoads twins sample every lateral height,
+then collapse only horizontal pairs of rows (all heights within 0.00001) to
+one quad. Do not infer flatness from the shoulders: an interior crown must
+retain its samples. Run examples/vehicle-playground/authoring/verify-road-twins.py
+for a compiled comparison of both actual implementations, then build/drive the
+example. ROADS now logs emitted vertices as well as chunks. The district's
+seven-road network is an EE memory stress case, not just a screenshot fixture.
+
+Textured vehicles: vehbake::Result::textures holds bin-relative names and PNG
+bytes for source images; bakeProject and vehicleRefreshBake both write them.
+The viewport resolves ModelPart::bakedTextureRel per draw, never a cached GL
+name. Palette UV fixup must only visit palette parts (real UV V=-1 is valid).
+A wheel/body image and Kd match permits textured wheels in body distance tiers.
+Use the GGBot GLB in Motor District to check the PNG references, actual in-game
+texture, four detected wheels and the distant wheel silhouette. Rigid nodes
+sharing one material may collapse to one dominant owner during import; the
+example preparation retains one material slot per wheel.
+
+Shared dynamic env sampling must use the LEVEL capture's world-up, not the
+pitched chase camera's up. Static sphere-map images keep the view basis and
+reflected-ray probes keep their own basis. The viewport envSt shader mirrors
+this distinction. To diagnose a reflection, inspect the env target separately
+from the final car: populated target + unchanged car in a scenery hide/show
+comparison is a sampling problem, not proof that the capture failed.
+
+Mixed vehicle definitions keep separate runtime wheel batches so a palette car
+and a textured car never sample through the last vehicle's image. Verify both
+cars together at near range; far tiers carry their own baked wheels.

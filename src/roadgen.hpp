@@ -49,6 +49,8 @@ inline constexpr float kLift = 0.12f;
 // Tessellates `pointsXZ` (x0,z0,x1,z1,... - at least 2 points) into a
 // triangle list, three Vertex per triangle, two triangles per longitudinal /
 // lateral cell.
+// Horizontal pairs of rows collapse to one full-width quad after all interior
+// heights have been checked; uneven terrain retains every lateral cell.
 // Endpoints are clamped (the spline passes through the first and last
 // point). Returns the total arc length; `out` is cleared first.
 // `lifts` is retained only for source/format compatibility with the short-lived

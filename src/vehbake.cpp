@@ -393,7 +393,8 @@ bool shinyMaterial(const glbparser::SkelPart& p) {
 // visual pack").
 void collect(const glbparser::Skel& sk, const std::vector<M4>& g, const M4& canon,
              const std::vector<int>& nodes, const float offset[3], bool merge,
-             const std::string& paletteTex, Merge& mg, tmdl::Model& out,
+             const std::string& paletteTex, const std::vector<std::string>& imagePaths,
+             Merge& mg, tmdl::Model& out,
              int& srcParts, int& srcTris, bool shineSplit = false,
              int* lampRearVertsOut = nullptr) {
     std::vector<float> mergedVerts;
@@ -423,6 +424,7 @@ void collect(const glbparser::Skel& sk, const std::vector<M4>& g, const M4& cano
             tmdl::Part& part = textured[key];
             if (part.name.empty()) {
                 part.name = p.material;
+                if (isTextured) part.texture = imagePaths[(size_t)p.image];
                 for (int a = 0; a < 3; ++a) part.kd[a] = p.baseColor[a];
             }
             tp = &part;
@@ -532,9 +534,9 @@ void collect(const glbparser::Skel& sk, const std::vector<M4>& g, const M4& cano
     for (auto& kv : textured) out.parts.push_back(std::move(kv.second));
 }
 
-void resolvePaletteUvs(tmdl::Model& m, int width) {
+void resolvePaletteUvs(tmdl::Model& m, int width, const std::string& paletteTex) {
     for (tmdl::Part& p : m.parts) {
-        if (p.texture.empty()) continue;
+        if (p.texture.empty() || p.texture != paletteTex) continue;
         for (size_t v = 0; v + 7 < p.verts.size(); v += 8) {
             if (p.verts[v + 7] != -1.0f) continue;  // not a palette placeholder
             float u = 0.0f, vv = 0.0f;
@@ -571,8 +573,25 @@ int modelTris(const tmdl::Model& m) {
 
 bool build(const std::string& modelPath, const Options& opt, Result& out,
            std::string& error) {
+    out = Result{};
     glbparser::Skel sk;
     if (!animimport::parseSkel(modelPath, sk, error)) return false;
+
+    std::vector<std::string> imagePaths(sk.images.size());
+    const std::string imageStem = opt.paletteTexture.empty()
+                                     ? "vehicle"
+                                     : std::filesystem::path(opt.paletteTexture).replace_extension().generic_string();
+    for (const auto& part : sk.parts) {
+        if (part.image < 0) continue;
+        if ((size_t)part.image >= sk.images.size() || sk.images[(size_t)part.image].png.empty()) {
+            error = "Vehicle material has no readable source texture: " + part.material;
+            return false;
+        }
+        auto& path = imagePaths[(size_t)part.image];
+        if (!path.empty()) continue;
+        path = imageStem + "-image-" + std::to_string(part.image) + ".png";
+        out.textures.push_back({path, sk.images[(size_t)part.image].png});
+    }
 
     const std::vector<vehiclesim::MeshNode> nodes = meshNodes(sk);
     out.detection = vehiclesim::detectWheels(nodes);
@@ -607,7 +626,7 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
     }
     int lampRearVerts = 0;
     collect(sk, g, canon, out.detection.bodyNodes, bodyOrigin, opt.mergeUntextured,
-            paletteTex, mg, out.body, out.srcParts, out.srcTris,
+            paletteTex, imagePaths, mg, out.body, out.srcParts, out.srcTris,
             /*shineSplit=*/opt.bodyShine > 0.001f, &lampRearVerts);
 
     if (!out.detection.wheels.empty()) {
@@ -618,14 +637,14 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
         float hub[3];
         canon.point(w.centre, hub);
         const std::vector<int> one{w.node};
-        collect(sk, g, canon, one, hub, opt.mergeUntextured, paletteTex, mg, out.wheel,
+        collect(sk, g, canon, one, hub, opt.mergeUntextured, paletteTex, imagePaths, mg, out.wheel,
                 out.srcParts, out.srcTris);
     }
 
     if (!mg.colours.empty()) {
         out.paletteSize = paletteWidth((int)mg.colours.size());
-        resolvePaletteUvs(out.body, out.paletteSize);
-        resolvePaletteUvs(out.wheel, out.paletteSize);
+        resolvePaletteUvs(out.body, out.paletteSize, paletteTex);
+        resolvePaletteUvs(out.wheel, out.paletteSize, paletteTex);
         out.palettePng = encodePng(paletteImage(mg, out.paletteSize), out.paletteSize);
         char buf[180];
         std::snprintf(buf, sizeof(buf),
@@ -687,9 +706,23 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
     // and the wheel shares the body's palette, so its corners can simply be
     // appended.
     {
+        // Palette cars and cars with a shared texture can both carry their
+        // wheels in the body's distance tier. Never sample wheel UVs through
+        // a different image (or tint) merely to save a draw.
+        tmdl::Part* carrier = nullptr;
+        for (auto& bp : out.body.parts) {
+            if (bp.name == "lamps" || bp.name == "merged-matte") continue;
+            bool compatible = !out.wheel.parts.empty();
+            for (const auto& wp : out.wheel.parts) {
+                compatible = compatible && wp.texture == bp.texture;
+                for (int a = 0; a < 3; ++a)
+                    compatible = compatible && wp.kd[a] == bp.kd[a];
+            }
+            if (compatible) { carrier = &bp; break; }
+        }
         std::vector<float> wheelFar;
         for (const tmdl::Part& wp : out.wheel.parts) {
-            if (wp.texture != paletteTex) continue;
+            if (!carrier) continue;
             wheelFar.insert(wheelFar.end(), wp.verts.begin(), wp.verts.end());
         }
         std::vector<float> wheelTier[2];
@@ -708,11 +741,11 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
             std::vector<std::vector<float>> tiers = meshlod::generateTiers(p.verts);
             // A part too small for the policy still needs a tier when the
             // wheels have to ride on it - the paint part is the carrier.
-            if (tiers.empty() && p.name == "merged" && !wheelFar.empty())
+            if (tiers.empty() && &p == carrier && !wheelFar.empty())
                 tiers = {p.verts, p.verts};
             for (size_t t = 0; t < tiers.size() && t < 2; ++t) {
                 std::vector<float> verts = std::move(tiers[t]);
-                if (p.name == "merged" && !wheelTier[t].empty()) {
+                if (&p == carrier && !wheelTier[t].empty()) {
                     for (int w = 0; w < 4; ++w) {
                         const std::vector<float>& src = wheelTier[t];
                         for (size_t i = 0; i + 7 < src.size(); i += 8) {
@@ -725,7 +758,7 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
                 }
                 p.lods.push_back({std::move(verts), {}});
             }
-            if (p.name == "merged")
+            if (&p == carrier)
                 for (const tmdl::Lod& l : p.lods)
                     out.farTris.push_back(triCount(l.verts));
         }
@@ -936,6 +969,8 @@ std::string bakeProject(Project& p,
         if (!r.palettePng.empty())
             put(bp.palette, std::string((const char*)r.palettePng.data(),
                                         r.palettePng.size()));
+        for (const auto& texture : r.textures)
+            put(texture.path, std::string((const char*)texture.png.data(), texture.png.size()));
         adoptMeasured(v, r);
         if (log) {
             char buf[220];

@@ -16,7 +16,7 @@ whether vehicles are a feature or a demo. The answer this design reaches is
 | | submits |
 |---|---|
 | body | 1 — a `.tmdl` drawn through `objMat`, so VU1 applies the motion and the EE does no per-vertex work at all |
-| wheels | 1 — all four merged into ONE bag, rebuilt in world space each frame |
+| wheels | 1 per definition — all four merged into a shared bag, rebuilt in world space each frame; different definitions keep their own texture |
 
 Two opt-ins add one each, and the Cost tab counts them: *Body shine* splits
 the matte trim off the paint (reflection is per part), and lamp materials
@@ -1069,3 +1069,32 @@ The reference vehicle used to develop and verify this is the **CC96** car by its
 author, released under CC0 (see the model pack's own `licence.txt`). It is
 included in `examples/` and listed in the generated project's
 `THIRD-PARTY-NOTICES.txt`.
+
+## Motor District example
+
+[vehicle-playground](../examples/vehicle-playground/README.md) now supplies a
+seven-road city course, Kenney scenery and a second driveable CC0 model by
+GGBotNet. Paint uses the shared dynamic sky/scenery environment target; selected
+building blocks opt into the reflection pass. The example documents credits,
+reproducible preparation and the flat-road memory reduction needed for its
+larger network.
+
+### Textured vehicle imports (1.85.0)
+
+The vehicle bake now retains embedded GLB / decoded FBX images, writes their
+PNG bytes beside the generated vehicle meshes, and records those game-relative
+paths on each body and wheel part. Previously textured parts retained their UVs
+but had no texture filename and appeared white. Preview resolves each part's
+texture path at draw time too, so asset-cache invalidation cannot leave a stale
+GL texture handle. Only palette parts receive the palette UV fixup; a real
+texture may legitimately repeat at V = -1.
+
+When body and wheel parts share an image and Kd, the body distance tiers can
+carry those textured wheels as well as palette wheels. The GGBot Rally in
+Motor District is the compact regression fixture. Each rigid wheel uses a
+separate source material slot so the importer's per-material ownership pass
+can distinguish its node before the bake merges compatible draw parts.
+
+Mixed vehicle definitions keep separate runtime wheel batches so a palette car
+and a textured car never sample through the last vehicle's image. Verify both
+cars together at near range; far tiers carry their own baked wheels.

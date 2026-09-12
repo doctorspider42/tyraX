@@ -114,15 +114,25 @@ float tessellate(const std::vector<float>& pointsXZ, float width,
 
     // Stitch every lateral cell. Wound counter-clockwise seen from above
     // (+Y), the terrain's own convention.
-    for (size_t i = 0; i + 1 < rows.size(); ++i)
-        for (int j = 0; j < crossSteps; ++j) {
+    for (size_t i = 0; i + 1 < rows.size(); ++i) {
+        // Flat streets need only their shoulders. Keep sampling the interior
+        // before deciding: testing only the edges misses crowns and ditches.
+        bool flat = true;
+        const float y = rows[i][0].y;
+        for (int j = 0; j <= crossSteps; ++j)
+            if (std::fabs(rows[i][(size_t)j].y - y) > 0.00001f ||
+                std::fabs(rows[i + 1][(size_t)j].y - y) > 0.00001f)
+                flat = false;
+        const int stride = flat ? crossSteps : 1;
+        for (int j = 0; j < crossSteps; j += stride) {
             out.push_back(rows[i][(size_t)j]);
-            out.push_back(rows[i][(size_t)j + 1]);
-            out.push_back(rows[i + 1][(size_t)j + 1]);
+            out.push_back(rows[i][(size_t)j + stride]);
+            out.push_back(rows[i + 1][(size_t)j + stride]);
             out.push_back(rows[i][(size_t)j]);
-            out.push_back(rows[i + 1][(size_t)j + 1]);
+            out.push_back(rows[i + 1][(size_t)j + stride]);
             out.push_back(rows[i + 1][(size_t)j]);
         }
+    }
     return arc;
 }
 

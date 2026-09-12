@@ -768,7 +768,8 @@ vec3 litShade(vec3 base, vec3 wp, vec3 n) {
 // GS interpolate; the editor path computes them per pixel. One formula.
 vec2 envSt(vec3 n) {
     vec3 r = normalize(cross(uFogFwd, vec3(0.0, 1.0, 0.0)));
-    vec3 u = cross(r, uFogFwd);
+    // Dynamic captures use a level probe, even when the viewing camera tilts.
+    vec3 u = uReflOn == 2 ? vec3(0.0, 1.0, 0.0) : cross(r, uFogFwd);
     return vec2(0.5 + 0.5 * dot(n, r), 0.5 - 0.5 * dot(n, u));
 }
 
@@ -4376,7 +4377,10 @@ Viewport::ModelDraw Viewport::uploadTmdl(const tmdl::Model& m,
             if (n > 0)
                 for (float& c : part.centroid) c /= (float)n;
         }
-        // The palette is resolved AT DRAW TIME from its path, never cached as a
+        if (!sp.texture.empty())
+            part.bakedTextureRel = (std::filesystem::path(paletteRel).parent_path() /
+                                    std::filesystem::path(sp.texture).filename()).generic_string();
+        // The texture is resolved AT DRAW TIME from its path, never cached as a
         // GL name here: invalidateAssets() wipes texCache_ and DELETES the
         // texture objects in it (the asset scan calls it whenever anything on
         // disk moves), so a stored id becomes a dangling handle and every
@@ -5856,8 +5860,6 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                 if (vit != vehicleDraws_.end()) {
                     const VehicleDraw& vd = vit->second;
                     // Resolved here, every frame: see uploadTmdl.
-                    const uint32_t palTex =
-                        vd.palette.empty() ? 0 : glTexture(vd.palette);
                     auto drawParts = [&](const ModelDraw& md2, const Mat4& mm) {
                         const Mat4 mvp2 = mul(viewProj, mm);
                         for (const ModelPart& part : md2.parts) {
@@ -5876,7 +5878,8 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                             }
                             draw(part.mesh, GL_TRIANGLES, mvp2, o.color[0] * tintScale,
                                  o.color[1] * tintScale, o.color[2] * tintScale,
-                                 asLines ? 0 : palTex, lit ? &mm : nullptr, false,
+                                 asLines || part.bakedTextureRel.empty() ? 0 : glTexture(part.bakedTextureRel),
+                                 lit ? &mm : nullptr, false,
                                  1.0f, asLines ? 0 : part.reflTex, part.reflStrength,
                                  asLines ? false : part.reflSky, part.reflRounded, c);
                         }

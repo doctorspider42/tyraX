@@ -84,3 +84,19 @@ nobody can author.
 | `src/templates.cpp` (`roadsImpl`) | The runtime twin + data tables + the scene-load hook. |
 | `src/props_ui.cpp` | The Road properties panel + `App::alignTerrainToRoad`. |
 | `tools/road-texture.py` | The example's deterministic asphalt texture. |
+
+## Flat street geometry budget (1.85.0)
+
+Both tessellators still sample all cross-road heights first. When every height
+in two consecutive rows agrees within 0.00001 world units, they emit only two
+triangles between the shoulders. Slopes, crowns and ditches keep the existing
+dense mesh; testing only the edges would incorrectly flatten a crowned road.
+Longitudinal sampling, endpoints, winding, texture arc length and chunk culling
+remain unchanged. Curved flat spans interpolate UVs over the wider triangles.
+A 13-unit flat road reduces from 156 to 6 vertices per station (26x); total scene
+savings depend on the terrain. The game logs the actual road vertex count.
+
+The [Motor District example](../examples/vehicle-playground/README.md) exercises
+a seven-road network. Its `authoring/verify-road-twins.py` compiles the real
+host tessellator and the actual generated `buildRoads` body with storage stubs,
+then compares geometry/UVs and repeated scene loads on flat and uneven fixtures.

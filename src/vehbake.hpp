@@ -97,6 +97,14 @@ struct Result {
     std::vector<unsigned char> palettePng;
     int paletteSize = 0;  // square side in pixels
 
+    // Source images retained by textured body/wheel parts. Names are the
+    // bin-relative paths stored in the TMDL; both build and preview write them.
+    struct Texture {
+        std::string path;
+        std::vector<unsigned char> png;
+    };
+    std::vector<Texture> textures;
+
     vehiclesim::Detection detection;
 
     // Seeded from the model's own measurements, in the units parseSkel reports
