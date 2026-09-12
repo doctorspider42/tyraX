@@ -24,7 +24,7 @@ constexpr uint32_t kCacheMagic = 0x4448534Du;  // "MSHD"
 // Bumped whenever the bake's OUTPUT changes shape or value. It rides in the
 // signature, so a bump stales every cache without anything else having to
 // know.
-constexpr uint32_t kCacheVersion = 3;  // 3: a third object blocks the print
+constexpr uint32_t kCacheVersion = 5;  // 5: search past the fade; sane no-limit
 
 constexpr float kPi = 3.14159265358979f;
 // How far past the caster's own extent the receiver search starts. The common
@@ -48,6 +48,21 @@ constexpr float kSunBias = 0.05f;
 // neutral grey. 0.10 reads as "lit by sky alone" against the ~0.5 the sun
 // contributes, without flattening a dark receiver to nothing.
 constexpr float kShadowTintValue = 0.10f;
+// Where the shadow starts fading, as a fraction of the reach, and how much
+// further than that the search still looks.
+//
+// `maxLength` has to exist - a 7-degree sun throws a shadow eight times the
+// caster's height, and spreading 64 texels over that is what makes a long
+// shadow look like a smear - but ending it at the projector's own face draws a
+// STRAIGHT LINE across the ground, which reads as a bug and was reported as
+// one. Two things are needed to get rid of that line and it took measuring the
+// atlas to see the second: the alpha has to RAMP down (the penumbra widens with
+// distance, so a real shadow does dissolve), and the search has to keep going
+// AFTER the ramp starts, or a receiver that steps away leaves a texel with no
+// hit at all sitting next to one at full strength - a hard edge no ramp can
+// soften, because the ramp never runs.
+constexpr float kReachFadeFrom = 0.55f;
+constexpr float kSearchBeyond = 1.8f;
 // Slack around the caster's silhouette, as a fraction of the tile. The
 // penumbra opens outward from the geometric shadow, so a tile cut exactly to
 // the silhouette clips its own soft edge - and the outer ring must stay at
@@ -262,19 +277,37 @@ Plan plan(const Project& p, const SceneData& sc, const Options& opt) {
 
         // How far the shadow is allowed to run. The caster's own height is the
         // unit, because that is what a person means by "this shadow is too
-        // long"; 0 means no limit and the projector then reaches the lowest
-        // point of the scene under it.
-        float reach = (opt.maxLength > 0.0f)
-                          ? opt.maxLength * (hi.y - lo.y)
-                          : 1e4f;
+        // long".
+        //
+        // 0 means "no limit", and that used to be literally 1e4 - which fed
+        // straight into the penumbra term below and blew the footprint out to
+        // hundreds of units, so the caster's silhouette fell below one texel
+        // and the shadow all but vanished. "No limit" has to mean the largest
+        // distance that can still land on something, not an arbitrary huge
+        // number: across the map and back is that bound.
+        const float sceneSpan =
+            std::sqrt((float)sc.terrain.width * (float)sc.terrain.width +
+                      (float)sc.terrain.depth * (float)sc.terrain.depth);
+        float reach = (opt.maxLength > 0.0f) ? opt.maxLength * (hi.y - lo.y)
+                                             : sceneSpan;
         if (reach < 0.5f) reach = 0.5f;
-        // Depth spans the caster PLUS the reach beyond it. The extra
+        // Search FURTHER than the shadow fades. Where a receiver steps away -
+        // the edge of a quay, a stair, a drop to the water - the next surface
+        // down is a long way further along the light, and a search that stops
+        // at the fade distance finds nothing there at all. The texel beside it
+        // found the upper surface at full strength, so the tile goes 140 to 0
+        // across one row and the shadow ends on a straight line. Measured on
+        // examples/showcase, which is where it was reported.
+        const float search = reach * kSearchBeyond;
+        // Depth spans the caster PLUS the search beyond it. The extra
         // clearance at the front keeps the +Z face outside the caster, so a
         // ray never starts inside the geometry it is about to skip.
-        const float depth = 2.0f * ez + reach + 2.0f * kCasterClearance;
+        const float depth = 2.0f * ez + search + 2.0f * kCasterClearance;
         // The footprint has to hold the caster's own silhouette plus however
         // far the penumbra opens over `reach`, plus a margin that keeps the
-        // tile's outer ring empty.
+        // tile's outer ring empty. Deliberately `reach` and not `search`: the
+        // extra search depth must not cost tile resolution, because by then
+        // the shadow has faded out anyway.
         const float penumbra =
             reach * std::tan(0.5f * opt.sunAngleDeg * kPi / 180.0f);
         float width = 2.0f * (ex + penumbra), height = 2.0f * (ey + penumbra);
@@ -293,6 +326,7 @@ Plan plan(const Project& p, const SceneData& sc, const Options& opt) {
         eulerFromBasis(ax, ay, az, c.rotation);
         c.scale[0] = width, c.scale[1] = height, c.scale[2] = depth;
         c.casterDepth = 2.0f * ez + 2.0f * kCasterClearance;
+        c.fadeReach = reach;
         pl.casters.push_back(c);
     }
     return pl;
@@ -542,8 +576,30 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
                             ++blocked;
                     }
                     if (!blocked) continue;
-                    const float a = 255.0f * opt.strength * (float)blocked /
-                                    (float)opt.samples;
+                    // Dissolve into the reach limit rather than stopping on
+                    // it. This engages ONLY where the limit is what ends the
+                    // shadow: a texel whose receiver sits well inside the
+                    // reach - ordinary ground close under the caster - has a
+                    // small h.t and fades not at all, and with maxLength off
+                    // the span is enormous so nothing ever reaches the ramp.
+                    // The ramp runs from kReachFadeFrom of the reach all the
+                    // way out to the search limit, NOT to the reach: a texel
+                    // that steps off an edge and lands on the surface below
+                    // has a much larger h.t than the one beside it, and the
+                    // whole point is that it still gets SOME shadow rather
+                    // than none. Applied whether or not a limit is set - with
+                    // no limit the reach is the map's own diagonal, so the
+                    // ramp only bites where the shadow has genuinely run out
+                    // of map.
+                    const float fadeFrom = c.fadeReach * kReachFadeFrom;
+                    const float fadeTo = c.fadeReach * kSearchBeyond;
+                    float fade = 1.0f;
+                    if (h.t > fadeFrom)
+                        fade = 1.0f - (h.t - fadeFrom) / (fadeTo - fadeFrom);
+                    fade = fade < 0.0f ? 0.0f : (fade > 1.0f ? 1.0f : fade);
+                    const float a = 255.0f * opt.strength * fade *
+                                    (float)blocked / (float)opt.samples;
+                    if (a < 0.5f) continue;
                     tile[(size_t)row * res + col] = (uint8_t)(a + 0.5f);
                 }
             }

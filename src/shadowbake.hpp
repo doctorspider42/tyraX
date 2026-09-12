@@ -86,6 +86,12 @@ struct Caster {
     // +Z face. The receiver search starts past it, which is what keeps a
     // caster from catching its own shadow.
     float casterDepth = 0.0f;
+    // Where the shadow has faded to nothing, as a distance past casterDepth.
+    // The projector is DEEPER than this on purpose (see kSearchBeyond): the
+    // search has to keep finding receivers after the fade has begun, or a
+    // shadow that runs off a quay edge onto lower ground stops dead at full
+    // strength instead of carrying on down.
+    float fadeReach = 0.0f;
 };
 
 struct Refusal {

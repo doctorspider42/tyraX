@@ -327,6 +327,31 @@ to fix it is the reflex, and it buys nothing.
 So: reach for **Softness** when a caster's detail is disappearing, and for
 **Shadow detail** when a large shadow looks blocky.
 
+### A caster that is too big
+
+The 512-triangle cap is about what the shadow **lands on**, not about how
+complex the caster is: a 20-triangle castle still covers half the map, and at
+60 bytes a triangle that is ~120 KB of executable for one shadow, which does
+not stream. So a whole street block marked as one caster is refused, and every
+lamp modelled into it loses its shadow with it. The panel says which, by name.
+
+The answer is usually not this feature. **A big static building on terrain
+already casts a shadow through GI** — the sun's shadow is in the terrain
+lightmap and in every untextured primitive's atlas region, per texel, at no
+extra cost, which is exactly why the projection skips those receivers. Baked
+decals exist for the gap GI cannot reach: textured surfaces and models.
+
+When the receiver genuinely is a model or a textured surface, the two ways
+through are to **split the model** so each piece casts its own shadow within
+its own budget, or to bake the light into that receiver's own texture with
+[pre-lit](ambient-occlusion.md) — one unique texture per receiver.
+
+| Receiver | Tool | Cost |
+| --- | --- | --- |
+| Terrain, untextured primitives | **GI** | none extra — already in the lightmap |
+| One specific textured surface | **pre-lit** | a unique texture per receiver |
+| Models and textured walls, many casters | **baked decal** | ~60 B/triangle of ELF, one submit per page |
+
 ### Quality settings
 
 All four are project-wide, in *Ambience Editor > Baked lighting*:
@@ -352,9 +377,27 @@ All four are project-wide, in *Ambience Editor > Baked lighting*:
   the receiver instead of shading it: every surface converges on the same
   grey-blue and the scene goes flat. That is what this did in its first cut,
   and the report was simply "these shadows are awfully grey".
-- **Max length** — how far a shadow may stretch, in multiples of the caster's
-  own height. A low sun throws one hundreds of units long and every texel of
-  the tile goes into it; past this the projector is cut.
+- **Max length** — how far a shadow stretches, in multiples of the caster's own
+  height. A low sun throws one hundreds of units long and every texel of the
+  tile goes into it, so this has to exist. `0` means across the map.
+
+  It is a **fade, not a cut**, and getting there took two goes. The first
+  version simply ended the projector at this distance, which drew a straight
+  line across the ground — reported, fairly, as a bug. Ramping the alpha down
+  over the last of the reach fixed the easy half. The hard half only showed up
+  in the atlas itself: where a receiver **steps away** — a quay edge, a stair,
+  a drop to water — the surface below is much further along the light, so a
+  search that stopped at the fade distance found *nothing* there, and a texel
+  with no hit at all sat next to one at full strength. No ramp can soften that,
+  because the ramp never runs. The measured tile went `0` to `140` across one
+  row. So the search now runs on past where the shadow fades, the lower surface
+  is found, and the shadow walks down the edge instead of stopping on it. Same
+  scene after: eighteen distinct alpha levels instead of two.
+
+  It costs what you would expect — a deeper projector holds more receiver
+  geometry, about +34 % triangles on `examples/showcase`. The footprint is
+  still sized from the fade distance rather than the search distance, so the
+  extra depth does not also cost tile resolution.
 
 ### One interaction worth knowing
 

@@ -1427,9 +1427,12 @@ void App::drawShadowBakeSection() {
     if (ImGui::SliderFloat("Max length", &st.bakedShadowMaxLength, 0.0f, 12.0f,
                            "%.1f x height"))
         changed = true;
-    prefHelp("How far a shadow may stretch, in multiples of the caster's own "
+    prefHelp("How far a shadow stretches, in multiples of the caster's own "
              "height. A low sun throws one hundreds of units long and every "
-             "texel of the tile goes into it. 0 = no limit.");
+             "texel of the tile goes into it. The shadow FADES OUT over this "
+             "distance rather than stopping on it, and the search runs on "
+             "further still, so one that leaves a quay edge carries on down "
+             "instead of ending on a straight line. 0 = across the map.");
     ImGui::EndDisabled();
 
     if (changed) commitChange();
@@ -1443,6 +1446,10 @@ void App::drawShadowBakeSection() {
     ImGui::SeparatorText("Scenes");
     const shadowbake::Options opt = shadowbake::optionsOf(st);
     int staleCount = 0, totalCasters = 0;
+    // Casters that asked for a shadow and did not get one. The bake has always
+    // recorded these; only the CLI ever said so, which left the panel showing
+    // a clean green "baked" for a scene where a caster silently cast nothing.
+    std::vector<std::string> refusals;
     if (ImGui::BeginTable("shadowscenes", 3,
                           ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                               ImGuiTableFlags_SizingStretchProp)) {
@@ -1482,16 +1489,51 @@ void App::drawShadowBakeSection() {
             // The budget, and all three numbers that can run out: VRAM pages,
             // ELF bytes and the submit count. This is the panel's job - the
             // feature's whole cost story is "which of these do I hit first".
-            if (present && fresh)
-                ImGui::Text("%d caster(s), %d draw(s), %d KB VRAM, %d KB ELF",
-                            asked, (int)b.groups.size(),
-                            b.vramWords() * 4 / 1024, b.elfBytes() / 1024);
+            if (present && fresh) {
+                // How many casters the bake actually PRODUCED, not how many
+                // asked. They differ whenever one is refused, and reporting
+                // `asked` here said "5 caster(s), baked" for a scene where two
+                // of the five cast nothing at all - which is the one reading
+                // that makes a refusal impossible to notice.
+                int made = 0;
+                for (const shadowbake::Group& g : b.groups) made += g.casters;
+                if (made < asked)
+                    ImGui::TextColored(
+                        ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
+                        "%d of %d caster(s), %d draw(s), %d KB VRAM, %d KB ELF",
+                        made, asked, (int)b.groups.size(),
+                        b.vramWords() * 4 / 1024, b.elfBytes() / 1024);
+                else
+                    ImGui::Text(
+                        "%d caster(s), %d draw(s), %d KB VRAM, %d KB ELF", made,
+                        (int)b.groups.size(), b.vramWords() * 4 / 1024,
+                        b.elfBytes() / 1024);
+                for (const shadowbake::Refusal& r : b.truncated)
+                    refusals.push_back(project_.scenes[si].name + " / " +
+                                       r.name + ": " + r.why);
+            }
             else if (asked > 0)
                 ImGui::Text("%d caster(s)", asked);
             else
                 ImGui::TextDisabled("-");
         }
         ImGui::EndTable();
+    }
+
+    // Named, never silently dropped - the rule the bake log already followed.
+    // A caster is refused when its projection would cost more triangles than
+    // one shadow may, which a big composite model (a whole street block, lamps
+    // included) hits easily under a low sun: the reach is long, so the shadow
+    // lands on a lot of geometry.
+    if (!refusals.empty()) {
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.35f, 1.0f),
+                           "%d caster(s) cast nothing:", (int)refusals.size());
+        for (const std::string& r : refusals)
+            ImGui::TextWrapped("  %s", r.c_str());
+        ImGui::TextDisabled(
+            "Lower Max length, or split the model so each piece casts its "
+            "own.");
     }
 
     ImGui::Spacing();
