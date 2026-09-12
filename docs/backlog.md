@@ -4,13 +4,29 @@ This is only unfinished work that still has a clear payoff and a testable end.
 Finished investigations belong in commit history; reusable facts belong in the
 relevant guide or developer skill.
 
-### Motor District rendering performance
+## Motor District follow-up after the integrated frozen-camera pass
 
-The [implementation plan](motor-district-performance-plan.md) assigns the next
-pass to three Terra subagents: measurement/debug overhead and reflection reuse,
-wheel preparation/culling, and adaptive roads plus environment LOD. All five
-tasks remain pending integration and measured acceptance; the current baseline
-is `1ce38d2b`. Preserve vehicles, lighting and live scenery reflections.
+The `1ce38d2b` baseline and integrated `af8e6762` were measured in PAL
+software-renderer frozen parked views with no competing builds or benchmark
+emulators. Garage day/night moved 25.00 / 20.37 FPS to 25.00 / 25.00; outer
+day/night remained 50.00 / 50.00. Quiet-debug and release repeated the
+integrated 25 / 25 / 50 / 50 samples. These are ordinary-FPS measurements, not
+serialized profile times and not a 60 FPS, hardware, Linux, traffic-drive or
+complete reflection-state claim. See [Motor District performance work
+plan](motor-district-performance-plan.md).
+
+The shared `@sky` target was already every-second-frame before this pass. Its
+accepted change is capture-basis and scene-reload correctness plus a dedicated
+serialized `Reflections_shared_probe` row, not a claimed cadence saving. Keep
+the conservative cadence until a content-reuse proposal has a bounded visual
+error test across day/night, teleports, reflected-object movement and alternate
+views.
+
+The district itself remains at 93,150 road vertices in 90 chunks. Generic
+planar-slope fixtures improved, but environment LOD experiments are still
+pending and must be driven through thresholds before any authored setting is
+accepted.
+
 
 The retired `PROGRESS.md` is still available when old implementation history is
 actually needed:

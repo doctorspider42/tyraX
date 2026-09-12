@@ -162,7 +162,7 @@ and the corresponding dynamic-reflection sampling basis.
    Keep the existing shared probe; do not multiply captures per car.
 2. Detect conditions permitting reuse: unchanged capture pose and unchanged
    relevant scene/lighting, or a bounded update cadence with an explicit quality
-   tradeoff. Unsupported dynamic conditions retain the every-frame path.
+   tradeoff. Unsupported dynamic conditions retain the existing every-second-frame cadence.
 3. Preserve the original capture basis when reusing its texture. Sampling an old
    image using the current camera basis produces sliding reflections even if
    the capture itself is valid.
@@ -192,3 +192,76 @@ report the experiment rather than enabling a visually broken shortcut.
 - Publish accepted changes, rejected experiments, ordinary performance and
   visual tradeoffs. Keep real-hardware and Linux verification status explicit.
 - Update this plan/backlog as tasks complete; do not mark unvalidated work done.
+
+## Integration results, 2026-09-12
+
+## Frozen-camera integration measurement
+
+The baseline was `1ce38d2b`. The integrated build was `af8e6762`, containing
+the wheel and shared-reflection basis work plus `origin/main`'s static
+submission and baked-shadow merge. Both were measured with frozen, parked
+camera fixtures in the PAL software renderer, without competing builds or
+benchmark emulators.
+
+| Camera | Baseline FPS | Integrated FPS |
+| --- | ---: | ---: |
+| Garage, day | 25.00 | 25.00 |
+| Garage, night | 20.37 | 25.00 |
+| Outer district, day | 50.00 | 50.00 |
+| Outer district, night | 50.00 | 50.00 |
+
+Quiet-debug and release repeated the integrated 25 / 25 / 50 / 50 result. The
+comparison is ordinary frozen-camera FPS, not serialized render-cost timing;
+the two instruments must not be converted into each other. It establishes no
+60 FPS target, hardware result, Linux result, or full moving-traffic/reflection
+matrix.
+
+## Accepted work
+
+### Task 1: measurement and debug overhead — complete for the frozen fixtures
+
+Render-cost capture has a dedicated `Reflections_shared_probe` phase around
+only the shared 128x128 target render. Reflective material samples remain in
+their normal object rows, so phase totals do not double-count them. The frozen
+fixtures distinguish ordinary FPS from serialized timing; quiet-debug and
+release were compared with equivalent scene/video state. Their matching samples
+do not support a claim that disabling development facilities is a performance
+optimization.
+
+### Task 2: wheels — integrated
+
+The integrated wheel work is included in the measurements above. Its detailed
+near/far, driving and multi-definition evidence belongs to its owning change;
+this plan does not add it to unrelated gains.
+
+### Task 3: roads — exact planar reduction verified
+
+The actual district remains at **93,150 vertices in 90 chunks**. The existing
+bounded-span reduction is retained. Generic planar-slope fixtures improved, but
+they are not evidence that the authored district changed or that its FPS gain
+combines with other work.
+
+### Task 5: shared reflection capture — complete correctness and attribution
+
+The shared `@sky` target already refreshed every second frame before this work;
+there was no every-frame baseline to claim as a saving. The runtime now stores
+the level capture basis with the target and samples a retained target using that
+same basis, preventing stationary scenery from swimming when the camera turns.
+Scene reload invalidates the basis and forces the next non-split classic view
+to capture. Reflected-ray probes keep their per-object basis, and split views
+retain the existing conservative no-bracket fallback.
+
+No more aggressive temporal content reuse is enabled. Day/night changes,
+teleports, moving or visibility-changing reflected geometry, alternate views
+and active gameplay make a broader reuse policy unsafe without a tested error
+budget. All three vehicle paint materials and reflection texture memory remain
+in scope.
+
+## Still required
+
+- Finish the LOD experiments and assess their crossings while driving; do not
+  treat their pending results as accepted settings.
+- Re-run day/night, all-car, traffic, camera-orbit, reflection hide/show and
+  scene-reload cases after any later rendering integration.
+- Confirm representative results on physical PS2 before quoting hardware
+  performance, and test Linux separately.
