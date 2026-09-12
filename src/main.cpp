@@ -32,6 +32,7 @@
 #include "livedbg.hpp"
 #include <stb_image_write.h>
 #include "livepad.hpp"
+#include "input.hpp"  // kPadButtonNames - the recordings' bit order
 #include "livereplay.hpp"
 #include "uiscript.hpp"
 #include "vucap.hpp"
@@ -1958,6 +1959,97 @@ static int recordFromCli(int argc, char** argv) {
     livereplay::read(argv[3], rec, rerr);
     std::printf("[record] wrote %s - %zu frames, %zu seed(s)\n", argv[3],
                 rec.frames.size(), rec.seeds.size());
+    return 0;
+}
+
+// Reads a recording and prints what the player DID, without running anything:
+//   tyrax-editor --replay-dump <file.tyrarep> [firstFrame lastFrame]
+//
+// The summary is a timeline - every button press, and every jump in the player
+// fingerprint too big to have been walked. That is the half bin/log.txt cannot
+// give you: the log says the game teleported the player somewhere in an
+// 1800-frame run, this says which frame USE was pressed on, and the two laid
+// side by side answer the question. It is how "picking the ball up throws me
+// into the corner" was settled - the grab was 11 frames AFTER the hop and on
+// the other side of the map, so it was not the grab.
+//
+// With a frame range it switches to the raw per-frame view - sticks, held
+// buttons, fingerprint - which is what you want once the summary has said
+// WHERE to look. No PCSX2 and no build: it parses the file and exits.
+static int replayDumpFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --replay-dump <file.tyrarep> "
+                     "[firstFrame lastFrame]\n");
+        return 2;
+    }
+    livereplay::Recording rec;
+    std::string err;
+    if (!livereplay::read(argv[2], rec, err)) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    const livereplay::Header& h = rec.header;
+    std::printf("%s: %zu frames at %u Hz, project %s, format v%u%s%s%s\n",
+                argv[2], rec.frames.size(), h.frameRate, h.projectName.c_str(),
+                h.editorFormatVersion, h.finalized() ? "" : ", NOT finalized",
+                h.hasKeyboard() ? ", keyboard" : "",
+                h.hasPad2() ? ", 2 pads" : "");
+    for (const livereplay::SeedEvent& sd : rec.seeds)
+        std::printf("f%-6u seed volume %u = %u\n", sd.frame, sd.volume,
+                    sd.seed);
+
+    const bool ranged = argc >= 5;
+    const size_t from = ranged ? (size_t)std::atoi(argv[3]) : 0;
+    const size_t to = ranged ? (size_t)std::atoi(argv[4]) : rec.frames.size();
+    float px = 0, py = 0, pz = 0;
+    bool seen = false;
+    int heldFrames = 0;
+    for (size_t i = from; i < to && i < rec.frames.size(); ++i) {
+        const livereplay::Frame& f = rec.frames[i];
+        if (ranged) {
+            std::string down;
+            for (int b = 0; b < 16; ++b)
+                if (f.pad[0].pressed & (1u << b)) {
+                    if (!down.empty()) down += "+";
+                    down += kPadButtonNames[b];
+                }
+            std::printf("f%-6d L(%3d,%3d) R(%3d,%3d) %-18s", (int)i,
+                        f.pad[0].lh, f.pad[0].lv, f.pad[0].rh, f.pad[0].rv,
+                        down.empty() ? "-" : down.c_str());
+            if (f.hasFingerprint)
+                std::printf(" %8.3f %8.3f %8.3f", f.x, f.y, f.z);
+            std::printf("\n");
+            continue;
+        }
+        std::string names;
+        for (int b = 0; b < 16; ++b)
+            if (f.pad[0].clicked & (1u << b)) {
+                if (!names.empty()) names += "+";
+                names += kPadButtonNames[b];
+            }
+        if (!names.empty())
+            std::printf("f%-6d press %-16s %8.3f %8.3f %8.3f\n", (int)i,
+                        names.c_str(), f.x, f.y, f.z);
+        // A jump between two consecutive fingerprints was not walked: the
+        // walker covers well under half a unit per frame at any speed the
+        // templates ship, so this catches a portal hop, a scripted teleport
+        // and a collision ejection alike - including a HORIZONTAL one, which
+        // a height-only test misses and which is exactly what "it moved me
+        // into the corner of the same room" looks like.
+        if (f.hasFingerprint) {
+            const float dx = f.x - px, dy = f.y - py, dz = f.z - pz;
+            const float d = std::sqrt(dx * dx + dy * dy + dz * dz);
+            if (seen && d > 0.5F)
+                std::printf("f%-6d JUMPED %.2f units to %8.3f %8.3f %8.3f\n",
+                            (int)i, d, f.x, f.y, f.z);
+            px = f.x, py = f.y, pz = f.z, seen = true;
+        }
+        if (f.pad[0].pressed) ++heldFrames;
+    }
+    if (!ranged)
+        std::printf("(%d frame(s) with a button down - pass a frame range for "
+                    "the per-frame view)\n", heldFrames);
     return 0;
 }
 
@@ -4131,6 +4223,8 @@ int main(int argc, char** argv) {
         return recordFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--replay") == 0)
         return replayFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--replay-dump") == 0)
+        return replayDumpFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--ui-script") == 0)
         return uiScriptFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--new") == 0) return createFromCli(argc, argv);

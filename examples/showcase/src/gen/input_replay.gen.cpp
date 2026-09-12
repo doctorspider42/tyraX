@@ -571,7 +571,7 @@ void boot() {
   put32(h + 20, (unsigned int)chunkFrames);
   put32(h + 24, (unsigned int)(RP_LAYOUT & 0xFFFFFFFFull));
   put32(h + 28, (unsigned int)(RP_LAYOUT >> 32));
-  put32(h + 32, 44U);
+  put32(h + 32, 45U);
   put32(h + 36, (unsigned int)0);
   {
     const char* nm = "showcase";

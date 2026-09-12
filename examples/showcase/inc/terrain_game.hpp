@@ -1084,8 +1084,9 @@ class TerrainGame : public Tyra::Game {
   // Blocks the walker from pressing against geometry the carried object no
   // longer fits in front of (the spring arm's sweep, pushing the walker back
   // instead of pulling the camera in).
-  void applyCarryWhisker(float* nextX, float* nextZ, float probeY, float yaw,
-                         float feetY, float eyeHeight);
+  void applyCarryWhisker(float prevX, float prevZ, float* nextX, float* nextZ,
+                         float probeY, float yaw, float feetY,
+                         float eyeHeight);
   int carryIndex = -1;        // runtimeObjects index being carried, -1 = none
   // The portal the carried object is currently passing THROUGH (its carry ray
   // pierces the opening and that portal renders the object in its

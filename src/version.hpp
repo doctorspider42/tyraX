@@ -16,6 +16,32 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.84.2: picking an object up no longer launches the player across the room.
+// The report was "throw the ball into the cellar, pick it up down there, and
+// some unknown force moves me into the corner"; the second recording
+// (portal-ball-new.tyrarep, 1352 frames, replays with 0 divergences) shows it
+// exactly - USE at frame 390, then seventeen frames of 0.75 of a unit each,
+// dead straight, stick CENTRED, ending against the back wall, and again at
+// 712. 0.75 is not a coincidence: it is applyCarryWhisker's `need`, 0.55 plus
+// the weight's 0.2 radius. The whisker pushes the walker back by need - d
+// whenever the carried object does not fit in front of the face, and a swept
+// sphere that STARTS inside geometry returns d = 0 - which is what a room
+// modelled as one collision mesh does to a probe standing in it
+// (docs/backlog.md, "Only the player and rigid bodies have mesh collision").
+// So the push fired every frame, at full strength, whatever the player did.
+// It is capped at the step actually taken now: the whisker blocks a step, it
+// never adds one, so standing still takes back nothing. The root gap -
+// sweepSphere collides against the whole-mesh BOX while the walker gets
+// triangles - is unchanged and still in the backlog.
+// Verified on that recording: before the cap it replays with 0
+// divergences (the bug reproduces), after it the run diverges at frame
+// 391 and nowhere earlier - the player stays at (-1.44 -10.2 -15.01)
+// where the grab happened, against the recording's (-1.14 -10.2 -15.70),
+// which is the first slid step. Also in this commit: --replay-dump, the
+// verb that reads a recording without running it (docs/input-replay.md),
+// and the Pick lines now print the EYE - the simple FPP template never
+// fills players[0], so that column was a constant -12. PATCH.
+//
 // 1.84.1: the game logs picking an object up, dropping it, throwing it and
 // losing it mid-carry (`Pick: ...` in bin/log.txt, beside the `Portal: ...`
 // lines that were already there). Asked for while chasing "throw the ball
@@ -3144,7 +3170,7 @@
 // 1.80.0: cutscenes can hide the HUD and own the skip button.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 84
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

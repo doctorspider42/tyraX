@@ -34,7 +34,10 @@ struct CamKey { float t; float eye[3]; float at[3]; float fov;
                 int camObj; };
 struct Seq { const char* name; float duration; int loop; int camEnabled;
              int hidePlayer;  // hide the third-person avatar while playing
-             int bars; int skippable; float fadeIn; float fadeOut;
+             int hideHud;     // hide the HUD, the USE prompt and USE itself
+             int bars; int skippable;
+             int skipMode;    // 0 skip at once, 1 ask first (SKIP_MENU)
+             float fadeIn; float fadeOut;
              float barsSlideIn; float barsSlideOut;  // bars reveal, s
              const Track* tracks; int trackCount;
              const CamKey* camKeys; int camKeyCount; };
@@ -50,9 +53,9 @@ static const Track kS2Tracks[] = {{0, 29, 0, 0, 1, 1, 0, kS2T0K, 3}};
 static const CamKey kS2Cam[] = {{0.0F, {0.0F, 2.0F, -5.0F}, {0.0F, 4.0F, -12.0F}, 50.0F, 0.0F, 0.0F, 1, -1, -1}, {4.0F, {5.0F, 5.0F, -9.0F}, {0.0F, 4.0F, -12.0F}, 48.0F, 0.0F, 0.0F, 1, -1, -1}, {8.0F, {0.0F, 8.0F, -5.0F}, {0.0F, 4.0F, -14.0F}, 58.0F, 0.0F, 0.0F, 1, -1, -1}};
 
 static const Seq kSeqs[] = {
-  {"Arrival", 10.0F, 0, 1, 1, 0, 1, 0.7F, 0.7F, 0.5F, 0.5F, kS0Tracks, 0, kS0Cam, 3}, 
-  {"The Grand Tour", 22.0F, 0, 1, 1, 0, 1, 0.7F, 0.7F, 0.5F, 0.5F, kS1Tracks, 0, kS1Cam, 5}, 
-  {"Celestial Alignment", 8.0F, 0, 1, 1, 0, 1, 0.7F, 0.7F, 0.5F, 0.5F, kS2Tracks, 1, kS2Cam, 3}
+  {"Arrival", 10.0F, 0, 1, 1, 0, 0, 1, 0, 0.7F, 0.7F, 0.5F, 0.5F, kS0Tracks, 0, kS0Cam, 3}, 
+  {"The Grand Tour", 22.0F, 0, 1, 1, 0, 0, 1, 0, 0.7F, 0.7F, 0.5F, 0.5F, kS1Tracks, 0, kS1Cam, 5}, 
+  {"Celestial Alignment", 8.0F, 0, 1, 1, 0, 0, 1, 0, 0.7F, 0.7F, 0.5F, 0.5F, kS2Tracks, 1, kS2Cam, 3}
 };
 static const int kSeqCount = 3;
 
@@ -105,6 +108,7 @@ class SequenceDirector : public Script {
   void release(ScriptContext& ctx) {
     ctx.cameraOverride = false;
     ctx.hidePlayer = false;
+    ctx.hudSuppressed = false;
     ctx.barsStyle = 0;
     ctx.barsAmount = 0.0F;
     ctx.fadeAlpha = 0.0F;
@@ -126,6 +130,17 @@ class SequenceDirector : public Script {
     active_ = -1;
   }
   int activeIndex() const { return active_; }
+  // "The player may skip what is on screen right now". Asked by the game loop
+  // BEFORE the pause menu gets a look at the "menu" action - the skip itself is
+  // then an ordinary end(), fired from there (docs/cutscenes.md). It used to be
+  // a raw Start test in update() below, which never ran: updateGameMenu had
+  // already opened the pause menu and paused the scripts.
+  bool skippable() const {
+    return active_ >= 0 && active_ < kSeqCount && kSeqs[active_].skippable != 0;
+  }
+  int skipMode() const {
+    return active_ >= 0 && active_ < kSeqCount ? kSeqs[active_].skipMode : 0;
+  }
 
   void update(ScriptContext& ctx) override {
     if (active_ < 0 || active_ >= kSeqCount) {
@@ -133,13 +148,10 @@ class SequenceDirector : public Script {
       return;
     }
     const Seq& s = kSeqs[active_];
-    // A skippable cutscene ends early on START.
-    if (s.skippable && ctx.engine && ctx.engine->pad.getClicked().Start) {
-      active_ = -1;
-      release(ctx);
-      return;
-    }
     ctx.hidePlayer = s.hidePlayer != 0;
+    // The whole HUD, the USE prompt and the USE interaction. Written every
+    // frame and cleared by release(), like hidePlayer beside it.
+    ctx.hudSuppressed = s.hideHud != 0;
     for (int i = 0; i < s.trackCount; ++i) {
       const Track& tr = s.tracks[i];
       if (tr.scene != ctx.scene || tr.obj < 0 || tr.obj >= ctx.objectCount) continue;
@@ -342,6 +354,8 @@ namespace sequences {
 void play(int index) { g_seqDirector.begin(index); }
 void stop() { g_seqDirector.end(); }
 bool playing() { return g_seqDirector.activeIndex() >= 0; }
+bool skippable() { return g_seqDirector.skippable(); }
+int skipMode() { return g_seqDirector.skipMode(); }
 
 // Set Letterbox Bars (flow graph): the mask style in force while NO cutscene is
 // active. A cutscene's own style wins, because it writes barsAmount every frame

@@ -1828,10 +1828,16 @@ Three checks make this a real test rather than a smoke test, and all three were
 run on the branch that added it:
 
 - **Read the recording back before trusting the replay.** A file of 705
-  all-neutral frames replays perfectly and proves nothing. Link `src/livereplay.cpp`
-  into a 30-line harness (the aobake/treegen shape - no GL, no ImGui, no
-  `project.hpp`) and assert the stick really left centre, a button was really
-  held, and the fingerprints really move. On the FPP fixture: 208 frames with the
+  all-neutral frames replays perfectly and proves nothing. `--replay-dump
+  <file.tyrarep>` prints the timeline without running anything - every button
+  press and every jump in the fingerprint too big to have been walked, frame
+  numbers on both - and with a frame range (`--replay-dump f a b`) the raw
+  per-frame view, sticks included. Read it against the `Portal:` / `Pick:`
+  lines the game writes into `bin/log.txt` (docs/devkit.md): that pairing is
+  what turns "it sometimes throws me across the room" into "the grab is frame
+  390 and frames 391-407 move 0.75 of a unit each with the stick CENTRED".
+  Assert the stick really left centre, a button was really held,
+  and the fingerprints really move. On the FPP fixture: 208 frames with the
   stick off-centre, 7 with a button, 669 of 705 carrying a fingerprint (the first
   ~36 are boot, where scripts have not started), player z 0 -> 20.8, and `dt`
   ranging 0.020..0.080 - the loading hitches, recorded.

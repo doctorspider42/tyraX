@@ -89,6 +89,32 @@ poke at whatever the recording arrived at).
 Every line the runtime logs is prefixed `Replay:`, which is the one anchor a
 script or a `grep` over `bin/log.txt` needs.
 
+### Reading a recording without running it
+
+```bash
+tyrax-editor --replay-dump <file.tyrarep>            # the timeline
+tyrax-editor --replay-dump <file.tyrarep> 386 412    # per frame, sticks and all
+```
+
+No PCSX2 and no build: it parses the file and prints what the player DID. The
+summary names every button press and every jump in the fingerprint too big to
+have been walked - a portal hop, a scripted teleport, a collision ejection -
+with the frame number on each, so it lines up directly with the `Portal:` and
+`Pick:` lines the game writes into `bin/log.txt` (see
+[devkit.md](devkit.md#what-the-game-already-logs-about-itself)). The jump test
+is distance, not height: "it moved me to the corner of the same room" is
+horizontal, and a height-only test misses it.
+
+That pairing is the whole debugging loop. A report of "I picked it up and
+something threw me across the room" became, in two commands: the grab is at
+frame 390, and frames 391-407 move 0.75 of a unit each with the stick
+**centred** - which is neither walking nor a teleport, and 0.75 turned out to
+be a constant in the carry code.
+
+With a frame range it switches to the raw per-frame view - both sticks, the
+held buttons and the fingerprint - which is what tells you the stick was
+centred while the player moved.
+
 ## What is reproduced
 
 - **Both pads** — buttons held, click edges, and both analog sticks as raw axis

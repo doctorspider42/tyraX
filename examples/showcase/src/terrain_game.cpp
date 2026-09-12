@@ -2975,14 +2975,19 @@ void TerrainGame::loop() {
             Tyra::RendererCorePostFx::PassGrading);
       if (i == HUD_GRAIN_LAYER)
         engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassGrain);
-      if (scriptCtx.hudVisible && hudElemDrawn[i])
+      if (scriptCtx.hudVisible && !scriptCtx.hudSuppressed &&
+          hudElemDrawn[i])
         engine->renderer.renderer2D.render(hudSprites[i]);
     }
     // Live bars sit above the stack, under the prompts and texts.
-    if (scriptCtx.hudVisible) renderHudBars();
+    if (scriptCtx.hudVisible && !scriptCtx.hudSuppressed) renderHudBars();
     // Custom screen effects placed at the top of the stack (layer -1): drawn
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
-    if (useTargetIndex >= 0) {
+    // A "Hide HUD" cutscene also takes the USE prompt off. updateUseTarget
+    // already refuses to pick a target under it; this second gate is what
+    // covers the frame the flag goes UP, because that scan ran before the
+    // sequence player did (docs/cutscenes.md).
+    if (useTargetIndex >= 0 && !scriptCtx.hudSuppressed) {
       const bool pick = runtimeObjects[useTargetIndex].data.pickable;
       const Sprite& prompt = pick ? pickPromptSprite : usePromptSprite;
       engine->renderer.renderer2D.render(prompt);
@@ -6186,6 +6191,16 @@ void TerrainGame::updateUseTarget() {
   // Hands full: BTN_USE means "drop" (updateCarriedObject), so no use
   // targeting - and no prompt - while carrying.
   if (carryIndex >= 0) return;
+  // A "Hide HUD" cutscene suppresses the whole interaction, not just its
+  // prompt. Note this test runs from the PLAYER's camera and BEFORE the
+  // cutscene override is applied further down, so a cutscene changes nothing
+  // about it by itself: a player left standing in front of a usable prop -
+  // usually the one whose On Used started the cutscene - keeps the prompt on
+  // screen over the cinematic and can press it again. Tied to that flag and not
+  // to "a cutscene is playing", because a cutscene that animates something
+  // while the player keeps the camera must keep USE working
+  // (docs/cutscenes.md).
+  if (scriptCtx.hudSuppressed) return;
 
   Vec4 dir = cameraLookAt - cameraPosition;
   const float dirLen = sqrtf(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
@@ -6241,6 +6256,14 @@ void TerrainGame::updateUseTarget() {
       const float gy = g.data.position[1] - cameraPosition.y;
       const float gz = g.data.position[2] - cameraPosition.z;
       carryDist = sqrtf(gx * gx + gy * gy + gz * gz);
+      // Logged for the same reason the portal hops are: a report like "I
+      // picked it up and something threw me across the room" can only be
+      // read off a log if the grab is IN that log, next to the hop. The
+      // player position rides along - it is the frame's other half.
+      TYRA_LOG("Pick: grabbed ", carryIndex, " at ", g.data.position[0], " ",
+               g.data.position[1], " ", g.data.position[2], ", eye ",
+               cameraPosition.x, " ", cameraPosition.y, " ",
+               cameraPosition.z);
     }
   }
 
@@ -6286,8 +6309,9 @@ float TerrainGame::objectHalfExtent(const RuntimeObject& o) const {
 // wall. Called by every walker after collidePlayer, on the carrying player
 // only. The probe is horizontal (yaw only): with the look pitch in it, the
 // terrain underfoot would read as a wall whenever the player looks down.
-void TerrainGame::applyCarryWhisker(float* nextX, float* nextZ, float probeY,
-                                    float yaw, float feetY, float eyeHeight) {
+void TerrainGame::applyCarryWhisker(float prevX, float prevZ, float* nextX,
+                                    float* nextZ, float probeY, float yaw,
+                                    float feetY, float eyeHeight) {
   if (carryIndex < 0) return;
   const RuntimeObject& o = runtimeObjects[carryIndex];
   if (!o.active || !o.visible) return;
@@ -6322,9 +6346,26 @@ void TerrainGame::applyCarryWhisker(float* nextX, float* nextZ, float probeY,
       sweepSphere(*nextX, probeY, *nextZ, hx, 0.0F, hz, need, r, carryIndex);
   sweepPassOn = false;
   if (d < need) {
+    // The whisker BLOCKS a step, it does not shove: never take back more
+    // than the step that was actually taken. Without this cap the pushback
+    // is `need` (0.55 + the object's radius) EVERY frame the probe starts
+    // inside something, whatever the player does - and a sweep that begins
+    // inside geometry returns 0, which is what a room modelled as one
+    // collision mesh does to a probe standing in it. Grabbing a weight in
+    // the showcase's cellar therefore slid the walker 0.75 of a unit per
+    // frame, 45 a second, with the stick centred, until it was pinned in a
+    // corner: "some unknown force moves the player", owner's portal-ball
+    // recording, frames 391-407 and again at 712. Standing still now takes
+    // back nothing, and walking face-first into a wall with a crate still
+    // stops exactly where it always did.
+    float back = need - d;
+    const float stepX = *nextX - prevX, stepZ = *nextZ - prevZ;
+    const float step = sqrtf(stepX * stepX + stepZ * stepZ);
+    if (back > step) back = step;
+    if (back <= 0.0F) return;
     const float px = *nextX, pz = *nextZ;
-    *nextX -= hx * (need - d);
-    *nextZ -= hz * (need - d);
+    *nextX -= hx * back;
+    *nextZ -= hz * back;
     // The pushback is a displacement collidePlayer never saw - unswept it
     // shoves the walker clean through whatever stands at their back (owner
     // repro: carry + reverse into a wall = teleported behind it). Re-run
@@ -6456,6 +6497,7 @@ void TerrainGame::updateCarriedObject() {
   // Despawned or hidden mid-carry (flow graph): the hands just open, and the
   // body wakes so it resumes falling if it is shown again mid-air.
   if (!o.active || !o.visible) {
+    TYRA_LOG("Pick: lost ", carryIndex, " mid-carry - despawned or hidden");
     releaseCarried(o, 0.0F, 0.0F, 0.0F);
     carryIndex = -1;
     carryPortalPi = -1;
@@ -6594,6 +6636,9 @@ void TerrainGame::updateCarriedObject() {
   if (carryGrabbed) {
     carryGrabbed = false;  // the press that grabbed it is not a drop
   } else if (inputClicked(engine->pad, IA_ROLE_USE)) {
+    TYRA_LOG("Pick: dropped ", carryIndex, " at ", o.data.position[0], " ",
+             o.data.position[1], " ", o.data.position[2], ", eye ",
+             cameraPosition.x, " ", cameraPosition.y, " ", cameraPosition.z);
     releaseCarried(runtimeObjects[carryIndex], 0.0F, 0.0F, 0.0F);
     carryIndex = -1;
     carryPortalPi = -1;
@@ -6604,6 +6649,9 @@ void TerrainGame::updateCarriedObject() {
     const float vx = dir.x * PICK_THROW_SPEED * g_frameDt;
     const float vy = dir.y * PICK_THROW_SPEED * g_frameDt;
     const float vz = dir.z * PICK_THROW_SPEED * g_frameDt;
+    TYRA_LOG("Pick: threw ", idx, " at ", o.data.position[0], " ",
+             o.data.position[1], " ", o.data.position[2], ", v ", vx, " ", vy,
+             " ", vz);
     if (!releaseCarried(runtimeObjects[idx], vx, vy, vz)) {
       // No rigid body to hand off to: fly the hand-rolled arc instead.
       thrownIndex = idx;
@@ -7025,24 +7073,49 @@ bool TerrainGame::updateGameMenu() {
   auto pausing = [&] {
     return gameMenuIndex >= 0 && MENUS[gameMenuIndex].pause != 0;
   };
+  // Opening a menu from scratch: one sequence, three callers (a queued
+  // openMenu, the pause toggle, the cutscene skip confirmation below). The
+  // grace counter is pad-garbage protection - see updateSaveMenu.
+  auto enterMenu = [&](int target) {
+    gameMenuIndex = target;
+    gameMenuCursor = 0;
+    gameMenuScroll = 0;
+    gameMenuOpenT = 0.0F;
+    gameMenuClock = 0.0F;
+    gameMenuScrollShown = 0.0F;
+    gameMenuCursorRow = -1;
+    gameMenuStackDepth = 0;
+    gameMenuGrace = 15;
+    menuRebindRow = -1;
+    useTargetIndex = -1;
+  };
 
   if (scriptCtx.openMenu >= 0) {
     const int target = scriptCtx.openMenu;
     scriptCtx.openMenu = -1;
     if (target < MENU_COUNT && !saveMenuOpen && gameMenuIndex < 0) {
-      gameMenuIndex = target;
-      gameMenuCursor = 0;
-      gameMenuScroll = 0;
-      gameMenuOpenT = 0.0F;
-      gameMenuClock = 0.0F;
-      gameMenuScrollShown = 0.0F;
-      gameMenuCursorRow = -1;
-      gameMenuStackDepth = 0;
-      gameMenuGrace = 15;  // pad-garbage grace (see updateSaveMenu)
-      menuRebindRow = -1;
-      useTargetIndex = -1;
+      enterMenu(target);
       return pausing();
     }
+  }
+
+  // A skippable cutscene OWNS the "menu" action for its duration
+  // (docs/cutscenes.md). This has to come before the pause toggle below, and
+  // that ordering is the whole fix: a project with a pause menu could never
+  // skip a cutscene, because the press opened the menu, the open menu paused
+  // the scripts, and the director - which used to test the raw Start button
+  // itself - never ran to see it. One press does one thing.
+  if (gameMenuIndex < 0 && !saveMenuOpen && sequences::skippable() &&
+      inputClicked(engine->pad, IA_ROLE_MENU)) {
+    // Ask first, when the project designated a confirmation screen. With no
+    // such menu the mode falls back to skipping on the spot: swallowing the
+    // press and doing nothing would read as a broken button.
+    if (sequences::skipMode() == 1 && SKIP_MENU >= 0 && SKIP_MENU < MENU_COUNT) {
+      enterMenu(SKIP_MENU);
+      return pausing();
+    }
+    sequences::stop();
+    return false;
   }
 
   // The "menu" action toggles the pause menu: opens it during gameplay, closes
@@ -7050,17 +7123,7 @@ bool TerrainGame::updateGameMenu() {
   if (PAUSE_MENU >= 0 && !saveMenuOpen &&
       inputClicked(engine->pad, IA_ROLE_MENU)) {
     if (gameMenuIndex < 0) {
-      gameMenuIndex = PAUSE_MENU;
-      gameMenuCursor = 0;
-      gameMenuScroll = 0;
-      gameMenuOpenT = 0.0F;
-      gameMenuClock = 0.0F;
-      gameMenuScrollShown = 0.0F;
-      gameMenuCursorRow = -1;
-      gameMenuStackDepth = 0;
-      gameMenuGrace = 15;
-      menuRebindRow = -1;
-      useTargetIndex = -1;
+      enterMenu(PAUSE_MENU);
       return pausing();
     }
     if (gameMenuIndex == PAUSE_MENU && gameMenuStackDepth == 0 &&
@@ -7266,6 +7329,14 @@ bool TerrainGame::updateGameMenu() {
           gameMenuStackDepth = 0;
           credits::play(e.param);
         }
+        break;
+      case 13:  // confirm a cutscene skip: end it and close the menu. Anything
+        // that dismisses the menu instead (a Close row, "back") declines and
+        // the cutscene carries on from where it froze - so "no" needs no row
+        // action of its own (docs/cutscenes.md).
+        gameMenuIndex = -1;
+        gameMenuStackDepth = 0;
+        sequences::stop();
         break;
     }
   }
@@ -8114,7 +8185,13 @@ void TerrainGame::updateAndRenderHudTexts() {
       }
     }
     const int e = HUD_ELEM_TEXT0 + i;
-    if (e < (int)hudElemDrawn.size() && hudElemDrawn[e])
+    // A "Hide HUD" cutscene takes the baked texts with the rest of the HUD -
+    // but only the DRAWING: the auto-hide countdown above keeps running, or a
+    // text shown just before a cutscene would still be on screen after it
+    // (docs/cutscenes.md). Runtime text (Display Text) is deliberately not
+    // covered - that is where a cutscene's subtitles live.
+    if (e < (int)hudElemDrawn.size() && hudElemDrawn[e] &&
+        !scriptCtx.hudSuppressed)
       engine->renderer.renderer2D.render(hudTextSprites[i]);
   }
 }
@@ -13468,8 +13545,8 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     // The whisker reads portalPassOn to keep the mounting wall open while
     // carrying THROUGH a portal - reset it only after the whisker runs.
     if (pi == 0)  // carrying is pad-1 only (updateUseTarget)
-      applyCarryWhisker(&nextX, &nextZ, P.y + PP_CAM_HEIGHT(pi), P.yaw, P.y,
-                        PP_EYE_HEIGHT(pi));
+      applyCarryWhisker(P.x, P.z, &nextX, &nextZ, P.y + PP_CAM_HEIGHT(pi),
+                        P.yaw, P.y, PP_EYE_HEIGHT(pi));
     portalPassOn = false;
     const float movedX = nextX - P.x, movedZ = nextZ - P.z;
     P.x = nextX;
@@ -13636,8 +13713,8 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
                 &ceiling);
   // whisker reads portalPassOn (carry through a portal) - reset after it
   if (pi == 0)  // carrying is pad-1 only (updateUseTarget)
-    applyCarryWhisker(&nextX, &nextZ, P.y + PP_EYE_HEIGHT(pi), P.yaw, P.y,
-                      PP_EYE_HEIGHT(pi));
+    applyCarryWhisker(P.x, P.z, &nextX, &nextZ, P.y + PP_EYE_HEIGHT(pi),
+                      P.yaw, P.y, PP_EYE_HEIGHT(pi));
   portalPassOn = false;
   P.x = nextX;
   P.z = nextZ;
@@ -20163,8 +20240,8 @@ void TerrainGame::updatePlayer() {
   collidePlayer(playerX, playerZ, &nextX, &nextZ, playerY, EYE_HEIGHT, &ground,
                 &ceiling);
   // whisker reads portalPassOn (carry through a portal) - reset after it
-  applyCarryWhisker(&nextX, &nextZ, playerY + EYE_HEIGHT, yaw, playerY,
-                    EYE_HEIGHT);
+  applyCarryWhisker(playerX, playerZ, &nextX, &nextZ, playerY + EYE_HEIGHT,
+                    yaw, playerY, EYE_HEIGHT);
   portalPassOn = false;
   playerX = nextX;
   playerZ = nextZ;

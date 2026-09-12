@@ -1802,8 +1802,9 @@ class TerrainGame : public Tyra::Game {
   // Blocks the walker from pressing against geometry the carried object no
   // longer fits in front of (the spring arm's sweep, pushing the walker back
   // instead of pulling the camera in).
-  void applyCarryWhisker(float* nextX, float* nextZ, float probeY, float yaw,
-                         float feetY, float eyeHeight);
+  void applyCarryWhisker(float prevX, float prevZ, float* nextX, float* nextZ,
+                         float probeY, float yaw, float feetY,
+                         float eyeHeight);
   int carryIndex = -1;        // runtimeObjects index being carried, -1 = none
   // The portal the carried object is currently passing THROUGH (its carry ray
   // pierces the opening and that portal renders the object in its
@@ -3292,8 +3293,9 @@ class TerrainGame : public Tyra::Game {
   // Blocks the walker from pressing against geometry the carried object no
   // longer fits in front of (the spring arm's sweep, pushing the walker back
   // instead of pulling the camera in).
-  void applyCarryWhisker(float* nextX, float* nextZ, float probeY, float yaw,
-                         float feetY, float eyeHeight);
+  void applyCarryWhisker(float prevX, float prevZ, float* nextX, float* nextZ,
+                         float probeY, float yaw, float feetY,
+                         float eyeHeight);
   int carryIndex = -1;        // runtimeObjects index being carried, -1 = none
   // The portal the carried object is currently passing THROUGH (its carry ray
   // pierces the opening and that portal renders the object in its
@@ -9891,8 +9893,9 @@ void TerrainGame::updateUseTarget() {
       // read off a log if the grab is IN that log, next to the hop. The
       // player position rides along - it is the frame's other half.
       TYRA_LOG("Pick: grabbed ", carryIndex, " at ", g.data.position[0], " ",
-               g.data.position[1], " ", g.data.position[2], ", player ",
-               players[0].x, " ", players[0].y, " ", players[0].z);
+               g.data.position[1], " ", g.data.position[2], ", eye ",
+               cameraPosition.x, " ", cameraPosition.y, " ",
+               cameraPosition.z);
     }
   }
 
@@ -9938,8 +9941,9 @@ float TerrainGame::objectHalfExtent(const RuntimeObject& o) const {
 // wall. Called by every walker after collidePlayer, on the carrying player
 // only. The probe is horizontal (yaw only): with the look pitch in it, the
 // terrain underfoot would read as a wall whenever the player looks down.
-void TerrainGame::applyCarryWhisker(float* nextX, float* nextZ, float probeY,
-                                    float yaw, float feetY, float eyeHeight) {
+void TerrainGame::applyCarryWhisker(float prevX, float prevZ, float* nextX,
+                                    float* nextZ, float probeY, float yaw,
+                                    float feetY, float eyeHeight) {
   if (carryIndex < 0) return;
   const RuntimeObject& o = runtimeObjects[carryIndex];
   if (!o.active || !o.visible) return;
@@ -9974,9 +9978,26 @@ void TerrainGame::applyCarryWhisker(float* nextX, float* nextZ, float probeY,
       sweepSphere(*nextX, probeY, *nextZ, hx, 0.0F, hz, need, r, carryIndex);
   sweepPassOn = false;
   if (d < need) {
+    // The whisker BLOCKS a step, it does not shove: never take back more
+    // than the step that was actually taken. Without this cap the pushback
+    // is `need` (0.55 + the object's radius) EVERY frame the probe starts
+    // inside something, whatever the player does - and a sweep that begins
+    // inside geometry returns 0, which is what a room modelled as one
+    // collision mesh does to a probe standing in it. Grabbing a weight in
+    // the showcase's cellar therefore slid the walker 0.75 of a unit per
+    // frame, 45 a second, with the stick centred, until it was pinned in a
+    // corner: "some unknown force moves the player", owner's portal-ball
+    // recording, frames 391-407 and again at 712. Standing still now takes
+    // back nothing, and walking face-first into a wall with a crate still
+    // stops exactly where it always did.
+    float back = need - d;
+    const float stepX = *nextX - prevX, stepZ = *nextZ - prevZ;
+    const float step = sqrtf(stepX * stepX + stepZ * stepZ);
+    if (back > step) back = step;
+    if (back <= 0.0F) return;
     const float px = *nextX, pz = *nextZ;
-    *nextX -= hx * (need - d);
-    *nextZ -= hz * (need - d);
+    *nextX -= hx * back;
+    *nextZ -= hz * back;
     // The pushback is a displacement collidePlayer never saw - unswept it
     // shoves the walker clean through whatever stands at their back (owner
     // repro: carry + reverse into a wall = teleported behind it). Re-run
@@ -10248,8 +10269,8 @@ void TerrainGame::updateCarriedObject() {
     carryGrabbed = false;  // the press that grabbed it is not a drop
   } else if (inputClicked(engine->pad, IA_ROLE_USE)) {
     TYRA_LOG("Pick: dropped ", carryIndex, " at ", o.data.position[0], " ",
-             o.data.position[1], " ", o.data.position[2], ", player ",
-             players[0].x, " ", players[0].y, " ", players[0].z);
+             o.data.position[1], " ", o.data.position[2], ", eye ",
+             cameraPosition.x, " ", cameraPosition.y, " ", cameraPosition.z);
     releaseCarried(runtimeObjects[carryIndex], 0.0F, 0.0F, 0.0F);
     carryIndex = -1;
     carryPortalPi = -1;
@@ -17156,8 +17177,8 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     // The whisker reads portalPassOn to keep the mounting wall open while
     // carrying THROUGH a portal - reset it only after the whisker runs.
     if (pi == 0)  // carrying is pad-1 only (updateUseTarget)
-      applyCarryWhisker(&nextX, &nextZ, P.y + PP_CAM_HEIGHT(pi), P.yaw, P.y,
-                        PP_EYE_HEIGHT(pi));
+      applyCarryWhisker(P.x, P.z, &nextX, &nextZ, P.y + PP_CAM_HEIGHT(pi),
+                        P.yaw, P.y, PP_EYE_HEIGHT(pi));
     portalPassOn = false;
     const float movedX = nextX - P.x, movedZ = nextZ - P.z;
     P.x = nextX;
@@ -17324,8 +17345,8 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
                 &ceiling);
   // whisker reads portalPassOn (carry through a portal) - reset after it
   if (pi == 0)  // carrying is pad-1 only (updateUseTarget)
-    applyCarryWhisker(&nextX, &nextZ, P.y + PP_EYE_HEIGHT(pi), P.yaw, P.y,
-                      PP_EYE_HEIGHT(pi));
+    applyCarryWhisker(P.x, P.z, &nextX, &nextZ, P.y + PP_EYE_HEIGHT(pi),
+                      P.yaw, P.y, PP_EYE_HEIGHT(pi));
   portalPassOn = false;
   P.x = nextX;
   P.z = nextZ;
@@ -24774,8 +24795,8 @@ void TerrainGame::updatePlayer() {
   collidePlayer(playerX, playerZ, &nextX, &nextZ, playerY, EYE_HEIGHT, &ground,
                 &ceiling);
   // whisker reads portalPassOn (carry through a portal) - reset after it
-  applyCarryWhisker(&nextX, &nextZ, playerY + EYE_HEIGHT, yaw, playerY,
-                    EYE_HEIGHT);
+  applyCarryWhisker(playerX, playerZ, &nextX, &nextZ, playerY + EYE_HEIGHT,
+                    yaw, playerY, EYE_HEIGHT);
   portalPassOn = false;
   playerX = nextX;
   playerZ = nextZ;

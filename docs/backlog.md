@@ -427,6 +427,18 @@ against the whole-mesh box - `objectCollisionBox`. So an arch or a doorway a
 player walks through freely is still a solid block to a carried object and to
 the third-person camera, and there is no authoring signal that says so.
 
+**It bit again in 1.84.2, from the other end.** A sweep that BEGINS inside
+geometry returns 0, and a room modelled as one collision mesh does exactly that
+to a probe standing in it - so the carry whisker read "the object does not fit"
+every frame and pushed the walker back by its full `need` (0.55 + the object's
+radius). Picking a weight up in the showcase's cellar slid the player 0.75 of a
+unit per frame, 45 a second, with the stick centred, until it was pinned in a
+corner; the owner reported it as "some unknown force moves the player", and the
+`portal-ball-new.tyrarep` recording reproduces it at frames 391-407. The
+whisker now takes back at most the step that was taken, which is what it always
+meant (it BLOCKS a step, it does not shove), but the underlying gap - a sweep
+against a box where the walker gets triangles - is still here.
+
 This surfaced while fixing the portal doorway rule (1.81.0): the reported
 symptom was "the player crosses the portal and a thrown object bounces off the
 wall it is cut into". The doorway rule now opens that particular obstacle -
