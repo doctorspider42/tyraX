@@ -59,7 +59,8 @@ The object itself emits **no runtime geometry** (type 22 is authoring-only in
 `ROAD_DEFS` (scene, point range, width, texture slot), `ROAD_POINTS`,
 `ROAD_TEXTURE_PATHS` (deduplicated, `res/` prefix stripped: the game's asset
 root is `bin/`, which holds `.res-baked`'s content) — and `buildRoads(scene)`
-tessellates them into **procChunks** at scene load, ~12 stations per chunk
+tessellates them into **procChunks** at scene load, at most 36 spans per chunk
+and a target budget of 1,800 vertices (a single wider span stays indivisible),
 under owner `-3`. That buys the proc pipeline's whole economy for free:
 per-chunk AABBs and Precise frustum culling, one submit per visible chunk,
 `procFinishChunks()` building the bags. The call sits **after** the

@@ -16,6 +16,9 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.86.1: Pack road spans into bounded larger render chunks to reduce EE
+// submission overhead. Geometry and project format remain unchanged.
+//
 // 1.86.0: Motor District vehicle playground and flat-road geometry reduction.
 // Retain textured vehicle images/wheel LODs and match dynamic reflection UVs
 // to the level capture camera. No project-format change.
@@ -3869,7 +3872,7 @@
 // 1.80.0: cutscenes can hide the HUD and own the skip button.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 86
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

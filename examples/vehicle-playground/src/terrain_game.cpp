@@ -17683,13 +17683,6 @@ void TerrainGame::buildRoads(int scene) {
               terrainHeightAt(nx[(size_t)j], nz[(size_t)j]) + 0.12F;
         }
         if (havePrev) {
-          if (!c || stationsInChunk >= 12) {
-            procChunks.push_back(ProcChunk());
-            c = &procChunks.back();
-            c->owner = -3;
-            c->roadTex = tex;
-            stationsInChunk = 0;
-          }
           // Two triangles per lateral cell, CCW seen from above - the twin's
           // stitch, emitted station by station so a chunk boundary never
           // leaves a gap (the previous row is re-used as the base).
@@ -17703,6 +17696,17 @@ void TerrainGame::buildRoads(int scene) {
                 fabsf(ny[(size_t)j] - rowY) > 0.00001F)
               flat = false;
           const int stride = flat ? crossSteps : 1;
+          // Amortize EE bag/bounds work on flat streets, without making dense
+          // slopes unbounded or joining a whole road into one culling box.
+          const size_t spanVertices = (size_t)(crossSteps / stride) * 6;
+          if (!c || stationsInChunk >= 36 ||
+              c->vertices.size() + spanVertices > 1800) {
+            procChunks.push_back(ProcChunk());
+            c = &procChunks.back();
+            c->owner = -3;
+            c->roadTex = tex;
+            stationsInChunk = 0;
+          }
           for (int j = 0; j < crossSteps; j += stride) {
             const float u0 = (float)j / (float)crossSteps;
             const float u1 = (float)(j + stride) / (float)crossSteps;

@@ -121,6 +121,10 @@ are not evidence of console frame rate or reflection correctness.
 The release editor and native PS2 game build successfully. The road twin oracle
 and `--vehicle-check` pass; the game was booted and driven in PCSX2's software
 renderer. The district uses 93,150 road vertices instead of 281,748 (66.9% fewer).
+Bounded span packing reduces the runtime road chunk count from 171 to 90 while
+preserving those vertices and UVs. Chunks contain at most 36 spans and target
+1,800 vertices, keeping culling local on dense slopes. The seven terrain fixtures
+in the road twin oracle still match the editor geometry, including scene revisits.
 A stationary hide/show/restore probe changes 204 car pixels when reflected
 buildings disappear and restores the original car image exactly. The embedded
 128 × 128 Rally texture is preserved byte-for-byte. These are emulator checks,
