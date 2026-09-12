@@ -1,0 +1,5 @@
+# The plinth. Textured for the same reason as the brick, and paler so the
+# shadow crossing from the ground onto it stays one continuous shape.
+newmtl paving
+Kd 1.0000 1.0000 1.0000
+map_Kd paving.png

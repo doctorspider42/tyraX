@@ -985,6 +985,7 @@ void App::drawUI() {
     drawVuProgramsWindow();
     drawDroneGeneratorWindow();
     giBakerPoll();
+    shadowBakerPoll();
     modelAoPoll();
     litBakerPoll();
     blssPoll();
@@ -2436,6 +2437,68 @@ void App::drawToolbar() {
     }
 }
 
+// Baked shadow decals (docs/shadows.md): push the CACHED bake into the
+// viewport. The editor never bakes here - a bake is pressed, not implied - so
+// this is a cache read keyed on what could have invalidated it: the active
+// scene, the model's edit serial (which moves when a caster or a receiver
+// does, staling the signature), the project switch, and the baker's own
+// version so a finished bake appears without anyone touching the scene.
+void App::updateShadowDecals() {
+    uint64_t key = 1469598103934665603ull;
+    const auto mix = [&](uint64_t v) { key = (key ^ v) * 1099511628211ull; };
+    mix((uint64_t)project_.activeScene);
+    mix(modelEditSerial_);
+    mix(project_.settings.bakedShadows ? 1u : 0u);
+    mix(shadowBaker_.version());
+    if (key == shadowPreviewKey_) return;
+    shadowPreviewKey_ = key;
+
+    Viewport::ShadowPreview pv;
+    pv.version = ++shadowPreviewVersion_;
+    const shadowbake::Bake b = shadowbake::load(project_, project_.activeScene);
+    if (b.valid && !b.groups.empty()) {
+        pv.pageSize = shadowbake::kPageSize;
+        // The pages as the console samples them: the bake's own tint in RGB,
+        // its alpha in A. Expanded here rather than stored that way, for the
+        // reason the cache stores one byte a texel - the tint is one colour
+        // per scene, not per pixel.
+        for (const shadowbake::Page& pg : b.pages) {
+            std::vector<unsigned char> rgba((size_t)pv.pageSize * pv.pageSize * 4, 0);
+            for (size_t i = 0; i < pg.alpha.size() && i * 4 + 3 < rgba.size(); ++i) {
+                rgba[i * 4 + 0] = b.tint[0];
+                rgba[i * 4 + 1] = b.tint[1];
+                rgba[i * 4 + 2] = b.tint[2];
+                rgba[i * 4 + 3] = pg.alpha[i];
+            }
+            pv.pages.push_back(std::move(rgba));
+        }
+        for (const shadowbake::Group& g : b.groups) {
+            Viewport::ShadowPreview::Draw d;
+            d.verts = g.verts;
+            d.page = g.page;
+            pv.draws.push_back(std::move(d));
+        }
+    }
+    viewport_.setShadowDecals(pv);
+}
+
+// Drains shadowBaker_. Unlike the GI and pre-lit polls there is nothing to
+// apply back onto the model - the bake lives entirely on disk - so this only
+// has to make the finished result visible. Called every frame from drawUI and
+// from nowhere else (the giBakerPoll rule): a bake started from the Ambience
+// Editor has to land whether or not that tab is still open when it ends.
+void App::shadowBakerPoll() {
+    if (!hasProject_) return;
+    const uint64_t v = shadowBaker_.version();
+    if (v == shadowBakeVersion_) return;
+    shadowBakeVersion_ = v;
+    // updateShadowDecals folds the baker's version into its own key, so the
+    // next frame re-reads the cache on its own. What it cannot see is the
+    // terrain mesh and the GI textures the viewport holds, which a bake does
+    // not touch - hence no applyProjectToViewport here.
+    shadowPreviewKey_ = 0;
+}
+
 void App::updateProjectedDecals() {
     // Cheap signature of everything a projection depends on: the projecting
     // decals AND every potential receiver's transform/type. Recompute only when
@@ -2883,6 +2946,7 @@ void App::drawViewportWindow() {
             viewport_.setHiddenCameras(std::move(hideCams));
         }
         updateProjectedDecals();
+        updateShadowDecals();
         updateNavOverlay();
         viewport_.setCollisionOverlay(showCollisionBoxes_);
         updateProcPreview();
@@ -5944,6 +6008,13 @@ void App::closeProject() {
     flowPositionsApplied_ = false;
     // Every one of these is keyed by a project-relative path.
     viewport_.invalidateAssets();
+    // The baked shadows are THIS project's geometry and THIS project's atlas
+    // pages, uploaded to the GPU. updateShadowDecals only runs while a project
+    // is open, so nothing would clear them on its own and the next project
+    // would open over somebody else's shadows.
+    shadowBaker_.cancel();
+    shadowPreviewKey_ = 0;
+    viewport_.setShadowDecals(Viewport::ShadowPreview{});
     layerRamCache_.clear();
     wavIssueCache_.clear();
     modelInfoCache_.clear();

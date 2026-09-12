@@ -3,6 +3,12 @@
 TyraX builds games without Docker by default, using a pinned PS2DEV toolchain and
 the reviewed VU tools shipped as source with the editor.
 
+Measured once end to end on a six-core Linux desktop, from nothing: the
+toolchain install (254 MiB download, extract, build OpenVCL and run its tests,
+build vclpp, bin2s and audsrv) takes about **six minutes**, and the first game
+build — the whole engine plus the generated sources — about **eight** on top of
+it. Both are once. Later builds are the incremental `make` and take seconds.
+
 ## What the first build installs
 
 The editor runs `tools/toolchain/setup.sh` lazily. On Linux it runs directly; on
@@ -22,8 +28,14 @@ The parts TyraX changes are in this repository and are compiled locally:
 Setup runs the complete OpenVCL suite before installing it. A content hash of
 those source trees forms the toolchain identity, so changing a compiler flag or
 vendored source invalidates both the tool install and cached VU/engine objects.
-On Windows the default cache is `%LOCALAPPDATA%\tyra-editor\toolchain`; on Linux
-it is `${XDG_CACHE_HOME:-~/.cache}/tyrax`.
+
+It lands in the editor's own configuration directory, under `toolchain/ps2dev`:
+`%LOCALAPPDATA%\tyra-editor\toolchain\ps2dev` on Windows,
+`${XDG_CONFIG_HOME:-~/.config}/tyra-editor/toolchain/ps2dev` on Linux. **That
+is where a manual `setup.sh` run puts it too** — one copy, shared, because the
+install is ~940 MB and an OpenVCL build, and having the manual command and the
+editor disagree simply meant paying for both. Override it with `TYRAX_PS2DEV`
+or a positional argument.
 
 Sound conversion has the same contract as the Docker fallback: WAV effects
 whose names end in `-loop.wav` are encoded with `adpenc -L`. The native build
@@ -32,11 +44,19 @@ encoded but newer output is repaired instead of being accepted as fresh.
 
 ## Host prerequisites
 
-Linux needs `build-essential`, CMake, curl and rsync. Windows needs WSL with a
-Debian/Ubuntu distribution and the same packages inside it. A normal build only
-checks these host prerequisites and never changes the distribution. The
-dedicated bootstrap installs them through `apt` only after an explicit
-`--install`/`-Install` choice:
+Linux needs `build-essential`, CMake, curl, tar and rsync. Windows needs WSL
+with a Debian/Ubuntu distribution and the same packages inside it.
+
+**On Linux you normally install none of this by hand.** `./setup.sh --deps` in
+the repository root installs the editor's own build dependencies *and* these,
+for apt, dnf, pacman or zypper — one command for both halves, because a machine
+that builds the editor and then fails the first game build on a missing `curl`
+is the least helpful way to learn about the split. `prepare-host.sh` is the
+game half on its own, for a host that wants nothing else.
+
+A normal build only checks these host prerequisites and never changes the
+distribution. The dedicated bootstrap installs them through `apt` only after an
+explicit `--install`/`-Install` choice:
 
 ```bash
 bash ./tools/toolchain/prepare-host.sh --install
@@ -52,10 +72,11 @@ open a console for the WSL user's `sudo` password; it then provisions the pinned
 toolchain too. Updates do not silently inherit the choice. Docker and Docker
 Desktop are not required for normal builds.
 
-For a manual install:
+For a manual install — the same install the first build would do, so afterwards
+Build & Run has nothing left to fetch:
 
 ```bash
-./tools/toolchain/setup.sh "$HOME/.cache/tyrax/ps2dev"
+./tools/toolchain/setup.sh
 ```
 
 ```powershell

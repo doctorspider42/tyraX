@@ -47,6 +47,7 @@
 #include "platform.hpp"
 #include "procbake.hpp"
 #include "project.hpp"
+#include "shadowbake.hpp"
 #include "texatlas.hpp"
 #include "runner.hpp"
 
@@ -372,6 +373,25 @@ static void bakeStaleGi(const Project& p) {
                      rep.failed);
 }
 
+// The opt-in pre-build baked-shadow pass (ProjectSettings::bakedShadowAutoBake,
+// docs/shadows.md). The gibake::bakeStale arrangement, and for the same reason:
+// a stale cache drops the scene back to NO baked shadows without a word, which
+// looks exactly like the feature not working. Runs after the GI pass, because
+// a fresh GI bake decides which receivers the projection is allowed to land on.
+// The cache lives on disk, so nothing here needs saving.
+static void bakeStaleShadows(const Project& p) {
+    if (!p.settings.bakedShadowAutoBake || !p.settings.bakedShadows) return;
+    const shadowbake::StaleReport rep =
+        shadowbake::bakeStale(p, [](const std::string& l) {
+            std::printf("shadows: %s\n", l.c_str());
+        });
+    if (rep.failed)
+        std::fprintf(stderr,
+                     "warning: %d shadow bake(s) failed - those scenes ship "
+                     "without baked shadows\n",
+                     rep.failed);
+}
+
 // The opt-in pre-build pre-lit pass (ProjectSettings::prelitAutoBake,
 // docs/prelit-models.md): re-bake the STALE wanted objects and save, so what
 // ships agrees with the scene. The GUI twin is App::projectForBuild. Off by
@@ -445,6 +465,7 @@ static int buildFromCli(int argc, char** argv) {
     if (!ps2Ip.empty()) p.ps2LinkIp = ps2Ip;
     bakeProcedural(p);
     bakeStaleGi(p);
+    bakeStaleShadows(p);
     bakeStalePrelit(p);
 
     Runner runner;
@@ -1193,6 +1214,79 @@ static int bakeGiFromCli(int argc, char** argv) {
     return 0;
 }
 
+// tyrax-editor --bake-shadows <projectDir>
+//
+// The headless twin of the Baked lighting tab's shadow Bake buttons
+// (docs/shadows.md). Same reason --bake-gi exists: a build server or a test
+// harness needs the bake without clicking anything, and it is how the numbers
+// below get re-run rather than believed.
+//
+// It prints its own wall clock per scene ON PURPOSE. This bake has no GPU
+// backend, and that is a measurement rather than an omission - a shadow texel
+// fires a couple of dozen rays at ONE caster's own triangles, where a GI texel
+// fires a hundred-odd at the whole scene tree. If these numbers ever stop
+// being fractions of a second, that decision is the one to revisit.
+static int bakeShadowsFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr, "usage: tyrax-editor --bake-shadows <projectDir>\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (!p.settings.bakedShadows) {
+        std::fprintf(stderr,
+                     "error: baked shadow decals are off for this project "
+                     "(Ambience Editor > Baked lighting)\n");
+        return 1;
+    }
+    const std::atomic<bool> never{false};
+    for (int si = 0; si < (int)p.scenes.size(); ++si) {
+        const auto t0 = std::chrono::steady_clock::now();
+        const shadowbake::Bake b = shadowbake::bakeScene(p, si, &never, nullptr);
+        if (!b.valid) {
+            std::fprintf(stderr, "error: bake failed for scene %d\n", si);
+            return 1;
+        }
+        if (!shadowbake::write(shadowbake::cachePath(p, si), b)) {
+            std::fprintf(stderr, "error: cannot write the bake for scene %d\n", si);
+            return 1;
+        }
+        const double secs =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - t0)
+                .count();
+        std::printf(
+            "baked shadows: %s - %d draw(s), %d page(s), %d tris, "
+            "%d KB VRAM, %d KB ELF  %.2fs\n",
+            p.scenes[si].name.c_str(), (int)b.groups.size(), (int)b.pages.size(),
+            b.triangles(), b.vramWords() * 4 / 1024, b.elfBytes() / 1024, secs);
+        // Every refusal by name. A caster that asked for a shadow and did not
+        // get one is the single most confusing outcome this feature has, and a
+        // silent skip is indistinguishable from a broken bake.
+        const shadowbake::Plan pl =
+            shadowbake::plan(p, p.scenes[si], shadowbake::optionsOf(p.settings));
+        // WHICH SUN this was baked at. A baked shadow is only ever as right as
+        // its direction, and the direction is resolved through the scene's
+        // ambience preset and its day/night cycle - so printing it is the
+        // difference between "the shadow is in the wrong place" and "the sun
+        // is not where you think it is".
+        std::printf("  sun %.3f %.3f %.3f\n", pl.sunDir[0], pl.sunDir[1],
+                    pl.sunDir[2]);
+        if (!pl.warning.empty()) std::printf("  note: %s\n", pl.warning.c_str());
+        for (const shadowbake::Refusal& r : pl.refused)
+            std::printf("  refused %s: %s\n", r.name.c_str(), r.why.c_str());
+        for (const shadowbake::Refusal& r : b.truncated)
+            std::printf("  skipped %s: %s\n", r.name.c_str(), r.why.c_str());
+    }
+    if (std::string err = project::refreshGenerated(p); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    return 0;
+}
+
 // tyrax-editor --blss-coverage <projectDir> [--frames N] [--raster N]
 //                                           [--threads N] [--out WxH] [--verbose]
 //
@@ -1775,6 +1869,7 @@ std::string lastLineWith(const std::string& text, const char* needle) {
 bool buildAndLaunchForReplay(Runner& runner, Project& p) {
     bakeProcedural(p);
     bakeStaleGi(p);
+    bakeStaleShadows(p);
     bakeStalePrelit(p);
     runner.buildAndRun(p, true);
     size_t printed = 0;
@@ -4269,6 +4364,8 @@ int main(int argc, char** argv) {
         return bakePrelitFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-gi") == 0)
         return bakeGiFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--bake-shadows") == 0)
+        return bakeShadowsFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--gi-gpu-check") == 0)
         return giGpuCheckFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-model-ao") == 0)

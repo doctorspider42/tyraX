@@ -26,7 +26,7 @@ presets = {
 }
 for name, (mesh, terrain) in presets.items():
     dst = args.destination / name
-    shutil.copytree(root, dst, ignore=shutil.ignore_patterns('bin', 'build',
+    shutil.copytree(root, dst, ignore=shutil.ignore_patterns('bin', 'obj', 'build',
                     '.res-baked', '__pycache__'))
     manifest = dst / 'vehicle-playground.tyra'
     project = json.loads(manifest.read_text(encoding='utf-8'))

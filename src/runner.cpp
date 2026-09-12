@@ -5,6 +5,7 @@
 #include "elfsym.hpp"
 #include "pcsx2_config.hpp"
 #include "platform.hpp"
+#include "shadowbake.hpp"  // the baked-shadow cache: warn on a stale one
 #include "templates.hpp"
 #include "texbake.hpp"
 #include "vehbake.hpp"
@@ -1168,6 +1169,32 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                 p, [this](const std::string& l) { appendLine(l); });
             !err.empty())
             appendLine("[editor] Warning: " + err);
+        // Baked shadow decals: a STALE cache emits nothing at all, so a scene
+        // that asked for shadows would ship without them and without a word -
+        // which reads as the feature being broken rather than as a bake being
+        // out of date (docs/shadows.md). Say it once per scene, before the
+        // build, naming the fix. A warning and not a refusal: shipping the
+        // scene minus its shadows is a legitimate thing to do deliberately.
+        if (p.settings.bakedShadows && !p.settings.bakedShadowAutoBake) {
+            const shadowbake::Options sopt = shadowbake::optionsOf(p.settings);
+            for (size_t si = 0; si < p.scenes.size(); ++si) {
+                int asked = 0;
+                for (const SceneObject& o : p.scenes[si].objects)
+                    if (o.shadowMode == 4) ++asked;
+                if (asked == 0) continue;
+                shadowbake::Bake have;
+                const bool fresh =
+                    shadowbake::read(shadowbake::cachePath(p, (int)si), have) &&
+                    have.signature == shadowbake::signature(p, p.scenes[si], sopt);
+                if (!fresh)
+                    appendLine("[editor] Warning: " + p.scenes[si].name + " has " +
+                               std::to_string(asked) +
+                               " baked-shadow caster(s) but no fresh bake - it "
+                               "will ship with no baked shadows. Bake it in "
+                               "Ambience Editor > Baked lighting, or tick "
+                               "\"Re-bake stale scenes before every build\".");
+            }
+        }
 
         // Keep docker files and generated sources in sync with the project
         // data (also migrates projects created with older editor versions).

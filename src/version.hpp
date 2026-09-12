@@ -16,6 +16,10 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.86.5: Integrate vehicle wheel/capture fixes and planar road reduction
+// with main static submission improvements and baked shadow decals.
+// Combined format 52 preserves both additive field sets.
+//
 // 1.86.3: Reuse per-definition wheel attributes, reject off-screen wheel rigs,
 // and retain the shared reflection capture basis between updates. Extend road
 // reduction to safe planar slopes. No serialized field changes.
@@ -25,6 +29,75 @@
 // transforms. Retain the vehicle texture, reflection and handling fixes.
 // No additional project-format change.
 //
+// 1.86.4: StaPip builds per-bag uniforms at the head of the first geometry
+// DMA chain instead of launching and waiting for a separate uniform chain.
+// The packet is constructed natively from the beginning (no byte append and no
+// DMA NEXT), retains the leading FLUSHE barrier, and uses one END tag. Five
+// settled physical-Aster captures moved median DMA submit 3.034 -> 2.029 ms,
+// Dispatch 16.827 -> 15.544 ms and VU1 wait 5.847 -> 5.130 ms; Total remained
+// GS-bound at about 34.3 ms. The real console ran beyond 2100 frames and its GS
+// capture was correct; PCSX2 and the split/static-batch example also passed.
+// PATCH; no format change.
+//
+// 1.86.3: a wholly visible StaPip bag feeds contiguous source ranges straight
+// to qbuffers instead of constructing unused package descriptors after its
+// bag-level box has already classified all geometry as visible. Partial and EE
+// clipping paths are unchanged. Physical Aster medians were neutral (Total
+// 34.349 -> 34.342 ms, Objects 25.051 -> 24.951 ms) across five settled
+// captures; the candidate ran beyond 3360 frames. A one-kick DMA NEXT
+// experiment was rejected: it passed PCSX2 but froze a physical PS2 on the
+// first gameplay frame. PATCH; no format change.
+//
+// 1.86.2: consecutive StaPip bags sharing one model transform and camera reuse
+// their MVP and object-space frustum planes. The frame-local cache compares
+// matrix values, so in-place motion and portal/split cameras stay exact. Six
+// alternating PCSX2 debug boots on portal/mirror-free Aster measured median
+// serialized Total 21.322 -> 19.172 ms and Objects 14.102 -> 12.425 ms; the
+// directly attributed Prepare counter moved only 1.375 -> 1.341 ms, so real
+// hardware still owes the final size of the win. PATCH; no format change.
+//
+// 1.86.1: multi-part static models cache one conservative whole-object box and
+// reject against it before their material parts enter StaPip in the main or a
+// portal view. Aster's settled PCSX2 entrance pass measured Objects 15.011 ->
+// 13.723 ms and Bounds 1.971 -> 1.846 ms; the ordinary scene read 18.67 ->
+// 18.03 ms. Material-only model batching was tried and rejected: widened batch
+// bounds cost more fill than the submits saved. MINOR: generated games gain a
+// new rendering optimization; project format is unchanged.
+//
+// 1.86.0 (baked shadow decals, docs/shadows.md): a fourth *Dynamic shadow*
+// mode, and the only one that is not a runtime shadow at all. The host traces
+// each marked caster's shadow into a small tile, packs the tiles into shared
+// 256x256 atlas pages and projects them onto the receivers with the existing
+// decalproj machinery - so the console draws ordinary static triangles and
+// pays one blended pass, with no silhouette slot and no per-frame render.
+//
+// The load-bearing decision is that the atlas is not a VRAM optimisation but
+// the thing that makes the feature affordable at all: a bag is one texture, so
+// one shared page is what lets every shadow in a layer merge into ONE submit.
+// Unmerged they would cost ~1 ms of EE each (docs/prefabs.md), which is the
+// difference between "a few hero objects" and "dozens". Folding the atlas rect
+// costs nothing at run time either - decalproj clips to the projector's unit
+// cube, so its UVs are in [0,1] by construction and the rect is an affine
+// remap at bake time, unlike the runtime multiply texatlas needs.
+//
+// Two interlocks are code, not prose: a receiver that already carries a GI
+// lightmap is left out of the projection (the sun shadow is in the lightmap
+// there, and a decal on top would darken it twice), and a caster that can move
+// is refused by name rather than silently baked. kFormatVersion 45 -> 46,
+// purely additive - every new key is written only when it is not the default,
+// so an untouched project resaves byte for byte.
+//
+// MINOR above 1.85.2, the 1.10.0 and 1.84.0 precedent: this branch grew from
+// 1.81.0 and numbered itself 1.82.0 while main went on to 1.85.2, so the two
+// disagreed about what 1.82..1.85 mean. A number strictly greater than either
+// parent is the only one that keeps "which editor wrote this file" answerable.
+// The FORMAT collided the same way and is settled the same way - both lines
+// had claimed v45 for different fields, so main's published v45 (invisible box
+// collisions, scene-local editorGroup) keeps its number and this half
+// renumbers to v46. The later arrival renumbers, always.
+//
+
+
 // 1.85.2: the render cost table sorts. It listed phases first and object
 // draws after them, each group dearest first, which answers "what is the most
 // expensive thing in this frame" and nothing else - finding one named object
@@ -3863,9 +3936,12 @@
 // 1.78.0: editor comments pinned to scenes.
 // 1.79.0: merge native PS2DEV/OpenVCL builds with editor comments.
 // 1.80.0: cutscenes can hide the HUD and own the skip button.
+// 1.81.0: explicit WSL host toolchain bootstrap for native builds.
+// 1.86.0: merge baked shadow decals with main's render-cost table and
+// object-group line.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 86
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_PATCH 5
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -4218,11 +4294,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // MenuEntry action "skip-cutscene" (both written only when set). An older
 // editor reads the unknown action word as Close, which would turn a confirm
 // row into a decline row - the refusal is the point. Purely additive - no
-// migration step. Renumbered from main's v44 because this branch already uses
-// v44-v49 for vehicle, road and rendering fields.
-// v51: main's optional editorGroup and invisible box fields join the vehicle
-// branch format. Additive fields, no migration step.
-inline constexpr int kFormatVersion = 51;
+// migration step. Vehicle/road fields occupy v44-v50 on this branch.
+// v51 adds optional editorGroup and invisible box fields from main.
+// v52 adds baked shadow decals: shadowMode 4 and optional bakedShadow*
+// settings (main v46), without transforming any existing values.
+inline constexpr int kFormatVersion = 52;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

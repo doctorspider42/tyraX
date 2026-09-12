@@ -191,6 +191,7 @@ Format 44 combines Aster's invisible box collision mode and optional editorGroup
 with main's format 43 comments/HUD fields. These additive fields need no data
 conversion; formats from both development branches remain readable.
 
-The vehicles branch integration uses format 51: it retains the vehicle/road
-fields from branch formats 44–50 together with main's optional editorGroup and
-invisible-box fields. Both sets are additive and need no value conversion.
+The vehicles branch integration used format 51 for vehicle/road fields from
+branch formats 44–50 together with main's optional editorGroup and invisible-box
+fields. Format 52 additionally retains main's baked shadow decal mode/settings
+(main format 46). These fields are additive and need no value conversion.

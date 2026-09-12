@@ -75,6 +75,7 @@ tyrax-editor binary lives.)
 | `--ai-graph <projectDir> <object> <prompt\|file> [scene] [...]` | Generate a flow graph with an AI backend (see tyra-flowgraph) |
 | `--refresh-gen <projectDir>` | Regenerate the game sources from the data, without building (fast codegen check, no Docker) |
 | `--bake-gi <projectDir>` | Bake global illumination + light probes into `.res-baked/gi/` (explicit, never part of a build - a build only READS the cache, so a scene edit falls the lighting back to the classic ambient/directional until you re-bake) |
+| `--bake-shadows <projectDir>` | Bake the static shadow decals into `.res-baked/shadow/` (explicit, like `--bake-gi` - a build only READS the cache). Prints draws, atlas pages, triangles, VRAM and ELF bytes per scene, plus every caster that asked for a shadow and could not have one, by name. Seconds, not minutes |
 | `--bake-model-ao <projectDir> [--texbake]` | Bake every eligible `.obj` model's own ambient occlusion into `.res-baked/modelao/` and report what was skipped and why. A build does this itself; the verb is how you see it without Docker. `--texbake` also runs the texture bake, i.e. the multiply into `.res-baked` |
 | `--bake-prelit <projectDir> [sceneName]` | Re-bake every object marked to ship pre-lit whose baked texture no longer matches the scene (it moved, or the light did), then save + regenerate. Prints `baked` / `fresh` per object; a second run bakes nothing. Never part of a build - a pre-lit bake is explicit |
 | `--resave <projectDir>` | Load + save (runs all format migrations, validates) |
@@ -140,6 +141,16 @@ to see exactly what the game will compile.
   **Set HUD Element Visible** for one element and **Play HUD Effect** for a
   flash, bounce or shake. See `docs/hud-animation.md` for the fields and
   runtime behaviour.
+- **Baked shadow decals** are the static directional shadow: an object's
+  `"shadowMode": 4` asks for one, and the editor traces it into a shared atlas
+  page and projects it onto whatever is under the caster. It is the only
+  shadow that reaches textured walls and imported models, it costs one draw
+  call per atlas page however many shadows there are, and it needs an explicit
+  bake (*Ambience Editor > Baked lighting*, or `--bake-shadows`) cached in
+  `.res-baked/shadow/`. The caster and its receivers must stand still; a
+  physics body, a carryable or an animated model is refused by name. The six
+  `bakedShadow*` keys in the project settings are the quality and the
+  pre-build opt-in. See `docs/shadows.md`.
 - **Ambience presets** may carry a **day/night cycle** (`"cycle"` inside the
   preset in the `.tyra`): a time-of-day hour, sun and moon arcs, and a list of
   colour keyframes. When enabled it OVERWRITES the preset's sky, light

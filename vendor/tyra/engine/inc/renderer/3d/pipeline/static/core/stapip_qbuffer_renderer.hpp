@@ -169,7 +169,7 @@ class StaPipQBufferRenderer {
   void uploadPrograms();
   void setDoubleBuffer();
   u16 getQBufferIndex(StaPipQBuffer* buffer);
-  u16 qbuffersPacketSize;
+  u16 packetSize;
 
   static const u16 buffersCount;
 
@@ -193,8 +193,8 @@ class StaPipQBufferRenderer {
   StaPipVU1Program** dBufferPrograms;
   StaPipQBuffer** buffers;
   packet2_t* staticDataPacket;
-  packet2_t* objectDataPacket;
-  // Modified by TyraX: submit uniforms with the first geometry packet.
+  // Modified by TyraX: uniforms already occupy the current geometry packet;
+  // append the first buffer flush instead of resetting that packet.
   bool objectDataPending = false;
 
   RendererCore* rendererCore;

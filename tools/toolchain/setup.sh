@@ -5,7 +5,15 @@ set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
-ROOT=${1:-${TYRAX_PS2DEV:-"${XDG_CACHE_HOME:-$HOME/.cache}/tyrax/ps2dev"}}
+# The SAME directory the editor installs into (Runner: configDir()/toolchain/
+# ps2dev), so a manual install and a Build & Run share one copy. They used to
+# disagree - this script defaulted to ~/.cache/tyrax/ps2dev while the editor
+# used ~/.config/tyra-editor/toolchain/ps2dev - which meant anybody who
+# followed the documented manual command downloaded the 254 MiB archive, built
+# OpenVCL and ran its tests, and then watched the editor do all of it again
+# into another 943 MB directory. setup.ps1 has always defaulted to the
+# editor's own path on Windows; this is that parity restored.
+ROOT=${1:-${TYRAX_PS2DEV:-"${XDG_CONFIG_HOME:-$HOME/.config}/tyra-editor/toolchain/ps2dev"}}
 PS2DEV_URL=https://github.com/ps2dev/ps2dev/releases/download/v2.0.0/ps2dev-ubuntu-latest.tar.gz
 PS2DEV_SHA256=c8e5dedccf62084d476894e88cd0451b57f1ed288e741eb3c1263010aaffc028
 OPENVCL_COMMIT=89efa51e354abea6bb2b790848e78147b6a994a1

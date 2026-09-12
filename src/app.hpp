@@ -24,6 +24,7 @@
 #include "phonecam.hpp"
 #include "gibake.hpp"
 #include "litbake.hpp"
+#include "shadowbake.hpp"
 #include "procbake.hpp"
 #include "matbake.hpp"
 #include "modelao.hpp"  // the automatic model-AO baker + its per-asset plan
@@ -736,6 +737,13 @@ private:
     // "Managing pre-lit objects"): which objects of the active scene are
     // pre-lit, whether their textures still match the scene, and the batch bake.
     void drawPrelitSection();
+    // "Baked shadows" - the fourth section (docs/shadows.md): the project-wide
+    // quality, the per-scene staleness + budget readout and the bake itself.
+    void drawShadowBakeSection();
+    // Pushes the CACHED shadow bake into the viewport (never bakes), and
+    // drains shadowBaker_ so a finished one becomes visible.
+    void updateShadowDecals();
+    void shadowBakerPoll();
     // Drains litBaker_ and applies whatever it finished, as ONE undo step.
     // Polled every frame from drawUI and from nowhere else - the giBakerPoll
     // rule: a batch started from the tab has to land whether or not the tab (or
@@ -2069,6 +2077,16 @@ private:
     // which is declared further down.
     void rebuildAtlasPreviews();
     gibake::Baker giBaker_;
+    // Baked shadow decals (docs/shadows.md). Async like the two bakers around
+    // it; unlike them it writes only to disk, so there is nothing to apply
+    // back onto the model - the poll exists to refresh the viewport preview
+    // and the staleness table.
+    shadowbake::Baker shadowBaker_;
+    uint64_t shadowBakeVersion_ = ~0ull;
+    // What the viewport was last given: the key of everything that could have
+    // changed it, and the version the viewport rebuilds its GL meshes on.
+    uint64_t shadowPreviewKey_ = 0;
+    uint64_t shadowPreviewVersion_ = 0;
     // Pre-lit models (docs/prelit-models.md): the scene's light baked into ONE
     // object's texture, from the button in Properties. Async because the bounce
     // solve is the expensive half; the result is applied on the UI thread, so

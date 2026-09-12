@@ -41,7 +41,7 @@ divide tick deltas by 294912 for milliseconds.
 This is enough to answer "is the highlight/particles/scene the problem?". For a
 finer breakdown you drop to the manual technique.
 
-### Shared reflection-probe attribution (1.86.2)
+### Shared reflection-probe attribution
 
 **Render cost** captures add `Reflections_shared_probe` when a classic shared
 `@sky` environment target is refreshed. It covers only the 128 x 128 target
@@ -53,7 +53,7 @@ both the capture and non-capture frame. The serialized render-cost request
 drains the pipeline, so it is attribution evidence rather than an ordinary FPS
 sample.
 
-### Cross-material transform reuse (1.86.1)
+### Cross-material transform reuse (1.86.2)
 
 An imported model normally enters StaPip once per material part even though
 every part shares one model matrix and camera. `StaPipCore` now caches the most
@@ -70,6 +70,50 @@ runs, median serialized `Total` moved 21.322 -> 19.172 ms and `Objects` 14.102 -
 not a physical-console claim. The first ordinary-HUD pair moved 51.6 -> 56.3
 FPS. A real-PS2 A/B is still required before quoting the hardware gain.
 
+### Direct whole-IN submission (1.86.3)
+
+When the bag-level bounding box has already proved that every range is visible,
+StaPip now points qbuffers directly at contiguous ranges of the bag's vertex
+streams. It no longer constructs pooled package descriptors whose classification
+the whole-IN branch would ignore. Partial-frustum and EE-clipped paths retain
+their existing package storage.
+
+In a clean two-kick PCSX2 run, six captures moved median `Prepare` from 1.390 to
+1.262 ms (-9.2%, 0.128 ms); `Dispatch` was flat and process-level `Total` was too
+noisy to claim. The physical-PS2 comparison used five settled captures per ELF
+at the same camera. `Total` was neutral at 34.349 -> 34.342 ms and `Objects`
+moved 25.051 -> 24.951 ms (-0.100 ms, -0.4%); individual included counters
+varied by roughly 0.1-0.16 ms. The candidate ran beyond 3360 frames and its GS
+capture matched the baseline scene. Treat the path as removed redundant work,
+not as a demonstrated frame-rate increase on this fixture.
+
+A separate attempt to link deferred uniforms and first geometry with a zero-QWC
+DMA `NEXT` looked substantially faster in PCSX2 (`DMA submit` 1.837 -> 0.983 ms),
+but was rejected. It froze a physical PS2 on the first gameplay frame in three
+fresh boots, while an otherwise identical baseline ran past 600 frames and
+produced five valid reports. This is why PCSX2-only DMA wins are not accepted.
+
+### Native uniform + geometry chain (1.86.4)
+
+StaPip now constructs the first packet for a visible bag as one native packet2
+chain: the leading `FLUSHE` and absolute-address uniform unpacks are written
+first, geometry is appended before the chain receives its single `END`, and the
+whole packet is submitted once. This is deliberately different from both failed
+experiments above. It neither copies a finished chain as payload nor jumps to a
+separately allocated chain with `NEXT`, so packet2's tag/TTE contract and the
+physical DMAC's sequential traversal stay intact. Later half-buffer flushes are
+unchanged. A wholly culled bag simply replaces its unsent packet on the next
+draw.
+
+On the portal/mirror-free Aster fixture, five settled physical-console captures
+moved median `DMA_submit_included` 3.034 -> 2.029 ms (-1.005 ms),
+`Dispatch_included` 16.827 -> 15.544 ms (-1.283 ms) and
+`VU1_wait_included` 5.847 -> 5.130 ms (-0.717 ms) against the 1.86.3 two-kick
+path. `Objects` moved 24.951 -> 24.840 ms and serialized `Total` stayed GS-bound
+at about 34.3 ms. The candidate ran beyond 2100 frames after a fresh hardware
+boot and produced a correct 448x448 GS capture; PCSX2, `--vu-check`, and the
+static-batched two-player example also passed. This is measured EE/VIF headroom,
+not a claim that every fill-bound scene gains frame rate.
 ## The three frame rate counters, and which one to believe
 
 Three surfaces print a frame rate. They measure **three different quantities**,

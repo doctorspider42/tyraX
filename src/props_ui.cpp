@@ -93,9 +93,7 @@ static const char* typeLabel(PrimitiveType t) {
     return "Object";
 }
 
-// The runtime shadow choice is shared by ordinary geometry and vehicles.
-// Keep it in one widget so exposing it on a new renderable type cannot leave
-// that type with a subtly different set of choices or help text.
+// Moving vehicles support runtime shadows; baked decals cannot follow them.
 static bool drawDynamicShadowControls(SceneObject& o) {
     bool changed = false;
     const char* shadowNames[] = {"Default (follow the project)", "None",
@@ -1063,8 +1061,83 @@ void App::drawPropertiesWindow() {
                 "only; check reflections in the game.");
 
         // THE RUNTIME shadow, distinct from the baked ambient-occlusion
-        // "Cast shadow" below (docs/shadows.md).
-        if (drawDynamicShadowControls(o)) committed = true;
+        // "Cast shadow" below - and a choice per object rather than a
+        // project-wide one (docs/shadows.md): a blob is one soft quad that
+        // costs almost nothing and has no shape, a projected silhouette is a
+        // second 64x64 render of this object every frame. "Default" is what
+        // every project did before the choice existed, so an untouched object
+        // behaves exactly as it always has.
+        {
+            const char* shadowNames[] = {"Default (follow the project)",
+                                         "None", "Blob (soft quad)",
+                                         "Projected silhouette",
+                                         "Baked (decal)"};
+            int mode = o.shadowMode;
+            if (mode < 0 || mode > 4) mode = 0;
+            // A real label rather than "##dynshadow" plus a SameLine caption:
+            // it is the idiom the rest of these panels use, and a hidden label
+            // is a widget no UI script can name (docs/ui-scripting.md).
+            if (ImGui::Combo("Dynamic shadow", &mode, shadowNames, 5)) {
+                o.shadowMode = mode;
+                committed = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "What this object casts while the game runs.\n"
+                    "DEFAULT - the project decides: a blob under the moving\n"
+                    "things (avatar, animated models, physics) if Preferences\n"
+                    "has blob shadows on, plus the silhouette below if it is\n"
+                    "ticked.\n"
+                    "NONE - nothing, whatever the project says.\n"
+                    "BLOB - one soft dark quad that follows the ground under\n"
+                    "it. Cheap enough for a crowd, and it works on a static\n"
+                    "prop too; it has no shape of its own.\n"
+                    "PROJECTED - the real silhouette: the object renders a\n"
+                    "second time each frame (64x64, from the sun) and the\n"
+                    "shape is projected under it. The 4 casters nearest the\n"
+                    "camera are active at a time, so mark hero objects.\n"
+                    "Game-only (no preview).\n"
+                    "BAKED - the real shape, traced once and projected onto\n"
+                    "whatever is under it. Costs no slot and nothing per\n"
+                    "frame, reaches textured walls and models the lightmap\n"
+                    "cannot, and needs a bake (Ambience Editor > Baked\n"
+                    "lighting). The caster and what it falls on must stay\n"
+                    "put. 'Cast shadow' below is the ambient-occlusion one -\n"
+                    "a different thing entirely.");
+            // A baked shadow needs two things this panel can say straight
+            // away: the project switch, and a caster that stands still. The
+            // sentence comes from shadowbake itself (quickRefusal), so the
+            // panel and the bake cannot end up disagreeing about which objects
+            // qualify. Everything else - whether it lands on anything, how
+            // many triangles it costs - needs the bake and is reported there.
+            if (o.shadowMode == 4) {
+                const std::string why = shadowbake::quickRefusal(o);
+                if (!why.empty())
+                    ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
+                                       "No baked shadow: %s", why.c_str());
+                else if (!project_.settings.bakedShadows)
+                    ImGui::TextColored(
+                        ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
+                        "Baked shadows are off for this project");
+                else
+                    ImGui::TextDisabled("Bake it in Ambience Editor > Baked lighting");
+            }
+            // The old flag still means "projected" while the mode follows the
+            // project, so it stays reachable - and stays the thing every
+            // existing .tyra carries.
+            if (o.shadowMode == 0) {
+                if (ImGui::Checkbox("Projected shadow (live)", &o.projShadow))
+                    committed = true;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "The project-default form of the choice above. Pick\n"
+                        "\"Projected silhouette\" in the combo to say it on the\n"
+                        "object instead.\n"
+                        "With a GI bake a static object's sun shadow is already\n"
+                        "baked: the live one then draws only while the day/night\n"
+                        "clock runs or under a torch. The combo forces it.");
+            }
+        }
         // Baked ambient occlusion: whether this object darkens nearby
         // terrain/objects (docs/ambient-occlusion.md; global strength in
         // the Ambience Editor).
