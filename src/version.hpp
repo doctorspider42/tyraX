@@ -16,6 +16,11 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.81.0 (explicit WSL host bootstrap): native builds now share a dedicated
+// prerequisite checker/installer, setup can opt into apt-based preparation,
+// and the Windows installer offers the operation as an unchecked task that is
+// not inherited by updates. FEATURE: no project-format change.
+//
 // 1.80.0 (cutscenes hide the HUD and own the skip button, docs/cutscenes.md):
 // three things a cutscene could not do. **Hide HUD** takes the whole HUD stack
 // off for the duration - images, live bars, baked texts - AND, which is the
@@ -2939,7 +2944,7 @@
 // 1.79.0: merge native PS2DEV/OpenVCL builds with editor comments.
 // 1.80.0: cutscenes can hide the HUD and own the skip button.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 80
+#define TYRAX_VERSION_MINOR 81
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

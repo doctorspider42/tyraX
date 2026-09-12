@@ -21,13 +21,7 @@ if [ "$ROOT" = / ] || [ "$ROOT" = "$HOME" ]; then
   exit 2
 fi
 
-for tool in curl tar sha256sum cmake make g++ gcc rsync; do
-  command -v "$tool" >/dev/null 2>&1 || {
-    echo "[toolchain] missing host tool: $tool" >&2
-    echo "[toolchain] Ubuntu/WSL: sudo apt install build-essential cmake curl rsync" >&2
-    exit 1
-  }
-done
+bash "$HERE/prepare-host.sh" --check
 
 tree_hash() {
   find "$1" -type f ! -name openvcl ! -path '*/build/*' -print0 \
