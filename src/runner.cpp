@@ -1081,11 +1081,20 @@ bool Runner::deployToPs2(const Project& p) {
             return false;
         }
         if (waited >= 15000) {
-            appendLine("[editor] No response from " + p.ps2LinkIp + " within 15s - is "
-                       "the PS2 on and running PS2LINK.ELF? (Check the IP in Edit > "
-                       "Preferences and the firewall/port rules for ps2client.)");
-            killPs2Client();
-            return false;
+            // execee is fire-and-forget UDP. A console may have accepted it
+            // even when its tty reply is filtered or lost; killing this
+            // process then removes the host: filesystem from a game that is
+            // already running, leaving placeholder textures and no models or
+            // audio. Keep the server alive and report the uncertainty. Stop on
+            // PS2 remains the explicit way to clean up a genuinely dead IP.
+            appendLine("[editor] WARNING: no console log from " + p.ps2LinkIp +
+                       " within 15s. Keeping ps2client alive because the PS2 may "
+                       "already be running and needs it for host: assets. If the "
+                       "game did not start, use Stop on PS2 and check the IP and "
+                       "inbound UDP 18194 firewall rule.");
+            appendLine("[editor] PS2 launch status is unconfirmed; file server is "
+                       "still running.");
+            return true;
         }
         platform::sleepMs(250);
     }

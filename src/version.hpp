@@ -16,6 +16,10 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.84.2: a PS2 deploy that receives no console log keeps ps2client alive and
+// reports an unconfirmed launch instead of removing host: from a game that may
+// already be running. PATCH: deploy-lifetime fix; no project-format change.
+//
 // 1.84.1: the native backend encodes *-loop.wav effects with adpenc -L and
 // repairs newer one-shot outputs by checking the encoded loop byte, matching
 // the Docker fallback. PATCH: build-output fix only; no project-format change.
@@ -3570,7 +3574,7 @@
 // 1.80.0: cutscenes can hide the HUD and own the skip button.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 84
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

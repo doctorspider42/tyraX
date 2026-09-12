@@ -1500,6 +1500,14 @@ Notes:
   is a redeploy (*Run on PS2*, F6), not a retry — and it is why
   `--debug-state` reports the transport.
 
+  A missing first `[ps2]` log line does **not** prove `execee` failed: the UDP
+  command may have reached the console while its tty reply was lost. The Runner
+  waits 15 seconds, reports an unconfirmed launch, and keeps `ps2client` alive.
+  Never "clean up" that timeout by killing the process — doing so removes
+  `host:` from a possibly running game, whose exact symptom is checkerboard
+  text, missing models and silent audio. Use Stop on PS2 explicitly when the
+  console really did not launch.
+
   **A deploy no longer kills anybody else's file server, and the story of why
   is worth keeping.** `deployToPs2`, `stopPs2` and `clean` used to run
   `platform::killByName({"ps2client"})` — `taskkill /F /IM ps2client.exe`,
