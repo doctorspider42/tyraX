@@ -86,9 +86,11 @@ The GGBot source has disconnected wheel islands inside one mesh: preparation
 separates them and gives each node a distinct material slot so the importer
 retains ownership. The source texture and silhouettes are preserved.
 
-Flat road spans now retain their sampled shoulders and discard redundant
-interior vertices. A 13 m flat street uses 26 times fewer vertices per station;
-crowns, banks and changing terrain retain the dense 0.5 m cross samples.
+Road spans retain their sampled shoulders and discard redundant interior vertices
+only when every sample lies on the same 3-D surface plane and its station pair
+is affine, preserving texture coordinates exactly. A 13 m planar street uses
+26 times fewer vertices per station; curves, crowns, banks, saddles and changing
+terrain retain the dense 0.5 m cross samples.
 Chunk culling and the 1 m longitudinal sampling remain in place. This matters
 for EE RAM as well as drawing: the initial dense district exhausted its budget.
 The boot log reports `ROADS ... chunks ... vertices ...` for inspection.
@@ -117,6 +119,12 @@ flat terrain, crowns with equal-height shoulders, slopes, saddles, curves and
 scene revisits. Also run `tyrax-editor --vehicle-check`, build and boot the game,
 then drive with `--pad` and capture with `--capture-frame`. Host checks alone
 are not evidence of console frame rate or reflection correctness.
+
+`python authoring/make-lod-variants.py <empty-directory>` makes isolated
+model-only and model-plus-terrain LOD candidates. The checked-in project keeps
+both distances at zero until an equal-camera PCSX2 run verifies the vehicle
+silhouettes, lights, reflections and every terrain-projected road crossing;
+coarse terrain can otherwise appear through or over a road.
 
 ## Verified on Windows / PCSX2
 

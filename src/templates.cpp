@@ -33697,15 +33697,38 @@ void TerrainGame::buildRoads(int scene) {
           // stitch, emitted station by station so a chunk boundary never
           // leaves a gap (the previous row is re-used as the base).
           const Tyra::Color grey(128.0F, 128.0F, 128.0F, 128.0F);
-          // Flat-road reduction: the roadgen.cpp twin. Inspect every sampled
-          // interior height, not just the shoulders (crowns must stay dense).
-          bool flat = true;
-          const float rowY = py0[0];
-          for (int j = 0; j <= crossSteps; ++j)
-            if (fabsf(py0[(size_t)j] - rowY) > 0.00001F ||
-                fabsf(ny[(size_t)j] - rowY) > 0.00001F)
-              flat = false;
-          const int stride = flat ? crossSteps : 1;
+          // Exact full-width reduction: every dense sample must lie on the
+          // proposed quad plane.  This keeps sloped terrain triangles cheap
+          // without flattening crowns or saddles (the roadgen.cpp twin).
+          const float ux = px0[(size_t)crossSteps] - px0[0];
+          const float uy = py0[(size_t)crossSteps] - py0[0];
+          const float uz = pz0[(size_t)crossSteps] - pz0[0];
+          const float vx = nx[0] - px0[0], vy = ny[0] - py0[0], vz = nz[0] - pz0[0];
+          const float pnx = uy * vz - uz * vy;
+          const float pny = uz * vx - ux * vz;
+          const float pnz = ux * vy - uy * vx;
+          const float pnl = sqrtf(pnx * pnx + pny * pny + pnz * pnz);
+          // Coplanarity alone does not preserve interpolated ST on a curved
+          // quad. Require the affine parallelogram that roadgen.cpp checks.
+          const float qax = (px0[(size_t)crossSteps] - px0[0]) -
+                            (nx[(size_t)crossSteps] - nx[0]);
+          const float qay = (py0[(size_t)crossSteps] - py0[0]) -
+                            (ny[(size_t)crossSteps] - ny[0]);
+          const float qaz = (pz0[(size_t)crossSteps] - pz0[0]) -
+                            (nz[(size_t)crossSteps] - nz[0]);
+          bool planar = pnl > 1e-6F &&
+                        sqrtf(qax * qax + qay * qay + qaz * qaz) <= 0.00001F;
+          for (int r = 0; planar && r < 2; ++r)
+            for (int j = 0; j <= crossSteps; ++j) {
+              const float qx = r ? nx[(size_t)j] : px0[(size_t)j];
+              const float qy = r ? ny[(size_t)j] : py0[(size_t)j];
+              const float qz = r ? nz[(size_t)j] : pz0[(size_t)j];
+              const float dist = fabsf(pnx * (qx - px0[0]) +
+                                       pny * (qy - py0[0]) +
+                                       pnz * (qz - pz0[0])) / pnl;
+              if (dist > 0.00001F) { planar = false; break; }
+            }
+          const int stride = planar ? crossSteps : 1;
           // Amortize EE bag/bounds work on flat streets, without making dense
           // slopes unbounded or joining a whole road into one culling box.
           const size_t spanVertices = (size_t)(crossSteps / stride) * 6;

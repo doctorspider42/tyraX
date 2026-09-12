@@ -86,18 +86,20 @@ nobody can author.
 | `src/props_ui.cpp` | The Road properties panel + `App::alignTerrainToRoad`. |
 | `tools/road-texture.py` | The example's deterministic asphalt texture. |
 
-## Flat street geometry budget (1.85.0)
+## Adaptive street geometry budget (1.86.3)
 
-Both tessellators still sample all cross-road heights first. When every height
-in two consecutive rows agrees within 0.00001 world units, they emit only two
-triangles between the shoulders. Slopes, crowns and ditches keep the existing
-dense mesh; testing only the edges would incorrectly flatten a crowned road.
-Longitudinal sampling, endpoints, winding, texture arc length and chunk culling
-remain unchanged. Curved flat spans interpolate UVs over the wider triangles.
-A 13-unit flat road reduces from 156 to 6 vertices per station (26x); total scene
-savings depend on the terrain. The game logs the actual road vertex count.
+Both tessellators still sample all cross-road heights first. A span collapses to
+two shoulder-to-shoulder triangles only when every dense sample lies within
+0.00001 world units of the proposed 3-D quad plane. This is an exact surface and
+UV reduction for a level or sloped terrain triangle when its station pair is an
+affine parallelogram. Curved spans, crowns, ditches, saddles and terrain folds
+keep their dense mesh. Longitudinal sampling, endpoints, winding, texture arc length, terrain
+contact and chunk culling remain unchanged. A 13-unit planar road reduces from
+156 to 6 vertices per station (26x); total scene savings depend on the terrain.
+The game logs the actual road vertex count.
 
 The [Motor District example](../examples/vehicle-playground/README.md) exercises
 a seven-road network. Its `authoring/verify-road-twins.py` compiles the real
 host tessellator and the actual generated `buildRoads` body with storage stubs,
-then compares geometry/UVs and repeated scene loads on flat and uneven fixtures.
+then compares geometry/UVs and repeated scene loads on planar, crowned, saddle,
+curved and transition fixtures.

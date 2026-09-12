@@ -2750,9 +2750,9 @@ the console/emulator with an unchanged mesh and camera.
 ## Motor District and flat-road spans (1.85.0)
 
 The roadgen.cpp / templates.cpp buildRoads twins sample every lateral height,
-then collapse only horizontal pairs of rows (all heights within 0.00001) to
-one quad. Do not infer flatness from the shoulders: an interior crown must
-retain its samples. Run examples/vehicle-playground/authoring/verify-road-twins.py
+then collapse a span only when every dense sample lies within 0.00001 of the
+proposed 3-D quad plane. Do not infer planarity from the shoulders: an interior
+crown or saddle must retain its samples. Run examples/vehicle-playground/authoring/verify-road-twins.py
 for a compiled comparison of both actual implementations, then build/drive the
 example. ROADS now logs emitted vertices as well as chunks. The district's
 seven-road network is an EE memory stress case, not just a screenshot fixture.

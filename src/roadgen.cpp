@@ -115,15 +115,38 @@ float tessellate(const std::vector<float>& pointsXZ, float width,
     // Stitch every lateral cell. Wound counter-clockwise seen from above
     // (+Y), the terrain's own convention.
     for (size_t i = 0; i + 1 < rows.size(); ++i) {
-        // Flat streets need only their shoulders. Keep sampling the interior
-        // before deciding: testing only the edges misses crowns and ditches.
-        bool flat = true;
-        const float y = rows[i][0].y;
-        for (int j = 0; j <= crossSteps; ++j)
-            if (std::fabs(rows[i][(size_t)j].y - y) > 0.00001f ||
-                std::fabs(rows[i + 1][(size_t)j].y - y) > 0.00001f)
-                flat = false;
-        const int stride = flat ? crossSteps : 1;
+        // A full-width quad is exact when every dense sample lies in its
+        // plane.  That includes level asphalt, but also roads over a sloped
+        // terrain triangle.  Checking only the shoulders would turn a crown
+        // or saddle into a plane, so test every sampled point against the
+        // proposed quad's 3-D plane first.
+        const Vertex& a = rows[i][0];
+        const Vertex& b = rows[i][(size_t)crossSteps];
+        const Vertex& d = rows[i + 1][0];
+        const float ux = b.x - a.x, uy = b.y - a.y, uz = b.z - a.z;
+        const float vx = d.x - a.x, vy = d.y - a.y, vz = d.z - a.z;
+        const float nx = uy * vz - uz * vy;
+        const float ny = uz * vx - ux * vz;
+        const float nz = ux * vy - uy * vx;
+        const float nl = std::sqrt(nx * nx + ny * ny + nz * nz);
+        // The two triangles interpolate ST like an affine parallelogram. A
+        // curved station pair can be coplanar but still map U/V differently
+        // from its dense lateral cells, so it is deliberately left dense.
+        const Vertex& c = rows[i + 1][(size_t)crossSteps];
+        const float ax = (b.x - a.x) - (c.x - d.x);
+        const float ay = (b.y - a.y) - (c.y - d.y);
+        const float az = (b.z - a.z) - (c.z - d.z);
+        bool planar = nl > 1e-6f &&
+                      std::sqrt(ax * ax + ay * ay + az * az) <= 0.00001f;
+        for (int r = 0; planar && r < 2; ++r)
+            for (int j = 0; j <= crossSteps; ++j) {
+                const Vertex& q = rows[i + (size_t)r][(size_t)j];
+                const float dist = std::fabs(nx * (q.x - a.x) +
+                                             ny * (q.y - a.y) +
+                                             nz * (q.z - a.z)) / nl;
+                if (dist > 0.00001f) { planar = false; break; }
+            }
+        const int stride = planar ? crossSteps : 1;
         for (int j = 0; j < crossSteps; j += stride) {
             out.push_back(rows[i][(size_t)j]);
             out.push_back(rows[i][(size_t)j + stride]);
