@@ -506,14 +506,14 @@ anywhere must not allocate one.
 
 `SceneObject::shadowMode` — `0` follow the project, `1` none, `2` blob, `3`
 projected, `4` baked decal — written into the object's JSON only when it is not
-0 (format v35 for 0..3, **v45** for the baked mode,
+0 (format v35 for 0..3, **v46** for the baked mode,
 [format-versioning.md](format-versioning.md)). An untouched project therefore
 resaves byte for byte, and an older editor reading a newer file falls back to
 the `projShadow` flag it already understands.
 
 The baked mode's six project-wide settings (`bakedShadows`, `bakedShadowRes`,
 `bakedShadowSunAngle`, `bakedShadowStrength`, `bakedShadowMaxLength`,
-`bakedShadowAutoBake`) are v45 as well and are each written **only when they
+`bakedShadowAutoBake`) are v46 as well and are each written **only when they
 are not the default** — so a project that never touched the feature is
 byte-identical on a resave. The bake itself is not in the `.tyra` at all: it
 lives in `.res-baked/shadow/scene<N>.shadow`, and its atlas pages in

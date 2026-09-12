@@ -4579,6 +4579,293 @@ the same binary every number above was measured with. And the microcode actually
 the console was read back out of the engine volume to confirm it carries the pad below
 `planeLoop:` before the run was believed.
 
+### The first real-hardware run: `stapip_clip_c` is still wrong, and only a PS2 says so
+
+> **Superseded (2026-09-11).** The sections from here to "Still open" record
+> two days of chasing this as an assembler defect. It was not one: the
+> corruption is an engine DMA race that a real PS2 exposes and PCSX2 cannot,
+> its rate depends on the microprogram's *timing*, and every single-frame
+> comparison below was reading that rate as a verdict. The resolution is in
+> "Resolved: an engine DMA race, not the assembler" at the end of this
+> chapter and in docs/vu1-clipping.md, "Real hardware: the slot-pool race".
+> The text is kept because the instruments it built (the replay-pinned
+> fixture, the halt/step walk) are what made the real measurement possible.
+
+Everything above this line was measured in PCSX2, and every entry ends "Not
+verified: hardware". On 2026-09-10 the openvcl microcode ran on a **real
+PS2** for the first time, on `examples/showcase` (Aster) over ps2link, and it
+is **not** correct there.
+
+The symptom, reported by the owner: standing in the pavilion doorway, the
+cellar seen through the portal grows long bright slivers across its vault, and
+whole panels shear away. It changes with the camera and it is invisible in
+PCSX2 **under the software renderer** — twelve parked vantages and a walked
+crossing of the same build came back clean in the emulator.
+
+The A/B, all four arms on the same console, the same scene and the same
+frame-indexed camera route:
+
+| arm | VU1 microcode | cellar frames | result |
+|---|---|---|---|
+| A | everything from openvcl (native build) | 18 | slivers on several poses; the vault visibly shatters |
+| B | everything from SCE `vcl` (Docker, `h4570/tyra`) | 24 | clean |
+| F | everything from openvcl | 33 | the paired reference below |
+| G | everything from SCE `vcl` | 34 | clean |
+
+F and G run the identical fixture, and the capture cadence is deterministic,
+so they are **frame-aligned** (the alignment search puts the minimum at offset
+0, mean |diff| 5.2 over the whole run against 11.6 one frame either side).
+Paired, the cellar half of the route agrees to `mean |diff|` **0.13-0.42 of
+255** on most poses and diverges on a handful, worst at one pose: **2.48, 6419
+pixels**. The picture says what it is: SCE draws a lamp's light **shaft** as
+one broad cone, openvcl collapses it into two or three narrow wedges at the
+wrong angles. Many wedges at once is the "shattered vault" the owner saw.
+
+Swapping single programs into an otherwise-SCE build (drop the `.o` into the
+engine volume, remove `libtyra.a` so `make` re-archives — leave the archive in
+place and the swap is silently a no-op) pins it:
+
+| arm | openvcl programs | worst pose vs all-SCE |
+|---|---|---|
+| G | none (reference) | 0 |
+| I | `stapip_clip_c` | **2.81 / 7321 px** |
+| H | `stapip_clip_c` + `stapip_cull_c` | **5.43 / 12608 px** |
+| F | all 25 | 2.48 / 6419 px |
+
+So `stapip_clip_c` **alone** reproduces it, and `cull_c` adds to it. Both are
+the untextured, coloured family, which is what the light shafts and coronas
+are drawn with — hence a defect that shows up as broken beams rather than
+broken walls.
+
+That is the same program "And four instructions per clipper that never needed
+to exist" left pixel-identical in PCSX2 after the carried-integer liveness fix.
+The emulator-visible half was real and is fixed; a hardware-visible half
+remains, and it is exactly the class PCSX2 cannot see — this assembler's
+density work rests on latencies the hardware enforces and the emulator does
+not model (`--fmac-interlock`, `--sce-latencies`, `--branch-interlock`,
+`--branch-bubble-on-dependency`, and the sinking/pairing flags added after
+them). The CLIP flag window is **not** it: measured over the shipped `.vsm`,
+every flag read in all ten resident programs sits at least 4 emitted rows
+behind its `clipw`.
+
+**How to reproduce it in ten minutes**, because none of this is findable from
+a screenshot: freeze the player, drive the camera from a **frame index** in a
+global script through a fixed route around the portal doorway, and take a
+burst of `--capture-frame` shots. Two things are load-bearing. Take the route
+length **coprime with the per-capture advance** — the capture path freezes the
+game for a fixed spell, so a round route length is commensurate with it and
+every run samples the same eight poses forever (measured: three different
+builds produced digit-identical score sequences, which reads exactly like
+"the change did nothing"). And compare arms **paired, per frame**, not by
+eyeballing contact sheets: the divergence is 2 parts in 255 averaged over the
+frame, and it hides completely in a thumbnail.
+
+### Narrowing it: not the flags, and not only the clipper
+
+Three more console arms, same fixture, same paired comparison against the
+all-SCE reference:
+
+| arm | what changed | worst pose vs all-SCE |
+|---|---|---|
+| I | `stapip_clip_c` from openvcl, all 21 density flags | 2.81 / 7321 px |
+| **J** | `stapip_clip_c` from openvcl, **no latency or scheduling flag at all** | **2.52 / 6561 px** |
+| M | the whole native build, switched to the **EE clipper** | far worse - half-screen wedges, and 13-18 FPS against 20-24 |
+
+**J is the important one.** Built with only the allocation/liveness flags
+(`--loop-liveness-always --trim-uncarried-ranges --coalesce-float-writes
+--split-dead-float-ranges --sink-loads* --drop-dead-writes`) openvcl pads
+every wait by its own conservative model - the program goes 328 words to 504 -
+and it is **still wrong by the same amount**. So none of `--fmac-interlock`,
+`--sce-latencies`, `--branch-interlock`, `--branch-bubble-on-dependency`,
+`--schedule-flag-readers`, `--emit-delay-fillers`, `--upper-move-with-w` or
+the pairing flags is the cause. The density work is exonerated; the defect is
+in openvcl's core code generation for this program.
+
+That the whole set fits at all while the flags are off is worth writing down,
+because the arithmetic in the sections above no longer applies: **the resident
+set is eight images, not ten.** `stapip_clip_d`'s program object points at
+`StaPipVU1Clip_C_CodeStart` (and `clip_tce` at `clip_tc`'s), so `clip_d.o` is
+compiled and never uploaded - the dir-lights class executes clip_c's microcode
+with `VU1_OPTIONS_ADDR.y` selecting the shading path, and `Path1::
+createProgramsCache` aliases by symbol pointer. Five culls plus three clip
+images is **1682 words against the 2042 ceiling**, so there is ~360 words of
+headroom and every flag variant of one program fits. That is what makes a
+flag bisect possible at all.
+
+**M says the EE clipper is not an escape hatch.** It takes the five `clip_*`
+programs off VU1 and runs the `as_is_*` family instead - also openvcl-built -
+and on hardware that is *worse*: giant smeared wedges across half the frame,
+not slivers. So the problem is openvcl's output for this engine, not the
+clipping mode. The only console-accurate build today is the **Docker backend
+against an image carrying SCE's `vcl`** (`h4570/tyra`), which measured clean
+across 58 frames in two arms.
+
+Also ruled out on the host, against the shipped and the no-flag builds:
+
+* **the CLIP shift window.** Every flag read in all ten resident programs sits
+  at least 4 emitted rows behind its `clipw`, and the window POSITION matches
+  the source: openvcl reads four entries after four CLIPs and two after the
+  next two, exactly as `stapip_clip_c_vu1.vclpp` writes it. (SCE hoists the
+  last two CLIPs above the first `fcand` and is still correct - the bits of a
+  CLIP are not visible for a few rows, which is the trick the earlier sections
+  describe.)
+* **hazard distances.** Per-class minimum emitted-row gaps agree with SCE's
+  (`ialu->int` 1/1, `iload->int` 6/7, `ialu->branch` 1/1); the only class where
+  openvcl is tighter is `mtir->branch`, 5 against 6, a single `xtop`/`ibltz`
+  pair at a distance no documented hazard reaches.
+* **uninitialised registers.** Zero read-before-write sites per component in
+  either assembler's output - the hypothesis that fit "stable in an emulator,
+  wrong on a console" best, and it is not this.
+
+What is left is the instrument the earlier bisection already pointed at and
+nobody has run on hardware: the **VU1 packet tap** on the failing draw. The
+failing pose is now known and parked - eye (9.78, 1.672, 17.877), yaw 180.7,
+pitch 3.1, i.e. 0.13 units in front of the surface gate, so the broken draw is
+in the portal THROUGH-view, and the visible victim is a cellar lamp's light
+shaft. Two things about that pose: it is worth ~0.08 mean / 237 px on its own
+(against a 0.001 self-noise floor, so it is a real signal but a small one),
+and the divergence is sharply pose-dependent - the route's worst pose is
+thirty times larger. Park closer to the route's worst frame before tapping.
+
+### The packet tap on hardware: the instrument is not sound, and the numbers are withdrawn
+
+The tap ran on the console, on both assemblers, at one parked pose, and it
+first appeared to answer: from an identical input (16 meshes, 100 triangles
+either side) SCE's `clip_c` staged 37 triangles / 111 GS vertices where
+openvcl staged 35 / 105. **That comparison does not hold, and it is withdrawn.**
+
+Repeating the SAME capture, at the same flush index, on the same build, one
+after another, gives **105, 93, 99 GS vertices**. The spread is twice the
+difference the comparison rested on. The decoder says why in its own output:
+*"staged in VU1: N triangles (the LAST run(s) only - the output area is
+double buffered)"*. The snapshot samples whatever VU1's output area happens to
+hold when the stall lands, so on hardware it is a race, not a measurement.
+Take a staged count from this tap as an order of magnitude, never as a
+difference of six.
+
+A second instability sits underneath it: **the flush INDEX does not identify a
+draw across captures.** The frame's flush count oscillates here between 129
+and 131, so every index after the flushes that come and go shifts with it -
+arm the same index twice and the second capture can be a different draw
+entirely (measured: index 0 came back as `clip_c` with 16 meshes on one
+capture and as `cull_c` with 10 meshes on the next). A draw has to be
+identified by SIGNATURE - program address, mesh count, input triangle count -
+and found by scanning, which is what `scan.sh` in the session scratch did.
+
+So the tap needs two things before it can arbitrate this defect: a flush that
+carries ONE mesh (the decoder already warns its host reference is exact only
+then), and an observable that does not depend on when the stall lands.
+
+**What still stands**, because it never went through the tap: the frame-level
+A/B. The same parked pose captured twice off one build differs by a mean of
+**0.001 of 255**; openvcl against SCE at that pose differs by 0.077 with 237
+pixels over threshold, and the route's worst pose by 2.5-2.8 with ~7000. That
+noise floor is what makes those frame numbers - and the flag exoneration built
+on them - measurements rather than impressions.
+
+### The parked single-pose fixture does not work here: the scene flickers on its own
+
+The variant method needs a fixture with a known noise floor, and the obvious
+one - park the camera, capture, compare - **does not have one in this view**.
+At the pose the route's worst frame sits at, the cellar's light shaft comes
+and goes between captures **on both assemblers**: six captures of a pure-SCE
+build differ pairwise by up to **1865 pixels**, clustering into at least two
+states (two of the six are byte-identical, the rest are not). The flicker is
+the scene, not the defect.
+
+That invalidates every number taken from that fixture, and they are withdrawn:
+a "baseline" gap of 434 px, and variants that appeared to make openvcl and SCE
+byte-identical, all sit at or below a noise floor four times their size. Two
+same-phase samples looked like a noise floor of zero. This is the stability
+gate in the tyra-testing skill, skipped: *freeze the camera AND everything that
+animates, then prove the frame is still before believing any difference.*
+
+What survives is the measurement that had the samples to support it - the
+**frame-indexed route**, 24-25 cellar frames per arm, paired: every SCE-built
+arm is clean across ~130 frames and every openvcl arm shows the artefact, with
+the worst frame 3-9x the flicker amplitude and a structural difference in the
+picture (a light shaft collapsing from one broad cone into narrow wedges, a
+vault shearing into slivers) rather than a few pixels of grain.
+
+So a usable variant fixture here has to either sample the route (many frames,
+paired by capture index, which only works while the variant does not change
+the frame rate - a "never clip" variant desynchronised the two arms by four
+captures) or park somewhere the scene is provably still. Neither is free, and
+neither was in place for the variant round.
+
+### A fixture with a zero noise floor: input replay + halt/step + no HUD
+
+The variant round failed for want of an instrument, and three things together
+make one. Measured, on this console, on `examples/showcase`:
+
+| | mean of 255 | pixels > 40 |
+|---|---|---|
+| same build, two separate runs, matched frame | **0.0000** | **0** |
+| openvcl vs SCE `clip_c`, matched frame | 0.2212 | **312** |
+| the same, at a second independent frame | 0.2212 | **312** |
+
+**Correction:** the 312 pixels were not the clipper. The two arms were two
+scratch projects whose object placement differed, and the difference is the
+"PICK UP" prompt one of them shows at that pose; the same comparison on one
+project reads 0. The zero floor is real; the "signal" was not. What the floor
+took:
+
+* **An input replay pins `dt`** (docs/input-replay.md). The two arms run at
+  different frame rates - 18 against 23 FPS here - so at the same frame number
+  they had accumulated different simulated TIME, and anything time-driven (the
+  cellar's light shaft) was in a different phase. Record any run, drop the
+  `.tyrarep` into both projects as `bin/replay.in`, and the game performs it:
+  `dt` comes from the file, so frame N is the same simulated state in any
+  build. `--record` only drives PCSX2, but the protocol is files in `bin/`, so
+  a recording made in the emulator replays on the console.
+* **Halt and step pin the frame.** Free-running captures land wherever the
+  poll happens to see, and the two arms then compare different frames. Halt
+  (`livedbg.cmd` flags bit 0), let the counter settle, then step to the
+  number. Two traps: **`--capture-frame` writes its own command WITHOUT the
+  halt flag, so every capture RESUMES the game** - re-halt before each target;
+  and a coarse step occasionally advances further than it was asked, which
+  single steps cannot undo - stop 30 short, settle again, then step by one.
+* **Mask the HUD.** FPS and free-RAM readings differ between two builds and
+  are the whole of what is left: excluding the top 70 rows takes the
+  same-build floor from 201 pixels to **0**.
+
+The scripts that do this are small and live in the session scratch; the
+reusable parts are the three rules above. With the floor at zero a variant
+verdict is binary - the pictures match or they do not - which is what the
+plane-loop bisection needed and did not have.
+
+### Resolved: an engine DMA race, not the assembler
+
+The full account, the fixture and the bisection table are in
+docs/vu1-clipping.md, "Real hardware: the slot-pool race". The short form, for
+anyone who arrives here from the sections above:
+
+- The corrupted object was a lamp's corona (a `clip_tc` bag), and the SAME pose
+  rendered wrong in 4 of 24 frames with Sony's `vcl` and in 2-19 of 30 with
+  openvcl variants. Every single-frame A/B above was sampling that rate. The
+  wrong pictures form a small discrete set, PCSX2 is pixel-stable in both
+  clipping modes, and the EE clipper on the console was worse than any VU1
+  arm - a timing race, not a program defect.
+- Bisected with barriers on the console: only arms where the **EE** waited for
+  the previous bag's DMA fixed it (at -4 FPS); VIF-side barriers did not. The
+  writer was `StaPipQBufferRenderer::flushBuffers()` handing the slot pool to
+  the next bag while the packet just sent was still reading it
+  (`fillByCopyMax`/`fillByCopy1By2` copy small in-frustum packages into that
+  pool in both modes; the EE clipper copies everything, hence its slabs).
+- Fixed by double-buffering the pool alongside the packet double buffer
+  (`StaPipQBuffer::flipPoolSide` in `sendPacket`) - the same guarantee the
+  EE-wait probe gave (24/24 clean, openvcl production set vs Sony's reference)
+  at no FPS cost. Measured with the fix on the console: `vu1` 30 of 30 frames
+  at 0 pixels against Sony's reference (22.5-23.5 FPS, 23.3 before), `precise`
+  24 of 24 identical (a constant 223 edge pixels from the VU1 reference, the
+  EE clipper's own rounding). PCSX2 is unchanged by it.
+- The store-after-FMAC distance (88 sites at one row against SCE's minimum of
+  two) was patched in openvcl and tested on the console: it changed the failure
+  mode, not the fact, and became moot once the race was fixed. The patch is
+  not kept; the observation stays here as "checked, harmless".
+- The ps2link deploy note that called openvcl's output wrong on hardware is
+  gone; native builds are console-accurate again.
+
 ## Still open
 
 - **The GHCR package is private** until the repo is, so nobody outside can pull

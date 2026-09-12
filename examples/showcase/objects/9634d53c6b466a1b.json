@@ -1,0 +1,1 @@
+{ "id": "9634d53c6b466a1b", "name": "heart-of-aster", "type": "sphere", "position": [0, 4.1, -12], "rotation": [0, 0, 0], "scale": [1.7, 1.7, 1.7], "color": [1, 1, 1], "physics": false, "collision": "none", "bakedLighting": false, "material": "res/aster/glow.mtl" }

@@ -28,18 +28,34 @@ struct QBufferPool {
 };
 
 constexpr int kMaxPools = 32;
-QBufferPool pools[kMaxPools];
 
-QBufferPool* poolFor(const void* owner) {
+// Modified by TyraX: TWO pools per slot, used alternately. A slot's arrays are
+// what the packet's REF tags point at, and the renderer hands the slot to the
+// next bag as soon as its packet is SENT - the DMA is still reading the arrays
+// while the next bag's copy lands in them. The side flips together with the
+// renderer's packet double buffer (StaPipQBufferRenderer::sendPacket flips
+// both), and that send waits for the previous DMA first, so the side being
+// written is always the one whose transfer has finished. Same guarantee the
+// packet buffers already had, extended to the data they reference. Measured
+// on a real PS2: without it the last small bag of a run (a lamp's corona) came
+// out as a sliver to the screen corner in 4-19 of 30 frames, with an EE-side
+// wait per bag it cost 4 FPS; this costs nothing (docs/vu1-clipping.md).
+QBufferPool pools[2][kMaxPools];
+int g_poolSide = 0;
+
+QBufferPool* poolFor(const void* owner, int side) {
+  QBufferPool* set = pools[side];
   for (int i = 0; i < kMaxPools; i++)
-    if (pools[i].owner == owner) return &pools[i];
+    if (set[i].owner == owner) return &set[i];
   for (int i = 0; i < kMaxPools; i++)
-    if (pools[i].owner == nullptr) {
-      pools[i].owner = owner;
-      return &pools[i];
+    if (set[i].owner == nullptr) {
+      set[i].owner = owner;
+      return &set[i];
     }
   return nullptr;  // more buffers than pools - fall back to plain new[]
 }
+
+QBufferPool* poolFor(const void* owner) { return poolFor(owner, g_poolSide); }
 
 }  // namespace
 
@@ -58,6 +74,8 @@ StaPipQBuffer::StaPipQBuffer() {
 }
 
 StaPipQBuffer::~StaPipQBuffer() { deallocateDynamicData(); }
+
+void StaPipQBuffer::flipPoolSide() { g_poolSide ^= 1; }
 
 void StaPipQBuffer::setMaxVertCount(const u32& count) { maxVertCount = count; }
 
@@ -163,8 +181,12 @@ void StaPipQBuffer::deallocateDynamicData() {
   if (!_isDynamicallyAllocated) return;
 
   // Pooled arrays are kept for reuse - only true heap fallbacks are freed.
-  QBufferPool* pool = poolFor(this);
-  const bool pooled = pool && vertices == pool->vertices;
+  // The arrays may belong to either side: the side has usually flipped since
+  // this slot was filled.
+  const QBufferPool* poolA = poolFor(this, 0);
+  const QBufferPool* poolB = poolFor(this, 1);
+  const bool pooled = (poolA && vertices == poolA->vertices) ||
+                      (poolB && vertices == poolB->vertices);
 
   if (!pooled) {
     delete[] vertices;

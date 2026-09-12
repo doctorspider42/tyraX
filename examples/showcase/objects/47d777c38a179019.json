@@ -1,1 +1,0 @@
-{ "id": "47d777c38a179019", "name": "chimney-smoke", "type": "emitter", "position": [45, 7.5192, -34], "rotation": [0, 0, 0], "scale": [0.8, 1, 0.8], "color": [0.4, 0.4, 0.4], "physics": false, "layer": "village", "emitter": { "kind": "smoke", "count": 20, "size": 0.7, "enabled": true, "followPlayer": false } }

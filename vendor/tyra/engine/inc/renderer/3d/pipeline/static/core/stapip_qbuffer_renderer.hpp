@@ -194,6 +194,8 @@ class StaPipQBufferRenderer {
   StaPipQBuffer** buffers;
   packet2_t* staticDataPacket;
   packet2_t* objectDataPacket;
+  // Modified by TyraX: submit uniforms with the first geometry packet.
+  bool objectDataPending = false;
 
   RendererCore* rendererCore;
 

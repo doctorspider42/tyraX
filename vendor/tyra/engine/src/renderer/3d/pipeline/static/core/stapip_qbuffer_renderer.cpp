@@ -8,6 +8,8 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 */
 
+#include "math/math.hpp"
+
 // Modified by TyraX: PipelineZTest_TestOnly branch in sendObjectData;
 // per-mesh object-space spot light (flashlight) upload for the color VU1
 // programs + EE clipper; alpha-test AFAIL fixed to ATEST_KEEP_ALL (see
@@ -78,7 +80,7 @@ void StaPipQBufferRenderer::allocateOnUse() {
   // Modified by TyraX: 48 -> 52 - the billboard basis unpack (2 qwords
   // + headers).
   // Four inline lighting qwords replace the former REF payload.
-  objectDataPacket = packet2_create(56, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
+  objectDataPacket = packet2_create(57, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);  // +1: the FLUSHE tag
 
   packets = new packet2_t*[2];
   for (u16 i = 0; i < 2; i++)
@@ -96,6 +98,7 @@ void StaPipQBufferRenderer::allocateOnUse() {
 }
 
 void StaPipQBufferRenderer::deallocateOnUse() {
+  objectDataPending = false;
   packet2_free(staticDataPacket);
   packet2_free(objectDataPacket);
 
@@ -202,7 +205,7 @@ StaPipClipperSpot buildSpotForBag(const RendererCoreSpotLight& spot,
   // so |dir|^2 = 1/s^2 - reuse it to express the range in object units.
   const float objRange2 = spot.range * spot.range * dirLen2;
 
-  const float invDirLen = 1.0F / sqrtf(dirLen2);
+  const float invDirLen = 1.0F / Math::sqrtNonNegative(dirLen2);
   out.direction.x = dir.x * invDirLen;
   out.direction.y = dir.y * invDirLen;
   out.direction.z = dir.z * invDirLen;
@@ -246,9 +249,28 @@ StaPipClipperSpot buildSpotForBag(const RendererCoreSpotLight& spot,
 
 void StaPipQBufferRenderer::sendObjectData(
     StaPipBag* bag, M4x4* mvp, RendererCoreTextureBuffers* texBuffers) {
-  // The previous DMA must finish before reusing its packet storage.
-  dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+  // Modified by TyraX: sendPacket waits for uniform DMA before starting
+  // geometry DMA. Thus this reusable packet is already free at the next bag,
+  // including the inline SH colours; waiting here would serialize preparation.
   packet2_reset(objectDataPacket, false);
+  // Modified by TyraX: everything in this chain lands at an ABSOLUTE VU1
+  // address (MVP 0..3, OPTIONS 8, CLIP_CONSTS 20, ALPHA 21, the clip planes at
+  // 944..955) and the microprograms read those inside their loops. The DMA
+  // wait before this packet only proves the previous CHAIN was consumed - its
+  // final MSCAL merely started the last batch, and that program may still be
+  // running (parked on an XGKICK for as long as the GS takes to fill a big
+  // translucent triangle). The VIF performs absolute unpacks immediately and
+  // stalls only at the next MSCAL, so without a barrier the next mesh's matrix
+  // and plane table land mid-draw: one vertex through the wrong MVP is a wedge
+  // to the screen corner, a swapped plane table cuts or drops the polygon.
+  // PCSX2 never overlaps a VIF unpack with a running microprogram, so it
+  // cannot show this; a real PS2 does (docs/vu1-clipping.md). FLUSHE = wait
+  // for the end of the microprogram; the halves the GIF may still be reading
+  // are not touched by this chain, so no PATH1 drain is needed here.
+  packet2_chain_open_cnt(objectDataPacket, 0, 0, 0);
+  packet2_vif_flushe(objectDataPacket, 0);
+  packet2_vif_nop(objectDataPacket, 0);
+  packet2_chain_close_tag(objectDataPacket);
   packet2_utils_vu_add_unpack_data(objectDataPacket, VU1_MVP_MATRIX_ADDR,
                                    mvp->data, 4, false);
 
@@ -493,7 +515,10 @@ void StaPipQBufferRenderer::sendObjectData(
   }
 
   packet2_utils_vu_add_end_tag(objectDataPacket);
-  dma_channel_send_packet2(objectDataPacket, DMA_CHANNEL_VIF1, true);
+  // Modified by TyraX: build the next mesh's packages while VU1 consumes the
+  // previous mesh. Waiting here serialized CPU preparation behind that draw.
+  // A wholly culled mesh simply replaces this unsent packet on the next call.
+  objectDataPending = true;
 }
 
 void StaPipQBufferRenderer::setInfo(PipelineInfoBag* bag) {
@@ -764,6 +789,8 @@ StaPipQBuffer* StaPipQBufferRenderer::getBuffer() {
 }
 
 u16 StaPipQBufferRenderer::getQBufferIndex(StaPipQBuffer* buffer) {
+  // Modified by TyraX: render submits the buffer just acquired by getBuffer.
+  if (buffers[currentBufferIndex] == buffer) return currentBufferIndex;
   for (u16 i = 0; i < buffersCount; i++) {
     if (buffers[i] == buffer) return i;
   }
@@ -793,6 +820,15 @@ void StaPipQBufferRenderer::flushBuffers() {
 
   currentBufferIndex = 0;
   nextBufferIndex = 0;
+
+  // Modified by TyraX: resetting the indices hands the slots to the next bag
+  // while the packet just sent is still being read by the DMA, and the slots'
+  // own arrays are what its REF tags point at whenever a package was COPIED
+  // (fillByCopyMax / fillByCopy1By2 merge small in-frustum packages in both
+  // clipping modes; fillByCopy1By3 / writeChunk are the EE clipper's). That is
+  // safe only because those arrays live in the pool side the last send moved
+  // away from - StaPipQBuffer::flipPoolSide in sendPacket. Do not add a DMA
+  // wait here instead: measured at -4 FPS on the console (docs/vu1-clipping.md).
 
   Verbose("End flush - zeroing buffer indices.");
 }
@@ -898,6 +934,7 @@ void StaPipQBufferRenderer::clearLastProgramName() {
 
 void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
                                                    const u32& to) {
+  const u32 buildStart = telemetry ? readTelemetryTicks() : 0;
   auto* currentPacket = packets[context];
   packet2_reset(currentPacket, false);
 
@@ -920,6 +957,7 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
   }
 
   packet2_utils_vu_add_end_tag(currentPacket);
+  if (telemetry) telemetry->packetBuildTicks += readTelemetryTicks()-buildStart;
 }
 
 void StaPipQBufferRenderer::sendPacket() {
@@ -927,6 +965,19 @@ void StaPipQBufferRenderer::sendPacket() {
 
   TYRA_ASSERT(packet2_get_qw_count(currentPacket) <= qbuffersPacketSize,
               "Packet is too big. Internal error");
+
+  const bool flushedWithUniforms = objectDataPending;
+  if (objectDataPending) {
+    const u32 objectWaitStart = telemetry ? readTelemetryTicks() : 0;
+    dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+    if (telemetry)
+      telemetry->vu1WaitTicks += readTelemetryTicks() - objectWaitStart;
+    const u32 submitStart = telemetry ? readTelemetryTicks() : 0;
+    dma_channel_send_packet2(objectDataPacket, DMA_CHANNEL_VIF1, true);
+    if (telemetry)
+      telemetry->dmaSubmitTicks += readTelemetryTicks() - submitStart;
+    objectDataPending = false;
+  }
 
   const u32 waitStart = telemetry != nullptr ? readTelemetryTicks() : 0;
   dma_channel_wait(DMA_CHANNEL_VIF1, 0);
@@ -945,7 +996,14 @@ void StaPipQBufferRenderer::sendPacket() {
 
   // dma_wait_fast(); // This have no impact on performance
 
-  dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1, true);
+  const u32 submitStart = telemetry != nullptr ? readTelemetryTicks() : 0;
+  // Modified by TyraX: the uniform chain's full writeback above covered the
+  // already-built geometry chain AND every REF stream. Nothing edits those
+  // payloads between the two kicks. Later half-buffer flushes still need their
+  // own writeback; a diagnostic hook also keeps the conservative SDK path.
+  dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1,
+                           !flushedWithUniforms || g_vuPacketHook != nullptr);
+  if (telemetry) telemetry->dmaSubmitTicks += readTelemetryTicks()-submitStart;
 
   // TyraX: with a VU1 memory hook installed (a devkit capture is in flight),
   // wait for the transfer AND for VU1 to finish its microprogram, then hand the
@@ -960,8 +1018,10 @@ void StaPipQBufferRenderer::sendPacket() {
     g_vuMemHook((const void*)0x1100c000, 1024 * 16);
   }
 
-  // Switch packet, so we can proceed during DMA transfer
+  // Switch packet, so we can proceed during DMA transfer - and switch the
+  // slots' copy pools with it, they are referenced by the packet just sent.
   context = !context;
+  StaPipQBuffer::flipPoolSide();
 }
 
 void StaPipQBufferRenderer::setMaxVertCount(const u32& count) {

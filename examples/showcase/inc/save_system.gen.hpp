@@ -134,7 +134,7 @@ constexpr int SAVE_AUTOSAVE_SLOT = -1;
 // Its ROWS are the slots: the panel bakes SAVE_SLOTS_PER_PAGE
 // blank rows and the game draws the labels, which is what lets a
 // project have more slots than fit on one screen.
-constexpr int SAVE_MENU_INDEX = 2;
+constexpr int SAVE_MENU_INDEX = 1;
 constexpr int SAVE_SLOTS_PER_PAGE = 3;
 constexpr int SAVE_PAGES = 1;
 // (SAVE_COMMIT_AUTOSAVE / SAVE_COMMIT_NEXT live in scene_data.hpp:

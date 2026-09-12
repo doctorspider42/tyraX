@@ -1,0 +1,61 @@
+newmtl limestone
+Kd 1 1 1
+map_Kd limestone.png
+
+newmtl ivory
+Kd 0.94 0.87 0.68
+
+newmtl shadowstone
+Kd 1 1 1
+map_Kd shadowstone.png
+
+newmtl paving
+Kd 1 1 1
+map_Kd paving.png
+
+newmtl terracotta
+Kd 1 1 1
+map_Kd terracotta.png
+
+newmtl copper
+Kd 0.13 0.46 0.42
+refl -type sphere -mm 0 0.22 @sky
+
+newmtl gold
+Kd 0.8 0.57 0.23
+refl -type sphere -mm 0 0.22 @sky
+
+newmtl brass
+Kd 0.91 0.66 0.27
+
+newmtl dark
+Kd 0.09 0.17 0.2
+
+newmtl leaves
+Kd 0.13 0.3 0.22
+
+newmtl leavesLight
+Kd 0.26 0.42 0.25
+
+newmtl bark
+Kd 0.28 0.2 0.13
+
+newmtl water
+Kd 1 1 1
+map_Kd water.png
+refl -type sphere -mm 0 0.32 @sky
+
+newmtl glow
+Kd 0.48 0.92 0.92
+Ke 0.384 0.7360000000000001 0.7360000000000001
+
+newmtl amber
+Kd 1 0.72 0.28
+Ke 0.8 0.576 0.22400000000000003
+
+newmtl flower
+Kd 0.72 0.31 0.42
+
+newmtl ivy
+Kd 0.32 0.62 0.24
+map_Kd ivy.png

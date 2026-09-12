@@ -304,6 +304,19 @@ uniform sampler3D uGiProbes;     // texture unit 3
 uniform int uLmMode;
 uniform sampler2D uLmTex;  // texture unit 4
 uniform vec4 uLmRect;      // terrain: x0, z0, 1/width, 1/depth
+// 1 = this draw's TEXTURE already carries its light (docs/prelit-models.md):
+// litbake multiplied the gathered light into the albedo, so every term the
+// bake contains must be skipped here exactly as the game skips it. Without
+// this the preview shaded a pre-lit surface a SECOND time - the editor showed
+// a dark, flat floor for a texture the console draws as baked.
+uniform int uPrelit;
+// The draw's material Kd. The vertex colour already carries it for a model
+// mesh, which is enough while the shade is SCALED - but the branches below
+// REPLACE it (the probe answer, the pre-lit neutral), and the albedo would go
+// with it. The generated game multiplies kd back after the same branch
+// (pushVert: `if (kd) shade *= kd`); this is that multiply. 1,1,1 for anything
+// whose Kd travels in the tint instead (primitives, animated models).
+uniform vec3 uKd;
 uniform vec3 uGiOrigin;
 uniform vec3 uGiStep;
 uniform ivec3 uGiDim;
@@ -614,7 +627,16 @@ vec3 litShade(vec3 base, vec3 wp, vec3 n) {
     // lights and the emissive pools, so every one of those must be skipped
     // below or the scene is lit twice.
     bool giHere = false;
-    if (uLmMode == 1 || uLmMode == 2) {
+    if (uPrelit != 0) {
+        // The texture IS the lit surface (docs/prelit-models.md). NEUTRAL,
+        // not black: the lightmap route below goes black because a pass is
+        // coming to put the light back, and here nothing is coming - the
+        // modulate has to leave the texture exactly as it was baked. Twin of
+        // g_prelitTex in the generated game; the flag beats both routes below
+        // there too, so it is tested first here.
+        shade = uKd;
+        giHere = true;
+    } else if (uLmMode == 1 || uLmMode == 2) {
         // The lightmap IS the shade: the console draws these black and puts
         // the whole answer back per pixel through the atlas / terrain-map
         // passes (lmApply, in the fragment stage), so the base goes black
@@ -636,7 +658,7 @@ vec3 litShade(vec3 base, vec3 wp, vec3 n) {
     } else {
         vec3 gi;
         if (giProbe(wp, n, gi)) {
-            shade = gi;
+            shade = gi * uKd;
             giHere = true;
         }
     }
@@ -1507,6 +1529,8 @@ void Viewport::querySceneLocations(uint32_t prog) {
     uGiDim_ = glGetUniformLocation(prog, "uGiDim");
     uGiScale_ = glGetUniformLocation(prog, "uGiScale");
     uLmMode_ = glGetUniformLocation(prog, "uLmMode");
+    uPrelit_ = glGetUniformLocation(prog, "uPrelit");
+    uKd_ = glGetUniformLocation(prog, "uKd");
     uLmTex_ = glGetUniformLocation(prog, "uLmTex");
     uLmRect_ = glGetUniformLocation(prog, "uLmRect");
     // Only the PS2-shading program has these; -1 elsewhere makes the
@@ -1610,6 +1634,8 @@ bool Viewport::init() {
     glUniform1i(uGiProbes_, 3);  // GI probe grid lives on texture unit 3
     glUniform1i(uLmTex_, 4);     // the baked lightmaps (terrain map / atlas)
     glUniform1i(uLmMode_, 0);
+    glUniform1i(uPrelit_, 0);
+    glUniform3f(uKd_, 1.0f, 1.0f, 1.0f);
     glUseProgram(0);
 
     GLuint gvs = compile(GL_VERTEX_SHADER, GRADE_VS);
@@ -3078,8 +3104,13 @@ void Viewport::pickAll(float u, float v, const std::vector<SceneObject>& objects
             selectionBounds(o,mn,mx);
             lo=eye;ld=dir;
         }
+        // An invisible wall (docs/collision-boxes.md) is a wire box too, and
+        // usually a map-sized one standing between the camera and everything
+        // it fences in: ranked as a solid it took every click aimed through it
+        // (examples/showcase's boundary-south sat in front of the whole pool).
         const bool volume = o.type == PrimitiveType::Area ||
-                            o.type == PrimitiveType::Scatter;
+                            o.type == PrimitiveType::Scatter ||
+                            (o.type == PrimitiveType::Box && o.collisionMode == 3);
         int tier = volume ? 3 : (staticModel ? 1 : 0);
         float t = rayBox(lo, ld, mn, mx);
         if (t <= 0.0f) {
@@ -3141,8 +3172,11 @@ bool Viewport::placementRaycast(float u, float v,
         // would put the object in mid-air.
         // A comment is not a surface either: its box is a hit target for a
         // click, and dropping a prop onto a floating note would be nonsense.
+        // An invisible wall draws as a wire box as well, and a prop dropped on
+        // top of one would hang in the air in the game.
         if (o.type == PrimitiveType::Area || o.type == PrimitiveType::Scatter ||
-            o.type == PrimitiveType::Comment || !o.procSource.empty())
+            o.type == PrimitiveType::Comment || !o.procSource.empty() ||
+            (o.type == PrimitiveType::Box && o.collisionMode == 3))
             continue;
         float mn[3], mx[3];
         pickBounds(o, mn, mx);
@@ -4213,6 +4247,7 @@ const Viewport::ModelDraw* Viewport::modelDraw(const std::string& relPath,
             ModelPart part;
             part.mesh = uploadMesh(interleaved);
             for (int k = 0; k < 3; ++k) part.ke[k] = sub.ke[k];
+            for (int k = 0; k < 3; ++k) part.kd[k] = sub.kd[k];
             if (!sub.texture.empty()) {
                 const std::string texRel = (modelDir / sub.texture).generic_string();
                 part.tex = glTexture(texRel);
@@ -4798,6 +4833,21 @@ void Viewport::fly(float forward, float strafe, float dt) {
     target_[2] += (fwdH.z * forward + rightH.z * strafe) * s;
 }
 
+// A local AABB against the six homogeneous clip planes. Testing the box's
+// support point avoids transforming eight corners and handles rotation,
+// negative/nonuniform scale, perspective and orthographic views alike.
+static bool modelInView(const Mat4& mvp, const float mn[3], const float mx[3]) {
+    for (int axis = 0; axis < 3; ++axis) for (int sign : {-1, 1}) {
+        float furthest = mvp.m[15] + sign * mvp.m[12 + axis];
+        for (int k = 0; k < 3; ++k) {
+            const float a = mvp.m[k*4 + 3] + sign * mvp.m[k*4 + axis];
+            furthest += a * (a >= 0.0f ? mx[k] : mn[k]);
+        }
+        if (furthest < -0.001f) return false;
+    }
+    return true;
+}
+
 uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>& objects,
                           const std::vector<int>& selection, int primary) {
     // Finished background model bakes land here, on the GL thread, before
@@ -5109,6 +5159,13 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // self-exclusion index and the ground-term toggle change (see draw()).
     int aoSelfObj = -1;
     int lmMode = 0;  // uLmMode of the draw being issued (see lmApply)
+    // uPrelit of the draw being issued. Staged per object beside
+    // aoReceive below, because like every other per-object uniform here
+    // it LEAKS into the next draw if a site forgets to set it.
+    int prelitDraw = 0;
+    // uKd of the draw being issued: the model part's Kd, 1 for everything
+    // whose Kd rides in the tint. Staged like the two above.
+    float kdDraw[3] = {1.0f, 1.0f, 1.0f};
     bool aoGroundOn = false;
     bool aoReceive = true;  // models neither receive nor self-occlude
     // PS2 shading: which bag the game would submit the NEXT draw as. 1 =
@@ -5349,6 +5406,8 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glUniform1i(uAoGround_, (aoGroundOn && terrain_.enabled) ? 1 : 0);
         glUniform1i(uAoReceive_, aoReceive ? 1 : 0);
         glUniform1i(uLmMode_, lmMode);
+        glUniform1i(uPrelit_, prelitDraw);
+        glUniform3f(uKd_, kdDraw[0], kdDraw[1], kdDraw[2]);
         glUniform3f(uTint_, r, g, b);
         glUniform3f(uEmissive_, emissive[0], emissive[1], emissive[2]);
         glUniform1i(uUseTex_, texture ? 1 : 0);
@@ -5392,6 +5451,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                     receiver.position[1] + receiver.scale[1] * 0.5f,
                     receiver.position[2], 1.0f);
         if (pointLightCount > 0) glUniform1i(uLightCount_, 0);
+        // An animated part's Kd rides in the tint below, not in its vertex
+        // colours - uKd stays neutral or it would land twice.
+        kdDraw[0] = kdDraw[1] = kdDraw[2] = 1.0f;
         for (const AnimModelDraw::Part& part : ad.parts)
             draw(part.mesh, GL_TRIANGLES, mvp, shade * part.kd[0],
                  shade * part.kd[1], shade * part.kd[2],
@@ -5434,7 +5496,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     auto drawStaticObject = [&](const SceneObject& t, const Mat4& model,
                                 bool asLines, float tintScale) {
         aoReceive = t.type != PrimitiveType::Model;
-        ps2Flat = 1;  // merged prefab geometry is a static (flat) bag
+        prelitDraw = t.prelit ? 1 : 0;
+        kdDraw[0] = kdDraw[1] = kdDraw[2] = 1.0f;
+        ps2Flat = 0;  // static vertex colours interpolate on the GS
         const Mat4 mvp = mul(viewProj, model);
         const ModelDraw* md = t.type == PrimitiveType::Model
                                   ? modelDraw(t.modelPath, t.materialPath)
@@ -5444,6 +5508,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                 for (const ModelPart& part : md->parts) {
                     const bool cutout = part.alpha && !asLines;
                     if ((int)cutout != alphaPass) continue;
+                    for (int a = 0; a < 3; ++a) kdDraw[a] = part.kd[a];
                     // emissive is one-shot - draw() consumes it, so it has to be
                     // set per part, inside the ordering loop
                     for (int a = 0; a < 3; ++a)
@@ -5481,6 +5546,8 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         const uint32_t terrainTex =
             asLines ? 0 : glTexture(terrainTexture_);  // wire passes stay untextured
         aoSelfObj = -1;       // terrain belongs to no scene object
+        prelitDraw = 0;       // the ground takes the terrain map instead
+        kdDraw[0] = kdDraw[1] = kdDraw[2] = 1.0f;
         aoGroundOn = false;   // the ground doesn't sit next to itself
         aoReceive = true;
         ps2Flat = 1;          // terrain chunks are TyraShadingFlat bags
@@ -5556,6 +5623,12 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             // both would double every instance. A Scatter volume itself is an
             // authoring region: a wire box, never geometry.
             if (!o.procSource.empty()) continue;
+            if (o.collisionMode == 3) {
+                if (!asLines)
+                    draw(collisionCube_, GL_LINES, mul(viewProj, modelMatrix(o)),
+                         0.25f, 0.85f, 1.0f);
+                continue;
+            }
             if (o.type == PrimitiveType::Scatter) {
                 if (!asLines)
                     draw(wireCube_, GL_LINES, mul(viewProj, modelMatrix(o)), 0.4f,
@@ -5567,12 +5640,18 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             // models don't receive AO (matches the game - see modelDraw note)
             aoReceive = o.type != PrimitiveType::Model &&
                         !(o.type == PrimitiveType::Player && o.playerMode == 2);
-            // Static geometry is a TyraShadingFlat bag on the console; a
-            // dyn-lit object's lit bag shades Gouraud (templates.cpp), and
-            // the bulb gizmo is an editor marker with no console twin.
-            ps2Flat = (o.dynamicLighting || o.type == PrimitiveType::PointLight)
-                          ? 0
-                          : 1;
+            // Pre-lit: the albedo already carries this object's light, so
+            // the shade goes neutral instead of landing on it twice. Only
+            // the STATIC path bakes that way (the game's g_prelitTex sits
+            // in pushVert); an animated model is probe-lit per frame there
+            // whatever its flag says, so the preview must be too.
+            prelitDraw = (o.prelit && !asLines &&
+                          !isAnimatedModelPath(o.modelPath))
+                             ? 1
+                             : 0;
+            kdDraw[0] = kdDraw[1] = kdDraw[2] = 1.0f;
+            // Static and dynamic object bags interpolate their vertex colours.
+            ps2Flat = 0;
             // The camera(s) being previewed through don't draw their body -
             // it would sit on the near plane and cover the whole view.
             if (o.type == PrimitiveType::Camera && camHidden(o.name)) continue;
@@ -5673,6 +5752,10 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                 mvp = mul(viewProj, model);
             }
             if (md) {
+                // The GPU cannot shade a model outside this view. Reject it
+                // before uploading per-part uniforms/materials; reflected and
+                // selected-outline passes still make their own visibility choice.
+                if (!modelInView(mvp, md->mn, md->mx)) continue;
                 // Opaque parts first, cutout ones (leaf cards) after, so a
                 // blended part never darkens a trunk it was authored in front
                 // of - the same order the tree preview draws in.
@@ -5694,6 +5777,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                     for (int a = 0; a < 3; ++a)
                         emissive[a] = asLines ? 0.0f
                                               : o.color[a] * tintScale * part.ke[a];
+                    for (int a = 0; a < 3; ++a) kdDraw[a] = part.kd[a];
                     draw(part.mesh, GL_TRIANGLES, mvp, o.color[0] * tintScale,
                          o.color[1] * tintScale, o.color[2] * tintScale,
                          asLines ? 0 : part.tex, lit ? &model : nullptr, cutout,
@@ -5761,7 +5845,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             aoSelfObj = -1;
             aoGroundOn = true;
             aoReceive = false;  // models receive no baked AO, in game either
-            ps2Flat = 1;        // bakes to static chunks - flat bags
+            prelitDraw = 0;     // scattered instances are never pre-lit
+            kdDraw[0] = kdDraw[1] = kdDraw[2] = 1.0f;
+            ps2Flat = 0;        // static chunks interpolate vertex colours
             const float d2r = kPi / 180.0f;
             for (const procgen::Instance& inst : scatter_.instances) {
                 if (inst.asset < 0 || inst.asset >= (int)scatter_.assets.size())
@@ -5781,6 +5867,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                         if ((int)cutout != alphaPass) continue;
                         for (int a = 0; a < 3; ++a)
                             emissive[a] = asLines ? 0.0f : tintScale * part.ke[a];
+                        for (int a = 0; a < 3; ++a) kdDraw[a] = part.kd[a];
                         draw(part.mesh, GL_TRIANGLES, mvp, tintScale, tintScale,
                              tintScale, asLines ? 0 : part.tex,
                              asLines ? nullptr : &model, cutout);
@@ -5847,8 +5934,11 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         // one reflected draw - the static subset of the scene pass (marker
         // types never make it into a mirror list)
         auto drawReflected = [&](const SceneObject& t, const Mat4& model) {
+            if (t.collisionMode == 3) return;
             aoReceive = t.type != PrimitiveType::Model;
-            ps2Flat = 1;  // the mirror redraw reuses the static (flat) bags
+            prelitDraw = t.prelit ? 1 : 0;
+            kdDraw[0] = kdDraw[1] = kdDraw[2] = 1.0f;
+            ps2Flat = 0;  // mirror redraw reuses the static Gouraud bags
             const Mat4 mvp = mul(viewProj, model);
             if (t.type == PrimitiveType::Model && isAnimatedModelPath(t.modelPath)) {
                 // pose already advanced by this frame's scene pass - reuse it
@@ -5869,6 +5959,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                         // to be set per part, inside the ordering loop
                         for (int a = 0; a < 3; ++a)
                             emissive[a] = t.color[a] * part.ke[a];
+                        for (int a = 0; a < 3; ++a) kdDraw[a] = part.kd[a];
                         draw(part.mesh, GL_TRIANGLES, mvp, t.color[0], t.color[1],
                              t.color[2], part.tex, &model, part.alpha);
                     }
@@ -5946,6 +6037,8 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                         aoSelfObj = (int)k;
                         aoGroundOn = true;
                         aoReceive = false;  // animated avatar - no AO receive
+                        prelitDraw = 0;     // animated: probe-lit, never pre-lit
+                        kdDraw[0] = kdDraw[1] = kdDraw[2] = 1.0f;
                         const Mat4 model = mul(refl, modelMatrix(p));
                         const Mat4 mvp = mul(viewProj, model);
                         drawAnimParts(*ad, mvp, &model, 1.0f, false, p);
@@ -5957,6 +6050,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             aoSelfObj = (int)mi;
             aoGroundOn = true;
             aoReceive = true;
+            prelitDraw = 0;
             draw(decal_, GL_TRIANGLES, mul(viewProj, mirrorModel), m.color[0],
                  m.color[1], m.color[2], 0, &mirrorModel, false, m.mirrorOpacity);
         }
@@ -5976,6 +6070,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             aoSelfObj = (int)pi;
             aoGroundOn = true;
             aoReceive = true;
+            prelitDraw = 0;
             draw(decal_, GL_TRIANGLES, mul(viewProj, model), p.color[0],
                  p.color[1], p.color[2], 0, &model, false, 0.7f);
         }
@@ -6016,9 +6111,11 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                                       ? modelDraw(mem.modelPath, mem.materialPath)
                                       : nullptr;
             if (md) {
-                for (const ModelPart& part : md->parts)
+                for (const ModelPart& part : md->parts) {
+                    for (int a = 0; a < 3; ++a) kdDraw[a] = part.kd[a];
                     draw(part.mesh, GL_TRIANGLES, mvp, mem.color[0], mem.color[1],
                          mem.color[2], part.tex, &gm, false, op);
+                }
                 return;
             }
             const MaterialDraw* mat =

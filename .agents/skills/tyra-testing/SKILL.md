@@ -609,8 +609,62 @@ processes killed → `HostFs = true` forced in PCSX2.ini → PCSX2 launched on t
 ELF.
 
 Notes:
-- First-ever build downloads PS2DEV v2.0.0, tests OpenVCL and compiles the engine
-  (minutes). Subsequent builds take seconds unless the engine changed.
+- First-ever build downloads PS2DEV v2.0.0, tests OpenVCL and compiles the
+  engine (minutes). Subsequent builds take seconds unless the
+  engine changed.
+- **Testing a change to the toolchain image itself**: build it with
+  `docker\build.ps1` / `docker/build.sh` (add `-FromSource` / `--from-source`
+  for `docker/Dockerfile.fromsource`, the one CI publishes; without it you get
+  `docker/Dockerfile`, the inherited A/B reference, which **CI does not build at
+  all** - so local is the only check it gets). Both scripts run the same checks
+  CI does. Then point a scratch project at it with one line,
+  `TYRAX_IMAGE=tyrax-toolchain:local` in the project's `.env`, and take it all
+  the way to a PCSX2 boot. `docker compose config` in the project directory
+  prints which image will actually be used; `docker ps -a --filter
+  name=<project>` confirms which one the container was created from. Nothing in
+  the editor needs rebuilding for this - `docker-compose.yml` is regenerated per
+  build and reads that variable. See `docs/toolchain-image.md`.
+- **A VU1 packet capture can be armed WITHOUT the GUI**, which is what makes a
+  microcode A/B into numbers instead of screenshots:
+  `python .agents/skills/tyra-testing/scripts/arm-vucap.py <projectDir> <flushIndex>`
+  writes the same `bin/livedbg.cmd` the *Debugger > VU > Capture VU1 packet* button
+  **`--full` and `--peek` are what make it a comparison tool.** The plain decode
+  prints the first four staged packets and four vertices of each, which is right for
+  reading and useless for diffing two builds - the packet that differs is rarely the
+  first. `--dump-vucap <dir> --full` prints all of them; `--peek <qw>[,n]` prints raw
+  data-memory quadwords as floats and words. That second one is how a microprogram
+  reports its own intermediates: **quadwords 1016..1023 are free** in the static
+  pipeline's map, and code ABOVE `begin:` runs once per activation while `begin:`
+  loops per batch - so a slot pointer set up there turns those eight quadwords into a
+  ring with one slot per batch. Without that, every peek reports the LAST batch,
+  which is exactly the one where two builds usually agree.
+  does, the game answers with `bin/vucap.bin`, and
+  `tyrax-editor --dump-vucap <projectDir>` decodes it — chain, VU1 memory, and **the
+  GIF packets the program staged for XGKICK**. Name the flush index: "the next packet"
+  is a different draw every time, a named index is the same draw forever.
+  **Two gotchas.** The responder only exists when the project has instrumentable
+  flow-graph nodes (`liveDebugOn = liveDebugEnabled && !syms.nodes.empty()`), so a
+  bare scratch project answers nothing — give it one node
+  (`--apply-graph <dir> <object> graph.json` with an `OnStart` → `Log` pair is enough)
+  and rebuild. And the decode prints only the first few staged packets, so a
+  difference deeper in the list shows up in the header counts, not the listing.
+- **An image swap used to rebuild NOTHING, which made it the easiest A/B to get
+  wrong.** The incremental logic keys off source timestamps, and an image swap
+  touches no source, so the previous image's objects were relinked and the new
+  toolchain appeared to change nothing. This was not theoretical: three
+  consecutive `VCL_FLAGS` probes each booted the *previous* probe's VU microcode
+  and produced three identical screenshots, one of which was then chased as a
+  rendering bug. Since 2026-08-05 the Runner stamps the VU assembler itself
+  (`/tyra/.vcl-stamp`) and prints `VU assembler changed - rebuilding the
+  microprograms`. The stamp hashes the resolved `vcl`, `vclpp` AND the `openvcl`
+  binary behind the wrapper - hashing only the wrapper missed a rebuilt openvcl whose
+  flags had not changed, and the previous binary's microcode was relinked while the
+  measurements said the new one should fit. Look for that line after a swap, and in
+  general **verify from the log that the work happened** — `grep -cE '(^| )vcl '` (one line per
+  microprogram, 25 of them) and `grep -c 'elf-g++ .* -c -o'` — before you believe
+  any picture. Note that a full microcode rebuild is ~2 min under Sony's `vcl`
+  but **seconds** under openvcl, so a fast build is not by itself evidence that
+  nothing was rebuilt.
 - **The whole pipeline is incremental, so measure a build by what it
   RECOMPILED, not by the clock.** `grep -c 'elf-g++ .* -c -o'` over the build
   log is the number that means something: on `examples/showcase` (18 TUs, 6
@@ -1617,7 +1671,15 @@ Notes:
   scripted probe selects the flush the same way the panel does: flags bit 3 arms
   a capture, bit 4 means "index in bits 8-23", and without bit 4 each capture
   walks to the next flush (that is how PROGRESS 201 was verified). **Delete
-  `livedbg.cmd` before booting a fixture** - a leftover command is applied at
+A stale `CMD_VERSION` in a hand-rolled arming script arms NOTHING, silently:
+the game drops a command whose version it does not know
+(`if (magic != CMD_MAGIC || version != CMD_VERSION) return;`), so the script
+prints "armed" and `--dump-vucap` answers "no capture yet" - on the console
+AND in the emulator, which makes it look like the transport. `arm-vucap.py`
+was stuck on version 1 against a game at 2 for exactly that long. Check the
+constant in `src/livedbg.cpp` before suspecting anything else, and note that
+one arming that DOES land sets `vuCapPending` and the tap then refuses every
+later one until the write finishes.   `livedbg.cmd` before booting a fixture** - a leftover command is applied at
   boot and eats the first capture, which reads exactly like an off-by-one in the
   walk. If
   you see tags like `refe qwc=32789` or float garbage, the walker lost sync (see
@@ -1788,10 +1850,19 @@ Three checks make this a real test rather than a smoke test, and all three were
 run on the branch that added it:
 
 - **Read the recording back before trusting the replay.** A file of 705
-  all-neutral frames replays perfectly and proves nothing. Link `src/livereplay.cpp`
-  into a 30-line harness (the aobake/treegen shape - no GL, no ImGui, no
-  `project.hpp`) and assert the stick really left centre, a button was really
-  held, and the fingerprints really move. On the FPP fixture: 208 frames with the
+  all-neutral frames replays perfectly and proves nothing. `--replay-dump
+  <file.tyrarep>` prints the timeline without running anything - every button
+  press and every jump in the fingerprint too big to have been walked, frame
+  numbers on both - and with a frame range (`--replay-dump f a b`) the raw
+  per-frame view, sticks included. Read it against the `Portal:` / `Pick:`
+  lines the game writes into `bin/log.txt` (docs/devkit.md): that pairing is
+  what turns "it sometimes throws me across the room" into "the grab is frame
+  390 and frames 391-407 move 0.75 of a unit each with the stick CENTRED".
+  Recordings made since 1.85.0 carry those events THEMSELVES, so the dump
+  prints "grabbed object 38" beside the press with no emulator involved, and a
+  replay reports a missing one by name instead of as a position delta.
+  Assert the stick really left centre, a button was really held,
+  and the fingerprints really move. On the FPP fixture: 208 frames with the
   stick off-centre, 7 with a button, 669 of 705 carrying a fingerprint (the first
   ~36 are boot, where scripts have not started), player z 0 -> 20.8, and `dt`
   ranging 0.020..0.080 - the loading hitches, recorded.
@@ -1953,6 +2024,19 @@ same leg is dropped rather than reported.
   and **warns when that lands within 0.04 of a whole number of frames** - an
   even stride samples one phase of a period-2 artefact forever, which is exactly
   how the shake survived its first harness.
+- **A ROUTE SAMPLED BY `--capture-frame` NEEDS A LENGTH COPRIME WITH THE
+  ADVANCE.** The capture path freezes the game for a fixed spell, so the game
+  advances almost exactly the same number of frames between two
+  `--capture-frame` calls. Give a frame-indexed camera route a round length and
+  the two are commensurate: every run walks the same handful of poses forever.
+  Measured on a console A/B of `examples/showcase` - a 1920-frame route sampled
+  eight distinct poses, and three DIFFERENT builds produced digit-identical
+  score sequences, which reads exactly like "the change did nothing". A prime
+  route length (1913 was used) walks the whole route instead, and because the
+  advance is deterministic every arm still walks it in the SAME order - which
+  is what makes two builds comparable frame by frame. Confirm the alignment
+  rather than assuming it: search a small offset window for the minimum mean
+  |diff| and check it lands on 0.
 - **`-PrintWindow` by default.** A GDI `CopyFromScreen` reads the SCREEN, so an
   occluded window captures whatever is physically in front of it - that once
   grabbed the owner's browser instead of the emulator and produced a perfectly
@@ -2072,6 +2156,40 @@ docker compose ... exec -T compiler sh -c "rsync -ac --include=*/ --include=bin/
   build.
 - **PCSX2 only.** Admissible for correctness (which is all this measures);
   never quote a GS-fill or per-function number from it.
+
+### Measuring a console-only flicker: the failure-rate fixture
+
+Some corruption exists only on a real PS2 and only in SOME frames of a static
+scene (the 1.81.1 slot-pool race: a lamp's corona as a sliver in 4-19 of 30
+frames, never in PCSX2). A single `--capture-frame` per build is then a coin
+toss dressed as a verdict, and two builds photographed once each will "differ"
+for no reason. The fixture that works:
+
+1. **Pin the run**: an input replay (`bin/replay.in`, docs/input-replay.md)
+   pins `dt`, and a tiny script parks the camera on a fixed pose from a frame
+   number on (`examples/showcase`'s `vantagecam.cpp` shape: pose A until frame
+   1400, pose B for ever after). The same pose then renders for the rest of
+   the run, so every capture is of the same picture.
+2. **Sample, don't shoot**: wait for `--debug-state` to report a frame past the
+   park, then take 24-30 free-running `--capture-frame`s a few seconds apart.
+3. **Score each against ONE reference** of that pose (a build known good, or
+   PCSX2) with the HUD rows masked (`d[:70,:] = 0`; the FPS/MEM text differs
+   between builds), and report `pixels > 40` per sample. The number is the
+   **rate**, and the distinct values tell you how many interleavings there
+   are (a race gives a small discrete set; garbage gives all different).
+4. **Bisect with barriers, not theories**: an arm per synchronisation point
+   (GS FINISH after every bag, a VIF1 FLUSH packet the EE waits for, a FLUSH
+   in the VIF stream only, one wait at one suspected site), 24+ samples each,
+   read the FPS off the HUD too. In 1.81.1 only the arms where the EE waited
+   fixed it - that single fact located the writer.
+
+Three traps: the fixture compares CONTENT, so both arms must be the same
+project directory (two scratch copies with a moved object "differed" by exactly
+one "PICK UP" prompt and cost a day); `--capture-frame` resumes a halted game,
+so never mix it with halt/step walking inside one sample series; and
+`--debug-state` reads `bin/livedbg.bin`, which the PREVIOUS run left behind at
+its last frame - delete it before launching or the "past the park" wait
+returns at once and the series photographs the moving camera.
 
 ### The shadow A/B rig: one command per switch
 
@@ -2594,3 +2712,28 @@ GI's shared-context oracle still agreed (0.0022% relative mean error). The mixed
 capture-sector updates without allocation failures. Higher atlas counts consume
 VRAM: the tested mixed scene had about 35 KiB free after moving, with evictions
 during motion, so do not describe larger view counts as free.
+
+## Render-cost capture
+
+Use `--profile-frame PROJECT -o report.csv` against a debug game with Live
+Debugger on and a live host server. Verify matching sequence/footer, finite
+phase/object values, repeated captures and CSV output. For UI changes drive
+Render cost / Measure render cost / Keep as baseline / Copy render cost CSV,
+and click the column headers: each sorts, and a third click on the same header
+clears the sort back to the original grouping.
+Object rows are nested costs inside Objects. Measurements drain the pipeline;
+verify ordinary FPS separately and capture the same camera on physical PS2.
+
+### Manual ps2link launch: require the resident-IOP marker
+
+Prefer `--build PROJECT --run-ps2 IP`, which creates the marker automatically.
+If running ps2client manually, first create and verify **an absolute path** to
+`PROJECT/bin/ps2link.run` containing `ps2link`. Launch with `PROJECT/bin` as the
+working directory. `-ps2link` on execee alone is insufficient with this crt0.
+A missing marker resets IOP, removes the host filesystem/network service and
+can require a physical reboot; a later UDP poweroff cannot repair that loss.
+Do not chain a failed marker write into an execee command. In PowerShell use
+`-ErrorAction Stop` and `Test-Path -LiteralPath` before launching. A working
+directory already ending in `bin` must not receive another relative `bin/`.
+Also stop an emulator serving the same project before hardware captures: its
+fresh `livedbg.bin`/`frame.tga` can otherwise disguise a disconnected console.

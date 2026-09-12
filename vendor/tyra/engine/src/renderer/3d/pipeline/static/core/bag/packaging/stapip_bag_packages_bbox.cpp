@@ -16,6 +16,7 @@
 #include "debug/debug.hpp"
 #include "renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packages_bbox.hpp"
 
+// Modified by TyraX: integer ceiling division avoids software double math on EE.
 namespace Tyra {
 
 StaPipBagPackagesBBox::StaPipBagPackagesBBox(const Vec4* t_vertices,
@@ -24,7 +25,7 @@ StaPipBagPackagesBBox::StaPipBagPackagesBBox(const Vec4* t_vertices,
                                              const u32& t_maxVertCount) {
   u32 splitPartSize = t_maxVertCount / 3;
   vertexCount = t_facesCount;
-  partsCount = ceil(vertexCount / static_cast<float>(splitPartSize));
+  partsCount = (vertexCount + splitPartSize - 1) / splitPartSize;
 
   bboxParts = new std::vector<CoreBBox>;
   for (u32 i = 0; i < partsCount; i++) {
@@ -34,6 +35,7 @@ StaPipBagPackagesBBox::StaPipBagPackagesBBox(const Vec4* t_vertices,
         CoreBBox(t_vertices, t_faces + i * splitPartSize, partSize));
   }
   mainBBox = new RenderBBox(*bboxParts, 0, partsCount);
+  rebuildCoarseBounds();
 }
 
 StaPipBagPackagesBBox::StaPipBagPackagesBBox(const Vec4* t_vertices,
@@ -41,7 +43,7 @@ StaPipBagPackagesBBox::StaPipBagPackagesBBox(const Vec4* t_vertices,
                                              const u32& t_maxVertCount) {
   u32 splitPartSize = t_maxVertCount / 3;
   vertexCount = t_count;
-  partsCount = ceil(vertexCount / static_cast<float>(splitPartSize));
+  partsCount = (vertexCount + splitPartSize - 1) / splitPartSize;
 
   bboxParts = new std::vector<CoreBBox>;
   for (u32 i = 0; i < partsCount; i++) {
@@ -51,6 +53,7 @@ StaPipBagPackagesBBox::StaPipBagPackagesBBox(const Vec4* t_vertices,
   }
 
   mainBBox = new RenderBBox(*bboxParts, 0, partsCount);
+  rebuildCoarseBounds();
 }
 
 StaPipBagPackagesBBox::~StaPipBagPackagesBBox() {
@@ -69,6 +72,7 @@ void StaPipBagPackagesBBox::recalculate(const Vec4* t_vertices,
     (*bboxParts)[i] = CoreBBox(t_vertices + i * splitPartSize, partSize);
   }
   *mainBBox = RenderBBox(*bboxParts, 0, partsCount);
+  rebuildCoarseBounds();
 }
 
 const RenderBBox& StaPipBagPackagesBBox::getChildBBox1By3(
@@ -111,6 +115,18 @@ void StaPipBagPackagesBBox::getMergedMinMax(const u32& index,
     if (hi.x > outMax->x) outMax->x = hi.x;
     if (hi.y > outMax->y) outMax->y = hi.y;
     if (hi.z > outMax->z) outMax->z = hi.z;
+  }
+}
+
+// Modified by TyraX: cache a coarse level; rebuilding follows bboxVersion.
+// Eight full packages = 24 existing one-third bounds, including the tail.
+void StaPipBagPackagesBBox::rebuildCoarseBounds() {
+  const u32 groups = (partsCount + 23) / 24;
+  coarseBounds.resize(groups * 2);
+  for (u32 g = 0; g < groups; ++g) {
+    const u32 start = g * 24;
+    const u16 count = partsCount - start < 24 ? partsCount - start : 24;
+    getMergedMinMax(start, count, &coarseBounds[g*2], &coarseBounds[g*2+1]);
   }
 }
 

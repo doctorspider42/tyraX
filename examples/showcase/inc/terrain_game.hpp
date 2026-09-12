@@ -136,6 +136,22 @@ class TerrainGame : public Tyra::Game {
   // Scene objects at runtime (mutable by scripts/physics); geometry per
   // object, one draw part per model material (primitives use parts[0])
   struct GeoPart {
+    // Exit clipping depends on mesh/transform/exit plane, not the viewing eye.
+    // Keep buffers and descriptors alive so a static portal needs no per-draw
+    // triangle walk or PATH1 drain. Owned by the part: scene unload frees them.
+    struct PortalClip {
+      bool valid = false, textured = false, lit = false, many = false;
+      u32 sourceStamp = 0, sourceCount = 0, stamp = 0;
+      const Tyra::Vec4* sourceVertices = nullptr;
+      float plane[4] = {}, matrix[16] = {};
+      std::vector<Tyra::Vec4> vertices, sts, normals;
+      std::vector<Tyra::Color> colors;
+      Tyra::StaPipBag bag;
+      Tyra::StaPipColorBag color;
+      Tyra::StaPipTextureBag texture;
+      Tyra::StaPipLightingBag lighting;
+    };
+    std::vector<std::unique_ptr<PortalClip>> portalClips;
     std::vector<Tyra::Vec4> vertices;
     std::vector<Tyra::Color> colors;
     std::vector<Tyra::Vec4> sts;  // texture coordinates
@@ -218,6 +234,9 @@ class TerrainGame : public Tyra::Game {
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
+    bool impostor = false; // visual representation only; data.model owns collision
+    bool impostorInitialized = false;
+    int impostorView = 0;
     // Physics fast path (awake bodies): parts hold LOCAL-space vertices
     // (scale baked in, shading frozen at the wake pose) and every
     // part.infoBag->model points at objMat, rebuilt from position/rotation
@@ -251,14 +270,16 @@ class TerrainGame : public Tyra::Game {
       // so an untextured mesh would render in the plain scene light color
       // (i.e. gray). This part's material albedo is folded into its own light
       // and ambient colors instead (outputColor = albedo * sceneLighting),
-      // matching how the editor viewport tints the .glb. Directions stay
-      // shared (animLightDirs); only the colors carry the per-part tint.
+      // matching how the editor viewport tints the .glb. Directions are
+      // owned by this part so pose-sharing instances retain independent GI.
       std::unique_ptr<Tyra::PipelineDirLightsBag> animLights;
       Tyra::Vec4 litColors[4];
+      Tyra::Vec4 litDirs[3];
     };
     std::vector<AnimPart> animParts;
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;
+    Tyra::M4x4 animLightMat;  // rotation/reflection only; scale is not light gain
     u32 animLastTick = 0;  // animLodTick of the last in-view frame; 0 = never
     // Usable-object highlight: terrain-hugging glow ring around the base,
     // built when first highlighted, cleared whenever the object rebuilds
@@ -318,6 +339,11 @@ class TerrainGame : public Tyra::Game {
     std::vector<GameModelPart> parts;  // empty = missing/unparseable model
     float mn[3] = {-0.5F, -0.5F, -0.5F};
     float mx[3] = {0.5F, 0.5F, 0.5F};
+    // Shadow proxy baked into the .tmdl (xyz per corner, under
+    // kShadowMeshMaxTris): the flashlight's shadow volumes extrude THIS when
+    // the real mesh is over budget, instead of the model's sub-boxes. Empty
+    // = cast from the real triangles (they fit) or the boxes.
+    std::vector<float> shadowVerts;
     Tyra::CollisionMesh collider;  // built only when a scene needs mesh mode
     std::vector<std::string> texPaths;  // texture-cache refs this model holds
   };
@@ -757,12 +783,28 @@ class TerrainGame : public Tyra::Game {
                           const Tyra::Vec4& a, const Tyra::Vec4& b);
   // Portal pass-through for the walkers: when the body column sits inside
   // a linked portal's opening near its plane, updatePortalPass publishes
-  // that portal's plane and collidePlayer stops colliding with objects
-  // fully BEHIND it (exact OBB extent) - the wall a portal is mounted on
-  // opens up like a doorway while everything else keeps blocking.
+  // that portal's plane plus the point of the column inside the opening,
+  // and collidePlayer hands both to portalDoorwayOpens - the wall a portal
+  // is mounted on opens up like a doorway while everything else keeps
+  // blocking.
   void updatePortalPass(float x, float feetY, float z);
   float portalPassPlane[4] = {0, 0, 0, 0};
+  float portalPassPoint[3] = {0, 0, 0};
   bool portalPassOn = false;
+  // THE doorway rule, in one place. The walker collision, the sweep and the
+  // physics static-solid pass each used to carry a hand-copied snippet of
+  // it, and every copy read the obstacle's extent off 0.5 * scale - which
+  // describes a unit primitive and says nothing about an imported mesh. An
+  // obstacle stops blocking when EITHER its mesh-aware OBB is wholly behind
+  // the aimed portal's plane (a mounting wall that is its own object, on
+  // the far side), OR that OBB contains the point where the motion pierces
+  // the opening (one merged mesh holding the back wall, the jambs and the
+  // roof also reaches in FRONT of the plane, so it can never be wholly
+  // behind it even though the opening is authored inside it). plane is
+  // (nx, ny, nz, d) and pierce a world point; the two always travel
+  // together (portalPass*, sweepPass*, the physics pass's own pair).
+  bool portalDoorwayOpens(const RuntimeObject& obstacle, const float* plane,
+                          const float* pierce) const;
   // Thrown objects fly through portals too. portalCarryAim finds the
   // linked portal whose opening the motion segment a->b pierces (front
   // face, authored rectangle + slack); -1 = none. forObj gates it through
@@ -787,12 +829,17 @@ class TerrainGame : public Tyra::Game {
   // local Y -> target world), the same isometry as the teleport/camera.
   void portalMapPoint(int pi, float& x, float& y, float& z);
   int portalCarryAim(const float* a, const float* b, int forObj);
+  // Where the segment handed to portalCarryAim pierces the opening, in
+  // world space - written whenever it returns >= 0, and the second half of
+  // the doorway rule cannot be evaluated without it.
+  float portalAimPoint[3] = {0, 0, 0};
   bool portalCarryCrossing(const float* a, float* pos, float* vel);
   // Arms sweepPass* when segment a->b pierces a linked opening (pad the
   // end by the swept body's extent). Pair with sweepPassOn = false after
   // the sweep.
   bool armSweepPass(const float* a, const float* b);
   float sweepPassPlane[4] = {0, 0, 0, 0};
+  float sweepPassPoint[3] = {0, 0, 0};
   bool sweepPassOn = false;
   // The last player-released rigid body (throw OR drop): portal-free -
   // crosses any linked portal, flag or not - until it settles to sleep.
@@ -804,6 +851,14 @@ class TerrainGame : public Tyra::Game {
   // frame-scale re-hop jitter (rect-edge bounces, resolution kicks) without
   // touching legit loops - the example's fall re-crosses every ~13 frames.
   std::vector<unsigned char> portalHopCool;
+  // Per object: the portal it last hopped through (-1 = none). From then on
+  // it SHOWS in that portal's through-view (and may cross it again), which is
+  // the converse of the owner's rule - whatever a portal shows can go through
+  // it, and whatever went through it is shown. Without this a thrown ball
+  // vanished at the plane the moment it crossed: the authored view list names
+  // the room on the far side, never the ball that just flew into it.
+  std::vector<int> portalLastCrossed;
+  int portalLastHop = -1;  // the portal the latest portalCarryCrossing took
   // Exit-plane of the through-view being rendered (nx, ny, nz, d) - set
   // around the destination render so renderTerrain can drop chunks in the
   // dead zone between the virtual camera and the target portal's plane.
@@ -1029,8 +1084,9 @@ class TerrainGame : public Tyra::Game {
   // Blocks the walker from pressing against geometry the carried object no
   // longer fits in front of (the spring arm's sweep, pushing the walker back
   // instead of pulling the camera in).
-  void applyCarryWhisker(float* nextX, float* nextZ, float probeY, float yaw,
-                         float feetY, float eyeHeight);
+  void applyCarryWhisker(float prevX, float prevZ, float* nextX, float* nextZ,
+                         float probeY, float yaw, float feetY,
+                         float eyeHeight);
   int carryIndex = -1;        // runtimeObjects index being carried, -1 = none
   // The portal the carried object is currently passing THROUGH (its carry ray
   // pierces the opening and that portal renders the object in its
@@ -1155,6 +1211,28 @@ class TerrainGame : public Tyra::Game {
   std::vector<float> hudTextDur;         // ScriptContext::textDuration
   std::vector<unsigned char> hudTextOn;  // visible this frame
   std::vector<float> hudTextTimer;       // seconds left (0 = until hidden)
+  // Animated HUD (docs/hud-animation.md): every HUD element - images, texts,
+  // bars, in HUD_ELEM order - carries a show/hide transition, a one-shot
+  // effect slot and, for images and bars, its own visibility (texts keep
+  // hudTextOn). updateHudMotion poses every sprite for the frame from the
+  // baked placement plus the element's looped animation, and ticks the bars.
+  void updateHudMotion();
+  void renderHudBars();
+  float hudClock = 0.0F;                     // seconds since boot - the loop clock
+  std::vector<unsigned char> hudElemOn;      // images + bars: shown
+  std::vector<float> hudElemTrans;           // 0 = fully hidden .. 1 = fully shown
+  std::vector<unsigned char> hudElemDrawn;   // drawn this frame (after Blink/transition)
+  std::vector<signed char> hudElemReq;       // ScriptContext::hudElemRequest
+  std::vector<signed char> hudElemFxReq;     // ScriptContext::hudElemEffect
+  std::vector<float> hudElemFxSecReq;        // ScriptContext::hudElemEffectSec
+  std::vector<signed char> hudElemFx;        // running effect (0 = none)
+  std::vector<float> hudElemFxT, hudElemFxDur;
+  std::vector<float> hudBarValue;            // ScriptContext::hudBarValue (bar units)
+  std::vector<signed char> hudBarSet;        // ScriptContext::hudBarSet
+  std::vector<float> hudBarShown, hudBarGhost, hudBarHold;  // eased fill (fractions)
+  std::vector<Tyra::Sprite> hudBarFillSprites, hudBarFrameSprites;
+  std::vector<int> hudBarFillTexW, hudBarFillTexH;  // fill image size, for the crop
+  Tyra::Sprite hudBarQuad;                   // hud/loading-white.png, tinted per quad
   // Dynamic point lights (Set Light flow node), per scene-object index.
   std::vector<signed char> lightReq;     // ScriptContext::lightRequest
   std::vector<float> lightIntens;        // ScriptContext::lightIntensity
@@ -1188,7 +1266,8 @@ class TerrainGame : public Tyra::Game {
   std::vector<LightBeam> lightBeams;
   Tyra::Texture* beamCoronaTex = nullptr;
   void setupLightBeams();            // per scene load
-  void updateAndRenderLightBeams();  // per frame, end of renderScene
+  void updateAndRenderLightBeams(const Tyra::Vec4* viewEye = nullptr,
+                                const Tyra::Vec4* viewAt = nullptr, int portal = -1);
   // Ground pools of the DYNAMIC point lights: the terrain opts out of the
   // per-chunk light pick (hard seams at chunk borders), so each dynamic
   // light paints its pool as a smooth additive terrain-conforming patch
@@ -1216,16 +1295,28 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> wColorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> wTexBag;
     std::unique_ptr<Tyra::StaPipBag> wBag;
-    // Shadow volumes (FLASH_SHADOW_VOLUMES, docs/flashlight.md): the extruded
-    // occluder boxes, split by CAMERA facing. Front faces write destination
-    // alpha 0x80 where they are closer than the scene, back faces write 0
-    // where THEY are - two plain TestOnly draws inside the alpha-mask
-    // bracket, and the bit that survives is "this pixel is inside a volume".
+    // Shadow volumes (FLASH_SHADOW_VOLUMES, docs/flashlight.md): the
+    // silhouette-extruded volumes, split by CAMERA facing. With the count
+    // target up (alphaMask.countReady) front faces ADD +32 into it and back
+    // faces SUBTRACT it back - TestOnly vs the scene depth - and one resolve
+    // per caster ORs count>0 into the destination-alpha mask; without it the
+    // convex sub-box fallback writes the alpha bit directly (0x80 / 0).
     std::vector<Tyra::Vec4> volFront, volBack;
     Tyra::Color volSetColor, volClrColor;
-    std::unique_ptr<Tyra::StaPipInfoBag> volInfo;
+    std::unique_ptr<Tyra::StaPipInfoBag> volInfo, volClrInfo;
     std::unique_ptr<Tyra::StaPipColorBag> volSetBagC, volClrBagC;
     std::unique_ptr<Tyra::StaPipBag> volSetBag, volClrBag;
+    // The carving spot light's RECEIVER pass (docs/shadows.md): its light on
+    // the solids its cone touches, drawn a second time per pixel through the
+    // mask - the torch's wall pass on a scene lamp. Its own buffers, on the
+    // torch's pool like the volume buffers: one spot carves per frame.
+    std::vector<Tyra::Vec4> sWVerts, sWSts;
+    std::vector<Tyra::Color> sWColors;
+    Tyra::Color sWColor;
+    std::unique_ptr<Tyra::StaPipInfoBag> sWInfo;
+    std::unique_ptr<Tyra::StaPipColorBag> sWColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> sWTexBag;
+    std::unique_ptr<Tyra::StaPipBag> sWBag;
     Tyra::M4x4 mat;
     std::unique_ptr<Tyra::StaPipInfoBag> info;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
@@ -1291,6 +1382,30 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
     std::unique_ptr<Tyra::StaPipBag> bag;
+    // WHO this slot is showing, and how far its cross-dissolve has got.
+    // The set used to be re-derived from scratch every frame - "the four
+    // casters nearest the camera", sorted, nothing remembered - so two
+    // casters at nearly equal distance traded a slot frame to frame, and a
+    // caster that lost one went from full alpha to nothing between two
+    // frames. A slot is HELD now (renderProjShadows, "which four casters
+    // hold the slots"): `leaving` + `fade` are the hand-over dissolve,
+    // `want`/`wantFrames` the challenger that has to out-stay the
+    // hysteresis, `barren` how long the holder has drawn nothing.
+    int occupant = -1;
+    float fade = 0.0F;
+    bool leaving = false;
+    int barren = 0;
+    int want = -1;
+    int wantFrames = 0;
+    // ...and which LIGHT threw this slot's silhouette last frame, on the
+    // same terms: the source is picked by score, and a torch walking past a
+    // lamp crosses that line twice in a couple of steps - which swings the
+    // silhouette to the other side of the prop and back. 0 = the scene
+    // sun/moon, 1 = the player's torch, 2 = a placed light at lightPos.
+    bool lightHeld = false;
+    int lightKind = 0;
+    float lightPos[3] = {0.0F, 0.0F, 0.0F};
+    int lightWantFrames = 0;
   };
   std::vector<ProjShadow> projShadows;  // one per engine slot in use
   std::vector<int> projCasters;         // authored caster object indices
@@ -1321,6 +1436,14 @@ class TerrainGame : public Tyra::Game {
   std::vector<int> flashSpotExtra;
   void updateFlashSpotOff();
   void setFlashSpotOff(int obj, bool lit);
+  // The objects the carving spot light lit through its receiver pass this
+  // frame: their per-vertex slot must skip THAT lamp (dynLightSkipSlot), or
+  // the wall is lit twice and the carved shadow darkens only half of it.
+  // Re-applied every frame, like the torch's list; reset when the lamp moves
+  // on. The lone-batch rule is setFlashSpotOff's.
+  std::vector<int> spotSkipList;
+  std::unique_ptr<Tyra::StaPipInfoBag> batchSkipInfoBag;
+  void setDynLightSkip(int obj, int slot);
 
   // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn
   // glyph by glyph from a font atlas because the string is only known now.

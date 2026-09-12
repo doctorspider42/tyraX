@@ -167,6 +167,7 @@ unsigned int ramFreeKB = 0, ramFrame = 0;
 // reading a whole frame buffer back out of GS VRAM is a ~900 KB DMA plus a
 // ~900 KB host: write, which is not something to do on a timer.
 bool frameShotWanted = false;
+unsigned int renderCostRequest = 0;
 // __attribute__((unused)): the EE crash handler is opt-in (Preferences >
 // Build), and with it off nothing references this - it sits in an anonymous
 // namespace so the compiler drops it, but it would warn on the way past.
@@ -305,6 +306,7 @@ void pollCommand() {
   if ((flags & 32U) != 0) ramMeasureWanted = true;
   // Bit 6: photograph the last finished frame into frame.tga (one-shot).
   if ((flags & 64U) != 0) frameShotWanted = true;
+  if ((flags & 128U) != 0) renderCostRequest = seq;
   if ((flags & 8U) != 0) {
     vuCapArmed = true;
     vuCapExplicit = (flags & 16U) != 0;
@@ -1019,6 +1021,12 @@ void applyFactOverrides() {
       factNum[f.slot] = f.v[0];
     }
   }
+}
+
+unsigned int takeRenderCostRequest() {
+  const unsigned int result = renderCostRequest;
+  renderCostRequest = 0;
+  return result;
 }
 
 void hit(int key) {

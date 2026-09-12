@@ -3,13 +3,65 @@
 
 namespace Showcase {
 
-constexpr int MODEL_COUNT = 0;
+constexpr int MODEL_COUNT = 27;
 inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
-    "",
+    "aster/arrival-terrace.tmdl",
+    "aster/west-promenade.tmdl",
+    "aster/east-promenade.tmdl",
+    "aster/observatory-terrace.tmdl",
+    "aster/crossing.tmdl",
+    "aster/canal-water.tmdl",
+    "aster/sea-surface.tmdl",
+    "aster/entry-pier--1.tmdl",
+    "aster/entry-crown--1.tmdl",
+    "aster/entry-pier-1.tmdl",
+    "aster/entry-crown-1.tmdl",
+    "aster/survey-cart.tmdl",
+    "aster/supply-crate.tmdl",
+    "aster/orbit-outer.tmdl",
+    "aster/orbit-inner.tmdl",
+    "aster/orbit-equator.tmdl",
+    "aster/pedestal.tmdl",
+    "aster/weights-backstop.tmdl",
+    "aster/island.tmdl",
+    "aster/district-arrival.tmdl",
+    "aster/district-east.tmdl",
+    "aster/district-west.tmdl",
+    "aster/district-seaward.tmdl",
+    "aster/district-rotunda.tmdl",
+    "aster/district-vestibule.tmdl",
+    "aster/district-pavilion.tmdl",
+    "aster/district-cellar.tmdl",
 };
 // per-model .mtl override, for the .obj fallback path only (a
 // .tmdl already carries the resolved override) - "" = none
 inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
     "",
 };
 // The AUTHORED asset path each slot was baked from ("res/models/x.obj").
@@ -17,19 +69,46 @@ inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
 // resolves its asset pool against, because a graph names assets the
 // way the editor does and the console only has baked .tmdl names.
 inline const char* MODEL_SOURCES[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
-    "",
+    "res/aster/arrival-terrace.obj",
+    "res/aster/west-promenade.obj",
+    "res/aster/east-promenade.obj",
+    "res/aster/observatory-terrace.obj",
+    "res/aster/crossing.obj",
+    "res/aster/canal-water.obj",
+    "res/aster/sea-surface.obj",
+    "res/aster/entry-pier--1.obj",
+    "res/aster/entry-crown--1.obj",
+    "res/aster/entry-pier-1.obj",
+    "res/aster/entry-crown-1.obj",
+    "res/aster/survey-cart.obj",
+    "res/aster/supply-crate.obj",
+    "res/aster/orbit-outer.obj",
+    "res/aster/orbit-inner.obj",
+    "res/aster/orbit-equator.obj",
+    "res/aster/pedestal.obj",
+    "res/aster/weights-backstop.obj",
+    "res/aster/island.obj",
+    "res/aster/district-arrival.obj",
+    "res/aster/district-east.obj",
+    "res/aster/district-west.obj",
+    "res/aster/district-seaward.obj",
+    "res/aster/district-rotunda.obj",
+    "res/aster/district-vestibule.obj",
+    "res/aster/district-pavilion.obj",
+    "res/aster/district-cellar.obj",
 };
-constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false};
+constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, true, true, true, true, true, true};
 
 constexpr int ANIM_MODEL_COUNT = 1;
 inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {
-    "models/wobbler.tskl",
+    "aster/keeper.tskl",
 };
 
 // .mtl libraries assigned to primitives (first material = surface)
-constexpr int MATERIAL_COUNT = 1;
+constexpr int MATERIAL_COUNT = 2;
 inline const char* MATERIAL_PATHS[MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 1] = {
-    "materials/sign.mtl",
+    "aster/glow.mtl",
+    "aster/gold.mtl",
 };
 
 // texture atlas summary, logged at scene boot ("" = no atlas)

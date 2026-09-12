@@ -39,6 +39,13 @@ switches its vertex colours to neutral: no ambient, no N·L, no baked point
 lights, no emissive pools. Every one of those is already in the texture, per
 pixel, and adding them again would light the surface twice.
 
+**The editor preview takes the same route** (`uPrelit` in viewport.cpp, the
+twin of `g_prelitTex` in the generated game): a pre-lit object's shade goes
+neutral there too, so what you see is the texture as it was baked. Until 1.83.1
+the viewport did not know the flag and shaded a pre-lit surface a SECOND time -
+a terrace measured 2.5x darker in the preview than the console draws it, which
+reads as a bad bake.
+
 **Dynamic light still lands on top** — the flashlight's
 [projected pool](flashlight.md), its cone, and live point lights are all added
 at run time. That is the whole arrangement: the static half per pixel in the
@@ -183,8 +190,18 @@ same opt-in switch of its own beside it (*Re-bake stale global illumination*,
   object would lose its self-occlusion the moment it went pre-lit, which reads
   as the pre-lit bake having flattened it. The `-lit.png` output is in turn
   skipped by Model AO, so nothing is darkened twice.
-- **The model needs UVs.** Unwrapped models only; the bake reports how many
-  texels its islands covered, and zero means it has none.
+- **The model needs a UNIQUE unwrap, inside 0..1.** This is the one that
+  disqualifies most floors and walls. A model that TILES its texture - UVs
+  running 0..17 across a paved terrace, the ordinary way such a mesh is
+  authored - cannot be pre-lit at all: the bake writes one 0..1 canvas and the
+  mesh's own UVs then repeat it across the surface, so the baked light is
+  identical in all 289 tiles and a shadow cannot vary across the floor. The
+  bake refuses it and says so with the numbers (`u 0.00..17.00, v -16.00..1.00,
+  UV area 319.0`). It used to SUCCEED and ship a flat, darkened texture, which
+  reads as "pre-lit looks bad" rather than "this model was never a candidate".
+  Total UV area is the test: unique islands packed in the unit square sum to
+  <= 1, tiling multiplies it by the repeat count, and mirrored islands - just
+  as broken, both halves would get one half's light - push it past 1 too.
 - **A model's materials share one output texture.** Its islands must not
   overlap between them, which is true of any ordinary unwrap.
 - **Night scenes bake dark**, faithfully. A pre-lit object in a scene with
@@ -201,6 +218,7 @@ same opt-in switch of its own beside it (*Re-bake stale global illumination*,
 | Anything that moves | The probe grid; a pre-lit texture glues the light to the surface |
 | A big flat wall the torch will sweep | Build it as a box: the [pool](flashlight.md) lands on it per pixel and it takes no cone |
 | A model you have many copies of | Leave it on the probe path — one texture each is the wrong trade |
+| A floor or wall whose texture TILES | Not this. The [terrain](terrain.md) takes per-texel light by world position, and untextured primitives take the scene lightmap; both are unique parameterizations the engine makes itself |
 
 ## See also
 

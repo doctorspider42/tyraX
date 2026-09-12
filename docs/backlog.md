@@ -41,6 +41,23 @@ machinery is already per-caster — but each extra source is its own atlas tile
 and its own projected mesh, so the VRAM and ELF budgets scale with the number
 of lights, not with the number of casters. Worth doing after the tile size
 question above, not before.
+### Re-verify the whole VU1 set on real hardware, now that the race is fixed
+
+The console-only corruption that was filed here as "openvcl's `stapip_clip_c`
+renders wrong on a real PS2" turned out to be an engine DMA race - the StaPip
+slot pool handed to the next bag while the previous packet still read it -
+fixed in 1.81.1 by double-buffering the pool (docs/vu1-clipping.md, "Real
+hardware: the slot-pool race"). Both assemblers were failing; openvcl's
+schedule only moved the rate. The EE-wait probe that located it rendered the
+production openvcl set pixel-identically to Sony's for 24 of 24 frames.
+
+Measured with the fix on the console: `vu1` 30 of 30 frames at 0 pixels
+against Sony's reference, `precise` 24 of 24 identical. What is still owed to
+hardware is the broad pass this entry originally asked for: every microprogram of the resident set, on more than one map and more
+than one pose, with the failure-RATE fixture rather than single frames (parked
+pose + `--capture-frame` x30 against one reference). The `as_is_*` family and
+the EE clipper deserve the same pass - the EE clipper was catastrophically
+broken by the same race and has never been looked at on hardware since.
 
 ### Judge openvcl against the ps2gl fixtures
 
@@ -426,7 +443,80 @@ them, so it wants a PCSX2 check with a body dropped beside one, not just a
 compile. Left out of the comments change deliberately: it is somebody else's
 bug and it deserves its own before/after.
 
+### Only the player and rigid bodies have mesh collision
+
+Per-triangle collision against an imported model exists in two places in the
+generated game: the `o.data.collision == 1` branch of `collidePlayer`, and
+(since 1.83.0) the static-solid pass of `updateObjectPhysics` - which had to
+follow, because a body INSIDE a merged building's box was ejected through its
+floor. `sweepSphere` (the camera boom, the carried object, the carry whisker
+and the hand-rolled arc of a thrown non-physics pickable) still collides
+against the whole-mesh box - `objectCollisionBox`. So an arch or a doorway a
+player walks through freely is still a solid block to a carried object and to
+the third-person camera, and there is no authoring signal that says so.
+
+**It bit again in 1.84.2, from the other end.** A sweep that BEGINS inside
+geometry returns 0, and a room modelled as one collision mesh does exactly that
+to a probe standing in it - so the carry whisker read "the object does not fit"
+every frame and pushed the walker back by its full `need` (0.55 + the object's
+radius). Picking a weight up in the showcase's cellar slid the player 0.75 of a
+unit per frame, 45 a second, with the stick centred, until it was pinned in a
+corner; the owner reported it as "some unknown force moves the player", and the
+`portal-ball-new.tyrarep` recording reproduces it at frames 391-407. The
+whisker now takes back at most the step that was taken, which is what it always
+meant (it BLOCKS a step, it does not shove), but the underlying gap - a sweep
+against a box where the walker gets triangles - is still here.
+
+This surfaced while fixing the portal doorway rule (1.81.0): the reported
+symptom was "the player crosses the portal and a thrown object bounces off the
+wall it is cut into". The doorway rule now opens that particular obstacle -
+narrowly, only while the body's motion pierces a linked opening - but the
+general case is untouched, and a mesh doorway with no portal in it still
+stops everything except the player.
+
+The physics half is done; the sweep is the remaining half. It means giving
+`sweepSphere` access to `GameModel::collider` the way the physics pass now has
+(a swept sphere against the grid, rather than a point-in-time resolve), which
+is an EE cost per sweep per frame rather than a box test. The physics version
+has not been measured on hardware either - PCSX2 only, three bodies; a scene
+with many awake bodies inside a large mesh is the case to time first.
+
 ## Medium
+
+### Pixel-exact viewport picking (an ID buffer)
+
+Picking is a CPU ray test (`Viewport::pickAll`, viewport.cpp): `pickBounds`
+boxes for primitives and markers, `pickModelSurface` triangles for static
+models, a grab margin tier and the wire boxes last, then `App::viewportPick`
+cycles the stack and the right-click `##pickmenu` lists it (1.82.0). What it
+still gets wrong is everything the picture knows and the ray does not: a
+sphere/cylinder/cone is picked by its box corners, an animated model by its
+baked all-clips box, the terrain is not an occluder at all (a prop behind a
+hill takes the click aimed at the hill), a texture cutout is honoured only for
+static models, and the first pick is "nearest box entry", not "the pixel you
+see". The fix with the right shape is an **object-id buffer**: a second colour
+attachment on the scene FBO written by every scene draw from a per-draw
+`uObjId` uniform (both scene programs - `useSceneProgram` re-queries uniform
+locations - plus the terrain-layer particle shader and the marker/line draws;
+`glColorMaski(1, ...)` off around draws that must not write, the sky dome and
+the wire boxes), so the alpha test, the depth test, impostor cards and posed
+skins all come for free because the id rides the very fragment that is on
+screen. The click reads a small neighbourhood under the cursor - through a
+tiny blit-and-readback FBO like `grabPreviewRgb`, never a `glReadPixels` of
+the full target - and its centre pixel becomes the FIRST entry of the stack,
+with the ray list supplying the rest for cycling and the menu (an id buffer
+knows only the front-most object per pixel; the neighbourhood is the grab
+margin). Terrain writes a sentinel so it occludes; comments stay screen-space
+icons at the head of `viewportPick`. Mind `Ps2Output` (the scene renders at
+the GS size while `camRay` takes panel coordinates - read the id at the
+letterboxed, scaled position) and the AMD rule (allocate attachments with
+`nullptr`, fill textures with `glUploadTexRgba`). Verify with `--ui-script`:
+`click "Viewport/Viewport canvas" dx,dy` then `expect-checked "Project/<name>
+ (<type>)"` or a `rightclick` + `dump` of the stack menu (docs/ui-scripting.md);
+fixtures: showcase's lens spheres on pedestals and the crossing at the pool, a
+terrain example with a prop behind a hill, the animated keeper. Docs:
+object-selection.md, the tyra-editor-dev viewport row (both skill twins),
+MINOR bump.
 
 ### DONE 1.70.0: a spot light's shadow on a WALL
 

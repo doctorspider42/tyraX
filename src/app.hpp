@@ -713,7 +713,7 @@ private:
     // 3D turntable preview (treegen). "Add to scene" bakes the .obj/.mtl/PNGs
     // into res/models/trees and drops a Model object in - see treegen.hpp.
     void drawTreeGeneratorWindow();
-    // Tools > Bake Global Illumination: per-scene staleness + the bake itself
+    // Tools > Global Illumination: per-scene staleness + the bake itself
     // on gibake::Baker's worker thread (docs/global-illumination.md).
     void giBakerPoll();
     void drawGiBakeSection();
@@ -1494,7 +1494,11 @@ private:
     // Selection set helpers. selectedObject_ stays the "primary" (anchor) of
     // the set - always selection_.back() (or -1) - so the many single-select
     // reads keep working; selection_ carries the full multi-selection.
-    void selectOnly(int i);     // replace the selection with {i} (i<0 clears)
+    void expandSelectionGroups();
+    void groupSelection();
+    void ungroupSelection();
+    std::string selectedGroup() const;
+    void selectOnly(int i, bool expandGroups = true);     // replace the selection with {i} (i<0 clears)
     void toggleSelect(int i);   // add/remove i (no-op for i<0)
     void clearSelection();
     bool isSelected(int i) const;
@@ -1652,6 +1656,7 @@ private:
     // Full multi-selection (indices into the active scene's objects, in click
     // order). selectedObject_ == (selection_.empty() ? -1 : selection_.back()).
     std::vector<int> selection_;
+    bool selectionGroupMember_ = false;  // explicit child-row inspection
     // Rubber-band box select in progress (anchor = io.MouseClickedPos[0]).
     bool boxSelecting_ = false;
     // Click cycling: clicking the same spot again walks the objects stacked
@@ -1674,6 +1679,12 @@ private:
     // too, and a note far from the camera has a 3D box smaller than its icon).
     int viewportPick(float u, float v, ImVec2 mouse, ImVec2 imgPos, ImVec2 avail,
                      bool* cycled);
+    // The status-bar line after a pick: the object, its place in the stack
+    // under the cursor and what the next click there would select.
+    std::string pickStackStatus(int hit) const;
+    // The right-click menu's candidates (Viewport::pickAll order), captured
+    // when the menu opens so the rows stay stable while it is up.
+    std::vector<int> pickMenu_;
     // Scene-objects list filters (view state, per session - a filter that
     // outlived a restart would hide objects nobody remembers hiding).
     // sceneFilterType_ holds a PrimitiveType value, or -1 for "every type".
@@ -1706,6 +1717,10 @@ private:
     // scale deltas cumulatively over the whole drag, not per frame)
     float gizmoDragScale0_[3] = {1.0f, 1.0f, 1.0f};
     bool gizmoWasUsing_ = false;
+    // Whether the current gizmo drag has changed the anchor's transform at
+    // all. A press released without motion has not, and is treated as a click
+    // (it picks) rather than as an empty edit (it used to dirty the project).
+    bool gizmoEdited_ = false;
 
     // Measuring tape (docs/world-scale.md): click two points on the scene and
     // read the distance between them, in world units and in meters. A pure
@@ -1981,7 +1996,7 @@ private:
     // Tree Generator (Tools > Tree Generator). The preview mesh + textures are
     // rebuilt into these on any param change; treePreviewVersion_ tells the
     // viewport when to re-upload. treeName_ is the asset base name.
-    // Tools > Bake Global Illumination (docs/global-illumination.md). The bake
+    // Tools > Global Illumination (docs/global-illumination.md). The bake
     // is EXPLICIT - never part of a build - so this window is where a project
     // learns that its lighting is stale, and the one place that fixes it.
     bool showGiBake_ = false;
@@ -3334,7 +3349,12 @@ private:
     };
     DbgState dbgState_ = DbgState::Off;
     livedbg::Symbols dbgSyms_;      // src/gen/livedbg.sym (as generated)
-    livedbg::Snapshot dbgSnap_;     // newest snapshot the game wrote
+    livedbg::Snapshot dbgSnap_;  // newest snapshot the game wrote
+    livedbg::RenderCost dbgRenderCost_, dbgRenderBaseline_;
+    uint32_t dbgRenderCostSeq_ = 0;
+    bool dbgRenderCostWaiting_ = false;
+    double dbgRenderCostPoll_ = 0;
+    std::string dbgRenderCostProject_;
     livedbg::Timeline dbgTimeline_;  // per-frame fire history (the scrub)
     livedbg::Command dbgCmd_;       // last command written (state + seq)
     bool dbgCmdWritten_ = false;    // has the current dbgCmd_ reached the game?

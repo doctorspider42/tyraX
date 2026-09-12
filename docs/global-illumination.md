@@ -88,8 +88,24 @@ light changes rather than following it.
 A `.obj` model's route is the probe grid for the light it *receives*, but its
 own **self-occlusion** is a separate, per-texel answer that costs nothing:
 [Model AO](ambient-occlusion.md#model-ao) multiplies it straight into the
-model's texture at build. The two compose — flat probe light times per-pixel
+model's texture at build. The two compose — interpolated probe light times per-pixel
 self-shadowing — and neither needs a lightmap chart.
+
+**The probe answer REPLACES the shade, so the albedo has to be put back.** A
+model mesh carries its material `Kd` folded into its vertex colours, and the
+probe branch overwrites exactly that - which drew every untextured model in the
+light's own colour: a cypress whose leaves are `Kd 0.13 0.3 0.22` came out
+white in the viewport and green on the console, because the game multiplies the
+albedo back after the same branch (`pushVert`: `if (kd) shade *= kd`). The
+viewport does that too now, through `uKd` - staged per draw, 1,1,1 for anything
+whose Kd travels in the tint instead (primitives, animated models). Textured
+surfaces never showed it: their albedo is in the texture, which the shade only
+multiplies. The animated path had already been fixed this way once
+(`AnimModelDraw::Part::kd`); the static path had not.
+
+![The same viewport before and after the albedo is put back: a cypress whose
+leaves are Kd 0.13 0.3 0.22 drew white, and the console drew it green]
+(img/gi-albedo-fix.png)
 
 **The editor viewport takes the same routes**, and has to: it shows what the
 console will. `Viewport::setGiTerrain` feeds it the baked terrain map so the
@@ -664,3 +680,24 @@ Said out loud in the Bake window too, not just here:
 | Baked pixels into `.res-baked/aoatlas`, `.res-baked/aomap` | `src/texbake.cpp` |
 | Viewport twin (3D texture + `giProbe()`; the per-pixel lightmaps: `setGiAtlas`, `lmMeshFor`, `uLmMode` / `lmApply`) | `src/viewport.cpp` |
 | The Bake window | `src/app.cpp` (`drawGiBakeWindow`) |
+
+### Aster's moving pavilion and interpolated shading (1.77.1)
+
+Aster enables `giAutoBake`: moving its grouped pavilion invalidates the scene
+cache, so the next build refreshes it instead of silently exporting a scene
+without GI. Inspect `SCENE_AO_ATLAS_GIS` / `SCENE_PROBES` in generated data;
+checking `giEnabled` alone does not prove a valid bake shipped.
+
+Static object bags and their merged batches now use Gouraud interpolation of
+already computed corner colours, matching the editor's PS2 preview. This needs
+no extra geometry or lighting pass. Face normals remain face normals: an OBJ
+with hard normals is still faceted. Interpolating colours removes triangle-wide
+steps in varying probe/light values; it does not create missing smooth normals
+or lightmap UVs. Terrain retains its existing shading mode.
+
+Most Aster architecture is imported, tiled-UV district meshes. Those receive
+probe GI, not the primitive AO atlas. Their shared repeating material UVs are
+not a valid unique lightmap unwrap, and enabling Model AO would skip shared
+textures rather than supply scene contact shadows. Per-texel contact lighting
+there requires authored unique UVs and texture budget; this update does not
+claim to add that asset conversion.

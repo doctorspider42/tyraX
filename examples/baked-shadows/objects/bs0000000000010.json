@@ -1,1 +1,1 @@
-{"id": "bs0000000000010", "name": "brick-wall", "type": "box", "position": [-9.0, 2.5, 2.0], "rotation": [0.0, 0.0, 0.0], "scale": [0.8, 5.0, 26.0], "color": [1.0, 1.0, 1.0], "physics": false, "material": "res/materials/brick.mtl"}
+{ "id": "bs0000000000010", "name": "brick-wall", "type": "box", "position": [-9, 2.5, 2], "rotation": [0, 0, 0], "scale": [0.8, 5, 26], "color": [1, 1, 1], "physics": false, "material": "res/materials/brick.mtl" }

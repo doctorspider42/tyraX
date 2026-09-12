@@ -588,7 +588,7 @@ const std::vector<ObjectProp>& objectProps() {
         {"pickable", "bool", "USE picks it up and carries it"},
         {"physics", "bool", "simulated as a rigid body (gravity, bounces)"},
         {"saveState", "bool", "position/colour/visibility persist in save slots"},
-        {"collision", "string", "\"box\" | \"mesh\" (models only) | \"none\""},
+        {"collision", "string", "\"box\" | \"mesh\" (models only) | \"none\" | \"invisible\" (Box only)"},
         {"detail", "number",
          "tessellation: radial segments (sphere/cylinder/cone) or subdivisions "
          "per edge (box)"},

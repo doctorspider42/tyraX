@@ -285,7 +285,7 @@ crease where its own two surfaces meet, under its own eave, inside its own
 doorway. In a real game most objects are textured `.obj` models, and until this
 existed they had no automatic occlusion at all: the lightmap atlas refuses a
 textured surface (it is additive, and an additive term over a texture blows out
-its dark texels) and baked GI reaches them only as flat per-vertex probe light.
+its dark texels) and baked GI reaches them only as interpolated per-vertex probe light.
 
 It is the [Material Editor's map bake](material-baking.md) — the same
 `matbake` raytracer, the same UV-space rasterization — run **per model asset**,
