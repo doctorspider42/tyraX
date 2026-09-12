@@ -41,6 +41,68 @@ divide tick deltas by 294912 for milliseconds.
 This is enough to answer "is the highlight/particles/scene the problem?". For a
 finer breakdown you drop to the manual technique.
 
+### Cross-material transform reuse (1.86.2)
+
+An imported model normally enters StaPip once per material part even though
+every part shares one model matrix and camera. `StaPipCore` now caches the most
+recent TyraMVP transform for the current frame and reuses its MVP and transformed
+frustum planes while the key stays identical. The key compares matrix and
+view-projection contents as well as the model pointer, so in-place physics edits,
+portal cameras and split-screen views invalidate it naturally.
+
+The test fixture was a `%TEMP%` copy of `examples/showcase` with both portals and
+the ray-traced mirror removed. Across six alternating, cold-booted PCSX2 debug
+runs, median serialized `Total` moved 21.322 -> 19.172 ms and `Objects` 14.102 ->
+12.425 ms. The directly attributed `Prepare_included` counter moved only 1.375
+-> 1.341 ms, so the larger aggregate emulator delta is directional evidence,
+not a physical-console claim. The first ordinary-HUD pair moved 51.6 -> 56.3
+FPS. A real-PS2 A/B is still required before quoting the hardware gain.
+
+### Direct whole-IN submission (1.86.3)
+
+When the bag-level bounding box has already proved that every range is visible,
+StaPip now points qbuffers directly at contiguous ranges of the bag's vertex
+streams. It no longer constructs pooled package descriptors whose classification
+the whole-IN branch would ignore. Partial-frustum and EE-clipped paths retain
+their existing package storage.
+
+In a clean two-kick PCSX2 run, six captures moved median `Prepare` from 1.390 to
+1.262 ms (-9.2%, 0.128 ms); `Dispatch` was flat and process-level `Total` was too
+noisy to claim. The physical-PS2 comparison used five settled captures per ELF
+at the same camera. `Total` was neutral at 34.349 -> 34.342 ms and `Objects`
+moved 25.051 -> 24.951 ms (-0.100 ms, -0.4%); individual included counters
+varied by roughly 0.1-0.16 ms. The candidate ran beyond 3360 frames and its GS
+capture matched the baseline scene. Treat the path as removed redundant work,
+not as a demonstrated frame-rate increase on this fixture.
+
+A separate attempt to link deferred uniforms and first geometry with a zero-QWC
+DMA `NEXT` looked substantially faster in PCSX2 (`DMA submit` 1.837 -> 0.983 ms),
+but was rejected. It froze a physical PS2 on the first gameplay frame in three
+fresh boots, while an otherwise identical baseline ran past 600 frames and
+produced five valid reports. This is why PCSX2-only DMA wins are not accepted.
+
+### Native uniform + geometry chain (1.86.4)
+
+StaPip now constructs the first packet for a visible bag as one native packet2
+chain: the leading `FLUSHE` and absolute-address uniform unpacks are written
+first, geometry is appended before the chain receives its single `END`, and the
+whole packet is submitted once. This is deliberately different from both failed
+experiments above. It neither copies a finished chain as payload nor jumps to a
+separately allocated chain with `NEXT`, so packet2's tag/TTE contract and the
+physical DMAC's sequential traversal stay intact. Later half-buffer flushes are
+unchanged. A wholly culled bag simply replaces its unsent packet on the next
+draw.
+
+On the portal/mirror-free Aster fixture, five settled physical-console captures
+moved median `DMA_submit_included` 3.034 -> 2.029 ms (-1.005 ms),
+`Dispatch_included` 16.827 -> 15.544 ms (-1.283 ms) and
+`VU1_wait_included` 5.847 -> 5.130 ms (-0.717 ms) against the 1.86.3 two-kick
+path. `Objects` moved 24.951 -> 24.840 ms and serialized `Total` stayed GS-bound
+at about 34.3 ms. The candidate ran beyond 2100 frames after a fresh hardware
+boot and produced a correct 448x448 GS capture; PCSX2, `--vu-check`, and the
+static-batched two-player example also passed. This is measured EE/VIF headroom,
+not a claim that every fill-bound scene gains frame rate.
+
 ## The three frame rate counters, and which one to believe
 
 Three surfaces print a frame rate. They measure **three different quantities**,
@@ -1706,3 +1768,24 @@ ordinary scene. The optimized engine overlaps next-mesh preparation with VU1,
 uses coarse package bounds, and avoids duplicate first-packet cache writeback.
 These improvements preserve interpolated static vertex colours. The example
 also uses spatial face order, scoped cellar visibility and a smaller ocean grid.
+
+The multi-part model coarse reject was measured on Aster at the fixed entrance
+camera (2026-09-12, PCSX2 software renderer, debug, 10 captures after a 55 s
+boot settle). The synchronized report changed as follows:
+
+| stage | baseline | coarse reject | change |
+|---|---:|---:|---:|
+| Total | 24.685 ms | 23.226 ms | -5.9% |
+| Objects | 15.011 ms | 13.723 ms | -8.6% |
+| Bounds included | 1.971 ms | 1.846 ms | -6.3% |
+| Dispatch included | 9.032 ms | 8.998 ms | -0.4% |
+| Portal (median) | 2.596 ms | 2.398 ms | -7.6% |
+
+The ordinary, non-capture frame at that camera stayed at the emulator's 45 FPS
+limit while scene time improved from 18.67 to 18.03 ms and frame time from
+22.55 to 22.17 ms. Two 448x448 GS captures differed in about 1.1% of channel
+values, confined to the profiler digits and animated water/scene content; visual
+inspection found no missing geometry. These are PCSX2 comparisons, not GS
+claims. A physical-console run was attempted, but that console remained in a
+`freepad: DMA Busy` shutdown state and its ps2link file channel did not recover
+after the remote reset, so no hardware number was accepted from that session.

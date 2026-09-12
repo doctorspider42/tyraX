@@ -464,6 +464,18 @@ sequences and mirror target lists do) must be added to `batchBlockedNames()`
 exclusion-worthy per-object property (a new special draw path, a new
 streaming mechanism) must be added to `staticBatchEligible()`.
 
+**Do not extend that batcher to imported models by material alone.** Measured
+on Aster, cross-object groups destroy spatial culling and even per-object
+material groups widen the bag bounds enough to cost more fill than their saved
+submits. Multi-part static models instead cache `ObjectGeometry::coarseBox` at
+geometry rebuild and `coarseObjectOutside()` rejects the whole model before
+its parts enter StaPip in the main and portal views. Keep the threshold at
+three parts (a one-part primitive has nothing to amortize), keep precise
+per-part/package culling for intersecting models, transform the frustum planes
+for matrix-mode local vertices, and bypass the reject when a VU script moves
+geometry beyond the baked box. Model batching is not safe until it preserves
+those spatial bounds, for example by triangle-level cells.
+
 **`dirty` is a re-bake, so per-frame motion must not go through a graph.**
 Setting `RuntimeObject::dirty` makes `renderScene` rebuild that object's whole
 **world-space** vertex array on the EE. That is correct for a one-shot (Move /

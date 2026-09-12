@@ -12,6 +12,7 @@
 
 #include <gs_gp.h>
 #include <math.h>
+#include <string.h>
 #include "renderer/3d/pipeline/static/core/stapip_core.hpp"
 #include "renderer/core/renderer_core.hpp"
 #include "thread/threading.hpp"
@@ -80,7 +81,12 @@ void StaPipCore::setLod() {
   lod.k = 0.0F;
 }
 
-void StaPipCore::onFrameEnd() { cacher.onFrameEnd(); }
+void StaPipCore::onFrameEnd() {
+  cacher.onFrameEnd();
+  transformCacheValid = false;
+  transformCachePlanesValid = false;
+  transformCacheModelPtr = nullptr;
+}
 
 void StaPipCore::reinitVU1Programs() { qbufferRenderer.reinitVU1(); }
 
@@ -296,6 +302,20 @@ void StaPipCore::render(StaPipBag* bag) {
   const u32 boundsStart = telemetryEnabled ? readCoreTelemetryTicks() : 0;
   u32 maxVertCount = getMaxVertCountByBag(bag);
 
+  // Imported models commonly submit one bag per material. Consecutive parts
+  // point at the same model matrix, so their object-space frustum planes and
+  // MVP are identical. Include the matrix values and current view-projection
+  // in the key: live transforms and portal/split views remain exact.
+  const M4x4& currentViewProj = rendererCore->renderer3D.getViewProj();
+  const bool reuseTransform =
+      transformCacheValid &&
+      bag->info->transformationType == TyraMVP &&
+      transformCacheModelPtr == bag->info->model &&
+      memcmp(transformCacheModel.data, bag->info->model->data,
+             sizeof(transformCacheModel.data)) == 0 &&
+      memcmp(transformCacheViewProj.data, currentViewProj.data,
+             sizeof(transformCacheViewProj.data)) == 0;
+
   StaPipBagPackagesBBox* bbox = nullptr;
   if (bag->info->frustumCulling == PipelineInfoBagFrustumCulling_Precise) {
     // TyraX: the bag's bboxVersion invalidates the cached boxes for
@@ -315,9 +335,14 @@ void StaPipCore::render(StaPipBag* bag) {
     // object space once; the main-bbox check and every package
     // classification then run the two-corner AABB test instead of
     // transforming 8 corners per box and dotting each against every plane.
-    CoreBBox::computeObjectSpacePlanes(
-        objectSpacePlanes, rendererCore->renderer3D.frustumPlanes.getAll(),
-        *bag->info->model);
+    if (reuseTransform && transformCachePlanesValid) {
+      for (u8 i = 0; i < 6; ++i)
+        objectSpacePlanes[i] = transformCacheObjectSpacePlanes[i];
+    } else {
+      CoreBBox::computeObjectSpacePlanes(
+          objectSpacePlanes, rendererCore->renderer3D.frustumPlanes.getAll(),
+          *bag->info->model);
+    }
 
     frustumCheck = bbox->getMainBBox()->frustumCheckAABB(objectSpacePlanes);
 
@@ -346,8 +371,27 @@ void StaPipCore::render(StaPipBag* bag) {
 
   if (bag->info->transformationType == TyraMP) {
     mvp = rendererCore->renderer3D.getProjection() * *bag->info->model;
+  } else if (reuseTransform) {
+    mvp = transformCacheMvp;
   } else {
-    mvp = rendererCore->renderer3D.getViewProj() * *bag->info->model;
+    mvp = currentViewProj * *bag->info->model;
+  }
+
+  if (bag->info->transformationType == TyraMVP && !reuseTransform) {
+    transformCacheValid = true;
+    transformCachePlanesValid = frustumCull;
+    transformCacheModelPtr = bag->info->model;
+    transformCacheModel = *bag->info->model;
+    transformCacheViewProj = currentViewProj;
+    transformCacheMvp = mvp;
+    if (frustumCull)
+      for (u8 i = 0; i < 6; ++i)
+        transformCacheObjectSpacePlanes[i] = objectSpacePlanes[i];
+  } else if (reuseTransform && frustumCull &&
+             !transformCachePlanesValid) {
+    for (u8 i = 0; i < 6; ++i)
+      transformCacheObjectSpacePlanes[i] = objectSpacePlanes[i];
+    transformCachePlanesValid = true;
   }
 
   if (classifyPackages && qbufferRenderer.isVU1ClippingEnabled()) {
@@ -601,15 +645,21 @@ void StaPipCore::render(StaPipBag* bag) {
   // Modified by TyraX: packager.create returns pooled arrays - no
   // delete[] here (see StaPipBagPackager).
   if (checkYesFrustumInClipYes || checkYesFrustumInClipNo || checkNoClipNo) {
-    u16 packagesCount = 0;
-    auto* biggerPkgs = packager.create(&packagesCount, bag, maxVertCount);
-    Verbose("Material - in frustum. Pkgs: ", packagesCount,
-            " size: ", static_cast<int>(biggerPkgs[0].size));
-    for (u16 i = 0; i < packagesCount; i++) {
-      Verbose(i, " package - cull by data pointer");
-      recordPackage(biggerPkgs[i], IN_FRUSTUM);
+    // The whole-bag bbox already proved every range visible. Point qbuffers
+    // straight at the bag streams instead of filling pooled package records
+    // whose classification result this branch ignores.
+    u16 packageIndex = 0;
+    for (u32 offset = 0; offset < bag->count;
+         offset += maxVertCount, ++packageIndex) {
+      const u32 remaining = bag->count - offset;
+      const u32 count = remaining < maxVertCount ? remaining : maxVertCount;
+      Verbose(packageIndex, " package - direct cull by data pointer");
+      if (telemetryEnabled) {
+        ++telemetry.packagesCull;
+        telemetry.trianglesCull += count / 3;
+      }
       auto buffer = qbufferRenderer.getBuffer();
-      buffer->fillByPointer(biggerPkgs[i]);
+      buffer->fillByPointer(bag, offset, count);
       qbufferRenderer.cull(buffer);
     }
   } else if (checkYesFrustumPartialClipYes || checkYesFrustumPartialClipNo) {

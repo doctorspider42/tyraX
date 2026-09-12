@@ -16,6 +16,41 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.86.4: StaPip builds per-bag uniforms at the head of the first geometry
+// DMA chain instead of launching and waiting for a separate uniform chain.
+// The packet is constructed natively from the beginning (no byte append and no
+// DMA NEXT), retains the leading FLUSHE barrier, and uses one END tag. Five
+// settled physical-Aster captures moved median DMA submit 3.034 -> 2.029 ms,
+// Dispatch 16.827 -> 15.544 ms and VU1 wait 5.847 -> 5.130 ms; Total remained
+// GS-bound at about 34.3 ms. The real console ran beyond 2100 frames and its GS
+// capture was correct; PCSX2 and the split/static-batch example also passed.
+// PATCH; no format change.
+//
+// 1.86.3: a wholly visible StaPip bag feeds contiguous source ranges straight
+// to qbuffers instead of constructing unused package descriptors after its
+// bag-level box has already classified all geometry as visible. Partial and EE
+// clipping paths are unchanged. Physical Aster medians were neutral (Total
+// 34.349 -> 34.342 ms, Objects 25.051 -> 24.951 ms) across five settled
+// captures; the candidate ran beyond 3360 frames. A one-kick DMA NEXT
+// experiment was rejected: it passed PCSX2 but froze a physical PS2 on the
+// first gameplay frame. PATCH; no format change.
+//
+// 1.86.2: consecutive StaPip bags sharing one model transform and camera reuse
+// their MVP and object-space frustum planes. The frame-local cache compares
+// matrix values, so in-place motion and portal/split cameras stay exact. Six
+// alternating PCSX2 debug boots on portal/mirror-free Aster measured median
+// serialized Total 21.322 -> 19.172 ms and Objects 14.102 -> 12.425 ms; the
+// directly attributed Prepare counter moved only 1.375 -> 1.341 ms, so real
+// hardware still owes the final size of the win. PATCH; no format change.
+//
+// 1.86.1: multi-part static models cache one conservative whole-object box and
+// reject against it before their material parts enter StaPip in the main or a
+// portal view. Aster's settled PCSX2 entrance pass measured Objects 15.011 ->
+// 13.723 ms and Bounds 1.971 -> 1.846 ms; the ordinary scene read 18.67 ->
+// 18.03 ms. Material-only model batching was tried and rejected: widened batch
+// bounds cost more fill than the submits saved. MINOR: generated games gain a
+// new rendering optimization; project format is unchanged.
+//
 // 1.86.0 (baked shadow decals, docs/shadows.md): a fourth *Dynamic shadow*
 // mode, and the only one that is not a runtime shadow at all. The host traces
 // each marked caster's shadow into a small tile, packs the tiles into shared
@@ -3271,7 +3306,7 @@
 // object-group line.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 86
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 4
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

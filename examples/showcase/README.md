@@ -300,6 +300,14 @@ The new **Debugger > Render cost** tool attributes a synchronized render pass
 to phases and objects, supports a retained baseline, and exports CSV. See
 [profiling](../../docs/profiling.md). Its serialized total is not ordinary FPS.
 
+The generated game also rejects a fully off-screen multi-material model once,
+before submitting its individual material parts. At the fixed entrance in
+PCSX2 (debug, software renderer, 10 settled captures), this reduced `Objects`
+from 15.011 to 13.723 ms and `Bounds included` from 1.971 to 1.846 ms. Ordinary
+scene time changed from 18.67 to 18.03 ms at the same 45 FPS emulator limit.
+See [profiling](../../docs/profiling.md) for the full table and measurement
+limits.
+
 Measured on physical PAL PS2 during tuning (debug + host server): the fixed
 entrance improved from 12.5 FPS to 24.2 FPS; a walked-to cellar view gave 29.8
 FPS and a lightly loaded surface view reached 50 FPS. The entrance's diagnostic
