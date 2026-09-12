@@ -59,6 +59,8 @@ tools/ps2link/*
 tools/toolchain/*
 !tools/toolchain/setup.ps1
 !tools/toolchain/setup.sh
+!tools/toolchain/prepare-host.ps1
+!tools/toolchain/prepare-host.sh
 !tools/toolchain/native-build.ps1
 !tools/toolchain/native-build.sh
 !tools/toolchain/bin2s/

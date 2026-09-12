@@ -6,10 +6,14 @@ param(
     [Parameter(Mandatory=$true)][string]$Engine,
     [Parameter(Mandatory=$true)][string]$Cache,
     [Parameter(Mandatory=$true)][string]$Toolchain,
+    [switch]$PrepareHost,
     [switch]$Rebuild
 )
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
+if ($PrepareHost) {
+    & (Join-Path $here 'setup.ps1') -Root $Toolchain -InstallHostDependencies
+}
 function WslPath([string]$Path) {
     $resolved = [IO.Path]::GetFullPath($Path)
     $out = (wsl.exe wslpath -a $resolved.Replace('\', '/')).Trim()
