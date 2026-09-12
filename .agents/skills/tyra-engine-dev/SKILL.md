@@ -2142,29 +2142,30 @@ alternating boots, but the directly attributed Prepare counter moved only
 1.375 -> 1.341 ms: treat the aggregate emulator delta as directional until the
 same ELF pair is measured on a physical PS2.
 
-Do not fuse the deferred uniform chain into first geometry. Removing its END and
-appending with `packet2_add` stalled at the first gameplay frame in PCSX2 because
-packet2's chain/TTE contract was not preserved. Rewriting the aligned empty END
-as a real zero-QWC DMA NEXT to the intact geometry chain ran and measured faster
-in PCSX2, but froze a physical PS2 on the first gameplay frame in three fresh
-boots. The identical two-kick baseline ran past 600 frames and returned five
-profiles. Keep two submissions until the hardware-only DMAC/VIF1 ordering or
-cache fault is isolated.
+Do not fuse already-finished uniform and geometry chains. Removing one chain's
+END and byte-appending it with `packet2_add` stalled at the first gameplay frame
+in PCSX2 because packet2's chain/TTE contract was not preserved. Rewriting the
+aligned empty END as a real zero-QWC DMA NEXT to the intact geometry chain ran
+and measured faster in PCSX2, but froze a physical PS2 on the first gameplay
+frame in three fresh boots. The safe 1.86.3 route is to construct ONE native
+packet from the beginning: leading FLUSHE, uniform unpacks, geometry commands,
+then one END. Never jump between the separately allocated chains. This ran past
+2100 hardware frames and returned a correct GS capture.
 
 ## Static submission on physical PS2 (1.78)
 
 `StaPipQBufferRenderer::sendObjectData` prepares uniforms without waiting for
-the previous mesh. The first geometry send waits and submits those uniforms,
-then waits before its own kick. A wholly culled mesh may replace the unsent
-uniform packet. Never let a draw escape `render()` with pending geometry that
-references stack MVP/light data.
+the previous mesh, at the head of the current double-buffered geometry packet.
+The first buffer flush appends to that packet instead of resetting it, writes
+one END and submits once after the ordinary VIF1 wait. A wholly culled mesh may
+replace the unsent packet. Never let a draw escape `render()` with pending
+geometry that references stack MVP/light data, and keep the packet capacity at
+least the worst-case uniform chain plus all 32 qbuffer command groups.
 
-The uniform send's full D-cache writeback also covers the already-built first
-geometry chain and its REF streams. That immediate geometry kick skips a second
-full flush; subsequent packets and VU diagnostic hooks retain SDK writeback.
-No payload may be edited between the paired kicks without restoring the flush.
-A trial walking every REF with `SyncDCache` regressed a hardware render-cost
-capture from about 58 to 79 ms; it was discarded. Measure cache policies on EE.
+Every submitted combined or geometry-only packet uses the SDK's full D-cache
+writeback because its REF streams may point outside packet storage. A trial
+walking every REF with `SyncDCache` regressed a hardware render-cost capture
+from about 58 to 79 ms; it was discarded. Measure cache policies on EE.
 
 VU1 clipping references immutable source streams, like culling; legacy EE
 clipping still copies into writable qbuffers. Coarse AABBs cover eight full
@@ -2178,6 +2179,12 @@ the coarse level useful without altering triangle data. On portal/mirror-free
 Aster this direct path was hardware-neutral across five settled captures
 (Total 34.349 -> 34.342 ms, Objects 25.051 -> 24.951 ms) and ran beyond 3360
 frames; describe it as removed work, not a proven FPS gain.
+
+Since 1.86.3 the native combined first packet removes one VIF1 kick and one EE
+wait per visible bag. Five settled physical Aster captures moved median DMA
+submit 3.034 -> 2.029 ms, Dispatch 16.827 -> 15.544 ms and VU1 wait 5.847 ->
+5.130 ms; Total stayed fill-bound near 34.3 ms. PCSX2 alone is not acceptance
+for this path: the rejected NEXT variant was faster there and failed hardware.
 
 `Math::sqrtNonNegative` uses EE `sqrt.s` only for known nonnegative squared
 lengths. Do not substitute it for a general sqrt API with errno/domain behavior.
@@ -2242,9 +2249,13 @@ submission. SH initially did this for mode-adjusted colours, causing lighting
 flashes despite passing VU arithmetic tests. Both lighting senders now use
 CNT/UNPACK with inline colour floats (four extra packet-storage qwords; the
 same VU layout). DynPip waits before resetting its reusable packet; StaPip
-waits between uniform and geometry submission, as described below.
-Allocated capacities are 56 qwords for StaPip and 24 for DynPip.
+keeps inline values in its double-buffered combined packet and does not reuse
+that side until the intervening submission has completed. StaPip allocates 185
+qwords per side (57 reserved for worst-case uniforms/barrier plus 128 for the
+32 qbuffer command groups); DynPip's uniform packet capacity is 24 qwords.
 
 The 1.80 merge retains inline SH colour storage with deferred StaPip uniforms.
-Its packet is safe to reset because sendPacket waits for uniform DMA before
-starting geometry DMA; DynPip retains its own wait-before-reset contract.
+Since 1.86.3 that data shares the first geometry packet. It is safe to reset
+because sendPacket waits for the prior VIF1 DMA before flipping contexts and
+the other packet is used while the submitted one drains; DynPip retains its
+own wait-before-reset contract.

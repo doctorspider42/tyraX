@@ -16,6 +16,16 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.86.3: StaPip builds per-bag uniforms at the head of the first geometry
+// DMA chain instead of launching and waiting for a separate uniform chain.
+// The packet is constructed natively from the beginning (no byte append and no
+// DMA NEXT), retains the leading FLUSHE barrier, and uses one END tag. Five
+// settled physical-Aster captures moved median DMA submit 3.034 -> 2.029 ms,
+// Dispatch 16.827 -> 15.544 ms and VU1 wait 5.847 -> 5.130 ms; Total remained
+// GS-bound at about 34.3 ms. The real console ran beyond 2100 frames and its GS
+// capture was correct; PCSX2 and the split/static-batch example also passed.
+// PATCH; no format change.
+//
 // 1.86.2: a wholly visible StaPip bag feeds contiguous source ranges straight
 // to qbuffers instead of constructing unused package descriptors after its
 // bag-level box has already classified all geometry as visible. Partial and EE
@@ -3260,7 +3270,7 @@
 // 1.80.0: cutscenes can hide the HUD and own the skip button.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 86
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 3
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

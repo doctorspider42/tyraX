@@ -81,6 +81,28 @@ but was rejected. It froze a physical PS2 on the first gameplay frame in three
 fresh boots, while an otherwise identical baseline ran past 600 frames and
 produced five valid reports. This is why PCSX2-only DMA wins are not accepted.
 
+### Native uniform + geometry chain (1.86.3)
+
+StaPip now constructs the first packet for a visible bag as one native packet2
+chain: the leading `FLUSHE` and absolute-address uniform unpacks are written
+first, geometry is appended before the chain receives its single `END`, and the
+whole packet is submitted once. This is deliberately different from both failed
+experiments above. It neither copies a finished chain as payload nor jumps to a
+separately allocated chain with `NEXT`, so packet2's tag/TTE contract and the
+physical DMAC's sequential traversal stay intact. Later half-buffer flushes are
+unchanged. A wholly culled bag simply replaces its unsent packet on the next
+draw.
+
+On the portal/mirror-free Aster fixture, five settled physical-console captures
+moved median `DMA_submit_included` 3.034 -> 2.029 ms (-1.005 ms),
+`Dispatch_included` 16.827 -> 15.544 ms (-1.283 ms) and
+`VU1_wait_included` 5.847 -> 5.130 ms (-0.717 ms) against the 1.86.2 two-kick
+path. `Objects` moved 24.951 -> 24.840 ms and serialized `Total` stayed GS-bound
+at about 34.3 ms. The candidate ran beyond 2100 frames after a fresh hardware
+boot and produced a correct 448x448 GS capture; PCSX2, `--vu-check`, and the
+static-batched two-player example also passed. This is measured EE/VIF headroom,
+not a claim that every fill-bound scene gains frame rate.
+
 ## The three frame rate counters, and which one to believe
 
 Three surfaces print a frame rate. They measure **three different quantities**,

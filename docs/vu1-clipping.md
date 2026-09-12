@@ -282,15 +282,23 @@ inside their loops - the previous batch may still be running, parked on its
 by-reference array that is rewritten between submissions; every per-view
 rewrite - beams, sky bodies - sits inside `align3D()` brackets already).
 
-### Rejected linked-DMA experiment and the whole-IN fast path (1.86.2)
+### One native first packet; rejected linked-DMA experiments (1.86.2-1.86.3)
 
-Do not combine the deferred uniform and first geometry submissions by either
-byte-appending packet2 chains or rewriting the uniform packet's empty `END` as a
-zero-QWC DMA `NEXT`. The byte-appended version stalled in PCSX2. The proper-tag
-`NEXT` version ran and profiled faster in PCSX2, but froze a physical PS2 on the
-first gameplay frame in three fresh boots. An otherwise identical baseline ran
-past 600 frames and returned five valid profiles. Until the real DMAC/VIF1
-ordering or cache fault is isolated, keep the two submissions and their wait.
+Do not combine already-finished uniform and geometry chains by byte-appending
+them or by rewriting the uniform packet's empty `END` as a zero-QWC DMA `NEXT`.
+The byte-appended version stalled in PCSX2. The proper-tag `NEXT` version ran and
+profiled faster in PCSX2, but froze a physical PS2 on the first gameplay frame
+in three fresh boots. An otherwise identical baseline ran past 600 frames and
+returned five valid profiles.
+
+The safe 1.86.3 implementation constructs one chain from the beginning instead:
+the current double-buffered packet receives the leading `FLUSHE`, uniform
+unpacks and geometry commands before a single final `END` is written. There is
+no cross-allocation jump and no finished chain embedded as data. It survived
+more than 2100 frames on a freshly booted physical PS2 and returned a correct GS
+capture. Five settled Aster captures reduced median DMA submit by 1.005 ms,
+Dispatch by 1.283 ms and VU1 wait by 0.717 ms versus the two-submission path;
+serialized Total remained fill-bound at about 34.3 ms.
 
 The independent safe optimization is at the qbuffer input: when a bag-level box
 is wholly inside the frustum, qbuffers reference each contiguous source range
