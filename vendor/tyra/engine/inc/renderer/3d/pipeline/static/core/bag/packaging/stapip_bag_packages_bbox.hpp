@@ -68,12 +68,18 @@ class StaPipBagPackagesBBox {
   void getMergedMinMax(const u32& index, const u16& partsSize, Vec4* outMin,
                        Vec4* outMax) const;
 
+  // Modified by TyraX: one conservative box per eight full VU packages.
+  const Vec4& coarseMin(u32 group) const { return coarseBounds[group * 2]; }
+  const Vec4& coarseMax(u32 group) const { return coarseBounds[group * 2 + 1]; }
+
   void print() const;
   void print(const char* name) const;
   void print(const std::string& name) const { print(name.c_str()); }
   std::string getPrint(const char* name = nullptr) const;
 
  private:
+  std::vector<Vec4> coarseBounds;
+  void rebuildCoarseBounds();
   u32 maxVertCount;
   u32 vertexCount, partsCount;
 

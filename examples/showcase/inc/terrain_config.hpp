@@ -10,7 +10,7 @@ namespace Showcase {
 // project-wide; sky, clipping, post-FX and the usable-highlight can be
 // overridden per scene and live as SCENE_COUNT arrays in scene_data.hpp
 // (reached through the accessor macros defined in scene_data.hpp).
-constexpr int TERRAIN_MAX_CELLS = 48;
+constexpr int TERRAIN_MAX_CELLS = 4;
 
 // Terrain streaming (Preferences > Terrain). The terrain mesh is built in
 // TERRAIN_CHUNK_CELLS x TERRAIN_CHUNK_CELLS tiles; with a view distance > 0
@@ -18,7 +18,7 @@ constexpr int TERRAIN_MAX_CELLS = 48;
 // (the rest streams in as the player moves - pair with fog to hide pop-in).
 // 0 keeps the whole map resident, like before chunking existed.
 constexpr int TERRAIN_CHUNK_CELLS = 16;
-constexpr float TERRAIN_VIEW_DISTANCE = 88.0F;
+constexpr float TERRAIN_VIEW_DISTANCE = 0.0F;
 
 // Distance detail (Preferences > World, docs/terrain-lod.md). Beyond this
 // range a tile is built from every 2nd heightmap sample, and beyond 2.2x it
@@ -31,18 +31,30 @@ constexpr float TERRAIN_LOD_DISTANCE = 0.0F;
 // The flashlight's shadow technique (Preferences > Rendering,
 // docs/flashlight.md "The shadow"). 0 = silhouette slots (mesh-accurate
 // shapes, four-caster ceiling, light leaks through unflagged solids);
-// 1 = shadow volumes stencil-counted in the framebuffer's destination alpha
-// (occlusion exact per pixel against the real z buffer, box-shaped
-// silhouettes, every solid in the beam occludes).
+// 1 = shadow volumes (occlusion exact per pixel against the real z buffer,
+// every solid in the beam occludes): model casters silhouette-extrude their
+// REAL triangles, counted in a dedicated GS target and resolved into the
+// destination-alpha mask; primitives extrude their boxes.
 constexpr int FLASH_SHADOW_VOLUMES = 0;
+// Hidden console diagnostic (project.hpp shadowVolumesDebug): 1 = count but
+// never resolve, 2 = clear + resolve with no volume drawn.
+constexpr int SHADOW_VOLUMES_DEBUG = 0;
+
+// The same technique offered to the scene's SPOT LIGHTS (docs/shadows.md,
+// "Spot-light shadow volumes"). This is the project-wide DEFAULT; a light can
+// say otherwise on itself through SceneObjectData::lightShadowVolumes, and
+// SPOT_SHADOW_VOLUMES_USED in scene_data.hpp is what the two resolve to for
+// the project as a whole. Only ONE spot casts volumes per frame - the count
+// band is a single buffer, shared with the torch's.
+constexpr int SPOT_SHADOW_VOLUMES = 0;
 
 constexpr float EYE_HEIGHT = 1.8F;
-constexpr float WALK_SPEED = 0.5F;
+constexpr float WALK_SPEED = 0.1F;
 // The full-stick tier and the sprint tier, already resolved (0 = inherit is
 // applied by the editor, docs/player-speeds.md): with no run speed set these
 // are WALK_SPEED and WALK_SPEED x the sprint multiplier.
-constexpr float RUN_SPEED = 0.5F;
-constexpr float SPRINT_SPEED = 0.9F;
+constexpr float RUN_SPEED = 0.1F;
+constexpr float SPRINT_SPEED = 0.17F;
 constexpr float LOOK_SPEED = 1.0F;    // multiplier
 // Stick offsets below this fraction of full deflection read as zero
 // (worn pads rest off-center); motion rescales smoothly above it.
@@ -109,7 +121,7 @@ constexpr float ANIM_LOD_DISTANCE = 24.0F;
 // Mesh LOD (Preferences > Rendering): instances farther than this render
 // the ~50%-vertex variant baked into the .tskl, beyond twice the distance
 // the ~25% one. 0 = off (the build then bakes no LOD chains at all).
-constexpr float MESH_LOD_DISTANCE = 30.0F;
+constexpr float MESH_LOD_DISTANCE = 14.0F;
 
 // Static batching (Preferences > Rendering): merge non-moving primitive
 // objects sharing a material into combined world-space bags at scene load -

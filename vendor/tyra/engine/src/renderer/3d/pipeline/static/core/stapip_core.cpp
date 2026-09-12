@@ -8,6 +8,8 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 */
 
+#include "math/math.hpp"
+
 #include <gs_gp.h>
 #include <math.h>
 #include "renderer/3d/pipeline/static/core/stapip_core.hpp"
@@ -24,6 +26,14 @@
 #endif
 
 namespace Tyra {
+
+// Modified by TyraX: diagnostic COP0 reads are entirely opt-in.
+static inline u32 readCoreTelemetryTicks() {
+  u32 ticks;
+  asm volatile("mfc0 %0, $9" : "=r"(ticks));
+  return ticks;
+}
+
 
 // Modified by TyraX: the light a `spotLit = false` bag is handed - off and
 // black, which the color programs compute with as a no-op. At namespace scope
@@ -283,6 +293,7 @@ void StaPipCore::render(StaPipBag* bag) {
   TYRA_ASSERT(!(!frustumCull && bag->info->fullClipChecks == true),
               "Full clip checks are not supported with frustum culling = off!");
 
+  const u32 boundsStart = telemetryEnabled ? readCoreTelemetryTicks() : 0;
   u32 maxVertCount = getMaxVertCountByBag(bag);
 
   StaPipBagPackagesBBox* bbox = nullptr;
@@ -311,10 +322,14 @@ void StaPipCore::render(StaPipBag* bag) {
     frustumCheck = bbox->getMainBBox()->frustumCheckAABB(objectSpacePlanes);
 
     if (frustumCheck == OUTSIDE_FRUSTUM) {
+      if (telemetryEnabled) telemetry.boundsTicks += readCoreTelemetryTicks()-boundsStart;
       recordOutsideBag(bag);
       return;
     }
   }
+
+  if (telemetryEnabled) telemetry.boundsTicks += readCoreTelemetryTicks()-boundsStart;
+  const u32 prepareStart = telemetryEnabled ? readCoreTelemetryTicks() : 0;
 
   // Modified by TyraX: the per-bag blend equation (additiveBlendFix - the
   // reflective materials' env pass) travels IN-BAND with the mesh's tags
@@ -322,7 +337,10 @@ void StaPipCore::render(StaPipBag* bag) {
   // so no FINISH barriers are needed here anymore.
 
   packager.setRenderBBox(bbox);
-  packager.setObjectSpacePlanes(frustumCull ? objectSpacePlanes : nullptr);
+  // Modified by TyraX: a wholly visible bag needs no per-package tests.
+  // That route submits every package directly; its classifications are unused.
+  const bool classifyPackages = frustumCull && frustumCheck == PARTIALLY_IN_FRUSTUM;
+  packager.setObjectSpacePlanes(classifyPackages ? objectSpacePlanes : nullptr);
 
   M4x4 mvp;
 
@@ -332,7 +350,7 @@ void StaPipCore::render(StaPipBag* bag) {
     mvp = rendererCore->renderer3D.getViewProj() * *bag->info->model;
   }
 
-  if (qbufferRenderer.isVU1ClippingEnabled()) {
+  if (classifyPackages && qbufferRenderer.isVU1ClippingEnabled()) {
     computeClipObjectSpacePlanes(mvp);
     packager.setClipObjectSpacePlanes(clipObjectSpacePlanes);
   } else {
@@ -414,10 +432,10 @@ void StaPipCore::render(StaPipBag* bag) {
     worldCenter = m * mid;
     // Near-uniform scale assumed (same as the light's object-space
     // transform in sendObjectData) - column 0 length is the scale.
-    const float scale = sqrtf(m.data[0] * m.data[0] + m.data[1] * m.data[1] +
+    const float scale = Math::sqrtNonNegative(m.data[0] * m.data[0] + m.data[1] * m.data[1] +
                               m.data[2] * m.data[2]);
     const float ex = hi.x - lo.x, ey = hi.y - lo.y, ez = hi.z - lo.z;
-    worldRadius = 0.5F * sqrtf(ex * ex + ey * ey + ez * ez) * scale;
+    worldRadius = 0.5F * Math::sqrtNonNegative(ex * ex + ey * ey + ez * ez) * scale;
   }
 
   const RendererCoreSpotLight* bagLight = nullptr;
@@ -561,6 +579,8 @@ void StaPipCore::render(StaPipBag* bag) {
 
   qbufferRenderer.setInfo(bag->info);
 
+  if (telemetryEnabled) telemetry.prepareTicks += readCoreTelemetryTicks()-prepareStart;
+  const u32 dispatchStart = telemetryEnabled ? readCoreTelemetryTicks() : 0;
   auto checkYesFrustumInClipYes =  // cull all
       frustumCull && frustumCheck == IN_FRUSTUM && bag->info->fullClipChecks;
 
@@ -607,6 +627,7 @@ void StaPipCore::render(StaPipBag* bag) {
   }
 
   qbufferRenderer.flushBuffers();
+  if (telemetryEnabled) telemetry.dispatchTicks += readCoreTelemetryTicks()-dispatchStart;
 
   if (clampedBag) {  // Modified by TyraX: restore the frame's REPEAT contract
     rendererCore->sync.align3D();
@@ -711,7 +732,13 @@ void StaPipCore::renderSubpkgs(StaPipBagPackage* subpkgs, u16 count) {
 
     auto buffer = qbufferRenderer.getBuffer();
     recordPackage(subpkgs[i], PARTIALLY_IN_FRUSTUM);
-    buffer->fillByCopy1By3(subpkgs[i]);
+    // Modified by TyraX: VU1 clips into its own scratch/output memory and
+    // never modifies the EE input. Keep DMA references just like the cull
+    // path; only the legacy EE clipper needs a writable qbuffer copy.
+    if (qbufferRenderer.isVU1ClippingEnabled())
+      buffer->fillByPointer(subpkgs[i]);
+    else
+      buffer->fillByCopy1By3(subpkgs[i]);
     Verbose(i, " - subpkg out/partial -> send to clipper");
     qbufferRenderer.clip(buffer);
   }

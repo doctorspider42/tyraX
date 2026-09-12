@@ -1,5 +1,6 @@
 #include "livereplay.hpp"
 
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -90,6 +91,7 @@ void encodeFrame(std::vector<unsigned char>& v, const Frame& f,
     if (f.hasFingerprint) flags |= kFrameFingerprint;
     if (wantPad2 && f.hasPad2) flags |= kFramePad2;
     if (wantKbd && f.hasKbd) flags |= kFrameKbd;
+    if (!f.events.empty()) flags |= kFrameEvents;
     put8(v, kRecFrame);
     put8(v, flags);
     putF32(v, f.dt);
@@ -129,7 +131,56 @@ void encodeFrame(std::vector<unsigned char>& v, const Frame& f,
         putF32(v, f.yaw);
         putF32(v, f.pitch);
     }
+    // Events last, so a v1 reader that stops at the fingerprint still walks
+    // the record correctly up to the point it understands.
+    if (flags & kFrameEvents) {
+        const size_t n = f.events.size() < (size_t)kMaxFrameEvents
+                             ? f.events.size()
+                             : (size_t)kMaxFrameEvents;
+        put8(v, (uint8_t)n);
+        for (size_t i = 0; i < n; ++i) {
+            put8(v, f.events[i].kind);
+            put16(v, (uint16_t)f.events[i].a);
+            put16(v, (uint16_t)f.events[i].b);
+        }
+    }
 }
+
+}  // namespace
+
+std::string eventText(const Event& e) {
+    char buf[96];
+    switch (e.kind) {
+        case kEvGrab:
+            std::snprintf(buf, sizeof buf, "grabbed object %d", (int)e.a);
+            break;
+        case kEvDrop:
+            std::snprintf(buf, sizeof buf, "dropped object %d", (int)e.a);
+            break;
+        case kEvThrow:
+            std::snprintf(buf, sizeof buf, "threw object %d", (int)e.a);
+            break;
+        case kEvCarryLost:
+            std::snprintf(buf, sizeof buf, "lost object %d mid-carry",
+                          (int)e.a);
+            break;
+        case kEvPortalPlayer:
+            std::snprintf(buf, sizeof buf, "player crossed portal %d",
+                          (int)e.a);
+            break;
+        case kEvPortalObject:
+            std::snprintf(buf, sizeof buf, "object %d crossed portal %d",
+                          (int)e.a, (int)e.b);
+            break;
+        default:
+            std::snprintf(buf, sizeof buf, "event %d (%d, %d)", (int)e.kind,
+                          (int)e.a, (int)e.b);
+            break;
+    }
+    return buf;
+}
+
+namespace {
 
 void encodeSeed(std::vector<unsigned char>& v, const SeedEvent& s) {
     put8(v, kRecSeed);
@@ -169,9 +220,10 @@ bool parse(const std::vector<unsigned char>& bytes, Recording& out,
     }
     Header h;
     h.version = get32(b + 4);
-    if (h.version != kVersion) {
+    if (h.version < kMinReadVersion || h.version > kVersion) {
         err = "recording format v" + std::to_string(h.version) +
-              ", this editor reads v" + std::to_string(kVersion);
+              ", this editor reads v" + std::to_string(kMinReadVersion) +
+              " to v" + std::to_string(kVersion);
         return false;
     }
     h.frameCount = get32(b + 8);
@@ -291,6 +343,21 @@ bool parse(const std::vector<unsigned char>& bytes, Recording& out,
                 f.yaw = getF32(pay + q + 12);
                 f.pitch = getF32(pay + q + 16);
                 q += 20;
+            }
+            if (flags & kFrameEvents) {
+                if (payloadBytes - q < 1) { bad = true; break; }
+                const uint8_t n = pay[q];
+                q += 1;
+                if (n > kMaxFrameEvents ||
+                    payloadBytes - q < (size_t)n * 5) { bad = true; break; }
+                for (uint8_t i = 0; i < n; ++i) {
+                    Event e;
+                    e.kind = pay[q];
+                    e.a = (int16_t)get16(pay + q + 1);
+                    e.b = (int16_t)get16(pay + q + 3);
+                    f.events.push_back(e);
+                    q += 5;
+                }
             }
             out.frames.push_back(f);
             ++frameIndex;

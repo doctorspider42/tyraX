@@ -270,6 +270,10 @@ void App::drawPropertiesWindow() {
     // object, so the sections that describe behaviour are skipped for it.
     const bool isComment = o.type == PrimitiveType::Comment;
 
+    if (!o.editorGroup.empty()) {
+        ImGui::Text("Group: %s", o.editorGroup.c_str());
+        if (ImGui::Button("Ungroup objects")) ungroupSelection();
+    }
     char nameBuf[128];
     std::snprintf(nameBuf, sizeof(nameBuf), "%s", o.name.c_str());
     if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) o.name = nameBuf;
@@ -891,6 +895,15 @@ void App::drawPropertiesWindow() {
 
     // Player collision. Solid geometry only - markers/emitters never collide.
     if (isSolid) {
+        if (o.type == PrimitiveType::Box) {
+            bool invisible = o.collisionMode == 3;
+            if (ImGui::Checkbox("Invisible wall", &invisible)) {
+                o.collisionMode = invisible ? 3 : 0;
+                committed = true;
+            }
+            if (invisible)
+                ImGui::TextDisabled("Blocks movement; editor outline only, no shadows.");
+        }
         if (animatedModel) {
             // mesh collision is a static-model feature; animated models
             // collide as their baked all-clips AABB or not at all
@@ -1690,15 +1703,15 @@ void App::drawPropertiesWindow() {
         }
         if (ImGui::BeginCombo("##portalAdd", "+ Add object...")) {
             for (const SceneObject& t : project_.objects()) {
-                // same set the mirror can reflect: types the game draws as
-                // static geometry (animated models re-pose in the main view
-                // only; through a portal they would show a stale pose)
+                // Geometry and Point Light beam effects supported by the
+                // through-view (animated models reuse their latest pose).
                 const bool viewable =
                     t.type == PrimitiveType::Box || t.type == PrimitiveType::Sphere ||
                     t.type == PrimitiveType::Cylinder ||
                     t.type == PrimitiveType::Cone || t.type == PrimitiveType::Plane ||
                     t.type == PrimitiveType::SavePoint ||
-                    t.type == PrimitiveType::Model || t.type == PrimitiveType::Decal;
+                    t.type == PrimitiveType::Model || t.type == PrimitiveType::Decal ||
+                    t.type == PrimitiveType::PointLight;
                 if (!viewable || t.name == o.name) continue;
                 bool listed = false;
                 for (const std::string& n : o.portalObjects)
@@ -2484,6 +2497,27 @@ void App::drawMultiProperties() {
         if (i >= 0 && i < (int)project_.objects().size())
             objs.push_back(&project_.objects()[i]);
     if (objs.size() < 2) return;
+    const std::string group = selectedGroup();
+    if (group.empty()) {
+        if (ImGui::Button("Group objects")) { groupSelection(); return; }
+    } else {
+        char name[256];
+        std::snprintf(name, sizeof(name), "%s", group.c_str());
+        if (ImGui::InputText("Group name", name, sizeof(name), ImGuiInputTextFlags_EnterReturnsTrue) && name[0]) {
+            bool taken = false;
+            for (const auto& o : project_.objects())
+                taken |= o.editorGroup == name && o.editorGroup != group;
+            if (!taken) {
+                for (auto* o : objs) o->editorGroup = name;
+                commitChange();
+            } else statusMessage_ = "A group with this name already exists";
+        }
+        if (ImGui::Button("Ungroup objects")) { ungroupSelection(); return; }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Copy objects")) copyObject();
+    ImGui::SameLine();
+    if (ImGui::Button("Delete objects")) { deleteSelectedObjects(); return; }
     SceneObject& primary = *objs.back();  // anchor: seeds the transform values
     bool committed = false;
 
@@ -2660,7 +2694,33 @@ void App::drawMultiProperties() {
     // --- transforms (relative) ---
     relDrag3("Position", [](SceneObject& o) -> float* { return o.position; }, 0.1f, 0.0f,
              0.0f, "%.3f");
-    if (allRot)
+    if (!group.empty()) {
+        // Use the primary orientation as the numerical handle, but rotate every
+        // position and orientation rigidly around the same centroid as the gizmo.
+        float angle[3] = {primary.rotation[0], primary.rotation[1], primary.rotation[2]};
+        if (ImGui::DragFloat3("Rotation", angle, 1.0f, -360.0f, 360.0f, "%.0f deg")) {
+            float pivot[3] = {}, zero[3] = {}, unit[3] = {1, 1, 1};
+            for (auto* o : objs) for (int k = 0; k < 3; ++k) pivot[k] += o->position[k] / (float)objs.size();
+            float before[16], after[16], delta[16] = {};
+            ImGuizmo::RecomposeMatrixFromComponents(zero, primary.rotation, unit, before);
+            ImGuizmo::RecomposeMatrixFromComponents(zero, angle, unit, after);
+            for (int c = 0; c < 3; ++c) for (int r = 0; r < 3; ++r)
+                for (int k = 0; k < 3; ++k) delta[c*4+r] += after[k*4+r] * before[k*4+c];
+            delta[15] = 1;
+            for (int r = 0; r < 3; ++r) {
+                delta[12+r] = pivot[r];
+                for (int k = 0; k < 3; ++k) delta[12+r] -= delta[k*4+r] * pivot[k];
+            }
+            for (auto* o : objs) {
+                float model[16], result[16] = {};
+                ImGuizmo::RecomposeMatrixFromComponents(o->position, o->rotation, o->scale, model);
+                for (int c = 0; c < 4; ++c) for (int r = 0; r < 4; ++r)
+                    for (int k = 0; k < 4; ++k) result[c*4+r] += delta[k*4+r] * model[c*4+k];
+                ImGuizmo::DecomposeMatrixToComponents(result, o->position, o->rotation, o->scale);
+            }
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
+    } else if (allRot)
         relDrag3("Rotation", [](SceneObject& o) -> float* { return o.rotation; }, 1.0f,
                  -360.0f, 360.0f, "%.0f deg");
     if (allScale) {
@@ -2891,8 +2951,9 @@ bool App::drawLodOverrides(SceneObject& o, bool animated) {
         int captureChoice = modelImpostorViews_ == 4 ? 0 : modelImpostorViews_ == 16 ? 2 : 1;
         if (ImGui::Combo("Capture views", &captureChoice, "4 views\0" "8 views\0" "16 views\0"))
             modelImpostorViews_ = 4 << captureChoice;
-        ImGui::Checkbox("Impostor GPU", &impostorGpu_);
-        ImGui::TextDisabled("Applied on bake; GPU falls back to CPU if unavailable.");
+        ImGui::Checkbox("Impostor", &impostorGpu_);
+        ImGui::TextDisabled("Applied on bake; captured on the GPU, falling\n"
+                            "back to the CPU if unavailable.");
         ImGui::BeginDisabled(!supported);
         if (ImGui::Button("Bake impostor")) {
             std::string key = o.id;

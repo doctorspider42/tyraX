@@ -1116,6 +1116,8 @@ void App::drawUI() {
             // While the Flow Graph window has focus, Ctrl+C/V act on its nodes
             // (handled in drawFlowGraphWindow); otherwise they copy scene objects.
             if (!flowGraphFocused_) {
+                if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_G)) ungroupSelection();
+                else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_G)) groupSelection();
                 if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_C)) copyObject();
                 if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_V)) pasteObject();
             }
@@ -1270,6 +1272,8 @@ void App::drawMenuBar() {
             const char* pasteLabel = pastePending_ ? "Place paste"
                                      : clipboard_.size() > 1 ? "Paste objects"
                                                              : "Paste object";
+            if (ImGui::MenuItem("Group objects", "Ctrl+G", false, selection_.size() > 1 && selectedGroup().empty())) groupSelection();
+            if (ImGui::MenuItem("Ungroup objects", "Ctrl+Shift+G", false, objectSelected)) ungroupSelection();
             if (ImGui::MenuItem(copyLabel, "Ctrl+C", false, objectSelected)) copyObject();
             if (ImGui::MenuItem(pasteLabel, "Ctrl+V", false,
                                 hasProject_ && (pastePending_ || !clipboard_.empty())))
@@ -1761,7 +1765,7 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("Ambience Editor...")) showAmbienceEditor_ = true;
             // The two bakes live in the Ambience Editor now; the menu items
             // still work and simply open that window on their tab.
-            if (ImGui::MenuItem("Bake Global Illumination...")) {
+            if (ImGui::MenuItem("Global Illumination...")) {
                 showAmbienceEditor_ = true;
                 showGiBake_ = true;
             }
@@ -3217,6 +3221,16 @@ void App::drawViewportWindow() {
                               !isObjectHiddenInEditor(project_.objects()[selectedObject_]);
         if (objectSelected) {
             SceneObject& o = project_.objects()[selectedObject_];
+            // Whether the drag EDITED anything is decided by comparing the
+            // anchor's TRS before and after, not by ImGuizmo's return value:
+            // it reports a manipulation on a press that never moved too (its
+            // last-delta memory is not reset between drags), and a click that
+            // moved nothing must not become an undo step, a dirty flag or an
+            // auto-key - it is a click, and falls through to the picker below.
+            float trsBefore[9];
+            std::memcpy(trsBefore, o.position, sizeof(o.position));
+            std::memcpy(trsBefore + 3, o.rotation, sizeof(o.rotation));
+            std::memcpy(trsBefore + 6, o.scale, sizeof(o.scale));
 
             ImGuizmo::SetOrthographic(viewport_.orthographic());
             ImGuizmo::SetDrawlist();
@@ -3360,18 +3374,33 @@ void App::drawViewportWindow() {
             }
             for (float& s : o.scale)
                 if (s < 0.01f) s = 0.01f;
+            gizmoEdited_ |= std::memcmp(trsBefore, o.position, sizeof(o.position)) != 0 ||
+                            std::memcmp(trsBefore + 3, o.rotation, sizeof(o.rotation)) != 0 ||
+                            std::memcmp(trsBefore + 6, o.scale, sizeof(o.scale)) != 0;
         }
 
-        // Commit once per completed gizmo drag (not every frame). Auto-key
-        // first: the dropped cutscene keys share the drag's undo snapshot.
+        // Commit once per completed gizmo drag (not every frame), and only
+        // when the drag moved something. Auto-key first: the dropped cutscene
+        // keys share the drag's undo snapshot.
         const bool usingGizmo = ImGuizmo::IsUsing();
-        if (gizmoWasUsing_ && !usingGizmo) {
+        const bool gizmoDragEdited = gizmoEdited_;  // before the reset below
+        if (gizmoWasUsing_ && !usingGizmo && gizmoEdited_) {
             cutsceneAutoKey();
             commitChange();
         }
+        if (!usingGizmo) gizmoEdited_ = false;
         gizmoWasUsing_ = usingGizmo;
 
         const bool gizmoBusy = usingGizmo || (objectSelected && ImGuizmo::IsOver());
+        // A press on the gizmo that is released without moving the mouse is a
+        // CLICK, and a click selects what is under the cursor - the gizmo only
+        // owns a drag. Without this the gizmo of a large object (a merged
+        // district mesh whose origin sits in the middle of the map) parks
+        // itself on the very spot just clicked and eats every further click
+        // there, so the stack under it can never be cycled through.
+        const bool gizmoClick = gizmoBusy && !gizmoDragEdited &&
+                                ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
+                                io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f;
 
         // --- Camera + selection input ---
         if (imageHovered && !gizmoBusy) {
@@ -3695,8 +3724,8 @@ void App::drawViewportWindow() {
         // Click (no drag) = pick object under cursor. Ctrl toggles it in the
         // current selection; a plain click replaces (empty click clears).
         // Clicking the same spot again walks the stack under it (viewportPick).
-        if (!procClick && imageHovered && !gizmoBusy && !sculptMode_ && !paintMode_ &&
-            !measureMode_ && !pastePending_ && !overAxisGizmo &&
+        if (!procClick && imageHovered && (!gizmoBusy || gizmoClick) && !sculptMode_ &&
+            !paintMode_ && !measureMode_ && !pastePending_ && !overAxisGizmo &&
             ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
             io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f) {
             const float u = (io.MousePos.x - imgPos.x) / avail.x;
@@ -3708,11 +3737,62 @@ void App::drawViewportWindow() {
             } else {
                 selectOnly(hit);
             }
+            // Say what the click found and that there is more under it: the
+            // stack is invisible otherwise, and "click again" is the only way
+            // to reach an object standing inside or behind another one.
+            statusMessage_ = pickStackStatus(hit);
             // A cycle click is hunting through a stack, not a new framing:
             // leave the orbit pivot where it is (the block below re-snaps it
             // to the selection otherwise), or the camera walks away under the
             // cursor while you are still clicking the same spot.
             if (cycled) navFocusedIndex_ = selectedObject_;
+        }
+
+        // Right-click (no drag) lists everything under the cursor by name -
+        // the same stack a repeated click walks, but visible, so an object
+        // standing inside or behind another one is picked by reading rather
+        // than by counting clicks. A right DRAG stays with the navigation
+        // schemes that orbit or fly on it. The gizmo does not veto it: the
+        // gizmo owns left drags only, and it sits exactly where the object it
+        // belongs to was just clicked.
+        if (!procClick && imageHovered && !usingGizmo && !sculptMode_ && !paintMode_ &&
+            !measureMode_ && !pastePending_ && !overAxisGizmo &&
+            ImGui::IsMouseReleased(ImGuiMouseButton_Right) &&
+            io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Right] < 9.0f) {
+            const float u = (io.MousePos.x - imgPos.x) / avail.x;
+            const float v = (io.MousePos.y - imgPos.y) / avail.y;
+            viewport_.pickAll(u, v, project_.objects(), pickMenu_);
+            // A comment's icon is hit in screen space and is not in that list.
+            for (const CommentIcon& ic : commentIcons(imgPos, avail)) {
+                if (std::fabs(io.MousePos.x - ic.center.x) > ic.w * 0.5f) continue;
+                if (std::fabs(io.MousePos.y - ic.center.y) > ic.h * 0.5f) continue;
+                pickMenu_.insert(pickMenu_.begin(), ic.index);
+                break;
+            }
+            if (!pickMenu_.empty()) ImGui::OpenPopup("##pickmenu");
+        }
+        if (ImGui::BeginPopup("##pickmenu")) {
+            const int n = (int)project_.objects().size();
+            ImGui::TextDisabled("Under the cursor, front to back");
+            for (size_t k = 0; k < pickMenu_.size(); ++k) {
+                const int i = pickMenu_[k];
+                if (i < 0 || i >= n) continue;  // shortened since (undo, delete)
+                const SceneObject& o = project_.objects()[i];
+                const std::string label = o.name + "  (" + primitiveTypeName(o.type) + ")" +
+                                          "##pick" + std::to_string(k);
+                if (ImGui::MenuItem(label.c_str(), nullptr, isSelected(i))) {
+                    if (io.KeyCtrl) toggleSelect(i);
+                    else selectOnly(i);
+                    // Selecting from the menu is also where a later click at
+                    // this spot continues cycling from.
+                    pickCycle_ = pickMenu_;
+                    pickCyclePos_ = io.MousePos;
+                    pickCycleLast_ = i;
+                    navFocusedIndex_ = selectedObject_;  // no re-framing, as a cycle click
+                    statusMessage_ = pickStackStatus(i);
+                }
+            }
+            ImGui::EndPopup();
         }
 
         // Orbit around the selected object: snap the pivot to it whenever the
@@ -6561,25 +6641,102 @@ int App::viewportPick(float u, float v, ImVec2 mouse, ImVec2 imgPos, ImVec2 avai
     return pickCycleLast_;
 }
 
+std::string App::pickStackStatus(int hit) const {
+    const int n = (int)project_.objects().size();
+    if (hit < 0 || hit >= n) return {};
+    const SceneObject& o = project_.objects()[hit];
+    // Kept short: it shares the menu bar with the toolbar chips.
+    std::string s = o.name + "  (" + primitiveTypeName(o.type) + ")";
+    // Place in the stack, and what the next click at this spot would pick
+    // (the same walk viewportPick makes: the next still-existing candidate).
+    int live = 0, at = -1, k = -1;
+    for (size_t j = 0; j < pickCycle_.size(); ++j) {
+        const int i = pickCycle_[j];
+        if (i < 0 || i >= n) continue;
+        if (i == hit) at = live, k = (int)j;
+        ++live;
+    }
+    if (live < 2 || at < 0) return s;
+    int next = -1;
+    for (size_t step = 1; step < pickCycle_.size() && next < 0; ++step) {
+        const int cand = pickCycle_[((size_t)k + step) % pickCycle_.size()];
+        if (cand >= 0 && cand < n && cand != hit) next = cand;
+    }
+    s += " - " + std::to_string(at + 1) + "/" + std::to_string(live) + " here";
+    if (next >= 0) s += ", click again: " + project_.objects()[next].name;
+    return s;
+}
+
 // --- Selection set -------------------------------------------------------
 // selectedObject_ is kept in sync as the primary (anchor) of the set: the
 // last-clicked object, which drives the orbit pivot, the single-object gizmo
 // path and the anchor value shown in the multi-edit panel.
-void App::selectOnly(int i) {
+void App::expandSelectionGroups() {
+    std::vector<std::string> groups;
+    for (int i : selection_)
+        if (!project_.objects()[i].editorGroup.empty())
+            groups.push_back(project_.objects()[i].editorGroup);
+    for (int i = 0; i < (int)project_.objects().size(); ++i)
+        if (!isSelected(i) && std::find(groups.begin(), groups.end(),
+                project_.objects()[i].editorGroup) != groups.end())
+            selection_.push_back(i);
+}
+
+std::string App::selectedGroup() const {
+    if (selection_.empty()) return {};
+    const std::string group = project_.objects()[selection_.front()].editorGroup;
+    for (int i : selection_)
+        if (project_.objects()[i].editorGroup != group) return {};
+    return group;
+}
+
+void App::groupSelection() {
+    if (selection_.size() < 2 || !selectedGroup().empty()) return;
+    expandSelectionGroups();
+    std::string name = "Group";
+    for (int n = 2; std::any_of(project_.objects().begin(), project_.objects().end(),
+             [&](const SceneObject& o) { return o.editorGroup == name; }); ++n)
+        name = "Group " + std::to_string(n);
+    for (int i : selection_) project_.objects()[i].editorGroup = name;
+    commitChange();
+    statusMessage_ = "Created " + name;
+}
+
+void App::ungroupSelection() {
+    expandSelectionGroups();
+    bool changed = false;
+    for (int i : selection_) {
+        changed |= !project_.objects()[i].editorGroup.empty();
+        project_.objects()[i].editorGroup.clear();
+    }
+    if (changed) { commitChange(); statusMessage_ = "Ungrouped objects"; }
+}
+
+void App::selectOnly(int i, bool expandGroups) {
+    selectionGroupMember_ = !expandGroups;
     selection_.clear();
     if (i >= 0 && i < (int)project_.objects().size()) selection_.push_back(i);
+    if (expandGroups) expandSelectionGroups();
     selectedObject_ = selection_.empty() ? -1 : selection_.back();
 }
 
 void App::toggleSelect(int i) {
+    selectionGroupMember_ = false;
     if (i < 0 || i >= (int)project_.objects().size()) return;
-    auto it = std::find(selection_.begin(), selection_.end(), i);
-    if (it != selection_.end()) selection_.erase(it);
-    else selection_.push_back(i);
+    const std::string group = project_.objects()[i].editorGroup;
+    if (isSelected(i)) {
+        selection_.erase(std::remove_if(selection_.begin(), selection_.end(),
+            [&](int j) { return j == i || (!group.empty() &&
+                project_.objects()[j].editorGroup == group); }), selection_.end());
+    } else {
+        selection_.push_back(i);
+        expandSelectionGroups();
+    }
     selectedObject_ = selection_.empty() ? -1 : selection_.back();
 }
 
 void App::clearSelection() {
+    selectionGroupMember_ = false;
     selection_.clear();
     selectedObject_ = -1;
 }
@@ -6594,10 +6751,12 @@ void App::pruneSelection() {
         std::remove_if(selection_.begin(), selection_.end(),
                        [n](int i) { return i < 0 || i >= n; }),
         selection_.end());
+    if (!selectionGroupMember_) expandSelectionGroups();
     selectedObject_ = selection_.empty() ? -1 : selection_.back();
 }
 
 void App::selectObjectsInBox(ImVec2 a, ImVec2 b, ImVec2 imgPos, ImVec2 avail, bool add) {
+    selectionGroupMember_ = false;
     const float rMinX = std::min(a.x, b.x), rMaxX = std::max(a.x, b.x);
     const float rMinY = std::min(a.y, b.y), rMaxY = std::max(a.y, b.y);
 
@@ -6652,6 +6811,7 @@ void App::selectObjectsInBox(ImVec2 a, ImVec2 b, ImVec2 imgPos, ImVec2 avail, bo
             oMinX <= rMaxX && oMaxX >= rMinX && oMinY <= rMaxY && oMaxY >= rMinY;
         if (overlap && !isSelected(i)) selection_.push_back(i);
     }
+    expandSelectionGroups();
     selectedObject_ = selection_.empty() ? -1 : selection_.back();
 }
 
@@ -6803,6 +6963,44 @@ void App::beginPastePlacement() {
         }
         o.name = name;
         pasteStaged_.push_back(std::move(o));
+    }
+    // Only references between copied members are redirected. External targets
+    // (such as the cellar behind a copied pavilion) retain their authored link.
+    std::map<std::string, std::string> names;
+    for (size_t i = 0; i < pasteStaged_.size(); ++i) names[clipboard_[i].name] = pasteStaged_[i].name;
+    auto remap = [&](std::string& name) { auto it = names.find(name); if (it != names.end()) name = it->second; };
+    for (auto& o : pasteStaged_) {
+        remap(o.portalTarget); remap(o.catchArea);
+        for (auto& n : o.portalObjects) remap(n);
+        for (auto& n : o.mirrorObjects) remap(n);
+        for (auto& n : o.camFeedObjects) remap(n);
+        for (auto& seg : o.scrollSegments) for (auto& m : seg.objects) remap(m.name);
+        for (auto& node : o.flowGraph.nodes) {
+            const auto* type = flowNodeType(node.type);
+            if (type && (type->strKind == FlowParamKind::ObjectName || type->strKind == FlowParamKind::AreaName)) remap(node.str);
+        }
+        for (const std::string prefix : {std::string("camera:"), std::string("mirror:")})
+            if (o.textureFeed.rfind(prefix, 0) == 0) {
+                std::string name = o.textureFeed.substr(prefix.size()); remap(name); o.textureFeed = prefix + name;
+            }
+    }
+    std::map<std::string, std::string> groups;
+    for (SceneObject& o : pasteStaged_) {
+        if (o.editorGroup.empty()) continue;
+        auto it = groups.find(o.editorGroup);
+        if (it == groups.end()) {
+            const std::string base = o.editorGroup + " copy";
+            std::string name = base;
+            for (int n = 2; ; ++n) {
+                bool taken = false;
+                for (const auto& t : project_.objects()) taken |= t.editorGroup == name;
+                for (const auto& t : groups) taken |= t.second == name;
+                if (!taken) break;
+                name = base + " " + std::to_string(n);
+            }
+            it = groups.emplace(o.editorGroup, name).first;
+        }
+        o.editorGroup = it->second;
     }
     if (pasteStaged_.empty()) return;
     pastePending_ = true;
@@ -8449,6 +8647,11 @@ void App::drawAddObjectMenu() {
     if (ImGui::BeginMenu("Object")) {
         if (ImGui::BeginMenu("Simple")) {
             if (ImGui::MenuItem("Box")) addObject(PrimitiveType::Box);
+            if (ImGui::MenuItem("Invisible wall")) {
+                addObject(PrimitiveType::Box, /*commit=*/false);
+                project_.objects().back().collisionMode = 3;
+                commitChange();
+            }
             if (ImGui::MenuItem("Sphere")) addObject(PrimitiveType::Sphere);
             if (ImGui::MenuItem("Cylinder")) addObject(PrimitiveType::Cylinder);
             if (ImGui::MenuItem("Cone")) addObject(PrimitiveType::Cone);
@@ -8615,7 +8818,8 @@ void App::drawSceneSection() {
         auto passesFilter = [&](const SceneObject& o) {
             if (sceneFilterType_ >= 0 && (int)o.type != sceneFilterType_) return false;
             return needle.empty() ||
-                   lowered(o.name).find(needle) != std::string::npos;
+                   lowered(o.name).find(needle) != std::string::npos ||
+                   lowered(o.editorGroup).find(needle) != std::string::npos;
         };
 
         auto layerExists = [&](const std::string& name) {
@@ -8648,9 +8852,14 @@ void App::drawSceneSection() {
                 ImGui::PushStyleColor(ImGuiCol_Text,
                                       ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
             if (ImGui::Selectable(label.c_str(), isSelected(i))) {
-                if (ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift) toggleSelect(i);
+                if (inPrefabGroup && !o.editorGroup.empty()) selectOnly(i, false);
+                else if (ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift) toggleSelect(i);
                 else selectOnly(i);
             }
+            // The row's selection is what a UI script asserts a viewport pick
+            // by (`expect-checked "Project/<name>  (<type>)"`); a Selectable
+            // reports none of it on its own.
+            uiscript::markLastItemChecked(isSelected(i));
             if (hidden) ImGui::PopStyleColor();
             // Session presence: a colored dot per participant who has this
             // object selected (their peer color), right-aligned on the row.
@@ -8702,21 +8911,24 @@ void App::drawSceneSection() {
         // the label to select the whole instance, the arrow to open it.
         auto selectAll = [&](const std::vector<int>& ms) {
             clearSelection();
-            for (int j : ms) toggleSelect(j);
+            for (int j : ms) if (!isSelected(j)) toggleSelect(j);
         };
         auto emitRows = [&](const std::vector<int>& idxs) {
             std::vector<std::string> done;
             for (int i : idxs) {
-                const std::string src = project_.objects()[i].prefabSource;
+                const bool persistent = !project_.objects()[i].editorGroup.empty();
+                const std::string src = persistent ? project_.objects()[i].editorGroup : project_.objects()[i].prefabSource;
+                const std::string key = (persistent ? "group:" : "prefab:") + src;
                 if (src.empty()) {
                     objectRow(i);
                     continue;
                 }
-                if (std::find(done.begin(), done.end(), src) != done.end()) continue;
-                done.push_back(src);
+                if (std::find(done.begin(), done.end(), key) != done.end()) continue;
+                done.push_back(key);
                 std::vector<int> members;
                 for (int j : idxs)
-                    if (project_.objects()[j].prefabSource == src) members.push_back(j);
+                    if (persistent ? project_.objects()[j].editorGroup == src :
+                        (project_.objects()[j].editorGroup.empty() && project_.objects()[j].prefabSource == src)) members.push_back(j);
                 bool allSel = true;
                 for (int j : members) allSel &= isSelected(j);
                 ImGuiTreeNodeFlags pflags = ImGuiTreeNodeFlags_SpanAvailWidth |
@@ -8735,7 +8947,9 @@ void App::drawSceneSection() {
                     else
                         selectAll(members);
                 }
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                if (persistent && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("Click the header to select the group; expand it and click a member to edit that object. Ctrl+Shift+G ungroups it.");
+                if (!persistent && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
                     ImGui::SetTooltip(
                         "Inserted from the prefab \"%s\" (Tools > Prefabs).\n"
                         "These are ordinary objects - editing the prefab does not\n"

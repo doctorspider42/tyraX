@@ -24,6 +24,10 @@ class StaPipQBuffer {
   ~StaPipQBuffer();
 
   void setMaxVertCount(const u32& count);
+  // Modified by TyraX: switch the copy pools to their other side - call once
+  // per packet SEND, right where the packet double buffer flips (see the pool
+  // comment in stapip_qbuffer.cpp).
+  static void flipPoolSide();
 
   /**
    * @brief Dont allocate any dynamic data in buffer.

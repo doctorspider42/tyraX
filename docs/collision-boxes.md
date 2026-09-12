@@ -5,8 +5,10 @@ against, is **a box** — not the mesh you see. This page says which box, where
 it comes from, and how to look at it, in the editor and in the running game.
 
 Mesh-accurate collision exists and is opt-in per object (*Collision: mesh*, a
-static `.obj` feature — see the Physics section of the README); everything
-else collides as the box described here.
+static `.obj` feature — see the Physics section of the README). The player and,
+since 1.83.0, rigid bodies collide with such a model's triangles; the camera
+boom and the carried/thrown-arc sweep still use the box described here, and so
+does everything without the option.
 
 ## Which box
 
@@ -43,6 +45,29 @@ with it. Before, it did not: an X-forward character collided and blocked the
 camera across its own body, at 90° to what was on screen — invisible unless
 you drew the box, which is half the reason this page and the two overlays
 exist.
+
+## Invisible boundary walls
+
+Use **Scene > Add > Object > Simple > Invisible wall**, or enable **Invisible wall**
+on a Box in Properties. Move, scale and rotate it like an ordinary box. The
+editor draws a cyan outline; the game keeps its collision without drawing its
+surface. Player movement, the camera boom, navigation and rigid-body obstacles
+use the same box as before. The wall casts no AO, GI or projected shadow and
+does not appear in reflections. It remains an active object: hiding it through
+gameplay is different from making its surface invisible.
+
+In the viewport the wall is picked like the other wire boxes (areas, procedural
+volumes): a click aimed through it selects what it fences in, and the wall
+itself is reached by clicking the same spot again or from the right-click list
+([Selecting objects](object-selection.md)). Surface snapping and the drag/paste
+raycast ignore it — a prop dropped on top of one would hang in the air in the
+game.
+
+This is `"collision": "invisible"` on a Box (format 32). Existing box, mesh and
+none modes retain their behavior. Making a wall visible again restores box
+collision. Aster uses four tall walls just outside the island's paving. Its
+surface portal stays inside that perimeter; the underground cellar is enclosed
+by its own collidable floor, walls and vault.
 
 ## Seeing them
 

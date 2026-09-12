@@ -36,7 +36,7 @@ on, so the shadow lands exactly where the feet do.
 
 ## Turning it off
 
-*Tools > Bake Global Illumination* → untick **Enable baked global illumination**,
+*Tools > Global Illumination* → untick **Enable baked global illumination**,
 then build. Same geometry, same sun, same sky: flat ambient shading, no bleed,
 no sky occlusion, no soft shadow, and station 3's room as bright at the back as
 at the door. Tick it back on and press **Bake this scene** (about 20 seconds for

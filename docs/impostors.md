@@ -8,7 +8,7 @@ original object's collision and gameplay identity.
 In **Tools > Tree Generator**, enable **Bake distant impostor** before **Add to
 scene**. The generator writes the ordinary tree plus an `-impostor.obj`, matching
 material and a PNG atlas: 4, 8 or 16 orthographic 128x128 views in four columns.
-Choose **Capture views** and **Impostor GPU** in model Properties before **Bake
+Choose **Capture views** and **Impostor** in model Properties before **Bake
 impostor**, or **Tree capture views** in Tree Generator before adding a tree.
 The choice takes effect only when baking succeeds; existing assets retain their
 old count until rebaked. GPU is on by default for these UI actions.

@@ -209,3 +209,11 @@ materials fail visibly. Rebuild the game after baking; exported files are assets
 
 Impostor format v41 adds `impostorViews` (4/8/16, defaults to 8). It must match
 the baked model part count; rebake and rebuild after changing it.
+
+## Object groups
+
+An optional `editorGroup` string on each object (format 43) identifies a flat,
+scene-local editor group. Equal nonempty names select and transform together.
+Groups have no runtime parent: position/rotation/scale remain world transforms.
+Use a fresh group name when duplicating an assembly; remap internal object
+references to its copies and retain external references.

@@ -34,7 +34,7 @@ DynPipRenderer::~DynPipRenderer() {
 void DynPipRenderer::allocateOnUse(const u32& t_packetSize) {
   staticDataPacket = packet2_create(3, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
   // Four inline lighting qwords replace the former REF payload.
-  objectDataPacket = packet2_create(24, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
+  objectDataPacket = packet2_create(25, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);  // +1: the FLUSHE tag
 
   packetSize = t_packetSize;
 
@@ -102,6 +102,17 @@ void DynPipRenderer::sendObjectData(
   // The previous DMA must finish before reusing its packet storage.
   dma_channel_wait(DMA_CHANNEL_VIF1, 0);
   packet2_reset(objectDataPacket, false);
+  // Modified by TyraX: same barrier as StaPipQBufferRenderer::sendObjectData.
+  // The wait above only proves the previous chain was CONSUMED; its last MSCAL
+  // may still be running - or parked on an XGKICK behind a slow GS fill - and
+  // everything below lands at absolute VU1 addresses the microprogram reads
+  // mid-draw. A pipeline switch makes this cross-pipeline too: the StaPip clip
+  // program of the frame's last static bag can still be running when the
+  // first animated mesh uploads its MVP here. FLUSHE = wait for its end.
+  packet2_chain_open_cnt(objectDataPacket, 0, 0, 0);
+  packet2_vif_flushe(objectDataPacket, 0);
+  packet2_vif_nop(objectDataPacket, 0);
+  packet2_chain_close_tag(objectDataPacket);
   packet2_utils_vu_add_unpack_data(objectDataPacket, VU1_MVP_MATRIX_ADDR,
                                    mvp->data, 4, false);
 

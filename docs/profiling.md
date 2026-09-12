@@ -1657,3 +1657,52 @@ check the contact sheet against what your fixture is supposed to look like.
 - [VU1 clipping and the guard band](vu1-clipping.md) — the cull/clip routing,
   the guard band the GS scissor finishes, and the measured cost of clipping
   what did not need it.
+
+## On-demand render cost (1.80)
+
+Debugger > **Render cost > Measure render cost** captures one synchronized
+render pass on PCSX2 or a physical PS2. A debug build with Live Debugger enabled
+and a live host file server is required. Normal gameplay does not perform the
+extra timing reads or pipeline drains. Older games ignore the request; rebuild
+and use Cancel measurement if no report arrives.
+
+The table lists phases and object draws, including sky, terrain
+streaming/draw, highlights/outlines and particles, dearest first. **Every
+column header sorts** - by name, by ms or by delta - and a third click on the
+same header clears the sort and restores the original grouping: phases first,
+dearest first, object rows after them. Sorting by delta puts the rows the
+baseline does not carry last in both directions rather than treating a missing
+delta as zero. **Keep as baseline** retains a
+report for delta comparisons; **Copy render cost CSV** exports the raw indices,
+stages and milliseconds. Object rows are children of the Objects phase, so do
+not sum both. Rows ending in `_included` are nested engine counters, also
+already included in phases: bounds classification, material preparation,
+geometry dispatch, packet construction, DMA submission and VU1 waits. They
+overlap each other (packet construction and DMA submission occur inside
+preparation/dispatch), so compare them individually rather than summing them.
+Object names use the current scene order: rebuild after editing
+or reordering scene objects, and compare the same scene and camera.
+
+This is attribution, not an FPS benchmark: explicit VU/GS drains serialize the
+measured pass. The total excludes update, vsync and the report's network write;
+compare ordinary FPS separately after the capture finishes. Each request is
+one-shot, with a sequence-checked footer to reject stale or partial transfers.
+
+The headless equivalent (use without an editor also writing debugger commands):
+
+```
+tyrax-editor --profile-frame PROJECT [-o report.csv]
+```
+
+It waits up to 45 seconds for `bin/rendercost.txt` with the matching request
+sequence. The command uses spare bit 7 of the existing debugger protocol;
+regular snapshots and the project format are unchanged. The result is a
+versioned `TXRP 1` header, bounded timing rows and an `END` sequence echo.
+
+![Render-cost capture with a retained baseline](img/debugger-render-cost.png)
+
+Aster hardware tuning uses this report to distinguish portal work from the
+ordinary scene. The optimized engine overlaps next-mesh preparation with VU1,
+uses coarse package bounds, and avoids duplicate first-packet cache writeback.
+These improvements preserve interpolated static vertex colours. The example
+also uses spatial face order, scoped cellar visibility and a smaller ocean grid.

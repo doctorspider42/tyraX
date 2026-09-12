@@ -21,7 +21,7 @@ lighting is a texture and a table; the ray tracing happened on your desktop.
 
 ## Turning it off to see the difference
 
-*Tools > Bake Global Illumination* → untick **Enable baked global
+*Tools > Global Illumination* → untick **Enable baked global
 illumination**, then build. Same geometry, same sun, same sky colours — flat
 ambient shading, no bleed, no shadows beyond the analytic contact term. Tick
 it back on and press **Bake this scene** to get the light back (about 10

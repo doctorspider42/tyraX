@@ -15,7 +15,11 @@ Usage: armvucap.py <projectDir> <flushIndex> [seq]
 import struct, sys, pathlib
 
 MAGIC = 0x43445854
-VERSION = 1
+# Must MATCH the game's CMD_VERSION exactly - live_debug.gen.cpp drops a
+# command whose version it does not know, silently, so a stale number here
+# is a script that reports success and arms nothing. v2 appended the fact
+# overrides; the header this writes is unchanged and still valid.
+VERSION = 2
 FOOTER_XOR = 0x5A5A5A5A
 
 proj = pathlib.Path(sys.argv[1])

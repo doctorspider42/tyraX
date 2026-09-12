@@ -288,6 +288,7 @@ void appendMesh(Scene& s, const std::vector<float>& verts, const float pos[3],
 // areas, decals, mirrors, portals and animated models put nothing into the
 // BVH and emit no light.
 bool contributesToBake(const SceneObject& o) {
+    if (o.collisionMode == 3) return false;
     switch (o.type) {
         case PrimitiveType::Box:
         case PrimitiveType::SavePoint:
@@ -402,6 +403,7 @@ Scene build(const Project& p, const SceneData& sc, const Settings& st) {
         footprints.push_back(fp);
     };
     for (const SceneObject& o : sc.objects) {
+        if (o.collisionMode == 3) continue;
         const size_t tvBefore = s.tree.tv.size();
         const std::string& matRel = albedoMaterial(o);
         const MatInfo& mi = materialInfo(p.dir, matRel, matCache, texCache);

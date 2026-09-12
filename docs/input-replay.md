@@ -89,6 +89,32 @@ poke at whatever the recording arrived at).
 Every line the runtime logs is prefixed `Replay:`, which is the one anchor a
 script or a `grep` over `bin/log.txt` needs.
 
+### Reading a recording without running it
+
+```bash
+tyrax-editor --replay-dump <file.tyrarep>            # the timeline
+tyrax-editor --replay-dump <file.tyrarep> 386 412    # per frame, sticks and all
+```
+
+No PCSX2 and no build: it parses the file and prints what the player DID. The
+summary names every button press and every jump in the fingerprint too big to
+have been walked - a portal hop, a scripted teleport, a collision ejection -
+with the frame number on each, so it lines up directly with the `Portal:` and
+`Pick:` lines the game writes into `bin/log.txt` (see
+[devkit.md](devkit.md#what-the-game-already-logs-about-itself)). The jump test
+is distance, not height: "it moved me to the corner of the same room" is
+horizontal, and a height-only test misses it.
+
+That pairing is the whole debugging loop. A report of "I picked it up and
+something threw me across the room" became, in two commands: the grab is at
+frame 390, and frames 391-407 move 0.75 of a unit each with the stick
+**centred** - which is neither walking nor a teleport, and 0.75 turned out to
+be a constant in the carry code.
+
+With a frame range it switches to the raw per-frame view - both sticks, the
+held buttons and the fingerprint - which is what tells you the stick was
+centred while the player moved.
+
 ## What is reproduced
 
 - **Both pads** — buttons held, click edges, and both analog sticks as raw axis
@@ -106,6 +132,38 @@ script or a `grep` over `bin/log.txt` needs.
   to *a new world every run* asks the console's clock for a seed — the one
   genuinely non-deterministic decision the game makes. It is recorded, so the
   same world regenerates.
+- **Events** (format v2). Not reproduced — *compared*. See below.
+
+## Events: what the GAME did, not what the player pressed
+
+A recording is input plus a light fingerprint, and the fingerprint says only
+where the player ended up. That turns every report into archaeology: "something
+threw me across the room" and a position delta do not name a cause. So the
+frames that matter also carry what the game DID on them:
+
+| Event | Carries |
+| --- | --- |
+| `grabbed object N` | the object picked up |
+| `dropped object N` / `threw object N` | the object released |
+| `lost object N mid-carry` | it was despawned or hidden while carried |
+| `player crossed portal P` | the portal a walker went through |
+| `object N crossed portal P` | a body did |
+
+Five bytes on the frames that have one and nothing on the rest, capped at eight
+per frame. Two things fall out, and both are the point:
+
+- **`--replay-dump` reads them without running anything**, so a session can be
+  understood in a second instead of a PCSX2 boot: the press the player made and
+  the event the game answered with, one line under the other.
+- **A replay compares them**, and a mismatch is reported by name -
+  `Replay: event mismatch at frame 390: 0 raised, 1 expected` followed by both
+  lists - which beats a distance: "the grab did not happen" is a debugging
+  sentence, "pos differs by 0.31" is a puzzle. Order matters and is stable: it
+  is the order the game's own update raises them in.
+
+The kinds are the format: they are appended to, never renumbered. A recording
+made by a newer game prints an unknown kind as its number rather than dropping
+it - a kind this build does not know is a thing to SAY, not to swallow.
 
 ## What is not
 
@@ -121,6 +179,10 @@ script or a `grep` over `bin/log.txt` needs.
 - **A different frame rate.** A 50 Hz recording performed at 60 Hz is a different
   run: every `dt`, every menu repeat and every animation step moves. The game
   refuses it at boot and says so rather than reporting thousands of divergences.
+  `--replay` refuses ahead of the build only when the project's video system is
+  authored (`pal` / `ntsc`); an `auto` project follows the emulator's region,
+  which only the game can measure, so there the game's own check is the one
+  that speaks (an `auto` project on an NTSC BIOS records at 60 Hz).
 - **A build without the keyboard/mouse option** replaying a recording that used
   one. The keys are in the file, and the engine accepts them, but nothing the
   project generated will be reading for them.
@@ -197,6 +259,12 @@ Two things fall out of that framing and both matter:
 - **A file killed mid-write still parses.** Each chunk carries its own CRC, so
   the reader keeps every chunk that checks out and stops at the first that does
   not. Saving canonicalizes what survived.
+
+**Versions.** v1 is input + fingerprint; **v2 adds the per-frame event list**,
+written last in the record so everything before it sits at the same offsets. v1
+files still open - they simply carry no events - because a recording is worth
+keeping next to the bug it reproduces, and that outlives one format revision.
+The game writes whatever version it was built with; the editor reads v1 and v2.
 
 The read path **streams**: one chunk in memory at a time, never the whole file.
 Half an hour of input is ~3.6 MB and the EE's 32 MB is already spoken for by a

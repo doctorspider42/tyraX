@@ -1069,7 +1069,7 @@ void App::rebuildTreePreview() {
     treePreviewDirty_ = false;
 }
 
-// Tools > Bake Global Illumination (docs/global-illumination.md).
+// Tools > Global Illumination (docs/global-illumination.md).
 //
 // The bake is deliberately NOT part of the build: it takes seconds to minutes,
 // and a build that silently re-bakes lighting is a build nobody runs. So this
@@ -2086,7 +2086,7 @@ void App::drawTreeGeneratorWindow() {
         ImGui::SetNextItemWidth(scaled(180.0f));
         if (ImGui::Combo("Tree capture views", &choice, "4 views\0" "8 views\0" "16 views\0"))
             treeImpostorViews_ = 4 << choice;
-        ImGui::Checkbox("Impostor GPU", &impostorGpu_);
+        ImGui::Checkbox("Impostor", &impostorGpu_);
     }
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Selected views on a camera-facing card (2 triangles) beyond six tree heights.\n"

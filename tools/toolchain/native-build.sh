@@ -29,6 +29,46 @@ export PATH="$PS2DEV_ROOT/bin:$PS2DEV_ROOT/ee/bin:$PS2DEV_ROOT/iop/bin:$PS2DEV_R
 
 ENGINE_ROOT="$CACHE_ROOT/tyra"
 ENGINE="$ENGINE_ROOT/engine"
+
+# Drop generated trees, including ones an earlier Docker build owns.
+#
+# Docker Desktop's compiler container writes into the project through a Windows
+# bind mount as uid 0, and WSL keeps that ownership in the file's metadata. The
+# native backend then runs as the normal user and cannot unlink those files -
+# every `rm` fails with "Permission denied" even though the NTFS ACL grants the
+# user full control, and the build dies on the very first clean. Windows itself
+# ignores the WSL metadata, so a Windows-side delete gets rid of them; `make`
+# recreates the trees as the current user afterwards.
+#
+# A dropped tree's own `.gitignore` is put back: bin/.gitignore and
+# obj/.gitignore are COMMITTED (they are what keeps those otherwise-empty
+# directories in git), so wiping the tree left every checkout showing a deleted
+# tracked file until someone noticed and restored it by hand.
+drop_dirs() {
+  local dir win keep
+  for dir in "$@"; do
+    [ -e "$dir" ] || continue
+    keep=
+    if [ -f "$dir/.gitignore" ]; then
+      keep=$(mktemp)
+      cp "$dir/.gitignore" "$keep"
+    fi
+    if ! { rm -rf "$dir" 2>/dev/null && [ ! -e "$dir" ]; }; then
+      if command -v wslpath >/dev/null 2>&1 \
+         && win=$(wslpath -w "$dir" 2>/dev/null) && [ -n "$win" ]; then
+        echo "[editor] ${dir##*/} is owned by an old Docker build - removing it via Windows..."
+        (cd /mnt/c 2>/dev/null || cd /; cmd.exe /c rd /s /q "$win") >/dev/null 2>&1 || true
+      fi
+      [ ! -e "$dir" ] || rm -rf "$dir"  # still there: fail loudly, with the real reason
+    fi
+    if [ -n "$keep" ]; then
+      mkdir -p "$dir"
+      cp "$keep" "$dir/.gitignore"
+      rm -f "$keep"
+    fi
+  done
+}
+
 mkdir -p "$ENGINE" "$PROJECT/bin" "$PROJECT/obj"
 
 TOOLCHAIN_MARKER="$PS2DEV_ROOT/.tyrax-toolchain"
@@ -36,13 +76,13 @@ ENGINE_TOOLCHAIN_MARKER="$ENGINE_ROOT/.tyrax-toolchain"
 if [ ! -f "$ENGINE_TOOLCHAIN_MARKER" ] \
    || ! cmp -s "$TOOLCHAIN_MARKER" "$ENGINE_TOOLCHAIN_MARKER"; then
   echo "[editor] Toolchain changed - rebuilding engine and game objects..."
-  rm -rf "$ENGINE/obj" "$ENGINE/bin" "$PROJECT/obj" "$PROJECT/bin"
+  drop_dirs "$ENGINE/obj" "$ENGINE/bin" "$PROJECT/obj" "$PROJECT/bin"
   cp "$TOOLCHAIN_MARKER" "$ENGINE_TOOLCHAIN_MARKER"
 fi
 
 if [ "$REBUILD" = 1 ]; then
   echo "[editor] Rebuild: dropping native game and engine objects..."
-  rm -rf "$PROJECT/obj" "$PROJECT/bin" "$ENGINE/obj" "$ENGINE/bin"
+  drop_dirs "$PROJECT/obj" "$PROJECT/bin" "$ENGINE/obj" "$ENGINE/bin"
 fi
 
 SYNC_LOG="$CACHE_ROOT/engine-sync.txt"

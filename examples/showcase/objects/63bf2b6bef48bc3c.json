@@ -1,0 +1,1 @@
+{ "id": "63bf2b6bef48bc3c", "name": "district-east", "type": "model", "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "collision": "mesh", "model": "res/aster/district-east.obj", "meshLod": 0 }

@@ -323,7 +323,8 @@ struct SceneObject {
     bool pickThrow = false;   // carried object can be thrown with BTN_THROW
     bool saveState = false;   // position/color/visibility persisted in save slots
     // Player collision: 0 = box (models use their real mesh AABB), 1 = mesh
-    // (models only: per-triangle - ramps/stairs are walkable), 2 = none
+    // (models only: per-triangle - ramps/stairs are walkable), 2 = none,
+    // 3 = invisible wall (Box only): collision without rendered/baked geometry.
     int collisionMode = 0;
     // Streaming layer this object belongs to (SceneData::layers entry name).
     // Empty = no layer: always resident in the game, always shown in the
@@ -857,6 +858,8 @@ struct SceneObject {
     // a room is still a room); dropped by prefab::capture, which must not
     // record where its own members came from.
     std::string prefabSource;
+    // Scene-local, editor-only rigid selection group; empty = independent.
+    std::string editorGroup;
 
     // The note a Comment object carries (docs/comments.md): free text, any
     // length, editor-only. Nothing downstream reads it - not codegen, not a
@@ -1331,7 +1334,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.roadTexture == b.roadTexture &&
            a.vuParams[0] == b.vuParams[0] && a.vuParams[1] == b.vuParams[1] &&
            a.vuParams[2] == b.vuParams[2] && a.vuParams[3] == b.vuParams[3] &&
-           a.prefabSource == b.prefabSource && a.commentText == b.commentText;
+           a.prefabSource == b.prefabSource && a.editorGroup == b.editorGroup &&
+           a.commentText == b.commentText;
 }
 
 // General project preferences (Project > Preferences in the editor).
@@ -1781,7 +1785,7 @@ struct ProjectSettings {
     // directly; it drives the host bake in gibake, whose OUTPUT ships as the
     // scene lightmap's RGB channel plus inc/probe_data.gen.hpp.
     //
-    // The bake is explicit (Tools > Bake Global Illumination) and cached in
+    // The bake is explicit (Tools > Global Illumination) and cached in
     // .res-baked/gi/ - a build never silently re-bakes it. A stale or missing
     // cache simply falls the scene back to the pre-GI emissive-only lighting.
     bool giEnabled = false;

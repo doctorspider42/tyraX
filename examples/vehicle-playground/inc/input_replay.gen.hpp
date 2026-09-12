@@ -12,6 +12,13 @@ namespace inputreplay {
 
 inline void tick(Tyra::Engine*, Tyra::Pad*) {}
 inline unsigned int seed(unsigned int, unsigned int chosen) { return chosen; }
+inline void note(int, int, int) {}
+const int EV_GRAB = 1;
+const int EV_DROP = 2;
+const int EV_THROW = 3;
+const int EV_CARRY_LOST = 4;
+const int EV_PORTAL_PLAYER = 5;
+const int EV_PORTAL_OBJECT = 6;
 
 }  // namespace inputreplay
 }  // namespace Vehicle_playground

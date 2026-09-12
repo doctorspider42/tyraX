@@ -112,35 +112,30 @@ struct MenuData {
   float bgScrollX, bgScrollY, bgSeconds;
 };
 
-constexpr int MENU_COUNT = 3;
+constexpr int MENU_COUNT = 2;
 
 // menu "pause"
 constexpr MenuEntryData MENU_0_ENTRIES[2] = {
-    {0, -1, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},  // Resume
-    {2, -1, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},  // Save Game
-};
-// menu "options"
-constexpr MenuEntryData MENU_1_ENTRIES[5] = {
-    {7, 1, 0.0F, 2, 0, 0, -1, nullptr, -1, -1, -1, -1, 1},  // Fog
-    {7, 2, 0.0F, 2, 2, 0, -1, nullptr, -1, -1, -1, -1, 1},  // Grain
-    {7, 3, 0.0F, 2, 4, 0, -1, nullptr, -1, -1, -1, -1, 1},  // Bloom
-    {7, 4, 0.0F, 2, 6, 0, -1, nullptr, -1, -1, -1, -1, 1},  // Particles
-    {0, -1, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},  // Close
+    {0, -1, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},  // Return to garden
+    {2, -1, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},  // Save expedition
 };
 // menu "save"
-constexpr MenuEntryData MENU_2_ENTRIES[1] = {
+constexpr MenuEntryData MENU_1_ENTRIES[1] = {
     {0, -1, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},
 };
 
 inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {
     {"menus/pause.png", 256, 128, 114, 44, 24, 2, MENU_0_ENTRIES, 0, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, 0, "", 0, 0, 0, "", 0, 2, "", 0, 0, 0, 0, 0, 32.0F, 1, "", 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 1, 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 255, 255, 255, 0, "", 0, 0, 0, 0, 0, 0.0F, 0.0F, 1.0F},  // pause
-    {"menus/options.png", 256, 256, 176, 44, 22, 5, MENU_1_ENTRIES, 0, 0, 0.5F, 0.5F, "menus/options-values.png", 128, 22, 30, 104, 0, "", 0, 0, 0, "", 0, 5, "", 0, 0, 0, 0, 0, 32.0F, 1, "", 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 1, 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 255, 255, 255, 0, "", 0, 0, 0, 0, 0, 0.0F, 0.0F, 1.0F},  // options
-    {"menus/save.png", 256, 256, 138, 44, 24, 0, MENU_2_ENTRIES, 0, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, 0, "", 0, 0, 0, "", 0, 3, "", 0, 0, 0, 0, 0, 32.0F, 1, "", 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 1, 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 255, 255, 255, 0, "", 0, 0, 0, 0, 0, 0.0F, 0.0F, 1.0F},  // save
+    {"menus/save.png", 256, 256, 138, 44, 24, 0, MENU_1_ENTRIES, 0, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, 0, "", 0, 0, 0, "", 0, 3, "", 0, 0, 0, 0, 0, 32.0F, 1, "", 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 1, 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 255, 255, 255, 0, "", 0, 0, 0, 0, 0, 0.0F, 0.0F, 1.0F},  // save
 };
 
 constexpr int TITLE_MENU = -1;
 // The Start button opens/closes this menu in-game (-1 = none)
 constexpr int PAUSE_MENU = 0;
+// The "skip the cutscene?" confirmation screen (-1 = none, and a
+// cutscene set to ask first then skips on the spot instead of
+// swallowing the press - docs/cutscenes.md)
+constexpr int SKIP_MENU = -1;
 // True when any menu carries an "apply video mode" row (action
 // 9): display-mode rows then only stage a selection and that row
 // commits it; without one they switch on change (the classic
