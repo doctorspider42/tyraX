@@ -1,5 +1,6 @@
 ﻿#include "app.hpp"
 #include "app_internal.hpp"
+#include "roadgen.hpp"
 #include "hudanim.hpp"
 
 #include <algorithm>
@@ -976,6 +977,9 @@ void App::drawUI() {
     drawTreeGeneratorWindow();
     drawProceduralWindow();
     drawPrefabsWindow();
+    vehicleTick();
+    vehicleDriveTick();
+    drawVehicleWindow();
     drawTextureAtlasWindow();
     drawWorldFactsWindow();
     drawVuProgramsWindow();
@@ -1748,6 +1752,13 @@ void App::drawMenuBar() {
                     "Reusable groups of objects - a hut, a room, a lamp post\n"
                     "with its light and its script. Stamp them by hand, scatter\n"
                     "them with a procedural graph, or spawn them at runtime.");
+            if (ImGui::MenuItem("Vehicle Editor...")) showVehicles_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Driveable cars. Define one - model, wheels, how it drives -\n"
+                    "and place it in as many scenes as you like. The wheels are\n"
+                    "found in the model by their geometry, so their names in\n"
+                    "Blender do not matter.");
             if (ImGui::MenuItem("Procedural...")) showProcedural_ = true;
             if (ImGui::MenuItem("Terrain Editor...")) showTerrainEditor_ = true;
 
@@ -3185,12 +3196,92 @@ void App::drawViewportWindow() {
             }
         }
 
+        // --- Road preview (docs/roads.md): the SELECTED road's tessellated
+        // edges plus a marker per authored point - the exact strip the game
+        // will build, because it comes from the same roadgen::tessellate the
+        // runtime twin transcribes. Selected-only: a map of roads as
+        // permanent overlays would be noise.
+        for (size_t roi = 0; roi < project_.objects().size(); ++roi) {
+            const SceneObject& ro = project_.objects()[roi];
+            if (ro.type != PrimitiveType::Road || ro.roadPoints.size() < 4)
+                continue;
+            const bool roSel = (int)roi == selectedObject_;
+            auto worldToImage = [&](float wx, float wy, float wz, ImVec2& out) {
+                const float* V = viewport_.viewMatrix();
+                const float* P = viewport_.projMatrix();
+                const float vx = V[0] * wx + V[4] * wy + V[8] * wz + V[12];
+                const float vy = V[1] * wx + V[5] * wy + V[9] * wz + V[13];
+                const float vz = V[2] * wx + V[6] * wy + V[10] * wz + V[14];
+                const float cx = P[0] * vx + P[4] * vy + P[8] * vz + P[12];
+                const float cy = P[1] * vx + P[5] * vy + P[9] * vz + P[13];
+                const float cw = P[3] * vx + P[7] * vy + P[11] * vz + P[15];
+                if (cw <= 0.001f) return false;
+                out = ImVec2(imgPos.x + (cx / cw * 0.5f + 0.5f) * avail.x,
+                             imgPos.y + (1.0f - (cy / cw * 0.5f + 0.5f)) * avail.y);
+                return true;
+            };
+            std::vector<roadgen::Vertex> strip;
+            roadgen::tessellate(
+                ro.roadPoints, ro.roadWidth,
+                [&](float x, float z) { return viewport_.terrainHeight(x, z); },
+                strip);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            // The filled, textured strip is real viewport geometry now. This
+            // overlay owns only the selected road's handles and crisp edges.
+            if (roSel) {
+                const ImU32 edgeCol = IM_COL32(90, 200, 255, 220);
+                const int crossSteps = std::max(
+                    1, (int)std::ceil(std::max(ro.roadWidth, 0.1f) /
+                                      roadgen::kCrossSampleStep));
+                const size_t pairVerts = (size_t)crossSteps * 6;
+                for (size_t row = 0; row + pairVerts <= strip.size();
+                     row += pairVerts) {
+                    ImVec2 a, b;
+                    // First cell's A->D and final cell's B->C are the two
+                    // authored-road borders. Drawing both sides of every
+                    // lateral cell exposed the tessellation as a cyan comb
+                    // once the surface became dense enough to follow relief.
+                    if (worldToImage(strip[row].x, strip[row].y + 0.05f,
+                                     strip[row].z, a) &&
+                        worldToImage(strip[row + 5].x,
+                                     strip[row + 5].y + 0.05f,
+                                     strip[row + 5].z, b))
+                        dl->AddLine(a, b, edgeCol, 2.0f);
+                    const size_t last = row + (size_t)(crossSteps - 1) * 6;
+                    if (worldToImage(strip[last + 1].x,
+                                     strip[last + 1].y + 0.05f,
+                                     strip[last + 1].z, a) &&
+                        worldToImage(strip[last + 2].x,
+                                     strip[last + 2].y + 0.05f,
+                                     strip[last + 2].z, b))
+                        dl->AddLine(a, b, edgeCol, 2.0f);
+                }
+                for (size_t k = 0; k + 1 < ro.roadPoints.size(); k += 2) {
+                    const float px = ro.roadPoints[k], pz = ro.roadPoints[k + 1];
+                    ImVec2 pt;
+                    if (worldToImage(
+                            px, viewport_.terrainHeight(px, pz) + 0.15f, pz,
+                            pt)) {
+                        const float rr = roadEdit_ ? 7.0f : 5.0f;
+                        dl->AddCircleFilled(pt, rr,
+                                            roadEdit_
+                                                ? IM_COL32(255, 130, 40, 245)
+                                                : IM_COL32(255, 220, 60, 235));
+                        dl->AddCircle(pt, rr, IM_COL32(20, 20, 20, 235), 0,
+                                      1.5f);
+                    }
+                }
+            }
+        }
+
         // --- Transform gizmo on the selection (disabled while sculpting;
         // objects on a hidden layer can't be grabbed either) ---
         bool objectSelected = !sculptMode_ && !paintMode_ && !measureMode_ &&
                               !pastePending_ &&
                               selectedObject_ >= 0 &&
                               selectedObject_ < (int)project_.objects().size() &&
+                              project_.objects()[selectedObject_].type !=
+                                  PrimitiveType::Road &&
                               !isObjectHiddenInEditor(project_.objects()[selectedObject_]);
         if (objectSelected) {
             SceneObject& o = project_.objects()[selectedObject_];
@@ -3437,7 +3528,7 @@ void App::drawViewportWindow() {
             // Alt+LMB does) and we're not sculpting.
             const bool lmbCamera = (nav_.scheme == NavScheme::Maya) && alt;
             if (!sculptMode_ && !paintMode_ && !measureMode_ && !pastePending_ &&
-                !lmbCamera && !overAxisGizmo &&
+                !roadEdit_ && !lmbCamera && !overAxisGizmo &&
                 ImGui::IsMouseClicked(ImGuiMouseButton_Left))
                 boxSelecting_ = true;
         }
@@ -3458,6 +3549,112 @@ void App::drawViewportWindow() {
                     commitPastePlacement();
             }
             if (ImGui::IsKeyPressed(ImGuiKey_Escape)) cancelPastePlacement();
+        }
+
+        // --- Road viewport editing (docs/roads.md): append / drag / insert.
+        // Every finished operation is ONE commitChange, so Ctrl+Z peels them
+        // point by point like any other edit.
+        if (roadEdit_) {
+            const bool roadOk =
+                selectedObject_ >= 0 &&
+                selectedObject_ < (int)project_.objects().size() &&
+                project_.objects()[selectedObject_].type == PrimitiveType::Road;
+            if (!roadOk || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+                roadEdit_ = false;
+                roadDragPoint_ = -1;
+            } else if (imageHovered && !gizmoBusy) {
+                SceneObject& ro = project_.objects()[selectedObject_];
+                const float u = (io.MousePos.x - imgPos.x) / avail.x;
+                const float v = (io.MousePos.y - imgPos.y) / avail.y;
+                float ground[3];
+                std::vector<char> skipAll(project_.objects().size(), 1);
+                const bool hit = viewport_.placementRaycast(
+                    u, v, project_.objects(), skipAll, ground);
+                auto toScreen = [&](float wx, float wz, ImVec2& out) {
+                    const float wy = viewport_.terrainHeight(wx, wz) + 0.15f;
+                    const float* V = viewport_.viewMatrix();
+                    const float* P = viewport_.projMatrix();
+                    const float vx = V[0] * wx + V[4] * wy + V[8] * wz + V[12];
+                    const float vy = V[1] * wx + V[5] * wy + V[9] * wz + V[13];
+                    const float vz = V[2] * wx + V[6] * wy + V[10] * wz + V[14];
+                    const float cx = P[0] * vx + P[4] * vy + P[8] * vz + P[12];
+                    const float cyw = P[1] * vx + P[5] * vy + P[9] * vz + P[13];
+                    const float cw = P[3] * vx + P[7] * vy + P[11] * vz + P[15];
+                    if (cw <= 0.001f) return false;
+                    out = ImVec2(imgPos.x + (cx / cw * 0.5f + 0.5f) * avail.x,
+                                 imgPos.y + (1.0f - (cyw / cw * 0.5f + 0.5f)) * avail.y);
+                    return true;
+                };
+                if (roadDragPoint_ >= 0) {
+                    // Dragging: the point follows the ground hit.
+                    if (hit &&
+                        (size_t)roadDragPoint_ * 2 + 1 < ro.roadPoints.size()) {
+                        ro.roadPoints[(size_t)roadDragPoint_ * 2] = ground[0];
+                        ro.roadPoints[(size_t)roadDragPoint_ * 2 + 1] = ground[2];
+                    }
+                    if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+                        roadDragPoint_ = -1;
+                        commitChange();
+                        statusMessage_ = "Road point moved";
+                    }
+                } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && hit) {
+                    const int np = (int)(ro.roadPoints.size() / 2);
+                    // 1) an existing point under the cursor? drag it.
+                    int grab = -1;
+                    for (int i = 0; i < np; ++i) {
+                        ImVec2 pt;
+                        if (!toScreen(ro.roadPoints[(size_t)i * 2],
+                                      ro.roadPoints[(size_t)i * 2 + 1], pt))
+                            continue;
+                        const float dx = pt.x - io.MousePos.x;
+                        const float dy = pt.y - io.MousePos.y;
+                        if (dx * dx + dy * dy < 12.0f * 12.0f) {
+                            grab = i;
+                            break;
+                        }
+                    }
+                    if (grab >= 0) {
+                        roadDragPoint_ = grab;
+                    } else {
+                        // 2) near the LINE? insert there. Sample the spline
+                        // densely in screen space and find the closest station.
+                        int insertSeg = -1;
+                        float bestD = 10.0f * 10.0f;
+                        const int dense = np * 12;
+                        for (int k = 0; k <= dense; ++k) {
+                            float sx, sz;
+                            roadgen::splineAt(ro.roadPoints,
+                                              (float)k / (float)dense, &sx, &sz);
+                            ImVec2 pt;
+                            if (!toScreen(sx, sz, pt)) continue;
+                            const float dx = pt.x - io.MousePos.x;
+                            const float dy = pt.y - io.MousePos.y;
+                            const float d2 = dx * dx + dy * dy;
+                            if (d2 < bestD) {
+                                bestD = d2;
+                                insertSeg =
+                                    (int)((float)k / (float)dense * (np - 1));
+                            }
+                        }
+                        if (insertSeg >= 0) {
+                            const size_t at = (size_t)(insertSeg + 1) * 2;
+                            ro.roadPoints.insert(ro.roadPoints.begin() + at,
+                                                 {ground[0], ground[2]});
+                            ro.roadHeights.clear();
+                            roadDragPoint_ = insertSeg + 1;
+                            statusMessage_ = "Road point inserted";
+                        } else {
+                            // 3) open ground: append.
+                            ro.roadPoints.push_back(ground[0]);
+                            ro.roadPoints.push_back(ground[2]);
+                            ro.roadHeights.clear();
+                            roadDragPoint_ =
+                                (int)(ro.roadPoints.size() / 2) - 1;
+                            statusMessage_ = "Road point added";
+                        }
+                    }
+                }
+            }
         }
 
         // --- Measuring tape: click a point, then a second one. The end
@@ -5017,6 +5214,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "tree") return &showTreeGenerator_;
     if (key == "proc") return &showProcedural_;
     if (key == "prefabs") return &showPrefabs_;
+    if (key == "vehicles") return &showVehicles_;
     if (key == "facts") return &showWorldFacts_;
     if (key == "vu") return &showVuPrograms_;
     if (key == "drone") return &showDroneGenerator_;
@@ -5055,7 +5253,9 @@ static const char* const kLayoutWindowKeys[] = {
     // Project Preferences stopped being a modal in 1.20.0 and became an
     // ordinary window, so it needs the same deterministic open/close every
     // other optional window has.
-    "projectprefs"};
+    "projectprefs",
+    // Tools > Vehicle Editor (docs/vehicles.md).
+    "vehicles"};
 
 // The same keys, for the AI Assistant's open_window tool (chat_ui.cpp). Defined
 // here rather than there because kLayoutWindowKeys is private to this TU, and
@@ -6752,6 +6952,9 @@ void App::pasteObject() {
 
 aobake::ModelAabbFn App::placementModelAabb() {
     return [this](const SceneObject& o, float mn[3], float mx[3]) {
+        // A Vehicle's bounds come from its DEFINITION's baked body, which only
+        // the App can resolve - the viewport knows models, not definitions.
+        if (o.type == PrimitiveType::Vehicle) return vehicleBodyBounds(o, mn, mx);
         return viewport_.modelLocalBounds(o, mn, mx);
     };
 }
@@ -8553,6 +8756,26 @@ void App::drawAddObjectMenu() {
     }
     if (ImGui::BeginMenu("Gameplay")) {
         if (ImGui::MenuItem("Player")) addObject(PrimitiveType::Player);
+        // A driveable car. The object is only the placement - what the vehicle
+        // IS lives in a definition (Tools > Vehicle Editor, docs/vehicles.md),
+        // and a fresh instance adopts the first one so it is never nameless.
+        if (ImGui::MenuItem("Vehicle")) {
+            addObject(PrimitiveType::Vehicle, /*commit=*/false);
+            if (!project_.vehicles.empty())
+                project_.objects().back().vehicleDef = project_.vehicles.front().name;
+            commitChange();
+        }
+        // A spline road (docs/roads.md): points in, terrain-hugging textured
+        // chunks at boot. A fresh one gets three points around the placement
+        // spot so there is something to see and grab immediately.
+        if (ImGui::MenuItem("Road")) {
+            addObject(PrimitiveType::Road, /*commit=*/false);
+            SceneObject& r = project_.objects().back();
+            r.roadPoints = {r.position[0] - 12.0f, r.position[2],
+                            r.position[0],         r.position[2],
+                            r.position[0] + 12.0f, r.position[2]};
+            commitChange();
+        }
         // Linked pair of surfaces: a live view through to the target portal
         // plus a walk-through teleport that carries speed and view angle.
         if (ImGui::MenuItem("Portal")) addPortal();

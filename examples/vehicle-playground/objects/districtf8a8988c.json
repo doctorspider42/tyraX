@@ -1,0 +1,1 @@
+{ "id": "districtf8a8988c", "name": "District night lamp 7", "type": "point-light", "position": [-9, 5.7, -14], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.75, 0.52, 0.23], "physics": false, "light": { "brightness": 1.15, "radius": 16, "dynamic": true, "flicker": 0.025, "spot": true, "spotAngle": 48, "shadowVolumes": 1, "beam": 2 } }

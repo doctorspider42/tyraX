@@ -62,7 +62,7 @@ refl -type sphere -mm 0 0.9 @sky
 ```
 
 The game then re-renders the scene's **sky dome** into a small VRAM texture
-every frame and samples that as the sphere map — reflections follow the live
+every second frame and samples that as the sphere map — reflections follow the live
 sky, including script retints (*Set Sky Color*). The editor viewport
 approximates it with the analytic horizon/zenith gradient.
 
@@ -136,7 +136,12 @@ ugly patches up close. It fades back in as you step away.
   vanished (found on real hardware).
 - The dynamic env map is re-rendered **every second frame** (the GT3 cadence
   — the VRAM target persists, and a 25/30 Hz refresh of a blurry 128 px
-  reflection is imperceptible), halving the pass's per-frame cost.
+  reflection is imperceptible), halving the pass's per-frame cost. The
+  level-forward right/up basis is saved with each target update and reused for
+  the intervening sample; applying a newer camera yaw to an older target makes
+  stationary reflected buildings swim across the material. A scene load marks
+  that basis invalid and forces the next non-split classic view to capture,
+  regardless of the cadence phase.
 
 The editor's GLSL twin lives in the viewport fragment shader (`uReflOn` block)
 — flat normals from screen-space derivatives, the same camera-basis formula.
@@ -158,11 +163,9 @@ The editor's GLSL twin lives in the viewport fragment shader (`uReflOn` block)
   sample correctly.
 - Animated (`.glb`) models and terrain don't take reflections; static
   primitives and `.obj` models do.
-- Dynamic mode reflects the **sky only** — scene geometry (terrain, objects)
-  is not in the env render. The plumbing (`RendererCoreEnvMap::begin/end` +
-  `RendererCore3D::pushEnvView/popEnvView`) supports submitting more bags into
-  the bracket if a project ever wants true GT3 surroundings; it costs frame
-  time per extra pass.
+- Dynamic mode reflects the sky and objects marked **Show in reflections**.
+  Terrain and unmarked scenery are not submitted; each included object costs
+  an additional render in the environment pass.
 - Remaining "pro" idea: smoothed normals for the env pass.
 
 ## Probe aim: reflected ray (Preferences > Rendering)
@@ -217,3 +220,25 @@ map). Off by default (existing projects keep their look).
 - Beware the GIF NLOOP pitfall hit while building this: an A+D giftag whose
   NLOOP undercounts its register writes stalls the GIF forever — the game
   hangs on the loading screen inside `draw_wait_finish()`.
+
+## The vehicle paint pass
+
+A placed vehicle's env bag is drawn with the GS **HIGHLIGHT2** texture function
+and per-frame per-vertex colours - a fresnel rim in the RGB, a white Blinn-Phong
+specular in the alpha (docs/vehicles.md, "A shiny body"). This is gated per
+OBJECT (`vehiclePaintFor`), so every other `refl` material keeps the exact
+MODULATE + constant-FIX look this page describes. The engine hook it rides is
+`StaPipTextureBag::textureFunction` - per-bag TFX, safe on a shared texture
+because TEX0 is re-emitted per bag.
+
+## Dynamic map camera basis (1.85.0)
+
+The shared `@sky` probe renders with a level forward direction. Its sampling
+basis must therefore use world-up, including when a chase camera tilts down.
+Previously the sampler used the viewing camera's pitched up vector: visible
+rear/side faces sampled below the captured horizon and could show only the
+clear colour, despite buildings being present in the environment target.
+The generated runtime now matches the capture basis; the viewport's analytic
+sky approximation uses the same world-up rule. Static image sphere maps retain
+their camera-relative basis, and per-object reflected-ray probes retain their
+own captured basis.

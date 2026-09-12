@@ -1,0 +1,1 @@
+{ "id": "district5d320832", "name": "Traffic signal 9 67", "type": "model", "position": [9, 0, 67], "rotation": [0, 90, 0], "scale": [5, 5, 5], "color": [1, 1, 1], "physics": false, "drawDistance": 145, "castShadow": false, "model": "res/models/urban/detail-light-traffic.obj" }

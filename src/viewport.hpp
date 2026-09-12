@@ -18,6 +18,7 @@
 #include "navmesh.hpp"
 #include "procgen.hpp"
 #include "project.hpp"
+#include "tmdl.hpp"  // vehicles draw from the import bake, not from an asset path
 #include "objparser.hpp"
 
 // 3D preview of the project terrain and scene objects, rendered into an
@@ -948,7 +949,7 @@ private:
     float flashRange_ = 30.0f, flashAngle_ = 20.0f;
     // Spherical environment map (refl) preview - matcap on texture unit 1;
     // "@sky" dynamic mode approximated by the analytic sky gradient
-    int uReflOn_ = -1, uRefl_ = -1, uReflStrength_ = -1;
+    int uReflOn_ = -1, uRefl_ = -1, uReflStrength_ = -1, uPaintFx_ = -1;
     int uReflSkyHorizon_ = -1, uReflSkyTop_ = -1;
     int uReflRounded_ = -1, uReflCenter_ = -1;
     int uEmissive_ = -1;  // Ke floor, premultiplied by the object tint
@@ -1040,6 +1041,18 @@ private:
     Mesh wireCone_;    // unit spot cone: apex origin, base ring at y = -1
     Mesh cameraBody_;     // Camera entity marker (film camera, lens = +Z)
     Mesh cameraFrustum_;  // FOV wedge lines, scaled to the entity's FOV
+    // Roads are real depth-tested viewport geometry, not a translucent ImGui
+    // overlay. The cache follows authored points and the terrain revision so
+    // sculpting under a road rebuilds exactly the strip that moved.
+    struct RoadDraw {
+        Mesh mesh;
+        std::string texture;
+        uint64_t signature = 0;
+    };
+    std::map<std::string, RoadDraw> roadDraws_;  // keyed by stable object id
+    uint64_t roadTerrainRevision_ = 1;
+    void syncRoadDraws(const std::vector<SceneObject>& objects);
+    void clearRoadDraws();
     // Per-detail primitive meshes (Box/Sphere/Cylinder/Cone), built lazily and
     // shared across objects with the same detail. The fixed box_ / sphere_ /
     // cylinder_ / cone_ above stay at the default detail (markers, previews).
@@ -1050,6 +1063,7 @@ private:
     // .obj models split per material (MTL): each part carries its own GL mesh
     // (Kd baked into the vertex colors) and map_Kd texture.
     struct ModelPart {
+        std::string bakedTextureRel;  // vehicle part; resolved at draw time
         Mesh mesh;
         uint32_t tex = 0;  // GL texture from map_Kd (0 = untextured)
         // map_Kd carries transparency: draw this part cutout + blended, the
@@ -1078,6 +1092,42 @@ private:
         float mn[3] = {0, 0, 0};       // model-space AABB (AO occluder shape)
         float mx[3] = {0, 0, 0};
     };
+    // Vehicles (docs/vehicles.md). A vehicle's geometry does not come from an
+    // asset path but from the IMPORT BAKE, which only the App has - so the App
+    // pushes the baked models in (setVehicleDraw) rather than the viewport
+    // resolving anything. That also keeps the preview and the console reading
+    // one bake instead of two: what is drawn here IS what ships.
+    struct VehicleDraw {
+        ModelDraw body;
+        ModelDraw wheel;  // ONE wheel, hub at the origin - drawn four times
+        // The palette's project-relative PATH, not its GL name: texCache_ is
+        // wiped (and its textures deleted) by invalidateAssets, so an id
+        // stored here goes dangling and samples black.
+        std::string palette;
+        float wheelBase = 2.0f, track = 1.4f, wheelRadius = 0.32f;
+        float rideHeight = 0.32f;
+    };
+    std::map<std::string, VehicleDraw> vehicleDraws_;  // by definition NAME
+
+   public:
+    // Publishes one definition's baked geometry. Cheap to call only when a
+    // bake changes - it uploads meshes.
+    // lampPart/lampRearVerts: the body's emissive lamp part and its rear
+    // corner range (docs/vehicles.md) - drawn in the console's lights-off
+    // colours, so the preview shows the car the way it parks.
+    void setVehicleDraw(const std::string& name, const tmdl::Model& body,
+                        const tmdl::Model& wheel, const std::string& paletteRel,
+                        float wheelBase, float track, float wheelRadius,
+                        float rideHeight, int lampPart = -1, int lampRearVerts = 0);
+    void clearVehicleDraws();
+    // World-space bounds of a placed vehicle, body and wheels together - what
+    // a click tests against and what the selection outline wraps.
+    bool vehicleLocalBounds(const SceneObject& o, float mn[3], float mx[3]) const;
+
+   private:
+    ModelDraw uploadTmdl(const tmdl::Model& m, const std::string& paletteRel,
+                         int lampPart = -1, int lampRearVerts = 0);
+
     // keyed by "<modelPath>|<materialPath>" - an .mtl override changes the draw
     std::map<std::string, ModelDraw> modelCache_;
     const ModelDraw* modelDraw(const std::string& relPath,

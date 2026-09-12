@@ -1,0 +1,1 @@
+{ "id": "district29658260", "name": "Night garage blade", "type": "box", "position": [-31, 4.3, -22.7], "rotation": [0, 0, 0], "scale": [0.15, 3.4, 0.15], "color": [1, 1, 1], "physics": false, "collision": "none", "reflected": true, "castShadow": false, "material": "res/materials/night-pink.mtl" }

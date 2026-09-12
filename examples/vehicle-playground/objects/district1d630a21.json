@@ -1,0 +1,1 @@
+{ "id": "district1d630a21", "name": "Rally 04 - test drive", "type": "vehicle", "position": [8, 0.341, -22], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "shadowMode": 3, "vehicle": { "def": "Rally 04", "driveable": true } }

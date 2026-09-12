@@ -133,9 +133,25 @@ while IFS= read -r -d '' wav; do
   rel=${wav#"$PROJECT/res/"}
   out="$PROJECT/bin/${rel%.wav}.adpcm"
   mkdir -p "$(dirname "$out")"
+  loop=0
+  case "$wav" in *-loop.wav) loop=1;; esac
+  stale=0
   if [ ! -e "$out" ] || [ "$wav" -nt "$out" ]; then
-    echo "[editor] adpenc ${wav#"$PROJECT/"}"
-    adpenc "$wav" "$out"
+    stale=1
+  elif [ "$loop" = 1 ]; then
+    # Offset 6 is adpenc's loop byte. Re-encode outputs produced by the first
+    # native backend, which omitted -L and therefore looked fresh forever.
+    loop_byte=$(od -An -tu1 -j6 -N1 "$out" | tr -d '[:space:]')
+    [ "$loop_byte" = 1 ] || stale=1
+  fi
+  if [ "$stale" = 1 ]; then
+    if [ "$loop" = 1 ]; then
+      echo "[editor] adpenc -L ${wav#"$PROJECT/"}"
+      adpenc -L "$wav" "$out"
+    else
+      echo "[editor] adpenc ${wav#"$PROJECT/"}"
+      adpenc "$wav" "$out"
+    fi
   fi
 done < <(find "$PROJECT/res/sfx" -maxdepth 3 -type f -name '*.wav' -print0 2>/dev/null)
 find "$PROJECT/bin/sfx" -maxdepth 3 -type f -name '*.wav' -delete 2>/dev/null || true

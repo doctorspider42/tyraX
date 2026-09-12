@@ -1,0 +1,1 @@
+{ "id": "districtea35147e", "name": "East crest run", "type": "road", "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "roadPoints": [62, -58, 80, -30, 70, 0, 88, 30, 62, 58], "roadWidth": 9, "roadTexture": "res/textures/district-road.png" }

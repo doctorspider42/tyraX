@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <system_error>
 
+#include "input.hpp"
 #include "project.hpp"
 #include "version.hpp"
 
@@ -44,11 +45,44 @@ static std::string check(const std::vector<Migration>& steps) {
     return "";
 }
 
+// v39 -> v40: the vehicle default controls moved (throttle Cross -> R2, now
+// ANALOG through the button's pressure; brake L1 -> L2; nitrous R1 -> Cross).
+// v39 seeded the old defaults into every preset, so a v39 project carries
+// them as data - this rewrites exactly the bindings still AT the old default
+// and leaves anything the author touched alone.
+static bool applyVehControls40(Project& p, std::string& err) {
+    (void)err;
+    struct Move {
+        int role;
+        const char* fromPad;
+        const char* toPad;
+    };
+    static const Move kMoves[] = {
+        {InputAction::RoleVehThrottle, "Cross", "R2"},
+        {InputAction::RoleVehBrake, "L1", "L2"},
+        {InputAction::RoleVehNitrous, "R1", "Cross"},
+    };
+    for (const Move& m : kMoves) {
+        const int idx = p.input.roleIndex(m.role);
+        if (idx < 0) continue;  // the action was deleted - respect that
+        const std::string& name = p.input.actions[idx].name;
+        for (InputPreset& pr : p.input.presets)
+            for (InputBinding& b : pr.bindings)
+                if (b.action == name && b.pad == m.fromPad) b.pad = m.toPad;
+    }
+    return true;
+}
+
 const std::vector<Migration>& all() {
     // Format history. There is no v0 -> v1 step and there cannot be one: the
     // reader no longer parses any pre-v1 shape, so such a file is refused at
     // the version::kMinFormatVersion gate before a step could see it.
-    static const std::vector<Migration> steps = {};
+    static const std::vector<Migration> steps = {
+        {39,
+         "Vehicle default controls move to R2 throttle (analog), L2 brake, "
+         "Cross nitrous - bindings still at the old defaults are updated",
+         applyVehControls40},
+    };
 
     // Checked HERE, at the registry's first use, and not only in run(): the most
     // likely authoring mistake is registering a step and forgetting to bump

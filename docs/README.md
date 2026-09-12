@@ -7,6 +7,10 @@ for people building games with it. Internals live in code comments, the git log
 (commit messages carry what changed and how it was verified) and the
 `.claude/skills/` developer guides. What's queued is in [Backlog](backlog.md).
 
+The [Motor District performance work plan](motor-district-performance-plan.md)
+details the current wheel, road, LOD, reflection and measurement tasks, including
+their ownership and acceptance checks.
+
 **World & objects**
 
 - [Animated models (.glb / .fbx)](animated-models.md) — authoring in Blender, import,
@@ -108,6 +112,8 @@ for people building games with it. Internals live in code comments, the git log
   authored segments forever; the train-window level generator.
 - [Two-player games](multiplayer.md) — shared or split screen, pad-2 hot-join,
   and what the second player costs.
+- [Vehicles](vehicles.md) — driveable cars: one model in, wheels found by
+  geometry, 36 submits merged down to two, and a bicycle-model chassis.
 - [NavMesh + NPC AI](navigation-ai.md) — the host-side navigation bake, A* on
   the EE, and the guard-wiring flow nodes.
 - [Configurable buttons & keys](input-bindings.md) — named actions, binding

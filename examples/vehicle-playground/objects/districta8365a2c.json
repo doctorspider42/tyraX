@@ -1,0 +1,1 @@
+{ "id": "districta8365a2c", "name": "Ring road", "type": "road", "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "roadPoints": [-96, -100, 0, -108, 96, -100, 120, -64, 122, 44, 94, 103, 0, 112, -94, 103, -122, 64, -122, -64, -96, -100], "roadWidth": 13, "roadTexture": "res/textures/district-road.png" }

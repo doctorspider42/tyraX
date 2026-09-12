@@ -309,6 +309,11 @@ add_executable(tyrax-editor
     src/update.cpp
     src/update_ui.cpp
     src/uvunwrap.cpp
+    src/vehbake.cpp
+    src/vehicle_ui.cpp
+    src/roadgen.cpp
+    src/vehcheck.cpp
+    src/vehiclesim.cpp
     src/save_assets.cpp
     src/templates.cpp
     src/viewport.cpp

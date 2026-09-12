@@ -19,6 +19,7 @@
 #include "objparser.hpp"
 #include "placement.hpp"
 #include "primmesh.hpp"
+#include "roadgen.hpp"
 #include "scrollsim.hpp"
 #include <stb_image.h>
 
@@ -255,6 +256,7 @@ uniform vec4 uEmisCol[8];        // rgb = light color, w = brightness
 uniform float uEmisRange[8];     // world units the light reaches
 uniform int uEmisObj[8];         // scene-object index (never lights itself)
 uniform int uReflOn;             // refl pass: 0 off, 1 sphere map, 2 live sky
+uniform int uPaintFx;            // vehicle paint: fresnel rim + white specular
 uniform sampler2D uRefl;         // sphere map, texture unit 1
 uniform float uReflStrength;     // additive gain, 1.0 = full chrome
 uniform vec3 uReflSkyHorizon;    // "@sky" dynamic env: scene sky colors
@@ -788,7 +790,8 @@ vec3 litShade(vec3 base, vec3 wp, vec3 n) {
 // GS interpolate; the editor path computes them per pixel. One formula.
 vec2 envSt(vec3 n) {
     vec3 r = normalize(cross(uFogFwd, vec3(0.0, 1.0, 0.0)));
-    vec3 u = cross(r, uFogFwd);
+    // Dynamic captures use a level probe, even when the viewing camera tilts.
+    vec3 u = uReflOn == 2 ? vec3(0.0, 1.0, 0.0) : cross(r, uFogFwd);
     return vec2(0.5 + 0.5 * dot(n, r), 0.5 - 0.5 * dot(n, u));
 }
 
@@ -845,7 +848,21 @@ void main() {
         vec3 n = uReflRounded != 0
             ? normalize(vWorld - uReflCenter)
             : normalize(cross(dFdx(vWorld), dFdy(vWorld)));
-        color += uReflStrength * envColor(envSt(n));
+        // The vehicle paint pass (docs/vehicles.md): fresnel rim scaling the
+        // reflection + a white Blinn-Phong hot spot, the GLSL twin of the
+        // console's HIGHLIGHT2 env pass in renderEnvPass. Same 0.3 floor,
+        // same fixed key light, same p=8. The PS2-shading GS variant keeps
+        // the plain reflection - stated divergence, not an accident.
+        float pf = 1.0;
+        vec3 pspec = vec3(0.0);
+        if (uPaintFx != 0) {
+            pf = 0.30 + 0.70 * (1.0 - abs(dot(n, uFogFwd)));
+            vec3 h = normalize(vec3(0.35, 0.85, 0.35) - uFogFwd);
+            float sp = max(dot(n, h), 0.0);
+            sp = sp * sp; sp = sp * sp; sp = sp * sp;
+            pspec = vec3(uReflStrength * 220.0 * sp / 128.0);
+        }
+        color += uReflStrength * pf * envColor(envSt(n)) + pspec;
     }
     // Decals carry the texture's alpha (cutout above + blend here), mirror
     // glass a constant opacity; everything else outputs opaque.
@@ -1490,6 +1507,7 @@ void Viewport::querySceneLocations(uint32_t prog) {
     uFlashCut2_ = glGetUniformLocation(prog, "uFlashCut2");
     uFlashSoft_ = glGetUniformLocation(prog, "uFlashSoft");
     uReflOn_ = glGetUniformLocation(prog, "uReflOn");
+    uPaintFx_ = glGetUniformLocation(prog, "uPaintFx");
     uRefl_ = glGetUniformLocation(prog, "uRefl");
     uReflStrength_ = glGetUniformLocation(prog, "uReflStrength");
     uReflSkyHorizon_ = glGetUniformLocation(prog, "uReflSkyHorizon");
@@ -1767,6 +1785,7 @@ void Viewport::shutdown() {
     destroyMesh(wireCone_);
     destroyMesh(cameraBody_);
     destroyMesh(cameraFrustum_);
+    clearRoadDraws();
     destroyMesh(segment_);
     destroyMesh(portalArrow_);
     destroyMesh(scatterMaskMesh_);
@@ -1835,6 +1854,7 @@ void Viewport::setTerrain(const TerrainConfig& terrain, int maxCells,
     heights_ = heights;
     hmW_ = hmW;
     hmD_ = hmD;
+    ++roadTerrainRevision_;
     if (!sameTerrain) {
         float diag =
             (float)(terrain_.width > terrain_.depth ? terrain_.width : terrain_.depth);
@@ -1857,9 +1877,16 @@ float Viewport::terrainHeight(float x, float z) const {
     const int ix = (int)gx, iz = (int)gz;
     const float fx = gx - ix, fz = gz - iz;
     auto h = [&](int a, int b) { return heights_[(size_t)b * hmW_ + a]; };
-    const float top = h(ix, iz) * (1 - fx) + h(ix + 1, iz) * fx;
-    const float bottom = h(ix, iz + 1) * (1 - fx) + h(ix + 1, iz + 1) * fx;
-    return top * (1 - fz) + bottom * fz;
+    // Match buildTerrainChunkMesh's actual diagonal (10 -> 01), rather than
+    // sampling a bilinear saddle that is not the surface on screen. Roads,
+    // wheels, placement and every other ground query must agree with the two
+    // triangles the renderer really draws.
+    if (fx + fz <= 1.0f)
+        return h(ix, iz) + fx * (h(ix + 1, iz) - h(ix, iz)) +
+               fz * (h(ix, iz + 1) - h(ix, iz));
+    return h(ix + 1, iz + 1) +
+           (1.0f - fz) * (h(ix + 1, iz) - h(ix + 1, iz + 1)) +
+           (1.0f - fx) * (h(ix, iz + 1) - h(ix + 1, iz + 1));
 }
 
 const char* Viewport::projectionName(Projection p) {
@@ -2517,6 +2544,7 @@ void Viewport::updateTerrainRegion(const std::vector<float>& heights, float worl
         return;
     }
     heights_ = heights;
+    ++roadTerrainRevision_;
 
     // Cells whose vertices (or shading neighbors: +-1 vertex) the brush
     // circle touched, padded one cell outward, mapped to chunk range.
@@ -2865,6 +2893,15 @@ void Viewport::pickBounds(const SceneObject& o, float mn[3], float mx[3]) {
             if (modelLocalBounds(o, bmn, bmx)) useModel(bmn, bmx);
             break;  // unloadable model draws the placeholder box
         }
+        case PrimitiveType::Vehicle: {
+            // What a click tests is what the car DRAWS - body plus the wheels
+            // that stick out past it. Without this a vehicle's hit box is the
+            // unit cube in the middle of its cabin, which is the single
+            // most-reported "I cannot click my object".
+            float bmn[3], bmx[3];
+            if (vehicleLocalBounds(o, bmn, bmx)) useModel(bmn, bmx);
+            break;  // no definition yet: the placeholder box is what draws
+        }
         case PrimitiveType::Player: {
             // A third-person Player previews as its own avatar model
             // (renderScene's tppAvatar); everything else is the humanoid
@@ -3091,6 +3128,39 @@ void Viewport::pickAll(float u, float v, const std::vector<SceneObject>& objects
         // drawn at all, so they are not clickable either.
         if (!o.procSource.empty()) continue;
 
+        // Roads live in world space and their object transform is only a
+        // legacy authoring anchor. Test the actual tessellated asphalt, not
+        // the tiny unit box at that anchor, so every visible metre is a valid
+        // selection target and the obsolete centre cube cannot steal clicks.
+        if (o.type == PrimitiveType::Road) {
+            std::vector<roadgen::Vertex> strip;
+            roadgen::tessellate(
+                o.roadPoints, o.roadWidth,
+                [&](float x, float z) { return terrainHeight(x, z); }, strip);
+            float best = 1e30f;
+            for (size_t vi = 0; vi + 2 < strip.size(); vi += 3) {
+                const Vec3 a{strip[vi].x, strip[vi].y, strip[vi].z};
+                const Vec3 b{strip[vi + 1].x, strip[vi + 1].y,
+                             strip[vi + 1].z};
+                const Vec3 c{strip[vi + 2].x, strip[vi + 2].y,
+                             strip[vi + 2].z};
+                const Vec3 e1 = sub(b, a), e2 = sub(c, a);
+                const Vec3 p = cross(dir, e2);
+                const float det = dot(e1, p);
+                if (std::fabs(det) < 1e-8f) continue;
+                const Vec3 delta = sub(eye, a);
+                const float bu = dot(delta, p) / det;
+                if (bu < 0.0f || bu > 1.0f) continue;
+                const Vec3 q = cross(delta, e1);
+                const float bv = dot(dir, q) / det;
+                if (bv < 0.0f || bu + bv > 1.0f) continue;
+                const float t = dot(e2, q) / det;
+                if (t > 0.0f && t < best) best = t;
+            }
+            if (best < 1e30f) cands.push_back({(int)i, 0, best});
+            continue;
+        }
+
         float mn[3], mx[3];
         pickBounds(o, mn, mx);
         // Into the object's rotated frame - the rotation is orthonormal, so t
@@ -3175,7 +3245,7 @@ bool Viewport::placementRaycast(float u, float v,
         // An invisible wall draws as a wire box as well, and a prop dropped on
         // top of one would hang in the air in the game.
         if (o.type == PrimitiveType::Area || o.type == PrimitiveType::Scatter ||
-            o.type == PrimitiveType::Comment || !o.procSource.empty() ||
+            o.type == PrimitiveType::Road || o.type == PrimitiveType::Comment || !o.procSource.empty() ||
             (o.type == PrimitiveType::Box && o.collisionMode == 3))
             continue;
         float mn[3], mx[3];
@@ -3901,6 +3971,63 @@ void Viewport::clearModelCache() {
     clearMatPrevModel();  // same disk-derived sources (obj + mtl)
 }
 
+void Viewport::clearRoadDraws() {
+    for (auto& [id, road] : roadDraws_) destroyMesh(road.mesh);
+    roadDraws_.clear();
+}
+
+void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
+    // FNV-1a over the authored shape plus the terrain revision. Float bits are
+    // hashed verbatim: this is a same-process dirtiness key, not a file format.
+    auto mix = [](uint64_t& h, const void* data, size_t size) {
+        const auto* p = static_cast<const unsigned char*>(data);
+        for (size_t i = 0; i < size; ++i) h = (h ^ p[i]) * 1099511628211ULL;
+    };
+    std::map<std::string, bool> alive;
+    for (size_t oi = 0; oi < objects.size(); ++oi) {
+        const SceneObject& o = objects[oi];
+        if (o.type != PrimitiveType::Road || o.roadPoints.size() < 4) continue;
+        const std::string key = o.id.empty() ? ("road-" + std::to_string(oi)) : o.id;
+        alive[key] = true;
+        uint64_t sig = 1469598103934665603ULL;
+        mix(sig, &roadTerrainRevision_, sizeof(roadTerrainRevision_));
+        mix(sig, &o.roadWidth, sizeof(o.roadWidth));
+        if (!o.roadPoints.empty())
+            mix(sig, o.roadPoints.data(), o.roadPoints.size() * sizeof(float));
+        mix(sig, o.roadTexture.data(), o.roadTexture.size());
+        auto it = roadDraws_.find(key);
+        if (it != roadDraws_.end() && it->second.signature == sig) continue;
+
+        std::vector<roadgen::Vertex> strip;
+        roadgen::tessellate(
+            o.roadPoints, o.roadWidth,
+            [&](float x, float z) { return terrainHeight(x, z); }, strip);
+        std::vector<float> interleaved;
+        interleaved.reserve(strip.size() * 8);
+        for (const roadgen::Vertex& v : strip)
+            interleaved.insert(interleaved.end(),
+                               {v.x, v.y, v.z, 1.0f, 1.0f, 1.0f, v.u, v.v});
+        RoadDraw next;
+        next.mesh = uploadMesh(interleaved);
+        next.texture = o.roadTexture;
+        next.signature = sig;
+        if (it != roadDraws_.end()) {
+            destroyMesh(it->second.mesh);
+            it->second = std::move(next);
+        } else {
+            roadDraws_.emplace(key, std::move(next));
+        }
+    }
+    for (auto it = roadDraws_.begin(); it != roadDraws_.end();) {
+        if (alive.find(it->first) != alive.end()) {
+            ++it;
+            continue;
+        }
+        destroyMesh(it->second.mesh);
+        it = roadDraws_.erase(it);
+    }
+}
+
 void Viewport::invalidateAnimatedModels(const std::string& relPath) {
     // Stale, not destroyed: the old bake keeps drawing until the background
     // rebake lands, so an import commit costs no stall and no blink. Keys are
@@ -4276,6 +4403,114 @@ const Viewport::ModelDraw* Viewport::modelDraw(const std::string& relPath,
     }
     modelCache_[key] = draw;
     return modelCache_[key].parts.empty() ? nullptr : &modelCache_[key];
+}
+
+// --- vehicles (docs/vehicles.md) -------------------------------------------
+// A tmdl::Model straight into GL parts. The vertex layout is already the one
+// modelDraw builds - position, normal, uv - so this is the same fold of Kd
+// into the shaded vertex colour, and the merged part's colours arrive through
+// the palette TEXTURE exactly as they will on the console.
+Viewport::ModelDraw Viewport::uploadTmdl(const tmdl::Model& m,
+                                         const std::string& paletteRel,
+                                         int lampPart, int lampRearVerts) {
+    ModelDraw draw;
+    for (int k = 0; k < 3; ++k) draw.mn[k] = m.min[k], draw.mx[k] = m.max[k];
+    for (size_t pi = 0; pi < m.parts.size(); ++pi) {
+        const tmdl::Part& sp = m.parts[pi];
+        // A vehicle's lamp part is painted by the RUNTIME per frame, so its
+        // baked kd says nothing about what the console shows: draw the two
+        // corner ranges in the runtime's own lights-off colours, fullbright
+        // (the generated renderVehicleGlow is the twin - change both).
+        const bool lamps = (int)pi == lampPart;
+        std::vector<float> interleaved;
+        interleaved.reserve(sp.verts.size());
+        for (size_t i = 0; i + 7 < sp.verts.size(); i += 8) {
+            float c[3];
+            if (lamps) {
+                const bool rear = (int)(i / 8) < lampRearVerts;
+                c[0] = rear ? 78.0f / 255.0f : 96.0f / 255.0f;
+                c[1] = rear ? 14.0f / 255.0f : 94.0f / 255.0f;
+                c[2] = rear ? 12.0f / 255.0f : 86.0f / 255.0f;
+            } else {
+                const Vec3 s =
+                    shadeOf({sp.verts[i + 3], sp.verts[i + 4], sp.verts[i + 5]});
+                c[0] = s.x * sp.kd[0], c[1] = s.y * sp.kd[1], c[2] = s.z * sp.kd[2];
+            }
+            interleaved.insert(interleaved.end(),
+                               {sp.verts[i], sp.verts[i + 1], sp.verts[i + 2],
+                                c[0], c[1], c[2], sp.verts[i + 6], sp.verts[i + 7]});
+        }
+        ModelPart part;
+        part.mesh = uploadMesh(interleaved);
+        for (int k = 0; k < 3; ++k) part.ke[k] = lamps ? 0.0f : sp.ke[k];
+        // Reflection travels in the .tmdl part (vehbake's bodyShine writes
+        // refl "@sky"), and the preview must show the same shine the console
+        // draws - the matcap machinery is the model path's, reused.
+        if (!sp.reflTexture.empty()) {
+            part.reflSky = sp.reflTexture == "@sky";
+            // A tmdl carries BIN-relative texture paths ("textures/x.png");
+            // the editor's cache resolves project-relative ones, and the
+            // Makefile's resources step is what maps res/* onto bin/* - so
+            // the inverse mapping here is prepending "res/".
+            if (!part.reflSky) part.reflTex = glTexture("res/" + sp.reflTexture);
+            part.reflStrength = sp.reflStrength;
+            part.reflRounded = sp.reflRounded;
+            const size_t n = sp.verts.size() / 8;
+            for (size_t i = 0; i + 7 < sp.verts.size(); i += 8) {
+                part.centroid[0] += sp.verts[i];
+                part.centroid[1] += sp.verts[i + 1];
+                part.centroid[2] += sp.verts[i + 2];
+            }
+            if (n > 0)
+                for (float& c : part.centroid) c /= (float)n;
+        }
+        if (!sp.texture.empty())
+            part.bakedTextureRel = (std::filesystem::path(paletteRel).parent_path() /
+                                    std::filesystem::path(sp.texture).filename()).generic_string();
+        // The texture is resolved AT DRAW TIME from its path, never cached as a
+        // GL name here: invalidateAssets() wipes texCache_ and DELETES the
+        // texture objects in it (the asset scan calls it whenever anything on
+        // disk moves), so a stored id becomes a dangling handle and every
+        // sampler reading it returns black. That is exactly what happened -
+        // the car rendered pure black against a palette, UVs and .tmdl that
+        // were all provably correct, because the id had been deleted under it.
+        part.tex = 0;
+        draw.parts.push_back(part);
+    }
+    return draw;
+}
+
+void Viewport::setVehicleDraw(const std::string& name, const tmdl::Model& body,
+                              const tmdl::Model& wheel, const std::string& paletteRel,
+                              float wheelBase, float track, float wheelRadius,
+                              float rideHeight, int lampPart, int lampRearVerts) {
+    if (name.empty()) return;
+    VehicleDraw v;
+    v.body = uploadTmdl(body, paletteRel, lampPart, lampRearVerts);
+    v.wheel = uploadTmdl(wheel, paletteRel);
+    v.palette = paletteRel;
+    v.wheelBase = wheelBase;
+    v.track = track;
+    v.wheelRadius = wheelRadius;
+    v.rideHeight = rideHeight;
+    vehicleDraws_[name] = std::move(v);
+}
+
+void Viewport::clearVehicleDraws() { vehicleDraws_.clear(); }
+
+bool Viewport::vehicleLocalBounds(const SceneObject& o, float mn[3], float mx[3]) const {
+    if (o.type != PrimitiveType::Vehicle) return false;
+    auto it = vehicleDraws_.find(o.vehicleDef);
+    if (it == vehicleDraws_.end()) return false;
+    const VehicleDraw& v = it->second;
+    for (int a = 0; a < 3; ++a) mn[a] = v.body.mn[a], mx[a] = v.body.mx[a];
+    // The wheels stand outside the paint on both counts: wider than the body
+    // at the arches, and lower than it at the contact patch. A pick box that
+    // stops at the body is a box you cannot click by aiming at a wheel.
+    mn[0] = std::min(mn[0], -0.5f * v.track - 0.5f * v.wheelRadius);
+    mx[0] = std::max(mx[0], 0.5f * v.track + 0.5f * v.wheelRadius);
+    mn[1] = std::min(mn[1], -v.rideHeight);
+    return true;
 }
 
 // Animated .glb model: bake once (CPU-side clips kept for the playback
@@ -4853,6 +5088,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // Finished background model bakes land here, on the GL thread, before
     // anything draws.
     animBakeCollect();
+    syncRoadDraws(objects);
 
     if (width < 1) width = 1;
     if (height < 1) height = 1;
@@ -5635,6 +5871,29 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                          0.85f, 0.55f);
                 continue;
             }
+            if (o.type == PrimitiveType::Road) {
+                const std::string key = o.id.empty()
+                                            ? ("road-" + std::to_string(oi))
+                                            : o.id;
+                auto ri = roadDraws_.find(key);
+                if (ri != roadDraws_.end()) {
+                    const uint32_t tex = asLines || ri->second.texture.empty()
+                                             ? 0
+                                             : glTexture(ri->second.texture);
+                    ps2Flat = 1;
+                    ps2NoDyn = 1;
+                    aoSelfObj = -1;
+                    aoGroundOn = false;
+                    aoReceive = false;
+                    // scenePass already switches polygon mode for the wire
+                    // pass; keep the triangle primitive so all three edges
+                    // survive instead of pairing arbitrary triangle corners.
+                    draw(ri->second.mesh, GL_TRIANGLES, viewProj, o.color[0],
+                         o.color[1], o.color[2], tex);
+                    ps2NoDyn = 0;  // do not leak the road's static-light mode
+                }
+                continue;
+            }
             aoSelfObj = (int)oi;  // an object never occludes itself
             aoGroundOn = true;
             // models don't receive AO (matches the game - see modelDraw note)
@@ -5721,6 +5980,68 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                     continue;
                 }
                 // unusable .glb falls through to the placeholder box
+            }
+            // A vehicle is TWO draws, and that is the feature: the body under
+            // the object's own matrix, and one wheel mesh repeated at the four
+            // anchors vehiclesim computes. The console does the same thing with
+            // the same numbers (the wheels merged into one bag there), so what
+            // is on screen here is what ships - anchors included.
+            if (o.type == PrimitiveType::Vehicle) {
+                auto vit = vehicleDraws_.find(o.vehicleDef);
+                if (vit != vehicleDraws_.end()) {
+                    const VehicleDraw& vd = vit->second;
+                    // Resolved here, every frame: see uploadTmdl.
+                    auto drawParts = [&](const ModelDraw& md2, const Mat4& mm) {
+                        const Mat4 mvp2 = mul(viewProj, mm);
+                        for (const ModelPart& part : md2.parts) {
+                            for (int a = 0; a < 3; ++a)
+                                emissive[a] =
+                                    asLines ? 0.0f : o.color[a] * tintScale * part.ke[a];
+                            // World centroid for the rounded env normals -
+                            // the model path's own arithmetic.
+                            float c[3] = {0, 0, 0};
+                            if (part.reflRounded) {
+                                const float* m2 = mm.m;
+                                for (int a = 0; a < 3; ++a)
+                                    c[a] = m2[a] * part.centroid[0] +
+                                           m2[a + 4] * part.centroid[1] +
+                                           m2[a + 8] * part.centroid[2] + m2[a + 12];
+                            }
+                            draw(part.mesh, GL_TRIANGLES, mvp2, o.color[0] * tintScale,
+                                 o.color[1] * tintScale, o.color[2] * tintScale,
+                                 asLines || part.bakedTextureRel.empty() ? 0 : glTexture(part.bakedTextureRel),
+                                 lit ? &mm : nullptr, false,
+                                 1.0f, asLines ? 0 : part.reflTex, part.reflStrength,
+                                 asLines ? false : part.reflSky, part.reflRounded, c);
+                        }
+                    };
+                    // The paint pass is vehicles-only, like the console's.
+                    glUniform1i(uPaintFx_, 1);
+                    drawParts(vd.body, model);
+                    // The wheels ride in the vehicle's own frame, so they are
+                    // the object matrix times a local offset - never a second
+                    // world-space computation that could disagree with it.
+                    const float hx = 0.5f * vd.track, hz = 0.5f * vd.wheelBase;
+                    const float local[4][3] = {{-hx, 0.0f, hz},
+                                               {hx, 0.0f, hz},
+                                               {-hx, 0.0f, -hz},
+                                               {hx, 0.0f, -hz}};
+                    for (int w = 0; w < 4; ++w) {
+                        Mat4 wm = model;
+                        // Translate in the object's own basis: m * T(local).
+                        for (int a = 0; a < 3; ++a)
+                            wm.m[12 + a] = model.m[a] * local[w][0] +
+                                           model.m[4 + a] * local[w][1] +
+                                           model.m[8 + a] * local[w][2] +
+                                           model.m[12 + a];
+                        drawParts(vd.wheel, wm);
+                    }
+                    glUniform1i(uPaintFx_, 0);
+                    continue;
+                }
+                // No definition (or none imported yet): fall through to the
+                // placeholder box, so an unresolved vehicle is VISIBLE and
+                // selectable rather than an invisible hole in the scene.
             }
             // .obj models draw one part per MTL material (an assigned .mtl
             // overrides the model's own libraries - same rule as the game)
@@ -6327,6 +6648,10 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     for (const PeerSel& ps : peerSels_) {
         for (int idx : ps.indices) {
             if (idx < 0 || idx >= (int)objects.size() || hiddenAt((size_t)idx)) continue;
+            // A road's selected spline overlay is its outline. Its otherwise
+            // meaningless object transform must not resurrect the old ghost
+            // cube on top of the real strip.
+            if (objects[(size_t)idx].type == PrimitiveType::Road) continue;
             const Mat4 mvp = mul(viewProj, selectionMatrix(objects[idx]));
             draw(wireCube_, GL_LINES, mvp, ps.color[0], ps.color[1], ps.color[2]);
         }
@@ -6337,6 +6662,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // Objects on a hidden layer are skipped (they aren't drawn or picked).
     for (int idx : selection) {
         if (idx < 0 || idx >= (int)objects.size() || hiddenAt((size_t)idx)) continue;
+        if (objects[(size_t)idx].type == PrimitiveType::Road) continue;
         const Mat4 mvp = mul(viewProj, selectionMatrix(objects[idx]));
         if (idx == primary) draw(wireCube_, GL_LINES, mvp, 1.0f, 0.85f, 0.35f);
         else draw(wireCube_, GL_LINES, mvp, 1.0f, 0.6f, 0.1f);

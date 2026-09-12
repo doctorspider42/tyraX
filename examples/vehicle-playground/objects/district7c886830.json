@@ -1,0 +1,1 @@
+{ "id": "district7c886830", "name": "Workshop dumpster -94 -39", "type": "model", "position": [-94, 0, -39], "rotation": [0, 0, 0], "scale": [2, 2, 2], "color": [1, 1, 1], "physics": false, "drawDistance": 145, "castShadow": false, "model": "res/models/urban/detail-dumpster-closed.obj" }

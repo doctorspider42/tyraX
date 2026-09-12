@@ -15,6 +15,7 @@
 #include "procgraph.hpp"
 #include "screenfx.hpp"
 #include "sequence.hpp"
+#include "vehiclesim.hpp"  // DriveSpec - a VehicleDef carries one verbatim
 #include "version.hpp"
 
 struct TerrainConfig {
@@ -150,11 +151,24 @@ enum class PrimitiveType {
     // object INDICES are baked into every generated table and dropping one
     // type from the emitted list would retarget all of them.
     Comment = 20,
+    // Vehicle instance (docs/vehicles.md): a driveable car. The object is only
+    // a PLACEMENT - everything the vehicle is (its model, its wheels, how it
+    // drives) lives in a project-wide VehicleDef the object names in
+    // `vehicleDef`, so one definition can be dropped into as many scenes as
+    // you like and tuned in one place. The editor draws the definition's body
+    // and wheels; the game builds two bags out of it and drives it.
+    Vehicle = 21,
+    // Road (docs/roads.md): a Catmull-Rom spline through authored points,
+    // tessellated into terrain-hugging textured chunks AT BOOT - the object
+    // stores only the points, the width and a texture, so a kilometre of
+    // road costs a handful of floats in the .tyra and ONE tiled texture in
+    // VRAM. The editor can also flatten the terrain to the road's line.
+    Road = 22,
 };
 
 // One past the last PrimitiveType value - loops over "every object type" (the
 // multi-select tally) bound on this instead of a hardcoded member.
-constexpr int kPrimitiveTypeCount = (int)PrimitiveType::Comment + 1;
+constexpr int kPrimitiveTypeCount = (int)PrimitiveType::Road + 1;
 
 // Tessellation detail for the geometry primitives, stored per object in
 // SceneObject::primDetail. Its meaning depends on the shape: for the curved
@@ -752,6 +766,23 @@ struct SceneObject {
     // shipping. Mirrors' reflections and particles still don't show.
     bool portalViewAll = false;
 
+    // Vehicle instance (used when type == Vehicle, docs/vehicles.md): the NAME
+    // of the Project::vehicles definition this is an instance of. Everything
+    // expensive - the model, the wheel table, the driving - belongs to the
+    // definition; an instance carries only its placement and the short list of
+    // overrides below. The split is the whole point: the moment a top speed can
+    // be set in two places, two cars of one name drive differently and nobody
+    // knows which is real.
+    std::string vehicleDef;
+    // AI route: a NAME PREFIX. Codegen collects every object in the scene
+    // whose name starts with it, sorted by name, and bakes their positions as
+    // this instance's waypoint loop - an Area per corner is the natural
+    // authoring (invisible at runtime, no collider). Empty = parked until the
+    // player takes it.
+    std::string vehicleRoute;
+    // Can the player get in? Off makes it scenery that still collides and can
+    // still be driven by a script, which is what parked traffic wants.
+    bool vehicleDriveable = true;
     // Endless scroller parameters (used when type == Scroller). The belt runs
     // along the object's local +Z (its forward, rotated by `rotation`). It
     // tiles `scrollSegments` in order and slides them along the axis at
@@ -808,6 +839,16 @@ struct SceneObject {
     // gizmo moves and resizes it. Evaluated in the editor (procgen), baked to
     // static geometry at build (procbake); nothing of it reaches the PS2.
     ProcGraph procGraph;
+    // Road payload (type Road): the polyline the spline threads, XZ pairs in
+    // world space (the object's own position is cosmetic for roads - points
+    // are absolute, which is what lets "align terrain" mean one thing).
+    std::vector<float> roadPoints;
+    // Per-point LIFT above the terrain (units; empty = all glued flat).
+    // Catmull-Rom interpolated along the spline like the XZ, so a ramp
+    // climbs smoothly between anchors - dunes-jump material.
+    std::vector<float> roadHeights;
+    float roadWidth = 6.0f;
+    std::string roadTexture;  // project texture path; "" = untextured grey
     // Set on the chunk objects a Scatter bake produced: the id of the Scatter
     // object that owns them. They are real scene objects (so codegen,
     // culling, LOD and the disc layout need no special case) but the editor
@@ -988,6 +1029,187 @@ inline bool operator==(const Prefab& a, const Prefab& b) {
 }
 inline bool operator!=(const Prefab& a, const Prefab& b) { return !(a == b); }
 
+// One wheel of a vehicle definition, as the AUTHOR decided it (docs/vehicles.md).
+// Deliberately not the wheel's geometry: the anchor, the radius and the width
+// are re-measured from the model, because they are facts about the asset and
+// storing a copy of a fact is how a definition goes stale against its own file.
+// What is stored is only what a person can disagree with the detector about.
+struct VehicleWheel {
+    // The model node this wheel is. parseSkel uniquifies node names, so this
+    // identifies a wheel across re-imports of an edited model.
+    std::string node;
+    bool steered = false;
+    bool driven = false;
+};
+
+inline bool operator==(const VehicleWheel& a, const VehicleWheel& b) {
+    return a.node == b.node && a.steered == b.steered && a.driven == b.driven;
+}
+inline bool operator!=(const VehicleWheel& a, const VehicleWheel& b) { return !(a == b); }
+
+// A vehicle, defined once per project and placed as many times as you like
+// (docs/vehicles.md). Project-wide like a Prefab or an AmbiencePreset, and
+// referenced BY NAME from SceneObject::vehicleDef.
+//
+// It is project data rather than a file in res/ on purpose: the file route
+// (.mtl, .flownode, .screenfx, .drone) is for things that honour somebody
+// else's format or carry C++, and this is neither. Being a Section buys the
+// collaboration wire, the AI Assistant's get_section/set_section and the
+// sectionJson edit guard with no code of its own.
+struct VehicleDef {
+    // Stable, opaque identity - the collaboration merge key, like Prefab::id.
+    // Every REFERENCE to a vehicle is by name.
+    std::string id;
+    std::string name;
+    std::string notes;
+
+    // The authored model: ONE .glb or .fbx holding the body and the wheels.
+    // An asset path, so it must appear in App::retargetAssetPath.
+    std::string modelPath;
+
+    // Import (see vehbake::Options - these are its authored twin).
+    int bodyTriBudget = 2400;
+    int wheelTriBudget = 700;
+    bool mergeUntextured = true;
+    // Paint shine 0..1: a reflection pass on the baked body's paint (the
+    // matte merge - rubber, near-black trim - is left out, and so are the
+    // wheels). 0 = matte and writes nothing, so an existing definition
+    // resaves byte for byte.
+    float bodyShine = 0.0f;
+    // What the paint mirrors: a res/ image used as a SPHERE MAP, or "" for
+    // the engine's dynamic "@sky" env map. An asset path - it joins
+    // App::retargetAssetPath and rebuildAssetUsage.
+    std::string bodyReflMap;
+    // The panel's answer when the importer could not tell which end is the
+    // nose. Flips the resolved forward axis and nothing else.
+    bool flipFront = false;
+
+    // Per-wheel author overrides, matched to the detection by node name. A
+    // wheel the detector finds and this list does not mention keeps the
+    // detector's seeding (front steers, rear drives).
+    std::vector<VehicleWheel> wheels;
+
+    // How it drives. Carried verbatim rather than flattened, so vehiclesim
+    // stays the one definition of what a vehicle's tuning IS.
+    vehiclesim::DriveSpec drive;
+
+    // The camera while the player is driving. Same rig shape as the
+    // third-person player camera, which is what the spring arm already knows.
+    float camDist = 6.5f;
+    float camHeight = 2.2f;
+    float camPitch = 12.0f;
+
+    // Where the player is put down on getting out, relative to the chassis in
+    // the canonical frame (x = right, y = up, z = forward): the driver's door.
+    float exitOffset[3] = {-1.4f, 0.0f, 0.0f};
+
+    // The distance (world units, camera to car) past which the body swaps to
+    // its far tier - the decimated paint with the wheels baked in, ONE submit
+    // for the whole car - and the wheel bag stops. Twice that reaches the
+    // coarser tier. 0 = never (the wheel bag still stops at 70 units, the
+    // pre-tier rule). Baked into the body row's meshLod at codegen.
+    float farDistance = 40.0f;
+
+    // Lamp clusters, measured off the model's own MATERIALS by the import
+    // (names saying head/tail/brake/lamp/light - docs/vehicles.md, "The
+    // visual pack"): {sideways |x| offset, y, z, half-size}, canonical frame.
+    // size 0 = the model marked no lamps and the runtime falls back to its
+    // shape-blind heuristic positions. This is what makes the glow fit EVERY
+    // body: the material says where the lamps are on THIS shape.
+    float lampRear[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    float lampFront[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    // The emissive lamp PART of the baked body (-1 = none) and the corner
+    // count of its rear range (the front lamps follow it): the runtime
+    // brightens the two ranges' vertex colors per instance - lamps that are
+    // body mesh stick to every shape by construction. Measured by the bake,
+    // never authored (vehbake::adoptMeasured).
+    int lampPart = -1;
+    int lampRearVerts = 0;
+
+    // The engine note (docs/vehicles.md, "Engine sound"). A path into the
+    // project's own sound list, NOT an index: an index would retarget itself
+    // the moment somebody reordered the Sounds panel. It must name a
+    // `*-loop.wav`, because the loop lives in the ENCODED sample (adpenc -L)
+    // and nothing at runtime can make a one-shot repeat. An asset path, so it
+    // belongs in App::retargetAssetPath and App::rebuildAssetUsage.
+    std::string engineSound;
+    // The pitch the sample plays at, as a multiple of its own encoded rate, at
+    // idle and at the redline. The runtime interpolates between them on the
+    // engine speed the powertrain already computes.
+    float enginePitchIdle = 0.75f;
+    float enginePitchRedline = 2.4f;
+    float engineVolume = 70.0f;  // 0..100, audsrv's own scale
+    // The second engine loop, for HIGH revs ("" = single-sample mode, exactly
+    // the behavior above). With one set, the runtime CROSSFADES the two loops
+    // on the engine speed - the era's two-sample engine - both riding the
+    // same authored pitch curve.
+    std::string engineHighSound;
+    // Tyre squeal: a loop whose volume rides DriveState::slip - the same one
+    // number the smoke and the telemetry already read, so they can never
+    // disagree about when a tyre lets go. "" = no squeal.
+    std::string screechSound;
+    // A one-shot played on every gear change while driving. "" = silent.
+    std::string shiftSound;
+    float screechVolume = 80.0f;  // 0..100
+    float shiftVolume = 80.0f;    // 0..100
+    // Headlight pools: two additive beams painted on the terrain ahead.
+    // Off by default - they read as light, so a day map opts in knowingly.
+    bool headlights = false;
+
+    // The driver's readout (docs/vehicles.md, "The HUD"). Off by default, so a
+    // vehicle authored before it existed still shows nothing.
+    bool showHud = false;
+    // A font NAME, like every other font reference in the project ("" = the
+    // default entry). It needs a glyph ATLAS, which is why a vehicle with the
+    // HUD on joins Project::atlasFontIndices().
+    std::string hudFont;
+    // Speed is in world units per second, and a unit is whatever the project
+    // decided it is - so what the number should READ as is an authoring
+    // question, not one this code can answer. 3.6 turns metres per second into
+    // km/h, which is the common case.
+    float hudSpeedScale = 3.6f;
+
+    bool valid() const { return !name.empty(); }
+};
+
+inline bool operator==(const VehicleDef& a, const VehicleDef& b) {
+    if (a.id != b.id || a.name != b.name || a.notes != b.notes ||
+        a.modelPath != b.modelPath || a.bodyTriBudget != b.bodyTriBudget ||
+        a.wheelTriBudget != b.wheelTriBudget || a.mergeUntextured != b.mergeUntextured ||
+        a.bodyShine != b.bodyShine || a.bodyReflMap != b.bodyReflMap ||
+        a.flipFront != b.flipFront || a.wheels != b.wheels || a.camDist != b.camDist ||
+        a.camHeight != b.camHeight || a.camPitch != b.camPitch ||
+        a.engineSound != b.engineSound ||
+        a.enginePitchIdle != b.enginePitchIdle ||
+        a.enginePitchRedline != b.enginePitchRedline ||
+        a.engineVolume != b.engineVolume || a.showHud != b.showHud ||
+        a.engineHighSound != b.engineHighSound ||
+        a.screechSound != b.screechSound || a.shiftSound != b.shiftSound ||
+        a.screechVolume != b.screechVolume || a.shiftVolume != b.shiftVolume ||
+        a.headlights != b.headlights ||
+        a.lampRear[0] != b.lampRear[0] || a.lampRear[1] != b.lampRear[1] ||
+        a.lampRear[2] != b.lampRear[2] || a.lampRear[3] != b.lampRear[3] ||
+        a.lampFront[0] != b.lampFront[0] || a.lampFront[1] != b.lampFront[1] ||
+        a.lampFront[2] != b.lampFront[2] || a.lampFront[3] != b.lampFront[3] ||
+        a.lampPart != b.lampPart || a.lampRearVerts != b.lampRearVerts ||
+        a.hudFont != b.hudFont || a.hudSpeedScale != b.hudSpeedScale ||
+        a.farDistance != b.farDistance)
+        return false;
+    for (int i = 0; i < 3; ++i)
+        if (a.exitOffset[i] != b.exitOffset[i]) return false;
+    // The spec is compared through its own field list, so a tunable added to
+    // DriveSpec joins undo's equality test by appearing in specFields() - the
+    // same single-list rule that makes it saveable.
+    vehiclesim::DriveSpec ca = a.drive, cb = b.drive;
+    const std::vector<vehiclesim::SpecField> fa = vehiclesim::specFields(ca);
+    const std::vector<vehiclesim::SpecField> fb = vehiclesim::specFields(cb);
+    if (fa.size() != fb.size()) return false;
+    for (size_t i = 0; i < fa.size(); ++i)
+        if (*fa[i].value != *fb[i].value) return false;
+    return true;
+}
+inline bool operator!=(const VehicleDef& a, const VehicleDef& b) { return !(a == b); }
+
 const char* primitiveTypeName(PrimitiveType t);
 
 // Animated models are .glb or .fbx files (serialized to .tskl at build);
@@ -1098,6 +1320,9 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.portalShowTerrain == b.portalShowTerrain &&
            a.portalTeleportObjects == b.portalTeleportObjects &&
            a.portalViewAll == b.portalViewAll &&
+           a.vehicleDef == b.vehicleDef &&
+           a.vehicleDriveable == b.vehicleDriveable &&
+           a.vehicleRoute == b.vehicleRoute &&
            a.scrollSegments == b.scrollSegments &&
            a.scrollSpeed == b.scrollSpeed && a.scrollAhead == b.scrollAhead &&
            a.scrollBehind == b.scrollBehind &&
@@ -1112,6 +1337,9 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.modelYawOffset == b.modelYawOffset &&
            a.flowGraph == b.flowGraph && a.scripts == b.scripts &&
            a.procGraph == b.procGraph && a.procSource == b.procSource &&
+           a.roadPoints == b.roadPoints && a.roadHeights == b.roadHeights &&
+           a.roadWidth == b.roadWidth &&
+           a.roadTexture == b.roadTexture &&
            a.vuParams[0] == b.vuParams[0] && a.vuParams[1] == b.vuParams[1] &&
            a.vuParams[2] == b.vuParams[2] && a.vuParams[3] == b.vuParams[3] &&
            a.prefabSource == b.prefabSource && a.editorGroup == b.editorGroup &&
@@ -3473,6 +3701,13 @@ struct Project {
     // part of undo/redo. Members carry transforms LOCAL to the prefab origin.
     std::vector<Prefab> prefabs;
 
+    // Vehicle definitions (Tools > Vehicle Editor, docs/vehicles.md). Defined
+    // once, placed as often as you like: a Vehicle scene object names one of
+    // these. Project-wide like the prefabs above, so - as with them - editing
+    // one dirties the project and syncs to session peers but takes no undo
+    // step, because History carries the scenes alone.
+    std::vector<VehicleDef> vehicles;
+
     // World Facts (Tools > World Facts, docs/world-facts.md): the project's
     // central memory of game state - the declared catalog, the reusable named
     // conditions over it, the rules that react to it and the saved fact sets
@@ -3894,6 +4129,7 @@ enum class Section {
     ModelUnits,      // "modelUnits" (per-model real-world size)
     Input,           // "input" (actions + binding presets)
     Prefabs,         // "prefabs" (reusable object groups)
+    Vehicles,        // "vehicles" (driveable-car definitions)
     VuPrograms,      // "vu" (the project's own VU1 programs and VU0 kernel)
     Facts,           // "facts", "factQueries", "factRules", "factScenarios"
     BlssShots,       // "blssShots" (the neural upscaler's training-shot plan)
@@ -3909,7 +4145,7 @@ enum class Section {
 // static_assert below is the fix that outlives the comment: Section::Count is
 // maintained by the compiler, so the next section to arrive cannot repeat this.
 enum : int { kSectionCount = (int)Section::Count };
-static_assert(kSectionCount == 23,
+static_assert(kSectionCount == 24,
               "A section was added or removed - check that everything which "
               "loops sections by index (save(), the collaboration shadow) "
               "still means what it says, then update this number.");

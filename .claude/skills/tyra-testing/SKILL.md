@@ -177,6 +177,7 @@ TYRAX --chat-prompt [projectDir]     # what the AI Assistant is told (docs/ai-ch
 TYRAX --list-nodes <projectDir>      # what the graph generator is told
 TYRAX --dump-graph <projectDir> <object> [scene]
 TYRAX --apply-graph <projectDir> <object> <g.json> [scene] [--append]
+TYRAX --vehicle-check                # drive-model property tests, exit 0 = pass
 TYRAX --pad <projectDir> "<script>"  # drive the RUNNING game's pad, no focus
 TYRAX --ui-script [projectDir] "<script>"  # drive the EDITOR's own UI, no focus
 TYRAX <projectDir|project.tyra>      # open GUI on a project
@@ -427,6 +428,18 @@ mtime before trusting a run from there.
   a real backend, put a stub `claude.cmd` on PATH that swallows stdin
   (`findstr /r ".*" > nul`) and echoes a graph JSON — the Generator, parser,
   append-merge and save all exercise for real (see PROGRESS 65).
+- **`--refresh-gen` DOES run the vehicle bake** (`vehbake::bakeProject`, the
+  `[vehicle]` lines), unlike texbake: the bake hands measurements BACK to the
+  definition - the emissive `lamps` part index and its rear corner count,
+  `vehbake::adoptMeasured` - and codegen bakes those into `VEHICLE_DEFS`, so a
+  refresh without the bake emits `-1` for a part the next build writes. The
+  Runner runs it before `refreshGenerated` for the same reason. The check for
+  a lamp-material model is one grep: `grep -o '{[^}]*}, {[^}]*}, [0-9-]*,
+  [0-9]*, [0-9-]*, [0-9.]*F}' inc/scene_data.hpp` on the `VEHICLE_DEFS` row
+  reads `..., 2, 60, ...` on the CC96 (part 2, 60 rear corners); the lamp
+  colours on a GS capture then read EXACTLY the runtime's constants
+  ((175,32,24) lit / (78,14,12) off / (255,45,35) braking), which is how the
+  chain was verified.
 - Both `--build` and `--refresh-gen` also run the **procedural bake** first
   (`procbake::bakeAll` - docs/procedural-generation.md): stale Procedural
   volumes are baked into their chunk meshes and the project is saved, printing
@@ -608,6 +621,10 @@ synced into the native cache, `libtyra` rebuilt if changed
 processes killed → `HostFs = true` forced in PCSX2.ini → PCSX2 launched on the
 ELF.
 
+For every `*-loop.wav`, verify byte 6 of the generated `.adpcm` is `1` (for
+example with `od -An -tu1 -j6 -N1`). This is part of native/Docker parity: a
+newer output with byte `0` must be re-encoded with `adpenc -L`, not skipped.
+
 Notes:
 - First-ever build downloads PS2DEV v2.0.0, tests OpenVCL and compiles the
   engine (minutes). Subsequent builds take seconds unless the
@@ -788,6 +805,19 @@ Notes:
   in `~/tyra-projects/<name>` (or the Windows equivalent) instead. If a boot
   produces nothing but `TLB Miss` spam, measure the path before debugging the
   game.
+- **A relative `-elf` path is a different black-screen failure.** PCSX2 may
+  rebase it below the ELF directory, so `examples/foo/bin/foo.elf` becomes
+  `examples/foo/bin/examples/foo/bin/foo.elf`; emulog reports `Denying access`
+  or `Failed to read ELF`, the entry point is `0xFFFFFFFF`, and `bin/log.txt`
+  never appears. The editor launcher resolves an absolute native path before
+  launch; do the same when invoking PCSX2 by hand. Reproduce launcher regressions
+  with `--build ./examples/<name> --run`, deliberately keeping the CLI project
+  path relative, then inspect the running process's `-elf` argument.
+- **Keep the project path relative in one native-backend regression run.** The
+  Runner must resolve it before invoking `native-build`: that helper changes
+  into the project, so forwarding `./examples/foo` verbatim turns it into
+  `examples/foo/examples/foo` and fails before make. `--build ./examples/foo`
+  exercises this seam; an absolute-only test does not.
 - **Docker on Linux runs the container as root**, so a `docker` group that was
   granted in the current login session is not yet active in an already-running
   shell. Either start a fresh session or accept that `docker` needs privilege
@@ -1485,6 +1515,14 @@ Notes:
   `livedbg.bin` stops advancing while the console still answers `ping`. The fix
   is a redeploy (*Run on PS2*, F6), not a retry — and it is why
   `--debug-state` reports the transport.
+
+  A missing first `[ps2]` log line does **not** prove `execee` failed: the UDP
+  command may have reached the console while its tty reply was lost. The Runner
+  waits 15 seconds, reports an unconfirmed launch, and keeps `ps2client` alive.
+  Never "clean up" that timeout by killing the process — doing so removes
+  `host:` from a possibly running game, whose exact symptom is checkerboard
+  text, missing models and silent audio. Use Stop on PS2 explicitly when the
+  console really did not launch.
 
   **A deploy no longer kills anybody else's file server, and the story of why
   is worth keeping.** `deployToPs2`, `stopPs2` and `clean` used to run
@@ -2717,6 +2755,58 @@ GI's shared-context oracle still agreed (0.0022% relative mean error). The mixed
 capture-sector updates without allocation failures. Higher atlas counts consume
 VRAM: the tested mixed scene had about 35 KiB free after moving, with evictions
 during motion, so do not describe larger view counts as free.
+
+## Vehicle terrain stability
+
+Run `--vehicle-check` after changing vehicle contact or transforms. Its bank
+fixture restrains horizontal translation but retains gravity (zero gravity
+would prevent initial clearance from settling). It covers six headings and
+20/25/50/120 Hz, generic-renderer versus wheel-rig orientation including Euler
+singular headings, missing terrain contacts, and alternating 50/8.33 ms steps
+with only a bumper supported. The latter must not generate launch velocity.
+These are host properties, not a PS2 frame-rate measurement: build and drive
+vehicle-playground for runtime validation, and measure wheel-batch changes on
+the console/emulator with an unchanged mesh and camera.
+
+## Motor District and flat-road spans (1.85.0)
+
+The roadgen.cpp / templates.cpp buildRoads twins sample every lateral height,
+then retain the established horizontal collapse, or collapse a non-flat span only
+when every dense sample lies within 0.00001 of an affine 3-D quad. Do not infer planarity from the shoulders: an interior
+crown or saddle must retain its samples. Run examples/vehicle-playground/authoring/verify-road-twins.py
+for a compiled comparison of both actual implementations, then build/drive the
+example. ROADS now logs emitted vertices as well as chunks. The district's
+seven-road network is an EE memory stress case, not just a screenshot fixture.
+
+Textured vehicles: vehbake::Result::textures holds bin-relative names and PNG
+bytes for source images; bakeProject and vehicleRefreshBake both write them.
+The viewport resolves ModelPart::bakedTextureRel per draw, never a cached GL
+name. Palette UV fixup must only visit palette parts (real UV V=-1 is valid).
+A wheel/body image and Kd match permits textured wheels in body distance tiers.
+Use the GGBot GLB in Motor District to check the PNG references, actual in-game
+texture, four detected wheels and the distant wheel silhouette. Rigid nodes
+sharing one material may collapse to one dominant owner during import; the
+example preparation retains one material slot per wheel.
+
+Shared dynamic env sampling must use the LEVEL capture's world-up, not the
+pitched chase camera's up. Static sphere-map images keep the view basis and
+reflected-ray probes keep their own basis. The viewport envSt shader mirrors
+this distinction. To diagnose a reflection, inspect the env target separately
+from the final car: populated target + unchanged car in a scenery hide/show
+comparison is a sampling problem, not proof that the capture failed.
+
+Mixed vehicle definitions keep separate runtime wheel batches so a palette car
+and a textured car never sample through the last vehicle's image. Verify both
+cars together at near range; far tiers carry their own baked wheels.
+
+Wheel batches retain their per-definition position, colour and UV buffers until
+scene unload: PATH1 DMA can still read one definition while the next is being
+prepared. The conservative CPU reject must cover the actual rig (wheel mesh
+radius, track, wheelbase, full suspension travel, steer, spin and body
+attitude), and must use the active camera/frustum plus the body's visibility,
+draw-distance and split-band gates. Check a near/far LOD crossing has neither
+duplicate nor missing wheels, then capture the separate `Wheels` render-cost
+row; it is a diagnostic phase, not a hardware FPS result.
 
 ## Render-cost capture
 

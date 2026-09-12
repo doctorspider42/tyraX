@@ -108,6 +108,32 @@ class AudioAdpcm {
     audsrv_adpcm_set_volume_and_pan(t_ch, t_vol, t_pan);
   }
 
+  /**
+   * Retune a PLAYING voice - the SPU2 pitch register.
+   *
+   * Added by TyraX for vehicle engine sound (docs/vehicles.md): a continuous
+   * note whose pitch tracks the engine speed is one looping sample plus this,
+   * and audsrv has no pitch call of its own. 0x1000 is the rate the sample was
+   * encoded at; the register is 14 bits, so 0x3FFF (~4x) is the ceiling.
+   *
+   * COSTS A BLOCKING IOP RPC (sceSdSetParam -> SifCallRpc with no callback), so
+   * a caller must write it only when the value actually CHANGES rather than
+   * every frame - see the note beside logVoiceState in the .cpp, which is why
+   * reading these registers is debug-only and once per channel.
+   * @param t_ch    Channel (0-47).
+   * @param t_pitch 0x1000 = the sample's own rate. Clamped to 0x3FFF.
+   */
+  void setPitch(const s8& t_ch, const u16& t_pitch);
+
+  /**
+   * The pitch register a freshly loaded sample plays at, i.e. what setPitch
+   * must be measured against. audsrv reports it from the sample's own header.
+   */
+  static u16 naturalPitch(const audsrv_adpcm_t* t_adpcm) {
+    if (!t_adpcm || t_adpcm->pitch <= 0) return 0x1000;
+    return (u16)t_adpcm->pitch;
+  }
+
  private:
   void initAUDSRV();
 };

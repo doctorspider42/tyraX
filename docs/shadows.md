@@ -48,6 +48,20 @@ Picking anything else overrides both, in both directions:
 
 Lights and markers never cast either kind, whatever the mode says.
 
+Vehicles expose the same choice in their **Rendering** section. A projected
+silhouette is intended for the player's car or another hero vehicle; a blob is
+cheap enough to put under every AI traffic car. Both follow the vehicle's live
+runtime transform, so an NPC keeps its shadow while driving its route. Vehicles
+cannot use baked shadow decals: the baker rejects them, and their selector
+offers only runtime modes, including for objects without the generic physics
+flag. Their
+size comes from the imported body's real model bounds rather than the instance's
+unit-cube scale: the blob covers the wheelbase instead of sitting between the
+axles, and the 64x64 projected-shadow camera frames the whole body. The
+projected pass renders the body model; the separately batched near wheels do not
+consume another shadow submit (at distance they are already baked into the body
+LOD).
+
 **Under a GI bake, Default draws no sun silhouette for a static object.** Its
 sun shadow is already in the baked lighting
 ([global-illumination.md](global-illumination.md)), per texel, and the editor
@@ -76,9 +90,9 @@ some object asks for a blob or the preference is on (`BLOB_SHADOWS_USED`) — so
 project that uses neither pays for neither. The blob's alpha mask is the flare
 glow sprite, baked into `res/hud/` when either half wants it.
 
-Four projected casters are active per frame, chosen by distance to the camera,
-so marking everything does not draw everything. Blobs have no such limit; they
-are a quad each.
+Four projected casters are active per frame, ranked by apparent size (distance
+divided by their bounding radius), so marking everything does not draw
+everything. Blobs have no such limit; they are a quad each.
 
 A silhouette also fades out with distance on its own: it is dropped past **50
 units** from the camera and dissolves over the last 15 of them, so backing away

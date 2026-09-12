@@ -1,0 +1,1 @@
+{ "id": "district612b6fd9", "name": "Tower block 12", "type": "model", "position": [32, 0, -82], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "drawDistance": 145, "reflected": true, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

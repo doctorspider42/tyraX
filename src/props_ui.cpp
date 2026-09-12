@@ -8,6 +8,7 @@
 // -------------------------------------------------------------------------
 #include "app.hpp"
 #include "app_internal.hpp"
+#include "roadgen.hpp"
 
 #include <algorithm>
 #include <cfloat>
@@ -85,9 +86,57 @@ static const char* typeLabel(PrimitiveType t) {
         // object to choose the generation mode.
         case PrimitiveType::Scatter: return "Procedural volume";
         case PrimitiveType::Scroller: return "Scroller";
+        case PrimitiveType::Road: return "Road";
+        case PrimitiveType::Vehicle: return "Vehicle";
         case PrimitiveType::Comment: return "Comment";
     }
     return "Object";
+}
+
+// Moving vehicles support runtime shadows; baked decals cannot follow them.
+static bool drawDynamicShadowControls(SceneObject& o) {
+    bool changed = false;
+    const char* shadowNames[] = {"Default (follow the project)", "None",
+                                 "Blob (soft quad)",
+                                 "Projected silhouette"};
+    int mode = o.shadowMode;
+    if (mode < 0 || mode > 3) mode = 0;
+    if (ImGui::Combo("Dynamic shadow", &mode, shadowNames, 4)) {
+        o.shadowMode = mode;
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "What this object casts while the game runs.\n"
+            "DEFAULT - the project decides: a blob under the moving\n"
+            "things (avatar, animated models, physics) if Preferences\n"
+            "has blob shadows on, plus the silhouette below if it is\n"
+            "ticked.\n"
+            "NONE - nothing, whatever the project says.\n"
+            "BLOB - one soft dark quad that follows the ground under\n"
+            "it. Cheap enough for traffic and crowds; it has no shape\n"
+            "of its own.\n"
+            "PROJECTED - the real silhouette: the object renders a\n"
+            "second time each frame (64x64, from the sun). The 4\n"
+            "casters largest on screen are active at a time, so use it\n"
+            "for the player's car and other hero objects.\n"
+            "Game-only (no preview). 'Cast shadow' is the BAKED, static\n"
+            "shadow - a different thing entirely.");
+    // The old flag still means "projected" while the mode follows the
+    // project, so it stays reachable for existing projects.
+    if (o.shadowMode == 0) {
+        if (ImGui::Checkbox("Projected shadow (live)", &o.projShadow))
+            changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "The project-default form of the choice above. Pick\n"
+                "\"Projected silhouette\" in the combo to say it on the\n"
+                "object instead.\n"
+                "With a GI bake a static object's sun shadow is already\n"
+                "baked: the live one then draws only while the day/night\n"
+                "clock runs or under a torch. The combo forces it.");
+    }
+    return changed;
 }
 
 // Area reference picker (docs/areas.md): the scene's Area objects plus
@@ -393,6 +442,61 @@ void App::drawPropertiesWindow() {
                     "then triangles nothing shades.");
         }
     }
+    if (o.type == PrimitiveType::Vehicle) {
+        // An instance names its definition; everything else about the vehicle
+        // lives there (docs/vehicles.md). A dangling name is REPORTED here
+        // rather than repaired, because deleting a definition must not
+        // silently edit scenes.
+        const std::string current = o.vehicleDef.empty() ? "<none>" : o.vehicleDef;
+        if (ImGui::BeginCombo("Vehicle", current.c_str())) {
+            for (size_t i = 0; i < project_.vehicles.size(); ++i) {
+                const std::string& n = project_.vehicles[i].name;
+                // Explicit ##id: a Selectable's LABEL is its ImGui id, and a
+                // definition being renamed can momentarily collide.
+                if (ImGui::Selectable((n + "##vehpick" + std::to_string(i)).c_str(),
+                                      n == o.vehicleDef) &&
+                    n != o.vehicleDef) {
+                    o.vehicleDef = n;
+                    committed = true;
+                }
+            }
+            if (project_.vehicles.empty())
+                ImGui::TextDisabled("None - make one in Tools > Vehicle Editor.");
+            ImGui::EndCombo();
+        }
+        bool known = o.vehicleDef.empty();
+        for (const VehicleDef& v : project_.vehicles)
+            if (v.name == o.vehicleDef) known = true;
+        if (!known) {
+            ImGui::PushStyleColor(ImGuiCol_Text, theme::semantics().danger);
+            ImGui::TextWrapped("No vehicle called \"%s\" - pick another.",
+                               o.vehicleDef.c_str());
+            ImGui::PopStyleColor();
+        }
+        if (ImGui::Checkbox("Player can drive it", &o.vehicleDriveable))
+            committed = true;
+        prefHelp(
+            "Off makes it scenery that still collides and can still be moved by\n"
+            "a script - what parked traffic wants.");
+        {
+            char rt[96];
+            std::snprintf(rt, sizeof(rt), "%s", o.vehicleRoute.c_str());
+            ImGui::SetNextItemWidth(scaled(200));
+            if (ImGui::InputText("AI route prefix", rt, sizeof(rt))) {
+                o.vehicleRoute = rt;
+            }
+            if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
+            prefHelp(
+                "An AI drives this car around every object whose name starts\n"
+                "with this prefix, sorted by name - place Areas as the\n"
+                "corners (invisible, no collider). Empty = parked until the\n"
+                "player takes it. The player taking THIS car pauses its AI.");
+        }
+        ImGui::SeparatorText("Rendering");
+        if (drawDynamicShadowControls(o)) committed = true;
+        ImGui::TextDisabled(
+            "Blob suits traffic; projected silhouette suits the hero car.");
+    }
     if (o.type == PrimitiveType::Model) {
         // model file: pick among the project's res/models assets
         const std::string current = o.modelPath.empty()
@@ -552,6 +656,74 @@ void App::drawPropertiesWindow() {
     // (local +Z); the scroller-specific block (segments, speed) sits below.
     // Scale/color are the marker's own - it has no geometry in the game.
     const bool isScroller = o.type == PrimitiveType::Scroller;
+    const bool isRoad = o.type == PrimitiveType::Road;
+    if (isRoad) {
+        ImGui::TextDisabled(
+            "Road: a spline through the points below, tessellated onto the "
+            "terrain at boot.");
+        ImGui::SetNextItemWidth(scaled(220));
+        ImGui::SliderFloat("Width", &o.roadWidth, 1.0f, 24.0f, "%.1f");
+        prefHelp("Full width of the surface, world units.");
+        {
+            char buf[256];
+            std::snprintf(buf, sizeof(buf), "%s", o.roadTexture.c_str());
+            ImGui::SetNextItemWidth(scaled(300));
+            if (ImGui::InputText("Texture", buf, sizeof(buf)))
+                o.roadTexture = buf;
+            prefHelp(
+                "A project-relative image (e.g. res/textures/road.png), tiled\n"
+                "along the road - one repeat per 4 units, so ONE small texture\n"
+                "carries a street of any length. Empty = untextured grey.");
+        }
+        // The points, world-space XZ. A table, not a gizmo (yet): blunt but
+        // complete - insert after, remove, drag both axes.
+        ImGui::SeparatorText("Points");
+        int removeAt = -1, insertAfter = -1;
+        const int np = (int)(o.roadPoints.size() / 2);
+        for (int i = 0; i < np; ++i) {
+            ImGui::PushID(i);
+            float* px = &o.roadPoints[(size_t)i * 2];
+            ImGui::SetNextItemWidth(scaled(170));
+            ImGui::DragFloat2("##pt", px, 0.25f, 0.0f, 0.0f, "%.1f");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("+")) insertAfter = i;
+            ImGui::SameLine();
+            if (np > 2 && ImGui::SmallButton("-")) removeAt = i;
+            ImGui::PopID();
+        }
+        if (insertAfter >= 0) {
+            // Midway to the next point (or extended past the end).
+            const size_t at = (size_t)(insertAfter + 1) * 2;
+            float nx, nz;
+            if (insertAfter + 1 < np) {
+                nx = 0.5f * (o.roadPoints[at - 2] + o.roadPoints[at]);
+                nz = 0.5f * (o.roadPoints[at - 1] + o.roadPoints[at + 1]);
+            } else {
+                nx = 2.0f * o.roadPoints[at - 2] - o.roadPoints[at - 4];
+                nz = 2.0f * o.roadPoints[at - 1] - o.roadPoints[at - 3];
+            }
+            o.roadPoints.insert(o.roadPoints.begin() + at, {nx, nz});
+            o.roadHeights.clear();
+        }
+        if (removeAt >= 0) {
+            o.roadPoints.erase(o.roadPoints.begin() + (size_t)removeAt * 2,
+                               o.roadPoints.begin() + (size_t)removeAt * 2 + 2);
+            o.roadHeights.clear();
+        }
+        if (ImGui::Button(roadEdit_ ? "Stop editing (Esc)" : "Edit in viewport"))
+            roadEdit_ = !roadEdit_;
+        prefHelp(
+            "Click the ground to APPEND a point, click a point to DRAG it,\n"
+            "click the line between points to INSERT one there. Esc stops.\n"
+            "Every operation is one undo step (Ctrl+Z).");
+        ImGui::SameLine();
+        if (ImGui::Button("Align terrain to road"))
+            alignTerrainToRoad(selectedObject_);
+        prefHelp(
+            "Flattens the heightfield to the road's interpolated line -\n"
+            "the surface under the asphalt becomes the asphalt's own grade,\n"
+            "with a smooth shoulder falloff. Undoable like any edit.");
+    }
     if (isScatter) {
         ImGui::TextDisabled(
             "Procedural region: position and scale are the box the graph fills.");
@@ -2964,4 +3136,96 @@ std::vector<std::string> App::flowVarNames(const std::string& nodeType) const {
                 if (!seen) names.push_back(n.str);
             }
     return names;
+}
+
+
+// Align the terrain to the selected road (docs/roads.md). The GRADE is
+// snapshotted FIRST - the spline's height read off the terrain as it is now,
+// smoothed along the line - and only then flattened toward, so the pass
+// cannot chase its own edits. One undo step, like a brush stroke.
+void App::alignTerrainToRoad(int objIndex) {
+    if (objIndex < 0 || objIndex >= (int)project_.objects().size()) return;
+    SceneObject& o = project_.objects()[objIndex];
+    if (o.type != PrimitiveType::Road || o.roadPoints.size() < 4) return;
+
+    // Dense stations along the spline, ~1 unit apart.
+    float total = 0.0f;
+    for (size_t k = 2; k + 1 < o.roadPoints.size(); k += 2) {
+        const float dx = o.roadPoints[k] - o.roadPoints[k - 2];
+        const float dz = o.roadPoints[k + 1] - o.roadPoints[k - 1];
+        total += std::sqrt(dx * dx + dz * dz);
+    }
+    const int stations = std::max(8, (int)(total / 1.0f));
+    struct St { float x, z, h; };
+    std::vector<St> line((size_t)stations + 1);
+    for (int i = 0; i <= stations; ++i) {
+        St& st = line[(size_t)i];
+        roadgen::splineAt(o.roadPoints, (float)i / (float)stations, &st.x, &st.z);
+        st.h = project::heightAtWorld(project_, st.x, st.z);
+    }
+    // Smooth the grade (a 5-tap box) so the road never inherits a single
+    // cell's spike - the whole point of aligning is a drivable surface.
+    for (int pass = 0; pass < 2; ++pass) {
+        std::vector<float> sm((size_t)stations + 1);
+        for (int i = 0; i <= stations; ++i) {
+            float acc = 0.0f;
+            int n = 0;
+            for (int k = -2; k <= 2; ++k) {
+                const int j = i + k;
+                if (j < 0 || j > stations) continue;
+                acc += line[(size_t)j].h;
+                ++n;
+            }
+            sm[(size_t)i] = acc / (float)n;
+        }
+        for (int i = 0; i <= stations; ++i) line[(size_t)i].h = sm[(size_t)i];
+    }
+    // FLAT under the asphalt, falloff only on the SHOULDERS: the first cut
+    // ran the flatten brush (cosine from the centre) per station, which
+    // crowned the road - the surface must be level across its own width.
+    // Direct heightfield pass: every cell within reach of the line takes the
+    // height of its NEAREST station, full strength inside halfWidth, cosine
+    // out to the shoulder edge.
+    {
+        SceneData& sc = project_.active();
+        if (sc.hmW >= 2 && sc.hmD >= 2) {
+            const float w = (float)sc.terrain.width, d = (float)sc.terrain.depth;
+            const float stepX = w / (sc.hmW - 1), stepZ = d / (sc.hmD - 1);
+            const float halfW = 0.5f * o.roadWidth + 0.4f;
+            const float shoulder = 3.0f;
+            const float reach = halfW + shoulder;
+            for (int z = 0; z < sc.hmD; ++z) {
+                for (int x = 0; x < sc.hmW; ++x) {
+                    const float vx = -w * 0.5f + x * stepX;
+                    const float vz = -d * 0.5f + z * stepZ;
+                    float best = 1e30f;
+                    float bh = 0.0f;
+                    for (const St& st : line) {
+                        const float dx = vx - st.x, dz = vz - st.z;
+                        const float d2 = dx * dx + dz * dz;
+                        if (d2 < best) {
+                            best = d2;
+                            bh = st.h;
+                        }
+                    }
+                    const float dist = std::sqrt(best);
+                    if (dist >= reach) continue;
+                    float k = 1.0f;
+                    if (dist > halfW) {
+                        const float t = (dist - halfW) / shoulder;
+                        k = 0.5f + 0.5f * std::cos(t * 3.14159265f);
+                    }
+                    float& h = sc.heights[(size_t)z * sc.hmW + x];
+                    h += (bh - h) * k;
+                }
+            }
+        }
+    }
+    const float radius = 0.5f * o.roadWidth + 3.0f;  // viewport rebuild reach
+    // Rebuild the viewport terrain under the whole line (region updates per
+    // station - the sculpt brush's own path, so chunk rebuilds stay local).
+    for (const St& st : line)
+        viewport_.updateTerrainRegion(project_.active().heights, st.x, st.z, radius);
+    commitChange();
+    statusMessage_ = "Terrain aligned to the road";
 }

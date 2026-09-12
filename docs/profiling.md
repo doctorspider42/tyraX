@@ -41,6 +41,18 @@ divide tick deltas by 294912 for milliseconds.
 This is enough to answer "is the highlight/particles/scene the problem?". For a
 finer breakdown you drop to the manual technique.
 
+### Shared reflection-probe attribution
+
+**Render cost** captures add `Reflections_shared_probe` when a classic shared
+`@sky` environment target is refreshed. It covers only the 128 x 128 target
+bracket (clear, sky, sky bodies and objects marked **Show in reflections**),
+not the reflective material passes that remain nested in their ordinary
+`Object` rows. It appears only on the cadence frame that actually refreshes
+the target; compare repeated captures from the same frozen camera and report
+both the capture and non-capture frame. The serialized render-cost request
+drains the pipeline, so it is attribution evidence rather than an ordinary FPS
+sample.
+
 ### Cross-material transform reuse (1.86.2)
 
 An imported model normally enters StaPip once per material part even though
@@ -102,7 +114,6 @@ at about 34.3 ms. The candidate ran beyond 2100 frames after a fresh hardware
 boot and produced a correct 448x448 GS capture; PCSX2, `--vu-check`, and the
 static-batched two-player example also passed. This is measured EE/VIF headroom,
 not a claim that every fill-bound scene gains frame rate.
-
 ## The three frame rate counters, and which one to believe
 
 Three surfaces print a frame rate. They measure **three different quantities**,
@@ -1760,6 +1771,8 @@ It waits up to 45 seconds for `bin/rendercost.txt` with the matching request
 sequence. The command uses spare bit 7 of the existing debugger protocol;
 regular snapshots and the project format are unchanged. The result is a
 versioned `TXRP 1` header, bounded timing rows and an `END` sequence echo.
+Stage names are whitespace-free protocol tokens (for example `Shadow_decals`);
+a space in a generated stage name makes the reader reject the entire report.
 
 ![Render-cost capture with a retained baseline](img/debugger-render-cost.png)
 

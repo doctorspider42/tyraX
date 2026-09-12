@@ -1,0 +1,67 @@
+#pragma once
+
+#include <functional>
+#include <vector>
+
+// Roads (docs/roads.md): the spline tessellator.
+//
+// Host-only - no GL, no ImGui, no project.hpp - the vehiclesim shape, and for
+// the same reason: this is the single source of truth for TWO consumers that
+// must never disagree. The editor viewport previews a road through this exact
+// function, and the generated PS2 runtime tessellates the same points at BOOT
+// with its raw-string twin in templates.cpp (buildRoads). CHANGE ONE AND
+// CHANGE BOTH - a road that previews half a metre off its console self is a
+// road nobody can author.
+//
+// The economics this encodes: a road OBJECT is only its points, width and one
+// texture name. All geometry is derived - sampled every ~1 unit along a
+// Catmull-Rom through the points and every ~0.5 unit across its width, every
+// vertex glued to the caller's height function. V runs along the arc length
+// so ONE small texture tiles the whole street. The authored data is still
+// only a few hundred floats per kilometre in the .tyra and one texture in VRAM.
+namespace roadgen {
+
+struct Vertex {
+    float x, y, z;  // world, y projected onto the height function
+    float u, v;     // u 0..1 across the width, v = arc length / texLen
+};
+
+// Ground height under a world XZ (the terrain, on both consumers).
+using HeightFn = std::function<float(float x, float z)>;
+
+// How far apart the spline is sampled, world units. The strip is deliberately
+// denser than the ordinary terrain grid: its triangles may cross a terrain
+// cell's diagonal, so a two-unit chord can still cut through a sharp fold even
+// when both end vertices sit on the rendered ground.
+inline constexpr float kSampleStep = 1.0f;
+// A two-edge strip spans an entire road with one plane. On a terrain cell
+// wider than the strip's lift that plane can pass below the heightfield in
+// the middle, showing grass triangles through the asphalt. Subdivide across
+// the road as well, so the generated surface follows the ground it projects
+// onto rather than merely touching it at both shoulders.
+inline constexpr float kCrossSampleStep = 0.5f;
+// One texture repeat every this many units of road.
+inline constexpr float kTexLen = 4.0f;
+// How far the surface floats above the terrain - enough to never z-fight,
+// low enough that a wheel on the road reads as ON it.
+inline constexpr float kLift = 0.12f;
+
+// Tessellates `pointsXZ` (x0,z0,x1,z1,... - at least 2 points) into a
+// triangle list, three Vertex per triangle, two triangles per longitudinal /
+// lateral cell.
+// Horizontal pairs of rows collapse to one full-width quad after all interior
+// heights have been checked; uneven terrain retains every lateral cell.
+// Endpoints are clamped (the spline passes through the first and last
+// point). Returns the total arc length; `out` is cleared first.
+// `lifts` is retained only for source/format compatibility with the short-lived
+// raised-road authoring pass. It is ignored: roads are terrain decals and every
+// generated vertex is projected onto the height function.
+float tessellate(const std::vector<float>& pointsXZ, float width,
+                 const HeightFn& height, std::vector<Vertex>& out,
+                 const std::vector<float>& lifts = {});
+
+// The spline position alone (for the align-terrain pass and the editor's
+// point handles): world XZ at parameter t in [0, 1] over the whole polyline.
+void splineAt(const std::vector<float>& pointsXZ, float t, float* x, float* z);
+
+}  // namespace roadgen

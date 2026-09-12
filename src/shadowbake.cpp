@@ -189,6 +189,8 @@ std::string quickRefusal(const SceneObject& o) {
     // Everything that can move invalidates a bake the moment it does, and the
     // bake cannot tell afterwards. Say so by name rather than baking a shadow
     // that will be in the wrong place.
+    if (o.type == PrimitiveType::Vehicle)
+        return "it is a vehicle - use a blob or projected silhouette that follows it";
     if (o.physics) return "it is a physics body - a baked shadow cannot follow it";
     if (o.pickable) return "it can be carried - a baked shadow would stay behind";
     if (o.saveState)

@@ -1,0 +1,1 @@
+{ "id": "district3096201d", "name": "Asphalt apron 28 -27", "type": "box", "position": [28, 0.04, -27], "rotation": [0, 0, 0], "scale": [44, 0.2, 36], "color": [1, 1, 1], "physics": false, "collision": "none", "castShadow": false, "material": "res/materials/district-asphalt.mtl" }
