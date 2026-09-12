@@ -52,3 +52,7 @@ bin/replay.arm
 bin/replay.out
 bin/replay.stop
 bin/replay.st
+
+# The baked shadow-decal cache (docs/shadows.md). An explicit bake, like the
+# GI cache above it: no build produces it, so the project ships it.
+!/.res-baked/shadow/

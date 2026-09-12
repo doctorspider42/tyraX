@@ -20925,7 +20925,7 @@ void TerrainGame::renderScene() {
   // now in the frame, so they go after all the opaque geometry and before
   // everything that composites on top of it. One submit per merged group; no
   // per-caster work of any kind (docs/shadows.md).
-  { const u32 ct=costStart(); renderShadowDecals(); costEnd("Shadow decals",-1,ct); }
+  { const u32 ct=costStart(); renderShadowDecals(); costEnd("Shadow_decals",-1,ct); }
   // Mirrors after the whole scene (including the skinned avatars their
   // copies re-use): reflected copies first, glass quads blended over them
   { const u32 ct=costStart(); renderMirrors(); costEnd("Mirrors",-1,ct); }

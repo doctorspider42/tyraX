@@ -27,6 +27,7 @@
 #include "terrain_heights.gen.hpp"
 #include "texture_data.gen.hpp"
 #include "decal_data.gen.hpp"  // baked projected-decal meshes (host-computed)
+#include "shadow_data.gen.hpp"  // baked shadow decals (docs/shadows.md)
 #include "ao_data.gen.hpp"      // ambient-occlusion occluder tables (host-baked)
 #include "daynight.gen.hpp"     // day/night cycle keys (docs/day-night-cycle.md)
 #include "probe_data.gen.hpp"  // baked GI light probes (host-baked, L1 SH)
@@ -5313,6 +5314,9 @@ void TerrainGame::loadScene(int sceneIndex) {
     aoAtlasTexPath = SCENE_AO_ATLAS_PATH;
     aoAtlasTexture = acquireTexture(aoAtlasTexPath);
   }
+  // Baked shadow decals: their atlas pages swap here for the same reason the
+  // lightmaps do, and the geometry comes with them (docs/shadows.md).
+  setupShadowDecals();
 
   // Size the terrain chunk pool for this scene's grid up front (independent
   // of the streamed assets below) so the loading bar's denominator can count
@@ -11475,6 +11479,104 @@ void TerrainGame::updateAndRenderLightPools() {
 // Blob shadows: per-scene setup. A caster is anything that visibly moves -
 // the third-person avatar, animated models, physics objects. (Runtime
 // spawn-pool clones cast none - authored objects only.)
+// Baked shadow decals - the "Baked" dynamic-shadow mode, docs/shadows.md.
+// Everything here was
+// decided on the host: which surfaces the shadow lands on, where its triangles
+// are, which atlas cell each one samples. The console builds one bag per
+// merged group and then only submits it.
+//
+// The whole point of the merge is the submit count - a PS2 static submit costs
+// ~1 ms of fixed EE time whatever it contains (docs/prefabs.md), so sixteen
+// shadows as sixteen bags would be most of a PAL frame. They are one bag
+// because they share one atlas page, and they can share one page because the
+// host folded each tile's rect into the UVs at bake time.
+void TerrainGame::setupShadowDecals() {
+  // Release the previous scene's pages before taking this one's, exactly as
+  // the lightmap swap above does - two scenes' atlases resident at once is a
+  // quarter of the texture heap for no reason.
+  for (ShadowDraw& d : shadowDraws)
+    if (!d.texPath.empty()) releaseTexture(d.texPath);
+  shadowDraws.clear();
+  if (!SHADOW_DECALS_USED) return;
+  const BakedShadowDraw* table = SCENE_SHADOWS;
+  const int count = SCENE_SHADOW_COUNT;
+  if (!table || count <= 0) return;
+
+  if (!shadowInfoBag) {
+    // Alpha-over a BLACK-ish texture is an exact per-pixel darkening, which is
+    // the same trick the scene lightmap's occlusion pass uses - except the
+    // page's RGB carries a tint rather than zero, so the shadow settles toward
+    // the sky colour instead of toward black.
+    shadowInfoBag = std::make_unique<StaPipInfoBag>();
+    shadowInfoBag->model = &model;
+    shadowInfoBag->shadingType = TyraShadingFlat;
+    shadowInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    shadowInfoBag->fullClipChecks = CLIP_PRECISE;
+    shadowInfoBag->blendingEnabled = true;
+    // Never writes z: the shadow sits a hair in front of the surface it
+    // darkens, and anything drawn later must depth-test against THAT surface
+    // rather than against the shadow.
+    shadowInfoBag->zTestType = PipelineZTest_TestOnly;
+    // A dark patch must not be picked up by a dynamic light and drawn bright -
+    // the mistake the blob shadows and the projected patches already pay for.
+    shadowInfoBag->dynLightPick = false;
+    shadowInfoBag->spotLit = false;
+  }
+
+  shadowDraws.resize(count);
+  for (int i = 0; i < count; ++i) {
+    ShadowDraw& d = shadowDraws[i];
+    const BakedShadowDraw& src = table[i];
+    d.layer = src.layer;
+    d.vertices.reserve(src.vertCount);
+    d.sts.reserve(src.vertCount);
+    for (int v = 0; v < src.vertCount; ++v) {
+      const float* f = &src.verts[v * 5];
+      d.vertices.push_back(Vec4(f[0], f[1], f[2], 1.0F));
+      d.sts.push_back(Vec4(f[3], f[4], 1.0F, 0.0F));
+    }
+    // White at full alpha: MODULATE then leaves the page's own RGBA as the
+    // source colour, so the tile alone decides both the tint and how much of
+    // it a texel gets.
+    d.color = Color(128.0F, 128.0F, 128.0F, 128.0F);
+    d.texPath = src.texture;
+    d.texture = acquireTexture(d.texPath);
+    d.colorBag = std::make_unique<StaPipColorBag>();
+    d.texBag = std::make_unique<StaPipTextureBag>();
+    d.bag = std::make_unique<StaPipBag>();
+    d.bag->info = shadowInfoBag.get();
+    d.bag->color = d.colorBag.get();
+    d.bag->texture = d.texBag.get();
+    d.bag->lighting = nullptr;
+    d.bag->count = static_cast<u32>(d.vertices.size());
+    d.bag->bboxVersion = ++g_bboxStamp;
+  }
+  // The bags point INTO the vector's elements, so they are bound once the
+  // vector has stopped moving under them (the setupBlobShadows rule).
+  for (ShadowDraw& d : shadowDraws) {
+    d.colorBag->single = &d.color;
+    d.texBag->texture = d.texture;
+    d.texBag->coordinates = d.sts.data();
+    d.bag->vertices = d.vertices.data();
+  }
+}
+
+// Per frame: one submit per resident group. There is no distance test and no
+// per-caster culling here on purpose - the engine classifies each VU1 package
+// against the frustum on its own bounding box, and the host sorted the merged
+// triangles into world cells precisely so those boxes are small. A shadow off
+// screen costs the classify and nothing else.
+void TerrainGame::renderShadowDecals() {
+  if (shadowDraws.empty()) return;
+  for (ShadowDraw& d : shadowDraws) {
+    if (!d.texture || d.bag->count == 0) continue;
+    // A shadow belongs to its caster's layer, so it streams with it: when the
+    // layer is out, the thing that throws the shadow is gone from the world.
+    if (d.layer >= 0 && !layerOn(d.layer)) continue;
+    stapip.core.render(d.bag.get());
+  }
+}
+
 void TerrainGame::setupBlobShadows() {
   blobShadows.clear();
   if (!BLOB_SHADOWS_USED) return;
@@ -15893,6 +15995,9 @@ static float vehShiftDownFrac(const VehicleDefData& s) {
 void TerrainGame::setupVehicles(int scene) {
   vehicleCount_ = 0;
   vehicleDriver_ = -1;
+  // Source parts are resident only for this scene. Drop every pointer-derived
+  // run/radius now, before loadModelAsset can replace or free its vectors.
+  wheelBatches_.clear();
   for (int i = 0; i < VEHICLE_COUNT; ++i) {
     if (VEHICLES[i].scene != scene) continue;
     VehicleRt& v = vehicles_[vehicleCount_++];
@@ -17504,13 +17609,21 @@ void TerrainGame::renderVehicleWheels() {
   // Distinct definitions can use different palettes or source images. A single
   // shared bag would sample every car's wheel UVs through the last car's image.
   for (int drawDef = 0; drawDef < VEHICLE_DEF_COUNT; ++drawDef) {
-  wheelVerts_.clear();
-  wheelCols_.clear();
-  wheelSts_.clear();
+  if ((int)wheelBatches_.size() <= drawDef)
+    wheelBatches_.resize((size_t)drawDef + 1);
+  WheelBatch& batch = wheelBatches_[(size_t)drawDef];
+  batch.verts.clear();
   const GameModelPart* src = nullptr;
   for (int vi = 0; vi < vehicleCount_; ++vi) {
     VehicleRt& v = vehicles_[vi];
     if (!v.active || v.def != drawDef) continue;
+    // The body obeys this state in the ordinary object loop. Its separately
+    // submitted wheels must obey it too or a hidden car leaves four ghosts.
+    if (v.object < 0 || v.object >= (int)runtimeObjects.size() ||
+        !runtimeObjects[v.object].active || !runtimeObjects[v.object].visible)
+      continue;
+    if (beyondDrawDistance(runtimeObjects[v.object].data, cameraPosition))
+      continue;
     const VehicleDefData& s = VEHICLE_DEFS[v.def];
     const int wm = s.wheelModel;
     if (wm < 0 || wm >= (int)gameModels.size() || gameModels[wm].parts.empty())
@@ -17532,8 +17645,40 @@ void TerrainGame::renderVehicleWheels() {
       const float ddz = v.pos[2] - cameraPosition.z;
       if (ddx * ddx + ddz * ddz > 70.0F * 70.0F) continue;
     }
-    src = &part;
+    // Reject before any trig or vertex work. The AABB encloses a sphere around
+    // the whole rig: arbitrary body pitch/roll, wheel spin/steer and every
+    // permitted suspension position fit it. A false positive only takes the
+    // old path; a false negative would visibly pop a tyre.
+    if (batch.localRadius < 0.0F) {
+      batch.localRadius = 0.0F;
+      for (size_t q = 0; q + 2 < part.verts.size(); q += 8) {
+        const float r = sqrtf(part.verts[q] * part.verts[q] +
+                              part.verts[q + 1] * part.verts[q + 1] +
+                              part.verts[q + 2] * part.verts[q + 2]);
+        if (r > batch.localRadius) batch.localRadius = r;
+      }
+    }
     const float SC = v.scale;
+    const float rig = sqrtf(0.25F * (s.track * s.track +
+                                     s.wheelBase * s.wheelBase)) +
+                      batch.localRadius + 0.45F * s.suspensionTravel;
+    const float extent = rig * SC;
+    const Tyra::Vec4 mn(v.pos[0] - extent, v.pos[1] - extent,
+                        v.pos[2] - extent, 1.0F);
+    const Tyra::Vec4 mx(v.pos[0] + extent, v.pos[1] + extent,
+                        v.pos[2] + extent, 1.0F);
+    if (Tyra::CoreBBox::frustumCheckAABB(
+            engine->renderer.core.renderer3D.frustumPlanes.getAll(), mn, mx) ==
+        Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
+      continue;
+    // Split-screen's crop is stricter than the renderer frustum. Match the
+    // body pass so a wheel batch cannot survive in the other half's band.
+    if (splitBandActive) {
+      const float bmn[3] = {mn.x, mn.y, mn.z};
+      const float bmx[3] = {mx.x, mx.y, mx.z};
+      if (outsideSplitBand(bmn, bmx)) continue;
+    }
+    src = &part;
     const float hx = 0.5F * s.track * SC, hz = 0.5F * s.wheelBase * SC;
     const float lx[4] = {-hx, hx, -hx, hx};
     const float lz[4] = {hz, hz, -hz, -hz};
@@ -17579,18 +17724,33 @@ void TerrainGame::renderVehicleWheels() {
       const u32 nv = (u32)(part.verts.size() / 8);
       for (u32 i = 0; i < nv; ++i) {
         const float* q = &part.verts[(size_t)i * 8];
-        wheelVerts_.push_back(Tyra::Vec4(
+        batch.verts.push_back(Tyra::Vec4(
             ax + bx.x * q[0] + by.x * q[1] + bz.x * q[2],
             ay + bx.y * q[0] + by.y * q[1] + bz.y * q[2],
             az + bx.z * q[0] + by.z * q[1] + bz.z * q[2]));
-        // Flat mid grey: the wheel's colour comes from its palette TEXEL,
-        // and 128 is the modulate identity the textured path expects.
-        wheelCols_.push_back(Tyra::Color(128.0F, 128.0F, 128.0F, 128.0F));
-        wheelSts_.push_back(Tyra::Vec4(q[6], q[7], 1.0F, 0.0F));
       }
     }
   }
-  if (wheelVerts_.empty() || !src) continue;
+  if (batch.verts.empty() || !src) continue;
+  const u32 vertsPerCar = (u32)(src->verts.size() / 8) * 4;
+  const int cars = vertsPerCar > 0 ? (int)(batch.verts.size() / vertsPerCar) : 0;
+  if (batch.vertsPerCar != vertsPerCar) {
+    batch.vertsPerCar = vertsPerCar;
+    batch.staticCars = 0;
+    batch.cols.clear();
+    batch.sts.clear();
+  }
+  while (batch.staticCars < cars) {
+    for (int w = 0; w < 4; ++w)
+      for (u32 i = 0; i < vertsPerCar / 4; ++i) {
+        const float* q = &src->verts[(size_t)i * 8];
+        // Flat mid grey: the wheel's colour comes from its palette TEXEL,
+        // and 128 is the modulate identity the textured path expects.
+        batch.cols.push_back(Tyra::Color(128.0F, 128.0F, 128.0F, 128.0F));
+        batch.sts.push_back(Tyra::Vec4(q[6], q[7], 1.0F, 0.0F));
+      }
+    ++batch.staticCars;
+  }
   if (!wheelBag_) {
     wheelColorBag_ = std::make_unique<Tyra::StaPipColorBag>();
     wheelBag_ = std::make_unique<Tyra::StaPipBag>();
@@ -17598,14 +17758,14 @@ void TerrainGame::renderVehicleWheels() {
     wheelBag_->lighting = nullptr;
   }
   wheelBag_->info = batchInfoBag.get();
-  wheelColorBag_->many = wheelCols_.data();
-  wheelBag_->vertices = wheelVerts_.data();
-  wheelBag_->count = static_cast<u32>(wheelVerts_.size());
+  wheelColorBag_->many = batch.cols.data();
+  wheelBag_->vertices = batch.verts.data();
+  wheelBag_->count = static_cast<u32>(batch.verts.size());
   wheelBag_->bboxVersion = ++g_bboxStamp;
-  if (src->texture && wheelSts_.size() == wheelVerts_.size()) {
+  if (src->texture && batch.sts.size() >= batch.verts.size()) {
     if (!wheelTexBag_) wheelTexBag_ = std::make_unique<Tyra::StaPipTextureBag>();
     wheelTexBag_->texture = const_cast<Tyra::Texture*>(src->texture);
-    wheelTexBag_->coordinates = wheelSts_.data();
+    wheelTexBag_->coordinates = batch.sts.data();
     wheelBag_->texture = wheelTexBag_.get();
   } else {
     wheelBag_->texture = nullptr;
@@ -17727,15 +17887,47 @@ void TerrainGame::buildRoads(int scene) {
           // stitch, emitted station by station so a chunk boundary never
           // leaves a gap (the previous row is re-used as the base).
           const Tyra::Color grey(128.0F, 128.0F, 128.0F, 128.0F);
-          // Flat-road reduction: the roadgen.cpp twin. Inspect every sampled
-          // interior height, not just the shoulders (crowns must stay dense).
+          // Exact full-width reduction: every dense sample must lie on the
+          // proposed quad plane.  This keeps sloped terrain triangles cheap
+          // without flattening crowns or saddles (the roadgen.cpp twin).
+          const float ux = px0[(size_t)crossSteps] - px0[0];
+          const float uy = py0[(size_t)crossSteps] - py0[0];
+          const float uz = pz0[(size_t)crossSteps] - pz0[0];
+          const float vx = nx[0] - px0[0], vy = ny[0] - py0[0], vz = nz[0] - pz0[0];
+          const float pnx = uy * vz - uz * vy;
+          const float pny = uz * vx - ux * vz;
+          const float pnz = ux * vy - uy * vx;
+          const float pnl = sqrtf(pnx * pnx + pny * pny + pnz * pnz);
+          // Keep the long-standing horizontal reduction, including curved
+          // spans, as the roadgen.cpp twin does.
           bool flat = true;
-          const float rowY = py0[0];
-          for (int j = 0; j <= crossSteps; ++j)
-            if (fabsf(py0[(size_t)j] - rowY) > 0.00001F ||
-                fabsf(ny[(size_t)j] - rowY) > 0.00001F)
-              flat = false;
-          const int stride = flat ? crossSteps : 1;
+          const float flatY = py0[0];
+          for (int r = 0; r < 2; ++r)
+            for (int j = 0; j <= crossSteps; ++j) {
+              const float qy = r ? ny[(size_t)j] : py0[(size_t)j];
+              if (fabsf(qy - flatY) > 0.00001F) { flat = false; break; }
+            }
+          // Coplanarity alone does not preserve interpolated ST on a curved
+          // quad. Require the affine parallelogram that roadgen.cpp checks.
+          const float qax = (px0[(size_t)crossSteps] - px0[0]) -
+                            (nx[(size_t)crossSteps] - nx[0]);
+          const float qay = (py0[(size_t)crossSteps] - py0[0]) -
+                            (ny[(size_t)crossSteps] - ny[0]);
+          const float qaz = (pz0[(size_t)crossSteps] - pz0[0]) -
+                            (nz[(size_t)crossSteps] - nz[0]);
+          bool planar = pnl > 1e-6F &&
+                        sqrtf(qax * qax + qay * qay + qaz * qaz) <= 0.00001F;
+          for (int r = 0; planar && r < 2; ++r)
+            for (int j = 0; j <= crossSteps; ++j) {
+              const float qx = r ? nx[(size_t)j] : px0[(size_t)j];
+              const float qy = r ? ny[(size_t)j] : py0[(size_t)j];
+              const float qz = r ? nz[(size_t)j] : pz0[(size_t)j];
+              const float dist = fabsf(pnx * (qx - px0[0]) +
+                                       pny * (qy - py0[0]) +
+                                       pnz * (qz - pz0[0])) / pnl;
+              if (dist > 0.00001F) { planar = false; break; }
+            }
+          const int stride = (flat || planar) ? crossSteps : 1;
           // Amortize EE bag/bounds work on flat streets, without making dense
           // slopes unbounded or joining a whole road into one culling box.
           const size_t spanVertices = (size_t)(crossSteps / stride) * 6;
@@ -18912,6 +19104,18 @@ void TerrainGame::renderScene() {
   // a blurry 128px reflection is imperceptible while the pass costs a
   // couple of ms per hit on real hardware.
   static bool envMapTick = false;  // first frame MUST render (fresh VRAM)
+  // The shared target is intentionally retained between its 25/30 Hz
+  // captures. Its ST basis must be retained with it: applying this frame's
+  // yaw to a target captured at the previous yaw makes stationary scenery
+  // swim across paint while the player turns. This is only the classic shared
+  // level-forward target; reflected-ray probes own their per-object basis.
+  static V3 sharedEnvRight = {1.0F, 0.0F, 0.0F};
+  static unsigned int sharedEnvGeneration = ~0u;
+  static bool sharedEnvBasisValid = false;
+  if (sharedEnvGeneration != sceneGeneration) {
+    sharedEnvGeneration = sceneGeneration;
+    sharedEnvBasisValid = false;  // scene load means target contents changed
+  }
   envMapTick = !envMapTick;
   // Not inside a split half: the env bracket's end() restores a full-screen
   // raster, which would undo the half's scissor/offset. Reflections keep the
@@ -18920,7 +19124,8 @@ void TerrainGame::renderScene() {
   // object draws (renderObjectProbe) - this shared pass covers only the
   // classic level-forward aim.
   if (!ENV_PROBE_REFLECTED && g_dynamicEnvUsers > 0 && skyDome.bag &&
-      envMapTick && !splitPassActive) {
+      (envMapTick || !sharedEnvBasisValid) && !splitPassActive) {
+    const u32 costSharedEnvStart = costStart();
     auto& core = engine->renderer.core;
     // Level forward: keeps the sphere map's horizon on its center line.
     V3 lvl = {envFwd.x, 0.0F, envFwd.z};
@@ -18977,6 +19182,13 @@ void TerrainGame::renderScene() {
     }
     core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
     core.envMap.end();
+    // Store the basis that produced this exact texture, after end() has
+    // completed the target update. The target's camera is level by design.
+    sharedEnvRight = {-lvl.z, 0.0F, lvl.x};
+    sharedEnvBasisValid = true;
+    // Deliberately a standalone phase: it is the shared target render, not
+    // the later per-object sampling passes nested inside Objects.
+    costEnd("Reflections_shared_probe", -1, costSharedEnvStart);
   }
 
   // Camera texture feed: its own VRAM target, so order only matters
@@ -19033,8 +19245,6 @@ void TerrainGame::renderScene() {
   // same deal one step further: the game built these bags itself, so they need
   // no per-object bookkeeping at all, only a distance test and a submit.
   { const u32 ct=costStart(); renderProcChunks(); costEnd("Procedural",-1,ct); }
-  renderVehicleWheels();
-
   // Debug overlay: the collision boxes the walker and the camera boom test
   // (folds away entirely in a release build - DEBUG_SHOW_COLLISION).
   renderCollisionBoxes();
@@ -19065,14 +19275,19 @@ void TerrainGame::renderScene() {
       part.envTexBag->envRight = og.probeRight;
       part.envTexBag->envUp = og.probeUp;
     } else {
-      part.envTexBag->envRight.set(envRight.x, envRight.y, envRight.z, 0.0F);
       // The shared dynamic capture is LEVEL. Sampling it with the pitched
       // chase camera's up vector sends rear/side normals below its horizon,
-      // where there is only the clear colour instead of the buildings.
-      if (part.envTexBag->texture == engine->renderer.core.envMap.getTexture())
+      // where there is only the clear colour instead of the buildings. Its
+      // RIGHT must also come from the capture that owns the retained texture;
+      // using the current yaw here makes it swim on the skipped cadence frame.
+      if (part.envTexBag->texture == engine->renderer.core.envMap.getTexture()) {
+        const V3& right = sharedEnvBasisValid ? sharedEnvRight : envRight;
+        part.envTexBag->envRight.set(right.x, right.y, right.z, 0.0F);
         part.envTexBag->envUp.set(0.0F, 1.0F, 0.0F, 0.0F);
-      else
+      } else {
+        part.envTexBag->envRight.set(envRight.x, envRight.y, envRight.z, 0.0F);
         part.envTexBag->envUp.set(envUp.x, envUp.y, envUp.z, 0.0F);
+      }
     }
     const M4x4& m = og.objMat;
     auto fold = [&](Tyra::Vec4& e) {
@@ -19329,9 +19544,16 @@ void TerrainGame::renderScene() {
     }
   }
   costEnd("Objects",-1,costObjectsStart);
+  { const u32 ct=costStart(); renderVehicleWheels(); costEnd("Wheels",-1,ct); }
+
   // Animated models: advance playback, then skin + draw the in-view ones
   // through the same static pipeline (see updateAndRenderAnimObjects)
   { const u32 ct=costStart(); updateAndRenderAnimObjects(); costEnd("Animation",-1,ct); }
+  // Baked shadow decals: alpha-over darkening on surfaces whose pixels are
+  // now in the frame, so they go after all the opaque geometry and before
+  // everything that composites on top of it. One submit per merged group; no
+  // per-caster work of any kind (docs/shadows.md).
+  { const u32 ct=costStart(); renderShadowDecals(); costEnd("Shadow_decals",-1,ct); }
   // Mirrors after the whole scene (including the skinned avatars their
   // copies re-use): reflected copies first, glass quads blended over them
   { const u32 ct=costStart(); renderMirrors(); costEnd("Mirrors",-1,ct); }

@@ -217,6 +217,44 @@ FPS samples, not individual-frame percentiles. Remove that fixture's old CSV
 before a repeat boot and alternate baseline/candidate runs without competing
 builds. Visual and normal-traffic driving checks are separate acceptance steps.
 
+## Integrated performance results (2026-09-12)
+
+Frozen parked-camera measurements with the helper above, PCSX2 software rendering,
+PAL 512x512, no competing builds. Values are medians of eight rolling FPS samples.
+
+| Build / settings | Garage day | Garage night | Outer day | Outer night |
+| --- | ---: | ---: | ---: | ---: |
+| Baseline `1ce38d2b` | 25.00 | 20.37 | 50.00 | 50.00 |
+| Integrated `af8e6762` | 25.00 | 25.00 | 50.00 | 50.00 |
+| Integrated, quiet debug | 25.00 | 25.00 | 50.00 | 50.00 |
+| Integrated, release | 25.00 | 25.00 | 50.00 | 50.00 |
+| Integrated, model LOD 64 | 25.00 | 25.00 | 50.00 | 50.00 |
+| Integrated, model LOD 64 + terrain LOD 96 | 25.00 | 25.00 | 50.00 | 50.00 |
+| Baseline repeated after candidates | 25.00 | 20.00 | 50.00 | 50.00 |
+
+The integrated build includes the latest main renderer submission improvements
+as well as wheel batching/culling and reflection-basis correctness. These results
+do not isolate each change's contribution. Shared reflections already updated
+every second frame; this pass does not claim a new cadence saving. Both build
+profiles use optimization; disabling live tools or using release did not raise
+these median FPS values.
+
+Both LOD trials are **rejected for the shipped map**: no observed FPS improvement
+in these views. Their outer-road night captures retain the visible road surface,
+but no full driving/crossing acceptance is claimed for these discarded settings.
+Authoring keeps model and terrain LOD distances at zero. The additional exact
+planar road optimization passes the geometry/UV oracle but leaves this district
+at 93,150 road vertices and 90 chunks.
+
+[Raw samples and fixture settings](authoring/performance-results.json) retain the
+measurement evidence. PAL tops out at 50 FPS; the garage still misses that budget.
+These parked-camera tests differ from the older active-traffic spawn comparison
+above and do not establish a map-wide minimum or physical PS2 performance.
+
+The regenerated 1.86.5 / format-52 example was also built and driven with normal
+AI traffic: coupe and Tristar entry, acceleration, braking, steering and day/night menu
+switching. This smoke test is separate from the frozen FPS measurements.
+
 ## Credits and licenses
 
 - **Kenney** — Retro Urban Kit 2.0, CC0. Included source OBJ/MTL files, textures

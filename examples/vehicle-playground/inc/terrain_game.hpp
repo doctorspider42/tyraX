@@ -133,6 +133,32 @@ class TerrainGame : public Tyra::Game {
   // vertex shade off the emissive light, so it never lands twice.
   bool terrainMapOcc = false, terrainMapLit = false;
 
+  // Baked shadow decals - the "Baked" dynamic-shadow mode, docs/shadows.md.
+  // One entry per
+  // MERGED DRAW - every shadow of one streaming layer that landed on one
+  // atlas page - so a scene's shadows cost one submit each instead of one per
+  // caster. The geometry was projected onto the receivers on the host and is
+  // never touched again: this is a vertex array, a texture and a colour.
+  struct ShadowDraw {
+    std::vector<Tyra::Vec4> vertices;
+    std::vector<Tyra::Vec4> sts;
+    // ONE colour for the whole bag (StaPipColorBag::single). The page's own
+    // RGB is the shadow's tint, so the vertex colour is plain white and its
+    // ALPHA is the only thing that ever moves - which is what lets the
+    // day/night handover fade every shadow for one byte a frame.
+    Tyra::Color color;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    Tyra::Texture* texture = nullptr;
+    std::string texPath;
+    int layer = -1;  // SCENE_LAYER_* index, -1 = always resident
+  };
+  std::vector<ShadowDraw> shadowDraws;
+  std::unique_ptr<Tyra::StaPipInfoBag> shadowInfoBag;
+  void setupShadowDecals();   // per scene load: build the bags, take the pages
+  void renderShadowDecals();  // per frame: one submit per resident group
+
   // Scene objects at runtime (mutable by scripts/physics); geometry per
   // object, one draw part per model material (primitives use parts[0])
   struct GeoPart {
@@ -783,12 +809,21 @@ class TerrainGame : public Tyra::Game {
   // Which camera the driver is looking through, cycled with Triangle.
   // 0 = chase, 1 = bumper, 2 = far. See vehicleCameraFor().
   int vehCamMode_ = 0;
-  // ONE bag for every wheel of every vehicle in the scene: the wheels move
-  // independently, so they cannot ride a matrix like the body - but they CAN
-  // share a submit, and that is the whole 2-submits-per-car design.
-  std::vector<Tyra::Vec4> wheelVerts_;
-  std::vector<Tyra::Color> wheelCols_;
-  std::vector<Tyra::Vec4> wheelSts_;
+  // ONE bag per definition's material, not per vehicle: the wheels move
+  // independently, so they cannot ride the body's matrix, but cars sharing a
+  // definition still share one submit. The buffers must also live per
+  // definition: PATH1 DMA may still read one draw while the next is prepared.
+  struct WheelBatch {
+    std::vector<Tyra::Vec4> verts;
+    std::vector<Tyra::Color> cols;
+    std::vector<Tyra::Vec4> sts;
+    u32 vertsPerCar = 0;
+    int staticCars = 0;
+    // Largest source-vertex distance from the baked hub. Scanned once after
+    // load and invalidated with the scene/model lifetime below.
+    float localRadius = -1.0F;
+  };
+  std::vector<WheelBatch> wheelBatches_;
   std::unique_ptr<Tyra::StaPipBag> wheelBag_;
   std::unique_ptr<Tyra::StaPipColorBag> wheelColorBag_;
   std::unique_ptr<Tyra::StaPipTextureBag> wheelTexBag_;

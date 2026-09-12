@@ -23,9 +23,9 @@ error test across day/night, teleports, reflected-object movement and alternate
 views.
 
 The district itself remains at 93,150 road vertices in 90 chunks. Generic
-planar-slope fixtures improved, but environment LOD experiments are still
-pending and must be driven through thresholds before any authored setting is
-accepted.
+planar-slope fixtures improved, and both environment LOD trials (model 64; model 64 plus terrain 96)
+were rejected for this map: neither improved the four-view median FPS. Authored
+distances remain zero; discarded variants have no full driving acceptance.
 
 
 The retired `PROGRESS.md` is still available when old implementation history is

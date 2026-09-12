@@ -1,11 +1,10 @@
 # Motor District performance work plan
 
-Motor District's next optimization pass measures and reduces rendering work
-while retaining all three vehicles, live scenery reflections, night lights and
-the current driving model. This is an implementation and acceptance plan, not
-a claim that its proposed gains have already been achieved.
+This document retains the original task specifications and records measured
+integration results below. Proposed acceptance criteria are not claims that
+every experiment shipped. See [integration results](#integration-results-2026-09-12).
 
-## Baseline and measurement rules
+## Original baseline and measurement rules
 
 Start from `1ce38d2b`, which includes bounded road chunks and the static-model
 performance branch. The previous short PCSX2 software-renderer samples were
@@ -195,6 +194,8 @@ report the experiment rather than enabling a visually broken shortcut.
 
 ## Integration results, 2026-09-12
 
+![Integrated Motor District garage in PCSX2](img/motor-district-integrated.png)
+
 ## Frozen-camera integration measurement
 
 The baseline was `1ce38d2b`. The integrated build was `af8e6762`, containing
@@ -257,10 +258,20 @@ and active gameplay make a broader reuse policy unsafe without a tested error
 budget. All three vehicle paint materials and reflection texture memory remain
 in scope.
 
-## Still required
+## Validation status and remaining scope
 
-- Finish the LOD experiments and assess their crossings while driving; do not
-  treat their pending results as accepted settings.
+- Normal-traffic smoke validation passed after integration: coupe and Tristar
+  entry/acceleration/braking, coupe steering and the day/night menu. Close
+  captures checked the three model appearances; AI logs exercised distant tiers.
+  The final native build also returned a complete serialized report with
+  `Wheels`, `Reflections_shared_probe` and `Shadow_decals`. The last token fixes
+  a main-merge defect: the prior space made the host reject the whole report.
+- LOD trials are concluded for this pass: model 64 and model 64 / terrain 96
+  both repeated 25 / 25 / 50 / 50. Keep authored distances at zero; no full
+  crossing acceptance is claimed for these discarded variants.
+- The baseline repeat after all candidates returned 25 / 20 / 50 / 50.
+  [Raw results](../examples/vehicle-playground/authoring/performance-results.json)
+  record both baseline runs and all candidates.
 - Re-run day/night, all-car, traffic, camera-orbit, reflection hide/show and
   scene-reload cases after any later rendering integration.
 - Confirm representative results on physical PS2 before quoting hardware

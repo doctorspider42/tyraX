@@ -1771,6 +1771,8 @@ It waits up to 45 seconds for `bin/rendercost.txt` with the matching request
 sequence. The command uses spare bit 7 of the existing debugger protocol;
 regular snapshots and the project format are unchanged. The result is a
 versioned `TXRP 1` header, bounded timing rows and an `END` sequence echo.
+Stage names are whitespace-free protocol tokens (for example `Shadow_decals`);
+a space in a generated stage name makes the reader reject the entire report.
 
 ![Render-cost capture with a retained baseline](img/debugger-render-cost.png)
 
