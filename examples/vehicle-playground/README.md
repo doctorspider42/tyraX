@@ -75,7 +75,9 @@ along with the sky. Other scenery stays out of this extra pass. This is the
 shared PS2 sphere-map approximation, refreshed every other frame; it is not
 ray tracing, a cubemap or an accurate mirror of everything around the car.
 The editor's sky-only approximation cannot prove scenery reflections: inspect
-those in the running game.
+those in the running game. The target retains the level camera basis from its
+own capture, so a skipped update cannot make reflected buildings swim when the
+driver turns the camera.
 
 The CC96 bake remains 1936 body triangles and 588 per wheel. Rally 04 has only
 364 body triangles and 28 per wheel. Wheels share a submission within each vehicle definition; distinct models keep

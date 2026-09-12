@@ -20322,6 +20322,18 @@ void TerrainGame::renderScene() {
   // a blurry 128px reflection is imperceptible while the pass costs a
   // couple of ms per hit on real hardware.
   static bool envMapTick = false;  // first frame MUST render (fresh VRAM)
+  // The shared target is intentionally retained between its 25/30 Hz
+  // captures. Its ST basis must be retained with it: applying this frame's
+  // yaw to a target captured at the previous yaw makes stationary scenery
+  // swim across paint while the player turns. This is only the classic shared
+  // level-forward target; reflected-ray probes own their per-object basis.
+  static V3 sharedEnvRight = {1.0F, 0.0F, 0.0F};
+  static unsigned int sharedEnvGeneration = ~0u;
+  static bool sharedEnvBasisValid = false;
+  if (sharedEnvGeneration != sceneGeneration) {
+    sharedEnvGeneration = sceneGeneration;
+    sharedEnvBasisValid = false;  // scene load means target contents changed
+  }
   envMapTick = !envMapTick;
   // Not inside a split half: the env bracket's end() restores a full-screen
   // raster, which would undo the half's scissor/offset. Reflections keep the
@@ -20331,6 +20343,7 @@ void TerrainGame::renderScene() {
   // classic level-forward aim.
   if (!ENV_PROBE_REFLECTED && g_dynamicEnvUsers > 0 && skyDome.bag &&
       envMapTick && !splitPassActive) {
+    const u32 costSharedEnvStart = costStart();
     auto& core = engine->renderer.core;
     // Level forward: keeps the sphere map's horizon on its center line.
     V3 lvl = {envFwd.x, 0.0F, envFwd.z};
@@ -20387,6 +20400,13 @@ void TerrainGame::renderScene() {
     }
     core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
     core.envMap.end();
+    // Store the basis that produced this exact texture, after end() has
+    // completed the target update. The target's camera is level by design.
+    sharedEnvRight = {-lvl.z, 0.0F, lvl.x};
+    sharedEnvBasisValid = true;
+    // Deliberately a standalone phase: it is the shared target render, not
+    // the later per-object sampling passes nested inside Objects.
+    costEnd("Reflections_shared_probe", -1, costSharedEnvStart);
   }
 
   // Camera texture feed: its own VRAM target, so order only matters
@@ -20473,14 +20493,19 @@ void TerrainGame::renderScene() {
       part.envTexBag->envRight = og.probeRight;
       part.envTexBag->envUp = og.probeUp;
     } else {
-      part.envTexBag->envRight.set(envRight.x, envRight.y, envRight.z, 0.0F);
       // The shared dynamic capture is LEVEL. Sampling it with the pitched
       // chase camera's up vector sends rear/side normals below its horizon,
-      // where there is only the clear colour instead of the buildings.
-      if (part.envTexBag->texture == engine->renderer.core.envMap.getTexture())
+      // where there is only the clear colour instead of the buildings. Its
+      // RIGHT must also come from the capture that owns the retained texture;
+      // using the current yaw here makes it swim on the skipped cadence frame.
+      if (part.envTexBag->texture == engine->renderer.core.envMap.getTexture()) {
+        const V3& right = sharedEnvBasisValid ? sharedEnvRight : envRight;
+        part.envTexBag->envRight.set(right.x, right.y, right.z, 0.0F);
         part.envTexBag->envUp.set(0.0F, 1.0F, 0.0F, 0.0F);
-      else
+      } else {
+        part.envTexBag->envRight.set(envRight.x, envRight.y, envRight.z, 0.0F);
         part.envTexBag->envUp.set(envUp.x, envUp.y, envUp.z, 0.0F);
+      }
     }
     const M4x4& m = og.objMat;
     auto fold = [&](Tyra::Vec4& e) {

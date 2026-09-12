@@ -62,7 +62,7 @@ refl -type sphere -mm 0 0.9 @sky
 ```
 
 The game then re-renders the scene's **sky dome** into a small VRAM texture
-every frame and samples that as the sphere map — reflections follow the live
+every second frame and samples that as the sphere map — reflections follow the live
 sky, including script retints (*Set Sky Color*). The editor viewport
 approximates it with the analytic horizon/zenith gradient.
 
@@ -136,7 +136,10 @@ ugly patches up close. It fades back in as you step away.
   vanished (found on real hardware).
 - The dynamic env map is re-rendered **every second frame** (the GT3 cadence
   — the VRAM target persists, and a 25/30 Hz refresh of a blurry 128 px
-  reflection is imperceptible), halving the pass's per-frame cost.
+  reflection is imperceptible), halving the pass's per-frame cost. The
+  level-forward right/up basis is saved with each target update and reused for
+  the intervening sample; applying a newer camera yaw to an older target makes
+  stationary reflected buildings swim across the material.
 
 The editor's GLSL twin lives in the viewport fragment shader (`uReflOn` block)
 — flat normals from screen-space derivatives, the same camera-basis formula.
