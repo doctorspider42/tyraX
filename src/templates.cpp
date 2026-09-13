@@ -1448,6 +1448,12 @@ class TerrainGame : public Tyra::Game {
                           const Tyra::SkelModel* anim, float* cOff, float* ext);
   static bool physObstacle(const SceneObjectData& d);
   void renderScene();
+  void updateAdaptiveResolution();
+  int adaptiveScene = -1;
+  int adaptiveWarmup = 0;
+  int adaptiveSlowRun = 0;
+  int adaptiveFastRun = 0;
+  bool adaptiveReduced = false;
   // Frame extrapolation (docs/frame-extrapolation.md): present one synthesised
   // frame after each rendered one, warped from the camera's own motion. The
   // camera of the PREVIOUS rendered frame is what that motion is measured
@@ -2979,6 +2985,12 @@ class TerrainGame : public Tyra::Game {
                           const Tyra::SkelModel* anim, float* cOff, float* ext);
   static bool physObstacle(const SceneObjectData& d);
   void renderScene();
+  void updateAdaptiveResolution();
+  int adaptiveScene = -1;
+  int adaptiveWarmup = 0;
+  int adaptiveSlowRun = 0;
+  int adaptiveFastRun = 0;
+  bool adaptiveReduced = false;
   // Frame extrapolation (docs/frame-extrapolation.md): present one synthesised
   // frame after each rendered one, warped from the camera's own motion. The
   // camera of the PREVIOUS rendered frame is what that motion is measured
@@ -6737,6 +6749,59 @@ void TerrainGame::loop() {
   if (FRAME_EXTRAPOLATION && extrapolationWorthIt()) presentExtrapolatedFrame();
 }
 
+// Adaptive plain BLSS (docs/neural-upscaler.md). The timer is the previous
+// whole loop, including presentation: on a double-buffered PS2 it therefore
+// sees the thing the player sees - one missed field becomes a 2x step. Four
+// misses engage reduced rendering; 150 full-rate reduced frames buy a brief
+// native probe. No VRAM moves: configure() reserved both rasters at boot.
+void TerrainGame::updateAdaptiveResolution() {
+  if (!BLSS_ADAPTIVE) return;
+  if (adaptiveScene != g_activeScene) {
+    adaptiveScene = g_activeScene;
+    adaptiveWarmup = 30;
+    adaptiveSlowRun = adaptiveFastRun = 0;
+    adaptiveReduced = false;
+    engine->renderer.core.blss.setScene(false, false);
+    return;
+  }
+  if (!BLSS_SCENE_ON) {
+    if (adaptiveReduced) engine->renderer.core.blss.setScene(false, false);
+    adaptiveReduced = false;
+    return;
+  }
+  if (adaptiveWarmup > 0) {
+    --adaptiveWarmup;
+    return;
+  }
+  const float refresh = engine->renderer.core.getSettings().getRefreshRate();
+  if (refresh < 1.0F) return;
+  const float field = 1.0F / refresh;
+  if (!adaptiveReduced) {
+    adaptiveFastRun = 0;
+    if (g_frameDt > field * 1.35F) {
+      if (++adaptiveSlowRun < 4) return;
+      adaptiveReduced = true;
+      adaptiveSlowRun = 0;
+      engine->renderer.core.blss.setScene(true, false);
+      TYRA_LOG("Adaptive resolution: REDUCED after sustained missed fields");
+    } else {
+      adaptiveSlowRun = 0;
+    }
+    return;
+  }
+  adaptiveSlowRun = 0;
+  if (g_frameDt <= field * 1.10F) {
+    if (++adaptiveFastRun < 150) return;
+    adaptiveReduced = false;
+    adaptiveFastRun = 0;
+    adaptiveWarmup = 8;
+    engine->renderer.core.blss.setScene(false, false);
+    TYRA_LOG("Adaptive resolution: NATIVE probe after sustained headroom");
+  } else {
+    adaptiveFastRun = 0;
+  }
+}
+
 // Modified by TyraX (docs/frame-extrapolation.md): is a synthesised frame worth
 // it THIS frame?
 //
@@ -9759,6 +9824,18 @@ void TerrainGame::updateParticles() {
       by += cameraPosition.y;
       bz += cameraPosition.z;
     }
+    // Automatic overdraw budget: simulation remains exact, but while the
+    // adaptive raster is paying back a missed field, distant emitters submit
+    // half their quads. Player-following rain/fog stays full density because
+    // it surrounds the camera and the reduction would be immediately visible.
+    int drawN = n;
+    if (adaptiveReduced && !d.emitFollow) {
+      const float pdx = bx - cameraPosition.x;
+      const float pdy = by - cameraPosition.y;
+      const float pdz = bz - cameraPosition.z;
+      if (pdx * pdx + pdy * pdy + pdz * pdz > 144.0F)
+        drawN = (n + 1) / 2;
+    }
 
     // Custom kind: emission direction = the object's +Y axis rotated by the
     // object rotation (tilt the emitter for a horizontal pipe leak), plus an
@@ -9896,7 +9973,7 @@ void TerrainGame::updateParticles() {
       ps.params[i] = Vec4(m00, m01, m10, m11);
       ps.cols[i] = Color(cr, cg, cb, alpha);
     }
-    ps.bag->count = (u32)n;
+    ps.bag->count = (u32)drawN;
   }
 }
 // Picks the nearest usable object the camera is close to and looking at
@@ -16791,10 +16868,12 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
     // below stays at the true position on purpose: it is world geometry, and
     // sliding it would visibly detach it from the lamp head.
     float pcx = cx, pcy = cy, pcz = cz, chalf = half;
+    float beamDistance = 0.0F;
     {
       const float vx2 = beamEye.x - cx, vy2 = beamEye.y - cy,
                   vz2 = beamEye.z - cz;
       const float vl = sqrtf(vx2 * vx2 + vy2 * vy2 + vz2 * vz2);
+      beamDistance = vl;
       if (vl > 0.0001F) {
         float pull = d.lightRadius * 0.25F;
         if (pull > vl * 0.75F) pull = vl * 0.75F;
@@ -16804,6 +16883,10 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
         chalf = half * (vl - pull) / vl;
       }
     }
+    // A sub-pixel additive quad still pays a complete state/submit path and
+    // can only alter one sample. Cull it before touching its six vertices.
+    if (beamDistance > 0.0001F && chalf * 512.0F / beamDistance < 0.75F)
+      continue;
     const Vec4 corners[4] = {
         Vec4(pcx + (-rx - ux) * chalf, pcy + (-ry - uy) * chalf,
              pcz + (-rz - uz) * chalf, 1.0F),
@@ -16828,7 +16911,8 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
     b.coronaBag->bboxVersion = ++g_bboxStamp;
     stapip.core.render(b.coronaBag.get());
 
-    if (b.kind == 2 && b.coneBag) {
+    if (b.kind == 2 && b.coneBag &&
+        (!adaptiveReduced || beamDistance <= d.lightRadius * 8.0F)) {
       const float len = d.lightRadius * 0.7F;
       const float rad = d.lightRadius * 0.3F;
       const Color apex(128.0F * d.color[0], 128.0F * d.color[1],
@@ -20422,8 +20506,9 @@ void TerrainGame::renderScene() {
   // the GT3 trick): the target persists in VRAM, and a 25/30 Hz update of
   // a blurry 128px reflection is imperceptible while the pass costs a
   // couple of ms per hit on real hardware.
-  static bool envMapTick = false;  // first frame MUST render (fresh VRAM)
-  envMapTick = !envMapTick;
+  static unsigned int envMapTick = 0;  // first frame MUST render (fresh VRAM)
+  const bool refreshEnvMap =
+      ((envMapTick++) & (adaptiveReduced ? 3U : 1U)) == 0;
   // Not inside a split half: the env bracket's end() restores a full-screen
   // raster, which would undo the half's scissor/offset. Reflections keep the
   // last rendered map while split-screen is active.
@@ -20431,7 +20516,7 @@ void TerrainGame::renderScene() {
   // object draws (renderObjectProbe) - this shared pass covers only the
   // classic level-forward aim.
   if (!ENV_PROBE_REFLECTED && g_dynamicEnvUsers > 0 && skyDome.bag &&
-      envMapTick && !splitPassActive) {
+      refreshEnvMap && !splitPassActive) {
     auto& core = engine->renderer.core;
     // Level forward: keeps the sphere map's horizon on its center line.
     V3 lvl = {envFwd.x, 0.0F, envFwd.z};
@@ -20554,8 +20639,21 @@ void TerrainGame::renderScene() {
   // repaint - two exact-clip passes per frame). OVERLAY mode: the body draws
   // normally in the main pass and the shells are painted ON it afterwards, so
   // it stays in this list only for the shell pass.
-  auto renderEnvPass = [&](ObjectGeometry& og, GeoPart& part) {
+  auto optionalMaterialDetail = [&](int objectIndex) {
+    if (!adaptiveReduced) return true;
+    const SceneObjectData& d = runtimeObjects[objectIndex].data;
+    float radius = fabsf(d.scale[0]);
+    if (fabsf(d.scale[1]) > radius) radius = fabsf(d.scale[1]);
+    if (fabsf(d.scale[2]) > radius) radius = fabsf(d.scale[2]);
+    const float dx = d.position[0] - cameraPosition.x;
+    const float dy = d.position[1] - cameraPosition.y;
+    const float dz = d.position[2] - cameraPosition.z;
+    const float limit = (radius > 0.1F ? radius : 0.1F) * 40.0F;
+    return dx * dx + dy * dy + dz * dz <= limit * limit;
+  };
+  auto renderEnvPass = [&](int objectIndex, ObjectGeometry& og, GeoPart& part) {
     if (!part.envBag) return;
+    if (!optionalMaterialDetail(objectIndex)) return;
     // TCE programs compute the matcap ST on VU1 - the EE only refreshes the
     // per-mesh camera basis here. Reflected-probe objects sample with THEIR
     // probe camera's basis (see renderObjectProbe), everything else with
@@ -20734,8 +20832,9 @@ void TerrainGame::renderScene() {
         // vertex path uses (AO scales the directional term, lights add over
         // it), and then the additive env pass last.
         if (part.aoBag) stapip.core.render(part.aoBag.get());
-        if (part.emisBag) stapip.core.render(part.emisBag.get());
-        renderEnvPass(objectGeometry[i], part);
+        if (part.emisBag && optionalMaterialDetail(i))
+          stapip.core.render(part.emisBag.get());
+        renderEnvPass(i, objectGeometry[i], part);
       }
     costEnd("Object",i,costObjectStart);
     // Back to zero the moment this object's bags are out. The numbers are
@@ -20810,7 +20909,7 @@ void TerrainGame::renderScene() {
       for (GeoPart& part : objectGeometry[i].parts)
         if (part.bag) {
           stapip.core.render(part.bag.get());
-          renderEnvPass(objectGeometry[i], part);
+          renderEnvPass(i, objectGeometry[i], part);
         }
       if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - pb;
     }
@@ -24886,6 +24985,59 @@ void TerrainGame::loop() {
   // field rate while the world runs at half of it. Compiled away entirely
   // unless the project asked for it.
   if (FRAME_EXTRAPOLATION && extrapolationWorthIt()) presentExtrapolatedFrame();
+}
+
+// Adaptive plain BLSS (docs/neural-upscaler.md). The timer is the previous
+// whole loop, including presentation: on a double-buffered PS2 it therefore
+// sees the thing the player sees - one missed field becomes a 2x step. Four
+// misses engage reduced rendering; 150 full-rate reduced frames buy a brief
+// native probe. No VRAM moves: configure() reserved both rasters at boot.
+void TerrainGame::updateAdaptiveResolution() {
+  if (!BLSS_ADAPTIVE) return;
+  if (adaptiveScene != g_activeScene) {
+    adaptiveScene = g_activeScene;
+    adaptiveWarmup = 30;
+    adaptiveSlowRun = adaptiveFastRun = 0;
+    adaptiveReduced = false;
+    engine->renderer.core.blss.setScene(false, false);
+    return;
+  }
+  if (!BLSS_SCENE_ON) {
+    if (adaptiveReduced) engine->renderer.core.blss.setScene(false, false);
+    adaptiveReduced = false;
+    return;
+  }
+  if (adaptiveWarmup > 0) {
+    --adaptiveWarmup;
+    return;
+  }
+  const float refresh = engine->renderer.core.getSettings().getRefreshRate();
+  if (refresh < 1.0F) return;
+  const float field = 1.0F / refresh;
+  if (!adaptiveReduced) {
+    adaptiveFastRun = 0;
+    if (g_frameDt > field * 1.35F) {
+      if (++adaptiveSlowRun < 4) return;
+      adaptiveReduced = true;
+      adaptiveSlowRun = 0;
+      engine->renderer.core.blss.setScene(true, false);
+      TYRA_LOG("Adaptive resolution: REDUCED after sustained missed fields");
+    } else {
+      adaptiveSlowRun = 0;
+    }
+    return;
+  }
+  adaptiveSlowRun = 0;
+  if (g_frameDt <= field * 1.10F) {
+    if (++adaptiveFastRun < 150) return;
+    adaptiveReduced = false;
+    adaptiveFastRun = 0;
+    adaptiveWarmup = 8;
+    engine->renderer.core.blss.setScene(false, false);
+    TYRA_LOG("Adaptive resolution: NATIVE probe after sustained headroom");
+  } else {
+    adaptiveFastRun = 0;
+  }
 }
 
 // Modified by TyraX (docs/frame-extrapolation.md): is a synthesised frame worth
@@ -29729,6 +29881,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     // these constants there, because the init block and the frame bracket are
     // equally absent.
     const project::BlssUse blssU = project::blssUse(p);
+    out << "constexpr int BLSS_ADAPTIVE = "
+        << (p.settings.blssAdaptive && blssU.any && !blssU.anyNetwork ? 1 : 0)
+        << ";\n";
     if (blssU.any) {
         // The refusal itself is NOT here any more - it is its own translation
         // unit (src/gen/blss_interlock.gen.cpp), because this header is included
@@ -29780,7 +29935,13 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             });
             out << "#define BLSS_SCENE_ON BLSS_ENABLEDS[g_activeScene]\n"
                    "#define BLSS_SCENE_NET BLSS_NETWORKS[g_activeScene]\n";
+        } else {
+            out << "#define BLSS_SCENE_ON BLSS_ENABLED\n"
+                   "#define BLSS_SCENE_NET BLSS_NETWORK\n";
         }
+    } else {
+        out << "#define BLSS_SCENE_ON 0\n"
+               "#define BLSS_SCENE_NET 0\n";
     }
     // Projected silhouette shadows: any caster anywhere -> the game
     // allocates the engine's shadow-map VRAM at boot (lazy otherwise).
@@ -30957,9 +31118,9 @@ static std::string blssInit(const Project& p) {
          "BLSS_DEBUG_VIEW,\n";
     s += u.mixed ? "                                       BLSS_JITTER, "
                    "BLSS_NETWORK,\n"
-                   "                                       BLSS_NATIVE_SCENES);\n"
+                   "                                       BLSS_NATIVE_SCENES || BLSS_ADAPTIVE);\n"
                  : "                                       BLSS_JITTER, "
-                   "BLSS_NETWORK);\n";
+                   "BLSS_NETWORK, BLSS_ADAPTIVE);\n";
     if (u.anyNetwork)
         s += "  engine->renderer.core.blss.setNet(BLSS_NET_W1, BLSS_NET_B1, "
              "BLSS_NET_W2,\n"
@@ -31034,7 +31195,8 @@ static std::string blssSceneSetup(const Project& p) {
 // nothing.
 static std::string blssSceneRender(const Project& p) {
     if (!project::blssUse(p).any) return "      renderScene();\n";
-    return "      // The neural upscaler (docs/neural-upscaler.md): the 3D "
+    return "      updateAdaptiveResolution();\n"
+           "      // The neural upscaler (docs/neural-upscaler.md): the 3D "
            "scene\n"
            "      // renders into the low-res target, then the composite blows "
            "it\n"

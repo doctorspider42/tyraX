@@ -1377,6 +1377,15 @@ Notes:
   name, one engine volume per checkout), so when another agent's session is live
   it is still politer to build with plain `--build` and launch PCSX2 yourself on
   `bin/<name>.elf` (`-logfile <path>` keeps your emulog out of theirs).
+  **Adaptive BLSS needs a hardware decision gate.** PCSX2 can verify codegen,
+  forced threshold transitions and the moving-picture gate, but its software
+  rasterizer may never cross the real fill-bound threshold. On PS2, capture the
+  same parked pose once native and once with Plain + adaptive. Require the log
+  to report `Adaptive resolution: REDUCED`, capture through `--capture-frame
+  <projectDir>`, and compare HUD frame/scene milliseconds. Flat scene time with
+  a shorter whole frame locates the gain in GS fill. Stop the host session
+  before the next boot.
+
   For a finer breakdown,
   the manual COP0/HUD deep-dive (own the generated `terrain_game.cpp`, bracket
   phases with `mfc0 $9`, deterministic camera orbit, in-run A/B, engine-side

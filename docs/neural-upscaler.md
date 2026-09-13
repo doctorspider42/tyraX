@@ -41,17 +41,47 @@ Triangle count is not the deciding metric. Repeated pixel coverage is.
 |---|---|
 | Use the upscaler | Project default; scenes may override it |
 | Mode | Plain bilinear or per-tile neural reconstruction |
+| Adapt resolution to frame budget | Plain mode starts native, falls back after sustained missed fields, and probes native again after sustained headroom |
 | Render scale | **2x2** quarter-area raster or **1x2** half-height raster |
 | Sharpen | Strength of the optional sharpen pass |
 | Temporal reuse | Allows history from the previous display buffer |
 | Sub-pixel jitter | Adds temporal samples; off by default because it can visibly bob |
 | Debug view | Kernel tint or feature logging |
 
-At 1x2, the existing buffer layout saves no GS VRAM. Use it for horizontal
-detail, not memory. At 2x2, both colour and depth targets shrink.
+At 1x2, the fixed reduced layout saves no GS VRAM. Use it for horizontal
+detail, not memory. At 2x2, both colour and depth targets shrink. Adaptive mode
+keeps the full-size depth buffer and adds the reduced colour target, so it costs
+that target's VRAM instead of saving memory; Preferences reports the exact cost.
 
 BLSS is per scene, but mixing native and reduced scenes changes permanent VRAM
 layout. Preferences shows the exact cost for the current display mode.
+
+## Adaptive frame budget
+
+![Plain BLSS with adaptive resolution enabled in Project Preferences.](img/adaptive-blss.png)
+
+Adaptive resolution is an opt-in Plain-mode policy for games whose fill cost
+varies by camera or scene. Every scene begins at native 3D resolution. After a
+30-frame loading warm-up, four consecutive frames above 1.35 display fields
+switch it to the configured reduced raster. After 150 reduced frames within
+1.10 fields, the runtime probes native again; an eight-frame warm-up keeps the
+probe from immediately oscillating. Both targets are reserved at boot, so a
+switch performs no allocation, upload or texture eviction. HUD, menus, text and
+post effects remain native throughout.
+
+Reduced mode also applies a conservative automatic overdraw budget. It halves
+the submitted quads of distant, non-following particle emitters, refreshes the
+shared dynamic environment map every fourth frame instead of every second,
+and skips distant optional emission/reflection shells and light shafts. Particle
+simulation, nearby effects, base geometry, ambient occlusion and player-following
+weather remain unchanged. Sub-pixel light coronas are culled in every mode.
+
+On a physical PAL PS2, the same parked `upscaler-lab` frame measured **16.1 FPS /
+60.76 ms** at native resolution and **44.0 FPS / 22.06 ms** after adaptive 2x2
+engaged: 2.73x the frame rate and 64% less frame time. Scene CPU time stayed
+effectively flat at 5.67 vs 5.44 ms, locating the gain in GS fill rather than EE
+work. PCSX2 did not reproduce this decision because its software rasterizer has
+a different fill-cost model; use hardware for the final threshold check.
 
 ## How it works
 
@@ -161,5 +191,5 @@ For the hardware profiler, calibration and reproducible A/B procedure, see
 - UI: `src/blss_window.cpp`, `src/blss_ui.{hpp,cpp}`
 - Engine runtime: `vendor/tyra/engine/{inc,src}/renderer/core/blss/`
 - Generated net: `inc/blss_net.gen.hpp`
-- Project fields: `blssEnabled`, `blssNetwork`, `blssScale`, `blssSharpen`,
+- Project fields: `blssEnabled`, `blssNetwork`, `blssAdaptive`, `blssScale`, `blssSharpen`,
   `blssTemporal`, `blssJitter`, `blssDebugView`
