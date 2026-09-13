@@ -1734,6 +1734,11 @@ struct ProjectSettings {
     // moves the break-even from ~13 full-screen coverages to low single digits
     // (blssui::fill::breakEven, docs/profiling.md).
     bool blssNetwork = true;
+    // Adaptive plain BLSS starts at the native raster and falls back to the
+    // configured reduced raster only after sustained missed fields. The
+    // low-res target and a full-size z buffer are reserved at boot, so a
+    // runtime switch never reallocates GS VRAM or evicts textures.
+    bool blssAdaptive = false;
     float blssSharpen = 0.5f;  // 0..1, the unsharp-mask strength k of passes 4/5
     bool blssTemporal = true;  // allow the history pass (off = no AA, no ghosting)
     // The +-1/4-pixel raster jitter that alternates every frame (the temporal
@@ -1920,6 +1925,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.projShadowDistance == b.projShadowDistance &&
            a.blssEnabled == b.blssEnabled && a.blssScale == b.blssScale &&
            a.blssNetwork == b.blssNetwork &&
+           a.blssAdaptive == b.blssAdaptive &&
            a.blssSharpen == b.blssSharpen &&
            a.blssTemporal == b.blssTemporal &&
            // blssJitter was missing from this list until plain mode added the
