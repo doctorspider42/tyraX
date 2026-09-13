@@ -20,7 +20,7 @@ index 2eb1e7e..f433943 100644
  
  # Compile with -Werror
 diff --git a/ee/cmdHandler.c b/ee/cmdHandler.c
-index 08f9b19..3ebca85 100644
+index 08f9b19..94ae42a 100644
 --- a/ee/cmdHandler.c
 +++ b/ee/cmdHandler.c
 @@ -15,6 +15,8 @@
@@ -337,7 +337,7 @@ index 08f9b19..3ebca85 100644
  
      if (sif0HandlerId >= 0) {
          DisableDmac(DMAC_SIF0);
-@@ -833,15 +902,122 @@ void pkoReset(void)
+@@ -833,15 +902,141 @@ void pkoReset(void)
      SifInitRpc(0);
      SifExitRpc();
  
@@ -376,24 +376,24 @@ index 08f9b19..3ebca85 100644
 +    }
 +    userThreadID = 0;
 +
-+    /* TyraX: nothing here may call stdio. printf() takes newlib's stdout lock,
-+     * and after ExecPS2 re-enters this image that lock is a cleared .bss field
-+     * until newlib re-initializes - the console then dies in
-+     * __retarget_lock_acquire_recursive with BadAddr 8, a cycle or two later,
-+     * looking entirely unrelated. Breadcrumbs in this function are scr_printf
-+     * only. They were useless over the network anyway: the IOP reboot follows
-+     * within a millisecond and takes the queued tty with it.
++    /* TyraX (r7): ORDER. The hardware quiesce, the SIF0 re-arm and the
++     * exception vectors all used to come AFTER init_scr(), and that is a way
++     * to hang the console rather than recover it. init_scr() draws through the
++     * GIF and the DMAC - the very blocks the comment below says the dead game
++     * left mid-chain - so on a game that died inside a transfer it can block,
++     * and it blocks ps2link's EE COMMAND THREAD, the one thread that executes
++     * every command there is. The console then answers no `reset` and no
++     * `execee` ever again while its IOP-side file server keeps listening on
++     * tcp/18193, and only the reset button recovers it. That is exactly the
++     * reported symptom; it is intermittent for exactly the right reason (it
++     * depends on whether the game died mid-chain); and the r6 measurement
++     * missed it because that payload was too light to be mid-transfer when it
++     * was killed.
 +     *
-+     * That rule was first written for this function alone, which is why the bug
-+     * survived it: every remaining printf() in this file sits on an ERROR path,
-+     * and error paths are exactly what a broken restart takes. Measured on the
-+     * console - EPC 0x00098604, BadAddr 8, i.e. lw v1,8(s0) with s0 = a0 = a
-+     * NULL lock - the EE died reporting some earlier failure, not causing it.
-+     * So the rule is now file-wide: stdio nowhere, scr_printf everywhere. The
-+     * failure that triggered it then survives onto the screen instead of taking
-+     * the console with it. */
-+    init_scr();
-+    scr_printf("\n\nps2link: program stopped\n");
++     * So: silence the hardware first, take the vectors back second, and only
++     * then touch the screen - by which point a fault in init_scr() lands in
++     * ps2link's own handler and says so, instead of jumping into the dead
++     * game's crash handler. */
 +
 +    /* TyraX: TerminateThread stops the CPU, not the hardware. The game owned
 +     * the DMAC, both VUs, VIF0/1, the GIF and the IPU, and a transfer left
@@ -417,6 +417,25 @@ index 08f9b19..3ebca85 100644
 +     * (Tyra links libeedebug) and that code is now dead memory. Take them
 +     * back before anything can fault into them. */
 +    installExceptionHandlers();
++
++    /* TyraX: nothing here may call stdio. printf() takes newlib's stdout lock,
++     * and after ExecPS2 re-enters this image that lock is a cleared .bss field
++     * until newlib re-initializes - the console then dies in
++     * __retarget_lock_acquire_recursive with BadAddr 8, a cycle or two later,
++     * looking entirely unrelated. Breadcrumbs in this function are scr_printf
++     * only. They were useless over the network anyway: the IOP reboot follows
++     * within a millisecond and takes the queued tty with it.
++     *
++     * That rule was first written for this function alone, which is why the bug
++     * survived it: every remaining printf() in this file sits on an ERROR path,
++     * and error paths are exactly what a broken restart takes. Measured on the
++     * console - EPC 0x00098604, BadAddr 8, i.e. lw v1,8(s0) with s0 = a0 = a
++     * NULL lock - the EE died reporting some earlier failure, not causing it.
++     * So the rule is now file-wide: stdio nowhere, scr_printf everywhere. The
++     * failure that triggered it then survives onto the screen instead of taking
++     * the console with it. */
++    init_scr();
++    scr_printf("\n\nps2link: program stopped\n");
 +
 +    /* The next deploy does need a clean IOP - the game loads its own modules
 +     * onto whatever it finds (padman, libsd, audsrv...) and a second copy
@@ -547,7 +566,7 @@ index 0cf38a6..14cbb38 100644
 +
  #endif /* IRX_VARIABLES_H */
 diff --git a/ee/ps2link.c b/ee/ps2link.c
-index d566140..64a9a27 100644
+index d566140..ce9ba06 100644
 --- a/ee/ps2link.c
 +++ b/ee/ps2link.c
 @@ -23,6 +23,7 @@
@@ -612,12 +631,12 @@ index d566140..64a9a27 100644
 +     * takes stdio out of every error path in cmdHandler.c, r6 stops rebooting
 +     * the IOP twice per Stop - which is what made a Stop wedge the console. */
 +#ifdef TYRAX_USB_HID
-+    scr_printf("Welcome to TyraX ps2link r6 (USB keyboard + mouse)\n");
++    scr_printf("Welcome to TyraX ps2link r7 (USB keyboard + mouse)\n");
 +#else
 +    /* TyraX: the banner has to say which of the two this is - they differ in
 +     * what stays resident on the IOP and in how far the image reaches, and the
 +     * second is the whole reason this variant exists. */
-+    scr_printf("Welcome to TyraX ps2link r6 (no USB)\n");
++    scr_printf("Welcome to TyraX ps2link r7 (no USB)\n");
 +#endif
 +    scr_printf("based on ps2link %s\n", APP_VERSION);
      scr_printf("ps2link loaded at 0x%08X-0x%08X, size: 0x%08X\n", (unsigned int)&__start, (unsigned int)&_end, (unsigned int)&_end - (unsigned int)&__start);
