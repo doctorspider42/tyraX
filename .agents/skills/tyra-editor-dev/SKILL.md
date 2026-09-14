@@ -186,6 +186,15 @@ codegen changed since, they drift silently. Regenerate (load + save +
 `refreshGenerated`, or a `--build`) before trusting it as a reference for what
 `templates.cpp` emits today.
 
+**Adaptive Plain BLSS is the eighth BLSS project setting.**
+`ProjectSettings::blssAdaptive` is opt-in and serialized only when true. Codegen
+must reserve both raster layouts at boot, call `updateAdaptiveResolution()`
+before the BLSS render bracket in both game templates, and keep the automatic
+overdraw budget keyed to the actual reduced state. The whole-frame timer uses
+the previous loop; do not replace it with scene CPU time, which cannot see GS
+fill stalls. Hardware is the decision gate because PCSX2 software fill timing
+does not reproduce the console threshold.
+
 ## The rules that keep the system consistent
 
 ### 1. Editing model: mutate, then `commitChange()`

@@ -1745,13 +1745,16 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
                  ? "    \"projShadowDistance\": " +
                        fmtFloat(p.settings.projShadowDistance) + ",\n"
                  : "")
-         // The neural upscaler (docs/neural-upscaler.md). Project-wide, always
-         // emitted like the fog/highlight groups next to it.
+         // The neural upscaler (docs/neural-upscaler.md). Existing fields stay
+         // project-wide and always emitted like the fog/highlight groups next
+         // to them; the later adaptive opt-in writes nothing at its false
+         // default so an untouched manifest keeps its established shape.
          << "    \"blssEnabled\": " << (p.settings.blssEnabled ? "true" : "false")
          << ",\n"
          << "    \"blssScale\": " << p.settings.blssScale << ",\n"
          << "    \"blssNetwork\": "
          << (p.settings.blssNetwork ? "true" : "false") << ",\n"
+         << (p.settings.blssAdaptive ? "    \"blssAdaptive\": true,\n" : "")
          << "    \"blssSharpen\": " << fmtFloat(p.settings.blssSharpen) << ",\n"
          << "    \"blssTemporal\": "
          << (p.settings.blssTemporal ? "true" : "false") << ",\n"
@@ -5568,6 +5571,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         // legacy BLSS project shipped with is the one it was trained for.
         if (const auto* v = s->find("blssNetwork"))
             st.blssNetwork = !(v->type == json::Value::Type::Bool && !v->boolean);
+        if (const auto* v = s->find("blssAdaptive"))
+            st.blssAdaptive = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = s->find("blssSharpen"))
             st.blssSharpen = clamp01((float)v->numberOr(0.5));
         if (const auto* v = s->find("blssTemporal"))

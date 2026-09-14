@@ -63,6 +63,13 @@ two orders of magnitude: a count taken from geometry alone reads this scene as
 Open `upscaler-lab.tyra` and Build & Run (`F5`), or headless:
 `tyrax-editor --build <this folder> --run`.
 
+For content with camera-dependent fill, select **Plain** and enable **Adapt
+resolution to frame budget**. On the physical PAL reference console, this
+fixture's parked native frame measured 16.1 FPS / 60.76 ms; the adaptive 2x2
+state measured 44.0 FPS / 22.06 ms with the same camera and nearly unchanged
+scene CPU time (5.67 vs 5.44 ms). The option is deliberately not enabled in the
+checked-in fixture so fixed native/reduced experiments remain reproducible.
+
 > **Everything in this example is CC0 1.0** — see
 > [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt). Build it, ship it, sell it.
 > It was not always: until 2026-08-09 the buildings and the animated model were

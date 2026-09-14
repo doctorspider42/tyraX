@@ -16,6 +16,17 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.88.0: plain BLSS can adapt each scene between native and reduced 3D
+// resolution from sustained whole-frame timing. Hysteresis, scene warm-up and
+// allocation-free switches avoid oscillation, streaming false positives and GS
+// texture eviction. While reduced, the generated runtime also budgets optional
+// overdraw: distant particles, light shafts, emission/reflection shells and
+// dynamic environment-map refreshes become cheaper. Physical PS2 A/B on
+// upscaler-lab measured 16.1 -> 44.0 FPS and 60.76 -> 22.06 ms in the same
+// camera pose; scene CPU stayed 5.67 -> 5.44 ms. ProjectSettings gains the
+// opt-in blssAdaptive field, written only when true. kFormatVersion 46 -> 47;
+// additive, no migration step. MINOR.
+//
 // 1.87.0: static batching accepts compact immutable imported-model parts,
 // grouped by loaded texture and coarse world cell. Singleton groups, large
 // footprints, mesh-LOD/impostor models and special runtime draw paths remain
@@ -3319,7 +3330,7 @@
 // 1.86.0: merge baked shadow decals with main's render-cost table and
 // object-group line.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 87
+#define TYRAX_VERSION_MINOR 88
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -3688,7 +3699,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // for. Purely additive - no migration step.
 // Renumbered from v45 by the rule the entry above states: this branch had
 // claimed v45 too, and main published its v45 first.
-inline constexpr int kFormatVersion = 46;
+// v47 (adaptive plain BLSS, docs/neural-upscaler.md): ProjectSettings gains the
+// optional blssAdaptive boolean. Missing means false and the key is written
+// only when enabled, so older projects still resave byte-for-byte. Purely
+// additive - no migration step.
+inline constexpr int kFormatVersion = 47;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects
