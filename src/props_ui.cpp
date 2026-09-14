@@ -26,6 +26,7 @@
 
 #include "aisupport.hpp"
 #include "animedit.hpp"
+#include "cloth.hpp"
 #include "decalproj.hpp"
 #include "devsession.hpp"
 #include "editorcfg.hpp"
@@ -86,6 +87,8 @@ static const char* typeLabel(PrimitiveType t) {
         case PrimitiveType::Scatter: return "Procedural volume";
         case PrimitiveType::Scroller: return "Scroller";
         case PrimitiveType::Comment: return "Comment";
+        case PrimitiveType::Cloth: return "Cloth";
+        case PrimitiveType::Wind: return "Wind source";
     }
     return "Object";
 }
@@ -218,6 +221,14 @@ void App::drawPropertiesWindow() {
     // it is a NEGATIVE gate as much as a positive one: a comment is not a game
     // object, so the sections that describe behaviour are skipped for it.
     const bool isComment = o.type == PrimitiveType::Comment;
+    // Cloth (docs/cloth.md): geometry in the game, but simulated rather than
+    // placed - so it wants the transform and the material of a shape and none
+    // of the collision, physics, baked-lighting or batching questions.
+    const bool isCloth = o.type == PrimitiveType::Cloth;
+    // A wind source (docs/cloth.md): a marker that blows cloth. It wants a
+    // position, a rotation (that IS the direction) and its own two numbers -
+    // and none of the questions a piece of geometry answers.
+    const bool isWind = o.type == PrimitiveType::Wind;
 
     if (!o.editorGroup.empty()) {
         ImGui::Text("Group: %s", o.editorGroup.c_str());
@@ -570,13 +581,13 @@ void App::drawPropertiesWindow() {
     committed |= ImGui::IsItemDeactivatedAfterEdit();
     // custom emitters rotate too - the rotation aims the emission direction
     if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal || isArea ||
-        isScatter || isScroller ||
+        isScatter || isScroller || isCloth || isWind ||
         (o.type == PrimitiveType::Emitter && o.emitterKind == 5)) {
         ImGui::DragFloat3("Rotation", o.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
     if (isSolid || isEmpty || isDecal || isMirror || isPortal || isArea ||
-        isScatter || o.type == PrimitiveType::Emitter) {
+        isScatter || isCloth || o.type == PrimitiveType::Emitter) {
         ImGui::DragFloat3(isArea ? "Size" : "Scale", o.scale, 0.05f, 0.01f, 1000.0f);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         // How big that actually is. A primitive is a UNIT shape, so its scale
@@ -606,7 +617,7 @@ void App::drawPropertiesWindow() {
     // red for a bug, green for something settled). The remaining markers draw
     // in fixed colors.
     if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal || isArea ||
-        isComment || o.type == PrimitiveType::Emitter ||
+        isComment || isCloth || isWind || o.type == PrimitiveType::Emitter ||
         o.type == PrimitiveType::PointLight) {
         ImGui::ColorEdit3("Color", o.color);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -1630,6 +1641,101 @@ void App::drawPropertiesWindow() {
             "target's side every frame - keep the list short. One portal\n"
             "view renders per frame; the other surfaces show the tint.");
         }  // !portalViewAll
+    }
+
+    if (isCloth) {
+        ImGui::SeparatorText("Cloth");
+        // The sheet's EXTENT is the transform above; these decide how finely
+        // it is discretized and how it behaves. Spacing is derived, never
+        // authored - a curtain is sized by dragging it, not by typing a pitch.
+        if (ImGui::DragInt("Columns", &o.clothCols, 0.2f, cloth::kMinSide,
+                           cloth::kMaxSide)) {}
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        prefHelp("Particles across the sheet (its local +X). Cost is the\n"
+                 "particle count for integration and about twice that in\n"
+                 "constraints per stiffness sweep - all on the EE.");
+        if (ImGui::DragInt("Rows", &o.clothRows, 0.2f, cloth::kMinSide,
+                           cloth::kMaxSide)) {}
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        o.clothCols = cloth::clampSide(o.clothCols);
+        o.clothRows = cloth::clampSide(o.clothRows);
+        {
+            cloth::Params cp;
+            cp.cols = o.clothCols;
+            cp.rows = o.clothRows;
+            const float sx = std::fabs(o.scale[0]) /
+                             (float)(cloth::clampSide(o.clothCols) - 1);
+            const float sy = std::fabs(o.scale[1]) /
+                             (float)(cloth::clampSide(o.clothRows) - 1);
+            ImGui::TextDisabled("%d particles, %d triangles, %.2f x %.2f u apart",
+                                cloth::particleCount(cp),
+                                cloth::triangleCount(cp), sx, sy);
+        }
+        const char* pins[] = {"Free (nothing pinned)", "Top edge (a rail)",
+                              "Top corners (two hooks)", "Top and bottom edges",
+                              "Left edge (a flagpole)", "Four corners"};
+        if (ImGui::Combo("Pinned", &o.clothPin, pins, 6)) committed = true;
+        prefHelp("Which particles are nailed to the object's own rest\n"
+                 "rectangle. Everything else hangs off them - so this is\n"
+                 "also what the sheet is ATTACHED to: a curtain is a rail,\n"
+                 "a banner is two hooks, a flag is a pole.");
+        if (ImGui::SliderInt("Stiffness", &o.clothIterations, 1, 4,
+                             "%d sweeps"))
+            committed = true;
+        prefHelp("Relaxation sweeps per simulated step. More = less stretch\n"
+                 "under load and a crisper sheet, at a linear cost. Two is\n"
+                 "a curtain; four is a tarpaulin.");
+        ImGui::DragFloat("Damping", &o.clothDamping, 0.005f, 0.0f, 1.0f, "%.3f");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        prefHelp("Fraction of the velocity lost per step. 0 swings forever,\n"
+                 "high values settle almost at once.");
+        ImGui::DragFloat("Gravity", &o.clothGravity, 0.1f, -30.0f, 50.0f,
+                         "%.2f u/s2");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::DragFloat("Wind", &o.clothWind, 0.1f, 0.0f, 60.0f, "%.2f u/s2");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        prefHelp("Gust acceleration. The gust breathes but never reverses,\n"
+                 "and neighbouring rows ripple out of phase.");
+        if (o.clothWind > 0.0f) {
+            ImGui::DragFloat("Wind from", &o.clothWindDir, 1.0f, -360.0f, 360.0f,
+                             "%.0f deg");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            prefHelp("Compass bearing of the draught, degrees around world Y.\n"
+                     "0 blows along +Z.");
+        }
+        ImGui::DragFloat("Player radius", &o.clothPushRadius, 0.02f, 0.0f, 5.0f,
+                         "%.2f u");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        prefHelp("How fat the player is to this cloth. They are a capsule -\n"
+                 "three spheres of this radius up their own height - so the\n"
+                 "whole body sweeps the sheet aside. Wide enough and a\n"
+                 "curtain billows off both shoulders; 0 and they walk\n"
+                 "straight through it.");
+        if (drawMaterialCombo(o)) committed = true;
+        if (!o.materialPath.empty()) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Edit...")) openMaterialEditor(o.materialPath);
+        }
+        ImGui::TextDisabled(
+            "Simulated every frame - never batched, baked or collided with.");
+    }
+
+    if (isWind) {
+        ImGui::SeparatorText("Wind source");
+        ImGui::TextDisabled("Blows along this object's +Z - aim it with Rotation.");
+        ImGui::DragFloat("Strength", &o.windStrength, 0.25f, 0.0f, 200.0f,
+                         "%.1f u/s2");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        prefHelp("Acceleration at the source. A curtain starts lifting off\n"
+                 "its rail somewhere around 10; a flag wants 15-30.");
+        ImGui::DragFloat("Reach", &o.windRadius, 0.25f, 0.0f, 500.0f,
+                         o.windRadius > 0.0f ? "%.2f u" : "whole scene");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        prefHelp("Radius of the sphere it blows inside, falling off as\n"
+                 "1 - d^2/r^2 - the same curve the point lights use.\n"
+                 "0 is a prevailing wind: the whole scene, no falloff.");
+        ImGui::TextDisabled(
+            "Hide Object switches it off; sources add up on each sheet.");
     }
 
     if (o.type == PrimitiveType::Emitter) {

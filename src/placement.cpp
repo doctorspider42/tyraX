@@ -86,7 +86,13 @@ bool collides(const SceneObject& o) {
         case PrimitiveType::Area:
         case PrimitiveType::Scatter:
         case PrimitiveType::Scroller:
-        case PrimitiveType::Comment: return false;
+        case PrimitiveType::Comment:
+        // Cloth is a surface that MOVES, so a static box around it would be
+        // wrong the moment it swings - and a curtain you cannot walk through
+        // is not a curtain. It collides with nothing; the player collides
+        // with IT, from the cloth side (docs/cloth.md).
+        case PrimitiveType::Cloth:
+        case PrimitiveType::Wind: return false;
         default: return true;
     }
 }

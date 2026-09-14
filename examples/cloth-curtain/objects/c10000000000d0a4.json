@@ -1,0 +1,1 @@
+{ "id": "c10000000000d0a4", "name": "curtain", "type": "cloth", "position": [0, 1.35, 0.05], "rotation": [0, 0, 0], "scale": [1.8, 2.9, 1], "color": [0.72, 0.22, 0.24], "physics": false, "collision": "none", "castShadow": false, "cloth": { "cols": 11, "rows": 13, "pin": "top", "iterations": 2, "damping": 0.03, "gravity": 9.8, "push": 0.9 } }

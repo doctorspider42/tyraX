@@ -19,6 +19,7 @@
 
 #include "animedit.hpp"
 #include "aobake.hpp"
+#include "cloth.hpp"
 #include "blss.hpp"  // the neural upscaler: scale factors + the net emitter
 #include "gibake.hpp"
 #include "decalproj.hpp"
@@ -1818,6 +1819,59 @@ class TerrainGame : public Tyra::Game {
   void buildParticles();
   void updateParticles();
 
+  // Cloth / soft bodies (type 21, docs/cloth.md). The one SURFACE in this
+  // engine that moves: a grid of particles integrated every frame (Verlet,
+  // four independent constraint batches) with the player's own body as a
+  // collider, so walking into a curtain lifts it. Positions live in world
+  // space and the bag draws under the shared identity model matrix, like a
+  // projected decal's baked mesh - there is nothing to transform, the
+  // simulation already put every vertex where it belongs.
+  //
+  // Everything here is a numeric TWIN of src/cloth.cpp in the editor, which
+  // is what the viewport preview runs: same fixed step, same batch order,
+  // same gust. Change one and change the other, or what an author lays out
+  // stops being what the console swings.
+  //
+  // The arithmetic is Tyra::Vec4, i.e. COP2 macro mode - VU0. One particle is
+  // one quadword and every line below is one vector operation on it.
+  struct ClothSystem {
+    int objectIndex = -1;
+    int cols = 0, rows = 0, iterations = 2, pin = 1;
+    float restX = 0.25F, restY = 0.25F;
+    float damping = 0.03F, gravity = 9.8F, pushRadius = 0.9F;
+    // The sheet's OWN draught, baked. The wind it actually feels is this plus
+    // every Wind entity in reach, resolved into windAccel once per frame.
+    Tyra::Vec4 ownWind, windAccel;
+    float time = 0.0F, carry = 0.0F;
+    std::vector<Tyra::Vec4> pos, prev, nrm;
+    std::vector<unsigned char> pinned;
+    std::vector<float> rowSin, rowCos;  // baked gust phase, one per row
+    std::vector<Tyra::Vec4> verts, sts;
+    std::vector<Tyra::Color> cols3;     // one per emitted vertex
+    // Shade per PARTICLE, not per emitted vertex. Every vertex a particle
+    // appears in shares its normal, and a particle appears in up to six of
+    // them, so shading per vertex did the same arithmetic six times over. The
+    // result is identical by construction - which is what makes this free
+    // rather than a trade-off - and it is worth 25 %: measured on the CLOTH
+    // profiler phase over two sheets / 242 particles in PCSX2, 1.51 -> 1.13 ms
+    // (three samples each, +-0.02). Note what that also says: shading was a
+    // quarter of the bill and not most of it, so what is left IS the solver's
+    // arithmetic - which is the half a VU0 microprogram would fuse
+    // (docs/backlog.md).
+    std::vector<Tyra::Color> pcols;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+  };
+  std::vector<ClothSystem> cloths;
+  void buildCloths();
+  void updateCloths();
+  // Wind sources (type 22): the acceleration a point feels, summed over every
+  // active source. Reads their LIVE transforms, so a carried fan blows where
+  // it points now.
+  Tyra::Vec4 clothWindAt(const Tyra::Vec4& point) const;
+
   // Sound emitters (type 8): distance-attenuated one-shots on channels 16-23
   std::vector<audsrv_adpcm_t*> sndSamples;  // scene_data.hpp SND_PATHS order
   std::vector<int> sndTimers;               // per-object retrigger countdown
@@ -3354,6 +3408,59 @@ class TerrainGame : public Tyra::Game {
   std::vector<ParticleSystem> particles;
   void buildParticles();
   void updateParticles();
+
+  // Cloth / soft bodies (type 21, docs/cloth.md). The one SURFACE in this
+  // engine that moves: a grid of particles integrated every frame (Verlet,
+  // four independent constraint batches) with the player's own body as a
+  // collider, so walking into a curtain lifts it. Positions live in world
+  // space and the bag draws under the shared identity model matrix, like a
+  // projected decal's baked mesh - there is nothing to transform, the
+  // simulation already put every vertex where it belongs.
+  //
+  // Everything here is a numeric TWIN of src/cloth.cpp in the editor, which
+  // is what the viewport preview runs: same fixed step, same batch order,
+  // same gust. Change one and change the other, or what an author lays out
+  // stops being what the console swings.
+  //
+  // The arithmetic is Tyra::Vec4, i.e. COP2 macro mode - VU0. One particle is
+  // one quadword and every line below is one vector operation on it.
+  struct ClothSystem {
+    int objectIndex = -1;
+    int cols = 0, rows = 0, iterations = 2, pin = 1;
+    float restX = 0.25F, restY = 0.25F;
+    float damping = 0.03F, gravity = 9.8F, pushRadius = 0.9F;
+    // The sheet's OWN draught, baked. The wind it actually feels is this plus
+    // every Wind entity in reach, resolved into windAccel once per frame.
+    Tyra::Vec4 ownWind, windAccel;
+    float time = 0.0F, carry = 0.0F;
+    std::vector<Tyra::Vec4> pos, prev, nrm;
+    std::vector<unsigned char> pinned;
+    std::vector<float> rowSin, rowCos;  // baked gust phase, one per row
+    std::vector<Tyra::Vec4> verts, sts;
+    std::vector<Tyra::Color> cols3;     // one per emitted vertex
+    // Shade per PARTICLE, not per emitted vertex. Every vertex a particle
+    // appears in shares its normal, and a particle appears in up to six of
+    // them, so shading per vertex did the same arithmetic six times over. The
+    // result is identical by construction - which is what makes this free
+    // rather than a trade-off - and it is worth 25 %: measured on the CLOTH
+    // profiler phase over two sheets / 242 particles in PCSX2, 1.51 -> 1.13 ms
+    // (three samples each, +-0.02). Note what that also says: shading was a
+    // quarter of the bill and not most of it, so what is left IS the solver's
+    // arithmetic - which is the half a VU0 microprogram would fuse
+    // (docs/backlog.md).
+    std::vector<Tyra::Color> pcols;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+  };
+  std::vector<ClothSystem> cloths;
+  void buildCloths();
+  void updateCloths();
+  // Wind sources (type 22): the acceleration a point feels, summed over every
+  // active source. Reads their LIVE transforms, so a carried fan blows where
+  // it points now.
+  Tyra::Vec4 clothWindAt(const Tyra::Vec4& point) const;
 
   // Sound emitters (type 8): distance-attenuated one-shots on channels 16-23
   std::vector<audsrv_adpcm_t*> sndSamples;  // scene_data.hpp SND_PATHS order
@@ -5414,6 +5521,11 @@ void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
 // wired in as a shippable debug option. (COP0 Count runs at 294.912 MHz =
 // half the 590 MHz EE clock; /294912 converts ticks to milliseconds.)
 u32 g_profScene = 0, g_profHighlight = 0, g_profParticles = 0;
+// Cloth (docs/cloth.md) is simulated in the LOOP, not inside renderScene,
+// so without a counter of its own its cost shows up only as the gap
+// between FRAME and the phases - which is exactly the shape that makes a
+// feature impossible to price. CLOTH on the HUD is it.
+u32 g_profCloth = 0;
 static inline u32 profTicks() {
   u32 v;
   asm volatile("mfc0 %0, $9" : "=r"(v));
@@ -5783,7 +5895,7 @@ void drawDebugHud(Engine* engine, const Vec4& camPos, const Vec4& camAt) {
     // once per frame); the phase sums come from renderScene. Averaged over a
     // ~1s window so the numbers hold still enough to read.
     static u32 lastTick = 0, frames = 0, frameAcc = 0;
-    static u32 sScene = 0, sHl = 0, sPart = 0;
+    static u32 sScene = 0, sHl = 0, sPart = 0, sCloth = 0;
     static char l1[40] = "PROFILER...", l2[40] = "";
     const u32 now = profTicks();
     if (lastTick) frameAcc += now - lastTick;
@@ -5791,13 +5903,15 @@ void drawDebugHud(Engine* engine, const Vec4& camPos, const Vec4& camAt) {
     sScene += g_profScene;
     sHl += g_profHighlight;
     sPart += g_profParticles;
-    g_profScene = g_profHighlight = g_profParticles = 0;
+    sCloth += g_profCloth;
+    g_profScene = g_profHighlight = g_profParticles = g_profCloth = 0;
     if (++frames >= 50) {
       const float k = 1.0F / (294912.0F * (float)frames);  // ticks -> avg ms
       snprintf(l1, sizeof(l1), "FRAME %.2f SCENE %.2f", frameAcc * k,
                sScene * k);
-      snprintf(l2, sizeof(l2), "HL %.2f PART %.2f", sHl * k, sPart * k);
-      frames = frameAcc = sScene = sHl = sPart = 0;
+      snprintf(l2, sizeof(l2), "HL %.2f PART %.2f CLOTH %.2f", sHl * k,
+               sPart * k, sCloth * k);
+      frames = frameAcc = sScene = sHl = sPart = sCloth = 0;
     }
     drawHudText(engine, l1, 16.0F, y);
     y += 20.0F;
@@ -6436,6 +6550,7 @@ void TerrainGame::loop() {
   // object to the arrival camera (see the FPP loop note).
   if (!menuOwnsPad) updateCarriedObject();
   updateParticles();
+  updateCloths();
   updateSoundEmitters();
   updateReverb();
 
@@ -9419,6 +9534,7 @@ void TerrainGame::loadScene(int sceneIndex) {
   }
 
   buildParticles();
+  buildCloths();
 
   // Sound emitters: fresh retrigger state; mute the emitter channels (an
   // ADPCM sample can't be stopped - it plays out, but silently). Both cores'
@@ -9976,6 +10092,494 @@ void TerrainGame::updateParticles() {
     ps.bag->count = (u32)drawN;
   }
 }
+// --- Cloth / soft bodies (type 21, docs/cloth.md) ----------------------
+// A numeric TWIN of src/cloth.cpp in the editor - same fixed step, same four
+// constraint batches, same gust - which is what makes the viewport's preview
+// a prediction of this rather than a separate animation. Change either side
+// and change the other.
+//
+// The arithmetic is Tyra::Vec4, i.e. COP2 macro mode: every line below that
+// looks like one vector operation IS one, issued to VU0. One particle is one
+// quadword; nothing in the hot path touches a component by name.
+//
+// Three properties hold it up, and each is load-bearing rather than tidy:
+//   ONE PARTICLE IS ONE QUADWORD, so the solver's instruction count is its
+//   line count.
+//   CONSTRAINTS RUN IN FOUR INDEPENDENT BATCHES (horizontal even columns,
+//   horizontal odd, vertical even rows, vertical odd). No particle appears
+//   twice inside a batch, so a batch has no internal ordering at all - which
+//   is exactly the shape a VU0 microprogram or any wider unit wants, and why
+//   moving this off the EE later is a port rather than a rewrite.
+//   THE STEP IS FIXED (CLOTH_STEP). Verlet with a varying dt changes its own
+//   stiffness every frame; a loading hitch would explode the sheet. Real time
+//   accumulates and whole steps run, at most CLOTH_MAX_STEPS per frame.
+//
+// 60 Hz is the FASTEST display this engine runs at, and that is why it is the
+// step rate. At the PAL field rate (1/50) the accumulator still keeps the
+// speed right on an NTSC console - 60 frames of 1/60 s is exactly 50 steps -
+// but the pattern over six frames is 0,1,1,1,1,1: one frame in six runs no
+// step, the mesh is not rebuilt, and the previous pose is shown twice, so the
+// cloth animates at 50 Hz on a 60 Hz screen. At 1/60 neither region ever
+// skips (NTSC 1 per frame, PAL 1,1,1,1,2). A CONSTANT rather than
+// 1/g_frameRate, so damping (per step) and stiffness (sweeps per second) do
+// not become region-dependent - see docs/cloth.md, "Frame rate and region".
+static const float CLOTH_STEP = 1.0F / 60.0F;
+static const int CLOTH_MAX_STEPS = 4;
+static const float CLOTH_GUST_RATE = 2.1F;
+static const float CLOTH_GUST_ROW_PHASE = 0.9F;
+static const float CLOTH_GUST_BASE = 0.65F;
+static const float CLOTH_GUST_SWING = 0.35F;
+// The player's body as the cloth sees it: a capsule between these fractions
+// of their own eye height - ankles to just over the head. Twin of
+// cloth::kBodyLo / kBodyHi.
+static const float CLOTH_BODY_LO = 0.08F;
+static const float CLOTH_BODY_HI = 1.00F;
+
+// Which particles are nailed. Twin of cloth::pinnedAt; the values ARE the
+// serialized ones, so this switch is append-only.
+static bool clothPinnedAt(int pin, int r, int c, int cols, int rows) {
+  switch (pin) {
+    case 0: return false;                                   // free
+    case 2: return r == 0 && (c == 0 || c == cols - 1);     // two hooks
+    case 3: return r == 0 || r == rows - 1;                 // laced
+    case 4: return c == 0;                                  // flagpole
+    case 5: return (r == 0 || r == rows - 1) && (c == 0 || c == cols - 1);
+    default: return r == 0;                                 // a rail
+  }
+}
+
+// Rest frame of a sheet: the top-left corner of the rectangle the object
+// describes, plus the two unit axes it spans (rotated local +X and -Y).
+// It reads the rotated axes out of areaBasis rather than rebuilding them, so
+// a cloth cannot disagree with the rest of the scene about what a rotation is.
+static void clothRestFrame(const SceneObjectData& d, int cols, int rows,
+                           float restX, float restY, Vec4* origin, Vec4* right,
+                           Vec4* down) {
+  const AreaBasis b = areaBasis(d);
+  right->set(b.ax[0], b.ax[1], b.ax[2], 0.0F);
+  down->set(-b.ay[0], -b.ay[1], -b.ay[2], 0.0F);
+  const float hw = 0.5F * (float)(cols - 1) * restX;
+  const float hh = 0.5F * (float)(rows - 1) * restY;
+  origin->set(d.position[0] - right->x * hw - down->x * hh,
+              d.position[1] - right->y * hw - down->y * hh,
+              d.position[2] - right->z * hw - down->z * hh, 0.0F);
+}
+
+// Re-place the PINNED particles on the object's live rest frame. Called every
+// step, which is what lets a curtain be carried: move (or rotate) the object
+// and its rail goes with it while the free part keeps swinging behind. Free
+// particles are never touched here - they follow through the constraints.
+static void clothAnchor(Vec4* pos, Vec4* prev, const unsigned char* pinned,
+                        const SceneObjectData& d, int cols, int rows,
+                        float restX, float restY) {
+  Vec4 origin, right, down;
+  clothRestFrame(d, cols, rows, restX, restY, &origin, &right, &down);
+  for (int r = 0; r < rows; ++r) {
+    const Vec4 rowOrigin = origin + down * ((float)r * restY);
+    for (int c = 0; c < cols; ++c) {
+      const int i = r * cols + c;
+      if (!pinned[i]) continue;
+      pos[i] = rowOrigin + right * ((float)c * restX);
+      prev[i] = pos[i];
+    }
+  }
+}
+
+// Verlet integration. The velocity IS (pos - prev), so damping is a scale on
+// it and the whole acceleration term reduces to ONE constant vector per row -
+// three vector operations per particle and no trig inside the loop.
+static void clothIntegrate(Vec4* pos, Vec4* prev, const unsigned char* pinned,
+                           int cols, int rows, float keep, float gravity,
+                           const Vec4& windAccel, const float* rowSin,
+                           const float* rowCos, float time) {
+  const float h2 = CLOTH_STEP * CLOTH_STEP;
+  // ONE sinf/cosf for the whole sheet: each row's gust is the angle-addition
+  // of the global phase with the offset baked into rowSin/rowCos, so rows
+  // ripple out of phase for two multiplies instead of a trig call apiece.
+  const float gs = sinf(time * CLOTH_GUST_RATE);
+  const float gc = cosf(time * CLOTH_GUST_RATE);
+  for (int r = 0; r < rows; ++r) {
+    const float gust = CLOTH_GUST_BASE +
+                       CLOTH_GUST_SWING * (gs * rowCos[r] + gc * rowSin[r]);
+    const Vec4 acc(windAccel.x * gust * h2,
+                   (-gravity + windAccel.y * gust) * h2,
+                   windAccel.z * gust * h2, 0.0F);
+    for (int c = 0; c < cols; ++c) {
+      const int i = r * cols + c;
+      if (pinned[i]) continue;
+      const Vec4 cur = pos[i];
+      const Vec4 vel = (cur - prev[i]) * keep;
+      prev[i] = cur;
+      pos[i] = cur + vel + acc;
+    }
+  }
+}
+
+// One distance constraint - the only division in the solver. `f` is the
+// FRACTION of the separation vector that has to disappear, so the correction
+// is a scale of a vector already in a register and needs no second root. A
+// pinned endpoint takes none of the correction and its partner takes all,
+// which is what makes a pinned row a rail rather than a heavy hem.
+static void clothSatisfy(Vec4* pos, const unsigned char* pinned, int ia, int ib,
+                         float rest) {
+  const Vec4 d = pos[ib] - pos[ia];
+  const float len2 = d.innerProduct(d);
+  if (len2 < 1e-12F) return;
+  const float len = Math::sqrtNonNegative(len2);
+  const float f = (len - rest) / len;
+  const bool pa = pinned[ia] != 0, pb = pinned[ib] != 0;
+  if (pa) {
+    if (!pb) pos[ib] -= d * f;
+    return;
+  }
+  if (pb) {
+    pos[ia] += d * f;
+    return;
+  }
+  const Vec4 half = d * (f * 0.5F);
+  pos[ia] += half;
+  pos[ib] -= half;
+}
+
+// The four independent batches, `iterations` times over.
+static void clothRelax(Vec4* pos, const unsigned char* pinned, int cols,
+                       int rows, float restX, float restY, int iterations) {
+  for (int it = 0; it < iterations; ++it) {
+    for (int parity = 0; parity < 2; ++parity)
+      for (int r = 0; r < rows; ++r)
+        for (int c = parity; c + 1 < cols; c += 2)
+          clothSatisfy(pos, pinned, r * cols + c, r * cols + c + 1, restX);
+    for (int parity = 0; parity < 2; ++parity)
+      for (int r = parity; r + 1 < rows; r += 2)
+        for (int c = 0; c < cols; ++c)
+          clothSatisfy(pos, pinned, r * cols + c, (r + 1) * cols + c, restY);
+  }
+}
+
+// Push every free particle out of one CAPSULE - the segment a..b swept by
+// `radius`, which is the whole model of the player's body. `prev` is
+// deliberately NOT moved: the displacement becomes velocity on the next step,
+// so a player walking through a curtain LIFTS it and leaves it swinging
+// instead of dragging a rigid hole through it.
+//
+// A capsule rather than a stack of spheres: pushing a particle out of one
+// sphere can push it INTO the next, so a single pass over stacked spheres
+// leaves particles inside the body (measured at 0.077 of a 0.9 radius). The
+// segment has no such seam, and it is one test instead of three.
+static void clothCollide(Vec4* pos, const unsigned char* pinned, int n,
+                         const Vec4& a, const Vec4& b, float radius) {
+  if (radius <= 0.0F) return;
+  const float r2 = radius * radius;
+  const Vec4 ab = b - a;
+  const float abLen2 = ab.innerProduct(ab);
+  const float invAb = abLen2 > 1e-12F ? 1.0F / abLen2 : 0.0F;
+  for (int i = 0; i < n; ++i) {
+    if (pinned[i]) continue;
+    float t = (pos[i] - a).innerProduct(ab) * invAb;
+    t = t < 0.0F ? 0.0F : (t > 1.0F ? 1.0F : t);
+    const Vec4 c = a + ab * t;
+    const Vec4 d = pos[i] - c;
+    const float l2 = d.innerProduct(d);
+    if (l2 >= r2) continue;
+    if (l2 < 1e-10F) {
+      pos[i].set(c.x, c.y + radius, c.z, 0.0F);
+      continue;
+    }
+    pos[i] = c + d * (radius / Math::sqrtNonNegative(l2));
+  }
+}
+
+// Smoothed per-particle normals from central differences, clamped at the
+// edges. cross(down, right) faces the sheet's front, because the grid runs
+// right along +X and down along -Y.
+static void clothNormals(const Vec4* pos, Vec4* nrm, int cols, int rows) {
+  for (int r = 0; r < rows; ++r) {
+    for (int c = 0; c < cols; ++c) {
+      const int cl = c > 0 ? c - 1 : c, cr = c + 1 < cols ? c + 1 : c;
+      const int ru = r > 0 ? r - 1 : r, rd = r + 1 < rows ? r + 1 : r;
+      const Vec4 tx = pos[r * cols + cr] - pos[r * cols + cl];
+      const Vec4 ty = pos[rd * cols + c] - pos[ru * cols + c];
+      Vec4 n = ty.cross(tx);
+      const float l2 = n.innerProduct(n);
+      if (l2 < 1e-20F) n.set(0.0F, 1.0F, 0.0F, 0.0F);
+      else n = n * (1.0F / Math::sqrtNonNegative(l2));
+      nrm[r * cols + c] = n;
+    }
+  }
+}
+
+// The wind acceleration a point feels: every ACTIVE source summed, each scaled
+// by 1 - d^2/r^2 clamped at zero - the engine's own point-light falloff rather
+// than a new curve, so a fan reaches the way a lamp lights. A source with no
+// radius reaches the whole scene with no falloff at all.
+//
+// Sampled ONCE PER SHEET, at its origin, not per particle: a sheet is small
+// against the distances a source works over, so per-particle sampling would
+// cost the whole grid a subtract, a dot and a compare per source to produce a
+// gradient nobody can see. Twin of cloth::windAt in the editor.
+//
+// The source's direction and position are read from its LIVE RuntimeObject,
+// not from the baked row, so a fan carried by a moving object blows where it
+// points now; `visible` is what Hide Object switches.
+Vec4 TerrainGame::clothWindAt(const Vec4& point) const {
+  Vec4 total(0.0F, 0.0F, 0.0F, 0.0F);
+  for (int k = 0; k < WIND_COUNT; ++k) {
+    const WindData& wd = WINDS[k];
+    if (wd.scene != currentScene || wd.strength == 0.0F) continue;
+    const int oi = wd.object;
+    if (oi < 0 || oi >= (int)runtimeObjects.size()) continue;
+    const RuntimeObject& o = runtimeObjects[oi];
+    if (!o.active || !o.visible) continue;  // Hide Object turns it off
+    float f = 1.0F;
+    if (wd.radius > 0.0F) {
+      const Vec4 d(point.x - o.data.position[0], point.y - o.data.position[1],
+                   point.z - o.data.position[2], 0.0F);
+      const float d2 = d.innerProduct(d);
+      const float r2 = wd.radius * wd.radius;
+      if (d2 >= r2) continue;  // out of reach
+      f = 1.0F - d2 / r2;
+    }
+    // Blows along the source's own +Z. areaBasis already resolves an object's
+    // rotated axes, so this cannot disagree with the rest of the scene about
+    // what a rotation means - the same reason clothRestFrame reads it.
+    const AreaBasis b = areaBasis(o.data);
+    const float k2 = wd.strength * f;
+    total.set(total.x + b.az[0] * k2, total.y + b.az[1] * k2,
+              total.z + b.az[2] * k2, 0.0F);
+  }
+  return total;
+}
+
+void TerrainGame::buildCloths() {
+  cloths.clear();
+  if (CLOTH_COUNT <= 0) return;
+  for (int k = 0; k < CLOTH_COUNT; ++k) {
+    const ClothData& cd = CLOTHS[k];
+    if (cd.scene != currentScene) continue;
+    const int oi = cd.object;
+    if (oi < 0 || oi >= (int)runtimeObjects.size()) continue;
+    // Built for every authored cloth in the scene, streamed out or not: the
+    // state is a few kilobytes and updateCloths skips an inactive one, which
+    // is what keeps this out of the streaming and spawn paths entirely.
+    const SceneObjectData& d = runtimeObjects[oi].data;
+    ClothSystem cs;
+    cs.objectIndex = oi;
+    cs.cols = cd.cols;
+    cs.rows = cd.rows;
+    cs.pin = cd.pin;
+    cs.iterations = cd.iterations;
+    cs.damping = cd.damping;
+    cs.gravity = cd.gravity;
+    cs.pushRadius = cd.push;
+    const float wa = cd.windDir * PI / 180.0F;
+    cs.ownWind.set(sinf(wa) * cd.wind, 0.0F, cosf(wa) * cd.wind, 0.0F);
+    cs.windAccel = cs.ownWind;
+    // The sheet spans the object's unit XY quad, so the rest spacing is the
+    // scale over the number of gaps: a wider curtain is a coarser grid, never
+    // a pre-stretched one.
+    cs.restX = fabsf(d.scale[0]) / (float)(cs.cols - 1);
+    cs.restY = fabsf(d.scale[1]) / (float)(cs.rows - 1);
+    const int n = cs.cols * cs.rows;
+    cs.pos.assign(n, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+    cs.prev.assign(n, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+    cs.nrm.assign(n, Vec4(0.0F, 1.0F, 0.0F, 0.0F));
+    cs.pinned.assign(n, 0);
+    cs.rowSin.assign(cs.rows, 0.0F);
+    cs.rowCos.assign(cs.rows, 0.0F);
+    Vec4 origin, right, down;
+    clothRestFrame(d, cs.cols, cs.rows, cs.restX, cs.restY, &origin, &right,
+                   &down);
+    for (int r = 0; r < cs.rows; ++r) {
+      cs.rowSin[r] = sinf((float)r * CLOTH_GUST_ROW_PHASE);
+      cs.rowCos[r] = cosf((float)r * CLOTH_GUST_ROW_PHASE);
+      const Vec4 rowOrigin = origin + down * ((float)r * cs.restY);
+      for (int c = 0; c < cs.cols; ++c) {
+        const int i = r * cs.cols + c;
+        cs.pos[i] = rowOrigin + right * ((float)c * cs.restX);
+        cs.prev[i] = cs.pos[i];  // a freshly laid sheet is at rest
+        cs.pinned[i] =
+            clothPinnedAt(cs.pin, r, c, cs.cols, cs.rows) ? (u8)1 : (u8)0;
+      }
+    }
+    // One triangle list, no indices - the PS2 has no index buffer. The STs
+    // never change, so they are filled ONCE here and the per-frame path only
+    // rewrites positions and colours.
+    const int tri = (cs.cols - 1) * (cs.rows - 1) * 2;
+    const int vcount = tri * 3;
+    cs.verts.assign(vcount, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+    cs.sts.assign(vcount, Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+    cs.cols3.assign(vcount, Color(128.0F, 128.0F, 128.0F, 128.0F));
+    cs.pcols.assign(n, Color(128.0F, 128.0F, 128.0F, 128.0F));
+    const float du = cs.cols > 1 ? 1.0F / (float)(cs.cols - 1) : 1.0F;
+    const float dv = cs.rows > 1 ? 1.0F / (float)(cs.rows - 1) : 1.0F;
+    int w = 0;
+    for (int r = 0; r + 1 < cs.rows; ++r) {
+      for (int c = 0; c + 1 < cs.cols; ++c) {
+        const int rr[6] = {r, r + 1, r + 1, r, r + 1, r};
+        const int cc[6] = {c, c, c + 1, c, c + 1, c + 1};
+        for (int t = 0; t < 6; ++t)
+          cs.sts[w + t].set((float)cc[t] * du, (float)rr[t] * dv, 1.0F, 0.0F);
+        w += 6;
+      }
+    }
+    cs.infoBag = std::make_unique<StaPipInfoBag>();
+    cs.infoBag->model = &model;  // world-space vertices: identity transform
+    cs.infoBag->shadingType = TyraShadingGouraud;
+    cs.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    cs.infoBag->fullClipChecks = true;
+    cs.colorBag = std::make_unique<StaPipColorBag>();
+    cs.colorBag->many = cs.cols3.data();
+    cs.bag = std::make_unique<StaPipBag>();
+    cs.bag->info = cs.infoBag.get();
+    cs.bag->color = cs.colorBag.get();
+    cs.bag->lighting = nullptr;
+    cs.bag->vertices = cs.verts.data();
+    // Nothing is drawn until the first step has placed the vertices - the
+    // arrays are still all zeros here, which is a heap of degenerate triangles
+    // at the world origin.
+    cs.bag->count = 0;
+    // The texture bag always exists and is BOUND per frame (below), because
+    // a streaming layer can make the material resident after this runs and a
+    // texture hot-reload can replace it while the game is up.
+    cs.texBag = std::make_unique<StaPipTextureBag>();
+    cs.texBag->texture = nullptr;
+    cs.texBag->coordinates = cs.sts.data();
+    cs.bag->texture = nullptr;
+    cloths.push_back(std::move(cs));
+  }
+}
+
+void TerrainGame::updateCloths() {
+  if (cloths.empty()) return;
+  const u32 profCloth0 = DEBUG_SHOW_PROFILER ? profTicks() : 0;
+  struct ProfEnd {
+    u32 t0;
+    ~ProfEnd() {
+      if (DEBUG_SHOW_PROFILER) g_profCloth += profTicks() - t0;
+    }
+  } profEnd{profCloth0};
+  // Paused: leave every bag exactly as it was, so a curtain hangs frozen
+  // behind the menu with the rest of the world.
+  if (g_gameplayPaused) return;
+
+  // The collider. The walker has no body the cloth could ask about, so this
+  // is the whole model of them (docs/cloth.md): a CAPSULE from ankles to just
+  // over the head. One sphere at waist height was the first cut and it pushed
+  // a bulge through a curtain while the hem and the top stayed put; a capsule
+  // makes the whole body sweep the sheet aside, which is what walking through
+  // a curtain looks like. A game with no Player object falls back to the
+  // camera, which is what makes the feature visible in an orbit-template
+  // project too.
+  Vec4 bodyA, bodyB;
+  if (PLAYER_INDEX >= 0) {
+    const float h = PLAYER_EYE_HEIGHT;
+    bodyA.set(players[0].x, players[0].y + h * CLOTH_BODY_LO, players[0].z, 0.0F);
+    bodyB.set(players[0].x, players[0].y + h * CLOTH_BODY_HI, players[0].z, 0.0F);
+  } else {
+    bodyA.set(cameraPosition.x, cameraPosition.y - 1.6F, cameraPosition.z, 0.0F);
+    bodyB.set(cameraPosition.x, cameraPosition.y + 0.1F, cameraPosition.z, 0.0F);
+  }
+
+  for (ClothSystem& cs : cloths) {
+    const RuntimeObject& o = runtimeObjects[cs.objectIndex];
+    if (!o.active || !o.visible) {
+      cs.bag->count = 0;  // Hide Object takes the sheet with it
+      continue;
+    }
+    // Rebind the material every frame: streaming and the texture hot-reload
+    // both change what is resident under the game.
+    Texture* tex = nullptr;
+    const int matIndex = o.data.material;
+    if (matIndex >= 0 && matIndex < (int)gameMaterials.size())
+      tex = gameMaterials[matIndex].texture;
+    cs.texBag->texture = tex;
+    cs.bag->texture = tex ? cs.texBag.get() : nullptr;
+
+    // The wind this sheet feels this frame: its own draught plus every source
+    // that reaches it. Once per sheet, before the step loop - a source cannot
+    // move far enough inside one frame's worth of steps to matter.
+    cs.windAccel = cs.ownWind;
+    if (WIND_COUNT > 0) {
+      const Vec4 here(o.data.position[0], o.data.position[1],
+                      o.data.position[2], 0.0F);
+      const Vec4 w = clothWindAt(here);
+      cs.windAccel.set(cs.windAccel.x + w.x, cs.windAccel.y + w.y,
+                       cs.windAccel.z + w.z, 0.0F);
+    }
+
+    const int n = cs.cols * cs.rows;
+    const float keep = 1.0F - cs.damping;
+    float dt = g_frameDt;
+    const float cap = CLOTH_STEP * (float)CLOTH_MAX_STEPS;
+    if (dt > cap) dt = cap;  // a loading hitch is not a physics event
+    cs.carry += dt;
+    int ran = 0;
+    while (cs.carry >= CLOTH_STEP && ran < CLOTH_MAX_STEPS) {
+      cs.carry -= CLOTH_STEP;
+      cs.time += CLOTH_STEP;
+      clothAnchor(cs.pos.data(), cs.prev.data(), cs.pinned.data(), o.data,
+                  cs.cols, cs.rows, cs.restX, cs.restY);
+      clothIntegrate(cs.pos.data(), cs.prev.data(), cs.pinned.data(), cs.cols,
+                     cs.rows, keep, cs.gravity, cs.windAccel,
+                     cs.rowSin.data(), cs.rowCos.data(), cs.time);
+      clothRelax(cs.pos.data(), cs.pinned.data(), cs.cols, cs.rows, cs.restX,
+                 cs.restY, cs.iterations);
+      clothCollide(cs.pos.data(), cs.pinned.data(), n, bodyA, bodyB,
+                   cs.pushRadius);
+      ++ran;
+    }
+    // Nothing moved this frame: keep the vertex arrays the last step built
+    // rather than rebuilding an identical mesh.
+    if (ran == 0) continue;
+
+    clothNormals(cs.pos.data(), cs.nrm.data(), cs.cols, cs.rows);
+    // Shade is baked into the vertex colours, TWO-SIDED: nothing in this
+    // engine backface-culls and a curtain is looked at from both sides, so a
+    // normal pointing away from the light is flipped rather than clamped to
+    // black. The editor's preview bakes the same term.
+    const bool textured = cs.bag->texture != nullptr;
+    const float scale = textured ? 128.0F : 255.0F;
+    const float* kd = nullptr;
+    const int mi = o.data.material;
+    if (mi >= 0 && mi < (int)gameMaterials.size()) kd = gameMaterials[mi].kd;
+    const float tr = o.data.color[0] * (kd ? kd[0] : 1.0F);
+    const float tg = o.data.color[1] * (kd ? kd[1] : 1.0F);
+    const float tb = o.data.color[2] * (kd ? kd[2] : 1.0F);
+    for (int i = 0; i < n; ++i) {
+      V3 nn = {cs.nrm[i].x, cs.nrm[i].y, cs.nrm[i].z};
+      if (nn.x * SCENE_LIGHT_X + nn.y * SCENE_LIGHT_Y + nn.z * SCENE_LIGHT_Z <
+          0.0F)
+        nn = {-nn.x, -nn.y, -nn.z};
+      const V3 sh = shadeOf(nn);
+      const float cr = tr * sh.x * scale, cg = tg * sh.y * scale,
+                  cb = tb * sh.z * scale;
+      cs.pcols[i] = Color(cr > 255.0F ? 255.0F : cr, cg > 255.0F ? 255.0F : cg,
+                          cb > 255.0F ? 255.0F : cb, 128.0F);
+    }
+    int w = 0;
+    for (int r = 0; r + 1 < cs.rows; ++r) {
+      for (int c = 0; c + 1 < cs.cols; ++c) {
+        const int rr[6] = {r, r + 1, r + 1, r, r + 1, r};
+        const int cc[6] = {c, c, c + 1, c, c + 1, c + 1};
+        for (int t = 0; t < 6; ++t) {
+          const int i = rr[t] * cs.cols + cc[t];
+          // W IS WRITTEN EXPLICITLY, and that is not tidiness: Vec4's default
+          // constructor initialises nothing and its xyz operators leave w
+          // alone, so every position the solver produced carries whatever was
+          // on the stack there. The solver never reads w (innerProduct and
+          // cross are xyz), but VU1's MVP multiply does.
+          cs.verts[w + t].set(cs.pos[i].x, cs.pos[i].y, cs.pos[i].z, 1.0F);
+          cs.cols3[w + t] = cs.pcols[i];
+        }
+        w += 6;
+      }
+    }
+    cs.bag->count = (u32)w;
+    // The geometry moved, so the cached package bounding boxes must not be
+    // reused - they are keyed by (vertex pointer, bboxVersion).
+    cs.bag->bboxVersion = ++g_bboxStamp;
+  }
+}
 // Picks the nearest usable object the camera is close to and looking at
 // (thresholds in controls.hpp). BTN_USE on it -> scriptCtx.usedObject for
 // one frame, which fires the flow graph "On Used" trigger.
@@ -10008,7 +10612,8 @@ void TerrainGame::updateUseTarget() {
     if (o.data.type == 4 || o.data.type == 6 || o.data.type == 7 ||
         o.data.type == 8 || o.data.type == 9 || o.data.type == 11 ||
         o.data.type == 14 || o.data.type == 17 || o.data.type == 18 ||
-        o.data.type == 19 || o.data.type == 20)
+        o.data.type == 19 || o.data.type == 20 || o.data.type == 21 ||
+        o.data.type == 22)
       continue;
 
     const float dx = o.data.position[0] - cameraPosition.x;
@@ -17012,6 +17617,8 @@ bool TerrainGame::objectCollides(const SceneObjectData& d) {
     case 18:  // procedural volume (authoring only)
     case 19:  // scroller belt marker
     case 20:  // comment (an editor note)
+    case 21:  // cloth - a surface that MOVES, so no static box describes it
+    case 22:  // wind source - air, not a wall
       return false;
     default: return true;
   }
@@ -18114,6 +18721,8 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
         break;
       case 18: break;  // scatter volume - editor authoring region only
       case 20: break;  // comment - an editor note, invisible here
+      case 21: break;  // cloth - its mesh is built by updateCloths()
+      case 22: break;  // wind source - invisible, read by updateCloths()
       case 12: addPlane(p0.vertices, p0.colors, p0.sts, o.data); break;
       case 13: {
         // Projecting decal: a world-space mesh conforming to the receiver
@@ -18743,7 +19352,7 @@ bool TerrainGame::physObstacle(const SceneObjectData& d) {
   if (d.collision == 2) return false;
   const int t = d.type;
   return t != 4 && t != 6 && t != 7 && t != 8 && t != 9 && t != 11 &&
-         t != 13 && t != 14 && t != 17 && t != 20;
+         t != 13 && t != 14 && t != 17 && t != 20 && t != 21 && t != 22;
 }
 
 // ---------------------------------------------------------------------------
@@ -20942,6 +21551,11 @@ void TerrainGame::renderScene() {
                                       : Vec4(ux, uy, uz, 0.0F);
     }
   }
+  // Cloth before the particles: it is opaque geometry that belongs with the
+  // scene, and drawing it after the alpha-blended quads would let a curtain
+  // erase the smoke in front of it.
+  for (ClothSystem& cs : cloths)
+    if (cs.bag && cs.bag->count > 0) stapip.core.render(cs.bag.get());
   for (ParticleSystem& ps : particles)
     if (ps.bag && ps.bag->count > 0) stapip.core.render(ps.bag.get());
   if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
@@ -24674,6 +25288,7 @@ void TerrainGame::loop() {
   // crosses (owner).
   if (!menuOwnsPad) updateCarriedObject();
   updateParticles();
+  updateCloths();
   updateSoundEmitters();
   updateReverb();
 
@@ -28035,6 +28650,10 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "             //    baked clone objects via SCROLLERS/SCROLLER_CLONES)\n"
            "             // 20=comment (an editor-only note: no geometry, no\n"
            "             //    collision, and its text never leaves the editor)\n"
+           "             // 21=cloth (a simulated sheet: its mesh is rebuilt\n"
+           "             //    every frame by updateCloths - see CLOTHS below)\n"
+           "             // 22=wind (a source that blows cloth along its own\n"
+           "             //    +Z; invisible, no geometry - see WINDS below)\n"
            "  float position[3];\n"
            "  float rotation[3];  // degrees\n"
            "  float scale[3];\n"
@@ -29034,6 +29653,97 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             << "constexpr ReverbZoneData REVERB_ZONES["
             << (zoneCount ? zoneCount : 1) << "] = {\n"
             << (zoneCount ? rows.str() : "    {0, -1, 0, 0, 0, 0, 0}")
+            << "\n};\n\n";
+    }
+
+    // Cloth / soft bodies (docs/cloth.md). A side table keyed by (scene,
+    // object) rather than fields on SceneObjectData, the MIRRORS/SCROLLERS/
+    // REVERB_ZONES pattern: only a cloth needs these nine numbers and every
+    // object in every scene would otherwise carry them. The sheet's EXTENT is
+    // not here at all - it is the object's own transform, read live, so a
+    // curtain carried by a moving object moves with it.
+    {
+        std::ostringstream rows;
+        int clothCount = 0;
+        for (int si = 0; si < sceneCount; ++si) {
+            const auto& objs = p.scenes[si].objects;
+            for (size_t oi = 0; oi < objs.size(); ++oi) {
+                const SceneObject& o = objs[oi];
+                if (o.type != PrimitiveType::Cloth) continue;
+                rows << (clothCount ? ",\n" : "") << "    {" << si << ", "
+                     << (int)oi << ", " << cloth::clampSide(o.clothCols) << ", "
+                     << cloth::clampSide(o.clothRows) << ", "
+                     << (o.clothPin >= 0 && o.clothPin <= 5 ? o.clothPin : 1)
+                     << ", "
+                     << (o.clothIterations < 1
+                             ? 1
+                             : (o.clothIterations > 4 ? 4 : o.clothIterations))
+                     << ", " << floatLit(o.clothDamping) << ", "
+                     << floatLit(o.clothGravity) << ", " << floatLit(o.clothWind)
+                     << ", " << floatLit(o.clothWindDir) << ", "
+                     << floatLit(o.clothPushRadius) << "}";
+                ++clothCount;
+            }
+        }
+        out << "// A simulated sheet (type 21). The grid is integrated every\n"
+               "// frame on VU0 (COP2 macro mode) and the player is a collider,\n"
+               "// so walking into a curtain lifts it. What is NOT here is the\n"
+               "// sheet's size or place: that is the object's own transform,\n"
+               "// read live every step.\n"
+               "struct ClothData {\n"
+               "  int scene;       // scene index\n"
+               "  int object;      // the cloth's index in its scene table\n"
+               "  int cols, rows;  // particles across and down\n"
+               "  int pin;         // 0 none, 1 top edge, 2 top corners,\n"
+               "                   // 3 top+bottom, 4 left edge, 5 four corners\n"
+               "  int iterations;  // relaxation sweeps per step (stiffness)\n"
+               "  float damping;   // velocity lost per step, 0..1\n"
+               "  float gravity;   // units/s^2 down\n"
+               "  float wind;      // gust acceleration amplitude\n"
+               "  float windDir;   // gust bearing, degrees around world Y\n"
+               "  float push;      // the player's radius to this cloth\n"
+               "};\n"
+            << "constexpr int CLOTH_COUNT = " << clothCount << ";\n"
+            << "constexpr ClothData CLOTHS[" << (clothCount ? clothCount : 1)
+            << "] = {\n"
+            << (clothCount ? rows.str()
+                           : "    {0, -1, 2, 2, 1, 2, 0.03F, 9.8F, 0.0F, 0.0F, 0.9F}")
+            << "\n};\n\n";
+    }
+
+    // Wind sources (docs/cloth.md, "Wind entities"). Same (scene, object) side
+    // table as CLOTHS: only a wind source needs these two numbers. Its
+    // DIRECTION and POSITION are deliberately not here - they are the object's
+    // own transform, read live every step, so a fan carried by a moving object
+    // blows where it is pointing now rather than where it was at build.
+    {
+        std::ostringstream rows;
+        int windCount = 0;
+        for (int si = 0; si < sceneCount; ++si) {
+            const auto& objs = p.scenes[si].objects;
+            for (size_t oi = 0; oi < objs.size(); ++oi) {
+                const SceneObject& o = objs[oi];
+                if (o.type != PrimitiveType::Wind) continue;
+                rows << (windCount ? ",\n" : "") << "    {" << si << ", "
+                     << (int)oi << ", " << floatLit(o.windStrength) << ", "
+                     << floatLit(o.windRadius < 0.0f ? 0.0f : o.windRadius)
+                     << "}";
+                ++windCount;
+            }
+        }
+        out << "// A placed source of wind. It blows every Cloth within reach\n"
+               "// along its own local +Z, and sources ADD UP on each sheet.\n"
+               "// Hiding the object switches it off.\n"
+               "struct WindData {\n"
+               "  int scene;       // scene index\n"
+               "  int object;      // the source's index in its scene table\n"
+               "  float strength;  // acceleration at the source, units/s^2\n"
+               "  float radius;    // reach; 0 = the whole scene, no falloff\n"
+               "};\n"
+            << "constexpr int WIND_COUNT = " << windCount << ";\n"
+            << "constexpr WindData WINDS[" << (windCount ? windCount : 1)
+            << "] = {\n"
+            << (windCount ? rows.str() : "    {0, -1, 0.0F, 0.0F}")
             << "\n};\n\n";
     }
 
@@ -33393,8 +34103,8 @@ static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
     if (!o.active || !o.visible || i == player) continue;
     const int ty = o.data.type;
     if (ty == 4 || ty == 6 || ty == 7 || ty == 8 || ty == 9 || ty == 11 ||
-        ty == 14 || ty == 17 || ty == 18 || ty == 20)
-      continue;  // markers/emitters/areas/notes, not geometry
+        ty == 14 || ty == 17 || ty == 18 || ty == 20 || ty == 21 || ty == 22)
+      continue;  // markers/emitters/areas/notes/cloth/wind, not geometry
     // bounding sphere: half the largest scale axis (matches the USE picker)
     float half = o.data.scale[0];
     if (o.data.scale[1] > half) half = o.data.scale[1];

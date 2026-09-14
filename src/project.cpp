@@ -1,4 +1,5 @@
 #include "project.hpp"
+#include "cloth.hpp"  // cloth::clampSide - the grid caps the reader clamps to
 #include "hudanim.hpp"
 #include "vugen.hpp"  // vugen::classTitle - VU material-class labels
 
@@ -50,6 +51,8 @@ const char* primitiveTypeName(PrimitiveType t) {
         case PrimitiveType::Scatter: return "scatter";
         case PrimitiveType::Scroller: return "scroller";
         case PrimitiveType::Comment: return "comment";
+        case PrimitiveType::Cloth: return "cloth";
+        case PrimitiveType::Wind: return "wind";
     }
     return "box";
 }
@@ -75,6 +78,8 @@ static PrimitiveType primitiveTypeFromName(const std::string& s) {
     if (s == "scatter") return PrimitiveType::Scatter;
     if (s == "scroller") return PrimitiveType::Scroller;
     if (s == "comment") return PrimitiveType::Comment;
+    if (s == "cloth") return PrimitiveType::Cloth;
+    if (s == "wind") return PrimitiveType::Wind;
     return PrimitiveType::Box;
 }
 
@@ -873,6 +878,28 @@ std::string objectJson(const SceneObject& o) {
                     ", \"dieOnGround\": " + (o.emitterDieOnGround ? "true" : "false");
         }
         json += " }";
+    }
+    if (o.type == PrimitiveType::Cloth) {
+        static const char* pins[] = {"none",       "top",  "top-corners",
+                                     "top-bottom", "left", "corners"};
+        const int pi = (o.clothPin >= 0 && o.clothPin < 6) ? o.clothPin : 1;
+        json += ", \"cloth\": { \"cols\": " + std::to_string(o.clothCols) +
+                ", \"rows\": " + std::to_string(o.clothRows) +
+                ", \"pin\": \"" + std::string(pins[pi]) +
+                "\", \"iterations\": " + std::to_string(o.clothIterations) +
+                ", \"damping\": " + fmtFloat(o.clothDamping) +
+                ", \"gravity\": " + fmtFloat(o.clothGravity) +
+                ", \"push\": " + fmtFloat(o.clothPushRadius);
+        // Still air is the common case, so the two gust keys are written only
+        // when there IS a gust - a curtain in a corridor resaves without them.
+        if (o.clothWind != 0.0f)
+            json += ", \"wind\": " + fmtFloat(o.clothWind) +
+                    ", \"windDir\": " + fmtFloat(o.clothWindDir);
+        json += " }";
+    }
+    if (o.type == PrimitiveType::Wind) {
+        json += ", \"wind\": { \"strength\": " + fmtFloat(o.windStrength) +
+                ", \"radius\": " + fmtFloat(o.windRadius) + " }";
     }
     if (o.type == PrimitiveType::SoundEmitter) {
         json += ", \"sound\": { \"path\": \"" + jsonEscape(o.soundPath) +
@@ -4993,6 +5020,45 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (const auto* v = em->find("dieOnGround"))
                 o.emitterDieOnGround = v->type == json::Value::Type::Bool && v->boolean;
         }
+        if (const auto* cl = jo.find("cloth")) {
+            if (const auto* v = cl->find("cols")) o.clothCols = (int)v->numberOr(9);
+            if (const auto* v = cl->find("rows")) o.clothRows = (int)v->numberOr(7);
+            o.clothCols = cloth::clampSide(o.clothCols);
+            o.clothRows = cloth::clampSide(o.clothRows);
+            if (const auto* v = cl->find("pin")) {
+                const std::string k = v->stringOr("top");
+                o.clothPin = k == "none"          ? 0
+                             : k == "top-corners" ? 2
+                             : k == "top-bottom"  ? 3
+                             : k == "left"        ? 4
+                             : k == "corners"     ? 5
+                                                  : 1;
+            }
+            if (const auto* v = cl->find("iterations"))
+                o.clothIterations = (int)v->numberOr(2);
+            if (o.clothIterations < 1) o.clothIterations = 1;
+            if (o.clothIterations > 4) o.clothIterations = 4;
+            if (const auto* v = cl->find("damping"))
+                o.clothDamping = (float)v->numberOr(0.03);
+            if (o.clothDamping < 0.0f) o.clothDamping = 0.0f;
+            if (o.clothDamping > 1.0f) o.clothDamping = 1.0f;
+            if (const auto* v = cl->find("gravity"))
+                o.clothGravity = (float)v->numberOr(9.8);
+            if (const auto* v = cl->find("wind")) o.clothWind = (float)v->numberOr(0.0);
+            if (o.clothWind < 0.0f) o.clothWind = 0.0f;
+            if (const auto* v = cl->find("windDir"))
+                o.clothWindDir = (float)v->numberOr(0.0);
+            if (const auto* v = cl->find("push"))
+                o.clothPushRadius = (float)v->numberOr(0.9);
+            if (o.clothPushRadius < 0.0f) o.clothPushRadius = 0.0f;
+        }
+        if (const auto* wd = jo.find("wind")) {
+            if (const auto* v = wd->find("strength"))
+                o.windStrength = (float)v->numberOr(12.0);
+            if (const auto* v = wd->find("radius"))
+                o.windRadius = (float)v->numberOr(0.0);
+            if (o.windRadius < 0.0f) o.windRadius = 0.0f;
+        }
         if (const auto* sn = jo.find("sound")) {
             if (const auto* v = sn->find("path")) o.soundPath = v->stringOr("");
             if (const auto* v = sn->find("autoplay"))
@@ -7281,6 +7347,20 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMixF(h, o.emitterGravity), fnvMixF(h, o.emitterWeight);
     fnvMixF(h, o.emitterLife), fnvMixF(h, o.emitterGrow);
     fnvMixF(h, o.emitterOpacity);
+    // Cloth: the whole set is baked into the scene table, and the GRID shape
+    // decides how many vertices the runtime allocates - so every one of these
+    // is a rebuild, not a Live Link edit.
+    fnvMix(h, (uint64_t)o.clothCols);
+    fnvMix(h, (uint64_t)o.clothRows);
+    fnvMix(h, (uint64_t)o.clothPin);
+    fnvMix(h, (uint64_t)o.clothIterations);
+    fnvMixF(h, o.clothDamping), fnvMixF(h, o.clothGravity);
+    fnvMixF(h, o.clothWind), fnvMixF(h, o.clothWindDir);
+    fnvMixF(h, o.clothPushRadius);
+    // A wind source is baked into the WINDS table, so its strength and reach
+    // are a rebuild. Its transform is NOT - the runtime reads that live, which
+    // is what lets a fan be carried by a moving object.
+    fnvMixF(h, o.windStrength), fnvMixF(h, o.windRadius);
     fnvMixS(h, o.soundPath);
     fnvMix(h, (o.soundAuto ? 1 : 0) | (o.soundOnPlayer ? 2 : 0) |
                   (o.soundReverb ? 4 : 0));
@@ -7388,6 +7468,13 @@ bool liveLinkCanSpawnLive(const SceneObject& o) {
     if (o.type == PrimitiveType::Decal && o.decalProject) return false;
     if (o.type == PrimitiveType::Mirror) return false;
     if (o.type == PrimitiveType::Portal) return false;  // baked PORTALS side table
+    // Cloth: its particle pool and vertex arrays are sized from the baked
+    // CLOTHS row at scene load, so an instance that never had a row simulates
+    // nothing and draws nothing.
+    if (o.type == PrimitiveType::Cloth) return false;
+    // A wind source is addressed by its row in the baked WINDS table, so a
+    // live-spawned one would blow nothing.
+    if (o.type == PrimitiveType::Wind) return false;
     // Areas are referenced BY NAME from baked tables (layer zones, catch-area
     // expansions) that only exist for authored objects - a spawned clone would
     // be a volume nothing points at.

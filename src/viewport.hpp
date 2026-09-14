@@ -13,6 +13,7 @@
 
 #include "animmerge.hpp"
 #include "aobake.hpp"
+#include "cloth.hpp"
 #include "gibake.hpp"
 #include "glbparser.hpp"
 #include "navmesh.hpp"
@@ -1214,6 +1215,30 @@ private:
     void drawEmitterPreviews(const std::vector<SceneObject>& objects,
                              const float* viewProj, const float* eye,
                              const float* fwd);
+    // Cloth (docs/cloth.md): the SAME solver the generated game runs
+    // (src/cloth.cpp), one state per Cloth object keyed by object index. The
+    // mesh it produces is world-space, so it draws with an identity model
+    // matrix like a projected decal's baked mesh. `sig` is the rest-shape
+    // signature - transform plus grid plus pin - and a change re-lays the
+    // sheet; everything else (wind, gravity, damping, stiffness) is read live,
+    // so dragging those sliders adjusts a hanging curtain instead of dropping
+    // a new one.
+    struct ClothPreview {
+        cloth::State state;
+        Mesh mesh;
+        std::vector<float> interleaved;  // pos3 + color3 + uv2, uploadMesh's
+        float sig[12] = {};
+        bool haveSig = false;
+    };
+    std::map<int, ClothPreview> clothPreviews_;
+    double clothClock_ = 0.0;  // last sim time (advances with animClock_)
+    // Steps every Cloth object's simulation and refreshes its mesh. Called
+    // once per render, before the object pass that draws them.
+    void updateClothPreviews(const std::vector<SceneObject>& objects);
+    // Re-fills an already-uploaded mesh in place (creates it on first use).
+    // uploadMesh() allocates a new VAO/VBO per call, which a per-frame rebuild
+    // cannot use.
+    void refillMesh(Mesh& m, const std::vector<float>& interleaved);
     std::string terrainTexture_;  // resolved map_Kd of the terrain material
     float terrainTile_[2] = {1.0f, 1.0f};  // map_Kd -s: repeats per world unit
     float terrainKd_[3] = {1.0f, 1.0f, 1.0f};  // terrain material Kd tint

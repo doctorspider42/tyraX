@@ -986,3 +986,52 @@ in PCSX2, with identical geometry and full-rate animation.
 - Impostor follow-up: measure cold versus warm batch GPU capture time and consider
   background batch baking. Configurable 4/8/16 views and optional GPU capture
   with CPU fallback are implemented; see [impostors](impostors.md).
+
+## Cloth: the VU0 microprogram, and the three things left unsimulated
+
+Cloth ships ([cloth.md](cloth.md)) and its arithmetic already runs on VU0 —
+`Tyra::Vec4`'s operators are COP2 macro mode — but each of those operators is a
+load, an operation and a store, because macro mode cannot keep a value in a VF
+register across a C++ statement. The solver was written around that: one
+particle is one quadword, and the constraints run in **four independent
+batches** with no internal ordering, which is exactly the shape a VU0 kernel
+wants (`src/vu0/`, [vu-authoring.md](vu-authoring.md)).
+
+What a port has to answer, before anyone spends the time:
+
+- VU0 has **256 quadwords** of data memory. A 9×7 curtain's positions *and*
+  previous positions fit; a 16×16 sheet's do not, so a kernel works in strips or
+  handles one array per call.
+- `run()` **blocks the EE** and clobbers the COP2 register file it shares with
+  every `Vec4`/`M4x4` expression in the engine — the same deal the raytracer
+  takes.
+- A kernel element is one quadword with **no cross-element access**, so the
+  natural first cut is *integration and collision* as a kernel (perfectly
+  per-particle) with the constraints staying on the EE; a hand-written
+  microprogram that walks the grid itself is the second.
+
+**Measure before porting.** The generated game has a `CLOTH` phase on the frame
+profiler HUD (debug profile + *Show frame profiler*), so the EE cost of the
+solver is a number rather than the gap between FRAME and the other phases. Take
+it on hardware: PCSX2 is not admissible for per-function attribution.
+
+Three things the feature deliberately does not simulate yet, each a small,
+separable addition:
+
+- **Player two is not a collider.** A split-screen game simulates every sheet
+  against player one. The runtime already builds the capsule from
+  `players[0]`/`PLAYER_EYE_HEIGHT`; a second one is a loop and a
+  `PLAYER2_INDEXES` guard.
+- **Wind is sampled once per sheet, at its origin.** A source placed inside a
+  large sheet blows all of it equally instead of one half harder. Per-particle
+  sampling is a subtract, a dot and a compare per particle per source — worth
+  it only for a sheet big enough that somebody notices, which nothing in the
+  examples is.
+- **No self-collision and no scene collision.** A curtain passes through a
+  crate and through itself. Scene collision would mean testing every particle
+  against the objects near the sheet — cheap with the existing
+  `objectCollisionBox`, and worth it only if somebody reports it.
+- **No ground.** A sheet longer than its drop hangs through the terrain. One
+  `terrainHeightAtScene` clamp per particle is the whole fix; it was left out
+  because the host twin has no heightfield and adding one to `cloth.cpp` would
+  cost it the property that it links against nothing.

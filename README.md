@@ -224,6 +224,10 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [walk, run and sprint speeds](docs/player-speeds.md), rigid
   bodies, [collision boxes and invisible walls](docs/collision-boxes.md), pickable and usable
   objects, and [two-player shared or split screen](docs/multiplayer.md).
+- **[Cloth and soft bodies](docs/cloth.md)** — a curtain the player walks
+  through and leaves swinging, and wind sources you place and aim at it. One
+  particle per quadword, constraints in four independent batches, the
+  arithmetic on VU0.
 - **World state** — [areas](docs/areas.md),
   [streaming layers](docs/streaming-layers.md),
   [world facts](docs/world-facts.md), runtime spawning and the
@@ -333,6 +337,7 @@ wait for their polish pass.
 | [cutscene-demo](examples/cutscene-demo) | 14 seconds of dolly, hard cut, shake, FOV ramp and cinema bars. Skippable, of course |
 | [nav-ai](examples/nav-ai) | A guard that patrols, spots you, and chases you around the wall instead of into it. The rabbit just runs |
 | [physics-playground](examples/physics-playground) | 28 hyperactive bodies rain onto a terraced slope. Doubles as the physics benchmark |
+| [cloth-curtain](examples/cloth-curtain) | A doorway with a curtain in it, two wind sources and a flag. Walk through and it lifts around you, then settles |
 | [object-spawning](examples/object-spawning) | GTA-style traffic conjured and dismissed by two flow-graph nodes |
 | [portals](examples/portals) | A cube falls through a portal pair forever. You get to walk through instead |
 | [mirror-room](examples/mirror-room) | The classic PS2 mirror trick, shown from backstage — your reflection included |

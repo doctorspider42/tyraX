@@ -7179,6 +7179,34 @@ void App::addArea() {
     o.castShadow = false;  // no geometry - nothing to occlude with
     commitChange();
 }
+void App::addCloth() {
+    addObject(PrimitiveType::Cloth, /*commit=*/false);
+    SceneObject& o = project_.objects().back();
+    // A doorway curtain: as wide as a door, floor to lintel, hanging from its
+    // top edge. addObject drops the object on the surface under the cursor, so
+    // lift it by half its height to hang the TOP where it was placed rather
+    // than burying the sheet in the floor.
+    o.scale[0] = 1.6f, o.scale[1] = 2.2f, o.scale[2] = 1.0f;
+    o.position[1] += o.scale[1] * 0.5f;
+    // A warm heavy fabric, so an untextured curtain still reads as cloth.
+    o.color[0] = 0.72f, o.color[1] = 0.22f, o.color[2] = 0.24f;
+    o.collisionMode = 2;   // never a wall - the player walks THROUGH it
+    o.castShadow = false;  // it moves, so no static bake may describe it
+    commitChange();
+}
+void App::addWind() {
+    addObject(PrimitiveType::Wind, /*commit=*/false);
+    SceneObject& o = project_.objects().back();
+    // Chest height, so the arrow is where a draught would be felt rather than
+    // lying on the floor. Rotation stays 0 - it blows along +Z, which is the
+    // direction the viewport arrow points at when you drop it.
+    o.position[1] += 1.2f;
+    // A pale sky blue: it reads as air, and nothing else in the palette is.
+    o.color[0] = 0.55f, o.color[1] = 0.82f, o.color[2] = 0.95f;
+    o.collisionMode = 2;   // no geometry at all - never a wall
+    o.castShadow = false;
+    commitChange();
+}
 void App::addComment() {
     addObject(PrimitiveType::Comment, /*commit=*/false);
     SceneObject& o = project_.objects().back();
@@ -8549,6 +8577,15 @@ void App::drawAddObjectMenu() {
         // Endless conveyor: tiles named segments of scene objects forever
         // along its axis (the train-window level generator).
         if (ImGui::MenuItem("Scroller (endless)")) addScroller();
+        // A simulated sheet: the one surface in this engine that moves
+        // (docs/cloth.md). Sits under Object rather than Effects because it
+        // is geometry with a material, not a particle system.
+        if (ImGui::MenuItem("Cloth")) addCloth();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip(
+                "A curtain, banner or flag, simulated every frame on VU0.\n"
+                "The rectangle you place is the sheet at rest; the player's\n"
+                "own body pushes it aside when they walk through.");
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Gameplay")) {
@@ -8572,6 +8609,17 @@ void App::drawAddObjectMenu() {
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Effects")) {
+        // A placed source of wind: it blows every Cloth in reach along its
+        // own +Z (docs/cloth.md). Under Effects rather than Object because it
+        // is invisible in the game and it MOVES other things - the same kind
+        // of thing an emitter is.
+        if (ImGui::MenuItem("Wind source")) addWind();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip(
+                "Blows cloth: a draught down a corridor, a fan, a storm\n"
+                "front. Aim it with Rotation, set how far it reaches, and\n"
+                "every sheet inside adds it to whatever else is blowing.");
+        ImGui::Separator();
         if (ImGui::MenuItem("Fire")) addEmitter(0);
         if (ImGui::MenuItem("Smoke")) addEmitter(1);
         if (ImGui::MenuItem("Fog")) addEmitter(2);

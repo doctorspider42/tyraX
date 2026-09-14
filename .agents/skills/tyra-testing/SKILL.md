@@ -2224,7 +2224,12 @@ powershell -File .claude\skills\tyra-testing\scripts\shadow-ab.ps1 `
 `-Toggle` is any key the manifest writes on a line of its own —
 `spotShadowVolumes`, `flashShadowVolumes`, `blobShadows` — and it is **inserted**
 when the file does not carry it, which every project that never touched the
-setting does not. **`bakedShadows` needs a step in between** (docs/shadows.md): it reads a CACHE, so run `tyrax-editor --bake-shadows <project>` once with the key true before the A/B - the cache is content-hashed and survives the toggle flipping, so one bake serves every row. For each (value x vantage) the rig patches the setting and the
+setting does not. **`bakedShadows` is the one toggle that needs a step in
+between** (docs/shadows.md): it reads a CACHE, so patching the key alone
+switches a feature the project has no bake for. Run
+`tyrax-editor --bake-shadows <project>` once with the key true, then A/B it —
+the cache is content-hashed and survives the toggle going false and true again,
+so one bake serves every row of the run. For each (value x vantage) the rig patches the setting and the
 Player's pose, runs `--build --run` under a hard timeout, waits `-Settle`
 (14 s), screenshots **the emulator whose command line names this project**,
 greps the game's own `bin/log.txt` for `Assertion` / `=======` banners, and
