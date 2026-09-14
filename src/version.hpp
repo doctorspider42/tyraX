@@ -16,6 +16,24 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.89.0: motion blur, the fourth built-in full-screen effect. The other
+// display buffer already holds the previous RENDERED frame, so the pass is one
+// full-screen GS alpha blend of it over this one - no history buffer, no VRAM,
+// no EE work - and because every frame blends a predecessor that blended its
+// own, a held trail decays geometrically (0.2-0.4 is already a long smear).
+// Authored in Tools > UI Editor as its own screen-stack entry (per-scene
+// strength under Scene Preferences > Post effects) and driven at runtime by
+// the Set Motion Blur flow node, which Live Logic can hot-patch like the rest
+// of the family. It defaults to layer 0 rather than -1 on purpose: the source
+// is the finished frame, HUD included, so from the top of the stack a MOVING
+// HUD element smears over the picture. The source is
+// getPreviousRealFrameBuffer(), never getPreviousFrameBuffer() - an
+// accumulator fed a synthesised warp frame compounds the displacement - and
+// RendererCoreGS::hasRealFrame() gates the first frame after boot or a layout
+// rebuild, whose "previous" buffer is uninitialised VRAM nobody cleared.
+// ProjectSettings gains motionBlur and Project gains hudMotionBlurLayer;
+// kFormatVersion 47 -> 48, additive, no migration step. MINOR.
+//
 // 1.88.0: plain BLSS can adapt each scene between native and reduced 3D
 // resolution from sustained whole-frame timing. Hysteresis, scene warm-up and
 // allocation-free switches avoid oscillation, streaming false positives and GS
@@ -3330,7 +3348,7 @@
 // 1.86.0: merge baked shadow decals with main's render-cost table and
 // object-group line.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 88
+#define TYRAX_VERSION_MINOR 89
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -3703,7 +3721,12 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // optional blssAdaptive boolean. Missing means false and the key is written
 // only when enabled, so older projects still resave byte-for-byte. Purely
 // additive - no migration step.
-inline constexpr int kFormatVersion = 47;
+// v48 (motion blur, docs/motion-blur.md): ProjectSettings gains motionBlur
+// (written with the rest of the always-emitted post-fx block, project-wide and
+// per scene) and the manifest gains hudMotionBlurLayer. An older editor would
+// drop both on its next save, which is what the refusal is for. Purely
+// additive - no migration step.
+inline constexpr int kFormatVersion = 48;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

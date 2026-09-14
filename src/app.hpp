@@ -1249,8 +1249,8 @@ private:
     // sequence preview is active. May also drive the viewport camera.
     const std::vector<SceneObject>& cutscenePosedObjects();
     // UI Editor (Tools > UI Editor): the screen stack - HUD images plus the
-    // full-screen effects layer (bloom/grain), reorderable so effects can sit
-    // under the crosshair/text instead of blurring them.
+    // full-screen effect layers (bloom, grain, motion blur), reorderable so
+    // effects can sit under the crosshair/text instead of blurring them.
     void drawUiEditorWindow();
     // Loading Screens (Tools > Loading Screens): named loading screens (bg
     // color + images + baked texts + progress bars) assignable per scene, with
@@ -1980,9 +1980,11 @@ private:
 
     // UI Editor (Tools > UI Editor): selected screen-stack entry - a HUD image
     // (uiFxSel_ == 0, index in selectedHud_), an effect layer (uiFxSel_ 1 =
-    // bloom + color grading, 2 = film grain), the pinned USE prompt (3), a
-    // HUD text (4, index in selectedText_) or a custom screen effect placement
-    // (5, index in selectedFx_ into project_.screenFx).
+    // bloom + color grading, 2 = film grain, 9 = motion blur), the pinned USE
+    // prompt (3), a HUD text (4, index in selectedText_) or a custom screen
+    // effect placement (5, index in selectedFx_ into project_.screenFx). The
+    // pinned-under-the-stack effects take 6 (depth of field), 7 (lens flare)
+    // and 8 (god rays).
     bool showUiEditor_ = false;
     bool showFontManager_ = false;
     bool showInputMap_ = false;

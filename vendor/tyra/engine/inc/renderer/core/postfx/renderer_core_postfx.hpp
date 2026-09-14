@@ -29,6 +29,11 @@ namespace Tyra {
  *   FBMSK-masked Cd * FIX sprites, per-channel lift adds/subtracts a flat
  *   color, and a final alpha-blend sprite mixes the frame toward a constant
  *   color (tint / desaturation approximation).
+ * - Motion blur: the other display buffer already holds the previous
+ *   rendered frame, so the blur is ONE full-screen alpha blend of it over
+ *   this one and costs no VRAM at all. Each frame blends its predecessor,
+ *   which already blended its own, so a held trail decays geometrically
+ *   (strength^n) - the classic PS2 accumulation blur.
  * - Film grain: a small noise texture is drawn over the frame twice
  *   (subtractive, then additive) with different random offsets every frame,
  *   which yields zero-mean grain out of unsigned GS math.
@@ -81,6 +86,18 @@ class RendererCorePostFx {
 
   /** Film grain strength: 0 = off, 128 = maximum. */
   void setGrain(const u8 strength) { grain = strength; }
+
+  /**
+   * Motion blur strength: 0 = off, 128 = the previous frame at full weight
+   * (which freezes the picture - the useful range is well under half).
+   *
+   * The source is RendererCoreGS::getPreviousRealFrameBuffer(), never
+   * getPreviousFrameBuffer(): an accumulator must not be fed a SYNTHESISED
+   * frame (docs/frame-extrapolation.md), or every other flip blends displaced
+   * pixels back into the trail.
+   */
+  void setMotionBlur(const u8 strength) { motionBlur = strength; }
+  u8 getMotionBlur() const { return motionBlur; }
 
   /**
    * Depth of field: the image blurs progressively from focusDist to
@@ -149,9 +166,9 @@ class RendererCorePostFx {
   }
 
   /**
-   * Which effects a given apply() runs. Bloom, color grading and film grain
-   * can be composited at different points in the frame (TyraX: the UI
-   * Editor screen stack) - e.g. bloom under the HUD, grain over everything.
+   * Which effects a given apply() runs. Bloom, color grading, film grain and
+   * motion blur can be composited at different points in the frame (TyraX: the
+   * UI Editor screen stack) - e.g. bloom under the HUD, grain over everything.
    * Grading pairs with bloom (it colour-corrects the same scene image).
    */
   enum Pass {
@@ -160,7 +177,8 @@ class RendererCorePostFx {
     PassGrain = 4,
     PassDof = 8,
     PassGodRays = 16,
-    PassAll = 31
+    PassMotionBlur = 32,
+    PassAll = 63
   };
 
   /** True when any of the selected effects is active (apply draws something). */
@@ -169,7 +187,9 @@ class RendererCorePostFx {
             ((passes & PassGrading) && hasGrading()) ||
             ((passes & PassGrain) && grain != 0) ||
             ((passes & PassDof) && dof != 0 && dofFocus > 0.0F) ||
-            ((passes & PassGodRays) && rays != 0 && raysVis > 0.0F));
+            ((passes & PassGodRays) && rays != 0 && raysVis > 0.0F) ||
+            ((passes & PassMotionBlur) && motionBlur != 0 && gs != nullptr &&
+             gs->hasRealFrame()));
   }
 
   /**
@@ -273,6 +293,7 @@ class RendererCorePostFx {
   RendererCoreGS* gs;
   packet2_t* packet;
   u8 bloom, grain;
+  u8 motionBlur;  // 0 = off, else the previous frame's blend weight (0..128)
   u8 bloomThreshold;  // bright-pass cut, 0 = the whole frame blooms
   u8 bloomSpread;     // soften iterations, 1 = the original tight blur
   u8 dof;         // depth-of-field strength, 0 = off

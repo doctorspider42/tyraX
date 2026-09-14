@@ -13223,10 +13223,14 @@ void App::performAssetDelete(const PendingAssetDelete& d) {
                 // above the erased one shift down by one.
                 auto fixLayer = [&](int& L) {
                     if (L > d.hudIndex) --L;
-                    if (L >= (int)project_.hud.size()) L = -1;
+                    // `>` and not `>=`, matching project::load's clamp: an
+                    // index equal to the sprite count is already topmost, and
+                    // motion blur sits at 0 even when the stack empties.
+                    if (L > (int)project_.hud.size()) L = -1;
                 };
                 fixLayer(project_.hudBloomLayer);
                 fixLayer(project_.hudGrainLayer);
+                fixLayer(project_.hudMotionBlurLayer);
                 for (ScreenFxPlacement& f : project_.screenFx) fixLayer(f.layer);
             }
             selectedHud_ = -1;
@@ -16568,6 +16572,7 @@ void App::drawScenePreferencesModal() {
                                                     : "%.2f");
         ImGui::SliderFloat("Bloom spread", &s.bloomSpread, 0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("Film grain", &s.grain, 0.0f, 1.0f, "%.2f");
+        ImGui::SliderFloat("Motion blur", &s.motionBlur, 0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("DoF amount", &s.dofAmount, 0.0f, 1.0f, "%.2f");
         ImGui::DragFloat("DoF focus", &s.dofFocus, 0.5f, 0.5f, 500.0f, "%.1f");
         ImGui::DragFloat("DoF range", &s.dofRange, 0.5f, 0.1f, 500.0f, "%.1f");

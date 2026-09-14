@@ -321,6 +321,11 @@ void RendererCoreGS::allocateVramBuffers() {
   if (context >= bufferCount) context = 0;
   displayedBuffer = (context + 1) % bufferCount;
   lastRealBuffer = displayedBuffer;
+  // Modified by TyraX: nothing has been RENDERED into that buffer yet - the
+  // layout has just been (re)built and the VRAM holds whatever was there.
+  // Anything reading the previous frame (motion blur) waits for the first real
+  // flip below (RendererCoreGS::hasRealFrame).
+  realFramePresented = false;
   pendingBuffer = -1;
 
   // The handler IS the third buffer's present path, so the two are decided
@@ -850,7 +855,10 @@ void RendererCoreGS::flipBuffers(bool throttle, bool synthetic) {
   // and the EE owns the other buffer the moment this returns.
   if (bufferCount < 3) {
     presentFrameBuffer(context);  // Modified by TyraX (DTV modes)
-    if (!synthetic) lastRealBuffer = context;  // Modified by TyraX
+    if (!synthetic) {  // Modified by TyraX
+      lastRealBuffer = context;
+      realFramePresented = true;
+    }
     context ^= 1;
     displayedBuffer = context ^ 1;
     emitDrawTargetSwitch(context);
@@ -909,7 +917,10 @@ void RendererCoreGS::flipBuffers(bool throttle, bool synthetic) {
   // would let the handler put a half-drawn frame on screen.
   emitDrawTargetSwitch(next);
 
-  if (!synthetic) lastRealBuffer = finished;  // Modified by TyraX
+  if (!synthetic) {  // Modified by TyraX
+    lastRealBuffer = finished;
+    realFramePresented = true;
+  }
   context = next;
   pendingBuffer = finished;  // hands ownership to the interrupt handler
 }

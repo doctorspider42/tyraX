@@ -6135,6 +6135,7 @@ void TerrainGame::init() {
   engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
   engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  engine->renderer.core.postFx.setMotionBlur(POSTFX_MOTIONBLUR);
   engine->renderer.core.postFx.setGodRays(POSTFX_GODRAYS);
   g_flareAmount = POSTFX_FLARE;
   engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
@@ -6452,7 +6453,8 @@ void TerrainGame::loop() {
     g_playerLocked = scriptCtx.lockInput == 0;
     scriptCtx.lockInput = -1;
   }
-  // Runtime graphics switches (Set Fog / Bloom / Grain / Particles flow nodes).
+  // Runtime graphics switches (Set Fog / Bloom / Grain / Motion Blur /
+  // Particles flow nodes).
   if (scriptCtx.fog >= 0) {
     if (scriptCtx.fog)
       engine->renderer.core.setFog(Color(FOG_R, FOG_G, FOG_B), FOG_START, FOG_END);
@@ -6467,6 +6469,10 @@ void TerrainGame::loop() {
   if (scriptCtx.grain >= 0) {
     engine->renderer.core.postFx.setGrain(scriptCtx.grain);
     scriptCtx.grain = -1;
+  }
+  if (scriptCtx.motionBlur >= 0) {
+    engine->renderer.core.postFx.setMotionBlur(scriptCtx.motionBlur);
+    scriptCtx.motionBlur = -1;
   }
   if (scriptCtx.flare >= 0) {
     g_flareAmount = scriptCtx.flare;
@@ -6685,13 +6691,19 @@ void TerrainGame::loop() {
                                       Tyra::RendererCorePostFx::PassGodRays);
     renderFlare();
     // Full-screen effects can sit inside the HUD stack (Tools > UI Editor):
-    // bloom (with color grading) and film grain composite at independent
-    // points, so sprites drawn afterwards stay crisp on top of them. -1 = the
-    // pass applies at endFrame, over everything (menus included).
+    // bloom (with color grading), film grain and motion blur composite at
+    // independent points, so sprites drawn afterwards stay crisp on top of
+    // them. -1 = the pass applies at endFrame, over everything (menus
+    // included).
     // Animated HUD: pose every element for this frame first (loops,
     // transitions, effects, bar easing - docs/hud-animation.md).
     updateHudMotion();
     for (int i = 0; i < (int)hudSprites.size(); ++i) {
+      // Motion blur first when several effects share a slot: the trail is
+      // the SCENE smearing, so this frame's own glow and grain go on top.
+      if (i == HUD_MOTION_BLUR_LAYER)
+        engine->renderer.core.applyPostFx(
+            Tyra::RendererCorePostFx::PassMotionBlur);
       if (i == HUD_BLOOM_LAYER)
         engine->renderer.core.applyPostFx(
             Tyra::RendererCorePostFx::PassBloom |
@@ -9225,6 +9237,7 @@ void TerrainGame::loadScene(int sceneIndex) {
   engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
   engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  engine->renderer.core.postFx.setMotionBlur(POSTFX_MOTIONBLUR);
   engine->renderer.core.postFx.setGodRays(POSTFX_GODRAYS);
   g_flareAmount = POSTFX_FLARE;
   engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
@@ -24306,6 +24319,7 @@ void TerrainGame::init() {
   engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
   engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  engine->renderer.core.postFx.setMotionBlur(POSTFX_MOTIONBLUR);
   engine->renderer.core.postFx.setGodRays(POSTFX_GODRAYS);
   g_flareAmount = POSTFX_FLARE;
   engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
@@ -24690,7 +24704,8 @@ void TerrainGame::loop() {
     g_playerLocked = scriptCtx.lockInput == 0;
     scriptCtx.lockInput = -1;
   }
-  // Runtime graphics switches (Set Fog / Bloom / Grain / Particles flow nodes).
+  // Runtime graphics switches (Set Fog / Bloom / Grain / Motion Blur /
+  // Particles flow nodes).
   if (scriptCtx.fog >= 0) {
     if (scriptCtx.fog)
       engine->renderer.core.setFog(Color(FOG_R, FOG_G, FOG_B), FOG_START, FOG_END);
@@ -24705,6 +24720,10 @@ void TerrainGame::loop() {
   if (scriptCtx.grain >= 0) {
     engine->renderer.core.postFx.setGrain(scriptCtx.grain);
     scriptCtx.grain = -1;
+  }
+  if (scriptCtx.motionBlur >= 0) {
+    engine->renderer.core.postFx.setMotionBlur(scriptCtx.motionBlur);
+    scriptCtx.motionBlur = -1;
   }
   if (scriptCtx.flare >= 0) {
     g_flareAmount = scriptCtx.flare;
@@ -24923,13 +24942,19 @@ void TerrainGame::loop() {
                                       Tyra::RendererCorePostFx::PassGodRays);
     renderFlare();
     // Full-screen effects can sit inside the HUD stack (Tools > UI Editor):
-    // bloom (with color grading) and film grain composite at independent
-    // points, so sprites drawn afterwards stay crisp on top of them. -1 = the
-    // pass applies at endFrame, over everything (menus included).
+    // bloom (with color grading), film grain and motion blur composite at
+    // independent points, so sprites drawn afterwards stay crisp on top of
+    // them. -1 = the pass applies at endFrame, over everything (menus
+    // included).
     // Animated HUD: pose every element for this frame first (loops,
     // transitions, effects, bar easing - docs/hud-animation.md).
     updateHudMotion();
     for (int i = 0; i < (int)hudSprites.size(); ++i) {
+      // Motion blur first when several effects share a slot: the trail is
+      // the SCENE smearing, so this frame's own glow and grain go on top.
+      if (i == HUD_MOTION_BLUR_LAYER)
+        engine->renderer.core.applyPostFx(
+            Tyra::RendererCorePostFx::PassMotionBlur);
       if (i == HUD_BLOOM_LAYER)
         engine->renderer.core.applyPostFx(
             Tyra::RendererCorePostFx::PassBloom |
@@ -26088,13 +26113,17 @@ struct ScriptContext {
   float shakeAmp = -1.0F;
   float shakeSec = 0.0F;
 
-  // Runtime graphics switches (Set Fog / Set Bloom / Set Grain / Set Particles
-  // / Set Lens Flare / Set God Rays flow nodes). fog / particles: -1 = leave,
-  // 0 = off, 1 = on. bloom / grain / flare / godRays: -1 = leave, else a
-  // 0..128 fixed-point amount. The game applies and resets.
+  // Runtime graphics switches (Set Fog / Set Bloom / Set Grain / Set Motion
+  // Blur / Set Particles / Set Lens Flare / Set God Rays flow nodes). fog /
+  // particles: -1 = leave, 0 = off, 1 = on. bloom / grain / motionBlur /
+  // flare / godRays: -1 = leave, else a 0..128 fixed-point amount. The game
+  // applies and resets.
   int fog = -1;
   int bloom = -1;
   int grain = -1;
+  // Motion blur (Set Motion Blur flow node): -1 = leave, else a 0..128 weight
+  // for the previous frame (0 = off). The game applies and resets it.
+  int motionBlur = -1;
   int particles = -1;
   int flare = -1;
   int godRays = -1;
@@ -29800,6 +29829,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         return 1 + (int)(s * 3.0f + 0.5f);
     });
     sceneInts("POSTFX_GRAINS", [&](int si) { return fx128(rs[si].grain); });
+    // Motion blur: the previous frame's blend weight (docs/motion-blur.md).
+    sceneInts("POSTFX_MOTIONBLURS",
+              [&](int si) { return fx128(rs[si].motionBlur); });
     sceneInts("POSTFX_FLARES", [&](int si) { return fx128(rs[si].flare); });
     sceneInts("POSTFX_GODRAYS_ARR", [&](int si) { return fx128(rs[si].godRays); });
     // Gates the flare-sprite texture load; MUST equal the refreshGenerated
@@ -30337,6 +30369,7 @@ inline int everyFrames(float seconds) {
 #define POSTFX_BLOOM_CUT POSTFX_BLOOM_CUTS[g_activeScene]
 #define POSTFX_BLOOM_SPREAD POSTFX_BLOOM_SPREADS[g_activeScene]
 #define POSTFX_GRAIN POSTFX_GRAINS[g_activeScene]
+#define POSTFX_MOTIONBLUR POSTFX_MOTIONBLURS[g_activeScene]
 #define POSTFX_DOF POSTFX_DOFS[g_activeScene]
 #define POSTFX_DOF_FOCUS POSTFX_DOF_FOCUSES[g_activeScene]
 #define POSTFX_DOF_RANGE POSTFX_DOF_RANGES[g_activeScene]
@@ -35436,13 +35469,17 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 c << pad << "ctx.particles = " << (n.num[0] != 0.0f ? "1" : "0")
                   << ";\n";
             } else if (n.type == "SetBloom" || n.type == "SetGrain" ||
-                       n.type == "SetFlare" || n.type == "SetGodRays") {
+                       n.type == "SetFlare" || n.type == "SetGodRays" ||
+                       n.type == "SetMotionBlur") {
                 // Bloom's re-add FIX is a whole byte, so it accepts up to 2
-                // (over-add, hot glow); grain / flare / god rays top out at 1.
+                // (over-add, hot glow); grain / flare / god rays / motion blur
+                // top out at 1 - the blend weight has nowhere to go past "the
+                // old frame entirely".
                 const int hi = n.type == "SetBloom" ? 255 : 128;
                 const char* field = n.type == "SetBloom"   ? "bloom"
                                     : n.type == "SetGrain" ? "grain"
                                     : n.type == "SetFlare" ? "flare"
+                                    : n.type == "SetMotionBlur" ? "motionBlur"
                                                            : "godRays";
                 const std::string wired = numInput(n);
                 if (wired.empty()) {
@@ -37584,6 +37621,11 @@ static const std::vector<std::pair<std::string, std::string>>& liveLogicOpBodies
          "        ctx.grain = v < 0 ? 0 : (v > 128 ? 128 : v);\n"
          "      }\n"},
         {"OP_SetParticles", "      ctx.particles = in.num[0] != 0.0F ? 1 : 0;\n"},
+        {"OP_SetMotionBlur",
+         "      {\n"
+         "        int v = (int)(in.num[0] * 128.0F + 0.5F);\n"
+         "        ctx.motionBlur = v < 0 ? 0 : (v > 128 ? 128 : v);\n"
+         "      }\n"},
         // The rotation family. flowWrapDeg lives in flow_graph.gen.cpp (emitted
         // only when a graph uses the node), so the fold is spelled out here.
         {"OP_RotateObjectBy",
@@ -43126,9 +43168,12 @@ static std::string hudDataHeader(const Project& p) {
            "// Editor). The effect applies right before the HUD sprite at this\n"
            "// index, so lower-index sprites get it and higher ones draw crisp on\n"
            "// top. -1 = at end of frame, over everything including menus. Bloom\n"
-           "// carries color grading; film grain is placed independently.\n"
+           "// carries color grading; film grain and motion blur are placed\n"
+           "// independently.\n"
         << "constexpr int HUD_BLOOM_LAYER = " << p.hudBloomLayer << ";\n"
-        << "constexpr int HUD_GRAIN_LAYER = " << p.hudGrainLayer << ";\n";
+        << "constexpr int HUD_GRAIN_LAYER = " << p.hudGrainLayer << ";\n"
+        << "constexpr int HUD_MOTION_BLUR_LAYER = " << p.hudMotionBlurLayer
+        << ";\n";
 
     // The USE prompt (Tools > UI Editor): the built-in hud/use.png unless a
     // custom image replaces it; placement is normalized, center anchor.

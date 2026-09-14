@@ -2506,18 +2506,20 @@ bool App::hudBakeControls(HudImage& h) {
 }
 
 // UI Editor window (Tools > UI Editor): everything composited over the 3D
-// scene, as one reorderable "screen stack" - the HUD images plus two effect
-// layers (bloom+grading, and film grain). The stack order is the game's draw
-// order: entries above an effect layer stay crisp (e.g. the crosshair over the
-// bloom), entries below are composited with it. Bloom and grain are separate
-// entries so, say, bloom can sit under the HUD while grain overlays the whole
-// screen.
+// scene, as one reorderable "screen stack" - the HUD images plus three effect
+// layers (bloom+grading, film grain and motion blur). The stack order is the
+// game's draw order: entries above an effect layer stay crisp (e.g. the
+// crosshair over the bloom), entries below are composited with it. They are
+// separate entries so, say, bloom can sit under the HUD while grain overlays
+// the whole screen.
 namespace {
 constexpr int kBloomMark = -2;
 constexpr int kGrainMark = -3;
+constexpr int kMotionBlurMark = -4;
 // Custom screen effect placements in the stack encode as kFxMarkBase - index
 // (index into Project::screenFx). Any entry <= kFxMarkBase is a custom effect;
-// bloom/grain (-2/-3) and HUD sprites (>= 0) stay clear of this range.
+// the built-in effect marks (-2..-4) and HUD sprites (>= 0) stay clear of this
+// range.
 constexpr int kFxMarkBase = -100;
 constexpr bool isFxMark(int e) { return e <= kFxMarkBase; }
 constexpr int fxMarkIndex(int e) { return kFxMarkBase - e; }
@@ -2549,6 +2551,9 @@ void App::drawUiEditorWindow() {
     const int nFx = (int)project_.screenFx.size();
     auto topmost = [&](int L) { return L < 0 || L >= n; };
     auto emitMarkers = [&](std::vector<int>& s, int layer) {
+        // Motion blur first: it smears the SCENE, so this frame's own glow and
+        // grain go on top of it (the generated loop composites in this order).
+        if (project_.hudMotionBlurLayer == layer) s.push_back(kMotionBlurMark);
         if (project_.hudBloomLayer == layer) s.push_back(kBloomMark);
         if (project_.hudGrainLayer == layer) s.push_back(kGrainMark);
         for (int fi = 0; fi < nFx; ++fi)
@@ -2563,6 +2568,7 @@ void App::drawUiEditorWindow() {
         }
         // Topmost markers (layer -1 or >= n): bloom, grain, then effects in
         // placement order.
+        if (topmost(project_.hudMotionBlurLayer)) s.push_back(kMotionBlurMark);
         if (topmost(project_.hudBloomLayer)) s.push_back(kBloomMark);
         if (topmost(project_.hudGrainLayer)) s.push_back(kGrainMark);
         for (int fi = 0; fi < nFx; ++fi)
@@ -2579,10 +2585,11 @@ void App::drawUiEditorWindow() {
         std::vector<ScreenFxPlacement> newFx;
         newHud.reserve(n);
         newFx.reserve(nFx);
-        int before = 0, bl = -1, gr = -1;
+        int before = 0, bl = -1, gr = -1, mb = -1;
         for (int e : s) {
             if (e == kBloomMark) bl = before;
             else if (e == kGrainMark) gr = before;
+            else if (e == kMotionBlurMark) mb = before;
             else if (isFxMark(e)) {
                 ScreenFxPlacement pl = project_.screenFx[fxMarkIndex(e)];
                 pl.layer = before;
@@ -2595,6 +2602,7 @@ void App::drawUiEditorWindow() {
         const int newN = (int)newHud.size();
         project_.hudBloomLayer = bl >= newN ? -1 : bl;
         project_.hudGrainLayer = gr >= newN ? -1 : gr;
+        project_.hudMotionBlurLayer = mb >= newN ? -1 : mb;
         for (ScreenFxPlacement& f : newFx)
             if (f.layer >= newN) f.layer = -1;
         project_.hud = std::move(newHud);
@@ -2798,6 +2806,9 @@ void App::drawUiEditorWindow() {
         } else if (id == kGrainMark) {
             isSel = uiFxSel_ == 2;
             label = "[ Film grain ]";
+        } else if (id == kMotionBlurMark) {
+            isSel = uiFxSel_ == 9;
+            label = "[ Motion blur ]";
         } else if (isFxMark(id)) {
             const int fi = fxMarkIndex(id);
             const ScreenFxPlacement& pl = project_.screenFx[fi];
@@ -2815,6 +2826,7 @@ void App::drawUiEditorWindow() {
         if (ImGui::Selectable(label.c_str(), isSel)) {
             if (id == kBloomMark) uiFxSel_ = 1;
             else if (id == kGrainMark) uiFxSel_ = 2;
+            else if (id == kMotionBlurMark) uiFxSel_ = 9;
             else if (isFxMark(id)) { uiFxSel_ = 5; selectedFx_ = fxMarkIndex(id); }
             else { uiFxSel_ = 0; selectedHud_ = id; }
         }
@@ -2935,6 +2947,31 @@ void App::drawUiEditorWindow() {
         ImGui::TextDisabled(
             "Per-scene grain strength: Scene > Scene Preferences > Post "
             "effects.");
+    } else if (uiFxSel_ == 9) {
+        ImGui::SeparatorText("Motion blur");
+        ImGui::SliderFloat("Motion blur", &project_.settings.motionBlur, 0.0f,
+                           1.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "How much of the PREVIOUS frame is blended over this one.\n"
+                "Each frame smears the one before it, which had already\n"
+                "smeared its own, so the trail compounds: 0.2-0.4 is a long\n"
+                "smear and 1.0 freezes the picture.");
+        ImGui::TextDisabled(
+            "One full-screen GS blend of the last frame. No VRAM (the other\n"
+            "display buffer IS that frame) and no EE time.");
+        ImGui::Spacing();
+        ImGui::TextWrapped(
+            "Keep this UNDER the HUD entries. The blur's source is the "
+            "finished previous frame, menus and HUD included, so from the top "
+            "of the stack a moving HUD element smears over the picture; "
+            "underneath it, the trail is the scene's and the UI redraws crisp "
+            "on top every frame.");
+        ImGui::Spacing();
+        ImGui::TextDisabled(
+            "Per-scene strength: Scene > Scene Preferences > Post effects.\n"
+            "Runtime control: the Set Motion Blur flow node.");
     } else if (uiFxSel_ == 6) {
         ImGui::SeparatorText("Depth of field");
         ImGui::SliderFloat("Amount", &project_.settings.dofAmount, 0.0f, 1.0f,

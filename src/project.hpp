@@ -1681,6 +1681,14 @@ struct ProjectSettings {
     // tight fringe; raise it for a real corona around emissive surfaces.
     float bloomSpread = 0.0f;
     float grain = 0.0f;  // animated film grain noise overlay
+    // Motion blur (docs/motion-blur.md): how much of the PREVIOUS rendered
+    // frame is blended over this one, 0 = off, 1 = the old frame at full
+    // weight (which freezes the picture). Costs no VRAM - the other display
+    // buffer IS the previous frame - and the trail decays geometrically
+    // because every frame blends a predecessor that blended its own, so the
+    // useful range is roughly 0.15..0.45. The Set Motion Blur flow node
+    // overrides it at runtime.
+    float motionBlur = 0.0f;
     // Depth of field: the image blurs progressively past dofFocus (world
     // units from the camera), reaching the full dofAmount blur at
     // dofFocus + dofRange. Composites right after the 3D scene (per-pixel
@@ -1816,7 +1824,7 @@ struct ProjectSettings {
     bool highlightOverlay = false;
 };
 
-static_assert(sizeof(ProjectSettings) == 728,
+static_assert(sizeof(ProjectSettings) == 736,
               "ProjectSettings changed size - a field was added or removed. "
               "Add it to operator== below as well, or its Preferences widget "
               "will silently do nothing; then update this number.");
@@ -1918,7 +1926,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.terrainMaterial == b.terrainMaterial && a.bloom == b.bloom &&
            a.bloomThreshold == b.bloomThreshold &&
            a.bloomSpread == b.bloomSpread &&
-           a.grain == b.grain && a.dofAmount == b.dofAmount &&
+           a.grain == b.grain && a.motionBlur == b.motionBlur &&
+           a.dofAmount == b.dofAmount &&
            a.dofFocus == b.dofFocus && a.dofRange == b.dofRange &&
            a.flare == b.flare && a.godRays == b.godRays &&
            a.blobShadows == b.blobShadows &&
@@ -1956,7 +1965,8 @@ struct SceneOverrides {
     bool sky = false;         // skyColor, skyTopColor, skyDome
     bool clipping = false;    // clipping mode
     bool terrainMat = false;  // terrainMaterial
-    bool postFx = false;      // bloom, grain, depth of field, flare, god rays
+    bool postFx = false;      // bloom, grain, motion blur, depth of field,
+                              // flare, god rays
     bool fog = false;         // fogEnabled, fogColor, fogStart, fogEnd
     bool highlight = false;   // highlightUsable + distance/color/width/steps
     // The neural upscaler: blssEnabled + blssNetwork ONLY (docs/
@@ -3250,15 +3260,23 @@ struct Project {
     // docs/hud-animation.md). Drawn above the HUD stack, under the texts.
     std::vector<HudBar> hudBars;
     // Where the full-screen post effects sit in the screen stack (Tools > UI
-    // Editor). Bloom (with color grading) and film grain are placed
-    // independently: the effect applies right before the HUD sprite at that
-    // index, so sprites with a lower index get the effect and higher ones draw
-    // crisp on top. -1 = apply at the very end of the frame, over everything
-    // including menus (the classic behavior, and the default). Typical split:
-    // bloom under the HUD so it does not blur the crosshair, grain at -1 as a
-    // filmic overlay over the whole screen. Grading rides with bloom.
+    // Editor). Bloom (with color grading), film grain and motion blur are
+    // placed independently: the effect applies right before the HUD sprite at
+    // that index, so sprites with a lower index get the effect and higher ones
+    // draw crisp on top. -1 = apply at the very end of the frame, over
+    // everything including menus (the classic behavior, and the default).
+    // Typical split: bloom under the HUD so it does not blur the crosshair,
+    // grain at -1 as a filmic overlay over the whole screen. Grading rides
+    // with bloom.
+    //
+    // Motion blur defaults to 0 (under the whole HUD stack) rather than -1,
+    // and that is not cosmetic: its source is the finished previous frame,
+    // HUD and menus included, so applied at the top a MOVING HUD element
+    // smears over the picture. Under the stack the trail is the scene's and
+    // the UI redraws crisp on top of it every frame.
     int hudBloomLayer = -1;
     int hudGrainLayer = -1;
+    int hudMotionBlurLayer = 0;
     // Custom screen effects placed in the screen stack (Tools > UI Editor).
     // Each placement references a <project>/screen-effects/*.screenfx file by
     // its key ("custom:<stem>") and carries the effect's per-placement param
@@ -3884,7 +3902,7 @@ bool parseProcGraph(const std::string& body, ProcGraph& out);
 // time; save()/load() are recomposed from the same writers/readers.
 enum class Section {
     Settings = 0,    // "settings" (project preferences)
-    Hud,             // "hud", "usePrompt", "hudTexts", bloom/grain layers, "screenFx"
+    Hud,             // "hud", "usePrompt", "hudTexts", the post-fx layers, "screenFx"
     Audio,           // "music", "musicBuild", "sounds"
     TexQuality,      // "textureQuality" (per-asset overrides)
     ModelLods,       // "modelLods" (per-model custom LOD meshes)

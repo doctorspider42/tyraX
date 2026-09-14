@@ -1220,6 +1220,20 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                      "replaces it."},
          .numIn = true,
          .desc = "Controls the film-grain overlay."},
+        {.key = "SetMotionBlur", .title = "Set Motion Blur",
+         .category = "Scene",
+         .numCount = 1, .numLabels = {"Amount"},
+         .numTips = {"How much of the previous frame is blended over this "
+                     "one: 0 off, 1 the old frame at full weight (which "
+                     "freezes the picture). The trail compounds frame after "
+                     "frame, so 0.2-0.4 is already a long smear. A wired "
+                     "number replaces it, so a Tween can ramp the blur into "
+                     "a sprint or a hit."},
+         .numIn = true,
+         .desc = "Controls the motion blur - the previous frame smeared over "
+                 "this one. Costs no VRAM and no EE time (the other display "
+                 "buffer IS the last frame), so it is the cheap way to sell "
+                 "speed, a dash or a daze."},
         {.key = "SetFlare", .title = "Set Lens Flare", .category = "Scene",
          .numCount = 1, .numLabels = {"Amount"},
          .numTips = {"Flare brightness, 0 off to 1. A wired number replaces "
