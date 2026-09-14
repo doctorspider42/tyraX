@@ -44,8 +44,9 @@ for people building games with it. Internals live in code comments, the git log
 - [Collision boxes](collision-boxes.md) — what actually stops the player, why
   it's nowhere near the object's centre, and how to see it.
 - [Cloth and soft bodies](cloth.md) — a sheet the game simulates: curtains you
-  walk through, banners in a gust. One particle per quadword, constraints in
-  four independent batches, the arithmetic on VU0.
+  walk through, banners in a gust, and wind sources you place, aim and switch
+  off. One particle per quadword, constraints in four independent batches, the
+  arithmetic on VU0.
 - [Prefabs](prefabs.md) — reusable object groups (flow graphs included),
   stamped, scattered or spawned.
 - [Asset Browser](asset-browser.md) — a real file manager over `res/` that

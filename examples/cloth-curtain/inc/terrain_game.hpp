@@ -1118,8 +1118,10 @@ class TerrainGame : public Tyra::Game {
     int objectIndex = -1;
     int cols = 0, rows = 0, iterations = 2, pin = 1;
     float restX = 0.25F, restY = 0.25F;
-    float damping = 0.03F, gravity = 9.8F, wind = 0.0F, pushRadius = 0.6F;
-    Tyra::Vec4 windDir;
+    float damping = 0.03F, gravity = 9.8F, pushRadius = 0.9F;
+    // The sheet's OWN draught, baked. The wind it actually feels is this plus
+    // every Wind entity in reach, resolved into windAccel once per frame.
+    Tyra::Vec4 ownWind, windAccel;
     float time = 0.0F, carry = 0.0F;
     std::vector<Tyra::Vec4> pos, prev, nrm;
     std::vector<unsigned char> pinned;
@@ -1145,6 +1147,10 @@ class TerrainGame : public Tyra::Game {
   std::vector<ClothSystem> cloths;
   void buildCloths();
   void updateCloths();
+  // Wind sources (type 22): the acceleration a point feels, summed over every
+  // active source. Reads their LIVE transforms, so a carried fan blows where
+  // it points now.
+  Tyra::Vec4 clothWindAt(const Tyra::Vec4& point) const;
 
   // Sound emitters (type 8): distance-attenuated one-shots on channels 16-23
   std::vector<audsrv_adpcm_t*> sndSamples;  // scene_data.hpp SND_PATHS order

@@ -10,13 +10,24 @@ around you; turn back and it is still swinging.
 - **`curtain`** — an 11x13 sheet pinned by its **top edge**, filling the
   doorway. 143 particles, 240 triangles, still air. This is the one to walk
   through.
-- **`banner`** — a 9x11 sheet on its **two top corners**, beside a pole, in a
-  9 units/s² gust bearing 15°. It never stops moving.
-- **`flag`** — a 9x7 sheet pinned down its **left edge** on a pole, light
-  gravity and a hard 16 units/s² gust straight down +Z.
+- **`banner`** — a 9x11 sheet on its **two top corners**, beside a pole.
+- **`flag`** — a 9x7 sheet pinned down its **left edge** on a pole, with light
+  gravity so it flies.
 - **`door-left` / `door-right` / `door-lintel`** — the frame the curtain hangs
   in, so the pass-through has somewhere to be.
 - The Player starts six units back, facing the door.
+
+- **`breeze`** — a **wind source** with **reach 0**, so it blows the whole
+  scene at a light 7 units/s². Everything here breathes because of this one
+  object.
+- **`fan`** — a second source, 22 units/s² with a **reach of 4**, tucked
+  behind the flag. The viewport draws its sphere: the flag (2.5 units away) is
+  inside it, the curtain (5.3) and the banner (9.1) are not. That is the whole
+  argument for reach being a thing you can see.
+
+Neither sheet carries a private *Wind* value — **all** the movement in this
+scene comes from those two placed objects, and they add up on whatever is in
+range.
 
 Three pinning modes in one scene on purpose: *what a sheet is attached to* is
 the setting that changes its whole character, and it is the first thing worth
@@ -36,6 +47,14 @@ trying on your own cloth.
   corners follow the object live while the fabric swings behind.
 - Give the curtain a material with a `map_Kd` — the UVs run 0..1 across the
   whole sheet.
+- **Rotate `fan`** and watch the flag change direction — the arrow in the
+  viewport is exactly what it blows along.
+- **Drag `fan`'s Reach** past 5.3 and the curtain joins in; past 9.1 and so
+  does the banner. The wire sphere tells you before you build.
+- **Hide `breeze`** (Layers, or a Hide Object node) and the whole scene goes
+  still except the flag, which still has the fan.
+- Move `fan` with the gizmo while the game runs on Live Link — position and
+  direction are read live, only strength and reach are baked.
 
 ## Cost
 

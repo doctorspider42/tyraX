@@ -91,7 +91,8 @@ bool collides(const SceneObject& o) {
         // wrong the moment it swings - and a curtain you cannot walk through
         // is not a curtain. It collides with nothing; the player collides
         // with IT, from the cloth side (docs/cloth.md).
-        case PrimitiveType::Cloth: return false;
+        case PrimitiveType::Cloth:
+        case PrimitiveType::Wind: return false;
         default: return true;
     }
 }

@@ -68,6 +68,24 @@ bool pinnedAt(Pin pin, int r, int c, int cols, int rows) {
 
 }  // namespace
 
+V4 windAt(const Wind* sources, int count, const V4& point) {
+    V4 total{};
+    for (int i = 0; i < count; ++i) {
+        const Wind& w = sources[i];
+        if (w.strength == 0.0f) continue;
+        float f = 1.0f;
+        if (w.radius > 0.0f) {
+            const V4 d = v4sub(point, w.pos);
+            const float d2 = v4dot3(d, d);
+            const float r2 = w.radius * w.radius;
+            if (d2 >= r2) continue;  // out of reach
+            f = 1.0f - d2 / r2;
+        }
+        total = v4madd(total, w.dir, w.strength * f);
+    }
+    return total;
+}
+
 V4 v4normalize(const V4& a) {
     const float l2 = v4dot3(a, a);
     if (l2 < 1e-20f) return V4{0.0f, 1.0f, 0.0f, 0.0f};
@@ -140,14 +158,15 @@ void step(const Params& p, const Capsule* bodies, int bodyCount, State& s) {
     const float gs = std::sin(s.time * kGustRate);
     const float gc = std::cos(s.time * kGustRate);
     for (int r = 0; r < rows; ++r) {
-        const float gust =
-            p.wind * (kGustBase + kGustSwing * (gs * s.rowCos[(size_t)r] +
-                                                gc * s.rowSin[(size_t)r]));
-        // Gravity plus this row's gust, already multiplied by h^2 - the whole
-        // acceleration term reduces to one constant vector per row.
-        const V4 acc{p.windDir.x * gust * h2,
-                     (-p.gravity + p.windDir.y * gust) * h2,
-                     p.windDir.z * gust * h2, 0.0f};
+        // The gust envelope, applied to the summed wind vector. One scalar
+        // per row, so the whole acceleration term is still one constant vector
+        // per row - gravity plus this row's share of the wind, already
+        // multiplied by h^2.
+        const float gust = kGustBase + kGustSwing * (gs * s.rowCos[(size_t)r] +
+                                                     gc * s.rowSin[(size_t)r]);
+        const V4 acc{p.windAccel.x * gust * h2,
+                     (-p.gravity + p.windAccel.y * gust) * h2,
+                     p.windAccel.z * gust * h2, 0.0f};
         for (int c = 0; c < cols; ++c) {
             const int i = r * cols + c;
             if (pinned[i]) continue;

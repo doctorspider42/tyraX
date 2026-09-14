@@ -52,6 +52,7 @@ const char* primitiveTypeName(PrimitiveType t) {
         case PrimitiveType::Scroller: return "scroller";
         case PrimitiveType::Comment: return "comment";
         case PrimitiveType::Cloth: return "cloth";
+        case PrimitiveType::Wind: return "wind";
     }
     return "box";
 }
@@ -78,6 +79,7 @@ static PrimitiveType primitiveTypeFromName(const std::string& s) {
     if (s == "scroller") return PrimitiveType::Scroller;
     if (s == "comment") return PrimitiveType::Comment;
     if (s == "cloth") return PrimitiveType::Cloth;
+    if (s == "wind") return PrimitiveType::Wind;
     return PrimitiveType::Box;
 }
 
@@ -894,6 +896,10 @@ std::string objectJson(const SceneObject& o) {
             json += ", \"wind\": " + fmtFloat(o.clothWind) +
                     ", \"windDir\": " + fmtFloat(o.clothWindDir);
         json += " }";
+    }
+    if (o.type == PrimitiveType::Wind) {
+        json += ", \"wind\": { \"strength\": " + fmtFloat(o.windStrength) +
+                ", \"radius\": " + fmtFloat(o.windRadius) + " }";
     }
     if (o.type == PrimitiveType::SoundEmitter) {
         json += ", \"sound\": { \"path\": \"" + jsonEscape(o.soundPath) +
@@ -5046,6 +5052,13 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 o.clothPushRadius = (float)v->numberOr(0.9);
             if (o.clothPushRadius < 0.0f) o.clothPushRadius = 0.0f;
         }
+        if (const auto* wd = jo.find("wind")) {
+            if (const auto* v = wd->find("strength"))
+                o.windStrength = (float)v->numberOr(12.0);
+            if (const auto* v = wd->find("radius"))
+                o.windRadius = (float)v->numberOr(0.0);
+            if (o.windRadius < 0.0f) o.windRadius = 0.0f;
+        }
         if (const auto* sn = jo.find("sound")) {
             if (const auto* v = sn->find("path")) o.soundPath = v->stringOr("");
             if (const auto* v = sn->find("autoplay"))
@@ -7344,6 +7357,10 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMixF(h, o.clothDamping), fnvMixF(h, o.clothGravity);
     fnvMixF(h, o.clothWind), fnvMixF(h, o.clothWindDir);
     fnvMixF(h, o.clothPushRadius);
+    // A wind source is baked into the WINDS table, so its strength and reach
+    // are a rebuild. Its transform is NOT - the runtime reads that live, which
+    // is what lets a fan be carried by a moving object.
+    fnvMixF(h, o.windStrength), fnvMixF(h, o.windRadius);
     fnvMixS(h, o.soundPath);
     fnvMix(h, (o.soundAuto ? 1 : 0) | (o.soundOnPlayer ? 2 : 0) |
                   (o.soundReverb ? 4 : 0));
@@ -7455,6 +7472,9 @@ bool liveLinkCanSpawnLive(const SceneObject& o) {
     // CLOTHS row at scene load, so an instance that never had a row simulates
     // nothing and draws nothing.
     if (o.type == PrimitiveType::Cloth) return false;
+    // A wind source is addressed by its row in the baked WINDS table, so a
+    // live-spawned one would blow nothing.
+    if (o.type == PrimitiveType::Wind) return false;
     // Areas are referenced BY NAME from baked tables (layer zones, catch-area
     // expansions) that only exist for authored objects - a spawned clone would
     // be a volume nothing points at.

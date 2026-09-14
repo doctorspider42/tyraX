@@ -1,0 +1,1 @@
+{ "id": "c10000000000d0b1", "name": "breeze", "type": "wind", "position": [0, 2.5, -8], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.55, 0.82, 0.95], "physics": false, "collision": "none", "castShadow": false, "wind": { "strength": 7, "radius": 0 } }

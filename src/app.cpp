@@ -7194,6 +7194,19 @@ void App::addCloth() {
     o.castShadow = false;  // it moves, so no static bake may describe it
     commitChange();
 }
+void App::addWind() {
+    addObject(PrimitiveType::Wind, /*commit=*/false);
+    SceneObject& o = project_.objects().back();
+    // Chest height, so the arrow is where a draught would be felt rather than
+    // lying on the floor. Rotation stays 0 - it blows along +Z, which is the
+    // direction the viewport arrow points at when you drop it.
+    o.position[1] += 1.2f;
+    // A pale sky blue: it reads as air, and nothing else in the palette is.
+    o.color[0] = 0.55f, o.color[1] = 0.82f, o.color[2] = 0.95f;
+    o.collisionMode = 2;   // no geometry at all - never a wall
+    o.castShadow = false;
+    commitChange();
+}
 void App::addComment() {
     addObject(PrimitiveType::Comment, /*commit=*/false);
     SceneObject& o = project_.objects().back();
@@ -8596,6 +8609,17 @@ void App::drawAddObjectMenu() {
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Effects")) {
+        // A placed source of wind: it blows every Cloth in reach along its
+        // own +Z (docs/cloth.md). Under Effects rather than Object because it
+        // is invisible in the game and it MOVES other things - the same kind
+        // of thing an emitter is.
+        if (ImGui::MenuItem("Wind source")) addWind();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip(
+                "Blows cloth: a draught down a corridor, a fan, a storm\n"
+                "front. Aim it with Rotation, set how far it reaches, and\n"
+                "every sheet inside adds it to whatever else is blowing.");
+        ImGui::Separator();
         if (ImGui::MenuItem("Fire")) addEmitter(0);
         if (ImGui::MenuItem("Smoke")) addEmitter(1);
         if (ImGui::MenuItem("Fog")) addEmitter(2);

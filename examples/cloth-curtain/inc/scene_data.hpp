@@ -23,6 +23,8 @@ struct SceneObjectData {
              //    collision, and its text never leaves the editor)
              // 21=cloth (a simulated sheet: its mesh is rebuilt
              //    every frame by updateCloths - see CLOTHS below)
+             // 22=wind (a source that blows cloth along its own
+             //    +Z; invisible, no geometry - see WINDS below)
   float position[3];
   float rotation[3];  // degrees
   float scale[3];
@@ -235,7 +237,7 @@ constexpr int SCENE_COUNT = 1;
 constexpr int START_SCENE = 0;
 
 // scene "main"
-constexpr SceneObjectData SCENE_0_OBJECTS[10] = {
+constexpr SceneObjectData SCENE_0_OBJECTS[12] = {
     {6, {0.0F, 0.0F, 6.0F}, {0.0F, 180.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8},  // player-1
     {0, {-1.1F, 1.4F, 0.0F}, {0.0F, 0.0F, 0.0F}, {0.4F, 2.8F, 0.4F}, {0.55F, 0.52F, 0.48F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8},  // door-left
     {0, {1.1F, 1.4F, 0.0F}, {0.0F, 0.0F, 0.0F}, {0.4F, 2.8F, 0.4F}, {0.55F, 0.52F, 0.48F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8},  // door-right
@@ -246,12 +248,14 @@ constexpr SceneObjectData SCENE_0_OBJECTS[10] = {
     {21, {4.6F, 2.1F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.6F, 1.1F, 1.0F}, {0.9F, 0.82F, 0.3F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 2, 0.0F, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8},  // flag
     {2, {3.8F, 1.6F, 0.0F}, {0.0F, 0.0F, 0.0F}, {0.14F, 3.2F, 0.14F}, {0.45F, 0.42F, 0.4F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8},  // flag-pole
     {2, {0.0F, 0.6F, -5.0F}, {0.0F, 0.0F, 0.0F}, {0.8F, 1.2F, 0.8F}, {0.9F, 0.75F, 0.3F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8},  // far-marker
+    {22, {0.0F, 2.5F, -8.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.55F, 0.82F, 0.95F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 2, 0.0F, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8},  // breeze
+    {22, {4.6F, 2.1F, -2.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.95F, 0.75F, 0.45F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 2, 0.0F, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8},  // fan
 };
 
-constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {10};
+constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {12};
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
 
-constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[10] = {0x83bee104aae85772ULL, 0xb0ace129b21be8f2ULL, 0xb0a2e129b213946dULL, 0xb0a6e129b2177d44ULL, 0xb0b6e129b2243d77ULL, 0xb0bae129b228264eULL, 0xb0b0e129b21fd1c9ULL, 0xb0b4e129b223baa0ULL, 0xb0c4e129b2307ad3ULL, 0xb0c8e129b23463aaULL};
+constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[12] = {0x83bee104aae85772ULL, 0xb0ace129b21be8f2ULL, 0xb0a2e129b213946dULL, 0xb0a6e129b2177d44ULL, 0xb0b6e129b2243d77ULL, 0xb0bae129b228264eULL, 0xb0b0e129b21fd1c9ULL, 0xb0b4e129b223baa0ULL, 0xb0c4e129b2307ad3ULL, 0xb0c8e129b23463aaULL, 0xa7fdb829ad3009efULL, 0xa7f9b829ad2c2118ULL};
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
 
 // Endless scrollers (type 19). SCROLLERS holds per-belt state;
@@ -361,8 +365,23 @@ struct ClothData {
 constexpr int CLOTH_COUNT = 3;
 constexpr ClothData CLOTHS[3] = {
     {0, 4, 11, 13, 1, 2, 0.03F, 9.8F, 0.0F, 0.0F, 0.9F},
-    {0, 5, 9, 11, 2, 2, 0.02F, 9.8F, 9.0F, 15.0F, 0.9F},
-    {0, 7, 9, 7, 4, 2, 0.02F, 4.0F, 16.0F, 0.0F, 0.9F}
+    {0, 5, 9, 11, 2, 2, 0.02F, 9.8F, 0.0F, 0.0F, 0.9F},
+    {0, 7, 9, 7, 4, 2, 0.02F, 4.0F, 0.0F, 0.0F, 0.9F}
+};
+
+// A placed source of wind. It blows every Cloth within reach
+// along its own local +Z, and sources ADD UP on each sheet.
+// Hiding the object switches it off.
+struct WindData {
+  int scene;       // scene index
+  int object;      // the source's index in its scene table
+  float strength;  // acceleration at the source, units/s^2
+  float radius;    // reach; 0 = the whole scene, no falloff
+};
+constexpr int WIND_COUNT = 2;
+constexpr WindData WINDS[2] = {
+    {0, 10, 7.0F, 0.0F},
+    {0, 11, 22.0F, 4.0F}
 };
 
 // Raytraced-mirror model proxies: decimated triangle lists

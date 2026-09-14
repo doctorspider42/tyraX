@@ -1022,6 +1022,11 @@ separable addition:
   against player one. The runtime already builds the capsule from
   `players[0]`/`PLAYER_EYE_HEIGHT`; a second one is a loop and a
   `PLAYER2_INDEXES` guard.
+- **Wind is sampled once per sheet, at its origin.** A source placed inside a
+  large sheet blows all of it equally instead of one half harder. Per-particle
+  sampling is a subtract, a dot and a compare per particle per source — worth
+  it only for a sheet big enough that somebody notices, which nothing in the
+  examples is.
 - **No self-collision and no scene collision.** A curtain passes through a
   crate and through itself. Scene collision would mean testing every particle
   against the objects near the sheet — cheap with the existing

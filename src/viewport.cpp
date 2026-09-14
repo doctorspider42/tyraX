@@ -5712,6 +5712,10 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             // draws the box outline (drawing them here would fill the volume
             // and hide whatever it encloses).
             if (o.type == PrimitiveType::Area) continue;
+            // A wind source is air. Its own pass below draws the arrow and the
+            // reach sphere; without this it falls through to meshFor's default
+            // and renders a solid box nobody asked for.
+            if (o.type == PrimitiveType::Wind) continue;
             // Cloth: a world-space mesh the simulation rebuilt this frame, so
             // it draws with an identity transform and its own baked shade -
             // the projected-decal path. A wireframe view still gets the sheet
@@ -6130,6 +6134,37 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         draw(portalArrow_, GL_LINES, mul(viewProj, m),
              0.5f + 0.5f * p.color[0], 0.5f + 0.5f * p.color[1],
              0.5f + 0.5f * p.color[2]);
+    }
+    // Wind sources (docs/cloth.md): an arrow along the object's +Z - the
+    // direction it blows - plus a wire sphere at its reach when it has one.
+    // Nothing of this exists in the game; the arrow IS the rotation, so it is
+    // drawn at a fixed length and the object's scale is deliberately ignored.
+    for (size_t wi = 0; wi < objects.size(); ++wi) {
+        const SceneObject& w = objects[wi];
+        if (w.type != PrimitiveType::Wind || hiddenAt(wi)) continue;
+        const float d2r = kPi / 180.0f;
+        // Length grows with strength so a strong source reads as one at a
+        // glance, but only slowly and within bounds - this is a marker, not a
+        // chart, and an unbounded one would cross the map.
+        float len = 1.2f + 0.05f * w.windStrength;
+        if (len > 4.0f) len = 4.0f;
+        Mat4 m = scaleM(len, len, len);
+        m = mul(rotX(w.rotation[0] * d2r), m);
+        m = mul(rotY(w.rotation[1] * d2r), m);
+        m = mul(rotZ(w.rotation[2] * d2r), m);
+        m = mul(translation(w.position[0], w.position[1], w.position[2]), m);
+        // The object's own colour, unbrightened: unlike a portal arrow this
+        // one is not drawn over a tinted surface it has to beat, and the
+        // colour is how you tell two sources apart at a glance.
+        draw(portalArrow_, GL_LINES, mul(viewProj, m), w.color[0], w.color[1],
+             w.color[2]);
+        if (w.windRadius > 0.0f) {
+            const float r = w.windRadius;
+            Mat4 rm = mul(translation(w.position[0], w.position[1], w.position[2]),
+                          scaleM(r, r, r));
+            draw(wireSphere_, GL_LINES, mul(viewProj, rm), w.color[0] * 0.7f,
+                 w.color[1] * 0.7f, w.color[2] * 0.7f);
+        }
     }
     // Endless scroller previews: a small origin marker plus animated,
     // semi-transparent "ghost" clones of each segment's members sliding along
@@ -7667,9 +7702,9 @@ static cloth::Params clothParamsOf(const SceneObject& o) {
     p.iterations = o.clothIterations;
     p.damping = o.clothDamping;
     p.gravity = o.clothGravity;
-    p.wind = o.clothWind;
     const float a = o.clothWindDir * kPi / 180.0f;
-    p.windDir = cloth::V4{std::sin(a), 0.0f, std::cos(a), 0.0f};
+    p.windAccel = cloth::V4{std::sin(a) * o.clothWind, 0.0f,
+                            std::cos(a) * o.clothWind, 0.0f};
     p.pin = (cloth::Pin)(o.clothPin >= 0 && o.clothPin <= 5 ? o.clothPin : 1);
     return p;
 }
@@ -7705,6 +7740,23 @@ void Viewport::updateClothPreviews(const std::vector<SceneObject>& objects) {
     if (dt < 0.0f) dt = 0.0f;
     if (dt > 0.1f) dt = 0.1f;  // a modal dialog is not a physics event
 
+    // Wind entities. Collected once per frame and summed onto every sheet's
+    // own draught below - the same two steps the generated game takes, so a
+    // fan aimed at a curtain in the viewport aims at it on the console.
+    std::vector<cloth::Wind> winds;
+    for (size_t wi = 0; wi < objects.size(); ++wi) {
+        const SceneObject& w = objects[wi];
+        if (w.type != PrimitiveType::Wind || hiddenAt(wi)) continue;
+        if (w.windStrength == 0.0f) continue;
+        const Vec3 d = rotateEuler({0, 0, 1}, w.rotation);
+        cloth::Wind src;
+        src.pos = cloth::V4{w.position[0], w.position[1], w.position[2], 0.0f};
+        src.dir = cloth::V4{d.x, d.y, d.z, 0.0f};
+        src.strength = w.windStrength;
+        src.radius = w.windRadius;
+        winds.push_back(src);
+    }
+
     // The editor's stand-in for the player: every Player object in the scene
     // becomes the same capsule up its own eye height the game builds, so
     // dragging a Player marker through a curtain in the viewport shows exactly
@@ -7726,7 +7778,14 @@ void Viewport::updateClothPreviews(const std::vector<SceneObject>& objects) {
         const SceneObject& o = objects[oi];
         if (o.type != PrimitiveType::Cloth) continue;
         ClothPreview& cp = clothPreviews_[(int)oi];
-        const cloth::Params p = clothParamsOf(o);
+        cloth::Params p = clothParamsOf(o);
+        // Own draught plus every source that reaches this sheet, sampled at
+        // its origin (cloth::windAt).
+        if (!winds.empty()) {
+            const cloth::V4 here{o.position[0], o.position[1], o.position[2], 0.0f};
+            p.windAccel = cloth::v4add(
+                p.windAccel, cloth::windAt(winds.data(), (int)winds.size(), here));
+        }
         cloth::V4 origin, right, down;
         clothRestFrame(o, p, origin, right, down);
 

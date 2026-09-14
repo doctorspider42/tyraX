@@ -16,6 +16,29 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.90.0: Wind sources (docs/cloth.md, "Wind entities"). A new object type
+// (PrimitiveType::Wind, 22): an arrow marker that blows every Cloth within its
+// reach along its own local +Z, invisible in the game. Wind stops being a
+// number every sheet carries privately and becomes something you PLACE, aim
+// with the rotate gizmo, switch off with Hide Object and carry on a moving
+// object - and sources ADD UP, so a corridor draught plus a fan is both.
+//
+// Reach is a sphere falling off as 1 - d^2/r^2 - the engine's own point-light
+// curve rather than a new one - with radius 0 meaning the whole scene and no
+// falloff, which is what a prevailing wind is. The sum is sampled ONCE PER
+// SHEET at its origin, not per particle: a sheet is small against the
+// distances a source works over, so per-particle sampling would cost the whole
+// grid a subtract, a dot and a compare per source for a gradient nobody can
+// see. `cloth::windAt` and the generated `clothWindAt` are the twin pair.
+//
+// The sheet's own `wind`/`windDir` survives as its private draught and is now
+// summed as a VECTOR rather than an amplitude and a bearing, which is what
+// makes several sources composable. A project with no Wind object regenerates
+// byte for byte. Strength and reach are baked into a WINDS side table;
+// position and direction are deliberately NOT - they are read live off the
+// object's own transform every frame. kFormatVersion 48 -> 49; additive, no
+// migration step. MINOR.
+//
 // 1.89.0: cloth / soft bodies (docs/cloth.md). A new scene object type: the
 // rectangle you place is a sheet at rest, and the game integrates a grid of
 // particles hanging in it every frame - Verlet, distance constraints, the
@@ -3373,7 +3396,7 @@
 // 1.86.0: merge baked shadow decals with main's render-cost table and
 // object-group line.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 89
+#define TYRAX_VERSION_MINOR 90
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -3746,6 +3769,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // optional blssAdaptive boolean. Missing means false and the key is written
 // only when enabled, so older projects still resave byte-for-byte. Purely
 // additive - no migration step.
+// v49 (wind sources, docs/cloth.md): the new PrimitiveType::Wind (serialized
+// type name "wind") and the `wind` object carrying its strength and reach. An
+// older editor reads an unknown type name as a Box - a solid crate where a
+// draught was - which is what the refusal is for. Purely additive - no
+// migration step.
 // v48 (cloth / soft bodies, docs/cloth.md): the new PrimitiveType::Cloth
 // (serialized type name "cloth") and the `cloth` object carrying its grid,
 // pinning, stiffness, damping, gravity, gust and player radius. An older
@@ -3753,7 +3781,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // hangs - which is what the refusal is for; the two gust keys are written only
 // when there IS a gust, so nothing else changes shape. Purely additive - no
 // migration step.
-inline constexpr int kFormatVersion = 48;
+inline constexpr int kFormatVersion = 49;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

@@ -159,11 +159,17 @@ enum class PrimitiveType {
     // and casts no baked light or shadow: it is a surface that moves, which is
     // the one thing this engine's static bakes cannot describe.
     Cloth = 21,
+    // Wind source (docs/cloth.md, "Wind entities"): an arrow marker in the
+    // editor, nothing at all in the game, that blows every Cloth within its
+    // reach along its local +Z. It exists so wind is a thing you PLACE - a
+    // draught down a corridor, a fan, a storm front - instead of a number
+    // every sheet carries privately and nothing can move or switch off.
+    Wind = 22,
 };
 
 // One past the last PrimitiveType value - loops over "every object type" (the
 // multi-select tally) bound on this instead of a hardcoded member.
-constexpr int kPrimitiveTypeCount = (int)PrimitiveType::Cloth + 1;
+constexpr int kPrimitiveTypeCount = (int)PrimitiveType::Wind + 1;
 
 // Tessellation detail for the geometry primitives, stored per object in
 // SceneObject::primDetail. Its meaning depends on the shape: for the curved
@@ -630,6 +636,18 @@ struct SceneObject {
     // enough and a curtain billows off both shoulders; 0 and they walk
     // straight through with the cloth unmoved.
     float clothPushRadius = 0.9f;
+
+    // Wind source parameters (used when type == Wind, docs/cloth.md). The
+    // DIRECTION is the object's rotation - it blows along its local +Z, which
+    // is what the arrow gizmo in the viewport draws - and the reach is a
+    // sphere around its position. Everything else about a wind source is its
+    // transform, so a fan can be carried by a moving object and a draught can
+    // be aimed with the ordinary rotate gizmo.
+    float windStrength = 12.0f;  // acceleration at the source, units/s^2
+    // Reach, world units. 0 = the WHOLE SCENE with no falloff at all, which is
+    // what a prevailing wind is; a positive radius falls off as 1 - d^2/r^2,
+    // the same curve the engine's point lights use.
+    float windRadius = 0.0f;
 
     // Sound emitter parameters (used when type == SoundEmitter)
     std::string soundPath;      // one of Project::sounds ("res/sfx/x.wav")
@@ -1112,6 +1130,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.clothGravity == b.clothGravity && a.clothWind == b.clothWind &&
            a.clothWindDir == b.clothWindDir &&
            a.clothPushRadius == b.clothPushRadius &&
+           a.windStrength == b.windStrength &&
+           a.windRadius == b.windRadius &&
            a.soundPath == b.soundPath && a.soundAuto == b.soundAuto &&
            a.soundRange == b.soundRange && a.soundInterval == b.soundInterval &&
            a.soundOnPlayer == b.soundOnPlayer && a.soundReverb == b.soundReverb &&

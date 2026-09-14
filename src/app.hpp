@@ -341,6 +341,7 @@ private:
     // puts the keyboard in the Properties field, because a note with no text
     // is the one object that is useless the moment it is created.
     void addCloth();
+    void addWind();
     void addComment();
     void drawAddObjectMenu();
     // Area picker for a "catch area" reference (Mirror/Portal/feed Camera) or

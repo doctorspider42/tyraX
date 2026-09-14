@@ -88,6 +88,7 @@ static const char* typeLabel(PrimitiveType t) {
         case PrimitiveType::Scroller: return "Scroller";
         case PrimitiveType::Comment: return "Comment";
         case PrimitiveType::Cloth: return "Cloth";
+        case PrimitiveType::Wind: return "Wind source";
     }
     return "Object";
 }
@@ -224,6 +225,10 @@ void App::drawPropertiesWindow() {
     // placed - so it wants the transform and the material of a shape and none
     // of the collision, physics, baked-lighting or batching questions.
     const bool isCloth = o.type == PrimitiveType::Cloth;
+    // A wind source (docs/cloth.md): a marker that blows cloth. It wants a
+    // position, a rotation (that IS the direction) and its own two numbers -
+    // and none of the questions a piece of geometry answers.
+    const bool isWind = o.type == PrimitiveType::Wind;
 
     if (!o.editorGroup.empty()) {
         ImGui::Text("Group: %s", o.editorGroup.c_str());
@@ -576,7 +581,7 @@ void App::drawPropertiesWindow() {
     committed |= ImGui::IsItemDeactivatedAfterEdit();
     // custom emitters rotate too - the rotation aims the emission direction
     if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal || isArea ||
-        isScatter || isScroller || isCloth ||
+        isScatter || isScroller || isCloth || isWind ||
         (o.type == PrimitiveType::Emitter && o.emitterKind == 5)) {
         ImGui::DragFloat3("Rotation", o.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -612,7 +617,7 @@ void App::drawPropertiesWindow() {
     // red for a bug, green for something settled). The remaining markers draw
     // in fixed colors.
     if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal || isArea ||
-        isComment || isCloth || o.type == PrimitiveType::Emitter ||
+        isComment || isCloth || isWind || o.type == PrimitiveType::Emitter ||
         o.type == PrimitiveType::PointLight) {
         ImGui::ColorEdit3("Color", o.color);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -1713,6 +1718,24 @@ void App::drawPropertiesWindow() {
         }
         ImGui::TextDisabled(
             "Simulated every frame - never batched, baked or collided with.");
+    }
+
+    if (isWind) {
+        ImGui::SeparatorText("Wind source");
+        ImGui::TextDisabled("Blows along this object's +Z - aim it with Rotation.");
+        ImGui::DragFloat("Strength", &o.windStrength, 0.25f, 0.0f, 200.0f,
+                         "%.1f u/s2");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        prefHelp("Acceleration at the source. A curtain starts lifting off\n"
+                 "its rail somewhere around 10; a flag wants 15-30.");
+        ImGui::DragFloat("Reach", &o.windRadius, 0.25f, 0.0f, 500.0f,
+                         o.windRadius > 0.0f ? "%.2f u" : "whole scene");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        prefHelp("Radius of the sphere it blows inside, falling off as\n"
+                 "1 - d^2/r^2 - the same curve the point lights use.\n"
+                 "0 is a prevailing wind: the whole scene, no falloff.");
+        ImGui::TextDisabled(
+            "Hide Object switches it off; sources add up on each sheet.");
     }
 
     if (o.type == PrimitiveType::Emitter) {

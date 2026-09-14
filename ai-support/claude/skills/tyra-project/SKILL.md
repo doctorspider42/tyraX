@@ -92,7 +92,7 @@ to see exactly what the game will compile.
 - A project has one or more **scenes**; each scene has a terrain, streaming
   layers and a list of **objects** (boxes, spheres, models, lights, particle
   emitters, sound emitters, the player, decals, mirrors, cameras, areas,
-  cloth, procedural volumes...).
+  cloth, wind sources, procedural volumes...).
 - The **terrain is optional per scene** (`"terrain": { ..., "enabled": false }`
   in the `.tyra`; `--dump` reports it as `"terrainRemoved": true`). With it
   removed the scene has **no ground at all**: nothing is drawn and the game has
@@ -173,6 +173,12 @@ to see exactly what the game will compile.
   collider, so the player walks THROUGH a curtain and lifts it. It never
   collides, is never batched, and carries no baked light or shadow - if you are
   asked why a cloth casts no shadow, that is the reason and not a bug.
+- **Wind sources** (type `wind`) are placed sources that blow every `cloth`
+  within reach along their own local +Z - invisible in the game, with only
+  `strength` and `radius` in the `"wind"` key (radius 0 = the whole scene).
+  Their DIRECTION is the object's rotation and their position is read live, so
+  aim one by rotating it and never look for a direction field. Sources add up
+  on each sheet, and hiding the object switches it off.
 - **Comments** (type `comment`) are editor-only notes pinned to a place in the
   scene: the prose lives in the object's `"comment"` key and reaches NOTHING -
   no generated file, no bake, no asset. Read them (they usually say why

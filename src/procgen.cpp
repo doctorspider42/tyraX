@@ -279,6 +279,7 @@ bool isSolidBlocker(const SceneObject& o) {
         case PrimitiveType::Scatter:
         case PrimitiveType::Comment:
         case PrimitiveType::Cloth:
+        case PrimitiveType::Wind:
             return false;
         default: return true;
     }

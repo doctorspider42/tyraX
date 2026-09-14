@@ -38,7 +38,7 @@ rectangle is discretized, never how large it is.
 | **Stiffness** | relaxation sweeps per step, 1–4. Two is a curtain; four is a tarpaulin. Linear cost. |
 | **Damping** | fraction of the velocity lost per step. 0 swings forever; high values settle at once. |
 | **Gravity** | units/s² down. Zero is a sheet in free fall — useful with wind. |
-| **Wind** | gust acceleration. The gust *breathes* but never reverses, and neighbouring rows ripple out of phase. **Wind from** is its bearing in degrees around world Y (0 blows along +Z). |
+| **Wind** | the sheet's *own* draught: a gust acceleration it always feels, wherever it is. **Wind from** is its bearing in degrees around world Y (0 blows along +Z). For wind you can place, aim and switch off, see [Wind entities](#wind-entities) below — the two add up. |
 | **Player radius** | how fat the player is to this cloth. Default **0.9** — deliberately more than a person, because the sheet is what you are looking at. |
 
 The **material** is picked like any other primitive's: its `map_Kd` is the
@@ -89,6 +89,52 @@ all, and the camera stands in for one — so the effect is visible there too.
 
 Player two is not a collider yet: a split-screen game simulates the sheet
 against player one.
+
+## Wind entities
+
+A **wind source** is a placed object (*Add object > Effects > Wind source*) that
+blows every cloth within its reach. It is invisible in the game and draws as an
+arrow in the editor: **it blows along its own local +Z**, so you aim it with the
+ordinary rotate gizmo.
+
+That is the difference worth the object. The per-sheet *Wind* slider is a number
+a curtain carries privately — nothing can move it, point it somewhere else,
+switch it off, or make it apply to the three sheets in a room at once. A source
+is a thing in the world:
+
+- **Aim it** with Rotation. The viewport arrow is the direction.
+- **Give it a reach** — a sphere, falling off as `1 - d²/r²`, the same curve the
+  engine's point lights use. The editor draws that sphere, so which sheets are
+  in it is something you look at rather than work out. **Reach 0 is the whole
+  scene with no falloff at all**, which is what a prevailing wind is.
+- **Switch it off** with Hide Object, from a flow graph or a script.
+- **Carry it.** Position and direction are read live off the object's transform
+  every frame — only strength and reach are baked — so a fan on a moving
+  platform blows where it is pointing now.
+
+**Sources add up**, and the sheet's own draught adds to them: a corridor breeze
+plus a fan is both. That is why the wind a sheet feels is a *vector* internally
+rather than an amplitude and a bearing.
+
+The sum is sampled **once per sheet, at its origin** — not per particle. A sheet
+is small against the distances a source works over, so per-particle sampling
+would cost the whole grid a subtract, a dot and a compare per source to produce
+a gradient nobody can see. The consequence to know: a source placed *inside* a
+large sheet does not blow one half harder than the other.
+
+![Two wind sources in the editor: the fan's arrow inside its reach sphere, aimed at the flag, and the scene-wide breeze behind it](img/cloth-wind.png)
+
+*`examples/cloth-curtain`. The orange arrow is the `fan` and the orange sphere
+is its reach — the flag is inside it, the curtain and the banner are not. The
+pale blue arrow further back is `breeze`, which has no sphere because its reach
+is 0: the whole scene.*
+
+`cloth::windAt` (host) and `clothWindAt` (generated game) are the twin pair.
+
+| | |
+|---|---|
+| **Strength** | acceleration at the source, units/s². A curtain starts lifting off its rail around 10; a flag wants 15–30. |
+| **Reach** | radius of the sphere it blows inside. 0 = the whole scene. |
 
 ## It moves with its object
 
@@ -285,6 +331,7 @@ fixture:
 |---|---|
 | 242 particles | `CLOTH` **1.13 ms** (three samples, ±0.02) |
 | the same two sheets, shading per VERTEX instead of per particle | `CLOTH` **1.51 ms** — the six-fold duplicate shade was 25 % of the bill, and is gone |
+| two wind sources added to the three-sheet example | `CLOTH` **1.58 / 1.59 ms** against 1.58 without them — wind is sampled once per sheet per frame, so it does not show |
 
 Read the last row twice before optimising anything here: shading was a
 *quarter*, so what is left is the solver's own arithmetic — which is exactly
@@ -308,21 +355,25 @@ stiffness sweeps, 600 steps):
 ## Example
 
 `examples/cloth-curtain` is the proof of concept: a stone doorway with a red
-curtain hanging in it, a blue banner on two hooks beside it and a yellow flag
-on a pole, both in a gust, and a Player parked six units back looking at the
-door. Three pinning modes in one scene, because *what a sheet is attached to*
-is the setting that changes its whole character. Walk forward and the curtain
-lifts around you.
+curtain hanging in it, a blue banner on two hooks beside it, a yellow flag on a
+pole, and a Player parked six units back looking at the door. Three pinning
+modes in one scene, because *what a sheet is attached to* is the setting that
+changes its whole character. Walk forward and the curtain lifts around you.
+
+All the movement in it comes from **two placed wind sources** — no sheet
+carries a private draught: `breeze` (reach 0, the whole scene at 7 u/s²) and
+`fan` (22 u/s², reach 4), whose sphere takes in the flag and leaves the curtain
+and the banner alone.
 
 ## Where it lives in the code
 
 | | |
 |---|---|
 | `src/cloth.hpp` / `src/cloth.cpp` | the solver — host-only, no GL, no `project.hpp`, exercisable from a 40-line harness |
-| `src/project.hpp` | `PrimitiveType::Cloth` (21) and the nine `cloth*` fields on `SceneObject` |
+| `src/project.hpp` | `PrimitiveType::Cloth` (21) and `Wind` (22), with their fields on `SceneObject` |
 | `src/props_ui.cpp` | the Cloth section of Properties |
-| `src/viewport.cpp` | `updateClothPreviews` — the editor preview, calling the solver above |
-| `src/templates.cpp` | the `CLOTHS` side table in `scene_data.hpp`, and `buildCloths`/`updateCloths` — the runtime twin |
+| `src/viewport.cpp` | `updateClothPreviews` — the editor preview, calling the solver above — plus the wind arrow and reach sphere |
+| `src/templates.cpp` | the `CLOTHS` and `WINDS` side tables in `scene_data.hpp`, and `buildCloths`/`updateCloths`/`clothWindAt` — the runtime twin |
 
 The serialized form is a `cloth` object inside the object's JSON; the pin values
 are baked into the generated table, so **that list is append-only**.

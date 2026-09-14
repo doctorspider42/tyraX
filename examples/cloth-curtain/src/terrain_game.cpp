@@ -6358,7 +6358,7 @@ static void clothAnchor(Vec4* pos, Vec4* prev, const unsigned char* pinned,
 // three vector operations per particle and no trig inside the loop.
 static void clothIntegrate(Vec4* pos, Vec4* prev, const unsigned char* pinned,
                            int cols, int rows, float keep, float gravity,
-                           float wind, const Vec4& windDir, const float* rowSin,
+                           const Vec4& windAccel, const float* rowSin,
                            const float* rowCos, float time) {
   const float h2 = CLOTH_STEP * CLOTH_STEP;
   // ONE sinf/cosf for the whole sheet: each row's gust is the angle-addition
@@ -6367,12 +6367,11 @@ static void clothIntegrate(Vec4* pos, Vec4* prev, const unsigned char* pinned,
   const float gs = sinf(time * CLOTH_GUST_RATE);
   const float gc = cosf(time * CLOTH_GUST_RATE);
   for (int r = 0; r < rows; ++r) {
-    const float gust =
-        wind * (CLOTH_GUST_BASE +
-                CLOTH_GUST_SWING * (gs * rowCos[r] + gc * rowSin[r]));
-    const Vec4 acc(windDir.x * gust * h2,
-                   (-gravity + windDir.y * gust) * h2,
-                   windDir.z * gust * h2, 0.0F);
+    const float gust = CLOTH_GUST_BASE +
+                       CLOTH_GUST_SWING * (gs * rowCos[r] + gc * rowSin[r]);
+    const Vec4 acc(windAccel.x * gust * h2,
+                   (-gravity + windAccel.y * gust) * h2,
+                   windAccel.z * gust * h2, 0.0F);
     for (int c = 0; c < cols; ++c) {
       const int i = r * cols + c;
       if (pinned[i]) continue;
@@ -6477,6 +6476,48 @@ static void clothNormals(const Vec4* pos, Vec4* nrm, int cols, int rows) {
   }
 }
 
+// The wind acceleration a point feels: every ACTIVE source summed, each scaled
+// by 1 - d^2/r^2 clamped at zero - the engine's own point-light falloff rather
+// than a new curve, so a fan reaches the way a lamp lights. A source with no
+// radius reaches the whole scene with no falloff at all.
+//
+// Sampled ONCE PER SHEET, at its origin, not per particle: a sheet is small
+// against the distances a source works over, so per-particle sampling would
+// cost the whole grid a subtract, a dot and a compare per source to produce a
+// gradient nobody can see. Twin of cloth::windAt in the editor.
+//
+// The source's direction and position are read from its LIVE RuntimeObject,
+// not from the baked row, so a fan carried by a moving object blows where it
+// points now; `visible` is what Hide Object switches.
+Vec4 TerrainGame::clothWindAt(const Vec4& point) const {
+  Vec4 total(0.0F, 0.0F, 0.0F, 0.0F);
+  for (int k = 0; k < WIND_COUNT; ++k) {
+    const WindData& wd = WINDS[k];
+    if (wd.scene != currentScene || wd.strength == 0.0F) continue;
+    const int oi = wd.object;
+    if (oi < 0 || oi >= (int)runtimeObjects.size()) continue;
+    const RuntimeObject& o = runtimeObjects[oi];
+    if (!o.active || !o.visible) continue;  // Hide Object turns it off
+    float f = 1.0F;
+    if (wd.radius > 0.0F) {
+      const Vec4 d(point.x - o.data.position[0], point.y - o.data.position[1],
+                   point.z - o.data.position[2], 0.0F);
+      const float d2 = d.innerProduct(d);
+      const float r2 = wd.radius * wd.radius;
+      if (d2 >= r2) continue;  // out of reach
+      f = 1.0F - d2 / r2;
+    }
+    // Blows along the source's own +Z. areaBasis already resolves an object's
+    // rotated axes, so this cannot disagree with the rest of the scene about
+    // what a rotation means - the same reason clothRestFrame reads it.
+    const AreaBasis b = areaBasis(o.data);
+    const float k2 = wd.strength * f;
+    total.set(total.x + b.az[0] * k2, total.y + b.az[1] * k2,
+              total.z + b.az[2] * k2, 0.0F);
+  }
+  return total;
+}
+
 void TerrainGame::buildCloths() {
   cloths.clear();
   if (CLOTH_COUNT <= 0) return;
@@ -6497,10 +6538,10 @@ void TerrainGame::buildCloths() {
     cs.iterations = cd.iterations;
     cs.damping = cd.damping;
     cs.gravity = cd.gravity;
-    cs.wind = cd.wind;
     cs.pushRadius = cd.push;
     const float wa = cd.windDir * PI / 180.0F;
-    cs.windDir.set(sinf(wa), 0.0F, cosf(wa), 0.0F);
+    cs.ownWind.set(sinf(wa) * cd.wind, 0.0F, cosf(wa) * cd.wind, 0.0F);
+    cs.windAccel = cs.ownWind;
     // The sheet spans the object's unit XY quad, so the rest spacing is the
     // scale over the number of gaps: a wider curtain is a coarser grid, never
     // a pre-stretched one.
@@ -6622,6 +6663,18 @@ void TerrainGame::updateCloths() {
     cs.texBag->texture = tex;
     cs.bag->texture = tex ? cs.texBag.get() : nullptr;
 
+    // The wind this sheet feels this frame: its own draught plus every source
+    // that reaches it. Once per sheet, before the step loop - a source cannot
+    // move far enough inside one frame's worth of steps to matter.
+    cs.windAccel = cs.ownWind;
+    if (WIND_COUNT > 0) {
+      const Vec4 here(o.data.position[0], o.data.position[1],
+                      o.data.position[2], 0.0F);
+      const Vec4 w = clothWindAt(here);
+      cs.windAccel.set(cs.windAccel.x + w.x, cs.windAccel.y + w.y,
+                       cs.windAccel.z + w.z, 0.0F);
+    }
+
     const int n = cs.cols * cs.rows;
     const float keep = 1.0F - cs.damping;
     float dt = g_frameDt;
@@ -6635,7 +6688,7 @@ void TerrainGame::updateCloths() {
       clothAnchor(cs.pos.data(), cs.prev.data(), cs.pinned.data(), o.data,
                   cs.cols, cs.rows, cs.restX, cs.restY);
       clothIntegrate(cs.pos.data(), cs.prev.data(), cs.pinned.data(), cs.cols,
-                     cs.rows, keep, cs.gravity, cs.wind, cs.windDir,
+                     cs.rows, keep, cs.gravity, cs.windAccel,
                      cs.rowSin.data(), cs.rowCos.data(), cs.time);
       clothRelax(cs.pos.data(), cs.pinned.data(), cs.cols, cs.rows, cs.restX,
                  cs.restY, cs.iterations);
@@ -6727,7 +6780,8 @@ void TerrainGame::updateUseTarget() {
     if (o.data.type == 4 || o.data.type == 6 || o.data.type == 7 ||
         o.data.type == 8 || o.data.type == 9 || o.data.type == 11 ||
         o.data.type == 14 || o.data.type == 17 || o.data.type == 18 ||
-        o.data.type == 19 || o.data.type == 20 || o.data.type == 21)
+        o.data.type == 19 || o.data.type == 20 || o.data.type == 21 ||
+        o.data.type == 22)
       continue;
 
     const float dx = o.data.position[0] - cameraPosition.x;
@@ -13732,6 +13786,7 @@ bool TerrainGame::objectCollides(const SceneObjectData& d) {
     case 19:  // scroller belt marker
     case 20:  // comment (an editor note)
     case 21:  // cloth - a surface that MOVES, so no static box describes it
+    case 22:  // wind source - air, not a wall
       return false;
     default: return true;
   }
@@ -14835,6 +14890,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       case 18: break;  // scatter volume - editor authoring region only
       case 20: break;  // comment - an editor note, invisible here
       case 21: break;  // cloth - its mesh is built by updateCloths()
+      case 22: break;  // wind source - invisible, read by updateCloths()
       case 12: addPlane(p0.vertices, p0.colors, p0.sts, o.data); break;
       case 13: {
         // Projecting decal: a world-space mesh conforming to the receiver
@@ -15464,7 +15520,7 @@ bool TerrainGame::physObstacle(const SceneObjectData& d) {
   if (d.collision == 2) return false;
   const int t = d.type;
   return t != 4 && t != 6 && t != 7 && t != 8 && t != 9 && t != 11 &&
-         t != 13 && t != 14 && t != 17 && t != 20 && t != 21;
+         t != 13 && t != 14 && t != 17 && t != 20 && t != 21 && t != 22;
 }
 
 // ---------------------------------------------------------------------------

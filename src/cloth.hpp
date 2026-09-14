@@ -122,8 +122,12 @@ struct Params {
     int iterations = 2;      // relaxation sweeps per step (1..4)
     float damping = 0.03f;   // fraction of the Verlet velocity dropped per step
     float gravity = 9.8f;    // world units/s^2, along -Y
-    float wind = 0.0f;       // gust acceleration amplitude along windDir
-    V4 windDir{0.0f, 0.0f, 1.0f, 0.0f};
+    // The gust, as an ACCELERATION VECTOR rather than an amplitude and a
+    // bearing. It is a vector because wind is a SUM now: the sheet's own
+    // draught plus every Wind entity that reaches it (docs/cloth.md, "Wind
+    // entities"), resolved once per sheet per frame by the caller. Zero = still
+    // air, and the gust envelope is skipped entirely.
+    V4 windAccel{0.0f, 0.0f, 0.0f, 0.0f};
     Pin pin = Pin::TopEdge;
 };
 
@@ -144,6 +148,29 @@ struct Capsule {
 // the generated game.
 inline constexpr float kBodyLo = 0.08f;
 inline constexpr float kBodyHi = 1.00f;
+
+// A WIND ENTITY (docs/cloth.md, "Wind entities"): a placed source that blows
+// every sheet within its reach, instead of every sheet carrying its own
+// draught. `dir` is a unit vector - the object's rotated local +Z - and
+// `radius` 0 means the whole scene.
+struct Wind {
+    V4 pos;
+    V4 dir;
+    float strength = 0.0f;  // units/s^2 at the source
+    float radius = 0.0f;    // 0 = unlimited reach, no falloff at all
+};
+
+// The wind acceleration a point feels: every source summed, each scaled by
+// `1 - d^2/r^2` clamped at zero. That is the engine's own point-light falloff
+// (see the dynamic lights in vendor/tyra) rather than a new curve, so a fan
+// reaches the way a lamp lights.
+//
+// SAMPLED ONCE PER SHEET, at its origin, not per particle. A sheet is small
+// against the distances a wind source works over, so per-particle sampling
+// would cost the whole grid a subtract, a dot and a compare per source to
+// produce a gradient nobody can see. Twin of clothWindAt in the generated
+// game.
+V4 windAt(const Wind* sources, int count, const V4& point);
 
 struct State {
     std::vector<V4> pos;   // current positions, world space
