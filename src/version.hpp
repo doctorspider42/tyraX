@@ -16,6 +16,37 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.89.0: merge the vehicle/road branch with main's adaptive plain BLSS budget
+// and spatial static-part batching. The tree now carries features neither
+// parent had alone, so the MINOR goes above both rather than picking a side.
+// Format 52 -> 53: main's blssAdaptive arrives as v53 here, because this
+// branch had already published a different v47..v52 (see kFormatVersion).
+//
+// 1.88.0: plain BLSS can adapt each scene between native and reduced 3D
+// resolution from sustained whole-frame timing. Hysteresis, scene warm-up and
+// allocation-free switches avoid oscillation, streaming false positives and GS
+// texture eviction. While reduced, the generated runtime also budgets optional
+// overdraw: distant particles, light shafts, emission/reflection shells and
+// dynamic environment-map refreshes become cheaper. Physical PS2 A/B on
+// upscaler-lab measured 16.1 -> 44.0 FPS and 60.76 -> 22.06 ms in the same
+// camera pose; scene CPU stayed 5.67 -> 5.44 ms. ProjectSettings gains the
+// opt-in blssAdaptive field, written only when true. kFormatVersion 46 -> 47
+// on main, renumbered to 53 here; additive, no migration step. MINOR.
+//
+// 1.87.0: static batching accepts compact immutable imported-model parts,
+// grouped by loaded texture and coarse world cell. Singleton groups, large
+// footprints, mesh-LOD/impostor models and special runtime draw paths remain
+// solo, preserving the spatial culling that an earlier material-only prototype
+// lost. Five PCSX2 debug captures of three visible repeated props measured mean
+// Total 21.970 -> 21.608 ms and Objects 15.081 -> 13.839 ms; an off-screen group
+// measured Total 23.256 -> 21.494 ms. A separate 30-box atlas fixture grouped
+// distinct materials sharing one loaded texture into two batches: five PCSX2
+// captures measured Total 4.58 -> 2.38 ms and model work 2.39 -> 0.44 ms.
+// On physical PS2, the three-crate median was Total 34.317 -> 34.166 ms and
+// direct crate work 0.853 -> 0.714 ms. The 30-box atlas stress test measured
+// median Total 6.468 -> 3.281 ms and object work 4.063 -> 0.873 ms; its GS
+// capture was correct. MINOR; no format change.
+//
 // 1.86.5: Integrate vehicle wheel/capture fixes and planar road reduction
 // with main static submission improvements and baked shadow decals.
 // Combined format 52 preserves both additive field sets.
@@ -3940,8 +3971,8 @@
 // 1.86.0: merge baked shadow decals with main's render-cost table and
 // object-group line.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 86
-#define TYRAX_VERSION_PATCH 5
+#define TYRAX_VERSION_MINOR 89
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -4298,7 +4329,13 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v51 adds optional editorGroup and invisible box fields from main.
 // v52 adds baked shadow decals: shadowMode 4 and optional bakedShadow*
 // settings (main v46), without transforming any existing values.
-inline constexpr int kFormatVersion = 52;
+// v53 (adaptive plain BLSS, docs/neural-upscaler.md): ProjectSettings gains the
+// optional blssAdaptive boolean. Missing means false and the key is written
+// only when enabled, so older projects still resave byte-for-byte. Purely
+// additive - no migration step. Main published this as v47; this branch had
+// already claimed v47..v52, so the LATER arrival renumbers - the same rule the
+// v51 and v52 entries above were written under.
+inline constexpr int kFormatVersion = 53;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

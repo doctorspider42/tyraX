@@ -126,6 +126,15 @@ captures, screen-size thresholds, per-view rendering and grouped distant draws.
 
 ## Small
 
+### Make headless render-cost capture accept the report it requested
+
+During the 1.87 static-model batching A/B, `--profile-frame` caused the running
+PCSX2 game to write a complete sequence/footer-matched `rendercost.txt`, but the
+client still reported a sequence mismatch and waited the full 45 seconds. The
+UI capture path remains usable. Reproduce the headless sequence comparison and
+fix it separately from renderer work so profiler changes cannot contaminate a
+performance A/B.
+
 ### An input replay cannot reproduce a memory-card save
 
 The input recorder (`docs/input-replay.md`) reproduces a run by performing the
@@ -833,6 +842,25 @@ because the host corpus does not apply the identical rule. Implement the same
 whole-box projection, tile count and part stride on the host; enable both twins
 in one change and re-run parity plus performance measurements. See
 [BLSS reconstruction](blss-reconstruction.md).
+
+### Cache static packet templates only after proving packet lifetime
+
+Static geometry, transforms and bounds are already cached, and compact model
+parts now join spatial static batches. Reusing a complete VIF/DMA packet is not
+the same operation: camera/frustum clipping and per-frame uniforms still change
+its contents, while earlier attempts to retain or recycle packet storage froze a
+physical PS2 until a hardware reset. Isolate an immutable geometry-only segment,
+record its ownership through DMA completion, and prove it with a console stress
+test before enabling any cache. Do not treat a PCSX2 pass as lifetime proof.
+
+### Measure opaque state sorting beyond static batches
+
+Static batches already group by resident texture, which removes the safe bulk
+of redundant submits and texture binds. A global opaque sort can defeat spatial
+culling and can reorder special material paths; texture state is embedded in the
+generated packet rather than being a cheap host-side bind call. Add a stable,
+cell-local ordering experiment and compare bind/packet counters on hardware
+before widening the sort.
 
 ### Make the small render targets follow the colour depth
 
