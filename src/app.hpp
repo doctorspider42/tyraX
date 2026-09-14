@@ -340,6 +340,7 @@ private:
     // An editor note pinned into the scene (docs/comments.md). Selects it and
     // puts the keyboard in the Properties field, because a note with no text
     // is the one object that is useless the moment it is created.
+    void addCloth();
     void addComment();
     void drawAddObjectMenu();
     // Area picker for a "catch area" reference (Mirror/Portal/feed Camera) or

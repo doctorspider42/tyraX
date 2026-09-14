@@ -16,6 +16,49 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.89.0: cloth / soft bodies (docs/cloth.md). A new scene object type: the
+// rectangle you place is a sheet at rest, and the game integrates a grid of
+// particles hanging in it every frame - Verlet, distance constraints, the
+// player's own body as a collider - so a curtain in a doorway is lifted by
+// whoever walks through it and keeps swinging afterwards. The solver is one
+// definition (src/cloth.cpp) with a numeric twin in the generated game, so
+// what the viewport previews is what the console swings.
+//
+// It is shaped for the vector unit rather than merely ported to it: one
+// particle is one quadword, the arithmetic on the console is Tyra::Vec4 (COP2
+// macro mode = VU0), and the constraints run in FOUR INDEPENDENT BATCHES
+// (horizontal even columns, horizontal odd, vertical even rows, vertical odd)
+// so no particle is written twice inside a batch and a batch has no internal
+// ordering at all. That is what makes a VU0 microprogram a later port rather
+// than a rewrite - docs/cloth.md, "Moving it onto VU0", which also records
+// what a kernel would and would not buy.
+//
+// Cloth is never batched, baked, collided with or navigated around: it is a
+// surface that MOVES, which is the one thing this engine's static bakes cannot
+// describe. Measured on the host solver: a 9x7 curtain holds its rest spacing
+// to 0.011 of 0.25 units at two sweeps, its pinned row drifts 0 over 600
+// steps, two runs are bit-identical, and the player capsule walked through it
+// lifts the hem 1.32 units with no free particle left inside the body.
+//
+// The solver steps at a fixed 1/60 s, and the rate is chosen rather than
+// inherited: 60 Hz is the fastest display this engine runs at, which makes it
+// the only value at which no displayed frame goes unsimulated in EITHER
+// region. At the PAL field rate the accumulator still keeps the speed right on
+// an NTSC console (60 frames of 1/60 s is exactly 50 steps of 1/50 s), but the
+// cadence over six frames is 0,1,1,1,1,1 - one frame in six runs no step,
+// rebuilds no mesh and displays the previous pose, so the cloth animates at
+// 50 Hz on a 60 Hz screen. That was measurable from outside the game before it
+// was fixed: the CLOTH profiler phase read 1.41 ms per frame in PAL against
+// 1.24 in NTSC, five sixths of the work. At 1/60 neither region skips (NTSC
+// one per frame, PAL 1,1,1,1,2), checked on both twins with a cadence harness.
+// A CONSTANT rather than 1/refreshRate on purpose: damping is per step and
+// stiffness is sweeps per second, so a display-derived step would settle the
+// same curtain faster on an NTSC console and the authored look would stop
+// being portable. Costs PAL 1.41 -> 1.58 ms of CLOTH on the three-sheet
+// example (less than the step count suggests - the mesh rebuild happens once
+// per frame either way) and takes the worst edge stretch from 6.1 % to 4.2 %.
+// kFormatVersion 47 -> 48; additive, no migration step. MINOR.
+//
 // 1.88.0: plain BLSS can adapt each scene between native and reduced 3D
 // resolution from sustained whole-frame timing. Hysteresis, scene warm-up and
 // allocation-free switches avoid oscillation, streaming false positives and GS
@@ -3330,7 +3373,7 @@
 // 1.86.0: merge baked shadow decals with main's render-cost table and
 // object-group line.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 88
+#define TYRAX_VERSION_MINOR 89
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -3703,7 +3746,14 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // optional blssAdaptive boolean. Missing means false and the key is written
 // only when enabled, so older projects still resave byte-for-byte. Purely
 // additive - no migration step.
-inline constexpr int kFormatVersion = 47;
+// v48 (cloth / soft bodies, docs/cloth.md): the new PrimitiveType::Cloth
+// (serialized type name "cloth") and the `cloth` object carrying its grid,
+// pinning, stiffness, damping, gravity, gust and player radius. An older
+// editor reads an unknown type name as a Box - a solid crate where a curtain
+// hangs - which is what the refusal is for; the two gust keys are written only
+// when there IS a gust, so nothing else changes shape. Purely additive - no
+// migration step.
+inline constexpr int kFormatVersion = 48;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

@@ -124,9 +124,13 @@ Plan plan(const Project& p) {
                               o.type == PrimitiveType::Cylinder ||
                               o.type == PrimitiveType::Cone ||
                               o.type == PrimitiveType::Plane;
+            // Cloth is banned like an emitter and for the same reason: its
+            // vertices are built by the runtime's own simulation loop, which
+            // never goes through pushVert and so never applies an atlas rect.
             const bool banned = o.type == PrimitiveType::Emitter ||
                                 o.type == PrimitiveType::Decal ||
                                 o.type == PrimitiveType::Mirror ||
+                                o.type == PrimitiveType::Cloth ||
                                 o.type == PrimitiveType::Portal;
             if (o.type == PrimitiveType::Model &&
                 fs::path(o.modelPath).extension() == ".obj")

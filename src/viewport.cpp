@@ -1455,6 +1455,22 @@ Viewport::Mesh Viewport::uploadMesh9(const std::vector<float>& interleaved) {
     return m;
 }
 
+// Refill an existing mesh's buffer instead of making a new one. uploadMesh()
+// generates a VAO and a VBO per call, which is right for geometry that is
+// built once and wrong for anything rebuilt every frame (the cloth preview) -
+// that would leak two GL objects per frame per sheet.
+void Viewport::refillMesh(Mesh& m, const std::vector<float>& interleaved) {
+    if (!m.vao) {
+        m = uploadMesh(interleaved);
+        return;
+    }
+    m.vertexCount = (int)(interleaved.size() / 8);
+    glBindBuffer(GL_ARRAY_BUFFER, m.vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(interleaved.size() * sizeof(float)),
+                 interleaved.data(), GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
 void Viewport::destroyMesh(Mesh& m) {
     if (m.vbo) glDeleteBuffers(1, &m.vbo);
     if (m.vao) glDeleteVertexArrays(1, &m.vao);
@@ -3174,8 +3190,11 @@ bool Viewport::placementRaycast(float u, float v,
         // click, and dropping a prop onto a floating note would be nonsense.
         // An invisible wall draws as a wire box as well, and a prop dropped on
         // top of one would hang in the air in the game.
+        // Cloth hangs and swings, so its rest rectangle is not a shelf -
+        // resting a crate on a curtain would look right for exactly one frame.
         if (o.type == PrimitiveType::Area || o.type == PrimitiveType::Scatter ||
-            o.type == PrimitiveType::Comment || !o.procSource.empty() ||
+            o.type == PrimitiveType::Comment || o.type == PrimitiveType::Cloth ||
+            !o.procSource.empty() ||
             (o.type == PrimitiveType::Box && o.collisionMode == 3))
             continue;
         float mn[3], mx[3];
@@ -5693,6 +5712,24 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             // draws the box outline (drawing them here would fill the volume
             // and hide whatever it encloses).
             if (o.type == PrimitiveType::Area) continue;
+            // Cloth: a world-space mesh the simulation rebuilt this frame, so
+            // it draws with an identity transform and its own baked shade -
+            // the projected-decal path. A wireframe view still gets the sheet
+            // (it is real geometry), just as lines.
+            if (o.type == PrimitiveType::Cloth) {
+                auto it = clothPreviews_.find((int)oi);
+                if (it == clothPreviews_.end() || it->second.mesh.vertexCount == 0)
+                    continue;
+                const MaterialDraw* cmat = materialDraw(o.materialPath);
+                emissive[0] = emissive[1] = emissive[2] = 0.0f;
+                kdDraw[0] = kdDraw[1] = kdDraw[2] = 1.0f;
+                prelitDraw = 1;  // the shade is already in the vertex colours
+                draw(it->second.mesh, GL_TRIANGLES, viewProj,
+                     tintScale, tintScale, tintScale,
+                     (asLines || !cmat) ? 0 : cmat->tex, nullptr);
+                prelitDraw = 0;
+                continue;
+            }
             Mat4 model = modelMatrix(o);
             // The bulb is a MARKER: small and constant, whatever the object
             // scale - a unit-sized bulb hid the very point it marks and made
@@ -5886,6 +5923,11 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         if (!asLines) glDisable(GL_POLYGON_OFFSET_FILL);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     };
+
+    // One simulation step per FRAME, not per pass: SolidWireframe draws the
+    // scene twice and a sheet that stepped twice would run at double speed in
+    // that view alone.
+    updateClothPreviews(objects);
 
     switch (viewMode_) {
         case ViewMode::Wireframe: scenePass(true, 1.0f); break;
@@ -7599,6 +7641,142 @@ void Viewport::drawLightBeams(const std::vector<SceneObject>& objects,
 // velocity / size / color-ramp formulas are copied from the generated game's
 // updateParticles() (templates.cpp, TPL_GAME_CPP_SCENE) with the PS2's 0-128
 // color scale mapped to 0-1 - when you change one side, change the other.
+// ---------------------------------------------------------------------------
+// Cloth preview (docs/cloth.md).
+//
+// This is NOT a second simulation: it calls src/cloth.cpp, the same solver the
+// generated game's `updateCloths` reproduces, with the same fixed step and the
+// same collider. What is authored here is what swings on the console - which
+// is the only reason authoring a curtain by eye works at all.
+//
+// The one honest difference is the collider: there is no running game, so the
+// scene's Player OBJECT stands in for the player. Walk the Player marker
+// through a curtain in the editor and it lifts, exactly as it will in game.
+// ---------------------------------------------------------------------------
+
+// The object's cloth parameters, minus the two the transform decides.
+static cloth::Params clothParamsOf(const SceneObject& o) {
+    cloth::Params p;
+    p.cols = cloth::clampSide(o.clothCols);
+    p.rows = cloth::clampSide(o.clothRows);
+    // The sheet spans the object's unit XY quad, so the rest spacing is the
+    // scale divided by the number of gaps. A wider curtain is a coarser grid,
+    // never a pre-stretched one.
+    p.restX = std::fabs(o.scale[0]) / (float)(p.cols - 1);
+    p.restY = std::fabs(o.scale[1]) / (float)(p.rows - 1);
+    p.iterations = o.clothIterations;
+    p.damping = o.clothDamping;
+    p.gravity = o.clothGravity;
+    p.wind = o.clothWind;
+    const float a = o.clothWindDir * kPi / 180.0f;
+    p.windDir = cloth::V4{std::sin(a), 0.0f, std::cos(a), 0.0f};
+    p.pin = (cloth::Pin)(o.clothPin >= 0 && o.clothPin <= 5 ? o.clothPin : 1);
+    return p;
+}
+
+// Where the sheet hangs from, and the two unit axes it spans - the object's
+// rotated local +X and -Y, starting at the quad's top-left corner. The
+// generated game builds the same three vectors from the same fields.
+static void clothRestFrame(const SceneObject& o, const cloth::Params& p,
+                           cloth::V4& origin, cloth::V4& right, cloth::V4& down) {
+    const Vec3 r = rotateEuler({1, 0, 0}, o.rotation);
+    const Vec3 d = rotateEuler({0, -1, 0}, o.rotation);
+    right = cloth::V4{r.x, r.y, r.z, 0.0f};
+    down = cloth::V4{d.x, d.y, d.z, 0.0f};
+    const float halfW = 0.5f * (float)(p.cols - 1) * p.restX;
+    const float halfH = 0.5f * (float)(p.rows - 1) * p.restY;
+    origin = cloth::V4{o.position[0] - r.x * halfW - d.x * halfH,
+                       o.position[1] - r.y * halfW - d.y * halfH,
+                       o.position[2] - r.z * halfW - d.z * halfH, 0.0f};
+}
+
+void Viewport::updateClothPreviews(const std::vector<SceneObject>& objects) {
+    // Drop the state of anything that stopped being a cloth (indices shift on
+    // delete, so a stale entry would simulate the wrong object).
+    std::erase_if(clothPreviews_, [&](auto& kv) {
+        const bool gone = kv.first >= (int)objects.size() ||
+                          objects[(size_t)kv.first].type != PrimitiveType::Cloth;
+        if (gone) destroyMesh(kv.second.mesh);
+        return gone;
+    });
+
+    float dt = (float)(animClock_ - clothClock_);
+    clothClock_ = animClock_;
+    if (dt < 0.0f) dt = 0.0f;
+    if (dt > 0.1f) dt = 0.1f;  // a modal dialog is not a physics event
+
+    // The editor's stand-in for the player: every Player object in the scene
+    // becomes the same capsule up its own eye height the game builds, so
+    // dragging a Player marker through a curtain in the viewport shows exactly
+    // what walking through it will.
+    std::vector<cloth::Capsule> players;
+    for (const SceneObject& o : objects) {
+        if (o.type != PrimitiveType::Player) continue;
+        const float h = o.playerEyeHeight > 0.1f ? o.playerEyeHeight : 1.8f;
+        cloth::Capsule cap;
+        cap.a = cloth::V4{o.position[0], o.position[1] + h * cloth::kBodyLo,
+                          o.position[2], 0.0f};
+        cap.b = cloth::V4{o.position[0], o.position[1] + h * cloth::kBodyHi,
+                          o.position[2], 0.0f};
+        cap.r = 0.0f;
+        players.push_back(cap);
+    }
+
+    for (size_t oi = 0; oi < objects.size(); ++oi) {
+        const SceneObject& o = objects[oi];
+        if (o.type != PrimitiveType::Cloth) continue;
+        ClothPreview& cp = clothPreviews_[(int)oi];
+        const cloth::Params p = clothParamsOf(o);
+        cloth::V4 origin, right, down;
+        clothRestFrame(o, p, origin, right, down);
+
+        // Re-lay the sheet only when its GRID changed - the resolution, the
+        // pinning, the rest spacing. Moving or rotating the object does NOT
+        // re-lay it: cloth::advance re-anchors the pinned particles on the
+        // live frame every step, so dragging a curtain across the scene drags
+        // the rail and the fabric swings behind it, exactly as it does in the
+        // game when a script moves the object.
+        const float sig[12] = {(float)p.cols, (float)p.rows, (float)o.clothPin,
+                               p.restX,       p.restY,       0, 0, 0, 0, 0, 0, 0};
+        bool relay = !cp.haveSig || (int)cp.state.pos.size() != cloth::particleCount(p);
+        for (int i = 0; i < 12 && !relay; ++i) relay = cp.sig[i] != sig[i];
+        if (relay) {
+            cloth::reset(p, origin, right, down, cp.state);
+            for (int i = 0; i < 12; ++i) cp.sig[i] = sig[i];
+            cp.haveSig = true;
+        }
+
+        for (cloth::Capsule& s : players) s.r = o.clothPushRadius;
+        cloth::advance(p, origin, right, down, dt,
+                       players.empty() ? nullptr : players.data(),
+                       (int)players.size(), cp.state);
+
+        // Bake the shade into the vertex colours, two-sided (nothing in this
+        // engine backface-culls, and a curtain is looked at from both sides),
+        // so the mesh draws unlit with an identity model matrix - the
+        // projected-decal path. The generated game bakes the same term.
+        std::vector<cloth::Vertex> verts;
+        cloth::buildMesh(p, cp.state, verts);
+        const MaterialDraw* mat = materialDraw(o.materialPath);
+        const float kr = mat ? mat->kd[0] : 1.0f;
+        const float kg = mat ? mat->kd[1] : 1.0f;
+        const float kb = mat ? mat->kd[2] : 1.0f;
+        cp.interleaved.clear();
+        cp.interleaved.reserve(verts.size() * 8);
+        for (const cloth::Vertex& v : verts) {
+            Vec3 n{v.nrm.x, v.nrm.y, v.nrm.z};
+            const float d = n.x * gLightDir[0] + n.y * gLightDir[1] + n.z * gLightDir[2];
+            if (d < 0.0f) n = {-n.x, -n.y, -n.z};
+            const Vec3 sh = shadeOf(n);
+            cp.interleaved.insert(
+                cp.interleaved.end(),
+                {v.pos.x, v.pos.y, v.pos.z, o.color[0] * kr * sh.x,
+                 o.color[1] * kg * sh.y, o.color[2] * kb * sh.z, v.u, v.v});
+        }
+        refillMesh(cp.mesh, cp.interleaved);
+    }
+}
+
 void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
                                    const float* viewProj, const float* eyeP,
                                    const float* fwdP) {

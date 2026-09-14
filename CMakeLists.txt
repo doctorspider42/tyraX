@@ -221,6 +221,7 @@ add_executable(tyrax-editor
     src/blss_ui.cpp
     src/blss_window.cpp
     src/camtake.cpp
+    src/cloth.cpp
     src/chat_ui.cpp
     src/credits_ui.cpp
     src/cutscene_ui.cpp

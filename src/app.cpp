@@ -7179,6 +7179,21 @@ void App::addArea() {
     o.castShadow = false;  // no geometry - nothing to occlude with
     commitChange();
 }
+void App::addCloth() {
+    addObject(PrimitiveType::Cloth, /*commit=*/false);
+    SceneObject& o = project_.objects().back();
+    // A doorway curtain: as wide as a door, floor to lintel, hanging from its
+    // top edge. addObject drops the object on the surface under the cursor, so
+    // lift it by half its height to hang the TOP where it was placed rather
+    // than burying the sheet in the floor.
+    o.scale[0] = 1.6f, o.scale[1] = 2.2f, o.scale[2] = 1.0f;
+    o.position[1] += o.scale[1] * 0.5f;
+    // A warm heavy fabric, so an untextured curtain still reads as cloth.
+    o.color[0] = 0.72f, o.color[1] = 0.22f, o.color[2] = 0.24f;
+    o.collisionMode = 2;   // never a wall - the player walks THROUGH it
+    o.castShadow = false;  // it moves, so no static bake may describe it
+    commitChange();
+}
 void App::addComment() {
     addObject(PrimitiveType::Comment, /*commit=*/false);
     SceneObject& o = project_.objects().back();
@@ -8549,6 +8564,15 @@ void App::drawAddObjectMenu() {
         // Endless conveyor: tiles named segments of scene objects forever
         // along its axis (the train-window level generator).
         if (ImGui::MenuItem("Scroller (endless)")) addScroller();
+        // A simulated sheet: the one surface in this engine that moves
+        // (docs/cloth.md). Sits under Object rather than Effects because it
+        // is geometry with a material, not a particle system.
+        if (ImGui::MenuItem("Cloth")) addCloth();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip(
+                "A curtain, banner or flag, simulated every frame on VU0.\n"
+                "The rectangle you place is the sheet at rest; the player's\n"
+                "own body pushes it aside when they walk through.");
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Gameplay")) {

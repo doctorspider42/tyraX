@@ -150,11 +150,20 @@ enum class PrimitiveType {
     // object INDICES are baked into every generated table and dropping one
     // type from the emitted list would retarget all of them.
     Comment = 20,
+    // Cloth / soft body: a simulated sheet (docs/cloth.md). The object's quad
+    // - the unit XY square facing +Z, like a Decal - is the sheet AT REST; in
+    // the game a grid of particles hanging in it is integrated every frame
+    // (Verlet, four independent constraint batches, run through VU0's macro
+    // mode) and the player's own body is a collider, so walking into a curtain
+    // lifts it and leaves it swinging. It never collides with anything itself
+    // and casts no baked light or shadow: it is a surface that moves, which is
+    // the one thing this engine's static bakes cannot describe.
+    Cloth = 21,
 };
 
 // One past the last PrimitiveType value - loops over "every object type" (the
 // multi-select tally) bound on this instead of a hardcoded member.
-constexpr int kPrimitiveTypeCount = (int)PrimitiveType::Comment + 1;
+constexpr int kPrimitiveTypeCount = (int)PrimitiveType::Cloth + 1;
 
 // Tessellation detail for the geometry primitives, stored per object in
 // SceneObject::primDetail. Its meaning depends on the shape: for the curved
@@ -595,6 +604,32 @@ struct SceneObject {
     float emitterOpacity = 0.6f;
     bool emitterDieOnGround = false;  // particle dies when it hits the terrain
                                       // (water soaking in instead of clipping)
+
+    // Cloth / soft body parameters (used when type == Cloth, docs/cloth.md).
+    // The sheet's EXTENT is the object's transform - the unit XY quad under
+    // position/rotation/scale, exactly the rectangle the editor draws - so
+    // these are only about how it is discretized and how it behaves. The
+    // material (materialPath) supplies the texture and tint like any other
+    // primitive; `color` tints it.
+    int clothCols = 9;       // particles across the sheet (local +X)
+    int clothRows = 7;       // particles down the sheet (local -Y)
+    int clothPin = 1;        // cloth::Pin - 0 none, 1 top edge, 2 top corners,
+                             // 3 top+bottom, 4 left edge, 5 four corners
+    int clothIterations = 2; // relaxation sweeps per step: stiffness, 1..4
+    float clothDamping = 0.03f;  // fraction of the velocity lost per step
+    float clothGravity = 9.8f;   // units/s^2 down; 0 = a sheet in freefall
+    float clothWind = 0.0f;      // gust amplitude, units/s^2; 0 = still air
+    // Gust direction, degrees around world Y (0 = +Z). A compass bearing
+    // rather than a vector because a curtain is authored by eye and "which way
+    // does the draught come from" is the only question worth a control.
+    float clothWindDir = 0.0f;
+    // How fat the player is to this cloth, world units. The player is a
+    // CAPSULE - three spheres of this radius up their own height
+    // (docs/cloth.md, "What the player is") - so the whole body sweeps the
+    // sheet aside rather than a waist-high bulge pushing through it. Wide
+    // enough and a curtain billows off both shoulders; 0 and they walk
+    // straight through with the cloth unmoved.
+    float clothPushRadius = 0.9f;
 
     // Sound emitter parameters (used when type == SoundEmitter)
     std::string soundPath;      // one of Project::sounds ("res/sfx/x.wav")
@@ -1070,6 +1105,13 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.emitterWeight == b.emitterWeight && a.emitterLife == b.emitterLife &&
            a.emitterGrow == b.emitterGrow && a.emitterOpacity == b.emitterOpacity &&
            a.emitterDieOnGround == b.emitterDieOnGround &&
+           a.clothCols == b.clothCols && a.clothRows == b.clothRows &&
+           a.clothPin == b.clothPin &&
+           a.clothIterations == b.clothIterations &&
+           a.clothDamping == b.clothDamping &&
+           a.clothGravity == b.clothGravity && a.clothWind == b.clothWind &&
+           a.clothWindDir == b.clothWindDir &&
+           a.clothPushRadius == b.clothPushRadius &&
            a.soundPath == b.soundPath && a.soundAuto == b.soundAuto &&
            a.soundRange == b.soundRange && a.soundInterval == b.soundInterval &&
            a.soundOnPlayer == b.soundOnPlayer && a.soundReverb == b.soundReverb &&
