@@ -16,6 +16,20 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.87.0: static batching accepts compact immutable imported-model parts,
+// grouped by loaded texture and coarse world cell. Singleton groups, large
+// footprints, mesh-LOD/impostor models and special runtime draw paths remain
+// solo, preserving the spatial culling that an earlier material-only prototype
+// lost. Five PCSX2 debug captures of three visible repeated props measured mean
+// Total 21.970 -> 21.608 ms and Objects 15.081 -> 13.839 ms; an off-screen group
+// measured Total 23.256 -> 21.494 ms. A separate 30-box atlas fixture grouped
+// distinct materials sharing one loaded texture into two batches: five PCSX2
+// captures measured Total 4.58 -> 2.38 ms and model work 2.39 -> 0.44 ms.
+// On physical PS2, the three-crate median was Total 34.317 -> 34.166 ms and
+// direct crate work 0.853 -> 0.714 ms. The 30-box atlas stress test measured
+// median Total 6.468 -> 3.281 ms and object work 4.063 -> 0.873 ms; its GS
+// capture was correct. MINOR; no format change.
+//
 // 1.86.4: StaPip builds per-bag uniforms at the head of the first geometry
 // DMA chain instead of launching and waiting for a separate uniform chain.
 // The packet is constructed natively from the beginning (no byte append and no
@@ -3305,8 +3319,8 @@
 // 1.86.0: merge baked shadow decals with main's render-cost table and
 // object-group line.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 86
-#define TYRAX_VERSION_PATCH 4
+#define TYRAX_VERSION_MINOR 87
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

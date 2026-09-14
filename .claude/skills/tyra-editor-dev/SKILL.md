@@ -452,9 +452,10 @@ static batcher, whose members are flat-shaded by design. Anything else that
 starts varying colour across a generated face owes the same pair.
 
 **Static batching invariants** (the generated game merges non-moving
-primitives into combined bags — `staticBatchEligible`/`batchBlockedNames` in
-templates.cpp, `buildStaticBatchList`/`rebuildStaticBatch` in the game
-template): (1) any runtime code path that mutates a rendered object property
+primitives and compact imported-model parts into texture/cell bags —
+`staticBatchEligible`/`batchBlockedNames` in templates.cpp,
+`buildStaticBatchList`/`rebuildStaticBatch` in the game template): (1) any
+runtime code path that mutates a rendered object property
 must set `RuntimeObject::dirty` — that flag is what demotes a batched member
 back to its own bag, and a mutation without it silently doesn't render
 (visibility flips are the one exception, caught by a snapshot); (2) a new
@@ -464,17 +465,24 @@ sequences and mirror target lists do) must be added to `batchBlockedNames()`
 exclusion-worthy per-object property (a new special draw path, a new
 streaming mechanism) must be added to `staticBatchEligible()`.
 
-**Do not extend that batcher to imported models by material alone.** Measured
-on Aster, cross-object groups destroy spatial culling and even per-object
-material groups widen the bag bounds enough to cost more fill than their saved
-submits. Multi-part static models instead cache `ObjectGeometry::coarseBox` at
-geometry rebuild and `coarseObjectOutside()` rejects the whole model before
-its parts enter StaPip in the main and portal views. Keep the threshold at
-three parts (a one-part primitive has nothing to amortize), keep precise
-per-part/package culling for intersecting models, transform the frustum planes
-for matrix-mode local vertices, and bypass the reject when a VU script moves
-geometry beyond the baked box. Model batching is not safe until it preserves
-those spatial bounds, for example by triangle-level cells.
+**Do not widen model batches beyond their spatial cells.** Measured on Aster,
+cross-district material groups destroy spatial culling and even per-object
+material groups widened the bag bounds enough to cost more fill than their
+saved submits. The retained model path therefore groups each part by its
+loaded `Texture*` plus a coarse world cell, rejects singleton groups and keeps
+models whose horizontal footprint exceeds half a cell solo. Mesh LOD,
+impostors, reflections, dynamic lighting and runtime reference paths also stay
+solo. A multi-part member may belong to several batches (`objectBatchOf == -2`):
+every yes/no test must use `!= -1`, while helpers that need one concrete batch
+must require a non-negative index. Dirty demotion must remove every part before
+the normal object path draws it.
+
+Large and LOD-switched static models instead rely on
+`ObjectGeometry::coarseBox`: `coarseObjectOutside()` rejects the whole model
+before its parts enter StaPip in the main and portal views. Keep the threshold
+at three parts, preserve precise per-part/package culling for intersecting
+models, transform frustum planes for matrix-mode local vertices, and bypass the
+reject when a VU script moves geometry beyond the baked box.
 
 **`dirty` is a re-bake, so per-frame motion must not go through a graph.**
 Setting `RuntimeObject::dirty` makes `renderScene` rebuild that object's whole

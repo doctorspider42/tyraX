@@ -75,7 +75,10 @@ controls and return the gameplay camera afterward.
 | UI | Title typography, contextual prompts, clues, pause and memory-card saves |
 
 The scene stays resident. Streaming districts have their own dedicated
-examples elsewhere in the repository.
+examples elsewhere in the repository. Its global mesh-LOD setting deliberately
+keeps imported models on their individual LOD-capable paths; static batching
+still covers eligible primitives. Projects that opt repeated compact props out
+of distance LOD can merge their model parts by texture and spatial cell too.
 
 ## Art and reproducibility
 

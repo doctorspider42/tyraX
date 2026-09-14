@@ -15336,11 +15336,12 @@ void App::drawPreferencesWindow() {
 
     ImGui::Checkbox("Static object batching", &prefSettings_.staticBatching);
     prefHelp(
-        "Merges non-moving primitives sharing a material into combined\n"
-        "draw bags at scene load - each separate object costs ~1 ms of\n"
-        "fixed submit overhead per frame on real hardware, batches pay it\n"
-        "once. Objects with physics, scripts, flow-graph references,\n"
-        "save-state or a streaming layer always stay individual.");
+        "Merges non-moving primitives and compact imported-model parts\n"
+        "sharing a texture into spatial draw bags at scene load. Each\n"
+        "separate object costs ~1 ms of fixed submit overhead per frame\n"
+        "on real hardware; a batch pays it once. Large models and objects\n"
+        "with physics, LODs, scripts, runtime references, save-state or a\n"
+        "streaming layer stay individual.");
 
     // Texture quantization - the PS2-native "compression" (palettized
     // PSMT8/PSMT4 textures). Applied at build time into .res-baked; per
