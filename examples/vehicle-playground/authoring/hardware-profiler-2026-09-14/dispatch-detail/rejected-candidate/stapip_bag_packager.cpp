@@ -1,0 +1,209 @@
+/*
+# Modified by TyraX - grow-only package pools (no new[] per submit) and
+# object-space AABB frustum classification in checkFrustum (see the comment
+# on that function).
+# Based on the original by Sandro Sobczynski (h4570/tyra), Apache License 2.0.
+*/
+
+#include <tamtypes.h>
+#include "debug/hardware_trace.hpp"
+#include <math.h>
+#include "debug/debug.hpp"
+#include "renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.hpp"
+
+// Modified by TyraX: integer ceiling division avoids software double math on EE.
+namespace Tyra {
+
+StaPipBagPackager::StaPipBagPackager() {}
+
+StaPipBagPackager::~StaPipBagPackager() {}
+
+void StaPipBagPackager::init(Renderer3DFrustumPlanes* t_frustumPlanes) {
+  frustumPlanes = t_frustumPlanes;
+}
+
+/**
+ * @brief Create render packages from provided render data
+ *
+ * @param size Max maxVertCount verts (VU1 buffer size)
+ */
+StaPipBagPackage* StaPipBagPackager::create(u16* o_size, StaPipBag* data,
+                                            u16 size) {
+  HardwareTrace::Scope trace("Package_create");
+  lastClassificationValid = false;
+  TYRA_ASSERT(size <= maxVertCount, "StaPipBagPackage can have max ",
+              maxVertCount, " verts. Provided \"", size, "\"");
+
+  *o_size = (data->count + size - 1) / size;
+  // Modified by TyraX: grow-only pool instead of new[] per submit.
+  // Pool entries are reused, so pointers absent from this bag must be
+  // reset - a stale sts/colors/normals from a previous bag would otherwise
+  // leak into the fill path.
+  if (bagPackagesPool.size() < *o_size) bagPackagesPool.resize(*o_size);
+  StaPipBagPackage* result = bagPackagesPool.data();
+
+  CoreBBoxFrustum coarseRoute = PARTIALLY_IN_FRUSTUM;
+  const bool coarse = size == maxVertCount && renderBBox && objectSpacePlanes;
+  for (u16 i = 0; i < *o_size; i++) {
+    if (coarse && (i & 7) == 0) {
+      coarseRoute = CoreBBox::frustumCheckAABB(objectSpacePlanes,
+          renderBBox->coarseMin(i / 8), renderBBox->coarseMax(i / 8), nullptr);
+    }
+
+    result[i].bag = data;
+    result[i].vertices = &data->vertices[i * size];
+
+    result[i].sts =
+        data->texture ? &data->texture->coordinates[i * size] : nullptr;
+
+    result[i].colors =
+        data->color->many
+            ? reinterpret_cast<const Vec4*>(&data->color->many[i * size])
+            : nullptr;
+
+    result[i].normals =
+        data->lighting ? &data->lighting->normals[i * size] : nullptr;
+
+    result[i].indexOf1By3BBox = (i * size) / (maxVertCount / 3);
+
+    if (i == *o_size - 1) {
+      result[i].size = data->count - i * size;
+    } else {
+      result[i].size = size;
+    }
+
+    // Modified by TyraX: last 1/3 bbox the package overlaps.
+    result[i].endIndexOf1By3BBox =
+        (i * size + result[i].size - 1) / (maxVertCount / 3);
+
+    result[i].clipPlaneMask = 0;
+    result[i].guardBandOnly = false;
+    // A wholly inside/outside coarse box proves the same for every child.
+    // Partial groups retain the exact per-package and guard-band tests.
+    result[i].isInFrustum = coarse && coarseRoute != PARTIALLY_IN_FRUSTUM
+        ? coarseRoute : checkFrustum(
+        result[i], capturePlaneMasks ? &result[i].clipPlaneMask : nullptr,
+        &result[i].guardBandOnly);
+  }
+
+  lastClassificationValid = false;
+  return result;
+}
+
+/**
+ * @brief Split render package to smaller packages
+ *
+ * @param size Max maxVertCount verts (VU1 buffer size)
+ */
+StaPipBagPackage* StaPipBagPackager::create(u16* o_count,
+                                            const StaPipBagPackage& pkg,
+                                            u16 size) {
+  HardwareTrace::Scope trace("Package_create");
+  lastClassificationValid = false;
+  TYRA_ASSERT(size <= maxVertCount, "StaPipBagPackage can have max ",
+              maxVertCount, " verts. Provided \"", size, "\"");
+
+  *o_count = (pkg.size + size - 1) / size;
+  // Modified by TyraX: grow-only pool instead of new[] per split (see
+  // the bag-level overload above; separate pool - the parent package array
+  // is still alive during a split).
+  if (splitPackagesPool.size() < *o_count) splitPackagesPool.resize(*o_count);
+  StaPipBagPackage* result = splitPackagesPool.data();
+
+  for (u16 i = 0; i < *o_count; i++) {
+    result[i].bag = pkg.bag;
+    result[i].vertices = &pkg.vertices[i * size];
+
+    result[i].sts = pkg.bag->texture ? &pkg.sts[i * size] : nullptr;
+
+    result[i].colors = pkg.bag->color->many ? &pkg.colors[i * size] : nullptr;
+
+    result[i].normals = pkg.bag->lighting ? &pkg.normals[i * size] : nullptr;
+
+    result[i].indexOf1By3BBox =
+        pkg.indexOf1By3BBox + ((i * size) / (maxVertCount / 3));
+
+    if (i == *o_count - 1) {
+      result[i].size = pkg.size - i * size;
+    } else {
+      result[i].size = size;
+    }
+
+    // Modified by TyraX: last 1/3 bbox the subpackage overlaps (parent
+    // packages always start on a 1/3 boundary).
+    result[i].endIndexOf1By3BBox =
+        pkg.indexOf1By3BBox +
+        ((i * size + result[i].size - 1) / (maxVertCount / 3));
+
+    result[i].clipPlaneMask = 0;
+    result[i].guardBandOnly = false;
+    result[i].isInFrustum = checkFrustum(
+        result[i], capturePlaneMasks ? &result[i].clipPlaneMask : nullptr,
+        &result[i].guardBandOnly);
+  }
+
+  lastClassificationValid = false;
+  return result;
+}
+
+// Modified by TyraX: classification runs against object-space planes
+// (set once per bag by StaPipCore) with the p-vertex/n-vertex AABB test.
+// The previous shape of this function transformed up to 8 corners of a
+// (possibly freshly merged) bbox per package and dotted each corner against
+// each world plane - the dominant EE cost of partially-visible geometry
+// after the clipper itself.
+CoreBBoxFrustum StaPipBagPackager::checkFrustum(const StaPipBagPackage& pkg,
+                                                u8* crossingMask,
+                                                bool* o_guardBandOnly) {
+  HardwareTrace::Scope trace("Package_classify");
+  if (o_guardBandOnly) *o_guardBandOnly = false;
+  if (!renderBBox || !objectSpacePlanes)
+    return CoreBBoxFrustum::OUTSIDE_FRUSTUM;
+
+  const u32 rangeStart = pkg.indexOf1By3BBox;
+  const u32 rangeCount = pkg.size <= maxVertCount / 3
+      ? pkg.endIndexOf1By3BBox - rangeStart + 1
+      : (pkg.size + maxVertCount / 3 - 1) / (maxVertCount / 3);
+  if (lastClassificationValid && rangeStart == lastRangeStart &&
+      rangeCount == lastRangeCount && (crossingMask != nullptr) == lastWantsMask) {
+    if (crossingMask) *crossingMask = lastMask;
+    if (o_guardBandOnly) *o_guardBandOnly = lastGuard;
+    return lastClassification;
+  }
+  Vec4 min, max;
+  renderBBox->getMergedMinMax(rangeStart, rangeCount, &min, &max);
+
+  // VU1 uses guard-band/near-margin clip planes which are not always the same
+  // as the view frustum (env-map passes deliberately widen that frustum).
+  // Classify against the view planes, but derive the functional mask from the
+  // exact VU equations transformed to object space by StaPipCore.
+  u8* frustumMask = clipObjectSpacePlanes == nullptr ? crossingMask : nullptr;
+  const CoreBBoxFrustum result =
+      CoreBBox::frustumCheckAABB(objectSpacePlanes, min, max, frustumMask);
+  if (crossingMask != nullptr && clipObjectSpacePlanes != nullptr) {
+    // Modified by TyraX: eight planes, not six. Bits 0..5 are the mask VU1
+    // gets; bits 6..7 are the exact near/far pair, and a package that is
+    // inside all eight needs no clipping (StaPipCore::isGuardBandOnly).
+    // Both are answered by one pass over the same box.
+    const u8 mask =
+        result == PARTIALLY_IN_FRUSTUM
+            ? CoreBBox::activePlaneMaskAABB(clipObjectSpacePlanes, min, max, 8)
+            : 0;
+    *crossingMask = static_cast<u8>(mask & 0x3F);
+    if (o_guardBandOnly)
+      *o_guardBandOnly = result == PARTIALLY_IN_FRUSTUM && mask == 0;
+  }
+  lastClassificationValid = true;
+  lastRangeStart = rangeStart; lastRangeCount = rangeCount;
+  lastClassification = result;
+  lastWantsMask = crossingMask != nullptr;
+  lastMask = crossingMask ? *crossingMask : 0;
+  lastGuard = o_guardBandOnly ? *o_guardBandOnly : false;
+  return result;
+}
+
+void StaPipBagPackager::setMaxVertCount(const u32& count) {
+  maxVertCount = count;
+}
+
+}  // namespace Tyra

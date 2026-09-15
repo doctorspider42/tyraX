@@ -2172,7 +2172,9 @@ The first buffer flush appends to that packet instead of resetting it, writes
 one END and submits once after the ordinary VIF1 wait. A wholly culled mesh may
 replace the unsent packet. Never let a draw escape `render()` with pending
 geometry that references stack MVP/light data, and keep the packet capacity at
-least the worst-case uniform chain plus all 32 qbuffer command groups.
+least the worst-case uniform chain plus one 16-group qbuffer half. The 1.93
+explicit scope additionally copies transient uniforms inline and requires
+retained external streams; see the bounded batching contract below.
 
 Every submitted combined or geometry-only packet uses the SDK's full D-cache
 writeback because its REF streams may point outside packet storage. A trial
@@ -2183,6 +2185,13 @@ VU1 clipping references immutable source streams, like culling; legacy EE
 clipping still copies into writable qbuffers. Coarse AABBs cover eight full
 packages (24 one-third bounds), follow bboxVersion rebuilds, and only inherit
 whole-IN/OUT decisions; partial groups keep exact child/guard-band tests.
+The package-bbox cache uses a fixed 256-bucket hash index over buffer id and VU
+package capacity. Buckets and per-entry collision links store vector indices,
+not pointers: vector relocation stays safe, hits allocate nothing, and the
+index is rebuilt only when expiry compacts storage. Keep `bboxVersion`, vertex
+count, capacity and the 250-frame unused lifetime checks intact; together they
+protect rewritten buffers, capacity variants and recycled addresses. The index
+costs 1,024 bytes plus four bytes per retained entry on the 32-bit EE.
 Wholly visible bags skip redundant package classification and, since 1.86.3,
 point each qbuffer directly at the bag's contiguous source range instead of
 constructing unused pooled package descriptors. Partial and EE-clip paths still
@@ -2204,6 +2213,44 @@ Render-cost telemetry includes both uniform and geometry VIF waits; counting
 only the latter under-reports synchronization. The counters overlap stages.
 See [profiling](../../../docs/profiling.md) and the Aster example for measurements.
 
+
+### Bounded cross-bag submission batching (1.93)
+
+`StaPipCore::beginSubmissionBatch()` / `endSubmissionBatch()` are an explicit
+ownership scope. Generated callers may use them only around direct static bags
+whose vertex, texture-coordinate, colour and normal streams remain alive and
+unchanged through the next VIF1 synchronization. End submits asynchronously; it
+is not a completion fence. Close the scope before view changes, GS operations,
+render-cost drains or pipeline switches.
+
+The packet stays one native contiguous chain. Every new bag retains
+`FLUSHE -> inline uniforms -> geometry`; never join separately allocated packets
+with DMA `NEXT`/`CALL`. MVP, light matrices/directions and single colours are
+inline only for retained bags. Partial-frustum classification, VU1/EE clipping,
+qbuffer copies, billboards and game-supplied program overrides are excluded.
+Overrides have no bounded qbuffer writer ABI, so the built-in eight-qword
+command bound cannot be assumed. Treat any installed override as a global
+batching exclusion. `setOverride(slot, program)` does not require the program's
+self-reported name to match `slot`, so querying the resolved program name can
+miss the override; use the repository's cached any-override state.
+
+Resident textures may batch only when both wrap axes are REPEAT. A texture miss,
+upload, update, free or eviction invokes the active StaPip mutation barrier:
+submit pending geometry and `align3D()` before VRAM contents or addresses
+change. Track already-submitted textured batches too; `objectDataPending == false`
+does not mean the GS finished sampling. Register this hook in `allocateOnUse`,
+clear it only for the owning pipeline in `deallocateOnUse`, and drain readers
+before clearing it.
+
+Keep batching bounded to four direct bags of at most 15 VU packages each.
+The physical-PS2 large-bag experiment reduced submissions but regressed garage
+render-submission time from 37.286/43.546 ms to 38.264/44.580 ms. Packet build
+added about 0.2 ms and the garage VIF1 DMA wait rose about 0.6 ms, with no capacity
+split observed. Do not restore geometry-only packet continuations without a new
+hardware hypothesis and gate. The final cached override flag and early eligibility gate passed the physical
+four-pose gate: submission saved 0.95/1.14/0.37/0.34 ms. This is not evidence
+of a whole-game FPS jump. See the report for the 240-eviction/12-switch stress
+test and the full-asset image checks.
 
 ## Signed RGB SH and exact skin reuse (1.74.0)
 
@@ -2262,12 +2309,39 @@ flashes despite passing VU arithmetic tests. Both lighting senders now use
 CNT/UNPACK with inline colour floats (four extra packet-storage qwords; the
 same VU layout). DynPip waits before resetting its reusable packet; StaPip
 keeps inline values in its double-buffered combined packet and does not reuse
-that side until the intervening submission has completed. StaPip allocates 185
-qwords per side (57 reserved for worst-case uniforms/barrier plus 128 for the
-32 qbuffer command groups); DynPip's uniform packet capacity is 24 qwords.
+that side until the intervening submission has completed. Before 1.93, StaPip allocated 185
+qwords per side (57 for uniforms/barrier plus 128 for one 16-group half);
+1.93 uses 784 qwords per side for bounded cross-bag submission; DynPip's uniform packet capacity is 24 qwords.
 
 The 1.80 merge retains inline SH colour storage with deferred StaPip uniforms.
 Since 1.86.4 that data shares the first geometry packet. It is safe to reset
 because sendPacket waits for the prior VIF1 DMA before flipping contexts and
 the other packet is used while the submitted one drains; DynPip retains its
 own wait-before-reset contract.
+
+### Missing resources can invalidate a performance comparison
+
+Native compilation alone does not populate a missing .res-baked mirror.
+PNG soft-error placeholders and skipped missing TMDLs can leave a game running
+with much less work than the intended scene. Validate deployed asset hashes
+and actual GS images, not just successful ELF linking or equal triangle counts
+between two broken fixtures. The full-asset gate and September 14 correction
+are recorded in docs/performance-hardware-recheck.md.
+
+## Hardware timeline capture
+
+Use tools/hardware-trace.py arm PROJECT before a boot, then export the complete
+bin/hardware-trace.csv to HTML/Perfetto. The engine captures bounded RAM events
+without new drains and writes after sampling. Scope totals overlap; VIF1 DMA
+wait is not VU1 execution, and VIF/GIF snapshots are not utilization. Compare
+unarmed/armed controls and reject dropped or stale events. See
+docs/hardware-profiler.md for start-frame semantics and capture limits.
+
+### Native hardware timeline (1.92)
+
+`src/hardware_timeline.cpp` reads the same bounded CSV as the offline exporter.
+Debugger > Hardware timeline arms the next boot and loads completed captures on
+demand, with frame selection, zoom, raw marker tooltips and inclusive totals.
+No browser, Python or extra debugger polling is required. Engine detail scopes
+separate package creation/classification, qbuffer copies and packet construction.
+See `docs/hardware-profiler.md`; use unarmed controls to rank performance.

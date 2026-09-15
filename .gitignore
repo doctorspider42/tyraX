@@ -16,6 +16,8 @@ imgui.ini
 
 # PS2 network-deploy tools, fetched by setup.ps1 (ps2client)...
 tools/*
+!tools/hardware-trace.py
+!tools/hardware-probe.py
 !tools/ps2client/
 tools/ps2client/*
 !tools/ps2client/bin/

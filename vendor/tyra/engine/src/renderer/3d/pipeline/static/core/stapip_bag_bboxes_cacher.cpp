@@ -13,7 +13,9 @@
 
 namespace Tyra {
 
-StapipBagBBoxesCacher::StapipBagBBoxesCacher() {}
+StapipBagBBoxesCacher::StapipBagBBoxesCacher() {
+  std::fill(indexBuckets, indexBuckets + indexBucketCount, -1);
+}
 
 StapipBagBBoxesCacher::~StapipBagBBoxesCacher() {}
 
@@ -24,11 +26,15 @@ void StapipBagBBoxesCacher::onFrameEnd() {
     }
   }
 
-  storage.erase(std::remove_if(storage.begin(), storage.end(),
-                               [](const StapipBagBBoxesCacheItem& item) {
-                                 return item.framesLeftToDestroy <= 0;
-                               }),
-                storage.end());
+  const auto newEnd =
+      std::remove_if(storage.begin(), storage.end(),
+                     [](const StapipBagBBoxesCacheItem& item) {
+                       return item.framesLeftToDestroy <= 0;
+                     });
+  if (newEnd != storage.end()) {
+    storage.erase(newEnd, storage.end());
+    rebuildIndex();
+  }
 }
 
 StaPipBagPackagesBBox* StapipBagBBoxesCacher::getBBoxes(
@@ -62,22 +68,49 @@ StaPipBagPackagesBBox* StapipBagBBoxesCacher::getBBoxes(
   auto bboxes =
       std::make_unique<StaPipBagPackagesBBox>(vertices, count, maxVertCount);
 
+  const u32 bucket = getBucket(maxVertCount, id);
   storage.push_back(
       StapipBagBBoxesCacheItem{maxVertCount, id, version, std::move(bboxes),
-                               cacheFramesCount * cacheSecondsCount});
+                               cacheFramesCount * cacheSecondsCount,
+                               indexBuckets[bucket]});
+
+  indexBuckets[bucket] = static_cast<int>(storage.size() - 1);
 
   return storage.back().bboxes.get();
 }
 
 StapipBagBBoxesCacheItem* StapipBagBBoxesCacher::getCache(
     const u32& maxVertCount, const u32& id) {
-  for (auto& item : storage) {
+  int itemIndex = indexBuckets[getBucket(maxVertCount, id)];
+  while (itemIndex >= 0) {
+    auto& item = storage[itemIndex];
     if (item.vu1MaxVertCount == maxVertCount && item.id == id) {
       return &item;
     }
+    itemIndex = item.nextInBucket;
   }
 
   return nullptr;
+}
+
+u32 StapipBagBBoxesCacher::getBucket(const u32& maxVertCount,
+                                     const u32& id) const {
+  // Mix both parts of the cache key. indexBucketCount is a power of two, so
+  // the mask is cheaper than division on the EE.
+  u32 hash = id * 0x9E3779B1U;
+  hash ^= maxVertCount + 0x85EBCA6BU + (hash << 6) + (hash >> 2);
+  hash ^= hash >> 16;
+  return hash & (indexBucketCount - 1);
+}
+
+void StapipBagBBoxesCacher::rebuildIndex() {
+  std::fill(indexBuckets, indexBuckets + indexBucketCount, -1);
+  for (u32 i = 0; i < storage.size(); ++i) {
+    auto& item = storage[i];
+    const u32 bucket = getBucket(item.vu1MaxVertCount, item.id);
+    item.nextInBucket = indexBuckets[bucket];
+    indexBuckets[bucket] = i;
+  }
 }
 
 }  // namespace Tyra

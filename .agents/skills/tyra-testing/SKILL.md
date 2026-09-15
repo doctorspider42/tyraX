@@ -2836,3 +2836,71 @@ Do not chain a failed marker write into an execee command. In PowerShell use
 directory already ending in `bin` must not receive another relative `bin/`.
 Also stop an emulator serving the same project before hardware captures: its
 fresh `livedbg.bin`/`frame.tga` can otherwise disguise a disconnected console.
+
+
+## Motor District per-frame attribution
+
+After creating an isolated fixture with `examples/vehicle-playground/authoring/benchmark-district.py`
+and refreshing/building it, run `authoring/instrument-frame-cost.py FIXTURE` from
+the example. It patches only that fixture's generated loop. Compile with
+`tools/toolchain/native-build.ps1` / `.sh` directly: an editor build would
+regenerate the instrumentation away. No engine source switch is needed.
+
+The 960 raw rows in `bin/frame-cost.csv` are written after four warmed-up phases.
+Do not capture or write commands during sampling. Update/submit/finish/present
+are disjoint, but the included telemetry buckets overlap. Finish is not a GS-only
+clock. The engine's outer pad/info work is outside the loop bracket. Keep BLSS,
+adaptation and extrapolation off; use separate ordinary-FPS controls and repeat
+on physical hardware. See the example README for asset budgets and caveats.
+
+### Devkit cadence overrides
+
+Round-trip all five cadence fields, including missing/default and out-of-range
+values. Generate automatic, overridden, disabled and release variants; overrides
+must only gate host I/O, never graph execution or replay/pad updates. Exercise
+Preferences input/save/reopen, compile and boot the generated debug game, verify
+snapshot frame deltas, then halt/resume and capture at a slow command interval.
+Check longer report intervals do not repeatedly flag a live game as hung.
+
+## Full-asset gate for performance fixtures
+
+An isolated native build is not an asset bake. A copy excluding bin and
+.res-baked must first materialize the complete baked resources (normally with
+an editor build), then add instrumentation and use native-build directly.
+Before timing, compare deployed PNG/TMDL/MTL files with the intended baked
+reference, reject missing/different resources, verify fresh frame IDs and
+inspect actual GS captures after the sampling window. A September 14 fixture
+with only sfx/vehicles directories lacked 66 PNGs and 11 TMDLs: placeholders
+and skipped models made matching baseline/candidate triangle counts falsely
+reassuring. See docs/performance-hardware-recheck.md. Empty redirected host
+logs or a failed ping alone do not prove a failed boot; check new telemetry.
+
+## Hardware timeline capture
+
+Use tools/hardware-trace.py arm PROJECT before a boot, then export the complete
+bin/hardware-trace.csv to HTML/Perfetto. The engine captures bounded RAM events
+without new drains and writes after sampling. Scope totals overlap; VIF1 DMA
+wait is not VU1 execution, and VIF/GIF snapshots are not utilization. Compare
+unarmed/armed controls and reject dropped or stale events. See
+docs/hardware-profiler.md for start-frame semantics and capture limits.
+
+### Native hardware timeline (1.92)
+
+`src/hardware_timeline.cpp` reads the same bounded CSV as the offline exporter.
+Debugger > Hardware timeline arms the next boot and loads completed captures on
+demand, with frame selection, zoom, raw marker tooltips and inclusive totals.
+No browser, Python or extra debugger polling is required. Engine detail scopes
+separate package creation/classification, qbuffer copies and packet construction.
+See `docs/hardware-profiler.md`; use unarmed controls to rank performance.
+
+### Static submission batch acceptance (1.93)
+
+Use complete baked resource hashes, four parked day/night poses, warmed
+unarmed frame-cost rows, a second baseline boot and GS captures. Texture
+residency must be stressed separately: evict while a batch is pending and
+switch the pipeline away/back, then verify fresh frame progress, reuploads
+and intact textures. Night images contain animated star twinkle and lamp
+flicker; compare repeated same-build captures before calling a pixel delta
+a renderer regression. A lower DMA count alone is not acceptance: the larger
+bag prototype reduced sends but increased pipeline waits. See
+docs/static-submission-batching.md for measurements and the evidence recipe.

@@ -1,0 +1,226 @@
+{
+  "candidate": [
+    {
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "bbox": null
+    },
+    {
+      "changed_pixels": 115,
+      "max_channel_delta": 1,
+      "bbox": [
+        0,
+        48,
+        459,
+        295
+      ]
+    },
+    {
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "bbox": null
+    },
+    {
+      "changed_pixels": 111,
+      "max_channel_delta": 2,
+      "bbox": [
+        25,
+        10,
+        383,
+        306
+      ]
+    }
+  ],
+  "textured": [
+    {
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "bbox": null
+    },
+    {
+      "changed_pixels": 5384,
+      "max_channel_delta": 2,
+      "bbox": [
+        93,
+        155,
+        512,
+        361
+      ]
+    },
+    {
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "bbox": null
+    },
+    {
+      "changed_pixels": 122,
+      "max_channel_delta": 2,
+      "bbox": [
+        26,
+        10,
+        312,
+        213
+      ]
+    }
+  ],
+  "large": [
+    {
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "bbox": null
+    },
+    {
+      "changed_pixels": 9776,
+      "max_channel_delta": 3,
+      "bbox": [
+        0,
+        48,
+        512,
+        361
+      ]
+    },
+    {
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "bbox": null
+    },
+    {
+      "changed_pixels": 248,
+      "max_channel_delta": 6,
+      "bbox": [
+        25,
+        7,
+        323,
+        335
+      ]
+    }
+  ],
+  "repeat": [
+    {
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "bbox": null
+    },
+    {
+      "changed_pixels": 9485,
+      "max_channel_delta": 3,
+      "bbox": [
+        0,
+        48,
+        512,
+        361
+      ]
+    },
+    {
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "bbox": null
+    },
+    {
+      "changed_pixels": 105,
+      "max_channel_delta": 2,
+      "bbox": [
+        25,
+        10,
+        312,
+        214
+      ]
+    }
+  ],
+  "final": [
+    {
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "bbox": null
+    },
+    {
+      "changed_pixels": 5,
+      "max_channel_delta": 3,
+      "bbox": [
+        0,
+        47,
+        2,
+        50
+      ]
+    },
+    {
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "bbox": null
+    },
+    {
+      "changed_pixels": 200,
+      "max_channel_delta": 3,
+      "bbox": [
+        68,
+        8,
+        323,
+        334
+      ]
+    }
+  ],
+  "production": [
+    {
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "bbox": null
+    },
+    {
+      "changed_pixels": 832,
+      "max_channel_delta": 1,
+      "bbox": [
+        396,
+        163,
+        504,
+        312
+      ]
+    },
+    {
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "bbox": null
+    },
+    {
+      "changed_pixels": 111,
+      "max_channel_delta": 2,
+      "bbox": [
+        114,
+        10,
+        512,
+        343
+      ]
+    }
+  ],
+  "gated": [
+    {
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "bbox": null
+    },
+    {
+      "changed_pixels": 989,
+      "max_channel_delta": 1,
+      "bbox": [
+        143,
+        163,
+        504,
+        312
+      ]
+    },
+    {
+      "changed_pixels": 0,
+      "max_channel_delta": 0,
+      "bbox": null
+    },
+    {
+      "changed_pixels": 121,
+      "max_channel_delta": 2,
+      "bbox": [
+        26,
+        10,
+        512,
+        343
+      ]
+    }
+  ]
+}

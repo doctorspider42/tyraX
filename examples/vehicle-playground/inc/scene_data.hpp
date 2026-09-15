@@ -113,8 +113,8 @@ struct SceneObjectData {
   int layer;      // streaming layer (SCENE_LAYER_* tables), -1 = none:
                   // always resident, never streamed out
   int batchStatic; // 1 = may merge into a combined static batch bag
-                   // (build-time verdict: non-moving primitive with
-                   // no physics/logic/graph refs/save-state/layer)
+                   // (build-time verdict: non-moving primitive or
+                   // compact model with no special runtime path)
   float vuParams[4]; // the four numbers this mesh hands to the
                    // project's own VU1 microprogram, if it has one
                    // (docs/vu-authoring.md). All zero = no effect,
@@ -848,6 +848,17 @@ constexpr int STAR_TIERS = 3;
 constexpr int BLOB_SHADOWS = 0;
 constexpr float PROJ_SHADOW_DISTANCE = 50.0F;
 constexpr int BLOB_SHADOWS_USED = 1;
+constexpr int BLSS_ADAPTIVE = 1;
+constexpr int BLSS_ENABLED = 1;
+constexpr int BLSS_SCALE_X = 2;
+constexpr int BLSS_SCALE_Y = 2;
+constexpr float BLSS_SHARPEN = 0.5F;
+constexpr int BLSS_TEMPORAL = 1;
+constexpr int BLSS_JITTER = 0;
+constexpr int BLSS_NETWORK = 0;
+constexpr int BLSS_DEBUG_VIEW = 0;
+#define BLSS_SCENE_ON BLSS_ENABLED
+#define BLSS_SCENE_NET BLSS_NETWORK
 constexpr int PROJ_SHADOWS_USED = 1;
 constexpr bool SPOT_SHADOW_VOLUMES_USED = false;
 constexpr int POSTFX_DOFS[SCENE_COUNT] = {0};

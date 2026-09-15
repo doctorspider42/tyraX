@@ -170,6 +170,13 @@ their ownership and acceptance checks.
 
 **Iterating on a running game**
 
+- [Full-asset PS2 performance recheck](performance-hardware-recheck.md) — corrected
+  hardware tests after detecting missing textures and models in agent fixtures.
+- [Static submission batching](static-submission-batching.md) — the
+  retained-stream ownership contract, safe resident-texture boundaries and the
+  physical-PS2 measurements, image checks and eviction/pipeline stress behind
+  bounded StaPip DMA submission.
+
 - [The devkit, and its zero-cost promise](devkit.md) — the live channels, crash
   reporting, the VU1 inspector, and the release audit that PROVES a shipped ELF
   carries none of it.
@@ -221,6 +228,8 @@ their ownership and acceptance checks.
 
 Developer design docs (internals, not user guides):
 
+- [Physical PS2 hardware timeline](hardware-profiler.md) — bounded RAM captures of EE scopes, DMA waits and VIF/GIF state, viewed directly in the editor or exported to interactive HTML and Perfetto JSON.
+- [Hardware profiler findings](hardware-profiler-results.md) — seven full-asset physical PS2 controls separating host I/O, framebuffer depth, raster area and additional-pass costs.
 - [Profiling the generated game](profiling.md) — the built-in frame profiler,
   the COP0 deep-dive technique, and the frame-timing rig.
 - [The VU framework](vu-framework.md) — describe a microprogram in C++,

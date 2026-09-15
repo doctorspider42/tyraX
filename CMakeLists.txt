@@ -225,6 +225,7 @@ add_executable(tyrax-editor
     src/credits_ui.cpp
     src/cutscene_ui.cpp
     src/devkit_ui.cpp
+    src/hardware_timeline.cpp
     src/devsession.cpp
     src/facts.cpp
     src/facts_ui.cpp

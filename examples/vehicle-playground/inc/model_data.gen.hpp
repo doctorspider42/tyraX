@@ -64,8 +64,8 @@ inline const char* MODEL_SOURCES[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "res/models/car1.fbx",
     "res/models/ggbot-rally.glb",
     "res/models/ggbot-rally.glb",
-    "res/models/tristar-racer.glb",
-    "res/models/tristar-racer.glb",
+    "res/models/tristar-lean.glb",
+    "res/models/tristar-lean.glb",
 };
 constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false};
 

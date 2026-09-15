@@ -1,0 +1,101 @@
+/*
+# _____        ____   ___
+#   |     \/   ____| |___|
+#   |     |   |   \  |   |
+#-----------------------------------------------------------------------
+# Copyright 2022, tyra - https://github.com/h4570/tyra
+# Licensed under Apache License 2.0
+# Sandro Sobczyński <sandro.sobczynski@gmail.com>
+*/
+
+#pragma once
+
+// Modified by TyraX: create() returns pointers into grow-only pools
+// owned by the packager instead of new[] arrays - the per-submit heap
+// round-trip was measurable on partially-visible geometry (hundreds of
+// allocations per frame). Callers must NOT delete[] the result; it stays
+// valid until the next create() call of the same overload.
+
+#include <vector>
+
+#include "renderer/core/3d/bbox/core_bbox.hpp"
+#include "renderer/core/3d/renderer_3d_frustum_planes.hpp"
+#include "renderer/core/3d/clipper/planes_clip_algorithm.hpp"
+#include "./stapip_bag_packages_bbox.hpp"
+#include "./stapip_bag_package.hpp"
+#include "../stapip_bag.hpp"
+
+namespace Tyra {
+
+class StaPipBagPackager {
+ public:
+  StaPipBagPackager();
+  ~StaPipBagPackager();
+
+  void init(Renderer3DFrustumPlanes* frustumPlanes);
+  void setRenderBBox(StaPipBagPackagesBBox* bbox) { renderBBox = bbox; }
+  void setMaxVertCount(const u32& count);
+  void setCapturePlaneMasks(const bool& enabled) {
+    capturePlaneMasks = enabled;
+  }
+
+  /**
+   * Modified by TyraX. Frustum planes pre-transformed into the current
+   * bag's object space (StaPipCore computes them once per bag). Package
+   * classification tests axis-aligned min/max corners against these -
+   * no per-package corner transforms, no merged eight-corner bboxes.
+   * Must outlive the following create() calls; may be nullptr when the
+   * bag skips frustum culling (packages are then never classified).
+   */
+  void setObjectSpacePlanes(const Plane* planes) { objectSpacePlanes = planes; }
+  void setClipObjectSpacePlanes(const Plane* planes) {
+    clipObjectSpacePlanes = planes;
+  }
+
+  /**
+   * @brief Create render packages from provided render data
+   *
+   * @param size Max maxVertCount verts (VU1 buffer size)
+   */
+  StaPipBagPackage* create(u16* o_size, StaPipBag* data, u16 size);
+  /**
+   * @brief Split render package to smaller packages
+   *
+   * @param size Max maxVertCount verts (VU1 buffer size)
+   */
+  StaPipBagPackage* create(u16* o_size, const StaPipBagPackage& pkg, u16 size);
+
+  /**
+   * `o_guardBandOnly` (Modified by TyraX) answers the guard-band routing
+   * question: the box left the view frustum but is inside every VU clip plane
+   * AND inside the exact near/far pair, so it needs no clipping at all. It is
+   * only ever true with VU1 clipping on - clipObjectSpacePlanes carries the
+   * two extra half-spaces at indices 6 and 7.
+   */
+  CoreBBoxFrustum checkFrustum(const StaPipBagPackage& pkg,
+                               u8* crossingMask = nullptr,
+                               bool* o_guardBandOnly = nullptr);
+
+ private:
+  // Modified by TyraX: consecutive subpackages often share exactly the same
+  // conservative bbox. Reuse classification only inside one create() call;
+  // no geometry, transform, camera or DMA pointer survives the call.
+  bool lastClassificationValid = false;
+  u32 lastRangeStart = 0, lastRangeCount = 0;
+  CoreBBoxFrustum lastClassification = OUTSIDE_FRUSTUM;
+  u8 lastMask = 0;
+  bool lastGuard = false;
+  bool lastWantsMask = false;
+  u32 maxVertCount;
+  Renderer3DFrustumPlanes* frustumPlanes;
+  StaPipBagPackagesBBox* renderBBox;
+  const Plane* objectSpacePlanes = nullptr;
+  const Plane* clipObjectSpacePlanes = nullptr;
+  bool capturePlaneMasks = false;
+  // Two pools because a bag-level package array is still in use while one of
+  // its partial packages is split into subpackages (StaPipCore::renderPkgs).
+  std::vector<StaPipBagPackage> bagPackagesPool;
+  std::vector<StaPipBagPackage> splitPackagesPool;
+};
+
+}  // namespace Tyra

@@ -16031,6 +16031,25 @@ void App::drawPreferencesWindow() {
         "grows while the game runs. Debugger > Replay, or the command line\n"
         "(tyrax-editor --record / --replay). See docs/input-replay.md.");
     ImGui::BeginDisabled(profile == 0);
+    ImGui::SeparatorText("Devkit frequency (rebuild required)");
+    ImGui::TextWrapped("Intervals in game updates. 0 = automatic; 1 = every update. "
+                       "Disable unused channels above to remove their work entirely.");
+    auto cadence = [](const char* label, int& frames, bool enabled) {
+        ImGui::BeginDisabled(!enabled);
+        ImGui::SetNextItemWidth(130.0f);
+        if (ImGui::InputInt(label, &frames)) frames = std::clamp(frames, 0, 120);
+        ImGui::EndDisabled();
+    };
+    cadence("Live Link / textures interval", prefSettings_.liveLinkPollFrames, prefSettings_.liveLink);
+    cadence("Live Logic interval", prefSettings_.liveLogicPollFrames, prefSettings_.liveLogic);
+    cadence("Debugger commands interval", prefSettings_.liveDebugPollFrames, prefSettings_.liveDebug);
+    cadence("Debugger reports interval", prefSettings_.liveDebugSnapshotFrames, prefSettings_.liveDebug);
+    cadence("Time machine interval", prefSettings_.timeMachineFrames, prefSettings_.timeMachine);
+    ImGui::TextWrapped("At 50 FPS, 50 updates take one second; at 16 FPS they take "
+                       "about three seconds. Longer intervals delay edits and reports. "
+                       "Paused debugger commands stay responsive. Remote Pad and replay "
+                       "input keep their existing cadence.");
+    ImGui::Separator();
     ImGui::Checkbox("EE crash handler", &prefSettings_.eeCrashHandler);
     ImGui::EndDisabled();
     prefHelp(

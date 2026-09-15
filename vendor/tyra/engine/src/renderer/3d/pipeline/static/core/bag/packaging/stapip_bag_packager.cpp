@@ -6,6 +6,7 @@
 */
 
 #include <tamtypes.h>
+#include "debug/hardware_trace.hpp"
 #include <math.h>
 #include "debug/debug.hpp"
 #include "renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.hpp"
@@ -28,6 +29,7 @@ void StaPipBagPackager::init(Renderer3DFrustumPlanes* t_frustumPlanes) {
  */
 StaPipBagPackage* StaPipBagPackager::create(u16* o_size, StaPipBag* data,
                                             u16 size) {
+  HardwareTrace::Scope trace("Package_create");
   TYRA_ASSERT(size <= maxVertCount, "StaPipBagPackage can have max ",
               maxVertCount, " verts. Provided \"", size, "\"");
 
@@ -94,6 +96,7 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_size, StaPipBag* data,
 StaPipBagPackage* StaPipBagPackager::create(u16* o_count,
                                             const StaPipBagPackage& pkg,
                                             u16 size) {
+  HardwareTrace::Scope trace("Package_create");
   TYRA_ASSERT(size <= maxVertCount, "StaPipBagPackage can have max ",
               maxVertCount, " verts. Provided \"", size, "\"");
 
@@ -148,6 +151,7 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_count,
 CoreBBoxFrustum StaPipBagPackager::checkFrustum(const StaPipBagPackage& pkg,
                                                 u8* crossingMask,
                                                 bool* o_guardBandOnly) {
+  HardwareTrace::Scope trace("Package_classify");
   if (o_guardBandOnly) *o_guardBandOnly = false;
   if (!renderBBox || !objectSpacePlanes)
     return CoreBBoxFrustum::OUTSIDE_FRUSTUM;

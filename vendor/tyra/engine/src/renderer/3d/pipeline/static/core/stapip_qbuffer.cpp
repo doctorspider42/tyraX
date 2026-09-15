@@ -14,6 +14,8 @@
 #include <sstream>
 #include <iomanip>
 
+#include "debug/hardware_trace.hpp"
+
 namespace Tyra {
 
 namespace {
@@ -116,6 +118,7 @@ void StaPipQBuffer::fillByPointer(StaPipBag* source, u32 offset, u32 count) {
 void StaPipQBuffer::fillByCopyMax(const StaPipBagPackage& pkg1,
                                   const StaPipBagPackage& pkg2,
                                   const StaPipBagPackage& pkg3) {
+  HardwareTrace::Scope trace("QBuffer_copy");
   TYRA_ASSERT(pkg1.size <= maxVertCount / 3,
               "Wrong package size (1). Provided: ", pkg1.size);
   TYRA_ASSERT(pkg2.size <= maxVertCount / 3,
@@ -145,6 +148,7 @@ void StaPipQBuffer::fillByCopyMax(const StaPipBagPackage& pkg1,
 
 void StaPipQBuffer::fillByCopy1By2(const StaPipBagPackage& pkg1,
                                    const StaPipBagPackage& pkg2) {
+  HardwareTrace::Scope trace("QBuffer_copy");
   TYRA_ASSERT(pkg1.size <= maxVertCount / 3,
               "Wrong package size (1). Provided: ", pkg1.size);
   TYRA_ASSERT(pkg2.size <= maxVertCount / 3,
@@ -170,6 +174,7 @@ void StaPipQBuffer::fillByCopy1By2(const StaPipBagPackage& pkg1,
 }
 
 void StaPipQBuffer::fillByCopy1By3(const StaPipBagPackage& pkg) {
+  HardwareTrace::Scope trace("QBuffer_copy");
   TYRA_ASSERT(pkg.size <= maxVertCount / 3,
               "Wrong package size (1). Provided: ", pkg.size);
 

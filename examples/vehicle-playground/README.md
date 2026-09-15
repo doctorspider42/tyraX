@@ -30,10 +30,11 @@ more slippery alternative with a longer wheelbase and more suspension travel.
 These are arcade settings, not a real-world vehicle simulation.
 
 The Tristar Racer parks west of the coupe, opposite the Rally. It has a 32 m/s
-target speed, stronger grip and the same refillable nitrous controls. Its source
-body stays at 2276 triangles; the vehicle bake reduces each symmetric wheel to
-416 triangles (3940 total near geometry, versus the CC96's 4288). The prepared
-GLB is 383,536 bytes. It uses a cheap blob shadow and a 48 m distance tier.
+target speed, stronger grip and the same refillable nitrous controls. Its original prepared source
+body has 2276 triangles. The lean game variant bakes to 789 body triangles and
+139 per wheel (1345 total near geometry, versus the CC96's 2372). The original
+prepared GLB remains available; the game uses `tristar-lean.glb`. It uses a cheap
+blob shadow and a 48 m distance tier.
 
 The five-speed boxes use a 1.28 spread, 0.10 s shifts and reduced ratio torque.
 Body lean is 0.25 on the coupe/Tristar and 0.35 on the van. A 60 Hz flat-ground
@@ -79,7 +80,7 @@ those in the running game. The target retains the level camera basis from its
 own capture, so a skipped update cannot make reflected buildings swim when the
 driver turns the camera.
 
-The CC96 bake remains 1936 body triangles and 588 per wheel. Rally 04 has only
+The CC96 bake uses 1116 body triangles and 314 per wheel. Rally 04 has only
 364 body triangles and 28 per wheel. Wheels share a submission within each vehicle definition; distinct models keep
 their own texture bindings.
 The GGBot source has disconnected wheel islands inside one mesh: preparation
@@ -200,6 +201,27 @@ wheel mesh, and exports GLB. The vehicle bake performs wheel reduction.
 The model is included as part of this game example, not as a standalone asset
 pack. See its usage notice below before reusing it elsewhere.
 
+## Hardware timeline tools
+
+Build with the current engine and use [hardware-trace.py](../../tools/hardware-trace.py)
+to arm a bounded boot capture and export HTML/Perfetto. Keep fixed cameras and
+complete assets; capture after the benchmark window so trace export does not
+contaminate the 960 timing rows. [Profiler guide](../../docs/hardware-profiler.md)
+explains the VIF/GS interpretation limits and isolated raster/lighting probes.
+The [seven physical controls](../../docs/hardware-profiler-results.md) identify
+host I/O and EE-side static submission as priorities; suppressing GS raster area
+alone saves only a small part of the missing frame budget.
+
+## Physical full-asset recheck (2026-09-14)
+
+The coordinator independently measured both experimental engine patches on PS2,
+with 960 warmed frame samples per arm and a repeated baseline. Neither the
+transform cache nor DMA clip-table candidate demonstrates a useful net gain.
+Earlier agent fixtures lacked 66 PNGs and 11 TMDLs and are invalid as full-scene
+evidence. Complete deployments and matching day-view GS captures correct that
+failure. See [hardware recheck](../../docs/performance-hardware-recheck.md)
+and [raw evidence](authoring/hardware-recheck-2026-09-14/).
+
 ## Repeating performance comparisons
 
 `python authoring/benchmark-district.py <new-directory>` creates an isolated
@@ -270,3 +292,175 @@ switching. This smoke test is separate from the frozen FPS measurements.
 The shipped `THIRD-PARTY-NOTICES.txt` repeats the asset credits. Tristar is a
 game-use asset with the published terms recorded below; the other imported
 district assets retain their CC0 notices.
+
+
+## Lean vehicles (2026-09-14)
+
+The authored budgets are CC96 body 1200 / wheel 480 and Tristar body 1200 /
+wheel 700. Budgets are decimator inputs, not guaranteed output counts. Rally
+already has only 476 triangles including its wheels and stays unchanged.
+
+| Near vehicle | Previous triangles | Lean triangles | Reduction |
+| --- | ---: | ---: | ---: |
+| CC96 | 4288 | 2372 | 44.7% |
+| Tristar Racer | 3940 | 1345 | 65.9% |
+| Rally 04 | 476 | 476 | 0% |
+
+CC96's more aggressive wheel trials (160 and 320 budget) reduced its baked
+radius from about 0.232 to 0.190 and were rejected. The chosen wheel is about
+0.228; the existing bake derives the runtime ride height from that geometry.
+Tristar's source wheels resisted the runtime seam-preserving decimator, so
+`reduce-tristar-wheels.py` performs a Blender collapse at 12% and restores each
+wheel's local bounds. The baked radius is about 0.303. Reproduce with Blender:
+
+```
+blender -b --python authoring/reduce-tristar-wheels.py -- res/models/tristar-racer.glb res/models/tristar-lean.glb
+```
+
+The body remains in the original GLB and is reduced by the existing vehicle
+bake. Lamps, paint/reflections, wheel nodes and vehicle handling parameters
+remain supported. `build-district.py` retains the selected asset and budgets.
+The near triangle reduction does not imply the same percentage FPS gain.
+
+The native PS2 build succeeds and `--vehicle-check` passes. Close garage and
+rear/side views were inspected in PCSX2's software renderer at PAL 512x512.
+The retained silhouette, spoiler and rims remain recognizable; this is a
+purposeful geometry/quality tradeoff, not pixel-identical output. A separate
+normal-traffic coupe drive exercised entry, acceleration, steering and braking;
+the body/wheels remained aligned. These visual checks do not validate console
+performance. The Release editor compiles and links as `tyrax-editor-check.exe`.
+
+![Lean Tristar and CC96, actual GS capture](preview/lean-vehicles.png)
+
+### Per-frame cost fixture
+
+`instrument-frame-cost.py FIXTURE` runs **after** `--refresh-gen` / the initial
+build of an isolated `benchmark-district.py` fixture. Build its generated files
+with `tools/toolchain/native-build.ps1` or `native-build.sh` directly; another
+editor build regenerates and removes the instrumentation. Never apply it to the
+checked-in example. The engine sources do not change.
+
+It records 960 individual frames (240 after each 120-frame phase warmup), stores
+them in RAM, and writes `bin/frame-cost.csv` after all four phases. No sampling
+writes go over the host filesystem. Do not request captures during this window.
+The existing 32 rolling FPS samples are a separate instrument.
+
+Update, submission, finish and presentation are disjoint wall-clock buckets;
+vehicle time is included in update. Finish includes pending pipeline work and
+postprocessing and is **not a GS-only measurement**. Bounds, preparation,
+dispatch, packet construction, DMA and VIF waits overlap their parent buckets
+and each other. Triangle counts are submitted static-pipeline triangles, not
+unique scene geometry. Texture uploads/reuploads are per-frame counter deltas.
+The loop measurement excludes the engine's pad poll and info update outside
+`TerrainGame::loop`; telemetry adds CPU overhead. Frame extrapolation, adaptive
+resolution and external capture commands must remain disabled for this fixture.
+Use repeated hardware runs and an uninstrumented control before claiming gains.
+
+After the CSVs are complete, write `0`, `1`, `2` or `3` into
+`bin/district-benchmark-pose.txt` to hold garage day, garage night, outer day or
+outer night for separate render-cost captures. This command file is polled only
+after sampling; it cannot alter the 1,440-update benchmark route. Do not use
+post-benchmark FPS as an ordinary control, because pose polling adds host I/O.
+
+### Initial attribution results (2026-09-14)
+
+Clean baseline then lean runs, after all builds finished, PCSX2 software renderer,
+PAL 512x512, 32bpp, native raster, parked traffic, identical telemetry. Earlier
+exploratory runs were excluded because one overlapped compilation. Each row uses
+240 individual frames after warmup. Work is update + submit + finish, excluding
+presentation wait and the engine's outer pad/info processing.
+
+| View | Baseline mean work | Lean mean work | Baseline / lean p95 work |
+| --- | ---: | ---: | ---: |
+| Garage day | 31.06 ms | 24.64 ms | 35.11 / 28.58 ms |
+| Garage night | 35.23 ms | 28.64 ms | 39.07 / 32.22 ms |
+| Outer day | 12.26 ms | 12.19 ms | 15.63 / 15.47 ms |
+| Outer night | 14.69 ms | 14.46 ms | 17.44 / 17.34 ms |
+
+The garage still presents at about 25 FPS; removing 6.4–6.6 ms does not reach
+PAL's 20 ms field budget. Near-garage submission drops from 27.73 to 21.22 ms by
+day and 31.87 to 25.22 ms by night. Update remains about 2.8 ms, including about
+1.5 ms of vehicle update. There are no texture uploads/reuploads in the warmed
+sample windows. These are emulator attribution results, not GS timings, a
+hardware speedup, or a map-wide frame-rate guarantee. The normal-traffic drive
+is a separate visual/handling smoke test, not this benchmark.
+
+[Summary and configuration](authoring/frame-cost-2026-09-14.json) and
+[raw per-frame CSVs](authoring/frame-cost-2026-09-14/) retain the evidence.
+
+### Physical PS2 attribution (2026-09-14)
+
+After restarting into ps2link, fresh advancing telemetry and completed CSVs
+confirmed hardware execution on 192.168.100.150. These fixtures use the same
+native PAL raster and parked traffic as above. Existing local generated files
+enable adaptive plain BLSS despite the saved manifest disabling it; those files
+were preserved and are not the configuration measured here.
+
+| View | Old models work / median FPS | Lean models work / median FPS | Lean, live tools off work / median FPS |
+| --- | ---: | ---: | ---: |
+| Garage day | 57.50 ms / 15.14 | 48.80 ms / 16.33 | 41.65 ms / 19.64 |
+| Garage night | 65.34 ms / 12.96 | 56.06 ms / 16.07 | 48.87 ms / 16.67 |
+| Outer day | 26.45 ms / 22.54 | 26.22 ms / 22.22 | 20.63 ms / 33.33 |
+| Outer night | 31.08 ms / 22.65 | 30.44 ms / 23.15 | 24.20 ms / 25.00 |
+
+The lean column is the initial run; a repeated lean run is retained separately
+in the hardware summary. FPS is the median of eight rolling engine samples per
+phase, not the reciprocal of mean work. These short runs establish attribution,
+not a guaranteed minimum FPS or a precise run-to-run speedup.
+
+Removing live-tool channels lowers update from roughly 8 ms to 2.8 ms; vehicle
+update itself is about 2.2 ms. Hardware VIF waits around the garage are roughly
+7–8 ms with lean models, much larger than the emulator's approximately 0.1 ms.
+They include downstream backpressure and do not isolate VU arithmetic from GS
+work. Bounds processing costs roughly 7–8.5 ms there, including repeated passes.
+All warmed sample windows have zero texture uploads and reuploads, so texture
+thrashing is not the bottleneck in these views.
+
+A separate serialized outer-night render capture measures 20.85 ms total,
+including 8.00 ms procedural roads, 3.24 ms terrain and 5.56 ms objects. It is
+phase attribution only. Next candidates are less frequent/asynchronous live-tool
+polling, cheaper reusable bounds/preparation, and road submission/LOD; test each
+independently before deciding on a renderer rewrite. No engine optimization is
+implemented by this profiling pass.
+
+[Hardware summary](authoring/frame-cost-2026-09-14/hardware-summary.json) and
+[raw evidence](authoring/frame-cost-2026-09-14/) retain the measured frames.
+
+The repeated lean run measured 48.80 / 56.62 / 27.44 / 30.65 ms mean work
+in phase order. Its garage FPS medians were 16.04 / 15.38, illustrating the
+variation in these short network-debug runs. The quiet arm is still a debug
+build with the same instrumentation, not a release-build claim.
+
+Separate garage captures measured 40.00 ms day and 52.92 ms night; the latter
+includes a 6.21 ms shared-reflection probe update that the day capture did not
+contain. Wheels cost about 4.1 ms in both. Do not subtract these two single
+captures to estimate lighting cost: their probe cadence differs.
+
+Physical-console visual validation also exercised entry, acceleration, steering
+and braking with normal traffic and without the per-frame instrument. The car
+reached the outer roadside from the garage. Subsequent rolling FPS samples at
+that roadside are retained separately, including attempted pad input; unchanged
+before/after images mean they must not be presented as a moving-drive benchmark
+or a matched uninstrumented control.
+
+![Lean vehicles on physical PS2, garage day](preview/lean-vehicles-ps2.png)
+
+The subsequent generic bounds-cache experiment is recorded in the
+[engine work plan](../../docs/motor-district-performance-plan.md#next-universal-experiment-indexed-bounds-cache-2026-09-14).
+It uses the lean geometry and unchanged devkit cadence; do not merge its
+results into the original model-reduction A/B above.
+
+The hardware capture can also be inspected in **Debugger > Hardware timeline**
+(1.92+), including frame selection and zoom. Detailed dispatch evidence and the
+rejected classification-reuse experiment are under
+`authoring/hardware-profiler-2026-09-14/dispatch-detail/`; see
+[the updated hardware report](../../docs/hardware-profiler-results.md).
+
+## Static submission batching (2026-09-14)
+
+The generated main Objects pass now uses the engine's bounded resident-draw
+submission scope. Reflected probes and serialized cost measurements close the
+scope first. Vehicle assets, road geometry, render order and native raster are
+unchanged by this step. See [the batching report](../../docs/static-submission-batching.md)
+for physical PS2 measurements, rejected larger packets, and the complete
+resource/image/lifetime acceptance evidence.

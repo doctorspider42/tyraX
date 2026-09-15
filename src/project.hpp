@@ -1487,6 +1487,14 @@ struct ProjectSettings {
     // for anyone who does not want their debug builds patched from outside.
     bool liveLink = true;
 
+    // Devkit cadence in game updates: 0 = platform defaults, 1..120 = override.
+    int liveLinkPollFrames = 0;
+    int liveLogicPollFrames = 0;
+    int liveDebugPollFrames = 0;
+    int liveDebugSnapshotFrames = 0;
+    int timeMachineFrames = 0;
+
+
     // Debug profile only: compile the Live Debugger runtime into the game -
     // the flow graphs report every node they run to the editor, and the editor
     // can set breakpoints, stop/step the game and force-fire a trigger
@@ -2044,7 +2052,7 @@ struct ProjectSettings {
     bool highlightOverlay = false;
 };
 
-static_assert(sizeof(ProjectSettings) == 728,
+static_assert(sizeof(ProjectSettings) == 752,
               "ProjectSettings changed size - a field was added or removed. "
               "Add it to operator== below as well, or its Preferences widget "
               "will silently do nothing; then update this number.");
@@ -2086,6 +2094,11 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.showCollision == b.showCollision &&
            a.liveLink == b.liveLink && a.liveDebug == b.liveDebug &&
            a.liveLogic == b.liveLogic && a.timeMachine == b.timeMachine &&
+           a.liveLinkPollFrames == b.liveLinkPollFrames &&
+           a.liveLogicPollFrames == b.liveLogicPollFrames &&
+           a.liveDebugPollFrames == b.liveDebugPollFrames &&
+           a.liveDebugSnapshotFrames == b.liveDebugSnapshotFrames &&
+           a.timeMachineFrames == b.timeMachineFrames &&
            a.remotePad == b.remotePad &&
            a.inputRecorder == b.inputRecorder &&
            a.eeCrashHandler == b.eeCrashHandler &&

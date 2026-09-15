@@ -1,0 +1,428 @@
+{
+  "platform": "physical PS2",
+  "video": "PAL 512x512 32bpp native raster; no BLSS",
+  "traffic": "parked",
+  "order": [
+    "lean-initial",
+    "baseline",
+    "quiet",
+    "lean-repeat"
+  ],
+  "caveats": [
+    "Single run per arm; percentiles describe frames, not run-to-run confidence",
+    "Included buckets overlap; work excludes present and outer pad/info",
+    "Quiet disables live debug channels; instrumentation remains enabled",
+    "No competing PCSX2 or builds during hardware samples; captures only after CSV completion"
+  ],
+  "arms": {
+    "lean-initial": {
+      "phases": {
+        "garage-day": {
+          "n": 240,
+          "mean": {
+            "update_ms": 8.2204,
+            "vehicles_included_ms": 2.2047,
+            "submit_ms": 39.562,
+            "finish_ms": 1.021,
+            "present_ms": 14.3252,
+            "total_ms": 63.1286,
+            "bounds_included_ms": 6.7819,
+            "prepare_included_ms": 3.1881,
+            "dispatch_included_ms": 21.5466,
+            "packet_included_ms": 2.9901,
+            "dma_included_ms": 2.7621,
+            "vif_wait_included_ms": 7.466,
+            "flushes": 156.0,
+            "triangles": 25650.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 48.8034,
+          "work_p95_ms": 60.418386,
+          "fps_median": 16.333000000000002
+        },
+        "garage-night": {
+          "n": 240,
+          "mean": {
+            "update_ms": 7.9586,
+            "vehicles_included_ms": 2.2032,
+            "submit_ms": 46.5479,
+            "finish_ms": 1.5506,
+            "present_ms": 7.4052,
+            "total_ms": 63.4623,
+            "bounds_included_ms": 8.4723,
+            "prepare_included_ms": 5.0582,
+            "dispatch_included_ms": 22.7707,
+            "packet_included_ms": 3.2292,
+            "dma_included_ms": 3.2323,
+            "vif_wait_included_ms": 7.2754,
+            "flushes": 184.5,
+            "triangles": 26324.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 56.0571,
+          "work_p95_ms": 67.454302,
+          "fps_median": 16.071
+        },
+        "outer-day": {
+          "n": 240,
+          "mean": {
+            "update_ms": 7.6888,
+            "vehicles_included_ms": 2.2026,
+            "submit_ms": 17.5102,
+            "finish_ms": 1.0213,
+            "present_ms": 15.7378,
+            "total_ms": 41.9581,
+            "bounds_included_ms": 3.9084,
+            "prepare_included_ms": 1.2177,
+            "dispatch_included_ms": 10.1105,
+            "packet_included_ms": 1.384,
+            "dma_included_ms": 1.1304,
+            "vif_wait_included_ms": 3.8217,
+            "flushes": 65.0,
+            "triangles": 12154.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 26.2204,
+          "work_p95_ms": 37.259607,
+          "fps_median": 22.2225
+        },
+        "outer-night": {
+          "n": 240,
+          "mean": {
+            "update_ms": 8.2004,
+            "vehicles_included_ms": 2.2045,
+            "submit_ms": 20.6975,
+            "finish_ms": 1.5448,
+            "present_ms": 12.6026,
+            "total_ms": 43.0453,
+            "bounds_included_ms": 5.0876,
+            "prepare_included_ms": 1.7512,
+            "dispatch_included_ms": 10.3258,
+            "packet_included_ms": 1.4411,
+            "dma_included_ms": 1.1983,
+            "vif_wait_included_ms": 3.7981,
+            "flushes": 69.0,
+            "triangles": 12488.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 30.4427,
+          "work_p95_ms": 42.094046,
+          "fps_median": 23.1475
+        }
+      }
+    },
+    "baseline": {
+      "phases": {
+        "garage-day": {
+          "n": 240,
+          "mean": {
+            "update_ms": 7.9069,
+            "vehicles_included_ms": 2.1749,
+            "submit_ms": 48.5774,
+            "finish_ms": 1.0123,
+            "present_ms": 6.5481,
+            "total_ms": 64.0447,
+            "bounds_included_ms": 7.694,
+            "prepare_included_ms": 3.1465,
+            "dispatch_included_ms": 25.6865,
+            "packet_included_ms": 3.3648,
+            "dma_included_ms": 2.9666,
+            "vif_wait_included_ms": 9.6886,
+            "flushes": 170.0,
+            "triangles": 30240.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 57.4966,
+          "work_p95_ms": 68.882267,
+          "fps_median": 15.143
+        },
+        "garage-night": {
+          "n": 240,
+          "mean": {
+            "update_ms": 8.2606,
+            "vehicles_included_ms": 2.1798,
+            "submit_ms": 55.5488,
+            "finish_ms": 1.5271,
+            "present_ms": 13.2088,
+            "total_ms": 78.5453,
+            "bounds_included_ms": 9.3042,
+            "prepare_included_ms": 5.0554,
+            "dispatch_included_ms": 26.9671,
+            "packet_included_ms": 3.572,
+            "dma_included_ms": 3.463,
+            "vif_wait_included_ms": 9.5689,
+            "flushes": 198.5,
+            "triangles": 30914.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 65.3365,
+          "work_p95_ms": 77.837704,
+          "fps_median": 12.963
+        },
+        "outer-day": {
+          "n": 240,
+          "mean": {
+            "update_ms": 7.9942,
+            "vehicles_included_ms": 2.1735,
+            "submit_ms": 17.4338,
+            "finish_ms": 1.0176,
+            "present_ms": 15.3459,
+            "total_ms": 41.7916,
+            "bounds_included_ms": 3.8702,
+            "prepare_included_ms": 1.1687,
+            "dispatch_included_ms": 10.1444,
+            "packet_included_ms": 1.3842,
+            "dma_included_ms": 1.1237,
+            "vif_wait_included_ms": 3.7703,
+            "flushes": 65.0,
+            "triangles": 12154.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 26.4456,
+          "work_p95_ms": 37.542077,
+          "fps_median": 22.539
+        },
+        "outer-night": {
+          "n": 240,
+          "mean": {
+            "update_ms": 8.9552,
+            "vehicles_included_ms": 2.1844,
+            "submit_ms": 20.5849,
+            "finish_ms": 1.5411,
+            "present_ms": 12.9642,
+            "total_ms": 44.0454,
+            "bounds_included_ms": 5.0212,
+            "prepare_included_ms": 1.7166,
+            "dispatch_included_ms": 10.3687,
+            "packet_included_ms": 1.443,
+            "dma_included_ms": 1.1792,
+            "vif_wait_included_ms": 3.7532,
+            "flushes": 69.0,
+            "triangles": 12488.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 31.0812,
+          "work_p95_ms": 42.502241,
+          "fps_median": 22.649500000000003
+        }
+      },
+      "elf_sha256": "2b132d41380997239fe31c9e87371c91bf04b3f9d413be81f0ec5dcad52b39de"
+    },
+    "quiet": {
+      "phases": {
+        "garage-day": {
+          "n": 240,
+          "mean": {
+            "update_ms": 2.8193,
+            "vehicles_included_ms": 2.0044,
+            "submit_ms": 37.8222,
+            "finish_ms": 1.0075,
+            "present_ms": 8.4788,
+            "total_ms": 50.1278,
+            "bounds_included_ms": 6.8304,
+            "prepare_included_ms": 2.979,
+            "dispatch_included_ms": 19.6953,
+            "packet_included_ms": 3.0346,
+            "dma_included_ms": 2.7089,
+            "vif_wait_included_ms": 7.7857,
+            "flushes": 156.0,
+            "triangles": 25650.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 41.649,
+          "work_p95_ms": 44.095144,
+          "fps_median": 19.6435
+        },
+        "garage-night": {
+          "n": 240,
+          "mean": {
+            "update_ms": 2.8873,
+            "vehicles_included_ms": 2.0094,
+            "submit_ms": 44.4179,
+            "finish_ms": 1.5626,
+            "present_ms": 11.0928,
+            "total_ms": 59.9606,
+            "bounds_included_ms": 8.4921,
+            "prepare_included_ms": 4.852,
+            "dispatch_included_ms": 20.6841,
+            "packet_included_ms": 3.24,
+            "dma_included_ms": 3.1572,
+            "vif_wait_included_ms": 7.5505,
+            "flushes": 184.5,
+            "triangles": 26324.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 48.8678,
+          "work_p95_ms": 51.893911,
+          "fps_median": 16.667
+        },
+        "outer-day": {
+          "n": 240,
+          "mean": {
+            "update_ms": 2.8158,
+            "vehicles_included_ms": 2.0029,
+            "submit_ms": 16.8214,
+            "finish_ms": 0.9961,
+            "present_ms": 9.5718,
+            "total_ms": 30.2052,
+            "bounds_included_ms": 3.9382,
+            "prepare_included_ms": 1.1209,
+            "dispatch_included_ms": 9.2999,
+            "packet_included_ms": 1.4007,
+            "dma_included_ms": 1.1289,
+            "vif_wait_included_ms": 4.0761,
+            "flushes": 65.0,
+            "triangles": 12154.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 20.6334,
+          "work_p95_ms": 21.877315,
+          "fps_median": 33.333
+        },
+        "outer-night": {
+          "n": 240,
+          "mean": {
+            "update_ms": 2.8834,
+            "vehicles_included_ms": 2.0069,
+            "submit_ms": 19.773,
+            "finish_ms": 1.5411,
+            "present_ms": 15.7638,
+            "total_ms": 39.9613,
+            "bounds_included_ms": 5.1127,
+            "prepare_included_ms": 1.6601,
+            "dispatch_included_ms": 9.4482,
+            "packet_included_ms": 1.4628,
+            "dma_included_ms": 1.1902,
+            "vif_wait_included_ms": 4.0317,
+            "flushes": 69.0,
+            "triangles": 12488.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 24.1975,
+          "work_p95_ms": 25.613155,
+          "fps_median": 25.0
+        }
+      },
+      "elf_sha256": "08ae7c784014c07f6054a0874260301038bab92b5bf6c779d06834b08e2c0a0e"
+    },
+    "lean-repeat": {
+      "phases": {
+        "garage-day": {
+          "n": 240,
+          "mean": {
+            "update_ms": 8.1595,
+            "vehicles_included_ms": 2.1885,
+            "submit_ms": 39.6031,
+            "finish_ms": 1.0411,
+            "present_ms": 14.2422,
+            "total_ms": 63.0459,
+            "bounds_included_ms": 6.8055,
+            "prepare_included_ms": 3.1315,
+            "dispatch_included_ms": 21.6437,
+            "packet_included_ms": 3.0027,
+            "dma_included_ms": 2.7297,
+            "vif_wait_included_ms": 7.3761,
+            "flushes": 156.0,
+            "triangles": 25650.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 48.8037,
+          "work_p95_ms": 74.954536,
+          "fps_median": 16.0355
+        },
+        "garage-night": {
+          "n": 240,
+          "mean": {
+            "update_ms": 8.4877,
+            "vehicles_included_ms": 2.197,
+            "submit_ms": 46.5909,
+            "finish_ms": 1.5441,
+            "present_ms": 7.7565,
+            "total_ms": 64.3793,
+            "bounds_included_ms": 8.4685,
+            "prepare_included_ms": 4.9984,
+            "dispatch_included_ms": 22.8871,
+            "packet_included_ms": 3.2307,
+            "dma_included_ms": 3.2083,
+            "vif_wait_included_ms": 7.1839,
+            "flushes": 184.5,
+            "triangles": 26324.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 56.6228,
+          "work_p95_ms": 85.036574,
+          "fps_median": 15.385
+        },
+        "outer-day": {
+          "n": 240,
+          "mean": {
+            "update_ms": 8.8425,
+            "vehicles_included_ms": 2.1881,
+            "submit_ms": 17.5799,
+            "finish_ms": 1.0167,
+            "present_ms": 16.351,
+            "total_ms": 43.7902,
+            "bounds_included_ms": 3.9468,
+            "prepare_included_ms": 1.1722,
+            "dispatch_included_ms": 10.2127,
+            "packet_included_ms": 1.4295,
+            "dma_included_ms": 1.1224,
+            "vif_wait_included_ms": 3.763,
+            "flushes": 65.0,
+            "triangles": 12154.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 27.4392,
+          "work_p95_ms": 53.238735999999996,
+          "fps_median": 22.414
+        },
+        "outer-night": {
+          "n": 240,
+          "mean": {
+            "update_ms": 8.3605,
+            "vehicles_included_ms": 2.199,
+            "submit_ms": 20.7444,
+            "finish_ms": 1.5456,
+            "present_ms": 12.5618,
+            "total_ms": 43.2123,
+            "bounds_included_ms": 5.0828,
+            "prepare_included_ms": 1.7159,
+            "dispatch_included_ms": 10.4688,
+            "packet_included_ms": 1.4861,
+            "dma_included_ms": 1.1737,
+            "vif_wait_included_ms": 3.7253,
+            "flushes": 69.0,
+            "triangles": 12488.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 30.6505,
+          "work_p95_ms": 56.984124,
+          "fps_median": 24.0
+        }
+      },
+      "elf_sha256": "2b132d41380997239fe31c9e87371c91bf04b3f9d413be81f0ec5dcad52b39de"
+    }
+  },
+  "validation": {
+    "normal_traffic": "Entry and drive from garage to roadside, acceleration, steering and braking; physical PS2 screenshot preview/lean-drive-ps2.png",
+    "post_drive_samples": "Separate roadside rolling FPS; no confirmed movement during that sampling window; not a moving-drive benchmark",
+    "vehicle_check": "all properties pass",
+    "matched_uninstrumented_control": "not performed"
+  }
+}

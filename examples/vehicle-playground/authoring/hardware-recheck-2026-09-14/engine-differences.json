@@ -1,0 +1,10 @@
+{
+  "D:\\tyra-perf-engine-transform-a": [
+    "engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_core.hpp",
+    "engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_core.cpp"
+  ],
+  "D:\\tyra-perf-engine-dma-b": [
+    "engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer_renderer.hpp",
+    "engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer_renderer.cpp"
+  ]
+}

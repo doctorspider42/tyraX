@@ -1620,6 +1620,11 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << (p.settings.showCollision ? "true" : "false") << ",\n"
          << "    \"liveLink\": " << (p.settings.liveLink ? "true" : "false")
          << ",\n"
+         << "    \"liveLinkPollFrames\": " << p.settings.liveLinkPollFrames << ",\n"
+         << "    \"liveLogicPollFrames\": " << p.settings.liveLogicPollFrames << ",\n"
+         << "    \"liveDebugPollFrames\": " << p.settings.liveDebugPollFrames << ",\n"
+         << "    \"liveDebugSnapshotFrames\": " << p.settings.liveDebugSnapshotFrames << ",\n"
+         << "    \"timeMachineFrames\": " << p.settings.timeMachineFrames << ",\n"
          << "    \"liveDebug\": " << (p.settings.liveDebug ? "true" : "false")
          << ",\n"
          << "    \"eeCrashHandler\": "
@@ -5577,6 +5582,17 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("showCollision"))
             st.showCollision = v->boolOr(false);
         if (const auto* v = s->find("liveLink")) st.liveLink = v->boolOr(true);
+        if (const auto* v = s->find("liveLinkPollFrames"))
+            st.liveLinkPollFrames = (int)std::clamp(v->numberOr(0), 0.0, 120.0);
+        if (const auto* v = s->find("liveLogicPollFrames"))
+            st.liveLogicPollFrames = (int)std::clamp(v->numberOr(0), 0.0, 120.0);
+        if (const auto* v = s->find("liveDebugPollFrames"))
+            st.liveDebugPollFrames = (int)std::clamp(v->numberOr(0), 0.0, 120.0);
+        if (const auto* v = s->find("liveDebugSnapshotFrames"))
+            st.liveDebugSnapshotFrames = (int)std::clamp(v->numberOr(0), 0.0, 120.0);
+        if (const auto* v = s->find("timeMachineFrames"))
+            st.timeMachineFrames = (int)std::clamp(v->numberOr(0), 0.0, 120.0);
+
         if (const auto* v = s->find("liveDebug")) st.liveDebug = v->boolOr(true);
         if (const auto* v = s->find("liveLogic")) st.liveLogic = v->boolOr(true);
         if (const auto* v = s->find("timeMachine"))

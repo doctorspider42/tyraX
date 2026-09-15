@@ -4,6 +4,66 @@ This document retains the original task specifications and records measured
 integration results below. Proposed acceptance criteria are not claims that
 every experiment shipped. See [integration results](#integration-results-2026-09-12).
 
+## Next universal experiment: indexed bounds cache (2026-09-14)
+
+The physical PS2 lean-vehicle fixture spends roughly 7–8.5 ms in the inclusive
+bounds bucket at the garage. That does not prove cache lookup owns the entire
+bucket. The current `StapipBagBBoxesCacher::getCache` linearly scans every
+retained entry for each submitted bag, and entries live for 250 frames.
+
+1. Attribute lookup cost/probe counts in an isolated fixture before changing it.
+2. Replace the linear lookup with a compact index keyed by buffer id and VU
+   package capacity, if the measured cost warrants it. Avoid steady-state
+   allocation and unbounded growth; retain existing bbox ownership and lifetime.
+3. Preserve version/count invalidation, capacity variants, rewritten buffers,
+   address reuse, eviction and scene reload behavior. Never cache a frustum
+   result without its view and transform dependencies.
+4. Compare baseline/candidate correctness and warmed frame cost with identical
+   camera, assets and devkit settings. Include moving/dynamic geometry and
+   expiry/reinsertion. Report memory cost as well as time; a tiny lookup win is
+   not a claim to recover the entire bounds bucket.
+
+Scope: generic engine bounds cache only, no road changes, model reductions,
+quality loss, VU program rewrite or devkit changes. Keep or reject this bounded
+experiment from evidence before proceeding to multi-entry transform reuse or
+broader render submission changes. Sol owns the experiment; the coordinator
+owns integration and hardware comparison. See the example's September 14 raw
+hardware measurements for the reference configuration.
+
+### Indexed bounds cache result
+
+The experiment is retained. `StapipBagBBoxesCacher` now hashes the existing
+buffer-id/VU-capacity key into 256 fixed buckets. Collision links are vector
+indices stored in each cache item, so lookups allocate nothing and vector
+relocation cannot invalidate the index. Expiry still happens after 250 unused
+frames; an erase rebuilds the index after vector compaction. The existing
+`bboxVersion`, vertex-count and capacity checks still decide whether the owned
+boxes are reused, recalculated or recreated, including recycled addresses.
+
+The fixed index costs 1,024 bytes on the 32-bit EE plus four bytes per retained
+entry (about 2.5 KiB at 384 entries). A deterministic host workload modelling
+384 aligned buffer addresses, three capacities, expiry/reinsertion and changing
+versions/counts observed 1,156,543 indexed probes versus 132,068,375 probes for
+the old linear reference (114.2 times fewer). This is an opportunity model, not
+an EE timing result. A separate host shim compiled the real cacher source and
+matched a linear reference across 700 entries, collision chains, middle-entry
+expiry/compaction, reinsertion, capacity variants and version/count refreshes.
+
+One non-alternated physical-PS2 candidate run used the same parked PAL 512x512
+32-bit native-raster fixture and retained identical triangle counts. Compared
+with `hardware-lean-repeat-frame-cost.csv`, mean inclusive bounds time moved
+from 6.806 to 4.790 ms (garage day), 8.469 to 5.915 ms (garage night), 3.947 to
+2.637 ms (outer day), and 5.083 to 3.376 ms (outer night), a 29.6-33.5%
+reduction in that bucket. Whole-frame means improved in the two day phases but
+were neutral/slightly worse in the two night phases; the run was not alternated
+with a fresh baseline. The result supports the indexed lookup and does not
+claim to recover the full historical 7-8.5 ms bounds bucket or to convert the
+included-bucket delta directly into FPS.
+
+[Hardware summary](../examples/vehicle-playground/authoring/frame-cost-2026-09-14/hardware-indexed-cache-summary.json)
+and [raw candidate frames](../examples/vehicle-playground/authoring/frame-cost-2026-09-14/hardware-indexed-cache-frame-cost.csv)
+retain the configuration, binary hash and comparison reference.
+
 ## Original baseline and measurement rules
 
 Start from `1ce38d2b`, which includes bounded road chunks and the static-model
@@ -258,6 +318,15 @@ and active gameplay make a broader reuse policy unsafe without a tested error
 budget. All three vehicle paint materials and reflection texture memory remain
 in scope.
 
+## Full-asset hardware follow-up (2026-09-14)
+
+The independent [physical recheck](performance-hardware-recheck.md) supersedes
+the incomplete agent fixture evidence for the transform-cache and DMA
+clip-table experiments. Neither candidate earns integration. The next proposed
+universal step was hardware timeline attribution and controlled bottleneck
+experiments. Those [tools and seven physical runs are now complete](hardware-profiler-results.md):
+prioritize EE-side static submission and host-I/O profiles, not GS pixel fill.
+
 ## Validation status and remaining scope
 
 - Normal-traffic smoke validation passed after integration: coupe and Tristar
@@ -276,3 +345,20 @@ in scope.
   scene-reload cases after any later rendering integration.
 - Confirm representative results on physical PS2 before quoting hardware
   performance, and test Linux separately.
+
+### Hardware timeline follow-up (1.92)
+
+Native editor viewing and finer package/classification/copy/packet scopes are
+implemented. The bounded same-range classification reuse trial was rejected: no
+convincing submission-time gain on physical PS2. Larger submission scheduling
+changes remain open; do not treat this as a shipped engine speedup. See
+[hardware profiler results](hardware-profiler-results.md).
+
+### Bounded static submission follow-up (1.93)
+
+Resident small-bag submission batching is retained after a complete physical
+four-pose A/B, repeated baseline, image checks and texture/pipeline stress.
+Render submission saves 0.95/1.14/0.37/0.34 ms; a larger-bag extension was
+rejected. This is not a 50 FPS or whole-game FPS gain claim. Next measure
+persistent package/geometry-command preparation; roads remain deferred. See
+[the experiment and raw evidence](static-submission-batching.md).

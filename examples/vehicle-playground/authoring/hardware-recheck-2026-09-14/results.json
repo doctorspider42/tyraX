@@ -1,0 +1,410 @@
+{
+  "platform": "physical PS2",
+  "configuration": "PAL 512x512 32bpp native raster; auto devkit cadence; no BLSS; parked four-phase fixture",
+  "arms": {
+    "baseline": {
+      "elf_sha256": "3a129c8ff6c42a14374912db827c84db9344ac4c6c5e754cc2389a30a8a3bacc",
+      "phases": {
+        "garage-day": {
+          "n": 240,
+          "mean": {
+            "update_ms": 8.2479,
+            "vehicles_included_ms": 2.0444,
+            "submit_ms": 37.0844,
+            "finish_ms": 1.0151,
+            "present_ms": 12.447,
+            "total_ms": 58.7943,
+            "bounds_included_ms": 4.4031,
+            "prepare_included_ms": 2.996,
+            "dispatch_included_ms": 21.8072,
+            "packet_included_ms": 3.0103,
+            "dma_included_ms": 2.7224,
+            "vif_wait_included_ms": 7.7872,
+            "flushes": 156.0,
+            "triangles": 25650.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 46.3473,
+          "work_p95_ms": 60.1704,
+          "fps_median": 17.654
+        },
+        "garage-night": {
+          "n": 240,
+          "mean": {
+            "update_ms": 8.6246,
+            "vehicles_included_ms": 2.049,
+            "submit_ms": 43.3652,
+            "finish_ms": 1.5508,
+            "present_ms": 10.504,
+            "total_ms": 64.0446,
+            "bounds_included_ms": 5.4536,
+            "prepare_included_ms": 4.8306,
+            "dispatch_included_ms": 23.0877,
+            "packet_included_ms": 3.2349,
+            "dma_included_ms": 3.2231,
+            "vif_wait_included_ms": 7.6237,
+            "flushes": 184.5,
+            "triangles": 26324.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 53.5406,
+          "work_p95_ms": 67.1953,
+          "fps_median": 16.3685
+        },
+        "outer-day": {
+          "n": 240,
+          "mean": {
+            "update_ms": 8.3584,
+            "vehicles_included_ms": 2.0447,
+            "submit_ms": 15.7954,
+            "finish_ms": 1.01,
+            "present_ms": 13.5438,
+            "total_ms": 38.7076,
+            "bounds_included_ms": 2.2035,
+            "prepare_included_ms": 1.1237,
+            "dispatch_included_ms": 10.279,
+            "packet_included_ms": 1.4371,
+            "dma_included_ms": 1.1325,
+            "vif_wait_included_ms": 3.9505,
+            "flushes": 65.0,
+            "triangles": 12154.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 25.1638,
+          "work_p95_ms": 37.9865,
+          "fps_median": 24.5
+        },
+        "outer-night": {
+          "n": 240,
+          "mean": {
+            "update_ms": 8.7357,
+            "vehicles_included_ms": 2.0549,
+            "submit_ms": 18.3721,
+            "finish_ms": 1.5291,
+            "present_ms": 14.7417,
+            "total_ms": 43.3786,
+            "bounds_included_ms": 2.8804,
+            "prepare_included_ms": 1.6616,
+            "dispatch_included_ms": 10.4607,
+            "packet_included_ms": 1.4737,
+            "dma_included_ms": 1.19,
+            "vif_wait_included_ms": 3.8912,
+            "flushes": 69.0,
+            "triangles": 12488.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 28.6368,
+          "work_p95_ms": 41.5604,
+          "fps_median": 23.148000000000003
+        }
+      }
+    },
+    "transform": {
+      "elf_sha256": "dda814c75476737249e0a2f12533458c743412cb7c41b2d957f5fab7909cf326",
+      "phases": {
+        "garage-day": {
+          "n": 240,
+          "mean": {
+            "update_ms": 8.1085,
+            "vehicles_included_ms": 2.0299,
+            "submit_ms": 37.2767,
+            "finish_ms": 1.0148,
+            "present_ms": 12.2284,
+            "total_ms": 58.6284,
+            "bounds_included_ms": 4.7646,
+            "prepare_included_ms": 2.7675,
+            "dispatch_included_ms": 21.6309,
+            "packet_included_ms": 2.7719,
+            "dma_included_ms": 2.6865,
+            "vif_wait_included_ms": 7.8285,
+            "flushes": 156.0,
+            "triangles": 25650.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 46.4001,
+          "work_p95_ms": 60.2574,
+          "fps_median": 17.928
+        },
+        "garage-night": {
+          "n": 240,
+          "mean": {
+            "update_ms": 8.4156,
+            "vehicles_included_ms": 2.0373,
+            "submit_ms": 43.496,
+            "finish_ms": 1.5592,
+            "present_ms": 10.2416,
+            "total_ms": 63.7124,
+            "bounds_included_ms": 5.8259,
+            "prepare_included_ms": 4.6368,
+            "dispatch_included_ms": 22.861,
+            "packet_included_ms": 3.0187,
+            "dma_included_ms": 3.1653,
+            "vif_wait_included_ms": 7.6544,
+            "flushes": 184.5,
+            "triangles": 26324.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 53.4708,
+          "work_p95_ms": 66.242,
+          "fps_median": 16.036
+        },
+        "outer-day": {
+          "n": 240,
+          "mean": {
+            "update_ms": 8.2508,
+            "vehicles_included_ms": 2.0324,
+            "submit_ms": 15.9039,
+            "finish_ms": 1.0127,
+            "present_ms": 13.2079,
+            "total_ms": 38.3753,
+            "bounds_included_ms": 2.4537,
+            "prepare_included_ms": 1.0222,
+            "dispatch_included_ms": 10.1739,
+            "packet_included_ms": 1.3151,
+            "dma_included_ms": 1.1114,
+            "vif_wait_included_ms": 3.9982,
+            "flushes": 65.0,
+            "triangles": 12154.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 25.1674,
+          "work_p95_ms": 37.3524,
+          "fps_median": 25.9615
+        },
+        "outer-night": {
+          "n": 240,
+          "mean": {
+            "update_ms": 8.4649,
+            "vehicles_included_ms": 2.0435,
+            "submit_ms": 18.4702,
+            "finish_ms": 1.5313,
+            "present_ms": 14.663,
+            "total_ms": 43.1295,
+            "bounds_included_ms": 3.1662,
+            "prepare_included_ms": 1.5681,
+            "dispatch_included_ms": 10.3484,
+            "packet_included_ms": 1.3799,
+            "dma_included_ms": 1.1672,
+            "vif_wait_included_ms": 3.9371,
+            "flushes": 69.0,
+            "triangles": 12488.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 28.4665,
+          "work_p95_ms": 40.6413,
+          "fps_median": 23.1475
+        }
+      }
+    },
+    "dma": {
+      "elf_sha256": "f4b9c45475e08afc52851f8626ba0938aa8e4a33d60471e6e972112893de00c5",
+      "phases": {
+        "garage-day": {
+          "n": 240,
+          "mean": {
+            "update_ms": 8.4201,
+            "vehicles_included_ms": 2.2602,
+            "submit_ms": 37.2833,
+            "finish_ms": 1.0167,
+            "present_ms": 11.659,
+            "total_ms": 58.3791,
+            "bounds_included_ms": 4.704,
+            "prepare_included_ms": 3.062,
+            "dispatch_included_ms": 21.5303,
+            "packet_included_ms": 2.8321,
+            "dma_included_ms": 2.721,
+            "vif_wait_included_ms": 7.8443,
+            "flushes": 156.0,
+            "triangles": 25650.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 46.7201,
+          "work_p95_ms": 59.0901,
+          "fps_median": 17.927999999999997
+        },
+        "garage-night": {
+          "n": 240,
+          "mean": {
+            "update_ms": 8.8324,
+            "vehicles_included_ms": 2.2645,
+            "submit_ms": 43.6135,
+            "finish_ms": 1.5493,
+            "present_ms": 9.9661,
+            "total_ms": 63.9613,
+            "bounds_included_ms": 5.7563,
+            "prepare_included_ms": 4.9958,
+            "dispatch_included_ms": 22.7856,
+            "packet_included_ms": 3.0722,
+            "dma_included_ms": 3.1507,
+            "vif_wait_included_ms": 7.6652,
+            "flushes": 184.5,
+            "triangles": 26324.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 53.9952,
+          "work_p95_ms": 67.0543,
+          "fps_median": 16.369
+        },
+        "outer-day": {
+          "n": 240,
+          "mean": {
+            "update_ms": 8.6229,
+            "vehicles_included_ms": 2.2631,
+            "submit_ms": 16.0128,
+            "finish_ms": 1.0174,
+            "present_ms": 13.0563,
+            "total_ms": 38.7094,
+            "bounds_included_ms": 2.5163,
+            "prepare_included_ms": 1.1294,
+            "dispatch_included_ms": 10.1054,
+            "packet_included_ms": 1.342,
+            "dma_included_ms": 1.1237,
+            "vif_wait_included_ms": 3.9937,
+            "flushes": 65.0,
+            "triangles": 12154.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 25.6531,
+          "work_p95_ms": 37.78,
+          "fps_median": 27.778
+        },
+        "outer-night": {
+          "n": 240,
+          "mean": {
+            "update_ms": 8.8243,
+            "vehicles_included_ms": 2.2607,
+            "submit_ms": 18.6101,
+            "finish_ms": 1.5335,
+            "present_ms": 14.1608,
+            "total_ms": 43.1287,
+            "bounds_included_ms": 3.2243,
+            "prepare_included_ms": 1.7008,
+            "dispatch_included_ms": 10.276,
+            "packet_included_ms": 1.3933,
+            "dma_included_ms": 1.1753,
+            "vif_wait_included_ms": 3.9235,
+            "flushes": 69.0,
+            "triangles": 12488.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 28.9679,
+          "work_p95_ms": 43.327,
+          "fps_median": 23.110500000000002
+        }
+      }
+    },
+    "baseline-repeat": {
+      "elf_sha256": "3a129c8ff6c42a14374912db827c84db9344ac4c6c5e754cc2389a30a8a3bacc",
+      "phases": {
+        "garage-day": {
+          "n": 240,
+          "mean": {
+            "update_ms": 7.9733,
+            "vehicles_included_ms": 2.045,
+            "submit_ms": 37.1031,
+            "finish_ms": 1.0169,
+            "present_ms": 12.2028,
+            "total_ms": 58.2961,
+            "bounds_included_ms": 4.4,
+            "prepare_included_ms": 3.0041,
+            "dispatch_included_ms": 21.8164,
+            "packet_included_ms": 3.0235,
+            "dma_included_ms": 2.7073,
+            "vif_wait_included_ms": 7.7881,
+            "flushes": 156.0,
+            "triangles": 25650.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 46.0933,
+          "work_p95_ms": 59.5625,
+          "fps_median": 16.964
+        },
+        "garage-night": {
+          "n": 240,
+          "mean": {
+            "update_ms": 8.4683,
+            "vehicles_included_ms": 2.0485,
+            "submit_ms": 43.3962,
+            "finish_ms": 1.5489,
+            "present_ms": 10.4645,
+            "total_ms": 63.8778,
+            "bounds_included_ms": 5.4396,
+            "prepare_included_ms": 4.8337,
+            "dispatch_included_ms": 23.1128,
+            "packet_included_ms": 3.2325,
+            "dma_included_ms": 3.2341,
+            "vif_wait_included_ms": 7.6408,
+            "flushes": 184.5,
+            "triangles": 26324.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 53.4133,
+          "work_p95_ms": 67.0392,
+          "fps_median": 16.036
+        },
+        "outer-day": {
+          "n": 240,
+          "mean": {
+            "update_ms": 7.9488,
+            "vehicles_included_ms": 2.0424,
+            "submit_ms": 15.7852,
+            "finish_ms": 1.01,
+            "present_ms": 13.5466,
+            "total_ms": 38.2906,
+            "bounds_included_ms": 2.2065,
+            "prepare_included_ms": 1.1156,
+            "dispatch_included_ms": 10.2713,
+            "packet_included_ms": 1.4308,
+            "dma_included_ms": 1.1297,
+            "vif_wait_included_ms": 3.9468,
+            "flushes": 65.0,
+            "triangles": 12154.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 24.744,
+          "work_p95_ms": 36.0862,
+          "fps_median": 28.311999999999998
+        },
+        "outer-night": {
+          "n": 240,
+          "mean": {
+            "update_ms": 8.3851,
+            "vehicles_included_ms": 2.0527,
+            "submit_ms": 18.3852,
+            "finish_ms": 1.5305,
+            "present_ms": 14.8284,
+            "total_ms": 43.1293,
+            "bounds_included_ms": 2.8827,
+            "prepare_included_ms": 1.6676,
+            "dispatch_included_ms": 10.4668,
+            "packet_included_ms": 1.4787,
+            "dma_included_ms": 1.1908,
+            "vif_wait_included_ms": 3.8825,
+            "flushes": 69.0,
+            "triangles": 12488.5,
+            "uploads": 0.0,
+            "reuploads": 0.0
+          },
+          "work_mean_ms": 28.3008,
+          "work_p95_ms": 40.4848,
+          "fps_median": 23.1485
+        }
+      }
+    }
+  }
+}

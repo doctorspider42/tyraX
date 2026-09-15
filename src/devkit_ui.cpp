@@ -8,6 +8,7 @@
 // -------------------------------------------------------------------------
 #include "app.hpp"
 #include "app_internal.hpp"
+#include "hardware_timeline.hpp"
 
 #include <algorithm>
 #include <cfloat>
@@ -1211,7 +1212,15 @@ void App::livedbgTick() {
 
     // The game is "there" while its snapshots keep arriving. A halted game
     // still flushes (its loop keeps running), so silence means gone, not paused.
-    const bool reporting = dbgSnapTime_ > 0.0 && now - dbgSnapTime_ < 2.0;
+    // Allow several report intervals at the observed game rate. A deliberately
+    // slow report channel must not look like a crash every two seconds.
+    const double reportFps = dbgSnap_.stats.fpsX10 > 0
+                                 ? dbgSnap_.stats.fpsX10 / 10.0
+                                 : std::max(1, dbgSnap_.stats.fps);
+    const int reportFrames = project_.settings.liveDebugSnapshotFrames > 0
+                                 ? project_.settings.liveDebugSnapshotFrames : 25;
+    const double silenceLimit = std::max(2.0, 1.0 + 3.0 * reportFrames / reportFps);
+    const bool reporting = dbgSnapTime_ > 0.0 && now - dbgSnapTime_ < silenceLimit;
     // A game that WAS reporting and stopped, with no crash report and no
     // assertion, is a hang (or an exception nobody caught): the devkit
     // heartbeat is the only witness. Remember where it died - the fire history,
@@ -1470,10 +1479,8 @@ std::string App::dbgSilenceReason() const {
     if (dbgState_ == DbgState::Off || dbgState_ == DbgState::NoBuild) return {};
     if (dbgSnapFileAge_ < 0.0)
         return "Nothing is reporting yet - Build & Run (F5 / F6).";
-    // The game rewrites this every 6 frames locally and every 25 over ps2link
-    // - about 0.5 s either way at a healthy frame rate. Several seconds of
-    // silence is a dead channel, not a slow one; a collapsed frame rate makes
-    // it late, never absent.
+    // Running/Waiting already accounts for the configured report interval and
+    // observed frame rate in livedbgTick. File age adds transport context here.
     const double age = dbgSnapFileAge_;
     std::string when;
     if (age < 90.0)
@@ -2327,6 +2334,11 @@ void App::drawDebuggerWindow() {
             ImGui::Text("%d objects: %d active, %d visible", st.objects,
                         st.objActive, st.objVisible);
         }
+        ImGui::EndTabItem();
+    }
+
+    if (ImGui::BeginTabItem("Hardware timeline")) {
+        hardware_timeline::draw(project_.dir);
         ImGui::EndTabItem();
     }
 

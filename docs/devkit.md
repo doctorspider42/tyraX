@@ -8,6 +8,55 @@ the devkit completely.
 Enable individual channels in **Project > Preferences > Build**. Most need a
 game launched with **Build & Run** (`F5`) or **Run on PS2** (`F6`).
 
+## Choosing the work and frequency
+
+![Devkit frequency settings](img/devkit-frequency.png)
+
+The channel checkboxes select what the game actually includes. Disable Live
+Link when not editing the scene/textures, Live Logic when not patching graphs,
+Time Machine when not rewinding, and Remote Pad when using a physical pad.
+Keep Live Debugger for frame statistics, watches, breakpoints and captures.
+The input recorder remains a separate opt-in channel.
+
+**Devkit frequency** in the same Build tab provides five independent overrides:
+
+| Setting | Work scheduled |
+|---|---|
+| Live Link / textures interval | Scene-edit and painted-texture command reads |
+| Live Logic interval | Graph patch reads; graph execution still runs every update |
+| Debugger commands interval | Breakpoints, stop/step and capture request reads |
+| Debugger reports interval | Snapshot writes with statistics and watched history |
+| Time machine interval | Restore request reads and state capture writes |
+
+Values are game updates: **0 = existing platform defaults**, 1 = every update,
+up to 120. Missing fields in older projects mean 0. Changes require rebuilding
+the game. At 50 FPS, 50 updates take one second; at 16 FPS, about three seconds.
+Increasing an interval trades response latency or history density for fewer
+host filesystem operations. It does not disable per-node counters, per-update
+watch sampling or graph execution; disable the corresponding channel to remove
+that work. Longer report gaps can overwrite older entries in bounded history
+rings before the editor receives them.
+
+Automatic intervals remain 6 updates locally and 25 over ps2link for Link,
+Logic and debugger I/O; Time Machine retains its platform defaults. The initial
+poll phases stay staggered. Paused debugger command polling is capped at two
+loop ticks and forced reports still bypass the report interval. The editor's
+missing-heartbeat tolerance scales with the configured report interval and
+reported FPS. Remote Pad polling and input recording/playback keep their
+existing timing; these controls must not make a held button lag or lose frames.
+
+For a lighter hardware session, try Link/Logic/Time Machine at 100, debugger
+commands at 25 and reports at 50, then disable the unused channels. This is a
+starting configuration, not a measured FPS guarantee. No extra polling channel
+is introduced, and release builds still omit all these runtimes.
+
+Verified for 1.90.0 on Windows: settings save/reopen and range clamping,
+Preferences editing, automatic/custom/disabled/release code generation, native
+game build, and PCSX2 plus physical PS2 runtime checks. With reports set to 50,
+successive snapshot frame ids differed by exactly 50 on both. Physical PS2
+halt/one-step/resume succeeded (step and resume about 0.15 s), and frame capture
+worked. This is functional validation, not a measured performance improvement.
+
 ## Release builds stay clean
 
 Devkit code is generated only for the debug profile. A release build removes
@@ -323,3 +372,9 @@ Do not chain a failed marker write into an execee command. In PowerShell use
 directory already ending in `bin` must not receive another relative `bin/`.
 Also stop an emulator serving the same project before hardware captures: its
 fresh `livedbg.bin`/`frame.tga` can otherwise disguise a disconnected console.
+
+## Native hardware timeline
+
+**Debugger > Hardware timeline** reads bounded engine captures without extra
+polling: arm the next boot, load the completed CSV, choose a frame and zoom.
+See [hardware profiler](hardware-profiler.md) for limits and HTML/Perfetto export.

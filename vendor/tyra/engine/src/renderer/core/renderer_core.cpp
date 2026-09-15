@@ -11,6 +11,7 @@
 #include "math/math.hpp"
 
 #include <math.h>
+#include "debug/hardware_trace.hpp"
 #include "renderer/core/renderer_core.hpp"
 #include "thread/threading.hpp"
 #include "debug/debug.hpp"
@@ -385,6 +386,7 @@ void RendererCore::beginFrameStamp() {
 }
 
 void RendererCore::endFrame() {
+  HardwareTrace::Scope traceEnd("EndFrame");
   Threading::switchThread();
   // The dynamic pipeline kicks the scene on PATH1/VU1 asynchronously (double
   // buffered - sendPacket() returns while the DMA is still draining). PostFx
@@ -397,7 +399,7 @@ void RendererCore::endFrame() {
   // that - e.g. the pure-2D loading screen - there is nothing on PATH1 to
   // drain and the draw-finish handshake would spin forever waiting for a
   // FINISH that VU1 can't deliver yet.
-  applyPostFx();
+  { HardwareTrace::Scope trace("PostFx"); applyPostFx(); }
 #if TYRA_FRAME_PROFILE
   // THE FAIRNESS FENCE (inc/debug/frame_profile.hpp, tDrain). One guarded
   // drain, at one point, in BOTH arms - a BLSS frame is already serialised by
@@ -428,6 +430,7 @@ void RendererCore::endFrame() {
   // presenting, and an overrunning frame costs one late field instead of an
   // idle one.
   {  // Modified by TyraX: everything below is STALL, not the frame's cost.
+    HardwareTrace::Scope trace("Present");
     u32 t0, t1;
     __asm__ volatile("mfc0 %0, $9" : "=r"(t0));
     if (gs.getFrameBufferCount() < 3) {
@@ -454,6 +457,7 @@ bool RendererCore::presentWarpFrame(const WarpCamera& from,
   // warped frame. Deliberately no beginFrame either - the warp covers every
   // pixel, so the clear would only be work.
   {  // Modified by TyraX: the synthesised frame's present is stall too.
+    HardwareTrace::Scope trace("Present");
     u32 t0, t1;
     __asm__ volatile("mfc0 %0, $9" : "=r"(t0));
     if (gs.getFrameBufferCount() < 3) {

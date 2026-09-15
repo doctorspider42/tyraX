@@ -2341,3 +2341,43 @@ phases and object draws only while armed, and writes `bin/rendercost.txt`.
 `devkit_ui.cpp` owns the Render cost tab and baseline; `main.cpp` exposes
 `--profile-frame`. Keep generated on/off hook declarations paired. Captures
 serialize asynchronous rendering; their total is not normal frame time.
+
+## Configurable devkit cadence (1.90.0)
+
+ProjectSettings stores liveLinkPollFrames, liveLogicPollFrames,
+liveDebugPollFrames, liveDebugSnapshotFrames and timeMachineFrames. Each is
+0 (platform defaults) or 1..120 game updates; format 54 is additive. Keep model,
+equality, settings serialization, Preferences and templates in sync. Link also
+controls texture polling. Command/report cadence never gates graph execution,
+watch sampling, Remote Pad or replay input. Halted debugger commands use two
+loop ticks, forced reports bypass cadence, and devkit_ui.cpp scales heartbeat
+silence tolerance with reports/FPS. See docs/devkit.md.
+
+## Hardware timeline capture
+
+Use tools/hardware-trace.py arm PROJECT before a boot, then export the complete
+bin/hardware-trace.csv to HTML/Perfetto. The engine captures bounded RAM events
+without new drains and writes after sampling. Scope totals overlap; VIF1 DMA
+wait is not VU1 execution, and VIF/GIF snapshots are not utilization. Compare
+unarmed/armed controls and reject dropped or stale events. See
+docs/hardware-profiler.md for start-frame semantics and capture limits.
+
+### Native hardware timeline (1.92)
+
+`src/hardware_timeline.cpp` reads the same bounded CSV as the offline exporter.
+Debugger > Hardware timeline arms the next boot and loads completed captures on
+demand, with frame selection, zoom, raw marker tooltips and inclusive totals.
+No browser, Python or extra debugger polling is required. Engine detail scopes
+separate package creation/classification, qbuffer copies and packet construction.
+See `docs/hardware-profiler.md`; use unarmed controls to rank performance.
+
+### Static object submission scopes (1.93)
+
+The generated main Objects loop opens a StaPip submission batch around owned
+per-object geometry. End and reopen around reflected-object probe rendering
+and serialized per-object cost measurements, then end before the outer Objects
+timing boundary and later passes. Do not move already-submitted stream writes
+or external GS/view operations into the scope. End submits asynchronously;
+streams remain immutable through the next VIF1 synchronization. Game-overridden
+programs, clipping/copy paths, large bags and nonresident/non-REPEAT textures
+retain immediate submission. See docs/static-submission-batching.md.

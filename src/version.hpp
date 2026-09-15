@@ -16,6 +16,21 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.93.0: explicit resident static submission batches in generated object draws.
+// No project format change.
+//
+// 1.92.0: native hardware timeline and detailed static submission scopes.
+// No project format change.
+//
+// 1.91.0: bounded physical PS2 hardware timelines and offline HTML/Perfetto export.
+// No project format change.
+//
+// 1.90.0: configurable per-channel devkit cadence and indexed engine bounds
+// lookup. Format 54 adds cadence fields; the bounds cache API is unchanged.
+//
+// 1.89.1: lean Motor District vehicle assets and isolated frame-cost measurement.
+// No engine behavior or project format change.
+//
 // 1.89.0: merge the vehicle/road branch with main's adaptive plain BLSS budget
 // and spatial static-part batching. The tree now carries features neither
 // parent had alone, so the MINOR goes above both rather than picking a side.
@@ -3971,7 +3986,7 @@
 // 1.86.0: merge baked shadow decals with main's render-cost table and
 // object-group line.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 89
+#define TYRAX_VERSION_MINOR 93
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -4335,7 +4350,8 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // additive - no migration step. Main published this as v47; this branch had
 // already claimed v47..v52, so the LATER arrival renumbers - the same rule the
 // v51 and v52 entries above were written under.
-inline constexpr int kFormatVersion = 53;
+// v54: five devkit cadence overrides; missing values retain platform defaults.
+inline constexpr int kFormatVersion = 54;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

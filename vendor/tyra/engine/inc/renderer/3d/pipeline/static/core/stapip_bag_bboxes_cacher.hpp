@@ -8,7 +8,8 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 */
 
-// Modified by TyraX: version-aware entries. A bag whose vertex buffer
+// Modified by TyraX: version-aware entries and a bounded hash index. A bag
+// whose vertex buffer
 // is rewritten in place (skinned meshes, particles) bumps its bboxVersion;
 // the cacher recomputes that entry instead of piling up a new one per frame
 // (250-frame retention made per-frame versions leak entries and allocations).
@@ -29,6 +30,7 @@ struct StapipBagBBoxesCacheItem {
   u32 version;  // bag's bboxVersion at computation time
   std::unique_ptr<StaPipBagPackagesBBox> bboxes;
   int framesLeftToDestroy;
+  int nextInBucket;
 };
 
 class StapipBagBBoxesCacher {
@@ -46,9 +48,14 @@ class StapipBagBBoxesCacher {
                                    const u32& maxVertCount);
 
  private:
+  static const u32 indexBucketCount = 256;
+
   StapipBagBBoxesCacheItem* getCache(const u32& maxVertCount, const u32& id);
+  u32 getBucket(const u32& maxVertCount, const u32& id) const;
+  void rebuildIndex();
 
   std::vector<StapipBagBBoxesCacheItem> storage;
+  int indexBuckets[indexBucketCount];
 };
 
 }  // namespace Tyra

@@ -269,14 +269,16 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   picture and the GS scissor crops it, so only near-plane crossings pay for a
   real cut.
 - The in-game [frame profiler](docs/profiling.md).
+- [Static submission batching](docs/static-submission-batching.md) combines resident object draws while preserving draw order and texture lifetimes.
+- A [physical PS2 timeline](docs/hardware-profiler.md) in the editor and HTML/Perfetto, with EE scopes, DMA waits and pipeline-state snapshots.
 - [On-demand render costs](docs/profiling.md#on-demand-render-cost-178): debugger phase/object timings, sortable by name, cost or delta, with baseline comparison and CSV export on PCSX2 and PS2.
 - The [VU framework](docs/vu-framework.md): describe a microprogram in C++,
   generate both sides of it and run it in a host simulator with no PS2 —
   and [compose VU1 programs out of stages](docs/vu-authoring.md), or write a
   VU0 compute kernel, with no assembly.
 
-**Iterating on a running game** — the [devkit](docs/devkit.md), and a release
-build that provably carries none of it
+**Iterating on a running game** — the [devkit](docs/devkit.md) with per-channel
+polling/report intervals, and a release build that provably carries none of it
 
 - **Build & Run** in PCSX2 (`F5`), or on a
   [real PS2 over ethernet](docs/ps2link-setup.md) (`F6`).

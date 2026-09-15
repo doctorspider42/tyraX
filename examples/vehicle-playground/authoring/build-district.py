@@ -255,6 +255,11 @@ add('Tristar Racer - test drive', 'vehicle', (-8,.31,-22), shadowMode=2,
     vehicle={'def':'Tristar Racer','driveable':True})
 
 for v in p['vehicles']:
+    # Close-up PS2 budgets, inspected in the running game. Rally is already tiny.
+    if v['name'] == 'CC96':
+        v.update(bodyTris=1200, wheelTris=480)
+    elif v['name'] == 'Tristar Racer':
+        v.update(model='res/models/tristar-lean.glb', bodyTris=1200, wheelTris=700)
     v['bodyReflMap'] = ''  # actual sky + opted-in scene geometry
     v['bodyShine'] = .45 if v['name']=='CC96' else .35
     v['farDistance'] = 48

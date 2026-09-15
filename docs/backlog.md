@@ -6,6 +6,25 @@ relevant guide or developer skill.
 
 ## Motor District follow-up after the integrated frozen-camera pass
 
+The September 14 asset pass and physical PS2 attribution are recorded in the
+[example README](../examples/vehicle-playground/README.md#lean-vehicles-2026-09-14).
+Lean CC96/Tristar geometry and configurable devkit cadence are complete. Next
+experiments should separately reduce repeated bounds/preparation and submission,
+using the saved native-raster hardware CSVs as the reference. Do not treat
+disabled debug channels as a renderer improvement or mix adaptive BLSS into
+this asset comparison. The indexed-bounds-cache step is complete: the hardware
+bounds bucket fell about 30%, with whole-frame improvement in the day views
+but roughly neutral night results. See the work plan's raw evidence and limits.
+The multi-entry transform experiment was rejected; see
+[its measurements](performance-transform-reuse.md). Bounded resident static
+submission batching is the next completed step; see
+[the physical comparison](static-submission-batching.md). Next test persistent
+static geometry preparation/command data, measuring package creation and
+packet construction separately with exact geometry and view invalidation.
+Keep partially clipped geometry on the current path initially. Road changes
+remain deferred; 50 FPS still requires a much larger reduction in whole-frame
+work than submission batching alone.
+
 The `1ce38d2b` baseline and integrated `af8e6762` were measured in PAL
 software-renderer frozen parked views with no competing builds or benchmark
 emulators. Garage day/night moved 25.00 / 20.37 FPS to 25.00 / 25.00; outer
@@ -843,6 +862,17 @@ whole-box projection, tile count and part stride on the host; enable both twins
 in one change and re-run parity plus performance measurements. See
 [BLSS reconstruction](blss-reconstruction.md).
 
+### Attribute hardware pipeline stalls before further micro-optimizations
+
+The [hardware timeline](hardware-profiler.md) and seven
+[physical controls](hardware-profiler-results.md) are complete. Raster-area
+suppression saves little; host I/O costs roughly 5 ms, and EE-side static
+submission remains expensive. Next split Dispatch into package classification,
+copies and packet assembly, then select a retained representation with explicit
+DMA ownership. VIF1 DMA wait is not a VU1 execution timer; no exact hardware
+utilization percentage is claimed. The transform-cache and DMA clip-table
+candidates still do not earn integration.
+
 ### Cache static packet templates only after proving packet lifetime
 
 Static geometry, transforms and bounds are already cached, and compact model
@@ -1010,3 +1040,11 @@ in PCSX2, with identical geometry and full-rate animation.
 - Impostor follow-up: measure cold versus warm batch GPU capture time and consider
   background batch baking. Configurable 4/8/16 views and optional GPU capture
   with CPU fallback are implemented; see [impostors](impostors.md).
+
+### Hardware timeline follow-up (1.92)
+
+Native editor viewing and finer package/classification/copy/packet scopes are
+implemented. The bounded same-range classification reuse trial was rejected: no
+convincing submission-time gain on physical PS2. Larger submission scheduling
+changes remain open; do not treat this as a shipped engine speedup. See
+[hardware profiler results](hardware-profiler-results.md).
