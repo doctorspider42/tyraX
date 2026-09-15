@@ -29,9 +29,10 @@ namespace Tyra {
 //
 // It lives entirely in this .cpp and adds NO field to any header, so the
 // struct layouts are identical in both build profiles and the whole thing
-// compiles to nothing under NDEBUG - the devkit zero-cost rule
+// compiles to nothing with TYRA_VRAM_CENSUS at 0 - the devkit zero-cost
+// rule. It is deliberately NOT keyed to NDEBUG: this engine never defines it
 // (docs/devkit.md) applies to the instrument as much as to the devkit.
-#ifndef NDEBUG
+#if TYRA_VRAM_CENSUS
 namespace {
 
 struct VRamCensusName {
@@ -149,7 +150,7 @@ RendererCoreTextureBuffers RendererCoreTexture::useTexture(
 
   auto newTexBuffer = sender.allocate(t_tex);
   newTexBuffer.lastUsedSeq = useSeq;
-#ifndef NDEBUG
+#if TYRA_VRAM_CENSUS
   censusRemember(t_tex);  // Modified by TyraX: see the census block above.
 #endif
   path3->sendTexture(t_tex, newTexBuffer);
@@ -245,7 +246,7 @@ void RendererCoreTexture::makeRoomFor(const Texture* t_tex) {
          !gs->vram.canAllocatePair(coreWords, clutWords)) {
     const int victim = pickVictim();
     if (victim < 0) break;
-#ifndef NDEBUG
+#if TYRA_VRAM_CENSUS
     // Modified by TyraX: name the victim and what it was given up for.
     if (censusEvicts.size() < 32) {
       int vw = gs->vram.getAllocationWords(
@@ -291,7 +292,7 @@ void RendererCoreTexture::traceFrame() {
   const bool evicted = stats.evictions != lastLoggedEvictions;
   const bool summary = (frameCounter % 120) == 0;
 #if TYRA_VRAM_CENSUS
-  // Modified by TyraX: OPT-IN, and it has to be. `#ifndef NDEBUG` looked like
+  // Modified by TyraX: OPT-IN, and it has to be. `#if TYRA_VRAM_CENSUS` looked like
   // the devkit rule and is not: the engine's own Makefile defines NDEBUG for
   // one target only, so the native build never defines it and the census
   // shipped live in a RELEASE-profile game. Measured on a physical console it
