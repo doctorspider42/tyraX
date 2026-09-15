@@ -211,16 +211,40 @@ solve for the routing mix (about 39% unlit in garage day, ~0% in garage night)
 before quoting anything. The shipped shape is two whole loops with the lit one
 byte-for-byte the original, and it has not been on a console.
 
-## An unrelated finding worth its own work
+## A finding that turned out to be the fixture, and what it cost
 
-The garage poses record **12.17 texture re-uploads per frame** (day) and 5.75
-(night); the outer road records zero. The September 14 runs recorded zero
-everywhere. The game's own `VRAMSTAT` line explains it: `freeMB=0.048`,
-`largestKB=33`, and four evictions plus four re-uploads every frame. **GS VRAM is
-full in the garage and the scene thrashes it permanently.** Each re-upload is a
-PATH3 transfer plus the `dma_channel_wait(GIF)` the static pipeline performs
-before every send. This is not part of either budget above and was not chased
-here; see [gs-vram.md](gs-vram.md) for the instrument.
+The first arms on this page recorded **12.17 texture re-uploads per frame** in
+garage day and 5.75 at night, against zero on the outer road and zero everywhere
+in the September 14 runs, with `VRAMSTAT` reporting `freeMB=0.048`,
+`largestKB=33` and four evictions every frame. It was published here as a live
+finding and chased as one.
+
+**It was the fixture.** `benchmark-district.py` copies the example's *committed*
+generated sources, and those drift. Every fixture since regenerated with the
+editor under test records **0.000 re-uploads and no evictions in all four
+poses** — and 3.6 ms less garage-day submission, with the triangle count back on
+the September 14 reference exactly. The scene parked does not thrash GS VRAM.
+
+The chase was not wasted, and its result is worth keeping. The texture heap is
+**196,608 words (0.75 MB)**, not the ~1.08 MB the docs assumed — at PAL 512x512
+32-bit the two frame buffers and z take 786,432 words of the 4 MB before any
+texture loads. The garage holds 84% of what is left in 27 allocations, and
+**one car body texture is a third of the heap**: `vehbake` writes the `.glb`'s
+embedded PNG straight into `.res-baked/vehicles/`, a directory texbake's sweep
+skips, so a project set to 4-bit silently shipped a 256x256 RGBA32 car. Opening
+the pause menu over that state reproduces the cliff exactly — 40,960 words
+against 31,168 free.
+
+Quantizing it is a real fix for a scene near that cliff, and it is **not** a free
+win: measured here it costs 0.51-0.74 ms of work on every pose, all of it in the
+`finish` bucket, because a PSMT4 body with a CLUT costs more to sample than the
+32-bit one it replaced. It belongs behind the project's own texture settings, not
+applied unconditionally. See [gs-vram.md](gs-vram.md) for the residency census
+that made any of this answerable.
+
+**The rule this leaves behind: a performance fixture built from committed
+generated sources is measuring a different game.** Regenerate with the editor
+under test before believing any absolute number from one.
 
 ## What the first VU1 reduction actually bought, and where it moved the limiter
 
