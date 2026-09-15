@@ -4063,8 +4063,9 @@
 // 1.86.0: merge baked shadow decals with main's render-cost table and
 // object-group line.
 // 1.98.0: the GS VRAM instrument names what is resident (VRAMRES/VRAMEVICT).
+// 1.99.0: vehicle body textures obey the project's texture depth.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 98
+#define TYRAX_VERSION_MINOR 99
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

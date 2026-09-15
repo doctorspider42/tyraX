@@ -330,6 +330,19 @@ std::vector<unsigned char> quantizePreviewRGBA(
 
 bool quantizeRGBA(const std::string& dstPath, const unsigned char* pixels, int w,
                   int h, int colors, std::string& error) {
+    std::vector<unsigned char> bytes;
+    if (!quantizeRGBAToMemory(bytes, pixels, w, h, colors, error)) return false;
+    std::ofstream f(dstPath, std::ios::binary | std::ios::trunc);
+    if (!f || !f.write((const char*)bytes.data(), (std::streamsize)bytes.size())) {
+        error = "cannot write " + dstPath;
+        return false;
+    }
+    return true;
+}
+
+bool quantizeRGBAToMemory(std::vector<unsigned char>& result,
+                          const unsigned char* pixels, int w, int h, int colors,
+                          std::string& error) {
     if (colors != 16 && colors != 256) {
         error = "palette size must be 16 or 256";
         return false;
@@ -457,11 +470,7 @@ bool quantizeRGBA(const std::string& dstPath, const unsigned char* pixels, int w
     free(deflated);  // stbi_zlib_compress allocates with malloc
     putChunk(out, "IEND", nullptr, 0);
 
-    std::ofstream f(dstPath, std::ios::binary | std::ios::trunc);
-    if (!f || !f.write((const char*)out.data(), (std::streamsize)out.size())) {
-        error = "cannot write " + dstPath;
-        return false;
-    }
+    result.assign(out.begin(), out.end());
     return true;
 }
 

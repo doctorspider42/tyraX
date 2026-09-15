@@ -526,22 +526,39 @@ circumstantial.
 
 ### Where the next 200 KB would come from, if it is ever needed
 
-Three levers, in order of how cheap they are, and all three are **authoring**
-decisions rather than engine ones:
+Four levers, all of them **authoring** decisions rather than engine ones — and
+read the warning under the table before treating any palettization as free:
 
+- **The vehicle body textures** (71 552 words). They bypass `textureQuant`
+  entirely, so a 4-bit project ships a 32-bit car; fixing that is
+  [vehicles.md](vehicles.md), "The body texture obeys the project's depth".
+- **`menus/` follows its stylesheet's own `quant`**, which defaults to none. The
+  district's pause menu is 40 960 words at 32-bit against 5 248 at 4-bit, and it
+  is the allocation that walks this scene off the cliff. One line of a
+  stylesheet.
 - **`res/hud/` is never palettized** (57 344 words resident here, and
   `hud/save-busy.png` alone is another 65 536 the moment a save runs). That is
   deliberate — smooth alpha gradients are what palettes are worst at, and the
   flashlight's corona would band. But `icons.png` and `loading.png` are flat
   artwork, and a per-file override in the *Texture quality* map already exists.
-- **`menus/` follows its stylesheet's own `quant`**, which defaults to none. The
-  district's pause menu is 40 960 words at 32-bit against 5 248 at 4-bit. This is
-  the single cheapest change available and it is one line of a stylesheet.
 - **`palFullHeight`** costs **98 304 words (384 KB) of texture heap** against
   plain PAL 512×448 — half the heap again, for 64 more scan lines. And 16-bit
   colour would hand back 458 752 words, which would end this conversation
   permanently at the price of the depth precision the colour-depth section
   above prices in world units.
+
+> **Palettizing is not free, and the first three levers above are all
+> palettization.** Measured on a physical PS2, taking the vehicle-texture lever
+> alone cost **+0.51 to +0.74 ms of work per pose** on this scene — which has
+> 0.119 MB free and evicts nothing, so the VRAM it bought relieved nothing and
+> the whole delta was bill. More awkwardly, the `finish` rise showed up on poses
+> whose frames are **byte-identical between the arms**, i.e. where no changed
+> texel is sampled at all; the live hypothesis is that shrinking an allocation
+> moves every address after it and changes GS texture-cache behaviour
+> scene-wide. If that is right it applies to **every** entry above, so price a
+> lever before spending it. The fourth one is the exception: `palFullHeight`
+> changes no texture's format and no texture's address — it changes the heap
+> floor — so on this evidence it is the cheapest 384 KB on the list.
 
 ## Measured behaviour
 

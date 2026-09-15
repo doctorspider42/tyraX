@@ -856,7 +856,100 @@ long as parsing that many `.fbx` files takes.
 Everything the bake produces (`-body.tmdl`, `-wheel.tmdl`, `-palette.png`) is
 written under `.res-baked/vehicles/` with the other derived artifacts, content-
 compared before writing so a settled slider does not hand the build a fresh
-mtime. The viewport is handed the **in-memory** bake rather than re-reading
+mtime.
+
+## The body texture obeys the project's depth — and what that costs
+
+A textured car's image comes out of the `.glb`/`.fbx` as embedded PNG bytes and
+is written straight into `.res-baked/vehicles/` — a directory with no `res/`
+source, which is exactly why texbake's sweep skips it, and equally why texbake's
+**quantizer** never saw it. So a project set to 4-bit shipped a 32-bit car,
+silently, with no line in any log to say so. On the Motor District that was one
+256×256 RGBA32 image holding **a third of the whole GS texture heap** — more
+than four times what every building, tree and wall in the district cost together
+([gs-vram.md](gs-vram.md), "What the Motor District garage is made of").
+
+`vehbake::bakeProject` now runs the same median cut texbake does, through
+`pngquant::quantizeRGBAToMemory` — the in-memory twin, because the bake
+content-compares before writing and quantizing a file it has already written
+would hand the compiler a fresh mtime every build. Refusal is graceful in two
+ways, each shipping the original bytes and logging why: an unreadable image, and
+a size the quantizer will not take (4-bit needs an even width). The colour
+**palette strip** is exempt — it is a ramp the runtime indexes into, and folding
+it to 16 entries would fold the colours themselves.
+
+**There is deliberately no "is the palettized file smaller" guard, and the first
+draft's was a real bug.** GS cost is the pixel format, not the file: a 256×256
+PSMT4 image occupies 8 256 words against PSMCT32's 65 536 however either one
+deflates. The Tristar's skin is flat colour that PNG compresses to 4 KB, and
+Floyd-Steinberg dithering makes the palettized copy deflate *worse* — so a
+file-size test rejected precisely the texture that was eating a third of the
+heap, and logged a sentence that sounded sensible while doing it.
+
+### It buys VRAM and it costs GS time
+
+**This is a trade, and it is gated on the project's own `textureQuant` for that
+reason**: a project that has not asked to palettize its models does not get its
+cars palettized either.
+
+What it buys, at the project's own `4bit`:
+
+| | before | after | back to the heap |
+|---|---:|---:|---:|
+| `veh-tristarplay01-palette-image-0.png` | 65 536 | 8 256 | **57 280** |
+| `veh-ggbotrally0001-palette-image-0.png` | 16 384 | 2 112 | **14 272** |
+| Motor District garage working set | 165 440 | 93 888 | |
+
+and on the emulator, free heap goes 0.119 → 0.392 MB and the largest free block
+121 → 401 KB (garage night and both outer-road poses; garage day 0.181 → 0.454).
+The pause menu that took the unfixed build to eight evictions and
+`freeMB=0.0483` then opens with **four more allocations resident and 0.234 MB
+still free, evicting nothing**.
+
+What it costs, measured on a **physical PS2** against the arm immediately before
+it, same fixture, four poses — `work` is update + submission + finish:
+
+| pose | before | after | delta |
+|---|---:|---:|---:|
+| garage day | 33.449 | 34.184 | **+0.735** |
+| garage night | 40.994 | 41.551 | **+0.557** |
+| outer day | 13.930 | 14.468 | **+0.538** |
+| outer night | 16.992 | 17.503 | **+0.511** |
+
+`finish_ms` rose on every pose (1.038 → 1.181 garage day, 1.052 → 1.205 outer
+day) while submission moved much less and the VIF1 wait not at all. **On the
+Motor District this is a pure loss**: the scene evicts nothing parked, so the
+280 KB it buys relieves nothing, and the only thing left is the bill. Take this
+change where the heap is tight; do not take it as a default.
+
+### Where the time goes is NOT settled, and one row says so
+
+The obvious reading is that a PSMT4 body with a CLUT costs the GS more to sample
+than the 32-bit one it replaced. That explains the garage rows. **It does not
+explain the outer-road rows, and those are the ones to think about.**
+
+At the outer-road pose the two arms' frames are **byte-identical** (three
+`--capture-frame` captures per arm, md5 equal; the day poses are frozen, the
+night ones flicker and are not comparable). No changed texel is sampled there at
+all — the cars are either out of shot or drawn through the far tier's unquantized
+palette ramp. Yet `finish` rose **+0.153 ms** on that pose, the largest of the
+four. A texture nobody sampled cannot cost sampling time.
+
+What changed scene-wide is the **VRAM layout**: the body texture shrank by
+57 280 words, so every allocation placed after it sits at a different address,
+and GS texture-cache behaviour is page-indexed. That is the hypothesis this
+evidence actually supports, and it would apply to *any* change that moves
+texture addresses — including the pause-menu palettization suggested in
+[backlog.md](backlog.md), which is worth knowing before taking that one on the
+assumption that it is free.
+
+The decisive arm is cheap and has not been run: **quantize the images but pad
+the allocations back to their old size** (ship the 4-bit image at a dimension
+that spans the same words, or add a temporary pad in `getSize`). If `finish`
+still rises with the addresses restored, it is not the layout; if it does not
+rise, it was never the sampling. An 8-bit arm (PSMT8, a 256-entry CLUT, a third
+size) is a useful second point: sampling cost and layout cost order differently
+across it. The viewport is handed the **in-memory** bake rather than re-reading
 those files: one bake, and no host-side `.tmdl` reader that would have to agree
 with it.
 

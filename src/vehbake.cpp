@@ -11,7 +11,9 @@
 
 #include "fbxparser.hpp"  // animimport::parseSkel - .glb and .fbx alike
 #include "meshlod.hpp"
+#include "pngquant.hpp"
 
+#include <stb_image.h>
 #include <stb_image_write.h>  // implementation lives in menubake.cpp
 
 namespace vehbake {
@@ -919,6 +921,73 @@ bool adoptMeasured(VehicleDef& v, const Result& r) {
     return changed;
 }
 
+// Modified by TyraX: a vehicle's BODY TEXTURE is the one shipped image that
+// used to ignore the project's texture depth. Everything under res/models,
+// res/materials and res/textures goes through texbake's quantizer; these come
+// out of the .glb's embedded PNG bytes and are written straight into
+// .res-baked/vehicles/, a directory texbake deliberately does not sweep - so
+// a project set to 4-bit still shipped a 32-bit car.
+//
+// It is not a rounding error on a PS2. On the Motor District at Pal576i the
+// texture heap is 196 608 words, and the Tristar's 256x256 RGBA body texture
+// is 65 536 of them - ONE THIRD of the heap for one car, against 1 088 words
+// for each of the fourteen 4-bit building textures around it.
+//
+// IT IS A TRADE, NOT A FREE WIN, and it is gated on the project's own
+// textureQuant for exactly that reason: a project that has not asked to
+// palettize its models does not get its cars palettized either. Measured on a
+// physical PS2 on the Motor District, which has 0.119 MB of heap free and
+// evicts nothing parked, the same change costs +0.51 to +0.74 ms of work per
+// pose - the VRAM it buys is VRAM that scene was not short of. Take it where
+// the heap is tight; docs/vehicles.md, "The body texture obeys the project's
+// depth - and what that costs", has the numbers and the open question about
+// where the time actually goes.
+//
+// Refusal is graceful: anything the quantizer will not take (an unreadable
+// image, an odd width at 4-bit) ships the original bytes exactly as before,
+// and says why.
+static std::string quantizedTexture(
+    const std::string& png, const std::string& quant, const std::string& name,
+    const std::function<void(const std::string&)>& log) {
+    const int colors = quant == "8bit" ? 256 : quant == "4bit" ? 16 : 0;
+    if (colors == 0) return png;
+
+    int w = 0, h = 0, comp = 0;
+    unsigned char* px =
+        stbi_load_from_memory((const unsigned char*)png.data(), (int)png.size(),
+                              &w, &h, &comp, 4);
+    if (px == nullptr) {
+        if (log) log("[vehicle] " + name + ": unreadable texture - shipped as is");
+        return png;
+    }
+    std::vector<unsigned char> bytes;
+    std::string err;
+    const bool ok =
+        pngquant::quantizeRGBAToMemory(bytes, px, w, h, colors, err);
+    stbi_image_free(px);
+    if (!ok) {
+        if (log) log("[vehicle] " + name + ": " + err + " - shipped as is");
+        return png;
+    }
+    // NO file-size guard here, and the first draft's was a real bug. What
+    // costs GS VRAM is the PIXEL FORMAT, not the file: a 256x256 PSMT4 image
+    // occupies 8 256 words against PSMCT32's 65 536 however either one
+    // deflates. The Tristar's skin is flat colour that PNG compresses to 4 KB,
+    // and Floyd-Steinberg dithering makes the palettized copy deflate WORSE -
+    // so a "is the file smaller" test rejected precisely the texture that was
+    // eating a third of the heap, and logged a sentence that sounded sensible
+    // while doing it.
+    if (log) {
+        char buf[200];
+        std::snprintf(buf, sizeof(buf),
+                      "[vehicle] %s: %dx%d quantized to %s (%d -> %d bytes)",
+                      name.c_str(), w, h, quant.c_str(), (int)png.size(),
+                      (int)bytes.size());
+        log(buf);
+    }
+    return std::string((const char*)bytes.data(), bytes.size());
+}
+
 std::string bakeProject(Project& p,
                         const std::function<void(const std::string&)>& log) {
     namespace fs = std::filesystem;
@@ -969,8 +1038,17 @@ std::string bakeProject(Project& p,
         if (!r.palettePng.empty())
             put(bp.palette, std::string((const char*)r.palettePng.data(),
                                         r.palettePng.size()));
+        // The body texture follows the project's texture depth like every
+        // other model texture does (see quantizedTexture above). The colour
+        // PALETTE strip written just before this is deliberately NOT
+        // quantized: it is a 64x8 ramp of the body colours the runtime
+        // indexes into, and folding it to 16 entries would fold the colours
+        // themselves.
         for (const auto& texture : r.textures)
-            put(texture.path, std::string((const char*)texture.png.data(), texture.png.size()));
+            put(texture.path,
+                quantizedTexture(std::string((const char*)texture.png.data(),
+                                             texture.png.size()),
+                                 p.settings.textureQuant, v.name, log));
         adoptMeasured(v, r);
         if (log) {
             char buf[220];
