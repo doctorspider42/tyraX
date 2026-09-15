@@ -12,6 +12,7 @@
 
 #include <dma.h>
 #include <packet2_utils.h>
+#include <memory>
 #include <vector>
 #include "debug/debug.hpp"
 #include "math/m4x4.hpp"
@@ -27,7 +28,141 @@
 #include "renderer/core/renderer_core.hpp"
 #include "renderer/core/texture/renderer_core_texture_buffers.hpp"
 
+/**
+ * Modified by TyraX: retained static geometry COMMAND data
+ * (docs/retained-static-commands.md). Compile it out to get exactly the
+ * pre-1.96 packet construction back - that is the A/B control arm.
+ */
+#ifndef TYRA_STAPIP_RETAINED_COMMANDS
+#define TYRA_STAPIP_RETAINED_COMMANDS 1
+#endif
+
 namespace Tyra {
+
+#if TYRA_STAPIP_RETAINED_COMMANDS
+
+/**
+ * Modified by TyraX: one bag's retained VU1 command data.
+ *
+ * A wholly visible static bag hands VU1 the same DMA/VIF command block every
+ * frame: a CNT tag carrying the scale quadword and the prim GIFtag, then one
+ * DMA REF tag per vertex stream. None of it depends on the camera - the MVP,
+ * the picked light and the visibility classification are the per-frame half
+ * and stay per-frame. So the block is CAPTURED the first time it is built, out
+ * of the packet the ordinary builders just wrote it into, and replayed with a
+ * memcpy afterwards. Capturing rather than re-deriving is what makes the
+ * replay byte-identical by construction, for every program variant including
+ * a game-supplied one.
+ *
+ * Two properties make this safe, and any edit must keep both:
+ *
+ * - **The block is COPIED into the packet, never referenced by DMA.** Its REF
+ *   tags name the bag's own vertex arrays exactly as before, so this adds no
+ *   new DMA-lifetime exposure at all: the retained storage is EE-private and
+ *   the packet is as self-contained as it was. (The slot pool's lifetime rule
+ *   is untouched - a copied qbuffer never gets a retained block.)
+ * - **The key is every input the block encodes.** Stream pointers, vertex
+ *   count, package size, the bag's `bboxVersion`, the resolved VU1 program,
+ *   the prim state and the single-colour/strip flags. Anything that moves
+ *   rebuilds; a bag whose array was freed and reallocated elsewhere fails the
+ *   pointer compare, which is the case a version stamp alone would miss.
+ */
+struct StaPipRetainedEntry {
+  // The key. Compared as a whole; a mismatch discards the blocks.
+  const void* vertices;
+  const void* sts;
+  const void* colors;
+  const void* normals;
+  const void* program;
+  u32 count;
+  u32 maxVertCount;
+  u32 bboxVersion;
+  u32 primKey;
+  u32 depthScaleBits;
+  u8 singleColor;
+  u8 stripped;
+
+  /** Packages = ceil(count / maxVertCount). */
+  u16 packages;
+  /** Qwords per package block. 0 until the first capture. */
+  u16 blockQw;
+  /** packages * kMaxBlockQw quadwords; each package's block at its own slot. */
+  std::unique_ptr<qword_t[]> data;
+  /** One byte per package: has that block been captured yet? */
+  std::unique_ptr<u8[]> ready;
+
+  int framesLeftToDestroy;
+  int nextInBucket;
+};
+
+/**
+ * Modified by TyraX: the bag -> retained-block cache. Shaped like
+ * StapipBagBBoxesCacher on purpose - a 256-bucket index over vector indices
+ * (relocation-safe), a per-entry unused-frame countdown, and a compaction that
+ * rebuilds the index. What is different is the hard BYTE cap: a scene with
+ * more visible static geometry than the cap simply keeps rebuilding the bags
+ * that did not fit, which is slower and always correct.
+ */
+class StaPipRetainedCommands {
+ public:
+  /** At most this many qwords in one package block; a program that needs more
+   * is never retained. It is 3 for the scale/GIFtag group plus one DMA REF per
+   * vertex stream, so the fattest BUILT-IN class is 6 (position + ST + one of
+   * colours/normals) and this leaves one stream of headroom. Raising it costs
+   * capacity for every entry, not just the fat ones - a slot is reserved
+   * before the first capture measures the block. */
+  static const u16 kMaxBlockQw = 7;
+  /** ~128 KB of EE RAM, i.e. about 1170 VU1 packages - more than the Motor
+   * District garage submits in a frame. The cap is a hard budget, not a hint:
+   * when it binds, the least recently used entries are dropped to make room
+   * (bounded per frame, see kMaxEvictionsPerFrame). */
+  static const u32 kMaxQwords = 8192;
+  /** Same 5-second retention the bbox cacher uses. */
+  static const int kLifetimeFrames = 50 * 5;
+  /** How many entries one frame may drop to make room. Without a bound, a
+   * scene whose working set genuinely exceeds the cap would evict and
+   * re-capture the same bags every frame - strictly worse than simply not
+   * retaining them. With it, such a scene settles on the subset that fits. */
+  static const int kMaxEvictionsPerFrame = 8;
+
+  StaPipRetainedCommands();
+
+  void onFrameEnd();
+  void clear();
+
+  /**
+   * The entry for this bag, or nullptr when it cannot be retained (the cap is
+   * reached, or the bag has more packages than one entry may hold). A key
+   * mismatch invalidates in place rather than allocating a second entry.
+   */
+  StaPipRetainedEntry* acquire(const StaPipRetainedEntry& key);
+
+  u32 getBytes() const { return usedQwords * 16; }
+  u32 takeHits() { const u32 v = hits; hits = 0; return v; }
+  u32 takeBuilds() { const u32 v = builds; builds = 0; return v; }
+  void countHit() { ++hits; }
+  void countBuild() { ++builds; }
+
+ private:
+  static const u32 kBucketCount = 256;
+
+  u32 getBucket(const void* vertices, u32 maxVertCount) const;
+  void rebuildIndex();
+  /** Drop least-recently-used entries until `wanted` quadwords fit. Never
+   * takes an entry this frame has already touched, and never more than
+   * kMaxEvictionsPerFrame in one frame. */
+  bool evictFor(u32 wanted);
+  static bool keyMatches(const StaPipRetainedEntry& a,
+                         const StaPipRetainedEntry& b);
+
+  std::vector<StaPipRetainedEntry> storage;
+  int indexBuckets[kBucketCount];
+  u32 usedQwords = 0;
+  u32 hits = 0, builds = 0;
+  int evictionsThisFrame = 0;
+};
+
+#endif  // TYRA_STAPIP_RETAINED_COMMANDS
 
 class StaPipQBufferRenderer {
  public:
@@ -162,6 +297,27 @@ class StaPipQBufferRenderer {
 
   void clearLastProgramName();
 
+  /**
+   * Modified by TyraX: open the retained-command scope for one bag, right
+   * before its packages are submitted (so after setInfo - the prim state is
+   * part of the key). Returns true when this bag's cull-routed packages may
+   * carry a retain index; false means every package is built the old way.
+   *
+   * Only the CULL route is ever retained: a clip buffer's count word carries a
+   * plane mask that changes with the camera, and a copied or strip-expanded
+   * buffer points into the double-buffered slot pool, whose address is not a
+   * property of the bag.
+   */
+  bool beginRetainedBag(StaPipBag* bag, const u32& packageSize);
+  void endRetainedBag();
+
+  /** TyraX diagnostics: how many package command blocks were replayed from
+   * retained storage against how many were built, and how much EE RAM the
+   * cache holds. Reading the two counters clears them. */
+  u32 takeRetainedHits();
+  u32 takeRetainedBuilds();
+  u32 getRetainedBytes() const;
+
   StaPipVU1Program* getCullProgramByBag(const StaPipBag* bag);
   bool hasProgramOverrides() const { return repository.hasAnyOverride(); }
 
@@ -192,6 +348,9 @@ class StaPipQBufferRenderer {
   StaPipVU1Program* getProgramByName(const StaPipProgramName& name);
   void addBuffersDataToPacket(const u32& from, const u32& to,
                               const bool& finalize = true);
+  // Modified by TyraX: the per-mesh VU1 clipping uniform chain, lifted out of
+  // sendObjectData so the retained-command path can capture and replay it.
+  void addClipChain(packet2_t* objectDataPacket) const;
   void sendPacket();
   void flushPendingPacket();
   static void textureMutationBarrier(void* context);
@@ -254,6 +413,25 @@ class StaPipQBufferRenderer {
   const RendererCoreSpotLight* bagLight = nullptr;
   // Modified by TyraX: opt-in routing/VU1 back-pressure telemetry.
   StaPipTelemetry* telemetry = nullptr;
+
+#if TYRA_STAPIP_RETAINED_COMMANDS
+  // Modified by TyraX: retained command data (see StaPipRetainedCommands).
+  StaPipRetainedCommands retained;
+  /** The bag currently being submitted, or nullptr. Every buffer in a flush
+   * belongs to one bag - flushBuffers resets the slot indices per bag - so one
+   * pointer is enough to resolve a buffer's retainIndex. */
+  StaPipRetainedEntry* retainedCurrent = nullptr;
+
+  /**
+   * The VU1 clip constants and the six clip planes, captured once. They are
+   * uploaded per mesh and are the same fifteen quadwords every time: their
+   * only inputs are the renderer's near/far and the guard-band constant. 52
+   * float stores per bag became a memcpy, and the block is thrown away
+   * whenever those inputs could have moved (init, setVU1Clipping).
+   */
+  qword_t clipBlock[16] __attribute__((aligned(16)));
+  u16 clipBlockQw = 0;
+#endif
 };
 
 }  // namespace Tyra

@@ -16,9 +16,12 @@
 // sendObjectData) so cutout textures stop stamping the z buffer.
 
 #include <math.h>
+#include <string.h>
+#include <algorithm>
 #include "debug/hardware_trace.hpp"
 #include "renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp"
 #include "renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h"
+#include "renderer/core/gs/renderer_core_depth.hpp"
 #include "packet2/packet2_tyra_utils.hpp"
 #include "renderer/3d/pipeline/static/core/stapip_vu_tap.hpp"
 
@@ -68,7 +71,200 @@ constexpr u16 kSubmissionBatchSize = 4;
 constexpr u16 kQBufferCommandCapacity = 32;  // keep with buffersCount
 constexpr u16 kWorstBagPacketSize =
     4 * kQBufferCommandCapacity + kObjectDataPacketSize;
+
+// Modified by TyraX: append quadwords that were already built as part of a DMA
+// chain.
+//
+// Every tag this pipeline writes is POSITION-INDEPENDENT: a CNT tag counts the
+// quadwords that follow it, a REF tag names an absolute address OUTSIDE the
+// packet, and with TTE the VIF codes ride in the tag's own upper half. So a
+// finished, quadword-aligned run of them means exactly the same thing at any
+// quadword-aligned position in any packet, and copying one is indistinguishable
+// from having built it there. Nothing here may be used for a tag that refers to
+// its own position (NEXT, CALL) - the pipeline writes none, and
+// docs/vu1-and-dma-cache-cost.md records why it must not start.
+inline void appendChainQwords(packet2_t* packet, const qword_t* src,
+                              u32 qwCount) {
+  memcpy(packet->next, src, qwCount * 16);
+  packet2_advance_next(packet, qwCount * 16);
 }
+}  // namespace
+
+#if TYRA_STAPIP_RETAINED_COMMANDS
+
+StaPipRetainedCommands::StaPipRetainedCommands() {
+  std::fill(indexBuckets, indexBuckets + kBucketCount, -1);
+}
+
+u32 StaPipRetainedCommands::getBucket(const void* vertices,
+                                      u32 maxVertCount) const {
+  u32 hash = static_cast<u32>(reinterpret_cast<u32>(vertices)) * 0x9E3779B1U;
+  hash ^= maxVertCount + 0x85EBCA6BU + (hash << 6) + (hash >> 2);
+  hash ^= hash >> 16;
+  return hash & (kBucketCount - 1);
+}
+
+bool StaPipRetainedCommands::keyMatches(const StaPipRetainedEntry& a,
+                                        const StaPipRetainedEntry& b) {
+  return a.vertices == b.vertices && a.sts == b.sts && a.colors == b.colors &&
+         a.normals == b.normals && a.program == b.program &&
+         a.count == b.count && a.maxVertCount == b.maxVertCount &&
+         a.bboxVersion == b.bboxVersion && a.primKey == b.primKey &&
+         a.depthScaleBits == b.depthScaleBits &&
+         a.singleColor == b.singleColor && a.stripped == b.stripped;
+}
+
+void StaPipRetainedCommands::rebuildIndex() {
+  std::fill(indexBuckets, indexBuckets + kBucketCount, -1);
+  for (u32 i = 0; i < storage.size(); ++i) {
+    auto& item = storage[i];
+    const u32 bucket = getBucket(item.vertices, item.maxVertCount);
+    item.nextInBucket = indexBuckets[bucket];
+    indexBuckets[bucket] = static_cast<int>(i);
+  }
+}
+
+void StaPipRetainedCommands::onFrameEnd() {
+  evictionsThisFrame = 0;
+  bool expired = false;
+  for (auto& item : storage) {
+    if (item.framesLeftToDestroy > 0) {
+      item.framesLeftToDestroy--;
+      if (item.framesLeftToDestroy <= 0) expired = true;
+    }
+  }
+  if (!expired) return;
+
+  u32 freed = 0;
+  const auto newEnd = std::remove_if(
+      storage.begin(), storage.end(), [&](const StaPipRetainedEntry& item) {
+        if (item.framesLeftToDestroy > 0) return false;
+        freed += static_cast<u32>(item.packages) * kMaxBlockQw;
+        return true;
+      });
+  storage.erase(newEnd, storage.end());
+  usedQwords -= freed < usedQwords ? freed : usedQwords;
+  rebuildIndex();
+}
+
+void StaPipRetainedCommands::clear() {
+  storage.clear();
+  std::fill(indexBuckets, indexBuckets + kBucketCount, -1);
+  usedQwords = 0;
+  evictionsThisFrame = 0;
+}
+
+// Modified by TyraX: the cap is a hard EE-RAM budget, so it has to be spent on
+// the bags that are actually being drawn. Without this, the first bags to ask
+// filled it and every later one was refused for the whole 250-frame lifetime -
+// measured on the Motor District garage as ~25-40% of packages rebuilding every
+// frame while the cache sat pinned at the cap holding geometry from a pose the
+// camera had left. An entry this frame already touched is never a victim (its
+// countdown is still at kLifetimeFrames), and the per-frame bound is what stops
+// a scene whose working set genuinely does not fit from evicting and
+// re-capturing the same bags forever - that would be strictly worse than not
+// retaining them at all.
+bool StaPipRetainedCommands::evictFor(u32 wanted) {
+  while (usedQwords + wanted > kMaxQwords) {
+    if (evictionsThisFrame >= kMaxEvictionsPerFrame) return false;
+    int victim = -1;
+    int oldest = kLifetimeFrames;  // strictly older than "touched this frame"
+    for (u32 i = 0; i < storage.size(); ++i) {
+      if (storage[i].framesLeftToDestroy < oldest) {
+        oldest = storage[i].framesLeftToDestroy;
+        victim = static_cast<int>(i);
+      }
+    }
+    if (victim < 0) return false;
+    const u32 freed =
+        static_cast<u32>(storage[victim].packages) * kMaxBlockQw;
+    usedQwords -= freed < usedQwords ? freed : usedQwords;
+    storage.erase(storage.begin() + victim);
+    rebuildIndex();
+    ++evictionsThisFrame;
+  }
+  return true;
+}
+
+StaPipRetainedEntry* StaPipRetainedCommands::acquire(
+    const StaPipRetainedEntry& key) {
+  const u32 bucket = getBucket(key.vertices, key.maxVertCount);
+  int index = indexBuckets[bucket];
+  while (index >= 0) {
+    auto& item = storage[index];
+    if (item.vertices == key.vertices &&
+        item.maxVertCount == key.maxVertCount) {
+      item.framesLeftToDestroy = kLifetimeFrames;
+      if (keyMatches(item, key)) return &item;
+      // Something the block encodes moved - an LOD tier, a material, a
+      // reallocated stream, a pipeline switch. Only the captured blocks are
+      // thrown away; the storage is reused, or re-sized when the package count
+      // moved with it.
+      if (item.packages != key.packages) {
+        const u32 had = static_cast<u32>(item.packages) * kMaxBlockQw;
+        const u32 wants = static_cast<u32>(key.packages) * kMaxBlockQw;
+        // A resize that does not fit is simply refused: the entry keeps its
+        // old storage with every block invalidated, so this bag rebuilds until
+        // room appears. Evicting here would have to consider evicting the very
+        // entry being resized, and this case - a bag whose PACKAGE COUNT moved
+        // while the cache is already full - is rare enough not to be worth it.
+        if (key.packages == 0 || usedQwords - had + wants > kMaxQwords)
+          return nullptr;
+        item.data = std::unique_ptr<qword_t[]>(new qword_t[wants]);
+        item.ready = std::unique_ptr<u8[]>(new u8[key.packages]);
+        item.packages = key.packages;
+        usedQwords = usedQwords - had + wants;
+      }
+      const StaPipRetainedEntry& k = key;
+      item.sts = k.sts;
+      item.colors = k.colors;
+      item.normals = k.normals;
+      item.program = k.program;
+      item.count = k.count;
+      item.bboxVersion = k.bboxVersion;
+      item.primKey = k.primKey;
+      item.depthScaleBits = k.depthScaleBits;
+      item.singleColor = k.singleColor;
+      item.stripped = k.stripped;
+      item.blockQw = 0;
+      memset(item.ready.get(), 0, item.packages);
+      return &item;
+    }
+    index = item.nextInBucket;
+  }
+
+  const u32 wanted = static_cast<u32>(key.packages) * kMaxBlockQw;
+  if (key.packages == 0 || wanted > kMaxQwords) return nullptr;
+  if (usedQwords + wanted > kMaxQwords && !evictFor(wanted)) return nullptr;
+
+  StaPipRetainedEntry entry;
+  entry.vertices = key.vertices;
+  entry.sts = key.sts;
+  entry.colors = key.colors;
+  entry.normals = key.normals;
+  entry.program = key.program;
+  entry.count = key.count;
+  entry.maxVertCount = key.maxVertCount;
+  entry.bboxVersion = key.bboxVersion;
+  entry.primKey = key.primKey;
+  entry.depthScaleBits = key.depthScaleBits;
+  entry.singleColor = key.singleColor;
+  entry.stripped = key.stripped;
+  entry.packages = key.packages;
+  entry.blockQw = 0;
+  entry.data = std::unique_ptr<qword_t[]>(new qword_t[wanted]);
+  entry.ready = std::unique_ptr<u8[]>(new u8[key.packages]);
+  memset(entry.ready.get(), 0, key.packages);
+  entry.framesLeftToDestroy = kLifetimeFrames;
+  entry.nextInBucket = indexBuckets[bucket];
+
+  storage.push_back(std::move(entry));
+  indexBuckets[bucket] = static_cast<int>(storage.size() - 1);
+  usedQwords += wanted;
+  return &storage.back();
+}
+
+#endif  // TYRA_STAPIP_RETAINED_COMMANDS
 
 StaPipQBufferRenderer::StaPipQBufferRenderer() {
   currentBufferIndex = 0;
@@ -115,6 +311,14 @@ void StaPipQBufferRenderer::deallocateOnUse() {
   rendererCore->texture.clearMutationBarrier(this);
   submissionBatchScope = false;
   submissionBatchCandidate = false;
+#if TYRA_STAPIP_RETAINED_COMMANDS
+  // Modified by TyraX: a scene teardown frees every stream the retained REF
+  // tags name. Nothing may survive it - the pointer compare would only catch a
+  // reallocation that came back at a DIFFERENT address.
+  retainedCurrent = nullptr;
+  retained.clear();
+  clipBlockQw = 0;
+#endif
   packet2_free(staticDataPacket);
   for (u16 i = 0; i < 2; i++) packet2_free(packets[i]);
   delete[] packets;
@@ -144,6 +348,9 @@ void StaPipQBufferRenderer::init(RendererCore* t_core, prim_t* t_prim,
   clipNearZ =
       t_core->getSettings().getNear() - (-PlanesClipAlgorithm::clipMargin);
   clipFarZ = -t_core->getSettings().getFar();
+#if TYRA_STAPIP_RETAINED_COMMANDS
+  clipBlockQw = 0;  // Modified by TyraX: its inputs were just written.
+#endif
 
   dma_channel_initialize(DMA_CHANNEL_VIF1, nullptr, 0);
 
@@ -261,6 +468,42 @@ StaPipClipperSpot buildSpotForBag(const RendererCoreSpotLight& spot,
   return out;
 }
 }  // namespace
+
+// Modified by TyraX: the VU1 clipping uniform chain - one quadword of
+// constants for the per-triangle crossing test plus the six clip planes as
+// (A,B,C,D)+(E,0,0,0) pairs. Lifted out of sendObjectData unchanged so the
+// retained-command path can capture exactly these bytes and replay them (see
+// the call site); nothing in it depends on the mesh.
+void StaPipQBufferRenderer::addClipChain(packet2_t* objectDataPacket) const {
+  packet2_utils_vu_open_unpack(objectDataPacket, VU1_CLIP_CONSTS_ADDR, false);
+  {
+    packet2_add_float(objectDataPacket, clipNearZ - VU1_CLIP_GUARD);
+    packet2_add_float(objectDataPacket, -clipFarZ - VU1_CLIP_GUARD);
+    packet2_add_float(objectDataPacket, 0.0F);
+    packet2_add_float(objectDataPacket, VU1_CLIP_GUARD);
+  }
+  packet2_utils_vu_close_unpack(objectDataPacket);
+
+  const float planes[6][8] = {
+      // near: z <= clipNearZ (exact, matches the EE clipper)
+      {0.0F, 0.0F, -1.0F, 0.0F, clipNearZ, 0.0F, 0.0F, 0.0F},
+      // far: z >= clipFarZ (exact, matches the EE clipper)
+      {0.0F, 0.0F, 1.0F, 0.0F, -clipFarZ, 0.0F, 0.0F, 0.0F},
+      // guard band X/Y at +/-VU1_CLIP_XY_BAND * w - strictly inside the
+      // GS raster window; the scissor trims the rest of the way
+      {-1.0F, 0.0F, 0.0F, VU1_CLIP_XY_BAND, 0.0F, 0.0F, 0.0F, 0.0F},
+      {1.0F, 0.0F, 0.0F, VU1_CLIP_XY_BAND, 0.0F, 0.0F, 0.0F, 0.0F},
+      {0.0F, -1.0F, 0.0F, VU1_CLIP_XY_BAND, 0.0F, 0.0F, 0.0F, 0.0F},
+      {0.0F, 1.0F, 0.0F, VU1_CLIP_XY_BAND, 0.0F, 0.0F, 0.0F, 0.0F},
+  };
+  packet2_utils_vu_open_unpack(objectDataPacket, VU1_CLIP_PLANES_ADDR, false);
+  {
+    for (u32 i = 0; i < 6; i++)
+      for (u32 j = 0; j < 8; j++)
+        packet2_add_float(objectDataPacket, planes[i][j]);
+  }
+  packet2_utils_vu_close_unpack(objectDataPacket);
+}
 
 void StaPipQBufferRenderer::sendObjectData(
     StaPipBag* bag, M4x4* mvp, RendererCoreTextureBuffers* texBuffers) {
@@ -405,34 +648,31 @@ void StaPipQBufferRenderer::sendObjectData(
   // clip planes as (A,B,C,D)+(E,0,0,0) pairs; inside = dot4(v,ABCD) + E >= 0.
   // Uploaded per mesh: other pipelines may reuse this VU1 memory in between.
   if (vu1Clipping) {
-    packet2_utils_vu_open_unpack(objectDataPacket, VU1_CLIP_CONSTS_ADDR, false);
-    {
-      packet2_add_float(objectDataPacket, clipNearZ - VU1_CLIP_GUARD);
-      packet2_add_float(objectDataPacket, -clipFarZ - VU1_CLIP_GUARD);
-      packet2_add_float(objectDataPacket, 0.0F);
-      packet2_add_float(objectDataPacket, VU1_CLIP_GUARD);
+#if TYRA_STAPIP_RETAINED_COMMANDS
+    // Modified by TyraX: retained command data. These fifteen quadwords are
+    // the same for every mesh in the run - their only inputs are the
+    // renderer's near/far pair and the guard-band constant - so the chain is
+    // captured once out of the packet addClipChain just wrote it into and
+    // replayed with a memcpy afterwards. 52 float stores per bag became one
+    // copy. init() and setVU1Clipping() are the only places those inputs can
+    // move and both drop the capture.
+    if (clipBlockQw != 0) {
+      appendChainQwords(objectDataPacket, clipBlock, clipBlockQw);
+    } else {
+      const u32 clipStart = packet2_get_qw_count(objectDataPacket);
+      addClipChain(objectDataPacket);
+      const u32 qw = packet2_get_qw_count(objectDataPacket) - clipStart;
+      if (qw > 0 && qw <= (sizeof(clipBlock) / sizeof(clipBlock[0]))) {
+        memcpy(clipBlock,
+               reinterpret_cast<const u8*>(objectDataPacket->base) +
+                   clipStart * 16,
+               qw * 16);
+        clipBlockQw = static_cast<u16>(qw);
+      }
     }
-    packet2_utils_vu_close_unpack(objectDataPacket);
-
-    const float planes[6][8] = {
-        // near: z <= clipNearZ (exact, matches the EE clipper)
-        {0.0F, 0.0F, -1.0F, 0.0F, clipNearZ, 0.0F, 0.0F, 0.0F},
-        // far: z >= clipFarZ (exact, matches the EE clipper)
-        {0.0F, 0.0F, 1.0F, 0.0F, -clipFarZ, 0.0F, 0.0F, 0.0F},
-        // guard band X/Y at +/-VU1_CLIP_XY_BAND * w - strictly inside the
-        // GS raster window; the scissor trims the rest of the way
-        {-1.0F, 0.0F, 0.0F, VU1_CLIP_XY_BAND, 0.0F, 0.0F, 0.0F, 0.0F},
-        {1.0F, 0.0F, 0.0F, VU1_CLIP_XY_BAND, 0.0F, 0.0F, 0.0F, 0.0F},
-        {0.0F, -1.0F, 0.0F, VU1_CLIP_XY_BAND, 0.0F, 0.0F, 0.0F, 0.0F},
-        {0.0F, 1.0F, 0.0F, VU1_CLIP_XY_BAND, 0.0F, 0.0F, 0.0F, 0.0F},
-    };
-    packet2_utils_vu_open_unpack(objectDataPacket, VU1_CLIP_PLANES_ADDR, false);
-    {
-      for (u32 i = 0; i < 6; i++)
-        for (u32 j = 0; j < 8; j++)
-          packet2_add_float(objectDataPacket, planes[i][j]);
-    }
-    packet2_utils_vu_close_unpack(objectDataPacket);
+#else
+    addClipChain(objectDataPacket);
+#endif
   }
 
   u8 singleColorEnabled = bag->color->single != nullptr;
@@ -812,6 +1052,12 @@ void StaPipQBufferRenderer::setVU1Clipping(const bool& enabled) {
   if (vu1Clipping == enabled) return;
   flushPendingPacket();
   vu1Clipping = enabled;
+#if TYRA_STAPIP_RETAINED_COMMANDS
+  // Modified by TyraX: the clip chain is either present or absent per mode,
+  // and every bag's cull program changes with it.
+  clipBlockQw = 0;
+  retained.clear();
+#endif
 
   if (programsPacket == nullptr) return;  // init() will build the right set
 
@@ -880,6 +1126,11 @@ StaPipQBuffer* StaPipQBufferRenderer::getBuffer() {
   currentBufferIndex = nextBufferIndex++;
   Verbose("Proposing buffer: ", currentBufferIndex);
   auto* result = buffers[currentBufferIndex];
+  // Modified by TyraX: one gate every buffer passes through before any fill,
+  // so a slot recycled out of a retained bag cannot carry a stale package
+  // index into a copied or clipped one. StaPipCore sets it back after the fill
+  // for the routes that may be retained.
+  result->retainIndex = -1;
   if (nextBufferIndex >= buffersCount) {
     Verbose("Rollup - clearing buffer indices. currentBufferIndex: ",
             currentBufferIndex, " (before)nextBufferIndex: ", nextBufferIndex);
@@ -1037,6 +1288,76 @@ void StaPipQBufferRenderer::clearLastProgramName() {
   lastProgramName = StaPipUndefinedProgram;
 }
 
+// Modified by TyraX: retained command data - see StaPipRetainedCommands.
+#if TYRA_STAPIP_RETAINED_COMMANDS
+
+bool StaPipQBufferRenderer::beginRetainedBag(StaPipBag* bag,
+                                             const u32& packageSize) {
+  retainedCurrent = nullptr;
+  if (bag == nullptr || packageSize == 0) return false;
+  // A billboard bag expands centres on VU1 from a basis that changes every
+  // frame, and it swaps the whole program set; a game-supplied writer has no
+  // packet-size ABI and may not be position-independent. Both are excluded for
+  // the same reason the submission-batch scope excludes them.
+  if (bag->billboard != nullptr || repository.hasAnyOverride()) return false;
+
+  StaPipRetainedEntry key;
+  key.vertices = bag->vertices;
+  key.sts = bag->texture != nullptr ? bag->texture->coordinates : nullptr;
+  key.colors = bag->color->many;
+  key.normals = bag->lighting != nullptr ? bag->lighting->normals : nullptr;
+  key.program = getCullProgramByBag(bag);
+  key.count = bag->count;
+  key.maxVertCount = packageSize;
+  key.bboxVersion = bag->bboxVersion;
+  // The prim state reaches the block only through the GIFtag, so pack exactly
+  // the fields that GIFtag reads. `mapping` is derived the way
+  // addStandardBufferDataToPacket derives it, because prim->mapping still
+  // holds the PREVIOUS bag's answer at this point.
+  const u32 mapping =
+      (bag->texture != nullptr && bag->texture->texture != nullptr) ? 1u : 0u;
+  key.primKey = static_cast<u32>(prim->type) |
+                (static_cast<u32>(prim->shading) << 4) | (mapping << 6) |
+                (static_cast<u32>(prim->fogging) << 7) |
+                (static_cast<u32>(prim->blending) << 8) |
+                (static_cast<u32>(prim->antialiasing) << 9) |
+                (static_cast<u32>(prim->mapping_type) << 10) |
+                (static_cast<u32>(prim->colorfix) << 11);
+  // The Z scale lands in the block's first data quadword and follows the
+  // framebuffer's colour depth, which a display-mode switch moves.
+  const float depthScale = RendererCoreDepth::scale;
+  memcpy(&key.depthScaleBits, &depthScale, sizeof(u32));
+  key.singleColor = bag->color->single != nullptr ? 1 : 0;
+  key.stripped = bag->stripped ? 1 : 0;
+  key.packages =
+      static_cast<u16>((bag->count + packageSize - 1) / packageSize);
+
+  retainedCurrent = retained.acquire(key);
+  return retainedCurrent != nullptr;
+}
+
+void StaPipQBufferRenderer::endRetainedBag() { retainedCurrent = nullptr; }
+
+u32 StaPipQBufferRenderer::takeRetainedHits() { return retained.takeHits(); }
+u32 StaPipQBufferRenderer::takeRetainedBuilds() {
+  return retained.takeBuilds();
+}
+u32 StaPipQBufferRenderer::getRetainedBytes() const {
+  return retained.getBytes();
+}
+
+#else
+
+bool StaPipQBufferRenderer::beginRetainedBag(StaPipBag*, const u32&) {
+  return false;
+}
+void StaPipQBufferRenderer::endRetainedBag() {}
+u32 StaPipQBufferRenderer::takeRetainedHits() { return 0; }
+u32 StaPipQBufferRenderer::takeRetainedBuilds() { return 0; }
+u32 StaPipQBufferRenderer::getRetainedBytes() const { return 0; }
+
+#endif  // TYRA_STAPIP_RETAINED_COMMANDS
+
 void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
                                                    const u32& to,
                                                    const bool& finalize) {
@@ -1055,7 +1376,47 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
     // the number the EE's per-package bill scales with. See StaPipTelemetry.
     if (telemetry) telemetry->verticesSubmitted += buffers[i]->size;
 
+#if TYRA_STAPIP_RETAINED_COMMANDS
+    // Modified by TyraX: retained command data. The block is the bag's
+    // geometry commands for THIS package - identical every frame while the key
+    // holds - so a hit is a memcpy where the miss below runs the scale
+    // quadword, the prim GIFtag and one DMA REF per stream. It is captured out
+    // of the packet the miss just wrote, which is what makes the two paths
+    // byte-identical by construction rather than by inspection.
+    StaPipRetainedEntry* entry = retainedCurrent;
+    const int retainIdx = buffers[i]->retainIndex;
+    const bool retainable =
+        entry != nullptr && retainIdx >= 0 && retainIdx < entry->packages;
+    if (retainable && entry->ready[retainIdx]) {
+      appendChainQwords(currentPacket,
+                        &entry->data[static_cast<u32>(retainIdx) *
+                                     StaPipRetainedCommands::kMaxBlockQw],
+                        entry->blockQw);
+      retained.countHit();
+    } else {
+      const u32 blockStart = packet2_get_qw_count(currentPacket);
+      program->addBufferDataToPacket(currentPacket, buffers[i], prim);
+      retained.countBuild();
+      if (retainable) {
+        const u32 blockQw = packet2_get_qw_count(currentPacket) - blockStart;
+        // A block that does not fit, or that disagrees with the length this
+        // bag's other packages produced, is simply never retained - the entry
+        // keeps rebuilding, which is slower and always right.
+        if (blockQw > 0 && blockQw <= StaPipRetainedCommands::kMaxBlockQw &&
+            (entry->blockQw == 0 || entry->blockQw == blockQw)) {
+          entry->blockQw = static_cast<u16>(blockQw);
+          memcpy(&entry->data[static_cast<u32>(retainIdx) *
+                              StaPipRetainedCommands::kMaxBlockQw],
+                 reinterpret_cast<const u8*>(currentPacket->base) +
+                     blockStart * 16,
+                 blockQw * 16);
+          entry->ready[retainIdx] = 1;
+        }
+      }
+    }
+#else
     program->addBufferDataToPacket(currentPacket, buffers[i], prim);
+#endif
 
     Verbose("Send ", program->getStringName(), "[", i, "]: ", buffers[i]->size);
 
@@ -1093,6 +1454,10 @@ void StaPipQBufferRenderer::onFrameEnd() {
               "Submission batch must end before the frame ends");
   submissionBatchScope = false;
   submissionBatchCandidate = false;
+#if TYRA_STAPIP_RETAINED_COMMANDS
+  retainedCurrent = nullptr;
+  retained.onFrameEnd();
+#endif
 }
 
 void StaPipQBufferRenderer::setSubmissionBatchCandidate(const bool& candidate,

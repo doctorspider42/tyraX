@@ -18,12 +18,41 @@ but roughly neutral night results. See the work plan's raw evidence and limits.
 The multi-entry transform experiment was rejected; see
 [its measurements](performance-transform-reuse.md). Bounded resident static
 submission batching is the next completed step; see
-[the physical comparison](static-submission-batching.md). Next test persistent
-static geometry preparation/command data, measuring package creation and
-packet construction separately with exact geometry and view invalidation.
-Keep partially clipped geometry on the current path initially. Road changes
-remain deferred; 50 FPS still requires a much larger reduction in whole-frame
-work than submission batching alone.
+[the physical comparison](static-submission-batching.md). **Persistent static
+command data is the next completed step** — see
+[retained-static-commands.md](retained-static-commands.md): a wholly visible
+bag's VU1 command block and the fifteen-quadword clipping chain are captured
+once and replayed with a memcpy, with the packet byte-identical by construction
+and no new DMA-lifetime exposure (the retained storage is copied, never
+referenced). Partially clipped geometry stayed on the current path exactly as
+this entry asked. Measured in PCSX2, three boots per arm: 18 `--capture-frame`
+images hash to one value, and garage day — the only pose not sitting on a vsync
+division — goes 27.889 → 30.769 median FPS (35.86 → 32.50 ms, **−3.36 ms**)
+against a 0.222 FPS control spread and a 0.001 FPS same-build repeatability,
+with 76 % of the frame's package command blocks replayed. What it does NOT
+cover, in order of what would pay:
+
+- **The per-bag UNIFORM tail is still rebuilt** — the OPTIONS/LOD/TEST/TEX0
+  group, the ALPHA quadword and the single colour are per-bag constants that
+  change only with a material, a z-test mode or a texture's VRAM address, but
+  they are not retained. That needs a key over the texture buffer as well, which
+  is the one input a pointer compare does not settle (eviction re-uploads to a
+  new address), so it was left for its own change with its own eviction stress.
+- **`buildSpotForBag` runs an affine inverse per bag per frame**, and the model
+  matrix it inverts is the same one `transformCacheModel` already proved
+  unchanged for consecutive parts of one model. Caching the inverse beside the
+  MVP is a small, self-contained follow-up.
+- **The hardware number.** Everything measured for this change is PCSX2 and
+  counts. PCSX2 emulates no EE data cache, and this change trades computing
+  bytes for reading them out of a cold 128 KB arena, so the emulator sees the
+  removed work and none of the added misses: treat its delta as an upper bound.
+- **The lifetime stress on a console.** The structural argument (copied, never
+  referenced) is strong and is exactly the kind of argument the slot-pool race
+  also had. Run the submission-batching stress harness — forced evictions with a
+  batch pending, pipeline switches, LOD crossings, a scene reload — on hardware.
+
+Road changes remain deferred; 50 FPS still requires a much larger reduction in
+whole-frame work than submission batching and retained commands together.
 
 ### Where the remaining frame time is, measured (2026-09-15)
 

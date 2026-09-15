@@ -83,6 +83,25 @@ void StaPipCore::setLod() {
 }
 
 void StaPipCore::onFrameEnd() {
+#if TYRA_STAPIP_RETAINED_COMMANDS && !defined(NDEBUG)
+  // Modified by TyraX: the retained-command readout, once every 300 frames.
+  // A debug build is the only in-engine consumer of these counters, so a
+  // release game that wants them still gets every one (the take* accessors
+  // reset on read - see docs/retained-static-commands.md).
+  {
+    static u32 retFrames = 0, retHits = 0, retBuilds = 0;
+    retHits += qbufferRenderer.takeRetainedHits();
+    retBuilds += qbufferRenderer.takeRetainedBuilds();
+    if (++retFrames >= 300) {
+      TYRA_LOG("STAPIPRET retained=", retHits / retFrames,
+               " rebuilt=", retBuilds / retFrames, " per frame, cache=",
+               qbufferRenderer.getRetainedBytes() / 1024, " KB");
+      retFrames = 0;
+      retHits = 0;
+      retBuilds = 0;
+    }
+  }
+#endif
   qbufferRenderer.onFrameEnd();
   cacher.onFrameEnd();
   transformCacheValid = false;
@@ -664,6 +683,12 @@ void StaPipCore::render(StaPipBag* bag) {
   if (telemetryEnabled) telemetry.prepareTicks += readCoreTelemetryTicks()-prepareStart;
   HardwareTrace::Scope traceDispatch("Dispatch");
   const u32 dispatchStart = telemetryEnabled ? readCoreTelemetryTicks() : 0;
+  // Modified by TyraX: retained command data. Opened here rather than at the
+  // top of render(), because the prim state is part of the key and setInfo()
+  // above is what finished writing it. `retainBag` false means every package
+  // below is built the way it always was.
+  const bool retainBag = qbufferRenderer.beginRetainedBag(bag, maxVertCount);
+  retainCurrentBag = retainBag;
   auto checkYesFrustumInClipYes =  // cull all
       frustumCull && frustumCheck == IN_FRUSTUM && bag->info->fullClipChecks;
 
@@ -701,6 +726,9 @@ void StaPipCore::render(StaPipBag* bag) {
       }
       auto buffer = qbufferRenderer.getBuffer();
       buffer->fillByPointer(bag, offset, count);
+      // Modified by TyraX: this package's slice of the bag is fixed, so its
+      // command block is too - see StaPipRetainedCommands.
+      if (retainBag) buffer->retainIndex = static_cast<int>(packageIndex);
       qbufferRenderer.cull(buffer);
     }
   } else if (checkYesFrustumPartialClipYes || checkYesFrustumPartialClipNo) {
@@ -726,6 +754,8 @@ void StaPipCore::render(StaPipBag* bag) {
   }
 
   qbufferRenderer.flushBuffers();
+  qbufferRenderer.endRetainedBag();  // Modified by TyraX
+  retainCurrentBag = false;
   if (telemetryEnabled) telemetry.dispatchTicks += readCoreTelemetryTicks()-dispatchStart;
 
   if (clampedBag) {  // Modified by TyraX: restore the frame's REPEAT contract
@@ -753,6 +783,10 @@ void StaPipCore::renderPkgs(StaPipBagPackage* packages, const bool& doClip,
       if (guardBandOnly) recordGuardBandPackage(packages[i]);
       auto buffer = qbufferRenderer.getBuffer();
       buffer->fillByPointer(packages[i]);
+      // Modified by TyraX: these packages ARE the bag's fixed maxVertCount
+      // slices - the packager cuts at i * size - so package i's command block
+      // is the same one the wholly-visible route would build for it.
+      if (retainCurrentBag) buffer->retainIndex = static_cast<int>(i);
       qbufferRenderer.cull(buffer);
     } else if (doSubpkgs) {
       u16 subpkgsSize = 0;
@@ -786,6 +820,10 @@ void StaPipCore::renderStrippedPkgs(StaPipBagPackage* packages,
       if (telemetryEnabled) ++telemetry.packagesStrip;
       auto buffer = qbufferRenderer.getBuffer();
       buffer->fillByPointer(packages[i]);
+      // Modified by TyraX: a strip RUN is a package, and the runs are baked -
+      // so a stripped bag's retained blocks are exactly as stable as a list
+      // bag's. Only the expansion branch below is per-frame.
+      if (retainCurrentBag) buffer->retainIndex = static_cast<int>(i);
       qbufferRenderer.cull(buffer);
     } else if (packages[i].isInFrustum == PARTIALLY_IN_FRUSTUM) {
       // The package genuinely crosses a VU clip plane. `clip_*` and the EE

@@ -177,6 +177,11 @@ their ownership and acceptance checks.
   retained-stream ownership contract, safe resident-texture boundaries and the
   physical-PS2 measurements, image checks and eviction/pipeline stress behind
   bounded StaPip DMA submission.
+- [Retained static geometry command data](retained-static-commands.md) — a
+  wholly visible static bag's VU1 command block and the clipping constants are
+  captured once and replayed with a memcpy, so only the MVP, the picked light
+  and the visibility classification stay per-frame; why copying finished DMA
+  tags is safe, and what invalidates a block.
 
 - [The devkit, and its zero-cost promise](devkit.md) — the live channels, crash
   reporting, the VU1 inspector, and the release audit that PROVES a shipped ELF
