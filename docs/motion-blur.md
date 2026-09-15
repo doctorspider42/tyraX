@@ -179,6 +179,32 @@ dithers 16-bit writes.
 **Measured in PCSX2 only** — which does dither (`dithering_ps2 = 2`), contrary to
 an older note in the engine. No console run.
 
+## Triple buffering
+
+The accumulation chain does not care how many display buffers there are, and
+that is worth stating because it is the obvious thing to worry about: with three
+buffers the rotation is `shown -> finished -> free`, and
+`getPreviousRealFrameBuffer()` is always the frame that just finished, so each
+frame still blends its immediate predecessor. The buffer being drawn into holds
+an image from two frames ago, which the frame clear overwrites.
+
+What DOES change is the rolling dither: three buffers means three accumulator
+states in flight at three different dither phases, so consecutive displayed
+frames come from different phases. Measured as the difference between two
+settled captures a second apart (mean per channel, 0..255):
+
+| | 2 buffers | 3 buffers |
+|---|---|---|
+| 32-bit | 0.006 | 0.021 |
+| 16-bit | 0.199 | **0.780** |
+| 16-bit, blur off (control) | — | 0.007 |
+
+So four times the shimmer at 16-bit — and still **0.3% of range**, with no pixel
+outside PCSX2's own FPS readout moving by more than one 5-bit step. The ghost
+level itself is identical to the two-buffer case (15/23/15). It reads as what
+dither always reads as, and it is the price of the matrix that stops the ghost;
+at 32-bit the roll is inert and there is nothing to see either way.
+
 ## Interactions
 
 - **[The neural upscaler (BLSS)](neural-upscaler.md)** samples the previous frame
