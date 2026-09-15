@@ -138,6 +138,34 @@ triLoop:
     add.w      color3, vf00, i
     b          sharedAttributesReady
 sharedColorMode:
+    ; Modified by TyraX: the spot-light gate. sceFlag still holds
+    ; VU1_OPTIONS_ADDR.y here (the peer test above read it), and it is
+    ; negative only when a dynamic light actually reaches this mesh - see
+    ; LoadTyraSpotLight in tyra_macros.i. The UNLIT copy comes first so the
+    ; lit path below is the original block, in its original order, falling
+    ; through to sharedAttributesReady exactly as it did: a branch is a
+    ; scheduling barrier, and jumping INTO the middle of that block cost
+    ; 7 cycles a triangle on meshes that are lit.
+    ibltz      sceFlag, litColorMode
+    ilw.x      sceFlag, 8(vi00)
+    iblez      sceFlag, multiColorNoSpot
+    add        color1, vf00, singleColor
+    add        color2, vf00, singleColor
+    add        color3, vf00, singleColor
+    b          processingNoSpot
+multiColorNoSpot:
+    lq         color1, 0(colorData)
+    lq         color2, 1(colorData)
+    lq         color3, 2(colorData)
+processingNoSpot:
+    loi        255
+    mini.xyz   color1, color1, i
+    loi        255
+    mini.xyz   color2, color2, i
+    loi        255
+    mini.xyz   color3, color3, i
+    b          sharedAttributesReady
+litColorMode:
     ilw.x      sceFlag, 8(vi00)
     iblez      sceFlag, multiColor
     add        color1, vf00, singleColor
@@ -149,13 +177,6 @@ multiColor:
     lq         color2, 1(colorData)
     lq         color3, 2(colorData)
 processing:
-    ; Modified by TyraX: VU1_OPTIONS_ADDR.y is negative only when a dynamic
-    ; light actually reaches this mesh - see LoadTyraSpotLight in
-    ; tyra_macros.i. 63 upper-pipe operations a triangle for two instructions.
-    ; sceFlag is re-read because the colour-mode block above clobbered it
-    ; with .x (the single-colour flag).
-    ilw.y      sceFlag, 8(vi00)
-    ibgez      sceFlag, noSpot
     sub.xyz    spotD, vertex1, spotPos  ; CalculateTyraSpotLight
     mul.xyz    spotSq, spotD, spotD
     add.x      spotDist, spotSq, spotSq[y]
@@ -219,7 +240,6 @@ processing:
     mul.x      spotC, spotC, spotA
     mul.xyz    spotD, spotColV, spotC[x]
     add.xyz    color3, color3, spotD
-noSpot:
     loi        255
     mini.xyz   color1, color1, i
     loi        255

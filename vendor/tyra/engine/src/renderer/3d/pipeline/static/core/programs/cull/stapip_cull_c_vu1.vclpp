@@ -73,6 +73,18 @@ setDestAddr:
 
     ;--- Loop
     iadd vertexCounter, buffer, vertexCount
+    ; Modified by TyraX: the spot-light gate, ONE branch per batch.
+    ; CalculateTyraSpotLight is 21 upper-pipe operations a vertex and most
+    ; meshes have no dynamic light at all - see LoadTyraSpotLight in
+    ; tyra_macros.i for what selects this. It is two whole loops rather than a
+    ; branch inside one because a branch is a scheduling barrier: gating inside
+    ; the loop stops the assembler interleaving the spot with the transform,
+    ; fog and store chains, which measured +11 cycles a triangle on a mesh that
+    ; IS lit - the heaviest poses in a night scene are exactly the ones where
+    ; every mesh picks a light. The loop below is the original body, untouched,
+    ; so the lit path cannot regress; the unlit twin after it is the same body
+    ; with the three spot calls removed.
+    ibgez   spotEnabled,    unlitVertexLoop
 vertexLoop:
 
         iblez  singleColorEnabled, multiColor
@@ -98,16 +110,80 @@ processing:
         ;--- Load vertex3
         lq      vertex3,  2(vertexData)
 
-        ; Modified by TyraX: 21 upper-pipe operations a VERTEX, and most
-        ; meshes have no dynamic light at all - see LoadTyraSpotLight in
-        ; tyra_macros.i. All three corners are gated together: one branch a
-        ; triangle, and the block still runs on the OBJECT-space vertices,
-        ; before any MatrixMultiplyVertex overwrites them.
-        ibgez  spotEnabled, noSpot
+        ;--- Calculate vertex1
         CalculateTyraSpotLight{ color1, vertex1, spotPos, spotDirV, spotColV }
+        MatrixMultiplyVertex{ vertex1, mvp, vertex1 }
+        CalculateTyraFog{ fogInt, vertex1, fogParams }
+        PerformTyraFogClipCheck{ vertex1, destAddress, XYZ2_STORE_OFFSET, fogInt, adcMask }
+        VertexPersCorr{ vertex1, vertex1 }
+        ScaleVertexToGSFormat{ scale, vertex1 }
+        FixColor{ color1 }
+
+        ;--- Calculate vertex2
         CalculateTyraSpotLight{ color2, vertex2, spotPos, spotDirV, spotColV }
+        MatrixMultiplyVertex{ vertex2, mvp, vertex2 }
+        CalculateTyraFog{ fogInt, vertex2, fogParams }
+        PerformTyraFogClipCheck{ vertex2, destAddress, XYZ2_STORE_OFFSET+2, fogInt, adcMask }
+        VertexPersCorr{ vertex2, vertex2 }
+        ScaleVertexToGSFormat{ scale, vertex2 }
+        FixColor{ color2 }
+    
+        ;--- Calculate vertex3
         CalculateTyraSpotLight{ color3, vertex3, spotPos, spotDirV, spotColV }
-noSpot:
+        MatrixMultiplyVertex{ vertex3, mvp, vertex3 }
+        CalculateTyraFog{ fogInt, vertex3, fogParams }
+        PerformTyraFogClipCheck{ vertex3, destAddress, XYZ2_STORE_OFFSET+4, fogInt, adcMask }
+        VertexPersCorr{ vertex3, vertex3 }
+        ScaleVertexToGSFormat{ scale, vertex3 }
+        FixColor{ color3 }
+
+        ;--- Store vertex1 
+        sq      color1,         RGBA_STORE_OFFSET(destAddress)
+        sq.xyz  vertex1,        XYZ2_STORE_OFFSET(destAddress)
+
+        ;--- Store vertex2
+        sq      color2,         RGBA_STORE_OFFSET+2(destAddress)
+        sq.xyz  vertex2,        XYZ2_STORE_OFFSET+2(destAddress)
+
+        ;--- Store vertex3
+        sq      color3,         RGBA_STORE_OFFSET+4(destAddress)
+        sq.xyz  vertex3,        XYZ2_STORE_OFFSET+4(destAddress)
+
+        ;-------------------------------
+
+        iaddiu  vertexData,     vertexData,     3      
+        iaddiu  colorData,      colorData,      3  
+        iaddiu  destAddress,    destAddress,    6
+
+        ;--- Fix loop
+        iaddi   vertexCounter,  vertexCounter,  -3  ; decrement the loop counter 
+        ibne    vertexCounter,  buffer, vertexLoop  ; and repeat if needed
+    b       vertexLoopsDone
+
+unlitVertexLoop:
+
+        iblez  singleColorEnabled, multiColorUnlit
+        ;--- Load vertices single color
+        add      color1,    vf00,   singleColor
+        add      color2,    vf00,   singleColor
+        add      color3,    vf00,   singleColor
+        b processingUnlit
+
+multiColorUnlit:
+        ;--- Load vertices colors
+        lq      color1,   (colorData)
+        lq      color2,   1(colorData)
+        lq      color3,   2(colorData)
+        
+processingUnlit:
+        ;--- Load vertex1
+        lq      vertex1,  (vertexData)
+
+        ;--- Load vertex2
+        lq      vertex2,  1(vertexData)
+
+        ;--- Load vertex3
+        lq      vertex3,  2(vertexData)
 
         ;--- Calculate vertex1
         MatrixMultiplyVertex{ vertex1, mvp, vertex1 }
@@ -153,7 +229,8 @@ noSpot:
 
         ;--- Fix loop
         iaddi   vertexCounter,  vertexCounter,  -3  ; decrement the loop counter 
-        ibne    vertexCounter,  buffer, vertexLoop  ; and repeat if needed
+        ibne    vertexCounter,  buffer, unlitVertexLoop  ; and repeat if needed
+vertexLoopsDone:
 
     xgkick kickAddress ; dispatch to the GS rasterizer.
 

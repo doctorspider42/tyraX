@@ -91,6 +91,9 @@ processing:
     ; Modified by TyraX: VU1_OPTIONS_ADDR.y is negative only when a dynamic
     ; light actually reaches this mesh - see LoadTyraSpotLight in
     ; tyra_macros.i. 63 upper-pipe operations a triangle for one branch.
+    ; The clamp below is DUPLICATED rather than jumped into, so this block -
+    ; spot light, clamp, exit - is the same basic block the assembler already
+    ; scheduled and the LIT path cannot lose packing to the new branch.
     ibgez      sceFlag, noSpot
     sub.xyz    spotD, vertex1, spotPos  ; CalculateTyraSpotLight
     mul.xyz    spotSq, spotD, spotD
@@ -155,6 +158,13 @@ processing:
     mul.x      spotC, spotC, spotA
     mul.xyz    spotD, spotColV, spotC[x]
     add.xyz    color3, color3, spotD
+    loi        255
+    mini.xyz   color1, color1, i
+    loi        255
+    mini.xyz   color2, color2, i
+    loi        255
+    mini.xyz   color3, color3, i
+    b          sharedAttributesReady
 noSpot:
     loi        255
     mini.xyz   color1, color1, i

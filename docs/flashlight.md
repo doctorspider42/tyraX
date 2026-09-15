@@ -105,16 +105,17 @@ The two can never disagree: the peer variant is selected by a lighting bag or by
 matcap coordinates, and neither of those material classes carries the spot macro
 at all, so the variant wins when both would be true.
 
-Measured on the generated assembler (`openvcl`, lines from the loop label to the
-loop branch — cycles per triangle, the static pipeline processes three vertices
-per iteration):
+Measured on the generated assembler (`openvcl`, rows a path actually executes
+between the loop label and the loop branch — cycles per triangle, the static
+pipeline processes three vertices per iteration; the clip rows are the COLOUR
+path, since the peer half of a shared image never runs for a colour bag):
 
 | program | before | unlit mesh | lit mesh |
 | --- | ---: | ---: | ---: |
-| `cull_c` | 130 | **76** | 139 |
-| `cull_tc` | 133 | **81** | 144 |
-| `clip_c` | 279 | **223** | 286 |
-| `clip_tc` | 269 | **212** | 275 |
+| `cull_c` | 130 | **72** | 130 |
+| `cull_tc` | 133 | **73** | 133 |
+| `clip_c` | 230 | **173** | 232 |
+| `clip_tc` | 241 | **184** | 243 |
 
 `cull_d`, `cull_td`, `cull_tce`, `clip_d`, `clip_td` and `clip_tce` are byte-for-byte
 what they were — they never carried the macro.
@@ -129,24 +130,64 @@ same colour bit for bit. A mesh the light does reach runs exactly the same
 arithmetic on exactly the same object-space vertex; only a branch was put in
 front of it.
 
-**Where the branch goes is worth 11 cycles.** Gating each corner separately
-splits the cull loop into three basic blocks, and `openvcl` then cannot pack the
-transform/fog/store chains it used to interleave the spot into: measured at
-154/91 (lit/unlit) for `cull_tc` against **144/81** for one gate covering all
-three corners before the first `MatrixMultiplyVertex`. The clip family was
-already shaped that way — its three corners sit in one block next to the peer
-test — which is why it pays only +6 to +7.
+**A BRANCH IS A SCHEDULING BARRIER, and that is what this feature is really
+about.** The first shipped version put the gate inside the loop and it was
+measured on a console: the unlit win was real (garage day −1.06 ms, outer day
+−0.62, outer night −0.70) and **garage night — the heaviest pose in the scene —
+got 1.26 ms SLOWER**, because at night the lamps are on, nearly every mesh picks
+a dynamic light, and a gate inside the loop stops `openvcl` interleaving the
+spot with the transform, fog and store chains. Three arms, `cull_tc`, lit/unlit:
 
-The cost of the gate is **+32 words of VU1 micro memory** across the four
-programs (1684 → 1716 of the 2042 below `drawFinishAddr`), against ~340 words
-for the alternative of carrying spot-free copies of the two cull programs.
+| shape | lit | unlit |
+| --- | ---: | ---: |
+| gate per corner | 154 | 91 |
+| one gate before the first `MatrixMultiplyVertex` | 144 | 81 |
+| **two whole loops, picked once per batch** | **133** | **73** |
+
+So the cull pair is **two complete loops** now. The lit one is the original body
+with nothing added to it at all, which is the strongest guarantee available that
+it cannot regress — and the unlit one comes out shorter than the branch version
+as well, because it is a whole loop the assembler schedules on its own terms
+rather than a hole punched in another one. The clip pair keeps a branch, but it
+**duplicates the colour clamp** rather than jumping into the middle of the lit
+block, which takes its cost from +7/+6 down to +2/+2. In `clip_c` the gate sits
+at the top of `sharedColorMode`, where `sceFlag` still holds the lane the peer
+test just read, so it needs no second `ilw` — and the unlit copy is emitted
+first so the lit half keeps its fall-through.
+
+The cost is **+178 words of VU1 micro memory** across the four programs
+(1684 → 1862 of the 2042 below `drawFinishAddr`, leaving 180), nearly all of it
+the two duplicated cull loops. Note the host budget estimator in `--vu-check`
+now prints an upper bound above the ceiling (`1102..2201 of 2042 slots`): it is
+pessimistic by construction because it cannot know how VCL will pair
+instructions. **Measure with `nm` on the built objects, not with the estimate.**
 
 The flashlight's projected pool, its shadow volumes and the terrain are on other
-paths entirely and are untouched. **No console measurement was taken** — these
-are cycles; convert them with the rate in
-[vu1-and-dma-cache-cost.md](vu1-and-dma-cache-cost.md) if you want milliseconds,
-and remember the saving is proportional to the fraction of a scene's triangles
-that reach a colour program with no light on them.
+paths entirely and are untouched.
+
+**What the console said, and what it is worth.** The first version was measured
+on a physical PS2 over four parked Motor District poses (240 warmed rows each,
+triangle and re-upload counts identical between arms, every delta landing in the
+VIF1 wait bucket):
+
+| pose | baseline | gate inside the loop | VIF1 wait delta |
+| --- | ---: | ---: | ---: |
+| garage day | 40.986 | 39.927 (**−1.059**) | −1.104 |
+| garage night | 44.390 | 45.654 (**+1.264**) | +0.897 |
+| outer day | 18.452 | 17.832 (**−0.620**) | −0.632 |
+| outer night | 21.363 | 20.662 (**−0.701**) | −0.611 |
+
+Solving the cycle table against those deltas puts the unlit fraction of
+colour-program triangles at about **39% in garage day and essentially zero in
+garage night** — the lamps are on, so almost every mesh picks a light. That is
+what the two-loop shape is for. The numbers above belong to the shape that is no
+longer shipped; **the current one has not been on a console**, so read its lit
+column as "the same instructions the assembler already scheduled" rather than as
+a measured frame time, and convert the unlit column with the rate in
+[vu1-and-dma-cache-cost.md](vu1-and-dma-cache-cost.md) if you want milliseconds.
+The saving is proportional to the fraction of a scene's triangles that reach a
+colour program with no light on them, which is a property of the scene and of
+the time of day.
 
 ## A scene light with the same trick
 

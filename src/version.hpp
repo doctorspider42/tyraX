@@ -16,6 +16,11 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.94.1: the spot-light gate again, in the shape a console measurement asked
+// for - two whole cull loops picked once per batch (the lit one byte-for-byte
+// the original body) and a duplicated clamp in the clip pair, so a LIT mesh
+// pays 0 and 2 cycles a triangle instead of 11 and 7.
+//
 // 1.94.0: the VU1 colour programs branch over the per-vertex spot-light
 // arithmetic when no dynamic light reaches the mesh (VU1_OPTIONS_ADDR.y is
 // three-state now). No project format change, and no image change either way.
@@ -3991,7 +3996,7 @@
 // object-group line.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 94
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

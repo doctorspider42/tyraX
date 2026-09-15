@@ -173,30 +173,36 @@ redesign first:
 The triangle-strip half is not implemented and the arithmetic above is an
 opportunity model, not a result. Quote the measured rate, not a predicted saving.
 
-### The spot light half is done (1.94.0)
+### The spot light half is done (1.94.0), and it was measured here
 
-The colour programs branch over `CalculateTyraSpotLight` now, on the sign of a
-lane the EE already had spare — the full account is in
+The colour programs skip `CalculateTyraSpotLight` when the mesh's light is inert
+— selected on the sign of a lane the EE already had spare. The full account is in
 [flashlight.md](flashlight.md), "The cone costs nothing when nothing is lit".
-The loop lengths below come from the same `.o.vsm` measurement as the table
-above, on the same assembler:
+Rows a path actually executes, same `.o.vsm` method and same assembler (the clip
+rows are the COLOUR path, since a colour bag never runs the peer half of a shared
+image):
 
 | program | before | unlit mesh | lit mesh |
 | --- | ---: | ---: | ---: |
-| `cull_c` | 130 | **76** | 139 |
-| `cull_tc` | 133 | **81** | 144 |
-| `clip_c` | 279 | **223** | 286 |
-| `clip_tc` | 269 | **212** | 275 |
+| `cull_c` | 130 | **72** | 130 |
+| `cull_tc` | 133 | **73** | 133 |
+| `clip_c` | 230 | **173** | 232 |
+| `clip_tc` | 241 | **184** | 243 |
 
-The unlit column is the window minus the spans the taken branch jumps over; the
-lit column is the whole window, which is what a lit mesh now runs. Micro memory
-went 1684 → 1716 of 2042.
+Micro memory 1684 → 1862 of 2042.
 
-**These are cycles, not milliseconds.** Nobody has booted this on a console:
-convert with the 0.0768 ms rate above if you want a prediction, and note that
-the rate was measured for the garage's *routing mix*, so the fraction of
-triangles that reach the colour programs with no light on them decides what
-actually comes off the frame. That fraction is a property of the scene.
+**This page's rate predicted the first attempt's console result, including its
+regression, which is the best evidence the model is right.** That attempt gated
+the spot with a branch INSIDE the loop, which cost a *lit* mesh 11 cycles a
+triangle of lost instruction pairing, and on hardware it read −1.059 / +1.264 /
+−0.620 / −0.701 ms over the four parked poses: garage night, the heaviest pose,
+got slower because at night nearly every mesh picks a lamp. 25,090 triangles at
+11 cycles predicts 0.93 ms against 1.26 measured. **Two lessons.** The rate
+converts a cycle count into frame time well enough to design against — and a
+cycle count is only a prediction once you know *which path* the scene takes, so
+solve for the routing mix (about 39% unlit in garage day, ~0% in garage night)
+before quoting anything. The shipped shape is two whole loops with the lit one
+byte-for-byte the original, and it has not been on a console.
 
 ## An unrelated finding worth its own work
 

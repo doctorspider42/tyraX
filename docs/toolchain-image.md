@@ -523,10 +523,12 @@ branch must not read what the candidate writes - it used to see the new value):
 **That table is a snapshot of ONE release and it is no longer the headroom.** It
 was taken when ten distinct images were uploaded; the shared clip images landed
 afterwards (`clip_c` hosts `clip_d`, `clip_tc` hosts `clip_tce`), so the resident
-set is **eight** images and measured **1684 of 2042** at 1.93.0 and **1716** at
-1.94.0 — over 300 words to spare, not two. Anyone designing around micro memory
+set is **eight** images and measured **1684 of 2042** at 1.93.0 and **1862** at
+1.94.0 — 180 words to spare, not two. Anyone designing around micro memory
 should run the `nm` recipe below on their own tree rather than quote a number off
-this page.
+this page, and should not use `--vu-check`'s budget line either: its upper bound
+is pessimistic by construction (it cannot know how VCL will pair instructions)
+and currently reads `1102..2201 of 2042` for a set the real build clears by 180.
 
 **The budget arithmetic, because everyone re-derives it wrong once.** The ceiling is
 not a constant: `Path1::createProgramsCache` asserts against

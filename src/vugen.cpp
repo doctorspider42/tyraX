@@ -2190,10 +2190,30 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     emitTagBlock(b, prog, d, k, hdr.primTag, destAddress);
 
     // --- the vertex loop ----------------------------------------------------
+    //
+    // TWO WHOLE LOOPS, PICKED ONCE PER BATCH, when this program carries the
+    // spot light. A branch is a scheduling barrier: gating the 21-op block
+    // INSIDE the loop stops `openvcl` interleaving it with the transform, fog
+    // and store chains, which measured +11 cycles a triangle on a mesh that IS
+    // lit (cull_tc 133 -> 144) - and a night scene is exactly where every mesh
+    // picks a light, so that is the heaviest pose paying for the lightest one.
+    // Emitted twice, the lit loop is the ORIGINAL body and cannot regress.
+    //
+    // A program carrying a project's own stage list or script keeps one loop
+    // and a gate per corner: its body is far larger, duplicating it is real
+    // micro memory, and the stage slots must still see the vertex in the order
+    // they always did.
     const IVal vertexCounter = b.inamed("vertexCounter");
     b.iaddInto(vertexCounter, buffer, vertexCount);
+    const bool twoLoops = d.cull && spot && !hasStages && d.script == nullptr;
     const Lbl vertexLoop = b.label("vertexLoop");
-    b.bind(vertexLoop);
+    const Lbl unlitLoop = twoLoops ? b.label("unlitVertexLoop") : Lbl{-1};
+    const Lbl loopsDone = twoLoops ? b.label("vertexLoopsDone") : Lbl{-1};
+    if (twoLoops) b.branchIfGez(k.spotEnabled, unlitLoop);
+
+    bool loopScriptWroteQ = false;
+    auto emitVertexLoop = [&](Lbl loopLbl, bool withSpot) {
+    b.bind(loopLbl);
 
     Val color[3], vertex[3], st[3], outStq[3], normal[3];
     static const char* colorNames[3] = {"color1", "color2", "color3"};
@@ -2215,8 +2235,13 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     }
 
     if (colorStream) {
-        const Lbl multiColor = b.label("multiColor");
-        const Lbl processing = b.label("processing");
+        // The unlit twin needs its own names: a body-local label emitted twice
+        // is defined twice, and dvp-as refuses the file.
+        const char* sfx = twoLoops && !withSpot ? "Unlit" : "";
+        const Lbl multiColor =
+            b.label((std::string("multiColor") + sfx).c_str());
+        const Lbl processing =
+            b.label((std::string("processing") + sfx).c_str());
         b.branchIfLez(k.singleColorEnabled, multiColor);
         for (int i = 0; i < 3; ++i) b.addInto(color[i], b.zero(), k.singleColor);
         b.branch(processing);
@@ -2318,27 +2343,6 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         if (plan.needsSine)
             for (int i = 0; i < 3; ++i) sc.sinS[i] = b.named(qn[i]);
     }
-    // THE SPOT-LIGHT GATE, and where it sits is worth 11 cycles a triangle.
-    // All three corners are branched over together, before a single
-    // MatrixMultiplyVertex has overwritten an object-space vertex: that is one
-    // basic-block split in the loop instead of three, and `openvcl` keeps the
-    // transform/fog/store chains it can no longer interleave the spot into
-    // packed anyway. Measured on cull_tc: 133 cycles before, 144 with the
-    // light on and 81 with it off, against 154/91 for a gate per corner.
-    //
-    // A program carrying a project's OWN stage list or script cannot take that
-    // shape: those run in the object-space slot, they may MOVE the vertex the
-    // spot reads, and the spot has always run after them. Such a program keeps
-    // the per-corner gate below, which preserves the order exactly.
-    const bool hoistSpot = spot && !hasStages && d.script == nullptr;
-    if (hoistSpot) {
-        const Lbl noSpot = b.label("noSpot");
-        b.branchIfGez(k.spotEnabled, noSpot);
-        for (int i = 0; i < 3; ++i)
-            b.spotLight(color[i], vertex[i], k.spotPos, k.spotDirV, k.spotColV,
-                        spotScratch);
-        b.bind(noSpot);
-    }
     for (int i = 0; i < 3 && d.cull; ++i) {
         // The env ST goes FIRST for the same reason it does in as_is: its rsqrt
         // WRITES Q, and the position's perspective divide below has to be the
@@ -2358,7 +2362,13 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
             applyStages(sc, plan, Slot::ObjectSpace);
         }
         if (d.script && d.scriptSlot == Slot::ObjectSpace) runScript(sc, d);
-        if (spot && !hoistSpot) {
+        if (spot && twoLoops) {
+            // The whole loop already answered the question - this is the
+            // original instruction, in its original place.
+            if (withSpot)
+                b.spotLight(color[i], vertex[i], k.spotPos, k.spotDirV,
+                            k.spotColV, spotScratch);
+        } else if (spot) {
             // Gated per corner, in place: a stage list has just run in the
             // object-space slot and the spot must still see what it left.
             char nm[16];
@@ -2493,7 +2503,16 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     b.iaddiuInto(destAddress, destAddress, 3 * stride);
     b.iaddiuInto(vertexCounter, vertexCounter, -3);
     prog.code.back().comment = "decrement the loop counter";
-    b.branchIfNotEq(vertexCounter, buffer, vertexLoop);
+    b.branchIfNotEq(vertexCounter, buffer, loopLbl);
+    loopScriptWroteQ = sc.scriptWroteQ;
+    };  // emitVertexLoop
+
+    emitVertexLoop(vertexLoop, true);
+    if (twoLoops) {
+        b.branch(loopsDone);
+        emitVertexLoop(unlitLoop, false);
+        b.bind(loopsDone);
+    }
 
     b.xgkick(kickAddress);
     prog.code.back().comment = "dispatch to the GS rasterizer";
@@ -2502,7 +2521,7 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     b.branch(begin);
     b.finish();
     if (planOut) {
-        plan.scriptWroteQ = sc.scriptWroteQ;
+        plan.scriptWroteQ = loopScriptWroteQ;
         *planOut = plan;
     }
 }
@@ -2652,9 +2671,9 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         if (!colorStream || sharedDir) normal[i] = b.named(normalNames[i]);
     }
 
-    auto loadColors = [&]() {
-        const Lbl multiColor = b.label("multiColor");
-        const Lbl processing = b.label("processing");
+    auto loadColors = [&](const char* suffix = "") {
+        const Lbl multiColor = b.label((std::string("multiColor") + suffix).c_str());
+        const Lbl processing = b.label((std::string("processing") + suffix).c_str());
         ilwInto(prog, sceFlag, b.izero(), kOptionsAddr, 0);
         b.branchIfLez(sceFlag, multiColor);
         for (int i = 0; i < 3; ++i) b.addInto(color[i], b.zero(), k.singleColor);
@@ -2697,28 +2716,26 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         for (int i = 0; i < 7; ++i) spotScratch[i] = b.named(sn[i]);
     }
 
-    // `flagIsVariant` says the caller has just read VU1_OPTIONS_ADDR.y into
-    // sceFlag for its own peer test, so the gate costs ONE instruction; the
-    // colour-mode path has to re-read it because loadColors() clobbers the
-    // register with .x. Either way the whole 63-operations-a-triangle block is
-    // branched over unless a dynamic light actually reaches this mesh - the
-    // lane is negative only then (StaPipQBufferRenderer::sendObjectData).
-    // The clamp below is NOT gated: it also bounds colours a project's own
-    // stage list produced.
-    auto applySpot = [&](bool flagIsVariant) {
-        const Lbl noSpot = b.label("noSpot");
-        if (!flagIsVariant) ilwInto(prog, sceFlag, b.izero(), kOptionsAddr, 1);
-        b.branchIfGez(sceFlag, noSpot);
-        for (int i = 0; i < 3; ++i)
-            b.spotLight(color[i], vertex[i], k.spotPos, k.spotDirV, k.spotColV,
-                        spotScratch);
-        b.bind(noSpot);
+    // The colour ceiling, emitted on its own because the spot-light gate
+    // DUPLICATES it rather than jumping into the middle of the block that
+    // holds it. That is the whole trick here: a branch is a scheduling
+    // barrier, so a gate that lands inside the lit path's block costs it
+    // 6-7 cycles a triangle, while a gate that leaves the block whole costs
+    // one instruction. It is not gated either way - it also bounds colours a
+    // project's own stage list produced.
+    auto clampColors = [&]() {
         for (int i = 0; i < 3; ++i) {
             // Clamp before interpolation. The emitter still provides the
             // matching floor and integer conversion after clipping.
             b.loadI(255.0f);
             b.minimumIInto(color[i], color[i], MXYZ);
         }
+    };
+    auto applySpotAndClamp = [&]() {
+        for (int i = 0; i < 3; ++i)
+            b.spotLight(color[i], vertex[i], k.spotPos, k.spotDirV, k.spotColV,
+                        spotScratch);
+        clampColors();
     };
     auto applyEnv = [&]() {
         // Matcap ST from the object-space normals, before any Q-consuming
@@ -2735,8 +2752,24 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         shadeDirectional();
         b.branch(prepared);
         b.bind(colorMode);
+        if (spot) {
+            // The gate, at the top of the colour mode - where sceFlag still
+            // holds VU1_OPTIONS_ADDR.y, so no re-read is needed. The UNLIT
+            // copy is emitted FIRST so the lit half below keeps the original
+            // block's shape and its fall-through into `prepared`: a branch
+            // landing inside it cost 7 cycles a triangle.
+            const Lbl litMode = b.label("litColorMode");
+            b.branchIfLtz(sceFlag, litMode);
+            loadColors("NoSpot");
+            clampColors();
+            b.branch(prepared);
+            b.bind(litMode);
+        }
         loadColors();
-        applySpot(false);
+        if (spot)
+            applySpotAndClamp();
+        else
+            clampColors();
         b.bind(prepared);
     } else {
         if (!colorStream) shadeDirectional();
@@ -2746,7 +2779,18 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
             const Lbl prepared = b.label("sharedAttributesReady");
             ilwInto(prog, sceFlag, b.izero(), kOptionsAddr, 1);
             b.branchIfGtz(sceFlag, envMode);
-            applySpot(true);
+            if (spot) {
+                // Same rule, one instruction: sceFlag is the peer test's own
+                // read, and the clamp is DUPLICATED rather than jumped into.
+                const Lbl noSpot = b.label("noSpot");
+                b.branchIfGez(sceFlag, noSpot);
+                applySpotAndClamp();
+                b.branch(prepared);
+                b.bind(noSpot);
+                clampColors();
+            } else {
+                clampColors();
+            }
             b.branch(prepared);
             b.bind(envMode);
             applyEnv();
