@@ -130,6 +130,31 @@ Two details are load-bearing:
   changing resolution — holds whatever was in that VRAM. The pass simply does not
   run until one real frame has been flipped.
 
+## 16-bit colour: the trail never fully fades
+
+**Motion blur wants a 32-bit frame buffer** (the default). On a project that set
+*Project Preferences > Display > Colour depth* to 16-bit, a ghost stays on
+screen after the motion stops — at every amount, not just high ones.
+
+It is arithmetic, not a bug to be tuned away. PSMCT16 stores 5 bits per channel;
+the GS blends in 8-bit and truncates the write back to 5. The pass moves a pixel
+by `floor(d * fix / 128)`, so a residual of one 5-bit step (`d = 8`) needs an
+increment of 8 to reach the next storable value — which needs `fix >= 128`, the
+weight that freezes the picture outright. **At every usable weight the last step
+is permanent.** One step is only ~3% of the range, but it is a full 1/32 of what
+16-bit colour can express, and on flat surfaces and gradients it reads as a
+milky imprint of wherever the camera used to point.
+
+Measured, one variable: the same fixture at the same 100% amount, changing
+*only* `colorDepth`. At 32-bit the settled frame is the sharp scene; at 16-bit
+it is a permanent imprint of the **loading screen** the game left minutes
+earlier. The editor warns where the amount is edited.
+
+Hardware may soften it — the GS dithers PSMCT16 writes and PCSX2 does not, so
+dithering turns the truncation stochastic — but the fork's dither offsets are
+non-negative (see `tyraxDitherMatrix`, 1.70.4), so it cannot close the gap in
+both directions, and **none of this has been measured on a console**.
+
 ## Interactions
 
 - **[The neural upscaler (BLSS)](neural-upscaler.md)** samples the previous frame

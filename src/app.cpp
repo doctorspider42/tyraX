@@ -16597,6 +16597,11 @@ void App::drawScenePreferencesModal() {
         if (ImGui::SliderFloat("Motion blur", &blurPct, 0.0f, 100.0f, "%.0f%%",
                                ImGuiSliderFlags_AlwaysClamp))
             s.motionBlur = blurPct * 0.01f;
+        // Colour depth is project-wide, so the scene's own amount is checked
+        // against the PROJECT's setting (see motionBlurGhosts).
+        if (s.motionBlur > 0.0f && project_.settings.colorDepth == "16bit")
+            ImGui::TextColored(theme::semantics().warn, "%s",
+                               "16-bit colour: the trail never fully fades.");
         ImGui::SliderFloat("DoF amount", &s.dofAmount, 0.0f, 1.0f, "%.2f");
         ImGui::DragFloat("DoF focus", &s.dofFocus, 0.5f, 0.5f, 500.0f, "%.1f");
         ImGui::DragFloat("DoF range", &s.dofRange, 0.5f, 0.1f, 500.0f, "%.1f");

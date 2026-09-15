@@ -1974,6 +1974,27 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
 // They must not each carry a number.
 inline constexpr int kMotionBlurMaxFix = 115;
 
+// Motion blur cannot fully converge on a 16-bit frame buffer, and the author
+// has to be told rather than left looking at it (docs/motion-blur.md).
+//
+// PSMCT16 stores 5 bits per channel. The GS blends in 8-bit and truncates the
+// write back to 5, so the pass moves a pixel by floor(d * fix / 128) and a
+// residual of ONE 5-bit step (d = 8) needs an increment of 8 to cross the next
+// boundary - which needs fix >= 128, the weight that freezes the picture
+// outright. So at every usable weight the last step is permanent: a ghost of
+// roughly one step (~3% of range, but a full 1/32 of the 16-bit palette) stays
+// on screen after the motion stops. Measured on a minimal fixture: switching
+// ONLY colorDepth to 16bit turns a settled frame from sharp into a permanent
+// imprint of the loading screen.
+//
+// Hardware dithering may soften it (the GS dithers PSMCT16 writes and PCSX2
+// does not), but the offsets are non-negative, so it cannot be relied on to
+// close the gap in both directions - and nothing here has been measured on a
+// console.
+inline bool motionBlurGhosts(const ProjectSettings& s) {
+    return s.motionBlur > 0.0f && s.colorDepth == "16bit";
+}
+
 // Per-scene override switches (Scene > Preferences). Each "scene-visual"
 // category can override the project defaults; when a flag is off, the scene
 // inherits Project::settings for that category (see project::resolvedSettings).
