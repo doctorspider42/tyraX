@@ -345,9 +345,23 @@ garage is not, and the reason is no longer geometry: 25,650 surface triangles
 still cost 118 packet flushes and 29.6 ms of submission, of which VIF1 wait is
 5.1, bounds 4.0, per-bag preparation 3.3, package creation and classification
 about 5.5, packet construction 2.0, the send bracket 2.1, and roughly 7.6 ms is
-the generated game's own object loop and per-bag engine overhead outside those
-brackets. **Everything left scales with the number of bags and packages rather
-than with triangles**, which is what the next round has to attack.
+outside those brackets. **Everything left scales with the number of bags and
+packages rather than with triangles**, which is what the next round has to
+attack.
+
+**That last clause used to read "the generated game's own object loop and
+per-bag engine overhead", and it was a guess. It has now been measured, and the
+object loop is not in it** — see
+[render-submission-attribution.md](render-submission-attribution.md). Two things
+to carry back to every row above. First, `submit` is the whole
+`beginFrame()`..`endFrame()` block, post-process passes and 2D HUD included,
+while `bounds`/`prepare`/`dispatch` only ever covered `StaPipCore::render`, so
+subtracting one from the other was never measuring "pipeline overhead" — it was
+measuring everything else the frame does. Second, of the emulator's equivalent
+gap the per-object visibility, distance, LOD and split-band tests are **1.0%**,
+the thirteen live `TYRA_ASSERT`s are **0.5%**, and the largest single term is
+`renderVehicleWheels` rebuilding every wheel vertex on the EE, which is not
+submission at all.
 
 Two notes on reading these arms. The retained-command round measured −0.605 ms
 on hardware against −3.36 ms in PCSX2, and its author predicted exactly that:

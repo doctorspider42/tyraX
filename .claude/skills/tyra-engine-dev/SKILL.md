@@ -281,7 +281,15 @@ memory to 1676/2042, so they live in their own packet swapped in on demand
 restored by the next non-billboard bag. Opt-in `StaPipTelemetry` records the
 transition count and full wait/upload ticks, plus cull/clip/outside routes,
 active-plane population, qbuffer flushes, and VIF1/VU1 wait ticks; disabled
-telemetry keeps the AABB early-out and performs no COP0 reads. The C++ side
+telemetry keeps the AABB early-out and performs no COP0 reads. **Its three
+timing brackets do not cover the whole of `StaPipCore::render`** — the head
+(the fog decision and the thirteen `TYRA_ASSERT`s, which a release game really
+does execute, because no game build defines NDEBUG) and the tail sit outside
+all of them. `TYRA_STAPIP_ATTRIB` in `stapip_attrib.hpp` (default **0**, and it
+must stay 0 in anything shipped) adds a `renderTicks` bracket around the whole
+function plus a six-way split of `prepare`, so "inside render, inside no
+bracket" is a subtraction rather than a guess — docs/render-submission-attribution.md.
+The C++ side
 must keep the prim giftag NLOOP at 6× the input count (`gsVertexCount`) — an undercounting
 NLOOP stalls the GIF. Billboard bags require multi-color, no lighting,
 frustum culling `None` + no clip checks (the one legitimate `None` — the

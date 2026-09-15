@@ -362,6 +362,18 @@ outer night for separate render-cost captures. This command file is polled only
 after sampling; it cannot alter the 1,440-update benchmark route. Do not use
 post-benchmark FPS as an ordinary control, because pose polling adds host I/O.
 
+**`submit_ms` is `beginFrame()`..`endFrame()`, not the static pipeline.** It
+carries the post-process passes, the 2D HUD and every per-object test the
+generated game's Objects loop runs, while `bounds`/`prepare`/`dispatch` cover
+only `StaPipCore::render` — so the three do not add up to it and were never
+meant to. `instrument-frame-cost.py FIXTURE --attribute` writes a second file,
+`bin/frame-attrib.csv`, that brackets every `renderScene` phase, splits the
+object loop into its submits and its tests, and splits the post-fx and HUD
+blocks out; pair it with `TYRA_STAPIP_ATTRIB` = 1 (default 0, and it must never
+ship on) for the engine's own per-bag split of the same frame. The method, the
+hook cost and the measured table are in
+[docs/render-submission-attribution.md](../../docs/render-submission-attribution.md).
+
 ### Initial attribution results (2026-09-14)
 
 Clean baseline then lean runs, after all builds finished, PCSX2 software renderer,

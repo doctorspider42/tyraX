@@ -16,6 +16,42 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.99.0: THE 7.5 ms THAT WAS IN NO BUCKET, ATTRIBUTED - AND THE FIRST THING
+// IT SAYS IS THAT THE QUESTION WAS MIS-POSED (docs/render-submission-
+// attribution.md). Five rounds of Motor District work quoted `submit` against
+// `bounds` + `prepare` + `dispatch` and called the difference unmeasured
+// pipeline overhead. It is not the same quantity: `submit` is the whole
+// `beginFrame()`..`endFrame()` block - the post-process passes, the 2D HUD and
+// every line of the generated game's own renderScene - while the three
+// brackets only ever covered `StaPipCore::render`. Comparing them compares a
+// frame to a function.
+//
+// Two opt-in instruments, both defaulting to OFF, now close it to zero.
+// `TYRA_STAPIP_ATTRIB` (vendor/tyra/.../static/core/stapip_attrib.hpp) brackets
+// the WHOLE of StaPipCore::render plus a six-way split of `prepare` and the
+// GIF wait that lived inside no bracket at all;
+// `instrument-frame-cost.py --attribute` brackets every renderScene phase, the
+// object loop's tests against its submits, and the post-fx and HUD blocks, into
+// `bin/frame-attrib.csv`. `#ifndef NDEBUG` is NOT the gate - a game build never
+// defines NDEBUG, which is how a VRAM census once shipped live at ~1 ms a frame
+// - so both are explicit macros at 0.
+//
+// PCSX2, release profile, garage day, 240 warmed rows: submit 14.592 ms, and
+// the four phase levels add up with a residual of 0.000. Three of the listed
+// suspects are now falsified: the per-object visibility/distance/LOD/split-band
+// tests the whole Objects loop runs are 0.149 ms (3% of that loop), the thirteen
+// TYRA_ASSERTs that a release game really does execute are 0.072 ms, and
+// ensureProgramSet is 0.010. What the numbers DID name: renderVehicleWheels at
+// 2.983 ms (a fifth of render submission, and it rebakes every wheel vertex on
+// the EE every frame), sendObjectData at 46% of `prepare`, and - only at night -
+// 1.57 ms of garage-night spent in the two pipeline drains a non-REPEAT texture
+// wrap costs per bag. The hooks themselves are not measurable: the instrumented
+// build reads 0.125 ms FASTER than the control against a 0.056 ms same-ELF
+// repeatability. Every number here is the emulator, which models no EE data
+// cache; the shares travel to hardware and the milliseconds do not. No project
+// format change (kFormatVersion stays 54), no codegen change, no VU1 change and
+// nothing new in a shipped ELF. MINOR.
+
 // 1.98.0: A DRAW DISTANCE NO LONGER KEEPS AN OBJECT OUT OF A STATIC BATCH
 // (docs/model-pipeline.md, "Draw distance on a batch"). This started as a
 // census rather than an idea, and the census is the point: on the Motor
@@ -4140,8 +4176,10 @@
 // 1.86.0: merge baked shadow decals with main's render-cost table and
 // object-group line.
 // 1.98.0: the GS VRAM instrument names what is resident (VRAMRES/VRAMEVICT).
+// 1.99.0: render submission is attributed to zero residual; the "gap" was
+// mostly the post-fx, HUD and game-side phases that `submit` always included.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 98
+#define TYRAX_VERSION_MINOR 99
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
