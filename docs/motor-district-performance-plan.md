@@ -362,3 +362,26 @@ Render submission saves 0.95/1.14/0.37/0.34 ms; a larger-bag extension was
 rejected. This is not a 50 FPS or whole-game FPS gain claim. Next measure
 persistent package/geometry-command preparation; roads remain deferred. See
 [the experiment and raw evidence](static-submission-batching.md).
+
+### The district was never actually batched (1.98)
+
+Counted before anything was changed: of 142 authored objects, 111 are
+batchable shapes and **27 carried `batchStatic = 1` — every one a primitive
+box, and not one of the 70 imported models.** All 70 models carry
+`drawDistance = 145`, and the build-time rule `if (o.drawDistance != 0.0f)
+return false;` was rejecting them wholesale. Three rounds of geometry and
+microprogram work had been measured against a scene whose compact static-model
+batching (#269) was, in practice, switched off.
+
+The suspected cause — `dynamicLighting` — rejects **nothing at all** here; no
+object in the scene sets it. That is consistent with the `cull_td` probe in
+[vu1-and-dma-cache-cost.md](vu1-and-dma-cache-cost.md) reading +0.000 ms. The
+~61% of colour-program triangles that have a dynamic light picked get it from
+`StaPipCore::render`'s runtime per-bag pick, which never consults batching
+eligibility. **Two mechanisms, one name.**
+
+The cut-off now groups the batch instead of disqualifying its members
+([model-pipeline.md](model-pipeline.md), "Draw distance on a batch"), taking
+`batchStatic = 1` from 27 objects to 87. The half-cell footprint guard that
+protects frustum culling is untouched. Hardware measurement is the owner's;
+what is established here is the population and the mechanism.

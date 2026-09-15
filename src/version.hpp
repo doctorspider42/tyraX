@@ -16,6 +16,83 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.98.0: A DRAW DISTANCE NO LONGER KEEPS AN OBJECT OUT OF A STATIC BATCH
+// (docs/model-pipeline.md, "Draw distance on a batch"). This started as a
+// census rather than an idea, and the census is the point: on the Motor
+// District, 142 authored objects, 111 of them batchable shapes, exactly 27
+// carried batchStatic = 1 - all primitives - and NOT ONE of the 70 imported
+// models, the entire population #269's compact model batching exists to
+// serve. Every one of those models carries drawDistance = 145, and
+// `if (o.drawDistance != 0.0f) return false;` was rejecting them wholesale.
+// (The suspected culprit, `dynamicLighting`, rejects nothing at all here - no
+// object in the scene sets it, matching the +0.000 ms cull_td probe in
+// docs/vu1-and-dma-cache-cost.md. The ~61% of colour-program triangles that
+// have a light picked get it from StaPipCore::render's RUNTIME per-bag pick,
+// which is a different mechanism and never consults batching eligibility.)
+// The cut-off moves from the member to the batch: it joins the group key
+// beside the loaded Texture* and the coarse world cell, so every member of a
+// batch shares one number, and renderStaticBatches tests it once per batch
+// against the nearest point of the box over its members' POSITIONS - the same
+// centres beyondDrawDistance() measures on the solo path - rebuilt whenever
+// the batch is, demotion included. It is deliberately NOT routed through the
+// `shown` snapshot: a cut-off crossed while the player drives is a per-frame
+// flip, and re-baking a batch every frame costs far more than the submit it
+// saves. The trade, stated plainly: a member can outlive its own draw
+// distance by at most the spread of its batch (bounded by the grouping cell)
+// and can NEVER disappear early - over-draw costs fill, an early pop is a
+// visible bug, and these frames are bag-bound. The half-cell footprint guard
+// that protects frustum culling from the widened-bounds regression is
+// untouched; no cell was resized. Regenerating the district moves
+// batchStatic = 1 from 27 objects to 87, and the running game from 18 objects
+// in 8 batches to 65 in 48.
+//
+// THE BAKED TRIANGLE STRIP JOINS THE KEY TOO, and finding out why is what the
+// PCSX2 A/B was for. rebuildStaticBatch re-emitted every member from
+// GameModelPart::verts - the LIST twin - so batching a stripped model undid
+// its strip bake. Measured in the garage-day pose, that alone made the whole
+// feature a net LOSS: +3.3% vertices per frame and +1.7% packet flushes,
+// with `strip` packages down 3 900 per 50-frame window as the fingerprint.
+// (trianglesCull FELL 5.8% at the same time and means nothing: a strip counts
+// size-2 primitives including its degenerates, a list size/3. Read verts.)
+// A baked strip is already chopped into self-contained runs of exactly
+// stripRun vertices, so members sharing a run length concatenate and
+// pinPackageSize pins the batch to that number - every package is then
+// exactly one run of one member, the same contract a solo stripped bag keeps.
+// stripRun is therefore part of the group key, and the strip/list decision is
+// all-or-nothing per batch: one array carries one topology, and emitting one
+// member's strip beside another's list would hand the strip to a list walk.
+//
+// THE REACHING LAMP JOINS THE KEY FOR THE SAME REASON, and this half is a
+// correctness fix rather than a saving. A bag gets ONE dynamic light slot,
+// picked by StaPipCore::render from the bag's world bounding sphere, so
+// merging a lamp-lit prop with an unlit one shades both from whatever the
+// merged sphere picks. Letting the models batch put 7 of 49 batches in that
+// state (a streetlight under its own lamp merged with one under nothing -
+// same texture, same cell); keying on the lamp takes it to 0 of 50, at a cost
+// of six objects that then fall into singleton groups and go back to the solo
+// path (71 in 49 without the key, 65 in 48 with it and the strip key).
+// The key is
+// centre-vs-authored-radius, nearest wins, -1 for none: it only has to
+// separate "a lamp reaches this" from "nothing does", and in daylight every
+// lamp is off so every member agrees anyway.
+//
+// WHAT IT MEASURES, STATED PLAINLY: on the two garage poses this does NOT
+// pay yet. Keeping the strips takes cull packages 0.6% BELOW the baseline,
+// but packet flushes - bags - go UP by two per frame (118 -> 120 day,
+// 140 -> 142 night) and vertices by 1.2%. Merging 65 objects into 48 batches
+// is fewer bags in total and yet more bags SUBMITTED, because a batch's
+// bounds are the union of its members and pass the frustum where the members
+// individually would not. That is the widened-bounds effect the cross-
+// district experiment found, at a smaller scale inside the existing 80-unit
+// cell. The cell is deliberately not changed here; a finer one is the next
+// lever and needs its own measurement. Pixels: each arm repeats
+// byte-identically in daylight, and control-vs-change differs in ~0.4% of
+// pixels confined to sub-pixel-thin poles and tree trunks - the strip/list
+// rasterisation edge, not shading. At night, where a merged bag's single
+// light pick would show, 58 pixels exceed a delta of 10 and no light pool
+// moves. No project format change (kFormatVersion stays 54), no engine
+// change, no VU1 change. MINOR.
+//
 // 1.97.0: RETAINED STATIC COMMAND DATA (docs/retained-static-commands.md). A
 // wholly visible static bag hands VU1 the same DMA/VIF command block every
 // frame - a CNT tag with the scale quadword and the prim GIFtag, then one DMA
@@ -4063,7 +4140,7 @@
 // 1.86.0: merge baked shadow decals with main's render-cost table and
 // object-group line.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 97
+#define TYRAX_VERSION_MINOR 98
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

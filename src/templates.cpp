@@ -1312,6 +1312,22 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
     float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};  // band culling
+    // Part of the group key, so every member shares one cut-off, and 0 =
+    // unlimited exactly as on SceneObjectData. The box is over member
+    // POSITIONS - the same centres beyondDrawDistance() tests on the solo
+    // path - not over the baked vertices, so the batch turns off as close to
+    // the per-object rule as one test can.
+    float drawDistance = 0.0F;
+    float ddMin[3] = {0, 0, 0}, ddMax[3] = {0, 0, 0};
+    // Also a group key. A batched part is re-emitted into the combined array,
+    // and if that is done from the LIST twin the object loses the triangle
+    // strip the build baked for it - which measured as the whole feature's
+    // cost on the Motor District. Members that share a run length keep their
+    // strips: the runs are self-contained and exactly `stripRun` vertices, so
+    // concatenating them and pinning packageSize to the same number makes
+    // every package exactly one run of one member. 0 = plain triangle list
+    // (primitives, and parts whose strips came out no smaller).
+    unsigned int stripRun = 0;
     bool dirty = true;
   };
   std::vector<StaticBatch> staticBatches;
@@ -2888,6 +2904,22 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
     float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};  // band culling
+    // Part of the group key, so every member shares one cut-off, and 0 =
+    // unlimited exactly as on SceneObjectData. The box is over member
+    // POSITIONS - the same centres beyondDrawDistance() tests on the solo
+    // path - not over the baked vertices, so the batch turns off as close to
+    // the per-object rule as one test can.
+    float drawDistance = 0.0F;
+    float ddMin[3] = {0, 0, 0}, ddMax[3] = {0, 0, 0};
+    // Also a group key. A batched part is re-emitted into the combined array,
+    // and if that is done from the LIST twin the object loses the triangle
+    // strip the build baked for it - which measured as the whole feature's
+    // cost on the Motor District. Members that share a run length keep their
+    // strips: the runs are self-contained and exactly `stripRun` vertices, so
+    // concatenating them and pinning packageSize to the same number makes
+    // every package exactly one run of one member. 0 = plain triangle list
+    // (primitives, and parts whose strips came out no smaller).
+    unsigned int stripRun = 0;
     bool dirty = true;
   };
   std::vector<StaticBatch> staticBatches;
@@ -19095,20 +19127,63 @@ void TerrainGame::buildStaticBatchList() {
   const float mapW =
       TERRAIN_WIDTH > TERRAIN_DEPTH ? TERRAIN_WIDTH : TERRAIN_DEPTH;
   const float cellW = mapW * 0.25F > 48.0F ? mapW * 0.25F : 48.0F;
-  std::vector<int> keyX, keyZ;  // per-batch cell, only needed while grouping
-  auto addMember = [&](int object, int part, Texture* texture, int cx, int cz) {
+  std::vector<int> keyX, keyZ, keyL;  // cell + lamp, only needed while grouping
+  // WHICH DYNAMIC LAMP REACHES THIS OBJECT, or -1. This is a grouping key, not
+  // a render decision, and it exists because of how the engine lights a bag:
+  // StaPipCore::render gives each bag ONE light slot, picked from that bag's
+  // world bounding sphere. Merge a lamp-lit prop with an unlit one and the
+  // merged sphere picks a single lamp for both - so the lit one can lose its
+  // highlight, or the unlit one gain one it should not have. On the Motor
+  // District at night that would have hit 7 of 49 batches (a streetlight
+  // standing under its own lamp merged with one standing under nothing,
+  // because they share a texture and a cell).
+  //
+  // Centre-vs-radius, not the engine's brightness x level x falloff score: the
+  // key only has to keep "a lamp reaches this" apart from "nothing reaches
+  // this", and every member of a lamp's group is within that lamp's radius, so
+  // the merged sphere stays in its neighbourhood. A lamp switched off (or the
+  // whole set, in daylight) makes every bag pick nothing, and members agree
+  // for that reason instead.
+  auto lampOf = [&](const SceneObjectData& d) -> int {
+    int best = -1;
+    float bestD2 = 0.0F;
+    for (size_t li = 0; li < g_dynLights.size(); ++li) {
+      const SceneObjectData& L = SCENE_OBJECTS[g_dynLights[li].objIndex];
+      if (L.lightRadius <= 0.0F) continue;
+      const float dx = L.position[0] - d.position[0];
+      const float dy = L.position[1] - d.position[1];
+      const float dz = L.position[2] - d.position[2];
+      const float d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 > L.lightRadius * L.lightRadius) continue;  // no influence at all
+      if (best < 0 || d2 < bestD2) {
+        best = (int)li;
+        bestD2 = d2;
+      }
+    }
+    return best;
+  };
+  // Draw distance joins the key. A batch is ONE bag with one cut-off test, so
+  // members that disagree about the distance must not share one - otherwise
+  // the nearest member's number would silently extend every other member's.
+  // Objects that leave it at 0 group exactly as they did before.
+  auto addMember = [&](int object, int part, Texture* texture, int cx, int cz,
+                       float dd, int lamp, unsigned int stripRun) {
     int bi = -1;
     for (int b = 0; b < (int)staticBatches.size(); ++b)
       if (staticBatches[b].texture == texture && keyX[b] == cx &&
-          keyZ[b] == cz) {
+          keyZ[b] == cz && staticBatches[b].drawDistance == dd &&
+          keyL[b] == lamp && staticBatches[b].stripRun == stripRun) {
         bi = b;
         break;
       }
     if (bi < 0) {
       staticBatches.emplace_back();
       staticBatches.back().texture = texture;
+      staticBatches.back().drawDistance = dd;
+      staticBatches.back().stripRun = stripRun;
       keyX.push_back(cx);
       keyZ.push_back(cz);
+      keyL.push_back(lamp);
       bi = (int)staticBatches.size() - 1;
     }
     staticBatches[bi].members.push_back({object, part});
@@ -19121,6 +19196,7 @@ void TerrainGame::buildStaticBatchList() {
     // the solo path, which already handles the env bag.
     const int cx = (int)floorf((d.position[0] + 0.5F * mapW) / cellW);
     const int cz = (int)floorf((d.position[2] + 0.5F * mapW) / cellW);
+    const int lamp = lampOf(d);
     if (d.type == 5) {
       if (d.model < 0 || d.model >= (int)gameModels.size()) continue;
       const GameModel& gm = gameModels[d.model];
@@ -19136,7 +19212,8 @@ void TerrainGame::buildStaticBatchList() {
         if (p.reflTexture) { reflective = true; break; }
       if (reflective || gm.parts.empty()) continue;
       for (int pi = 0; pi < (int)gm.parts.size(); ++pi)
-        addMember(i, pi, gm.parts[pi].texture, cx, cz);
+        addMember(i, pi, gm.parts[pi].texture, cx, cz, d.drawDistance, lamp,
+                  gm.parts[pi].stripRun);
     } else {
       if (d.material >= 0 &&
           (d.material >= (int)gameMaterials.size() ||
@@ -19144,7 +19221,7 @@ void TerrainGame::buildStaticBatchList() {
         continue;
       Texture* texture =
           d.material >= 0 ? gameMaterials[d.material].texture : nullptr;
-      addMember(i, -1, texture, cx, cz);
+      addMember(i, -1, texture, cx, cz, d.drawDistance, lamp, 0u);
     }
   }
   // A singleton saves no submit and only duplicates geometry. Drop it, then
@@ -19200,6 +19277,41 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
   // rebuildObjectGeometry left set would shade a whole batch by accident.
   g_giLightmap = false;
   g_giProbeShade = SCENE_PROBES != nullptr;
+  // Strip or list for the WHOLE batch, decided before a single vertex is
+  // emitted. It has to be all-or-nothing: the combined array carries one
+  // topology, so emitting one member's strip beside another's list would hand
+  // the strip's vertices to a triangle-list walk and draw shredded geometry.
+  // stripRun is part of the group key, so this normally just confirms what
+  // grouping already decided; the loop below is the guard for a part whose
+  // baked strip is missing or not a whole number of runs.
+  bool useStrips = b.stripRun != 0;
+  if (useStrips)
+    for (const StaticBatchMember& m : b.members) {
+      const RuntimeObject& mo = runtimeObjects[m.object];
+      if (m.part < 0 || mo.data.model < 0 ||
+          mo.data.model >= (int)gameModels.size() ||
+          m.part >= (int)gameModels[mo.data.model].parts.size()) {
+        useStrips = false;
+        break;
+      }
+      const GameModelPart& p = gameModels[mo.data.model].parts[m.part];
+      if (p.stripRun != b.stripRun || p.stripVerts.empty()) {
+        useStrips = false;
+        break;
+      }
+    }
+  // The member-centre box the draw-distance test reads. Built over EVERY
+  // member, shown or not: a hidden member needs no drawing, but letting
+  // visibility move the box would make the batch's cut-off flicker with
+  // hide/show events for no benefit. Demotion DOES change it, and demotion
+  // always goes through this function (renderStaticBatches sets stale).
+  for (size_t k = 0; k < b.members.size(); ++k) {
+    const float* p = runtimeObjects[b.members[k].object].data.position;
+    for (int a = 0; a < 3; ++a) {
+      if (k == 0 || p[a] < b.ddMin[a]) b.ddMin[a] = p[a];
+      if (k == 0 || p[a] > b.ddMax[a]) b.ddMax[a] = p[a];
+    }
+  }
   for (size_t k = 0; k < b.members.size(); ++k) {
     const StaticBatchMember member = b.members[k];
     RuntimeObject& o = runtimeObjects[member.object];
@@ -19239,16 +19351,38 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
         member.part < (int)gameModels[o.data.model].parts.size()) {
       const GameModelPart& src = gameModels[o.data.model].parts[member.part];
       const bool textured = src.texture != nullptr;
-      const bool hasAo = src.vertexAo.size() * 8 == src.verts.size();
+      // Take the STRIP twin when this is a strip batch. Re-emitting the list
+      // here is what used to make batching cost more than it saved on a
+      // district of stripped models: the merged bag threw away the vertex
+      // saving the bake had already won. `useStrips` was decided for the whole
+      // batch above, so members can never disagree about topology.
+      const std::vector<float>& sv = useStrips ? src.stripVerts : src.verts;
+      const std::vector<unsigned char>& sao =
+          useStrips ? src.stripVertexAo : src.vertexAo;
+      const bool hasAo = sao.size() * 8 == sv.size();
       g_aoOff = true;
       g_prelitTex = o.data.prelit != 0;
       g_giProbeShade = !g_prelitTex && SCENE_PROBES != nullptr;
-      for (size_t vi = 0; vi + 7 < src.verts.size(); vi += 8) {
-        const float* v = &src.verts[vi];
+      for (size_t vi = 0; vi + 7 < sv.size(); vi += 8) {
+        const float* v = &sv[vi];
         pushVert(b.vertices, b.colors, b.sts, o.data, {v[0], v[1], v[2]},
                  {v[3], v[4], v[5]}, v[6], v[7], src.kd, textured,
-                 hasAo ? src.vertexAo[vi / 8] : (unsigned char)255, src.ke);
+                 hasAo ? sao[vi / 8] : (unsigned char)255, src.ke);
       }
+      // PAD THIS MEMBER UP TO A WHOLE RUN. A baked strip is chopped into runs
+      // of AT MOST stripRun vertices and only the runs before the last are
+      // padded out (the last one need only be a multiple of 3, meshstrip.hpp),
+      // which is fine for a solo bag - it is the end of the array - and wrong
+      // the moment another member follows it. Without this the next member
+      // would start mid-package and one package would splice two objects into
+      // a triangle. Repeating the last vertex is the same trick the baker
+      // uses: it makes degenerate triangles the GS rasterises to nothing.
+      if (useStrips && !b.vertices.empty())
+        while (b.vertices.size() % b.stripRun != 0) {
+          b.vertices.push_back(b.vertices.back());
+          b.colors.push_back(b.colors.back());
+          if (!b.sts.empty()) b.sts.push_back(b.sts.back());
+        }
       g_aoOff = false;
       g_prelitTex = false;
     } else {
@@ -19301,6 +19435,15 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
   } else {
     b.bag->texture = nullptr;
   }
+  // Strip batches draw PRIM_TRIANGLE_STRIP with every package exactly one
+  // baked run, which is the same contract pinPackageSize enforces for a solo
+  // stripped bag - so no package boundary can splice two members into one
+  // triangle. A batch that had to fall back to a list for any member is
+  // pinned the ordinary derived way instead.
+  {
+    std::vector<StaPipBag*> one{b.bag.get()};
+    pinPackageSize(one, useStrips ? b.stripRun : 0u);
+  }
   // World AABB for the split-screen band cull - the batch analogue of the
   // terrain chunks' build-time boxes.
   b.aabbMin[0] = b.aabbMax[0] = b.vertices[0].x;
@@ -19348,6 +19491,28 @@ void TerrainGame::renderStaticBatches() {
     }
     if (stale) rebuildStaticBatch(b);
     if (!b.bag || b.bag->count == 0) continue;
+    // Draw distance, applied to the batch rather than to each member - the
+    // per-frame analogue of beyondDrawDistance() and deliberately NOT routed
+    // through the shown snapshot above, because a cut-off crossed while the
+    // player drives is exactly the per-frame flip that would re-bake the
+    // batch every frame and cost more than the submit it saves.
+    //
+    // The whole batch draws while the NEAREST point of the member-centre box
+    // is inside the cut-off, so a member can outlive its own distance by up
+    // to the spread of its batch (bounded by the grouping cell) but can never
+    // disappear early. Over-drawing costs GS fill; disappearing early would
+    // be a visible pop, and this frame is bag-bound, not fill-bound.
+    if (b.drawDistance > 0.0F) {
+      float d2 = 0.0F;
+      const float c[3] = {cameraPosition.x, cameraPosition.y, cameraPosition.z};
+      for (int a = 0; a < 3; ++a) {
+        const float e = c[a] < b.ddMin[a]   ? b.ddMin[a] - c[a]
+                        : c[a] > b.ddMax[a] ? c[a] - b.ddMax[a]
+                                            : 0.0F;
+        d2 += e * e;
+      }
+      if (d2 > b.drawDistance * b.drawDistance) continue;
+    }
     // Split halves: same band early-out the terrain chunks use.
     if (splitBandActive && outsideSplitBand(b.aabbMin, b.aabbMax)) continue;
     stapip.core.render(b.bag.get());
@@ -28646,7 +28811,16 @@ static bool staticBatchEligible(const SceneObject& o,
     if (o.vuParams[0] != 0.0f || o.vuParams[1] != 0.0f ||
         o.vuParams[2] != 0.0f || o.vuParams[3] != 0.0f)
         return false;
-    if (o.drawDistance != 0.0f) return false;  // per-object distance cut-off
+    // Draw distance is NOT a reason to stay solo. It used to be, and on the
+    // Motor District that single line kept every one of the 70 imported
+    // models off the batch path - the exact population #269 was written for
+    // - because the author had set one cut-off on all of them. The cut-off
+    // moves to the BATCH instead: buildStaticBatchList groups by the value
+    // as well as by texture and cell, so every member of a batch shares one
+    // number, and renderStaticBatches skips the whole batch only once the
+    // nearest member is beyond it (docs/model-pipeline.md, "Draw distance on
+    // a batch"). A member can therefore draw past its own cut-off - never
+    // vanish before it - which is the conservative direction.
     // A merged bag has one representation for every member. Keep models whose
     // distance LOD or impostor can switch at runtime on the solo path.
     if (o.type == PrimitiveType::Model &&

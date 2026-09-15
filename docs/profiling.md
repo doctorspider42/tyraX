@@ -156,6 +156,105 @@ VU1 wait stayed effectively flat at 0.567 -> 0.542 ms. A 512x512 GS capture
 showed all 30 numbered boxes with their correct atlas regions. Both arms were
 below the PAL frame budget, so ordinary gameplay remained refresh-capped.
 
+### Draw distance stopped disqualifying a batch (1.98.0)
+
+Before changing anything, the Motor District's own population was counted, and
+it did not say what it was expected to say. Of 142 authored objects, 111 are
+batchable shapes and exactly **27 carried `batchStatic = 1`** - every one a
+primitive box (walls, asphalt aprons, pavements, one sign). **Not one of the
+70 imported models was eligible.** The census, read off the committed
+`inc/scene_data.hpp` rather than inferred:
+
+| rejected by | objects |
+| --- | ---: |
+| not a batchable shape (road, area, light, vehicle, player) | 31 |
+| `reflected` (env-map re-submit) | 18 |
+| **`drawDistance != 0`** | **60** |
+| `physics` | 6 |
+| eligible (`batchStatic = 1`) | 27 |
+
+All 70 models carry `drawDistance = 145`; 60 of them reach that row, the other
+10 having already been taken by `reflected` or `physics`. **`dynamicLighting`
+rejected nothing at all** - no object in the scene sets it, which is the same
+fact the `cull_td` probe in
+[vu1-and-dma-cache-cost.md](vu1-and-dma-cache-cost.md) reported as a +0.000 ms
+null result. The ~61% of colour-program triangles that pick a dynamic light do
+so through `StaPipCore::render`'s **runtime** per-bag pick
+(`wantsLightPick = !bag->lighting && info->dynLightPick`), which is a different
+mechanism from the authored `dynamicLighting` flag and never touches batching
+eligibility.
+
+With the cut-off moved onto the batch
+([model-pipeline.md](model-pipeline.md), "Draw distance on a batch"),
+`batchStatic = 1` goes from **27 objects to 87** - the 60 the `drawDistance`
+row had been taking, read back out of a regenerated `scene_data.hpp`. The
+game's own scene-load line, read from `bin/log.txt` with each arm running in
+PCSX2, says what survived singleton-dropping:
+
+| arm | `Static batching:` |
+| --- | --- |
+| before | **18 objects in 8 batches** |
+| after | **65 objects in 48 batches** |
+
+Keying on the reaching lamp as well (see "A batch gets ONE dynamic light" in
+[model-pipeline.md](model-pipeline.md)) costs a little of that: without it the
+same scene reads **71 objects in 49 batches**, because six objects that the
+lamp key separates then fall into singleton groups and are dropped back to the
+solo path. Six solo bags is the price of not shading a lit prop from its
+neighbour's lamp, and it is worth paying.
+
+### What it actually costs, measured
+
+Three arms, one fixture, one knob each, PCSX2 software renderer with the
+camera pinned by the district benchmark sampler; counters are the game's own
+`FTCLIP` line out of `bin/log.txt`, per 50-frame window (`verts` is per
+frame). Each arm's captures repeat **byte-identically** in the day pose, so
+these are not noise:
+
+| garage day | before | + batching | + strips kept |
+| --- | ---: | ---: | ---: |
+| cull packages | 41 175 | 41 825 | **40 925** (−0.6%) |
+| strip packages | 25 925 | 22 025 | **25 675** |
+| vertices/frame | 54 930 | 56 754 | **55 602** (+1.2%) |
+| packet flushes | 5 900 | 6 000 | 6 000 (+1.7%) |
+| VIF1 wait ms | 0.20 | 0.20 | 0.22 |
+
+| garage night | before | + batching | + strips kept |
+| --- | ---: | ---: | ---: |
+| cull packages | 43 600 | 44 250 | **43 350** (−0.6%) |
+| vertices/frame | 56 952 | 58 776 | **57 624** (+1.2%) |
+| packet flushes | 7 025 | 7 125 | 7 125 (+1.4%) |
+
+**The honest reading: this does not pay on these two poses.** Keeping the
+strips recovers nearly all of the naive version's loss and takes cull
+packages slightly below the baseline, but **packet flushes — bags — go UP by
+two per frame** (118 → 120 day, 140 → 142 night) and vertices by 1.2%. 65
+objects merged into 48 batches is fewer bags in total, and yet more bags are
+*submitted*: a batch's bounds are the union of its members, so it passes the
+frustum where its members individually would not. In a view down a street,
+where most props are off-screen, that trade is a loss.
+
+This is the widened-bounds effect the cross-district experiment found,
+arriving at a smaller scale inside the existing 80-unit cell. The cell was
+not changed here, and a finer one is the obvious next lever — but it has to
+be measured, not assumed, because it also makes more singleton groups.
+
+**And here is the projection that got it wrong, kept because the way it was
+wrong is the lesson.** Counting the authored scene statically — how many
+groups, how many parts in each — predicted this:
+
+| pose | bags before | bags after | triangles |
+| --- | ---: | ---: | ---: |
+| garage (eye 0,4,-32) | 202 | 147 (−27%) | +360 (+1.6%) |
+| outer road (eye 4,9,102) | 145 | 108 (−26%) | +1340 (+8.8%) |
+
+The measured answer for the garage pose is **+1.7% bags, not −27%**. The
+projection counted the batches that exist; the console pays for the bags it
+**submits**, and a merged bag with union bounds is submitted in frames where
+none of its members would have been. A static group count cannot see frustum
+culling, so it cannot predict this sign, let alone its size. Measure bags with
+`flush`, never by counting groups.
+
 ## The three frame rate counters, and which one to believe
 
 Three surfaces print a frame rate. They measure **three different quantities**,

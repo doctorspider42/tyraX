@@ -258,7 +258,9 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 
 - [Static batching for primitives and compact repeated models](docs/model-pipeline.md#compact-static-model-batching),
   [texture atlasing](docs/texture-atlasing.md), mesh LOD, draw distances and an
-  adaptive overdraw budget for distant optional effects.
+  adaptive overdraw budget for distant optional effects. A
+  [draw distance no longer forces an object to draw alone](docs/model-pipeline.md#draw-distance-on-a-batch) —
+  it groups the batch instead and cuts the whole batch off together.
 - [Triangle strips for static models](docs/model-pipeline.md#triangle-strips) —
   the build ships the strip beside the list, so a shared corner is packaged,
   transferred and transformed once instead of once per triangle.
