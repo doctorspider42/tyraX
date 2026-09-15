@@ -2364,6 +2364,65 @@ exists in neither function. It remains the wrong lever anyway: the cost is
 proportional to the NUMBER of submissions, so a retained-command redesign removes
 most of it for free.
 
+### Retained static command data (1.96.0)
+
+The static pipeline stops rebuilding, every frame, the DMA/VIF commands that did
+not change. Full account: docs/retained-static-commands.md. Five things any edit
+here must keep.
+
+- **The block is CAPTURED, not re-derived.** `addBuffersDataToPacket` runs the
+  ordinary builders on a miss and then memcpys the bytes they just wrote **out of
+  the packet** into the entry. That is what makes the replay byte-identical by
+  construction - for every program class, for strips and lists, and for a
+  game-supplied program the engine knows nothing about. Do NOT "simplify" it into
+  a struct that describes the packet format: that is a second description to keep
+  in sync, and the reason this one cannot drift.
+- **Copying finished DMA tags is legal because none of them names its own
+  position.** A `CNT` tag counts the quadwords that follow it, a `REF` names an
+  absolute address outside the packet, and with TTE the VIF codes ride in the
+  tag's upper half. `NEXT` and `CALL` are the exception and the pipeline writes
+  neither (see docs/static-submission-batching.md for what happened when one was
+  tried).
+- **The retained storage is EE-private and is NEVER referenced by DMA.** Its REF
+  tags name the bag's own arrays exactly as before, so this adds no new
+  DMA-lifetime exposure at all and the double-buffered qbuffer slot pool is
+  untouched. Only the CULL route is retained: a clip buffer's count word carries
+  a camera-dependent plane mask, and a copied/merged/strip-expanded buffer points
+  into that pool, whose address is not a property of the bag.
+- **The key is every input the block encodes** - stream pointers, count, package
+  size, `bboxVersion`, the resolved VU1 program pointer, the prim state, the Z
+  scale (`RendererCoreDepth::scale`, which a display-mode switch moves) and the
+  single-colour/strip flags. If you add anything to what a package's commands
+  contain, add it to the key in `beginRetainedBag` in the same edit. Two
+  invalidations are unconditional because a pointer compare cannot see them: a
+  pipeline teardown (`deallocateOnUse`) and a VU1 clipping-mode switch both clear
+  the cache outright. Note what the key does not need: a recycled heap address
+  with the same layout produces the same block, because the block carries
+  addresses and counts and no vertex data.
+- **The same capture-and-replay covers the clipping chain.** `addClipChain`'s
+  fifteen quadwords - 52 float stores **per mesh** - depend only on the
+  renderer's near/far pair and the guard band, so they are captured once.
+  `init()` and `setVU1Clipping()` are the only places those inputs move and both
+  drop the capture.
+
+Counts: `StaPipCore::takeRetainedCommandHits/Builds/getRetainedCommandBytes`,
+and a debug engine logs `STAPIPRET` every 300 frames (which makes a debug build
+the only in-engine consumer of those counters - they reset on read).
+`TYRA_STAPIP_RETAINED_COMMANDS = 0` restores the previous construction exactly
+and is the A/B control arm. Measured in PCSX2 on the Motor District benchmark
+fixture, three boots per arm: **18 `--capture-frame` images hash to one value**,
+and garage day - the only pose not pinned to a vsync division - goes
+27.889 -> 30.769 median FPS (35.86 -> 32.50 ms, **-3.36 ms**) against a 0.222 FPS
+control spread and a **0.001 FPS same-build repeatability**; 76 % of the frame's
+package command blocks replay (`retained=772 rebuilt=246, cache=106 KB`). Two
+tuning facts came out of that run and are the reason the constants are what they
+are: the first shape reserved 8 quadwords per package and never evicted, the cap
+bound, the cache held geometry the camera had left, and it measured **1.35 FPS
+slower** than the shipped 7-quadword + bounded-LRU one. **PCSX2 cannot price
+this change fully**: it emulates no EE data cache, and the change trades
+computing bytes for reading them out of a cold 128 KB arena, so an emulator
+delta is an upper bound on the hardware saving and nothing more.
+
 ### Triangle strips for static geometry (1.95.0)
 
 `StaPipBag::stripped` says the bag's `vertices` are a TRIANGLE STRIP. The whole

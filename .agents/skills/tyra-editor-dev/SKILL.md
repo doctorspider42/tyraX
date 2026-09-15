@@ -2419,3 +2419,11 @@ or external GS/view operations into the scope. End submits asynchronously;
 streams remain immutable through the next VIF1 synchronization. Game-overridden
 programs, clipping/copy paths, large bags and nonresident/non-REPEAT textures
 retain immediate submission. See docs/static-submission-batching.md.
+
+That scope is also what makes RETAINED STATIC COMMAND DATA worth having
+(docs/retained-static-commands.md, 1.96.0): inside it a wholly visible static
+bag's VU1 command block is captured once and replayed with a memcpy, so only
+the MVP, the picked dynamic light and the frustum classification are rebuilt
+per frame. It is engine-only - no codegen, no project format, and the packet
+that reaches VIF1 is byte-identical - so a generated game inherits it by
+rebuilding, and nothing in src/ changed for it.

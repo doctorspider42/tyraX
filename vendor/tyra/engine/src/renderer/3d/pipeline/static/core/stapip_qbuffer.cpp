@@ -65,6 +65,7 @@ StaPipQBuffer::StaPipQBuffer() {
   size = 0;
   clipPlaneMask = 0;
   stripped = false;
+  retainIndex = -1;  // Modified by TyraX: see the field's comment.
   _isDynamicallyAllocated = false;
   _stAllocated = false;
   _colorAllocated = false;

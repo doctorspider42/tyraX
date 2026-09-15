@@ -111,6 +111,24 @@ class StaPipCore {
   bool isTelemetryEnabled() const { return telemetryEnabled; }
   StaPipTelemetry takeTelemetry();
 
+  /**
+   * TyraX diagnostics: retained static command data
+   * (docs/retained-static-commands.md). How many VU1 package command blocks
+   * were REPLAYED from retained storage since the last read, how many were
+   * built, and how much EE RAM the cache holds. Always compiled - they are
+   * three loads - and always zero when the feature is compiled out, so a
+   * game's HUD can print them in either arm.
+   */
+  u32 takeRetainedCommandHits() {
+    return qbufferRenderer.takeRetainedHits();
+  }
+  u32 takeRetainedCommandBuilds() {
+    return qbufferRenderer.takeRetainedBuilds();
+  }
+  u32 getRetainedCommandBytes() const {
+    return qbufferRenderer.getRetainedBytes();
+  }
+
   void allocateOnUse() { qbufferRenderer.allocateOnUse(); }
   void deallocateOnUse() { qbufferRenderer.deallocateOnUse(); }
 
@@ -156,6 +174,9 @@ class StaPipCore {
   bool isGuardBandOnly(const StaPipBagPackage& package) const;
   StaPipBagPackager packager;
   StaPipQBufferRenderer qbufferRenderer;
+  // Modified by TyraX: may this bag's cull-routed packages carry a retained
+  // command block? Set once per render() and read by the package loops.
+  bool retainCurrentBag = false;
   bool telemetryEnabled = false;
   StaPipTelemetry telemetry;
   void recordPackage(const StaPipBagPackage& package,

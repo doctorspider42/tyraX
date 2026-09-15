@@ -2999,6 +2999,40 @@ No browser, Python or extra debugger polling is required. Engine detail scopes
 separate package creation/classification, qbuffer copies and packet construction.
 See `docs/hardware-profiler.md`; use unarmed controls to rank performance.
 
+### Retained static command data acceptance (1.96)
+
+The A/B is **one knob in one worktree, one project directory**:
+`TYRA_STAPIP_RETAINED_COMMANDS` in
+`vendor/tyra/.../static/core/stapip_qbuffer_renderer.hpp`, 1 against 0. The
+engine is rebuilt by the ordinary `--build` because the header is an engine
+source; the generated game, the assets and every other number are common mode.
+
+Three checks, in this order, and the first two are the ones that mean something:
+
+- **The packet must be byte-identical, so the picture must be.** Frozen camera,
+  `--capture-frame` three times per arm, confirm the three repeats of each arm
+  are byte-identical to each other BEFORE comparing arms. Anything non-zero
+  across arms is a bug in the capture-and-replay, not a rendering difference to
+  interpret - the change writes the same bytes to VIF1 by construction.
+- **The counts must not move.** VU1 packages, submitted vertices and packet
+  flushes come from the same bags producing the same packets, so `FTCLIP`'s
+  `verts` and `flush` and the frame-cost CSV's submission count must be
+  identical between arms. A moved count means a bag stopped being submitted.
+  The new counters are `STAPIPRET retained=N rebuilt=M per frame, cache=K KB`
+  (a debug engine logs them every 300 frames) or
+  `StaPipCore::takeRetainedCommandHits/Builds` from the game.
+- **Then, and only then, the time.** And **PCSX2 cannot price this change**: it
+  emulates no EE data cache, while the change trades computing bytes for
+  reading them out of a cold ~128 KB arena. Its delta is an upper bound on the
+  hardware saving and must be labelled as one.
+
+Stress the invalidation deliberately - it is the whole correctness surface.
+Force texture evictions with a batch pending, switch the pipeline away and
+back, cross an LOD threshold in both directions (a tier swaps the bag's vertex
+pointer AND count), reload the scene, and move the camera over hundreds of
+frames. `rebuilt` per frame is the instrument: it should be near zero on a
+parked pose and spike exactly where geometry changed.
+
 ### Static submission batch acceptance (1.93)
 
 Use complete baked resource hashes, four parked day/night poses, warmed

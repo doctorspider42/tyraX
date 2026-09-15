@@ -110,6 +110,19 @@ class StaPipQBuffer {
    */
   bool stripped;
 
+  /**
+   * Modified by TyraX: which package of the current bag's RETAINED command
+   * block this buffer is, or -1 when it has none (a copied, clipped or
+   * strip-expanded buffer, a bag the cache refused, or the feature compiled
+   * out). See StaPipRetainedCommands in stapip_qbuffer_renderer.hpp.
+   *
+   * StaPipQBufferRenderer::getBuffer() resets it - the one gate every buffer
+   * passes through before any fill - so a slot recycled out of a retained bag
+   * cannot carry a stale index into a copied or clipped one. StaPipCore sets
+   * it back after the fill, for the routes that may be retained.
+   */
+  int retainIndex;
+
   void print() const;
   void print(const char* name) const;
   void print(const std::string& name) const { print(name.c_str()); }

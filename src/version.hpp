@@ -16,6 +16,37 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.97.0: RETAINED STATIC COMMAND DATA (docs/retained-static-commands.md). A
+// wholly visible static bag hands VU1 the same DMA/VIF command block every
+// frame - a CNT tag with the scale quadword and the prim GIFtag, then one DMA
+// REF per vertex stream - and the same fifteen quadwords of VU1 clipping
+// constants. Both are now CAPTURED out of the packet the ordinary builders
+// just wrote them into, and replayed with a memcpy; only the MVP, the picked
+// dynamic light and the frustum classification stay per-frame. Capturing
+// rather than re-deriving is what makes the replay byte-identical by
+// construction, for every program class and for a game-supplied program too.
+// The retained storage is EE-private and never referenced by DMA - its REF
+// tags name the bag's own arrays exactly as before - so the packet's lifetime
+// contract is literally unchanged and the double-buffered qbuffer slot pool is
+// untouched (a copied or clip-routed buffer never gets a block). Every input
+// the block encodes is in the key: stream pointers, count, package size,
+// bboxVersion, the resolved program, the prim state, the Z scale and the
+// single-colour/strip flags; a teardown or a clipping-mode switch clears the
+// cache outright. Bounded at 128 KB of EE RAM with 250-frame expiry.
+// TYRA_STAPIP_RETAINED_COMMANDS = 0 restores the previous construction exactly,
+// which is the A/B control arm. Engine only: no project format change
+// (kFormatVersion stays 54), no codegen change, no VU1 instruction change, and
+// VU1 packages / submitted vertices / packet flushes are identical by
+// construction. Measured in PCSX2 on the Motor District benchmark fixture,
+// three boots per arm: EIGHTEEN --capture-frame images hash to one value, and
+// the only unsaturated pose (garage day - the other three sit on a vsync
+// division in both arms) goes 27.889 -> 30.769 median FPS, 35.86 -> 32.50 ms,
+// -3.36 ms, against a 0.222 FPS control spread and a 0.001 FPS same-build
+// repeatability. 76% of the frame's package command blocks replay
+// (retained=772 rebuilt=246, cache 106 of 128 KB). PCSX2 emulates no EE data
+// cache and this change trades computing bytes for reading them out of a cold
+// arena, so that is an UPPER BOUND on the hardware saving. MINOR.
+//
 // 1.96.0: ROADS AND TERRAIN reach VU1 as triangle strips too, which is where
 // the geometry actually is - the Motor District is 93 150 road vertices in 90
 // chunks against 13 176 in all its models. Both are GRIDS, and a grid strips
@@ -4032,7 +4063,7 @@
 // 1.86.0: merge baked shadow decals with main's render-cost table and
 // object-group line.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 96
+#define TYRAX_VERSION_MINOR 97
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
