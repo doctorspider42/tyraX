@@ -102,6 +102,21 @@ emitter), so it is now written down once in `attrBlocks()` and the other sites
 derive from it. Until the check grows an EE-side half, an adopted program still
 owes a Docker build and a look at the picture.
 
+**A staged input that makes a term VANISH is a hole the check cannot see, and
+there was one for the whole life of the spot light.** `stageInput` filled the
+lights-direction block — which the colour programs read as the three spot
+quadwords — with random `xyz` and left every `w` at zero. All three of
+`invRange2`, `cosCut2` and `invSoft` live in those `w` lanes, so
+`CalculateTyraSpotLight` evaluated to a colour addend of exactly 0 in every
+trial: 21 operations a vertex that the check compared by comparing nothing. It
+passed, and it would have passed against a program that omitted the block
+entirely. Plausible constants are staged now (a light at the origin, range 30,
+60-degree half angle) and `VU1_OPTIONS_ADDR.y` alternates per trial so both sides
+of the 1.94.0 spot gate run. **When you add or gate a term, falsify the check
+before trusting it** — invert the branch, or zero the term, in the handwritten
+program and confirm `--vu-check` goes `DIFFERENT`. Inverting `cull_c`'s gate
+fails within three trials now; before the staging fix it did not fail at all.
+
 **The output goes through `vucap::scanGifPackets`** — the very decoder the real
 capture path uses (`docs/devkit.md`). It was lifted out of `vucap.cpp` for this:
 a simulated run and a captured run produce the same `std::vector<uint32_t>`

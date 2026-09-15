@@ -155,6 +155,7 @@ class Vu {
     void branchIfNotEq(IVal a, IVal b, Lbl l);
     void branchIfEq(IVal a, IVal b, Lbl l);
     void branchIfGtz(IVal a, Lbl l);
+    void branchIfGez(IVal a, Lbl l);
     void branchIfLtz(IVal a, Lbl l);
 
     // --- the clip family's own primitives ---------------------------------

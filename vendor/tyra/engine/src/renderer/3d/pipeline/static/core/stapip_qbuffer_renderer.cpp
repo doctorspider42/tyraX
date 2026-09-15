@@ -347,13 +347,22 @@ void StaPipQBufferRenderer::sendObjectData(
   // pick from StaPipCore (flashlight or the strongest scene point light),
   // falling back to the global flashlight state when no pick was made.
   // The dir-lights addresses are free when the bag has no lighting - the
-  // C/TC programs read the three spot quads from there. Always uploaded
-  // (the programs always compute; a zero color makes it a no-op) and the
-  // same numbers go to the EE clipper for the as_is path.
+  // C/TC programs read the three spot quads from there. Always uploaded and
+  // the same numbers go to the EE clipper for the as_is path.
+  //
+  // Modified by TyraX: the quads are uploaded unconditionally, but the VU1
+  // ARITHMETIC is not - `spotActive` below rides in VU1_OPTIONS_ADDR.y and
+  // the cull/clip colour programs branch over CalculateTyraSpotLight when it
+  // is clear. `enabled` is exactly the predicate the EE clipper's
+  // addSpotToColor already used, so the two halves of the formula are gated
+  // by one fact and a skipped mesh renders bit-identically (an inert light
+  // uploads a black colour, and colour * anything is 0 on VU1).
+  bool spotActive = false;
   if (!bag->lighting) {
     const auto& light = bagLight ? *bagLight : rendererCore->spot;
     const auto meshSpot = buildSpotForBag(light, bag->info->model);
     clipper.setSpot(meshSpot);
+    spotActive = meshSpot.enabled;
 
     packet2_utils_vu_open_unpack(objectDataPacket, VU1_LIGHTS_DIRS_ADDR, false);
     {
@@ -453,7 +462,16 @@ void StaPipQBufferRenderer::sendObjectData(
                     singleColorEnabled);   // Single color enabled.
     // Static-pipeline-only use of the old dynpip lerp lane: C/D and TC/TCE
     // share one clip image per ABI-compatible pair. Other programs ignore it.
-    packet2_add_u32(objectDataPacket, sharedClipVariant);
+    //
+    // Modified by TyraX: the lane is THREE-STATE now. Every reader that
+    // predates this tested only `> 0` versus `<= 0` (clip_c's three `iblez`,
+    // clip_tc's `ibgtz`), so the negative half was free to carry a second
+    // fact: the colour programs run CalculateTyraSpotLight only when it is
+    // negative. The two cannot collide - the peer variant is selected by a
+    // lighting bag or matcap coordinates, and neither of those classes has
+    // the spot macro at all - so the variant wins when both are true.
+    const s32 variantLane = sharedClipVariant ? 1 : (spotActive ? -1 : 0);
+    packet2_add_u32(objectDataPacket, static_cast<u32>(variantLane));
     // Modified by TyraX: GS hardware fog params (see RendererCoreFog)
     packet2_add_float(objectDataPacket, rendererCore->fog.scale);
     packet2_add_float(objectDataPacket, rendererCore->fog.offset);

@@ -2276,6 +2276,65 @@ dynamically lit objects, so ordinary static geometry has `lighting == nullptr`
 and selects the COLOUR programs. `getCullProgramByParams(isLightingEnabled,
 isTextureEnabled)` is the whole decision; check it before instrumenting anything.
 
+
+### The spot-light gate, and the two facts it cost (1.94.0)
+
+`CalculateTyraSpotLight` is 21 upper-pipe operations a vertex - 63 a triangle -
+and it ran in every colour program on every mesh, lit or not. It is gated now on
+the SIGN of `VU1_OPTIONS_ADDR.y`, which the EE sets from
+`StaPipClipperSpot::enabled` (the same predicate `addSpotToColor` uses, so both
+halves of the formula hang off one fact). Measured on `.o.vsm`, cycles per
+triangle, unlit -> lit: `cull_c` 130 -> **72** / 130, `cull_tc` 133 -> **73** /
+133, `clip_c` 230 -> **173** / 232, `clip_tc` 241 -> **184** / 243 (the clip rows
+are the COLOUR path). Micro memory 1684 -> 1862 of 2042. Details in docs/flashlight.md, "The cone costs nothing
+when nothing is lit". Four things generalise:
+
+- **`VU1_OPTIONS_ADDR.y` IS THREE-STATE NOW** - `> 0` the shared clip image's
+  peer path, `0` base, `< 0` base plus a live dynamic light. That was free
+  because every reader of the lane only ever tested `> 0` against `<= 0`. Any
+  new reader must keep that discipline, and anything that wants a THIRD fact in
+  that lane has to widen the tests first.
+- **A BRANCH IS A SCHEDULING BARRIER, AND THE CONSOLE PRICED IT.** The first
+  shipped shape gated the spot INSIDE the loop. Four parked Motor District
+  poses: garage day **-1.059 ms**, outer day -0.620, outer night -0.701 - and
+  **garage night, the HEAVIEST pose, +1.264 ms**. At night the lamps are on, so
+  nearly every mesh picks a dynamic light and takes the LIT path, where the
+  branch cost 11 cycles a triangle of lost pairing (`cull_tc` 133 -> 144).
+  25 090 triangles x 11 cycles predicts 0.93 ms against 1.26 measured, so the
+  0.0768 ms rate converts well - what was missing was asking WHICH PATH the
+  scene takes (~39% unlit in garage day, ~0% at night). Three shapes, `cull_tc`
+  lit/unlit: gate per corner **154/91**, one gate before the first
+  `MatrixMultiplyVertex` **144/81**, **two whole loops picked once per batch
+  133/73**. The cull pair ships as two loops with the lit one byte-for-byte the
+  original body - the strongest available guarantee that it cannot regress -
+  and the clip pair keeps a branch but DUPLICATES the colour clamp instead of
+  jumping into the middle of the lit block, which is +2 rather than +7.
+  **Price the path that does NOT take your new branch, on the pose where it is
+  the common one.** (A program carrying a project's own stage list keeps one
+  loop and a per-corner gate: its body is far larger, and its stage slots must
+  still see the vertex in the order they always did.)
+- **THE RESIDENT SET IS NOT NEAR THE CEILING ANY MORE, whatever
+  docs/toolchain-image.md still says - but it is tighter than it was.** The
+  shared clip images left real room: MEASURED at 1684 of 2042 words before this
+  change (8 distinct images - 5 cull + 3 clip, since clip C/D and TC/TCE alias)
+  and **1862 after**, 180 spare, nearly all of the growth being the two
+  duplicated cull loops. The ~1988 figure on that page predates the shared-image
+  work. Two rules: measure with `nm` on the built objects before designing
+  around a headroom number, and do NOT trust `--vu-check`'s budget line for
+  this - its upper bound is pessimistic by construction (it cannot know how VCL
+  will pair instructions) and now reads `1102..2201 of 2042`, above a ceiling
+  the real build clears by 180.
+- **`--vu-check` COULD NOT SEE THE SPOT LIGHT AT ALL, and still passed.**
+  `stageInput` filled the lights-direction block with random xyz and left every
+  W at zero - and all three of `invRange2`, `cosCut2` and `invSoft` are Ws, so
+  the macro's colour addend was exactly 0 in every trial and a program that ran
+  it agreed with one that did not. Fixed (plausible constants plus a per-trial
+  alternation of the gate lane), and the fix was FALSIFIED before being trusted:
+  flipping one `ibgez` to `ibltz` in the handwritten `cull_c` now fails the
+  check within three trials, where before it passed. **If you add a gate to a
+  microprogram, prove the harness fails when the gate is inverted** - otherwise
+  a green `--vu-check` says nothing about the branch you just wrote.
+
 **`dma_channel_send_packet2(p, ch, true)` is `FlushCache(0)` - syscall 100, a
 write-back invalidate of the entire 8 KiB data cache - then
 `dma_channel_send_chain`.** At 131.65 submissions per garage-day frame the whole

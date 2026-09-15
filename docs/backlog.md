@@ -45,11 +45,31 @@ one; see [VU1 arithmetic and DMA cache-flush cost](vu1-and-dma-cache-cost.md).
   immediately without waiting for the EE redesign. The shipped `openvcl` loops
   cost 133 cycles per triangle (`cull_tc`, what this scene's static geometry
   actually runs), 130 (`cull_c`), 107 (`cull_td`) and 269 (`clip_tc`). Two
-  reductions are visible in the source and neither is implemented or measured:
-  the static pipeline emits **no triangle strips at all**, so every shared vertex
-  is transformed once per triangle that uses it; and `CalculateTyraSpotLight`
-  runs per vertex in the colour programs even for meshes no dynamic light
-  reaches. Size either against the measured rate, not against a predicted saving.
+  reductions were visible in the source. **The spot-light one is DONE (1.94.0)**
+  — the colour programs skip `CalculateTyraSpotLight` when the mesh's light is
+  inert, taking `cull_c` 130 → 72, `cull_tc` 133 → 73, `clip_c` 230 → 173 and
+  `clip_tc` 241 → 184 cycles per triangle, for **+0 / +0 / +2 / +2** on a mesh
+  that IS lit and +178 words of micro memory
+  ([flashlight.md](flashlight.md), "The cone costs nothing when nothing is
+  lit"). The other is untouched: the static pipeline emits **no triangle strips
+  at all**, so every shared vertex is transformed once per triangle that uses
+  it. Size it against the measured rate, not against a predicted saving.
+- **A BRANCH IS A SCHEDULING BARRIER, and the console said so in milliseconds.**
+  The first shipped shape of the gate branched inside the loop. Four parked
+  Motor District poses: garage day **−1.059 ms**, outer day −0.620, outer night
+  −0.701 — and **garage night, the heaviest pose, +1.264 ms**, because the lamps
+  are on at night, nearly every mesh picks a light, and the branch cost the LIT
+  path 11 cycles a triangle of lost pairing. Solving the cycle table against the
+  deltas puts the unlit fraction of colour-program triangles at ~39% in garage
+  day and ~0% in garage night. The fix is two whole loops picked once per batch,
+  the lit one byte-for-byte the original. **Whenever a gate is added to a hot
+  VU1 loop, price the path that does NOT take it**, and do it on the pose where
+  that path is the common one.
+- **The two-loop spot gate wants its own console arm.** The shape that was
+  measured is not the shape that shipped: the current one is host-verified only
+  (`--vu-check` plus the `.o.vsm` cycle counts). Re-run the same four-pose A/B —
+  garage night is the row that matters, and the claim to falsify is that it is
+  now neutral rather than +1.264.
 - **Aim a VU1 experiment at the program the scene runs.** The first arm
   instrumented `cull_td`, measured exactly zero, and looked like a null result
   about VU1; the generated game attaches a lighting bag only to dynamically lit
