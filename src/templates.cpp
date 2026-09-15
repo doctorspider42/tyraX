@@ -29830,8 +29830,13 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     });
     sceneInts("POSTFX_GRAINS", [&](int si) { return fx128(rs[si].grain); });
     // Motion blur: the previous frame's blend weight (docs/motion-blur.md).
-    sceneInts("POSTFX_MOTIONBLURS",
-              [&](int si) { return fx128(rs[si].motionBlur); });
+    // NOT fx128 - the authored 0..1 maps onto 0..kMotionBlurMaxFix, because
+    // the full 128 freezes the picture for ever rather than blurring it.
+    sceneInts("POSTFX_MOTIONBLURS", [&](int si) {
+        float v = rs[si].motionBlur;
+        v = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
+        return (int)(v * (float)kMotionBlurMaxFix + 0.5f);
+    });
     sceneInts("POSTFX_FLARES", [&](int si) { return fx128(rs[si].flare); });
     sceneInts("POSTFX_GODRAYS_ARR", [&](int si) { return fx128(rs[si].godRays); });
     // Gates the flare-sprite texture load; MUST equal the refreshGenerated
@@ -35472,10 +35477,16 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                        n.type == "SetFlare" || n.type == "SetGodRays" ||
                        n.type == "SetMotionBlur") {
                 // Bloom's re-add FIX is a whole byte, so it accepts up to 2
-                // (over-add, hot glow); grain / flare / god rays / motion blur
-                // top out at 1 - the blend weight has nowhere to go past "the
-                // old frame entirely".
-                const int hi = n.type == "SetBloom" ? 255 : 128;
+                // (over-add, hot glow); grain / flare / god rays top out at 1.
+                // Motion blur is the exception in BOTH directions: its amount
+                // is a fraction of kMotionBlurMaxFix rather than of 128,
+                // because the full weight freezes the picture (project.hpp).
+                const bool isBlur = n.type == "SetMotionBlur";
+                const int hi = n.type == "SetBloom" ? 255
+                               : isBlur            ? kMotionBlurMaxFix
+                                                   : 128;
+                const float scale =
+                    isBlur ? (float)kMotionBlurMaxFix : 128.0f;
                 const char* field = n.type == "SetBloom"   ? "bloom"
                                     : n.type == "SetGrain" ? "grain"
                                     : n.type == "SetFlare" ? "flare"
@@ -35484,7 +35495,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 const std::string wired = numInput(n);
                 if (wired.empty()) {
                     // Nothing wired: fold the clamp at codegen time.
-                    int v = (int)(n.num[0] * 128.0f + 0.5f);
+                    int v = (int)(n.num[0] * scale + 0.5f);
                     if (v < 0) v = 0;
                     if (v > hi) v = hi;
                     c << pad << "ctx." << field << " = " << v << ";\n";
@@ -35492,7 +35503,8 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     // A wired number (a Tween ramping the effect up) has to be
                     // clamped where it is read.
                     c << pad << "{\n"
-                      << pad << "  int a = (int)(" << wired << " * 128.0F + 0.5F);\n"
+                      << pad << "  int a = (int)(" << wired << " * "
+                      << floatLit(scale) << " + 0.5F);\n"
                       << pad << "  if (a < 0) a = 0;\n"
                       << pad << "  if (a > " << hi << ") a = " << hi << ";\n"
                       << pad << "  ctx." << field << " = a;\n"
@@ -37621,10 +37633,17 @@ static const std::vector<std::pair<std::string, std::string>>& liveLogicOpBodies
          "        ctx.grain = v < 0 ? 0 : (v > 128 ? 128 : v);\n"
          "      }\n"},
         {"OP_SetParticles", "      ctx.particles = in.num[0] != 0.0F ? 1 : 0;\n"},
+        // The one opcode whose scale is not 128: motion blur's authored 1.0
+        // is kMotionBlurMaxFix, not a frozen picture (project.hpp).
         {"OP_SetMotionBlur",
          "      {\n"
-         "        int v = (int)(in.num[0] * 128.0F + 0.5F);\n"
-         "        ctx.motionBlur = v < 0 ? 0 : (v > 128 ? 128 : v);\n"
+         "        int v = (int)(in.num[0] * " +
+             std::to_string(kMotionBlurMaxFix) +
+             ".0F + 0.5F);\n"
+         "        ctx.motionBlur = v < 0 ? 0 : (v > " +
+             std::to_string(kMotionBlurMaxFix) + " ? " +
+             std::to_string(kMotionBlurMaxFix) +
+             " : v);\n"
          "      }\n"},
         // The rotation family. flowWrapDeg lives in flow_graph.gen.cpp (emitted
         // only when a graph uses the node), so the fold is spelled out here.

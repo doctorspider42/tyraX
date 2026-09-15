@@ -243,6 +243,18 @@ struct FlowNodeType {
     // is still num[], so codegen, links and every existing project are
     // untouched. Leave null for a genuine number.
     const char* numChoices[4] = {};
+    // A numeric parameter that is a FRACTION: stored 0..1, drawn as a 0..100%
+    // slider. Two things come with the flag and both were asked for. The
+    // percentage is how such a knob READS - "0.200" says nothing about how
+    // strong the effect is - and the slider BOUNDS it, where the generic drag
+    // below happily takes a parameter to -4 or 900, neither of which means
+    // anything and both of which codegen then silently clamps away.
+    //
+    // Declared rather than guessed from the label, for the reason numChoices
+    // is: "Amount" names four different ranges across this registry (bloom
+    // goes to 2, a distance to hundreds), so a heuristic on that word can only
+    // be wrong somewhere.
+    bool numPercent[4] = {};
     FlowParamKind numKind = FlowParamKind::None;  // Color = picker for num[0..2]
     bool idIn = false;    // accepts an object id from a data link (object-param nodes)
     bool idOut = false;   // exposes its resolved object as an id output
@@ -1224,11 +1236,12 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .category = "Scene",
          .numCount = 1, .numLabels = {"Amount"},
          .numTips = {"How much of the previous frame is blended over this "
-                     "one: 0 off, 1 the old frame at full weight (which "
-                     "freezes the picture). The trail compounds frame after "
-                     "frame, so 0.2-0.4 is already a long smear. A wired "
-                     "number replaces it, so a Tween can ramp the blur into "
-                     "a sprint or a hit."},
+                     "one, 0% off to 100%. The trail compounds frame after "
+                     "frame, so 20-40% is already a long smear, and 100% is "
+                     "capped short of freezing the picture. A wired number "
+                     "replaces it (0..1, not 0..100), so a Tween can ramp the "
+                     "blur into a sprint or a hit."},
+         .numPercent = {true},
          .numIn = true,
          .desc = "Controls the motion blur - the previous frame smeared over "
                  "this one. Costs no VRAM and no EE time (the other display "

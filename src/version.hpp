@@ -34,6 +34,30 @@
 // ProjectSettings gains motionBlur and Project gains hudMotionBlurLayer;
 // kFormatVersion 47 -> 48, additive, no migration step. MINOR.
 //
+// The amount is a PERCENTAGE on every surface that shows it (the UI Editor,
+// Scene Preferences and the node's own slider), and 100% is kMotionBlurMaxFix
+// = 115 of the hardware's 128 rather than the full weight. At 128 the blend is
+// exactly "the previous frame", so the error never decays and the first image
+// the game ever displayed stays on screen for ever - measured: with the cap
+// removed the settled frame is the TyraX boot SPLASH thousands of frames into
+// the run, where at 115 it is the sharp scene. The node's parameter is also
+// bounded now: FlowNodeType::numPercent draws a declared fraction as a
+// 0..100% slider, where the generic drag took it to -4 or 900 and codegen
+// silently clamped that away (declared, not guessed from the label - the
+// numChoices precedent, because "Amount" names four different ranges in that
+// registry).
+//
+// Live Logic gains one state: an amber LOGIC (off) whenever a flow graph
+// differs from the one the running build compiled AND the feature is off. The
+// chip people watch is LIVE, which stays green - correctly, since Live Link
+// streams object edits and has never carried graph logic - so a graph edit
+// that needs a rebuild used to be completely silent. The check is one hash per
+// graph and no compile, which is why it can run with the feature disabled. The
+// trap inside it, worth knowing for any throttled per-frame tick: the throttle
+// must LEAVE the previous answer standing, because the state is what the
+// toolbar reads every frame; clearing it and re-deciding every half second
+// made the chip correct for one frame in thirty and invisible in practice.
+//
 // 1.88.0: plain BLSS can adapt each scene between native and reduced 3D
 // resolution from sustained whole-frame timing. Hysteresis, scene warm-up and
 // allocation-free switches avoid oscillation, streaming false positives and GS

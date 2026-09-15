@@ -11,27 +11,41 @@ Turn it on in *Tools > UI Editor* (the **Motion blur** entry of the screen
 stack), per scene in *Scene > Scene Preferences > Post effects*, or from a flow
 graph with **Set Motion Blur**.
 
-![Motion blur off and at 0.85, mid-turn](img/motion-blur.png)
+![Motion blur off and at 85%, mid-turn](img/motion-blur.png)
 
 Both frames are the same camera turn on the same fixture, PCSX2 software
 renderer; the amount is exaggerated so a still picture can show it.
 
 ## What the number means
 
-`Amount` is the weight the old frame gets: `out = mix(new, old, amount)`.
+The amount is **a percentage everywhere it is shown** — it is a fraction of the
+effect's own range, and "0.20" tells a reader nothing about how strong that is.
+(A flow-graph *wire* still carries 0..1, like every other number on that plane.)
+
+It is the weight the old frame gets: `out = mix(new, old, amount)`.
 
 It **compounds**, and that is the thing to know before turning the slider up.
 Each frame blends a predecessor that had already blended its own, so a still
-object's contribution decays as `amount^n` — at 0.5 a trail is still a quarter
-visible three frames later, and at 1.0 the picture stops updating altogether.
+object's contribution decays as `amount^n` — at 50% a trail is still a quarter
+visible three frames later.
 
 | Amount | Reads as |
 |---|---|
-| 0 | off |
-| 0.15 – 0.25 | a light smear on fast motion, invisible when standing still |
-| 0.3 – 0.45 | a clear trail — a dash, a hit, a drugged/dazed state |
-| 0.6+ | a long ghost; readable only for a deliberate effect |
-| 1.0 | the frame never changes |
+| 0% | off |
+| 15 – 25% | a light smear on fast motion, invisible when standing still |
+| 30 – 45% | a clear trail — a dash, a hit, a drugged/dazed state |
+| 60%+ | a long ghost; readable only for a deliberate effect |
+| 100% | the strongest the editor offers — see below |
+
+**100% is not the hardware's full weight, on purpose.** The GS blend byte goes
+to 128, and at 128 the arithmetic is exact: the destination becomes its own
+predecessor and the picture **stops updating for ever** while the game runs on
+behind it. That is not a strong setting, it is a broken one — and a slider whose
+top end is broken is a slider nobody can use the top half of. So the authored
+0..100% maps onto 0..115 of 128 (90%), the strongest weight that still lets the
+picture through. The number lives in one place, `kMotionBlurMaxFix` in
+`project.hpp`, read by the scene table, the flow node's codegen and the Live
+Logic interpreter alike.
 
 Because the trail is **temporal and not directional**, it smears anything that
 moves on screen — the world when the camera turns, and a moving object when it
@@ -60,8 +74,11 @@ and its fresh noise belong on top of it.
 
 ## From a flow graph
 
-**Set Motion Blur** takes an `Amount` and takes effect on the next frame. Its
-number input accepts a wire, so a **Tween** ramps it:
+**Set Motion Blur** takes an `Amount` — a bounded 0–100% slider, so it cannot be
+dragged to a negative or a value the console would clamp away — and takes effect
+on the next frame. Its number input accepts a wire, so a **Tween** ramps it (a
+wired number is 0..1, the flow graph's own convention for the number plane, not
+0..100):
 
 ```
 On Action "sprint"  ->  Tween 0 -> 0.35 over 0.4s  ->  Set Motion Blur (Amount wired)
@@ -71,6 +88,18 @@ On Action released  ->  Tween 0.35 -> 0 over 0.3s  ->  Set Motion Blur (Amount w
 The node is in the `Scene` category with the rest of the post-effect family, and
 **Live Logic can hot-patch it** — edit the amount and the running game follows
 without a rebuild.
+
+Two conditions on that, and both are easy to miss because the LIVE chip stays
+green through either (it streams *object* edits and has never carried graph
+logic — see [Live Logic](live-logic.md)):
+
+- **Live Logic has to be ON** (*Project Preferences > Build*). With it off, a
+  graph edit reaches nothing until the next build; the toolbar says so with an
+  amber **LOGIC (off)**.
+- **The graph has to be patchable.** A `Flip Flop` (or any other branching node)
+  in the same graph puts it out of reach of the interpreter, whatever the Set
+  Motion Blur node itself supports — the chip goes amber **LOGIC (rebuild)** and
+  the Debugger's *Logic* tab names the node.
 
 Scene changes re-apply the scene's authored amount, so a graph that raised the
 blur does not leak it into the next scene.
@@ -130,22 +159,38 @@ each frame is partly the previous one. See the tyra-testing skill's motion gate
 for the way to capture a moving picture repeatably.
 
 **Mind the cadence.** A host-side capture loop manages roughly one frame every
-0.3 s, which at 50 fps is ~15 game frames — and a trail at 0.45 has decayed to
+0.3 s, which at 50 fps is ~15 game frames — and a trail at 45% has decayed to
 `0.45^15`, i.e. nothing, by then. A pair of captures that far apart cannot see an
-ordinary amount at all, and reports the feature as absent. Measured on the
-`fpp` fixture under one identical 16-second pad turn (`stick r 90 0`), changed
-pixels between consecutive captures 0.3 s apart:
+ordinary amount at all, and reports the feature as absent.
 
-| Amount | changed pixels / 0.3 s |
+**And do not read "the two captures are identical" as "the picture is frozen".**
+That inference is wrong twice over on this fixture, and it cost a round of
+measurement:
+
+- A heavy trail over a **repeating** pattern averages it FLAT. The `fpp`
+  fixture's ground is a two-tone checkerboard; smeared over ten frames of a yaw
+  turn it becomes near-uniform green, and a uniform green field looks the same
+  from every heading. Consecutive captures then agree to 0.02% while the game is
+  turning perfectly well — the same trap as the axis-aligned walk in the
+  tyra-testing skill, one dimension over.
+- A trail and a freeze are indistinguishable *while the camera moves*. The
+  question is whether the picture CATCHES UP, so the test is: turn for 3 s, let
+  go, and look at the settled frame.
+
+That settle test is the honest instrument, and it is unambiguous — one look at
+the image answers it:
+
+| Weight | settled frame after the camera stops |
 |---|---|
-| 0 (control) | 19.6 % |
-| 0.85 | 4.2 % |
-| 1.0 | 0.02 % — the picture is frozen |
+| 0% (control) | sharp |
+| 100% (= 115/128, the cap) | **sharp** — a long trail, fully caught up |
+| 128/128 (only reachable by removing the cap) | **the TyraX boot splash**, thousands of frames later |
 
-The 1.0 row is the decisive one and it needs no fast sampling: at full weight the
-frame is exactly its predecessor, so the picture stops updating while the game
-runs on (its frame counter kept advancing through that capture). The 0.02 % is
-PCSX2's own FPS readout inside the captured window, not the game.
+The last row is what the cap exists for: at 128 the blend is `Cd += (Cs-Cd)*128>>7`,
+i.e. exactly `Cs`, so the error never decays and the first image the game ever
+displayed stays on screen for ever while it runs on behind it. At 115 the same
+error decays to zero in about 27 frames (`floor(d*115/128)` reaches 0), which is
+the half-second the settled frame shows.
 
 **And check what is driving the amount.** A `Set Motion Blur` node on an
 `On Start` trigger overrides the scene's authored value on the first frame — two

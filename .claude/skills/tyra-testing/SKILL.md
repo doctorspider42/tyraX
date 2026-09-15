@@ -1334,6 +1334,19 @@ Notes:
   smoke test and the console is the verdict. Symptom vocabulary for the related
   ADC-bit class: **stray smeared triangles at screen edges**, which the HW
   renderer also masks.
+- **A temporal effect needs a SETTLE test, not a frame diff.** "The two
+  captures are identical" does not mean the picture is frozen, and reading it
+  that way cost a full round on the motion-blur change. Two independent reasons,
+  both live on the stock `fpp` fixture: a heavy trail over a **repeating**
+  pattern averages it FLAT (the checkerboard ground smeared over ten frames of a
+  yaw turn is near-uniform green, and uniform green looks the same from every
+  heading - the axis-aligned-walk trap one dimension over), and a long trail is
+  indistinguishable from a freeze *while the camera moves* anyway. Ask instead
+  whether the picture CATCHES UP: drive the motion, `neutral`, wait a few
+  seconds, capture twice. A settled frame that is SHARP is a trail; one that is
+  smeared - or, in the case that produced this note, still showing the **boot
+  splash** thousands of frames into the run - is a freeze. One look at the image
+  answers it, where three pixel tables did not.
 - **Rendering correctness**: switch PCSX2 to the **software renderer** before
   judging visuals — the HW renderer masks GS raster-window wrap bugs that real
   hardware shows. Give the game a few seconds to reach a steady state, then

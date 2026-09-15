@@ -1682,12 +1682,14 @@ struct ProjectSettings {
     float bloomSpread = 0.0f;
     float grain = 0.0f;  // animated film grain noise overlay
     // Motion blur (docs/motion-blur.md): how much of the PREVIOUS rendered
-    // frame is blended over this one, 0 = off, 1 = the old frame at full
-    // weight (which freezes the picture). Costs no VRAM - the other display
-    // buffer IS the previous frame - and the trail decays geometrically
-    // because every frame blends a predecessor that blended its own, so the
-    // useful range is roughly 0.15..0.45. The Set Motion Blur flow node
-    // overrides it at runtime.
+    // frame is blended over this one. 0 = off, 1 = the strongest the editor
+    // offers - which is deliberately NOT the GS's full weight, see
+    // kMotionBlurMaxFix. Costs no VRAM (the other display buffer IS the
+    // previous frame) and the trail decays geometrically, because every frame
+    // blends a predecessor that blended its own. Presented everywhere as a
+    // percentage: this is a fraction of the effect's own range, not a
+    // distance or a count. The Set Motion Blur flow node overrides it at
+    // runtime.
     float motionBlur = 0.0f;
     // Depth of field: the image blurs progressively past dofFocus (world
     // units from the camera), reaching the full dofAmount blur at
@@ -1955,6 +1957,22 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.highlightOpacity == b.highlightOpacity &&
            a.highlightOverlay == b.highlightOverlay;
 }
+
+// The GS blend weight that motion blur 1.0 actually asks for, out of the 128
+// the hardware FIX byte can carry (docs/motion-blur.md).
+//
+// 128 is "the previous frame, entirely", and the arithmetic is exact - the
+// destination becomes its own predecessor and the picture stops updating FOR
+// EVER while the game runs on behind it. That is not a strong setting, it is a
+// broken one, and a slider whose top end is broken is a slider nobody can use
+// the top half of. 115 (90%) is the strongest weight that still lets the
+// picture through, so the authored range 0..1 maps onto 0..115 and the top of
+// the slider is a usable value.
+//
+// Read by every site that turns the authored amount into a weight: the scene
+// table, the Set Motion Blur node's codegen and the Live Logic interpreter.
+// They must not each carry a number.
+inline constexpr int kMotionBlurMaxFix = 115;
 
 // Per-scene override switches (Scene > Preferences). Each "scene-visual"
 // category can override the project defaults; when a flag is off, the scene

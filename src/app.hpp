@@ -3556,7 +3556,8 @@ private:
         NoBuild,    // no built-graph list yet (build once)
         InSync,     // nothing differs from the build - nothing to patch
         Patched,    // N graphs are running from the editor's patch
-        Blocked     // an edited graph cannot be hot-patched (rebuild needed)
+        Blocked,    // an edited graph cannot be hot-patched (rebuild needed)
+        OffStale    // graphs differ from the build and Live Logic is OFF
     };
     LogicState liveLogicState_ = LogicState::Off;
     livelogic::BuiltList liveLogicBuilt_;

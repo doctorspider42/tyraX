@@ -2159,9 +2159,15 @@ void App::drawToolbar() {
                 case LiveLinkState::Live:
                     c = colOk;
                     label = "LIVE";
+                    // Say what it does NOT carry. This is the chip people
+                    // watch, and green here was being read as "everything I
+                    // change is live" - a flow-graph edit is Live LOGIC's job
+                    // (its own chip), and with that off it needs a rebuild.
                     tip = "Live Link: object edits (move/rotate/scale/recolor,"
-                          " add/delete) stream\ninto the running game. Click "
-                          "to turn off (project setting).";
+                          " add/delete) stream\ninto the running game. Flow "
+                          "GRAPHS are not object edits - those are\nLive "
+                          "Logic's (the LOGIC chip). Click to turn off "
+                          "(project setting).";
                     break;
                 case LiveLinkState::RebuildNeeded:
                     c = colWarn;
@@ -2261,25 +2267,38 @@ void App::drawToolbar() {
     // something the interpreter cannot run. Clicking opens the Debugger's
     // Logic tab.
     if (project_.settings.buildProfile == "debug" &&
-        project_.settings.liveLogic &&
         (liveLogicState_ == LogicState::Patched ||
-         liveLogicState_ == LogicState::Blocked)) {
+         liveLogicState_ == LogicState::Blocked ||
+         liveLogicState_ == LogicState::OffStale)) {
+        const bool offStale = liveLogicState_ == LogicState::OffStale;
         const bool blocked = liveLogicState_ == LogicState::Blocked;
         char label[48];
-        if (blocked)
+        if (offStale)
+            std::snprintf(label, sizeof(label), "LOGIC (off)");
+        else if (blocked)
             std::snprintf(label, sizeof(label), "LOGIC (rebuild)");
         else
             std::snprintf(label, sizeof(label), "LOGIC (%d)",
                           liveLogicPatchCount_);
-        const ImU32 c = blocked ? colWarn
-                                : colInfo;
+        const ImU32 c = (blocked || offStale) ? colWarn
+                                              : colInfo;
+        // The off-stale line is the one people arrive at from the GREEN LIVE
+        // chip: Live Link streams object edits and has never carried graph
+        // logic, so it stays green while a graph edit sits in the editor only.
+        // Say both halves - what is not live, and the two ways out.
         const char* tip =
-            blocked ? "Live Logic: an edited graph uses nodes the interpreter "
-                      "cannot run\n(audio, AI, animation, spawning, runtime "
-                      "text...) - Build & Run (F5).\nClick for the list."
-                    : "Live Logic: these graphs were compiled by the editor and "
-                      "are running\nin the game right now, with no rebuild. "
-                      "Click to see them.";
+            offStale  ? "A flow graph changed since the build, and Live Logic "
+                        "is OFF - the\nrunning game is still on its compiled "
+                        "graphs. (LIVE stays green:\nLive Link streams object "
+                        "edits, never graph logic.)\nBuild & Run (F5), or turn "
+                        "Live Logic on in Project Preferences > Build."
+            : blocked ? "Live Logic: an edited graph uses nodes the interpreter "
+                        "cannot run\n(audio, AI, animation, spawning, runtime "
+                        "text, branching nodes...)\n- Build & Run (F5). Click "
+                        "for the list."
+                      : "Live Logic: these graphs were compiled by the editor and "
+                        "are running\nin the game right now, with no rebuild. "
+                        "Click to see them.";
         ImGui::SameLine(0.0f, gapPair);
         ImDrawList* dl = ImGui::GetWindowDrawList();
         const ImVec2 p = ImGui::GetCursorScreenPos();
@@ -16572,7 +16591,12 @@ void App::drawScenePreferencesModal() {
                                                     : "%.2f");
         ImGui::SliderFloat("Bloom spread", &s.bloomSpread, 0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("Film grain", &s.grain, 0.0f, 1.0f, "%.2f");
-        ImGui::SliderFloat("Motion blur", &s.motionBlur, 0.0f, 1.0f, "%.2f");
+        // Percent, like every other surface this value appears on (it is a
+        // fraction of the effect's range, not a distance).
+        float blurPct = s.motionBlur * 100.0f;
+        if (ImGui::SliderFloat("Motion blur", &blurPct, 0.0f, 100.0f, "%.0f%%",
+                               ImGuiSliderFlags_AlwaysClamp))
+            s.motionBlur = blurPct * 0.01f;
         ImGui::SliderFloat("DoF amount", &s.dofAmount, 0.0f, 1.0f, "%.2f");
         ImGui::DragFloat("DoF focus", &s.dofFocus, 0.5f, 0.5f, 500.0f, "%.1f");
         ImGui::DragFloat("DoF range", &s.dofRange, 0.5f, 0.1f, 500.0f, "%.1f");

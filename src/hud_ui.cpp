@@ -2949,15 +2949,23 @@ void App::drawUiEditorWindow() {
             "effects.");
     } else if (uiFxSel_ == 9) {
         ImGui::SeparatorText("Motion blur");
-        ImGui::SliderFloat("Motion blur", &project_.settings.motionBlur, 0.0f,
-                           1.0f, "%.2f");
+        // Stored 0..1, shown as a percentage: it is a fraction of the effect's
+        // own range, and "0.20" says nothing about how strong that is.
+        float blurPct = project_.settings.motionBlur * 100.0f;
+        if (ImGui::SliderFloat("Motion blur", &blurPct, 0.0f, 100.0f, "%.0f%%",
+                               ImGuiSliderFlags_AlwaysClamp))
+            project_.settings.motionBlur = blurPct * 0.01f;
         changed |= ImGui::IsItemDeactivatedAfterEdit();
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
                 "How much of the PREVIOUS frame is blended over this one.\n"
                 "Each frame smears the one before it, which had already\n"
-                "smeared its own, so the trail compounds: 0.2-0.4 is a long\n"
-                "smear and 1.0 freezes the picture.");
+                "smeared its own, so the trail compounds: 20-40%% is already\n"
+                "a long smear.\n\n"
+                "100%% is capped short of the hardware's full weight - at that\n"
+                "weight the frame IS its predecessor and the picture stops\n"
+                "updating for ever, which is not a strong setting but a\n"
+                "broken one.");
         ImGui::TextDisabled(
             "One full-screen GS blend of the last frame. No VRAM (the other\n"
             "display buffer IS that frame) and no EE time.");
