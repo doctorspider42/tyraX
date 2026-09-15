@@ -153,16 +153,52 @@ one; see [VU1 arithmetic and DMA cache-flush cost](vu1-and-dma-cache-cost.md).
   about VU1; the generated game attaches a lighting bag only to dynamically lit
   objects.
 
-### GS VRAM is full in the Motor District garage
+### GS VRAM in the Motor District garage — ATTRIBUTED, and the reading was stale
 
-The garage poses record 12.17 texture re-uploads per frame (day) and 5.75
-(night), against zero everywhere on September 14 and zero in the outer-road poses
-now. `VRAMSTAT` reports `freeMB=0.048`, `largestKB=33` and four evictions plus
-four re-uploads every frame: the scene thrashes GS VRAM permanently, and every
-re-upload is a PATH3 transfer plus the `dma_channel_wait(GIF)` the static
-pipeline performs before each send. Attribute it (the AO atlas is one candidate,
-the baked-shadow and BLSS merge another) before costing it. See
-[gs-vram.md](gs-vram.md).
+The garage poses were reported at 12.17 texture re-uploads per frame (day) and
+5.75 (night) with `freeMB=0.048`, `largestKB=33` and four evictions per frame.
+**Two findings, and the first retires the question.**
+
+**The re-upload figure was a stale fixture.** `benchmark-district.py` copies the
+example's *committed* generated sources, and those drift; every fixture since
+regenerated with the editor under test records **0.000 re-uploads and 0
+evictions in all four poses**, on the console. The stale build also showed 3.6 ms
+more submission than the regenerated one. A performance fixture built from
+committed generated sources is measuring a different game — now written down in
+[gs-vram.md](gs-vram.md), [vu1-and-dma-cache-cost.md](vu1-and-dma-cache-cost.md)
+and the script's own docstring.
+
+**The cliff underneath it is real.** The texture heap is **196 608 words
+(0.75 MB)** — `Pal576i` at 32-bit colour spends three quarters of the 4 MB on
+the frame and z buffers before a texture is loaded — and the garage holds
+**165 440 words of it in 27 allocations**, 84% full with a 121 KB largest free
+block. Of that, **83 392 words are three vehicle textures** and 15 232 are the
+entire city. Nothing is allocated per frame (28 uploads, zero re-uploads over
+4 440 frames) and nothing is evicted parked, so neither the AO atlas nor the
+eviction policy was ever involved. But opening the pause menu binds 40 960 words
+against 31 168 free and the reading drops to `freeMB=0.0483` / `largestKB=25`
+with eight evictions — the `0.048` the console reported, reached by one button
+press.
+
+Levers, all of them **authoring** decisions rather than engine ones, and none of
+them urgent while the scene is not actually thrashing:
+
+- **Vehicle body textures bypass the project's `textureQuant` entirely**
+  (`vehbake` writes into a directory texbake's sweep skips), so a 4-bit project
+  ships a 32-bit car — one 256×256 RGBA32 image holding a third of the heap.
+  A real bug, and **a VRAM-for-GS-time trade rather than a free win**: measured
+  on hardware it buys 280 KB of heap and costs ~0.5-0.7 ms of work per pose on
+  a scene with no thrash to relieve. See the dedicated commit and
+  [vehicles.md](vehicles.md).
+- **`menus/` follows its stylesheet's `quant`, which defaults to none.** The
+  district's pause menu is 40 960 words at 32-bit against 5 248 at 4-bit, and it
+  is what walks the parked scene off the cliff. One line of a stylesheet — but
+  price it against the same GS-time trade before taking it.
+- **`res/hud/` is never palettized** (57 344 words resident in the garage; a
+  save adds another 65 536). Deliberate — palettes are worst at smooth alpha.
+- **`palFullHeight` costs 98 304 words (384 KB) of texture heap** for 64 scan
+  lines, and costs no GS sampling time at all. On this evidence it is the
+  cheapest 384 KB available. Worth a deliberate decision rather than a default.
 
 The `1ce38d2b` baseline and integrated `af8e6762` were measured in PAL
 software-renderer frozen parked views with no competing builds or benchmark

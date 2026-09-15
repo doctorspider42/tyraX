@@ -479,9 +479,60 @@ scales with the number of submissions, so batching removes it rather than an SDK
 fork. Suppressing the flush outright hangs the console, because the memory that
 needs coherency is the packet itself.
 
-The garage poses also record 12.17 texture re-uploads per frame against zero on
-September 14: `VRAMSTAT` shows GS VRAM full with four evictions per frame. That
-is unattributed and is not part of either budget.
+The garage poses also recorded 12.17 texture re-uploads per frame against zero
+on September 14. **That figure was a stale fixture, not a regression** — see
+below.
+
+## GS VRAM in the garage (2026-09-15)
+
+**First, the retraction.** `benchmark-district.py` copies this example's
+*committed* generated sources, and those drift behind the editor. Every fixture
+since regenerated with the editor under test records **0.000 re-uploads and 0
+evictions in all four poses on the console**, and the stale build also showed
+3.6 ms more submission than the regenerated one. A performance fixture built
+from committed generated sources is measuring a different game; regenerate
+before you measure. The script's docstring says so now.
+
+What remains is not a thrash but a **cliff**, and it is worth knowing where it
+is.
+
+At `Pal576i` 512×512 and 32-bit colour, the two frame buffers and the z buffer
+take 786 432 of the PS2's 1 048 576 words before a single texture loads, and
+post-fx, the env-map target the three shiny car bodies need and the projected-
+shadow slots take another 65 536. **The texture heap is 196 608 words
+(0.75 MB)**, and the garage held 165 440 of them — 84% — in 27 allocations.
+
+The census (`VRAMRES` lines, a debug build) says where they went:
+
+| | words | share of the heap |
+|---|---:|---:|
+| `veh-tristarplay01-palette-image-0.png` (256×256 RGBA32) | 65 536 | 33% |
+| the other two vehicle textures | 17 856 | 9% |
+| HUD sprites (`loading`, `icons`, `flare-corona`, …) | 57 344 | 29% |
+| **every building, tree, wall, sign and the terrain** | **24 704** | **13%** |
+
+One car's body texture costs more than four times the entire city, because
+`vehbake` ships the `.glb`'s embedded PNG verbatim and never meets the quantizer
+that takes every `res/models/` texture to the project's declared 4-bit. That is
+a real bug and **fixing it here is a trade, not a win** — palettizing the two
+body images buys 280 KB of heap this scene does not currently need and costs GS
+time it does. It has its own commit and its own measurements; see
+[vehicles.md](../../docs/vehicles.md).
+
+Two things the measurement ruled out rather than confirmed. **Nothing is
+allocated per frame** — 4 440 frames performed 28 uploads and zero re-uploads —
+and **the eviction policy was never the problem**, because parked in the garage
+nothing is evicted at all. The scene simply sits 4% of VRAM from its ceiling:
+pressing Start binds the pause menu's 40 960 words against 31 168 free, and the
+reading drops to **`freeMB=0.0483`, `largestKB=25`, eight evictions** — the same
+`freeMB=0.048` the console reported. That is where the cliff is, reproduced by
+one button press.
+
+Levers, cheapest first, and note that only the last one is free of a GS-time
+cost: palettizing the pause menu (40 960 words at 32-bit against 5 248 at
+4-bit), palettizing the vehicle bodies (71 552 words), and **`palFullHeight`,
+worth 384 KB of texture heap for 64 scan lines and no sampling cost at all**.
+See [gs-vram.md](../../docs/gs-vram.md).
 
 See [the report](../../docs/vu1-and-dma-cache-cost.md) and
 [the raw arms, probe sources and reproduction recipe](authoring/vu-cost-dma-cache-2026-09-15/README.md).

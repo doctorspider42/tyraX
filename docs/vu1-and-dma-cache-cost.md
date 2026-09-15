@@ -211,40 +211,45 @@ solve for the routing mix (about 39% unlit in garage day, ~0% in garage night)
 before quoting anything. The shipped shape is two whole loops with the lit one
 byte-for-byte the original, and it has not been on a console.
 
-## A finding that turned out to be the fixture, and what it cost
+## An unrelated finding, RETRACTED — and why
 
-The first arms on this page recorded **12.17 texture re-uploads per frame** in
-garage day and 5.75 at night, against zero on the outer road and zero everywhere
-in the September 14 runs, with `VRAMSTAT` reporting `freeMB=0.048`,
-`largestKB=33` and four evictions every frame. It was published here as a live
-finding and chased as one.
+The garage poses recorded **12.17 texture re-uploads per frame** (day) and 5.75
+(night) against zero everywhere in the September 14 runs, with `VRAMSTAT`
+reporting `freeMB=0.048`, `largestKB=33` and four evictions per frame. That was
+read here as "GS VRAM is full in the garage and the scene thrashes it
+permanently". **It is not. The fixture was stale.**
 
-**It was the fixture.** `benchmark-district.py` copies the example's *committed*
-generated sources, and those drift. Every fixture since regenerated with the
-editor under test records **0.000 re-uploads and no evictions in all four
-poses** — and 3.6 ms less garage-day submission, with the triangle count back on
-the September 14 reference exactly. The scene parked does not thrash GS VRAM.
+`benchmark-district.py` copies the example's **committed** generated sources,
+and examples' generated files in this repo drift. Every fixture since
+regenerated with the editor under test records **0.000 re-uploads and 0
+evictions in all four poses** on the console — and the stale build also carried
+**3.6 ms more render submission** than the regenerated one, which is larger than
+several of the deltas this page reports as findings.
 
-The chase was not wasted, and its result is worth keeping. The texture heap is
-**196,608 words (0.75 MB)**, not the ~1.08 MB the docs assumed — at PAL 512x512
-32-bit the two frame buffers and z take 786,432 words of the 4 MB before any
-texture loads. The garage holds 84% of what is left in 27 allocations, and
-**one car body texture is a third of the heap**: `vehbake` writes the `.glb`'s
-embedded PNG straight into `.res-baked/vehicles/`, a directory texbake's sweep
-skips, so a project set to 4-bit silently shipped a 256x256 RGBA32 car. Opening
-the pause menu over that state reproduces the cliff exactly — 40,960 words
-against 31,168 free.
+**A performance fixture built from committed generated sources is measuring a
+different game, and nothing in any log says so.** That is the rule to take from
+this section; the script's own docstring carries it now, as does the
+`tyra-testing` skill. Re-read any number on this page that was taken from a
+fixture whose generated sources were not refreshed first.
 
-Quantizing it is a real fix for a scene near that cliff, and it is **not** a free
-win: measured here it costs 0.51-0.74 ms of work on every pose, all of it in the
-`finish` bucket, because a PSMT4 body with a CLUT costs more to sample than the
-32-bit one it replaced. It belongs behind the project's own texture settings, not
-applied unconditionally. See [gs-vram.md](gs-vram.md) for the residency census
-that made any of this answerable.
+What survives is not a thrash but a **cliff**: the texture heap at `Pal576i`
+32-bit is 196 608 words and the garage holds 84% of it, so opening the pause
+menu is enough to reach `freeMB=0.048` and start evicting. The inventory, the
+residency census that names what is resident, and the levers are in
+[gs-vram.md](gs-vram.md).
 
-**The rule this leaves behind: a performance fixture built from committed
-generated sources is measuring a different game.** Regenerate with the editor
-under test before believing any absolute number from one.
+Acting on the cliff is **not** a free win either. Quantizing that car body -
+the obvious fix, and a real bug, since a project set to 4-bit was silently
+shipping a 32-bit car - measured **0.51-0.74 ms SLOWER on every pose**, all of
+it in the `finish` bucket. The obvious explanation does not survive its own
+evidence: the outer-road poses are **byte-identical** between the two arms yet
+show the largest finish delta, so a per-texel CLUT sampling cost cannot be the
+whole story and VRAM address layout is the better hypothesis - the body shrank
+by 57,280 words and every allocation after it moved. If that holds it applies to
+any texture-size change, so treat none of the remaining VRAM levers as free
+until a padded arm settles it. The change therefore stays behind the project's
+own texture settings rather than shipping unconditionally.
+
 
 ## What the first VU1 reduction actually bought, and where it moved the limiter
 

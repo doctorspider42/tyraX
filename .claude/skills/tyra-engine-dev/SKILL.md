@@ -1576,6 +1576,25 @@ Rules the same evening paid for:
   1.15 MB free (2.04 MB at 16-bit colour) and never evicts anything — if you
   are chasing a VRAM problem in a palettized project, measure before assuming
   there is one.
+  **`VRAMSTAT` counts; `VRAMRES`/`VRAMEVICT` NAME.** The same debug build also
+  prints one line per resident allocation with its texture name and words, plus
+  the eviction victims since the last summary and what each was given up for.
+  Reach for those first: "12.17 re-uploads per frame" is not actionable and
+  "one car's body texture is a third of the heap" is, and an asset listing
+  cannot substitute — only a fraction of what a project ships is bound in any
+  one view. The census is debug-only in an **anonymous namespace inside the
+  .cpp** under `#ifndef NDEBUG`, deliberately not a header field: a debug-only
+  member would be an ODR hazard the moment one TU disagreed about `NDEBUG`.
+  Its victim list is cleared when PRINTED, not per frame — clearing per frame
+  made it miss the one eviction it existed for.
+  **Attribute a thrash before touching the policy.** On the Motor District
+  garage (docs/gs-vram.md) the answer was neither the eviction policy nor a
+  per-frame allocation — the run did 28 uploads and zero re-uploads in 4 440
+  frames — but a working set 84% of a 0.75 MB heap, half of it three vehicle
+  textures that had bypassed the project's palettization. A scene that close to
+  its ceiling thrashes on the next thing that binds: opening the pause menu
+  took it from 0.119 MB free / 121 KB largest block to 0.052 / 25, which is the
+  state a console reported as four evictions and four re-uploads per frame.
 - **The framebuffer PSM is a setting, not a constant** (TyraX fork,
   docs/gs-vram.md). `RendererSettings::getFrameBufferPsm()` returns PSMCT32 or
   PSMCT16 per the project's colour depth, and **everything that writes a
