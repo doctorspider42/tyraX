@@ -91,6 +91,128 @@ per-district groups widened four bags enough to cost roughly 3.8-4.5 ms in
 PCSX2. The retained path targets repeated props rather than architecture and
 keeps the whole-model reject above for large or LOD-switched meshes.
 
+### Draw distance on a batch
+
+A per-object draw distance used to disqualify an object from batching
+outright, and on a real scene that one line was the whole story. **Every one
+of the Motor District's 70 imported models carries `drawDistance = 145`**, so
+the exclusion kept all of them solo and left static batching holding 27
+objects - the walls, aprons and pavements - out of 142. That is the exact
+population compact static-model batching was written for, rejected by a rule
+that had nothing to do with geometry.
+
+The cut-off now belongs to the batch:
+
+- **It joins the group key**, next to the texture and the world cell, so every
+  member of a batch shares one number. Objects that leave it at 0 group
+  exactly as they did before, and two props with different cut-offs never land
+  in the same bag.
+- **`renderStaticBatches` tests it once per batch**, against the nearest point
+  of the box over its members' *positions* - the same centres the solo path's
+  `beyondDrawDistance()` measures. The box is rebuilt whenever the batch is,
+  which includes demotion.
+
+It is deliberately **not** routed through the shown snapshot that handles
+hide/show. A cut-off crossed while the player drives is a per-frame flip, and
+re-baking a batch every frame costs far more than the submit it saves - the
+same reasoning that demotes a per-frame-animated member.
+
+The trade this makes is worth stating plainly: **a member can outlive its own
+draw distance, by at most the spread of its batch (bounded by the grouping
+cell). It can never disappear early.** Over-drawing costs GS fill; vanishing
+early would be a visible pop, and these frames are bag-bound rather than
+fill-bound.
+
+**A static count over the authored scene predicted −27% bags in the garage
+pose; the running game says +1.7%, and the running game is right.** The
+projection counted batches, which is the number that falls (8 → 48 for 18 →
+65 objects). What the EE pays for is bags *submitted*, and a batch's bounds
+are the union of its members, so it passes the frustum where its members
+individually would not. Counting groups is not counting draws. The measured
+tables are in [profiling.md](profiling.md), "What it actually costs".
+
+The guard that actually protects culling is the half-cell footprint limit
+above, and this change does not touch it — but the same widened-bounds effect
+it exists to prevent is what shows up here at a smaller scale, which is why
+the grouping cell is the next lever to measure.
+
+### A batch must keep the strips, or it costs more than it saves
+
+This one was measured, not reasoned about, and it nearly sank the whole
+change. `rebuildStaticBatch` re-emits each member into the combined array —
+and it read `GameModelPart::verts`, the **triangle list**. So batching a
+stripped model silently threw away the strip the build had baked for it, and
+on a district of stripped models that cost more than the submits it saved.
+In the garage-day pose, per 50-frame window (PCSX2, software renderer, frozen
+camera, counters read from the game's own `bin/log.txt`):
+
+| counter | before | naive batching | strip-aware |
+| --- | ---: | ---: | ---: |
+| cull packages | 41 175 | 41 825 | **40 925** |
+| strip packages | 25 925 | 22 025 | **25 675** |
+| vertices per frame | 54 930 | 56 754 | **55 602** |
+| packet flushes | 5 900 | 6 000 | 6 000 |
+
+**Naive batching moved every EE-side counter the wrong way** — +3.3%
+vertices, +1.7% bags — while `strip` fell by 3 900 packages, which is the
+fingerprint: the batched parts had come back as lists. (`trianglesCull`
+*fell* 5.8% at the same time, and that is exactly the trap the
+`StaPipTelemetry` header warns about: a strip counts `size - 2` primitives
+including its degenerates and a list counts `size / 3`, so the triangle
+counter is meaningless across a representation change. Read `verts`.)
+
+The fix is to concatenate the **runs**. A batch whose members share a run
+length holds their strips end to end and pins `packageSize` to that same
+number, so every package is exactly one run of one member and no package
+boundary can splice two members into one triangle — the same contract
+`pinPackageSize` already enforces for a solo stripped bag, reused. `stripRun`
+therefore joins the group key (0 = plain list, which is every primitive and
+any part whose strips came out no smaller), and the strip/list choice is
+**all-or-nothing per batch**: one array carries one topology, so emitting one
+member's strip beside another's list would hand the strip's vertices to a
+triangle-list walk.
+
+**Each member has to be padded up to a whole run, and missing that made the
+first attempt a silent no-op.** `meshstrip` chops a strip into runs of *at
+most* `kRun` vertices and pads only the runs before the last — the final run
+need only be a multiple of 3. For a solo bag that is harmless, because the
+short run is the end of the array. Concatenate another member after it and
+the next member starts mid-package. Repeating the last vertex until the array
+is back on a run boundary is the same trick the baker uses between runs, and
+it costs at most 71 degenerate vertices per member. The first version instead
+*refused* to strip any batch whose member was not already a whole number of
+runs, which is every batch — it built, it ran, and every counter came back
+byte-identical to the unstripped arm, which is exactly what a no-op looks
+like.
+
+### A batch gets ONE dynamic light, so the lamp is part of the key too
+
+`StaPipCore::render` gives every bag a single light slot, picked from that
+bag's world bounding sphere. A batch is one bag, so **merging a lamp-lit prop
+with an unlit one shades both from whichever lamp the merged sphere happens to
+pick** — the lit one can lose its highlight, the unlit one gain one.
+
+This is not hypothetical. Letting the district's models batch put 7 of 49
+batches in exactly that state: a streetlight standing directly under a night
+lamp merged with one standing under nothing, because the two share the `metal`
+texture and a grouping cell. Grouping by the reaching lamp as well takes it to
+**0 of 50** — the whole cost is one extra batch.
+
+The key is deliberately coarse: the object's centre against each dynamic
+lamp's authored radius, nearest one wins, −1 for "no lamp reaches this". It is
+not the engine's brightness × live-level × falloff score and does not need to
+be. Its only job is to keep "a lamp reaches this" apart from "nothing reaches
+this", and since every member of a lamp's group sits inside that lamp's
+radius, the merged sphere stays in its neighbourhood. When the lamps are off —
+all of them, in daylight — every bag picks nothing and the members agree for
+that reason instead.
+
+Two limits worth knowing. The key uses object centres, so a mesh long enough
+for a lamp to reach one end and not its centre is grouped by its centre. And
+an object standing between two lamps is keyed to the nearer one; it can still
+be merged with objects whose second-nearest lamp differs, which the engine's
+own per-frame pick then resolves the same way it always did for a solo bag.
+
 ## Triangle strips
 
 Every static model now ships **twice**: as the flat triangle list the build has

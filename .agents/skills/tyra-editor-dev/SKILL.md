@@ -471,6 +471,53 @@ sequences and mirror target lists do) must be added to `batchBlockedNames()`
 exclusion-worthy per-object property (a new special draw path, a new
 streaming mechanism) must be added to `staticBatchEligible()`.
 
+**Before adding an exclusion, count what the existing ones already reject.**
+On the Motor District, `drawDistance != 0` alone held all 70 imported models
+solo — the entire population compact model batching exists for — and left the
+batcher with 27 boxes out of 142 objects. An exclusion is one line to write
+and can cost a whole feature; the census is cheap (read `batchStatic` out of
+the generated `inc/scene_data.hpp`) and belongs in the same commit. It also
+showed the cheaper fix: a per-object *value* can often become part of the
+group **key** instead of a reason to refuse. `drawDistance` now does exactly
+that — same key as texture and cell, tested once per batch against the box
+over its members' positions in `renderStaticBatches`
+(docs/model-pipeline.md, "Draw distance on a batch"). A batch-level test must
+never be routed through the `shown` snapshot: anything that flips as the
+camera moves would re-bake the batch every frame.
+
+Beware the near-miss when reading such a census: the authored
+`SceneObject::dynamicLighting` flag (which sets `bag->lighting` and selects
+the `cull_td` program) is **not** the runtime per-bag light pick in
+`StaPipCore::render` (`wantsLightPick = !bag->lighting && info->dynLightPick`,
+which feeds the *colour* programs' single spot slot). Most of a scene's
+triangles can have a light picked while not one object sets the flag.
+
+**A BATCH MUST NOT THROW AWAY THE BAKED TRIANGLE STRIP.** `rebuildStaticBatch`
+re-emits every member into the combined array, and reading
+`GameModelPart::verts` (the list twin) instead of `stripVerts`/`stripRun`
+silently undoes the strip bake for every batched model. Measured on the Motor
+District that alone made batching a net LOSS — +3.3% vertices and +1.7% bags
+in the garage pose, with `strip` packages down 3 900 as the fingerprint. The
+runs are self-contained and exactly `stripRun` vertices, so members sharing a
+run length concatenate and `pinPackageSize(bags, stripRun)` makes each package
+exactly one run of one member; `stripRun` is therefore part of the group key,
+and the strip/list choice is **all-or-nothing per batch** (one array carries
+one topology — mixing would hand a strip's vertices to a list walk).
+When you A/B this, read `verts`, never `trianglesCull`: a strip counts
+`size - 2` primitives including its degenerates and a list counts `size / 3`,
+so the triangle counter moves the wrong way across a representation change.
+
+**That second mechanism is itself a batching invariant: A BAG GETS ONE
+DYNAMIC LIGHT.** `StaPipCore::render` picks it from the bag's world bounding
+sphere, and a batch is one bag — so merging a lamp-lit prop with an unlit one
+shades both from whatever the merged sphere picks. Widening batch eligibility
+without keying on the reaching lamp put 7 of 49 Motor District batches in that
+state (a streetlight under its own lamp merged with one under nothing, same
+texture and cell); `lampOf` in `buildStaticBatchList` keys it away at a cost
+of one extra batch. **Any new key that merges more objects must be checked
+against this**, and the check is cheap: group the candidates and ask whether
+the members of a group agree on which lamp reaches them.
+
 **Do not widen model batches beyond their spatial cells.** Measured on Aster,
 cross-district material groups destroy spatial culling and even per-object
 material groups widened the bag bounds enough to cost more fill than their

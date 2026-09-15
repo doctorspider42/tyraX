@@ -1058,6 +1058,29 @@ physical PS2 until a hardware reset. Isolate an immutable geometry-only segment,
 record its ownership through DMA completion, and prove it with a console stress
 test before enabling any cache. Do not treat a PCSX2 pass as lifetime proof.
 
+### The static batcher's remaining exclusions, counted not guessed
+
+With `drawDistance` moved onto the batch key (1.98.0), the Motor District's
+census reads: 142 objects, 31 not batchable shapes at all (roads, areas,
+lights, vehicles, the player), **18 rejected by `reflected`**, **6 by
+`physics`**, and 87 eligible. The two remaining rows are worth the same
+treatment the distance cut-off just got, in this order:
+
+- **`reflected`** is the bigger one and the harder one. The object is
+  re-submitted into the environment-map pass through its own solo bag, and a
+  batched member has no solo bag. The projected-shadow, portal and highlight
+  passes already solved exactly this by baking the solo geometry on first use
+  (`objectGeometry[i].parts.empty() && !o.dirty`); the env pass could do the
+  same and let the object batch for its MAIN draw. Measure before believing
+  it: 18 objects is 18 submits, but the env pass runs per frame.
+- **`physics`** is genuinely not batchable while a body is awake. A sleeping
+  body is a different question - `physSleep` exists - but a batch that
+  re-bakes when a body wakes is the per-frame-rebuild trap, so this needs the
+  demotion path to be cheap enough first.
+
+Do the census before any of it. On this scene the exclusion everyone expected
+to matter (`dynamicLighting`) rejects nothing at all.
+
 ### Measure opaque state sorting beyond static batches
 
 Static batches already group by resident texture, which removes the safe bulk

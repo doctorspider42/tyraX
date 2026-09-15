@@ -1047,7 +1047,10 @@ void App::drawPropertiesWindow() {
         if (o.drawDistance > 0.0f)
             ImGui::TextDisabled(
                 "Skipped at draw time when the camera is farther than this;\n"
-                "collision and logic still run. 0 = always drawn.");
+                "collision and logic still run. 0 = always drawn.\n"
+                "Objects merged into one static batch share a cut-off and\n"
+                "switch off together, so a batched object can stay visible\n"
+                "a little past its own distance - never less.");
 
         // Rendered into the dynamic ("@sky") environment map, so reflective
         // materials mirror this object - costs a second small render per frame.
