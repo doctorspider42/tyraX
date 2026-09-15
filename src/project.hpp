@@ -1974,6 +1974,31 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
 // They must not each carry a number.
 inline constexpr int kMotionBlurMaxFix = 115;
 
+// ...and the same question answered again for a 16-BIT frame buffer, where the
+// answer is much lower and for a second reason.
+//
+// The blend truncates on every write, always downward, and an accumulator at
+// weight f multiplies any per-frame bias by 1/(1-f). At PSMCT16 a write drops
+// three bits, so that bias is eight times what it is at PSMCT32 and the picture
+// visibly BLEEDS BRIGHTNESS - it is not a tint, the whole image goes dark and
+// stays dark. Dithering only pays part of it back: the offsets have to stay
+// non-negative (1.70.4) and DIMX entries are 3-bit SIGNED, so 0..3 is all the
+// hardware offers and its mean of 1.5 is less than half the 3.5 unbiased
+// rounding would want.
+//
+// Measured on the fpp fixture, settled green against the same scene with the
+// blur off - 16-bit: -4.2% at 35%, -8.3% at 60%, -11.3% at 75%, -43.1% at 100%;
+// 32-bit at 100%: -10.4%. So the top of the slider is unusable at 16-bit and
+// merely dim at 32-bit, and the fix is the same one the constant above already
+// is: make the top of the range a value somebody can actually use. 80 puts the
+// 16-bit maximum at about the loss 32-bit takes at ITS maximum.
+inline constexpr int kMotionBlurMaxFix16 = 80;
+
+// The blend weight motion blur 1.0 asks for in a given project.
+inline int motionBlurMaxFix(const ProjectSettings& s) {
+    return s.colorDepth == "16bit" ? kMotionBlurMaxFix16 : kMotionBlurMaxFix;
+}
+
 // Per-scene override switches (Scene > Preferences). Each "scene-visual"
 // category can override the project defaults; when a flag is off, the scene
 // inherits Project::settings for that category (see project::resolvedSettings).

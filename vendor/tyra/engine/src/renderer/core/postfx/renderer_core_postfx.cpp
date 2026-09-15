@@ -138,6 +138,13 @@ void RendererCorePostFx::uploadNoise() {
 // negative offset darkens every pass at 16-bit - renderer_core_gs.cpp, 1.70.4);
 // this only permutes where they land.
 static u64 rolledDitherMatrix(int dx, int dy) {
+  // 0..3, the engine's own entries, and NOT a wider range however tempting.
+  // A PSMCT16 store drops 3 bits, so unbiased rounding would want offsets
+  // averaging 3.5 - but DIMX entries are 3-bit SIGNED, so 4..7 mean -4..-1 and
+  // a "full range 0..7" table is half negative. Tried on this fixture: the
+  // settled picture went from 73 mean green to 45 and the ghost from 15/23/15
+  // to 83/80/106, i.e. exactly the darkening the 1.70.4 note describes. 0..3
+  // (mean 1.5) is all the hardware offers in the safe direction.
   static const int kDimx[16] = {0, 2, 0, 2, 3, 1, 3, 1,
                                 0, 2, 0, 2, 3, 1, 3, 1};
   u64 reg = 0;

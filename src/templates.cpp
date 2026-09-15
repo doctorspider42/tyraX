@@ -29835,7 +29835,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     sceneInts("POSTFX_MOTIONBLURS", [&](int si) {
         float v = rs[si].motionBlur;
         v = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
-        return (int)(v * (float)kMotionBlurMaxFix + 0.5f);
+        // Colour depth is project-wide, so the cap is the project's.
+        return (int)(v * (float)motionBlurMaxFix(p.settings) + 0.5f);
     });
     sceneInts("POSTFX_FLARES", [&](int si) { return fx128(rs[si].flare); });
     sceneInts("POSTFX_GODRAYS_ARR", [&](int si) { return fx128(rs[si].godRays); });
@@ -35482,11 +35483,11 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 // is a fraction of kMotionBlurMaxFix rather than of 128,
                 // because the full weight freezes the picture (project.hpp).
                 const bool isBlur = n.type == "SetMotionBlur";
+                const int blurMax = motionBlurMaxFix(p.settings);
                 const int hi = n.type == "SetBloom" ? 255
-                               : isBlur            ? kMotionBlurMaxFix
+                               : isBlur            ? blurMax
                                                    : 128;
-                const float scale =
-                    isBlur ? (float)kMotionBlurMaxFix : 128.0f;
+                const float scale = isBlur ? (float)blurMax : 128.0f;
                 const char* field = n.type == "SetBloom"   ? "bloom"
                                     : n.type == "SetGrain" ? "grain"
                                     : n.type == "SetFlare" ? "flare"
@@ -37633,17 +37634,15 @@ static const std::vector<std::pair<std::string, std::string>>& liveLogicOpBodies
          "        ctx.grain = v < 0 ? 0 : (v > 128 ? 128 : v);\n"
          "      }\n"},
         {"OP_SetParticles", "      ctx.particles = in.num[0] != 0.0F ? 1 : 0;\n"},
-        // The one opcode whose scale is not 128: motion blur's authored 1.0
-        // is kMotionBlurMaxFix, not a frozen picture (project.hpp).
+        // The one opcode whose scale is not 128: motion blur's authored 1.0 is
+        // motionBlurMaxFix(), which depends on the project's COLOUR DEPTH, and
+        // this table is a static that has never seen a Project - hence the
+        // placeholder, substituted where the cases are emitted.
         {"OP_SetMotionBlur",
          "      {\n"
-         "        int v = (int)(in.num[0] * " +
-             std::to_string(kMotionBlurMaxFix) +
-             ".0F + 0.5F);\n"
-         "        ctx.motionBlur = v < 0 ? 0 : (v > " +
-             std::to_string(kMotionBlurMaxFix) + " ? " +
-             std::to_string(kMotionBlurMaxFix) +
-             " : v);\n"
+         "        int v = (int)(in.num[0] * {{BLURMAX}}.0F + 0.5F);\n"
+         "        ctx.motionBlur = v < 0 ? 0 : (v > {{BLURMAX}} ? {{BLURMAX}} "
+         ": v);\n"
          "      }\n"},
         // The rotation family. flowWrapDeg lives in flow_graph.gen.cpp (emitted
         // only when a graph uses the node), so the fold is spelled out here.
@@ -38281,7 +38280,10 @@ static std::string liveLogicSource(const Project& p) {
                   << " (add one to liveLogicOpBodies in templates.cpp)\n";
             continue;
         }
-        cases << "    case " << name << ":\n" << *body << "      break;\n";
+        cases << "    case " << name << ":\n"
+              << replaceAll(*body, "{{BLURMAX}}",
+                            std::to_string(motionBlurMaxFix(p.settings)))
+              << "      break;\n";
     }
 
     std::string s = TPL_LIVE_LOGIC_CPP;

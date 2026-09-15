@@ -133,51 +133,60 @@ Two details are load-bearing:
 ## 16-bit colour
 
 A 16-bit frame buffer (*Project Preferences > Display > Colour depth*) stores 5
-bits per channel, and an accumulator is the one pass that cares, because it
-feeds its own output back in. Getting it right there took two things, and
-**both** were needed — with either one alone the settled picture still carries a
-ghost of wherever the camera used to point:
+bits per channel, and an accumulator is the one pass that really cares, because
+it feeds its own output back in at a loop gain of `1/(1-f)` — about ten at the
+top of the slider. Two distinct things go wrong there, and both are fixed above
+by different means.
 
-1. **Darken, then add — not a lerp.** The obvious form,
-   `Cd += (Cs - Cd) * fix >> 7`, moves a pixel by an *increment*; once the
-   residual is inside one 5-bit step that increment rounds to less than one
-   storable level and the error stops decaying **for ever**. The pass instead
-   rebuilds the pixel from two large terms — `Cd = Cd * (128 - fix) / 128`, then
-   `Cd += Cs * fix / 128` — which is the same weighted average with no small
-   increment anywhere in it. (Both equations were already in the file: the
-   colour grading's gain and the bloom's add-back.)
+**It used to leave a permanent ghost.** The obvious blend,
+`Cd += (Cs - Cd) * fix >> 7`, moves a pixel by an *increment*; once the residual
+is inside one 5-bit step that increment rounds to less than one storable level
+and the error stops decaying for ever. Two changes, and **both** are needed:
+
+1. **Darken, then add.** The pixel is rebuilt from two large terms —
+   `Cd = Cd * (128 - fix) / 128`, then `Cd += Cs * fix / 128` — which is the
+   same weighted average with no small increment in it. (Both equations were
+   already in the file: the grading's gain and the bloom's add-back.)
 2. **A dither matrix that rolls.** Dithering is what lets a short increment
    reach the next storable level, and the engine's matrix is fixed in screen
-   space — right for banding, wrong here, because the cells whose offset is 0
-   can never cross. The pass rolls it one cell per frame
-   (`rolledDitherMatrix`, same entries and the same non-negative range as
-   `tyraxDitherMatrix`) and hands `DIMX` straight back afterwards. `DTHE` is
-   left alone: an author who turned dithering off keeps the rougher result.
+   space, so the cells whose offset is 0 never cross. The pass rolls it a cell
+   per frame (`rolledDitherMatrix`) and hands `DIMX` straight back.
 
-Measured on the settled frame 4 s after the camera stops, over flat ground where
-any spread **is** the ghost (5th-to-95th percentile per channel, 0..255):
+Settled-frame ghost over flat ground, 5th-to-95th percentile per channel:
 
 | 16-bit variant | R | G | B |
 |---|---|---|---|
-| lerp, fixed matrix (the naive version) | 40 | 32 | 51 |
+| lerp, fixed matrix | 40 | 32 | 51 |
 | lerp, rolled matrix | 20 | 13 | 29 |
 | darken+add, fixed matrix | 33 | 30 | 7 |
 | **darken+add, rolled matrix** | **15** | **23** | **15** |
 | 32-bit control | 12 | 20 | 6 |
 
-The last two rows are the same picture to the eye: the loading-screen imprint
-that the naive version leaves behind is gone. 32-bit is unchanged by all of this
-(10/21/1 against 12/20/6 before).
+**And it BLEEDS BRIGHTNESS**, which is the more visible half and the one a ghost
+metric cannot see. Every write truncates downward, the loop multiplies that bias
+by `1/(1-f)`, and at PSMCT16 a write drops three bits — eight times the bias of a
+32-bit one. The picture does not tint, it goes dark and stays dark. Dithering
+pays back only part of it: unbiased rounding would want offsets averaging 3.5,
+`DIMX` entries are **3-bit signed** so anything above 3 is negative (1.70.4), and
+0..3 averages 1.5. A "full range 0..7" matrix was tried and is exactly the
+darkening that note warns about.
 
-Full weight still freezes at any depth — `Cd * 0 + Cs * 1` is exactly `Cs` — so
-the cap above is what it always was.
+Settled green against the same scene with the blur off:
 
-The cost is one extra full-screen sprite (two instead of one, the same fill as
-film grain) and two qwords for the matrix, inert at PSMCT32 because the GS only
-dithers 16-bit writes.
+| amount | 16-bit | 32-bit |
+|---|---|---|
+| 35% | −4.2% | |
+| 60% | −8.3% | |
+| 75% | −11.3% | |
+| 100%, old cap (115) | **−43.1%** | −10.4% |
+| 100%, cap 80 | **−9.0%** | |
 
-**Measured in PCSX2 only** — which does dither (`dithering_ps2 = 2`), contrary to
-an older note in the engine. No console run.
+So the cap is **per colour depth** — `kMotionBlurMaxFix` 115, `kMotionBlurMaxFix16`
+80, resolved by `motionBlurMaxFix()` and read by the scene table, the node's
+codegen and the Live Logic interpreter alike. It is the same decision the 115
+already was: the top of the slider has to be a value somebody can use, and at
+16-bit that is a shorter trail. 100% there now costs about what 100% costs at
+32-bit, and the settled picture is clean on flat ground and sky alike.
 
 ## Triple buffering
 

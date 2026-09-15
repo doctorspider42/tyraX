@@ -47,6 +47,11 @@
 // numChoices precedent, because "Amount" names four different ranges in that
 // registry).
 //
+// The cap is PER COLOUR DEPTH (115 at 32-bit, 80 at 16-bit): the accumulator
+// truncates downward on every write and the loop multiplies that by 1/(1-f), so
+// a 16-bit project lost 43% of its brightness at the top of the slider (9% with
+// the lower cap, against 10% for 32-bit at its own maximum).
+//
 // The pass is DARKEN-then-ADD rather than a one-sprite lerp, and it rolls the
 // dither matrix a cell per frame - both needed, and only at 16-bit colour does
 // it show. A lerp moves a pixel by an INCREMENT, and on a 5-bit channel an
