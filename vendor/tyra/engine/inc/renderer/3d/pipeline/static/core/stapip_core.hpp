@@ -163,6 +163,15 @@ class StaPipCore {
   void recordGuardBandPackage(const StaPipBagPackage& package);
   void recordOutsideBag(const StaPipBag* bag);
   void renderPkgs(StaPipBagPackage* packages, const bool& doClip, u16 count);
+  /**
+   * Modified by TyraX: the partial-frustum route for a STRIPPED bag
+   * (StaPipBag::stripped). Its packages are the baked strip RUNS and must
+   * never be sub-split - a 1/3 subpackage of a strip is not a strip, and the
+   * fillByCopy* merges would fuse two of them. A package that needs real
+   * clipping is expanded back into a triangle list instead.
+   */
+  void renderStrippedPkgs(StaPipBagPackage* packages, const bool& doClip,
+                          u16 count);
   void renderSubpkgs(StaPipBagPackage* packages, u16 count);
 };
 

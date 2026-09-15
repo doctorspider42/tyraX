@@ -63,6 +63,26 @@ class StaPipQBuffer {
   void fillByCopy1By3(const StaPipBagPackage& pkg);
 
   /**
+   * Modified by TyraX: expand `triCount` triangles of a STRIPPED package back
+   * into an ordinary triangle list, into the copy pool.
+   *
+   * The clip programs and the EE clipper both loop by whole triangles over a
+   * triangle list, so a stripped package that genuinely crosses a clip plane
+   * cannot be handed to either as it stands. It is expanded here instead -
+   * triangle i of the strip is (v[i], v[i+1], v[i+2]) - and the result is an
+   * ordinary list qbuffer that every existing route already handles. The
+   * buffer's own `stripped` flag is cleared, which is what makes the GIF tag
+   * this buffer produces say PRIM_TRIANGLE, so one bag may mix the two.
+   *
+   * `firstTri` is an index into the package's triangles, not its vertices.
+   * The expansion is 3x, so the caller must chunk it: at most maxVertCount / 3
+   * triangles at a time, which is the same triangle budget the list path's
+   * subpackages carry.
+   */
+  void fillByStripExpand(const StaPipBagPackage& pkg, u32 firstTri,
+                         u32 triCount);
+
+  /**
    * @brief Deallocate dynamic data if it was allocated and allocate new data
    * specified by size.
    * @param size 48 is max
@@ -80,6 +100,15 @@ class StaPipQBuffer {
   u32 size;
   /** Conservative OR of the source packages' exact VU clip-plane masks. */
   u8 clipPlaneMask;
+
+  /**
+   * Modified by TyraX: this buffer's vertices are a triangle STRIP, so the
+   * GIF tag the microprogram writes must carry PRIM_TRIANGLE_STRIP. It is per
+   * BUFFER and not per bag on purpose - a stripped bag's clip-routed packages
+   * are expanded back to lists (fillByStripExpand) and travel in the same
+   * flush as its stripped ones.
+   */
+  bool stripped;
 
   void print() const;
   void print(const char* name) const;

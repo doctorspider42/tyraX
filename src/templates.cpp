@@ -1,4 +1,4 @@
-﻿#include "templates.hpp"
+#include "templates.hpp"
 
 #include <algorithm>
 #include <array>
@@ -34,6 +34,7 @@
 #include "menulayout.hpp"
 #include "menustyle.hpp"
 #include "meshlod.hpp"
+#include "meshstrip.hpp"
 #include "navmesh.hpp"
 #include "objparser.hpp"
 #include "platform.hpp"
@@ -955,6 +956,13 @@ class TerrainGame : public Tyra::Game {
     std::vector<Tyra::Vec4> vertices;
     std::vector<Tyra::Color> colors;
     std::vector<Tyra::Vec4> sts;  // texture coordinates
+    // Non-zero when `vertices` is a TRIANGLE STRIP rather than a list: the
+    // run length, which is also the VU1 package size every bag over this
+    // array is pinned to. Anything that walks this part's TRIANGLES has to
+    // read it (see the receiver passes); anything that walks its VERTICES -
+    // the shading bake, the env normals, the coarse AABB - does not.
+    // Tier 0 only: applyGeoLod clears it while a LOD tier is shown.
+    unsigned int stripRun = 0;
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
@@ -1125,9 +1133,20 @@ class TerrainGame : public Tyra::Game {
     // empty unless the project's mesh LOD distance is on. Shared by every
     // instance - each object bakes its own shaded copy on demand.
     std::vector<std::vector<float>> lodVerts;
+    // The TRIANGLE-STRIP twin of `verts`, baked into the .tmdl (version 4+,
+    // docs/model-pipeline.md). Same 8-float layout, strip order, chopped into
+    // independent runs of `stripRun` vertices - roughly a third of the
+    // vertices for the same surface, which is a third of the VU1 packages and
+    // therefore a third of the EE's per-package bill. Empty (stripRun 0) when
+    // the part did not strip smaller than its list; `verts` stays the truth
+    // for every per-triangle consumer either way (collider, shadow proxy).
+    std::vector<float> stripVerts;
+    unsigned int stripRun = 0;
     // baked ambient-occlusion visibility per vertex (255 = open sky), from
     // the model's .aov sidecar; empty when the project bakes no AO
     std::vector<unsigned char> vertexAo;
+    // Parallel to stripVerts, same meaning as vertexAo.
+    std::vector<unsigned char> stripVertexAo;
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
     // Ke: emission - the brightness floor pushVert never shades below, so the
@@ -1467,7 +1486,15 @@ class TerrainGame : public Tyra::Game {
   void buildSkyDome();
   // Pins every pass that draws one vertex array to a single VU1 package size -
   // see the implementation for why coplanar passes must classify identically.
-  void pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags);
+  // `stripRun` non-zero: the bags draw a TRIANGLE STRIP whose packages must
+  // be its baked runs, so the pin is the run and nothing is derived.
+  void pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags,
+                      unsigned int stripRun = 0);
+  // The SMALLEST VU1 package any static program class derives, asked once.
+  // A baked strip run above it would be clamped by StaPipCore and the
+  // package boundaries would leave the run boundaries - which splices two
+  // strips into one triangle. Checked rather than remembered.
+  unsigned int minPackageSize();
   // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
   void rebuildObjectGeometry(int index, bool localSpace = false);
   // Cheap whole-object reject for multi-part static geometry. The normal
@@ -2499,6 +2526,13 @@ class TerrainGame : public Tyra::Game {
     std::vector<Tyra::Vec4> vertices;
     std::vector<Tyra::Color> colors;
     std::vector<Tyra::Vec4> sts;  // texture coordinates
+    // Non-zero when `vertices` is a TRIANGLE STRIP rather than a list: the
+    // run length, which is also the VU1 package size every bag over this
+    // array is pinned to. Anything that walks this part's TRIANGLES has to
+    // read it (see the receiver passes); anything that walks its VERTICES -
+    // the shading bake, the env normals, the coarse AABB - does not.
+    // Tier 0 only: applyGeoLod clears it while a LOD tier is shown.
+    unsigned int stripRun = 0;
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
@@ -2669,9 +2703,20 @@ class TerrainGame : public Tyra::Game {
     // empty unless the project's mesh LOD distance is on. Shared by every
     // instance - each object bakes its own shaded copy on demand.
     std::vector<std::vector<float>> lodVerts;
+    // The TRIANGLE-STRIP twin of `verts`, baked into the .tmdl (version 4+,
+    // docs/model-pipeline.md). Same 8-float layout, strip order, chopped into
+    // independent runs of `stripRun` vertices - roughly a third of the
+    // vertices for the same surface, which is a third of the VU1 packages and
+    // therefore a third of the EE's per-package bill. Empty (stripRun 0) when
+    // the part did not strip smaller than its list; `verts` stays the truth
+    // for every per-triangle consumer either way (collider, shadow proxy).
+    std::vector<float> stripVerts;
+    unsigned int stripRun = 0;
     // baked ambient-occlusion visibility per vertex (255 = open sky), from
     // the model's .aov sidecar; empty when the project bakes no AO
     std::vector<unsigned char> vertexAo;
+    // Parallel to stripVerts, same meaning as vertexAo.
+    std::vector<unsigned char> stripVertexAo;
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
     // Ke: emission - the brightness floor pushVert never shades below, so the
@@ -3011,7 +3056,15 @@ class TerrainGame : public Tyra::Game {
   void buildSkyDome();
   // Pins every pass that draws one vertex array to a single VU1 package size -
   // see the implementation for why coplanar passes must classify identically.
-  void pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags);
+  // `stripRun` non-zero: the bags draw a TRIANGLE STRIP whose packages must
+  // be its baked runs, so the pin is the run and nothing is derived.
+  void pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags,
+                      unsigned int stripRun = 0);
+  // The SMALLEST VU1 package any static program class derives, asked once.
+  // A baked strip run above it would be clamped by StaPipCore and the
+  // package boundaries would leave the run boundaries - which splices two
+  // strips into one triangle. Checked rather than remembered.
+  unsigned int minPackageSize();
   // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
   void rebuildObjectGeometry(int index, bool localSpace = false);
   // Cheap whole-object reject for multi-part static geometry. The normal
@@ -5545,6 +5598,14 @@ Tyra::StaPipCore* core = nullptr;
 u32 tCull = 0, tClip = 0, tGuard = 0, tOut = 0;
 u32 tTriCull = 0, tTriClip = 0, tTriGuard = 0;
 u32 tFlush = 0, tVuWait = 0;
+// Triangle-strip routing (docs/model-pipeline.md, "Triangle strips").
+// `strip` counts the cull-routed packages submitted AS a strip, `sexp` the
+// stripped packages the clipper forced back into a triangle list, and `verts`
+// every vertex handed to a VU1 buffer. That last one is the number the EE's
+// per-package bill scales with - quote it, not the triangle count, when
+// comparing two builds of one view.
+u32 tStrip = 0, tStripExp = 0;
+u64 tVerts = 0;
 
 // u64, because a u32 SUM OVERFLOWS. 50 frames x 300 ms is 4.4e9 ticks against
 // a 4.29e9 ceiling, so on a scene slow enough to be worth profiling the mean
@@ -5626,6 +5687,9 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
     tTriGuard += t.trianglesGuardBand;
     tFlush += t.packetFlushes;
     tVuWait += t.vu1WaitTicks;
+    tStrip += t.packagesStrip;
+    tStripExp += t.packagesStripExpanded;
+    tVerts += t.verticesSubmitted;
   }
   if (rawN < kRaw) raw[rawN++] = FP::tFrameWork;
   if (rawN == 1) rawFirst = frame;
@@ -5699,16 +5763,21 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
   if (core != nullptr) {
     snprintf(line, sizeof(line),
              "FTCLIP f=%lu cull=%lu/%lu clip=%lu/%lu guard=%lu/%lu out=%lu "
-             "flush=%lu vuwait=%.2f",
+             "flush=%lu strip=%lu sexp=%lu verts=%lu vuwait=%.2f",
              (unsigned long)(frame - kWindow), (unsigned long)tCull,
              (unsigned long)tTriCull, (unsigned long)tClip,
              (unsigned long)tTriClip, (unsigned long)tGuard,
              (unsigned long)tTriGuard, (unsigned long)tOut,
-             (unsigned long)tFlush, (double)ms(tVuWait, kWindow));
+             (unsigned long)tFlush, (unsigned long)tStrip,
+             (unsigned long)tStripExp,
+             (unsigned long)(tVerts / (u64)kWindow),
+             (double)ms(tVuWait, kWindow));
     TYRA_LOG(line);
     tCull = tClip = tGuard = tOut = 0;
     tTriCull = tTriClip = tTriGuard = 0;
     tFlush = tVuWait = 0;
+    tStrip = tStripExp = 0;
+    tVerts = 0;
   }
   sBeg = sEnd = sCmp = sCmpEe = 0;
   sPrx = sAcc = sRep = sFea = sNet = sPkt = 0;
@@ -7648,6 +7717,12 @@ void TerrainGame::loadModelAsset(int i) {
     GameModelPart part;
     part.verts.swap(mat.vertices);
     part.vertexAo.swap(mat.vertexAo);  // baked AO sidecar (empty = none)
+    // Triangle strips (.tmdl v4). An .obj never has one, and a part that did
+    // not strip smaller than its list leaves stripRun at 0 and renders as the
+    // list it always was.
+    part.stripVerts.swap(mat.stripVertices);
+    part.stripVertexAo.swap(mat.stripVertexAo);
+    part.stripRun = part.stripVerts.empty() ? 0u : mat.stripRun;
     // Distance tiers (a .tmdl baked with mesh LOD on; never from an .obj)
     for (auto& lod : mat.lods) {
       part.lodVerts.push_back(std::vector<float>());
@@ -14326,8 +14401,19 @@ void TerrainGame::updateAndRenderLightPools() {
           const float* oc = runtimeObjects[oi].data.position;
           for (GeoPart& part : g.parts) {
             if (!part.bag) continue;
-            const size_t nvt = part.vertices.size() / 3 * 3;
-            for (size_t vi = 0; vi + 3 <= nvt; vi += 3) {
+            // A TRIANGLE-STRIP part (GeoPart::stripRun, docs/model-pipeline.md)
+            // steps by ONE vertex inside a run and never across a run boundary;
+            // a triangle list steps by three. The join and padding vertices a
+            // strip carries make degenerate triangles, whose zero normal fails
+            // the facing test below and skips itself.
+            const size_t nvt = part.stripRun
+                                  ? part.vertices.size()
+                                  : part.vertices.size() / 3 * 3;
+            const size_t vStep = part.stripRun ? 1 : 3;
+            for (size_t vi = 0; vi + 3 <= nvt; vi += vStep) {
+              if (part.stripRun &&
+                  vi % part.stripRun + 3 > part.stripRun)
+                continue;  // would splice two runs into one triangle
               // Two ceilings: this receiver's share, and the buffer itself.
               if ((int)b.wVerts.size() >= wLimit ||
                   b.wVerts.size() >= 3997)
@@ -15243,8 +15329,19 @@ void TerrainGame::updateAndRenderLightPools() {
           const float* oc = runtimeObjects[oi].data.position;
           for (GeoPart& part : g.parts) {
             if (!part.bag) continue;
-            const size_t nvt = part.vertices.size() / 3 * 3;
-            for (size_t vi = 0; vi + 3 <= nvt; vi += 3) {
+            // A TRIANGLE-STRIP part (GeoPart::stripRun, docs/model-pipeline.md)
+            // steps by ONE vertex inside a run and never across a run boundary;
+            // a triangle list steps by three. The join and padding vertices a
+            // strip carries make degenerate triangles, whose zero normal fails
+            // the facing test below and skips itself.
+            const size_t nvt = part.stripRun
+                                  ? part.vertices.size()
+                                  : part.vertices.size() / 3 * 3;
+            const size_t vStep = part.stripRun ? 1 : 3;
+            for (size_t vi = 0; vi + 3 <= nvt; vi += vStep) {
+              if (part.stripRun &&
+                  vi % part.stripRun + 3 > part.stripRun)
+                continue;  // would splice two runs into one triangle
               if ((int)w.sWVerts.size() >= wLimit || w.sWVerts.size() >= 3997)
                 break;
               const Vec4& a3 = part.vertices[vi];
@@ -16793,8 +16890,19 @@ void TerrainGame::renderProjShadows() {
     const float* woc = runtimeObjects[wo].data.position;
     for (GeoPart& part : wg.parts) {
       if (!part.bag) continue;
-      const size_t nvt = part.vertices.size() / 3 * 3;
-      for (size_t vi = 0; vi + 2 < nvt + 1; vi += 3) {
+      // A TRIANGLE-STRIP part (GeoPart::stripRun, docs/model-pipeline.md)
+      // steps by ONE vertex inside a run and never across a run boundary;
+      // a triangle list steps by three. The join and padding vertices a
+      // strip carries make degenerate triangles, whose zero normal fails
+      // the facing test below and skips itself.
+      const size_t nvt = part.stripRun
+                            ? part.vertices.size()
+                            : part.vertices.size() / 3 * 3;
+      const size_t vStep = part.stripRun ? 1 : 3;
+      for (size_t vi = 0; vi + 3 <= nvt; vi += vStep) {
+        if (part.stripRun &&
+            vi % part.stripRun + 3 > part.stripRun)
+          continue;  // would splice two runs into one triangle
         if (b.wallVerts.size() >= 3997) break;
         const Vec4& a3 = part.vertices[vi];
         const Vec4& b3 = part.vertices[vi + 1];
@@ -18016,7 +18124,23 @@ void TerrainGame::buildSkyDome() {
 // (It also un-splits the frustum-bbox cache, which is keyed by package size on
 // top of the vertex pointer - the passes now share one entry instead of
 // recomputing each other's boxes every frame.)
-void TerrainGame::pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags) {
+void TerrainGame::pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags,
+                                 u32 stripRun) {
+  if (stripRun != 0) {
+    // A stripped array is already chopped into self-contained runs of exactly
+    // this many vertices, and every pass over it has to split it there - a
+    // package boundary anywhere else fuses two strips. Nothing is derived:
+    // the run is by construction no larger than any class's own capacity
+    // (minPackageSize), so StaPipCore's clamp leaves it alone.
+    for (Tyra::StaPipBag* b : bags)
+      if (b && b->count != 0) {
+        b->packageSize = stripRun;
+        b->stripped = true;
+      }
+    return;
+  }
+  for (Tyra::StaPipBag* b : bags)
+    if (b) b->stripped = false;
   u32 size = 0;
   for (Tyra::StaPipBag* b : bags) {
     if (!b || b->count == 0) continue;
@@ -18027,6 +18151,22 @@ void TerrainGame::pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags) {
   if (size == 0) return;
   for (Tyra::StaPipBag* b : bags)
     if (b && b->count != 0) b->packageSize = size;
+}
+
+// See the declaration. Eight combinations, one of which (lighting with
+// per-vertex colours) the engine refuses, so it is skipped.
+u32 TerrainGame::minPackageSize() {
+  static u32 cached = 0;
+  if (cached != 0) return cached;
+  for (int single = 0; single < 2; ++single)
+    for (int lit = 0; lit < 2; ++lit)
+      for (int tex = 0; tex < 2; ++tex) {
+        if (lit && !single) continue;
+        const u32 v = stapip.core.getMaxVertCountByParams(single != 0, lit != 0,
+                                                          tex != 0);
+        if (v != 0 && (cached == 0 || v < cached)) cached = v;
+      }
+  return cached;
 }
 
 // Cylindrical captures are authored upright with a common horizontal scale.
@@ -18097,6 +18237,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
 
   for (int pi = 0; pi < partCount; ++pi) {
     GeoPart& part = g.parts[pi];
+    part.stripRun = 0;  // re-decided per rebuild, with the geometry
     part.vertices.clear();
     part.colors.clear();
     part.sts.clear();
@@ -18204,21 +18345,36 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       const GameModelPart& src = gm->parts[billboard ? g.impostorView : pi];
       GeoPart& part = g.parts[pi];
       const bool textured = src.texture != nullptr;
+      // TRIANGLE STRIPS (docs/model-pipeline.md). The bake stores the strip
+      // beside the list, so the shading pass below does not care which it is
+      // walking - it is per VERTEX, not per triangle, and the strip's joins
+      // and padding are ordinary duplicated vertices. An impostor billboard
+      // keeps the list: its part is one of eight captured quads chosen per
+      // frame, and nothing about it is worth a strip.
+      const bool useStrip = !billboard && src.stripRun != 0 &&
+                            !src.stripVerts.empty() &&
+                            src.stripRun <= minPackageSize();
+      const std::vector<float>& geo = useStrip ? src.stripVerts : src.verts;
+      part.stripRun = useStrip ? src.stripRun : 0u;
       // Baked raycast self-AO from the model's .aov sidecar (LeanObjLoader);
       // parallel to the vertex array, one byte per vertex.
-      const bool hasAo = src.vertexAo.size() * 8 == src.verts.size();
+      const std::vector<unsigned char>& geoAo =
+          useStrip ? src.stripVertexAo : src.vertexAo;
+      const bool hasAo = geoAo.size() * 8 == geo.size();
       g_litNormals = dynLit ? &part.litNormals : nullptr;
       g_envNormals = src.reflTexture ? &part.envNormals : nullptr;
-      for (size_t i = 0; i + 7 < src.verts.size(); i += 8) {
-        const float* v = &src.verts[i];
+      for (size_t i = 0; i + 7 < geo.size(); i += 8) {
+        const float* v = &geo[i];
         pushVert(part.vertices, part.colors, part.sts, visualData,
                  {v[0], v[1], v[2]}, billboard ? V3{0,1,0} : V3{v[3], v[4], v[5]}, v[6], v[7], src.kd,
-                 textured, hasAo ? src.vertexAo[i / 8] : (unsigned char)255,
+                 textured, hasAo ? geoAo[i / 8] : (unsigned char)255,
                  src.ke);
       }
     }
     g_envNormals = nullptr;
   } else {
+    // Primitives, decals and every other builder emit triangle lists.
+    for (GeoPart& part : g.parts) part.stripRun = 0;
     g_primKd = gmat ? gmat->kd : nullptr;
     g_primKe = gmat ? gmat->ke : nullptr;
     g_primTextured = gmat && gmat->texture;
@@ -18624,7 +18780,8 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     // coplanar companions ONE package size. LOD tiers only re-aim the
     // pointers, never the program class, so this pin survives applyGeoLod.
     pinPackageSize({part.bag.get(), part.envBag.get(), part.aoBag.get(),
-                    part.emisBag.get()});
+                    part.emisBag.get()},
+                   part.stripRun);
   }
   g_litNormals = nullptr;
   // Keep a single conservative AABB across all material parts. It is built
@@ -18711,6 +18868,10 @@ void TerrainGame::applyGeoLod(int index, int pi, int lod) {
     part.bag->vertices = part.vertices.data();
     part.bag->count = static_cast<u32>(part.vertices.size());
     part.bag->bboxVersion = part.baseStamp;
+    // Tier 0 is the only one the bake strips (docs/model-pipeline.md), so the
+    // topology flag moves with the pointer. packageSize stays pinned either
+    // way: the run length is legal for a list too, just slightly smaller.
+    part.bag->stripped = part.stripRun != 0;
     if (part.texBag) part.texBag->coordinates = part.sts.data();
     if (part.envBag) {
       part.envColorBag->many = part.envColors.data();
@@ -18718,6 +18879,7 @@ void TerrainGame::applyGeoLod(int index, int pi, int lod) {
       part.envBag->vertices = part.vertices.data();
       part.envBag->count = part.bag->count;
       part.envBag->bboxVersion = part.baseStamp;
+      part.envBag->stripped = part.bag->stripped;
     }
   } else {
     if ((int)part.lods.size() < lod) part.lods.resize(lod);
@@ -22283,7 +22445,13 @@ bool TerrainGame::renderOnePortalView(int pi) {
         if (lit) normals.push_back(c.normal);
         if (many) colors.push_back(c.color);
       };
-      for (u32 vi=0; vi+2<source.count; vi+=3) {
+      // A TRIANGLE-STRIP source (GeoPart::stripRun) steps by one vertex
+      // inside a run and never across a run boundary. The OUTPUT is always a
+      // triangle list - Sutherland-Hodgman fans each clipped polygon - which
+      // is why cache.bag drops the topology flags below.
+      const u32 vStep = part.stripRun ? 1u : 3u;
+      for (u32 vi=0; vi+2<source.count; vi+=vStep) {
+        if (part.stripRun && vi % part.stripRun + 3 > part.stripRun) continue;
         Corner in[3], out[4];
         for (int k=0;k<3;++k) {
           Corner& c=in[k]; c.p=source.vertices[vi+k];
@@ -22325,6 +22493,12 @@ bool TerrainGame::renderOnePortalView(int pi) {
     // flags) even on a hit. Only clipped vertex streams are retained.
     cache.bag = source;
     cache.color = *source.color;
+    // The clipped stream is a plain triangle list however the source was
+    // stored, so neither the strip flag nor the run-sized package pin may be
+    // inherited (a list drawn as a strip is garbage; a pin that is not the run
+    // is merely unnecessary).
+    cache.bag.stripped = false;
+    cache.bag.packageSize = 0;
     cache.bag.vertices = vertices.data();
     cache.bag.count = (u32)vertices.size();
     cache.bag.bboxVersion = cache.stamp;
@@ -49146,6 +49320,22 @@ std::vector<File> bakeStaticModels(const Project& p,
                 for (std::vector<float>& tier : meshlod::generateTiers(part.verts))
                     part.lods.push_back({std::move(tier), {}});
             }
+
+            // Triangle strips (docs/model-pipeline.md, "Triangle strips").
+            // Built LAST, after the atlas UV fold and after the tiers exist,
+            // because the weld that makes a strip possible compares the final
+            // UVs - folding an atlas rect in afterwards would be welding
+            // corners that are not actually the same vertex. The list stays
+            // exactly as it was; this is a second copy the render bag uses.
+            if (meshstrip::build(part.verts, part.ao, meshstrip::kRun,
+                                 part.stripVerts, part.stripAo))
+                part.stripRun = meshstrip::kRun;
+            // Tier 0 only, deliberately. A distance tier is a small fraction
+            // of the frame's vertices by definition, and applyGeoLod re-aims
+            // the bag at a tier's own buffers - so a tier keeps its list and
+            // the bag drops back to PRIM_TRIANGLE while it is shown. The
+            // format carries the slot (Lod::stripVerts) for when that is
+            // worth doing.
 
             out.parts.push_back(std::move(part));
         }

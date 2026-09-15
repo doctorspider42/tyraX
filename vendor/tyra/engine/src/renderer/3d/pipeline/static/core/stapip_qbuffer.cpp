@@ -64,6 +64,7 @@ QBufferPool* poolFor(const void* owner) { return poolFor(owner, g_poolSide); }
 StaPipQBuffer::StaPipQBuffer() {
   size = 0;
   clipPlaneMask = 0;
+  stripped = false;
   _isDynamicallyAllocated = false;
   _stAllocated = false;
   _colorAllocated = false;
@@ -95,6 +96,8 @@ void StaPipQBuffer::fillByPointer(const StaPipBagPackage& pkg) {
   normals = const_cast<Vec4*>(pkg.normals);
   size = pkg.size;
   clipPlaneMask = pkg.clipPlaneMask;
+  // Modified by TyraX: a package handed over whole keeps the bag's topology.
+  stripped = pkg.bag->stripped;
   bag = pkg.bag;
 }
 
@@ -112,6 +115,7 @@ void StaPipQBuffer::fillByPointer(StaPipBag* source, u32 offset, u32 count) {
   normals = source->lighting ? source->lighting->normals + offset : nullptr;
   size = count;
   clipPlaneMask = 0;
+  stripped = source->stripped;
   bag = source;
 }
 
@@ -143,6 +147,7 @@ void StaPipQBuffer::fillByCopyMax(const StaPipBagPackage& pkg1,
     offset += pkg->size;
   }
 
+  stripped = false;
   bag = pkg1.bag;
 }
 
@@ -170,6 +175,7 @@ void StaPipQBuffer::fillByCopy1By2(const StaPipBagPackage& pkg1,
     offset += pkg->size;
   }
 
+  stripped = false;
   bag = pkg1.bag;
 }
 
@@ -189,6 +195,44 @@ void StaPipQBuffer::fillByCopy1By3(const StaPipBagPackage& pkg) {
   if (pkg.bag->color->many) memcpy(colors, pkg.colors, bytes);
   if (pkg.bag->lighting) memcpy(normals, pkg.normals, bytes);
 
+  stripped = false;
+  bag = pkg.bag;
+}
+
+// Modified by TyraX: strip -> list expansion for the clip route. See the
+// header for why it exists and what the caller owes.
+void StaPipQBuffer::fillByStripExpand(const StaPipBagPackage& pkg,
+                                      u32 firstTri, u32 triCount) {
+  HardwareTrace::Scope trace("QBuffer_copy");
+  TYRA_ASSERT(triCount * 3 <= maxVertCount,
+              "Strip expansion does not fit the VU1 buffer. Triangles: ",
+              triCount);
+  TYRA_ASSERT(firstTri + triCount + 2 <= pkg.size,
+              "Strip expansion runs past the package. First: ", firstTri,
+              " count: ", triCount, " size: ", pkg.size);
+
+  deallocateDynamicData();
+  size = triCount * 3;
+  clipPlaneMask = pkg.clipPlaneMask;
+  allocateDynamicData(static_cast<u16>(size), pkg.bag);
+
+  const bool wantSts = pkg.bag->texture != nullptr;
+  const bool wantColors = pkg.bag->color->many != nullptr;
+  const bool wantNormals = pkg.bag->lighting != nullptr;
+
+  u32 out = 0;
+  for (u32 t = 0; t < triCount; t++) {
+    const u32 base = firstTri + t;
+    for (u32 k = 0; k < 3; k++, out++) {
+      const u32 src = base + k;
+      vertices[out] = pkg.vertices[src];
+      if (wantSts) sts[out] = pkg.sts[src];
+      if (wantColors) colors[out] = pkg.colors[src];
+      if (wantNormals) normals[out] = pkg.normals[src];
+    }
+  }
+
+  stripped = false;
   bag = pkg.bag;
 }
 
@@ -197,6 +241,7 @@ void StaPipQBuffer::reallocateManually(const u16& t_size) {
   allocateDynamicData(t_size, bag);
   size = t_size;
   clipPlaneMask = 0;
+  stripped = false;
 }
 
 void StaPipQBuffer::deallocateDynamicData() {

@@ -274,6 +274,7 @@ add_executable(tyrax-editor
     src/menustyle.cpp
     src/menustyle_ui.cpp
     src/meshlod.cpp
+    src/meshstrip.cpp
     src/migrations.cpp
     src/pcsx2_config.cpp
     src/phonecam.cpp

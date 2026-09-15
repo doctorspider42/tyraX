@@ -20,8 +20,9 @@ their ownership and acceptance checks.
   already have: name-based bone matching, the translation policy that keeps your
   character's proportions instead of the source's, root-motion retargeting.
 - [Static models: the .tmdl pipeline and mesh LOD](model-pipeline.md) — why the
-  game reads a binary model instead of your `.obj`, and distance LOD with
-  authored or auto-decimated tiers.
+  game reads a binary model instead of your `.obj`, distance LOD with authored
+  or auto-decimated tiers, and the triangle strips the build ships beside the
+  triangle list so a shared corner costs one VU1 package instead of three.
 - [World scale: units, meters and imports](world-scale.md) — what a unit is
   worth, why imports land several times too small, and the tools that tell you.
 - [The terrain, and building without one](terrain.md) — the per-scene ground

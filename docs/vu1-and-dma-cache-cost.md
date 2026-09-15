@@ -170,8 +170,15 @@ redesign first:
   vertex inside `cull_tc` and `cull_c`, and is most of the 26-cycle gap between
   them and `cull_td`. Meshes that no dynamic light reaches pay it anyway.
 
-The triangle-strip half is not implemented and the arithmetic above is an
-opportunity model, not a result. Quote the measured rate, not a predicted saving.
+The triangle-strip half is **implemented now** for baked static models - see
+[model-pipeline.md](model-pipeline.md), "Triangle strips". It cost zero VU1
+instructions (the cull programs' per-vertex ADC judgement is already the right
+one for a strip) and it took the district's own models from 13 176 list
+vertices to 9 648. In the garage view that is 11.3% of the frame's submitted
+vertices and 10.8% of its VU1 packages; it has NOT been measured on hardware,
+so there is no millisecond number here yet. The roads and the terrain are grids
+and strip much better still, and neither is stripped - that is where the rest
+of this paragraph's opportunity remains.
 
 ### The spot light half is done (1.94.0), and it was measured here
 
@@ -254,6 +261,14 @@ moved 5.828 → 5.895 ms, 0.067 ms**, while EE-side packet construction rose 0.1
 and render submission 0.472. The transfer hides completely behind the work on
 either side of it; bytes are not what a packet is waiting for, and a
 vertex-compression pass would buy nothing on its own.
+
+**The strip half of that has since landed for static models and is measured in
+counts, not milliseconds** (model-pipeline.md, "Triangle strips"): the same
+garage view submits 76 951 vertices per frame as a list and 68 235 as strips,
+in 56 625 VU1 packages against 50 525 per fifty frames. Those are the numbers
+this page's owner converts into hardware time; PCSX2 put the median frame work
+at 20.3 -> 19.5 ms and render submission at 19.43 -> 18.85 ms, which is
+directional and nothing more.
 
 What is left is the EE. Of garage day's 40.2 ms of render submission, 5.8 ms is
 VIF1 wait and the rest is preparation: bounds 4.8, per-bag preparation 4.6,

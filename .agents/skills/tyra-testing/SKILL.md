@@ -2784,6 +2784,46 @@ These are host properties, not a PS2 frame-rate measurement: build and drive
 vehicle-playground for runtime validation, and measure wheel-batch changes on
 the console/emulator with an unchanged mesh and camera.
 
+## Triangle strips: a host property test, then one knob in PCSX2
+
+A stripifier is the kind of code that renders *almost* right, so check it where
+checking is free. `src/meshstrip.cpp` has no GL, no ImGui and no `Project`, so a
+harness links in seconds:
+
+```bash
+g++ -std=gnu++20 -O1 -I src -o stripcheck harness.cpp src/meshstrip.cpp
+```
+
+The property that matters is not "it produced a strip" - it is that the strip
+draws the SAME TRIANGLES. Expand the output back (triangle i of a run is
+`v[i], v[i+1], v[i+2]`, never across a run boundary), canonicalise each triangle
+so winding does not matter (nothing backface-culls) and drop degenerates, then
+compare the multisets. Assert the structural invariants in the same pass: every
+run but the last exactly `kRun` vertices, every run length a multiple of 3, and
+the result smaller than the list it replaces. Feed it grids in BOTH orientations
+- a 200-cell row and a 200-cell column of one grid behaved completely
+differently and that is how two real defects were found (seed order, and the
+three-versus-six seed orientations) - plus a cube, ten cubes, and a pile of
+triangles sharing nothing, which must be REFUSED rather than stripped.
+
+**The PCSX2 arm is one knob, not two builds of different trees.** Build two
+editor binaries from the SAME worktree differing only in whether the bake calls
+`meshstrip::build`, and run both against one project directory. The engine, the
+assets and the generated game are then byte-identical between arms and the only
+difference is what the `.tmdl` carries - which is what makes a pixel diff
+attributable. Freeze the camera from a global script (`TYRA_SCRIPT`, no
+attachment), set `displayMode: progressive`, and capture with the game's OWN
+`--capture-frame` rather than a window grab: on the Motor District that gave
+**three byte-identical captures per arm**, so any non-zero difference is the
+change.
+
+Aim a pose at the clip path deliberately. The guard band sends most
+screen-straddling packages down the cull route, so an ordinary outdoor vantage
+exercises the strip-to-list expansion ZERO times - `sexp=0` in the `FTCLIP` line
+says so. Park the camera inside a building and it runs thousands of times.
+And read `verts` from that line, not the triangle counts: a strip package
+reports its degenerate joins as triangles.
+
 ## Motor District and flat-road spans (1.85.0)
 
 The roadgen.cpp / templates.cpp buildRoads twins sample every lateral height,

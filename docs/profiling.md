@@ -506,7 +506,7 @@ is what usually explains a `work` figure that moved without any BLSS number
 moving (docs/vu1-clipping.md):
 
 ```
-FTCLIP f=1200 cull=3451/110733 clip=1501/9409 guard=2094/68672 out=10416 flush=519 vuwait=0.01
+FTCLIP f=1200 cull=3451/110733 clip=1501/9409 guard=2094/68672 out=10416 flush=519 strip=0 sexp=0 verts=8214 vuwait=0.01
 ```
 
 - `cull` / `clip` / `guard` — `packages/triangles` over the window. `guard` is
@@ -514,10 +514,22 @@ FTCLIP f=1200 cull=3451/110733 clip=1501/9409 guard=2094/68672 out=10416 flush=5
   inside the VU1 guard band, i.e. what the clipper no longer sees.
 - `out` — packages dropped on the EE; `flush` — qbuffer flushes; `vuwait` — ms
   the EE spent waiting on VIF1/VU1.
+- `strip` — packages submitted as a TRIANGLE STRIP rather than a list
+  (model-pipeline.md, "Triangle strips"), a subset of `cull`. `sexp` — stripped
+  packages the clipper forced back into a triangle list on the EE, which is the
+  cost side of that change.
+- **`verts` — vertices handed to a VU1 buffer per FRAME** (every other count on
+  this line is a window total). This is the number every EE term in the static
+  pipeline scales with, so it is the one to quote when two builds of one view
+  are compared; `flush` counts BAGS rather than packages, so it barely moves
+  when the vertex count does.
 
 Counts, never milliseconds: `work` above is the milliseconds and this line says
 why it moved. In an A/B the two arms' `cull + clip` totals must stay comparable,
-or the arms are not looking at the same scene.
+or the arms are not looking at the same scene — **except across a topology
+change**, where they cannot: a strip run of 72 vertices reports 70 triangles
+including the degenerate joins and padding, against a list package's 24 real
+ones. Compare `verts` there, not the triangle halves.
 
 Every 512 frames it also dumps the raw per-frame `work` ticks as `FTRAW <first>
 <64 hex values>` × 8 lines — same I/O cost, 512× the data, and the only way to

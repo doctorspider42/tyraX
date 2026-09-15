@@ -16,6 +16,22 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.95.0: static models ship as TRIANGLE STRIPS beside their triangle list,
+// and the static pipeline draws the strip (StaPipBag::stripped,
+// docs/model-pipeline.md "Triangle strips"). The EE's whole per-frame bill -
+// bounds, per-bag preparation, package creation and classification, packet
+// construction, the send bracket - scales with the VU1 package count, which
+// scales with the vertex count, so this is an EE saving first. Zero VU1
+// instructions: the cull programs' per-vertex ADC judgement was already the
+// right one for a strip, and micro memory is unchanged at 1862 of 2042 words.
+// The district's eleven models go 13 176 -> 9 648 vertices; the garage-day view
+// submits 76 951 -> 68 235 vertices a frame in 56 625 -> 50 525 VU1 packages
+// (PCSX2, one engine, one editor, the .tmdl the only knob). `tmdl::kVersion`
+// 3 -> 4, additive and read as a range by the loader, so an older .tmdl still
+// loads; the PROJECT format is untouched, so kFormatVersion stays 54 and there
+// is no migration. Pixel-compared in PCSX2 against the same fixture without
+// the strips. MINOR.
+//
 // 1.94.1: the spot-light gate again, in the shape a console measurement asked
 // for - two whole cull loops picked once per batch (the lit one byte-for-byte
 // the original body) and a duplicated clamp in the clip pair, so a LIT mesh
@@ -3995,8 +4011,8 @@
 // 1.86.0: merge baked shadow decals with main's render-cost table and
 // object-group line.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 94
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 95
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

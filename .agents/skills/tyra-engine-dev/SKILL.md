@@ -2364,6 +2364,53 @@ exists in neither function. It remains the wrong lever anyway: the cost is
 proportional to the NUMBER of submissions, so a retained-command redesign removes
 most of it for free.
 
+### Triangle strips for static geometry (1.95.0)
+
+`StaPipBag::stripped` says the bag's `vertices` are a TRIANGLE STRIP. The whole
+feature is **zero VU1 instructions** - no microprogram changed, micro memory is
+still 1862 of 2042 words - because the per-vertex ADC judgement the cull
+programs already write (`fcand 0x3FFFF` over the last three `clipw` results) is
+exactly the triangle a strip vertex kicks. Numbers, format and the picture
+comparison: docs/model-pipeline.md, "Triangle strips".
+
+Five things any edit here must keep.
+
+- **The GS primitive is per BUFFER, not per pipeline.** `StaPipQBuffer::stripped`
+  is what `StaPipVU1Program::addStandardBufferDataToPacket` turns into
+  `PRIM_TRIANGLE_STRIP`, on a COPY of the shared `prim_t`. It has to be
+  per-buffer because a stripped bag's clip-routed packages are expanded back to
+  lists and travel in the same flush as its stripped ones.
+- **The runs ARE the packages.** A VU1 package is a contiguous slice of the
+  bag's array, so the bake chops the strip into independent runs of exactly
+  `packageSize` vertices (`meshstrip::kRun` = 72, the smallest size any static
+  program class derives) and the submitter pins `packageSize` to that. Nothing
+  at runtime repeats a two-vertex overlap; a package boundary simply cannot fall
+  inside a strip. Every run length is a multiple of 3 (the vertex loops step by
+  three), padded with a repeat of the last vertex - a degenerate triangle.
+- **`renderStrippedPkgs` is a separate route and must stay one.** A stripped bag
+  never reaches `renderSubpkgs`: its 1/3 subpackages would not be strips, and
+  `fillByCopyMax`/`fillByCopy1By2` would fuse two of them into one buffer.
+- **A package that genuinely crosses a clip plane is expanded to a LIST on the
+  EE** (`StaPipQBuffer::fillByStripExpand`, into the double-buffered copy pool)
+  and clipped exactly as before - `clip_*` and the EE clipper are both
+  per-triangle over a list, and neither was touched. Chunked at the same
+  triangle budget a list subpackage carries. At the garage-day pose this fired
+  ZERO times; from inside a building, 29.5 packages a frame.
+- **Anything that walks a bag's TRIANGLES has to read the run length.** In the
+  fork that is nothing, because the microprograms do not; in the generated game
+  it is `GeoPart::stripRun`, and the three flashlight receiver passes plus the
+  portal exit clipper each step by ONE vertex inside a run and skip the triple
+  that would span two runs. The portal clipper's OUTPUT is a list, so it clears
+  `stripped` and the pin on its cached bag. Anything that walks VERTICES - the
+  shading bake, env normals, `renderAtFloor`'s y-clamp copy, the coarse AABB -
+  needs no change at all, which is most of the reason this was affordable.
+
+Telemetry gained `packagesStrip`, `packagesStripExpanded` and
+`verticesSubmitted` (counted where a buffer is packetised). **Triangle counts
+are NOT comparable across the change**: a strip run of 72 reports 70 triangles
+including its degenerate joins and padding, against a list package's 24 real
+ones. Compare `verticesSubmitted`.
+
 ## Signed RGB SH and exact skin reuse (1.74.0)
 
 `PipelineDirLightsBag::signedSH` defaults false. Both packet writers always
