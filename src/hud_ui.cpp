@@ -2972,7 +2972,7 @@ void App::drawUiEditorWindow() {
         if (motionBlurGhosts(project_.settings)) {
             ImGui::Spacing();
             ImGui::TextColored(theme::semantics().warn, "%s",
-                               "16-bit colour: the trail never fully fades.");
+                               "16-bit colour: a faint ghost stays after the motion.");
             ImGui::TextDisabled(
                 "A 5-bit channel cannot take the last step of the blend, so a\n"
                 "ghost of about one step stays on screen after the motion\n"

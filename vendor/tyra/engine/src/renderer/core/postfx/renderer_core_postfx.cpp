@@ -36,6 +36,7 @@ RendererCorePostFx::RendererCorePostFx() {
   bloomSpread = 1;
   grain = 0;
   motionBlur = 0;
+  mbDitherPhase = 0;
   dof = 0;
   dofFocus = 0.0F;
   dofRange = 0.01F;
@@ -119,6 +120,33 @@ void RendererCorePostFx::uploadNoise() {
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
   packet2_free(transfer);
   free(pixels);
+}
+
+// Modified by TyraX (docs/motion-blur.md): the GS's 4x4 ordered-dither matrix,
+// ROLLED by (dx, dy) screen cells.
+//
+// The engine's own matrix is fixed in screen space, which is right for banding
+// and wrong for an ACCUMULATOR. At PSMCT16 the blend writes 5 bits, so it moves
+// a pixel only when its 8-bit increment crosses the next multiple of 8; the
+// dither offset is what lets a short increment cross. With a FIXED matrix the
+// cells whose offset is 0 can never cross and keep their residual FOR EVER -
+// a permanent ghost, in a quarter of the pixels, of wherever the camera used
+// to point. Rolling the matrix one cell per frame gives every pixel a non-zero
+// offset within a few frames, so the whole image converges.
+//
+// Same entries and the same non-negative range as tyraxDitherMatrix (a
+// negative offset darkens every pass at 16-bit - renderer_core_gs.cpp, 1.70.4);
+// this only permutes where they land.
+static u64 rolledDitherMatrix(int dx, int dy) {
+  static const int kDimx[16] = {0, 2, 0, 2, 3, 1, 3, 1,
+                                0, 2, 0, 2, 3, 1, 3, 1};
+  u64 reg = 0;
+  for (int i = 0; i < 16; i++) {
+    const int x = i & 3, y = i >> 2;
+    const int src = (((y + dy) & 3) << 2) | ((x + dx) & 3);
+    reg |= (u64)(kDimx[src] & 0x07) << (i * 4);
+  }
+  return reg;
 }
 
 qword_t* RendererCorePostFx::blit(qword_t* q, int srcVram, int srcBufW,
@@ -631,13 +659,35 @@ void RendererCorePostFx::apply(int passes) {
     // A rebuild can leave the "previous" buffer BEING the one we draw into
     // (one buffer, or the rotation landing back on itself); blending a buffer
     // over itself is a no-op that still costs a full-screen fill.
-    if (prevVram != fbVram && fix > 0)
+    if (prevVram != fbVram && fix > 0) {
+      // Roll the dither matrix for THIS pass (see rolledDitherMatrix): at
+      // PSMCT16 a fixed matrix leaves a quarter of the pixels unable to take
+      // the last step, and an accumulator turns that into a permanent ghost.
+      // Inert at PSMCT32 - the GS only dithers 16-bit writes - so it is not
+      // worth branching on the format.
+      // DIMX only - DTHE stays whatever the project asked for. An author who
+      // turned dithering off gets the stronger ghost, which is their choice to
+      // make and not this pass's to override.
+      ++mbDitherPhase;
+      PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+      q++;
+      PACK_GIFTAG(q, rolledDitherMatrix(mbDitherPhase & 3,
+                                        (mbDitherPhase >> 1) & 3),
+                  GS_REG_DIMX);
+      q++;
       // (Cs - Cd) * FIX >> 7 + Cd - the plain alpha blend toward the old
       // frame. Point sampling: the blit is 1:1, and a bilinear tap would
       // shift the trail half a texel per frame into a directional smear.
       q = blit(q, prevVram, prevBufW, fbW, fbH, 0, 0, fbW << 4, fbH << 4,
                fbVram, fbBufW, 0, 0, fbW, fbH, false, false, 1,
                GS_SET_ALPHA(0, 1, 2, 1, fix));
+      // Hand the engine's own matrix back: every other pass wants a matrix
+      // that is STILL in screen space (it is there to break banding).
+      PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+      q++;
+      PACK_GIFTAG(q, rolledDitherMatrix(0, 0), GS_REG_DIMX);
+      q++;
+    }
   }
 
   if ((passes & PassBloom) && bloom > 0) {

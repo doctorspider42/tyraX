@@ -150,10 +150,38 @@ Measured, one variable: the same fixture at the same 100% amount, changing
 it is a permanent imprint of the **loading screen** the game left minutes
 earlier. The editor warns where the amount is edited.
 
-Hardware may soften it — the GS dithers PSMCT16 writes and PCSX2 does not, so
-dithering turns the truncation stochastic — but the fork's dither offsets are
-non-negative (see `tyraxDitherMatrix`, 1.70.4), so it cannot close the gap in
-both directions, and **none of this has been measured on a console**.
+### What is done about it
+
+Dithering is what lets a short increment cross the next storable value, and the
+engine's matrix is **fixed in screen space** — right for banding, wrong for an
+accumulator, because the cells whose offset is 0 can never cross and keep their
+residual for ever. The motion-blur pass therefore **rolls the matrix one cell
+per frame** (`rolledDitherMatrix`, same entries and the same non-negative range
+as `tyraxDitherMatrix`, and DIMX is handed straight back afterwards so every
+other pass keeps a screen-space matrix). Every pixel then gets a non-zero offset
+within a few frames.
+
+Measured on the settled frame, over flat ground where any spread IS the ghost
+(5th-to-95th percentile per channel, 0..255):
+
+| | R | G | B |
+|---|---|---|---|
+| 16-bit, fixed matrix | 40 | 32 | 51 |
+| 16-bit, rolled matrix | **20** | **13** | **29** |
+| 32-bit (control) | 12 | 20 | 6 |
+
+So it **roughly halves** the ghost and does not remove it: the dither noise is
+itself fed back through the accumulator, and at these weights that is a gain of
+about ten. The honest summary is that 16-bit motion blur is better than it was
+and still worse than 32-bit, which is why the editor still warns.
+
+The pass costs two extra qwords a frame and is inert at PSMCT32 (the GS only
+dithers 16-bit writes), so there is nothing to branch on. `DTHE` is left alone:
+an author who turned dithering off keeps the stronger ghost, which is their
+choice to make.
+
+**None of this has been measured on a console** — only in PCSX2, which does
+dither (`dithering_ps2 = 2`), contrary to an older note in the engine.
 
 ## Interactions
 

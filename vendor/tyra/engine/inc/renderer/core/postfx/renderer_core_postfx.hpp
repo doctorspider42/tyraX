@@ -294,6 +294,9 @@ class RendererCorePostFx {
   packet2_t* packet;
   u8 bloom, grain;
   u8 motionBlur;  // 0 = off, else the previous frame's blend weight (0..128)
+  // Which way the motion blur's dither matrix is rolled this frame - see
+  // rolledDitherMatrix. Wraps freely; only its low bits are read.
+  u32 mbDitherPhase;
   u8 bloomThreshold;  // bright-pass cut, 0 = the whole frame blooms
   u8 bloomSpread;     // soften iterations, 1 = the original tight blur
   u8 dof;         // depth-of-field strength, 0 = off
