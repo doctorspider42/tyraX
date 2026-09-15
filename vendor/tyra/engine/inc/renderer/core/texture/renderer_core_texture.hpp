@@ -17,6 +17,15 @@
 #include "renderer/core/paths/path3/path3.hpp"
 #include "./renderer_core_texture_buffers.hpp"
 
+// Modified by TyraX: the GS VRAM residency census (docs/gs-vram.md). OFF by
+// default and deliberately not keyed to NDEBUG - the engine's Makefile defines
+// that for one target only, so a "debug-only" census gated on it shipped live
+// in a release-profile game and cost about 1 ms a frame on a physical console.
+// Build with -DTYRA_VRAM_CENSUS=1 to name what is resident.
+#ifndef TYRA_VRAM_CENSUS
+#define TYRA_VRAM_CENSUS 0
+#endif
+
 namespace Tyra {
 
 /**

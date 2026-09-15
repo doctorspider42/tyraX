@@ -290,8 +290,17 @@ void RendererCoreTexture::traceFrame() {
 
   const bool evicted = stats.evictions != lastLoggedEvictions;
   const bool summary = (frameCounter % 120) == 0;
-#ifndef NDEBUG
-  // Modified by TyraX: the census, with the periodic summary only. One line
+#if TYRA_VRAM_CENSUS
+  // Modified by TyraX: OPT-IN, and it has to be. `#ifndef NDEBUG` looked like
+  // the devkit rule and is not: the engine's own Makefile defines NDEBUG for
+  // one target only, so the native build never defines it and the census
+  // shipped live in a RELEASE-profile game. Measured on a physical console it
+  // wrote 1,016 host: lines in a 1,440-frame run and cost about 1 ms a frame -
+  // and it was briefly mis-attributed to the vehicle quantization measured in
+  // the same window, because both arms carried it. A debug channel that a
+  // release build still pays for is the exact thing docs/devkit.md forbids.
+  //
+  // The census, with the periodic summary only. One line
   // per resident allocation answers "what is holding the heap", and the
   // victims answer "what is cycling, and for whom" - the two questions
   // VRAMSTAT's counters raise and cannot settle. A thrashing scene evicts
