@@ -259,6 +259,9 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - [Static batching for primitives and compact repeated models](docs/model-pipeline.md#compact-static-model-batching),
   [texture atlasing](docs/texture-atlasing.md), mesh LOD, draw distances and an
   adaptive overdraw budget for distant optional effects.
+- [Triangle strips for static models](docs/model-pipeline.md#triangle-strips) —
+  the build ships the strip beside the list, so a shared corner is packaged,
+  transferred and transformed once instead of once per triangle.
 - **[GS VRAM residency](docs/gs-vram.md)** — the frame buffers can be **16-bit**
   (with the GS's ordered dithering to keep skies from banding), which roughly
   doubles the texture budget; a texture is charged the GS blocks it really

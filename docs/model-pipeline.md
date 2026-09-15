@@ -91,6 +91,131 @@ per-district groups widened four bags enough to cost roughly 3.8-4.5 ms in
 PCSX2. The retained path targets repeated props rather than architecture and
 keeps the whole-model reject above for large or LOD-switched meshes.
 
+## Triangle strips
+
+Every static model now ships **twice**: as the flat triangle list the build has
+always produced, and as the same surface written out as **triangle strips**. The
+render bag draws the strip; everything else - the collider, the shadow proxy,
+the decal projector, the flashlight's receiver passes - keeps reading the list.
+
+The reason is not the GS and it is not the DMA. On a measured Motor District
+garage frame ([vu1-and-dma-cache-cost.md](vu1-and-dma-cache-cost.md)) render
+submission is 40.2 ms, of which VIF1 wait is 5.8 and the rest is the EE getting
+work ready: bounding boxes 4.8, per-bag preparation 4.6, packet construction
+3.0, the `send_packet2` bracket 2.4 and about 8 ms of package creation and
+classification. **Every one of those scales with the number of VU1 packages,
+which scales with the vertex count.** An unindexed triangle list packages,
+transfers and transforms a shared corner once per triangle that uses it; a
+strip submits it once and the GS takes one vertex per triangle after the first
+two. So the lever is fewer vertices, and it pays on the EE before it pays
+anywhere else.
+
+**Measured on the eleven baked district models: 13 176 list vertices become
+9 648, a 0.732x count.** Per part it ranges from 0.417x (a ground quad grid) to
+1.000x (one part that did not strip at all - see below). It is not the 0.35x a
+terrain grid reaches, and the reason is visible in the numbers: these models are
+flat-shaded, so each face has its OWN normals and a strip cannot cross a face
+boundary. A quad is six list vertices and four strip ones - 0.75 - and most of
+the district's walls, beams and posts are quads. Smooth-normal geometry does far
+better.
+
+### What it costs on the console
+
+A strip changes nothing about the microprograms. The per-vertex ADC judgement
+the cull programs already write is `fcand 0x3FFFF` over the last three `clipw`
+results, which for a strip is exactly the triangle that vertex kicks - so the
+whole feature is **zero VU1 instructions** and micro memory is unchanged at
+1862 of 2042 words. What changes is one field of the GIF tag
+(`PRIM_TRIANGLE_STRIP` instead of `PRIM_TRIANGLE`) and the order of the
+vertices in the array.
+
+Measured in PCSX2 on the district's garage-day pose, the same fixture built
+twice with one knob moved (the `.tmdl` baked with strips or without; one
+engine, one editor):
+
+| per 50-frame window | list | strip |
+| --- | ---: | ---: |
+| VU1 packages (cull route) | 56 625 | **50 525** |
+| submitted vertices per frame | 76 951 | **68 235** |
+| packet flushes | 6 450 | 6 400 |
+| clip-routed packages | 1 425 | 1 425 |
+
+**11.3% of the frame's vertices and 10.8% of its VU1 packages, gone.** Less than
+the models' own 26.8% because the models are about two fifths of this view's
+geometry - the roads and the terrain are grids, they strip far better than
+26.8%, and neither of them is stripped yet.
+
+Packet flushes barely move, and that is not a disappointment: a flush happens
+per BAG (`flushBuffers` at the end of each `render`), not per package, so it
+counts objects rather than vertices.
+
+### The rules the format keeps
+
+The strip is chopped at build time into independent **runs** of exactly
+`meshstrip::kRun` = 72 vertices, and the game pins `StaPipBag::packageSize` to
+that number. That is the whole trick: a VU1 package is a contiguous slice of the
+bag's array, so making the runs BE the packages means no package boundary can
+ever splice two unrelated vertices into one triangle, and no overlap has to be
+repeated at runtime.
+
+- 72 is the smallest package any static program class derives, so one baked
+  number is legal for every pass an object can take. The game checks that
+  against the engine at runtime and keeps the list if it ever stops being true.
+- Every run length is a multiple of 3 - the VU1 vertex loops step by three, and
+  a count that is not runs off into VU1 memory. The padding repeats the last
+  vertex, which makes a degenerate triangle the GS rasterises to nothing.
+- Separate strips inside one run are joined by repeating a vertex either side
+  of the seam. Winding parity is NOT preserved and does not need to be, because
+  nothing in this engine backface-culls.
+- A part whose strips come out no smaller than its list keeps the list and is
+  not marked stripped. A cube is the honest example: 36 list vertices against
+  24 unique ones plus 10 of join is 34, and 34 is not worth a second copy.
+
+### Clipping
+
+`clip_*` and the EE clipper both loop by whole triangles over a triangle LIST,
+so a stripped package that genuinely crosses a VU1 clip plane is **expanded back
+into a list on the EE** and clipped exactly as before. The expansion goes into
+the qbuffer copy pool - the one whose double-buffered lifetime the DMA already
+relies on - in chunks carrying the same triangle budget a list subpackage does,
+and the buffer it produces emits `PRIM_TRIANGLE`, so one bag can mix the two.
+
+It is rarer than it sounds, because the guard band sends most screen-straddling
+packages down the cull path whole ([vu1-clipping.md](vu1-clipping.md)). At the
+garage-day pose **not one** stripped package needed it; from inside a building,
+where walls cross the near plane in every direction, 29.5 per frame did. The
+cost is a 3x vertex expansion for exactly those packages - which is what the
+list path would have sent for the same triangles anyway. The strip is a saving
+on the packages that need no cutting, and that is nearly all of them.
+
+### What the picture does
+
+A geometry change cannot be argued correct from the instruction stream, so it
+was compared pixel for pixel: PCSX2 software renderer, frozen camera, the
+game's own `--capture-frame` (the GS raster, not a window grab). **Three
+captures of one arm are byte-identical**, which is what makes the comparison
+mean anything.
+
+| pose | pixels differing | of those, by more than 8/255 | mean abs difference |
+| --- | ---: | ---: | ---: |
+| garage day (no clipping) | 1 756 of 200 704 (0.875%) | 9 (0.004%) | 0.015/255 |
+| inside a tower, high (1 625 expansions) | 1 992 (0.993%) | 953 (0.475%) | 0.235/255 |
+| inside a tower, floor in view | 12 860 (6.407%) | 12 493 | 3.243/255 |
+
+The first two are what a topology change looks like: isolated pixels along
+silhouettes and window frames, where a shared edge is claimed by a different
+triangle and Gouraud interpolation from a different corner rounds differently.
+Nothing is missing and nothing is corrupt.
+
+**The third row is a pre-existing artefact being MOVED, not a new one**, and it
+is worth knowing the shape of. At that pose the building's floor is very nearly
+coplanar with the ground, and both arms draw a dithered hatch along the
+crossover - the double-surface fight described under `StaPipBag::packageSize`.
+The strip changes which VU1 route some of those triangles take (cull with the
+divide on VU1, or clip), the last bits of z move with it, and the crossover
+line lands ~15 pixels further along. Read it as: this change does not create
+z-fighting, and it will re-shuffle any that a scene already has.
+
 ## What this means for your project
 
 - **You keep working with `.obj`.** Import it, replace it, re-export from

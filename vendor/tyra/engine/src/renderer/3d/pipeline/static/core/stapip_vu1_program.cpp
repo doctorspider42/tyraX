@@ -100,10 +100,19 @@ void StaPipVU1Program::addStandardBufferDataToPacket(packet2_t* packet,
     }
     packet2_add_u32(packet, packedCount);  // vertex count + clip-plane mask
 
-    // Modified by TyraX: NLOOP counts the GS vertices the program EMITS -
-    // 6x the input count for the billboard family (gsVertexCount).
-    packet2_utils_gs_add_prim_giftag(packet, prim, gsVertexCount(buffer->size),
-                                     reglist, reglistCount, 0);
+    // Modified by TyraX: the GS primitive is a property of the BUFFER, not of
+    // the pipeline. A stripped buffer (StaPipBag::stripped) carries a triangle
+    // STRIP, so the GS must take one vertex per triangle after the first two -
+    // and a stripped bag's clip-routed packages travel in the same flush as
+    // ordinary triangle lists, so the decision cannot live on the shared
+    // prim_t. NLOOP is unchanged either way: it counts the GS vertices the
+    // program EMITS, which is still one per input vertex (6x for the billboard
+    // family - gsVertexCount).
+    prim_t bufferPrim = *prim;
+    if (buffer->stripped) bufferPrim.type = PRIM_TRIANGLE_STRIP;
+    packet2_utils_gs_add_prim_giftag(packet, &bufferPrim,
+                                     gsVertexCount(buffer->size), reglist,
+                                     reglistCount, 0);
   }
   packet2_utils_vu_close_unpack(packet);
 }

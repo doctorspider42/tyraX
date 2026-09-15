@@ -81,6 +81,41 @@ class StaPipBag {
   u32 packageSize;
 
   /**
+   * Optional (TyraX addition). `vertices` is a TRIANGLE STRIP, not a triangle
+   * list: the GS takes one vertex per triangle after the first two, so a
+   * shared vertex is packaged, transferred and transformed ONCE instead of
+   * once per triangle that uses it. Everything the EE does per bag - bounds,
+   * package creation, classification, packet construction, the send bracket -
+   * scales with the VU1 package count, which scales with the vertex count, so
+   * this is an EE saving before it is a VU1 or GIF one.
+   *
+   * The contract the submitter owes, all of it settled at BUILD time:
+   *
+   * - The array is chopped into independent RUNS of exactly `packageSize`
+   *   vertices (the last one may be shorter), each a self-contained strip.
+   *   `packageSize` must therefore be pinned and must not exceed the size the
+   *   bag's program class derives, or StaPipCore's clamp would move the
+   *   package boundaries off the run boundaries and fuse two strips.
+   * - Every run length is a multiple of 3: the VU1 vertex loops step by three
+   *   and a count that is not runs off the end of VU1 memory. Pad with a
+   *   repeat of the last vertex - it makes a degenerate triangle, which the GS
+   *   rasterises to nothing.
+   * - Separate strips inside one run are joined by repeating a vertex on
+   *   either side of the seam (degenerate triangles). Winding parity does NOT
+   *   have to be preserved, because nothing in this engine backface-culls.
+   *
+   * Everything else is unchanged. The per-vertex ADC judgement the cull
+   * programs write is `fcand 0x3FFFF` over the last three `clipw` results,
+   * which for a strip is exactly the triangle that vertex kicks - so the
+   * microprograms need no change at all and none was made. What DOES change is
+   * the GIF tag's PRIM field (see StaPipQBuffer::stripped) and the clip route:
+   * `clip_*` and the EE clipper are per-triangle, so StaPipCore expands a
+   * package that genuinely crosses a clip plane back into a triangle list on
+   * the EE, into the qbuffer copy pool, and clips that.
+   */
+  bool stripped;
+
+  /**
    * @param maxVertCount This parameter is available in renderer API.
    */
   StaPipBagPackagesBBox calculateBbox(const u32& maxVertCount);

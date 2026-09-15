@@ -1050,6 +1050,11 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
 
     auto* program = dBufferPrograms[i];
 
+    // Modified by TyraX: every vertex that actually reaches a VU1 buffer,
+    // counted where it is packetised rather than where it was classified -
+    // the number the EE's per-package bill scales with. See StaPipTelemetry.
+    if (telemetry) telemetry->verticesSubmitted += buffers[i]->size;
+
     program->addBufferDataToPacket(currentPacket, buffers[i], prim);
 
     Verbose("Send ", program->getStringName(), "[", i, "]: ", buffers[i]->size);

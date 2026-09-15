@@ -35,6 +35,20 @@ struct StaPipTelemetry {
   u32 packagesGuardBand = 0;
   u32 trianglesGuardBand = 0;
 
+  /**
+   * Modified by TyraX: triangle-strip routing (StaPipBag::stripped).
+   * `packagesStrip` is the subset of packagesCull submitted AS a strip -
+   * i.e. where the EE paid for one package instead of ~3. `packagesStripExpanded`
+   * counts the stripped packages that had to be expanded back into a triangle
+   * list for the clipper, which is the cost side of the same change.
+   * `verticesSubmitted` is every vertex handed to a VU1 buffer this frame,
+   * strips and lists alike: it is the number the EE's per-package bill scales
+   * with, and the one to quote when comparing two builds of one view.
+   */
+  u32 packagesStrip = 0;
+  u32 packagesStripExpanded = 0;
+  u32 verticesSubmitted = 0;
+
   /** Clip-routed packages by conservative active-plane mask population. */
   u32 activePlanePopcount[7] = {};
 

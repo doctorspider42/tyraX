@@ -53,7 +53,12 @@ one; see [VU1 arithmetic and DMA cache-flush cost](vu1-and-dma-cache-cost.md).
   ([flashlight.md](flashlight.md), "The cone costs nothing when nothing is
   lit"). The other is untouched: the static pipeline emits **no triangle strips
   at all**, so every shared vertex is transformed once per triangle that uses
-  it. Size it against the measured rate, not against a predicted saving.
+  it. **That half is now DONE for baked static models** - see
+  [model-pipeline.md](model-pipeline.md), "Triangle strips": zero VU1
+  instructions (the cull programs' ADC judgement was already strip-correct),
+  micro memory unchanged at 1862/2042, the district's models 13 176 -> 9 648
+  vertices, and the garage view 76 951 -> 68 235 submitted vertices per frame
+  in 56 625 -> 50 525 VU1 packages. What is left of it is listed below.
 - **A BRANCH IS A SCHEDULING BARRIER, and the console said so in milliseconds.**
   The first shipped shape of the gate branched inside the loop. Four parked
   Motor District poses: garage day **−1.059 ms**, outer day −0.620, outer night
@@ -65,6 +70,31 @@ one; see [VU1 arithmetic and DMA cache-flush cost](vu1-and-dma-cache-cost.md).
   the lit one byte-for-byte the original. **Whenever a gate is added to a hot
   VU1 loop, price the path that does NOT take it**, and do it on the pose where
   that path is the common one.
+- **Triangle strips: the three pieces that are NOT done.** In order of what the
+  garage view would pay for them.
+  1. **Roads and terrain.** They are the rest of the frame - 93 150 road
+     vertices in 90 chunks, plus the terrain - and they are GRIDS, which strip
+     to about 0.345x rather than the models' 0.732x (the models are flat-shaded,
+     so a strip cannot cross a face boundary). `src/roadgen.cpp` pushes six
+     vertices per quad out of a `rows[i][j]` array and has a generated
+     `buildRoads()` twin in `src/templates.cpp` that must move with it; the
+     terrain builder is the same shape. No general stripifier is needed for
+     either - emitting the rows differently is the whole job - but the runtime
+     contract is the one the models already keep (`StaPipBag::stripped`,
+     `packageSize` pinned to the run).
+  2. **Distance LOD tiers.** The `.tmdl` carries the slot (`tmdl::Lod::
+     stripVerts`) and the bake leaves it empty; `applyGeoLod` drops the bag back
+     to `PRIM_TRIANGLE` while a tier is shown. A tier is a small fraction of any
+     frame by definition, which is why it was left.
+  3. **Hardware.** Everything above is measured in PCSX2 and in counts. The
+     millisecond conversion is the console's, and this change has never been on
+     one.
+  4. **The examples' committed `.tmdl` files are still version 3**, i.e. they
+     carry no strip and every example renders its models as lists until someone
+     rebuilds them. That is correct rather than broken - the loader reads 1..4 -
+     and it is deliberately not in the same commit: regenerating thirty baked
+     binaries belongs in the periodic example-regeneration pass, not in a
+     feature diff.
 - **The two-loop spot gate wants its own console arm.** The shape that was
   measured is not the shape that shipped: the current one is host-verified only
   (`--vu-check` plus the `.o.vsm` cycle counts). Re-run the same four-pose A/B —

@@ -178,7 +178,11 @@ void StaPipCore::recordPackage(const StaPipBagPackage& package,
                                const CoreBBoxFrustum& route) {
   if (!telemetryEnabled) return;
 
-  const u32 triangles = package.size / 3;
+  // Modified by TyraX: a strip of N vertices is N-2 triangles, not N/3.
+  const u32 triangles =
+      package.bag != nullptr && package.bag->stripped
+          ? (package.size >= 2 ? package.size - 2 : 0)
+          : package.size / 3;
   if (route == IN_FRUSTUM) {
     ++telemetry.packagesCull;
     telemetry.trianglesCull += triangles;
@@ -212,7 +216,8 @@ void StaPipCore::recordOutsideBag(const StaPipBag* bag) {
   if (!telemetryEnabled) return;
   telemetry.packagesOutside +=
       (bag->count + maxVertCount - 1) / maxVertCount;
-  telemetry.trianglesOutside += bag->count / 3;
+  telemetry.trianglesOutside +=
+      bag->stripped ? (bag->count >= 2 ? bag->count - 2 : 0) : bag->count / 3;
 }
 
 u32 StaPipCore::getMaxVertCountByBag(const StaPipBag* bag) {
@@ -690,7 +695,9 @@ void StaPipCore::render(StaPipBag* bag) {
       Verbose(packageIndex, " package - direct cull by data pointer");
       if (telemetryEnabled) {
         ++telemetry.packagesCull;
-        telemetry.trianglesCull += count / 3;
+        telemetry.trianglesCull +=
+            bag->stripped ? (count >= 2 ? count - 2 : 0) : count / 3;
+        if (bag->stripped) ++telemetry.packagesStrip;
       }
       auto buffer = qbufferRenderer.getBuffer();
       buffer->fillByPointer(bag, offset, count);
@@ -699,7 +706,15 @@ void StaPipCore::render(StaPipBag* bag) {
   } else if (checkYesFrustumPartialClipYes || checkYesFrustumPartialClipNo) {
     u16 packagesCount = 0;
     auto doClip = checkYesFrustumPartialClipYes;
-    if (!doClip || bag->count >= maxVertCount * 2) {
+    if (bag->stripped) {
+      // Modified by TyraX: packages ARE the baked strip runs here, so the
+      // subpackage branch below (which cuts at clipPackageSize, and merges
+      // three cuts back into one buffer) must not be reached - either would
+      // splice unrelated vertices into one strip.
+      auto packages = packager.create(&packagesCount, bag, maxVertCount);
+      Verbose("Material - partial, stripped. Packages: ", packagesCount);
+      renderStrippedPkgs(packages, doClip, packagesCount);
+    } else if (!doClip || bag->count >= maxVertCount * 2) {
       auto packages = packager.create(&packagesCount, bag, maxVertCount);
       Verbose("Material - partial. Packages: ", packagesCount);
       renderPkgs(packages, doClip, packagesCount);
@@ -750,6 +765,51 @@ void StaPipCore::renderPkgs(StaPipBagPackage* packages, const bool& doClip,
       recordPackage(packages[i], OUTSIDE_FRUSTUM);
     }
     Verbose(i, " - package skipped (outside)");
+  }
+}
+
+// Modified by TyraX: see the header. Three routes, and only the third is new.
+void StaPipCore::renderStrippedPkgs(StaPipBagPackage* packages,
+                                    const bool& doClip, u16 count) {
+  // The expansion is 3x, so a chunk carries the same TRIANGLE budget a list
+  // subpackage does - clipPackageSize vertices' worth.
+  const u32 trisPerChunk = clipPackageSize() / 3;
+
+  for (u16 i = 0; i < count; i++) {
+    const bool guardBandOnly = doClip && isGuardBandOnly(packages[i]);
+    const bool cull = (doClip && packages[i].isInFrustum == IN_FRUSTUM) ||
+                      !doClip || guardBandOnly;
+
+    if (cull) {
+      recordPackage(packages[i], IN_FRUSTUM);
+      if (guardBandOnly) recordGuardBandPackage(packages[i]);
+      if (telemetryEnabled) ++telemetry.packagesStrip;
+      auto buffer = qbufferRenderer.getBuffer();
+      buffer->fillByPointer(packages[i]);
+      qbufferRenderer.cull(buffer);
+    } else if (packages[i].isInFrustum == PARTIALLY_IN_FRUSTUM) {
+      // The package genuinely crosses a VU clip plane. `clip_*` and the EE
+      // clipper are both per-triangle over a triangle LIST, so the strip is
+      // expanded back into one on the EE - into the qbuffer copy pool, whose
+      // double-buffered lifetime the DMA already relies on - and the ordinary
+      // clip route runs unchanged. This costs 3x the vertices of the strip it
+      // replaces, which is exactly what the list path would have sent for the
+      // same triangles: the strip is a saving on the packages that do NOT need
+      // cutting, and the guard band means that is nearly all of them.
+      recordPackage(packages[i], PARTIALLY_IN_FRUSTUM);
+      if (packages[i].size < 3 || trisPerChunk == 0) continue;
+      if (telemetryEnabled) ++telemetry.packagesStripExpanded;
+      const u32 triangles = packages[i].size - 2;
+      for (u32 t = 0; t < triangles; t += trisPerChunk) {
+        const u32 remaining = triangles - t;
+        const u32 n = remaining < trisPerChunk ? remaining : trisPerChunk;
+        auto buffer = qbufferRenderer.getBuffer();
+        buffer->fillByStripExpand(packages[i], t, n);
+        qbufferRenderer.clip(buffer);
+      }
+    } else {
+      recordPackage(packages[i], OUTSIDE_FRUSTUM);
+    }
   }
 }
 

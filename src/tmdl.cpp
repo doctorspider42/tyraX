@@ -36,6 +36,23 @@ void appendMesh(std::string& out, const std::vector<float>& verts,
     if (hasAo) appendBytes(out, ao.data(), count);
 }
 
+// The version-4 strip twin. Same shape as appendMesh, but an EMPTY mesh is
+// legal here (a part that did not strip smaller than its list writes 0 and
+// the game renders the list), so it cannot share the function.
+void appendStrip(std::string& out, const std::vector<float>& verts,
+                 const std::vector<unsigned char>& ao) {
+    const uint32_t count = (uint32_t)(verts.size() / 8);
+    appendU32(out, count);
+    if (count == 0) {
+        appendU32(out, 0u);
+        return;
+    }
+    appendBytes(out, verts.data(), (size_t)count * 8 * sizeof(float));
+    const bool hasAo = ao.size() == count;
+    appendU32(out, hasAo ? count : 0u);
+    if (hasAo) appendBytes(out, ao.data(), count);
+}
+
 }  // namespace
 
 std::string write(const Model& m) {
@@ -57,6 +74,13 @@ std::string write(const Model& m) {
         appendMesh(out, part.verts, part.ao);
         appendU32(out, (uint32_t)part.lods.size());
         for (const Lod& lod : part.lods) appendMesh(out, lod.verts, lod.ao);
+        // Version 4: the strip twin of the base mesh and of every tier, in the
+        // same order, after the lists so a reader of an older layout that
+        // stops here still sees a complete part.
+        appendU32(out, part.stripRun);
+        appendStrip(out, part.stripVerts, part.stripAo);
+        for (const Lod& lod : part.lods)
+            appendStrip(out, lod.stripVerts, lod.stripAo);
     }
     const uint32_t shadowCorners = (uint32_t)(m.shadowVerts.size() / 3 / 3 * 3);
     appendU32(out, shadowCorners);
