@@ -230,6 +230,10 @@ Developer design docs (internals, not user guides):
 
 - [Physical PS2 hardware timeline](hardware-profiler.md) — bounded RAM captures of EE scopes, DMA waits and VIF/GIF state, viewed directly in the editor or exported to interactive HTML and Perfetto JSON.
 - [Hardware profiler findings](hardware-profiler-results.md) — seven full-asset physical PS2 controls separating host I/O, framebuffer depth, raster area and additional-pass costs.
+- [VU1 arithmetic and DMA cache-flush cost](vu1-and-dma-cache-cost.md) — what a
+  VU1 cycle per triangle is worth in frame time on real hardware, why ps2sdk's
+  two cache primitives are both wrong for a DMA packet, and why neither answer
+  is a reason to fork the SDK.
 - [Profiling the generated game](profiling.md) — the built-in frame profiler,
   the COP0 deep-dive technique, and the frame-timing rig.
 - [The VU framework](vu-framework.md) — describe a microprogram in C++,

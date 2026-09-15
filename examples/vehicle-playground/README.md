@@ -464,3 +464,24 @@ scope first. Vehicle assets, road geometry, render order and native raster are
 unchanged by this step. See [the batching report](../../docs/static-submission-batching.md)
 for physical PS2 measurements, rejected larger packets, and the complete
 resource/image/lifetime acceptance evidence.
+
+## VU1 and DMA cache cost (2026-09-15)
+
+Seven physical-PS2 boots of this district priced the two remaining candidate
+directions. Nothing in the example or the engine changed; both probes were
+reverted.
+
+A VU1 cycle per triangle is worth **0.0768 ms of garage-day frame time**, and
+almost all of it shows up as VIF1 DMA wait, so arithmetic removed from the
+colour microprograms comes straight off the frame. The per-submission
+`FlushCache(0)` that ps2sdk performs is bounded at 2.36 ms of a 50 ms frame and
+scales with the number of submissions, so batching removes it rather than an SDK
+fork. Suppressing the flush outright hangs the console, because the memory that
+needs coherency is the packet itself.
+
+The garage poses also record 12.17 texture re-uploads per frame against zero on
+September 14: `VRAMSTAT` shows GS VRAM full with four evictions per frame. That
+is unattributed and is not part of either budget.
+
+See [the report](../../docs/vu1-and-dma-cache-cost.md) and
+[the raw arms, probe sources and reproduction recipe](authoring/vu-cost-dma-cache-2026-09-15/README.md).

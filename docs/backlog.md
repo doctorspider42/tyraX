@@ -25,6 +25,47 @@ Keep partially clipped geometry on the current path initially. Road changes
 remain deferred; 50 FPS still requires a much larger reduction in whole-frame
 work than submission batching alone.
 
+### Where the remaining frame time is, measured (2026-09-15)
+
+Two physical-PS2 experiments closed the DMA-cache question and opened the VU1
+one; see [VU1 arithmetic and DMA cache-flush cost](vu1-and-dma-cache-cost.md).
+
+- **Do not fork ps2sdk for the cache flush.** It is AFL-2.0 so a fork is allowed,
+  and neither `FlushCache(0)` (a syscall that invalidates the whole 8 KiB data
+  cache) nor `SyncDCache` (which walks all 128 indices in both ways) is the range
+  write-back the pipeline wants. But the whole bill is bounded by 2.36 ms of a
+  50 ms frame and is proportional to the number of submissions, so retained
+  command chains remove most of it as a side effect. Suppressing the flush
+  outright hangs the console: the memory that needs coherency is the packet, so
+  an explicit-ownership design must give the packet buffers and the qbuffer copy
+  pools an owner (uncached/UCAB allocation, or a hit-based write-back by address)
+  rather than simply dropping the call.
+- **VU1 arithmetic is worth 0.0768 ms of frame time per cycle per triangle** in
+  the garage view, and it lands almost entirely in VIF1 wait, so reductions pay
+  immediately without waiting for the EE redesign. The shipped `openvcl` loops
+  cost 133 cycles per triangle (`cull_tc`, what this scene's static geometry
+  actually runs), 130 (`cull_c`), 107 (`cull_td`) and 269 (`clip_tc`). Two
+  reductions are visible in the source and neither is implemented or measured:
+  the static pipeline emits **no triangle strips at all**, so every shared vertex
+  is transformed once per triangle that uses it; and `CalculateTyraSpotLight`
+  runs per vertex in the colour programs even for meshes no dynamic light
+  reaches. Size either against the measured rate, not against a predicted saving.
+- **Aim a VU1 experiment at the program the scene runs.** The first arm
+  instrumented `cull_td`, measured exactly zero, and looked like a null result
+  about VU1; the generated game attaches a lighting bag only to dynamically lit
+  objects.
+
+### GS VRAM is full in the Motor District garage
+
+The garage poses record 12.17 texture re-uploads per frame (day) and 5.75
+(night), against zero everywhere on September 14 and zero in the outer-road poses
+now. `VRAMSTAT` reports `freeMB=0.048`, `largestKB=33` and four evictions plus
+four re-uploads every frame: the scene thrashes GS VRAM permanently, and every
+re-upload is a PATH3 transfer plus the `dma_channel_wait(GIF)` the static
+pipeline performs before each send. Attribute it (the AO atlas is one candidate,
+the baked-shadow and BLSS merge another) before costing it. See
+[gs-vram.md](gs-vram.md).
+
 The `1ce38d2b` baseline and integrated `af8e6762` were measured in PAL
 software-renderer frozen parked views with no competing builds or benchmark
 emulators. Garage day/night moved 25.00 / 20.37 FPS to 25.00 / 25.00; outer

@@ -270,6 +270,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   real cut.
 - The in-game [frame profiler](docs/profiling.md).
 - [Static submission batching](docs/static-submission-batching.md) combines resident object draws while preserving draw order and texture lifetimes.
+- [VU1 arithmetic and DMA cache-flush cost](docs/vu1-and-dma-cache-cost.md): what a VU1 cycle per triangle costs on a physical PS2, measured.
 - A [physical PS2 timeline](docs/hardware-profiler.md) in the editor and HTML/Perfetto, with EE scopes, DMA waits and pipeline-state snapshots.
 - [On-demand render costs](docs/profiling.md#on-demand-render-cost-178): debugger phase/object timings, sortable by name, cost or delta, with baseline comparison and CSV export on PCSX2 and PS2.
 - The [VU framework](docs/vu-framework.md): describe a microprogram in C++,

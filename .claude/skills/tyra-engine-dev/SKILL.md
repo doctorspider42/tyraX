@@ -2252,6 +2252,59 @@ four-pose gate: submission saved 0.95/1.14/0.37/0.34 ms. This is not evidence
 of a whole-game FPS jump. See the report for the 240-eviction/12-switch stress
 test and the full-asset image checks.
 
+### What a VU1 cycle and a DMA cache flush actually cost (2026-09-15)
+
+Two physical-PS2 experiments, both reverted, priced the next two candidate
+directions. Full numbers and the reproduction recipe are in
+[docs/vu1-and-dma-cache-cost.md](../../../docs/vu1-and-dma-cache-cost.md).
+
+**VU1 arithmetic is worth 0.0768 ms of frame time per cycle per triangle** in the
+Motor District garage view, and 97% of it surfaces as VIF1 DMA wait: adding twelve
+measured cycles per triangle moved render submission 40.830 -> 41.752 ms and the
+wait bucket 6.794 -> 7.688 ms. There is no slack, so arithmetic removed from a
+program comes straight off the frame at the same rate. Read a program's real cost
+out of the generated assembler - the lines between the loop label and the loop
+branch in the native cache's `.o.vsm` are **cycles per triangle**, because every
+static-pipeline loop processes three vertices per iteration. Under the shipped
+`openvcl`: `cull_tc` 133, `cull_c` 130, `cull_tce` 109, `cull_td` 107,
+`clip_tc` 269.
+
+**AIM A VU1 EXPERIMENT AT THE PROGRAM THE SCENE ACTUALLY RUNS.** The first arm
+instrumented `cull_td` and measured exactly zero, which reads as "VU1 is free"
+and is nothing of the kind: a generated game attaches a lighting bag only to
+dynamically lit objects, so ordinary static geometry has `lighting == nullptr`
+and selects the COLOUR programs. `getCullProgramByParams(isLightingEnabled,
+isTextureEnabled)` is the whole decision; check it before instrumenting anything.
+
+**`dma_channel_send_packet2(p, ch, true)` is `FlushCache(0)` - syscall 100, a
+write-back invalidate of the entire 8 KiB data cache - then
+`dma_channel_send_chain`.** At 131.65 submissions per garage-day frame the whole
+bracket is 2.358 ms, 17.9 us per call, which bounds what removing it can save
+(plus an unmeasured refill tax on the bag preparation that follows). Adding
+redundant flushes is correctness-neutral and measures the marginal cost: 0.61 ms
+for the first, 0.437 ms for each further one on an already-clean cache.
+
+**Suppressing the flush hangs the console.** An arm passing `flush_cache = false`
+wedged ps2link until a physical Reset. The memory the DMA must see coherently is
+**the packet itself**, written by the EE into cached memory microseconds before
+the send; static vertex arrays reached by `REF` tags were written at load time
+and are long evicted. So an explicit-ownership redesign must give the packet
+buffers - and the qbuffer copy pools, written between sends - an owner
+(`P2_TYPE_UNCACHED` / `P2_TYPE_UNCACHED_ACCL`, or a hit-based write-back by
+address), not simply drop the call.
+
+**ps2sdk offers no cheap range write-back, and that is still not a reason to fork
+it.** It is AFL-2.0, so a fork is permitted (this repo already vendors AFL-2.0
+PS2SDK code in `tools/toolchain/bin2s`). But `SyncDCache` is not the range
+operation its signature suggests: `_SyncDCache` loops over **all 128 cache
+indices in both ways**, issuing `sync` before and after every `cache`
+instruction, and only then compares tags against the range - which is exactly why
+the earlier experiment that synchronised each DMA `REF` range separately came out
+slower than the baseline. What the pipeline wants is about ten instructions and
+exists in neither function. It remains the wrong lever anyway: the cost is
+proportional to the NUMBER of submissions, so a retained-command redesign removes
+most of it for free.
+
 ## Signed RGB SH and exact skin reuse (1.74.0)
 
 `PipelineDirLightsBag::signedSH` defaults false. Both packet writers always
