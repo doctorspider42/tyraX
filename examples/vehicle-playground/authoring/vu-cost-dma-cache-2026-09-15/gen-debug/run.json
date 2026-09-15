@@ -1,0 +1,8 @@
+{
+    "arm":  "gen-debug",
+    "extraFlushes":  0,
+    "suppressFlush":  0,
+    "pid":  9152,
+    "started":  "2026-09-15T20:03:52.7953323+02:00",
+    "elf":  "8F9202ED1D4759276F4A84ED42D2F13BBDB159AF54CFB51252238D5514A01A4E"
+}
