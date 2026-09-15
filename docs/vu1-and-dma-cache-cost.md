@@ -215,6 +215,47 @@ PATH3 transfer plus the `dma_channel_wait(GIF)` the static pipeline performs
 before every send. This is not part of either budget above and was not chased
 here; see [gs-vram.md](gs-vram.md) for the instrument.
 
+## What the first VU1 reduction actually bought, and where it moved the limiter
+
+The spot-light gate that came out of this page was measured against two
+bracketing baseline boots (repeatability 0.007-0.165 ms of render submission):
+
+| pose | baseline | with the gate | delta | VIF1 wait delta |
+| --- | ---: | ---: | ---: | ---: |
+| garage day | 40.974 | 40.220 | **-0.754** | -1.009 |
+| garage night | 44.417 | 44.210 | **-0.207** | -0.502 |
+| outer day | 18.449 | 18.040 | **-0.409** | -0.574 |
+| outer night | 21.446 | 20.620 | **-0.826** | -0.669 |
+
+**The saving is well under the cycle ceiling, and that is the interesting part.**
+`cull_tc` lost 60 cycles per triangle on the unlit path, which the measured rate
+prices at 1.81 ms for garage day; 0.75 ms arrived. The first shape of the change
+gives the other half of the picture: it removed 52 cycles unlit but *added* 11
+lit, and garage night — where the lamps are on and nearly every mesh picks a
+light — regressed by 1.264 ms, almost exactly the 0.93 ms those 11 cycles
+predict. So the model is right in both directions; what is not linear is how much
+of a **reduction** reaches the frame.
+
+That asymmetry locates the next limiter. A packet's cost is the larger of its
+VU1 time and its VIF1 transfer, and the two are double-buffered. Adding
+arithmetic pushes more packets over the VU1 side, which is why additions measured
+87% of theory. Removing arithmetic only helps a packet until VU1 drops below the
+transfer, after which further cycles are free and invisible — which is why
+removing 60 bought 41% of theory. Garage day still waits 5.83 ms on VIF1 after
+the change, so those packets are not free; they are **transfer-bound**.
+
+The arithmetic supports it. The colour path uploads three quadwords per vertex —
+position, ST and colour, 48 bytes — by DMA reference, and garage day submits
+26,010 triangles as an unindexed triangle list. That is 78,030 vertices and
+**3.75 MB moved across VIF1 every frame**, which at the wait bucket's 5.83 ms
+implies roughly 640 MB/s. Both of the reductions this page proposed for VU1
+arithmetic attack the wrong term for such a packet; what helps it is fewer
+vertices (the static pipeline emits **no triangle strips at all**, so every
+shared vertex is transferred once per triangle that uses it — the district's
+baked models hold only 27.4% unique vertices, and roads and terrain are grids
+that strip perfectly) or fewer bytes per vertex (VIF unpack can expand 16- and
+8-bit source data, and colours in particular are integral already).
+
 ## Limits
 
 These are four parked views of one scene on one console. Work excludes
