@@ -79,6 +79,17 @@ class StaPipBagPackagesBBox {
 
  private:
   std::vector<Vec4> coarseBounds;
+
+  // Modified by TyraX: the per-part min/max, compacted out of bboxParts.
+  // The classification path reads exactly two corners of each part - a CoreBBox
+  // is Vec4[8], 128 bytes, and vertices[0] and vertices[7] sit 112 bytes apart -
+  // so walking the parts vector strides 128 bytes and touches two cache lines
+  // per part to use 32 bytes of them. On an 8 KiB EE data cache that is the
+  // whole cost of the merge loop: removing every branch from the frustum test
+  // itself moved the bounds bucket by 0.06 ms of 4.13, which is what said the
+  // loop waits for memory rather than computing. Two Vec4 per part, contiguous
+  // and in order, rebuilt only when the boxes are (rebuildCoarseBounds).
+  std::vector<Vec4> partBounds;
   void rebuildCoarseBounds();
   u32 maxVertCount;
   u32 vertexCount, partsCount;
