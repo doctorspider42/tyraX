@@ -236,25 +236,35 @@ light — regressed by 1.264 ms, almost exactly the 0.93 ms those 11 cycles
 predict. So the model is right in both directions; what is not linear is how much
 of a **reduction** reaches the frame.
 
-That asymmetry locates the next limiter. A packet's cost is the larger of its
-VU1 time and its VIF1 transfer, and the two are double-buffered. Adding
-arithmetic pushes more packets over the VU1 side, which is why additions measured
-87% of theory. Removing arithmetic only helps a packet until VU1 drops below the
-transfer, after which further cycles are free and invisible — which is why
-removing 60 bought 41% of theory. Garage day still waits 5.83 ms on VIF1 after
-the change, so those packets are not free; they are **transfer-bound**.
+That asymmetry locates the next limiter. A packet's cost is the larger of the
+EE's work on it and the VU1 side's, and the two overlap across the packet double
+buffer. Adding arithmetic pushes more packets over the VU1 side, which is why
+additions measured 87% of theory. Removing arithmetic only helps a packet until
+VU1 drops below the EE's preparation, after which further cycles are free and
+invisible — which is why removing 60 bought 41% of theory.
 
-The arithmetic supports it. The colour path uploads three quadwords per vertex —
-position, ST and colour, 48 bytes — by DMA reference, and garage day submits
-26,010 triangles as an unindexed triangle list. That is 78,030 vertices and
-**3.75 MB moved across VIF1 every frame**, which at the wait bucket's 5.83 ms
-implies roughly 640 MB/s. Both of the reductions this page proposed for VU1
-arithmetic attack the wrong term for such a packet; what helps it is fewer
-vertices (the static pipeline emits **no triangle strips at all**, so every
-shared vertex is transferred once per triangle that uses it — the district's
-baked models hold only 27.4% unique vertices, and roads and terrain are grids
-that strip perfectly) or fewer bytes per vertex (VIF unpack can expand 16- and
-8-bit source data, and colours in particular are integral already).
+**It is not the DMA transfer.** That was the obvious suspect: the colour path
+uploads three quadwords per vertex — position, ST and colour, 48 bytes — by DMA
+reference, and garage day submits 26,010 triangles as an unindexed triangle
+list, so 78,030 vertices and 3.75 MB cross VIF1 every frame. A probe re-sent the
+position stream to the address it already occupied, adding 16 bytes per vertex
+(1.25 MB per frame, a third more payload) while leaving VU1 memory, the
+microprogram, the GIF packet and the picture untouched. Garage-day **VIF1 wait
+moved 5.828 → 5.895 ms, 0.067 ms**, while EE-side packet construction rose 0.171
+and render submission 0.472. The transfer hides completely behind the work on
+either side of it; bytes are not what a packet is waiting for, and a
+vertex-compression pass would buy nothing on its own.
+
+What is left is the EE. Of garage day's 40.2 ms of render submission, 5.8 ms is
+VIF1 wait and the rest is preparation: bounds 4.8, per-bag preparation 4.6,
+packet construction 3.0, the `send_packet2` bracket 2.4, and about 8 ms of
+package creation and classification inside dispatch. **Every one of those scales
+with the number of VU1 packages, which scales with the vertex count** — so the
+reduction that helps is fewer vertices, and it helps on the EE side more than on
+the VU1 side. The static pipeline emits **no triangle strips at all**, so every
+shared vertex is packaged, transferred and transformed once per triangle that
+uses it; the district's baked models hold only 27.4% unique vertices, and roads
+and terrain are grids that strip perfectly.
 
 ## Limits
 
