@@ -368,6 +368,15 @@ them **every frame** (`takeTelemetry` clears as it reads, so a skipped frame is
 a lost frame) and prints the `FTCLIP` line below beside `FRAMETIME`. Nothing
 outside that `#if` switches them on.
 
+**The three timing brackets do not cover the whole of `StaPipCore::render`,** and
+that is worth knowing before any of them is compared with a frame-level number.
+The function's head — the fog decision, the frustum-culling read and thirteen
+`TYRA_ASSERT`s that a release game really does execute — and its tail sit
+outside all three. `TYRA_STAPIP_ATTRIB` (default **0**) brackets the whole
+function, splits `prepare` six ways and picks up the GIF wait that lived inside
+no bracket at all; see
+[render-submission-attribution.md](render-submission-attribution.md).
+
 `takeTelemetry()` returns the accumulated interval and clears every counter.
 `activePlanePopcount[0..6]` is a histogram for clip-routed packages. With VU1
 clipping enabled this is the exact mask that the clip program consumes, derived
@@ -1883,6 +1892,12 @@ check the contact sheet against what your fixture is supposed to look like.
 - [VU1 clipping and the guard band](vu1-clipping.md) — the cull/clip routing,
   the guard band the GS scissor finishes, and the measured cost of clipping
   what did not need it.
+- [Attributing render submission](render-submission-attribution.md) — the
+  opt-in counters that close the gap between the static pipeline's three
+  telemetry brackets and the whole `beginFrame`..`endFrame` block. **Read it
+  before subtracting one from the other**: they are not the same quantity, and
+  the "unmeasured pipeline overhead" that difference was read as is mostly the
+  post-process passes, the HUD and the generated game's own renderScene.
 
 ## On-demand render cost (1.80)
 

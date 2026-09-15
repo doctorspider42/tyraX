@@ -152,6 +152,53 @@ one; see [VU1 arithmetic and DMA cache-flush cost](vu1-and-dma-cache-cost.md).
   instrumented `cull_td`, measured exactly zero, and looked like a null result
   about VU1; the generated game attaches a lighting bag only to dynamically lit
   objects.
+- **The ~7.5 ms that was in no bucket is ATTRIBUTED** — see
+  [render-submission-attribution.md](render-submission-attribution.md). The
+  short version, because it changes how every earlier row on this page should be
+  read: `submit_ms` is the whole `beginFrame()`..`endFrame()` block and
+  `bounds`/`prepare`/`dispatch` only ever covered `StaPipCore::render`, so the
+  two were never the same quantity and the "gap" was never unmeasured pipeline
+  overhead. In the emulator, **97% of it is outside `StaPipCore::render`
+  entirely**, and the renderScene level closes with a residual of 0.000 ms.
+
+### Where the next three rounds should go, from the attribution
+
+Everything below is PCSX2, garage day, against a 14.595 ms render submission,
+and none of it has been on a console. Sizes are what the numbers support, not
+estimates of what a fix would save.
+
+1. **`renderVehicleWheels`, 2.962 ms — 20% of render submission, and 1.970 of
+   it is not submission at all.** The generated game rebuilds every wheel vertex
+   in world space every frame (four wheels per car, 9 multiplies + 3 adds each,
+   `push_back` into a cleared vector), then bumps the bag's `bboxVersion`
+   unconditionally, which invalidates its package bounding boxes AND its
+   retained command blocks by construction. Two independent levers: skip the
+   rebake for a car whose pose did not change, and stop bumping `bboxVersion`
+   when the vertex buffer did not move. **Do not measure either on the parked
+   benchmark alone** — parked traffic is exactly the case a pose-change test
+   flatters, and the fixture parks it.
+2. **Package creation and classification, 3.346 ms — 56% of `dispatch`.** The
+   largest single unopened box left. It needs the same treatment this round gave
+   `prepare`: brackets inside the routing loops, behind the same opt-in macro.
+3. **The clamped-wrap double drain, 1.730 ms of garage night** (0.299 in the
+   day). A bag whose texture is not REPEAT costs `sync.align3D()` twice — once
+   to set the wrap and once to restore it — and the night scene has more of them
+   because the lamps' pools and projected shadows sample clamped targets. The
+   engine comment is right that an ordinary mesh pays one pointer comparison;
+   it is the clamped bags that serialise the pipeline, twice each.
+4. **The shared reflection probe is the whole of renderScene's head**, 0.820 ms
+   on a 2-frame cadence, i.e. ~1.64 on the frames it runs. Everything else in
+   that head — split band, sky retint, env basis, camera feed — is 0.001.
+5. **A console repeat of all of it.** PCSX2 models no EE data cache, so the
+   shares travel and the milliseconds do not; the hardware gap is 25% of
+   submission where the emulator's is 38%, and the difference is expected to sit
+   in the pipeline brackets rather than in the terms named above.
+6. **Two release-build log lines that should not exist**, found while reading:
+   `VRAMSTAT` every 120 frames and `STAPIPRET` every 300 both survive into a
+   release ELF, because the census `#endif` closes above the summary line and
+   because `!defined(NDEBUG)` is always true in a game build. Small (fifteen and
+   five host writes per 1 440-frame run), same class as the census that cost
+   1 ms a frame, and `--audit-release` catches neither.
 
 ### GS VRAM in the Motor District garage — ATTRIBUTED, and the reading was stale
 

@@ -1524,8 +1524,18 @@ void StaPipQBufferRenderer::sendPacket() {
     ++telemetry->packetFlushes;
     telemetry->vu1WaitTicks += readTelemetryTicks() - waitStart;
   }
+  // Added by TyraX: this wait was inside no bracket at all, so it was
+  // indistinguishable from `dispatch`'s package creation and classification.
+  // Opt-in only - see stapip_attrib.hpp.
+#if TYRA_STAPIP_ATTRIB
+  const u32 gifWaitStart = telemetry != nullptr ? readTelemetryTicks() : 0;
+#endif
   { HardwareTrace::Scope trace("GIF_DMA_wait");
     dma_channel_wait(DMA_CHANNEL_GIF, 0); }  // Wait for texture. Issue #182.
+#if TYRA_STAPIP_ATTRIB
+  if (telemetry != nullptr)
+    telemetry->attrib.gifWaitTicks += readTelemetryTicks() - gifWaitStart;
+#endif
 
   // TyraX: the VU1 packet tap (docs/devkit.md). Null in any build whose devkit
   // layer does not exist, so this is one load + branch per bag flush and the

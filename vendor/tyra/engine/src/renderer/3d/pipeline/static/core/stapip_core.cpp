@@ -36,6 +36,29 @@ static inline u32 readCoreTelemetryTicks() {
   return ticks;
 }
 
+// Added by TyraX: the render-submission attribution brackets
+// (stapip_attrib.hpp, docs/render-submission-attribution.md). Compiled out
+// entirely at TYRA_STAPIP_ATTRIB 0, which is the default - the macros below
+// expand to nothing at all, so the shipped pipeline gains no field, no COP0
+// read and no branch. When compiled in they still respect `telemetryEnabled`,
+// exactly like the three brackets that already exist.
+#if TYRA_STAPIP_ATTRIB
+#define TYRA_ATTRIB_MARK(var) \
+  const u32 var = telemetryEnabled ? readCoreTelemetryTicks() : 0
+#define TYRA_ATTRIB_ADD(field, var)                            \
+  if (telemetryEnabled)                                        \
+  telemetry.attrib.field += readCoreTelemetryTicks() - (var)
+#define TYRA_ATTRIB_INC(field) \
+  if (telemetryEnabled) ++telemetry.attrib.field
+#define TYRA_ATTRIB_SPAN(field, from, to) \
+  if (telemetryEnabled) telemetry.attrib.field += (to) - (from)
+#else
+#define TYRA_ATTRIB_MARK(var) ((void)0)
+#define TYRA_ATTRIB_ADD(field, var) ((void)0)
+#define TYRA_ATTRIB_INC(field) ((void)0)
+#define TYRA_ATTRIB_SPAN(field, from, to) ((void)0)
+#endif
+
 
 // Modified by TyraX: the light a `spotLit = false` bag is handed - off and
 // black, which the color programs compute with as a no-op. At namespace scope
@@ -265,7 +288,12 @@ u32 StaPipCore::getMaxVertCountByParams(const bool& isSingleColor,
 
 void StaPipCore::render(StaPipBag* bag) {
   HardwareTrace::Scope traceBag("Static_bag");
-  if (bag->count <= 0) return;
+  TYRA_ATTRIB_MARK(attribRenderStart);
+  TYRA_ATTRIB_INC(renderCalls);
+  if (bag->count <= 0) {
+    TYRA_ATTRIB_ADD(renderTicks, attribRenderStart);
+    return;
+  }
 
   // Modified by TyraX: GS hardware fog - the PRIM FGE bit follows the
   // renderer-level fog state (see RendererCore::setFog), with a per-bag
@@ -328,6 +356,11 @@ void StaPipCore::render(StaPipBag* bag) {
 
   const u32 traceBoundsStart = HardwareTrace::active ? HardwareTrace::ticks() : 0;
   const u32 boundsStart = telemetryEnabled ? readCoreTelemetryTicks() : 0;
+  // The head costs no clock of its own: the bounds bracket's own first read
+  // is also the head's last one. Everything above this line - the fog
+  // decision, the frustum-culling read and the thirteen TYRA_ASSERTs, which
+  // a release game really does execute - is charged here.
+  TYRA_ATTRIB_SPAN(headTicks, attribRenderStart, boundsStart);
   u32 maxVertCount = getMaxVertCountByBag(bag);
 
   // Imported models commonly submit one bag per material. Consecutive parts
@@ -376,6 +409,8 @@ void StaPipCore::render(StaPipBag* bag) {
 
     if (frustumCheck == OUTSIDE_FRUSTUM) {
       if (telemetryEnabled) telemetry.boundsTicks += readCoreTelemetryTicks()-boundsStart;
+      TYRA_ATTRIB_ADD(renderTicks, attribRenderStart);
+      TYRA_ATTRIB_INC(renderCallsCulled);
       if (HardwareTrace::active) HardwareTrace::record("Bounds", traceBoundsStart, HardwareTrace::ticks());
       recordOutsideBag(bag);
       return;
@@ -391,6 +426,7 @@ void StaPipCore::render(StaPipBag* bag) {
   // (sendObjectData uploads the ALPHA A+D qword, every program emits it),
   // so no FINISH barriers are needed here anymore.
 
+  TYRA_ATTRIB_MARK(attribPackagerStart);
   packager.setRenderBBox(bbox);
   // Modified by TyraX: a wholly visible bag needs no per-package tests.
   // That route submits every package directly; its classifications are unused.
@@ -430,7 +466,9 @@ void StaPipCore::render(StaPipBag* bag) {
   } else {
     packager.setClipObjectSpacePlanes(nullptr);
   }
+  TYRA_ATTRIB_ADD(prepPackagerTicks, attribPackagerStart);
 
+  TYRA_ATTRIB_MARK(attribTextureStart);
   const bool directBag =
       (frustumCull && frustumCheck == IN_FRUSTUM) ||
       (!frustumCull && !bag->info->fullClipChecks);
@@ -487,14 +525,18 @@ void StaPipCore::render(StaPipBag* bag) {
     rendererCore->sync.align3D();
     rendererCore->gs.setTextureWrap(*bag->texture->texture->getWrapSettings());
   }
+  TYRA_ATTRIB_ADD(prepTextureTicks, attribTextureStart);
 
+  TYRA_ATTRIB_MARK(attribProgramStart);
   // Modified by TyraX: billboard bags run from their own on-demand program
   // set (micro memory is full - see ensureProgramSet); non-billboard bags
   // lazily restore the resident set.
   qbufferRenderer.ensureProgramSet(bag->billboard != nullptr);
 
   qbufferRenderer.clearLastProgramName();
+  TYRA_ATTRIB_ADD(prepProgramTicks, attribProgramStart);
 
+  TYRA_ATTRIB_MARK(attribLightStart);
   // Modified by TyraX: pick this bag's dynamic light (flashlight vs scene
   // point lights - the color programs have ONE light slot per mesh). The
   // pick runs on the bag's world-space bounding sphere; without a bbox
@@ -551,6 +593,7 @@ void StaPipCore::render(StaPipBag* bag) {
   // one below is off and black, which the programs compute with as a no-op.
   if (!bag->info->spotLit) bagLight = &kNoSpotLight;
   qbufferRenderer.setBagLight(bagLight);
+  TYRA_ATTRIB_ADD(prepLightTicks, attribLightStart);
 
   // Modified by TyraX: the BLSS bag feed. Inert when BLSS is off (and when it
   // is on but we are not inside its beginScene/endScene bracket - the
@@ -583,6 +626,7 @@ void StaPipCore::render(StaPipBag* bag) {
   // its kernels over fire, fog and rain entirely from the geometry BEHIND
   // them. TYRA_BLSS_EMITTER_PROXY is the sixth twin rule that closes it; it
   // ships at 0, because turning it on moves every label and needs a refit.
+  TYRA_ATTRIB_MARK(attribBlssStart);
   if (blssOn) {
 #if TYRA_FRAME_PROFILE
     // Charged to FrameProfile::tBlssProxy, which beginScene clears - so the
@@ -673,12 +717,15 @@ void StaPipCore::render(StaPipBag* bag) {
     FrameProfile::tBlssProxy += FrameProfile::ticks() - fpP0;
 #endif
   }
+  TYRA_ATTRIB_ADD(prepBlssTicks, attribBlssStart);
 
+  TYRA_ATTRIB_MARK(attribObjectDataStart);
   qbufferRenderer.sendObjectData(bag, &mvp, texBuffers);
 
   qbufferRenderer.setClipperMVP(&mvp);
 
   qbufferRenderer.setInfo(bag->info);
+  TYRA_ATTRIB_ADD(prepObjectDataTicks, attribObjectDataStart);
 
   if (telemetryEnabled) telemetry.prepareTicks += readCoreTelemetryTicks()-prepareStart;
   HardwareTrace::Scope traceDispatch("Dispatch");
@@ -756,7 +803,8 @@ void StaPipCore::render(StaPipBag* bag) {
   qbufferRenderer.flushBuffers();
   qbufferRenderer.endRetainedBag();  // Modified by TyraX
   retainCurrentBag = false;
-  if (telemetryEnabled) telemetry.dispatchTicks += readCoreTelemetryTicks()-dispatchStart;
+  const u32 dispatchEnd = telemetryEnabled ? readCoreTelemetryTicks() : 0;
+  if (telemetryEnabled) telemetry.dispatchTicks += dispatchEnd - dispatchStart;
 
   if (clampedBag) {  // Modified by TyraX: restore the frame's REPEAT contract
     rendererCore->sync.align3D();
@@ -764,6 +812,15 @@ void StaPipCore::render(StaPipBag* bag) {
   }
 
   Verbose("Render finished");
+  // Added by TyraX: one read closes both the tail and the whole function, so
+  // the deepest bracket costs the same clock as the shallowest.
+#if TYRA_STAPIP_ATTRIB
+  if (telemetryEnabled) {
+    const u32 attribEnd = readCoreTelemetryTicks();
+    telemetry.attrib.tailTicks += attribEnd - dispatchEnd;
+    telemetry.attrib.renderTicks += attribEnd - attribRenderStart;
+  }
+#endif
 }
 
 void StaPipCore::renderPkgs(StaPipBagPackage* packages, const bool& doClip,

@@ -8,6 +8,8 @@
 
 #include <tamtypes.h>
 
+#include "./stapip_attrib.hpp"
+
 namespace Tyra {
 
 /**
@@ -110,6 +112,16 @@ struct StaPipTelemetry {
   u32 vu1WaitTicks = 0;
   u32 programSetSwaps = 0;
   u32 programSetWaitTicks = 0;
+
+#if TYRA_STAPIP_ATTRIB
+  /**
+   * Added by TyraX: the attribution counters that close the gap between the
+   * three brackets above and render submission
+   * (docs/render-submission-attribution.md). Compiled out by default - the
+   * macro lives in stapip_attrib.hpp and defaults to 0.
+   */
+  StaPipAttrib attrib;
+#endif
 };
 
 }  // namespace Tyra

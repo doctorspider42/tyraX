@@ -2964,6 +2964,24 @@ clock. The engine's outer pad/info work is outside the loop bracket. Keep BLSS,
 adaptation and extrapolation off; use separate ordinary-FPS controls and repeat
 on physical hardware. See the example README for asset budgets and caveats.
 
+**`submit_ms` is the whole `beginFrame()`..`endFrame()` block, and reading it
+against `bounds`/`prepare`/`dispatch` compares a frame to a function.** Those
+three brackets only ever cover `StaPipCore::render`; `submit` also carries the
+post-process passes, the 2D HUD and every game-side per-object test. On the
+garage-day pose that is a 7.5 ms difference nobody had looked inside. Add
+`--attribute` to the same script for the split - it brackets every renderScene
+phase, the object loop (whole loop minus the per-object submit block = the
+tests), and the post-fx/HUD blocks, into a second file `bin/frame-attrib.csv` -
+and set `TYRA_STAPIP_ATTRIB` to 1 in
+`vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_attrib.hpp` for
+the engine's own per-bag split in the same run. Both default to OFF and neither
+may ship on: **`#ifndef NDEBUG` is not the devkit gate here** - a game build
+never defines NDEBUG, and a census keyed that way shipped live at ~1 ms a
+frame. Price the hooks with three arms of one fixture (plain / `--attribute` /
+`--attribute` + macro 1), and remember PCSX2 emulates no EE data cache, so its
+shares travel and its milliseconds do not. See
+[docs/render-submission-attribution.md](../../../docs/render-submission-attribution.md).
+
 ### Devkit cadence overrides
 
 Round-trip all five cadence fields, including missing/default and out-of-range
