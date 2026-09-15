@@ -69,6 +69,64 @@ scene load, and the first placement of this call built five chunks that were
 wiped ten lines later (a road only the boot log ever saw). `ROADS scene N
 chunks M` in `bin/log.txt` is the acceptance line.
 
+## Triangle strips (1.96.0)
+
+A road chunk reaches VU1 as a **triangle strip**, not a triangle list — the
+same contract a baked `.tmdl` keeps (see
+[model-pipeline.md](model-pipeline.md), "Triangle strips"): `StaPipBag::
+stripped` set and `packageSize` pinned to the 72-vertex run, so the VU1
+packages **are** the baked runs and no package boundary can splice two
+unrelated vertices into one triangle. The point is the EE, not the GS: every
+per-frame term of render submission — bounding boxes, per-bag preparation,
+package creation and classification, packet construction, the send bracket —
+scales with the package count, which scales with vertices.
+
+It matters here more than it did for the models, because this is where the
+geometry is: the Motor District is **93 150 road vertices in 90 chunks**
+against 13 176 in all eleven of its baked models. And a road is a grid, which
+strips properly. The models are flat-shaded, so a strip cannot cross a face
+boundary and they only reached 0.732x; a road has no face boundaries to cross
+and the fixtures come out at **0.355–0.374x**.
+
+**No general stripifier is involved**, and `meshstrip` is deliberately not
+reused. The ribbon's rows *are* the strip, so there is nothing to search for —
+and the runtime twin tessellates the whole district on the **EE at scene
+load**, where `meshstrip`'s exact-bytes weld hash, edge-adjacency multimap and
+six-orientation greedy walk are not affordable at all. What is reused is its
+run *contract*: full runs padded with repeats of the last vertex, separate
+strips joined by repeating a vertex either side of the seam, every run length a
+multiple of 3.
+
+The one real subtlety is **which way the strip runs**, and the adaptive budget
+above is what creates it. A dense span is a row of `crossSteps` lateral cells,
+so its strip walks **across** the road: `N[0], P[0], N[s], P[s], …`, 2(n + 1)
+vertices against the list's 6n. But a *collapsed* span is one full-width quad,
+so a street of them is a grid one cell **wide** and many stations **long**.
+Taken laterally it is 4 vertices plus a 2-vertex join against the list's 6 —
+exactly break-even on the EE, and three times the GS primitives, two thirds of
+them degenerate. Taken **along** the road it is 2 vertices per station, the
+same 0.35x. So the emitter follows the grid's long axis, and consecutive
+collapsed spans become one longitudinal strip `… P[w], P[0], N[w], N[0] …`.
+
+Both orders are chosen so that successive triples are the list stitch's own
+triangles cut along the **same diagonal**. The other interleaving of either one
+is also a valid strip and silently takes the other diagonal, which reshapes
+every non-planar quad — invisible in a vertex count and obvious on a crest.
+
+Everything the reduction protects is untouched: winding parity alternates as it
+does in any strip (nothing in this engine backface-culls), and road width,
+texture arc length, the lift, junction continuity, chunk bounds, the chunk
+budget, editor drawing and picking, and the exact planar-span collapse all read
+the same. The editor viewport still previews through `roadgen::tessellate`, the
+triangle **list**, which stays the source of truth for the surface.
+
+`ROADSTRIP scene N strips 1 packages P triangles T` in `bin/log.txt` is the
+acceptance line. `triangles` is the **surface** count, computed by the producer
+with degenerates dropped — it must be identical in both arms of an A/B or the
+arms are not drawing the same road. The pipeline's own triangle counters cannot
+answer that question; see "What the triangle counters count" in
+[model-pipeline.md](model-pipeline.md).
+
 ## The tessellator is a twin
 
 `src/roadgen.hpp/.cpp` (host-only, the vehiclesim shape) is the single source

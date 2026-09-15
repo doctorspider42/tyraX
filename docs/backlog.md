@@ -70,18 +70,23 @@ one; see [VU1 arithmetic and DMA cache-flush cost](vu1-and-dma-cache-cost.md).
   the lit one byte-for-byte the original. **Whenever a gate is added to a hot
   VU1 loop, price the path that does NOT take it**, and do it on the pose where
   that path is the common one.
-- **Triangle strips: the three pieces that are NOT done.** In order of what the
-  garage view would pay for them.
-  1. **Roads and terrain.** They are the rest of the frame - 93 150 road
-     vertices in 90 chunks, plus the terrain - and they are GRIDS, which strip
-     to about 0.345x rather than the models' 0.732x (the models are flat-shaded,
-     so a strip cannot cross a face boundary). `src/roadgen.cpp` pushes six
-     vertices per quad out of a `rows[i][j]` array and has a generated
-     `buildRoads()` twin in `src/templates.cpp` that must move with it; the
-     terrain builder is the same shape. No general stripifier is needed for
-     either - emitting the rows differently is the whole job - but the runtime
-     contract is the one the models already keep (`StaPipBag::stripped`,
-     `packageSize` pinned to the run).
+- **Triangle strips: what is left.** In order of what the garage view would pay
+  for it. The first item is done; the rest are not.
+  1. ~~**Roads and terrain.**~~ **DONE in 1.96.0** - see [roads.md](roads.md)
+     and [terrain.md](terrain.md), both "Triangle strips". They were the rest
+     of the frame (93 150 road vertices in 90 chunks, plus the terrain) and
+     being grids they reach **0.355-0.374x** on the host fixtures rather than
+     the flat-shaded models' 0.732x. No general stripifier: a ribbon's and a
+     heightfield's rows ARE the strip, and the road half runs on the EE at
+     scene load where `meshstrip` could not. The runtime contract is the
+     models' (`StaPipBag::stripped`, `packageSize` pinned to the 72-vertex
+     run). Two things the job turned out to hide. The road's own planar-span
+     reduction changes which axis is long, so **collapsed spans have to strip
+     ALONG the road** - taken laterally a collapsed span is exactly break-even
+     and triples the GS primitives - and the **terrain checker is a per-QUAD
+     colour**, so an untextured terrain (no material) keeps its list. What is
+     still owed on this item: a **console** measurement, and the
+     millisecond conversion that goes with it.
   2. **Distance LOD tiers.** The `.tmdl` carries the slot (`tmdl::Lod::
      stripVerts`) and the bake leaves it empty; `applyGeoLod` drops the bag back
      to `PRIM_TRIANGLE` while a tier is shown. A tier is a small fraction of any
@@ -89,7 +94,21 @@ one; see [VU1 arithmetic and DMA cache-flush cost](vu1-and-dma-cache-cost.md).
   3. **Hardware.** Everything above is measured in PCSX2 and in counts. The
      millisecond conversion is the console's, and this change has never been on
      one.
-  4. **The examples' committed `.tmdl` files are still version 3**, i.e. they
+  4. **The pipeline's own triangle counters are not a geometry-equality
+     check**, and two of them are outright wrong for a strip. The `triangles*`
+     fields are GS PRIMITIVES, degenerate joins and padding included, so one
+     surface reports 25 650 as a list and 38 427 as strips - a real 1.498x, not
+     a miscount (docs/model-pipeline.md, "What the triangle counters count").
+     The producers now log their own surface counts (`ROADSTRIP`,
+     `TERRAINSTRIP`) and that is what an A/B should compare. Still unfixed, in
+     `StaPipCore` and left alone deliberately because the static submission
+     path was being edited in parallel: `recordGuardBandPackage` charges
+     `package.size / 3` with no strip branch, so `guard=` is computed on a
+     different rule from the `cull=` it is a subset of; and
+     `recordOutsideBag` charges a whole bag `count - 2` when the bag is sliced
+     into `ceil(count / maxVertCount)` runs that are each their own strip,
+     over-counting by `2 * (packages - 1)`. Both are two-line fixes.
+  5. **The examples' committed `.tmdl` files are still version 3**, i.e. they
      carry no strip and every example renders its models as lists until someone
      rebuilds them. That is correct rather than broken - the loader reads 1..4 -
      and it is deliberately not in the same commit: regenerating thirty baked

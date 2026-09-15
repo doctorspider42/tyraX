@@ -2411,6 +2411,52 @@ are NOT comparable across the change**: a strip run of 72 reports 70 triangles
 including its degenerate joins and padding, against a list package's 24 real
 ones. Compare `verticesSubmitted`.
 
+The `triangles*` fields are **GS primitives**, and that is the whole of what
+they are. One surface reports 25 650 as a list and 38 427 as strips on the
+garage-day pose - a **measured 1.498x, not a miscount**: the frame submits
+11.3% fewer vertices and asks for about half as many more primitives, nearly
+all zero-area. The runtime cannot recover the surface count (the degenerate
+total depends on how the bake packed the runs and no package records it), so
+the PRODUCERS log theirs instead - `ROADSTRIP`/`TERRAINSTRIP` in `bin/log.txt`,
+degenerates dropped - and that is what an A/B across representations compares.
+Two counters in `StaPipCore` are outright wrong for a strip and are **still
+unfixed** (left alone because the submission path was being edited in
+parallel): `recordGuardBandPackage` charges `package.size / 3` with no strip
+branch, so `guard=` uses a different rule from the `cull=` it is a subset of;
+and `recordOutsideBag` charges a whole bag `count - 2` when the bag is sliced
+into `ceil(count / maxVertCount)` runs that are each their own strip,
+over-counting by `2 * (packages - 1)`.
+
+### The generated game's own grids (1.96.0)
+
+Roads and terrain are stripped too, and they are where the geometry is - 93 150
+road vertices against 13 176 in all the district's models. Neither goes through
+`meshstrip`: a ribbon's and a heightfield's rows ARE the strip, and `buildRoads`
+tessellates on the **EE at scene load**, where a weld hash plus a
+six-orientation greedy walk is not affordable at all. Both keep the run
+contract above exactly (72, multiples of 3, padded tails, two-vertex joins,
+`stripped` + `packageSize` pinned - roads in `procFinishChunks`, terrain through
+`pinPackageSize(pins, stripRun)`, which already had the parameter). Three
+things to keep:
+
+- **The strip must follow the grid's LONG axis, and for roads that axis
+  changes.** A dense span is a row of lateral cells and strips ACROSS the road;
+  a span the planar reduction COLLAPSED is one full-width quad, so a street of
+  them is a grid one cell wide and many stations long and must strip ALONG the
+  road. Taken laterally a collapsed span is 4 vertices plus a 2-vertex join
+  against the list's 6 - exactly break-even, and three times the GS primitives
+  with two thirds of them degenerate. That was measured, not guessed.
+- **Which interleaving you pick decides which DIAGONAL splits each quad.** Both
+  orders are legal strips; only one reproduces the list stitch's own cut. The
+  wrong one is invisible in a vertex count and obvious on a crest.
+- **Terrain strips only with a terrain MATERIAL.** The untextured fallback is a
+  two-green checker and that colour belongs to the QUAD, while a strip vertex
+  belongs to two - stripping it flattens the checker. With a material both
+  colours are the same tint. Everything else on a terrain vertex (height,
+  shade, ST, splat weight, the geomipmap edge snap) is a function of the grid
+  coordinate and shares correctly; `emisCols` reads the same per-quad base, so
+  it rides the same gate.
+
 ## Signed RGB SH and exact skin reuse (1.74.0)
 
 `PipelineDirLightsBag::signedSH` defaults false. Both packet writers always

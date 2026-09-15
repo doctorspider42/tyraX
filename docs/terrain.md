@@ -74,6 +74,35 @@ The scene's **world bounds still apply** — X/Z are clamped to width/depth as
 before, and physics bodies still bounce off those walls. Only the ground is
 gone.
 
+## Triangle strips (1.96.0)
+
+A terrain chunk reaches VU1 as a **triangle strip**: one strip per quad row,
+walking `(x, z), (x, zN), (x + lod, z), (x + lod, zN), …`, whose successive
+triples are that row's quads cut along the same diagonal the triangle list
+used. A 16x16 chunk goes from 1 536 vertices to about 550, and every per-frame
+EE term of render submission scales with the VU1 package count, which scales
+with the vertex count — the same lever the baked models and the roads pull (see
+[model-pipeline.md](model-pipeline.md), "Triangle strips", and
+[roads.md](roads.md)). `pinPackageSize` pins **every** pass over the chunk —
+base, each painted layer, the occlusion and lightmap passes — to the 72-vertex
+run, so they still split the array identically and still take the same route,
+which is what keeps coplanar passes off a z-fight.
+
+Nothing else moves. Heights, shades, STs, splat weights and the geomipmap edge
+snap are all functions of the grid coordinate, so a vertex shared between two
+quads carries the values it carried in both of them. The distance LOD, the
+crack-free edge interpolation and the per-chunk culling are untouched, and a
+shared vertex is now shaded **once** instead of twice, which makes the build
+cheaper as well as the frame.
+
+**A terrain without a material keeps its triangle list.** The untextured
+fallback is a two-green **checker**, and that colour belongs to the *quad*,
+while a strip vertex belongs to two quads — stripping it would collapse the
+checker into a flat sheet. With a terrain material both checker colours are the
+same tint and there is nothing in the way, so the gate is the material, not the
+texture. `TERRAINSTRIP scene N ... triangles T` in `bin/log.txt` is the
+acceptance line, and `strips 0` there is this case rather than a failure.
+
 ## Limits worth knowing
 
 - **Navigation (AI) needs a terrain.** The navmesh is a rasterization of the

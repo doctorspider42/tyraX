@@ -1352,6 +1352,12 @@ class TerrainGame : public Tyra::Game {
     // model part or an .mtl. Owner is -3 for these, so a scene revisit can
     // clear and rebuild them without touching merged geometry.
     Tyra::Texture* roadTex = nullptr;
+    // Triangle strips (docs/model-pipeline.md): non-zero when this chunk's
+    // vertices are baked strip RUNS of that length rather than a triangle
+    // list. procFinishChunks pins StaPipBag::packageSize to it and sets
+    // StaPipBag::stripped, so the VU1 packages ARE the runs and no package
+    // boundary can ever splice two unrelated vertices into one triangle.
+    int stripRun = 0;
     std::vector<Tyra::Vec4> vertices;
     std::vector<Tyra::Color> colors;
     std::vector<Tyra::Vec4> sts;
@@ -2922,6 +2928,12 @@ class TerrainGame : public Tyra::Game {
     // model part or an .mtl. Owner is -3 for these, so a scene revisit can
     // clear and rebuild them without touching merged geometry.
     Tyra::Texture* roadTex = nullptr;
+    // Triangle strips (docs/model-pipeline.md): non-zero when this chunk's
+    // vertices are baked strip RUNS of that length rather than a triangle
+    // list. procFinishChunks pins StaPipBag::packageSize to it and sets
+    // StaPipBag::stripped, so the VU1 packages ARE the runs and no package
+    // boundary can ever splice two unrelated vertices into one triangle.
+    int stripRun = 0;
     std::vector<Tyra::Vec4> vertices;
     std::vector<Tyra::Color> colors;
     std::vector<Tyra::Vec4> sts;
@@ -19660,6 +19672,16 @@ void TerrainGame::procFinishChunks() {
     c.colorBag->many = c.colors.data();
     c.bag->vertices = c.vertices.data();
     c.bag->count = static_cast<u32>(c.vertices.size());
+    // Triangle strips (docs/model-pipeline.md). A stripped chunk's array is
+    // already chopped into self-contained runs, so the package size is PINNED
+    // to the run rather than derived: StaPipCore slices a bag at multiples of
+    // it, and a boundary anywhere else would fuse two strips. Nothing else is
+    // derived either - the run is by construction no larger than any static
+    // class's own capacity, which is what buildRoads checks before baking it.
+    // Re-stated every pass, like the info bag above: a regeneration may have
+    // turned a chunk from one representation into the other.
+    c.bag->stripped = c.stripRun > 0;
+    c.bag->packageSize = c.stripRun > 0 ? static_cast<u32>(c.stripRun) : 0U;
     c.bag->bboxVersion = ++g_bboxStamp;
     const Tyra::Texture* tex = c.roadTex;
     if (tex) {
@@ -24077,15 +24099,24 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   // distant chunk asks for sixteen times the memory it fills.
   const int quadsX = (gx1 - gx0 + lod - 1) / lod;
   const int quadsZ = (gz1 - gz0 + lod - 1) / lod;
+  // Triangle strips (see the emitter below). The reserve has to follow the
+  // representation too: a stripped chunk is a THIRD of the list's vertices,
+  // and reserving the list size for it would hand back the RAM the change was
+  // meant to save on every resident chunk of a streamed map.
+  const bool strips = hasMat && minPackageSize() >= 72U;
+  const u32 stripRun = 72U;
+  const size_t reserveN =
+      strips ? (size_t)quadsZ * (size_t)(2 * (quadsX + 1) + 2) + 3
+             : (size_t)quadsX * quadsZ * 6;
 
   ch.vertices.clear();
   ch.colors.clear();
   ch.sts.clear();
   ch.emisCols.clear();
-  if (terrainMapLit) ch.emisCols.reserve((size_t)quadsX * quadsZ * 6);
-  ch.vertices.reserve((size_t)quadsX * quadsZ * 6);
-  ch.colors.reserve((size_t)quadsX * quadsZ * 6);
-  if (textured) ch.sts.reserve((size_t)quadsX * quadsZ * 6);
+  if (terrainMapLit) ch.emisCols.reserve(reserveN);
+  ch.vertices.reserve(reserveN);
+  ch.colors.reserve(reserveN);
+  if (textured) ch.sts.reserve(reserveN);
 
   // Painted terrain layers: find which layers have any weight on this chunk's
   // vertices - each gets one extra alpha-blended pass sharing ch.vertices.
@@ -24113,8 +24144,8 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     lp.layer = activeLayers[a];
     lp.colors.clear();
     lp.sts.clear();
-    lp.colors.reserve((size_t)quadsX * quadsZ * 6);
-    lp.sts.reserve((size_t)quadsX * quadsZ * 6);
+    lp.colors.reserve(reserveN);
+    lp.sts.reserve(reserveN);
   }
   auto splatAt = [&](int ix, int iz, int l) -> float {
     if (ix < 0) ix = 0;
@@ -24124,102 +24155,213 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     return splatW8[((size_t)iz * HM_W + ix) * layerN + l] / 255.0F;
   };
 
-  for (int z = gz0; z < gz1; z += lod) {
-    for (int x = gx0; x < gx1; x += lod) {
-      // The far corner, clamped: an edge chunk covers the map's remainder, so
-      // the last quad of a row may be shorter than the stride.
-      const int xN = x + lod > gx1 ? gx1 : x + lod;
-      const int zN = z + lod > gz1 ? gz1 : z + lod;
-      const float x0 = startX + x * stepX;
-      const float x1 = startX + xN * stepX;
-      const float z0 = startZ + z * stepZ;
-      const float z1 = startZ + zN * stepZ;
-      // The untextured checker counts QUADS, not cells: on x += 2 the parity of
-      // (x + z) never changes, so a distant chunk would come out one flat
-      // colour and the band boundary would read as a seam in the ground.
-      const float* base = ((x / lod + z / lod) % 2 == 0) ? baseA : baseB;
-
-      const float h00 = hAtE(x, z), h10 = hAtE(xN, z);
-      const float h01 = hAtE(x, zN), h11 = hAtE(xN, zN);
-      const V3 s00 = shadeAtE(x, z), s10 = shadeAtE(xN, z);
-      const V3 s01 = shadeAtE(x, zN), s11 = shadeAtE(xN, zN);
-      auto shaded = [&](const V3& s) {
-        return Color(base[0] * s.x, base[1] * s.y, base[2] * s.z, 128.0F);
-      };
-      auto st = [&](float wx, float wz) {
+  // Triangle strips (docs/model-pipeline.md, "Triangle strips"). A terrain
+  // chunk is a GRID, the shape a strip was made for: a row of n quads is 6n
+  // list vertices and 2(n + 1) strip ones, and every EE term of render
+  // submission scales with the VU1 package count, which scales with vertices.
+  //
+  // The one thing that cannot cross a quad boundary is the UNTEXTURED
+  // CHECKER. baseA/baseB are a per-QUAD colour and a strip vertex belongs to
+  // two quads, so a strip would have to pick one and the checker would
+  // collapse into a flat sheet. With a terrain material the two are the same
+  // colour and there is nothing in the way - which is why the gate is the
+  // material and not the texture. `emisCols` reads the same base, so it is
+  // covered by the same condition.
+  //
+  // Vertex for vertex the strip walks (x, z), (x, zN), (x + lod, z),
+  // (x + lod, zN), ... whose successive triples are this row's quads cut
+  // along (x + lod, z)-(x, zN) - exactly the diagonal the list stitch below
+  // uses. Nothing else moves: heights, shades, STs, splat weights and the LOD
+  // edge snap are all functions of the grid coordinate, so a shared vertex
+  // carries the same values it carried in both of its quads.
+  if (strips) {
+    // A chunk is one bag, so its runs must BE the VU1 packages: every run is
+    // exactly stripRun vertices except the chunk's last, which owes only the
+    // multiple of 3 the VU1 vertex loops need. TWIN NOTICE: the same packer
+    // buildRoads and roadgen.cpp's tessellateStrips use.
+    auto tintC = [&](int c) {  // GS modulate saturates at 255
+      const float w = baseA[c] * emisK;
+      return w > 255.0F ? 255.0F : w;
+    };
+    const Color ec(tintC(0), tintC(1), tintC(2), 128.0F);
+    size_t runStart = 0;
+    auto runLen = [&]() { return ch.vertices.size() - runStart; };
+    // Repeat one already-emitted vertex across EVERY parallel array the
+    // chunk keeps - they are all indexed by the same vertex, so padding one
+    // and not the others would shear the colours off the geometry.
+    auto repeatAt = [&](size_t idx) {
+      ch.vertices.push_back(ch.vertices[idx]);
+      ch.colors.push_back(ch.colors[idx]);
+      if (textured) ch.sts.push_back(ch.sts[idx]);
+      if (terrainMapLit) ch.emisCols.push_back(ch.emisCols[idx]);
+      for (int a = 0; a < activeN; ++a) {
+        TerrainChunk::LayerPass& lp = ch.layerPasses[a];
+        lp.colors.push_back(lp.colors[idx]);
+        lp.sts.push_back(lp.sts[idx]);
+      }
+    };
+    auto emitAt = [&](int ix, int iz) {
+      const float wx = startX + ix * stepX;
+      const float wz = startZ + iz * stepZ;
+      const V3 s = shadeAtE(ix, iz);
+      ch.vertices.push_back(Vec4(wx, hAtE(ix, iz), wz, 1.0F));
+      ch.colors.push_back(
+          Color(baseA[0] * s.x, baseA[1] * s.y, baseA[2] * s.z, 128.0F));
+      if (textured)
         ch.sts.push_back(
             Vec4(wx * TERRAIN_TILE_U, wz * TERRAIN_TILE_V, 1.0F, 0.0F));
-      };
-
-      ch.vertices.push_back(Vec4(x0, h00, z0, 1.0F));
-      ch.vertices.push_back(Vec4(x1, h10, z0, 1.0F));
-      ch.vertices.push_back(Vec4(x0, h01, z1, 1.0F));
-      ch.vertices.push_back(Vec4(x1, h10, z0, 1.0F));
-      ch.vertices.push_back(Vec4(x1, h11, z1, 1.0F));
-      ch.vertices.push_back(Vec4(x0, h01, z1, 1.0F));
-
-      if (textured) {
-        st(x0, z0);
-        st(x1, z0);
-        st(x0, z1);
-        st(x1, z0);
-        st(x1, z1);
-        st(x0, z1);
-      }
-
-      ch.colors.push_back(shaded(s00));
-      ch.colors.push_back(shaded(s10));
-      ch.colors.push_back(shaded(s01));
-      ch.colors.push_back(shaded(s10));
-      ch.colors.push_back(shaded(s11));
-      ch.colors.push_back(shaded(s01));
-
-      if (terrainMapLit) {
-        auto tintC = [&](int c) {
-          const float v = base[c] * emisK;  // GS modulate saturates at 255
-          return v > 255.0F ? 255.0F : v;
-        };
-        const Color ec(tintC(0), tintC(1), tintC(2), 128.0F);
-        for (int q = 0; q < 6; ++q) ch.emisCols.push_back(ec);
-      }
-
-      // Layer passes: same triangles, tiled layer STs, shade-lit tint colors
-      // whose alpha is the painted weight (128 = fully this layer). Weights sit
-      // on the vertices, so the GS Gouraud-interpolates the blend per pixel.
+      if (terrainMapLit) ch.emisCols.push_back(ec);
       for (int a = 0; a < activeN; ++a) {
         TerrainChunk::LayerPass& lp = ch.layerPasses[a];
         const int l = lp.layer;
         const float* tint = TERRAIN_LAYER_TINTS[g_activeScene][l];
         const bool ltex = TERRAIN_LAYER_TEXTURES[g_activeScene][l] >= 0;
         const float lk = ltex ? 128.0F : 255.0F;
-        const float ltu = TERRAIN_LAYER_TILE_US[g_activeScene][l];
-        const float ltv = TERRAIN_LAYER_TILE_VS[g_activeScene][l];
-        auto lcol = [&](const V3& s, float w) {
-          return Color(tint[0] * lk * s.x, tint[1] * lk * s.y,
-                       tint[2] * lk * s.z, w * 128.0F);
+        const float w = splatAt(ix, iz, l);
+        lp.colors.push_back(Color(tint[0] * lk * s.x, tint[1] * lk * s.y,
+                                  tint[2] * lk * s.z, w * 128.0F));
+        lp.sts.push_back(Vec4(wx * TERRAIN_LAYER_TILE_US[g_activeScene][l],
+                              wz * TERRAIN_LAYER_TILE_VS[g_activeScene][l],
+                              1.0F, 0.0F));
+      }
+    };
+    // A run that fills MID-STRIP carries the two-vertex overlap into the next
+    // one, or the triangle across the cut is lost.
+    auto carry = [&]() {
+      if (runLen() != (size_t)stripRun) return;
+      const size_t m = ch.vertices.size();
+      runStart = m;
+      repeatAt(m - 2);
+      repeatAt(m - 1);
+    };
+    auto pushRaw = [&](int ix, int iz) {
+      carry();
+      emitAt(ix, iz);
+    };
+    auto pushRepeat = [&](size_t idx) {
+      carry();
+      repeatAt(idx);
+    };
+    for (int z = gz0; z < gz1; z += lod) {
+      const int zN = z + lod > gz1 ? gz1 : z + lod;
+      // Each quad ROW is one strip; consecutive rows are joined inside the
+      // run by repeating a vertex either side of the seam (four zero-area
+      // triangles, and the fifth is the new row's own first real one).
+      if (runLen() > 0) {
+        pushRepeat(ch.vertices.size() - 1);
+        pushRaw(gx0, z);
+      }
+      pushRaw(gx0, z);
+      pushRaw(gx0, zN);
+      for (int x = gx0; x < gx1; x += lod) {
+        const int xN = x + lod > gx1 ? gx1 : x + lod;
+        pushRaw(xN, z);
+        pushRaw(xN, zN);
+      }
+    }
+    // The chunk's last run owes the multiple of 3; a count that is not one
+    // runs the VU1 vertex loop off into micro memory. The padding repeats the
+    // last vertex, which makes a degenerate triangle the GS rasterises away.
+    while (!ch.vertices.empty() && runLen() % 3 != 0)
+      repeatAt(ch.vertices.size() - 1);
+  } else {
+    for (int z = gz0; z < gz1; z += lod) {
+      for (int x = gx0; x < gx1; x += lod) {
+        // The far corner, clamped: an edge chunk covers the map's remainder, so
+        // the last quad of a row may be shorter than the stride.
+        const int xN = x + lod > gx1 ? gx1 : x + lod;
+        const int zN = z + lod > gz1 ? gz1 : z + lod;
+        const float x0 = startX + x * stepX;
+        const float x1 = startX + xN * stepX;
+        const float z0 = startZ + z * stepZ;
+        const float z1 = startZ + zN * stepZ;
+        // The untextured checker counts QUADS, not cells: on x += 2 the parity of
+        // (x + z) never changes, so a distant chunk would come out one flat
+        // colour and the band boundary would read as a seam in the ground.
+        const float* base = ((x / lod + z / lod) % 2 == 0) ? baseA : baseB;
+
+        const float h00 = hAtE(x, z), h10 = hAtE(xN, z);
+        const float h01 = hAtE(x, zN), h11 = hAtE(xN, zN);
+        const V3 s00 = shadeAtE(x, z), s10 = shadeAtE(xN, z);
+        const V3 s01 = shadeAtE(x, zN), s11 = shadeAtE(xN, zN);
+        auto shaded = [&](const V3& s) {
+          return Color(base[0] * s.x, base[1] * s.y, base[2] * s.z, 128.0F);
         };
-        // Sampled at the quad's own corners: a painted layer's weight is a
-        // blend factor, so a coarse chunk reading coarse weights loses detail
-        // in the painting exactly the way it loses it in the relief. The edge
-        // snap deliberately does NOT extend here - a weight that disagrees by a
-        // few percent across a seam is invisible, unlike a height.
-        const float w00 = splatAt(x, z, l), w10 = splatAt(xN, z, l);
-        const float w01 = splatAt(x, zN, l), w11 = splatAt(xN, zN, l);
-        lp.colors.push_back(lcol(s00, w00));
-        lp.colors.push_back(lcol(s10, w10));
-        lp.colors.push_back(lcol(s01, w01));
-        lp.colors.push_back(lcol(s10, w10));
-        lp.colors.push_back(lcol(s11, w11));
-        lp.colors.push_back(lcol(s01, w01));
-        auto lst = [&](float wx, float wz) {
-          lp.sts.push_back(Vec4(wx * ltu, wz * ltv, 1.0F, 0.0F));
+        auto st = [&](float wx, float wz) {
+          ch.sts.push_back(
+              Vec4(wx * TERRAIN_TILE_U, wz * TERRAIN_TILE_V, 1.0F, 0.0F));
         };
-        lst(x0, z0);
-        lst(x1, z0);
-        lst(x0, z1);
-        lst(x1, z0);
-        lst(x1, z1);
-        lst(x0, z1);
+
+        ch.vertices.push_back(Vec4(x0, h00, z0, 1.0F));
+        ch.vertices.push_back(Vec4(x1, h10, z0, 1.0F));
+        ch.vertices.push_back(Vec4(x0, h01, z1, 1.0F));
+        ch.vertices.push_back(Vec4(x1, h10, z0, 1.0F));
+        ch.vertices.push_back(Vec4(x1, h11, z1, 1.0F));
+        ch.vertices.push_back(Vec4(x0, h01, z1, 1.0F));
+
+        if (textured) {
+          st(x0, z0);
+          st(x1, z0);
+          st(x0, z1);
+          st(x1, z0);
+          st(x1, z1);
+          st(x0, z1);
+        }
+
+        ch.colors.push_back(shaded(s00));
+        ch.colors.push_back(shaded(s10));
+        ch.colors.push_back(shaded(s01));
+        ch.colors.push_back(shaded(s10));
+        ch.colors.push_back(shaded(s11));
+        ch.colors.push_back(shaded(s01));
+
+        if (terrainMapLit) {
+          auto tintC = [&](int c) {
+            const float v = base[c] * emisK;  // GS modulate saturates at 255
+            return v > 255.0F ? 255.0F : v;
+          };
+          const Color ec(tintC(0), tintC(1), tintC(2), 128.0F);
+          for (int q = 0; q < 6; ++q) ch.emisCols.push_back(ec);
+        }
+
+        // Layer passes: same triangles, tiled layer STs, shade-lit tint colors
+        // whose alpha is the painted weight (128 = fully this layer). Weights sit
+        // on the vertices, so the GS Gouraud-interpolates the blend per pixel.
+        for (int a = 0; a < activeN; ++a) {
+          TerrainChunk::LayerPass& lp = ch.layerPasses[a];
+          const int l = lp.layer;
+          const float* tint = TERRAIN_LAYER_TINTS[g_activeScene][l];
+          const bool ltex = TERRAIN_LAYER_TEXTURES[g_activeScene][l] >= 0;
+          const float lk = ltex ? 128.0F : 255.0F;
+          const float ltu = TERRAIN_LAYER_TILE_US[g_activeScene][l];
+          const float ltv = TERRAIN_LAYER_TILE_VS[g_activeScene][l];
+          auto lcol = [&](const V3& s, float w) {
+            return Color(tint[0] * lk * s.x, tint[1] * lk * s.y,
+                         tint[2] * lk * s.z, w * 128.0F);
+          };
+          // Sampled at the quad's own corners: a painted layer's weight is a
+          // blend factor, so a coarse chunk reading coarse weights loses detail
+          // in the painting exactly the way it loses it in the relief. The edge
+          // snap deliberately does NOT extend here - a weight that disagrees by a
+          // few percent across a seam is invisible, unlike a height.
+          const float w00 = splatAt(x, z, l), w10 = splatAt(xN, z, l);
+          const float w01 = splatAt(x, zN, l), w11 = splatAt(xN, zN, l);
+          lp.colors.push_back(lcol(s00, w00));
+          lp.colors.push_back(lcol(s10, w10));
+          lp.colors.push_back(lcol(s01, w01));
+          lp.colors.push_back(lcol(s10, w10));
+          lp.colors.push_back(lcol(s11, w11));
+          lp.colors.push_back(lcol(s01, w01));
+          auto lst = [&](float wx, float wz) {
+            lp.sts.push_back(Vec4(wx * ltu, wz * ltv, 1.0F, 0.0F));
+          };
+          lst(x0, z0);
+          lst(x1, z0);
+          lst(x0, z1);
+          lst(x1, z0);
+          lst(x1, z1);
+          lst(x0, z1);
+        }
       }
     }
   }
@@ -24344,7 +24486,46 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
       pins.push_back(lp.bag.get());
     pins.push_back(ch.aoBag.get());
     pins.push_back(ch.emisBag.get());
-    pinPackageSize(pins);
+    // Stripped: the packages ARE the baked runs, so the size is PINNED to the
+    // run rather than derived, and every pass over this array splits it at
+    // the same boundaries - which is the property that keeps the base pass
+    // and the lightmap passes on the same route and off a coplanar z-fight.
+    pinPackageSize(pins, strips ? stripRun : 0U);
+  }
+
+  // The chunk's SURFACE triangle count, which is the only place the two
+  // representations can be compared. A stripped package reports size - 2 at
+  // the pipeline and that is the number of primitives the GS really
+  // rasterises - degenerate joins and padding included - so it is not
+  // comparable with a list build's size / 3 (docs/model-pipeline.md, "What
+  // the triangle counters count"). This number must be identical in both arms
+  // of an A/B or the arms are not drawing the same ground.
+  {
+    int tris = 0;
+    if (!strips) {
+      tris = (int)(ch.vertices.size() / 3);
+    } else {
+      const size_t run = (size_t)stripRun;
+      for (size_t at = 0; at < ch.vertices.size(); at += run) {
+        const size_t left = ch.vertices.size() - at;
+        const size_t len = left < run ? left : run;
+        for (size_t k = 0; k + 2 < len; ++k) {
+          const Vec4& a = ch.vertices[at + k];
+          const Vec4& b = ch.vertices[at + k + 1];
+          const Vec4& d = ch.vertices[at + k + 2];
+          const bool dgn = (a.x == b.x && a.y == b.y && a.z == b.z) ||
+                           (b.x == d.x && b.y == d.y && b.z == d.z) ||
+                           (a.x == d.x && a.y == d.y && a.z == d.z);
+          if (!dgn) ++tris;
+        }
+      }
+    }
+    TYRA_LOG("TERRAINSTRIP scene ", g_activeScene, " chunk ", cx, ",", cz,
+             " strips ", strips ? 1 : 0, " vertices ",
+             (int)ch.vertices.size(), " packages ",
+             (int)((ch.vertices.size() + (size_t)stripRun - 1) /
+                   (size_t)stripRun),
+             " triangles ", tris);
   }
 
   // World AABB of the built mesh - the split-band cull tests it per half.
@@ -34302,6 +34483,17 @@ void TerrainGame::buildRoads(int scene) {
   for (size_t i = procChunks.size(); i > 0; --i)
     if (procChunks[i - 1].owner == -3)
       procChunks.erase(procChunks.begin() + (i - 1));
+  // Triangle strips (docs/roads.md, docs/model-pipeline.md "Triangle
+  // strips"). 72 is meshstrip::kRun, the smallest package any static program
+  // class derives - the run every stripped array in this game is chopped
+  // into. The ENGINE is asked rather than trusted: the constant is legal by
+  // construction, and if it ever stops being one the triangle list is still
+  // right, so the emitter keeps both halves and this is the knob that picks
+  // between them (it is also the A/B knob - flip it and rebuild, one engine
+  // and one editor, only the vertex ORDER moves).
+  const unsigned int stripRun = 72u;
+  const bool useStrips = minPackageSize() >= stripRun;
+  const Tyra::Color grey(128.0F, 128.0F, 128.0F, 128.0F);
   bool any = false;
   for (int ri = 0; ri < ROAD_COUNT; ++ri) {
     const RoadDefRt& rd = ROAD_DEFS[ri];
@@ -34342,6 +34534,52 @@ void TerrainGame::buildRoads(int scene) {
     };
     ProcChunk* c = nullptr;
     int stationsInChunk = 0;
+    // Strip run state, per chunk. TWIN NOTICE: roadgen.cpp's
+    // tessellateStrips - the same packer, vertex for vertex.
+    size_t runStart = 0;
+    bool alongOpen = false;
+    auto runLen = [&]() { return c->vertices.size() - runStart; };
+    // One vertex into the open run. A run that fills MID-STRIP carries the
+    // two-vertex overlap into the next one, or the triangle across the cut is
+    // lost. That is the only place a run ever ends anywhere but at its full
+    // length, which is what lets the packages BE the runs.
+    auto pushRaw = [&](const Tyra::Vec4& p, const Tyra::Vec4& s) {
+      if (runLen() == (size_t)stripRun) {
+        const size_t m = c->vertices.size();
+        const Tyra::Vec4 pa = c->vertices[m - 2], pb = c->vertices[m - 1];
+        const Tyra::Vec4 sa = c->sts[m - 2], sb = c->sts[m - 1];
+        runStart = m;
+        c->vertices.push_back(pa); c->sts.push_back(sa); c->colors.push_back(grey);
+        c->vertices.push_back(pb); c->sts.push_back(sb); c->colors.push_back(grey);
+      }
+      c->vertices.push_back(p); c->sts.push_back(s); c->colors.push_back(grey);
+    };
+    // Begin an unrelated strip inside the open run: repeat the run's last
+    // vertex and the incoming strip's first. Four zero-area triangles, and
+    // the fifth is the incoming strip's own first real one.
+    auto startStrip = [&](const Tyra::Vec4& p, const Tyra::Vec4& s) {
+      if (runLen() > 0) {
+        const Tyra::Vec4 lp = c->vertices.back();
+        const Tyra::Vec4 ls = c->sts.back();
+        pushRaw(lp, ls);
+        pushRaw(p, s);
+      }
+      pushRaw(p, s);
+    };
+    // A chunk's LAST run owes only the multiple of 3 the VU1 vertex loops
+    // need; a count that is not runs off into VU1 memory. The padding repeats
+    // the last vertex, which makes a degenerate triangle the GS rasterises to
+    // nothing.
+    auto closeChunk = [&]() {
+      if (!useStrips || c == nullptr) return;
+      const size_t target = ((runLen() + 2) / 3) * 3;
+      while (runLen() < target) {
+        c->vertices.push_back(c->vertices.back());
+        c->sts.push_back(c->sts.back());
+        c->colors.push_back(grey);
+      }
+      runStart = c->vertices.size();
+    };
     std::vector<float> px0((size_t)crossSteps + 1);
     std::vector<float> py0((size_t)crossSteps + 1);
     std::vector<float> pz0((size_t)crossSteps + 1);
@@ -34401,7 +34639,6 @@ void TerrainGame::buildRoads(int scene) {
           // Two triangles per lateral cell, CCW seen from above - the twin's
           // stitch, emitted station by station so a chunk boundary never
           // leaves a gap (the previous row is re-used as the base).
-          const Tyra::Color grey(128.0F, 128.0F, 128.0F, 128.0F);
           // Exact full-width reduction: every dense sample must lie on the
           // proposed quad plane.  This keeps sloped terrain triangles cheap
           // without flattening crowns or saddles (the roadgen.cpp twin).
@@ -34443,38 +34680,93 @@ void TerrainGame::buildRoads(int scene) {
               if (dist > 0.00001F) { planar = false; break; }
             }
           const int stride = (flat || planar) ? crossSteps : 1;
+          const bool collapsed = stride == crossSteps;
           // Amortize EE bag/bounds work on flat streets, without making dense
           // slopes unbounded or joining a whole road into one culling box.
-          const size_t spanVertices = (size_t)(crossSteps / stride) * 6;
+          // The budget is in the currency the chunk actually holds, so the
+          // two emitters cut a road into the SAME number of chunks only by
+          // accident - what matters is that a run never straddles one.
+          const size_t spanVertices =
+              useStrips
+                  ? (collapsed
+                         ? (alongOpen ? (size_t)2 : (size_t)4)
+                         : (size_t)(2 * (crossSteps / stride + 1) + 2))
+                  : (size_t)(crossSteps / stride) * 6;
           if (!c || stationsInChunk >= 36 ||
               c->vertices.size() + spanVertices > 1800) {
+            closeChunk();
             procChunks.push_back(ProcChunk());
             c = &procChunks.back();
             c->owner = -3;
             c->roadTex = tex;
+            c->stripRun = useStrips ? (int)stripRun : 0;
             stationsInChunk = 0;
+            runStart = 0;
+            alongOpen = false;
           }
-          for (int j = 0; j < crossSteps; j += stride) {
-            const float u0 = (float)j / (float)crossSteps;
-            const float u1 = (float)(j + stride) / (float)crossSteps;
-            const Tyra::Vec4 A(px0[(size_t)j], py0[(size_t)j],
-                               pz0[(size_t)j], 1.0F);
-            const Tyra::Vec4 B(px0[(size_t)j + stride], py0[(size_t)j + stride],
-                               pz0[(size_t)j + stride], 1.0F);
-            const Tyra::Vec4 C(nx[(size_t)j + stride], ny[(size_t)j + stride],
-                               nz[(size_t)j + stride], 1.0F);
-            const Tyra::Vec4 D(nx[(size_t)j], ny[(size_t)j],
-                               nz[(size_t)j], 1.0F);
-            const Tyra::Vec4 sA(u0, lv0, 1.0F, 0.0F);
-            const Tyra::Vec4 sB(u1, lv0, 1.0F, 0.0F);
-            const Tyra::Vec4 sC(u1, v, 1.0F, 0.0F);
-            const Tyra::Vec4 sD(u0, v, 1.0F, 0.0F);
-            c->vertices.push_back(A); c->sts.push_back(sA); c->colors.push_back(grey);
-            c->vertices.push_back(B); c->sts.push_back(sB); c->colors.push_back(grey);
-            c->vertices.push_back(C); c->sts.push_back(sC); c->colors.push_back(grey);
-            c->vertices.push_back(A); c->sts.push_back(sA); c->colors.push_back(grey);
-            c->vertices.push_back(C); c->sts.push_back(sC); c->colors.push_back(grey);
-            c->vertices.push_back(D); c->sts.push_back(sD); c->colors.push_back(grey);
+          // P is the previous station's row, N this one's.
+          auto vAt = [&](int j, bool newRow) {
+            return newRow ? Tyra::Vec4(nx[(size_t)j], ny[(size_t)j],
+                                       nz[(size_t)j], 1.0F)
+                          : Tyra::Vec4(px0[(size_t)j], py0[(size_t)j],
+                                       pz0[(size_t)j], 1.0F);
+          };
+          auto sAt = [&](int j, bool newRow) {
+            return Tyra::Vec4((float)j / (float)crossSteps,
+                              newRow ? v : lv0, 1.0F, 0.0F);
+          };
+          if (!useStrips) {
+            for (int j = 0; j < crossSteps; j += stride) {
+              const float u0 = (float)j / (float)crossSteps;
+              const float u1 = (float)(j + stride) / (float)crossSteps;
+              const Tyra::Vec4 A(px0[(size_t)j], py0[(size_t)j],
+                                 pz0[(size_t)j], 1.0F);
+              const Tyra::Vec4 B(px0[(size_t)j + stride], py0[(size_t)j + stride],
+                                 pz0[(size_t)j + stride], 1.0F);
+              const Tyra::Vec4 C(nx[(size_t)j + stride], ny[(size_t)j + stride],
+                                 nz[(size_t)j + stride], 1.0F);
+              const Tyra::Vec4 D(nx[(size_t)j], ny[(size_t)j],
+                                 nz[(size_t)j], 1.0F);
+              const Tyra::Vec4 sA(u0, lv0, 1.0F, 0.0F);
+              const Tyra::Vec4 sB(u1, lv0, 1.0F, 0.0F);
+              const Tyra::Vec4 sC(u1, v, 1.0F, 0.0F);
+              const Tyra::Vec4 sD(u0, v, 1.0F, 0.0F);
+              c->vertices.push_back(A); c->sts.push_back(sA); c->colors.push_back(grey);
+              c->vertices.push_back(B); c->sts.push_back(sB); c->colors.push_back(grey);
+              c->vertices.push_back(C); c->sts.push_back(sC); c->colors.push_back(grey);
+              c->vertices.push_back(A); c->sts.push_back(sA); c->colors.push_back(grey);
+              c->vertices.push_back(C); c->sts.push_back(sC); c->colors.push_back(grey);
+              c->vertices.push_back(D); c->sts.push_back(sD); c->colors.push_back(grey);
+            }
+          } else if (collapsed) {
+            // A collapsed span is ONE full-width quad, so a street of them is
+            // a grid one cell WIDE and many stations LONG - and a strip has
+            // to run along the long axis or it buys nothing. Taken laterally
+            // a collapsed span is 4 vertices plus a 2-vertex join against the
+            // list's 6: break-even on the EE and 3x the GS primitives, two
+            // thirds of them degenerate. Taken longitudinally it is 2
+            // vertices per STATION, the same 0.35x the dense spans reach.
+            // ... P[w], P[0], N[w], N[0] ... - successive triples are this
+            // span's two triangles, cut along P[0]-N[w], which is the cut the
+            // list stitch above makes. The other interleaving takes the other
+            // diagonal and silently reshapes every non-planar quad.
+            if (!alongOpen) {
+              startStrip(vAt(crossSteps, false), sAt(crossSteps, false));
+              pushRaw(vAt(0, false), sAt(0, false));
+              alongOpen = true;
+            }
+            pushRaw(vAt(crossSteps, true), sAt(crossSteps, true));
+            pushRaw(vAt(0, true), sAt(0, true));
+          } else {
+            // N[0], P[0], N[s], P[s], ... - same argument, same diagonal
+            // P[j]-N[j+s], walked ACROSS the road instead.
+            alongOpen = false;
+            startStrip(vAt(0, true), sAt(0, true));
+            pushRaw(vAt(0, false), sAt(0, false));
+            for (int j = stride; j <= crossSteps; j += stride) {
+              pushRaw(vAt(j, true), sAt(j, true));
+              pushRaw(vAt(j, false), sAt(j, false));
+            }
           }
           ++stationsInChunk;
         }
@@ -34485,16 +34777,51 @@ void TerrainGame::buildRoads(int scene) {
         havePrev = true;
       }
     }
+    // This road's last chunk still has an open run.
+    closeChunk();
   }
   if (any) procFinishChunks();
-  int roadChunks = 0, roadVertices = 0;
+  int roadChunks = 0, roadVertices = 0, roadPackages = 0;
+  // Surface triangles, counted where they are KNOWN. A stripped package
+  // reports size - 2 triangles at the pipeline, and that is the number of
+  // primitives the GS really rasterises - degenerate joins and padding
+  // included - so it is NOT comparable with a list build's size / 3. The
+  // producer is the only place the two representations agree, so it says so
+  // here: this number must be identical in both arms of an A/B or the arms
+  // are not drawing the same road. See docs/model-pipeline.md.
+  int roadTriangles = 0;
   for (const ProcChunk& c : procChunks)
-    if (c.owner == -3) { ++roadChunks; roadVertices += (int)c.vertices.size(); }
+    if (c.owner == -3) {
+      ++roadChunks;
+      roadVertices += (int)c.vertices.size();
+      const size_t run = c.stripRun > 0 ? (size_t)c.stripRun : (size_t)72;
+      roadPackages += (int)((c.vertices.size() + run - 1) / run);
+      if (c.stripRun <= 0) {
+        roadTriangles += (int)(c.vertices.size() / 3);
+      } else {
+        for (size_t at = 0; at < c.vertices.size(); at += run) {
+          const size_t left = c.vertices.size() - at;
+          const size_t len = left < run ? left : run;
+          for (size_t k = 0; k + 2 < len; ++k) {
+            const Tyra::Vec4& a = c.vertices[at + k];
+            const Tyra::Vec4& b = c.vertices[at + k + 1];
+            const Tyra::Vec4& d = c.vertices[at + k + 2];
+            const bool degenerate =
+                (a.x == b.x && a.y == b.y && a.z == b.z) ||
+                (b.x == d.x && b.y == d.y && b.z == d.z) ||
+                (a.x == d.x && a.y == d.y && a.z == d.z);
+            if (!degenerate) ++roadTriangles;
+          }
+        }
+      }
+    }
   float y0 = 0.0F;
   for (const ProcChunk& c : procChunks)
     if (c.owner == -3 && !c.vertices.empty()) { y0 = c.vertices[0].y; break; }
   TYRA_LOG("ROADS scene ", scene, " chunks ", roadChunks, " vertices ", roadVertices, " y0x10 ",
            (int)(y0 * 10.0F));
+  TYRA_LOG("ROADSTRIP scene ", scene, " strips ", useStrips ? 1 : 0,
+           " packages ", roadPackages, " triangles ", roadTriangles);
 }
 )";
 }

@@ -16,6 +16,27 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.96.0: ROADS AND TERRAIN reach VU1 as triangle strips too, which is where
+// the geometry actually is - the Motor District is 93 150 road vertices in 90
+// chunks against 13 176 in all its models. Both are GRIDS, and a grid strips
+// properly: the measured fixtures come out at 0.355-0.374x where the flat-
+// shaded baked models only reached 0.732x (a flat-shaded strip cannot cross a
+// face boundary; a grid has none to cross). No general stripifier is involved
+// and none would help - the ribbon's rows ARE the strip, and the road half has
+// to run on the EE at scene load, where meshstrip's weld hash and six-
+// orientation walk could not. Two directions, because the road's own planar
+// reduction changes which axis is long: dense spans strip ACROSS the road,
+// collapsed full-width spans strip ALONG it (taken laterally a collapsed span
+// is exactly break-even and triples the GS primitives). The runtime contract
+// is the models': StaPipBag::stripped with packageSize pinned to the 72-vertex
+// run, so the packages ARE the runs. Terrain strips only with a terrain
+// MATERIAL - the untextured checker is a per-quad colour and a strip vertex
+// belongs to two quads. roadgen.cpp and its generated buildRoads twin move
+// together and verify-road-twins.py now compares the strip output vertex for
+// vertex, chunk for chunk, plus an exact triangle-set equality against the
+// list. No project format change, so kFormatVersion stays 54 and there is no
+// migration. MINOR.
+//
 // 1.95.0: static models ship as TRIANGLE STRIPS beside their triangle list,
 // and the static pipeline draws the strip (StaPipBag::stripped,
 // docs/model-pipeline.md "Triangle strips"). The EE's whole per-frame bill -
@@ -4011,7 +4032,7 @@
 // 1.86.0: merge baked shadow decals with main's render-cost table and
 // object-group line.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 95
+#define TYRAX_VERSION_MINOR 96
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

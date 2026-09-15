@@ -142,8 +142,15 @@ engine, one editor):
 
 **11.3% of the frame's vertices and 10.8% of its VU1 packages, gone.** Less than
 the models' own 26.8% because the models are about two fifths of this view's
-geometry - the roads and the terrain are grids, they strip far better than
-26.8%, and neither of them is stripped yet.
+geometry. The rest is the roads and the terrain, and **as of 1.96.0 both of
+those are stripped too** - see [roads.md](roads.md), "Triangle strips", and
+[terrain.md](terrain.md). They are grids with no face boundaries for a strip to
+stop at, so they reach **0.355-0.374x** where these flat-shaded models reached
+0.732x, and they are where the geometry actually is: 93 150 road vertices in 90
+chunks against 13 176 in all eleven models. Neither uses `meshstrip` - a
+ribbon's and a heightfield's rows *are* the strip, and the road half runs on the
+EE at scene load where a general stripifier could not - but both keep this
+page's run contract exactly.
 
 Packet flushes barely move, and that is not a disappointment: a flush happens
 per BAG (`flushBuffers` at the end of each `render`), not per package, so it
@@ -170,6 +177,40 @@ repeated at runtime.
 - A part whose strips come out no smaller than its list keeps the list and is
   not marked stripped. A cube is the honest example: 36 list vertices against
   24 unique ones plus 10 of join is 34, and 34 is not worth a second copy.
+
+### What the triangle counters count
+
+`StaPipTelemetry`'s `triangles*` fields are **GS primitives**, not surface
+triangles, and for a strip those are not the same number. A strip array
+deliberately carries degenerate triangles - two repeated vertices either side of
+every seam where one run holds more than one strip, plus the padding at the tail
+of every run but a bag's last - and `size - 2` counts all of them. Both
+rasterise to nothing; both are primitives the GS is asked to set up.
+
+So **one surface reports more triangles as a strip than as a list**. The garage
+day pose reports 25 650 for the list build and 38 427 for the strip build, and
+that 1.498x is a measurement rather than a miscount: the same frame submits
+11.3% fewer *vertices* (76 951 -> 68 235) and asks for about half as many more
+primitives, nearly all of them zero-area. The saving is on the EE, which pays
+per package; the primitives are what it costs on the GS.
+
+The consequence is the one that costs a check: **`trianglesCull` cannot show
+that two arms draw the same geometry** when the arms differ in representation.
+The runtime cannot recover the surface count either - the degenerate total
+depends on how the bake packed the runs, and nothing in a package records it.
+Use `verticesSubmitted` for the EE bill, and the **producer's own build-time
+surface count** for equality: `ROADSTRIP scene N ... triangles T` and
+`TERRAINSTRIP scene N ... triangles T` in `bin/log.txt` are computed with
+degenerates dropped and must be identical in both arms. Within one
+representation the counters compare as they always did.
+
+Two outright miscounts live in `StaPipCore` and are **not** fixed yet:
+`recordGuardBandPackage` charges `package.size / 3` with no strip branch, so
+the `guard=` half of `FTCLIP` is computed on a different rule from the `cull=`
+it is documented as a subset of (24 against 70 for a 72-vertex run);
+and `recordOutsideBag` charges a whole bag `count - 2` when the bag is sliced
+into `ceil(count / maxVertCount)` runs that are each their own strip, so it
+over-counts by `2 * (packages - 1)`.
 
 ### Clipping
 
