@@ -2981,6 +2981,23 @@ and skipped models made matching baseline/candidate triangle counts falsely
 reassuring. See docs/performance-hardware-recheck.md. Empty redirected host
 logs or a failed ping alone do not prove a failed boot; check new telemetry.
 
+**And the GENERATED SOURCES are half of that gate, not just the assets.** A
+fixture script that copies an example copies its **committed** `inc/*.gen.hpp`,
+`src/gen/` and `src/terrain_game.cpp`, and examples' generated files in this
+repo drift silently (that is a standing condition, not an accident). Compile
+that with `native-build` directly - which every instrumented fixture does,
+because an editor `--build` would regenerate the instrumentation away - and you
+are measuring **a different game from the one the editor under test produces**,
+with nothing in any log saying so. Measured on `examples/vehicle-playground`,
+2026-09-15: a stale fixture reported **12.17 texture re-uploads per frame** in
+garage day and **3.6 ms more render submission** than the same scene
+regenerated with the editor being compared, which records 0.000 re-uploads and
+0 evictions in all four poses. An entire GS VRAM investigation was launched at
+that ghost. So `--build` (or at least `--refresh-gen`) the fixture once before
+instrumenting it, and **check a counter against the previous known-good run
+before concluding anything from a change in it** - a number that moved because
+the fixture is stale looks exactly like a regression.
+
 ## Hardware timeline capture
 
 Use tools/hardware-trace.py arm PROJECT before a boot, then export the complete

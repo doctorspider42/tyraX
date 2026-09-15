@@ -211,16 +211,32 @@ solve for the routing mix (about 39% unlit in garage day, ~0% in garage night)
 before quoting anything. The shipped shape is two whole loops with the lit one
 byte-for-byte the original, and it has not been on a console.
 
-## An unrelated finding worth its own work
+## An unrelated finding, RETRACTED — and why
 
-The garage poses record **12.17 texture re-uploads per frame** (day) and 5.75
-(night); the outer road records zero. The September 14 runs recorded zero
-everywhere. The game's own `VRAMSTAT` line explains it: `freeMB=0.048`,
-`largestKB=33`, and four evictions plus four re-uploads every frame. **GS VRAM is
-full in the garage and the scene thrashes it permanently.** Each re-upload is a
-PATH3 transfer plus the `dma_channel_wait(GIF)` the static pipeline performs
-before every send. This is not part of either budget above and was not chased
-here; see [gs-vram.md](gs-vram.md) for the instrument.
+The garage poses recorded **12.17 texture re-uploads per frame** (day) and 5.75
+(night) against zero everywhere in the September 14 runs, with `VRAMSTAT`
+reporting `freeMB=0.048`, `largestKB=33` and four evictions per frame. That was
+read here as "GS VRAM is full in the garage and the scene thrashes it
+permanently". **It is not. The fixture was stale.**
+
+`benchmark-district.py` copies the example's **committed** generated sources,
+and examples' generated files in this repo drift. Every fixture since
+regenerated with the editor under test records **0.000 re-uploads and 0
+evictions in all four poses** on the console — and the stale build also carried
+**3.6 ms more render submission** than the regenerated one, which is larger than
+several of the deltas this page reports as findings.
+
+**A performance fixture built from committed generated sources is measuring a
+different game, and nothing in any log says so.** That is the rule to take from
+this section; the script's own docstring carries it now, as does the
+`tyra-testing` skill. Re-read any number on this page that was taken from a
+fixture whose generated sources were not refreshed first.
+
+What survives is not a thrash but a **cliff**: the texture heap at `Pal576i`
+32-bit is 196 608 words and the garage holds 84% of it, so opening the pause
+menu is enough to reach `freeMB=0.048` and start evicting. The inventory, the
+residency census that names what is resident, and the levers are in
+[gs-vram.md](gs-vram.md).
 
 ## What the first VU1 reduction actually bought, and where it moved the limiter
 

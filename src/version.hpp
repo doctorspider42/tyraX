@@ -4062,8 +4062,9 @@
 // 1.81.0: explicit WSL host toolchain bootstrap for native builds.
 // 1.86.0: merge baked shadow decals with main's render-cost table and
 // object-group line.
+// 1.98.0: the GS VRAM instrument names what is resident (VRAMRES/VRAMEVICT).
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 97
+#define TYRAX_VERSION_MINOR 98
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

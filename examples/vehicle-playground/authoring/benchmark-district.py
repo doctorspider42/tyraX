@@ -4,6 +4,24 @@ Build it with the editor being compared. The same project-owned sampler runs
 in debug and release, with no host writes during sampling. Four 360-frame
 phases cover the garage and outer road in day/night. After 1,440 updates,
 bin/district-benchmark.csv contains 32 rolling engine-FPS samples.
+
+REGENERATE BEFORE YOU MEASURE. This script copies the example's *committed*
+generated sources (inc/*.gen.hpp, src/gen/, src/terrain_game.cpp) along with
+everything else, and those drift behind the editor - examples/ generated files
+in this repo are routinely stale. A fixture built from them is measuring a
+DIFFERENT GAME from the one the editor under test would produce, and it will
+not tell you so. Measured, 2026-09-15: a stale fixture reported 12.17 texture
+re-uploads per frame in garage day and 3.6 ms more render submission than the
+same scene regenerated with the editor being compared, which records 0.000
+re-uploads and 0 evictions in all four poses. A whole VRAM investigation was
+launched at that ghost.
+
+So: run `tyrax-editor --build <fixture>` (or at least --refresh-gen) once
+before the arm that matters, or copy in a .res-baked/ and bin/ you have just
+regenerated - and check that the counters you are about to read agree with the
+previous known-good run before concluding anything from a change in them. See
+docs/gs-vram.md ("The 12.17 re-uploads were a stale fixture") and
+docs/vu1-and-dma-cache-cost.md.
 """
 import argparse
 import csv

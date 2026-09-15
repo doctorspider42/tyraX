@@ -262,7 +262,8 @@ Developer design docs (internals, not user guides):
   cost of getting that decision wrong.
 - [GS VRAM residency](gs-vram.md) — where the 4 MB goes, 16-bit frame buffers
   and dithering, what a texture really costs, the texture heap and its eviction
-  policy, measured before/after numbers.
+  policy, the residency census that names what is resident, the Motor District
+  garage inventory, measured before/after numbers.
 - [Frame extrapolation](frame-extrapolation.md) — synthesising an extra frame
   by re-drawing the last one under a newer camera: 25 Hz world, 50 Hz picture.
 - [Frame pacing](frame-pacing.md) — the vsync cliff and the triple-buffered

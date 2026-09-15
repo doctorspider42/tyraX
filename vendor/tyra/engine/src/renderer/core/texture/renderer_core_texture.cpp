@@ -13,10 +13,55 @@
 # renderer_core_gs_vram - see docs/gs-vram.md.
 */
 
+#include <string>
+#include <vector>
 #include "renderer/core/texture/renderer_core_texture.hpp"
 #include "debug/debug.hpp"
 
 namespace Tyra {
+
+// Modified by TyraX: the NAMED half of the VRAM instrument. VRAMSTAT counts
+// re-uploads and evictions; it never says WHICH texture is cycling or what
+// is holding the heap, and "12.17 re-uploads per frame" cannot be acted on
+// until it does (docs/gs-vram.md, "The residency census"). This block keeps
+// an id -> name map and the current frame's eviction victims, and
+// traceFrame() prints both with the periodic summary.
+//
+// It lives entirely in this .cpp and adds NO field to any header, so the
+// struct layouts are identical in both build profiles and the whole thing
+// compiles to nothing under NDEBUG - the devkit zero-cost rule
+// (docs/devkit.md) applies to the instrument as much as to the devkit.
+#ifndef NDEBUG
+namespace {
+
+struct VRamCensusName {
+  u32 id;
+  std::string name;
+};
+
+struct VRamCensusEvict {
+  std::string victim;
+  std::string incoming;
+  int words;
+};
+
+std::vector<VRamCensusName> censusNames;
+std::vector<VRamCensusEvict> censusEvicts;
+
+const char* censusNameOf(const u32& id) {
+  for (u32 i = 0; i < censusNames.size(); i++)
+    if (censusNames[i].id == id) return censusNames[i].name.c_str();
+  return "?";
+}
+
+void censusRemember(const Texture* tex) {
+  for (u32 i = 0; i < censusNames.size(); i++)
+    if (censusNames[i].id == tex->id) return;
+  censusNames.push_back({tex->id, tex->name});
+}
+
+}  // namespace
+#endif
 
 RendererCoreTexture::RendererCoreTexture() {}
 
@@ -104,6 +149,9 @@ RendererCoreTextureBuffers RendererCoreTexture::useTexture(
 
   auto newTexBuffer = sender.allocate(t_tex);
   newTexBuffer.lastUsedSeq = useSeq;
+#ifndef NDEBUG
+  censusRemember(t_tex);  // Modified by TyraX: see the census block above.
+#endif
   path3->sendTexture(t_tex, newTexBuffer);
   registerAllocation(newTexBuffer);
 
@@ -197,6 +245,18 @@ void RendererCoreTexture::makeRoomFor(const Texture* t_tex) {
          !gs->vram.canAllocatePair(coreWords, clutWords)) {
     const int victim = pickVictim();
     if (victim < 0) break;
+#ifndef NDEBUG
+    // Modified by TyraX: name the victim and what it was given up for.
+    if (censusEvicts.size() < 32) {
+      int vw = gs->vram.getAllocationWords(
+          currentAllocations[victim].core->address);
+      if (currentAllocations[victim].clut != nullptr)
+        vw += gs->vram.getAllocationWords(
+            currentAllocations[victim].clut->address);
+      censusEvicts.push_back(
+          {censusNameOf(currentAllocations[victim].id), t_tex->name, vw});
+    }
+#endif
     sender.deallocate(currentAllocations[victim]);
     currentAllocations.erase(currentAllocations.begin() + victim);
     stats.evictions++;
@@ -229,7 +289,39 @@ void RendererCoreTexture::traceFrame() {
   if (freeMB < stats.minFreeMB) stats.minFreeMB = freeMB;
 
   const bool evicted = stats.evictions != lastLoggedEvictions;
-  if (!evicted && (frameCounter % 120) != 0) return;
+  const bool summary = (frameCounter % 120) == 0;
+#ifndef NDEBUG
+  // Modified by TyraX: the census, with the periodic summary only. One line
+  // per resident allocation answers "what is holding the heap", and the
+  // victims answer "what is cycling, and for whom" - the two questions
+  // VRAMSTAT's counters raise and cannot settle. A thrashing scene evicts
+  // every frame, so printing the victims on every eviction frame would be
+  // four lines a frame forever; the summary is enough to read a steady
+  // state, and the counters still carry the rate.
+  //
+  // The victim list is cleared when it is PRINTED, never per frame. Clearing
+  // it per frame made the instrument miss the one event it was built for:
+  // a pause menu opened between two summaries evicted eight allocations and
+  // the census reported none of them, because the eviction landed on a frame
+  // whose list was thrown away eight frames later. A rare eviction is
+  // exactly the interesting one.
+  if (summary) {
+    for (u32 i = 0; i < currentAllocations.size(); i++) {
+      int w = gs->vram.getAllocationWords(currentAllocations[i].core->address);
+      if (currentAllocations[i].clut != nullptr)
+        w += gs->vram.getAllocationWords(currentAllocations[i].clut->address);
+      TYRA_LOG("VRAMRES f=", frameCounter, " i=", (int)i, " words=", w,
+               " kb=", w / 256, " name=", censusNameOf(currentAllocations[i].id));
+    }
+    for (u32 i = 0; i < censusEvicts.size(); i++)
+      TYRA_LOG("VRAMEVICT f=", frameCounter, " words=", censusEvicts[i].words,
+               " kb=", censusEvicts[i].words / 256,
+               " victim=", censusEvicts[i].victim.c_str(),
+               " for=", censusEvicts[i].incoming.c_str());
+    censusEvicts.clear();
+  }
+#endif
+  if (!evicted && !summary) return;
   lastLoggedEvictions = stats.evictions;
 
   TYRA_LOG("VRAMSTAT f=", frameCounter, " bind=", stats.binds, " (+",
