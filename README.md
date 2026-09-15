@@ -206,8 +206,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [sphere-mapped chrome](docs/reflective-materials.md), Mirror objects,
   [VU0-raytraced mirrors](docs/raytraced-reflections.md),
   [live texture feeds](docs/texture-feeds.md) and [portals with visible lamp effects](docs/portals.md).
-- **Screen** — sky, fog, bloom, film grain and your own
-  [`.screenfx` effects](docs/custom-screen-effects.md), plus
+- **Screen** — sky, fog, bloom, film grain, [motion blur](docs/motion-blur.md)
+  and your own [`.screenfx` effects](docs/custom-screen-effects.md), plus
   [TV safe areas](docs/safe-areas.md) to frame against.
 - **Frame delivery** — the [neural upscaler (BLSS)](docs/neural-upscaler.md),
   including automatic native/reduced resolution recovery from missed fields,

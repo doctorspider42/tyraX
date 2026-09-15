@@ -16,6 +16,66 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.89.0: motion blur, the fourth built-in full-screen effect. The other
+// display buffer already holds the previous RENDERED frame, so the pass is one
+// full-screen GS alpha blend of it over this one - no history buffer, no VRAM,
+// no EE work - and because every frame blends a predecessor that blended its
+// own, a held trail decays geometrically (0.2-0.4 is already a long smear).
+// Authored in Tools > UI Editor as its own screen-stack entry (per-scene
+// strength under Scene Preferences > Post effects) and driven at runtime by
+// the Set Motion Blur flow node, which Live Logic can hot-patch like the rest
+// of the family. It defaults to layer 0 rather than -1 on purpose: the source
+// is the finished frame, HUD included, so from the top of the stack a MOVING
+// HUD element smears over the picture. The source is
+// getPreviousRealFrameBuffer(), never getPreviousFrameBuffer() - an
+// accumulator fed a synthesised warp frame compounds the displacement - and
+// RendererCoreGS::hasRealFrame() gates the first frame after boot or a layout
+// rebuild, whose "previous" buffer is uninitialised VRAM nobody cleared.
+// ProjectSettings gains motionBlur and Project gains hudMotionBlurLayer;
+// kFormatVersion 47 -> 48, additive, no migration step. MINOR.
+//
+// The amount is a PERCENTAGE on every surface that shows it (the UI Editor,
+// Scene Preferences and the node's own slider), and 100% is kMotionBlurMaxFix
+// = 115 of the hardware's 128 rather than the full weight. At 128 the blend is
+// exactly "the previous frame", so the error never decays and the first image
+// the game ever displayed stays on screen for ever - measured: with the cap
+// removed the settled frame is the TyraX boot SPLASH thousands of frames into
+// the run, where at 115 it is the sharp scene. The node's parameter is also
+// bounded now: FlowNodeType::numPercent draws a declared fraction as a
+// 0..100% slider, where the generic drag took it to -4 or 900 and codegen
+// silently clamped that away (declared, not guessed from the label - the
+// numChoices precedent, because "Amount" names four different ranges in that
+// registry).
+//
+// The cap is PER COLOUR DEPTH (115 at 32-bit, 80 at 16-bit): the accumulator
+// truncates downward on every write and the loop multiplies that by 1/(1-f), so
+// a 16-bit project lost 43% of its brightness at the top of the slider (9% with
+// the lower cap, against 10% for 32-bit at its own maximum).
+//
+// The pass is DARKEN-then-ADD rather than a one-sprite lerp, and it rolls the
+// dither matrix a cell per frame - both needed, and only at 16-bit colour does
+// it show. A lerp moves a pixel by an INCREMENT, and on a 5-bit channel an
+// increment inside one storable step rounds to nothing, so the error stops
+// decaying and a ghost of wherever the camera used to point stays on screen for
+// ever; the fixed dither matrix cannot rescue it because the cells whose offset
+// is 0 never cross either. Rebuilding the pixel from two large terms
+// (Cd * (128-fix)/128, then + Cs * fix/128 - the grading gain and the bloom
+// add-back, already in that file) plus a rolling matrix settles it: measured on
+// flat ground 4 s after the camera stops, the ghost goes 40/32/51 -> 15/23/15
+// against a 32-bit control of 12/20/6, and 32-bit is unchanged. Costs one extra
+// full-screen sprite. Full weight still freezes at any depth, so the cap stands.
+//
+// Live Logic gains one state: an amber LOGIC (off) whenever a flow graph
+// differs from the one the running build compiled AND the feature is off. The
+// chip people watch is LIVE, which stays green - correctly, since Live Link
+// streams object edits and has never carried graph logic - so a graph edit
+// that needs a rebuild used to be completely silent. The check is one hash per
+// graph and no compile, which is why it can run with the feature disabled. The
+// trap inside it, worth knowing for any throttled per-frame tick: the throttle
+// must LEAVE the previous answer standing, because the state is what the
+// toolbar reads every frame; clearing it and re-deciding every half second
+// made the chip correct for one frame in thirty and invisible in practice.
+//
 // 1.88.0: plain BLSS can adapt each scene between native and reduced 3D
 // resolution from sustained whole-frame timing. Hysteresis, scene warm-up and
 // allocation-free switches avoid oscillation, streaming false positives and GS
@@ -3330,7 +3390,7 @@
 // 1.86.0: merge baked shadow decals with main's render-cost table and
 // object-group line.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 88
+#define TYRAX_VERSION_MINOR 89
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -3703,7 +3763,12 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // optional blssAdaptive boolean. Missing means false and the key is written
 // only when enabled, so older projects still resave byte-for-byte. Purely
 // additive - no migration step.
-inline constexpr int kFormatVersion = 47;
+// v48 (motion blur, docs/motion-blur.md): ProjectSettings gains motionBlur
+// (written with the rest of the always-emitted post-fx block, project-wide and
+// per scene) and the manifest gains hudMotionBlurLayer. An older editor would
+// drop both on its next save, which is what the refusal is for. Purely
+// additive - no migration step.
+inline constexpr int kFormatVersion = 48;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

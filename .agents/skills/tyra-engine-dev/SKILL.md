@@ -153,8 +153,20 @@ default for pre-M4 `.tyra` files without a `clipping` key — the routing, the
 guard band and the measured numbers are in `docs/vu1-clipping.md`), static
 pools in `stapip_clipper.cpp` /
 `stapip_qbuffer.cpp`,
-`RendererCorePostFx` (bloom + film grain + depth of field + god rays via GS
-blits — god rays (`PassGodRays`, `setGodRays` strength + per-frame
+`RendererCorePostFx` (bloom + film grain + motion blur + depth of field + god
+rays via GS
+blits - motion blur (`PassMotionBlur`, `setMotionBlur`, docs/motion-blur.md) is
+the cheapest of them: the other display buffer already holds the previous
+frame, so the pass is ONE 1:1 alpha-blended sprite of
+`RendererCoreGS::getPreviousRealFrameBuffer()` over the current one and costs
+no VRAM at all. Two rules, both about WHICH previous frame: the REAL one and
+never `getPreviousFrameBuffer()` (with frame extrapolation on, the newest
+finished frame is a synthesised warp half the time, and an accumulator fed a
+displaced image compounds the displacement - the same reason BLSS asks for the
+real one), and nothing at all until `RendererCoreGS::hasRealFrame()` says a
+real frame has been flipped, because display buffers are never cleared at
+allocation and the first "previous" one after boot or a layout rebuild is
+whatever was in that VRAM — god rays (`PassGodRays`, `setGodRays` strength + per-frame
 `setGodRaysSun` screen position/visibility fed by the game) bright-pass the
 frame on the quarter-res buffers (subtract flat threshold 150, double back
 up - 96 washed the whole frame white, the sky IS bright) and iteratively

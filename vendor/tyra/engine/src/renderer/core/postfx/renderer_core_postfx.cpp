@@ -35,6 +35,7 @@ RendererCorePostFx::RendererCorePostFx() {
   bloomThreshold = 0;
   bloomSpread = 1;
   grain = 0;
+  motionBlur = 0;
   dof = 0;
   dofFocus = 0.0F;
   dofRange = 0.01F;
@@ -50,7 +51,8 @@ RendererCorePostFx::RendererCorePostFx() {
   // optional bright-pass quad + up to 4 soften rounds of 4 blits + the
   // add-back = 18 primitives at full spread) + god rays (downsample + a
   // bright-pass quad + 2 zoom rounds of 2 blits + the composite = 7 blits
-  // and a quad) + grading (6 quads) + grain (2) + setup/teardown. A blit is
+  // and a quad) + grading (6 quads) + grain (2) + motion blur (1) +
+  // setup/teardown. A blit is
   // 12 qwords, a quad 7 - the worst case is ~500, so 768 keeps real
   // headroom. An UNDERSIZED packet here corrupts the GIF stream, so grow
   // this whenever a pass gains primitives (the god-rays pass pushed the old
@@ -604,6 +606,68 @@ void RendererCorePostFx::apply(int passes) {
       q = blit(q, lowVram[cur], lowBufW, lowW, lowH, 0, 0, w4, h4, fbVram,
                fbBufW, 0, 0, fbW, fbH, true, false, 1,
                GS_SET_ALPHA(0, 2, 2, 1, fix));
+  }
+
+  // Motion blur before bloom and grain: the trail is the SCENE smearing, so
+  // this frame's own glow and its fresh noise belong on top of it.
+  //
+  // There is no history buffer: the other display buffer already holds the
+  // previous rendered frame, and one 1:1 alpha blend of it over this one is
+  // the whole pass (no VRAM, one full-screen fill). Because every frame
+  // blends a predecessor that blended its own, a held trail decays
+  // geometrically - strength 0.25 is already a long smear.
+  //
+  // getPreviousRealFrameBuffer(), never getPreviousFrameBuffer(): with frame
+  // extrapolation on, the newest finished frame is a WARP half the time, and
+  // feeding a displaced image back into an accumulator compounds the error
+  // (the same reason BLSS asks for the real one). hasRealFrame() is what keeps
+  // the first frame after boot or a layout rebuild from blending uninitialised
+  // VRAM over the picture - the buffers are never cleared at allocation.
+  if ((passes & PassMotionBlur) && motionBlur > 0 && gs->hasRealFrame()) {
+    const framebuffer_t* prev = gs->getPreviousRealFrameBuffer();
+    const int prevVram = static_cast<int>(prev->address);
+    const int prevBufW = static_cast<int>(prev->width);
+    u8 fix = motionBlur > 128 ? 128 : motionBlur;
+    // A rebuild can leave the "previous" buffer BEING the one we draw into
+    // (one buffer, or the rotation landing back on itself); blending a buffer
+    // over itself is a no-op that still costs a full-screen fill.
+    if (prevVram != fbVram && fix > 0) {
+      // NO per-frame dither roll here, and that was measured twice.
+      //
+      // Rolling the matrix a cell per frame does clear the last of the 16-bit
+      // ghost (the settled sky reads 6/0/0 against 19/5/4 with it fixed),
+      // because the quantized update map has several fixed points and a moving
+      // offset is what breaks them. But it puts the noise IN MOTION: on
+      // examples/showcase 16.6% of the sky's pixels moved every frame, against
+      // 0.0% with the matrix left alone, and a shimmering sky is a worse
+      // artefact than a faint static one - reported as "it just flickers, most
+      // visible looking at the sky". The darken+add form above plus the lower
+      // 16-bit cap already do most of the work the roll was added for.
+      // DARKEN, then ADD - not the one-sprite lerp this used to be, and the
+      // difference is entirely about QUANTIZATION (docs/motion-blur.md).
+      //
+      // The lerp `Cd += (Cs - Cd) * fix >> 7` is algebraically the same
+      // weighted average and stalls at 16-bit colour: it moves a pixel by an
+      // INCREMENT, and once the residual is within a 5-bit step that increment
+      // rounds to less than one storable level, so the error stops decaying
+      // and a ghost stays on screen for ever. The two-sprite form never
+      // computes a small increment - each frame the pixel is rebuilt from two
+      // large terms:
+      //
+      //   1) Cd = Cd * (128 - fix) / 128   the fresh frame, weighted down
+      //   2) Cd = Cd + Cs * fix / 128      the previous frame, weighted in
+      //
+      // Both equations already exist in this file (the colour grading's gain
+      // and the bloom's add-back), and the total is the same weighted average.
+      // Two full-screen sprites instead of one - the same fill as film grain.
+      q = flatQuad(q, fbVram, fbBufW, 0xFF000000u, 0x80, 0x80, 0x80, 0x80,
+                   GS_SET_ALPHA(1, 2, 2, 2, (u8)(128 - fix)));
+      // Point sampling: the blit is 1:1, and a bilinear tap would shift the
+      // trail half a texel per frame into a directional smear.
+      q = blit(q, prevVram, prevBufW, fbW, fbH, 0, 0, fbW << 4, fbH << 4,
+               fbVram, fbBufW, 0, 0, fbW, fbH, false, false, 1,
+               GS_SET_ALPHA(0, 2, 2, 1, fix));
+    }
   }
 
   if ((passes & PassBloom) && bloom > 0) {
