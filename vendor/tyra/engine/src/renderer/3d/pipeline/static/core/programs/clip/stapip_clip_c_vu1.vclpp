@@ -149,6 +149,13 @@ multiColor:
     lq         color2, 1(colorData)
     lq         color3, 2(colorData)
 processing:
+    ; Modified by TyraX: VU1_OPTIONS_ADDR.y is negative only when a dynamic
+    ; light actually reaches this mesh - see LoadTyraSpotLight in
+    ; tyra_macros.i. 63 upper-pipe operations a triangle for two instructions.
+    ; sceFlag is re-read because the colour-mode block above clobbered it
+    ; with .x (the single-colour flag).
+    ilw.y      sceFlag, 8(vi00)
+    ibgez      sceFlag, noSpot
     sub.xyz    spotD, vertex1, spotPos  ; CalculateTyraSpotLight
     mul.xyz    spotSq, spotD, spotD
     add.x      spotDist, spotSq, spotSq[y]
@@ -212,6 +219,7 @@ processing:
     mul.x      spotC, spotC, spotA
     mul.xyz    spotD, spotColV, spotC[x]
     add.xyz    color3, color3, spotD
+noSpot:
     loi        255
     mini.xyz   color1, color1, i
     loi        255

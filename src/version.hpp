@@ -16,6 +16,10 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.94.0: the VU1 colour programs branch over the per-vertex spot-light
+// arithmetic when no dynamic light reaches the mesh (VU1_OPTIONS_ADDR.y is
+// three-state now). No project format change, and no image change either way.
+//
 // 1.93.0: explicit resident static submission batches in generated object draws.
 // No project format change.
 //
@@ -3986,7 +3990,7 @@
 // 1.86.0: merge baked shadow decals with main's render-cost table and
 // object-group line.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 93
+#define TYRAX_VERSION_MINOR 94
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

@@ -314,6 +314,18 @@ replace the e2e pass - it models no cycle timing and no MAC/STATUS flags, and no
 generated microcode has been built for hardware yet - but a program that fails
 here will not work on the console either.
 
+**AND A GREEN `--vu-check` ONLY MEANS SOMETHING IF YOU CAN MAKE IT RED.** It
+stages VU1 memory itself, so a term whose staged inputs make it evaluate to zero
+is compared by comparing nothing - which is exactly what happened to the spot
+light for its whole life (every `w` lane of its three quadwords was left at 0,
+and all three of `invRange2`/`cosCut2`/`invSoft` are `w` lanes). The check
+passed against a program that ran 21 operations a vertex and would have passed
+against one that omitted them. So when you add, remove or GATE a term in a
+microprogram, falsify the check first: invert the branch or zero the term in the
+HANDWRITTEN program - which needs no editor rebuild, that side is read off disk -
+and confirm it reports `DIFFERENT`. See docs/vu-framework.md, "The check that
+makes this more than a plausible story".
+
 **Rebuild before believing a `--vu-check` failure, and never attribute one by
 swapping the engine alone.** Both sides of every comparison must come from ONE
 commit: the generated side is compiled into the binary, the handwritten side is

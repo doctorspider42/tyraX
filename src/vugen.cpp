@@ -471,6 +471,13 @@ void Vu::branchIfGtz(IVal a, Lbl l) {
     emit(in);
     fixups_.push_back({(int)p_->code.size() - 1, l.id});
 }
+void Vu::branchIfGez(IVal a, Lbl l) {
+    Instr in;
+    in.op = Op::Ibgez;
+    in.s1 = a.reg;
+    emit(in);
+    fixups_.push_back({(int)p_->code.size() - 1, l.id});
+}
 void Vu::branchIfLtz(IVal a, Lbl l) {
     Instr in;
     in.op = Op::Ibltz;
@@ -1882,7 +1889,7 @@ struct Constants {
     Val lightMatrix[3]{}, lightDirs[3]{}, lightColors[3]{}, ambient{};
     Val spotPos{}, spotDirV{}, spotColV{};
     Val envBasisX{}, envBasisY{}, envBasisZ{};
-    IVal singleColorEnabled{}, adcMask{};
+    IVal singleColorEnabled{}, adcMask{}, spotEnabled{};
 };
 
 /** The flashlight runs where there is a per-vertex COLOUR to add it to and the
@@ -1990,6 +1997,18 @@ void emitPreamble(Vu& b, Program& prog, const Desc& d, Constants& k) {
                   i == 0 ? "LoadTyraSpotLight - reuses the dir-lights slots, "
                            "free in the colour programs"
                          : nullptr);
+        }
+        // The gate. VU1_OPTIONS_ADDR.y is negative only when a dynamic light
+        // actually reaches this mesh (StaPipQBufferRenderer::sendObjectData);
+        // the whole 21-op-per-vertex block below is branched over otherwise.
+        // The CLIP family keeps no integer register live across its triangle
+        // loop - it re-reads the lane per triangle, next to its existing peer
+        // test - so this preamble load is the cull family's alone.
+        if (d.cull) {
+            k.spotEnabled = b.inamed("spotEnabled");
+            ilwInto(prog, k.spotEnabled, b.izero(), kOptionsAddr, 1,
+                    "VU1_OPTIONS_ADDR.y < 0 = a dynamic light reaches this "
+                    "mesh");
         }
     }
 
@@ -2299,6 +2318,27 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         if (plan.needsSine)
             for (int i = 0; i < 3; ++i) sc.sinS[i] = b.named(qn[i]);
     }
+    // THE SPOT-LIGHT GATE, and where it sits is worth 11 cycles a triangle.
+    // All three corners are branched over together, before a single
+    // MatrixMultiplyVertex has overwritten an object-space vertex: that is one
+    // basic-block split in the loop instead of three, and `openvcl` keeps the
+    // transform/fog/store chains it can no longer interleave the spot into
+    // packed anyway. Measured on cull_tc: 133 cycles before, 144 with the
+    // light on and 81 with it off, against 154/91 for a gate per corner.
+    //
+    // A program carrying a project's OWN stage list or script cannot take that
+    // shape: those run in the object-space slot, they may MOVE the vertex the
+    // spot reads, and the spot has always run after them. Such a program keeps
+    // the per-corner gate below, which preserves the order exactly.
+    const bool hoistSpot = spot && !hasStages && d.script == nullptr;
+    if (hoistSpot) {
+        const Lbl noSpot = b.label("noSpot");
+        b.branchIfGez(k.spotEnabled, noSpot);
+        for (int i = 0; i < 3; ++i)
+            b.spotLight(color[i], vertex[i], k.spotPos, k.spotDirV, k.spotColV,
+                        spotScratch);
+        b.bind(noSpot);
+    }
     for (int i = 0; i < 3 && d.cull; ++i) {
         // The env ST goes FIRST for the same reason it does in as_is: its rsqrt
         // WRITES Q, and the position's perspective divide below has to be the
@@ -2318,9 +2358,17 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
             applyStages(sc, plan, Slot::ObjectSpace);
         }
         if (d.script && d.scriptSlot == Slot::ObjectSpace) runScript(sc, d);
-        if (spot)
+        if (spot && !hoistSpot) {
+            // Gated per corner, in place: a stage list has just run in the
+            // object-space slot and the spot must still see what it left.
+            char nm[16];
+            std::snprintf(nm, sizeof nm, "noSpot%d", i + 1);
+            const Lbl noSpot = b.label(nm);
+            b.branchIfGez(k.spotEnabled, noSpot);
             b.spotLight(color[i], vertex[i], k.spotPos, k.spotDirV, k.spotColV,
                         spotScratch);
+            b.bind(noSpot);
+        }
         b.transform(vertex[i], k.mvp, vertex[i]);
         // Clip space: xyzw, w is the view distance. This is BEFORE the fog
         // coefficient and the frustum test on purpose - a stage that moves a
@@ -2649,10 +2697,22 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         for (int i = 0; i < 7; ++i) spotScratch[i] = b.named(sn[i]);
     }
 
-    auto applySpot = [&]() {
+    // `flagIsVariant` says the caller has just read VU1_OPTIONS_ADDR.y into
+    // sceFlag for its own peer test, so the gate costs ONE instruction; the
+    // colour-mode path has to re-read it because loadColors() clobbers the
+    // register with .x. Either way the whole 63-operations-a-triangle block is
+    // branched over unless a dynamic light actually reaches this mesh - the
+    // lane is negative only then (StaPipQBufferRenderer::sendObjectData).
+    // The clamp below is NOT gated: it also bounds colours a project's own
+    // stage list produced.
+    auto applySpot = [&](bool flagIsVariant) {
+        const Lbl noSpot = b.label("noSpot");
+        if (!flagIsVariant) ilwInto(prog, sceFlag, b.izero(), kOptionsAddr, 1);
+        b.branchIfGez(sceFlag, noSpot);
         for (int i = 0; i < 3; ++i)
             b.spotLight(color[i], vertex[i], k.spotPos, k.spotDirV, k.spotColV,
                         spotScratch);
+        b.bind(noSpot);
         for (int i = 0; i < 3; ++i) {
             // Clamp before interpolation. The emitter still provides the
             // matching floor and integer conversion after clipping.
@@ -2676,7 +2736,7 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         b.branch(prepared);
         b.bind(colorMode);
         loadColors();
-        applySpot();
+        applySpot(false);
         b.bind(prepared);
     } else {
         if (!colorStream) shadeDirectional();
@@ -2686,7 +2746,7 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
             const Lbl prepared = b.label("sharedAttributesReady");
             ilwInto(prog, sceFlag, b.izero(), kOptionsAddr, 1);
             b.branchIfGtz(sceFlag, envMode);
-            applySpot();
+            applySpot(true);
             b.branch(prepared);
             b.bind(envMode);
             applyEnv();
@@ -2748,10 +2808,18 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         // being displaced.
         if (d.script && d.scriptSlot == Slot::ObjectSpace) runScript(sc, d);
     }
-    if (spot && !sharedDir && !sharedEnv)
+    // A clip program with an image of its own (a project's override) runs the
+    // spot AFTER its object-space stages, so it cannot share applySpot above -
+    // but it takes the same gate, with the same re-read.
+    if (spot && !sharedDir && !sharedEnv) {
+        const Lbl ownNoSpot = b.label("noSpot");
+        ilwInto(prog, sceFlag, b.izero(), kOptionsAddr, 1);
+        b.branchIfGez(sceFlag, ownNoSpot);
         for (int i = 0; i < 3; ++i)
             b.spotLight(color[i], vertex[i], k.spotPos, k.spotDirV, k.spotColV,
                         spotScratch);
+        b.bind(ownNoSpot);
+    }
     if (spot && !sharedDir && !sharedEnv)
         for (int i = 0; i < 3; ++i) {
             // CEILING BEFORE THE CLIPPER INTERPOLATES. The emitter clamps too,
@@ -3856,14 +3924,22 @@ uint32_t asBits(float f) {
 /** Stages one randomized draw exactly as the EE would: the per-mesh constants,
  * the buffer header and the attribute arrays. */
 std::vector<uint32_t> stageInput(const Desc& d, int top, int verts, uint32_t& s,
-                                 bool singleColor, const float* customParams,
+                                 bool singleColor, bool spotOn,
+                                 const float* customParams,
                                  float customTime) {
     std::vector<uint32_t> mem(vusim::kMemWords, 0u);
     auto putf = [&](int qw, int f, float v) { mem[(size_t)qw * 4 + f] = asBits(v); };
     auto puti = [&](int qw, int f, uint32_t v) { mem[(size_t)qw * 4 + f] = v; };
 
     puti(kOptionsAddr, 0, singleColor ? 1u : 0u);
-    puti(kOptionsAddr, 1, static_cast<uint32_t>(d.runtimeClipVariant));
+    // Three-state (see LoadTyraSpotLight in tyra_macros.i): positive selects a
+    // shared clip image's peer path, negative says a dynamic light reaches the
+    // mesh. Alternated per trial by the caller, because a lane pinned to 0 or 1
+    // would leave the whole spot-light block unexecuted in every comparison.
+    puti(kOptionsAddr, 1,
+         d.runtimeClipVariant != 0
+             ? static_cast<uint32_t>(d.runtimeClipVariant)
+             : (spotOn ? 0xFFFFFFFFu : 0u));
     putf(kOptionsAddr, 2, -255.0f / 900.0f);
     putf(kOptionsAddr, 3, 255.0f * 1000.0f / 900.0f);
     for (int f = 0; f < 4; ++f)
@@ -3886,6 +3962,35 @@ std::vector<uint32_t> stageInput(const Desc& d, int top, int verts, uint32_t& s,
         for (int i = 0; i < 3; ++i)
             for (int f = 0; f < 3; ++f)
                 putf(kLightsColorsAddr + i, f, randomFloat(s, -120.0f, 120.0f));
+    }
+
+    // THE SPOT LIGHT'S OWN CONSTANTS, and they used to be missing entirely.
+    // The loop above fills the lights-direction block - which the colour
+    // programs read as the three spot quads - with random xyz and leaves every
+    // W at ZERO. Every W is a multiplier in CalculateTyraSpotLight
+    // (`cosCut2`, `invSoft`, `invRange2`), so the whole 21-op block evaluated
+    // to a colour addend of exactly 0 and the check has never compared the
+    // arithmetic: a program that ran it and one that did not agreed. That
+    // silence is also what a gate on the block cannot be tested through.
+    // Plausible constants instead - a light at the origin with range 30 and a
+    // 60-degree half angle, which reaches most of the staged object space.
+    if (usesSpotLight(d)) {
+        const float range2 = 900.0f, cosCut2 = 0.25f, softness = 3.0f;
+        for (int f = 0; f < 3; ++f)
+            putf(kLightsDirsAddr + 0, f, randomFloat(s, -4.0f, 4.0f));
+        putf(kLightsDirsAddr + 0, 3, 1.0f / range2);
+        float dir[3];
+        float len = 0.0f;
+        for (int f = 0; f < 3; ++f) {
+            dir[f] = randomFloat(s, -1.0f, 1.0f);
+            len += dir[f] * dir[f];
+        }
+        len = len > 1e-6f ? std::sqrt(len) : 1.0f;
+        for (int f = 0; f < 3; ++f) putf(kLightsDirsAddr + 1, f, dir[f] / len);
+        putf(kLightsDirsAddr + 1, 3, cosCut2);
+        for (int f = 0; f < 3; ++f)
+            putf(kLightsDirsAddr + 2, f, randomFloat(s, 0.0f, 120.0f));
+        putf(kLightsDirsAddr + 2, 3, softness / (range2 * (1.0f - cosCut2)));
     }
 
     // Env bags reuse the light-matrix addresses for a transposed, pre-scaled
@@ -4125,11 +4230,13 @@ Equivalence equivalence(const Program& a, const Program& b, const Desc& d,
         if (s == 0) s = 1;
         const int verts = 3 * (1 + (int)(xorshift(s) % 8));
         const bool single = !d.dirLights && (xorshift(s) & 1) != 0;
+        // Both sides of the spot-light gate, in one run of trials.
+        const bool spotOn = (xorshift(s) & 1) != 0;
         uint32_t sa = s, sb = s;
-        const std::vector<uint32_t> memA =
-            stageInput(d, top, verts, sa, single, customParams, customTime);
-        const std::vector<uint32_t> memB =
-            stageInput(d, top, verts, sb, single, customParams, customTime);
+        const std::vector<uint32_t> memA = stageInput(
+            d, top, verts, sa, single, spotOn, customParams, customTime);
+        const std::vector<uint32_t> memB = stageInput(
+            d, top, verts, sb, single, spotOn, customParams, customTime);
 
         vusim::Config cfg;
         cfg.top = top;

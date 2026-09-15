@@ -2276,6 +2276,49 @@ dynamically lit objects, so ordinary static geometry has `lighting == nullptr`
 and selects the COLOUR programs. `getCullProgramByParams(isLightingEnabled,
 isTextureEnabled)` is the whole decision; check it before instrumenting anything.
 
+
+### The spot-light gate, and the two facts it cost (1.94.0)
+
+`CalculateTyraSpotLight` is 21 upper-pipe operations a vertex - 63 a triangle -
+and it ran in every colour program on every mesh, lit or not. It is gated now on
+the SIGN of `VU1_OPTIONS_ADDR.y`, which the EE sets from
+`StaPipClipperSpot::enabled` (the same predicate `addSpotToColor` uses, so both
+halves of the formula hang off one fact). Measured on `.o.vsm`, cycles per
+triangle, unlit -> lit: `cull_c` 130 -> **76** / 139, `cull_tc` 133 -> **81** /
+144, `clip_c` 279 -> **223** / 286, `clip_tc` 269 -> **212** / 275. Micro memory
+1684 -> 1716 of 2042. Details in docs/flashlight.md, "The cone costs nothing
+when nothing is lit". Four things generalise:
+
+- **`VU1_OPTIONS_ADDR.y` IS THREE-STATE NOW** - `> 0` the shared clip image's
+  peer path, `0` base, `< 0` base plus a live dynamic light. That was free
+  because every reader of the lane only ever tested `> 0` against `<= 0`. Any
+  new reader must keep that discipline, and anything that wants a THIRD fact in
+  that lane has to widen the tests first.
+- **WHERE A GATE GOES COSTS MORE THAN THE GATE.** One branch covering all three
+  corners, before the first `MatrixMultiplyVertex`, measured 144/81 on
+  `cull_tc`; a branch per corner measured **154/91** - the extra basic-block
+  splits stop `openvcl` packing the transform/fog/store chains it used to
+  interleave the spot into. A branch is a scheduling barrier, so count blocks,
+  not instructions. (A program carrying a project's own stage list keeps the
+  per-corner form: stages run in the object-space slot and may MOVE the vertex
+  the spot reads.)
+- **THE RESIDENT SET IS NOT NEAR THE CEILING ANY MORE, whatever
+  docs/toolchain-image.md still says.** The shared clip images left real room:
+  MEASURED at 1684 of 2042 words before this change (8 distinct images -
+  5 cull + 3 clip, since clip C/D and TC/TCE alias), 1716 after. The ~1988
+  figure predates the shared-image work. Measure with `nm` on the built objects
+  before designing around a headroom number.
+- **`--vu-check` COULD NOT SEE THE SPOT LIGHT AT ALL, and still passed.**
+  `stageInput` filled the lights-direction block with random xyz and left every
+  W at zero - and all three of `invRange2`, `cosCut2` and `invSoft` are Ws, so
+  the macro's colour addend was exactly 0 in every trial and a program that ran
+  it agreed with one that did not. Fixed (plausible constants plus a per-trial
+  alternation of the gate lane), and the fix was FALSIFIED before being trusted:
+  flipping one `ibgez` to `ibltz` in the handwritten `cull_c` now fails the
+  check within three trials, where before it passed. **If you add a gate to a
+  microprogram, prove the harness fails when the gate is inverted** - otherwise
+  a green `--vu-check` says nothing about the branch you just wrote.
+
 **`dma_channel_send_packet2(p, ch, true)` is `FlushCache(0)` - syscall 100, a
 write-back invalidate of the entire 8 KiB data cache - then
 `dma_channel_send_chain`.** At 131.65 submissions per garage-day frame the whole

@@ -170,8 +170,33 @@ redesign first:
   vertex inside `cull_tc` and `cull_c`, and is most of the 26-cycle gap between
   them and `cull_td`. Meshes that no dynamic light reaches pay it anyway.
 
-Neither is implemented or measured yet, and the arithmetic above is an
+The triangle-strip half is not implemented and the arithmetic above is an
 opportunity model, not a result. Quote the measured rate, not a predicted saving.
+
+### The spot light half is done (1.94.0)
+
+The colour programs branch over `CalculateTyraSpotLight` now, on the sign of a
+lane the EE already had spare — the full account is in
+[flashlight.md](flashlight.md), "The cone costs nothing when nothing is lit".
+The loop lengths below come from the same `.o.vsm` measurement as the table
+above, on the same assembler:
+
+| program | before | unlit mesh | lit mesh |
+| --- | ---: | ---: | ---: |
+| `cull_c` | 130 | **76** | 139 |
+| `cull_tc` | 133 | **81** | 144 |
+| `clip_c` | 279 | **223** | 286 |
+| `clip_tc` | 269 | **212** | 275 |
+
+The unlit column is the window minus the spans the taken branch jumps over; the
+lit column is the whole window, which is what a lit mesh now runs. Micro memory
+went 1684 → 1716 of 2042.
+
+**These are cycles, not milliseconds.** Nobody has booted this on a console:
+convert with the 0.0768 ms rate above if you want a prediction, and note that
+the rate was measured for the garage's *routing mix*, so the fraction of
+triangles that reach the colour programs with no light on them decides what
+actually comes off the frame. That fraction is a property of the scene.
 
 ## An unrelated finding worth its own work
 

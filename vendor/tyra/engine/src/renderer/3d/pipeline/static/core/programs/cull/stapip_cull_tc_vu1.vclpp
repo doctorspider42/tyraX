@@ -38,7 +38,7 @@
     LoadTyraFogParams{ fogParams, VU1_OPTIONS_ADDR }
     MakeTyraAdcMask{ adcMask }
     ; Modified by TyraX: spot light (flashlight)
-    LoadTyraSpotLight{ spotPos, spotDirV, spotColV, VU1_LIGHTS_DIRS_ADDR }
+    LoadTyraSpotLight{ spotPos, spotDirV, spotColV, spotEnabled, VU1_LIGHTS_DIRS_ADDR, VU1_OPTIONS_ADDR }
 
     ; Modified by TyraX: the GIF-tag registers are loaded INSIDE the batch loop
     ; (below, next to the store that is their only reader) rather than here.
@@ -103,8 +103,18 @@ processing:
         lq      vertex3,  2(vertexData)
         lq      stq3,     2(stqData)
 
-        ;--- Calculate vertex1
+        ; Modified by TyraX: 21 upper-pipe operations a VERTEX, and most
+        ; meshes have no dynamic light at all - see LoadTyraSpotLight in
+        ; tyra_macros.i. All three corners are gated together: one branch a
+        ; triangle, and the block still runs on the OBJECT-space vertices,
+        ; before any MatrixMultiplyVertex overwrites them.
+        ibgez  spotEnabled, noSpot
         CalculateTyraSpotLight{ color1, vertex1, spotPos, spotDirV, spotColV }
+        CalculateTyraSpotLight{ color2, vertex2, spotPos, spotDirV, spotColV }
+        CalculateTyraSpotLight{ color3, vertex3, spotPos, spotDirV, spotColV }
+noSpot:
+
+        ;--- Calculate vertex1
         MatrixMultiplyVertex{ vertex1, mvp, vertex1 }
         CalculateTyraFog{ fogInt, vertex1, fogParams }
         PerformTyraFogClipCheck{ vertex1, destAddress, XYZ2_STORE_OFFSET, fogInt, adcMask }
@@ -114,7 +124,6 @@ processing:
         FixColor{ color1 }
 
         ;--- Calculate vertex2
-        CalculateTyraSpotLight{ color2, vertex2, spotPos, spotDirV, spotColV }
         MatrixMultiplyVertex{ vertex2, mvp, vertex2 }
         CalculateTyraFog{ fogInt, vertex2, fogParams }
         PerformTyraFogClipCheck{ vertex2, destAddress, XYZ2_STORE_OFFSET+3, fogInt, adcMask }
@@ -124,7 +133,6 @@ processing:
         FixColor{ color2 }
 
         ;--- Calculate vertex3
-        CalculateTyraSpotLight{ color3, vertex3, spotPos, spotDirV, spotColV }
         MatrixMultiplyVertex{ vertex3, mvp, vertex3 }
         CalculateTyraFog{ fogInt, vertex3, fogParams }
         PerformTyraFogClipCheck{ vertex3, destAddress, XYZ2_STORE_OFFSET+6, fogInt, adcMask }

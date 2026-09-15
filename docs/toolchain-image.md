@@ -520,6 +520,14 @@ branch must not read what the candidate writes - it used to see the new value):
 | ceiling | 2042 |
 | **spare** | **2** |
 
+**That table is a snapshot of ONE release and it is no longer the headroom.** It
+was taken when ten distinct images were uploaded; the shared clip images landed
+afterwards (`clip_c` hosts `clip_d`, `clip_tc` hosts `clip_tce`), so the resident
+set is **eight** images and measured **1684 of 2042** at 1.93.0 and **1716** at
+1.94.0 — over 300 words to spare, not two. Anyone designing around micro memory
+should run the `nm` recipe below on their own tree rather than quote a number off
+this page.
+
 **The budget arithmetic, because everyone re-derives it wrong once.** The ceiling is
 not a constant: `Path1::createProgramsCache` asserts against
 `drawFinishAddr = VU1_MICRO_MEM_SIZE - <draw-finish size>`, which is

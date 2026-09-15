@@ -69,6 +69,85 @@ a triangle is exact and `S/Q` per pixel is the true projective mapping. Finished
 patch of a few dozen triangles, as a *fan of triangles* rather than a pool of
 light, however finely you cut it.
 
+## The cone costs nothing when nothing is lit
+
+`CalculateTyraSpotLight` is **21 upper-pipe operations per vertex, 63 per
+triangle**, and until 1.94.0 every colour-program mesh in every scene paid them
+whether or not a light could reach it. That is not a rounding error: VU1
+arithmetic in the Motor District garage is worth
+[0.0768 ms of frame time per cycle per triangle](vu1-and-dma-cache-cost.md), and
+the generated game attaches a lighting bag only to *dynamically lit* objects, so
+ordinary static geometry selects `cull_c` / `cull_tc` (or `clip_c` / `clip_tc`
+when it crosses a clip plane) and ran the cone regardless. `StaPipCore::render`
+already hands a `spotLit = false` bag a deliberately inert light (`kNoSpotLight`
+— black, range 0) and `RendererCore::pickDynLight` can decline as well; the
+programs simply computed with it and added zero.
+
+They branch over it now. The EE already knew the answer at the moment it built
+the packet — `StaPipClipperSpot::enabled`, the same predicate the EE clipper's
+`addSpotToColor` has always used to decide whether to bake the term into an
+EE-clipped triangle — so the fix is to publish that one fact to VU1 and let both
+halves of the formula hang off it.
+
+**The flag is the sign of `VU1_OPTIONS_ADDR.y`**, which costs no new quadword,
+no new DMA and no packet growth. That lane already carried the shared clip
+image's peer selector (`clip_c` hosts `clip_d`, `clip_tc` hosts `clip_tce`), and
+every reader of it tested only `> 0` against `<= 0` — so the negative half was
+free:
+
+| `VU1_OPTIONS_ADDR.y` | meaning |
+| --- | ---: |
+| `> 0` | the shared clip image's peer path (directional shading / matcap ST) |
+| `= 0` | base path, **no** dynamic light reaches this mesh — skip the cone |
+| `< 0` | base path, a dynamic light does reach it — run the cone |
+
+The two can never disagree: the peer variant is selected by a lighting bag or by
+matcap coordinates, and neither of those material classes carries the spot macro
+at all, so the variant wins when both would be true.
+
+Measured on the generated assembler (`openvcl`, lines from the loop label to the
+loop branch — cycles per triangle, the static pipeline processes three vertices
+per iteration):
+
+| program | before | unlit mesh | lit mesh |
+| --- | ---: | ---: | ---: |
+| `cull_c` | 130 | **76** | 139 |
+| `cull_tc` | 133 | **81** | 144 |
+| `clip_c` | 279 | **223** | 286 |
+| `clip_tc` | 269 | **212** | 275 |
+
+`cull_d`, `cull_td`, `cull_tce`, `clip_d`, `clip_td` and `clip_tce` are byte-for-byte
+what they were — they never carried the macro.
+
+**The picture is unchanged in both directions, and the unlit case is unchanged by
+CONSTRUCTION rather than by inspection.** A bag whose light is inert already
+uploads a black spot colour, and the macro's last two instructions are
+`mul.xyz spotAdd, spotCol, spotC[x]` followed by `add.xyz color, color, spotAdd`
+— VU1 floats saturate instead of producing infinities or NaNs, so `0 * anything`
+is 0 and the addition is the identity. Skipping the block and running it give the
+same colour bit for bit. A mesh the light does reach runs exactly the same
+arithmetic on exactly the same object-space vertex; only a branch was put in
+front of it.
+
+**Where the branch goes is worth 11 cycles.** Gating each corner separately
+splits the cull loop into three basic blocks, and `openvcl` then cannot pack the
+transform/fog/store chains it used to interleave the spot into: measured at
+154/91 (lit/unlit) for `cull_tc` against **144/81** for one gate covering all
+three corners before the first `MatrixMultiplyVertex`. The clip family was
+already shaped that way — its three corners sit in one block next to the peer
+test — which is why it pays only +6 to +7.
+
+The cost of the gate is **+32 words of VU1 micro memory** across the four
+programs (1684 → 1716 of the 2042 below `drawFinishAddr`), against ~340 words
+for the alternative of carrying spot-free copies of the two cull programs.
+
+The flashlight's projected pool, its shadow volumes and the terrain are on other
+paths entirely and are untouched. **No console measurement was taken** — these
+are cycles; convert them with the rate in
+[vu1-and-dma-cache-cost.md](vu1-and-dma-cache-cost.md) if you want milliseconds,
+and remember the saving is proportional to the fraction of a scene's triangles
+that reach a colour program with no light on them.
+
 ## A scene light with the same trick
 
 A dynamic point light can opt into a **Spot** style (*Properties > Point
