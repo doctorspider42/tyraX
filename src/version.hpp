@@ -47,6 +47,19 @@
 // numChoices precedent, because "Amount" names four different ranges in that
 // registry).
 //
+// The pass is DARKEN-then-ADD rather than a one-sprite lerp, and it rolls the
+// dither matrix a cell per frame - both needed, and only at 16-bit colour does
+// it show. A lerp moves a pixel by an INCREMENT, and on a 5-bit channel an
+// increment inside one storable step rounds to nothing, so the error stops
+// decaying and a ghost of wherever the camera used to point stays on screen for
+// ever; the fixed dither matrix cannot rescue it because the cells whose offset
+// is 0 never cross either. Rebuilding the pixel from two large terms
+// (Cd * (128-fix)/128, then + Cs * fix/128 - the grading gain and the bloom
+// add-back, already in that file) plus a rolling matrix settles it: measured on
+// flat ground 4 s after the camera stops, the ghost goes 40/32/51 -> 15/23/15
+// against a 32-bit control of 12/20/6, and 32-bit is unchanged. Costs one extra
+// full-screen sprite. Full weight still freezes at any depth, so the cap stands.
+//
 // Live Logic gains one state: an amber LOGIC (off) whenever a flow graph
 // differs from the one the running build compiled AND the feature is off. The
 // chip people watch is LIVE, which stays green - correctly, since Live Link

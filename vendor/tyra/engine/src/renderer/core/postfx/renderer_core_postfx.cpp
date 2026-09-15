@@ -668,6 +668,11 @@ void RendererCorePostFx::apply(int passes) {
       // DIMX only - DTHE stays whatever the project asked for. An author who
       // turned dithering off gets the stronger ghost, which is their choice to
       // make and not this pass's to override.
+      //
+      // BOTH halves are needed and that was measured: with the matrix left
+      // fixed, the darken+add form below still leaves the ghost (33/30/7
+      // against 15/23/15), because the cells whose offset is 0 never reach the
+      // next storable level.
       ++mbDitherPhase;
       PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
       q++;
@@ -675,12 +680,30 @@ void RendererCorePostFx::apply(int passes) {
                                         (mbDitherPhase >> 1) & 3),
                   GS_REG_DIMX);
       q++;
-      // (Cs - Cd) * FIX >> 7 + Cd - the plain alpha blend toward the old
-      // frame. Point sampling: the blit is 1:1, and a bilinear tap would
-      // shift the trail half a texel per frame into a directional smear.
+      // DARKEN, then ADD - not the one-sprite lerp this used to be, and the
+      // difference is entirely about QUANTIZATION (docs/motion-blur.md).
+      //
+      // The lerp `Cd += (Cs - Cd) * fix >> 7` is algebraically the same
+      // weighted average and stalls at 16-bit colour: it moves a pixel by an
+      // INCREMENT, and once the residual is within a 5-bit step that increment
+      // rounds to less than one storable level, so the error stops decaying
+      // and a ghost stays on screen for ever. The two-sprite form never
+      // computes a small increment - each frame the pixel is rebuilt from two
+      // large terms:
+      //
+      //   1) Cd = Cd * (128 - fix) / 128   the fresh frame, weighted down
+      //   2) Cd = Cd + Cs * fix / 128      the previous frame, weighted in
+      //
+      // Both equations already exist in this file (the colour grading's gain
+      // and the bloom's add-back), and the total is the same weighted average.
+      // Two full-screen sprites instead of one - the same fill as film grain.
+      q = flatQuad(q, fbVram, fbBufW, 0xFF000000u, 0x80, 0x80, 0x80, 0x80,
+                   GS_SET_ALPHA(1, 2, 2, 2, (u8)(128 - fix)));
+      // Point sampling: the blit is 1:1, and a bilinear tap would shift the
+      // trail half a texel per frame into a directional smear.
       q = blit(q, prevVram, prevBufW, fbW, fbH, 0, 0, fbW << 4, fbH << 4,
                fbVram, fbBufW, 0, 0, fbW, fbH, false, false, 1,
-               GS_SET_ALPHA(0, 1, 2, 1, fix));
+               GS_SET_ALPHA(0, 2, 2, 1, fix));
       // Hand the engine's own matrix back: every other pass wants a matrix
       // that is STILL in screen space (it is there to break banding).
       PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);

@@ -2969,15 +2969,6 @@ void App::drawUiEditorWindow() {
         ImGui::TextDisabled(
             "One full-screen GS blend of the last frame. No VRAM (the other\n"
             "display buffer IS that frame) and no EE time.");
-        if (motionBlurGhosts(project_.settings)) {
-            ImGui::Spacing();
-            ImGui::TextColored(theme::semantics().warn, "%s",
-                               "16-bit colour: a faint ghost stays after the motion.");
-            ImGui::TextDisabled(
-                "A 5-bit channel cannot take the last step of the blend, so a\n"
-                "ghost of about one step stays on screen after the motion\n"
-                "stops. Project Preferences > Display > 32-bit colour fixes it.");
-        }
         ImGui::Spacing();
         ImGui::TextWrapped(
             "Keep this UNDER the HUD entries. The blur's source is the "

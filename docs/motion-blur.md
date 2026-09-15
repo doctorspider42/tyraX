@@ -130,58 +130,54 @@ Two details are load-bearing:
   changing resolution — holds whatever was in that VRAM. The pass simply does not
   run until one real frame has been flipped.
 
-## 16-bit colour: the trail never fully fades
+## 16-bit colour
 
-**Motion blur wants a 32-bit frame buffer** (the default). On a project that set
-*Project Preferences > Display > Colour depth* to 16-bit, a ghost stays on
-screen after the motion stops — at every amount, not just high ones.
+A 16-bit frame buffer (*Project Preferences > Display > Colour depth*) stores 5
+bits per channel, and an accumulator is the one pass that cares, because it
+feeds its own output back in. Getting it right there took two things, and
+**both** were needed — with either one alone the settled picture still carries a
+ghost of wherever the camera used to point:
 
-It is arithmetic, not a bug to be tuned away. PSMCT16 stores 5 bits per channel;
-the GS blends in 8-bit and truncates the write back to 5. The pass moves a pixel
-by `floor(d * fix / 128)`, so a residual of one 5-bit step (`d = 8`) needs an
-increment of 8 to reach the next storable value — which needs `fix >= 128`, the
-weight that freezes the picture outright. **At every usable weight the last step
-is permanent.** One step is only ~3% of the range, but it is a full 1/32 of what
-16-bit colour can express, and on flat surfaces and gradients it reads as a
-milky imprint of wherever the camera used to point.
+1. **Darken, then add — not a lerp.** The obvious form,
+   `Cd += (Cs - Cd) * fix >> 7`, moves a pixel by an *increment*; once the
+   residual is inside one 5-bit step that increment rounds to less than one
+   storable level and the error stops decaying **for ever**. The pass instead
+   rebuilds the pixel from two large terms — `Cd = Cd * (128 - fix) / 128`, then
+   `Cd += Cs * fix / 128` — which is the same weighted average with no small
+   increment anywhere in it. (Both equations were already in the file: the
+   colour grading's gain and the bloom's add-back.)
+2. **A dither matrix that rolls.** Dithering is what lets a short increment
+   reach the next storable level, and the engine's matrix is fixed in screen
+   space — right for banding, wrong here, because the cells whose offset is 0
+   can never cross. The pass rolls it one cell per frame
+   (`rolledDitherMatrix`, same entries and the same non-negative range as
+   `tyraxDitherMatrix`) and hands `DIMX` straight back afterwards. `DTHE` is
+   left alone: an author who turned dithering off keeps the rougher result.
 
-Measured, one variable: the same fixture at the same 100% amount, changing
-*only* `colorDepth`. At 32-bit the settled frame is the sharp scene; at 16-bit
-it is a permanent imprint of the **loading screen** the game left minutes
-earlier. The editor warns where the amount is edited.
+Measured on the settled frame 4 s after the camera stops, over flat ground where
+any spread **is** the ghost (5th-to-95th percentile per channel, 0..255):
 
-### What is done about it
-
-Dithering is what lets a short increment cross the next storable value, and the
-engine's matrix is **fixed in screen space** — right for banding, wrong for an
-accumulator, because the cells whose offset is 0 can never cross and keep their
-residual for ever. The motion-blur pass therefore **rolls the matrix one cell
-per frame** (`rolledDitherMatrix`, same entries and the same non-negative range
-as `tyraxDitherMatrix`, and DIMX is handed straight back afterwards so every
-other pass keeps a screen-space matrix). Every pixel then gets a non-zero offset
-within a few frames.
-
-Measured on the settled frame, over flat ground where any spread IS the ghost
-(5th-to-95th percentile per channel, 0..255):
-
-| | R | G | B |
+| 16-bit variant | R | G | B |
 |---|---|---|---|
-| 16-bit, fixed matrix | 40 | 32 | 51 |
-| 16-bit, rolled matrix | **20** | **13** | **29** |
-| 32-bit (control) | 12 | 20 | 6 |
+| lerp, fixed matrix (the naive version) | 40 | 32 | 51 |
+| lerp, rolled matrix | 20 | 13 | 29 |
+| darken+add, fixed matrix | 33 | 30 | 7 |
+| **darken+add, rolled matrix** | **15** | **23** | **15** |
+| 32-bit control | 12 | 20 | 6 |
 
-So it **roughly halves** the ghost and does not remove it: the dither noise is
-itself fed back through the accumulator, and at these weights that is a gain of
-about ten. The honest summary is that 16-bit motion blur is better than it was
-and still worse than 32-bit, which is why the editor still warns.
+The last two rows are the same picture to the eye: the loading-screen imprint
+that the naive version leaves behind is gone. 32-bit is unchanged by all of this
+(10/21/1 against 12/20/6 before).
 
-The pass costs two extra qwords a frame and is inert at PSMCT32 (the GS only
-dithers 16-bit writes), so there is nothing to branch on. `DTHE` is left alone:
-an author who turned dithering off keeps the stronger ghost, which is their
-choice to make.
+Full weight still freezes at any depth — `Cd * 0 + Cs * 1` is exactly `Cs` — so
+the cap above is what it always was.
 
-**None of this has been measured on a console** — only in PCSX2, which does
-dither (`dithering_ps2 = 2`), contrary to an older note in the engine.
+The cost is one extra full-screen sprite (two instead of one, the same fill as
+film grain) and two qwords for the matrix, inert at PSMCT32 because the GS only
+dithers 16-bit writes.
+
+**Measured in PCSX2 only** — which does dither (`dithering_ps2 = 2`), contrary to
+an older note in the engine. No console run.
 
 ## Interactions
 
