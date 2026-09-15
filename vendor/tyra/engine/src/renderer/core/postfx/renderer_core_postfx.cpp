@@ -36,7 +36,6 @@ RendererCorePostFx::RendererCorePostFx() {
   bloomSpread = 1;
   grain = 0;
   motionBlur = 0;
-  mbDitherPhase = 0;
   dof = 0;
   dofFocus = 0.0F;
   dofRange = 0.01F;
@@ -120,40 +119,6 @@ void RendererCorePostFx::uploadNoise() {
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
   packet2_free(transfer);
   free(pixels);
-}
-
-// Modified by TyraX (docs/motion-blur.md): the GS's 4x4 ordered-dither matrix,
-// ROLLED by (dx, dy) screen cells.
-//
-// The engine's own matrix is fixed in screen space, which is right for banding
-// and wrong for an ACCUMULATOR. At PSMCT16 the blend writes 5 bits, so it moves
-// a pixel only when its 8-bit increment crosses the next multiple of 8; the
-// dither offset is what lets a short increment cross. With a FIXED matrix the
-// cells whose offset is 0 can never cross and keep their residual FOR EVER -
-// a permanent ghost, in a quarter of the pixels, of wherever the camera used
-// to point. Rolling the matrix one cell per frame gives every pixel a non-zero
-// offset within a few frames, so the whole image converges.
-//
-// Same entries and the same non-negative range as tyraxDitherMatrix (a
-// negative offset darkens every pass at 16-bit - renderer_core_gs.cpp, 1.70.4);
-// this only permutes where they land.
-static u64 rolledDitherMatrix(int dx, int dy) {
-  // 0..3, the engine's own entries, and NOT a wider range however tempting.
-  // A PSMCT16 store drops 3 bits, so unbiased rounding would want offsets
-  // averaging 3.5 - but DIMX entries are 3-bit SIGNED, so 4..7 mean -4..-1 and
-  // a "full range 0..7" table is half negative. Tried on this fixture: the
-  // settled picture went from 73 mean green to 45 and the ghost from 15/23/15
-  // to 83/80/106, i.e. exactly the darkening the 1.70.4 note describes. 0..3
-  // (mean 1.5) is all the hardware offers in the safe direction.
-  static const int kDimx[16] = {0, 2, 0, 2, 3, 1, 3, 1,
-                                0, 2, 0, 2, 3, 1, 3, 1};
-  u64 reg = 0;
-  for (int i = 0; i < 16; i++) {
-    const int x = i & 3, y = i >> 2;
-    const int src = (((y + dy) & 3) << 2) | ((x + dx) & 3);
-    reg |= (u64)(kDimx[src] & 0x07) << (i * 4);
-  }
-  return reg;
 }
 
 qword_t* RendererCorePostFx::blit(qword_t* q, int srcVram, int srcBufW,
@@ -667,26 +632,17 @@ void RendererCorePostFx::apply(int passes) {
     // (one buffer, or the rotation landing back on itself); blending a buffer
     // over itself is a no-op that still costs a full-screen fill.
     if (prevVram != fbVram && fix > 0) {
-      // Roll the dither matrix for THIS pass (see rolledDitherMatrix): at
-      // PSMCT16 a fixed matrix leaves a quarter of the pixels unable to take
-      // the last step, and an accumulator turns that into a permanent ghost.
-      // Inert at PSMCT32 - the GS only dithers 16-bit writes - so it is not
-      // worth branching on the format.
-      // DIMX only - DTHE stays whatever the project asked for. An author who
-      // turned dithering off gets the stronger ghost, which is their choice to
-      // make and not this pass's to override.
+      // NO per-frame dither roll here, and that was measured twice.
       //
-      // BOTH halves are needed and that was measured: with the matrix left
-      // fixed, the darken+add form below still leaves the ghost (33/30/7
-      // against 15/23/15), because the cells whose offset is 0 never reach the
-      // next storable level.
-      ++mbDitherPhase;
-      PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
-      q++;
-      PACK_GIFTAG(q, rolledDitherMatrix(mbDitherPhase & 3,
-                                        (mbDitherPhase >> 1) & 3),
-                  GS_REG_DIMX);
-      q++;
+      // Rolling the matrix a cell per frame does clear the last of the 16-bit
+      // ghost (the settled sky reads 6/0/0 against 19/5/4 with it fixed),
+      // because the quantized update map has several fixed points and a moving
+      // offset is what breaks them. But it puts the noise IN MOTION: on
+      // examples/showcase 16.6% of the sky's pixels moved every frame, against
+      // 0.0% with the matrix left alone, and a shimmering sky is a worse
+      // artefact than a faint static one - reported as "it just flickers, most
+      // visible looking at the sky". The darken+add form above plus the lower
+      // 16-bit cap already do most of the work the roll was added for.
       // DARKEN, then ADD - not the one-sprite lerp this used to be, and the
       // difference is entirely about QUANTIZATION (docs/motion-blur.md).
       //
@@ -711,12 +667,6 @@ void RendererCorePostFx::apply(int passes) {
       q = blit(q, prevVram, prevBufW, fbW, fbH, 0, 0, fbW << 4, fbH << 4,
                fbVram, fbBufW, 0, 0, fbW, fbH, false, false, 1,
                GS_SET_ALPHA(0, 2, 2, 1, fix));
-      // Hand the engine's own matrix back: every other pass wants a matrix
-      // that is STILL in screen space (it is there to break banding).
-      PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
-      q++;
-      PACK_GIFTAG(q, rolledDitherMatrix(0, 0), GS_REG_DIMX);
-      q++;
     }
   }
 

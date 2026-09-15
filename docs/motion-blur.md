@@ -147,12 +147,47 @@ and the error stops decaying for ever. Two changes, and **both** are needed:
    `Cd = Cd * (128 - fix) / 128`, then `Cd += Cs * fix / 128` — which is the
    same weighted average with no small increment in it. (Both equations were
    already in the file: the grading's gain and the bloom's add-back.)
-2. **A dither matrix that rolls.** Dithering is what lets a short increment
-   reach the next storable level, and the engine's matrix is fixed in screen
-   space, so the cells whose offset is 0 never cross. The pass rolls it a cell
-   per frame (`rolledDitherMatrix`) and hands `DIMX` straight back.
+2. **A lower cap** (below), which shortens the trail and with it the width of
+   the band the ghost can hide in — see *Why the ghost is permanent*.
 
-Settled-frame ghost over flat ground, 5th-to-95th percentile per channel:
+A dither matrix that ROLLS one cell per frame was tried and removed. It does
+clear the last of the ghost (settled sky 6/0/0 against 19/5/4), because a moving
+offset is exactly what breaks the fixed points below — but it puts the noise in
+motion: **16.6% of the sky's pixels moved every frame** on `examples/showcase`,
+against 0.0% with the matrix left alone. A shimmering sky is a worse artefact
+than a faint static one.
+
+### Why the ghost is permanent
+
+The intuition that a still camera should simply overwrite it is right in real
+arithmetic — the residual decays as `weight^n`. It is integer truncation that
+breaks it, and the mechanism is worth knowing because it explains every other
+number on this page.
+
+A 16-bit channel stores `k` in 0..31 and the GS reads it back as `8k`. With the
+scene constant at `S` and weight `f` out of 128, one frame is
+
+```
+k' = ( floor(S*(128-f)/128) + floor(8k*f/128) ) >> 3
+```
+
+At `f = 80` and `S = 200` that is `k' = (75 + 5k) >> 3`, and iterating it from
+below climbs 10 -> 15 -> 18 -> 20 -> 21 -> 22 -> **23**, where it stops. But 24
+and 25 are *also* fixed (`195>>3 = 24`, `200>>3 = 25`). The map has a BAND of
+fixed points, and which one a pixel lands on depends on where it started — that
+is, on what used to be on screen. Nothing decays; the pixel is already home.
+
+The band is about `1/(1-f/128)` quantization steps wide, which is why:
+
+* it is far worse at 16-bit — the step is 1/32 of the range instead of 1/256;
+* a stronger blur is worse — the band widens with the weight;
+* the settled picture is also DARKER, because `floor` puts every fixed point at
+  or below the true value;
+* dithering removes it — a varying offset makes the update non-deterministic, so
+  no value is stable and the pixel wanders to the truth — at the price of the
+  shimmer above.
+
+Settled-frame ghost over flat groundSettled-frame ghost over flat ground, 5th-to-95th percentile per channel:
 
 | 16-bit variant | R | G | B |
 |---|---|---|---|
