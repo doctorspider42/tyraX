@@ -3197,10 +3197,14 @@ void App::drawViewportWindow() {
         }
 
         // --- Road preview (docs/roads.md): the SELECTED road's tessellated
-        // edges plus a marker per authored point - the exact strip the game
+        // edges plus a marker per authored point - the exact SURFACE the game
         // will build, because it comes from the same roadgen::tessellate the
-        // runtime twin transcribes. Selected-only: a map of roads as
-        // permanent overlays would be noise.
+        // runtime twin transcribes. The game submits that surface as triangle
+        // STRIPS (roadgen::tessellateStrips, same rows, same diagonals, only
+        // the vertex order differs); the list is what the preview, the picker
+        // and the align pass read, and it stays the source of truth for the
+        // shape. Selected-only: a map of roads as permanent overlays would be
+        // noise.
         for (size_t roi = 0; roi < project_.objects().size(); ++roi) {
             const SceneObject& ro = project_.objects()[roi];
             if (ro.type != PrimitiveType::Road || ro.roadPoints.size() < 4)

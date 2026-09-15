@@ -2829,6 +2829,60 @@ says so. Park the camera inside a building and it runs thousands of times.
 And read `verts` from that line, not the triangle counts: a strip package
 reports its degenerate joins as triangles.
 
+### Roads and terrain (1.96.0)
+
+Those are grids, they are stripped too, and neither goes through `meshstrip`,
+so the harness above does not cover them. Their oracle is
+`examples/vehicle-playground/authoring/verify-road-twins.py` (Python 3 + g++,
+no emulator): it compiles the real host tessellator AND the actual generated
+`buildRoads` body with storage stubs, then checks the strip output vertex for
+vertex and chunk for chunk between the two, asserts the same run invariants
+(interior runs exactly 72, every run a multiple of 3), and compares the
+expanded triangle SET against the list emitter's. Run it before anything else -
+it is seconds, and it is the only check that sees both twins.
+
+**The PCSX2 knob for these is one expression, and it has to be flipped in
+`src/templates.cpp`, not in the generated game.** `buildRoads` and
+`buildTerrainChunk` each gate on `minPackageSize() >= 72`; raise that number to
+something no class derives and the same scene builds as triangle lists.
+Editing the generated `src/terrain_game.cpp` does NOT work - `--build`
+regenerates it first and your probe is gone (the same trap as any generated-
+file edit). Flip it in templates.cpp, build the editor, and **keep a COPY of
+each binary** (`build-dev\tyrax-editor-strips.exe` /
+`build-dev\tyrax-editor-lists.exe`), then build one fixture with each. Two
+things the copies must respect: they have to live INSIDE the checkout, because
+the editor finds `tools/toolchain` and `vendor/tyra` relative to its own
+executable and a copy in a scratch directory fails with "Native toolchain files
+are missing"; and confirm the two really differ
+(`grep -c 'minPackageSize() >= 4096U'` reads 2 and 0) - the binaries come out
+the same SIZE, so a mis-timed copy looks exactly like a successful one.
+Terrain additionally needs a terrain MATERIAL to strip at all -
+`TERRAINSTRIP ... strips 0` in `bin/log.txt` is that case and not a failure.
+
+**Do not use `--build --run` for this.** It kills every running PCSX2, and with
+parallel worktree sessions that is somebody else's game. Launch
+`pcsx2-qt.exe -elf <project>\bin\vehicle-playground.elf` yourself and talk to
+it through that project's own `bin/livedbg.cmd` (`--capture-frame <project>`),
+which is per-project and cannot reach the other instance. Run the editor
+through a normal `--build --run` once beforehand so `HostFs` and
+`Renderer = 13` are already in `PCSX2.ini`.
+
+**The district's NIGHT poses are not frozen, and no settle time fixes them.**
+Freezing the camera is not enough: at night the lamps flicker, so three
+captures of ONE arm differ from each other at 6 s of settle and still differ at
+30 s. That makes any between-arm difference at a night pose unreadable, and it
+is a property of the fixture rather than of whatever you changed. The two DAY
+poses are byte-identical across three captures in both arms, so base a pixel
+A/B on those and quote the night poses' own within-arm spread as the noise
+floor if you use them at all. Check the repeats PER POSE before reading any
+difference - "the fixture is static" is an assumption this one does not meet.
+
+For "do both arms draw the same thing", read the producers' own lines -
+`ROADSTRIP scene N strips S packages P triangles T` and `TERRAINSTRIP scene N
+chunk cx,cz ...`. Those triangle counts are surface counts with degenerates
+dropped and MUST match across arms; `FTCLIP`'s cull/clip/guard triangles are GS
+primitives and legitimately differ by about 1.5x between representations.
+
 ## Motor District and flat-road spans (1.85.0)
 
 The roadgen.cpp / templates.cpp buildRoads twins sample every lateral height,

@@ -60,6 +60,63 @@ float tessellate(const std::vector<float>& pointsXZ, float width,
                  const HeightFn& height, std::vector<Vertex>& out,
                  const std::vector<float>& lifts = {});
 
+// --- triangle strips (docs/model-pipeline.md, "Triangle strips") ------------
+//
+// A road is a ribbon over a regular grid, and a grid strips PROPERLY. One
+// station pair of n lateral cells is 6n list vertices and 2(n + 1) strip ones:
+// on the district's 13-unit streets (crossSteps 26) that is 156 against 54,
+// a 0.346x count, where the flat-shaded baked models only reached 0.732x.
+// Every EE term of render submission scales with the VU1 PACKAGE count, which
+// scales with vertices, so this is the lever the .tmdl bake already pulled -
+// aimed at the 93 150 road vertices that are the rest of the frame.
+//
+// meshstrip is deliberately NOT reused here, for three reasons in order of
+// weight:
+//   - THE TWIN RUNS ON THE EE. buildRoads tessellates the whole district at
+//     SCENE LOAD on the PlayStation 2, and meshstrip is an exact-bytes weld
+//     hash over every corner, an edge-adjacency multimap, and a six-
+//     orientation greedy walk per seed. A grid's optimal strip is known in
+//     closed form, so that search would buy nothing at a price the EE cannot
+//     pay at all.
+//   - meshstrip's weld key is the 32 bytes of an 8-float BAKED vertex. A road
+//     vertex is position + UV (this Vertex), and its colour lives in a
+//     parallel array on the runtime side - there is no such key to hash.
+//   - the ordering subtlety meshstrip found the hard way (a strip's trailing
+//     pair is ORDERED, so a seed has six orientations and picking from three
+//     gives 201 strips of mean length 4 on a 200-cell row) is exactly what
+//     the closed form cannot get wrong: the ribbon's rows ARE the strip.
+//
+// What IS reused is meshstrip's run CONTRACT, because StaPipCore slices a
+// stripped bag the same way whatever produced it: runs of exactly kStripRun
+// vertices, every one a self-contained strip, padded with repeats of the last
+// vertex, separate strips inside a run joined by repeating a vertex either
+// side of the seam, and every run length a multiple of 3.
+inline constexpr int kStripRun = 72;  // == meshstrip::kRun, asserted in the .cpp
+
+// Chunking, and the reason it belongs in this header now. TWIN NOTICE: the
+// generated buildRoads carries these as literals. They used to matter only to
+// the runtime, because the list emitter produced one flat vertex sequence
+// that chunking merely CUT. A run may not straddle a chunk, so with strips
+// the chunk boundaries move padding into the array and the host has to agree
+// about where they fall or the twins no longer produce the same vertices.
+inline constexpr int kChunkSpans = 36;    // at most this many station pairs
+inline constexpr int kChunkBudget = 1800; // ... and this many vertices
+
+// The same surface as tessellate(), emitted as triangle STRIP runs and cut
+// into the same chunks the generated runtime builds, so the two can be
+// compared vertex for vertex (examples/vehicle-playground/authoring/
+// verify-road-twins.py). Every triangle of tessellate() is present, split
+// along the SAME diagonal - a ribbon row pair walks N[0], P[0], N[s], P[s],
+// ..., whose successive triples are that row's quads cut P[j]-N[j+s], which
+// is the cut the list stitch makes. Winding parity alternates, as it does in
+// any strip; nothing in this engine backface-culls.
+//
+// `chunkSizes`, when given, receives one vertex count per chunk (they sum to
+// out.size()). Returns the total arc length; `out` is cleared first.
+float tessellateStrips(const std::vector<float>& pointsXZ, float width,
+                       const HeightFn& height, std::vector<Vertex>& out,
+                       std::vector<int>* chunkSizes = nullptr);
+
 // The spline position alone (for the align-terrain pass and the editor's
 // point handles): world XZ at parameter t in [0, 1] over the whole polyline.
 void splineAt(const std::vector<float>& pointsXZ, float t, float* x, float* z);

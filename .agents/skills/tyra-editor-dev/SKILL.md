@@ -2240,6 +2240,43 @@ for a compiled comparison of both actual implementations, then build/drive the
 example. ROADS now logs emitted vertices as well as chunks. The district's
 seven-road network is an EE memory stress case, not just a screenshot fixture.
 
+## Road and terrain triangle strips (1.96.0)
+
+`roadgen::tessellateStrips` is a THIRD twin of the same surface, beside
+`tessellate` (the triangle list, which stays the source of truth for the editor
+viewport, picking and the align pass) and the generated `buildRoads`. Both
+emitters now share `buildRows` and `spanStride`, so the sampling, the height
+queries, the texture arc length, the lift and the exact planar-span reduction
+happen in ONE place and the two orders cannot drift apart. `spanStride` still
+contains the literal `const int stride = (flat || planar) ? crossSteps : 1;`
+that `verify-road-twins.py` pins by text - moving it is a deliberate act.
+
+The strip half is where the frame's geometry actually is (93 150 road vertices
+in 90 chunks against 13 176 in every baked model), and being a grid it reaches
+0.355-0.374x rather than the models' 0.732x. Rules that cost real defects:
+
+- **Which way the strip runs depends on the span's own reduction.** Dense spans
+  strip ACROSS the road, collapsed full-width spans ALONG it. Taken laterally a
+  collapsed span is exactly break-even and triples the GS primitives - the
+  first version measured 1.000x on every flat fixture and looked like a
+  working feature.
+- **The interleaving decides which DIAGONAL splits each quad.** Only one of the
+  two legal orders reproduces the list stitch's own cut; the other reshapes
+  every non-planar quad and is invisible in a vertex count.
+- **Chunk boundaries are now load-bearing.** A run may not straddle a chunk, so
+  chunking moves padding into the array and the host emitter has to agree with
+  the runtime about where the boundaries fall - which is why `kChunkSpans` and
+  `kChunkBudget` moved into `roadgen.hpp`.
+- The terrain builder in templates.cpp is the same shape, and strips **only
+  with a terrain material**: the untextured checker is a per-QUAD colour.
+
+`verify-road-twins.py` now compares the strip output vertex for vertex AND
+chunk for chunk, and asserts an exact triangle-SET equality against the list on
+top of the preserved-surface baseline. `ROADSTRIP` / `TERRAINSTRIP` in
+`bin/log.txt` carry each producer's own surface triangle count - the pipeline's
+counters cannot answer "same geometry?" across representations
+(docs/model-pipeline.md, "What the triangle counters count").
+
 Textured vehicles: vehbake::Result::textures holds bin-relative names and PNG
 bytes for source images; bakeProject and vehicleRefreshBake both write them.
 The viewport resolves ModelPart::bakedTextureRel per draw, never a cached GL
