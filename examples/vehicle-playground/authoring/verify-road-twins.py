@@ -152,6 +152,29 @@ void requireNoSeams(const std::vector<roadgen::Vertex>& opt, double* worst) {
   require(*worst <= 2.0 * (double)roadgen::kSpanFlatness + 1e-5,
           "a lateral merge opened a seam between neighbouring spans");
 }
+// The invariant the EDITOR's selected-road overlay reads, pinned here because
+// nothing else would catch it breaking. The overlay draws the two authored
+// borders by U - A->D is a border when A's u is 0, B->C when B's u is 1 -
+// rather than by counting `crossSteps * 6` vertices per station pair, which
+// stopped being true the moment a pair could be cut anywhere. That is only
+// correct if every station pair's spans run left to right, starting at u 0 and
+// ending at u 1, which is exactly what this checks: a span begins a pair if and
+// only if the span before it ended one.
+void requireBorderRule(const std::vector<roadgen::Vertex>& list, size_t* pairs) {
+  *pairs = 0;
+  require(list.size() % 6 == 0, "the list emitter did not emit whole spans");
+  bool expectStart = true;
+  for (size_t s = 0; s + 5 < list.size(); s += 6) {
+    const bool startsPair = list[s].u == 0.0f;
+    const bool endsPair = list[s + 1].u == 1.0f;
+    require(startsPair == expectStart,
+            "a station pair's spans do not start at the left shoulder");
+    if (endsPair) ++*pairs;
+    expectStart = endsPair;
+  }
+  require(expectStart, "the last station pair does not reach the right shoulder");
+  require(*pairs > 0, "no station pair reached both shoulders");
+}
 // A triangle as an ORDER-INDEPENDENT key: the three corners sorted. A strip
 // keeps every triangle of the list but neither its rotation nor its winding,
 // and both of those are allowed to change (nothing backface-culls).
@@ -220,6 +243,8 @@ size_t check(const char* name, const std::vector<float>& points, float width,
   requireBaselineSurface(host,dense,&worstY,&worstUv);
   double seam = 0.0;
   requireNoSeams(host,&seam);
+  size_t pairs = 0;
+  requireBorderRule(host,&pairs);
 
   // The strip is the SAME SURFACE as the list, triangle for triangle. This is
   // the check the pixel comparison can only sample: it is exact, and it is
@@ -253,12 +278,12 @@ size_t check(const char* name, const std::vector<float>& points, float width,
   i=0; for(const auto& c:game.procChunks) i+=c.vertices.size();
   require(i==before,"scene revisit accumulates geometry");
   std::printf("%s: %zu dense -> %zu list (%.3fx) -> %zu strip vertices in %zu "
-              "chunks, %zu GS primitives (%zu degenerate); worst dY %.6f, "
-              "worst dUV %.6f (%.2f texel at 128), worst seam %.6f; "
-              "twins agree\n",
+              "chunks, %zu GS primitives (%zu degenerate), %zu station pairs; "
+              "worst dY %.6f, worst dUV %.6f (%.2f texel at 128), "
+              "worst seam %.6f; twins agree\n",
               name,dense.size(),host.size(),
               dense.empty()?0.0:(double)host.size()/(double)dense.size(),
-              hostStrip.size(),chunkSizes.size(),prims,degen,
+              hostStrip.size(),chunkSizes.size(),prims,degen,pairs,
               worstY,worstUv,worstUv*128.0,seam);
   return host.size();
 }

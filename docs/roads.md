@@ -227,6 +227,28 @@ without editing the header, and `templates.cpp` carries them as literals with a
 and cannot read a constant, and a literal that quietly stops matching its twin
 is exactly how a road ends up previewing half a metre off its console self.
 
+### What a variable cut breaks, and what it does not
+
+The two consumers that read the triangle list generically — the viewport's real
+road geometry and the picker's ray test, both in `viewport.cpp` — do not care
+how a station pair is cut, and did not change.
+
+The **selected road's cyan border overlay** did. It walked the list in strides
+of `crossSteps * 6`, one station pair at a time, and drew the first span's A→D
+edge and the last span's B→C edge as the two authored shoulders. That stride
+had already stopped being true when the flat collapse shipped — a collapsed pair
+emits six vertices, not `crossSteps * 6` — so the overlay was drifting off the
+station grid on any flat street and drawing the border through the middle of the
+asphalt; a variable cut would have made it drift everywhere. It now finds the
+borders **by U**, which is exactly 0 on the left shoulder and exactly 1 on the
+right by construction in `buildRows`: a span owns the left border when its first
+vertex's `u` is 0, and the right border when its second vertex's `u` is 1.
+
+That rule is an assumption about emission order, so the oracle pins it: a span
+begins a station pair **if and only if** the span before it ended one, and the
+last span of the road reaches the right shoulder. It also prints the station-pair
+count per fixture, which is the number that would move if the order ever did.
+
 The [Motor District example](../examples/vehicle-playground/README.md) exercises
 a seven-road network. Its `authoring/verify-road-twins.py` compiles the real
 host tessellator and the actual generated `buildRoads` body with storage stubs,
