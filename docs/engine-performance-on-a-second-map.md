@@ -98,3 +98,35 @@ lighter frame than the district garage's 25,650 in 118 — a scene heavier than
 either could behave differently again. And none of it says the Motor District
 garage can reach 60 fps; it says the engine got faster for reasons that are not
 about the district.
+
+## The control earned its keep: one change does NOT generalise
+
+Re-measured at the branch tip after a second day's work, this map came back
+**worse** — 12.094 → 14.226 ms, with 2,015 more triangles and 12 more packet
+flushes. Isolating it against the editor immediately before the imported-model
+batching merge, the same engine and the same fixture recipe either side:
+
+| | batching off | batching on | delta |
+| --- | ---: | ---: | ---: |
+| work | 11.021 | **14.226** | **+3.205 (+29%)** |
+| render submission | 8.374 | 11.575 | +3.202 |
+| dispatch | 4.539 | 8.167 | +3.628 |
+| triangles | 10,297 | **12,312** | +2,015 |
+| packet flushes | 21 | **33** | +12 |
+| bounds | 0.363 | 0.378 | +0.015 |
+| VIF1 wait | 3.008 | 2.994 | −0.015 |
+
+Everything outside the batching path is flat, so this is that change and nothing
+else. **The same feature is worth −0.46 ms on the Motor District.**
+
+The mechanism was written down in advance, in `#269`'s own commit message, as
+"the widened-bounds regression seen with district-scale material groups": a
+batch's bounding box is the union of its members, so the batch passes the
+frustum where its members individually would not. An 80-unit coarse cell suits
+a compact garage of 142 objects; this map has 1,181 spread over 940 units, and
+the same cell merges things that should have been culled separately.
+
+**Read the two halves of this together.** With batching excluded, the second map
+improves 12.094 → 11.021 — the −8.9% this page was written to report, intact.
+Every other change on the branch generalises. Exactly one does not, and it took
+a second map to find out, which is the entire argument for having one.
