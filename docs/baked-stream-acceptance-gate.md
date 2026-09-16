@@ -215,18 +215,48 @@ word count identical to the unit
 | the payload of unpacks to the absolute region (MVP, lights, options, ALPHA) | **identical** |
 | the payload of unpacks with `usetop`, i.e. everything in the VU1 double buffer | **differs, every frame** |
 
-**So the static pipeline puts bytes on the wire that are not a function of the
-scene.** VU1 never reads them — the picture is byte-identical — but they are
-transferred, and no instrument had ever looked at this wire before.
+**So something the static pipeline hands VIF1 is not a function of the frozen
+scene** — the first reading of this was "bytes on the wire that nobody wrote",
+and the next section shows that reading is wrong. No instrument had ever looked
+at this wire before, which is why it took two runs to say what it is.
 
-Where they are is **narrowed, not settled**. At the outer-road day pose, which
-has a fraction of the garage's clip and guard-band traffic, the geometry hash is
-often clean: one boot reproduced a perfect period-2 pattern and one frame
-matched *across* boots. The garage, with 36.5 clip and 238.5 guard-band packages
-a frame, never does. That points at the qbuffer copy pools — `fillByCopyMax`,
-`fillByCopy1By2`, `fillByCopy1By3`, `StaPipClipper::writeChunk` — transferring
-quadwords past what was written into them. Consistent with everything observed,
-and **not proven**.
+### The copy pools were the obvious suspect, and they are EXONERATED
+
+The first reading of this pointed at the qbuffer copy pools — `fillByCopyMax`
+and friends keep a slot's arrays between bags and only rewrite the first `size`
+vertices, so anything transferred past that would be whatever the pool held
+last. It is a good theory. It is also wrong, and one run settled it.
+
+`StaPipQBuffer::isPoolAddress` lets the fold split the geometry payload by
+**which buffer it came out of**: a `REF` naming a pool against a `REF` naming a
+bag's own array. Two boots of one ELF, garage day, held pose:
+
+| the geometry payload, split by source | across two boots |
+| --- | --- |
+| out of a **copy pool** (clip, guard-band, strip-expanded buffers) | **identical**, and period-2 with the reflection probe |
+| out of a **bag's own arrays** | differs, every frame |
+
+So nothing is being transferred past what was written, and the pools are exactly
+as reproducible as everything else. **The bytes that move are inside bags that
+are genuinely being rewritten every frame.**
+
+That lands on the same caller the bake cache has been complaining about all
+along. `STAPIPMISS` reads `bbox=1` per frame at this pose — exactly one bag a
+frame claiming its *contents* changed on a scene that is not moving — and names
+it as **96 vertices in 2 packages**. The generated game has 26 unconditional
+`bag->bboxVersion = ++g_bboxStamp` sites, most of them in the lamp, beam and
+flashlight family, and several of those rebuild their vertex or colour arrays
+from wall-clock-driven fade terms — which is not frame-deterministic under an
+emulator, and is why the same frame number gives different bytes on a second
+boot. The outer-road pose, where `STAPIPMISS` reads `bbox=0`, is correspondingly
+cleaner.
+
+**So this is not uninitialised memory crossing a bus.** It is one small bag
+whose contents really do change every frame, imperceptibly — the picture is
+byte-identical — while defeating the bake cache and the bbox cacher at the same
+time. Naming the exact submitter means following that bag through the generated
+game, which is a change to a *caller's* contract and is the open item in
+[backlog.md](backlog.md).
 
 **What it costs the gate, exactly.** The VIFcode and uniform hashes stand and are
 exact, and they are what this round needed: a submission *restructuring* changes

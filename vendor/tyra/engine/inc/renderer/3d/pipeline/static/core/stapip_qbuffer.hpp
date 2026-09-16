@@ -29,6 +29,10 @@ class StaPipQBuffer {
   // per packet SEND, right where the packet double buffer flips (see the pool
   // comment in stapip_qbuffer.cpp).
   static void flipPoolSide();
+  /** Diagnostic: is this address inside one of the copy pools? See the
+   * definition - it exists to settle where the acceptance gate's geometry
+   * hash gets its irreproducibility from. */
+  static bool isPoolAddress(const void* addr);
 
   /**
    * @brief Dont allocate any dynamic data in buffer.

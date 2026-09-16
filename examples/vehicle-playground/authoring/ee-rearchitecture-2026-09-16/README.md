@@ -154,15 +154,40 @@ So the static pipeline puts bytes on the wire that are **not a function of the
 scene**. VU1 never reads them — the picture is byte-identical and matches the
 value the whole branch publishes for this pose — but they are transferred.
 
-**Where they are is narrowed, not settled.** At the outer-road day pose, which
-has a fraction of the garage's clip and guard-band traffic, `geo` is often clean:
-one boot reproduced a perfect period-2 pattern (`f=2517` = `f=2519`) and
-`f=2517` matched **across** both boots. The garage, with 36.5 clip and 238.5
-guard-band packages a frame, never does. That points at the qbuffer copy pools —
-`fillByCopyMax`, `fillByCopy1By2`, `fillByCopy1By3`, `StaPipClipper::writeChunk`
-— transferring quadwords past what was written into them, which is consistent
-with everything observed and is **not yet proven**. Naming it needs an instrument
-that attributes a payload word to the buffer it came from.
+**The copy pools were the obvious suspect and they are EXONERATED.** They keep a
+slot's arrays between bags and rewrite only the first `size` vertices, so a
+transfer past that would read whatever the pool held last — a good theory, and
+wrong. `StaPipQBuffer::isPoolAddress` lets the fold split the geometry payload
+by **which buffer it came out of**, and two more boots settled it:
+
+| the geometry payload, split by source | across two boots of one ELF |
+| --- | --- |
+| out of a **copy pool** (clip, guard-band, strip-expanded) | **identical**, and period-2 with the probe |
+| out of a **bag's own arrays** | differs, every frame |
+
+```
+pool1 f=1796 pool=2053892469:3585860574   pool2 f=1796 pool=2053892469:3585860574
+pool1 f=1797 pool=1141554779:833468758    pool2 f=1797 pool=1141554779:833468758
+pool1 f=1798 pool=2053892469:3585860574   pool2 f=1798 pool=2053892469:3585860574
+```
+
+So nothing is transferred past what was written. **The bytes that move are inside
+bags that are genuinely rewritten every frame**, and that lands on the caller the
+bake cache has been complaining about all along: `STAPIPMISS` reads `bbox=1` a
+frame at this pose and names the bag as **96 vertices in 2 packages**. The
+generated game has 26 unconditional `bboxVersion = ++g_bboxStamp` sites, mostly
+in the lamp, beam and flashlight family, several of which rebuild their vertex or
+colour arrays from wall-clock-driven fade terms — not frame-deterministic under
+an emulator, which is exactly why a second boot gives different bytes at the same
+frame number. The outer-road pose, which reads `bbox=0`, is correspondingly
+cleaner.
+
+**So it is not uninitialised memory crossing a bus.** It is one small bag whose
+contents really do change every frame, imperceptibly — the picture is
+byte-identical — while defeating the bake cache and the bbox cacher at once.
+Naming the submitter is a caller-side change in a file this branch does not own;
+the experiment that names it is written up in
+[docs/backlog.md](../../../../docs/backlog.md).
 
 **What this costs the gate, exactly.** Legs 1a (`ctrl`) and 1b (`uni`) stand and
 are exact. The geometry payload is checked by leg 2, the byte-identical picture,

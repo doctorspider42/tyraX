@@ -10,6 +10,7 @@
 #include <packet2.h>
 #include <dma_tags.h>
 #include "debug/debug.hpp"
+#include "renderer/3d/pipeline/static/core/stapip_qbuffer.hpp"
 
 namespace Tyra {
 
@@ -47,7 +48,7 @@ void StaPipVifHash::streamWord(u32 w) {
   // is the whole reason this has to be a state machine rather than a scan.
   if (pending > 0) {
     foldWord(w);
-    fold(pendingGeo ? geo : uni, w);
+    fold(pendingPool ? pool : (pendingGeo ? geo : uni), w);
     --pending;
     return;
   }
@@ -80,6 +81,7 @@ void StaPipVifHash::streamWord(u32 w) {
     // 21 - stapip_vu1_shared_defines.h), and it is a property of the code
     // rather than a threshold someone has to keep in step.
     pendingGeo = (imm & 0x4000u) != 0u;
+    pendingPool = pendingGeo && fromPool;
     // Canonical form: the code's meaning, never its encoding position. The
     // 0x01 tag byte keeps a folded code out of the texture marker's space.
     foldWord(0x01000000u | (cmd << 16) | ((num & 0xFFu) << 8));
@@ -130,6 +132,7 @@ void StaPipVifHash::streamWord(u32 w) {
 
 void StaPipVifHash::foldChain(const void* base, u32 qwc) {
   if (base == nullptr || qwc == 0) return;
+  fromPool = false;
   chainQw += qwc;
   const qword_t* src = reinterpret_cast<const qword_t*>(base);
 
@@ -185,6 +188,10 @@ void StaPipVifHash::foldChain(const void* base, u32 qwc) {
       return;
     }
 
+    // Which BUFFER this tag's payload came out of. A CNT carries its data
+    // inline in the packet; only a REF can name a copy pool.
+    fromPool = (id != kTagCnt && id != kTagEnd) &&
+               StaPipQBuffer::isPoolAddress(payload);
     for (u32 q = 0; q < tagQwc; ++q) {
       const u32* qw = reinterpret_cast<const u32*>(&payload[q]);
       streamWord(qw[0]);

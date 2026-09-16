@@ -223,6 +223,8 @@ void StaPipCore::onFrameEnd() {
                    static_cast<u32>(c), " uni=", static_cast<u32>(u >> 32),
                    ":", static_cast<u32>(u), " geo=",
                    static_cast<u32>(g >> 32), ":", static_cast<u32>(g),
+                   " pool=", static_cast<u32>(h.getPoolRing(slot) >> 32),
+                   ":", static_cast<u32>(h.getPoolRing(slot)),
                    " chainQw=", h.getChainQw(), " words=", h.getWords());
         }
       }

@@ -304,6 +304,43 @@ estimates of what a fix would save.
    five host writes per 1 440-frame run), same class as the census that cost
    1 ms a frame, and `--audit-release` catches neither.
 
+### Name the bag that is rewritten every frame on a frozen scene
+
+Two instruments now point at one submitter in the generated game, and neither
+can name it because the fix is a change to a CALLER's contract.
+
+**The symptom, measured** (docs/baked-stream-acceptance-gate.md, and
+examples/vehicle-playground/authoring/ee-rearchitecture-2026-09-16): at the
+Motor District garage-day pose, held, one ELF, two boots, the picture
+byte-identical and the DMA chain identical to the quadword - the VIFcodes and
+the absolute-address uniforms hash the same, the geometry that comes out of the
+qbuffer COPY POOLS hashes the same, and the geometry that comes out of the
+BAGS' OWN ARRAYS is different on every frame. `STAPIPMISS` reads `bbox=1` a
+frame at that pose and names the bag as **96 vertices in 2 packages**. The
+outer-road pose, which reads `bbox=0`, is correspondingly cleaner.
+
+**The suspect.** The generated game has 26 unconditional
+`bag->bboxVersion = ++g_bboxStamp` sites in `src/templates.cpp`, most of them in
+the lamp, beam and flashlight family, and several of those rebuild their vertex
+or colour arrays from wall-clock-driven fade terms (`angleFade`,
+`DynLightRt::lastLevel`). A term driven by real time is not frame-deterministic
+under an emulator, which is exactly why the same frame number gives different
+bytes on a second boot.
+
+**The experiment**, so whoever takes this starts with a procedure rather than a
+theory: build with `TYRA_STAPIP_VIFHASH` and `TYRA_STAPIP_BAKED_REPORT` at 1,
+hold garage day, and bisect the 26 bump sites by making each one conditional on
+the array actually having changed - docs/wheel-rebake-skip.md is the worked
+example of that fix for a different caller. The bag is named the moment
+`STAPIPMISS bbox` reaches 0 and the bag-sourced geometry hash starts repeating
+across two boots. Both are one grep of the log.
+
+**Why it is worth doing.** Three things at once: the acceptance gate gets its
+third leg back, so a future change touching vertex data need not rest its whole
+argument on pixels; one bag a frame stops invalidating the bake cache and the
+bbox cacher; and a scene that claims to be frozen actually is, which every
+future A/B on this fixture depends on.
+
 ### The baked VIF stream: format proven, memory priced, the prize still unbuilt
 
 [baked-vif-stream.md](baked-vif-stream.md) spiked the central change of
