@@ -334,6 +334,42 @@ and Probe B under `--keep-routes`. The parked fixture cannot see a defect in a
 per-frame rebake that writes the same bytes every frame, so the corruption found
 is a lower bound on the problem rather than an inventory of it.
 
+## What is left of the prize, recomputed from the probes' own attribution
+
+The probes did not only refute two supporting changes; the attribution arm they
+needed produced the first per-bracket breakdown of the EE side of
+`StaPipCore::render` this work has ever had. Garage day, measured, exclusive
+brackets under `TYRA_STAPIP_ATTRIB`:
+
+| bracket | ms | can the baked stream remove it? |
+| --- | ---: | --- |
+| `bounds` | 2.46 | no - the visibility test needs the boxes |
+| `prepare` | 2.84 | partly - per-bag uniforms stay, the clip chain is already retained |
+| `dsRetain` | 0.69 | yes |
+| `dsDirect` (the wholly-visible loop) | 1.90 | mostly |
+| `dsCreate` minus classify | 0.68 | yes |
+| **`dsClassify`** | **1.79** | **no - Probe A says rejection buys 2.60** |
+| `dsRender` (package routing) | 2.05 | partly |
+| packet construction | 1.79 | yes |
+
+**Nothing in that column is over 3 ms, and that is the finding.** A frame with
+one expensive function has a fix; this one has fourteen cheap ones that each
+scale with geometry. It is the clearest evidence yet that the shape is the
+problem - and it is also why the earlier "about 0.4 ms" estimate for the
+redesign was too optimistic.
+
+**Probe A moved the floor.** The redesign was described above as "the EE never
+sees a package again". It cannot be: per-package rejection buys 2.60 ms against
+a 1.79 ms test, so a baked stream has to carry per-package boxes and the runtime
+has to keep rejecting. `bounds`, `prepare` and `dsClassify` all survive.
+
+Projecting the table - and this is a projection, not a measurement - a baked
+design plausibly lands the EE side of `render` near **7.5 ms against today's
+15.6**, so about **8 ms off the frame**. Against the plan's own control that is
+30.42 -> 22.4, and S4 and S5 together would be needed to reach the 20 ms rung at
+all. **The architecture alone no longer clears it either.** Round two should be
+designed knowing that, and the triangle budget stops being a later chapter.
+
 ## Order of work
 
 1. ~~Probe A and Probe B.~~ **DONE, on hardware, 2026-09-16.** S3 does not ship;
@@ -341,12 +377,18 @@ is a lower bound on the problem rather than an inventory of it.
 2. **Find out what else `FlushCache` was writing back** - dropping it corrupted
    the picture with the packet already uncached. S1 cannot be built until that
    is answered, and it is worth 1.09 ms when it is.
-3. S4 and S5 — the two cheap non-pipeline wins, aimed at the 20 ms rung.
-4. The baked VIF stream, behind a compile-time switch, with the existing path as
-   the A/B fallback and the counters as the correctness gate.
-5. S2 — the uniform bank, once VU1 is the limiter and the drain costs something.
-6. Re-open the triangle budget: road LOD, authored LOD distances, world
-   visibility.
+3. The baked VIF stream, behind a compile-time switch, with the existing path
+   as the A/B fallback and the counters as the correctness gate — **carrying a
+   per-package visibility test, which Probe A says it cannot drop**. Promoted
+   above S4/S5 and above the `FlushCache` hunt: at 1.09 ms behind an unexplained
+   corruption, S1 is now the worst value-for-risk on this page.
+4. S4 and S5 — the two cheap non-pipeline wins. They are needed to reach the
+   20 ms rung even with the architecture, so they are no longer optional.
+5. The triangle budget, promoted out of last place: road LOD, the authored LOD
+   distances the earlier trials could not evaluate while the EE was the limiter,
+   and world visibility. The recomputation above says the EE half does not clear
+   the rung on its own.
+6. S2 — the uniform bank, once VU1 is the limiter and the drain costs something.
 
 ## What this page does not establish
 
