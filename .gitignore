@@ -18,6 +18,7 @@ imgui.ini
 tools/*
 !tools/hardware-trace.py
 !tools/hardware-probe.py
+!tools/instrument-frame-cost.py
 !tools/ps2client/
 tools/ps2client/*
 !tools/ps2client/bin/
