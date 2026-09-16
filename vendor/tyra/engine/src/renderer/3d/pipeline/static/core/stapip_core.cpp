@@ -173,6 +173,14 @@ void StaPipCore::onFrameEnd() {
     }
   }
 #endif
+  qbufferRenderer.onFrameEnd();
+  cacher.onFrameEnd();
+  // Modified by TyraX: the gate's readout runs AFTER the renderer's own
+  // onFrameEnd, not before. That call ends with flushPendingPacket(), so the
+  // frame's LAST packet is sent - and folded - inside it. Closing the hash
+  // first would push that packet into the next frame's hash, and two arms
+  // that batch differently would then disagree for a reason that has nothing
+  // to do with what the GS receives.
 // Modified by TyraX: the acceptance gate's readout - leg 1 of
 // docs/baked-stream-acceptance-gate.md. A RING of the last frames' hashes, not
 // one value: the shared reflection probe alternates every other frame, so a
@@ -209,8 +217,7 @@ void StaPipCore::onFrameEnd() {
     }
   }
 #endif
-  qbufferRenderer.onFrameEnd();
-  cacher.onFrameEnd();
+
   transformCacheValid = false;
   transformCachePlanesValid = false;
   transformCacheModelPtr = nullptr;
@@ -887,19 +894,10 @@ void StaPipCore::render(StaPipBag* bag) {
   if (telemetryEnabled) telemetry.prepareTicks += readCoreTelemetryTicks()-prepareStart;
   HardwareTrace::Scope traceDispatch("Dispatch");
   const u32 dispatchStart = telemetryEnabled ? readCoreTelemetryTicks() : 0;
-  // Modified by TyraX: retained command data. Opened here rather than at the
-  // top of render(), because the prim state is part of the key and setInfo()
-  // above is what finished writing it. `retainBag` false means every package
-  // below is built the way it always was.
-  TYRA_ATTRIB_MARK(attribRetainStart);
-  const bool retainBag = qbufferRenderer.beginRetainedBag(bag, maxVertCount);
-  TYRA_ATTRIB_ADD(dsRetainTicks, attribRetainStart);
-  retainCurrentBag = retainBag;
-  // Modified by TyraX: the baked VIF stream is opened for the DIRECT
-  // branch only (docs/baked-vif-stream.md). It is opened here rather than
-  // inside the branch because endBakedBag() has to run after
-  // flushBuffers(), and the branch predicates below are what decide
-  // whether any buffer ever carries a bake index.
+  // Modified by TyraX: the retained and baked caches are both opened in this
+  // block rather than at the top of render(), because the prim state is part of
+  // both keys and setInfo() above is what finished writing it. `retainBag` and
+  // `bakeBag` false means every package below is built the way it always was.
   bool bakeBag = false;
   auto checkYesFrustumInClipYes =  // cull all
       frustumCull && frustumCheck == IN_FRUSTUM && bag->info->fullClipChecks;
@@ -918,9 +916,40 @@ void StaPipCore::render(StaPipBag* bag) {
   auto checkNoClipNo =  // cull all
       !frustumCull && !bag->info->fullClipChecks;
 
+  // Modified by TyraX: the route is decided BEFORE either cache is opened, so a
+  // bag that will be replayed whole never pays the retained lookup at all. The
+  // predicates above read only frustumCheck and the bag's own flags - hoisting
+  // them past the cache opens costs nothing and has no side effect.
+  //
+  // Order matters here and is not arbitrary: the baked cache is opened first
+  // because if it can replay the bag with one tag there is no package left for
+  // the retained cache to hold a block FOR, and `dsRetain` (0.69 ms of
+  // garage-day frame, measured) becomes pure waste. A partial bag reaches
+  // neither of these, exactly as before.
+  const bool directRoute =
+      checkYesFrustumInClipYes || checkYesFrustumInClipNo || checkNoClipNo;
+  // The bake lookup and the whole-bag replay are charged to `dsDirect`, the
+  // bracket whose work they replace. Leaving them outside every bracket would
+  // put a hole back in `dispatch`, which is the residual
+  // render-submission-attribution.md exists to have closed.
+  TYRA_ATTRIB_MARK(attribReplayStart);
+  bool replayedWhole = false;
+  if (directRoute) {
+    TYRA_ATTRIB_INC(dsDirectBags);
+    bakeBag = qbufferRenderer.beginBakedBag(bag, maxVertCount);
+    replayedWhole = bakeBag && qbufferRenderer.replayWholeBakedBag();
+  }
+  TYRA_ATTRIB_ADD(dsDirectTicks, attribReplayStart);
+  TYRA_ATTRIB_MARK(attribRetainStart);
+  const bool retainBag =
+      replayedWhole ? false
+                    : qbufferRenderer.beginRetainedBag(bag, maxVertCount);
+  TYRA_ATTRIB_ADD(dsRetainTicks, attribRetainStart);
+  retainCurrentBag = retainBag;
+
   // Modified by TyraX: packager.create returns pooled arrays - no
   // delete[] here (see StaPipBagPackager).
-  if (checkYesFrustumInClipYes || checkYesFrustumInClipNo || checkNoClipNo) {
+  if (directRoute) {
     // The whole-bag bbox already proved every range visible. Point qbuffers
     // straight at the bag streams instead of filling pooled package records
     // whose classification result this branch ignores.
@@ -928,32 +957,85 @@ void StaPipCore::render(StaPipBag* bag) {
     // NOTE for anyone reading the "package creation and classification"
     // residual: this route calls neither the packager nor checkFrustum, so
     // for these bags that residual is THIS loop and nothing else.
-    TYRA_ATTRIB_MARK(attribDirectStart);
-    TYRA_ATTRIB_INC(dsDirectBags);
-    bakeBag = qbufferRenderer.beginBakedBag(bag, maxVertCount);
-    u16 packageIndex = 0;
-    for (u32 offset = 0; offset < bag->count;
-         offset += maxVertCount, ++packageIndex) {
-      const u32 remaining = bag->count - offset;
-      const u32 count = remaining < maxVertCount ? remaining : maxVertCount;
-      Verbose(packageIndex, " package - direct cull by data pointer");
+    // Modified by TyraX: THE WHOLE BAG IN ONE DMA REF TAG.
+    //
+    // A complete baked entry already holds every package of this bag laid out
+    // contiguously in package order, program kick included, so nothing below
+    // this point has anything left to compute: no qbuffer slot to acquire, no
+    // pointers to fill, no per-buffer pass in addBuffersDataToPacket, no
+    // 16-group flush bookkeeping. One tag replaces all of it.
+    //
+    // The spike could not do this. A run of packages under one REF cannot cross
+    // a packet flush boundary, so a longer run means a moved flush cadence, and
+    // the acceptance gate every earlier round used pins `packetFlushes` - which
+    // pins the prize. docs/baked-stream-acceptance-gate.md replaces that gate
+    // with a check on the word stream VIF1 actually receives, under which the
+    // cadence is free to move, so the run can now be the whole bag.
+    //
+    // WHAT THIS DOES NOT DROP: nothing this branch could have rejected. The
+    // direct route is taken only when the whole-bag bbox already proved every
+    // range visible, so it calls neither the packager nor checkFrustum and has
+    // no per-package verdict to lose. Probe A's finding - that per-package
+    // rejection buys 2.60 ms against a 1.79 ms classification - is about the
+    // PARTIAL branch below, which is untouched
+    // (examples/vehicle-playground/authoring/ee-probes-2026-09-16).
+    if (replayedWhole) {
+      // The counters the ordinary loop would have produced, in closed form.
+      // They are DIAGNOSTICS - the gate is the VIF word stream and the picture
+      // - but a wrong diagnostic is worse than none, so they are computed
+      // rather than dropped. Closed form and not a loop, so this bag's EE cost
+      // really is O(1) in its triangle count.
       if (telemetryEnabled) {
-        ++telemetry.packagesCull;
-        telemetry.trianglesCull +=
-            bag->stripped ? (count >= 2 ? count - 2 : 0) : count / 3;
-        if (bag->stripped) ++telemetry.packagesStrip;
+        const u32 packages =
+            (bag->count + maxVertCount - 1) / maxVertCount;
+        telemetry.packagesCull += packages;
+        if (bag->stripped) {
+          telemetry.packagesStrip += packages;
+          // Every full package yields count-2 triangles; the tail package
+          // yields whatever is left, and a run shorter than 2 yields none.
+          const u32 tail = bag->count - (packages - 1) * maxVertCount;
+          telemetry.trianglesCull +=
+              (packages - 1) * (maxVertCount - 2) + (tail >= 2 ? tail - 2 : 0);
+        } else {
+          // Exactly what the loop summed, which is NOT bag->count / 3 in
+          // general: each package floors independently. It happens to agree
+          // while maxVertCount is a multiple of three, and nothing guarantees
+          // that for every program class.
+          const u32 tail = bag->count - (packages - 1) * maxVertCount;
+          telemetry.trianglesCull +=
+              (packages - 1) * (maxVertCount / 3) + tail / 3;
+        }
+        telemetry.verticesSubmitted += bag->count;
       }
-      auto buffer = qbufferRenderer.getBuffer();
-      buffer->fillByPointer(bag, offset, count);
-      // Modified by TyraX: this package's slice of the bag is fixed, so its
-      // command block is too - see StaPipRetainedCommands.
-      if (retainBag) buffer->retainIndex = static_cast<int>(packageIndex);
-      // Modified by TyraX: ... and so is its whole VIF1 command stream,
-      // MSCAL included - see StaPipBakedStreams.
-      if (bakeBag) buffer->bakeIndex = static_cast<int>(packageIndex);
-      qbufferRenderer.cull(buffer);
+      // No TYRA_ATTRIB_ADD here: the replay itself was already charged to
+      // `dsDirect` above, and this block is telemetry that does not exist in a
+      // build without it.
+    } else {
+      TYRA_ATTRIB_MARK(attribDirectStart);
+      u16 packageIndex = 0;
+      for (u32 offset = 0; offset < bag->count;
+           offset += maxVertCount, ++packageIndex) {
+        const u32 remaining = bag->count - offset;
+        const u32 count = remaining < maxVertCount ? remaining : maxVertCount;
+        Verbose(packageIndex, " package - direct cull by data pointer");
+        if (telemetryEnabled) {
+          ++telemetry.packagesCull;
+          telemetry.trianglesCull +=
+              bag->stripped ? (count >= 2 ? count - 2 : 0) : count / 3;
+          if (bag->stripped) ++telemetry.packagesStrip;
+        }
+        auto buffer = qbufferRenderer.getBuffer();
+        buffer->fillByPointer(bag, offset, count);
+        // Modified by TyraX: this package's slice of the bag is fixed, so its
+        // command block is too - see StaPipRetainedCommands.
+        if (retainBag) buffer->retainIndex = static_cast<int>(packageIndex);
+        // Modified by TyraX: ... and so is its whole VIF1 command stream,
+        // MSCAL included - see StaPipBakedStreams.
+        if (bakeBag) buffer->bakeIndex = static_cast<int>(packageIndex);
+        qbufferRenderer.cull(buffer);
+      }
+      TYRA_ATTRIB_ADD(dsDirectTicks, attribDirectStart);
     }
-    TYRA_ATTRIB_ADD(dsDirectTicks, attribDirectStart);
   } else if (checkYesFrustumPartialClipYes || checkYesFrustumPartialClipNo) {
     TYRA_ATTRIB_INC(dsPartialBags);
     u16 packagesCount = 0;

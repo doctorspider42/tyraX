@@ -542,6 +542,34 @@ class StaPipQBufferRenderer {
    * path it took before, unchanged.
    */
   bool beginBakedBag(StaPipBag* bag, const u32& packageSize);
+  /**
+   * Modified by TyraX: replay a COMPLETE baked bag with ONE DMA REF tag,
+   * bypassing the qbuffer ring entirely.
+   *
+   * THIS IS THE CHANGE THE SPIKE COULD NOT MAKE. The spike still walked the
+   * ring - getBuffer, fillByPointer, cull, the 16-group flush bookkeeping and
+   * the per-buffer loop in addBuffersDataToPacket - and only replaced the
+   * bytes each buffer wrote. It had to: a run of packages under one REF cannot
+   * cross a packet flush boundary, so a longer run means a moved flush cadence,
+   * and the acceptance gate every earlier round used PINS the flush cadence.
+   * With docs/baked-stream-acceptance-gate.md that constraint is gone, and the
+   * whole ring can go with it: the arena already holds every package of the bag
+   * contiguously, in package order, kick included, so the EE's entire per-
+   * package contribution for such a bag is ONE TAG.
+   *
+   * Preconditions the caller owes, all of which hold at the point render()
+   * calls this:
+   *
+   * - the qbuffer ring is EMPTY. render() ends every bag with flushBuffers(),
+   *   which writes any pending buffers into the packet and resets both indices,
+   *   so nothing of a previous bag is waiting to be emitted. Appending a REF
+   *   while buffers were pending would put this bag's geometry BEFORE theirs.
+   * - the bag's uniforms are already in the packet (sendObjectData ran).
+   * - the entry is complete, i.e. every package was baked.
+   *
+   * False means not eligible and the caller runs the ordinary loop.
+   */
+  bool replayWholeBakedBag();
   void endBakedBag();
   u32 takeBakedHits();
   u32 takeBakedBuilds();
@@ -715,6 +743,7 @@ class StaPipQBufferRenderer {
    * bake is then abandoned and the bag keeps building its packets. */
   bool bakeBlock(packet2_t* packet, u32 fromQw, u32 toQw,
                  StaPipBakedEntry* entry, u32 index);
+
   /** The bag being baked, built package by package and handed to the entry as
    * one aligned arena by endBakedBag(). Lives only inside one render() call. */
   std::vector<qword_t> bakeScratch;

@@ -147,6 +147,54 @@ one flush is **one tag**; a mesh that does not is two. `MSCNT` at the head of th
 second packet is exactly what the current code emits there too, so the split
 costs a tag and nothing else.
 
+## Round two: the whole bag in one tag, and what that leaves scaling with what
+
+The spike above kept the qbuffer ring. Every package still took a slot, still
+filled its pointers, still ran the 32-slot flush bookkeeping and still went
+through the per-buffer loop in `addBuffersDataToPacket`; only the bytes each
+buffer wrote were replaced. **It had to**, and the reason is the acceptance gate:
+a run under one `REF` cannot cross a packet flush boundary, so a longer run means
+a moved cadence, and the counter gate pins the cadence.
+
+With [baked-stream-acceptance-gate.md](baked-stream-acceptance-gate.md) that
+constraint is gone. `StaPipQBufferRenderer::replayWholeBakedBag()` now emits
+**one `REF` for a complete bag's whole arena**, and `StaPipCore::render` skips
+the direct loop entirely: no `getBuffer`, no `fillByPointer`, no `cull`, no
+per-buffer packet pass. The retained-cache lookup is skipped too, because a bag
+replayed whole has no package left for it to hold a block for.
+
+**Nothing that could reject geometry was removed.** The direct route is taken
+only when the whole-bag bbox already proved every range visible; it calls
+neither the packager nor `checkFrustum` and has no per-package verdict to lose.
+Probe A's 2.60 ms is about the **partial** branch, which is untouched.
+
+### What scales with what, which is the number the triangle-budget work needs
+
+The other half of the plan is removing triangles, so the two fronts have to
+compose. Per frame, after this change:
+
+| term | scales with | shrinks when triangles do? |
+| --- | --- | --- |
+| `bounds` (whole-bag and per-package boxes) | **bags**, and packages on partial bags | **no**, for the per-bag part |
+| `prepare` (uniforms, `sendObjectData`, the per-mesh `FLUSHE`) | **bags** | **no** |
+| the whole-bag replay: one `REF`, three quadwords | **bags** | **no** |
+| the partial route (classify, package records, packet construction) | **packages on partial bags** | yes |
+| the bake, on a miss | vertices of the bag that missed | yes, and amortised |
+| DMA transfer and VIF1 | **vertices** | yes |
+| VU1 (`cull_tc` at 73 cycles a triangle, `clip_tc` at 184) | **triangles** | yes |
+| the arena | **vertices** | yes |
+
+**So the surviving EE cost of a wholly-visible bag is a per-BAG constant, and
+fewer triangles do not shrink it.** Halving the road's triangles at constant bag
+count moves the DMA, VU1 and arena terms and nothing else on the EE. The levers
+that move the per-bag terms are *fewer bags* — coarser LOD that merges meshes,
+batching, world visibility that removes whole objects — not fewer triangles
+inside the bags there already are.
+
+That is the finding the triangle-budget front needs stated early: **road LOD that
+thins a ribbon into the same number of strips buys VU1 time and no EE time.**
+A ribbon cut into fewer, longer strips buys both.
+
 ## Chain quadwords: the number the later console round will price
 
 Per package, the DMA chain the EE writes:
@@ -394,6 +442,37 @@ It is not a correctness problem either way - a rebuilt package takes the
 ordinary path, and the byte-identical picture proves it - but it is a third of
 the direct route's packages paying for a cache that never serves them, and it
 would contaminate a later round that tried to price this.
+
+### Round two attributed the `prim` half to this cache, not to a caller
+
+`StaPipBakedStreams::acquire` used to accept the first entry matching
+`(vertices, maxVertCount)` **alone** and then overwrite it whenever anything
+else in the key had moved. A bag drawn twice over one array with two prim states
+therefore evicted its own other pass, every frame, for ever: two passes, one
+slot. That is the whole of `prim=2`, and it is this cache's bug rather than a
+caller's.
+
+The walk now requires the prim state to match too and falls through to a **new
+entry** when it does not, up to `kVariantsPerArray` (3) entries per array.
+Three things that fix does *not* do, which matter more than what it does:
+
+- **It does nothing for the `bbox` half.** That is a caller bumping
+  `bboxVersion` — a claim that the buffer's *contents* changed — on a scene that
+  is not moving, and no key can route around a caller lying about its own data.
+  `bboxVersion` has to stay in the key: it is the only signal that an array
+  rewritten in place (skinned meshes, particles) changed, so dropping it would
+  serve stale geometry. [wheel-rebake-skip.md](wheel-rebake-skip.md) records one
+  caller already fixed this way; this one is **still unnamed**, and naming it
+  means following one bag through a submitter in the generated game — a change
+  to a *caller's* contract, not to this one.
+- **It costs memory, one whole arena per pass.** Two passes over a 3 768-vertex
+  array is two arenas, and a baked vertex costs about as much again as it
+  already cost. That is why the cap is small.
+- **It converts churn into occupancy, and would hide it.** A bag whose prim
+  state genuinely varies every frame used to show up as `prim` and would now
+  quietly allocate. The cap is what stops that: past `kVariantsPerArray` the
+  old replace-in-place behaviour returns and `prim` starts counting again, so
+  the readout tells the truth either way.
 
 ## What it would take to move the bake into the editor
 
