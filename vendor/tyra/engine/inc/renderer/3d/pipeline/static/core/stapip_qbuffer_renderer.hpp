@@ -37,6 +37,29 @@
 #define TYRA_STAPIP_RETAINED_COMMANDS 1
 #endif
 
+/**
+ * Modified by TyraX: the BAKED VIF STREAM spike
+ * (docs/baked-vif-stream.md). A wholly visible static bag's whole per-frame
+ * VIF1 command stream - unpack headers, the scale/count quadword, the prim
+ * GIFtag, the vertex payload INLINE, and the MSCAL/MSCNT that kicks each
+ * package - is emitted once into EE-private storage and replayed with a single
+ * DMA REF tag per contiguous run of packages.
+ *
+ * OFF by default: it duplicates the vertex payload, which is expensive
+ * (docs/baked-vif-stream.md, "The memory"). 1 is the candidate arm.
+ */
+#ifndef TYRA_STAPIP_BAKED_STREAM
+#define TYRA_STAPIP_BAKED_STREAM 0
+#endif
+
+// The periodic STAPIPBAKE / STAPIPQW readout. Same reasoning as the
+// STAPIPRET one below: a host: write inside a sampling window is noise with a
+// period, so it is opt-in even though it only prints COUNTS. Build both arms
+// with -DTYRA_STAPIP_BAKED_REPORT=1 to read the per-frame DMA quadword count.
+#ifndef TYRA_STAPIP_BAKED_REPORT
+#define TYRA_STAPIP_BAKED_REPORT 0
+#endif
+
 // The periodic STAPIPRET readout. Separate from the feature and OFF by default:
 // it is a timed host: write, and a timed host: write inside a measurement
 // window is noise with a period. Build with -DTYRA_STAPIP_RETAINED_REPORT=1.
@@ -170,6 +193,185 @@ class StaPipRetainedCommands {
 };
 
 #endif  // TYRA_STAPIP_RETAINED_COMMANDS
+
+#if TYRA_STAPIP_BAKED_STREAM
+
+/**
+ * Modified by TyraX: one bag's BAKED VIF1 command stream
+ * (docs/baked-vif-stream.md).
+ *
+ * The retained-command cache above replays the bag's finished DMA CHAIN with a
+ * memcpy: six quadwords of tags per package, whose REF tags still name the
+ * bag's arrays. This goes one step further and replays the whole thing with ONE
+ * DMA REF tag, which means the payload the REF names may contain no DMA tags at
+ * all - the DMAC does not interpret tags inside referenced data, it feeds every
+ * word of it to VIF1 as a VIFcode. So the baked block is a PURE VIFCODE STREAM:
+ * STCYCL + UNPACK followed inline by the data that unpack transfers, repeated,
+ * then the FLUSH + MSCAL/MSCNT that kicks the microprogram.
+ *
+ * It is TRANSCODED out of the chain the ordinary writers just produced, not
+ * re-derived from a second description of the packet format. Each tag becomes
+ * one header quadword carrying the tag's own two VIFcodes verbatim (padded in
+ * FRONT with two VIF NOPs, so the unpack data stays quadword aligned and the
+ * VIFcodes keep their order), followed by the quadwords that tag transferred -
+ * from the packet for a CNT tag, from the named address for a REF tag. Anything
+ * that is not CNT or REF refuses the bake. That keeps the property the retained
+ * cache has: a future edit to a program's writer cannot be silently missed here.
+ *
+ * Two consequences of inlining the payload, both load bearing:
+ *
+ * - **It COSTS the payload.** A 75-vertex textured package with per-vertex
+ *   colours bakes to 231 quadwords - 3 696 bytes - against 96 bytes of retained
+ *   chain, because the three vertex streams are now stored twice. The budget
+ *   below is a hard cap for exactly that reason.
+ * - **The block is referenced by DMA, so it is NOT EE-private.** Unlike the
+ *   retained blocks it must stay alive and unchanged until VIF1 has consumed
+ *   the packet that names it. A block is written once, when it is built, and
+ *   only read afterwards, so the one lifetime rule is that eviction may not
+ *   free a block an in-flight packet still names - which is why eviction runs
+ *   at frame end, after the pipeline's own flush.
+ */
+struct StaPipBakedEntry {
+  // The key. Identical to the retained one plus the program's VU1 destination
+  // address, because the baked block carries the MSCAL that names it.
+  const void* vertices;
+  const void* sts;
+  const void* colors;
+  const void* normals;
+  const void* program;
+  u32 count;
+  u32 maxVertCount;
+  u32 bboxVersion;
+  u32 primKey;
+  u32 depthScaleBits;
+  u32 programAddr;
+  u8 singleColor;
+  u8 stripped;
+
+  /** Packages = ceil(count / maxVertCount). */
+  u16 packages;
+  /** How many blocks have been baked. They must arrive 0, 1, 2, ... - the
+   * direct route submits every package of the bag in order, and anything else
+   * resets the entry rather than leaving a hole in the arena. */
+  u16 built;
+  u8 complete;
+
+  /** Quadword offset and length of each package's block inside `data`. */
+  std::unique_ptr<u32[]> offsets;
+  std::unique_ptr<u16[]> sizes;
+  /** The arena: the bag's package blocks laid out contiguously IN PACKAGE
+   * ORDER, which is what lets ONE REF tag cover a run of consecutive packages.
+   * `raw` owns the allocation and `arena` is the 16-byte-aligned pointer the
+   * REF names - a DMA tag's address field drops its low four bits, so a
+   * misaligned arena would be silently transferred from somewhere else. */
+  std::unique_ptr<u8[]> raw;
+  qword_t* arena;
+  u32 arenaQw;
+
+  int framesLeftToDestroy;
+  int nextInBucket;
+};
+
+/** Modified by TyraX: the bag -> baked-stream cache. Same shape as
+ * StaPipRetainedCommands - 256-bucket index over vector indices, per-entry
+ * unused-frame countdown, bounded LRU eviction against a hard byte budget -
+ * with one difference that matters: the budget here is megabytes, not
+ * kilobytes, because every entry carries a copy of its bag's vertex payload. */
+class StaPipBakedStreams {
+ public:
+  /** The budget, in quadwords. 262 144 qw = 4 MB of EE RAM. The Motor
+   * District garage's cull-routed working set alone is about 2.9 MB at
+   * 3 696 bytes a package, so this is a real bound and it is meant to be read
+   * against the measured usage, not assumed generous. */
+  static const u32 kMaxQwords = 262144;
+  /** Refuse a single block larger than this - a runaway package size would
+   * otherwise evict the whole cache for one bag. */
+  static const u32 kMaxBlockQw = 1024;
+  static const int kLifetimeFrames = 50 * 5;
+  static const int kMaxEvictionsPerFrame = 8;
+
+  StaPipBakedStreams();
+
+  void onFrameEnd();
+  void clear();
+
+  StaPipBakedEntry* acquire(const StaPipBakedEntry& key);
+  /** Charge the budget for a finished arena. False means it does not fit even
+   * after eviction, and the caller abandons the bake for now. */
+  bool reserve(u32 qwords);
+
+  u32 getBytes() const { return usedQwords * 16; }
+  u32 takeHits() { const u32 v = hits; hits = 0; return v; }
+  u32 takeBuilds() { const u32 v = builds; builds = 0; return v; }
+  void countHit() { ++hits; }
+  void countBuild() { ++builds; }
+
+  /**
+   * Modified by TyraX: WHY a bag rebuilt. A cache that never converges is a
+   * third of a route paying for nothing, and "it churns" is not actionable -
+   * the field that moved is. `acquire` tallies one reason per invalidation and
+   * records the LOUDEST bag (the one whose key moved carrying the most
+   * packages) so the readout can name a mesh by its vertex count rather than
+   * by a heap address. Read and cleared together, and compiled out with the
+   * feature like everything else here.
+   */
+  enum MissReason {
+    MissNewEntry = 0,   // no entry for this (array, package size) at all
+    MissBBoxVersion,    // the caller claims the buffer's CONTENTS changed
+    MissPrimState,      // same array, different prim/GIFtag - a second pass
+    MissStreams,        // an ST/colour/normal stream pointer moved
+    MissProgram,        // a different VU1 program, or a different address
+    MissCountOrSize,    // the mesh resized, or its package size was re-pinned
+    MissIncomplete,     // every package arrived but the bag never completed
+    MissReasonCount
+  };
+  const u32* getMisses() const { return misses; }
+  void clearMisses() {
+    for (u32 i = 0; i < MissReasonCount; ++i) misses[i] = 0;
+    loudCount = loudPackages = 0;
+    loudReason = MissReasonCount;
+  }
+  void countMiss(MissReason reason) { ++misses[reason]; }
+  /** The biggest invalidated bag of the window: its vertex count, its package
+   * count and which field moved. */
+  void noteLoud(MissReason reason, u32 count, u32 packages) {
+    if (packages <= loudPackages) return;
+    loudReason = reason;
+    loudCount = count;
+    loudPackages = packages;
+  }
+  u32 getLoudCount() const { return loudCount; }
+  u32 getLoudPackages() const { return loudPackages; }
+  u32 getLoudReason() const { return loudReason; }
+
+ private:
+  static const u32 kBucketCount = 256;
+
+  u32 getBucket(const void* vertices, u32 maxVertCount) const;
+  void rebuildIndex();
+  bool evictFor(u32 wanted);
+  /** Give an entry's arena back to the budget and its memory to the graveyard
+   * - never straight to free(). See the definition. */
+  void retire(StaPipBakedEntry& item);
+  static bool keyMatches(const StaPipBakedEntry& a, const StaPipBakedEntry& b);
+
+  /** Entries are owned by POINTER, not by value: `acquire` may evict while a
+   * caller is holding the entry it just got, and a vector of values would move
+   * that entry out from under it. */
+  std::vector<std::unique_ptr<StaPipBakedEntry>> storage;
+  /** Arenas freed two frames from now. A baked block is named by a DMA REF, so
+   * it may not be freed while the last submitted packet can still reach it. */
+  std::vector<std::unique_ptr<u8[]>> graveyard[2];
+  u8 graveyardWrite = 0;
+  int indexBuckets[kBucketCount];
+  u32 usedQwords = 0;
+  u32 hits = 0, builds = 0;
+  int evictionsThisFrame = 0;
+  u32 misses[MissReasonCount] = {0};
+  u32 loudCount = 0, loudPackages = 0, loudReason = MissReasonCount;
+};
+
+#endif  // TYRA_STAPIP_BAKED_STREAM
 
 class StaPipQBufferRenderer {
  public:
@@ -325,6 +527,40 @@ class StaPipQBufferRenderer {
   u32 takeRetainedBuilds();
   u32 getRetainedBytes() const;
 
+  /**
+   * Modified by TyraX: the BAKED VIF STREAM spike
+   * (docs/baked-vif-stream.md). Opened by StaPipCore for the DIRECT,
+   * wholly-visible cull route ONLY - the one branch whose packages are a fixed
+   * slice of the bag and whose MSCAL/MSCNT sequence is therefore a bake-time
+   * fact (render() calls clearLastProgramName() per bag, so package 0 always
+   * gets MSCAL and the rest always get MSCNT).
+   *
+   * Returns true when this bag's packages may carry a bake index. Everything
+   * else - partial bags, the clip route, copied/strip-expanded buffers,
+   * billboards and any game-supplied program override - falls through to the
+   * path it took before, unchanged.
+   */
+  bool beginBakedBag(StaPipBag* bag, const u32& packageSize);
+  void endBakedBag();
+  u32 takeBakedHits();
+  u32 takeBakedBuilds();
+  u32 getBakedBytes() const;
+  /** TyraX diagnostics: why bags rebuilt - see StaPipBakedStreams::MissReason.
+   * Returns MissReasonCount counters, or null when the feature is compiled
+   * out; clearBakedMisses() resets them and the loudest-bag record. */
+  const u32* getBakedMisses() const;
+  u32 getBakedLoudCount() const;
+  u32 getBakedLoudPackages() const;
+  u32 getBakedLoudReason() const;
+  void clearBakedMisses();
+
+  /** TyraX diagnostics: DMA quadwords the pipeline handed to VIF1 this frame,
+   * summed over every submitted packet - the CHAIN, not the payload the REF
+   * tags name. This is the number the baked stream is trying to move, so it is
+   * compiled into BOTH arms and is always zero when telemetry is off. Reading
+   * it clears it. */
+  u32 takeChainQwords() { const u32 v = chainQwords; chainQwords = 0; return v; }
+
   StaPipVU1Program* getCullProgramByBag(const StaPipBag* bag);
   bool hasProgramOverrides() const { return repository.hasAnyOverride(); }
 
@@ -438,6 +674,28 @@ class StaPipQBufferRenderer {
    */
   qword_t clipBlock[16] __attribute__((aligned(16)));
   u16 clipBlockQw = 0;
+#endif
+
+  /** See takeChainQwords(). Accumulated in sendPacket, reset on read. */
+  u32 chainQwords = 0;
+
+#if TYRA_STAPIP_BAKED_STREAM
+  // Modified by TyraX: baked VIF streams (see StaPipBakedStreams).
+  StaPipBakedStreams baked;
+  /** The bag currently being submitted through the direct route, or nullptr.
+   * Mirrors retainedCurrent, and for the same reason: every buffer in a flush
+   * belongs to one bag. */
+  StaPipBakedEntry* bakedCurrent = nullptr;
+
+  /** Transcode a finished DMA chain fragment of the current packet into a
+   * pure VIFcode stream and append it to bakeScratch as package `index` of
+   * `entry`. False means the fragment carried a tag this cannot express; the
+   * bake is then abandoned and the bag keeps building its packets. */
+  bool bakeBlock(packet2_t* packet, u32 fromQw, u32 toQw,
+                 StaPipBakedEntry* entry, u32 index);
+  /** The bag being baked, built package by package and handed to the entry as
+   * one aligned arena by endBakedBag(). Lives only inside one render() call. */
+  std::vector<qword_t> bakeScratch;
 #endif
 };
 

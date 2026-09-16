@@ -131,6 +131,48 @@ void StaPipCore::onFrameEnd() {
     }
   }
 #endif
+// Modified by TyraX: the baked-stream readout, and - in BOTH arms - the DMA
+// chain quadwords the static pipeline handed VIF1 per frame. Same opt-in rule
+// as the block above: it is a host: write with a period, so it may not be left
+// on inside a sampling window. These are COUNTS, never milliseconds.
+#if TYRA_STAPIP_BAKED_REPORT
+  {
+    static u32 bakeFrames = 0, bakeHits = 0, bakeBuilds = 0, bakeQw = 0;
+    bakeHits += qbufferRenderer.takeBakedHits();
+    bakeBuilds += qbufferRenderer.takeBakedBuilds();
+    bakeQw += qbufferRenderer.takeChainQwords();
+    if (++bakeFrames >= 300) {
+      TYRA_LOG("STAPIPBAKE refs=", bakeHits / bakeFrames,
+               " built=", bakeBuilds / bakeFrames, " per frame, arena=",
+               qbufferRenderer.getBakedBytes() / 1024,
+               " KB, chainQw=", bakeQw / bakeFrames);
+      // Modified by TyraX: WHY they rebuilt. Totals over the window, not per
+      // frame - a reason that fires once per window is a different animal from
+      // one that fires every frame, and dividing would hide that.
+      const u32* miss = qbufferRenderer.getBakedMisses();
+      if (miss != nullptr) {
+        static const char* const kReason[] = {
+            "new", "bboxVersion", "primState", "streams",
+            "program", "countOrSize", "incomplete", "-"};
+        TYRA_LOG("STAPIPMISS new=", miss[0], " bbox=", miss[1],
+                 " prim=", miss[2], " streams=", miss[3],
+                 " program=", miss[4], " size=", miss[5],
+                 " incomplete=", miss[6], " over ", bakeFrames,
+                 " frames; loudest bag count=",
+                 qbufferRenderer.getBakedLoudCount(), " packages=",
+                 qbufferRenderer.getBakedLoudPackages(), " reason=",
+                 kReason[qbufferRenderer.getBakedLoudReason() < 7
+                             ? qbufferRenderer.getBakedLoudReason()
+                             : 7]);
+        qbufferRenderer.clearBakedMisses();
+      }
+      bakeFrames = 0;
+      bakeHits = 0;
+      bakeBuilds = 0;
+      bakeQw = 0;
+    }
+  }
+#endif
   qbufferRenderer.onFrameEnd();
   cacher.onFrameEnd();
   transformCacheValid = false;
@@ -817,6 +859,12 @@ void StaPipCore::render(StaPipBag* bag) {
   const bool retainBag = qbufferRenderer.beginRetainedBag(bag, maxVertCount);
   TYRA_ATTRIB_ADD(dsRetainTicks, attribRetainStart);
   retainCurrentBag = retainBag;
+  // Modified by TyraX: the baked VIF stream is opened for the DIRECT
+  // branch only (docs/baked-vif-stream.md). It is opened here rather than
+  // inside the branch because endBakedBag() has to run after
+  // flushBuffers(), and the branch predicates below are what decide
+  // whether any buffer ever carries a bake index.
+  bool bakeBag = false;
   auto checkYesFrustumInClipYes =  // cull all
       frustumCull && frustumCheck == IN_FRUSTUM && bag->info->fullClipChecks;
 
@@ -846,6 +894,7 @@ void StaPipCore::render(StaPipBag* bag) {
     // for these bags that residual is THIS loop and nothing else.
     TYRA_ATTRIB_MARK(attribDirectStart);
     TYRA_ATTRIB_INC(dsDirectBags);
+    bakeBag = qbufferRenderer.beginBakedBag(bag, maxVertCount);
     u16 packageIndex = 0;
     for (u32 offset = 0; offset < bag->count;
          offset += maxVertCount, ++packageIndex) {
@@ -863,6 +912,9 @@ void StaPipCore::render(StaPipBag* bag) {
       // Modified by TyraX: this package's slice of the bag is fixed, so its
       // command block is too - see StaPipRetainedCommands.
       if (retainBag) buffer->retainIndex = static_cast<int>(packageIndex);
+      // Modified by TyraX: ... and so is its whole VIF1 command stream,
+      // MSCAL included - see StaPipBakedStreams.
+      if (bakeBag) buffer->bakeIndex = static_cast<int>(packageIndex);
       qbufferRenderer.cull(buffer);
     }
     TYRA_ATTRIB_ADD(dsDirectTicks, attribDirectStart);
@@ -905,6 +957,7 @@ void StaPipCore::render(StaPipBag* bag) {
   qbufferRenderer.flushBuffers();
   TYRA_ATTRIB_ADD(dsFlushTicks, attribFlushStart);
   qbufferRenderer.endRetainedBag();  // Modified by TyraX
+  if (bakeBag) qbufferRenderer.endBakedBag();  // Modified by TyraX
   retainCurrentBag = false;
   const u32 dispatchEnd = telemetryEnabled ? readCoreTelemetryTicks() : 0;
   if (telemetryEnabled) telemetry.dispatchTicks += dispatchEnd - dispatchStart;

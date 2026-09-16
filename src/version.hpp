@@ -4409,9 +4409,15 @@
 //
 // 1.99.0: render submission is attributed to zero residual; the "gap" was
 // mostly the post-fx, HUD and game-side phases that `submit` always included.
+// 1.104.1: the baked VIF stream spike (TYRA_STAPIP_BAKED_STREAM, default 0) -
+// a wholly visible static bag's whole per-frame VIF1 command stream replayed by
+// one DMA REF tag. Format proven and memory priced; docs/baked-vif-stream.md.
+// 1.104.2: archive the baked-VIF-stream evidence, re-measure it on a fixture
+// built by THIS worktree's editor (the first pass' was cut at the 72-vertex
+// strip run), and attribute the cache churn with STAPIPMISS.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 104
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

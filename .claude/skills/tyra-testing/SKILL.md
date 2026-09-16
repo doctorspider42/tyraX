@@ -3099,6 +3099,57 @@ pointer AND count), reload the scene, and move the camera over hundreds of
 frames. `rebuilt` per frame is the instrument: it should be near zero on a
 parked pose and spike exactly where geometry changed.
 
+### Baked VIF stream acceptance (TYRA_STAPIP_BAKED_STREAM)
+
+Same shape as the retained-command A/B above and one extra rule.
+`TYRA_STAPIP_BAKED_STREAM` in the same engine header, 1 against 0, one project
+directory, plus `TYRA_FRAME_PROFILE` and `TYRA_STAPIP_BAKED_REPORT` set to 1
+in **both** arms (they are measurement flips - revert them before committing).
+
+- **The gate is the picture plus three counters**, and the counters are free:
+  `FTCLIP` gives `cull`/`clip`/`guard`, `verts` and `flush`, and `STAPIPBAKE`
+  gives `chainQw` - the DMA chain quadwords the static pipeline hands VIF1 per
+  frame, which is the number the change exists to move and is compiled into the
+  control arm too. Nothing here is a millisecond, and a PCSX2 millisecond about
+  this change would not be admissible anyway.
+- **Drive the Motor District fixture by its pose file, never with `--pad`.**
+  `benchmark-district.py`'s sampler reads `bin/district-benchmark-pose.txt`
+  every 30 frames **after** its 1440 measured frames, and it writes
+  `bin/district-benchmark.csv` at exactly that moment - so the CSV appearing is
+  the "it is safe to write to bin/ now" signal. Phase 0 is garage day, which is
+  the only pose to compare pixels at (the night poses have authored lamp flicker
+  and twinkling stars and never settle).
+- **Launch PCSX2 yourself** (`pcsx2-qt.exe -batch -nogui -logfile <yours> -elf
+  <abs path>`), never `--build --run`, which reaps other worktrees' emulators -
+  and delete `bin/livedbg.cmd` and `bin/frame.tga` before the boot and between
+  captures, or the first `--capture-frame` reads the previous arm's file.
+- **The stale-libtyra trap has a specific shape here**: the feature is an engine
+  header, so the ELF only moves if `libtyra` was re-archived. Check the build log
+  for `Engine sources changed - rebuilding libtyra...` followed by an
+  `elf-ar rcs bin/libtyra.a` line, and `sha256sum` the two ELFs - they MUST
+  differ. A null A/B is only evidence if the two arms were two builds.
+- **A MATCHING CAPTURE HASH IS NOT A FIXTURE CHECK, and on this fixture it will
+  actively mislead you.** This round's first pass borrowed the editor binary
+  from another checkout, which predated the 72 -> 75 package ceiling, so the
+  fixture's generated `src/terrain_game.cpp` came out with `stripRun = 72u` and
+  the roads and terrain were cut into 72-vertex runs: `cull=40175 ...
+  verts=55332` instead of `38750 ... 55836`. Its garage-day capture STILL hashed
+  to `415f970f...73f1e`, the value `package-ceiling-75-2026-09-16` published for
+  that pose - because **both** of that round's arms hash to it, the strip run
+  changing how a surface is cut into runs and not which pixels it covers. So
+  check the SCENE, not the picture: `ROADSTRIP scene 0 ... packages 470` and
+  `TERRAINSTRIP ... vertices 588 packages 8` in the game's `bin/log.txt`, plus
+  `grep -n "stripRun = 7" <fixture>/src/terrain_game.cpp`. And build the editor
+  from the worktree you are measuring, every time - `./build.ps1` is 6 minutes
+  and a wrong fixture is a day.
+- **`STAPIPMISS` says WHY a bag rebuilt**, which is what turns "the cache churns"
+  into something actionable: one counter per invalidation reason (`bbox`, `prim`,
+  `streams`, `program`, `size`, `new`, `incomplete`) plus the biggest bag that
+  moved, by vertex and package count. On the garage-day pose it reads
+  `bbox=1 prim=2` per frame and zero everywhere else, and on the outer-road pose
+  it reads zero everywhere - so the design converges and the garage contains
+  three callers that lie to it.
+
 ### Skip-when-unchanged acceptance, and the fixture that lies about it (1.100)
 
 `benchmark-district.py` **strips every vehicle's route** (it pops

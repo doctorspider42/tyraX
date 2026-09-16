@@ -171,6 +171,19 @@ and the primitive type (both bake-time facts), and the scale quadword carries
 `RendererCoreDepth::scale`, which a 16-bit display mode moves — so either bake
 per depth or patch one quadword at load.
 
+**The format half of this has now been spiked and it works** — see
+[baked-vif-stream.md](baked-vif-stream.md) for the exact quadword layout, the
+per-class table, and the three corrections this section needs. In short: VIF1
+accepts the block because a TTE chain already hands it an unbroken word stream
+(the `submissionBatchCandidate` branch of `sendObjectData` is the existence
+proof); the program kick is a **third** bake-time fact, not a per-frame one,
+because `render()` clears `lastProgramName` per bag, which is what lets one
+`REF` cover a whole mesh rather than one package; and the cost is the part this
+page does not mention at all — inlining the payload stores every static vertex
+twice, about **+49 bytes per vertex**, three to four megabytes for the Motor
+District, because nothing can free the arrays (the bbox cacher, the clip route
+and the generated game all still read them).
+
 Predicted EE cost: about 300 visibility units at roughly 400 cycles each, near
 **0.4 ms**, against 20.44. Even a three-fold error leaves the direction intact.
 

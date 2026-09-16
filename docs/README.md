@@ -245,6 +245,11 @@ Developer design docs (internals, not user guides):
   60 Hz whatever its constants are, the baked VIF stream that would replace it,
   the two probes that must bound the prize first, and what is already measured
   NOT to be the lever.
+- [A baked VIF stream per mesh](baked-vif-stream.md) — the spike behind that
+  plan's central change: the exact quadword layout of a package's pure-VIFcode
+  block, why one DMA `REF` may replay it, the three facts that turn out to be
+  bake-time (the GIFtag, the Z scale and the `MSCAL`), and the memory it costs
+  — about as much again as the vertex arrays it duplicates.
 - [Does the renderer work generalise?](engine-performance-on-a-second-map.md) —
   the control for six rounds of performance work driven by one scene: a second
   map with no content in common gains 8.9% of its work from the same engine.
