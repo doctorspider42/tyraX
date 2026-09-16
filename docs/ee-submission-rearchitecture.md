@@ -386,12 +386,31 @@ sees a package again". It cannot be: per-package rejection buys 2.60 ms against
 a 1.79 ms test, so a baked stream has to carry per-package boxes and the runtime
 has to keep rejecting. `bounds`, `prepare` and `dsClassify` all survive.
 
-Projecting the table - and this is a projection, not a measurement - a baked
-design plausibly lands the EE side of `render` near **7.5 ms against today's
-15.6**, so about **8 ms off the frame**. Against the plan's own control that is
-30.42 -> 22.4, and S4 and S5 together would be needed to reach the 20 ms rung at
-all. **The architecture alone no longer clears it either.** Round two should be
-designed knowing that, and the triangle budget stops being a later chapter.
+**Which control these belong to matters, and the first version of this section
+got it wrong.** The exclusive `ds*` brackets were measured on the arm with the
+live tools running; those pollers `fopen` over `host:` inside `update`, not
+inside `render`, so the brackets carry over - but the frame they sit in does
+not. On the quiet-debug control that matches this page's headline table
+(`update` 2.804, `work` 30.071, `total` 39.957), the EE side of `render` is
+`bounds` 2.35 + `prepare` 2.92 + (`dispatch` 15.04 - `VIF1 wait` 5.56) =
+**14.76 ms**.
+
+Splitting that by the column above: about **5.5-6.5 ms is removable** (the
+retain lookup, package-record creation, packet construction, most of the
+wholly-visible loop and part of the package routing), and about **7.1 ms
+survives** - `bounds` and `prepare` because the visibility test needs them, and
+`dsClassify` because Probe A says so.
+
+So the projection, and it is a projection: **work 30.07 -> about 24**, and with
+S4 and S5 on top, **about 21**. That is still **above** the 20 ms rung.
+
+**Read that as the plan's central correction.** The first version of this page
+expected the supporting changes to reach the rung by themselves; the probes
+refuted that. This recomputation says the architecture plus the supporting
+changes do not reach it either. The triangle budget is not a later chapter, it
+is the third of three things that all have to happen - which also means the
+redesign should be built so that fewer triangles make it cheaper rather than
+merely quieter.
 
 ## Order of work
 
