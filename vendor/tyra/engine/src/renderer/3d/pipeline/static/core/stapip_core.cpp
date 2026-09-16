@@ -173,6 +173,42 @@ void StaPipCore::onFrameEnd() {
     }
   }
 #endif
+// Modified by TyraX: the acceptance gate's readout - leg 1 of
+// docs/baked-stream-acceptance-gate.md. A RING of the last frames' hashes, not
+// one value: the shared reflection probe alternates every other frame, so a
+// per-frame hash has period two and two arms are compared as SEQUENCES.
+//
+// This is deliberately expensive (it folds every payload quadword the frame
+// submits) and a build carrying it runs at roughly 15 Hz. That is the design -
+// A GATE ARM IS NEVER A TIMING ARM. Never read a millisecond off this build.
+#if TYRA_STAPIP_VIFHASH
+  {
+    StaPipVifHash& h = qbufferRenderer.vifHash;
+    h.endFrame();
+    if (h.getFrames() % TYRA_STAPIP_VIFHASH_PERIOD == 0) {
+      if (h.isBroken()) {
+        // An unknown VIFcode desynchronises the decoder, so everything folded
+        // after it is noise. Say so instead of printing a number that looks
+        // like evidence. 0xAnn/0xBnn/0xDnn are the chain-level refusals - see
+        // foldChain.
+        TYRA_LOG("STAPIPVIFHASH BROKEN cmd=0x", h.getBrokenCmd(),
+                 " - the decoder met a VIFcode or DMA tag it cannot length,",
+                 " so no hash from this run means anything");
+      } else {
+        const u32 n = h.getRingCount();
+        const u32 at = h.getRingAt();
+        // Oldest first, so two arms' sequences line up by position.
+        for (u32 k = 0; k < n; ++k) {
+          const u64 v = h.getRing((at + StaPipVifHash::kRing - n + k) %
+                                  StaPipVifHash::kRing);
+          TYRA_LOG("STAPIPVIFHASH f=", h.getFrames() - n + k, " hi=",
+                   static_cast<u32>(v >> 32), " lo=", static_cast<u32>(v),
+                   " chainQw=", h.getChainQw(), " words=", h.getWords());
+        }
+      }
+    }
+  }
+#endif
   qbufferRenderer.onFrameEnd();
   cacher.onFrameEnd();
   transformCacheValid = false;

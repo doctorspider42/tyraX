@@ -132,6 +132,29 @@ This is a structure-independent output check, and that is the whole point:
 - but a package dropped, reordered, given the wrong GIFtag, kicked with the wrong
   program, or fed one stale vertex **changes the hash**.
 
+### All of that is demonstrated, not argued
+
+It is a property of the decoder, so it needs no PS2 to check.
+[`ee-rearchitecture-2026-09-16/gate-selftest.cpp`](../examples/vehicle-playground/authoring/ee-rearchitecture-2026-09-16/README.md)
+builds both chain shapes over the same synthetic bag, folds them through **the
+engine's own translation unit**, and checks every claim above plus six
+deliberate defects. A 36-quadword control chain and a 2-quadword baked chain
+hash identically; three packets hash as one; two *baked* packets hash as one
+*unbaked* packet — which is exactly the case the counter gate forbade. Six extra
+`NOP`s change nothing, an unknown VIFcode latches and names itself, and a
+misaligned `REF` address is refused rather than hashed.
+
+**And it narrowed the cadence claim, which had been asserted too loosely.** The
+cadence is invisible only because **two** facts hold together: `StaPipCore::
+render` calls `clearLastProgramName()` **once per bag, not per packet**, so a
+bag split across packets emits `MSCNT` at the head of the second rather than
+re-kicking; and the end tag's two VIFcode slots are `NOP`. The first version of
+the self-test reset the kick per packet — a plausible engine, not this one — and
+three packets then hashed *differently* from one. If either fact ever stops
+holding, the self-test fails and the gate starts reporting the cadence as
+visible, which at that point is the correct answer rather than a defect in the
+gate.
+
 ### The texture interlock, folded into the same hash
 
 VIF1 path 1 is not the only thing this pipeline sends the GS. Textures are
@@ -163,7 +186,11 @@ identical across arms; it does not have to be cheap.
 It ships behind `TYRA_STAPIP_VIFHASH`, default 0, in the style of
 `TYRA_STAPIP_ATTRIB` and `TYRA_STAPIP_BAKED_STREAM` — one null-branch when off,
 and per [devkit.md](devkit.md)'s zero-cost rule, nothing linked into a release
-build.
+build. The decoder is
+`vendor/tyra/engine/{inc,src}/renderer/3d/pipeline/static/core/stapip_vif_hash.*`;
+it folds at the same seam the devkit tap stands on in
+`StaPipQBufferRenderer::sendPacket`, at `beforeTextureMutation` for the texture
+half, and `StaPipCore::onFrameEnd` prints the ring.
 
 ### The determinism caveat
 
@@ -308,7 +335,13 @@ byte-identical picture on one still pose had been carrying the whole argument.
 The costs here are arithmetic, not measurement: the 167 000 quadwords a frame is
 derived from the submitted-vertex count and the stream counts per program class,
 and the 10–25 ms follows from it. The 97%-full figure for `VU_CAP_MAX_QW` is the
-same arithmetic against the spike's measured per-frame package count. Nothing on
-this page has been run yet; the implementation behind it is item 3 of
-[ee-submission-rearchitecture.md](ee-submission-rearchitecture.md)'s order of
-work and its evidence will be archived beside the two round-one directories.
+same arithmetic against the spike's measured per-frame package count.
+
+**The self-test is a host result and proves the decoder, not the console.** It
+shows that the fold has the property the gate needs; it does not show that the
+engine's real chains stay inside the VIFcode set it decodes, and it cannot — the
+only thing that settles that is a run whose readout does not say `BROKEN`.
+
+Leg 2 has not been run on hardware, which is the gate's own open item rather
+than an omission: leg 2 in PCSX2 checks logic and leg 2 on the console checks
+coherency, and `192.168.100.150` belonged to another agent this round.

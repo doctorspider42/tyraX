@@ -27,6 +27,7 @@
 #include "renderer/core/paths/path1/path1.hpp"
 #include "renderer/core/renderer_core.hpp"
 #include "renderer/core/texture/renderer_core_texture_buffers.hpp"
+#include "./stapip_vif_hash.hpp"
 
 /**
  * Modified by TyraX: retained static geometry COMMAND data
@@ -688,6 +689,17 @@ class StaPipQBufferRenderer {
 
   /** See takeChainQwords(). Accumulated in sendPacket, reset on read. */
   u32 chainQwords = 0;
+
+#if TYRA_STAPIP_VIFHASH
+ public:
+  /** The acceptance gate, leg 1 - docs/baked-stream-acceptance-gate.md. Folded
+   * in sendPacket() (every chain, before the send) and in
+   * beforeTextureMutation() (every texture change, in sequence), read and
+   * printed by StaPipCore::onFrameEnd. */
+  StaPipVifHash vifHash;
+
+ private:
+#endif
 
 #if TYRA_STAPIP_BAKED_STREAM
   // Modified by TyraX: baked VIF streams (see StaPipBakedStreams).

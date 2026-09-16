@@ -2014,6 +2014,18 @@ void StaPipQBufferRenderer::textureMutationBarrier(void* context) {
 }
 
 void StaPipQBufferRenderer::beforeTextureMutation() {
+#if TYRA_STAPIP_VIFHASH
+  // Modified by TyraX: the gate's second input. This barrier is the ONLY thing
+  // ordering a texture upload (GIF channel) against the draws that read it, and
+  // it works by flushing the pending packet - so a redesign that moves the
+  // flush cadence can move an upload between a different pair of draws. Folding
+  // a marker here in sequence makes the hash model this pipeline's whole
+  // contribution to GS state as an ordered sequence of draws and texture
+  // changes. Folded BEFORE the flush, so it lands between the draws it
+  // separates. docs/baked-stream-acceptance-gate.md.
+  vifHash.foldTextureMutation(
+      submissionTextureReadersOutstanding ? 1u : 0u);
+#endif
   flushPendingPacket();
   if (!submissionTextureReadersOutstanding) return;
   rendererCore->sync.align3D();
@@ -2054,6 +2066,16 @@ void StaPipQBufferRenderer::sendPacket() {
   if (g_vuPacketHook)
     g_vuPacketHook(currentPacket->base, packet2_get_qw_count(currentPacket),
                    "");  // the program is in the packet's MSCAL address
+
+#if TYRA_STAPIP_VIFHASH
+  // Modified by TyraX: the acceptance gate, leg 1. Same seam as the devkit tap
+  // and for the same reason - the chain is finished and the bytes here are the
+  // bytes the DMAC is about to fetch - but it decodes and folds ON THE CONSOLE
+  // instead of shipping a capture to the host, because a capture is one flush
+  // of the ~120 a frame and its buffers truncate silently.
+  // docs/baked-stream-acceptance-gate.md.
+  vifHash.foldChain(currentPacket->base, packet2_get_qw_count(currentPacket));
+#endif
 
   // dma_wait_fast(); // This have no impact on performance
 
