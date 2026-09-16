@@ -240,6 +240,9 @@ Developer design docs (internals, not user guides):
   VU1 cycle per triangle is worth in frame time on real hardware, why ps2sdk's
   two cache primitives are both wrong for a DMA packet, and why neither answer
   is a reason to fork the SDK.
+- [Does the renderer work generalise?](engine-performance-on-a-second-map.md) —
+  the control for six rounds of performance work driven by one scene: a second
+  map with no content in common gains 8.9% of its work from the same engine.
 - [Attributing render submission](render-submission-attribution.md) — the
   opt-in counters that close the gap between the static pipeline's three
   telemetry brackets and the whole `beginFrame`..`endFrame` block, what the
