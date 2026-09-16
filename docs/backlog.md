@@ -54,45 +54,55 @@ cover, in order of what would pay:
 Road changes remain deferred; 50 FPS still requires a much larger reduction in
 whole-frame work than submission batching and retained commands together.
 
-### The package count is at its ceiling — two costed ways past it (2026-09-16)
+### The package count is at its ceiling — one costed way past it left (2026-09-16)
 
 Almost every term left in `dispatch` is per-package and the garage frame is cut
-into 572.5 of them, so "make the package bigger" is the obvious attack. It is
-closed as far as rearranging memory goes — 72 is 96% of what the class this
-frame runs derives and 89% of the 81 that the whole of VU1 data memory allows at
-six quadwords per vertex, and the 144 that would halve the count wants 1.73x
-that memory. The full derivation, the per-class table, the `DBUFFER_END` sweep
-and the measured baseline are in
+into 572.5 of them, so "make the package bigger" is the obvious attack. The
+cheap half of it has been taken: the rounding step went from a multiple of 9 to
+a multiple of 3 and the baked run with it, so the ceiling is **75**, not 72.
+What is left is closed as far as rearranging memory goes — 75 is 93% of the 81
+that the whole of VU1 data memory allows at six quadwords per vertex, and the
+144 that would halve the count wants 1.73x that memory. The full derivation,
+the per-class table, the `DBUFFER_END` sweep and the measured baseline are in
 [render-submission-attribution.md](render-submission-attribution.md), "Round
-three". **Do not re-open "pin the package size per class"**: every class this
-frame uses derives exactly 72, by two independent routes, so a per-class run
-would buy nothing. What is left, in order of payoff:
+three" (the bound) and "Round four" (the change). **Do not re-open "pin the
+package size per class"**: every class this frame uses derives exactly 75, by
+two independent routes, so a per-class run would buy nothing. What is left:
 
-- **Reclaim the clipping scratch: 72 → 81 vertices, −11.1% of the packages.**
+- **Reclaim the clipping scratch: 75 → 81 vertices, −8.0% of the packages.**
   Needs `VU1_STAPIP_DBUFFER_END` at 1014 or above, i.e. both Sutherland–Hodgman
   polygons *and* the six-plane table out of absolute VU1 addresses. There is
   room for them inside the clip programs' own double-buffer half, and this is
   the non-obvious part: a clip buffer's layout is **dynamic**, computed from the
   real vertex count (`stqData = vertexData + vertexCount`), not reserved at
-  `maxVertCount` — so a 12-vertex clip package uses 47 of its 461 quadwords and
-  leaves 162 spare against a 252-quadword worst-case fan-out, with the margin
-  surviving at 81. The cost is the objection: three clip images rewritten to
-  xtop-relative scratch addressing plus their `src/vugen.cpp` twins (or
-  `--vu-check` fails), the plane upload moved from per-mesh to per-clip-package
-  in the packet writer **and** in the retained-command key, VI register pressure
-  in `clip_tc` (269 cycles per triangle, the hottest loop in the pipeline),
-  `meshstrip::kRun` re-baked to 81 with the road/terrain run constants, and a
-  frozen-camera console A/B. Note that moving the plane table DOWN into the
-  per-mesh constants instead is worth exactly zero — the double buffer pays
-  twice below it and gains twice above it.
-- **Relax `getMaxVertCount`'s multiple-of-9 rounding to a multiple of 3: 72 →
-  75, −4.0% of the packages, no memory change.** The 9 exists for the 1/3
-  subpackage split, but both places that actually cut triangles already round
-  for themselves (`clipPackageSize()` and the qbuffer chunk), leaving
-  `maxVertCount / 3` only as the conservative 1/3-bbox granularity. Cheap in the
-  engine, not cheap outside it: the runs are baked, so every example project is
-  re-baked and pixel-compared for 4%. **Fold it into the next change that
-  re-bakes anyway** rather than spending a round on it.
+  `maxVertCount` — so a 12-vertex clip package uses 47 of its 460 quadwords and
+  leaves 161 spare against a 252-quadword worst-case fan-out. **Re-do that
+  margin at 81 before starting**: round four's harness prices the clip
+  footprint per class properly (uploaded streams, the real per-output-vertex
+  store count, the real tag block) and the number round three quoted is not the
+  one that binds — with the scratch moved INTO the half it also has to be paid
+  for out of the same 500 quadwords. The cost is the objection: three clip
+  images rewritten to xtop-relative scratch addressing plus their
+  `src/vugen.cpp` twins (or `--vu-check` fails), the plane upload moved from
+  per-mesh to per-clip-package in the packet writer **and** in the
+  retained-command key, VI register pressure in `clip_tc` (269 cycles per
+  triangle, the hottest loop in the pipeline), `meshstrip::kRun` re-baked to 81
+  with the road/terrain run constants, and a frozen-camera console A/B. Note
+  that moving the plane table DOWN into the per-mesh constants instead is worth
+  exactly zero — the double buffer pays twice below it and gains twice above it.
+  Note also that at 81 the rounding step is irrelevant (both /9 and /3 give
+  81), so this lever and round four's do **not** add up.
+- ~~**Relax `getMaxVertCount`'s multiple-of-9 rounding to a multiple of 3: 72 →
+  75, −4.0% of the packages, no memory change.**~~ **DONE (2026-09-16, "Round
+  four").** It cost one thing round three did not price: the relaxation also
+  moves `clipPackageSize()`, and it took the untextured single-colour class to
+  a **one-quadword** clip-buffer margin. `clipDivisor` went 5 → 6 in the same
+  commit, which puts every reachable class back above 91 quadwords — better
+  than the 35 the textured single-colour class was already shipping on — and
+  leaves the clip package size of the three classes a textured scene actually
+  uses (`cull_tc`, `cull_tce`, `cull_td`) **unchanged at 12**. The margins are
+  derived per class by
+  `examples/vehicle-playground/authoring/package-ceiling-75-2026-09-16`.
 - **The only other lever is the six quadwords per vertex** — three uploaded
   (position, ST, colour) and three written (the GS reglist for a textured,
   per-vertex-coloured primitive). Whatever is attempted there, the claim to

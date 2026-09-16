@@ -42,10 +42,15 @@ Tyra::Texture* roadTextures_[1]={nullptr};
 std::function<float(float,float)> height;
 float terrainHeightAt(float x,float z) { return height(x,z); }
 Tyra::Texture* acquireTexture(const char*) { return nullptr; }
-// The engine's smallest derived package. 72 on every static program class
+// The engine's smallest derived package - 75 on every static program class
 // this game can route a road bag through, which is why roadgen::kStripRun is
 // that number; buildRoads asks rather than assumes, so the oracle answers.
-unsigned int minPackageSize() { return 72u; }
+// Tied to the constant rather than written out: this stub was a literal 72,
+// and when the package ceiling moved to 75 it answered 72 to a runtime asking
+// for 75, so buildRoads correctly refused to strip and the harness failed with
+// "runtime chunk is not marked stripped" - a true report of a stale ORACLE,
+// which reads exactly like a bug in the code under test.
+unsigned int minPackageSize() { return (unsigned int)roadgen::kStripRun; }
 void procFinishChunks() {}
 void buildRoads(int);
 };

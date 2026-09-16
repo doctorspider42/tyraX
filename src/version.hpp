@@ -16,6 +16,30 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.104.0: THE VU1 PACKAGE CEILING IS 75, NOT 72, AND THE BAKED STRIP RUN
+// MOVES WITH IT (docs/render-submission-attribution.md, "Round four").
+// `StaPipVU1Program::getMaxVertCount` rounded down to a multiple of NINE so
+// the 1/3 subpackage split would divide by three again; no live path needs
+// that - both places that actually cut triangles round for themselves, and
+// `maxVertCount / 3` survives elsewhere only as a conservative bbox
+// granularity. Rounding to a multiple of 3 takes the class every textured
+// scene runs from 72 to 75 vertices a package, which is -4.0% of the packages,
+// and almost every term left in StaPipCore::dispatch is per-package.
+//
+// `meshstrip::kRun`, `roadgen::kStripRun` and the generated road/terrain run
+// constants go to 75 with it, because a run IS a package. Nothing needed a
+// format bump: `.tmdl` already stores `stripRun` per part, and every consumer
+// GUARDS (`stripRun <= minPackageSize()`), so a model baked by an older editor
+// falls back to the triangle list instead of rendering wrong.
+//
+// The part round three did not price: raising the ceiling also raises
+// `clipPackageSize()`, and at the old `clipDivisor` of 5 that left the
+// untextured single-colour clip class 459 of 460 quadwords - a ONE quadword
+// margin on the one path PCSX2 cannot verify. `clipDivisor` is 6 now, which
+// puts every reachable class back above 91 (better than the 35 the textured
+// single-colour class was already shipping on) and leaves the clip package
+// size of the three classes a textured scene uses unchanged at 12.
+//
 // 1.103.0: THE STATIC-BATCH CELL IS BOUNDED BY THE DRAW DISTANCE, SO BATCHING
 // STOPS COSTING MORE THAN IT SAVES ON A BIG MAP (docs/model-pipeline.md, "Why
 // the cell is bounded by the draw distance"). The grouping cell was
@@ -4386,8 +4410,8 @@
 // 1.99.0: render submission is attributed to zero residual; the "gap" was
 // mostly the post-fx, HUD and game-side phases that `submit` always included.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 103
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 104
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

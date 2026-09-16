@@ -155,9 +155,9 @@ struct StaPipAttrib {
    * -> `getProgramByName`, including the four-step `residentFallback` walk and
    * the repository lookup. Pure branching on fields the bag already has. */
   u32 bdProgTicks = 0;
-  /** The other half: `StaPipVU1Program::getMaxVertCount` (THREE integer
-   * divisions - `/= (colorElements + reglistCount)`, then `/3/3`) plus the
-   * `packageSize` pin's `(packageSize / 9) * 9`, plus `setMaxVertCount`'s
+  /** The other half: `StaPipVU1Program::getMaxVertCount` (TWO integer
+   * divisions - `/= (colorElements + reglistCount)`, then `/3`) plus the
+   * `packageSize` pin's `(packageSize / 3) * 3`, plus `setMaxVertCount`'s
    * three stores. The EE has no integer divide unit worth the name, so this
    * is the half a lookup table would remove. */
   u32 bdSizeCalcTicks = 0;

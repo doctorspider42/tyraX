@@ -379,23 +379,28 @@ counts objects rather than vertices.
 ### The rules the format keeps
 
 The strip is chopped at build time into independent **runs** of exactly
-`meshstrip::kRun` = 72 vertices, and the game pins `StaPipBag::packageSize` to
+`meshstrip::kRun` = 75 vertices, and the game pins `StaPipBag::packageSize` to
 that number. That is the whole trick: a VU1 package is a contiguous slice of the
 bag's array, so making the runs BE the packages means no package boundary can
 ever splice two unrelated vertices into one triangle, and no overlap has to be
 repeated at runtime.
 
-- 72 is the smallest package any static program class derives, so one baked
+- 75 is the smallest package any static program class derives, so one baked
   number is legal for every pass an object can take. The game checks that
-  against the engine at runtime and keeps the list if it ever stops being true.
-  **72 is also very nearly the largest number available, which is why the run
-  cannot simply be made longer to cut the package count.** The textured classes
-  derive 75 before the multiple-of-9 rounding, and the whole of VU1 data memory
-  caps a six-quadword-per-vertex package at **81** even with the clipping
-  scratch deleted — 144 would want 1.73x that memory. The derivation, the
-  sweep and what it would cost to reach 75 or 81 are in
+  against the engine at runtime and keeps the list if it ever stops being true
+  (`stripRun <= minPackageSize()`), which is what makes a `.tmdl` baked by a
+  different editor safe rather than merely lucky: a run longer than the engine
+  derives falls back to the triangle list.
+  **75 is also very nearly the largest number available, which is why the run
+  cannot simply be made longer to cut the package count.** It was 72 until the
+  rounding step in `getMaxVertCount` was relaxed from a multiple of 9 to a
+  multiple of 3, which is the whole of the available slack at the shipping
+  memory layout; the whole of VU1 data memory caps a six-quadword-per-vertex
+  package at **81**, and only with the clipping scratch moved out of its fixed
+  addresses entirely — 144 would want 1.73x that memory. The derivation, the
+  sweep, and what reaching 81 would still cost are in
   [render-submission-attribution.md](render-submission-attribution.md),
-  "Round three".
+  "Round three" (the bound) and "Round four" (the change).
 - Every run length is a multiple of 3 - the VU1 vertex loops step by three, and
   a count that is not runs off into VU1 memory. The padding repeats the last
   vertex, which makes a degenerate triangle the GS rasterises to nothing.
@@ -435,7 +440,7 @@ representation the counters compare as they always did.
 Two outright miscounts live in `StaPipCore` and are **not** fixed yet:
 `recordGuardBandPackage` charges `package.size / 3` with no strip branch, so
 the `guard=` half of `FTCLIP` is computed on a different rule from the `cull=`
-it is documented as a subset of (24 against 70 for a 72-vertex run);
+it is documented as a subset of (25 against 73 for a 75-vertex run);
 and `recordOutsideBag` charges a whole bag `count - 2` when the bag is sliced
 into `ceil(count / maxVertCount)` runs that are each their own strip, so it
 over-counts by `2 * (packages - 1)`.

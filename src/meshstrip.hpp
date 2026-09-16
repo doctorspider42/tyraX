@@ -37,14 +37,22 @@
 // and the engine does the rest (see StaPipBag::stripped in the fork).
 namespace meshstrip {
 
-// Vertices per run. 72 is the SMALLEST package any static program class
+// Vertices per run. 75 is the SMALLEST package any static program class
 // derives (textured, per-vertex colours - StaPipVU1Program::getMaxVertCount),
 // so one baked number is legal for every pass an object can take; it is also a
-// multiple of 9, the invariant StaPipCore's package-size clamp keeps. Baking a
+// multiple of 3, the invariant StaPipCore's package-size clamp keeps. Baking a
 // larger run and meeting a smaller derived size would make the clamp move the
 // package boundaries off the run boundaries - which is the one way this can
 // render wrong, so it is a constant rather than a parameter of the file.
-inline constexpr unsigned kRun = 72;
+//
+// It was 72 until the engine's rounding step was relaxed from a multiple of 9
+// to a multiple of 3 (docs/render-submission-attribution.md, "Round four"):
+// the package count is vertices / kRun and almost every per-package term in
+// StaPipCore::dispatch scales with it, so +3 vertices is -4% of the packages.
+// Every consumer GUARDS rather than trusts - a run longer than the engine
+// derives falls back to the triangle list (`stripRun <= minPackageSize()`) -
+// so a .tmdl baked by an older editor stays correct, just slower.
+inline constexpr unsigned kRun = 75;
 
 // Stripify an interleaved 8-float-per-vertex triangle list.
 //

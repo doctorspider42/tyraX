@@ -329,12 +329,13 @@ u32 StaPipCore::getMaxVertCountByBag(const StaPipBag* bag) {
   // vertex array to the same package boundaries, so they classify against the
   // frustum identically and take the same route (VU1 divide vs EE clipper) -
   // see StaPipBag::packageSize. Never above the class's own capacity (that
-  // overflows the VU1 buffer) and always a multiple of 9, the invariant
-  // getMaxVertCount itself keeps: divisible by 3 for whole triangles, and the
-  // /3 subpackage split divisible by 3 again.
+  // overflows the VU1 buffer) and always a multiple of 3, the invariant
+  // getMaxVertCount itself keeps, so a package holds whole triangles. (It was
+  // a multiple of 9 until the rounding step was relaxed - see
+  // StaPipVU1Program::getMaxVertCount for why the second /3 was not load-bearing.)
   if (bag->packageSize == 0 || bag->packageSize >= derived) return derived;
-  const u32 pinned = (bag->packageSize / 9) * 9;
-  return pinned < 9 ? derived : pinned;
+  const u32 pinned = (bag->packageSize / 3) * 3;
+  return pinned < 3 ? derived : pinned;
 }
 
 u32 StaPipCore::getMaxVertCountByParams(const bool& isSingleColor,
@@ -1093,11 +1094,28 @@ void StaPipCore::setMaxVertCount(const u32& count) {
 
 // Modified by TyraX: occupancy cap for clip-classified packages.
 // EE clipper: 1/3 of a VU1 buffer (its fan-out is drained in chunks on the
-// EE). VU1 clipping: 1/5, so the worst-case Sutherland-Hodgman fan-out
+// EE). VU1 clipping: 1/6, so the worst-case Sutherland-Hodgman fan-out
 // (7 output triangles per input triangle across 6 planes) still fits in the
 // output area of one VU1 double-buffer half for every program variant.
+//
+// Modified by TyraX: this was 1/5, and 1/5 stopped being safe when the package
+// ceiling's rounding step was relaxed from /9 to /3
+// (docs/render-submission-attribution.md, "Round four"). The clip footprint is
+//   2 + uploaded*N + tagBlock + 7*N*outputQuadwords
+// and the relaxation moved the untextured single-colour class from 144 to 150
+// vertices, i.e. a clip package of 30, i.e. 459 quadwords of a 460-quadword
+// half - a ONE quadword margin, on the one path PCSX2 cannot verify. At 1/6
+// every reachable class keeps at least 91, which is better than the 35 the
+// textured single-colour class ran on before this round.
+//
+// It is close to free where it matters: the classes a real textured scene
+// takes (cull_tc / cull_tce with per-vertex colours, cull_td with one colour)
+// derive a clip package of 12 under BOTH the old /9-with-1/5 and the new
+// /3-with-1/6, so their clip route is unchanged and only the cull route's
+// packages get 4% fewer. The margins are derived, per class, by
+// examples/vehicle-playground/authoring/package-ceiling-75-2026-09-16.
 u32 StaPipCore::clipDivisor() const {
-  return qbufferRenderer.isVU1ClippingEnabled() ? 5 : 3;
+  return qbufferRenderer.isVU1ClippingEnabled() ? 6 : 3;
 }
 
 // The size must stay a multiple of 3 - a package boundary through the middle
