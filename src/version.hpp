@@ -52,6 +52,19 @@
 // for re-baked ones), so they are reported as counts, and the frame time is
 // being taken on the physical console.
 //
+// NOT MERGEABLE AS IT STANDS, and the reason is in the page. On the console the
+// garage wins -1.838 / -1.810 ms but the OUTER poses regress +0.408 / +0.549,
+// entirely inside `bounds`, in a pose where WHEELBAKE reports cars=0 batches=0
+// - the wheel bag is never submitted there, under release as well as debug. So
+// it is not the bag's own bounds work; the only state crossing the pose
+// boundary is the package-bbox cacher's. The hypothesis is the EE data cache: a
+// fresh stamp recomputes boxes from a vertex array still hot, a sticky one
+// reads boxes hundreds of frames cold, and PCSX2 reads those poses -0.07, a
+// WIN, where the console reads +0.42, a loss - a sign disagreement, which is
+// what a cache effect looks like. TYRA_WHEEL_STICKY_BBOX (default 1) exists to
+// price that lever alone: at 0 it keeps the skip and the hoist and restores the
+// unconditional bump, so three arms separate the three levers.
+//
 // PCSX2, parked fixture, two arms differing in ONE generated file: triangles
 // (40502/41176/16386/16720), packet flushes, uploads, re-uploads and the
 // retained-command TOTALS are identical to the unit, and twelve frozen-camera

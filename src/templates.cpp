@@ -34457,6 +34457,20 @@ int TerrainGame::vehicleLod(int vi) const {
 #ifndef TYRA_WHEEL_REBUILD_VERIFY
 #define TYRA_WHEEL_REBUILD_VERIFY 0
 #endif
+// THE A/B KNOB FOR THE SECOND LEVER, ON ITS OWN. This function does three
+// independent things - skip a rig that did not move, keep bboxVersion when the
+// buffer is byte-identical, and hoist the trigonometry out of the per-wheel
+// loop - and they do NOT have the same cost profile. Setting this to 0 keeps
+// the skip and the hoist and restores the unconditional `++g_bboxStamp`, so a
+// three-arm run (pre-change / this / this with 0) prices the sticky stamp by
+// itself. It exists because the stamp is the one lever that can COST: a fresh
+// stamp makes the package-bbox cacher recompute the boxes from a vertex array
+// the EE has just written and still has hot, while a sticky one makes it read
+// boxes that may be hundreds of frames old and stone cold. PCSX2 models no EE
+// data cache and cannot price that trade in either direction.
+#ifndef TYRA_WHEEL_STICKY_BBOX
+#define TYRA_WHEEL_STICKY_BBOX 1
+#endif
 #if TYRA_WHEEL_REBUILD_VERIFY && !TYRA_WHEEL_REBUILD_REPORT
 #undef TYRA_WHEEL_REBUILD_REPORT
 #define TYRA_WHEEL_REBUILD_REPORT 1
@@ -34804,6 +34818,9 @@ void TerrainGame::renderVehicleWheels() {
     changed = true;
   batch.lastVerts = batch.verts.data();
   batch.lastCount = batch.verts.size();
+#if !TYRA_WHEEL_STICKY_BBOX
+  changed = true;  // the control arm for the stamp lever alone
+#endif
   if (changed) {
     batch.stamp = ++g_bboxStamp;
 #if TYRA_WHEEL_REBUILD_REPORT
