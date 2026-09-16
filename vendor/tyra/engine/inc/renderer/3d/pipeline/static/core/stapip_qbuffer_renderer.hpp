@@ -350,6 +350,16 @@ class StaPipQBufferRenderer {
   u16 getQBufferIndex(StaPipQBuffer* buffer);
   u16 packetSize;
 
+#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
+  /**
+   * Probe B only (stapip_probes.hpp): any buffer committed into the packet
+   * currently being built had its streams written into the qbuffer copy pool,
+   * so this send must keep the whole-data-cache write-back. Set in
+   * addBuffersDataToPacket, consumed and cleared in sendPacket.
+   */
+  bool probePacketUsesPool;
+#endif
+
   static const u16 buffersCount;
 
   StaPipVU1Program* getProgramByName(const StaPipProgramName& name);

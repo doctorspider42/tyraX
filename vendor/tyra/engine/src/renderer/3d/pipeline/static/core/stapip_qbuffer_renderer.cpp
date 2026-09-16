@@ -291,9 +291,39 @@ void StaPipQBufferRenderer::allocateOnUse() {
   // + headers).
   // Four inline lighting qwords replace the former REF payload.
   packets = new packet2_t*[2];
+#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
+  // Probe B (stapip_probes.hpp). 1 = P2_TYPE_UNCACHED, 2 = UNCACHED_ACCL.
+  // packet2_create asserts qwords % 4 == 0 for either uncached type, so say so
+  // here rather than discovering it as a trap on the console.
+  static_assert((4 * (4 * 32 + 68)) % 4 == 0,
+                "Probe B: an uncached packet2 needs a qword count that is a "
+                "multiple of 4 (ps2sdk packet2_create). Keep packetSize so.");
+  const enum Packet2Type probeType = TYRA_STAPIP_PROBE_UNCACHED_CHAIN == 2
+                                         ? P2_TYPE_UNCACHED_ACCL
+                                         : P2_TYPE_UNCACHED;
+  for (u16 i = 0; i < 2; i++)
+    packets[i] = packet2_create(packetSize, probeType, P2_MODE_CHAIN, true);
+  probePacketUsesPool = false;
+  // VERIFY THE ALLOCATION TOOK EFFECT BEFORE TRUSTING A SINGLE NUMBER FROM
+  // THIS ARM. A packet that quietly came back in the normal segment would
+  // measure "no flush needed" while the DMA read stale cache lines - the
+  // failure mode is intermittent wrong geometry, not a crash. The segment is
+  // the top nibble of the base pointer: 0x3 accelerated, 0x2 uncached.
+  for (u16 i = 0; i < 2; i++) {
+    TYRA_ASSERT(packets[i] != nullptr, "Probe B: packet2_create refused an "
+                "uncached packet. Check packetSize % 4.");
+    const u32 seg = reinterpret_cast<u32>(packets[i]->base) >> 28;
+    TYRA_ASSERT(seg == (TYRA_STAPIP_PROBE_UNCACHED_CHAIN == 2 ? 0x3U : 0x2U),
+                "Probe B: packet ", i, " is NOT in the uncached segment. "
+                "base nibble: ", seg);
+    TYRA_LOG("PROBEB: packet ", i, " base segment 0x", seg,
+             " (1=uncached, 2=uncached-accelerated arm)");
+  }
+#else
   for (u16 i = 0; i < 2; i++)
     packets[i] =
         packet2_create(packetSize, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
+#endif
 
   buffers = new StaPipQBuffer*[buffersCount];
   for (u16 i = 0; i < buffersCount; i++) {
@@ -1135,6 +1165,11 @@ StaPipQBuffer* StaPipQBufferRenderer::getBuffer() {
   // index into a copied or clipped one. StaPipCore sets it back after the fill
   // for the routes that may be retained.
   result->retainIndex = -1;
+#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
+  // Probe B: same gate, same reason - a recycled slot must not carry a stale
+  // "my streams are in the copy pool" claim into a fillByPointer buffer.
+  result->probeCopyFilled = false;
+#endif
   if (nextBufferIndex >= buffersCount) {
     Verbose("Rollup - clearing buffer indices. currentBufferIndex: ",
             currentBufferIndex, " (before)nextBufferIndex: ", nextBufferIndex);
@@ -1380,6 +1415,12 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
     // the number the EE's per-package bill scales with. See StaPipTelemetry.
     if (telemetry) telemetry->verticesSubmitted += buffers[i]->size;
 
+#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
+    // Probe B: one buffer whose streams live in the copy pool is enough to
+    // make this whole chain need the write-back. See stapip_probes.hpp.
+    if (buffers[i]->probeCopyFilled) probePacketUsesPool = true;
+#endif
+
 #if TYRA_STAPIP_RETAINED_COMMANDS
     // Modified by TyraX: retained command data. The block is the bag's
     // geometry commands for THIS package - identical every frame while the key
@@ -1553,7 +1594,32 @@ void StaPipQBufferRenderer::sendPacket() {
   const u32 submitStart = telemetry != nullptr ? readTelemetryTicks() : 0;
   { HardwareTrace::Scope trace("VIF1_submit");
     if (HardwareTrace::active) { const u32 t=HardwareTrace::ticks(); HardwareTrace::record("Packet_qwords", t, t, packet2_get_qw_count(currentPacket)); }
-    dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1, true); }
+#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
+    // Probe B (stapip_probes.hpp): the packet itself is uncached, so nothing
+    // of IT needs writing back - but a chain whose REF tags name the qbuffer
+    // copy pool still does, and that half is bounded rather than assumed.
+    const bool probeFlush = probePacketUsesPool || TYRA_STAPIP_PROBE_FORCE_FLUSH;
+    if (telemetry != nullptr) {
+      if (probeFlush) ++telemetry->probeFlushedSends;
+      else ++telemetry->probeUnflushedSends;
+    }
+#if TYRA_STAPIP_PROBE_LOG_SENDS
+    {
+      // Scene property, read in PCSX2. Never enable this for a console timing
+      // arm - see TYRA_STAPIP_PROBE_LOG_SENDS in stapip_probes.hpp.
+      static u32 probeKept = 0, probeDropped = 0;
+      if (probeFlush) ++probeKept; else ++probeDropped;
+      if ((probeKept + probeDropped) % 3000 == 0)
+        TYRA_LOG("PROBEB: sends kept(flush)=", probeKept,
+                 " dropped(no flush)=", probeDropped);
+    }
+#endif
+    dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1, probeFlush);
+    probePacketUsesPool = false;
+#else
+    dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1, true);
+#endif
+  }
   if (submissionPacketHasTexture)
     submissionTextureReadersOutstanding = true;
   submissionPacketHasTexture = false;

@@ -561,3 +561,26 @@ See [gs-vram.md](../../docs/gs-vram.md).
 
 See [the report](../../docs/vu1-and-dma-cache-cost.md) and
 [the raw arms, probe sources and reproduction recipe](authoring/vu-cost-dma-cache-2026-09-15/README.md).
+
+### The two EE-submission bounding probes (2026-09-16)
+
+Physical PS2, six hashed ELFs, four parked poses, 240 recorded rows each, and a
+0.135 ms repeatability floor from two boots of the control. Both probes **cap**
+the direction they were aimed at, which is what they existed to do:
+
+| garage day, frame `work` | |
+| --- | ---: |
+| what per-package frustum rejection BUYS | 2.60 ms |
+| what per-package classification COSTS | 1.79 ms |
+| what coarsening the classification costs | +4.59 ms |
+| what `FlushCache` costs, refill included | 1.09 ms |
+| what the cheapest legal way to stop calling it costs | +7.55 ms |
+
+So the rejection pays for itself and the planned redesign must keep an
+equivalent test; classifying more coarsely is a net loss; and the arm that
+stopped calling `FlushCache` **corrupted the picture** — a 14-row band at the
+horizon — even with the packet allocated in uncached memory and the qbuffer copy
+pools still flushed.
+
+See [the plan and what the probes changed in it](../../docs/ee-submission-rearchitecture.md)
+and [the raw arms, patches, captures and reproduction recipe](authoring/ee-probes-2026-09-16/README.md).
