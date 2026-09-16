@@ -3135,6 +3135,47 @@ you measure** - the diff should contain your change and nothing else, and
 protect you here: the arms really were two builds, they were two builds of two
 different games.
 
+### Pricing a CULLING change in PCSX2: counts, plus a batching-OFF third arm
+
+A change to what gets *grouped* or *culled* is measurable in the emulator
+without ever quoting a millisecond, and on this repo's rules that is the honest
+way round: PCSX2 emulates no EE data cache, so its times mislead, while its
+**counts and its pixels are exact**. The recipe that priced the static-batch
+cell (1.102.1, docs/model-pipeline.md):
+
+- **The counters are two log lines, not an instrumented loop.** Set
+  `TYRA_FRAME_PROFILE` to 1 in `vendor/tyra/engine/inc/debug/frame_profile.hpp`
+  (**identical in every arm, and reverted before committing** - it is a
+  measurement flip, not a change) and the game prints `FTCLIP` every 50 frames:
+  package and triangle counts per clipper route, `flush` (packet flushes),
+  `verts` and `out`. Divide by 50 for per-frame; total VU1 packages is
+  `cull + clip + guard + out`. The generated game prints `Static batching:` at
+  scene load for the batched/solo split. No `instrument-frame-cost.py`, no
+  patched `loop()`, and nothing to regenerate away.
+- **RUN A BATCHING-OFF THIRD ARM, and make it the reference.** Two arms tell you
+  a change moved; they cannot tell you which one is *right*. `staticBatching:
+  false` in the `.tyra` renders the ground truth. That third arm is what turned
+  "the new cell is cheaper" into the much stronger "the new cell is
+  byte-identical to no batching at all, and the OLD one drew 400 pixels of props
+  the unbatched scene culls" - a visible defect nobody was looking for.
+- **A steady count is not a steady picture.** Check both gates separately. The
+  adversarial fixture for that round had counts identical to the digit across
+  four consecutive `FTCLIP` windows in both arms while its *captures* differed
+  by 283-419 px **within one arm**, so its numbers were quotable and its pixels
+  were not. Report which gate a fixture passes rather than assuming determinism
+  travels from one to the other.
+- **Watch for the DOMINATED case, because that is the one that can only lose.**
+  Batching on a big map was worse on both axes at once - more triangles *and*
+  more packet flushes - which needs no hardware to condemn. With the cell fixed
+  the same feature became a pure win on one map and a genuine trade (+23.5%
+  triangles, -43% flushes) on another. "Worse on every axis" is a verdict;
+  "worse on one, better on another" is a question for the console.
+- Usual hygiene, all of which this round needed: short paths outside the repo,
+  one PCSX2 launched per arm by hand (never `--build --run`, which reaps other
+  sessions' emulators), `frame.tga` deleted between `--capture-frame` calls or
+  the next one reads the previous file, and a DAY pose on the district because
+  the night ones flicker.
+
 **HASH THE TWO ELFs BEFORE YOU BELIEVE A NULL RESULT.** The cleanest way to
 A/B a codegen change is one project directory and two compiles, swapping only
 the generated `src/terrain_game.cpp` between them - it removes the fixture, the

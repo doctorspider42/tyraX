@@ -492,6 +492,28 @@ over its members' positions in `renderStaticBatches`
 never be routed through the `shown` snapshot: anything that flips as the
 camera moves would re-bake the batch every frame.
 
+**And a batch-level test is only as good as the box it is applied to, so the
+GROUPING CELL must be derived from the content, never from the map.** The cell
+was `max(mapW / 4, 48)` — a fraction of the map, which grows the cull box as
+the world gets bigger, exactly backwards. A 2048-unit map got a 512-unit cell,
+merged 1,100 objects into FOUR batches, and turned a 0.46 ms win on the Motor
+District into a 3.20 ms loss on `examples/large-terrain` — because a batch's
+one draw-distance test, applied to the nearest point of a 512-unit box, held
+props drawn that individually vanish at 60 units. `cellFor` now bounds the cell
+by the draw distance the group shares, which works precisely because that value
+is already a key (every member agrees about it), so it is a length the scene
+states about itself rather than a constant to re-tune per map. The district is
+unchanged by construction: `min(80, 145)` is still 80.
+
+Two lessons generalise past this one knob. **A per-group key is also a per-group
+SCALE** — when you move a value onto the key, ask what else in the grouping
+should be measured in it. And **a ratio is not automatically scene-independent**:
+an occupancy test ("batch only when members fill their union") was rejected here
+with a number, because the district's win comes from merging props that are
+sparse in their cell (6.7% fill), so any threshold strict enough to catch the
+bad case discards the good one. See docs/model-pipeline.md, "Why the cell is
+bounded by the draw distance".
+
 Beware the near-miss when reading such a census: the authored
 `SceneObject::dynamicLighting` flag (which sets `bag->lighting` and selects
 the `cull_td` program) is **not** the runtime per-bag light pick in

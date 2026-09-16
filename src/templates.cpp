@@ -1290,7 +1290,12 @@ class TerrainGame : public Tyra::Game {
   // world-space bags at scene load, grouped by texture + a coarse world
   // cell - one StaPip submit per batch instead of per object (the fixed
   // ~1 ms per-bag EE cost on real hardware dominates scenes made of many
-  // small props). Members keep their runtimeObjects entry (collision,
+  // small props). THE CELL IS NEVER WIDER THAN THE DRAW DISTANCE ITS
+  // MEMBERS SHARE: a batch is one bag with one cut-off test and one
+  // bounding box, so a cell derived from the map size makes both coarser
+  // the bigger the world is, which is backwards - see
+  // docs/model-pipeline.md, "Why the cell is bounded by the draw
+  // distance". Members keep their runtimeObjects entry (collision,
   // raycasts and scripts read data as always) but skip the per-object draw
   // path. Runtime mutation of a member (Live Link edits, Raycast-driven
   // actions, global scripts - all set dirty) DEMOTES it to the solo path
@@ -2882,7 +2887,12 @@ class TerrainGame : public Tyra::Game {
   // world-space bags at scene load, grouped by texture + a coarse world
   // cell - one StaPip submit per batch instead of per object (the fixed
   // ~1 ms per-bag EE cost on real hardware dominates scenes made of many
-  // small props). Members keep their runtimeObjects entry (collision,
+  // small props). THE CELL IS NEVER WIDER THAN THE DRAW DISTANCE ITS
+  // MEMBERS SHARE: a batch is one bag with one cut-off test and one
+  // bounding box, so a cell derived from the map size makes both coarser
+  // the bigger the world is, which is backwards - see
+  // docs/model-pipeline.md, "Why the cell is bounded by the draw
+  // distance". Members keep their runtimeObjects entry (collision,
   // raycasts and scripts read data as always) but skip the per-object draw
   // path. Runtime mutation of a member (Live Link edits, Raycast-driven
   // actions, global scripts - all set dirty) DEMOTES it to the solo path
@@ -19149,7 +19159,38 @@ void TerrainGame::buildStaticBatchList() {
   // the map corner (terrain is centered on the origin) for the same reason.
   const float mapW =
       TERRAIN_WIDTH > TERRAIN_DEPTH ? TERRAIN_WIDTH : TERRAIN_DEPTH;
-  const float cellW = mapW * 0.25F > 48.0F ? mapW * 0.25F : 48.0F;
+  const float baseCellW = mapW * 0.25F > 48.0F ? mapW * 0.25F : 48.0F;
+  // ...AND NEVER WIDER THAN THE DRAW DISTANCE ITS MEMBERS SHARE. A quarter of
+  // the map is a fraction of the wrong thing: it grows with the MAP, so the
+  // bigger the world the coarser the cull, which is backwards. On a 2048-unit
+  // map that is a 512-unit cell, and the batch built in it is one bag whose
+  // member-centre box renderStaticBatches tests ONCE - so a batch of props
+  // that individually vanish at 60 units stays drawn while the camera is
+  // within 60 units of a 512-unit box. Measured on examples/large-terrain:
+  // +2,015 triangles and +12 packet flushes against the same scene unbatched,
+  // which is the widened-bounds regression #269 warned about arriving through
+  // the draw-distance test rather than through the frustum.
+  //
+  // drawDistance is ALREADY a group key (every member of a batch shares one
+  // cut-off), so it is a per-group length the scene states about itself, and
+  // capping the cell with it makes the grid as coarse as the content allows
+  // instead of as coarse as the map is big. The Motor District is unchanged by
+  // construction - its batchable objects carry 145 or 0, and min(80, 145) is
+  // still 80 - while large-terrain's 1,100 cones drop from 512 to 60.
+  //
+  // 0 means unlimited and has no such length, so those groups keep the base
+  // cell. That is the remaining hole and it is deliberate: an OCCUPANCY test
+  // ("batch only when the members fill their union") was tried on paper and
+  // rejected, because it measures the wrong thing for this engine. The
+  // district's win comes precisely from merging small props that are sparse in
+  // their cell - three boxes of span 12 in an 80-unit cell fill 6.7% of it -
+  // so any ratio strict enough to catch a 512-unit cell also throws away the
+  // batches that pay. What costs is EXTENT AGAINST THE CULL DISTANCE, which is
+  // what the cap above bounds and what a fill ratio cannot see.
+  auto cellFor = [&](float drawDistance) -> float {
+    if (drawDistance <= 0.0F) return baseCellW;
+    return drawDistance < baseCellW ? drawDistance : baseCellW;
+  };
   std::vector<int> keyX, keyZ, keyL;  // cell + lamp, only needed while grouping
   // WHICH DYNAMIC LAMP REACHES THIS OBJECT, or -1. This is a grouping key, not
   // a render decision, and it exists because of how the engine lights a bag:
@@ -19217,6 +19258,11 @@ void TerrainGame::buildStaticBatchList() {
     // Materials of always-resident objects are loaded by now; a reflective
     // one draws a second additive env pass per bag - keep those objects on
     // the solo path, which already handles the env bag.
+    // One grid per draw-distance class, never coarser than that class's own
+    // cut-off. drawDistance is part of the group key, so members that land in
+    // one batch always agreed about this width - the classes have different
+    // grids and cannot merge across them.
+    const float cellW = cellFor(d.drawDistance);
     const int cx = (int)floorf((d.position[0] + 0.5F * mapW) / cellW);
     const int cz = (int)floorf((d.position[2] + 0.5F * mapW) / cellW);
     const int lamp = lampOf(d);
@@ -19277,8 +19323,26 @@ void TerrainGame::buildStaticBatchList() {
     // dirty flag therefore means a runtime mutation and triggers demotion.
     runtimeObjects[i].dirty = false;
   }
+  // The batched/solo split and the widest cell any batch was allowed, so an
+  // A/B can read the grouping decision out of the game's own log instead of
+  // inferring it from triangle counts - and so two arms of a cell change say
+  // which is which. `eligible` counts the batchStatic-flagged objects, so
+  // eligible - batched is the number that stayed solo (a singleton group, a
+  // large model, or a reflective one).
+  int eligible = 0;
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
+    if (SCENE_OBJECTS[i].batchStatic) ++eligible;
+  float widestCell = 0.0F;
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
+    if (SCENE_OBJECTS[i].batchStatic) {
+      const float c = cellFor(SCENE_OBJECTS[i].drawDistance);
+      if (c > widestCell) widestCell = c;
+    }
   TYRA_LOG("Static batching: ", batched, " objects in ",
            (int)staticBatches.size(), " batches");
+  TYRA_LOG("Static batching: eligible ", eligible, ", solo ",
+           eligible - batched, ", base cell ", (int)baseCellW, ", widest cell ",
+           (int)widestCell);
   if (TEXTURE_ATLAS_INFO[0]) TYRA_LOG(TEXTURE_ATLAS_INFO);
 }
 

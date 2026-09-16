@@ -134,7 +134,105 @@ tables are in [profiling.md](profiling.md), "What it actually costs".
 The guard that actually protects culling is the half-cell footprint limit
 above, and this change does not touch it — but the same widened-bounds effect
 it exists to prevent is what shows up here at a smaller scale, which is why
-the grouping cell is the next lever to measure.
+the grouping cell was the next lever to measure. It has been measured, and the
+section below is what it found.
+
+### Why the cell is bounded by the draw distance
+
+The cell was a quarter of the map, floored at 48 units. **A quarter of the map
+is a fraction of the wrong thing**: it grows with the world, so the bigger the
+map the coarser the cull, which is backwards. A 320-unit district got an
+80-unit cell and a 2048-unit map got a **512-unit** one.
+
+That is how the feature that wins 0.46 ms on the Motor District lost **3.20 ms,
+29% of the frame**, on `examples/large-terrain`
+([the second map](engine-performance-on-a-second-map.md)). It merged **1,100
+objects into 4 batches**. Each of those four bags is one bounding box and one
+cut-off test, and this map's cones carry `drawDistance` 60 — so props that
+individually vanish at 60 units stayed drawn while the camera was within 60
+units of a **512-unit** box.
+
+Read that mechanism carefully, because it is not quite the one `#269`
+predicted. The warning was about the **frustum**; what dominated here was the
+**draw-distance** test, which `renderStaticBatches` applies once per batch to
+the nearest point of the member-centre box. Both widen with the cell, so
+bounding the cell fixes both — but the draw-distance half is what made this map
+lose four times what the district gained.
+
+**The cell is now never wider than the draw distance its members share.**
+`drawDistance` was already a group key (every member of a batch agrees about
+it), so it is a per-group length *the scene states about itself* — not a
+constant anyone tuned, and not a property of how big the map is. The grid is
+per draw-distance class, and classes never merge because the key keeps them
+apart.
+
+| map | terrain | draw distance | cell before | cell after |
+| --- | ---: | ---: | ---: | ---: |
+| Motor District | 320 | 145 / 0 | 80 | **80** (unchanged) |
+| large-terrain | 2048 | 60 / 80 | 512 | **60** |
+
+**The district is unchanged by construction**, which is the point of deriving
+the bound rather than picking one: `min(80, 145)` is still 80, so the map the
+feature was tuned on does not move at all — its 65 objects in 48 batches, its
+counters and its picture are identical either side.
+
+On large-terrain the counts return **exactly** to what the scene costs with
+batching switched off, while still merging 1,085 objects into 198 batches:
+
+| per frame | batching off | batching on (before) | batching on (after) |
+| --- | ---: | ---: | ---: |
+| objects batched | — | 1,100 in **4** batches | 1,085 in **198** batches |
+| widest cell | — | 512 | **60** |
+| triangles | 10,297 | **12,392** | **10,297** |
+| submitted vertices | 30,891 | 37,176 | 30,891 |
+| packet flushes | 21 | **33** | **21** |
+| VU1 packages | 320 | **825** | **320** |
+| pixels differing from unbatched | — | **400** | **0** |
+
+The last row is the one to read first. The old batching did not merely cost
+time: it **drew cones the unbatched scene culls**, 400 pixels of them. The
+bounded cell renders the frame byte-identically to no batching at all, so the
+saving is now free rather than paid for in over-draw.
+
+**Why a tightness ratio was rejected.** The obvious alternative — batch only
+when the members fill their union — measures the wrong thing for this engine.
+The district's win comes precisely from merging small props that are *sparse*
+in their cell: three boxes of span 12 in an 80-unit cell fill 6.7% of it. Any
+ratio strict enough to catch a 512-unit cell also throws away the batches that
+pay. What costs is extent against the cull distance, which a fill ratio cannot
+see.
+
+### The case the bound does not cover
+
+`drawDistance` 0 means unlimited, and an unlimited member states no length, so
+those groups keep the base cell. That hole is real, and it was measured rather
+than assumed: `examples/large-terrain` with every draw distance zeroed, which
+is the adversarial scene for this rule.
+
+| per frame | batching off | batching on (cell 512) |
+| --- | ---: | ---: |
+| triangles | 21,417 | 26,460 (+23.5%) |
+| packet flushes | 200 | **114 (-43%)** |
+| VU1 packages | 1,551 | 1,932 |
+
+**That is a trade, not the dominated loss the draw-distance case was.** With
+cut-offs in play, batching was worse on *both* axes at once — more triangles
+**and** more flushes — which is why it could only lose. With no cut-offs the
+frustum widening costs geometry, but the merge still removes 43% of the packet
+flushes, and on this console a submit is the expensive half. Whether that pays
+is a hardware question and is not settled here.
+
+So, the honest range of the rule: it removes the regression wherever the
+members have a draw distance, it is inert where the cell already fits (the
+district, and any small map), and on unlimited-distance content it leaves the
+existing behaviour alone rather than guessing. A scene of many wide-spread
+objects with no draw distance at all is the shape to measure next.
+
+**Note the pixel caveat on that adversarial scene**: its own repeats are not
+byte-identical (283-419 px of 200,704 differ between two captures of one arm),
+so only its counts are quoted above. The two real maps are clean instruments -
+three captures per arm, byte-identical - which is what lets their pixel rows
+mean anything.
 
 ### A batch must keep the strips, or it costs more than it saves
 

@@ -16,6 +16,52 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.102.1: THE STATIC-BATCH CELL IS BOUNDED BY THE DRAW DISTANCE, SO BATCHING
+// STOPS COSTING MORE THAN IT SAVES ON A BIG MAP (docs/model-pipeline.md, "Why
+// the cell is bounded by the draw distance"). The grouping cell was
+// `max(mapW / 4, 48)` - a fraction of the MAP, so it grew with the world and
+// made the cull coarser the bigger the map got. A 320-unit district got 80; a
+// 2048-unit map got 512, merged 1,100 objects into FOUR batches, and lost
+// +3.20 ms (29% of the frame) where the same feature wins 0.46 ms on the
+// district (docs/engine-performance-on-a-second-map.md).
+//
+// The dominant mechanism was NOT the frustum widening #269 predicted: it was
+// the DRAW-DISTANCE test, which renderStaticBatches applies once per batch to
+// the nearest point of the member-centre box. large-terrain's cones vanish at
+// 60 units and were held drawn by a 512-unit box. Both widen with the cell, so
+// bounding the cell fixes both.
+//
+// The cell is now never wider than the draw distance its members share.
+// drawDistance is ALREADY a group key, so it is a per-group length the scene
+// states about itself rather than a constant anyone tuned - the grid is per
+// draw-distance class and classes cannot merge. The Motor District is
+// unchanged BY CONSTRUCTION (min(80, 145) is still 80): 65 objects in 48
+// batches, identical counters, identical captures.
+//
+// Measured in PCSX2, counts and pixels only - the milliseconds are the
+// console's. large-terrain per frame, batching off / before / after:
+// triangles 10,297 / 12,392 / 10,297; packet flushes 21 / 33 / 21; VU1
+// packages 320 / 825 / 320; objects batched - / 1,100 in 4 / 1,085 in 198.
+// The counts return EXACTLY to the unbatched numbers while 1,085 objects still
+// merge. The pixel row is the finding that outranks the timing: the old cell
+// drew 400 pixels of cones the unbatched scene culls, and the bounded cell is
+// byte-identical to no batching at all (three captures per arm, repeats
+// byte-identical, all ELFs hashed and distinct).
+//
+// A tightness/occupancy test was considered and rejected with a number: the
+// district's win comes from merging props that are SPARSE in their cell (three
+// boxes of span 12 in an 80-unit cell fill 6.7%), so any ratio strict enough to
+// catch a 512-unit cell also discards the batches that pay.
+//
+// The uncovered case is stated rather than hidden: drawDistance 0 states no
+// length and keeps the base cell. Measured on an adversarial large-terrain with
+// every cut-off zeroed, batching there is a TRADE (+23.5% triangles, -43%
+// packet flushes), not the dominated loss the draw-distance case was - it was
+// worse on both axes at once. A new second "Static batching:" log line reports
+// eligible/solo/base cell/widest cell so the grouping decision is readable from
+// the game's own log. No project format change (kFormatVersion stays 54), no
+// engine change, no VU1 change. PATCH.
+//
 // 1.102.0: THE WHEEL BATCH STOPS RE-BAKING RIGS THAT DID NOT MOVE, AND STOPS
 // LYING TO TWO CACHES ABOUT IT (docs/wheel-rebake-skip.md). 1.99.0's
 // attribution named renderVehicleWheels as the largest single item left in a
@@ -4304,7 +4350,7 @@
 // mostly the post-fx, HUD and game-side phases that `submit` always included.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 102
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
