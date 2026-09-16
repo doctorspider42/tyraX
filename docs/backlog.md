@@ -428,7 +428,17 @@ What is now settled, and what is left:
 - **World visibility is untried and is now the largest lever on the garage.**
   The garage-day frame contained only 614 of the 9 798 road triangles the
   lateral budget removed, which is the measured reason the triangle budget did
-  not close the 20 ms rung: the road is in the map, not in that view.
+  not close the 20 ms rung: the road is in the map, not in that view. **The
+  inventory now names its population**: three `district-tower` instances are
+  10 491 triangles, 26.0% of the frame, and 797.5 packages a frame are already
+  classified and rejected against 803.5 drawn.
+- **Nothing has ever attacked the frame's worst PACKING.** Projected shadows
+  and the wheels are triangle LISTS — 25 triangles per VU1 package against a
+  strip's 73 — so together they take 130 of garage day's 803.5 packages for
+  3 050 of its 40 347 triangles: 16% of the packages for 7.5% of the triangles,
+  on a page whose whole thesis is that the EE pays per package. Stripping
+  either would be the cheapest package reduction on the list.
+  ([The inventory](../examples/vehicle-playground/authoring/reflection-probe-2026-09-16/README.md).)
 
 
 The retired `PROGRESS.md` is still available when old implementation history is

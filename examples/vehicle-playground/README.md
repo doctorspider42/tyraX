@@ -246,6 +246,20 @@ and release. Add `--profile quiet-debug` or `--profile release` to compare live
 tooling overhead; add `--mesh-lod 64` and/or `--terrain-lod 96` for LOD trials.
 The original example is never overwritten.
 
+**`python authoring/inventory-frame.py <fixture>` answers a different question
+from the frame-cost instrumenter**: not where the milliseconds go, but what the
+frame is MADE OF. It brackets every producer in `renderScene` with a telemetry
+drain — which is an exclusive split, because `takeTelemetry()` clears as it
+reads — and writes `bin/frame-inventory.csv` with triangles, VU1 packages,
+bags, vertices and packet flushes per producer, per pose, plus one row per solo
+object and per object drawn into the reflection probe.
+`python authoring/summarize_inventory.py <fixture> --phase 0` prints it. Counts
+only: it is applied INSTEAD of `instrument-frame-cost.py`, PCSX2 is enough, and
+its own milliseconds are meaningless by construction. The garage-day reading —
+solo static models 44.8%, terrain 13.4%, the reflection probe 13.1%, roads
+8.1% — is in
+[the reflection-probe round's evidence](authoring/reflection-probe-2026-09-16/README.md).
+
 **`--keep-routes` leaves the AI drivers driving**, and there is one class of
 change that must not be measured without it. Parking the traffic is what makes
 this fixture repeatable, but it also means every car is still, every frame,

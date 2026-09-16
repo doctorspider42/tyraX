@@ -459,6 +459,66 @@ is the third of three things that all have to happen - which also means the
 redesign should be built so that fewer triangles make it cheaper rather than
 merely quieter.
 
+## What the garage-day frame is MADE OF — MEASURED, 2026-09-16
+
+The section below says this page reasoned from the wrong inventory. There now
+is a right one. Every producer in `renderScene` was bracketed with a telemetry
+drain (`takeTelemetry()` clears as it reads, so the split is exclusive and
+needs no new engine counter), giving triangles, VU1 packages, bags and packet
+flushes per producer in each of the fixture's four parked poses. Counts only —
+PCSX2, no console, and none of it is a millisecond. Raw evidence, the
+instrument and the identity checks:
+[reflection-probe-2026-09-16](../examples/vehicle-playground/authoring/reflection-probe-2026-09-16/README.md).
+
+**The rows total 40 347 / 41 015 / 13 236.5 / 13 568.5, which is this page's
+own four-pose table minus the road round's measured reduction, exactly, in all
+four poses.** That is the check that the split is complete.
+
+Garage day, 240 recorded frames, per frame:
+
+| producer | triangles | % | packages | bags | flushes | tri/pkg |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| solo static objects | **18 087** | **44.8%** | 354.0 | 62.0 | 38.0 | 51.1 |
+| terrain | 5 416 | 13.4% | 76.0 | 25.0 | 12.0 | 71.3 |
+| **the shared reflection probe** | **5 286** | **13.1%** | 92.5 | 18.5 | 13.0 | 57.1 |
+| static batches | 5 159 | 12.8% | 89.0 | 45.0 | 18.0 | 58.0 |
+| roads | 3 276 | 8.1% | 48.0 | 59.0 | 22.0 | 68.3 |
+| projected shadows | 1 544 | 3.8% | 69.0 | 6.0 | 7.0 | **22.4** |
+| wheels | 1 506 | 3.7% | 61.0 | 3.0 | 6.0 | **24.7** |
+| sky (dome, stars, discs) | 67 | 0.2% | 12.0 | 2.0 | 1.0 | 5.6 |
+| particles, blob shadows | 6 | 0.0% | 2.0 | 4.0 | 2.0 | |
+| **total** | **40 347** | | **803.5** | **224.5** | **119.0** | |
+
+Light pools, light beams, shadow decals, mirrors, portal surfaces, animated
+models, the camera feed, the highlight pass and every non-road procedural chunk
+submit **nothing at all** in this pose.
+
+Four things this says that no earlier number could:
+
+- **The garage is a pile of solo static models, and three instances of one
+  model are a quarter of the frame.** `district-tower` x3 is **10 491
+  triangles, 26.0%**; `district-loft` x2 is 2 748; the three car bodies are
+  3 446. Nothing else reaches 600. The front this page still has open — world
+  visibility, item 5 — is aimed at exactly that population.
+- **The reflection probe is 13.1% of garage day and 13.5% of outer day.** It is
+  very nearly pose-independent, because it is a 110-degree level-forward view
+  of the same buildings whatever the camera does. S4's predicted "+26 flushes
+  and +10 444 triangles on every second frame" reads **26 flushes and 10 572
+  triangles** per hit, attributed.
+- **Roads are 8.1% of garage day and 47.4% of outer day.** The previous round
+  measured that as a delta; this is the inventory behind it.
+- **Projected shadows and the wheels are the frame's worst PACKING** — 130
+  packages for 3 050 triangles, i.e. 16% of the frame's VU1 packages for 7.5%
+  of its triangles, because both are triangle LISTS (75/3 = 25 per package)
+  where terrain, roads and the probe are strips (up to 73). This page's whole
+  thesis is that the EE pays per package, so those two producers are worth
+  about twice their triangle share — and neither has ever been attacked.
+
+And half of all classified packages are thrown away: **797.5 rejected against
+803.5 drawn** in garage day. Probe A already established that the rejection
+pays for itself, so that is not a defect; it is the population world visibility
+would work on, stated as a number for the first time.
+
 ## The map is not the view, and this page promoted a front on the wrong inventory
 
 The triangle budget was promoted here on the strength of "the road surface alone
