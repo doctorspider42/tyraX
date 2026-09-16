@@ -63,6 +63,11 @@ QBufferPool* poolFor(const void* owner) { return poolFor(owner, g_poolSide); }
 
 StaPipQBuffer::StaPipQBuffer() {
   size = 0;
+  // Modified by TyraX: was left uninitialised until the renderer's first
+  // setMaxVertCount fan-out. That fan-out now skips a no-op propagation
+  // (StaPipQBufferRenderer::setMaxVertCount), so a defined starting value is
+  // part of the invariant rather than tidiness.
+  maxVertCount = 0;
   clipPlaneMask = 0;
   stripped = false;
   retainIndex = -1;  // Modified by TyraX: see the field's comment.

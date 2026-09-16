@@ -23,6 +23,14 @@ object in the scene cost **0.148 ms**, and `renderVehicleWheels` costs
 **2.962**, of which **1.970** is the generated game rebuilding every wheel
 vertex on the EE, every frame.
 
+A second round then split the two buckets that survived this one —
+[`bounds` and the package box](#round-two-inside-bounds-and-inside-the-package-box).
+It exonerates the bbox cacher that this page nominated as the next suspect, and
+finds 22% of `bounds` in a per-bag fan-out of one `u32` to thirty-two qbuffers
+that had never been looked at because it reads as three stores. Removing it is
+worth **−0.34 ms of `bounds`**, ten times what the two previous attacks on that
+bucket managed between them.
+
 ## The two instruments, and the one macro that must not ship
 
 Both halves are opt-in and both default to **off**.
@@ -308,7 +316,10 @@ Four things the numbers name instead, in order of size:
   recomputes them) and its retained command blocks (so `dispatch` rebuilds
   them) on every single frame, by construction.
 - **Package creation and classification is 3.346 ms**, 56% of `dispatch` and the
-  largest single unopened box left in the frame. Nothing here looks inside it.
+  largest single unopened box left in the frame. Nothing here looks inside it —
+  "Round two" below does, and the first thing it finds is that **the name is
+  half wrong**: the wholly-visible route, which is about half the submitted
+  bags, runs no classification at all.
 - **The shared reflection probe is the whole of renderScene's head** — 0.820 ms
   of 0.820. The split band, the sky retint, the env basis and the camera feed
   together are 0.001 ms. The probe refreshes every second frame, so on the
@@ -391,6 +402,153 @@ They are deliberately **not fixed in the same commit as this page**: every numbe
 above was taken with them present, and quietly changing the code after measuring
 it breaks the correspondence between the two. They are in
 [the backlog](backlog.md) instead.
+
+## Round two: inside `bounds`, and inside the package box
+
+The two buckets the table above left as the largest unopened boxes have now
+been split the same way. Both close, and **both answers are somewhere nobody
+had looked** — including the place this page itself nominated.
+
+`bounds` had already been attacked twice, plausibly and carefully, for a
+combined **2%**: a branchless `frustumCheckAABB` (4.132 → 4.073 ms on the
+console) and a compacted `partBounds` stride (4.073 → 4.051). The remaining
+suspect was the bbox cacher's hashed lookup, its entry bookkeeping and its
+250-frame expiry. **It is none of those.**
+
+### `bounds`, garage day
+
+Instrumented arm, so every figure carries the hooks' own 6.3% (below).
+
+| bucket | ms | of `bounds` |
+| --- | ---: | ---: |
+| **`bounds` (shipped bracket)** | **2.055** | 100% |
+| ├ package-size derivation (`bdSize`) | 0.577 | 28% |
+| │&nbsp;&nbsp;├ resolving the VU1 program | 0.072 | 3.5% |
+| │&nbsp;&nbsp;├ `getMaxVertCount`'s three integer divisions | 0.057 | 2.8% |
+| │&nbsp;&nbsp;└ **the `packageSize` pin + `setMaxVertCount`** | **0.448** | **22%** |
+| ├ **the bbox cacher** (`bdCache`) | **0.737** | **36%** |
+| │&nbsp;&nbsp;├ **recomputing invalidated boxes** | **0.618** | **30%** |
+| │&nbsp;&nbsp;└ *the hashed lookup, all 226.5 of them* | *0.118* | *5.7%* |
+| ├ the transform cache's two 64-byte `memcmp`s | 0.341 | 17% |
+| ├ the main bounding-box AABB test | 0.215 | 10% |
+| ├ the six object-space frustum planes | 0.135 | 6.6% |
+| └ *residual* | *0.050* | *2.4%* |
+
+and the cacher's own counters, which are what make that table readable:
+
+| | garage day | garage night | outer day | outer night |
+| --- | ---: | ---: | ---: | ---: |
+| lookups (= bags with precise culling) | 226.5 | 267 | 167.5 | 208 |
+| hits | 216.0 | 232.0 | 162.0 | 178.5 |
+| **recalculations** | **10.5** | **35.0** | **5.5** | **29.5** |
+| fresh allocations | **0** | **0** | **0** | **0** |
+| entries held (250-frame retention) | 220 | 256 | 225 | 220 |
+| probes per lookup | 1.44 | 1.51 | 1.50 | 1.45 |
+| the per-frame expiry scan | 0.011 ms | 0.013 | 0.019 | 0.011 |
+
+**The cacher is exonerated and the caller is not.** The hash is doing its job
+(1.44 probes per lookup against a 256-bucket index holding 220 entries), the
+250-frame expiry scan is 0.011 ms, and **nothing allocates at all** — zero
+fresh entries in every pose. All 226.5 lookups together cost **0.118 ms**,
+0.52 µs each. What costs 0.618 ms is **10.5 forced recalculations at 58.8 µs
+each**: bags whose caller bumped `bboxVersion`, so `recalculate()` rescans the
+whole vertex buffer and rebuilds every part box.
+
+That is the `renderVehicleWheels` finding above, priced from the other side.
+The bag is handed `bboxVersion = ++g_bboxStamp` unconditionally every frame, so
+on top of its 1.970 ms of EE rebake it also spends **0.618 ms of `bounds`**
+rebuilding bounding boxes for geometry it could have declared unchanged. The
+fix is a `bboxVersion` contract change in the generated game, not in the engine
+— the engine's part already works. Note the shape of the evidence: garage day
+spends **5x more per lookup** than outer day while the probe depth is identical
+(1.44 against 1.50), which is a recompute signature and not a lookup one.
+
+### The package box, garage day
+
+`dispatch` minus the four nested buckets — the figure this page called "the
+largest single unopened box left in the frame" at 3.346 ms — is 3.206 here, and
+it is **not one thing, and not mostly what its name says**:
+
+| | ms | note |
+| --- | ---: | --- |
+| **`dispatch` (shipped bracket)** | **5.835** | |
+| the four nested buckets (packet, send, VIF1 wait, GIF wait) | 2.629 | |
+| **= "package creation and classification"** | **3.206** | |
+| ├ **classification** (`checkFrustum`, EXCLUSIVE) | **1.401** | 572.5 packages, 2.45 µs each |
+| ├ building the package descriptors | 0.387 | |
+| ├ the wholly-visible direct fill-and-cull loop | 1.041 | *inclusive of its flushes* |
+| ├ the partial route's per-package submission | 1.058 | *inclusive* |
+| ├ the end-of-bag `flushBuffers` | 1.757 | *inclusive* |
+| ├ the retained-command key test | 0.169 | |
+| └ *residual (the route decision)* | *0.023* | |
+
+Three things fall out of it. **Half the submitted bags never reach a
+classification at all** — 53.5 take the wholly-visible direct route against
+59.0 partial — so for those bags the box is the fill-and-cull loop and the name
+is simply wrong. **The classification is arithmetic, not the walk**: the merge
+loop averages **2.31 parts per package**, which is why compacting its stride
+bought 0.5%, and 269 of 572.5 packages additionally run the eight-plane clip
+mask (0.47 per package). And the three inclusive brackets overlap the nested
+2.629, so they may not be summed with it.
+
+### What the numbers named, and what was done about it
+
+**The `packageSize` pin plus `setMaxVertCount` was 0.448 ms — bigger than the
+program lookup and the three integer divisions put together, and it is the part
+that looked like three stores.** `StaPipQBufferRenderer::setMaxVertCount` fans
+one `u32` out to all **32** qbuffers and the clipper, once per bag: 33
+out-of-line stores, 7 474 per garage-day frame, to write the number that was
+already there. The package size is a property of the PROGRAM CLASS, so
+consecutive bags of one class — most of a frame — ask for the size that is
+already set.
+
+It returns early now when the value has not moved. Every leaf setter is a pure
+store, so the skip is exact; the one thing it depends on is that the cached
+value cannot outlive the buffers, so `allocateOnUse()` resets it to 0 (never a
+legal package size) and `StaPipQBuffer`'s constructor now initialises its own
+copy instead of leaving it uninitialised.
+
+Shipped configuration, counters compiled out, two boots per arm:
+
+| pose | `bounds` before | after | delta | per bag |
+| --- | ---: | ---: | ---: | ---: |
+| garage day | 1.933 / 1.933 | 1.593 / 1.593 | **−0.340** (−17.6%) | 1.50 µs |
+| garage night | 2.368 / 2.371 | 1.994 / 1.998 | **−0.374** (−15.8%) | 1.38 µs |
+| outer day | 0.951 / 0.950 | 0.699 / 0.699 | **−0.252** (−26.5%) | 1.50 µs |
+| outer night | 1.331 / 1.333 | 1.039 / 1.039 | **−0.293** (−22.0%) | 1.39 µs |
+
+**Same-ELF repeatability on `bounds` is 0.000–0.004 ms**, so the delta is two
+orders of magnitude above the floor. `prepare`, `dispatch`, `finish` and every
+count — bags submitted, bags culled, packages created, packet flushes — are
+unchanged, and **twelve captures across both day poses and both arms are
+byte-identical**. That is about **ten times what the two previous attacks on
+this bucket achieved between them**, and the reason is not cleverness: it is
+that the previous two were aimed by a plausible story and this one was aimed by
+a measurement.
+
+The two the numbers name and that were NOT acted on here, deliberately:
+**0.618 ms of forced bbox recalculation**, which is a `bboxVersion` contract
+question in the generated game's wheel path and belongs with whoever owns it;
+and **1.401 ms of package classification**, which is 6-plus-8 planes of honest
+arithmetic over 572.5 packages with a 2.31-part merge walk — there is no
+obvious redundancy left in it, and saying so is a result.
+
+### What these hooks cost
+
+| bracket | counters out | counters in | hook cost |
+| --- | ---: | ---: | ---: |
+| `bounds` | 1.933 | 2.055 | **+0.122** |
+| `prepare` | 1.089 | 1.113 | +0.025 |
+| `dispatch` | 5.773 | 5.835 | **+0.062** |
+| `submit` | 14.457 | 14.609 | +0.152 |
+
+Unlike the first round's engine half, **this one is measurable**: the `bounds`
+children over-report by **6.3%** and the `dispatch` children by 1.1%, so
+subtract that before quoting a child as a share of a shipped bracket. `bounds`
+carries seven bracket pairs per bag — fourteen `mfc0` reads — which prices one
+COP0 read at about **11 cycles**. The raw rows, the arms and the capture
+comparison are archived in
+[authoring/bounds-attribution-2026-09-16](../examples/vehicle-playground/authoring/bounds-attribution-2026-09-16/README.md).
 
 ## Limits
 

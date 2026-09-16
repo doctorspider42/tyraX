@@ -16,6 +16,55 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.100.0: THE `bounds` BUCKET, ATTRIBUTED AND THEN CUT BY 17% - AND THE
+// SUSPECT THE LAST ROUND NOMINATED IS INNOCENT (docs/render-submission-
+// attribution.md, "Round two"). This is the third attempt at this bucket. The
+// first two were plausible, careful and worth 2% between them: a branchless
+// `CoreBBox::frustumCheckAABB` (4.132 -> 4.073 ms on the console) and a
+// compacted `partBounds` stride (4.073 -> 4.051). So this round measured
+// before it optimised, and the measurement contradicted the page that ordered
+// it.
+//
+// `TYRA_STAPIP_ATTRIB` (still default 0, still the explicit gate rather than
+// `#ifndef NDEBUG`, which no game build defines) now splits `bounds` five ways
+// and the "package creation and classification" residual inside `dispatch`,
+// plus the bbox cacher's own hit/recalculate/fresh/probe counters and its
+// per-frame expiry scan - which lives outside `render()` and therefore lands in
+// `finish`, which is why nothing had ever measured it. Both levels close:
+// residuals of 0.050 of 2.055 and 0.023 of 5.835 on garage day, in all four
+// poses of every arm.
+//
+// THE CACHER IS NOT THE COST. All 226.5 lookups are 0.118 ms (0.52 us each),
+// the 256-bucket index runs 1.44 probes per lookup, the expiry scan is 0.011 ms
+// and NOTHING allocates - zero fresh entries in every pose. What costs 0.618 ms
+// is 10.5 forced `recalculate()` calls at 58.8 us, i.e. callers bumping
+// `bboxVersion` on geometry they could declare unchanged; that is the
+// `renderVehicleWheels` finding priced from the other side and it belongs to
+// the generated game, not here. And the package box's NAME is half wrong: 53.5
+// of the submitted bags take the wholly-visible route and are never classified
+// at all, while the 1.401 ms that IS classification is honest 6-plus-8-plane
+// arithmetic over 572.5 packages with a 2.31-part merge walk.
+//
+// WHAT WAS FIXED is the thing that looked like three stores.
+// `StaPipQBufferRenderer::setMaxVertCount` fans one u32 out to all 32 qbuffers
+// and the clipper once per bag - 7 474 out-of-line stores per garage-day frame
+// to write the number already there, because the package size is a property of
+// the PROGRAM CLASS and consecutive bags share one. It returns early when the
+// value has not moved; `allocateOnUse()` resets the cached value to 0 and
+// StaPipQBuffer's constructor initialises its own copy, because the one thing
+// the early-out depends on is that the cache cannot outlive the buffers.
+// Shipped configuration, counters compiled out, two boots per arm: `bounds`
+// 1.933 -> 1.593 (garage day), 2.370 -> 1.996 (garage night), 0.950 -> 0.699
+// (outer day), 1.332 -> 1.039 (outer night) - -0.25 to -0.37 ms, ~1.4 us per
+// bag, against a same-ELF repeatability of 0.000-0.004 ms. `prepare`,
+// `dispatch`, `finish` and every count are unchanged and TWELVE captures across
+// both day poses and both arms are byte-identical. These hooks, unlike the last
+// round's, are measurable (+0.122 ms on `bounds`), so the control arm is run
+// every time and the children are quoted net of it. PCSX2 only; it models no EE
+// data cache, so the shares travel to hardware and the milliseconds do not. No
+// project format change (kFormatVersion stays 54), no codegen change, no VU1
+// change, and the shipped ELF carries none of the counters. MINOR.
+
 // 1.99.0: THE 7.5 ms THAT WAS IN NO BUCKET, ATTRIBUTED - AND THE FIRST THING
 // IT SAYS IS THAT THE QUESTION WAS MIS-POSED (docs/render-submission-
 // attribution.md). Five rounds of Motor District work quoted `submit` against
@@ -4179,7 +4228,7 @@
 // 1.99.0: render submission is attributed to zero residual; the "gap" was
 // mostly the post-fx, HUD and game-side phases that `submit` always included.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 99
+#define TYRAX_VERSION_MINOR 100
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

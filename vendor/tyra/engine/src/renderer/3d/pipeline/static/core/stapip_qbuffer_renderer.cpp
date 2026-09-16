@@ -299,6 +299,10 @@ void StaPipQBufferRenderer::allocateOnUse() {
   for (u16 i = 0; i < buffersCount; i++) {
     buffers[i] = new StaPipQBuffer();
   }
+  // Modified by TyraX: these buffers hold no package size yet, so the cached
+  // value that setMaxVertCount early-outs on must not claim they do. 0 is not
+  // a legal size, so the next bag always propagates. See setMaxVertCount.
+  maxVertCount = 0;
 
   dBufferPrograms = new StaPipVU1Program*[buffersCount];
 
@@ -1578,7 +1582,30 @@ void StaPipQBufferRenderer::sendPacket() {
   StaPipQBuffer::flipPoolSide();
 }
 
+// Modified by TyraX: propagate only when the value actually MOVES.
+//
+// StaPipCore calls this once per bag, inside the `bounds` bracket, and it fans
+// the same u32 out to all 32 qbuffers plus the clipper - 33 out-of-line stores
+// per bag, 7 474 per garage-day frame, to write the number that was already
+// there. Measured by the attribution pass: the pin-and-store half of `bdSize`
+// is 0.448 ms of a 2.016 ms `bounds` (docs/render-submission-attribution.md),
+// while resolving the program is 0.072 and the three integer divisions in
+// getMaxVertCount are 0.057. The package size is a property of the PROGRAM
+// CLASS, so consecutive bags of one class - which is most of a frame - ask for
+// the size that is already set.
+//
+// Every leaf setter here is a pure store (StaPipQBuffer, StaPipClipper), so
+// skipping a no-op propagation is exact rather than approximate.
+//
+// THE INVARIANT THIS DEPENDS ON: `maxVertCount` must equal what the buffers
+// hold. A fresh `allocateOnUse()` builds new StaPipQBuffers whose own
+// maxVertCount is not yet meaningful, so that function resets this field to 0
+// - never a legal package size, every derived one being a multiple of 9 and at
+// least 9 - which forces the next bag to propagate. Without that reset a scene
+// reload whose first bag happened to want the previous scene's size would skip
+// the propagation and leave 32 buffers holding a stale number.
 void StaPipQBufferRenderer::setMaxVertCount(const u32& count) {
+  if (maxVertCount == count) return;
   maxVertCount = count;
   for (u32 i = 0; i < buffersCount; i++) {
     buffers[i]->setMaxVertCount(count);

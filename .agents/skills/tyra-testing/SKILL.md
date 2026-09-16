@@ -2974,7 +2974,33 @@ may ship on: **`#ifndef NDEBUG` is not the devkit gate here** - a game build
 never defines NDEBUG, and a census keyed that way shipped live at ~1 ms a
 frame. Price the hooks with three arms of one fixture (plain / `--attribute` /
 `--attribute` + macro 1), and remember PCSX2 emulates no EE data cache, so its
-shares travel and its milliseconds do not. See
+shares travel and its milliseconds do not.
+
+**The macro now also splits `bounds` five ways and the package-creation box
+inside `dispatch`, and at that density the hooks ARE measurable** - +0.122 ms on
+`bounds`, +0.062 on `dispatch`, so the children over-report by 6.3% and 1.1%.
+Run the counters-out control every time and subtract; the first round's "the
+hooks are under the noise floor" was true of ten brackets and is not true of
+forty. Same-ELF repeatability on `bounds` is 0.000-0.004 ms, which is what makes
+a 0.34 ms delta unarguable.
+
+**A pixel A/B of this fixture must crop the emulator's own chrome, and the
+NIGHT poses cannot be used at all.** A `-PrintWindow` grab of the PCSX2 window
+includes its title bar (top ~31 rows) and its live FPS readout (bottom ~30);
+those are the only things that move in a parked frame, and with them in, three
+captures of ONE arm differ and nothing is comparable. Cropped
+(`--crop-top 35 --crop-bottom 30`), the two DAY poses are byte-identical across
+repeats AND across arms - twelve captures, 0 pixels. The night poses have
+authored lamp flicker and twinkling stars, so their within-arm repeats never
+settle; that is the fixture, not the change. `compare_captures.py` in
+`examples/vehicle-playground/authoring/bounds-attribution-2026-09-16/` checks
+the within-arm repeats first and refuses to report a between-arm number until
+they are clean.
+
+**Hold a pose without touching the sampling window:** the benchmark fixture
+reads `bin/district-benchmark-pose.txt` every 30 frames only AFTER its 1440
+measured frames, which is also when the CSVs appear - so the CSV is the "it is
+safe to drive this" signal, and nothing is written during sampling. See
 [docs/render-submission-attribution.md](../../../docs/render-submission-attribution.md).
 
 ### Devkit cadence overrides

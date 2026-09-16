@@ -177,9 +177,27 @@ estimates of what a fix would save.
    when the vertex buffer did not move. **Do not measure either on the parked
    benchmark alone** — parked traffic is exactly the case a pose-change test
    flatters, and the fixture parks it.
-2. **Package creation and classification, 3.346 ms — 56% of `dispatch`.** The
-   largest single unopened box left. It needs the same treatment this round gave
-   `prepare`: brackets inside the routing loops, behind the same opt-in macro.
+   **The `bboxVersion` half is now priced from the engine side: 0.618 ms of
+   `bounds` on garage day**, 10.5 recalculations at 58.8 µs each, on top of the
+   1.970 ms rebake (render-submission-attribution.md, "Round two"). The engine's
+   cacher does the right thing with what it is told — zero allocations, 0.52 µs
+   per lookup — so this is entirely a contract question in the generated game's
+   wheel path.
+2. ~~**Package creation and classification, 3.346 ms — 56% of `dispatch`.** The
+   largest single unopened box left.~~ **DONE**, together with a split of
+   `bounds` — render-submission-attribution.md, "Round two". Both close. Three
+   results to carry forward:
+   - The box's NAME is half wrong: about half the submitted bags (53.5 against
+     59.0 partial) take the wholly-visible route and are never classified, so
+     for those the residual is the fill-and-cull loop.
+   - The classification that does run is **1.401 ms over 572.5 packages**,
+     honest 6-plus-8-plane arithmetic with a **2.31-part** merge walk. No
+     obvious redundancy is left in it — which is why compacting that walk's
+     stride bought 0.5%.
+   - **The bbox cacher is exonerated**: 226.5 lookups cost 0.118 ms, the hash
+     runs 1.44 probes per lookup, the expiry scan is 0.011 ms and NOTHING
+     allocates (0 fresh entries in every pose). What costs 0.618 ms is 10.5
+     forced `recalculate()` calls — item 1 below, from the other side.
 3. **The clamped-wrap double drain, 1.730 ms of garage night** (0.299 in the
    day). A bag whose texture is not REPEAT costs `sync.align3D()` twice — once
    to set the wrap and once to restore it — and the night scene has more of them
