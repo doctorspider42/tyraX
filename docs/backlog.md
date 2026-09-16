@@ -6,6 +6,36 @@ relevant guide or developer skill.
 
 ## Motor District follow-up after the integrated frozen-camera pass
 
+### What else was `FlushCache` writing back? (2026-09-16, BLOCKING S1)
+
+The EE-submission Probe B removed `dma_channel_send_packet2`'s `FlushCache(0)`
+with the static pipeline's two packets allocated `P2_TYPE_UNCACHED` and with
+every send whose chain references a qbuffer copy pool still flushing — and the
+**picture came back corrupt** (1 271 of 262 144 pixels, a 14-row band at the
+horizon where the road and far buildings tear into slices). The same uncached
+build that still calls `FlushCache` is **byte-identical** to the control, which
+localises it to the flush rather than to the allocation.
+
+Two hypotheses, not separated:
+
+1. another EE-written, DMA-read buffer reached by a `REF` tag that is not one of
+   the copy pools (the horizon band points at the road or terrain strips);
+2. `FlushCache(0)` is also supplying an ordering barrier, and removing it lets
+   the DMAC start before the EE's stores have landed.
+
+**S1 (the frame chain out of cached memory) cannot be built until this is
+answered**, and it is worth 1.09 ms of garage-day `work` when it is — half the
+2.10 ms the plan predicted. Re-run with `--keep-routes`: a parked fixture cannot
+see a per-frame rebake that writes the same bytes every frame.
+
+Evidence, arms and recipe:
+[ee-probes-2026-09-16](../examples/vehicle-playground/authoring/ee-probes-2026-09-16/README.md).
+
+**Closed by the same round, do not re-open:** S3 (classify per 1/3-bbox part) is
+**refuted** — per-package rejection buys 2.60 ms against a 1.79 ms classification
+bracket, so it pays for itself, and the arm that actually coarsens the
+classification measured **+4.59 ms**.
+
 The September 14 asset pass and physical PS2 attribution are recorded in the
 [example README](../examples/vehicle-playground/README.md#lean-vehicles-2026-09-14).
 Lean CC96/Tristar geometry and configurable devkit cadence are complete. Next

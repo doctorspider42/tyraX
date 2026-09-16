@@ -15,6 +15,7 @@
 #include "debug/debug.hpp"
 #include "./bag/packaging/stapip_bag_package.hpp"
 #include "./bag/stapip_bag.hpp"
+#include "./stapip_probes.hpp"
 
 namespace Tyra {
 
@@ -130,6 +131,17 @@ class StaPipQBuffer {
    * of the bag - and reset by getBuffer() like retainIndex above.
    */
   int bakeIndex;
+#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
+  /**
+   * Probe B only (stapip_probes.hpp): this buffer's streams live in the
+   * qbuffer COPY POOL, written by the EE between sends, rather than in the
+   * bag's own long-lived arrays. The DMA REF tags then point at memory whose
+   * dirty cache lines only `FlushCache` writes back, so a send carrying one of
+   * these must keep the flush. Cleared by getBuffer(), set by the copy fills
+   * and by StaPipClipper::writeChunk.
+   */
+  bool probeCopyFilled;
+#endif
 
   void print() const;
   void print(const char* name) const;

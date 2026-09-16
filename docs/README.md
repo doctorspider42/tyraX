@@ -243,8 +243,11 @@ Developer design docs (internals, not user guides):
 - [The EE pays 147 cycles per triangle](ee-submission-rearchitecture.md) — the
   plan for the next round: why an immediate-mode static pipeline cannot reach
   60 Hz whatever its constants are, the baked VIF stream that would replace it,
-  the two probes that must bound the prize first, and what is already measured
-  NOT to be the lever.
+  and what is already measured NOT to be the lever. The two bounding probes
+  have now been RUN on hardware and both capped what they were aimed at:
+  per-package frustum rejection buys more than it costs so the redesign must
+  keep it, coarsening the classification is a net loss, and dropping
+  `FlushCache` corrupted the picture even with the packet allocated uncached.
 - [A baked VIF stream per mesh](baked-vif-stream.md) — the spike behind that
   plan's central change: the exact quadword layout of a package's pure-VIFcode
   block, why one DMA `REF` may replay it, the three facts that turn out to be

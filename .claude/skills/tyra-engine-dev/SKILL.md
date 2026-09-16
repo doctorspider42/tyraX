@@ -2460,6 +2460,66 @@ exists in neither function. It remains the wrong lever anyway: the cost is
 proportional to the NUMBER of submissions, so a retained-command redesign removes
 most of it for free.
 
+### The EE-submission bounding probes (2026-09-16) — two directions CAPPED
+
+`TYRA_STAPIP_PROBE_*` in `stapip_probes.hpp`, all default **0** and none of it
+ships (same zero-cost gate as `TYRA_STAPIP_ATTRIB` - `#ifndef NDEBUG` is NOT the
+gate in this engine). Physical PS2, six hashed ELFs, 0.135 ms repeatability
+floor. Full account:
+`examples/vehicle-playground/authoring/ee-probes-2026-09-16/README.md` and
+docs/ee-submission-rearchitecture.md.
+
+- **Per-package frustum rejection PAYS FOR ITSELF: it buys 2.60 ms and the whole
+  `checkFrustum` bracket costs 1.79 ms** (garage day, `work`). So any redesign of
+  the static pipeline has to keep an equivalent visibility test, and 1.79 ms is
+  the hard ceiling on anything that only makes classification cheaper. Most of
+  what rejection buys is VU1, not EE: 1.09 of the 2.60 ms is VIF1 wait.
+- **CLASSIFYING MORE COARSELY IS A NET LOSS - do not re-open it.** One
+  classification per existing eight-package coarse group, reused by all eight
+  with rejection and clip routing intact, measured **+4.59 ms** while adding
+  FEWER triangles than the accept-all arm. A coarser box crosses more clip
+  planes, so whole groups of eight take the CLIP route where one package would
+  have, and clipping is the expensive one (`packet` +1.08 ms, flushes +26).
+- **A "1/3-bbox part" is one third of a PACKAGE.** `StaPipBagPackagesBBox` splits
+  a bag into `maxVertCount / 3`-vertex parts and a full package spans exactly
+  three of them, so "classify per part instead of per package" is three tests
+  where there is one, and parts are not shared between packages so nothing
+  amortises. The coarse level that DOES amortise already exists: one box per 24
+  parts = 8 packages, short-circuiting wholly-in and wholly-out groups.
+- **An arm that forces `IN_FRUSTUM` without running the test is CORRUPT, not a
+  probe.** It routes near-plane-crossing geometry to the cull programs, which do
+  not clip. Map only the `OUTSIDE_FRUSTUM` verdict and leave
+  `PARTIALLY_IN_FRUSTUM` alone - and cover the coarse test too, or most of the
+  frame's rejections survive and the arm measures nothing.
+- **`FlushCache` is worth 0.84 ms of the send bracket / 1.09 ms of work, half
+  what was predicted** - and **dropping it CORRUPTS THE PICTURE even with the
+  packet allocated `P2_TYPE_UNCACHED`** and the qbuffer copy pools still on the
+  flushing path. 1 271 of 262 144 pixels, a 14-row band at the horizon. The
+  same build that stays uncached and still calls `FlushCache` is BYTE-IDENTICAL
+  to the control, which is what localises it to the flush and not to the
+  allocation. So the packet is not the only thing being written back, or
+  `FlushCache(0)` is also supplying an ordering barrier. **Unresolved - answer
+  it before building anything that removes the flush.**
+- **Uncached packets are SLOW: +7.55 ms.** `packet2` writes floats one at a time
+  and an uncached store does not gather, so the chain costs seven times more to
+  build than not flushing it saves.
+- **`P2_TYPE_UNCACHED_ACCL` IS UNSAFE WITH THE STOCK ps2sdk BUILDER.**
+  `packet2_vif_close_unpack_auto` does an `lbu` of byte 3 and an `sb` into byte 2
+  of the open unpack VIFcode (disassembled from `ps2sdk/ee/lib/libpacket2.a`),
+  and the chain helpers back-patch a DMA tag's QWC the same way. Under UCAB those
+  go through the EE's 128-byte write-gather buffer - the read can see memory the
+  buffer has not flushed, and a sub-word back-patch of an already-gathered block
+  is undefined. That is a corrupt VIFcode, i.e. a hung VIF1, i.e. the wedge.
+  `P2_TYPE_UNCACHED` has no write-gather buffer and is the safe arm.
+- **`packet2_create` asserts `qwords % 4 == 0` for EITHER uncached type**, which
+  no header says. `packetSize` is 784 today; keep `kWorstBagPacketSize *
+  kSubmissionBatchSize` a multiple of 4 or an uncached packet traps at
+  allocation.
+- **A parked fixture cannot see one whole class of flush-removal bug**: a
+  per-frame rebake that writes the SAME bytes every frame leaves stale lines
+  indistinguishable from fresh ones. Re-run any flush experiment with
+  `--keep-routes` before calling it correct.
+
 ### Retained static command data (1.96.0)
 
 The static pipeline stops rebuilding, every frame, the DMA/VIF commands that did

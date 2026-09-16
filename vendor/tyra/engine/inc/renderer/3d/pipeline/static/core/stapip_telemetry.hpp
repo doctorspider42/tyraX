@@ -9,6 +9,7 @@
 #include <tamtypes.h>
 
 #include "./stapip_attrib.hpp"
+#include "./stapip_probes.hpp"
 
 namespace Tyra {
 
@@ -121,6 +122,18 @@ struct StaPipTelemetry {
    * macro lives in stapip_attrib.hpp and defaults to 0.
    */
   StaPipAttrib attrib;
+#endif
+
+#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
+  /**
+   * Added by TyraX, Probe B only (stapip_probes.hpp). The arm is BOUNDED: a
+   * send whose chain references the qbuffer copy pool keeps `FlushCache`,
+   * every other send drops it. The saving is proportional to the split, so
+   * the split is counted rather than assumed - `probeUnflushedSends` is the
+   * only part of `packetFlushes` this arm can have made cheaper.
+   */
+  u32 probeFlushedSends = 0;
+  u32 probeUnflushedSends = 0;
 #endif
 };
 

@@ -1,0 +1,374 @@
+diff --git a/vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer.hpp b/vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer.hpp
+index 235fbccd..1182259d 100644
+--- a/vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer.hpp
++++ b/vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer.hpp
+@@ -15,6 +15,7 @@
+ #include "debug/debug.hpp"
+ #include "./bag/packaging/stapip_bag_package.hpp"
+ #include "./bag/stapip_bag.hpp"
++#include "./stapip_probes.hpp"
+ 
+ namespace Tyra {
+ 
+@@ -123,6 +124,18 @@ class StaPipQBuffer {
+    */
+   int retainIndex;
+ 
++#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
++  /**
++   * Probe B only (stapip_probes.hpp): this buffer's streams live in the
++   * qbuffer COPY POOL, written by the EE between sends, rather than in the
++   * bag's own long-lived arrays. The DMA REF tags then point at memory whose
++   * dirty cache lines only `FlushCache` writes back, so a send carrying one of
++   * these must keep the flush. Cleared by getBuffer(), set by the copy fills
++   * and by StaPipClipper::writeChunk.
++   */
++  bool probeCopyFilled;
++#endif
++
+   void print() const;
+   void print(const char* name) const;
+   void print(const std::string& name) const { print(name.c_str()); }
+diff --git a/vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp b/vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp
+index ce9ec087..8a7a7cc6 100644
+--- a/vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp
++++ b/vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp
+@@ -350,6 +350,16 @@ class StaPipQBufferRenderer {
+   u16 getQBufferIndex(StaPipQBuffer* buffer);
+   u16 packetSize;
+ 
++#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
++  /**
++   * Probe B only (stapip_probes.hpp): any buffer committed into the packet
++   * currently being built had its streams written into the qbuffer copy pool,
++   * so this send must keep the whole-data-cache write-back. Set in
++   * addBuffersDataToPacket, consumed and cleared in sendPacket.
++   */
++  bool probePacketUsesPool;
++#endif
++
+   static const u16 buffersCount;
+ 
+   StaPipVU1Program* getProgramByName(const StaPipProgramName& name);
+diff --git a/vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_telemetry.hpp b/vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_telemetry.hpp
+index 8e3941da..376f3087 100644
+--- a/vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_telemetry.hpp
++++ b/vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_telemetry.hpp
+@@ -9,6 +9,7 @@
+ #include <tamtypes.h>
+ 
+ #include "./stapip_attrib.hpp"
++#include "./stapip_probes.hpp"
+ 
+ namespace Tyra {
+ 
+@@ -122,6 +123,18 @@ struct StaPipTelemetry {
+    */
+   StaPipAttrib attrib;
+ #endif
++
++#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
++  /**
++   * Added by TyraX, Probe B only (stapip_probes.hpp). The arm is BOUNDED: a
++   * send whose chain references the qbuffer copy pool keeps `FlushCache`,
++   * every other send drops it. The saving is proportional to the split, so
++   * the split is counted rather than assumed - `probeUnflushedSends` is the
++   * only part of `packetFlushes` this arm can have made cheaper.
++   */
++  u32 probeFlushedSends = 0;
++  u32 probeUnflushedSends = 0;
++#endif
+ };
+ 
+ }  // namespace Tyra
+diff --git a/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.cpp b/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.cpp
+index d2786fe9..0e99420f 100644
+--- a/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.cpp
++++ b/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.cpp
+@@ -10,10 +10,21 @@
+ #include <math.h>
+ #include "debug/debug.hpp"
+ #include "renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.hpp"
++#include "renderer/3d/pipeline/static/core/stapip_probes.hpp"
+ 
+ // Modified by TyraX: integer ceiling division avoids software double math on EE.
+ namespace Tyra {
+ 
++#if TYRA_STAPIP_PROBE_ACCEPT_ALL
++// Probe A1 (stapip_probes.hpp). The test ran; its rejection is thrown away.
++// PARTIALLY_IN_FRUSTUM is deliberately untouched - the clip route must keep
++// every package that straddles a plane, or the cull programs, which do not
++// clip, draw wedges.
++static inline CoreBBoxFrustum probeAcceptAll(CoreBBoxFrustum result) {
++  return result == OUTSIDE_FRUSTUM ? IN_FRUSTUM : result;
++}
++#endif
++
+ #if TYRA_STAPIP_ATTRIB
+ // Added by TyraX: the attribution pass' own clock (stapip_attrib.hpp). The
+ // classification is the one bracket in the dispatch split that is measured
+@@ -58,10 +69,41 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_size, StaPipBag* data,
+ 
+   CoreBBoxFrustum coarseRoute = PARTIALLY_IN_FRUSTUM;
+   const bool coarse = size == maxVertCount && renderBBox && objectSpacePlanes;
++#if TYRA_STAPIP_PROBE_COARSE_CLASSIFY
++  // Probe A2 (stapip_probes.hpp): the group's mask and guard-band answer,
++  // derived once beside its verdict and copied to all eight packages.
++  u8 coarseMask = 0;
++  bool coarseGuardBandOnly = false;
++#endif
+   for (u16 i = 0; i < *o_size; i++) {
+     if (coarse && (i & 7) == 0) {
+       coarseRoute = CoreBBox::frustumCheckAABB(objectSpacePlanes,
+           renderBBox->coarseMin(i / 8), renderBBox->coarseMax(i / 8), nullptr);
++#if TYRA_STAPIP_PROBE_COARSE_CLASSIFY
++      // Exactly the second pass checkFrustum runs, on the group box. Only a
++      // partial box pays it, same as per package.
++      coarseMask = 0;
++      coarseGuardBandOnly = false;
++      if (capturePlaneMasks && clipObjectSpacePlanes != nullptr) {
++        const u8 mask =
++            coarseRoute == PARTIALLY_IN_FRUSTUM
++                ? CoreBBox::activePlaneMaskAABB(clipObjectSpacePlanes,
++                                                renderBBox->coarseMin(i / 8),
++                                                renderBBox->coarseMax(i / 8), 8)
++                : 0;
++        coarseMask = static_cast<u8>(mask & 0x3F);
++        coarseGuardBandOnly = coarseRoute == PARTIALLY_IN_FRUSTUM && mask == 0;
++      }
++#endif
++#if TYRA_STAPIP_PROBE_ACCEPT_ALL
++      // A1: the coarse level rejects eight packages on one test, so disabling
++      // rejection has to cover it too - otherwise most of the frame's
++      // rejections survive and the arm measures almost nothing. Mapping the
++      // VERDICT rather than forcing the branch keeps the EE cost identical to
++      // the control: `coarseRoute != PARTIALLY_IN_FRUSTUM` still decides the
++      // same way, so the same packages skip the per-package test.
++      coarseRoute = probeAcceptAll(coarseRoute);
++#endif
+     }
+ 
+     result[i].bag = data;
+@@ -92,12 +134,26 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_size, StaPipBag* data,
+ 
+     result[i].clipPlaneMask = 0;
+     result[i].guardBandOnly = false;
++#if TYRA_STAPIP_PROBE_COARSE_CLASSIFY
++    // A2: the group's answer stands for every package in it, PARTIAL groups
++    // included, so checkFrustum never runs on the coarse path at all.
++    if (coarse) {
++      result[i].isInFrustum = coarseRoute;
++      result[i].clipPlaneMask = coarseMask;
++      result[i].guardBandOnly = coarseGuardBandOnly;
++      continue;
++    }
++    result[i].isInFrustum = checkFrustum(
++        result[i], capturePlaneMasks ? &result[i].clipPlaneMask : nullptr,
++        &result[i].guardBandOnly);
++#else
+     // A wholly inside/outside coarse box proves the same for every child.
+     // Partial groups retain the exact per-package and guard-band tests.
+     result[i].isInFrustum = coarse && coarseRoute != PARTIALLY_IN_FRUSTUM
+         ? coarseRoute : checkFrustum(
+         result[i], capturePlaneMasks ? &result[i].clipPlaneMask : nullptr,
+         &result[i].guardBandOnly);
++#endif
+   }
+ 
+   return result;
+@@ -229,7 +285,14 @@ CoreBBoxFrustum StaPipBagPackager::checkFrustum(const StaPipBagPackage& pkg,
+     if (o_guardBandOnly)
+       *o_guardBandOnly = result == PARTIALLY_IN_FRUSTUM && mask == 0;
+   }
++#if TYRA_STAPIP_PROBE_ACCEPT_ALL
++  // A1: every test above ran and every output it wrote stands. Only the
++  // verdict's OUTSIDE case is discarded, which sends the package to the cull
++  // route with a zero mask - the same route a wholly-inside package takes.
++  return probeAcceptAll(result);
++#else
+   return result;
++#endif
+ }
+ 
+ void StaPipBagPackager::setMaxVertCount(const u32& count) {
+diff --git a/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_clipper.cpp b/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_clipper.cpp
+index 14822bc2..cc26f393 100644
+--- a/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_clipper.cpp
++++ b/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_clipper.cpp
+@@ -104,6 +104,11 @@ u32 StaPipClipper::clipToPool(StaPipQBuffer* buffer) {
+ }
+ 
+ void StaPipClipper::writeChunk(StaPipQBuffer* buffer, u32 start, u32 count) {
++#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
++  // Probe B: the EE clipper writes its output into the same pool the copy
++  // fills use, so this buffer's send keeps the flush. See stapip_probes.hpp.
++  buffer->probeCopyFilled = true;
++#endif
+   buffer->reallocateManually(count);
+   for (u32 i = 0; i < count; i++) {
+     const PlanesClipVertex& v = clippedPool[start + i];
+diff --git a/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp b/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp
+index 7b801fdb..ed3760ed 100644
+--- a/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp
++++ b/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp
+@@ -71,6 +71,9 @@ StaPipQBuffer::StaPipQBuffer() {
+   clipPlaneMask = 0;
+   stripped = false;
+   retainIndex = -1;  // Modified by TyraX: see the field's comment.
++#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
++  probeCopyFilled = false;  // Probe B, see stapip_probes.hpp.
++#endif
+   _isDynamicallyAllocated = false;
+   _stAllocated = false;
+   _colorAllocated = false;
+@@ -129,6 +132,11 @@ void StaPipQBuffer::fillByCopyMax(const StaPipBagPackage& pkg1,
+                                   const StaPipBagPackage& pkg2,
+                                   const StaPipBagPackage& pkg3) {
+   HardwareTrace::Scope trace("QBuffer_copy");
++#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
++  // Probe B: this buffer's REF tags will name the copy pool, whose cached
++  // stores only FlushCache writes back. See stapip_probes.hpp.
++  probeCopyFilled = true;
++#endif
+   TYRA_ASSERT(pkg1.size <= maxVertCount / 3,
+               "Wrong package size (1). Provided: ", pkg1.size);
+   TYRA_ASSERT(pkg2.size <= maxVertCount / 3,
+@@ -160,6 +168,11 @@ void StaPipQBuffer::fillByCopyMax(const StaPipBagPackage& pkg1,
+ void StaPipQBuffer::fillByCopy1By2(const StaPipBagPackage& pkg1,
+                                    const StaPipBagPackage& pkg2) {
+   HardwareTrace::Scope trace("QBuffer_copy");
++#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
++  // Probe B: this buffer's REF tags will name the copy pool, whose cached
++  // stores only FlushCache writes back. See stapip_probes.hpp.
++  probeCopyFilled = true;
++#endif
+   TYRA_ASSERT(pkg1.size <= maxVertCount / 3,
+               "Wrong package size (1). Provided: ", pkg1.size);
+   TYRA_ASSERT(pkg2.size <= maxVertCount / 3,
+@@ -187,6 +200,11 @@ void StaPipQBuffer::fillByCopy1By2(const StaPipBagPackage& pkg1,
+ 
+ void StaPipQBuffer::fillByCopy1By3(const StaPipBagPackage& pkg) {
+   HardwareTrace::Scope trace("QBuffer_copy");
++#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
++  // Probe B: this buffer's REF tags will name the copy pool, whose cached
++  // stores only FlushCache writes back. See stapip_probes.hpp.
++  probeCopyFilled = true;
++#endif
+   TYRA_ASSERT(pkg.size <= maxVertCount / 3,
+               "Wrong package size (1). Provided: ", pkg.size);
+ 
+@@ -210,6 +228,11 @@ void StaPipQBuffer::fillByCopy1By3(const StaPipBagPackage& pkg) {
+ void StaPipQBuffer::fillByStripExpand(const StaPipBagPackage& pkg,
+                                       u32 firstTri, u32 triCount) {
+   HardwareTrace::Scope trace("QBuffer_copy");
++#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
++  // Probe B: this buffer's REF tags will name the copy pool, whose cached
++  // stores only FlushCache writes back. See stapip_probes.hpp.
++  probeCopyFilled = true;
++#endif
+   TYRA_ASSERT(triCount * 3 <= maxVertCount,
+               "Strip expansion does not fit the VU1 buffer. Triangles: ",
+               triCount);
+diff --git a/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp b/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp
+index 3e37ce2e..b207c0a8 100644
+--- a/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp
++++ b/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp
+@@ -291,9 +291,39 @@ void StaPipQBufferRenderer::allocateOnUse() {
+   // + headers).
+   // Four inline lighting qwords replace the former REF payload.
+   packets = new packet2_t*[2];
++#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
++  // Probe B (stapip_probes.hpp). 1 = P2_TYPE_UNCACHED, 2 = UNCACHED_ACCL.
++  // packet2_create asserts qwords % 4 == 0 for either uncached type, so say so
++  // here rather than discovering it as a trap on the console.
++  static_assert((4 * (4 * 32 + 68)) % 4 == 0,
++                "Probe B: an uncached packet2 needs a qword count that is a "
++                "multiple of 4 (ps2sdk packet2_create). Keep packetSize so.");
++  const enum Packet2Type probeType = TYRA_STAPIP_PROBE_UNCACHED_CHAIN == 2
++                                         ? P2_TYPE_UNCACHED_ACCL
++                                         : P2_TYPE_UNCACHED;
++  for (u16 i = 0; i < 2; i++)
++    packets[i] = packet2_create(packetSize, probeType, P2_MODE_CHAIN, true);
++  probePacketUsesPool = false;
++  // VERIFY THE ALLOCATION TOOK EFFECT BEFORE TRUSTING A SINGLE NUMBER FROM
++  // THIS ARM. A packet that quietly came back in the normal segment would
++  // measure "no flush needed" while the DMA read stale cache lines - the
++  // failure mode is intermittent wrong geometry, not a crash. The segment is
++  // the top nibble of the base pointer: 0x3 accelerated, 0x2 uncached.
++  for (u16 i = 0; i < 2; i++) {
++    TYRA_ASSERT(packets[i] != nullptr, "Probe B: packet2_create refused an "
++                "uncached packet. Check packetSize % 4.");
++    const u32 seg = reinterpret_cast<u32>(packets[i]->base) >> 28;
++    TYRA_ASSERT(seg == (TYRA_STAPIP_PROBE_UNCACHED_CHAIN == 2 ? 0x3U : 0x2U),
++                "Probe B: packet ", i, " is NOT in the uncached segment. "
++                "base nibble: ", seg);
++    TYRA_LOG("PROBEB: packet ", i, " base segment 0x", seg,
++             " (1=uncached, 2=uncached-accelerated arm)");
++  }
++#else
+   for (u16 i = 0; i < 2; i++)
+     packets[i] =
+         packet2_create(packetSize, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
++#endif
+ 
+   buffers = new StaPipQBuffer*[buffersCount];
+   for (u16 i = 0; i < buffersCount; i++) {
+@@ -1135,6 +1165,11 @@ StaPipQBuffer* StaPipQBufferRenderer::getBuffer() {
+   // index into a copied or clipped one. StaPipCore sets it back after the fill
+   // for the routes that may be retained.
+   result->retainIndex = -1;
++#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
++  // Probe B: same gate, same reason - a recycled slot must not carry a stale
++  // "my streams are in the copy pool" claim into a fillByPointer buffer.
++  result->probeCopyFilled = false;
++#endif
+   if (nextBufferIndex >= buffersCount) {
+     Verbose("Rollup - clearing buffer indices. currentBufferIndex: ",
+             currentBufferIndex, " (before)nextBufferIndex: ", nextBufferIndex);
+@@ -1380,6 +1415,12 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
+     // the number the EE's per-package bill scales with. See StaPipTelemetry.
+     if (telemetry) telemetry->verticesSubmitted += buffers[i]->size;
+ 
++#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
++    // Probe B: one buffer whose streams live in the copy pool is enough to
++    // make this whole chain need the write-back. See stapip_probes.hpp.
++    if (buffers[i]->probeCopyFilled) probePacketUsesPool = true;
++#endif
++
+ #if TYRA_STAPIP_RETAINED_COMMANDS
+     // Modified by TyraX: retained command data. The block is the bag's
+     // geometry commands for THIS package - identical every frame while the key
+@@ -1553,7 +1594,32 @@ void StaPipQBufferRenderer::sendPacket() {
+   const u32 submitStart = telemetry != nullptr ? readTelemetryTicks() : 0;
+   { HardwareTrace::Scope trace("VIF1_submit");
+     if (HardwareTrace::active) { const u32 t=HardwareTrace::ticks(); HardwareTrace::record("Packet_qwords", t, t, packet2_get_qw_count(currentPacket)); }
+-    dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1, true); }
++#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
++    // Probe B (stapip_probes.hpp): the packet itself is uncached, so nothing
++    // of IT needs writing back - but a chain whose REF tags name the qbuffer
++    // copy pool still does, and that half is bounded rather than assumed.
++    const bool probeFlush = probePacketUsesPool || TYRA_STAPIP_PROBE_FORCE_FLUSH;
++    if (telemetry != nullptr) {
++      if (probeFlush) ++telemetry->probeFlushedSends;
++      else ++telemetry->probeUnflushedSends;
++    }
++#if TYRA_STAPIP_PROBE_LOG_SENDS
++    {
++      // Scene property, read in PCSX2. Never enable this for a console timing
++      // arm - see TYRA_STAPIP_PROBE_LOG_SENDS in stapip_probes.hpp.
++      static u32 probeKept = 0, probeDropped = 0;
++      if (probeFlush) ++probeKept; else ++probeDropped;
++      if ((probeKept + probeDropped) % 3000 == 0)
++        TYRA_LOG("PROBEB: sends kept(flush)=", probeKept,
++                 " dropped(no flush)=", probeDropped);
++    }
++#endif
++    dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1, probeFlush);
++    probePacketUsesPool = false;
++#else
++    dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1, true);
++#endif
++  }
+   if (submissionPacketHasTexture)
+     submissionTextureReadersOutstanding = true;
+   submissionPacketHasTexture = false;

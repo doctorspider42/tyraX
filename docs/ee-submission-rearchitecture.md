@@ -11,8 +11,11 @@ This page states that in numbers, names the change that would fix it, and — th
 part that matters more — names the two probes that must be run *first*, because
 either of them can cap the prize before a line of the redesign is written.
 
-Nothing here is implemented. This is a plan, and every number in it that is not
-attributed to a measured run is a prediction to be falsified.
+Nothing here is implemented except the two probes, which were run on hardware
+on 2026-09-16 and are written up in their own section below. Every other number
+in this page that is not attributed to a measured run is a prediction to be
+falsified - and the probes falsified two of them, so read the supporting-changes
+table through that section rather than on its own.
 
 ## The number
 
@@ -74,6 +77,13 @@ line 5, 50-frame window) say how many times:
 touched** (the figure includes per-bag and game-side work, so read it as an
 order of magnitude, not an attribution).
 
+**Those are ROUTED packages, not classifications, and the distinction was worth
+knowing before designing against it.** `checkFrustum` actually runs **570.5**
+times a garage-day frame and costs **1.79 ms** in total, measured — about half
+the bags are wholly visible, take the direct route and never build a package
+descriptor at all (`dsDirectBags` 53.5 against `dsPartialBags` 59). See the
+probes section below.
+
 Two more per-frame taxes sit on top, both visible in the source:
 
 - **`FlushCache(0)` 120 times per frame.** `dma_channel_send_packet2(p, ch,
@@ -127,10 +137,10 @@ triangle count down by roughly 40%.
 Garage day is locked at `total_ms` 39.96, exactly two PAL fields, with 9.54 ms
 of it spent waiting in `present`. The next rung is 20 ms. **Work has to fall
 10.42 ms for the displayed frame rate to go from 25 to 50** — and the supporting
-changes below (S1, S3, S4, S5) plausibly sum to that on their own, before the
-architecture is touched. Do them first: they double the day pose, and they clear
-the measurement noise (120 cache flushes a frame) that the architectural A/B
-will have to be read through.
+changes below were expected to sum to that on their own, before the architecture
+is touched. **That expectation is now partly measured and it does not hold.**
+S3 is refuted outright and S1 is worth 1.09 ms rather than 2.10, so S1, S4 and
+S5 together are nearer 4-5 ms than 10.42. The rung needs the architecture.
 
 ## The change: a baked VIF stream per mesh
 
@@ -191,9 +201,9 @@ Predicted EE cost: about 300 visibility units at roughly 400 cycles each, near
 
 | # | change | predicted (garage day / night) | risk |
 | --- | --- | ---: | --- |
-| S1 | Build the frame's chain in the EE scratchpad (16 KB at `0x70000000`, unused by this engine) or in `P2_TYPE_UNCACHED_ACCL` memory, and stop calling `FlushCache` | −2.10 / −2.49 plus the unmeasured refill | low; `packet2_create` already accepts the type |
+| S1 | Build the frame's chain in the EE scratchpad (16 KB at `0x70000000`, unused by this engine) or in uncached memory, and stop calling `FlushCache` | **−1.09 MEASURED**, not −2.10 | **medium** — dropping the flush corrupted the picture even with the packet uncached; see the probes |
 | S2 | Remove the per-mesh `FLUSHE`: a second uniform bank at VU1 addresses 22..43 and a bank bit in the count word | via VIF1 wait; little until S1 and the redesign land | medium — touches 15 microprograms; sequence it last |
-| S3 | Classify per 1/3-bbox part instead of per package | part of the 3.3 ms `Package_classify` measured in the emulator | low, fully reversible |
+| ~~S3~~ | ~~Classify per 1/3-bbox part instead of per package~~ **REFUTED, do not build** | the whole bracket is **1.79 ms** and the arm that coarsens it measured **+4.59** | — |
 | S4 | The shared reflection probe costs +26 flushes and +10 444 triangles on every second frame | ~1.5-2 averaged | low — fewer objects, coarser LOD, or a longer cadence |
 | S5 | `vehicles_included_ms` is a flat 2.26 ms with the car parked | ~1.5 | low — per-wheel matrices instead of an EE vertex rebake |
 
@@ -234,37 +244,103 @@ Recorded so nobody spends a week re-discovering it:
   worth owning is `packet2`, a float-at-a-time builder, and only if profiling
   after the redesign still shows it.
 
-## The two probes that come first
+## The two probes that come first — RUN, on hardware, 2026-09-16
 
-Neither is shippable. Both are cheap, and either can cap the plan.
+Both were run on the physical PS2. Raw evidence, arms, ELF hashes and the
+reproduction recipe:
+[ee-probes-2026-09-16](../examples/vehicle-playground/authoring/ee-probes-2026-09-16/README.md).
+Six ELFs, all hashed and distinct; two boots of the control give a
+**repeatability floor of 0.135 ms of `work`**; every run collected all 960 rows
+and reported `reuploads` 0.000 in all four poses.
 
-**Probe A — what is per-package classification actually worth?** Force every
-package of a partially visible bag to `IN_FRUSTUM` and skip classification
-entirely. This removes EE work and adds VU1 work (922.5 rejected packages a
-frame stop being rejected). If the frame does not improve, per-package culling
-is already paying for itself and the redesign must keep an equivalent, which
-changes its shape. If the frame improves, the rejection is costing more than it
-saves and S3 becomes a shipping change rather than a cleanup.
+**They cap both directions they were aimed at, and one of them falsifies the
+reason S1 was thought to be safe.** Garage day, frame `work`:
 
-**Probe B — what does the cache flush really cost, including the refill?**
-Allocate the static pipeline's two packets as `P2_TYPE_UNCACHED_ACCL` and pass
-`flush_cache = false`. Unlike the earlier arm that wedged the console, this one
-is legal: the packet is no longer in cached memory, so there is nothing to write
-back. The measured delta is the *whole* bill — the 2.10 ms bracket plus the
-refill tax that adding flushes could not see.
+| question | answer |
+| --- | ---: |
+| what per-package frustum rejection BUYS | **2.60 ms** |
+| what per-package classification COSTS | **1.79 ms** |
+| what coarsening the classification costs (S3) | **+4.59 ms** |
+| what `FlushCache` costs, refill included (S1) | **1.09 ms** |
+| what the cheapest legal way to stop calling it costs | **+7.55 ms** |
 
-Both arms must follow this repository's existing rules: fixture regenerated by
-the editor that built it, ELF hashes distinct and recorded, fresh boot over
-ps2link, 120 warm-up frames then 240 recorded per pose, all four poses, and the
-garage-day capture compared for a byte-identical picture (Probe A will *not* be
-byte-identical and must be inspected instead).
+**Probe A — rejection pays for itself, and S3 is refuted.** The arm that ran the
+classification and discarded only its `OUTSIDE_FRUSTUM` verdict cost **+2.60 ms**
+of `work` (+8 387 triangles, +1.09 ms of VIF1 wait), with a **byte-identical
+picture**. The whole `checkFrustum` bracket, measured exclusively under
+`TYRA_STAPIP_ATTRIB`, is **1.79 ms** — so the test buys more than it costs, and
+**the redesign must keep an equivalent visibility test**. 1.79 ms is also the
+hard ceiling on S3, and the arm that actually coarsens classification to the
+existing eight-package group came out **+4.59 ms**: a coarse box crosses more
+clip planes, so whole groups of eight take the clip route where one package
+would have. **S3 does not ship. Strike it from the table.**
+
+Three corrections to what this page said above:
+
+- **"Force every package to `IN_FRUSTUM` and skip classification entirely" is a
+  corrupted arm, not a probe.** It routes near-plane-crossing geometry to the
+  cull programs, which do not clip. The arm has to keep `PARTIALLY_IN_FRUSTUM`
+  intact and discard only the `OUTSIDE` verdict — and it has to cover the coarse
+  eight-package test as well, or most of the frame's rejections survive.
+- **A "1/3-bbox part" is one third of a PACKAGE**, not a group of them
+  (`StaPipBagPackagesBBox` splits a bag into `maxVertCount / 3`-vertex parts and
+  a full package spans exactly three). S3 as written would triple the number of
+  tests, and parts are not shared between packages, so nothing amortises. A
+  coarse level one box per **24 parts / 8 packages** already exists and already
+  short-circuits wholly-in and wholly-out groups.
+- **"1 972.5 total package classifications" is the routed-package count, not the
+  classification count.** `checkFrustum` runs **570.5** times a garage-day frame;
+  about half the bags are wholly visible and never call `packager.create` at all.
+
+**Probe B — the prize is half what was predicted, and dropping the flush
+corrupts the picture.** Two controls were needed, because allocating the chain
+uncached changes two things at once: an arm that is uncached and **still calls
+`FlushCache`** holds the write cost constant.
+
+- `uncached + flush` − stock = **+7.55 ms**. That is what writing the chain
+  through uncached memory costs; `packet2` writes floats one at a time and an
+  uncached store does not gather.
+- `uncached` − `uncached + flush` = **−0.84 ms of the `send_packet2` bracket and
+  −1.09 ms of `work`**. That is `FlushCache`, refill included, with everything
+  else equal. **The −2.10 / −2.49 predicted for S1 above is about 2x
+  optimistic**, and the "unmeasured refill" is worth about 0.25 ms, not a hidden
+  prize.
+- **The uncached arm that still flushes is byte-identical to the control. The
+  one that does not flush is CORRUPT** — 1 271 of 262 144 pixels, a 14-row band
+  at the horizon where the road and the far buildings tear into slices — even
+  though the qbuffer copy pools were explicitly kept on the flushing path and
+  the uncached allocation was verified on the console before anything was read
+  from it.
+
+So **S1's justification on this page — "the packet is no longer in cached
+memory, so there is nothing to write back" — is false.** Something else the EE
+writes into cached memory and the DMA reads by `REF` is not covered, or
+`FlushCache(0)` is also supplying an ordering barrier that its removal takes
+away. This round did not separate those two, and whoever builds S1 owes that
+answer first. Its risk rating in the supporting-changes table should read
+**medium**, not low, and its predicted value **−1.1 ms**, not −2.10.
+
+`P2_TYPE_UNCACHED_ACCL`, which this page names for the arm, was deliberately
+**not** booted: the stock ps2sdk builder back-patches bytes it has already
+written (`packet2_vif_close_unpack_auto` reads byte 3 and writes byte 2 of the
+open unpack VIFcode), and under UCAB those go through the EE's 128-byte
+write-gather buffer. `P2_TYPE_UNCACHED` has no such buffer and is what was run.
+UCAB is the version S1 would want for speed, and it needs a packet builder that
+never reads back — i.e. owning `packet2`, which "What is NOT the lever" lists as
+not worth doing. That tension is now S1's problem to resolve, not a detail.
+
+**What still has no measurement**: the flush-removal correctness question above,
+and Probe B under `--keep-routes`. The parked fixture cannot see a defect in a
+per-frame rebake that writes the same bytes every frame, so the corruption found
+is a lower bound on the problem rather than an inventory of it.
 
 ## Order of work
 
-1. Probe A and Probe B. Decide from evidence whether S3 ships and how much of
-   the `send_packet2` bracket is recoverable.
-2. S1 — the frame chain out of cached memory. This is also what makes every
-   later measurement quieter.
+1. ~~Probe A and Probe B.~~ **DONE, on hardware, 2026-09-16.** S3 does not ship;
+   the recoverable part of the `send_packet2` bracket is 0.84 ms.
+2. **Find out what else `FlushCache` was writing back** - dropping it corrupted
+   the picture with the packet already uncached. S1 cannot be built until that
+   is answered, and it is worth 1.09 ms when it is.
 3. S4 and S5 — the two cheap non-pipeline wins, aimed at the 20 ms rung.
 4. The baked VIF stream, behind a compile-time switch, with the existing path as
    the A/B fallback and the counters as the correctness gate.
@@ -277,6 +353,7 @@ byte-identical and must be inspected instead).
 Every millisecond attributed to a future state is a prediction. The 15 ms VU1
 estimate is derived from a measured per-cycle rate and a routing mix taken from
 a different build, not measured directly. The 0.4 ms redesign figure is an
-arithmetic sketch. No arm of this plan has been run. The only measured numbers
-here are the four-pose table at the top, the FTCLIP package counts, and the
-prior results this page cites by link.
+arithmetic sketch. The measured numbers here are the four-pose table at the top,
+the FTCLIP package counts, **the two probes' section and everything it links**,
+and the prior results this page cites by link. Everything else remains a
+prediction.

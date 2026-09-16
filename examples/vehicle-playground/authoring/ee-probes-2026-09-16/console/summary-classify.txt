@@ -1,0 +1,14 @@
+metric                 garage-day   garage-night      outer-day    outer-night
+spRender_ms                23.302         29.256          8.944         10.777
+dsRetain_ms                 0.689          0.898          0.205          0.236
+dsDirect_ms                 1.902          2.014          0.434          0.447
+dsCreate_ms                 2.469          2.605          0.763          0.793
+dsClassify_ms               1.789          1.895          0.576          0.600
+dsRender_ms                 2.054          2.200          1.883          1.915
+dsFlush_ms                  9.499         10.789          2.766          2.927
+dsDirectBags               53.500         76.000         13.000         16.000
+dsPartialBags              59.000         65.000         20.500         21.500
+dsPackages                570.500        601.500        228.500        235.500
+dsMergeParts             1323.000       1354.000        411.500        418.500
+dsMaskCalls               269.000        290.000         91.000         94.000
+create-classify             0.679          0.710          0.188          0.192

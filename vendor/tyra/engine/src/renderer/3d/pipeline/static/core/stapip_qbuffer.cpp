@@ -72,6 +72,9 @@ StaPipQBuffer::StaPipQBuffer() {
   stripped = false;
   retainIndex = -1;  // Modified by TyraX: see the field's comment.
   bakeIndex = -1;    // Modified by TyraX: see the field's comment.
+#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
+  probeCopyFilled = false;  // Probe B, see stapip_probes.hpp.
+#endif
   _isDynamicallyAllocated = false;
   _stAllocated = false;
   _colorAllocated = false;
@@ -130,6 +133,11 @@ void StaPipQBuffer::fillByCopyMax(const StaPipBagPackage& pkg1,
                                   const StaPipBagPackage& pkg2,
                                   const StaPipBagPackage& pkg3) {
   HardwareTrace::Scope trace("QBuffer_copy");
+#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
+  // Probe B: this buffer's REF tags will name the copy pool, whose cached
+  // stores only FlushCache writes back. See stapip_probes.hpp.
+  probeCopyFilled = true;
+#endif
   TYRA_ASSERT(pkg1.size <= maxVertCount / 3,
               "Wrong package size (1). Provided: ", pkg1.size);
   TYRA_ASSERT(pkg2.size <= maxVertCount / 3,
@@ -161,6 +169,11 @@ void StaPipQBuffer::fillByCopyMax(const StaPipBagPackage& pkg1,
 void StaPipQBuffer::fillByCopy1By2(const StaPipBagPackage& pkg1,
                                    const StaPipBagPackage& pkg2) {
   HardwareTrace::Scope trace("QBuffer_copy");
+#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
+  // Probe B: this buffer's REF tags will name the copy pool, whose cached
+  // stores only FlushCache writes back. See stapip_probes.hpp.
+  probeCopyFilled = true;
+#endif
   TYRA_ASSERT(pkg1.size <= maxVertCount / 3,
               "Wrong package size (1). Provided: ", pkg1.size);
   TYRA_ASSERT(pkg2.size <= maxVertCount / 3,
@@ -188,6 +201,11 @@ void StaPipQBuffer::fillByCopy1By2(const StaPipBagPackage& pkg1,
 
 void StaPipQBuffer::fillByCopy1By3(const StaPipBagPackage& pkg) {
   HardwareTrace::Scope trace("QBuffer_copy");
+#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
+  // Probe B: this buffer's REF tags will name the copy pool, whose cached
+  // stores only FlushCache writes back. See stapip_probes.hpp.
+  probeCopyFilled = true;
+#endif
   TYRA_ASSERT(pkg.size <= maxVertCount / 3,
               "Wrong package size (1). Provided: ", pkg.size);
 
@@ -211,6 +229,11 @@ void StaPipQBuffer::fillByCopy1By3(const StaPipBagPackage& pkg) {
 void StaPipQBuffer::fillByStripExpand(const StaPipBagPackage& pkg,
                                       u32 firstTri, u32 triCount) {
   HardwareTrace::Scope trace("QBuffer_copy");
+#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
+  // Probe B: this buffer's REF tags will name the copy pool, whose cached
+  // stores only FlushCache writes back. See stapip_probes.hpp.
+  probeCopyFilled = true;
+#endif
   TYRA_ASSERT(triCount * 3 <= maxVertCount,
               "Strip expansion does not fit the VU1 buffer. Triangles: ",
               triCount);

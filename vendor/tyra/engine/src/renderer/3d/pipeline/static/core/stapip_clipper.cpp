@@ -104,6 +104,11 @@ u32 StaPipClipper::clipToPool(StaPipQBuffer* buffer) {
 }
 
 void StaPipClipper::writeChunk(StaPipQBuffer* buffer, u32 start, u32 count) {
+#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
+  // Probe B: the EE clipper writes its output into the same pool the copy
+  // fills use, so this buffer's send keeps the flush. See stapip_probes.hpp.
+  buffer->probeCopyFilled = true;
+#endif
   buffer->reallocateManually(count);
   for (u32 i = 0; i < count; i++) {
     const PlanesClipVertex& v = clippedPool[start + i];
