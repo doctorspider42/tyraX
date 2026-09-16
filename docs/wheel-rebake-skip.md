@@ -430,6 +430,12 @@ gain (67.9% → 74.3%) is worth it there; if the regression survives, the stamp 
 innocent and the slot bookkeeping is the thing to look at. One knob, one
 project directory, the way `TYRA_STAPIP_RETAINED_COMMANDS` is run.
 
+The knob was checked to do what it says rather than assumed to, using the
+counters: at 1 the garage windows read `batches=900 stamped=53` and then
+`stamped=2`; at 0 the same windows read `batches=900 stamped=900`, so every
+submit bumps the stamp again, while `rebuilt` stays at 53 and then 2 — the skip
+and the hoist untouched, the stamp lever alone reverted.
+
 ## Limits
 
 - **No console, and no milliseconds from here.** Everything below the native
