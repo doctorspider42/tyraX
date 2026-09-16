@@ -208,6 +208,19 @@ budget. The 246 rebuilds are not a cache miss to chase: they are the routes that
 deliberately keep their old path (clip-routed and copied buffers) plus the bags
 whose geometry genuinely changes every frame, which is what `bboxVersion` is for.
 
+**Some of those 246 were a caller lying to this cache**, and that is worth
+knowing before reading a rebuild count as a property of the scene. The vehicle
+wheel batch bumped `bboxVersion` on every submit whether its vertices had
+changed or not, so its packages could never be retained by construction — the
+key was fresh every frame. `bboxVersion` is a claim about the buffer's
+*contents*, and a caller that bumps it unconditionally is not being
+conservative, it is disabling two caches. The wheel batch now keeps its stamp
+while its buffer is byte-identical; see
+[wheel-rebake-skip.md](wheel-rebake-skip.md), which also records the constraint
+that makes a sticky stamp safe: `StapipBagBBoxesCacher` keys on (vertex pointer,
+version) and stores **no count**, so a stamp may only be reused while the
+buffer's address and length are also unchanged.
+
 ## What has not been measured
 
 See [vu1-and-dma-cache-cost.md](vu1-and-dma-cache-cost.md) for where the frame's

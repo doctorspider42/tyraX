@@ -167,16 +167,18 @@ Everything below is PCSX2, garage day, against a 14.595 ms render submission,
 and none of it has been on a console. Sizes are what the numbers support, not
 estimates of what a fix would save.
 
-1. **`renderVehicleWheels`, 2.962 ms — 20% of render submission, and 1.970 of
-   it is not submission at all.** The generated game rebuilds every wheel vertex
-   in world space every frame (four wheels per car, 9 multiplies + 3 adds each,
-   `push_back` into a cleared vector), then bumps the bag's `bboxVersion`
-   unconditionally, which invalidates its package bounding boxes AND its
-   retained command blocks by construction. Two independent levers: skip the
-   rebake for a car whose pose did not change, and stop bumping `bboxVersion`
-   when the vertex buffer did not move. **Do not measure either on the parked
-   benchmark alone** — parked traffic is exactly the case a pose-change test
-   flatters, and the fixture parks it.
+1. ~~**`renderVehicleWheels`, 2.962 ms — 20% of render submission, and 1.970 of
+   it is not submission at all.**~~ **DONE**, see
+   [wheel-rebake-skip.md](wheel-rebake-skip.md). Both levers were taken — a
+   slot-addressed batch with an exact per-car signature so an unchanged rig is
+   not re-baked, and a sticky `bboxVersion` that is only bumped when the buffer
+   really did change — plus one the entry did not name and which turned out to
+   matter more for moving traffic: the body attitude, its six sines and cosines
+   and the steer basis were being recomputed **per wheel**, so a car paid 176
+   transcendental calls a frame where 22 suffice. `benchmark-district.py`
+   grew `--keep-routes` for the second fixture the entry demanded, and the
+   page quotes the parked best case and the moving realistic case side by side.
+   What is still owed is a console repeat; see that page's Limits.
 2. **Package creation and classification, 3.346 ms — 56% of `dispatch`.** The
    largest single unopened box left. It needs the same treatment this round gave
    `prepare`: brackets inside the routing loops, behind the same opt-in macro.

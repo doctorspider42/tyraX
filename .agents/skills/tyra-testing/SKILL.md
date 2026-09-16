@@ -3068,6 +3068,44 @@ pointer AND count), reload the scene, and move the camera over hundreds of
 frames. `rebuilt` per frame is the instrument: it should be near zero on a
 parked pose and spike exactly where geometry changed.
 
+### Skip-when-unchanged acceptance, and the fixture that lies about it (1.100)
+
+`benchmark-district.py` **strips every vehicle's route** (it pops
+`vehicle.route` from every object JSON) so the fixture is deterministic. For
+almost every change that costs nothing. For any change that **skips work when an
+input did not change** it is a trap: every car is still, every frame, forever, so
+a skip test that would never fire in a real district scores 100%. **A number from
+the parked fixture alone is not evidence for such a change, and saying so is part
+of the result.** Pass `--keep-routes` for a second fixture whose AI drivers are
+driving (camera still frozen, player still pinned) and quote both — the parked
+best case and the moving realistic case. The cost of the second is determinism:
+with traffic moving the pixels are not repeatable, so run the `--capture-frame`
+A/B on the parked fixture and take only timings and counts from the moving one.
+
+The wheel-batch round is the worked example (`docs/wheel-rebake-skip.md`). Its
+per-frame counters are `WHEELBAKE cars=N rebuilt=M wheels=W rebuilt=X batches=B
+stamped=S per 300 frames` in the game's `bin/log.txt`, behind
+`TYRA_WHEEL_REBUILD_REPORT`, **default 0** — it is a timed `host:` write, so it
+is off for the same reason `STAPIPRET` is, and it must not be armed inside a
+`benchmark-district.py` sampling window. Unlike `STAPIPRET` it lives in the
+GENERATED game, so it is flipped in `src/templates.cpp` (or `-D` on the game's
+own compile), not in an engine header. `stamped` against `batches` is the second
+lever read directly: it is how many submits bumped `bboxVersion`, and on parked
+traffic it should fall to zero once the pose settles.
+
+Two correctness checks this class of change needs and a timing A/B does not:
+
+- **A skip must be a NO-OP, not a cheaper approximation.** Hold the old code as
+  an oracle and compare the live buffer against a full rebuild *every* frame,
+  including the frames that skipped. The failure mode is one frame of staleness,
+  which a still screenshot cannot see and a frame-time table rewards.
+- **Anything hoisted out of a loop must be BIT-identical, not equivalent.** A
+  reassociated rotation differs in the last place and that is a moved pixel. Do
+  the trigonometry once but keep the same operations in the same order on the
+  same operands, and prove it over a wide random spread including the degenerate
+  branches - a native harness that links neither the editor nor the engine does
+  this in seconds and costs no emulator boot.
+
 ### Static submission batch acceptance (1.93)
 
 Use complete baked resource hashes, four parked day/night poses, warmed

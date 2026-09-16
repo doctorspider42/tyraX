@@ -244,6 +244,10 @@ Developer design docs (internals, not user guides):
   opt-in counters that close the gap between the static pipeline's three
   telemetry brackets and the whole `beginFrame`..`endFrame` block, what the
   unmeasured remainder turned out to be, and what the hooks themselves cost.
+- [Not re-baking wheels that did not move](wheel-rebake-skip.md) — the vehicle
+  wheel batch keeps the vertices of a rig whose inputs did not change and stops
+  bumping `bboxVersion` when its buffer is byte-identical, plus the fixture
+  hazard that makes a parked benchmark flatter any skip-when-unchanged change.
 - [Profiling the generated game](profiling.md) — the built-in frame profiler,
   the COP0 deep-dive technique, and the frame-timing rig.
 - [The VU framework](vu-framework.md) — describe a microprogram in C++,

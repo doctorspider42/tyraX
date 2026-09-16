@@ -1869,6 +1869,21 @@ simply delegates are not.
   `bboxVersion`: the engine's package-bbox cache is keyed by the vertex pointer,
   so differing stamps make each pass recompute the boxes the previous one just
   built, every frame.
+  **And a per-frame rebuilder must not bump `bboxVersion` when it rebuilt the
+  same bytes.** The stamp is a claim about CONTENTS, so an unconditional
+  `++g_bboxStamp` costs twice over — `bounds` recomputes the package boxes and
+  `dispatch` throws away and rebuilds the retained command blocks, because
+  `bboxVersion` is in that key too. The wheel batch did exactly this and it was
+  a fifth of the Motor District's render submission
+  (`docs/wheel-rebake-skip.md`). The shape that fixes it is worth copying for
+  any "clear a vector and refill it every frame" builder: address the buffer by
+  SLOT rather than clearing it, keep an exact (not hashed) signature of the
+  inputs per slot, rewrite only the slots whose signature moved, and bump the
+  stamp only when one did. Two rules make a sticky stamp safe — the bbox cacher
+  stores no count, so the buffer's ADDRESS and LENGTH must be checked alongside
+  the content; and a slot table that is trimmed out of step with the vertex
+  vector will claim a match for vertices that no longer exist, which shows up
+  as one frame of stale geometry and nothing else.
   **A bag lit by VU1 instead of baked** (the opt-in per-object dynamic
   lighting, `GeoPart::litBag`) inverts the usual arrangement, and three things
   go with it: the per-vertex NORMAL capture is per PART, not per object

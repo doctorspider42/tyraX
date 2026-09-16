@@ -4192,28 +4192,51 @@ struct V3 {
   float x, y, z;
 };
 
-/** Rotation order: X, then Y, then Z (same as the editor viewport). */
-V3 rotated(const V3& v, const float* rotDeg) {
-  V3 r = v;
+/** The six sines and cosines rotated() needs, so a caller that rotates
+ * several vectors through the SAME angles pays the trigonometry once.
+ * cosf/sinf are software routines on the EE and are not `const`-attributed
+ * with errno enabled, so the compiler may not hoist them out of a loop by
+ * itself - see renderVehicleWheels(), which rotated twenty vectors per car
+ * through one attitude and paid for it twenty times. */
+struct RotTrig {
+  float cx, sx, cy, sy, cz, sz;
+};
+
+RotTrig rotTrigOf(const float* rotDeg) {
+  RotTrig t;
   const float rx = rotDeg[0] * PI / 180.0F;
   const float ry = rotDeg[1] * PI / 180.0F;
   const float rz = rotDeg[2] * PI / 180.0F;
+  t.cx = cosf(rx), t.sx = sinf(rx);
+  t.cy = cosf(ry), t.sy = sinf(ry);
+  t.cz = cosf(rz), t.sz = sinf(rz);
+  return t;
+}
+
+/** rotated() with the trigonometry already done. The three stages run in the
+ * same order on the same operands as below, so this is BIT-IDENTICAL to
+ * rotated() and not merely equivalent - which is what lets a caller swap to
+ * it without moving a pixel. */
+V3 rotatedBy(const V3& v, const RotTrig& t) {
+  V3 r = v;
   {
-    const float c = cosf(rx), s = sinf(rx);
-    const float y = r.y * c - r.z * s, z = r.y * s + r.z * c;
+    const float y = r.y * t.cx - r.z * t.sx, z = r.y * t.sx + r.z * t.cx;
     r.y = y, r.z = z;
   }
   {
-    const float c = cosf(ry), s = sinf(ry);
-    const float x = r.x * c + r.z * s, z = -r.x * s + r.z * c;
+    const float x = r.x * t.cy + r.z * t.sy, z = -r.x * t.sy + r.z * t.cy;
     r.x = x, r.z = z;
   }
   {
-    const float c = cosf(rz), s = sinf(rz);
-    const float x = r.x * c - r.y * s, y = r.x * s + r.y * c;
+    const float x = r.x * t.cz - r.y * t.sz, y = r.x * t.sz + r.y * t.cz;
     r.x = x, r.y = y;
   }
   return r;
+}
+
+/** Rotation order: X, then Y, then Z (same as the editor viewport). */
+V3 rotated(const V3& v, const float* rotDeg) {
+  return rotatedBy(v, rotTrigOf(rotDeg));
 }
 
 /** Inverse of rotated(): -Z, then -Y, then -X (world -> object local). */
@@ -32299,6 +32322,21 @@ static std::string vehicleMembers(const Project& p) {
   // Which camera the driver is looking through, cycled with Triangle.
   // 0 = chase, 1 = bumper, 2 = far. See vehicleCameraFor().
   int vehCamMode_ = 0;
+  // What one car's four wheels were last BAKED from. The batch is rebuilt
+  // slot by slot instead of cleared and refilled, so a rig whose inputs did
+  // not move keeps the vertices it already has - and if no slot moves, the
+  // whole buffer is byte-identical and its bboxVersion must NOT be bumped
+  // (see renderVehicleWheels).
+  struct WheelSlot {
+    // The nine inputs shared by all four wheels: position, body attitude,
+    // steer, spin, instance scale. Compared with != so a NaN always rebuilds.
+    float sig[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+    // The one input that is genuinely PER wheel: its own sampled ground.
+    float wy[4] = {0, 0, 0, 0};
+    const void* srcVerts = nullptr;  // the part, i.e. an LOD/model swap
+    int vehicle = -1;                // which car owns this slot
+    int valid = 0;
+  };
   // ONE bag per definition's material, not per vehicle: the wheels move
   // independently, so they cannot ride the body's matrix, but cars sharing a
   // definition still share one submit. The buffers must also live per
@@ -32307,8 +32345,17 @@ static std::string vehicleMembers(const Project& p) {
     std::vector<Tyra::Vec4> verts;
     std::vector<Tyra::Color> cols;
     std::vector<Tyra::Vec4> sts;
+    std::vector<WheelSlot> slots;
     u32 vertsPerCar = 0;
     int staticCars = 0;
+    // The sticky bboxVersion this batch hands the bag, and the count and
+    // buffer address it was stamped for. All three must agree before the
+    // stamp may be reused: the package-bbox cache is keyed by (vertex
+    // pointer, version) and does NOT re-check the count, so a stamp reused
+    // across a resize would return boxes for the wrong number of packages.
+    u32 stamp = 0;
+    size_t lastCount = 0;
+    const void* lastVerts = nullptr;
     // Largest source-vertex distance from the baked hub. Scanned once after
     // load and invalidated with the scene/model lifetime below.
     float localRadius = -1.0F;
@@ -34392,17 +34439,40 @@ int TerrainGame::vehicleLod(int vi) const {
   return g.parts.empty() ? 0 : g.parts[0].shownLod;
 }
 
+// WHEEL REBUILD ACCOUNTING. Off by default and off in a release game: the
+// readout is a host-filesystem write, which is a network round trip on a
+// ps2link deploy and lands inside any measurement window it fires in - the
+// same reason STAPIPRET is opt-in. Build with -DTYRA_WHEEL_REBUILD_REPORT=1.
+#ifndef TYRA_WHEEL_REBUILD_REPORT
+#define TYRA_WHEEL_REBUILD_REPORT 0
+#endif
+#if TYRA_WHEEL_REBUILD_REPORT
+static u32 g_whReportFrames = 0, g_whCars = 0, g_whCarsRebuilt = 0;
+static u32 g_whWheels = 0, g_whWheelsRebuilt = 0, g_whStampBumps = 0;
+static u32 g_whBatches = 0;
+#endif
+
 void TerrainGame::renderVehicleWheels() {
   if (vehicleCount_ <= 0) return;
   const float kDeg = 3.14159265F / 180.0F;
   // Distinct definitions can use different palettes or source images. A single
   // shared bag would sample every car's wheel UVs through the last car's image.
+  // The bag POINTER may still be shared: both caches downstream are keyed by
+  // the vertex-buffer address (StapipBagBBoxesCacher's id, and the retained
+  // command key's `vertices`), never by the bag, and every batch owns its own
+  // vertex vector.
   for (int drawDef = 0; drawDef < VEHICLE_DEF_COUNT; ++drawDef) {
   if ((int)wheelBatches_.size() <= drawDef)
     wheelBatches_.resize((size_t)drawDef + 1);
   WheelBatch& batch = wheelBatches_[(size_t)drawDef];
-  batch.verts.clear();
+  // NOT cleared. The batch is addressed by SLOT - car k owns
+  // [k*vertsPerCar, (k+1)*vertsPerCar) - so a car whose inputs did not move
+  // keeps the vertices already sitting there, and the frame does no work for
+  // it at all. `changed` stays false only if every byte of the buffer is the
+  // byte it held last frame.
   const GameModelPart* src = nullptr;
+  int slot = 0;
+  bool changed = false;
   for (int vi = 0; vi < vehicleCount_; ++vi) {
     VehicleRt& v = vehicles_[vi];
     if (!v.active || v.def != drawDef) continue;
@@ -34468,67 +34538,162 @@ void TerrainGame::renderVehicleWheels() {
       if (outsideSplitBand(bmn, bmx)) continue;
     }
     src = &part;
-    const float hx = 0.5F * s.track * SC, hz = 0.5F * s.wheelBase * SC;
-    const float lx[4] = {-hx, hx, -hx, hx};
-    const float lz[4] = {hz, hz, -hz, -hz};
-    for (int w = 0; w < 4; ++w) {
-      // Steer the front pair, spin all four. Both are rotations about the
-      // wheel's own hub, which is why the bake centres it there.
-      const float st = (w < 2 ? v.steerAngle : 0.0F) * kDeg;
-      const float cs = cosf(st), ss = sinf(st);
-      const float sp = v.wheelSpin * kDeg;
-      const float cp = cosf(sp), spn = sinf(sp);
-      // The hub follows ITS OWN wheel's ground - one radius above it - and
-      // the travel clamp keeps it inside the arch. This is the computed
-      // suspension finally reaching the screen: over a crest the outer pair
-      // drops, over a kerb one corner rides up, and in the air all four hang
-      // at full droop. rideHeight = wheelRadius keeps the flat-ground case
-      // exactly where it always was.
-      // The suspension is a LINE in the body frame, not a world-Y slider:
-      // start at the fully transformed arch hardpoint and move along the
-      // body's local up until the tyre meets its sampled floor. This is the
-      // four-link analytic rig; no skeleton or IK is involved.
+    const u32 nv = (u32)(part.verts.size() / 8);
+    const u32 vpc = nv * 4;
+    // Every car in this batch reads the same definition, so this can only
+    // fire on the frame the wheel model itself changed, at slot 0.
+    if (batch.vertsPerCar != vpc) {
+      batch.vertsPerCar = vpc;
+      batch.staticCars = 0;
+      batch.cols.clear();
+      batch.sts.clear();
+      batch.slots.clear();
+      batch.verts.clear();
+      slot = 0;
+      changed = true;
+    }
+    const size_t base = (size_t)slot * (size_t)vpc;
+    if (batch.verts.size() < base + vpc) batch.verts.resize(base + vpc);
+    if ((int)batch.slots.size() <= slot)
+      batch.slots.resize((size_t)slot + 1);
+    WheelSlot& sl = batch.slots[(size_t)slot];
+    // THE SIGNATURE: every input the vertices below are a function of, held
+    // as raw floats and compared exactly - no hash, because a collision here
+    // is a wheel frozen one frame behind its car. The definition's own
+    // constants (track, wheelBase, wheelRadius, suspensionTravel) are not in
+    // it because VEHICLE_DEFS is immutable static data.
+    const float sig[9] = {v.pos[0],
+                          v.pos[1],
+                          v.pos[2],
+                          v.pitch + v.leanPitch,
+                          v.yaw,
+                          v.roll + v.leanRoll,
+                          v.steerAngle,
+                          v.wheelSpin,
+                          SC};
+    bool sameRig = sl.valid && sl.vehicle == vi &&
+                   sl.srcVerts == (const void*)part.verts.data();
+    if (sameRig)
+      for (int k = 0; k < 9; ++k)
+        if (sl.sig[k] != sig[k]) { sameRig = false; break; }
+    // Which of the four wheels actually has to be re-baked. Everything in
+    // `sig` is shared by all four, so a car that MOVED redoes all four; the
+    // per-wheel split only ever saves work for a car that is standing still
+    // while one corner's sampled ground moves under it.
+    int redo[4];
+    int nredo = 0;
+    if (!sameRig) {
+      for (int w = 0; w < 4; ++w) redo[w] = w;
+      nredo = 4;
+    } else {
+      for (int w = 0; w < 4; ++w)
+        if (sl.wy[w] != v.wheelY[w]) redo[nredo++] = w;
+    }
+#if TYRA_WHEEL_REBUILD_REPORT
+    ++g_whCars;
+    g_whWheels += 4;
+    if (nredo > 0) ++g_whCarsRebuilt;
+    g_whWheelsRebuilt += (u32)nredo;
+#endif
+    if (nredo > 0) {
+      changed = true;
+      const float hx = 0.5F * s.track * SC, hz = 0.5F * s.wheelBase * SC;
+      const float lx[4] = {-hx, hx, -hx, hx};
+      const float lz[4] = {hz, hz, -hz, -hz};
+      // ONCE PER CAR, not once per wheel. The body attitude, its six sines
+      // and cosines, the local up and the spin angle are identical for all
+      // four; this loop used to recompute every one of them four times, and
+      // vehBodyRotation alone is six transcendentals, three atan2s and a
+      // square root. rotatedBy() below performs rotated()'s arithmetic in
+      // rotated()'s order, so the vertices are bit-identical to the ones
+      // the per-wheel version produced.
       float bodyRot[3];
       vehBodyRotation(v.pitch + v.leanPitch, v.yaw, v.roll + v.leanRoll, bodyRot);
-      const V3 hard = rotated({lx[w], 0.0F, lz[w]}, bodyRot);
-      const V3 up = rotated({0.0F, 1.0F, 0.0F}, bodyRot);
-      const float targetY = v.wheelY[w] + s.wheelRadius * SC;
-      float travel = up.y > 0.2F
-                         ? (targetY - (v.pos[1] + hard.y)) / up.y
-                         : 0.0F;
-      const float lo = -s.suspensionTravel * SC * 0.45F;
-      const float hiTravel = s.suspensionTravel * SC * 0.10F;
-      const float hiRadius = s.wheelRadius * SC * 0.06F;
-      const float hi = hiTravel < hiRadius ? hiTravel : hiRadius;
-      if (travel < lo) travel = lo;
-      if (travel > hi) travel = hi;
-      const float ax = v.pos[0] + hard.x + up.x * travel;
-      const float ay = v.pos[1] + hard.y + up.y * travel;
-      const float az = v.pos[2] + hard.z + up.z * travel;
-      // Compose spin, steer and body attitude once per wheel, not once per
-      // vertex. These are the columns of the same linear transform.
-      const V3 bx = rotated({cs * SC, 0.0F, -ss * SC}, bodyRot);
-      const V3 by = rotated({spn * ss * SC, cp * SC, spn * cs * SC}, bodyRot);
-      const V3 bz = rotated({cp * ss * SC, -spn * SC, cp * cs * SC}, bodyRot);
-      const u32 nv = (u32)(part.verts.size() / 8);
-      for (u32 i = 0; i < nv; ++i) {
-        const float* q = &part.verts[(size_t)i * 8];
-        batch.verts.push_back(Tyra::Vec4(
-            ax + bx.x * q[0] + by.x * q[1] + bz.x * q[2],
-            ay + bx.y * q[0] + by.y * q[1] + bz.y * q[2],
-            az + bx.z * q[0] + by.z * q[1] + bz.z * q[2]));
+      const RotTrig br = rotTrigOf(bodyRot);
+      const V3 up = rotatedBy({0.0F, 1.0F, 0.0F}, br);
+      const float sp = v.wheelSpin * kDeg;
+      const float cp = cosf(sp), spn = sinf(sp);
+      // ... and once per STEER PAIR, not once per wheel. The basis below is a
+      // function of steer, spin, scale and attitude only - never of which
+      // side the wheel is on - so the front two share one and the rear two
+      // (steer fixed at zero) share another. Both are built lazily: a car
+      // that only needs one corner re-baked pays for one pair.
+      V3 bx[2], by[2], bz[2];
+      int haveBasis[2] = {0, 0};
+      for (int r = 0; r < nredo; ++r) {
+        const int w = redo[r];
+        const int pair = w < 2 ? 0 : 1;
+        if (!haveBasis[pair]) {
+          // Steer the front pair, spin all four. Both are rotations about
+          // the wheel's own hub, which is why the bake centres it there.
+          const float st = (pair == 0 ? v.steerAngle : 0.0F) * kDeg;
+          const float cs = cosf(st), ss = sinf(st);
+          // Compose spin, steer and body attitude once, not once per vertex.
+          // These are the columns of the same linear transform.
+          bx[pair] = rotatedBy({cs * SC, 0.0F, -ss * SC}, br);
+          by[pair] = rotatedBy({spn * ss * SC, cp * SC, spn * cs * SC}, br);
+          bz[pair] = rotatedBy({cp * ss * SC, -spn * SC, cp * cs * SC}, br);
+          haveBasis[pair] = 1;
+        }
+        // The hub follows ITS OWN wheel's ground - one radius above it - and
+        // the travel clamp keeps it inside the arch. This is the computed
+        // suspension finally reaching the screen: over a crest the outer pair
+        // drops, over a kerb one corner rides up, and in the air all four hang
+        // at full droop. rideHeight = wheelRadius keeps the flat-ground case
+        // exactly where it always was.
+        // The suspension is a LINE in the body frame, not a world-Y slider:
+        // start at the fully transformed arch hardpoint and move along the
+        // body's local up until the tyre meets its sampled floor. This is the
+        // four-link analytic rig; no skeleton or IK is involved.
+        const V3 hard = rotatedBy({lx[w], 0.0F, lz[w]}, br);
+        const float targetY = v.wheelY[w] + s.wheelRadius * SC;
+        float travel = up.y > 0.2F
+                           ? (targetY - (v.pos[1] + hard.y)) / up.y
+                           : 0.0F;
+        const float lo = -s.suspensionTravel * SC * 0.45F;
+        const float hiTravel = s.suspensionTravel * SC * 0.10F;
+        const float hiRadius = s.wheelRadius * SC * 0.06F;
+        const float hi = hiTravel < hiRadius ? hiTravel : hiRadius;
+        if (travel < lo) travel = lo;
+        if (travel > hi) travel = hi;
+        const float ax = v.pos[0] + hard.x + up.x * travel;
+        const float ay = v.pos[1] + hard.y + up.y * travel;
+        const float az = v.pos[2] + hard.z + up.z * travel;
+        const V3& mx3 = bx[pair];
+        const V3& my3 = by[pair];
+        const V3& mz3 = bz[pair];
+        // Straight into the slot. The old shape cleared the vector and
+        // push_back'd every vertex, which paid a capacity test and a size
+        // bump per vertex for a buffer whose length it already knew.
+        Tyra::Vec4* out = &batch.verts[base + (size_t)w * (size_t)nv];
+        for (u32 i = 0; i < nv; ++i) {
+          const float* q = &part.verts[(size_t)i * 8];
+          out[i] = Tyra::Vec4(
+              ax + mx3.x * q[0] + my3.x * q[1] + mz3.x * q[2],
+              ay + mx3.y * q[0] + my3.y * q[1] + mz3.y * q[2],
+              az + mx3.z * q[0] + my3.z * q[1] + mz3.z * q[2]);
+        }
       }
+      for (int k = 0; k < 9; ++k) sl.sig[k] = sig[k];
+      for (int w = 0; w < 4; ++w) sl.wy[w] = v.wheelY[w];
+      sl.srcVerts = (const void*)part.verts.data();
+      sl.vehicle = vi;
+      sl.valid = 1;
     }
+    ++slot;
   }
-  if (batch.verts.empty() || !src) continue;
-  const u32 vertsPerCar = (u32)(src->verts.size() / 8) * 4;
-  const int cars = vertsPerCar > 0 ? (int)(batch.verts.size() / vertsPerCar) : 0;
-  if (batch.vertsPerCar != vertsPerCar) {
-    batch.vertsPerCar = vertsPerCar;
-    batch.staticCars = 0;
-    batch.cols.clear();
-    batch.sts.clear();
+  if (slot == 0 || !src) continue;
+  const u32 vertsPerCar = batch.vertsPerCar;
+  const int cars = slot;
+  // Trim the tail TOGETHER. Shrinking the vertices without dropping the
+  // slots would leave a slot claiming a match for vertices that no longer
+  // exist, which is the frozen-wheel bug this whole path is written to avoid.
+  const size_t total = (size_t)cars * (size_t)vertsPerCar;
+  if (batch.verts.size() != total) {
+    batch.verts.resize(total);
+    changed = true;
   }
+  if ((int)batch.slots.size() > cars) batch.slots.resize((size_t)cars);
   while (batch.staticCars < cars) {
     for (int w = 0; w < 4; ++w)
       for (u32 i = 0; i < vertsPerCar / 4; ++i) {
@@ -34550,7 +34715,30 @@ void TerrainGame::renderVehicleWheels() {
   wheelColorBag_->many = batch.cols.data();
   wheelBag_->vertices = batch.verts.data();
   wheelBag_->count = static_cast<u32>(batch.verts.size());
-  wheelBag_->bboxVersion = ++g_bboxStamp;
+  // THE STAMP IS STICKY. bboxVersion says "this vertex buffer holds different
+  // numbers than it did"; bumping it unconditionally made that a lie on every
+  // frame a car did not move, and it cost twice - the package-bbox cache
+  // recomputed boxes that had not changed, and the retained command blocks for
+  // these packages were thrown away and rebuilt. A reused stamp is only safe
+  // while the buffer's ADDRESS and LENGTH are also the ones it was stamped
+  // for: StapipBagBBoxesCacher keys on (vertex pointer, version) and stores no
+  // count, so a stamp carried across a resize would hand back boxes for the
+  // wrong package count.
+  if (batch.verts.data() != batch.lastVerts ||
+      batch.verts.size() != batch.lastCount || batch.stamp == 0)
+    changed = true;
+  batch.lastVerts = batch.verts.data();
+  batch.lastCount = batch.verts.size();
+  if (changed) {
+    batch.stamp = ++g_bboxStamp;
+#if TYRA_WHEEL_REBUILD_REPORT
+    ++g_whStampBumps;
+#endif
+  }
+  wheelBag_->bboxVersion = batch.stamp;
+#if TYRA_WHEEL_REBUILD_REPORT
+  ++g_whBatches;
+#endif
   if (src->texture && batch.sts.size() >= batch.verts.size()) {
     if (!wheelTexBag_) wheelTexBag_ = std::make_unique<Tyra::StaPipTextureBag>();
     wheelTexBag_->texture = const_cast<Tyra::Texture*>(src->texture);
@@ -34561,6 +34749,22 @@ void TerrainGame::renderVehicleWheels() {
   }
   stapip.core.render(wheelBag_.get());
   }
+#if TYRA_WHEEL_REBUILD_REPORT
+  // Same 300-frame cadence as STAPIPRET, and the same reason for the cadence:
+  // one host write per five seconds is readable without being a per-frame cost.
+  if (++g_whReportFrames >= 300) {
+    char wl[160];
+    snprintf(wl, sizeof(wl),
+             "WHEELBAKE cars=%u rebuilt=%u wheels=%u rebuilt=%u "
+             "batches=%u stamped=%u per 300 frames",
+             g_whCars, g_whCarsRebuilt, g_whWheels, g_whWheelsRebuilt,
+             g_whBatches, g_whStampBumps);
+    TYRA_LOG(wl);
+    g_whReportFrames = 0;
+    g_whCars = g_whCarsRebuilt = g_whWheels = g_whWheelsRebuilt = 0;
+    g_whBatches = g_whStampBumps = 0;
+  }
+#endif
 }
 )";
 }

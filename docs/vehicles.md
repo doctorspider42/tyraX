@@ -54,12 +54,24 @@ that same view, so a transition cannot draw both the baked and live wheels.
 Debug render-cost captures report this work as a separate `Wheels` row rather
 than folding it into the scene total.
 
-Rebuilding four wheels' worth of vertices per frame on the EE sounds expensive
-and is not: a decimated wheel is a few hundred vertices, and the transform is
-VU0 macro-mode work measured in microseconds against the millisecond a second
-submit would cost. This is the static-batching trade-off run in the opposite
-direction — batching merges to avoid submits, and so does this; it just does it
-every frame because the members move.
+Rebuilding four wheels' worth of vertices per frame on the EE sounds expensive,
+and this page used to say it was not — "a few hundred vertices, VU0 macro-mode
+work measured in microseconds against the millisecond a second submit would
+cost". **That was never measured, and when it finally was it was wrong by three
+orders of magnitude**: the render-submission attribution priced the rebake at
+**1.970 ms a frame**, a seventh of the Motor District's whole render submission
+(docs/render-submission-attribution.md). The estimate was wrong about *what*
+the work is, not only how much — the dominant term was never the per-vertex
+multiply at all but the trigonometry around it, recomputed four times per car.
+The trade-off the paragraph describes still holds; what does not hold is that
+the price of it is negligible. What it actually costs, and what it costs now,
+is [wheel-rebake-skip.md](wheel-rebake-skip.md). The batch is no longer
+rebuilt for a rig whose inputs did not move, and it no longer bumps its
+`bboxVersion` when its vertices are byte-identical.
+
+This is the static-batching trade-off run in the opposite direction — batching
+merges to avoid submits, and so does this; it just does it every frame for the
+members that moved.
 
 Distant vehicles drop to **one** submit by baking the wheels into the body
 mesh: the paint part's two ordinary distance tiers each carry the four wheels
