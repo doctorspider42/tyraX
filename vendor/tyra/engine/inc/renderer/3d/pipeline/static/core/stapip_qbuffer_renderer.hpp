@@ -37,6 +37,13 @@
 #define TYRA_STAPIP_RETAINED_COMMANDS 1
 #endif
 
+// The periodic STAPIPRET readout. Separate from the feature and OFF by default:
+// it is a timed host: write, and a timed host: write inside a measurement
+// window is noise with a period. Build with -DTYRA_STAPIP_RETAINED_REPORT=1.
+#ifndef TYRA_STAPIP_RETAINED_REPORT
+#define TYRA_STAPIP_RETAINED_REPORT 0
+#endif
+
 namespace Tyra {
 
 #if TYRA_STAPIP_RETAINED_COMMANDS

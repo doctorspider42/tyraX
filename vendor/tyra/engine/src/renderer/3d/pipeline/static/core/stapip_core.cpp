@@ -106,7 +106,13 @@ void StaPipCore::setLod() {
 }
 
 void StaPipCore::onFrameEnd() {
-#if TYRA_STAPIP_RETAINED_COMMANDS && !defined(NDEBUG)
+// Modified by TyraX: OPT-IN, not `!defined(NDEBUG)`. No game build defines
+// NDEBUG - release only drops -g and KEEPSYM (docs/devkit.md) - so this
+// printed in a RELEASE game, once every 300 frames, which lands inside the
+// 240-row sampling window of every performance pose and breaks
+// benchmark-district.py's own "no sample-time host writes" contract. Over
+// ps2link a host: write is a network round trip.
+#if TYRA_STAPIP_RETAINED_COMMANDS && TYRA_STAPIP_RETAINED_REPORT
   // Modified by TyraX: the retained-command readout, once every 300 frames.
   // A debug build is the only in-engine consumer of these counters, so a
   // release game that wants them still gets every one (the take* accessors
@@ -251,15 +257,36 @@ void StaPipCore::recordPackage(const StaPipBagPackage& package,
 void StaPipCore::recordGuardBandPackage(const StaPipBagPackage& package) {
   if (!telemetryEnabled) return;
   ++telemetry.packagesGuardBand;
-  telemetry.trianglesGuardBand += package.size / 3;
+  // Modified by TyraX: the SAME rule recordPackage uses, or this counter
+  // measures a different thing from the `cull` population it documents itself
+  // as a subset of. It did: over one garage capture guard averaged 21.5
+  // triangles per package against cull's 37.9, purely because a strip package
+  // was charged size/3 here and size-2 there.
+  telemetry.trianglesGuardBand +=
+      package.bag != nullptr && package.bag->stripped
+          ? (package.size >= 2 ? package.size - 2 : 0)
+          : package.size / 3;
 }
 
 void StaPipCore::recordOutsideBag(const StaPipBag* bag) {
   if (!telemetryEnabled) return;
-  telemetry.packagesOutside +=
-      (bag->count + maxVertCount - 1) / maxVertCount;
-  telemetry.trianglesOutside +=
-      bag->stripped ? (bag->count >= 2 ? bag->count - 2 : 0) : bag->count / 3;
+  // Modified by TyraX: a rejected bag is sliced into the same packages it would
+  // have been submitted as, and a stripped one gives EACH of those its own
+  // strip - so the bag is packages * (runLength - 2) triangles, not
+  // count - 2. Charging the whole bag as one strip over-counted by
+  // 2 * (packages - 1), which is exactly the population this counter exists to
+  // compare against the submitted one.
+  const u32 outsidePackages = (bag->count + maxVertCount - 1) / maxVertCount;
+  telemetry.packagesOutside += outsidePackages;
+  if (!bag->stripped) {
+    telemetry.trianglesOutside += bag->count / 3;
+  } else {
+    const u32 whole = bag->count / maxVertCount;
+    const u32 tail = bag->count - whole * maxVertCount;
+    telemetry.trianglesOutside +=
+        whole * (maxVertCount >= 2 ? maxVertCount - 2 : 0) +
+        (tail >= 2 ? tail - 2 : 0);
+  }
 }
 
 u32 StaPipCore::getMaxVertCountByBag(const StaPipBag* bag) {

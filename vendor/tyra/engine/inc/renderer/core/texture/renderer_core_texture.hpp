@@ -26,6 +26,13 @@
 #define TYRA_VRAM_CENSUS 0
 #endif
 
+// The 120-frame VRAMSTAT summary. The eviction-driven line is unconditional -
+// that one reports an event. This one is a timer, and a timer that writes to
+// host: inside a measurement window is noise with a period.
+#ifndef TYRA_VRAM_PERIODIC_STAT
+#define TYRA_VRAM_PERIODIC_STAT 0
+#endif
+
 namespace Tyra {
 
 /**

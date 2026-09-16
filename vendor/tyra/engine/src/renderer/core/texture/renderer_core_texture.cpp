@@ -331,7 +331,14 @@ void RendererCoreTexture::traceFrame() {
     censusEvicts.clear();
   }
 #endif
-  if (!evicted && !summary) return;
+  // Modified by TyraX: the EVENT half still reports - an eviction is a real
+  // condition and worth a line. The 120-frame SUMMARY is off by default: no
+  // game build defines NDEBUG (docs/devkit.md), so it printed in a release
+  // game on a timer, landing inside the 240-row sampling window of every
+  // performance pose against benchmark-district.py's "no sample-time host
+  // writes" contract. Over ps2link a host: write is a network round trip, and
+  // a timed one is noise with a period. -DTYRA_VRAM_PERIODIC_STAT=1 restores it.
+  if (!evicted && !(summary && TYRA_VRAM_PERIODIC_STAT)) return;
   lastLoggedEvictions = stats.evictions;
 
   TYRA_LOG("VRAMSTAT f=", frameCounter, " bind=", stats.binds, " (+",
