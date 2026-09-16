@@ -16,6 +16,14 @@ same scene regenerated with the editor being compared, which records 0.000
 re-uploads and 0 evictions in all four poses. A whole VRAM investigation was
 launched at that ghost.
 
+IT ALSO MOVES THE TRIANGLE COUNT, which is the symptom that gets mistaken for a
+code change. A regenerated Motor District submits 40502 / 41176 / 16386 / 16720
+triangles in the four poses; a stale one does not, and the difference reads
+exactly like geometry the candidate added. Two columns discriminate in one
+glance: `reuploads` is 0.000 in all four poses for a regenerated fixture, and
+the triangle count is identical between two arms that differ only in code (see
+docs/wheel-rebake-skip.md, where both arms read 40502 to the triangle).
+
 So: run `tyrax-editor --build <fixture>` (or at least --refresh-gen) once
 before the arm that matters, or copy in a .res-baked/ and bin/ you have just
 regenerated - and check that the counters you are about to read agree with the

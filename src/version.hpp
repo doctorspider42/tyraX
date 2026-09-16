@@ -52,6 +52,20 @@
 // for re-baked ones), so they are reported as counts, and the frame time is
 // being taken on the physical console.
 //
+// PCSX2, parked fixture, two arms differing in ONE generated file: triangles
+// (40502/41176/16386/16720), packet flushes, uploads, re-uploads and the
+// retained-command TOTALS are identical to the unit, and twelve frozen-camera
+// captures - three per pose, two day poses, two arms - hash to exactly two
+// values. So the change adds NOTHING to submission, and a triangle-count
+// difference between two arms is a stale fixture rather than this code.
+// Counters: parked, 0 of 900 car-submits rebuild and 0 stamp once the
+// suspension settles; driven, 300 of 300 frames rebuild, all four wheels,
+// which is the skip correctly not firing. Retained hit rate 67.9% -> 74.3%
+// at the garage, unchanged in the outer pose because it draws no wheel bag.
+// A new opt-in TYRA_WHEEL_REBUILD_VERIFY runs the pre-change arithmetic as an
+// oracle INSIDE the game: 5085 car-checks over 4500 frames of real driving,
+// 0 stale wheels.
+//
 // benchmark-district.py grew --keep-routes, because the benchmark PARKS the
 // traffic and a skip-when-unchanged change measured on parked traffic flatters
 // itself absolutely. Both fixtures are quoted, and the district has only five

@@ -34446,10 +34446,28 @@ int TerrainGame::vehicleLod(int vi) const {
 #ifndef TYRA_WHEEL_REBUILD_REPORT
 #define TYRA_WHEEL_REBUILD_REPORT 0
 #endif
+// THE IN-GAME FROZEN-WHEEL ORACLE. Separate from the report and far more
+// expensive - it re-bakes every wheel of every drawn car with the ORIGINAL
+// per-wheel arithmetic and compares the bytes, so it costs MORE than the work
+// it is checking and must never be on in anything measured or shipped. It
+// answers the one question a screenshot cannot: is a wheel ever one frame
+// behind its car, on real inputs - a driving car, an LOD crossing, a rig
+// entering and leaving the batch. Build with -DTYRA_WHEEL_REBUILD_VERIFY=1;
+// it turns the report on by itself, because the count is how it reports.
+#ifndef TYRA_WHEEL_REBUILD_VERIFY
+#define TYRA_WHEEL_REBUILD_VERIFY 0
+#endif
+#if TYRA_WHEEL_REBUILD_VERIFY && !TYRA_WHEEL_REBUILD_REPORT
+#undef TYRA_WHEEL_REBUILD_REPORT
+#define TYRA_WHEEL_REBUILD_REPORT 1
+#endif
 #if TYRA_WHEEL_REBUILD_REPORT
 static u32 g_whReportFrames = 0, g_whCars = 0, g_whCarsRebuilt = 0;
 static u32 g_whWheels = 0, g_whWheelsRebuilt = 0, g_whStampBumps = 0;
 static u32 g_whBatches = 0;
+#endif
+#if TYRA_WHEEL_REBUILD_VERIFY
+static u32 g_whVerifyCars = 0, g_whVerifyFailWheels = 0;
 #endif
 
 void TerrainGame::renderVehicleWheels() {
@@ -34680,6 +34698,63 @@ void TerrainGame::renderVehicleWheels() {
       sl.vehicle = vi;
       sl.valid = 1;
     }
+#if TYRA_WHEEL_REBUILD_VERIFY
+    // THE FROZEN-WHEEL ORACLE, RUNNING IN THE REAL GAME. A still screenshot
+    // cannot show a wheel one frame behind its car, and a driven one can only
+    // show a bad enough case. So re-derive this car's four wheels from
+    // scratch, with the ORIGINAL per-wheel arithmetic - rotated() and
+    // vehBodyRotation() called exactly as they were before this function was
+    // rewritten - and compare the bytes against whatever is actually in the
+    // slot. That checks BOTH levers at once on real inputs: a skip that
+    // should not have happened, and a hoist that is not bit-identical.
+    // Independent code on purpose: sharing a helper with the shipped path
+    // would let one bug hide the other, and the shipped path must not be
+    // reshaped for a checker that never ships.
+    {
+      const float vhx = 0.5F * s.track * SC, vhz = 0.5F * s.wheelBase * SC;
+      const float vlx[4] = {-vhx, vhx, -vhx, vhx};
+      const float vlz[4] = {vhz, vhz, -vhz, -vhz};
+      for (int w = 0; w < 4; ++w) {
+        const float st = (w < 2 ? v.steerAngle : 0.0F) * kDeg;
+        const float cs = cosf(st), ss = sinf(st);
+        const float sp = v.wheelSpin * kDeg;
+        const float cp = cosf(sp), spn = sinf(sp);
+        float bodyRot[3];
+        vehBodyRotation(v.pitch + v.leanPitch, v.yaw, v.roll + v.leanRoll,
+                        bodyRot);
+        const V3 hard = rotated({vlx[w], 0.0F, vlz[w]}, bodyRot);
+        const V3 up = rotated({0.0F, 1.0F, 0.0F}, bodyRot);
+        const float targetY = v.wheelY[w] + s.wheelRadius * SC;
+        float travel =
+            up.y > 0.2F ? (targetY - (v.pos[1] + hard.y)) / up.y : 0.0F;
+        const float lo = -s.suspensionTravel * SC * 0.45F;
+        const float hiTravel = s.suspensionTravel * SC * 0.10F;
+        const float hiRadius = s.wheelRadius * SC * 0.06F;
+        const float hi = hiTravel < hiRadius ? hiTravel : hiRadius;
+        if (travel < lo) travel = lo;
+        if (travel > hi) travel = hi;
+        const float ax = v.pos[0] + hard.x + up.x * travel;
+        const float ay = v.pos[1] + hard.y + up.y * travel;
+        const float az = v.pos[2] + hard.z + up.z * travel;
+        const V3 bx = rotated({cs * SC, 0.0F, -ss * SC}, bodyRot);
+        const V3 by = rotated({spn * ss * SC, cp * SC, spn * cs * SC}, bodyRot);
+        const V3 bz = rotated({cp * ss * SC, -spn * SC, cp * cs * SC}, bodyRot);
+        const Tyra::Vec4* live =
+            &batch.verts[base + (size_t)w * (size_t)nv];
+        for (u32 i = 0; i < nv; ++i) {
+          const float* q = &part.verts[(size_t)i * 8];
+          const Tyra::Vec4 want(ax + bx.x * q[0] + by.x * q[1] + bz.x * q[2],
+                                ay + bx.y * q[0] + by.y * q[1] + bz.y * q[2],
+                                az + bx.z * q[0] + by.z * q[1] + bz.z * q[2]);
+          if (memcmp(&live[i], &want, sizeof(float) * 3) != 0) {
+            ++g_whVerifyFailWheels;
+            break;
+          }
+        }
+      }
+      ++g_whVerifyCars;
+    }
+#endif
     ++slot;
   }
   if (slot == 0 || !src) continue;
@@ -34753,12 +34828,21 @@ void TerrainGame::renderVehicleWheels() {
   // Same 300-frame cadence as STAPIPRET, and the same reason for the cadence:
   // one host write per five seconds is readable without being a per-frame cost.
   if (++g_whReportFrames >= 300) {
-    char wl[160];
+    char wl[240];
+#if TYRA_WHEEL_REBUILD_VERIFY
+    snprintf(wl, sizeof(wl),
+             "WHEELBAKE cars=%u rebuilt=%u wheels=%u rebuilt=%u "
+             "batches=%u stamped=%u VERIFY checked=%u STALE=%u per 300 frames",
+             g_whCars, g_whCarsRebuilt, g_whWheels, g_whWheelsRebuilt,
+             g_whBatches, g_whStampBumps, g_whVerifyCars, g_whVerifyFailWheels);
+    g_whVerifyCars = g_whVerifyFailWheels = 0;
+#else
     snprintf(wl, sizeof(wl),
              "WHEELBAKE cars=%u rebuilt=%u wheels=%u rebuilt=%u "
              "batches=%u stamped=%u per 300 frames",
              g_whCars, g_whCarsRebuilt, g_whWheels, g_whWheelsRebuilt,
              g_whBatches, g_whStampBumps);
+#endif
     TYRA_LOG(wl);
     g_whReportFrames = 0;
     g_whCars = g_whCarsRebuilt = g_whWheels = g_whWheelsRebuilt = 0;

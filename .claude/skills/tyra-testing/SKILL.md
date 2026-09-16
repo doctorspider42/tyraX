@@ -3104,6 +3104,16 @@ Two correctness checks this class of change needs and a timing A/B does not:
   an oracle and compare the live buffer against a full rebuild *every* frame,
   including the frames that skipped. The failure mode is one frame of staleness,
   which a still screenshot cannot see and a frame-time table rewards.
+  **Run that oracle INSIDE the game, not only in a host harness.** A host
+  harness checks the inputs you thought of; an in-game one checks the inputs the
+  game actually produces - a driving car, an LOD crossing, a rig entering and
+  leaving the batch - and it reports a number instead of asking you to squint at
+  a PNG. The wheel round's is `TYRA_WHEEL_REBUILD_VERIFY` (default 0; it costs
+  more than the work it checks, so it never ships and never goes in a
+  measurement): it re-derives every drawn car's wheels with the PRE-CHANGE
+  arithmetic and byte-compares, printing `VERIFY checked=N STALE=M`. Do not
+  reshape the hot path to share code with the checker - independent code catches
+  more, and a refactor invalidates whatever the console has already measured.
 - **Anything hoisted out of a loop must be BIT-identical, not equivalent.** A
   reassociated rotation differs in the last place and that is a moved pixel. Do
   the trigonometry once but keep the same operations in the same order on the
