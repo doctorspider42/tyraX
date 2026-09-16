@@ -306,6 +306,44 @@ class StaPipBakedStreams {
   void countHit() { ++hits; }
   void countBuild() { ++builds; }
 
+  /**
+   * Modified by TyraX: WHY a bag rebuilt. A cache that never converges is a
+   * third of a route paying for nothing, and "it churns" is not actionable -
+   * the field that moved is. `acquire` tallies one reason per invalidation and
+   * records the LOUDEST bag (the one whose key moved carrying the most
+   * packages) so the readout can name a mesh by its vertex count rather than
+   * by a heap address. Read and cleared together, and compiled out with the
+   * feature like everything else here.
+   */
+  enum MissReason {
+    MissNewEntry = 0,   // no entry for this (array, package size) at all
+    MissBBoxVersion,    // the caller claims the buffer's CONTENTS changed
+    MissPrimState,      // same array, different prim/GIFtag - a second pass
+    MissStreams,        // an ST/colour/normal stream pointer moved
+    MissProgram,        // a different VU1 program, or a different address
+    MissCountOrSize,    // the mesh resized, or its package size was re-pinned
+    MissIncomplete,     // every package arrived but the bag never completed
+    MissReasonCount
+  };
+  const u32* getMisses() const { return misses; }
+  void clearMisses() {
+    for (u32 i = 0; i < MissReasonCount; ++i) misses[i] = 0;
+    loudCount = loudPackages = 0;
+    loudReason = MissReasonCount;
+  }
+  void countMiss(MissReason reason) { ++misses[reason]; }
+  /** The biggest invalidated bag of the window: its vertex count, its package
+   * count and which field moved. */
+  void noteLoud(MissReason reason, u32 count, u32 packages) {
+    if (packages <= loudPackages) return;
+    loudReason = reason;
+    loudCount = count;
+    loudPackages = packages;
+  }
+  u32 getLoudCount() const { return loudCount; }
+  u32 getLoudPackages() const { return loudPackages; }
+  u32 getLoudReason() const { return loudReason; }
+
  private:
   static const u32 kBucketCount = 256;
 
@@ -329,6 +367,8 @@ class StaPipBakedStreams {
   u32 usedQwords = 0;
   u32 hits = 0, builds = 0;
   int evictionsThisFrame = 0;
+  u32 misses[MissReasonCount] = {0};
+  u32 loudCount = 0, loudPackages = 0, loudReason = MissReasonCount;
 };
 
 #endif  // TYRA_STAPIP_BAKED_STREAM
@@ -505,6 +545,14 @@ class StaPipQBufferRenderer {
   u32 takeBakedHits();
   u32 takeBakedBuilds();
   u32 getBakedBytes() const;
+  /** TyraX diagnostics: why bags rebuilt - see StaPipBakedStreams::MissReason.
+   * Returns MissReasonCount counters, or null when the feature is compiled
+   * out; clearBakedMisses() resets them and the loudest-bag record. */
+  const u32* getBakedMisses() const;
+  u32 getBakedLoudCount() const;
+  u32 getBakedLoudPackages() const;
+  u32 getBakedLoudReason() const;
+  void clearBakedMisses();
 
   /** TyraX diagnostics: DMA quadwords the pipeline handed to VIF1 this frame,
    * summed over every submitted packet - the CHAIN, not the payload the REF

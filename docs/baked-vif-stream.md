@@ -165,19 +165,22 @@ pipeline submits in a frame):
 
 | garage day, held pose | chain quadwords per frame |
 | --- | ---: |
-| control, `TYRA_STAPIP_BAKED_STREAM` 0 | **9 332** |
-| candidate, switch 1 | **6 750** |
-| | **-2 582, -27.7 %** |
+| control, `TYRA_STAPIP_BAKED_STREAM` 0 | **9 146** |
+| candidate, switch 1 | **6 705** |
+| | **-2 441, -26.7 %** |
 
-Both arms read the same number in three consecutive 300-frame windows, which is
-what the frozen pose is for. 9 332 is what the arithmetic predicts for the
-control: 1 050 drawn packages at 7 quadwords, 120 end tags, and about 113 bags
-of uniform chain.
+Both arms read the same number in four consecutive 300-frame windows, which is
+what the frozen pose is for. 9 146 is about what the arithmetic predicts for the
+control: 1 050 drawn packages at 7 quadwords, 120 end tags, and roughly a
+hundred bags of uniform chain.
 
 The candidate emits **59 `REF` tags a frame** where the control wrote those
 packages one at a time, so one tag carries **6.4 packages** on average and the
-saving works out at roughly **380 of the 803.5 cull-route packages replayed**.
+saving works out at roughly **360 of the 775 cull-route packages replayed**.
 Not all of them: see the churn below.
+
+Raw windows, both arms, and everything else this page measures:
+[`examples/vehicle-playground/authoring/baked-vif-stream-2026-09-16`](../examples/vehicle-playground/authoring/baked-vif-stream-2026-09-16/README.md).
 
 ## The memory, which is the cost this design has and the retained one does not
 
@@ -202,7 +205,7 @@ already cost.**
 | its baked block | 49.5 |
 | the retained command block, for comparison | 1.3 |
 
-MEASURED on the same pose: the arena holds **1 437 KB**, for the part of the
+MEASURED on the same pose: the arena holds **1 431 KB**, for the part of the
 garage-day cull route that the direct branch reaches. That is a fraction of the
 scene - roughly half the submitted bags take the wholly-visible route at all
 (`render-submission-attribution.md`, "Round two"), and this spike bakes only
@@ -270,44 +273,122 @@ game). Garage day held through `bin/district-benchmark-pose.txt`; the night
 poses have authored lamp flicker and twinkling stars and never settle, so
 nothing is read from them.
 
+Raw output for everything below, both arms, is archived in
+[`examples/vehicle-playground/authoring/baked-vif-stream-2026-09-16`](../examples/vehicle-playground/authoring/baked-vif-stream-2026-09-16/README.md),
+with the harness that produced it and a host program that re-derives the
+block-size table.
+
 **Two builds, two ELFs.** The build log carries
 `Engine sources changed - rebuilding libtyra...` and its `ar rcs bin/libtyra.a`
 line in both arms, and the two ELFs hash differently:
 
 ```
-ctrl  cab20ab81e91669346d14fc9ed9163a3bdc32e8a66b630c4f97b40e3c9ab3a2f
-cand  64b7907c6baab688448d26859e6b7ed8e681b00e6408ce1f08830b0c10105a4a
+ctrl  3b27a5faad043a0c59305d68679e61656e8527dc8c121ce97992086a7322c1c5
+cand  23a7b09e1c7b535f379b0f0033d1fe521ed5f0620cd37b925757f2fd3610dad3
 ```
+
+**And the fixture is the scene the rest of the branch measured**, which is a
+SEPARATE check and the one this round initially failed. The scene-load producer
+lines read `ROADSTRIP scene 0 strips 1 packages 470 triangles 31050` and
+`TERRAINSTRIP scene 0 chunk 2,2 strips 1 vertices 588 packages 8 triangles 512`
+in both arms, which is what
+[the package-ceiling round](../examples/vehicle-playground/authoring/package-ceiling-75-2026-09-16/README.md)
+recorded. Why that sentence is here at all is the last subsection below.
 
 **The picture is identical, which is the result that matters.** Six
 `--capture-frame` images - three per arm - hash to ONE value,
-`415f970fe840f3880c48f4bab7119d8a6cc1d55aacdf533d23522dac61273f1e`, which is
-also the hash the package-ceiling round recorded for this pose. The VIF1 word
-stream really is the same stream.
+`415f970fe840f3880c48f4bab7119d8a6cc1d55aacdf533d23522dac61273f1e`. The VIF1
+word stream really is the same stream.
 
 **No counter moved.** `FTCLIP`, 50-frame windows, identical in both arms across
 every window of the held pose:
 
 ```
-cull=40175/2004375 clip=1825/16225 guard=11400/546900 out=50425
-flush=6000 strip=25675 sexp=100 verts=55332
+cull=38750/2031525 clip=1825/16525 guard=11925/605925 out=46125
+flush=6000 strip=24250 sexp=100 verts=55836
 ```
 
-i.e. 803.5 cull packages, 36.5 clip, 228 guard-band, 120 packet flushes and
-55 332 submitted vertices per frame, both ways.
+i.e. 775 cull packages, 36.5 clip, 238.5 guard-band, 120 packet flushes and
+55 836 submitted vertices per frame, both ways - and, line for line, the
+garage-day row the package-ceiling round recorded for this scene.
 
-**What did NOT converge, and it is the open item.** The candidate reports
-`built=64 per frame` at a completely frozen pose - 64 package blocks re-baked
-every frame, for ever. `refs` is stable at 59 and the arena is stable at
-1 437 KB against a 4 MB budget, so it is neither eviction nor expiry. The
-likeliest cause is a bag whose key moves every frame: the cache holds ONE entry
-per (vertex array, package size), so a bag submitted twice in a frame with
-different prim state thrashes its own entry, and so does a caller that bumps
-`bboxVersion` unconditionally (`retained-static-commands.md` records the vehicle
-wheel batch doing exactly that before it was fixed). It is not a correctness
-problem - a rebuilt package takes the ordinary path and the picture proves it -
-but it is a third of the direct route's packages paying for a cache that never
-serves them, and it should be attributed before this is built on.
+### The fixture check a matching capture hash does NOT give you
+
+Worth a paragraph, because the first pass of this A/B got it wrong in a way that
+looked right. It was run with the editor binary that happened to be sitting in
+another checkout's `build/`, and its `FTCLIP` read `cull=40175 ... verts=55332`
+against the 38 750 / 55 836 above. Its control capture still hashed to
+`415f970f...73f1e`, **the same value the package-ceiling round published for
+this pose**, so every obvious check said "same scene".
+
+It was not. That binary predated the 72 -> 75 package-ceiling change, so the
+fixture's generated `src/terrain_game.cpp` came out carrying `stripRun = 72u`
+and the roads and the terrain were cut into 72-vertex runs -
+`ROADSTRIP ... packages 526`, `TERRAINSTRIP ... vertices 591 packages 9`. That
+is the stale-editor trap `tyra-testing` spells out, and nothing in any log names
+it.
+
+**The capture hash could not catch it, because that round's own evidence shows
+BOTH of its arms hashing to that one value**: changing the strip run changes how
+a surface is cut into runs, not which pixels it covers. So a matching capture
+hash is a PICTURE check and never a FIXTURE check. `ROADSTRIP`, `TERRAINSTRIP`
+and a grep for `stripRun` in the generated source are the fixture check.
+
+Everything on this page was re-measured after rebuilding the editor from this
+worktree and regenerating the fixture with it. The earlier arms' conclusions
+survived unchanged - both of them were built by that one binary, so the knob was
+still the only difference between them - but their absolute numbers described
+the 72-run scene and are not quotable beside anything else on the branch.
+
+### What did not converge, and which three bags it is
+
+The candidate reports `built=64 per frame` at a completely frozen pose - 64
+package blocks re-baked every frame, for ever - against a stable `refs=59` and a
+stable 1 431 KB arena inside a 4 MB budget. So it is neither eviction nor
+expiry, and "it churns" is not a finding. `STAPIPMISS` tallies one reason per
+invalidation, and on the held garage-day pose it reads the same thing in three
+consecutive windows:
+
+```
+STAPIPMISS new=0 bbox=300 prim=600 streams=0 program=0 size=0 incomplete=0
+           over 300 frames; loudest bag count=2280 packages=31 reason=primState
+```
+
+Read per frame, that is the whole answer, and it is **three bag invalidations a
+frame** rather than a systemic failure:
+
+| reason | per frame | what it means |
+| --- | ---: | --- |
+| `bbox` | **1** | a caller bumped `bboxVersion` - a claim that the buffer's CONTENTS changed - on a scene that is not moving |
+| `prim` | **2** | the same vertex array submitted again with a different prim state, i.e. a SECOND PASS, thrashing the one entry the cache holds per (array, package size) |
+| `new`, `streams`, `program`, `size`, `incomplete` | **0** | nothing else moves at all: no array is reallocated, no program or package size changes, and every bag that starts finishes |
+
+Both mechanisms were among the guesses; what the instrument adds is that they
+are the **only** two, that they cost exactly three bags, and that those three
+bags are **large** - the loudest carries 2 280 vertices in 31 packages, and an
+earlier window names a 3 768-vertex, 51-package one. Three bags at about 21
+packages each is the 64 rebuilds, to the package.
+
+Two more things the same counter settles:
+
+- **The cache converges completely when nothing lies to it.** At the outer-road
+  day pose a whole window reads `new=0 bbox=0 prim=0 ... built=0` with
+  `refs=19`: every drawn direct bag replayed, nothing rebuilt. So the churn is a
+  property of what the garage view contains, not of the design.
+- **`bboxVersion` is a defect this repo has already paid for once.**
+  [wheel-rebake-skip.md](wheel-rebake-skip.md) records the vehicle wheel batch
+  bumping it unconditionally and disabling two caches at once. The garage is
+  where the parked cars are and the outer road is where they are not, which is
+  consistent with another caller doing the same thing - but consistent is not
+  measured, and naming it means following one bag through a submitter, which is
+  a change to a CALLER's contract and not to this one. **Identified, not
+  fixed**; the counter is in the tree so whoever takes it starts with a name
+  instead of a theory.
+
+It is not a correctness problem either way - a rebuilt package takes the
+ordinary path, and the byte-identical picture proves it - but it is a third of
+the direct route's packages paying for a cache that never serves them, and it
+would contaminate a later round that tried to price this.
 
 ## What it would take to move the bake into the editor
 

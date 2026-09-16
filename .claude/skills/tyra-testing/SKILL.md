@@ -3128,6 +3128,27 @@ in **both** arms (they are measurement flips - revert them before committing).
   for `Engine sources changed - rebuilding libtyra...` followed by an
   `elf-ar rcs bin/libtyra.a` line, and `sha256sum` the two ELFs - they MUST
   differ. A null A/B is only evidence if the two arms were two builds.
+- **A MATCHING CAPTURE HASH IS NOT A FIXTURE CHECK, and on this fixture it will
+  actively mislead you.** This round's first pass borrowed the editor binary
+  from another checkout, which predated the 72 -> 75 package ceiling, so the
+  fixture's generated `src/terrain_game.cpp` came out with `stripRun = 72u` and
+  the roads and terrain were cut into 72-vertex runs: `cull=40175 ...
+  verts=55332` instead of `38750 ... 55836`. Its garage-day capture STILL hashed
+  to `415f970f...73f1e`, the value `package-ceiling-75-2026-09-16` published for
+  that pose - because **both** of that round's arms hash to it, the strip run
+  changing how a surface is cut into runs and not which pixels it covers. So
+  check the SCENE, not the picture: `ROADSTRIP scene 0 ... packages 470` and
+  `TERRAINSTRIP ... vertices 588 packages 8` in the game's `bin/log.txt`, plus
+  `grep -n "stripRun = 7" <fixture>/src/terrain_game.cpp`. And build the editor
+  from the worktree you are measuring, every time - `./build.ps1` is 6 minutes
+  and a wrong fixture is a day.
+- **`STAPIPMISS` says WHY a bag rebuilt**, which is what turns "the cache churns"
+  into something actionable: one counter per invalidation reason (`bbox`, `prim`,
+  `streams`, `program`, `size`, `new`, `incomplete`) plus the biggest bag that
+  moved, by vertex and package count. On the garage-day pose it reads
+  `bbox=1 prim=2` per frame and zero everywhere else, and on the outer-road pose
+  it reads zero everywhere - so the design converges and the garage contains
+  three callers that lie to it.
 
 ### Skip-when-unchanged acceptance, and the fixture that lies about it (1.100)
 

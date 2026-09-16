@@ -386,9 +386,28 @@ StaPipBakedEntry* StaPipBakedStreams::acquire(const StaPipBakedEntry& key) {
         item.maxVertCount == key.maxVertCount) {
       item.framesLeftToDestroy = kLifetimeFrames;
       if (keyMatches(item, key)) return &item;
-      // Something the stream encodes moved. Throw the arena away and rebuild;
-      // the entry (and therefore any pointer the caller is holding) survives,
-      // because storage owns pointers rather than values.
+      // Something the stream encodes moved. Throw the arena away and
+      // rebuild; the entry (and therefore any pointer the caller is holding)
+      // survives, because storage owns pointers rather than values.
+      //
+      // Modified by TyraX: tally WHICH field moved before overwriting it. A
+      // bag that invalidates at a frozen pose is either a caller lying about
+      // its contents or a second pass over one array, and those want opposite
+      // answers - so the readout has to distinguish them by name.
+      MissReason reason = MissCountOrSize;
+      if (item.bboxVersion != key.bboxVersion)
+        reason = MissBBoxVersion;
+      else if (item.primKey != key.primKey || item.singleColor != key.singleColor ||
+               item.stripped != key.stripped)
+        reason = MissPrimState;
+      else if (item.sts != key.sts || item.colors != key.colors ||
+               item.normals != key.normals)
+        reason = MissStreams;
+      else if (item.program != key.program ||
+               item.programAddr != key.programAddr)
+        reason = MissProgram;
+      countMiss(reason);
+      noteLoud(reason, key.count, key.packages);
       retire(item);
       if (item.packages != key.packages) {
         item.offsets =
@@ -416,6 +435,12 @@ StaPipBakedEntry* StaPipBakedStreams::acquire(const StaPipBakedEntry& key) {
   }
 
   if (key.packages == 0) return nullptr;
+
+  // Modified by TyraX: no entry for this (array, package size) at all. At a
+  // frozen pose this should happen once per bag and never again; repeatedly is
+  // a caller whose vertex array itself moves, which no key can cache.
+  countMiss(MissNewEntry);
+  noteLoud(MissNewEntry, key.count, key.packages);
 
   std::unique_ptr<StaPipBakedEntry> entry(new StaPipBakedEntry());
   entry->vertices = key.vertices;
@@ -1694,7 +1719,12 @@ void StaPipQBufferRenderer::endBakedBag() {
       entry->built = 0;  // no room today; try again when some frees up
     }
   } else if (!entry->complete) {
-    entry->built = 0;  // a package went missing - start the bag over
+    // Modified by TyraX: a package went missing - start the bag over, and say
+    // so, because this one is invisible in the key.
+    baked.countMiss(StaPipBakedStreams::MissIncomplete);
+    baked.noteLoud(StaPipBakedStreams::MissIncomplete, entry->count,
+                   entry->packages);
+    entry->built = 0;
   }
   bakeScratch.clear();
 }
@@ -1702,6 +1732,19 @@ void StaPipQBufferRenderer::endBakedBag() {
 u32 StaPipQBufferRenderer::takeBakedHits() { return baked.takeHits(); }
 u32 StaPipQBufferRenderer::takeBakedBuilds() { return baked.takeBuilds(); }
 u32 StaPipQBufferRenderer::getBakedBytes() const { return baked.getBytes(); }
+const u32* StaPipQBufferRenderer::getBakedMisses() const {
+  return baked.getMisses();
+}
+u32 StaPipQBufferRenderer::getBakedLoudCount() const {
+  return baked.getLoudCount();
+}
+u32 StaPipQBufferRenderer::getBakedLoudPackages() const {
+  return baked.getLoudPackages();
+}
+u32 StaPipQBufferRenderer::getBakedLoudReason() const {
+  return baked.getLoudReason();
+}
+void StaPipQBufferRenderer::clearBakedMisses() { baked.clearMisses(); }
 
 #else
 
@@ -1712,6 +1755,11 @@ void StaPipQBufferRenderer::endBakedBag() {}
 u32 StaPipQBufferRenderer::takeBakedHits() { return 0; }
 u32 StaPipQBufferRenderer::takeBakedBuilds() { return 0; }
 u32 StaPipQBufferRenderer::getBakedBytes() const { return 0; }
+const u32* StaPipQBufferRenderer::getBakedMisses() const { return nullptr; }
+u32 StaPipQBufferRenderer::getBakedLoudCount() const { return 0; }
+u32 StaPipQBufferRenderer::getBakedLoudPackages() const { return 0; }
+u32 StaPipQBufferRenderer::getBakedLoudReason() const { return 0; }
+void StaPipQBufferRenderer::clearBakedMisses() {}
 
 #endif  // TYRA_STAPIP_BAKED_STREAM
 

@@ -146,6 +146,26 @@ void StaPipCore::onFrameEnd() {
                " built=", bakeBuilds / bakeFrames, " per frame, arena=",
                qbufferRenderer.getBakedBytes() / 1024,
                " KB, chainQw=", bakeQw / bakeFrames);
+      // Modified by TyraX: WHY they rebuilt. Totals over the window, not per
+      // frame - a reason that fires once per window is a different animal from
+      // one that fires every frame, and dividing would hide that.
+      const u32* miss = qbufferRenderer.getBakedMisses();
+      if (miss != nullptr) {
+        static const char* const kReason[] = {
+            "new", "bboxVersion", "primState", "streams",
+            "program", "countOrSize", "incomplete", "-"};
+        TYRA_LOG("STAPIPMISS new=", miss[0], " bbox=", miss[1],
+                 " prim=", miss[2], " streams=", miss[3],
+                 " program=", miss[4], " size=", miss[5],
+                 " incomplete=", miss[6], " over ", bakeFrames,
+                 " frames; loudest bag count=",
+                 qbufferRenderer.getBakedLoudCount(), " packages=",
+                 qbufferRenderer.getBakedLoudPackages(), " reason=",
+                 kReason[qbufferRenderer.getBakedLoudReason() < 7
+                             ? qbufferRenderer.getBakedLoudReason()
+                             : 7]);
+        qbufferRenderer.clearBakedMisses();
+      }
       bakeFrames = 0;
       bakeHits = 0;
       bakeBuilds = 0;

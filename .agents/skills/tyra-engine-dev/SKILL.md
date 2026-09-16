@@ -2574,6 +2574,22 @@ read them. `STAPIPBAKE` (behind `TYRA_STAPIP_BAKED_REPORT`, default 0) prints
 the arena size and the per-frame DMA chain quadword count; that last counter is
 compiled into BOTH arms, which is what makes the A/B readable.
 
+**`STAPIPMISS` beside it answers WHY a bag rebuilt, and that question is the one
+worth instrumenting.** A cache that never converges contaminates whatever is
+measured next, and "it churns" is not actionable - the field that moved is. It
+tallies one reason per invalidation (`bbox`, `prim`, `streams`, `program`,
+`size`, `new`, `incomplete`) and records the largest bag that moved, by vertex
+and package count, so a mesh can be named by its size rather than by a heap
+address. Measured on the Motor District garage, held pose: **one**
+`bboxVersion` bump and **two** prim-state collisions per frame, zero everywhere
+else, costing 64 rebuilt packages because those three bags are 31 and 51
+packages each - and at the outer-road pose, zero of everything with every drawn
+direct bag replayed. Both mechanisms are known shapes: `bboxVersion` bumped
+unconditionally is the defect docs/wheel-rebake-skip.md records, and a second
+pass over one vertex array thrashes the single entry the cache holds per
+(array, package size). Keep this counter when you touch the key; it is how the
+next round avoids pricing a cache that is not working.
+
 ### Triangle strips for static geometry (1.95.0)
 
 `StaPipBag::stripped` says the bag's `vertices` are a TRIANGLE STRIP. The whole
