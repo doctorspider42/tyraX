@@ -71,6 +71,7 @@ StaPipQBuffer::StaPipQBuffer() {
   clipPlaneMask = 0;
   stripped = false;
   retainIndex = -1;  // Modified by TyraX: see the field's comment.
+  bakeIndex = -1;    // Modified by TyraX: see the field's comment.
   _isDynamicallyAllocated = false;
   _stAllocated = false;
   _colorAllocated = false;

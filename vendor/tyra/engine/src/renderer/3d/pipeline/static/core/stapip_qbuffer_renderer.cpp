@@ -266,6 +266,188 @@ StaPipRetainedEntry* StaPipRetainedCommands::acquire(
 
 #endif  // TYRA_STAPIP_RETAINED_COMMANDS
 
+// Modified by TyraX: the BAKED VIF STREAM spike - docs/baked-vif-stream.md.
+#if TYRA_STAPIP_BAKED_STREAM
+
+StaPipBakedStreams::StaPipBakedStreams() {
+  std::fill(indexBuckets, indexBuckets + kBucketCount, -1);
+}
+
+u32 StaPipBakedStreams::getBucket(const void* vertices,
+                                  u32 maxVertCount) const {
+  u32 hash = static_cast<u32>(reinterpret_cast<u32>(vertices)) * 0x9E3779B1U;
+  hash ^= maxVertCount + 0x85EBCA6BU + (hash << 6) + (hash >> 2);
+  hash ^= hash >> 16;
+  return hash & (kBucketCount - 1);
+}
+
+bool StaPipBakedStreams::keyMatches(const StaPipBakedEntry& a,
+                                    const StaPipBakedEntry& b) {
+  return a.vertices == b.vertices && a.sts == b.sts && a.colors == b.colors &&
+         a.normals == b.normals && a.program == b.program &&
+         a.count == b.count && a.maxVertCount == b.maxVertCount &&
+         a.bboxVersion == b.bboxVersion && a.primKey == b.primKey &&
+         a.depthScaleBits == b.depthScaleBits &&
+         a.programAddr == b.programAddr && a.singleColor == b.singleColor &&
+         a.stripped == b.stripped;
+}
+
+void StaPipBakedStreams::rebuildIndex() {
+  std::fill(indexBuckets, indexBuckets + kBucketCount, -1);
+  for (u32 i = 0; i < storage.size(); ++i) {
+    auto& item = *storage[i];
+    const u32 bucket = getBucket(item.vertices, item.maxVertCount);
+    item.nextInBucket = indexBuckets[bucket];
+    indexBuckets[bucket] = static_cast<int>(i);
+  }
+}
+
+// Modified by TyraX: a baked block is READ BY DMA, which the retained blocks
+// never are, so freeing one is not a local decision: the packet the pipeline
+// submitted moments ago may still name it. Every free therefore goes through a
+// two-frame graveyard. Two frames is not a guess about DMA speed - the static
+// pipeline waits for VIF1 before every one of its ~120 submissions a frame, so
+// one frame boundary already proves the transfer finished; the second is there
+// because that count is a property of the scene and not of this class.
+void StaPipBakedStreams::retire(StaPipBakedEntry& item) {
+  const u32 qw = item.arenaQw;
+  usedQwords -= qw < usedQwords ? qw : usedQwords;
+  if (item.raw) graveyard[graveyardWrite].push_back(std::move(item.raw));
+  item.arena = nullptr;
+  item.arenaQw = 0;
+}
+
+void StaPipBakedStreams::onFrameEnd() {
+  evictionsThisFrame = 0;
+  graveyardWrite ^= 1;
+  graveyard[graveyardWrite].clear();  // evicted two frames ago - now freed
+
+  bool expired = false;
+  for (auto& item : storage) {
+    if (item->framesLeftToDestroy > 0) {
+      item->framesLeftToDestroy--;
+      if (item->framesLeftToDestroy <= 0) expired = true;
+    }
+  }
+  if (!expired) return;
+
+  for (auto& item : storage)
+    if (item->framesLeftToDestroy <= 0) retire(*item);
+  const auto newEnd =
+      std::remove_if(storage.begin(), storage.end(),
+                     [](const std::unique_ptr<StaPipBakedEntry>& item) {
+                       return item->framesLeftToDestroy <= 0;
+                     });
+  storage.erase(newEnd, storage.end());
+  rebuildIndex();
+}
+
+void StaPipBakedStreams::clear() {
+  for (auto& item : storage) retire(*item);
+  storage.clear();
+  std::fill(indexBuckets, indexBuckets + kBucketCount, -1);
+  usedQwords = 0;
+  evictionsThisFrame = 0;
+}
+
+bool StaPipBakedStreams::evictFor(u32 wanted) {
+  while (usedQwords + wanted > kMaxQwords) {
+    if (evictionsThisFrame >= kMaxEvictionsPerFrame) return false;
+    int victim = -1;
+    int oldest = kLifetimeFrames;  // never an entry this frame has touched
+    for (u32 i = 0; i < storage.size(); ++i) {
+      if (storage[i]->framesLeftToDestroy < oldest) {
+        oldest = storage[i]->framesLeftToDestroy;
+        victim = static_cast<int>(i);
+      }
+    }
+    if (victim < 0) return false;
+    retire(*storage[victim]);
+    storage.erase(storage.begin() + victim);
+    rebuildIndex();
+    ++evictionsThisFrame;
+  }
+  return true;
+}
+
+bool StaPipBakedStreams::reserve(u32 qwords) {
+  if (qwords > kMaxQwords) return false;
+  if (usedQwords + qwords > kMaxQwords && !evictFor(qwords)) return false;
+  usedQwords += qwords;
+  return true;
+}
+
+StaPipBakedEntry* StaPipBakedStreams::acquire(const StaPipBakedEntry& key) {
+  const u32 bucket = getBucket(key.vertices, key.maxVertCount);
+  int index = indexBuckets[bucket];
+  while (index >= 0) {
+    auto& item = *storage[index];
+    if (item.vertices == key.vertices &&
+        item.maxVertCount == key.maxVertCount) {
+      item.framesLeftToDestroy = kLifetimeFrames;
+      if (keyMatches(item, key)) return &item;
+      // Something the stream encodes moved. Throw the arena away and rebuild;
+      // the entry (and therefore any pointer the caller is holding) survives,
+      // because storage owns pointers rather than values.
+      retire(item);
+      if (item.packages != key.packages) {
+        item.offsets =
+            std::unique_ptr<u32[]>(new u32[key.packages ? key.packages : 1]);
+        item.sizes =
+            std::unique_ptr<u16[]>(new u16[key.packages ? key.packages : 1]);
+        item.packages = key.packages;
+      }
+      item.sts = key.sts;
+      item.colors = key.colors;
+      item.normals = key.normals;
+      item.program = key.program;
+      item.count = key.count;
+      item.bboxVersion = key.bboxVersion;
+      item.primKey = key.primKey;
+      item.depthScaleBits = key.depthScaleBits;
+      item.programAddr = key.programAddr;
+      item.singleColor = key.singleColor;
+      item.stripped = key.stripped;
+      item.built = 0;
+      item.complete = 0;
+      return key.packages == 0 ? nullptr : &item;
+    }
+    index = item.nextInBucket;
+  }
+
+  if (key.packages == 0) return nullptr;
+
+  std::unique_ptr<StaPipBakedEntry> entry(new StaPipBakedEntry());
+  entry->vertices = key.vertices;
+  entry->sts = key.sts;
+  entry->colors = key.colors;
+  entry->normals = key.normals;
+  entry->program = key.program;
+  entry->count = key.count;
+  entry->maxVertCount = key.maxVertCount;
+  entry->bboxVersion = key.bboxVersion;
+  entry->primKey = key.primKey;
+  entry->depthScaleBits = key.depthScaleBits;
+  entry->programAddr = key.programAddr;
+  entry->singleColor = key.singleColor;
+  entry->stripped = key.stripped;
+  entry->packages = key.packages;
+  entry->built = 0;
+  entry->complete = 0;
+  entry->arena = nullptr;
+  entry->arenaQw = 0;
+  entry->offsets = std::unique_ptr<u32[]>(new u32[key.packages]);
+  entry->sizes = std::unique_ptr<u16[]>(new u16[key.packages]);
+  entry->framesLeftToDestroy = kLifetimeFrames;
+  entry->nextInBucket = indexBuckets[bucket];
+
+  storage.push_back(std::move(entry));
+  indexBuckets[bucket] = static_cast<int>(storage.size() - 1);
+  return storage.back().get();
+}
+
+#endif  // TYRA_STAPIP_BAKED_STREAM
+
 StaPipQBufferRenderer::StaPipQBufferRenderer() {
   currentBufferIndex = 0;
   nextBufferIndex = 0;
@@ -322,6 +504,13 @@ void StaPipQBufferRenderer::deallocateOnUse() {
   retainedCurrent = nullptr;
   retained.clear();
   clipBlockQw = 0;
+#endif
+#if TYRA_STAPIP_BAKED_STREAM
+  // Same reasoning, and one more: a baked block is named by DMA REF tags, so
+  // nothing may outlive the pipeline that submitted them.
+  bakedCurrent = nullptr;
+  bakeScratch.clear();
+  baked.clear();
 #endif
   packet2_free(staticDataPacket);
   for (u16 i = 0; i < 2; i++) packet2_free(packets[i]);
@@ -1062,6 +1251,13 @@ void StaPipQBufferRenderer::setVU1Clipping(const bool& enabled) {
   clipBlockQw = 0;
   retained.clear();
 #endif
+#if TYRA_STAPIP_BAKED_STREAM
+  // The clip chain is present or absent per mode and every bag's cull program
+  // changes with it - and the baked stream carries the program's MSCAL.
+  bakedCurrent = nullptr;
+  bakeScratch.clear();
+  baked.clear();
+#endif
 
   if (programsPacket == nullptr) return;  // init() will build the right set
 
@@ -1135,6 +1331,7 @@ StaPipQBuffer* StaPipQBufferRenderer::getBuffer() {
   // index into a copied or clipped one. StaPipCore sets it back after the fill
   // for the routes that may be retained.
   result->retainIndex = -1;
+  result->bakeIndex = -1;  // Modified by TyraX: same gate, same reason
   if (nextBufferIndex >= buffersCount) {
     Verbose("Rollup - clearing buffer indices. currentBufferIndex: ",
             currentBufferIndex, " (before)nextBufferIndex: ", nextBufferIndex);
@@ -1362,6 +1559,162 @@ u32 StaPipQBufferRenderer::getRetainedBytes() const { return 0; }
 
 #endif  // TYRA_STAPIP_RETAINED_COMMANDS
 
+// Modified by TyraX: the BAKED VIF STREAM spike - docs/baked-vif-stream.md.
+#if TYRA_STAPIP_BAKED_STREAM
+
+bool StaPipQBufferRenderer::beginBakedBag(StaPipBag* bag,
+                                          const u32& packageSize) {
+  bakedCurrent = nullptr;
+  bakeScratch.clear();
+  if (bag == nullptr || packageSize == 0) return false;
+  // Same two exclusions the retained cache and the submission-batch scope
+  // make, for the same two reasons.
+  if (bag->billboard != nullptr || repository.hasAnyOverride()) return false;
+
+  StaPipVU1Program* program = getCullProgramByBag(bag);
+  if (program == nullptr) return false;
+
+  StaPipBakedEntry key;
+  key.vertices = bag->vertices;
+  key.sts = bag->texture != nullptr ? bag->texture->coordinates : nullptr;
+  key.colors = bag->color->many;
+  key.normals = bag->lighting != nullptr ? bag->lighting->normals : nullptr;
+  key.program = program;
+  key.count = bag->count;
+  key.maxVertCount = packageSize;
+  key.bboxVersion = bag->bboxVersion;
+  const u32 mapping =
+      (bag->texture != nullptr && bag->texture->texture != nullptr) ? 1u : 0u;
+  key.primKey = static_cast<u32>(prim->type) |
+                (static_cast<u32>(prim->shading) << 4) | (mapping << 6) |
+                (static_cast<u32>(prim->fogging) << 7) |
+                (static_cast<u32>(prim->blending) << 8) |
+                (static_cast<u32>(prim->antialiasing) << 9) |
+                (static_cast<u32>(prim->mapping_type) << 10) |
+                (static_cast<u32>(prim->colorfix) << 11);
+  const float depthScale = RendererCoreDepth::scale;
+  memcpy(&key.depthScaleBits, &depthScale, sizeof(u32));
+  // The baked stream carries the MSCAL, so the program's micro-memory
+  // destination is part of what it encodes - the retained key does not need
+  // this because the MSCAL stays outside its block.
+  key.programAddr = program->getDestinationAddress();
+  key.singleColor = bag->color->single != nullptr ? 1 : 0;
+  key.stripped = bag->stripped ? 1 : 0;
+  key.packages = static_cast<u16>((bag->count + packageSize - 1) / packageSize);
+
+  bakedCurrent = baked.acquire(key);
+  return bakedCurrent != nullptr;
+}
+
+/**
+ * Transcode one package's finished DMA chain fragment into a pure VIFcode
+ * stream.
+ *
+ * This is the whole format question in fifteen lines. A DMA REF tag's payload
+ * is NOT interpreted by the DMAC - every word of it reaches VIF1 as a VIFcode -
+ * so a block that a single REF replays may contain no tags. Each tag in the
+ * fragment therefore becomes one header quadword holding that tag's OWN two
+ * VIFcodes, copied verbatim and preceded by two VIF NOPs so the data that
+ * follows the UNPACK still starts on a quadword boundary, and then the
+ * quadwords the tag transferred: the ones inline behind a CNT, the ones at the
+ * named address behind a REF. Nothing is re-derived from a description of the
+ * packet format, which is what keeps this from drifting away from the writers.
+ */
+bool StaPipQBufferRenderer::bakeBlock(packet2_t* packet, u32 fromQw, u32 toQw,
+                                      StaPipBakedEntry* entry, u32 index) {
+  const u8* base = reinterpret_cast<const u8*>(packet->base);
+  const qword_t* src = reinterpret_cast<const qword_t*>(base + fromQw * 16);
+  const u32 srcQw = toQw - fromQw;
+  if (srcQw == 0) return false;
+
+  const u32 startOut = static_cast<u32>(bakeScratch.size());
+  u32 i = 0;
+  while (i < srcQw) {
+    const dma_tag_t* tag = reinterpret_cast<const dma_tag_t*>(&src[i]);
+    const u32 qwc = static_cast<u32>(tag->QWC);
+    const u32 id = static_cast<u32>(tag->ID);
+    const u32* vif = reinterpret_cast<const u32*>(&src[i]) + 2;
+    const qword_t* payload;
+    if (id == P2_DMA_TAG_CNT) {
+      payload = &src[i + 1];
+      i += 1 + qwc;
+      if (i > srcQw) {
+        bakeScratch.resize(startOut);
+        return false;
+      }
+    } else if (id == P2_DMA_TAG_REF) {
+      payload = reinterpret_cast<const qword_t*>(static_cast<u32>(tag->ADDR));
+      i += 1;
+    } else {
+      // NEXT, CALL, RET, END, REFS, REFE. None is written here today, and a
+      // position-relative one must never be: refuse rather than guess.
+      bakeScratch.resize(startOut);
+      return false;
+    }
+    qword_t header;
+    header.sw[0] = 0;  // VIF NOP
+    header.sw[1] = 0;  // VIF NOP
+    header.sw[2] = vif[0];
+    header.sw[3] = vif[1];
+    bakeScratch.push_back(header);
+    for (u32 q = 0; q < qwc; ++q) bakeScratch.push_back(payload[q]);
+  }
+
+  const u32 emitted = static_cast<u32>(bakeScratch.size()) - startOut;
+  if (emitted == 0 || emitted > StaPipBakedStreams::kMaxBlockQw) {
+    bakeScratch.resize(startOut);
+    return false;
+  }
+  entry->offsets[index] = startOut;
+  entry->sizes[index] = static_cast<u16>(emitted);
+  entry->built = static_cast<u16>(index + 1);
+  baked.countBuild();
+  return true;
+}
+
+void StaPipQBufferRenderer::endBakedBag() {
+  StaPipBakedEntry* entry = bakedCurrent;
+  bakedCurrent = nullptr;
+  if (entry == nullptr) {
+    bakeScratch.clear();
+    return;
+  }
+  if (!entry->complete && entry->built == entry->packages &&
+      !bakeScratch.empty()) {
+    const u32 qw = static_cast<u32>(bakeScratch.size());
+    if (baked.reserve(qw)) {
+      entry->raw = std::unique_ptr<u8[]>(new u8[qw * 16 + 15]);
+      const u32 aligned =
+          (reinterpret_cast<u32>(entry->raw.get()) + 15u) & ~15u;
+      entry->arena = reinterpret_cast<qword_t*>(aligned);
+      memcpy(entry->arena, bakeScratch.data(), qw * 16);
+      entry->arenaQw = qw;
+      entry->complete = 1;
+    } else {
+      entry->built = 0;  // no room today; try again when some frees up
+    }
+  } else if (!entry->complete) {
+    entry->built = 0;  // a package went missing - start the bag over
+  }
+  bakeScratch.clear();
+}
+
+u32 StaPipQBufferRenderer::takeBakedHits() { return baked.takeHits(); }
+u32 StaPipQBufferRenderer::takeBakedBuilds() { return baked.takeBuilds(); }
+u32 StaPipQBufferRenderer::getBakedBytes() const { return baked.getBytes(); }
+
+#else
+
+bool StaPipQBufferRenderer::beginBakedBag(StaPipBag*, const u32&) {
+  return false;
+}
+void StaPipQBufferRenderer::endBakedBag() {}
+u32 StaPipQBufferRenderer::takeBakedHits() { return 0; }
+u32 StaPipQBufferRenderer::takeBakedBuilds() { return 0; }
+u32 StaPipQBufferRenderer::getBakedBytes() const { return 0; }
+
+#endif  // TYRA_STAPIP_BAKED_STREAM
+
 void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
                                                    const u32& to,
                                                    const bool& finalize) {
@@ -1379,6 +1732,45 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
     // counted where it is packetised rather than where it was classified -
     // the number the EE's per-package bill scales with. See StaPipTelemetry.
     if (telemetry) telemetry->verticesSubmitted += buffers[i]->size;
+
+#if TYRA_STAPIP_BAKED_STREAM
+    // Modified by TyraX: the baked VIF stream. A run of consecutive packages
+    // of one complete bag is ONE DMA REF tag - the arena holds them in package
+    // order, so a run is contiguous - and that REF's payload carries the
+    // unpacks, the inline vertex data AND the MSCAL/MSCNT of every package in
+    // the run. The run stops at the flush boundary `to`, which is why a mesh
+    // that straddles one costs two tags instead of one.
+    {
+      StaPipBakedEntry* bakedEntry = bakedCurrent;
+      const int bakeIdx = buffers[i]->bakeIndex;
+      if (bakedEntry != nullptr && bakedEntry->complete && bakeIdx >= 0 &&
+          bakeIdx < bakedEntry->packages) {
+        u32 runQw = bakedEntry->sizes[bakeIdx];
+        u32 next = i + 1;
+        u32 nextIdx = static_cast<u32>(bakeIdx) + 1;
+        while (next < to && nextIdx < bakedEntry->packages &&
+               buffers[next]->any() &&
+               buffers[next]->bakeIndex == static_cast<int>(nextIdx)) {
+          if (telemetry) telemetry->verticesSubmitted += buffers[next]->size;
+          runQw += bakedEntry->sizes[nextIdx];
+          ++next;
+          ++nextIdx;
+        }
+        packet2_chain_ref(currentPacket,
+                          bakedEntry->arena + bakedEntry->offsets[bakeIdx],
+                          runQw, 0, 0, 0);
+        packet2_vif_nop(currentPacket, 0);
+        packet2_vif_nop(currentPacket, 0);
+        // The block's own tail already kicked the microprogram, so the name
+        // bookkeeping has to agree or the next buffer would emit a second one.
+        lastProgramName = program->getName();
+        baked.countHit();
+        i = next - 1;  // the for() increments
+        continue;
+      }
+    }
+    const u32 bakeFrom = packet2_get_qw_count(currentPacket);
+#endif
 
 #if TYRA_STAPIP_RETAINED_COMMANDS
     // Modified by TyraX: retained command data. The block is the bag's
@@ -1431,6 +1823,27 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
     } else {
       packet2_utils_vu_add_continue_program(currentPacket);
     }
+
+#if TYRA_STAPIP_BAKED_STREAM
+    // Modified by TyraX: bake what the ordinary writers just wrote, program
+    // kick included. render() clears lastProgramName per bag, so package 0 of
+    // a bag always produced MSCAL and every later one MSCNT - which is what
+    // makes the kick a bake-time fact rather than a property of the frame.
+    {
+      StaPipBakedEntry* bakedEntry = bakedCurrent;
+      const int bakeIdx = buffers[i]->bakeIndex;
+      if (bakedEntry != nullptr && !bakedEntry->complete && bakeIdx >= 0 &&
+          bakeIdx < bakedEntry->packages &&
+          bakeIdx == static_cast<int>(bakedEntry->built)) {
+        if (!bakeBlock(currentPacket, bakeFrom,
+                       packet2_get_qw_count(currentPacket), bakedEntry,
+                       static_cast<u32>(bakeIdx))) {
+          bakedEntry->built = 0;   // so the next frame may start over
+          bakedCurrent = nullptr;  // this bag cannot be baked today
+        }
+      }
+    }
+#endif
   }
 
   if (finalize) packet2_utils_vu_add_end_tag(currentPacket);
@@ -1461,6 +1874,11 @@ void StaPipQBufferRenderer::onFrameEnd() {
 #if TYRA_STAPIP_RETAINED_COMMANDS
   retainedCurrent = nullptr;
   retained.onFrameEnd();
+#endif
+#if TYRA_STAPIP_BAKED_STREAM
+  bakedCurrent = nullptr;
+  bakeScratch.clear();
+  baked.onFrameEnd();
 #endif
 }
 
@@ -1553,6 +1971,9 @@ void StaPipQBufferRenderer::sendPacket() {
   const u32 submitStart = telemetry != nullptr ? readTelemetryTicks() : 0;
   { HardwareTrace::Scope trace("VIF1_submit");
     if (HardwareTrace::active) { const u32 t=HardwareTrace::ticks(); HardwareTrace::record("Packet_qwords", t, t, packet2_get_qw_count(currentPacket)); }
+    // Modified by TyraX: the DMA chain quadwords this pipeline hands VIF1 -
+    // the number the baked VIF stream exists to move. Compiled into both arms.
+    if (telemetry) chainQwords += packet2_get_qw_count(currentPacket);
     dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1, true); }
   if (submissionPacketHasTexture)
     submissionTextureReadersOutstanding = true;

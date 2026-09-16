@@ -123,6 +123,14 @@ class StaPipQBuffer {
    */
   int retainIndex;
 
+  /**
+   * Modified by TyraX: this buffer's package index inside its bag's BAKED VIF
+   * stream, or -1 (docs/baked-vif-stream.md). Set only by the DIRECT,
+   * wholly-visible cull route - the one route whose packages are a fixed slice
+   * of the bag - and reset by getBuffer() like retainIndex above.
+   */
+  int bakeIndex;
+
   void print() const;
   void print(const char* name) const;
   void print(const std::string& name) const { print(name.c_str()); }

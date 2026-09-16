@@ -2519,6 +2519,61 @@ this change fully**: it emulates no EE data cache, and the change trades
 computing bytes for reading them out of a cold 128 KB arena, so an emulator
 delta is an upper bound on the hardware saving and nothing more.
 
+### The baked VIF stream spike (TYRA_STAPIP_BAKED_STREAM, default 0)
+
+A wholly visible static bag's whole per-frame VIF1 command stream emitted once
+and replayed by ONE DMA `REF` tag. Format, arithmetic and what verified:
+docs/baked-vif-stream.md. It ships **off**; five things any edit must keep.
+
+- **A `REF` payload may contain NO DMA tags.** The DMAC does not interpret tags
+  inside referenced data - it feeds every word of it to VIF1 as a VIFcode - so
+  the baked block is a pure VIFcode stream: `STCYCL` + `UNPACK` followed
+  **inline** by the data that unpack transfers, repeated, then `FLUSH` +
+  `MSCAL`/`MSCNT`. That is not a new thing to ask of VIF1: with TTE a chain tag
+  is 8 bytes of DMA tag plus 8 bytes of VIFcodes, so VIF1 already receives an
+  unbroken WORD stream in which codes and data alternate with no relation to
+  quadword boundaries - `packet2_utils_vu_open_unpack` + `packet2_add_float`
+  (the `submissionBatchCandidate` branch of `sendObjectData`) is the shipping
+  existence proof.
+- **The block is TRANSCODED, never re-derived.** `bakeBlock` walks the chain
+  fragment the ordinary writers just produced and turns each tag into ONE header
+  quadword carrying that tag's own two VIFcodes **verbatim**, preceded by two
+  VIF `NOP`s, followed by the quadwords the tag transferred. The NOPs go in
+  FRONT - an `UNPACK` eats the words that immediately follow it, so trailing
+  padding would be read as unpack data - and they keep every payload quadword
+  aligned, which is what makes the payload a copy rather than a shift. Anything
+  that is not `CNT` or `REF` refuses the bake. Same reasoning as
+  StaPipRetainedCommands: no second description of the packet format to drift.
+- **THE PROGRAM KICK IS A BAKE-TIME FACT, and that is what makes one `REF` per
+  MESH possible.** `addBuffersDataToPacket` picks `MSCAL` or `MSCNT` off
+  `lastProgramName`, which looks per-frame - but `StaPipCore::render` calls
+  `clearLastProgramName()` **once per bag**, so package 0 always produced
+  `MSCAL <program address>` and every later package `MSCNT`. The kick therefore
+  lives inside the block and the program's micro-memory destination joins the
+  key. If you ever stop clearing that per bag, this breaks silently.
+- **A baked block IS live DMA memory**, unlike a retained one. It is written
+  once, when built, and only read afterwards - never patched in place - and
+  eviction may not free what the last submitted packet still names, so every
+  free goes through a two-frame graveyard. And the arena is hand-aligned to 16
+  bytes: a DMA tag's address field drops its low four bits, so a misaligned
+  arena transfers from somewhere else, silently.
+- **Only the DIRECT, wholly-visible cull route bakes**, and the run a single
+  `REF` covers stops at the 16-group packet flush boundary. Both are deliberate:
+  the direct route is the one whose packages are a fixed slice of the bag, and
+  changing the flush cadence would move `packetFlushes`, which is one of the
+  counters the acceptance gate pins. `StaPipQBuffer::bakeIndex` is reset by
+  `getBuffer()` for the same reason `retainIndex` is - a half flush covers
+  buffers of SEVERAL bags, so a stale index would be read against another bag's
+  arena.
+
+The cost is the part the plan page (docs/ee-submission-rearchitecture.md) did
+not mention: inlining the payload stores every static vertex twice, ~49 bytes
+per vertex for the textured per-vertex-colour class, and **nothing can free the
+originals** - the bbox cacher, the clip route and the generated game all still
+read them. `STAPIPBAKE` (behind `TYRA_STAPIP_BAKED_REPORT`, default 0) prints
+the arena size and the per-frame DMA chain quadword count; that last counter is
+compiled into BOTH arms, which is what makes the A/B readable.
+
 ### Triangle strips for static geometry (1.95.0)
 
 `StaPipBag::stripped` says the bag's `vertices` are a TRIANGLE STRIP. The whole
