@@ -11,11 +11,11 @@ and it has now returned both answers.
 engine and the same code generator, with its triangle and packet-flush counts
 unchanged. That is the bulk of the work, and it generalises.
 
-**One change does not**, and the control is the only reason anybody knows.
-Imported-model batching is worth −0.46 ms on the district and **+3.20 ms, 29% of
-the frame, on this map** — see [the last section](#the-control-earned-its-keep-one-change-does-not-generalise).
-The 8.9% above is measured with that change excluded; with it included this map
-is slower than before any of the work started.
+**One change did not**, and the control is the only reason anybody knows.
+Imported-model batching was worth −0.46 ms on the district and **+3.20 ms, 29% of
+the frame, on this map**. It has since been fixed, and the fix moved this map to
+**10.789 ms — better than either the regression or turning batching off** — see
+[the last two sections](#the-control-earned-its-keep-one-change-does-not-generalise).
 
 ## What the two maps do not share
 
@@ -182,3 +182,40 @@ which is a stronger argument for a control map than the milliseconds were.
 These are counts and pixels from PCSX2, which is where this branch's rule says
 they belong; **the milliseconds are the console's to measure**, and the
 conversion is the same one this page's first table came from.
+
+
+## And the fix, measured
+
+Capping the batching cell at the draw distance the group shares returns this map
+to the unbatched counts while 1,085 of its objects still merge:
+
+| | before the work | batching broken | batching off | **fixed** |
+| --- | ---: | ---: | ---: | ---: |
+| work | 12.094 | 14.226 | 11.021 | **10.789** |
+| render submission | 9.451 | 11.575 | 8.374 | **8.141** |
+| dispatch | 5.514 | 8.167 | 4.539 | **4.517** |
+| triangles | 10,297 | 12,312 | 10,297 | **10,297** |
+| packet flushes | 21 | 33 | 21 | **21** |
+
+**The fixed arm beats turning batching off by 0.23 ms**, so the feature now pays
+on both maps rather than on one. Whole improvement for this map across the work:
+**12.094 → 10.789 ms, −10.8%**.
+
+The Motor District is unchanged by construction — its cell is `min(80, 145)` and
+was already 80 — and the console confirms it: triangles and packet flushes
+identical in all four poses either side of the fix.
+
+The mechanism turned out not to be the one `#269` predicted, and that is worth
+keeping. The cell was never an 80-unit constant: it is `max(mapW / 4, 48)`, a
+**fraction of the map**, so the cull gets coarser the larger the world. And the
+dominant cost was not the frustum widening but the **draw-distance test**, which
+is applied once per batch to the nearest point of the member-centre box — this
+map's cones vanish at 60 units and a 512-unit box held them drawn, an 8.5×
+overrun. Capping the cell at the group's own `drawDistance` works because that
+value is *already* a grouping key, so every member of a batch agrees about it:
+it is a length the scene states about itself rather than a constant to re-tune.
+
+One finding nobody was looking for: the broken batching did not merely cost time
+here, it **drew 400 pixels of cones the unbatched scene culls**. Only a third,
+batching-off arm could show that — two arms can say something moved, not which
+one is right.
