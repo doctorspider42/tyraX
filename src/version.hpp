@@ -4225,10 +4225,12 @@
 // 1.86.0: merge baked shadow decals with main's render-cost table and
 // object-group line.
 // 1.98.0: the GS VRAM instrument names what is resident (VRAMRES/VRAMEVICT).
+// 1.101.0: vehicle body textures obey the project's texture depth.
+//
 // 1.99.0: render submission is attributed to zero residual; the "gap" was
 // mostly the post-fx, HUD and game-side phases that `submit` always included.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 100
+#define TYRAX_VERSION_MINOR 101
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

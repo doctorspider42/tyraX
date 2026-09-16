@@ -2341,6 +2341,28 @@ texture, four detected wheels and the distant wheel silhouette. Rigid nodes
 sharing one material may collapse to one dominant owner during import; the
 example preparation retains one material slot per wheel.
 
+Those images are **the one shipped model texture that does not pass through
+texbake**, so anything texbake does to a texture has to be done again here or it
+silently does not happen. `textureQuant` was the first casualty: a 4-bit project
+shipped a 32-bit car, one 256x256 RGBA32 image holding a third of the GS texture
+heap (docs/gs-vram.md). `bakeProject` runs `pngquant::quantizeRGBAToMemory` -
+the in-memory twin, because the bake content-compares before writing and
+quantizing a file it has already written hands the compiler a fresh mtime every
+build. The `-palette.png` ramp is exempt. **Do not gate such a bake on the
+output FILE being smaller**: GS cost is the pixel format, and dithering makes a
+flat skin's palettized PNG deflate worse than the truecolour source, so that
+test rejects exactly the textures worth converting.
+**And palettizing is a TRADE, which is why it is gated on the project's own
+setting.** Measured on a physical PS2, the same change costs +0.51 to +0.74 ms
+of work per pose on the Motor District, a scene with 0.119 MB of heap free that
+evicts nothing - the VRAM it buys relieves nothing there. The `finish_ms` rise
+appears on poses whose frames are **byte-identical between the arms**, so it is
+not the new texture's sampling cost on those rows; the live hypothesis is that
+shrinking an allocation moves every address after it and changes GS
+texture-cache behaviour scene-wide. That applies to ANY texture-size change,
+so price one before assuming it is free. docs/vehicles.md has the arms and the
+decisive test (pad the allocations back and re-measure).
+
 Shared dynamic env sampling must use the LEVEL capture's world-up, not the
 pitched chase camera's up. Static sphere-map images keep the view basis and
 reflected-ray probes keep their own basis. The viewport envSt shader mirrors
