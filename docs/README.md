@@ -240,6 +240,11 @@ Developer design docs (internals, not user guides):
   VU1 cycle per triangle is worth in frame time on real hardware, why ps2sdk's
   two cache primitives are both wrong for a DMA packet, and why neither answer
   is a reason to fork the SDK.
+- [The EE pays 147 cycles per triangle](ee-submission-rearchitecture.md) — the
+  plan for the next round: why an immediate-mode static pipeline cannot reach
+  60 Hz whatever its constants are, the baked VIF stream that would replace it,
+  the two probes that must bound the prize first, and what is already measured
+  NOT to be the lever.
 - [Does the renderer work generalise?](engine-performance-on-a-second-map.md) —
   the control for six rounds of performance work driven by one scene: a second
   map with no content in common gains 8.9% of its work from the same engine.
