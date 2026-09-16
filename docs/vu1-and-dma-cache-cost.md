@@ -384,3 +384,26 @@ measurements on this page used `benchmark-district.py`'s copy of the example's
 **committed** generated sources, which drift; regenerating with the editor under
 test moved garage-day submission by 3.6 ms and restored the triangle count to
 the September 14 reference exactly.
+
+### Where the garage frame stands after the second day (2026-09-16)
+
+Garage day, release profile, physical console: **work 29.910 ms**, from 38.492
+when this work started. What is left, largest first — the three at the top are
+within a millisecond of each other, so there is no single dominant term any more:
+
+| | ms | what it is |
+| --- | ---: | --- |
+| the game's own `renderScene` phases | ~5.91 | outside `StaPipCore::render` entirely: the shared reflection probe, sky, terrain streaming, batches, procedural, animation, light effects, particles, HUD, post-fx |
+| package creation and classification | ~5.32 | inside `dispatch`, the largest thing still unopened |
+| **VIF1 wait** | **5.47** | the only bucket that is genuinely *waiting* rather than working |
+| update | 2.96 | the game's simulation |
+| per-bag preparation | 2.90 | |
+| bounds | 2.30 | after three attacks; the cacher lookup inside it is 0.118 ms |
+| the `send_packet2` bracket | 2.10 | almost all of it `FlushCache(0)`, and proportional to the 120 submissions |
+| packet construction | 1.92 | |
+| finish | 1.03 | |
+
+Presentation reads 10.05 ms, which is not a cost: 29.9 ms of work lands the frame
+on the second PAL field and that is the slack to the boundary. One field is
+20 ms, so **10 ms more has to come out before the display rate changes at all**,
+and 13.2 ms before a 60 Hz frame is possible.
