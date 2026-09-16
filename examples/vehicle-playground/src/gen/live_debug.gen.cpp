@@ -545,8 +545,9 @@ void tickImpl(ScriptContext& ctx) {
   // Over ps2link every fopen is a network round-trip, so poll sparsely there.
   // While the game is stopped the editor is waiting on us: poll fast.
   const bool ps2link = Tyra::IrxLoader::keepIopResident;
+  if (haltRequested && pollCooldown > 2) pollCooldown = 2;
   if (--pollCooldown <= 0) {
-    pollCooldown = ps2link ? 25 : (haltRequested ? 2 : 6);
+    pollCooldown = haltRequested ? 2 : (ps2link ? 25 : 6);
     pollCommand();
   }
 
