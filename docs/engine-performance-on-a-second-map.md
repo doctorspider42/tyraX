@@ -95,6 +95,24 @@ instrumentation away), and give the fixture a frozen camera — a Player with
 `walkSpeed: 0` and `lookSpeed: 0` for a ground-level pose, or a global script
 setting `ctx.cameraOverride` for one the player cannot stand in.
 
+Exercised end to end on a second project to prove it is not wired to this one: a
+fresh copy of `examples/large-terrain` at `D:/ltv` (that example is at format v23
+and needs `--migrate` before any editor will open it), instrumented with
+`--warmup 60 --samples 120`, built natively and booted on the console. It wrote
+`bin/frame-cost.csv` with **120 rows, first frame 60 and last frame 179** —
+both flags honoured — and the full column set. The script carries no
+district-specific code; the two mentions of `updateVehicles` and
+`vehicle-playground` in it are in the docstring, explaining what the other copy
+does.
+
+**A new file under `tools/` is invisible to git by default.** `.gitignore`
+ignores `tools/*` with a short allow-list (it is where `setup` drops fetched
+binaries), so this script was committed, documented, and still absent from the
+repository for the first forty minutes of its life — `git add -A` skipped it
+without a word, and the only symptom was somebody following these instructions
+and finding nothing. Add an explicit `!tools/<name>` exception, as
+`hardware-trace.py` and `hardware-probe.py` already have.
+
 [The raw arms, the vantage script and the measurement harness](../examples/large-terrain/authoring/engine-generality-2026-09-16/)
 retain both vantages and both editors.
 
