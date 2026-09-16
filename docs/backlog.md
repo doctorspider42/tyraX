@@ -214,23 +214,21 @@ Everything below is PCSX2, garage day, against a 14.595 ms render submission,
 and none of it has been on a console. Sizes are what the numbers support, not
 estimates of what a fix would save.
 
-<<<<<<< HEAD
-1. **`renderVehicleWheels`, 2.962 ms — 20% of render submission, and 1.970 of
-   it is not submission at all.** The generated game rebuilds every wheel vertex
-   in world space every frame (four wheels per car, 9 multiplies + 3 adds each,
-   `push_back` into a cleared vector), then bumps the bag's `bboxVersion`
-   unconditionally, which invalidates its package bounding boxes AND its
-   retained command blocks by construction. Two independent levers: skip the
-   rebake for a car whose pose did not change, and stop bumping `bboxVersion`
-   when the vertex buffer did not move. **Do not measure either on the parked
-   benchmark alone** — parked traffic is exactly the case a pose-change test
-   flatters, and the fixture parks it.
-   **The `bboxVersion` half is now priced from the engine side: 0.618 ms of
-   `bounds` on garage day**, 10.5 recalculations at 58.8 µs each, on top of the
-   1.970 ms rebake (render-submission-attribution.md, "Round two"). The engine's
-   cacher does the right thing with what it is told — zero allocations, 0.52 µs
-   per lookup — so this is entirely a contract question in the generated game's
-   wheel path.
+1. ~~**`renderVehicleWheels`, 2.962 ms — 20% of render submission, and 1.970 of
+   it is not submission at all.**~~ **DONE**, see
+   [wheel-rebake-skip.md](wheel-rebake-skip.md). Both levers were taken — a
+   slot-addressed batch with an exact per-car signature so an unchanged rig is
+   not re-baked, and a sticky `bboxVersion` that is only bumped when the buffer
+   really did change — plus one the entry did not name and which turned out to
+   matter more for moving traffic: the body attitude, its six sines and cosines
+   and the steer basis were being recomputed **per wheel**, so a car paid 176
+   transcendental calls a frame where 22 suffice. `benchmark-district.py`
+   grew `--keep-routes` for the second fixture the entry demanded, and the
+   page quotes the parked best case and the moving realistic case side by side.
+   The engine side of the `bboxVersion` half was priced independently at
+   **0.618 ms of `bounds` on garage day**, 10.5 recalculations at 58.8 µs each
+   (render-submission-attribution.md, "Round two"). What is still owed is a
+   console repeat; see that page's Limits.
 2. ~~**Package creation and classification, 3.346 ms — 56% of `dispatch`.** The
    largest single unopened box left.~~ **DONE**, together with a split of
    `bounds` — render-submission-attribution.md, "Round two". Both close. Three
@@ -244,25 +242,8 @@ estimates of what a fix would save.
      stride bought 0.5%.
    - **The bbox cacher is exonerated**: 226.5 lookups cost 0.118 ms, the hash
      runs 1.44 probes per lookup, the expiry scan is 0.011 ms and NOTHING
-     allocates (0 fresh entries in every pose). What costs 0.618 ms is 10.5
-     forced `recalculate()` calls — item 1 below, from the other side.
-=======
-1. ~~**`renderVehicleWheels`, 2.962 ms — 20% of render submission, and 1.970 of
-   it is not submission at all.**~~ **DONE**, see
-   [wheel-rebake-skip.md](wheel-rebake-skip.md). Both levers were taken — a
-   slot-addressed batch with an exact per-car signature so an unchanged rig is
-   not re-baked, and a sticky `bboxVersion` that is only bumped when the buffer
-   really did change — plus one the entry did not name and which turned out to
-   matter more for moving traffic: the body attitude, its six sines and cosines
-   and the steer basis were being recomputed **per wheel**, so a car paid 176
-   transcendental calls a frame where 22 suffice. `benchmark-district.py`
-   grew `--keep-routes` for the second fixture the entry demanded, and the
-   page quotes the parked best case and the moving realistic case side by side.
-   What is still owed is a console repeat; see that page's Limits.
-2. **Package creation and classification, 3.346 ms — 56% of `dispatch`.** The
-   largest single unopened box left. It needs the same treatment this round gave
-   `prepare`: brackets inside the routing loops, behind the same opt-in macro.
->>>>>>> 5be6a90f
+     allocates (0 fresh entries in every pose). What cost 0.618 ms was 10.5
+     forced `recalculate()` calls, which item 1 has now removed.
 3. **The clamped-wrap double drain, 1.730 ms of garage night** (0.299 in the
    day). A bag whose texture is not REPEAT costs `sync.align3D()` twice — once
    to set the wrap and once to restore it — and the night scene has more of them
@@ -1210,6 +1191,41 @@ treatment the distance cut-off just got, in this order:
 
 Do the census before any of it. On this scene the exclusion everyone expected
 to matter (`dynamicLighting`) rejects nothing at all.
+
+### Price static batching on wide-spread content with NO draw distance
+
+Done, for everything that has a cut-off: the grouping cell is bounded by the
+draw distance its members share, which removed the +3.20 ms `large-terrain`
+regression outright and leaves the Motor District untouched
+([model-pipeline.md](model-pipeline.md), "Why the cell is bounded by the draw
+distance").
+
+What is left is the case that states no length. `drawDistance` 0 keeps the base
+cell (`max(mapW / 4, 48)`), so a big map full of unlimited-distance props still
+groups coarsely. Measured on an adversarial `large-terrain` with every cut-off
+zeroed, that is a **trade rather than a loss** - +23.5% triangles against
+**-43% packet flushes** - where the draw-distance case was worse on both axes
+at once. On this console a submit is the expensive half, so it may well pay;
+nobody has priced it.
+
+Two things that measurement needs, and neither exists yet:
+
+- **A shipped example of that shape.** Every example in the tree is inert for
+  this rule: the district and `impostor-grove` have cells that already fit,
+  `deep-forest` batches nothing at all (eligible 0), and `large-terrain`'s
+  content all carries a cut-off. The adversarial fixture was constructed by
+  zeroing 1,180 draw distances, and **its own repeats are not byte-identical**
+  (283-419 px of 200,704 between two captures of one arm), so it can only be
+  read for counts. A deliberate example with a frozen, repeatable vantage would
+  make this answerable.
+- **Hardware milliseconds.** PCSX2 gives the counts and the pixels; the
+  flush-versus-triangle trade is exactly the kind of thing its missing EE data
+  cache prices wrong.
+
+If it turns out not to pay, the lever is already shaped: give `cellFor` a bound
+for the 0 case too, derived from the batchable objects' own extent rather than
+from the terrain width (the object cloud is 940 units wide on a 2048-unit map,
+so `mapW` over-states the spread by more than 2x).
 
 ### Measure opaque state sorting beyond static batches
 
