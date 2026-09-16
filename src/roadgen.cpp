@@ -119,53 +119,86 @@ float buildRows(const std::vector<float>& pointsXZ, float width,
     return arc;
 }
 
-// The lateral step this station pair is stitched with: `crossSteps` for one
-// full-width quad, 1 for the dense mesh. This is the exact planar-span
-// reduction docs/roads.md describes and the oracle pins - it decides the
-// SURFACE, so both emitters ask it rather than deciding for themselves.
-int spanStride(const std::vector<std::vector<Vertex>>& rows, size_t i,
-               int crossSteps) {
-    // A full-width quad is exact when every dense sample lies in its
-    // plane.  That includes level asphalt, but also roads over a sloped
-    // terrain triangle.  Checking only the shoulders would turn a crown
-    // or saddle into a plane, so test every sampled point against the
-    // proposed quad's 3-D plane first.
-    const Vertex& a = rows[i][0];
-    const Vertex& b = rows[i][(size_t)crossSteps];
-    const Vertex& d = rows[i + 1][0];
+// Is the quad rows[i..i+1][j0..j1] EXACTLY the dense mesh it would replace?
+// Two conditions, both of them the ones the full-width test has always used,
+// only asked of a sub-span:
+//   - every dense sample of both rows lies in the quad's 3-D plane, so the
+//     surface is unchanged (a crown, a crest or a saddle fails this and stays
+//     dense), and
+//   - the quad is an affine parallelogram, so its two triangles interpolate
+//     ST exactly as the lateral cells it replaces do. `u` is j / crossSteps
+//     and a row's samples are uniformly spaced along it, so a parallelogram's
+//     linear interpolation reproduces every interior sample's U as well.
+bool spanIsExact(const std::vector<std::vector<Vertex>>& rows, size_t i,
+                 int j0, int j1) {
+    const Vertex& a = rows[i][(size_t)j0];
+    const Vertex& b = rows[i][(size_t)j1];
+    const Vertex& d = rows[i + 1][(size_t)j0];
+    const Vertex& c = rows[i + 1][(size_t)j1];
     const float ux = b.x - a.x, uy = b.y - a.y, uz = b.z - a.z;
     const float vx = d.x - a.x, vy = d.y - a.y, vz = d.z - a.z;
     const float nx = uy * vz - uz * vy;
     const float ny = uz * vx - ux * vz;
     const float nz = ux * vy - uy * vx;
     const float nl = std::sqrt(nx * nx + ny * ny + nz * nz);
-    // Retain the established horizontal path, including curved flat
-    // spans.  Its wide-triangle UV interpolation is the shipped look.
-    bool flat = true;
-    const float flatY = rows[i][0].y;
-    for (int r = 0; r < 2; ++r)
-        for (int j = 0; j <= crossSteps; ++j)
-            if (std::fabs(rows[i + (size_t)r][(size_t)j].y - flatY) >
-                0.00001f) { flat = false; break; }
-    // The two triangles interpolate ST like an affine parallelogram. A
-    // curved station pair can be coplanar but still map U/V differently
-    // from its dense lateral cells, so it is deliberately left dense.
-    const Vertex& c = rows[i + 1][(size_t)crossSteps];
+    if (!(nl > 1e-6f)) return false;
     const float ax = (b.x - a.x) - (c.x - d.x);
     const float ay = (b.y - a.y) - (c.y - d.y);
     const float az = (b.z - a.z) - (c.z - d.z);
-    bool planar = nl > 1e-6f &&
-                  std::sqrt(ax * ax + ay * ay + az * az) <= 0.00001f;
-    for (int r = 0; planar && r < 2; ++r)
-        for (int j = 0; j <= crossSteps; ++j) {
+    if (std::sqrt(ax * ax + ay * ay + az * az) > kSpanShear) return false;
+    for (int r = 0; r < 2; ++r)
+        for (int j = j0; j <= j1; ++j) {
             const Vertex& q = rows[i + (size_t)r][(size_t)j];
-            const float dist = std::fabs(nx * (q.x - a.x) +
-                                         ny * (q.y - a.y) +
+            const float dist = std::fabs(nx * (q.x - a.x) + ny * (q.y - a.y) +
                                          nz * (q.z - a.z)) / nl;
-            if (dist > 0.00001f) { planar = false; break; }
+            if (dist > kSpanFlatness) return false;
         }
-    const int stride = (flat || planar) ? crossSteps : 1;
-    return stride;
+    return true;
+}
+
+// Where this station pair is CUT laterally: always 0 and crossSteps, plus
+// every interior boundary the exactness test above refuses to cross. This is
+// the exact planar-span reduction docs/roads.md describes and the oracle pins
+// - it decides the SURFACE, so both emitters ask it rather than deciding for
+// themselves.
+//
+// It used to be all-or-nothing: one full-width quad, or all crossSteps dense
+// cells. That is the wrong shape for a road that is a DECAL on a heightfield.
+// The district's terrain cell is 4 world units and the road samples across at
+// 0.5, so a 13-unit street is 26 lateral cells laid over three or four terrain
+// triangles: the full width is almost never one plane, and every one of the
+// 26 cells was therefore retained even though runs of eight of them sit inside
+// a single terrain triangle and are exactly coplanar. Merging maximal runs
+// instead keeps the same surface to the same tolerance and is what takes the
+// district's roads from 31 050 triangles to a third of that.
+void spanCuts(const std::vector<std::vector<Vertex>>& rows, size_t i,
+              int crossSteps, std::vector<int>& cuts) {
+    cuts.clear();
+    // Retain the established horizontal path, including curved flat spans.
+    // Its wide-triangle UV interpolation is the shipped look, and it is the
+    // one case that does NOT owe the affine check.
+    bool flat = true;
+    const float flatY = rows[i][0].y;
+    for (int r = 0; r < 2 && flat; ++r)
+        for (int j = 0; j <= crossSteps; ++j)
+            if (std::fabs(rows[i + (size_t)r][(size_t)j].y - flatY) >
+                0.00001f) { flat = false; break; }
+    cuts.push_back(0);
+    if (flat) {
+        cuts.push_back(crossSteps);
+        return;
+    }
+    // Greedy maximal runs, extended one cell at a time. A single cell is the
+    // fallback and is never tested, so this can only ever remove vertices
+    // from what the dense mesh would have emitted - the previous behaviour is
+    // its lower bound, and the full-width collapse its upper one.
+    int j0 = 0;
+    while (j0 < crossSteps) {
+        int j1 = j0 + 1;
+        while (j1 < crossSteps && spanIsExact(rows, i, j0, j1 + 1)) ++j1;
+        cuts.push_back(j1);
+        j0 = j1;
+    }
 }
 
 }  // namespace
@@ -181,14 +214,16 @@ float tessellate(const std::vector<float>& pointsXZ, float width,
 
     // Stitch every lateral cell. Wound counter-clockwise seen from above
     // (+Y), the terrain's own convention.
+    std::vector<int> cuts;
     for (size_t i = 0; i + 1 < rows.size(); ++i) {
-        const int stride = spanStride(rows, i, crossSteps);
-        for (int j = 0; j < crossSteps; j += stride) {
+        spanCuts(rows, i, crossSteps, cuts);
+        for (size_t k = 0; k + 1 < cuts.size(); ++k) {
+            const int j = cuts[k], j2 = cuts[k + 1];
             out.push_back(rows[i][(size_t)j]);
-            out.push_back(rows[i][(size_t)j + stride]);
-            out.push_back(rows[i + 1][(size_t)j + stride]);
+            out.push_back(rows[i][(size_t)j2]);
+            out.push_back(rows[i + 1][(size_t)j2]);
             out.push_back(rows[i][(size_t)j]);
-            out.push_back(rows[i + 1][(size_t)j + stride]);
+            out.push_back(rows[i + 1][(size_t)j2]);
             out.push_back(rows[i + 1][(size_t)j]);
         }
     }
@@ -262,12 +297,12 @@ float tessellateStrips(const std::vector<float>& pointsXZ, float width,
     // spans reach. So the emitter follows the grid: dense spans strip ACROSS
     // the road, consecutive collapsed spans strip ALONG it.
     bool alongOpen = false;
+    std::vector<int> cuts;
     for (size_t i = 0; i + 1 < rows.size(); ++i) {
-        const int stride = spanStride(rows, i, crossSteps);
-        const bool collapsed = stride == crossSteps;
+        spanCuts(rows, i, crossSteps, cuts);
+        const bool collapsed = cuts.size() == 2;
         const size_t cost =
-            collapsed ? (alongOpen ? 2u : 4u)
-                      : (size_t)(2 * (crossSteps / stride + 1) + 2);
+            collapsed ? (alongOpen ? 2u : 4u) : (2 * cuts.size() + 2);
         if (!open || spansInChunk >= kChunkSpans ||
             (out.size() - chunkStart) + cost > (size_t)kChunkBudget) {
             closeChunk();
@@ -288,13 +323,15 @@ float tessellateStrips(const std::vector<float>& pointsXZ, float width,
             pushRaw(rows[i + 1][0]);
         } else {
             // N[0], P[0], N[s], P[s], ... - same argument, same diagonal
-            // P[j]-N[j+s], walked across the road instead.
+            // P[j]-N[j+s], walked across the road instead. The cuts are no
+            // longer uniformly spaced, which changes nothing here: the walk
+            // visits them in order and the diagonal is the same one.
             alongOpen = false;
             startStrip(rows[i + 1][0]);
             pushRaw(rows[i][0]);
-            for (int j = stride; j <= crossSteps; j += stride) {
-                pushRaw(rows[i + 1][(size_t)j]);
-                pushRaw(rows[i][(size_t)j]);
+            for (size_t k = 1; k < cuts.size(); ++k) {
+                pushRaw(rows[i + 1][(size_t)cuts[k]]);
+                pushRaw(rows[i][(size_t)cuts[k]]);
             }
         }
         ++spansInChunk;

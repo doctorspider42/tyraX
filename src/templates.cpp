@@ -49,9 +49,21 @@
 #include "vehbake.hpp"
 #include "vugen.hpp"  // the VU program generator - a project may carry its own
 #include "tmdl.hpp"
+#include "roadgen.hpp"  // the road tessellator this file carries a twin of
 #include "wire.hpp"  // fnv1a64 - stable per-override .tskl suffix
 
 namespace templates {
+
+// TWIN NOTICE, enforced. buildRoads below is a raw string, so it cannot read
+// roadgen.hpp's constants and carries them as literals - and a literal that
+// silently stops matching its twin is how a road previews half a metre off
+// its console self. The road oracle compares the two emitters vertex for
+// vertex and would catch it, but only if someone runs it; this catches it at
+// compile time. See docs/roads.md, "The lateral budget".
+static_assert(roadgen::kSpanFlatness == 0.00001f,
+              "buildRoads carries the flatness budget as the literal 0.00001F");
+static_assert(roadgen::kSpanShear == 0.05f,
+              "buildRoads carries the shear budget as the literal 0.05F");
 
 // The texture-table key for a terrain texture: the baked supertile path when
 // stochastic tiling is on (docs/terrain-painting.md), else the source as-is.
@@ -35126,6 +35138,11 @@ void TerrainGame::buildRoads(int scene) {
     std::vector<float> px0((size_t)crossSteps + 1);
     std::vector<float> py0((size_t)crossSteps + 1);
     std::vector<float> pz0((size_t)crossSteps + 1);
+    // Where this station pair is cut laterally. Hoisted out of the station
+    // loop: this runs on the EE at scene load, once per station of every road
+    // in the district, and a per-station heap allocation there is not free.
+    std::vector<int> cuts;
+    cuts.reserve((size_t)crossSteps + 1);
     float lv0 = 0.0F;
     bool havePrev = false;
     float arc = 0.0F, prevX = 0.0F, prevZ = 0.0F;
@@ -35182,48 +35199,73 @@ void TerrainGame::buildRoads(int scene) {
           // Two triangles per lateral cell, CCW seen from above - the twin's
           // stitch, emitted station by station so a chunk boundary never
           // leaves a gap (the previous row is re-used as the base).
-          // Exact full-width reduction: every dense sample must lie on the
-          // proposed quad plane.  This keeps sloped terrain triangles cheap
-          // without flattening crowns or saddles (the roadgen.cpp twin).
-          const float ux = px0[(size_t)crossSteps] - px0[0];
-          const float uy = py0[(size_t)crossSteps] - py0[0];
-          const float uz = pz0[(size_t)crossSteps] - pz0[0];
-          const float vx = nx[0] - px0[0], vy = ny[0] - py0[0], vz = nz[0] - pz0[0];
-          const float pnx = uy * vz - uz * vy;
-          const float pny = uz * vx - ux * vz;
-          const float pnz = ux * vy - uy * vx;
-          const float pnl = sqrtf(pnx * pnx + pny * pny + pnz * pnz);
+          // Exact lateral reduction: every dense sample must lie on the
+          // proposed quad plane, and the quad must be an affine parallelogram
+          // so its two triangles interpolate ST as the cells they replace do.
+          // The reduction is per SUB-SPAN rather than all-or-nothing, because
+          // a road is a decal on a heightfield sampled far more finely than
+          // the heightfield itself - runs of lateral cells inside one terrain
+          // triangle are exactly coplanar even when the full width is not.
+          // The two budgets are the roadgen.hpp twin's kSpanFlatness (surface,
+          // and with it the T-junction) and kSpanShear (UV, tripped by bends).
+          auto spanIsExact = [&](int j0, int j1) {
+            const float ax = px0[(size_t)j0], ay = py0[(size_t)j0];
+            const float az = pz0[(size_t)j0];
+            const float bx = px0[(size_t)j1], by = py0[(size_t)j1];
+            const float bz = pz0[(size_t)j1];
+            const float dx = nx[(size_t)j0], dy = ny[(size_t)j0];
+            const float dz = nz[(size_t)j0];
+            const float cx = nx[(size_t)j1], cy = ny[(size_t)j1];
+            const float cz = nz[(size_t)j1];
+            const float ux = bx - ax, uy = by - ay, uz = bz - az;
+            const float vx = dx - ax, vy = dy - ay, vz = dz - az;
+            const float pnx = uy * vz - uz * vy;
+            const float pny = uz * vx - ux * vz;
+            const float pnz = ux * vy - uy * vx;
+            const float pnl = sqrtf(pnx * pnx + pny * pny + pnz * pnz);
+            if (!(pnl > 1e-6F)) return false;
+            const float qax = (bx - ax) - (cx - dx);
+            const float qay = (by - ay) - (cy - dy);
+            const float qaz = (bz - az) - (cz - dz);
+            if (sqrtf(qax * qax + qay * qay + qaz * qaz) > 0.05F)
+              return false;
+            for (int r = 0; r < 2; ++r)
+              for (int j = j0; j <= j1; ++j) {
+                const float qx = r ? nx[(size_t)j] : px0[(size_t)j];
+                const float qy = r ? ny[(size_t)j] : py0[(size_t)j];
+                const float qz = r ? nz[(size_t)j] : pz0[(size_t)j];
+                const float dist = fabsf(pnx * (qx - ax) + pny * (qy - ay) +
+                                         pnz * (qz - az)) / pnl;
+                if (dist > 0.00001F) return false;
+              }
+            return true;
+          };
           // Keep the long-standing horizontal reduction, including curved
-          // spans, as the roadgen.cpp twin does.
+          // spans, as the roadgen.cpp twin does. It is the one case that does
+          // NOT owe the affine check.
           bool flat = true;
           const float flatY = py0[0];
-          for (int r = 0; r < 2; ++r)
+          for (int r = 0; r < 2 && flat; ++r)
             for (int j = 0; j <= crossSteps; ++j) {
               const float qy = r ? ny[(size_t)j] : py0[(size_t)j];
               if (fabsf(qy - flatY) > 0.00001F) { flat = false; break; }
             }
-          // Coplanarity alone does not preserve interpolated ST on a curved
-          // quad. Require the affine parallelogram that roadgen.cpp checks.
-          const float qax = (px0[(size_t)crossSteps] - px0[0]) -
-                            (nx[(size_t)crossSteps] - nx[0]);
-          const float qay = (py0[(size_t)crossSteps] - py0[0]) -
-                            (ny[(size_t)crossSteps] - ny[0]);
-          const float qaz = (pz0[(size_t)crossSteps] - pz0[0]) -
-                            (nz[(size_t)crossSteps] - nz[0]);
-          bool planar = pnl > 1e-6F &&
-                        sqrtf(qax * qax + qay * qay + qaz * qaz) <= 0.00001F;
-          for (int r = 0; planar && r < 2; ++r)
-            for (int j = 0; j <= crossSteps; ++j) {
-              const float qx = r ? nx[(size_t)j] : px0[(size_t)j];
-              const float qy = r ? ny[(size_t)j] : py0[(size_t)j];
-              const float qz = r ? nz[(size_t)j] : pz0[(size_t)j];
-              const float dist = fabsf(pnx * (qx - px0[0]) +
-                                       pny * (qy - py0[0]) +
-                                       pnz * (qz - pz0[0])) / pnl;
-              if (dist > 0.00001F) { planar = false; break; }
+          cuts.clear();
+          cuts.push_back(0);
+          if (flat) {
+            cuts.push_back(crossSteps);
+          } else {
+            // Greedy maximal runs. A single cell is the fallback and is never
+            // tested, so this can only remove vertices from the dense mesh.
+            int j0 = 0;
+            while (j0 < crossSteps) {
+              int j1 = j0 + 1;
+              while (j1 < crossSteps && spanIsExact(j0, j1 + 1)) ++j1;
+              cuts.push_back(j1);
+              j0 = j1;
             }
-          const int stride = (flat || planar) ? crossSteps : 1;
-          const bool collapsed = stride == crossSteps;
+          }
+          const bool collapsed = cuts.size() == 2;
           // Amortize EE bag/bounds work on flat streets, without making dense
           // slopes unbounded or joining a whole road into one culling box.
           // The budget is in the currency the chunk actually holds, so the
@@ -35233,8 +35275,8 @@ void TerrainGame::buildRoads(int scene) {
               useStrips
                   ? (collapsed
                          ? (alongOpen ? (size_t)2 : (size_t)4)
-                         : (size_t)(2 * (crossSteps / stride + 1) + 2))
-                  : (size_t)(crossSteps / stride) * 6;
+                         : (2 * cuts.size() + 2))
+                  : (cuts.size() - 1) * 6;
           if (!c || stationsInChunk >= 36 ||
               c->vertices.size() + spanVertices > 1800) {
             closeChunk();
@@ -35259,15 +35301,16 @@ void TerrainGame::buildRoads(int scene) {
                               newRow ? v : lv0, 1.0F, 0.0F);
           };
           if (!useStrips) {
-            for (int j = 0; j < crossSteps; j += stride) {
+            for (size_t ci = 0; ci + 1 < cuts.size(); ++ci) {
+              const int j = cuts[ci], j2 = cuts[ci + 1];
               const float u0 = (float)j / (float)crossSteps;
-              const float u1 = (float)(j + stride) / (float)crossSteps;
+              const float u1 = (float)j2 / (float)crossSteps;
               const Tyra::Vec4 A(px0[(size_t)j], py0[(size_t)j],
                                  pz0[(size_t)j], 1.0F);
-              const Tyra::Vec4 B(px0[(size_t)j + stride], py0[(size_t)j + stride],
-                                 pz0[(size_t)j + stride], 1.0F);
-              const Tyra::Vec4 C(nx[(size_t)j + stride], ny[(size_t)j + stride],
-                                 nz[(size_t)j + stride], 1.0F);
+              const Tyra::Vec4 B(px0[(size_t)j2], py0[(size_t)j2],
+                                 pz0[(size_t)j2], 1.0F);
+              const Tyra::Vec4 C(nx[(size_t)j2], ny[(size_t)j2],
+                                 nz[(size_t)j2], 1.0F);
               const Tyra::Vec4 D(nx[(size_t)j], ny[(size_t)j],
                                  nz[(size_t)j], 1.0F);
               const Tyra::Vec4 sA(u0, lv0, 1.0F, 0.0F);
@@ -35302,13 +35345,15 @@ void TerrainGame::buildRoads(int scene) {
             pushRaw(vAt(0, true), sAt(0, true));
           } else {
             // N[0], P[0], N[s], P[s], ... - same argument, same diagonal
-            // P[j]-N[j+s], walked ACROSS the road instead.
+            // P[j]-N[j+s], walked ACROSS the road instead. The cuts are no
+            // longer uniformly spaced, which changes nothing here: the walk
+            // visits them in order and the diagonal is the same one.
             alongOpen = false;
             startStrip(vAt(0, true), sAt(0, true));
             pushRaw(vAt(0, false), sAt(0, false));
-            for (int j = stride; j <= crossSteps; j += stride) {
-              pushRaw(vAt(j, true), sAt(j, true));
-              pushRaw(vAt(j, false), sAt(j, false));
+            for (size_t ci = 1; ci < cuts.size(); ++ci) {
+              pushRaw(vAt(cuts[ci], true), sAt(cuts[ci], true));
+              pushRaw(vAt(cuts[ci], false), sAt(cuts[ci], false));
             }
           }
           ++stationsInChunk;

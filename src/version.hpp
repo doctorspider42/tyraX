@@ -16,6 +16,45 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.105.0: THE ROAD LATERAL REDUCTION WAS ALL-OR-NOTHING, AND THAT IS WHY IT
+// BOUGHT ALMOST NOTHING (docs/roads.md, "The lateral budget"). A station pair
+// collapsed to ONE full-width quad or kept all `crossSteps` lateral cells. The
+// Motor District's terrain cell is 4 world units and a road samples across at
+// 0.5, so a 13-unit street is 26 cells over three or four terrain triangles:
+// the full width is almost never one plane, and all 26 cells survived even
+// though runs of eight of them sit inside one terrain triangle and are exactly
+// coplanar. `spanCuts` now merges maximal runs instead, greedily; a single cell
+// is the untested fallback, so the old behaviour is the reduction's lower
+// bound.
+//
+// The merge is governed by two budgets that are NOT the same kind of number.
+// `kSpanFlatness` bounds the surface error - and, because neighbouring station
+// pairs cut the row they share independently, the T-vertex seam as well. It
+// STAYS at the float noise floor, so the asphalt and every seam are exactly
+// unchanged: a row's samples are a straight line in XZ, and coplanar plus
+// straight-in-XZ is straight in 3-D, so the shared segment has one
+// representation. `kSpanShear` bounds the parallelogram defect, which is a
+// pure UV error - and it was the veto that mattered, because the two triangles
+// of a trapezoid interpolate ST with two different affine maps, so a BEND
+// could never merge and six of the district's seven streets are curved
+// splines. Relaxed to 0.05, the measured knee.
+//
+// Measured over the whole district against the branch-tip surface, at every
+// dense sample: road triangles 31 050 -> 21 252 (-31.6%) and VU1 packages
+// 470 -> 337 (-28.3%), with worst surface error and worst seam both zero and
+// the worst UV drift 0.36 of a texel on the 128-pixel road texture. The sweep
+// behind the constant, and the costed next step (kSpanFlatness 0.02 reaches
+// 7 428 triangles but opens a 0.028-unit seam against the road's 0.12 lift),
+// are in examples/vehicle-playground/authoring/road-lod-2026-09-16.
+//
+// verify-road-twins.py grew the fixtures that can exercise this at all - the
+// original eight are analytic surfaces, curved everywhere, with no coplanar
+// runs to find - plus an exact T-VERTEX seam test, because sampling a surface
+// at its own vertices has a barycentric noise floor larger than the seams
+// worth finding. `crown with equal shoulders` and `saddle` still measure
+// 1.000x. No project format change (kFormatVersion stays 54), no engine
+// change, no VU1 change. MINOR.
+//
 // 1.104.0: THE VU1 PACKAGE CEILING IS 75, NOT 72, AND THE BAKED STRIP RUN
 // MOVES WITH IT (docs/render-submission-attribution.md, "Round four").
 // `StaPipVU1Program::getMaxVertCount` rounded down to a multiple of NINE so
@@ -4416,8 +4455,8 @@
 // built by THIS worktree's editor (the first pass' was cut at the 72-vertex
 // strip run), and attribute the cache churn with STAPIPMISS.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 104
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_MINOR 105
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
