@@ -202,6 +202,40 @@ frame hashes** and the arms are compared as sequences, not as single values. The
 night poses have authored lamp flicker and twinkling stars and never settle;
 nothing is read from them, exactly as every previous round on this branch.
 
+### MEASURED: two of its three parts are exact, and the third is not usable
+
+Leg 1 has now been run. Two boots of **one ELF** in PCSX2, compared at equal
+frame numbers, with the picture byte-identical in both and `chainQw` and the
+word count identical to the unit
+([ee-rearchitecture-2026-09-16](../examples/vehicle-playground/authoring/ee-rearchitecture-2026-09-16/README.md)):
+
+| part of the stream | across two boots of one ELF |
+| --- | --- |
+| the VIFcodes | **identical**, including the reflection probe's period-2 cadence |
+| the payload of unpacks to the absolute region (MVP, lights, options, ALPHA) | **identical** |
+| the payload of unpacks with `usetop`, i.e. everything in the VU1 double buffer | **differs, every frame** |
+
+**So the static pipeline puts bytes on the wire that are not a function of the
+scene.** VU1 never reads them — the picture is byte-identical — but they are
+transferred, and no instrument had ever looked at this wire before.
+
+Where they are is **narrowed, not settled**. At the outer-road day pose, which
+has a fraction of the garage's clip and guard-band traffic, the geometry hash is
+often clean: one boot reproduced a perfect period-2 pattern and one frame
+matched *across* boots. The garage, with 36.5 clip and 238.5 guard-band packages
+a frame, never does. That points at the qbuffer copy pools — `fillByCopyMax`,
+`fillByCopy1By2`, `fillByCopy1By3`, `StaPipClipper::writeChunk` — transferring
+quadwords past what was written into them. Consistent with everything observed,
+and **not proven**.
+
+**What it costs the gate, exactly.** The VIFcode and uniform hashes stand and are
+exact, and they are what this round needed: a submission *restructuring* changes
+structure, and those two are the structure. The geometry payload falls back to
+leg 2, the byte-identical picture, and to nothing else — so a future change that
+touched vertex data would be resting its whole argument on pixels again. The
+readout therefore prints the three separately: a gate that could only say "these
+two runs differ" and never say *where* would have been useless here.
+
 ## Leg 2 — byte-identical pixels, over a pose sweep
 
 Leg 1 is computed from EE-visible memory **at chain-build time**. The DMAC reads

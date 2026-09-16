@@ -47,6 +47,7 @@ void StaPipVifHash::streamWord(u32 w) {
   // is the whole reason this has to be a state machine rather than a scan.
   if (pending > 0) {
     foldWord(w);
+    fold(pendingGeo ? geo : uni, w);
     --pending;
     return;
   }
@@ -73,10 +74,18 @@ void StaPipVifHash::streamWord(u32 w) {
     const u32 bitsPerElem = (vn + 1u) * (32u >> vl);
     const u32 bits = n * bitsPerElem;
     pending = (bits + 31u) / 32u;
+    // Bit 14 of the address immediate is "use TOP", i.e. the unpack lands in
+    // the VU1 DOUBLE BUFFER. That is the honest split between geometry and the
+    // absolute-address uniforms (MVP at 0, lights at 4, options at 8, ALPHA at
+    // 21 - stapip_vu1_shared_defines.h), and it is a property of the code
+    // rather than a threshold someone has to keep in step.
+    pendingGeo = (imm & 0x4000u) != 0u;
     // Canonical form: the code's meaning, never its encoding position. The
     // 0x01 tag byte keeps a folded code out of the texture marker's space.
     foldWord(0x01000000u | (cmd << 16) | ((num & 0xFFu) << 8));
     foldWord(imm);
+    fold(ctrl, 0x01000000u | (cmd << 16) | ((num & 0xFFu) << 8));
+    fold(ctrl, imm);
     return;
   }
 
@@ -95,6 +104,8 @@ void StaPipVifHash::streamWord(u32 w) {
     case kVifMscnt:
       foldWord(0x01000000u | (cmd << 16) | ((num & 0xFFu) << 8) | 1u);
       foldWord(imm);
+      fold(ctrl, 0x01000000u | (cmd << 16) | ((num & 0xFFu) << 8) | 1u);
+      fold(ctrl, imm);
       return;
     // Fixed-length codes. Not emitted by this pipeline today, but their length
     // is unambiguous, so decoding them is strictly better than latching broken

@@ -209,8 +209,20 @@ void StaPipCore::onFrameEnd() {
         for (u32 k = 0; k < n; ++k) {
           const u64 v = h.getRing((at + StaPipVifHash::kRing - n + k) %
                                   StaPipVifHash::kRing);
-          TYRA_LOG("STAPIPVIFHASH f=", h.getFrames() - n + k, " hi=",
-                   static_cast<u32>(v >> 32), " lo=", static_cast<u32>(v),
+          const u32 slot = (at + StaPipVifHash::kRing - n + k) %
+                           StaPipVifHash::kRing;
+          const u64 c = h.getCtrlRing(slot);
+          const u64 u = h.getUniRing(slot);
+          const u64 g = h.getGeoRing(slot);
+          // Split three ways so a disagreement can be LOCALISED. `ctrl` is the
+          // VIFcodes - the structure. `uni` is the absolute-address uniforms,
+          // `geo` everything unpacked into the VU1 double buffer.
+          TYRA_LOG("STAPIPVIFHASH f=", h.getFrames() - n + k, " all=",
+                   static_cast<u32>(v >> 32), ":", static_cast<u32>(v),
+                   " ctrl=", static_cast<u32>(c >> 32), ":",
+                   static_cast<u32>(c), " uni=", static_cast<u32>(u >> 32),
+                   ":", static_cast<u32>(u), " geo=",
+                   static_cast<u32>(g >> 32), ":", static_cast<u32>(g),
                    " chainQw=", h.getChainQw(), " words=", h.getWords());
         }
       }

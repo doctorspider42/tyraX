@@ -124,6 +124,10 @@ class StaPipVifHash {
   /** Close the frame: bank the hash into the ring and start a new one. */
   void endFrame() {
     ring[ringAt] = accum;
+    ctrlRing[ringAt] = ctrl;
+    uniRing[ringAt] = uni;
+    geoRing[ringAt] = geo;
+    ctrl = uni = geo = kFnvOffset;
     ringAt = (ringAt + 1) % kRing;
     if (ringCount < kRing) ++ringCount;
     accum = kFnvOffset;
@@ -134,6 +138,17 @@ class StaPipVifHash {
   }
 
   u64 getRing(u32 i) const { return ring[i % kRing]; }
+  /** The same frame, split three ways, so a disagreement can be LOCALISED
+   * instead of merely reported. `ctrl` is the VIFcodes alone - the structure of
+   * the stream. `uni` is the payload of unpacks to the ABSOLUTE region (no
+   * usetop): the MVP, the light matrices, options, ALPHA, the per-mesh
+   * constants. `geo` is the payload of unpacks with usetop, i.e. everything
+   * that lands in the VU1 double buffer - the vertices, their ST and colour,
+   * and the prim GIFtag. A gate that only ever printed the combined value could
+   * say two runs differ and never say where. */
+  u64 getCtrlRing(u32 i) const { return ctrlRing[i % kRing]; }
+  u64 getUniRing(u32 i) const { return uniRing[i % kRing]; }
+  u64 getGeoRing(u32 i) const { return geoRing[i % kRing]; }
   u32 getRingCount() const { return ringCount; }
   u32 getRingAt() const { return ringAt; }
   u32 getFrames() const { return frames; }
@@ -148,8 +163,9 @@ class StaPipVifHash {
   u32 getWords() const { return lastWords; }
 
   void reset() {
-    accum = kFnvOffset;
-    for (u32 i = 0; i < kRing; ++i) ring[i] = 0;
+    accum = ctrl = uni = geo = kFnvOffset;
+    for (u32 i = 0; i < kRing; ++i)
+      ring[i] = ctrlRing[i] = uniRing[i] = geoRing[i] = 0;
     ringAt = ringCount = frames = 0;
     broken = false;
     brokenCmd = 0;
@@ -168,17 +184,24 @@ class StaPipVifHash {
   void foldWord(u32 w) {
     accum = (accum ^ static_cast<u64>(w)) * kFnvPrime;
   }
+  static void fold(u64& h, u32 w) { h = (h ^ static_cast<u64>(w)) * kFnvPrime; }
 
   /** One word of the flattened stream, interpreted as VIF1 interprets it. */
   void streamWord(u32 w);
 
   u64 accum;
+  /** The three-way split - see getCtrlRing(). */
+  u64 ctrl, uni, geo;
   u64 ring[kRing];
+  u64 ctrlRing[kRing], uniRing[kRing], geoRing[kRing];
   u32 ringAt, ringCount, frames;
   /** Data words still owed to the VIFcode currently open. This is the whole
    * reason the decoder has to be stateful: a word is only a VIFcode when no
    * unpack is still eating. */
   u32 pending;
+  /** True while the open unpack targets the double buffer (usetop), i.e. its
+   * data is geometry rather than an absolute-address uniform. */
+  bool pendingGeo = false;
   u32 chainQw, words;
   /** The previous frame's totals, banked by endFrame so the readout prints a
    * FRAME rather than a running sum. */

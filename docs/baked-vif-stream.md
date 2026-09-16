@@ -168,6 +168,33 @@ only when the whole-bag bbox already proved every range visible; it calls
 neither the packager nor `checkFrustum` and has no per-package verdict to lose.
 Probe A's 2.60 ms is about the **partial** branch, which is untouched.
 
+### MEASURED, garage day, held pose, PCSX2
+
+One worktree, one project directory, one knob, two distinct ELFs. Raw evidence:
+[ee-rearchitecture-2026-09-16](../examples/vehicle-playground/authoring/ee-rearchitecture-2026-09-16/README.md).
+
+| | control | candidate | |
+| --- | ---: | ---: | --- |
+| DMA chain quadwords a frame | **8 221** | **5 784** | **−29.6 %** |
+| packet flushes a frame | **120** | **109** | the counter the old gate pinned |
+| the VIFcode stream VIF1 receives | | **bit-for-bit identical** | the gate |
+| the absolute-address uniforms | | **bit-for-bit identical** | the gate |
+| `--capture-frame` sha256, six captures | `415f970f…` | identical | the gate |
+| `FTCLIP` routing and submitted vertices | 775/36.5/238.5/922.5, 55 836 | identical | diagnostic |
+| VIF words a frame | 623 634 | 627 236 | +3 602 |
+| `REF` tags a frame | 0 | 48–52 | one per direct bag |
+| blocks rebuilt a frame | — | **2–3** (the spike: 64) | the churn fix |
+| arena | — | **1 541 KB** (the spike: 1 431) | +7.7 % |
+
+**+3 602 words is the `NOP` padding, and the arithmetic lands on the nose.** Ten
+words a replayed package means **360.2 packages replayed** — about 7.2 to a tag,
+and very nearly every bag that takes the direct route at all (`dsDirectBags`
+53.5 against `dsPartialBags` 59). The direct route is the ceiling and this is at
+it: anything more has to come from the partial route.
+
+No millisecond is quotable from any of that. PCSX2 emulates no EE data cache and
+these arms carry the gate, which costs 2.7 MB of folding a frame.
+
 ### What scales with what, which is the number the triangle-budget work needs
 
 The other half of the plan is removing triangles, so the two fronts have to
@@ -193,7 +220,32 @@ inside the bags there already are.
 
 That is the finding the triangle-budget front needs stated early: **road LOD that
 thins a ribbon into the same number of strips buys VU1 time and no EE time.**
-A ribbon cut into fewer, longer strips buys both.
+A ribbon cut into fewer, longer strips buys both. The same arithmetic is why the
+mesh-LOD-64 arm was refuted a second time on hardware: it removed 592 triangles
+and 0.315 ms of `dispatch` but added **0.272 ms of `prepare`**, because tiers
+multiply distinct bags — the one term in the table above that a triangle count
+cannot touch.
+
+### Can `prepare` be made to scale with something other than bags?
+
+**Not its shape, but its constant — and by a lot.** The per-bag MVP is
+`model x view x projection` and the view moves every frame, so a wholly visible
+static bag still needs its own matrix computed and uploaded: nothing caches that
+and no restructuring makes one bag serve two.
+
+What *is* available is the write. `StaPipQBufferRenderer::sendObjectData` has two
+branches, and the one the batch path takes — the common one — uploads the MVP
+through **sixteen `packet2_add_float` calls**, one float at a time, while the
+other branch already uses `packet2_utils_vu_add_unpack_data`, a `memcpy`. The
+plan page's "the component actually worth owning is `packet2`, a float-at-a-time
+builder" is about exactly this, and `prepare` is 2.84 ms of a garage-day frame.
+
+Two things make that a good next change rather than a plausible one. It does not
+touch the picture, the geometry or the routing — so it is the cheapest kind of
+change to be wrong about. And **the gate already has the instrument that proves
+it byte-identical**: the uniform hash is a separate value in the readout, it was
+measured identical across two boots and across both arms of this A/B, and it
+would move the moment such a rewrite changed one word of what VIF1 receives.
 
 ## Chain quadwords: the number the later console round will price
 
