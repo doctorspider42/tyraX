@@ -2621,7 +2621,12 @@ docs/baked-vif-stream.md. It ships **off**; five things any edit must keep.
   `REF` covers stops at the 16-group packet flush boundary. Both are deliberate:
   the direct route is the one whose packages are a fixed slice of the bag, and
   changing the flush cadence would move `packetFlushes`, which is one of the
-  counters the acceptance gate pins. `StaPipQBuffer::bakeIndex` is reset by
+  counters the acceptance gate pins. **That second reason is the spike's
+  self-imposed limit, and it is where the prize is** - a longer run is a bigger
+  saving and only a moved cadence lengthens runs. Lifting it requires a gate that
+  is not built on counters: docs/baked-stream-acceptance-gate.md, which checks a
+  canonical hash of the word stream VIF1 actually receives instead.
+  `StaPipQBuffer::bakeIndex` is reset by
   `getBuffer()` for the same reason `retainIndex` is - a half flush covers
   buffers of SEVERAL bags, so a stale index would be read against another bag's
   arena.

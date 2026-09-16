@@ -379,11 +379,54 @@ bool StaPipBakedStreams::reserve(u32 qwords) {
 
 StaPipBakedEntry* StaPipBakedStreams::acquire(const StaPipBakedEntry& key) {
   const u32 bucket = getBucket(key.vertices, key.maxVertCount);
+  // Modified by TyraX: a SECOND PASS over one vertex array gets its own entry,
+  // up to kVariantsPerArray of them.
+  //
+  // ATTRIBUTED, then routed around. The spike measured this cache rebuilding 64
+  // package blocks a frame at a completely frozen pose, and STAPIPMISS named
+  // the reason: `prim=2` per frame, in three large garage bags. The mechanism
+  // is right here and is not a caller's fault - the walk below used to accept
+  // the first entry matching (vertices, maxVertCount) ALONE and then overwrite
+  // it whenever anything else in the key had moved. A bag drawn twice over one
+  // array with two prim states therefore evicted its own other pass, every
+  // frame, for ever. Two passes, one slot.
+  //
+  // So the walk now requires the prim state to match as well, and falls through
+  // to a NEW entry when it does not. Both passes converge and `prim` goes to
+  // zero.
+  //
+  // WHAT THIS DOES NOT CATCH, which matters more than what it does:
+  //
+  // - **It does nothing for the `bbox` half.** That is a caller bumping
+  //   `bboxVersion` - a claim that the buffer's CONTENTS changed - on a scene
+  //   that is not moving, and no key can route around a caller lying about its
+  //   own data. `bboxVersion` must stay in the key: it is the ONLY signal that
+  //   a rewritten-in-place array (skinned meshes, particles) changed, and
+  //   dropping it would serve stale geometry. docs/wheel-rebake-skip.md records
+  //   one caller already fixed this way; this one is still unnamed.
+  // - **It costs memory, one whole arena per pass.** Two passes over a
+  //   3 768-vertex array is two arenas, and a baked vertex costs about as much
+  //   again as it already cost. That is why kVariantsPerArray is small.
+  // - **It converts churn into occupancy, and would hide it.** A bag whose prim
+  //   state genuinely varies every frame used to show up as `prim` and would
+  //   now quietly allocate instead. The cap below is what stops that: past
+  //   kVariantsPerArray the old replace-in-place behaviour returns, `prim`
+  //   starts counting again, and the readout tells the truth either way.
+  const u32 kVariantsPerArray = 3;
+  u32 variants = 0;
   int index = indexBuckets[bucket];
   while (index >= 0) {
     auto& item = *storage[index];
     if (item.vertices == key.vertices &&
         item.maxVertCount == key.maxVertCount) {
+      ++variants;
+      const bool samePass = item.primKey == key.primKey &&
+                            item.singleColor == key.singleColor &&
+                            item.stripped == key.stripped;
+      if (!samePass && variants < kVariantsPerArray) {
+        index = item.nextInBucket;
+        continue;  // a different pass over the same array - keep looking
+      }
       item.framesLeftToDestroy = kLifetimeFrames;
       if (keyMatches(item, key)) return &item;
       // Something the stream encodes moved. Throw the arena away and
@@ -1732,6 +1775,61 @@ bool StaPipQBufferRenderer::bakeBlock(packet2_t* packet, u32 fromQw, u32 toQw,
   return true;
 }
 
+bool StaPipQBufferRenderer::replayWholeBakedBag() {
+  StaPipBakedEntry* entry = bakedCurrent;
+  if (entry == nullptr || !entry->complete || entry->arenaQw == 0) return false;
+  // A DMA tag's QWC is 16 bits. A bag whose arena is larger than that cannot be
+  // one tag; it keeps the ordinary route rather than being split here, because
+  // splitting it is exactly the per-package bookkeeping this exists to delete.
+  if (entry->arenaQw > 0xFFFFu) return false;
+  // The arena must be quadword aligned or the DMAC transfers from somewhere
+  // else - a tag's address field drops its low four bits. endBakedBag aligns
+  // it; this is the assertion that says so out loud.
+  TYRA_ASSERT((reinterpret_cast<u32>(entry->arena) & 0xFu) == 0,
+              "Baked arena is not quadword aligned");
+
+  auto* currentPacket = packets[context];
+  // DO NOT FLUSH HERE, however tempting a capacity check looks. This bag's
+  // uniforms - MVP, light matrices, options, ALPHA - are ALREADY in this packet
+  // (StaPipCore::render calls sendObjectData before dispatch), so a flush now
+  // would send them in one packet and put this REF in the next, replaying the
+  // whole bag against whatever matrix the following bag uploads.
+  //
+  // There is nothing to check anyway: setSubmissionBatchCandidate reserved a
+  // complete kWorstBagPacketSize for this bag BEFORE any of its bytes were
+  // appended, precisely so a bag can never straddle. A replayed bag needs three
+  // quadwords of that reservation. The assert states the invariant rather than
+  // trusting it silently.
+  TYRA_ASSERT(packet2_get_qw_count(currentPacket) + 4 <= packetSize,
+              "No room for a baked bag's REF: the per-bag reservation in "
+              "setSubmissionBatchCandidate is no longer conservative");
+
+  packet2_chain_ref(currentPacket, entry->arena, entry->arenaQw, 0, 0, 0);
+  packet2_vif_nop(currentPacket, 0);
+  packet2_vif_nop(currentPacket, 0);
+
+  // The arena's own tail already kicked the microprogram for every package in
+  // it, so the name bookkeeping has to agree or the next buffer would emit a
+  // second kick. Same reasoning as the per-package replay path above.
+  auto* program =
+      static_cast<StaPipVU1Program*>(const_cast<void*>(entry->program));
+  lastProgramName = program->getName();
+
+  baked.countHit();
+  objectDataPending = true;
+  // MANDATORY, not bookkeeping: flushPendingPacket() RESETS the packet when
+  // submissionBatchBags is 0, which would throw this REF away. A replayed bag
+  // consumes no qbuffer slot, so flushBuffers() - where the ordinary route
+  // counts the bag - takes its is2ndDBufferFlushTime() early out and never sees
+  // it.
+  ++submissionBatchBags;
+  if (!submissionBatchCandidate ||
+      submissionBatchBags >= kSubmissionBatchSize) {
+    flushPendingPacket();
+  }
+  return true;
+}
+
 void StaPipQBufferRenderer::endBakedBag() {
   StaPipBakedEntry* entry = bakedCurrent;
   bakedCurrent = nullptr;
@@ -1786,6 +1884,7 @@ void StaPipQBufferRenderer::clearBakedMisses() { baked.clearMisses(); }
 bool StaPipQBufferRenderer::beginBakedBag(StaPipBag*, const u32&) {
   return false;
 }
+bool StaPipQBufferRenderer::replayWholeBakedBag() { return false; }
 void StaPipQBufferRenderer::endBakedBag() {}
 u32 StaPipQBufferRenderer::takeBakedHits() { return 0; }
 u32 StaPipQBufferRenderer::takeBakedBuilds() { return 0; }
@@ -2014,6 +2113,18 @@ void StaPipQBufferRenderer::textureMutationBarrier(void* context) {
 }
 
 void StaPipQBufferRenderer::beforeTextureMutation() {
+#if TYRA_STAPIP_VIFHASH
+  // Modified by TyraX: the gate's second input. This barrier is the ONLY thing
+  // ordering a texture upload (GIF channel) against the draws that read it, and
+  // it works by flushing the pending packet - so a redesign that moves the
+  // flush cadence can move an upload between a different pair of draws. Folding
+  // a marker here in sequence makes the hash model this pipeline's whole
+  // contribution to GS state as an ordered sequence of draws and texture
+  // changes. Folded BEFORE the flush, so it lands between the draws it
+  // separates. docs/baked-stream-acceptance-gate.md.
+  vifHash.foldTextureMutation(
+      submissionTextureReadersOutstanding ? 1u : 0u);
+#endif
   flushPendingPacket();
   if (!submissionTextureReadersOutstanding) return;
   rendererCore->sync.align3D();
@@ -2054,6 +2165,16 @@ void StaPipQBufferRenderer::sendPacket() {
   if (g_vuPacketHook)
     g_vuPacketHook(currentPacket->base, packet2_get_qw_count(currentPacket),
                    "");  // the program is in the packet's MSCAL address
+
+#if TYRA_STAPIP_VIFHASH
+  // Modified by TyraX: the acceptance gate, leg 1. Same seam as the devkit tap
+  // and for the same reason - the chain is finished and the bytes here are the
+  // bytes the DMAC is about to fetch - but it decodes and folds ON THE CONSOLE
+  // instead of shipping a capture to the host, because a capture is one flush
+  // of the ~120 a frame and its buffers truncate silently.
+  // docs/baked-stream-acceptance-gate.md.
+  vifHash.foldChain(currentPacket->base, packet2_get_qw_count(currentPacket));
+#endif
 
   // dma_wait_fast(); // This have no impact on performance
 

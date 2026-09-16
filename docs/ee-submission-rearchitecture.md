@@ -172,9 +172,17 @@ Five things make this a bounded change here rather than a rewrite:
 4. **The slow path is unchanged.** A mesh whose box straddles the near plane or
    the guard band keeps today's classify-and-clip route. In garage day that is
    36.5 of 1 050 drawn packages.
-5. **It is checkable by construction.** The picture must be byte-identical and
-   the triangle, package and flush counters must not move. That is the same
-   acceptance gate the strip and batching work already used.
+5. **It is checkable by construction** — but **not by the gate this line
+   originally named.** "The triangle, package and flush counters must not move"
+   is the gate every earlier round used, and it is the reason the spike could
+   not deliver: a run of packages under one `REF` cannot cross a packet flush
+   boundary, so pinning `packetFlushes` pins the prize. The replacement is
+   designed in
+   [baked-stream-acceptance-gate.md](baked-stream-acceptance-gate.md) — a
+   canonical hash of the word stream VIF1 actually receives, with texture
+   mutations interleaved, plus byte-identical pixels over a pose sweep. The
+   byte-identical picture half of the old gate survives intact; the counters do
+   not.
 
 Two details to design, not discover: the GIF tag in the block encodes `NLOOP`
 and the primitive type (both bake-time facts), and the scale quadword carries
@@ -500,11 +508,15 @@ Two numbers from that round worth carrying into every later estimate:
    options are content decisions, not a rewrite. Task 5 of the
    [Motor District plan](motor-district-performance-plan.md) sets the
    correctness constraints; the capture-basis work there must not be undone.
-4. **The baked VIF stream**, behind a compile-time switch, with the existing
-   path as the A/B fallback — **carrying a per-package visibility test, which
-   Probe A says it cannot drop**, and gated by
-   [the acceptance gate](baked-stream-acceptance-gate.md) rather than by the
-   counters, which is what stopped the spike.
+4. **The baked VIF stream.** **Built and measured in PCSX2, 2026-09-16:**
+   one DMA `REF` per bag takes the chain from 8 221 to 5 784 quadwords a
+   garage-day frame (−29.6%) and packet flushes from 120 to 109, with the
+   VIFcode and absolute-uniform hashes bit-for-bit identical and the captures
+   unchanged. It keeps the per-package visibility test Probe A says it cannot
+   drop, and it is gated by [the acceptance gate](baked-stream-acceptance-gate.md)
+   rather than by the counters — which is what stopped the spike, and what the
+   moved flush count proves. **Hardware milliseconds outstanding**, and they
+   are the whole question: PCSX2 emulates no EE data cache.
 5. **World visibility** — baked sectors, portals or a PVS. With the road front
    priced, this is the largest untried lever on the garage, and the only one
    that removes EE and VU1 work at the same time. There is still no occlusion

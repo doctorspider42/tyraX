@@ -3195,6 +3195,19 @@ in **both** arms (they are measurement flips - revert them before committing).
   frame, which is the number the change exists to move and is compiled into the
   control arm too. Nothing here is a millisecond, and a PCSX2 millisecond about
   this change would not be admissible anyway.
+- **That counter gate only works while the flush cadence is held fixed, and it
+  is the reason the spike could not deliver the prize.** A run of packages under
+  one `REF` tag cannot cross a packet flush boundary, so pinning `packetFlushes`
+  pins the saving. Any change that moves the cadence must use the redesigned
+  gate instead - docs/baked-stream-acceptance-gate.md: a canonical, NOP-stripped
+  hash of the word stream VIF1 actually receives (decoded at the packet tap,
+  with texture mutations interleaved in order) plus byte-identical pixels over a
+  pose sweep. It constrains what the GS is given without constraining the chain
+  that built it. The `FTCLIP` routing counts become **diagnostics that explain a
+  hash failure**, not gate conditions.
+- **A gate arm is never a timing arm.** The hash reads ~2.7 MB a frame and costs
+  10-25 ms; that is fine, because it is a separate ELF from anything you time.
+  Do not read a millisecond off a build that carries it.
 - **Drive the Motor District fixture by its pose file, never with `--pad`.**
   `benchmark-district.py`'s sampler reads `bin/district-benchmark-pose.txt`
   every 30 frames **after** its 1440 measured frames, and it writes

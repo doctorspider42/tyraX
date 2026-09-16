@@ -295,6 +295,27 @@ picker before assuming the first geometry belongs to the object you care about.
 Only the last mesh in a multi-mesh chain can currently be replayed by the host
 VU simulator.
 
+Two limits are worth knowing before a capture is used as evidence rather than as
+a debugging aid.
+
+**The capture buffers clamp silently, and a heavy scene is already at the edge.**
+The devkit holds 2 048 quadwords of chain, 64 referenced blocks and 2 048
+quadwords of referenced data, and every one of those limits is applied by
+truncation with no marker in the file. The Motor District's garage-day frame
+submits about 1 050 packages over 120 flushes, i.e. 8.75 packages per flush,
+which is roughly **1 986 referenced quadwords against the 2 048 limit — 97%
+full**. A flush carrying the full 16 groups overflows it and nothing says so.
+
+**The VU1 memory half is one package's residue, not a frame's output.** The
+second hook waits for VU1 to idle and copies the whole of VU1 data memory, which
+includes the GIF packet the microprogram staged for `XGKICK` — but that lives in
+the double buffer and every package overwrites it, so what the snapshot holds is
+whatever the **last** package of that one chain left. It is the right instrument
+for "what did this draw hand the GS"; it is not, and cannot be made into, a
+recording of the frame's GS stream. See
+[baked-stream-acceptance-gate.md](baked-stream-acceptance-gate.md), which wanted
+exactly that and had to build something else.
+
 For VU source work, the faster checks are:
 
 ```text

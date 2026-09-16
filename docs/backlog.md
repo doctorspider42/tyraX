@@ -323,7 +323,13 @@ deliberately did not touch.
    classification and the 16-group qbuffer flush cadence, because `packetFlushes`
    is one of the counters the acceptance gate pins. What the plan predicts �
    ~0.4 ms against 20.44 � needs those removed too, and removing them changes
-   what the gate can compare. Design the next gate before the next change.
+   what the gate can compare. **The replacement gate is now designed** �
+   [baked-stream-acceptance-gate.md](baked-stream-acceptance-gate.md): a
+   canonical hash of the word stream VIF1 actually receives, with texture
+   mutations interleaved, plus byte-identical pixels over a pose sweep. It
+   constrains the GS's input without constraining the chain that built it, so
+   the flush cadence is free to move. Its one hole is DMA lifetime on a frozen
+   fixture, which PCSX2 cannot see at all.
 3. **Then the console.** Nothing here is a millisecond on either machine, by
    construction.
 4. **The editor-side bake** (four named requirements at the end of

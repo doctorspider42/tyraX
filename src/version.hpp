@@ -4454,6 +4454,19 @@
 // 1.104.2: archive the baked-VIF-stream evidence, re-measure it on a fixture
 // built by THIS worktree's editor (the first pass' was cut at the 72-vertex
 // strip run), and attribute the cache churn with STAPIPMISS.
+// 1.104.3: design the acceptance gate the EE submission rearchitecture needs -
+// the counter gate every earlier renderer round used pins packetFlushes, and a
+// run of packages under one REF tag cannot cross a flush boundary, so it pins
+// the prize. docs/baked-stream-acceptance-gate.md replaces it with a canonical
+// hash of the word stream VIF1 actually receives. Docs only; no code, no format
+// change (kFormatVersion stays 54), no codegen change, no VU1 change.
+// 1.105.0: the EE submission rearchitecture behind TYRA_STAPIP_BAKED_STREAM -
+// a complete baked bag is replayed by ONE DMA REF tag and skips the qbuffer
+// ring entirely, which the spike could not do because the counter gate pinned
+// the flush cadence. Plus TYRA_STAPIP_VIFHASH (default 0), the gate that
+// replaces those counters, and a fix for the `prim` half of the cache churn.
+// No project format change (kFormatVersion stays 54), no codegen change, no
+// VU1 instruction change; both switches ship at 0.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 105
 #define TYRAX_VERSION_PATCH 0
