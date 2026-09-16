@@ -167,6 +167,7 @@ Everything below is PCSX2, garage day, against a 14.595 ms render submission,
 and none of it has been on a console. Sizes are what the numbers support, not
 estimates of what a fix would save.
 
+<<<<<<< HEAD
 1. **`renderVehicleWheels`, 2.962 ms — 20% of render submission, and 1.970 of
    it is not submission at all.** The generated game rebuilds every wheel vertex
    in world space every frame (four wheels per car, 9 multiplies + 3 adds each,
@@ -198,6 +199,23 @@ estimates of what a fix would save.
      runs 1.44 probes per lookup, the expiry scan is 0.011 ms and NOTHING
      allocates (0 fresh entries in every pose). What costs 0.618 ms is 10.5
      forced `recalculate()` calls — item 1 below, from the other side.
+=======
+1. ~~**`renderVehicleWheels`, 2.962 ms — 20% of render submission, and 1.970 of
+   it is not submission at all.**~~ **DONE**, see
+   [wheel-rebake-skip.md](wheel-rebake-skip.md). Both levers were taken — a
+   slot-addressed batch with an exact per-car signature so an unchanged rig is
+   not re-baked, and a sticky `bboxVersion` that is only bumped when the buffer
+   really did change — plus one the entry did not name and which turned out to
+   matter more for moving traffic: the body attitude, its six sines and cosines
+   and the steer basis were being recomputed **per wheel**, so a car paid 176
+   transcendental calls a frame where 22 suffice. `benchmark-district.py`
+   grew `--keep-routes` for the second fixture the entry demanded, and the
+   page quotes the parked best case and the moving realistic case side by side.
+   What is still owed is a console repeat; see that page's Limits.
+2. **Package creation and classification, 3.346 ms — 56% of `dispatch`.** The
+   largest single unopened box left. It needs the same treatment this round gave
+   `prepare`: brackets inside the routing loops, behind the same opt-in macro.
+>>>>>>> 5be6a90f
 3. **The clamped-wrap double drain, 1.730 ms of garage night** (0.299 in the
    day). A bag whose texture is not REPEAT costs `sync.align3D()` twice — once
    to set the wrap and once to restore it — and the night scene has more of them

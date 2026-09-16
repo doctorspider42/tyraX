@@ -16,12 +16,30 @@ same scene regenerated with the editor being compared, which records 0.000
 re-uploads and 0 evictions in all four poses. A whole VRAM investigation was
 launched at that ghost.
 
+IT ALSO MOVES THE TRIANGLE COUNT, which is the symptom that gets mistaken for a
+code change. A regenerated Motor District submits 40502 / 41176 / 16386 / 16720
+triangles in the four poses; a stale one does not, and the difference reads
+exactly like geometry the candidate added. Two columns discriminate in one
+glance: `reuploads` is 0.000 in all four poses for a regenerated fixture, and
+the triangle count is identical between two arms that differ only in code (see
+docs/wheel-rebake-skip.md, where both arms read 40502 to the triangle).
+
 So: run `tyrax-editor --build <fixture>` (or at least --refresh-gen) once
 before the arm that matters, or copy in a .res-baked/ and bin/ you have just
 regenerated - and check that the counters you are about to read agree with the
 previous known-good run before concluding anything from a change in them. See
 docs/gs-vram.md ("The 12.17 re-uploads were a stale fixture") and
 docs/vu1-and-dma-cache-cost.md.
+
+THE TRAFFIC IS PARKED, AND THAT IS A MEASUREMENT HAZARD FOR ONE CLASS OF
+CHANGE. Stripping the routes is what makes this fixture repeatable, and for
+most work it costs nothing. But any change that SKIPS WORK WHEN AN INPUT DID
+NOT CHANGE is flattered enormously here, because every car is still, every
+frame, forever - a per-frame skip test that never fires in a real district
+scores 100% on this fixture. Pass --keep-routes for a second fixture whose
+drivers are driving, measure both, and quote both; a number from the parked
+fixture alone is not evidence for such a change. See
+docs/wheel-rebake-skip.md, which is the worked example.
 """
 import argparse
 import csv
@@ -86,6 +104,14 @@ parser.add_argument('--profile', choices=['debug', 'quiet-debug', 'release'], de
 parser.add_argument('--mesh-lod', type=float, default=0)
 parser.add_argument('--terrain-lod', type=float, default=0)
 parser.add_argument('--report', action='store_true', help='summarize an existing fixture CSV')
+parser.add_argument('--keep-routes', action='store_true',
+                    help='leave the AI drivers their routes, so traffic MOVES. '
+                         'The camera stays frozen and the player stays pinned, '
+                         'but the cars do not - which is the only fixture that '
+                         'can honestly measure a skip-when-unchanged change '
+                         '(see docs/wheel-rebake-skip.md). Costs determinism: '
+                         'the pixels are no longer repeatable frame to frame, '
+                         'so a --capture-frame A/B needs the parked fixture.')
 args = parser.parse_args()
 if args.report:
     rows = list(csv.DictReader((args.destination/'bin/district-benchmark.csv').open()))
@@ -116,13 +142,17 @@ for file in (args.destination/'objects').glob('*.json'):
     obj = json.loads(file.read_text(encoding='utf-8'))
     if obj.get('type') == 'player':
         obj.setdefault('player',{}).update(walkSpeed=0,lookSpeed=0,canJump=False)
-    if obj.get('type') == 'vehicle':
+    if obj.get('type') == 'vehicle' and not args.keep_routes:
         obj.setdefault('vehicle',{}).pop('route',None)
     file.write_text(json.dumps(obj,indent=2)+'\n',encoding='utf-8')
 (args.destination/'src/scripts/zz_district_benchmark.cpp').write_text(SAMPLER,encoding='utf-8')
 (args.destination/'BENCHMARK.json').write_text(json.dumps({
     'profile':args.profile,'meshLod':args.mesh_lod,'terrainLod':args.terrain_lod,
-    'traffic':'parked; normal traffic must be tested separately',
+    'traffic':('routed; the AI drivers are driving, so the frame is NOT '
+               'deterministic and the pixels are not repeatable'
+               if args.keep_routes else
+               'parked; normal traffic must be tested separately'),
+    'keepRoutes':bool(args.keep_routes),
     'sampler':'identical custom script; warmup120frames; samples every30frames; no sample-time host writes'
 },indent=2)+'\n',encoding='utf-8')
 print(args.destination)

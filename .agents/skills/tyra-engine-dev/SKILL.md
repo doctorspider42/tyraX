@@ -1459,9 +1459,23 @@ Rules the same evening paid for:
   depth-tested-no-z-write trick). Symptom to recognise: transparency itself
   works, but geometry behind a transparent area is missing, cut along the
   straight edges of the quad in front of it.
-- The engine bbox cache is keyed by bag pointer — geometry that changes at
-  runtime must bump `bboxVersion` on its `StaPipBag`, or culling uses stale
-  boxes.
+- The engine bbox cache is keyed by the **vertex-buffer pointer**, not the bag
+  pointer (`StapipBagBBoxesCacher`'s `id` is
+  `reinterpret_cast<u32>(bag->vertices)`) — so two bags sharing one vertex
+  array share an entry, and one bag swapped between two arrays gets two.
+  Geometry that changes at runtime must bump `bboxVersion` on its `StaPipBag`,
+  or culling uses stale boxes.
+- **The converse is a real cost, not a safe default: do NOT bump `bboxVersion`
+  when the vertex buffer did not actually change.** The stamp is a claim about
+  contents, and bumping it unconditionally disables two caches at once — the
+  package boxes are recomputed in `bounds`, and the retained command blocks are
+  thrown away and rebuilt in `dispatch`, because `bboxVersion` is part of that
+  key too. A per-frame rebuilder that produces an identical buffer pays both
+  for nothing; see `docs/wheel-rebake-skip.md`. Two constraints on keeping a
+  stamp sticky: the cacher stores **no count**, so a reused stamp is only valid
+  while the buffer's ADDRESS and LENGTH are also unchanged, and the retained
+  key has no bag pointer in it, so sharing one bag across several buffers is
+  fine but sharing one buffer across several contents is not.
 - Upstream's default `PlanesClipAlgorithm::clipMargin` pushes the near plane
   ~10 units from the camera; generated games override it.
 - **Do not derive the VU1 active-plane mask from `FrustumPlanes`.** The clipper

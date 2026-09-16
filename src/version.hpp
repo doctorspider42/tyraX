@@ -16,6 +16,79 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.102.0: THE WHEEL BATCH STOPS RE-BAKING RIGS THAT DID NOT MOVE, AND STOPS
+// LYING TO TWO CACHES ABOUT IT (docs/wheel-rebake-skip.md). 1.99.0's
+// attribution named renderVehicleWheels as the largest single item left in a
+// Motor District frame - 2.962 ms, a fifth of render submission, of which
+// 1.970 is the generated game rebuilding every wheel vertex on the EE. It then
+// handed the bag bboxVersion = ++g_bboxStamp unconditionally, which by
+// construction discards the package bounding boxes AND the retained command
+// blocks for those packages, every frame, including the frames it had just
+// rebuilt byte-identical vertices.
+//
+// Three things, and the one the backlog did not name turned out to matter most
+// for traffic that MOVES. (1) The batch is addressed by SLOT instead of being
+// cleared and refilled: car k owns its own span, an exact 9-float signature
+// plus the source-part address decides whether it moved, and an unchanged rig
+// is not touched. No hash - a collision here is a wheel frozen one frame behind
+// its car. (2) The stamp is sticky: bboxVersion is bumped only when a slot was
+// rewritten, the car count changed, or the buffer moved. All three are
+// required, because StapipBagBBoxesCacher keys on (vertex pointer, version) and
+// stores no count. (3) The body attitude, its six sines and cosines, the local
+// up and the steer basis were recomputed PER WHEEL; they are per car and per
+// steer pair. Counted: 176 transcendental calls per car per frame become 22, an
+// 8x cut paid by every car that is re-baked, moving or not - and rotated() is
+// now rotatedBy(v, rotTrigOf(rotDeg)) so the lifted arithmetic is
+// BIT-IDENTICAL, not merely equivalent.
+//
+// Verified natively before any emulator: 200 000 random rigs bake
+// BIT-IDENTICALLY through the hoisted path, and 4 000 scripted frames plus
+// 60 000 frames of participant churn hold zero stale buffers against a
+// full-rebake oracle. The churn harness was mutation-tested and its first
+// version passed with the slot-trim rule DELETED - the adversarial schedule
+// that turns that mutant into 999 stale frames out of 1 000 is committed
+// beside it. No millisecond is claimed here: the two levers have opposite
+// dependence on traffic (the skip pays only for parked cars, the hoist only
+// for re-baked ones), so they are reported as counts, and the frame time is
+// being taken on the physical console.
+//
+// NOT MERGEABLE AS IT STANDS, and the reason is in the page. On the console the
+// garage wins -1.838 / -1.810 ms but the OUTER poses regress +0.408 / +0.549,
+// entirely inside `bounds`, in a pose where WHEELBAKE reports cars=0 batches=0
+// - the wheel bag is never submitted there, under release as well as debug. So
+// it is not the bag's own bounds work; the only state crossing the pose
+// boundary is the package-bbox cacher's. The hypothesis is the EE data cache: a
+// fresh stamp recomputes boxes from a vertex array still hot, a sticky one
+// reads boxes hundreds of frames cold, and PCSX2 reads those poses -0.07, a
+// WIN, where the console reads +0.42, a loss - a sign disagreement, which is
+// what a cache effect looks like. TYRA_WHEEL_STICKY_BBOX (default 1) exists to
+// price that lever alone: at 0 it keeps the skip and the hoist and restores the
+// unconditional bump, so three arms separate the three levers.
+//
+// PCSX2, parked fixture, two arms differing in ONE generated file: triangles
+// (40502/41176/16386/16720), packet flushes, uploads, re-uploads and the
+// retained-command TOTALS are identical to the unit, and twelve frozen-camera
+// captures - three per pose, two day poses, two arms - hash to exactly two
+// values. So the change adds NOTHING to submission, and a triangle-count
+// difference between two arms is a stale fixture rather than this code.
+// Counters: parked, 0 of 900 car-submits rebuild and 0 stamp once the
+// suspension settles; driven, 300 of 300 frames rebuild, all four wheels,
+// which is the skip correctly not firing. Retained hit rate 67.9% -> 74.3%
+// at the garage, unchanged in the outer pose because it draws no wheel bag.
+// A new opt-in TYRA_WHEEL_REBUILD_VERIFY runs the pre-change arithmetic as an
+// oracle INSIDE the game: 5085 car-checks over 4500 frames of real driving,
+// 0 stale wheels.
+//
+// benchmark-district.py grew --keep-routes, because the benchmark PARKS the
+// traffic and a skip-when-unchanged change measured on parked traffic flatters
+// itself absolutely. Both fixtures are quoted, and the district has only five
+// vehicles of which two are routed, so even the moving one is a mixed
+// population. New opt-in counters WHEELBAKE (TYRA_WHEEL_REBUILD_REPORT,
+// default 0, in the GENERATED game) report cars/wheels rebuilt against skipped
+// and how many submits stamped. No project format change (kFormatVersion stays
+// 54), no engine change, no VU1 change, and nothing new in a shipped ELF.
+// MINOR.
+//
 // 1.100.0: THE `bounds` BUCKET, ATTRIBUTED AND THEN CUT BY 17% - AND THE
 // SUSPECT THE LAST ROUND NOMINATED IS INNOCENT (docs/render-submission-
 // attribution.md, "Round two"). This is the third attempt at this bucket. The
@@ -4230,7 +4303,11 @@
 // 1.99.0: render submission is attributed to zero residual; the "gap" was
 // mostly the post-fx, HUD and game-side phases that `submit` always included.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 101
+<<<<<<< HEAD
+#define TYRAX_VERSION_MINOR 102
+=======
+#define TYRAX_VERSION_MINOR 100
+>>>>>>> 5be6a90f
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

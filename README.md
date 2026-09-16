@@ -279,6 +279,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - [VU1 arithmetic and DMA cache-flush cost](docs/vu1-and-dma-cache-cost.md): what a VU1 cycle per triangle costs on a physical PS2, measured.
 - [Renderer work, checked on a second map](docs/engine-performance-on-a-second-map.md): the control that says it is the engine and not the showcase.
 - [Attributing render submission](docs/render-submission-attribution.md): opt-in counters that account for the whole `beginFrame`..`endFrame` block, not just the static pipeline, down to a zero residual.
+- [Not re-baking wheels that did not move](docs/wheel-rebake-skip.md): the vehicle wheel batch skips a rig whose inputs did not change, and keeps its `bboxVersion` when the vertices are byte-identical.
 - A [physical PS2 timeline](docs/hardware-profiler.md) in the editor and HTML/Perfetto, with EE scopes, DMA waits and pipeline-state snapshots.
 - [On-demand render costs](docs/profiling.md#on-demand-render-cost-178): debugger phase/object timings, sortable by name, cost or delta, with baseline comparison and CSV export on PCSX2 and PS2.
 - The [VU framework](docs/vu-framework.md): describe a microprogram in C++,

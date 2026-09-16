@@ -230,6 +230,19 @@ and release. Add `--profile quiet-debug` or `--profile release` to compare live
 tooling overhead; add `--mesh-lod 64` and/or `--terrain-lod 96` for LOD trials.
 The original example is never overwritten.
 
+**`--keep-routes` leaves the AI drivers driving**, and there is one class of
+change that must not be measured without it. Parking the traffic is what makes
+this fixture repeatable, but it also means every car is still, every frame,
+forever — so any change that *skips work when an input did not change* scores a
+perfect result here whether or not it would ever fire in a real district. Build
+both fixtures, quote both numbers, and say which is which; a number from the
+parked fixture alone is not evidence for such a change. The district has five
+vehicles and **two** of them are routed, so even the moving fixture is a mixed
+population rather than a worst case — read the per-car counters, not only the
+milliseconds. `docs/wheel-rebake-skip.md` is the worked example. The moving
+fixture is not deterministic, so a `--capture-frame` pixel A/B still belongs on
+the parked one.
+
 Build/run each fixture with the editor revision being tested. After 1,440 game
 updates, `bin/district-benchmark.csv` contains 32 samples across garage/outer-road
 day/night views. Each phase warms up for 120 updates; the sampler retains results
