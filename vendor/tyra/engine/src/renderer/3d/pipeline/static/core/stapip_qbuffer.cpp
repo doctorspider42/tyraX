@@ -90,6 +90,35 @@ StaPipQBuffer::~StaPipQBuffer() { deallocateDynamicData(); }
 
 void StaPipQBuffer::flipPoolSide() { g_poolSide ^= 1; }
 
+// Modified by TyraX: is this address inside one of the copy pools?
+//
+// Diagnostic only, and it exists for one question. The acceptance gate's
+// geometry hash is not reproducible between two boots of ONE ELF at a frozen
+// pose, while the VIFcodes, the uniforms and the picture all are
+// (docs/baked-stream-acceptance-gate.md). The suspect is these pools: a slot
+// keeps its arrays between bags and only the first `size` vertices of each are
+// rewritten, so anything transferred past that is whatever the pool held last.
+// This lets the hash fold pool-sourced payload separately from bag-sourced
+// payload and settle it by measurement instead of by reading the writers.
+bool StaPipQBuffer::isPoolAddress(const void* addr) {
+  if (addr == nullptr) return false;
+  const u8* a = static_cast<const u8*>(addr);
+  for (int side = 0; side < 2; ++side) {
+    for (int i = 0; i < kMaxPools; ++i) {
+      const QBufferPool& p = pools[side][i];
+      if (p.capacity == 0) continue;
+      const u32 bytes = static_cast<u32>(p.capacity) * sizeof(Vec4);
+      const Vec4* arrays[4] = {p.vertices, p.sts, p.colors, p.normals};
+      for (int k = 0; k < 4; ++k) {
+        if (arrays[k] == nullptr) continue;
+        const u8* base = reinterpret_cast<const u8*>(arrays[k]);
+        if (a >= base && a < base + bytes) return true;
+      }
+    }
+  }
+  return false;
+}
+
 void StaPipQBuffer::setMaxVertCount(const u32& count) { maxVertCount = count; }
 
 void StaPipQBuffer::fillByPointer(const StaPipBagPackage& pkg) {

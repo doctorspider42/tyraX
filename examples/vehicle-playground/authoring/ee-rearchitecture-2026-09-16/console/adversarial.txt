@@ -1,0 +1,32 @@
+# The two adversarial modes. Neither ships; both exist because the fixture's
+# traffic is parked and its camera is frozen, which flatters any cache.
+
+########## verify, PARKED fixture (control for the moving one) ##########
+LOG: STAPIPVERIFY MISMATCH StaPip - Cull - C count=180 packages=2 cachedQw=372 freshQw=372 firstDiffQw=116 ofBlock0Qw=228
+LOG: STAPIPVERIFY MISMATCH StaPip - Cull - C count=180 packages=2 cachedQw=372 freshQw=372 firstDiffQw=116 ofBlock0Qw=228
+LOG: STAPIPVERIFY MISMATCH StaPip - Cull - C count=180 packages=2 cachedQw=372 freshQw=372 firstDiffQw=116 ofBlock0Qw=228
+LOG: STAPIPVERIFY checked=45972 failed=1438 over 300 frames
+LOG: STAPIPVERIFY checked=50229 failed=1438 over 300 frames
+LOG: STAPIPVERIFY checked=56075 failed=1438 over 300 frames
+LOG: STAPIPVERIFY checked=71825 failed=1438 over 300 frames
+LOG: STAPIPVERIFY checked=87575 failed=1438 over 300 frames
+LOG: STAPIPVERIFY checked=103325 failed=1438 over 300 frames
+
+########## verify, MOVING fixture (--keep-routes) ##########
+LOG: STAPIPMISS new=0 bbox=0 prim=0 streams=0 program=0 size=0 incomplete=0 over 300 frames; loudest bag count=0 packages=0 reason=-
+LOG: STAPIPVERIFY checked=55995 failed=1451 over 300 frames
+LOG: STAPIPMISS new=54 bbox=314 prim=0 streams=0 program=0 size=0 incomplete=0 over 300 frames; loudest bag count=5544 packages=74 reason=new
+LOG: STAPIPVERIFY checked=70737 failed=1451 over 300 frames
+LOG: STAPIPMISS new=3 bbox=524 prim=0 streams=0 program=0 size=0 incomplete=0 over 300 frames; loudest bag count=1428 packages=20 reason=new
+LOG: STAPIPVERIFY checked=86856 failed=1451 over 300 frames
+LOG: STAPIPMISS new=4 bbox=311 prim=0 streams=0 program=0 size=0 incomplete=0 over 300 frames; loudest bag count=5544 packages=74 reason=new
+LOG: STAPIPVERIFY checked=102639 failed=1451 over 300 frames
+
+########## poison, BUDGET_QW=16384 (256 KB against 1541 KB wanted) ##########
+LOG: STAPIPVIFHASH f=1914 all=2211678362:2419410368 ctrl=2570965368:1748567305 uni=3421674724:2216829733 geo=4096656914:3174345731 pool=2053892469:3585860574 chainQw=7742 words=624392
+LOG: STAPIPVIFHASH f=1915 all=2902463133:961563181 ctrl=1292331401:3193271857 uni=3421674724:2216829733 geo=1478472067:1086580118 pool=1141554779:833468758 chainQw=7742 words=624392
+LOG: STAPIPVIFHASH f=1916 all=2382663092:549361668 ctrl=2570965368:1748567305 uni=3421674724:2216829733 geo=3381225710:950051655 pool=2053892469:3585860574 chainQw=7742 words=624392
+LOG: STAPIPVIFHASH f=1917 all=1191323076:152324221 ctrl=1292331401:3193271857 uni=3421674724:2216829733 geo=1079554860:1877804034 pool=1141554779:833468758 chainQw=7742 words=624392
+LOG: STAPIPVIFHASH f=1918 all=1131891921:73087098 ctrl=2570965368:1748567305 uni=3421674724:2216829733 geo=971170128:1707156813 pool=2053892469:3585860574 chainQw=7742 words=624392
+LOG: STAPIPVIFHASH f=1919 all=128060079:2323515183 ctrl=1292331401:3193271857 uni=3421674724:2216829733 geo=1648335681:418775896 pool=1141554779:833468758 chainQw=7742 words=624392
+captures: shot1/shot2 both 415F970FE840F3880C48F4BAB7119D8A6CC1D55AACDF533D23522DAC61273F1E

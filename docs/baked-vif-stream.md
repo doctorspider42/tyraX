@@ -168,6 +168,45 @@ only when the whole-bag bbox already proved every range visible; it calls
 neither the packager nor `checkFrustum` and has no per-package verdict to lose.
 Probe A's 2.60 ms is about the **partial** branch, which is untouched.
 
+### THE BLOCKER: the key does not cover what the block contains
+
+**Found by the adversarial verify mode, and it is why this cannot ship above 0
+yet even though the A/B below is clean.** `TYRA_STAPIP_BAKED_VERIFY` rebuilds
+every block with the ordinary writers and compares it against what the cache
+holds. On the Motor District it mismatches **1438 times**, and every single one
+is the same shape:
+
+```
+STAPIPVERIFY MISMATCH StaPip - Cull - C count=180 packages=2
+             cachedQw=372 freshQw=372 firstDiffQw=116 ofBlock0Qw=228
+```
+
+Same length, and the first differing quadword is the **first colour quadword** of
+the block — the positions match and the per-vertex colours do not.
+
+The key holds the colour array's **pointer** and `bboxVersion`, and
+`bboxVersion` is a statement about the bounding box, i.e. about positions
+(`StapipBagBBoxesCacher` is its only other consumer). A caller that **re-shades
+per-vertex colours in place**, which this district does for its dynamic lights,
+changes what the block must contain without touching anything the key can see.
+The baked stream would replay stale lighting.
+
+**The retained cache is immune and the reason matters.** It stores the chain —
+tags and `REF`s still naming the bag's own arrays — so a re-shaded colour array
+is followed at DMA time and is always fresh. This exposure belongs to the baked
+stream *because* it inlines the payload: copying is what buys the tag count and
+copying is what creates this.
+
+**Neither the picture nor either hash can see it on this fixture**, because once
+the camera freezes the colours freeze too. It fires during the warm-up sweep and
+stops, identically on the parked fixture (1438) and the moving one (1451).
+
+So the feature needs a **caller contract that does not exist yet** — "bump a
+version when you rewrite *any* of a bag's arrays, not just its positions" — or a
+second version field for contents that are not positions. Either is a change to
+the generated game's side of the boundary. Until then this ships at 0, and any
+future round that turns it on owes a verify run first.
+
 ### MEASURED, garage day, held pose, PCSX2
 
 One worktree, one project directory, one knob, two distinct ELFs. Raw evidence:

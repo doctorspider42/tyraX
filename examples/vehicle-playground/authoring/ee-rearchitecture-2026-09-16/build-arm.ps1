@@ -11,7 +11,7 @@
 # produces counts, hashes and pixels. Never a millisecond.
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory=$true)][ValidateSet('ctl','cand')][string]$Arm,
+  [Parameter(Mandatory=$true)][ValidateSet('ctl','cand','verify','poison')][string]$Arm,
   [string]$Fx  = "$env:TEMP\tyra-editor-test\eeR2",
   [string]$Out = "$env:TEMP\tyra-editor-test\eeR2-arms",
   [switch]$NoHash
@@ -35,13 +35,25 @@ function Set-Switch([string]$File, [string]$Name, [int]$Value) {
   Set-Content -NoNewline -LiteralPath $File -Value $new
 }
 
-$baked = if ($Arm -eq 'cand') { 1 } else { 0 }
-$hash  = if ($NoHash) { 0 } else { 1 }
-Set-Switch $qb 'TYRA_STAPIP_BAKED_STREAM' $baked
-Set-Switch $qb 'TYRA_STAPIP_BAKED_REPORT' 1
-Set-Switch $vh 'TYRA_STAPIP_VIFHASH'      $hash
-Set-Switch $fp 'TYRA_FRAME_PROFILE'       1
-Write-Output "[$Arm] BAKED_STREAM=$baked BAKED_REPORT=1 VIFHASH=$hash FRAME_PROFILE=1"
+# The two adversarial arms exist because this fixture's traffic is PARKED and a
+# parked fixture flatters any skip-when-unchanged change. `verify` never
+# replays: it rebuilds every block with the ordinary writers and compares, so it
+# needs no control arm and runs on the MOVING fixture. `poison` overwrites an
+# evicted arena immediately and runs with a deliberately tiny budget, so
+# eviction cycles and anything still naming a block tears the picture loudly.
+$baked  = if ($Arm -eq 'ctl') { 0 } else { 1 }
+$hash   = if ($NoHash -or $Arm -eq 'verify') { 0 } else { 1 }
+$verify = if ($Arm -eq 'verify') { 1 } else { 0 }
+$poison = if ($Arm -eq 'poison') { 1 } else { 0 }
+$budget = if ($Arm -eq 'poison') { 16384 } else { 262144 }
+Set-Switch $qb 'TYRA_STAPIP_BAKED_STREAM'    $baked
+Set-Switch $qb 'TYRA_STAPIP_BAKED_REPORT'    1
+Set-Switch $qb 'TYRA_STAPIP_BAKED_VERIFY'    $verify
+Set-Switch $qb 'TYRA_STAPIP_BAKED_POISON'    $poison
+Set-Switch $qb 'TYRA_STAPIP_BAKED_BUDGET_QW' $budget
+Set-Switch $vh 'TYRA_STAPIP_VIFHASH'         $hash
+Set-Switch $fp 'TYRA_FRAME_PROFILE'          1
+Write-Output "[$Arm] BAKED_STREAM=$baked VERIFY=$verify POISON=$poison BUDGET_QW=$budget VIFHASH=$hash"
 
 # --refresh-gen BEFORE the build, with the editor built from this worktree. An
 # editor binary sitting in build/ is not the editor at the tree's commit, and
@@ -63,7 +75,8 @@ $gen = Join-Path $Fx 'src\terrain_game.cpp'
 $run = (Select-String -LiteralPath $gen -Pattern 'stripRun = 7\d' | Select-Object -First 1).Line.Trim()
 Write-Output "[$Arm] $run   (must be 75u)"
 
-@{ arm=$Arm; bakedStream=$baked; vifHash=$hash; elfSha256=$sha; stripRun=$run;
+@{ arm=$Arm; bakedStream=$baked; vifHash=$hash; verify=$verify; poison=$poison;
+   budgetQw=$budget; elfSha256=$sha; stripRun=$run;
    commit=(git -C $root rev-parse HEAD); built=(Get-Date -Format o) } |
   ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Out "$Arm.json")
 Write-Output "[$Arm] done"

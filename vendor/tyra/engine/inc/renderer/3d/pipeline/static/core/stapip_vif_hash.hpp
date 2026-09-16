@@ -127,7 +127,8 @@ class StaPipVifHash {
     ctrlRing[ringAt] = ctrl;
     uniRing[ringAt] = uni;
     geoRing[ringAt] = geo;
-    ctrl = uni = geo = kFnvOffset;
+    poolRing[ringAt] = pool;
+    ctrl = uni = geo = pool = kFnvOffset;
     ringAt = (ringAt + 1) % kRing;
     if (ringCount < kRing) ++ringCount;
     accum = kFnvOffset;
@@ -149,6 +150,11 @@ class StaPipVifHash {
   u64 getCtrlRing(u32 i) const { return ctrlRing[i % kRing]; }
   u64 getUniRing(u32 i) const { return uniRing[i % kRing]; }
   u64 getGeoRing(u32 i) const { return geoRing[i % kRing]; }
+  /** The part of `geo` whose payload came out of a qbuffer COPY POOL rather
+   * than out of a bag's own arrays - see StaPipQBuffer::isPoolAddress. `geo`
+   * excludes it, so the two are disjoint and a disagreement lands on one side
+   * or the other instead of on both. */
+  u64 getPoolRing(u32 i) const { return poolRing[i % kRing]; }
   u32 getRingCount() const { return ringCount; }
   u32 getRingAt() const { return ringAt; }
   u32 getFrames() const { return frames; }
@@ -163,9 +169,9 @@ class StaPipVifHash {
   u32 getWords() const { return lastWords; }
 
   void reset() {
-    accum = ctrl = uni = geo = kFnvOffset;
+    accum = ctrl = uni = geo = pool = kFnvOffset;
     for (u32 i = 0; i < kRing; ++i)
-      ring[i] = ctrlRing[i] = uniRing[i] = geoRing[i] = 0;
+      ring[i] = ctrlRing[i] = uniRing[i] = geoRing[i] = poolRing[i] = 0;
     ringAt = ringCount = frames = 0;
     broken = false;
     brokenCmd = 0;
@@ -191,9 +197,9 @@ class StaPipVifHash {
 
   u64 accum;
   /** The three-way split - see getCtrlRing(). */
-  u64 ctrl, uni, geo;
+  u64 ctrl, uni, geo, pool;
   u64 ring[kRing];
-  u64 ctrlRing[kRing], uniRing[kRing], geoRing[kRing];
+  u64 ctrlRing[kRing], uniRing[kRing], geoRing[kRing], poolRing[kRing];
   u32 ringAt, ringCount, frames;
   /** Data words still owed to the VIFcode currently open. This is the whole
    * reason the decoder has to be stateful: a word is only a VIFcode when no
@@ -202,6 +208,11 @@ class StaPipVifHash {
   /** True while the open unpack targets the double buffer (usetop), i.e. its
    * data is geometry rather than an absolute-address uniform. */
   bool pendingGeo = false;
+  /** True while the open unpack's data is being read out of a copy pool. */
+  bool pendingPool = false;
+  /** Set per DMA tag by foldChain: does THIS tag's payload live in a copy
+   * pool? Only a REF can, since a CNT carries its data inline. */
+  bool fromPool = false;
   u32 chainQw, words;
   /** The previous frame's totals, banked by endFrame so the readout prints a
    * FRAME rather than a running sum. */
