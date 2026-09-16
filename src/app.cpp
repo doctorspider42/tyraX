@@ -15565,6 +15565,27 @@ void App::drawPreferencesWindow() {
         "actually mirrors. Best on large curved chrome at mid distance;\n"
         "the single shared probe still approximates every other surface.");
 
+    ImGui::DragFloat("Reflection reuse budget",
+                     &prefSettings_.reflectionReuseBudget, 0.1f, 0.0f, 32.0f,
+                     prefSettings_.reflectionReuseBudget > 0.0f
+                         ? "%.1f px"
+                         : "off (capture every beat)");
+    if (prefSettings_.reflectionReuseBudget < 0.0f)
+        prefSettings_.reflectionReuseBudget = 0.0f;
+    prefHelp(
+        "How far the shared 128x128 reflection target may be out of date\n"
+        "before the probe re-renders, IN PIXELS OF ITSELF. The probe costs\n"
+        "about 2 ms of a busy frame on real hardware and already runs only\n"
+        "every second frame; this skips the capture entirely while nothing\n"
+        "that feeds it has moved. Aim, camera travel, the sun and the moon\n"
+        "all convert into that one number; the sky colours and every\n"
+        "reflected object's transform and visibility are compared exactly\n"
+        "and are never traded against it.\n"
+        "The reflection was already up to one refresh out of date; this is\n"
+        "how many EXTRA pixels of lag you accept on top of that - and none\n"
+        "at all while nothing moves, where the skipped capture would have\n"
+        "produced the same image. 1.0 is one pixel of 128. 0 = off.");
+
     ImGui::Checkbox("Static object batching", &prefSettings_.staticBatching);
     prefHelp(
         "Merges non-moving primitives and compact imported-model parts\n"

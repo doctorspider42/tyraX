@@ -141,7 +141,8 @@ ugly patches up close. It fades back in as you step away.
   the intervening sample; applying a newer camera yaw to an older target makes
   stationary reflected buildings swim across the material. A scene load marks
   that basis invalid and forces the next non-split classic view to capture,
-  regardless of the cadence phase.
+  regardless of the cadence phase. Since 1.106.0 the cadence is a CEILING
+  rather than a schedule: see "The reuse budget" below.
 
 The editor's GLSL twin lives in the viewport fragment shader (`uReflOn` block)
 — flat normals from screen-space derivatives, the same camera-basis formula.
@@ -230,6 +231,84 @@ OBJECT (`vehiclePaintFor`), so every other `refl` material keeps the exact
 MODULATE + constant-FIX look this page describes. The engine hook it rides is
 `StaPipTextureBag::textureFunction` - per-bag TFX, safe on a shared texture
 because TEX0 is re-emitted per bag.
+
+## The reuse budget (1.106.0)
+
+The cadence above halves the probe's cost and stops there. What it cannot do is
+notice that the capture it is about to take would come out the same as the one
+already in VRAM — and on a parked camera under a still sky, every second one
+does. *Preferences > Rendering > Reflection reuse budget* is that second half,
+and it is the half Task 5 of the
+[Motor District plan](motor-district-performance-plan.md) asked for: "detect
+conditions permitting reuse: unchanged capture pose and unchanged relevant
+scene/lighting".
+
+**The budget is the quality contract, and its unit is pixels of the probe's own
+128-pixel target.** Not frames, not milliseconds — how far the retained image
+may be out of date, measured in the only raster it is ever seen through. One
+radian of aim is `128 / (110 degrees in radians)` = 66.7 pixels, and every pose
+term converts through that one factor and is **summed**, so the figure bounds
+the worst displacement rather than describing a typical one:
+
+| term | what it measures |
+| --- | --- |
+| aim | the angle between this frame's level-forward and the captured one |
+| camera travel | the distance moved, seen as parallax on the NEAREST reflected object — the dome and the discs are parked on the eye and do not move with it, so the objects are the only thing translation can shift. The nearest distance is clamped to 1 unit, so a scene with **no** "Show in reflections" object at all re-captures on any camera movement even though nothing in its target could have moved: conservative, never wrong, and worth revisiting if such a scene ever matters |
+| sun and moon direction | the angle each disc has swung since the capture |
+| sun and moon radius | the disc growing or shrinking |
+| moon roll | the roll times the moon's own radius in pixels |
+
+**Colour is not traded against the budget at all.** The sky tint, the dome's
+top colour, the day-cycle grade compensation, the star fade and the moon's
+opacity are compared at the **8-bit precision the GS actually stores**, so a
+capture is skipped only when the colours would come out bit-identical. Neither
+is content: a reflected object that moves, rotates, scales, appears, vanishes
+or dirties its geometry invalidates outright, and so do a scene load (which
+already cleared the basis) and a teleport (which the travel term sees as a very
+large number).
+
+**It can only ever REDUCE captures.** The every-second-frame cadence stays the
+ceiling and the gate is consulted only on a beat the cadence would have
+captured on, so the worst case is exactly the pre-1.106 behaviour. **0 turns
+the reuse off** and restores that behaviour exactly.
+
+**What the budget costs, stated the way it is actually paid.** The reflection
+was already up to one cadence beat out of date; the budget says how many
+*extra* target pixels of lag you will accept on top of that. So the worst
+displacement goes from "one beat's motion" to "one beat's motion plus B", and
+when nothing is moving it goes from zero to zero — a parked camera under a
+still sky reuses with a measured staleness of **0.000 pixels**, because the
+capture it skipped would have been the same image. The **default of 1.0 pixel**
+is therefore one pixel of a 128-pixel reflection at worst and nothing at all at
+rest, which is why it is safe to enable for projects that predate the setting.
+
+The shape of what it buys follows from that, and it is the right shape: the
+faster the camera turns, the less it saves, because a fast turn is exactly when
+a stale reflection would be seen. Measured on the Motor District garage at 50
+Hz, the drift a single cadence beat produces is **0.00 px parked, 0.91 px
+driving straight at 6 units/s, 0.93 px turning at 20 deg/s and 4.19 px turning
+at 90 deg/s** — so at the default budget the hard turn captures on every beat,
+exactly as it does today.
+
+**Nothing can take the target away while it is being reused.** The env map is
+allocated at init below the texture region and is *never evicted*
+(`renderer_core_envmap.hpp`), which is what makes an arbitrarily long reuse
+safe rather than a race against the texture heap — the every-second-frame
+cadence already depended on it, and this only lengthens the interval.
+
+The gate's own cost is one walk of the runtime objects per cadence beat: a
+branch each, plus about a dozen multiplies and a hash for the ones flagged
+`reflected`. On the Motor District's 142 objects that is roughly 0.01 ms per
+beat against 4.14 ms per capture, and it is paid only on beats the cadence
+would have captured on.
+
+Two honest statements go with it. The staleness bound is "the budget, plus one
+cadence beat's motion", because drift is noticed on a beat and acted on at that
+same beat. And what the budget buys depends entirely on how the camera is
+moving — measured on the Motor District garage,
+[the round's evidence](../examples/vehicle-playground/authoring/reflection-probe-2026-09-16/README.md)
+gives the capture rate idle, driving straight and turning at 20 and 90 degrees
+a second, with the worst staleness the gate actually permitted in each.
 
 ## Dynamic map camera basis (1.85.0)
 

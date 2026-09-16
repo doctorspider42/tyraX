@@ -21,6 +21,19 @@ param(
     # profile identical across rounds is what makes the rows comparable.
     [ValidateSet('debug', 'quiet-debug', 'release')][string]$Profile = 'quiet-debug',
     [switch]$KeepRoutes,
+    # The shared reflection probe's reuse budget, in pixels of its own 128x128
+    # target (docs/reflective-materials.md, "The reuse budget"). -1 leaves the
+    # example's own value alone; 0 is the CONTROL, i.e. exactly the behaviour
+    # before the setting existed.
+    [float]$Budget = -1,
+    # Replace the parked sampler with four camera MOTION regimes. A change that
+    # skips work when an input did not change must not be measured on a parked
+    # fixture alone - see motion-sampler.py.
+    [switch]$Motion,
+    # Replace the parked sampler with the four INVALIDATION regimes instead:
+    # does the gate ever hold an image it should have thrown away? See
+    # content-sampler.py. Mutually exclusive with -Motion.
+    [switch]$Content,
     [string]$Root = 'D:/tyra-probe-0916'
 )
 $ErrorActionPreference = 'Stop'
@@ -52,7 +65,33 @@ foreach ($d in 'aoatlas', 'aomap') {
     if (Test-Path -LiteralPath $src) { Copy-Item -Recurse -Force $src (Join-Path $fixture "bin/$d") }
 }
 
-# --- 2. regenerate with THIS editor, THEN instrument ----------------------
+# --- 2. the arm's own setting, the sampler, then regenerate and instrument -
+$manifest = Join-Path $fixture 'vehicle-playground.tyra'
+if ($Budget -ge 0) {
+    $m = Get-Content -LiteralPath $manifest -Raw
+    if ($m -match '"reflectionReuseBudget"') {
+        $m = [regex]::Replace($m, '"reflectionReuseBudget":\s*[0-9.eE+-]+',
+                              ('"reflectionReuseBudget": ' + $Budget))
+    } elseif ($m -match '"terrainLodDistance":\s*[0-9.eE+-]+,') {
+        # The example's committed manifest predates the setting; the key is
+        # inserted rather than assumed, so an arm never silently runs the
+        # default while claiming to run a budget.
+        $m = [regex]::Replace($m, '("terrainLodDistance":\s*[0-9.eE+-]+,)',
+            ('$1' + "`n    " + '"reflectionReuseBudget": ' + $Budget + ','), 1)
+    } else {
+        throw 'Cannot place reflectionReuseBudget in the manifest'
+    }
+    Set-Content -LiteralPath $manifest -Value $m -NoNewline
+}
+if ($Motion -and $Content) { throw 'Pick one sampler: -Motion or -Content' }
+if ($Motion) {
+    & python (Join-Path $PSScriptRoot 'motion-sampler.py') $fixture
+    if ($LASTEXITCODE -ne 0) { throw 'motion-sampler.py failed' }
+}
+if ($Content) {
+    & python (Join-Path $PSScriptRoot 'content-sampler.py') $fixture
+    if ($LASTEXITCODE -ne 0) { throw 'content-sampler.py failed' }
+}
 & $Editor --refresh-gen $fixture
 if ($LASTEXITCODE -ne 0) { throw '--refresh-gen failed' }
 & python (Join-Path $example 'authoring/inventory-frame.py') $fixture
@@ -66,6 +105,9 @@ $gen = Get-ChildItem -LiteralPath (Join-Path $fixture 'src') -Recurse -Filter '*
        Select-String -Pattern 'stripRun\s*=\s*(\d+)u' -AllMatches
 $runs = ($gen.Matches | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique) -join ','
 Write-Output "stripRun in generated source: $runs (expect 75 at the branch tip)"
+$budget = (Select-String -LiteralPath (Join-Path $fixture 'inc/terrain_config.hpp') `
+    -Pattern 'REFLECTION_REUSE_BUDGET\s*=\s*([0-9.]+)F').Matches[0].Groups[1].Value
+Write-Output "REFLECTION_REUSE_BUDGET in generated source: $budget"
 
 # --- 4. compile with the native toolchain directly -----------------------
 # Never an editor --build: it would regenerate the instrumentation away.
@@ -78,6 +120,10 @@ $elf = Join-Path $fixture 'bin/vehicle-playground.elf'
 if (!(Test-Path -LiteralPath $elf)) { throw 'No ELF produced' }
 [pscustomobject]@{
     arm = $Arm; profile = $Profile; stripRun = $runs
+    reflectionReuseBudget = $budget
+    sampler = $(if ($Motion) { 'motion: idle / straight / turn 20 / turn 90' }
+                elseif ($Content) { 'content: static / hide-show / move / day-night' }
+                else { 'parked: garage day-night, outer day-night' })
     keepRoutes = [bool]$KeepRoutes
     instrument = 'inventory-frame.py (per-producer counters; NOT a timing run)'
     elfSha256 = (Get-FileHash -LiteralPath $elf -Algorithm SHA256).Hash

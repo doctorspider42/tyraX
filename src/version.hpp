@@ -16,6 +16,41 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.106.0: THE SHARED REFLECTION PROBE NOW HAS A REUSE BUDGET, AND THE
+// BUDGET IS THE QUALITY CONTRACT (docs/reflective-materials.md, "The reuse
+// budget"). Measured on hardware the probe costs 2.07 ms of Motor District
+// garage day and 2.56 ms at night, adding 10 572 triangles and 26 packet
+// flushes on every second frame for a 128x128 target - the largest unclaimed
+// saving on docs/ee-submission-rearchitecture.md. Task 5 of the Motor District
+// plan asked for two halves: retain the capture BASIS with the target (done in
+// 1.85.0) and detect the conditions under which the image can be reused. This
+// is the second half.
+//
+// The probe now skips its cadence beat while nothing that feeds the capture
+// has moved, and "moved" is stated as a NUMBER rather than as a cadence: how
+// far the image may be out of date IN PIXELS OF ITS OWN 128-PIXEL TARGET. Aim,
+// camera travel seen as parallax on the nearest reflected object, the sun and
+// moon directions, their radii and the moon's roll all convert through one
+// pixels-per-radian factor and are SUMMED, so the figure bounds the worst
+// displacement. Colour is NOT traded: the sky tint, the grade compensation,
+// the star fade and the moon's opacity are compared at the 8-bit precision the
+// GS actually stores, so a capture is skipped only when the colours would come
+// out bit-identical. Neither is content: a reflected object that moves,
+// rotates, scales, appears, vanishes or dirties its geometry invalidates
+// outright, as do a scene load and a teleport (which the travel term sees).
+//
+// It can only ever REDUCE captures - the every-second-frame cadence stays the
+// ceiling - so the worst case is exactly the old behaviour, which is what
+// makes the default of 1.0 pixel safe to enable for projects that predate the
+// setting. The three options the plan left open were priced against a
+// per-producer frame inventory first: a coarser LOD for the probe pass needs
+// the models re-baked with tiers AND a second resident bag set per reflected
+// part (swapping the live bag's tier bumps bboxVersion twice a frame and
+// throws away the bbox and retained-command caches), and dropping objects buys
+// almost nothing in the pose that is slow, because four near buildings are all
+// the probe draws there. See
+// examples/vehicle-playground/authoring/reflection-probe-2026-09-16/README.md.
+//
 // 1.105.0: THE ROAD LATERAL REDUCTION WAS ALL-OR-NOTHING, AND THAT IS WHY IT
 // BOUGHT ALMOST NOTHING (docs/roads.md, "The lateral budget"). A station pair
 // collapsed to ONE full-width quad or kept all `crossSteps` lateral cells. The
@@ -4455,7 +4490,7 @@
 // built by THIS worktree's editor (the first pass' was cut at the 72-vertex
 // strip run), and attribute the cache churn with STAPIPMISS.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 105
+#define TYRAX_VERSION_MINOR 106
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -4820,7 +4855,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // already claimed v47..v52, so the LATER arrival renumbers - the same rule the
 // v51 and v52 entries above were written under.
 // v54: five devkit cadence overrides; missing values retain platform defaults.
-inline constexpr int kFormatVersion = 54;
+// v55: ProjectSettings::reflectionReuseBudget. Purely additive - a file
+// without the key reads the default 1.0 pixel, which is sub-pixel on the
+// 128-pixel probe target and therefore cannot change what it draws - so no
+// migration step is registered.
+inline constexpr int kFormatVersion = 55;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

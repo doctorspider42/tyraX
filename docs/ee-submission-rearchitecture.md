@@ -204,7 +204,7 @@ Predicted EE cost: about 300 visibility units at roughly 400 cycles each, near
 | S1 | Build the frame's chain in the EE scratchpad (16 KB at `0x70000000`, unused by this engine) or in uncached memory, and stop calling `FlushCache` | **−1.09 MEASURED**, not −2.10 | **medium** — dropping the flush corrupted the picture even with the packet uncached; see the probes |
 | S2 | Remove the per-mesh `FLUSHE`: a second uniform bank at VU1 addresses 22..43 and a bank bit in the count word | via VIF1 wait; little until S1 and the redesign land | medium — touches 15 microprograms; sequence it last |
 | ~~S3~~ | ~~Classify per 1/3-bbox part instead of per package~~ **REFUTED, do not build** | the whole bracket is **1.79 ms** and the arm that coarsens it measured **+4.59** | — |
-| S4 | The shared reflection probe costs +26 flushes and +10 444 triangles on every second frame | **2.07 / 2.56 MEASURED**, not predicted | low — fewer objects, coarser LOD, or a longer cadence |
+| S4 | The shared reflection probe costs +26 flushes and +10 444 triangles on every second frame | **2.07 / 2.56 MEASURED**. **SHIPPED as a reuse budget** (1.106.0); what it recovers depends on motion, see below | low — it can only reduce captures, and the cadence stays the ceiling |
 | S5 | `vehicles_included_ms` is a flat 2.26 ms with the car parked | ~1.5 | low — per-wheel matrices instead of an EE vertex rebake |
 
 ## The triangle budget, which is the other cardinal half — MEASURED, 2026-09-16
@@ -254,7 +254,8 @@ whole page is about.
   together.** Halving its cadence buys 1.03 / 1.28 ms, so the whole probe costs
   **2.07 ms of garage day and 2.56 ms of garage night** — S4's "roughly 2 ms
   averaged" was a prediction from counts and it was right. Anyone picking up the
-  triangle budget should start there, not at the road.
+  triangle budget should start there, not at the road. **Taken, 2026-09-16** —
+  as a reuse budget rather than as a cadence; see item 3 of the order of work.
 - **There is no occlusion culling of any kind.** A city district is the textbook
   case for baked sectors/portals or a PVS. [portals.md](portals.md) and
   [impostors.md](impostors.md) exist as per-object features; what is missing is
@@ -451,6 +452,14 @@ survives** - `bounds` and `prepare` because the visibility test needs them, and
 So the projection, and it is a projection: **work 30.07 -> about 24**, and with
 S4 and S5 on top, **about 21**. That is still **above** the 20 ms rung.
 
+**One correction from S4's own round, and it makes the 21 an optimistic
+reading.** S4 is now built, and what it recovers depends on how the camera is
+moving: the full 2.07 ms when nothing moves, about half of it driving straight
+or turning gently, and **nothing at all in a hard turn**. So "with S4 on top"
+is a range, not a number, and the pessimistic end of it is the one a player
+sees while driving. Every arithmetic in this section that adds S4 as a constant
+is quoting its best case.
+
 **Read that as the plan's central correction.** The first version of this page
 expected the supporting changes to reach the rung by themselves; the probes
 refuted that. This recomputation says the architecture plus the supporting
@@ -554,12 +563,23 @@ Two numbers from that round worth carrying into every later estimate:
    refuted with a mechanism. Terrain LOD 160 is a measured −0.38 / −0.45 ms
    with its two quality risks bounded in world units, and owes one drive across
    the band before it is authored.
-3. **S4, the shared reflection probe.** Priced on hardware at **2.07 ms garage
-   day and 2.56 at night** — more than the road budget and terrain LOD together
-   are worth there, and the largest unclaimed saving on this page. Its three
-   options are content decisions, not a rewrite. Task 5 of the
-   [Motor District plan](motor-district-performance-plan.md) sets the
-   correctness constraints; the capture-basis work there must not be undone.
+3. ~~**S4, the shared reflection probe.**~~ **BUILT, 2026-09-16, as a reuse
+   budget** ([reflective-materials.md](reflective-materials.md), "The reuse
+   budget";
+   [evidence](../examples/vehicle-playground/authoring/reflection-probe-2026-09-16/README.md)).
+   The probe skips its cadence beat while nothing that feeds the capture has
+   moved, with the staleness bounded in **pixels of its own 128-pixel target**
+   rather than in frames. Measured in PCSX2 as a capture rate and converted
+   through the road round's 4.14 ms per capture: **−2.07 ms parked, −1.04 ms
+   driving straight or turning at 20 deg/s, and NOTHING in a 90 deg/s turn** —
+   which is the right shape, because a hard turn is when a stale reflection
+   would be seen. The capture-basis work is used rather than undone: the
+   retained basis is the thing the gate compares against. **It owes a hardware
+   A/B**; the counts settled the design, the console owes the milliseconds.
+   Of the other two options, "fewer objects" is worth ~0 triangles in the pose
+   that is slow, and "a coarser LOD for the probe pass" needs the models
+   re-baked with tiers and a second resident bag set per reflected part — it is
+   on the backlog with the mechanism.
 4. **The baked VIF stream**, behind a compile-time switch, with the existing
    path as the A/B fallback — **carrying a per-package visibility test, which
    Probe A says it cannot drop**, and gated by

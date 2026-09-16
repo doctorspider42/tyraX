@@ -1,0 +1,14 @@
+{
+  "arm": "picture-ctl",
+  "profile": "debug",
+  "stripRun": "75",
+  "reflectionReuseBudget": 0.0,
+  "sampler": "parked: garage day-night, outer day-night",
+  "keepRoutes": false,
+  "instrument": "inventory-frame.py (per-producer counters; NOT a timing run)",
+  "elfSha256": "BA6580E8763E3C40EBF6695063A1ED99B0B5B38842069862C6F52597C4D2DD75",
+  "editor": "D:\\tyra-editor\\.claude\\worktrees\\agent-a839bcfe5782f9b39\\build\\tyrax-editor.exe",
+  "editorSha256": "0A8938B013D84D8DD8DF194196E3F75909181058D97278484393D8FE6B9B4D21",
+  "commit": "bcd4ffcef576f83c39bcffdcb70515148e91d5e6",
+  "built": "2026-09-16T23:18:59.6100356+02:00"
+}

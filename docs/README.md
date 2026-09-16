@@ -81,7 +81,8 @@ their ownership and acceptance checks.
   lights can carve — with the reason only one spot casts per frame, and how the
   four silhouette slots change hands without blinking.
 - [Reflective materials (sphere-mapped "chrome")](reflective-materials.md) —
-  the PS2-era fake for car paint, static or re-rendered from the live sky.
+  the PS2-era fake for car paint, static or re-rendered from the live sky, with
+  a reuse budget stated in pixels of the probe's own target.
 - [Raytraced reflections (VU0, experimental PoC)](raytraced-reflections.md) — a
   Mirror whose reflection is actually ray-traced per pixel, and what it costs.
 - [Live texture feeds (CCTV + mirror streams)](texture-feeds.md) — any surface

@@ -29,6 +29,12 @@ is asked to rasterise, degenerate strip joins and run padding included. That is
 the same quantity `frame-cost.csv` reports as `triangles`, which is what lets
 the rows be checked against the published four-pose table.
 
+PCSX2 v2.6.3, software renderer (`Renderer = 13`), `HostFs = true`. The
+emulator's own log is not archived: it is BIOS noise plus the owner's absolute
+Documents path, and the only thing in it worth keeping is the version above.
+The GAME's log (`log.txt`) is archived for every arm, because that is where the
+fixture identity lives.
+
 ## Fixture identity, and the check that the instrument is exact
 
 `pcsx2/inventory/log.txt`, `pcsx2/inventory/ARM.json`:
@@ -61,6 +67,10 @@ instrument totals:
 
 Exact in every pose. The halves are the probe's every-second-frame cadence
 averaged over 240 frames.
+
+**The inventory is the frame as the branch tip drew it, before this round's
+own change.** The reuse budget below moves the two `env_probe_*` rows and
+nothing else; every other row in the tables that follow still holds.
 
 ## The garage-day frame, by producer
 
@@ -178,6 +188,184 @@ target. Object 38 submits 511 into the main frame and **2 237** into the probe,
 because the probe's 110-degree level-forward view sees far more of the district
 than the chase camera does.
 
+## S4: the option taken, and why the other two lost
+
+The plan named three: fewer objects in the probe pass, a coarser LOD for it, or
+a longer cadence. The inventory above is what settled it, because it says what
+the probe actually draws in the pose that is slow.
+
+| option | what it is worth in garage day | verdict |
+| --- | ---: | --- |
+| fewer objects | **~0 triangles** | four near buildings are the whole probe there. The three objects that draw nothing already cost only 15 bags and ~100 rejected packages a hit, and a size or distance gate that removed the four that DO draw would remove the reflection |
+| a coarser LOD for the probe pass | up to ~70% of 10 413 triangles a hit | **priced and not taken** — see below |
+| **reuse when nothing changed** | **everything, when nothing is moving** | **shipped** |
+
+**Why the LOD option is not this round's change, with the mechanism.** The
+district bakes **no LOD tiers at all**: `meshLodDistance` is 0 and the model
+bake gates on it (`lodWanted`), so `.tmdl` carries tier 0 only. Turning it on
+turns MAIN-VIEW mesh LOD on with it, which the previous round refuted at
+**+0.19 ms**. And the tiers cannot simply be swapped for the probe pass:
+`applyGeoLod` swaps the LIVE bag's vertex pointer and bumps `bboxVersion`, so
+switching to a coarse tier for the probe and back for the main view would
+invalidate the bbox cache and the retained-command cache for every reflected
+part, twice a frame — the plan's own "per-bag cost is the term that does not
+shrink with the triangle count", in its sharpest form. It needs a second
+RESIDENT bag set per reflected part, and the RAM for it in a 32 MB machine.
+That is a real feature and it is on the backlog; it is not a cadence decision.
+
+**What shipped** is Task 5 step 2 verbatim — "detect conditions permitting
+reuse: unchanged capture pose and unchanged relevant scene/lighting" — with the
+staleness stated as a number in **pixels of the probe's own 128-pixel target**
+rather than as a frame count. `docs/reflective-materials.md`, "The reuse
+budget", has the design; the arms below are the measurement.
+
+### Method for the arms
+
+Both arms of every pair come from **one editor binary**
+(`0A8938B013D84D8DD8DF194196E3F75909181058D97278484393D8FE6B9B4D21`, recorded in
+every `ARM.json`) and differ only in the project setting, so unlike a codegen
+A/B there is no second baker to go stale. `REFLECTION_REUSE_BUDGET` is read back
+out of each arm's generated `inc/terrain_config.hpp` and recorded in `ARM.json`
+beside the ELF hash, so an arm cannot silently run the default while claiming a
+budget.
+
+**The editor at the final commit generates the same game, checked rather than
+assumed.** Documentation and Preferences-help edits landed after the arms were
+built, so the editor's own hash moved to
+`9BB403B29E40F70294960E249508EF22B7E380A26EA292DC59CEC249DA2691A2`. Rebuilding
+`parked-cand` with it produces the ELF
+`494EC844C46E72C62F61AB192C15BC8923AA1C5C03A572629D861F8AAFD5AEA6` — **byte for
+byte the arm that was measured**. That is the check an editor-hash mismatch
+otherwise leaves open, and it is cheap: one arm, four minutes.
+
+**And this round hit the stale-editor trap itself, which is worth recording
+because it hit from the one direction the previous round's warning does not
+cover.** The first five arms were built from an editor compiled *before* a
+one-line fix that makes budget 0 mean OFF. Every fixture was regenerated
+faithfully, every hash was distinct, every identity check passed — and the
+CONTROL captured **zero** times in garage day, because at budget 0 the unguarded
+comparison `drift <= 0.0F` is true whenever the drift is exactly zero, which on
+a parked camera under a still sky it is. A control that quietly becomes a
+candidate produces a clean-looking table with no delta in it. The rule that
+catches it is the one already written down — *rebuild the editor from the tree
+under test, every time* — and the reason to repeat it is that here the tree had
+moved by **one line** since the build.
+
+### The parked fixture, and why its number is the best case rather than the answer
+
+`pcsx2/parked-ctl`, `pcsx2/parked-cand`. 240 recorded frames per pose.
+
+| pose | captures/frame, budget 0 | budget 1 | reuse rate | worst staleness permitted |
+| --- | ---: | ---: | ---: | ---: |
+| garage day | 0.5000 | **0.0000** | 100% | **0.000 px** |
+| garage night | 0.5000 | **0.0000** | 100% | **0.000 px** |
+| outer day | 0.5000 | **0.0000** | 100% | **0.000 px** |
+| outer night | 0.5000 | **0.0000** | 100% | **0.000 px** |
+
+Every skipped capture was skipped at **zero** drift — not "close enough", the
+same image. That is the whole probe: −5 286 triangles and −13 packet flushes a
+frame in garage day, which against the road round's hardware anchor of 4.14 ms
+per capture is **−2.07 ms**, the figure S4 has been carrying.
+
+**And it is the flattered case, exactly as `benchmark-district.py` warns.** The
+camera and the traffic are both parked, and this is a skip-when-unchanged
+change, so the parked fixture scores it at 100% by construction. The two
+fixtures below are the honest ones.
+
+### The motion fixture: what it buys while the camera moves
+
+`motion-sampler.py` replaces the four poses with four camera regimes in the
+garage in daylight, so the only variable is motion.
+`pcsx2/motion-ctl`, `pcsx2/motion-cand`, `pcsx2/motion-cand4`.
+
+| regime | drift per cadence beat | budget 1: reuse | derived ms | budget 4: reuse | derived ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| idle | **0.000 px** | 100% | **−2.070** | 100% | −2.070 |
+| straight, 6 units/s | 0.909 px | **50%** | **−1.035** | 84.2% | −1.742 |
+| turn, 20 deg/s | 0.931 px | **50%** | **−1.035** | 80.0% | −1.656 |
+| turn, 90 deg/s | 4.189 px | **0%** | **0.000** | 0% | 0.000 |
+
+**The shape is the finding.** The faster the camera turns, the less the budget
+buys — and at the default it buys *nothing at all* in a 90 deg/s turn, which is
+precisely the case a cadence change is rejected for. Nobody has to decide
+whether a hard turn can tolerate a stale reflection: at 1 pixel it does not get
+one.
+
+The drift figures are arithmetic made visible: 20 deg/s at 50 Hz is 0.4 degrees
+a frame, two frames is 0.8 degrees, and 0.8 degrees at 128 pixels over a
+110-degree field is 0.93 pixels. The instrument reports 0.931.
+
+**The staleness bound is confirmed empirically as well as by construction.** The
+claim is "the budget, plus one cadence beat's motion". At budget 1 driving
+straight, the worst staleness the gate permitted is 0.909 px and the worst it
+ever saw is **1.810 px** — against a predicted 1.0 + 0.909 = 1.909.
+
+### The invalidation fixture: does it ever hold an image it should have dropped?
+
+This is the one that matters, and the camera is parked in all four regimes so
+that pose drift is zero by construction and the SCENE is the only thing that
+can force a capture. `content-sampler.py`; `pcsx2/content-ctl`,
+`pcsx2/content-cand`.
+
+| regime | what changes | captures, budget 0 | budget 1 | expected |
+| --- | --- | ---: | ---: | --- |
+| static | nothing | 120 | **0** | 0 — the control for the other three |
+| hide-show | a reflected object hidden/shown every 50 frames | 120 | **5** | ~5, one per toggle in 240 frames |
+| move | a reflected object slides every frame | 120 | **120** | 120 — every beat, i.e. no reuse at all |
+| day-night | the night value flips every 60 frames | 120 | **4** | 4, one per flip |
+
+**Every number is the predicted one.** One capture per visibility change, one
+per day/night flip, and an object that moves every frame disables the reuse
+completely rather than being smoothed over. The `move` regime also reports
+**zero beats consulted**: the content key never matched, so the pose budget was
+not even reached — the invalidation is a hard gate in front of the budget, not
+a term inside it.
+
+Task 5's remaining cases are answered by construction rather than by a fixture,
+and each is checkable by reading the generated source: **first use and scene
+reload** clear `sharedEnvBasisValid`, and the gate's inner test requires it, so
+either forces a capture; **teleports** arrive as a very large translation term;
+**split screen** and **reflected-ray probe mode** skip the shared pass entirely
+and are untouched; **reflection mode** is compile-time.
+
+### The picture
+
+The gate's own arithmetic says the skipped captures were identical. This is the
+independent check that the arithmetic corresponds to pixels, and it is the
+game's OWN `--capture-frame` (`docs/devkit.md`) rather than a window grab: no
+emulator chrome, no letterbox, no crop to argue about. It needs the `debug`
+profile, because `quiet-debug` switches the Live Debugger's command channel off
+— the right trade, since a capture is a picture question and the live tools
+cost milliseconds rather than pixels. `pcsx2/picture-ctl`, `pcsx2/picture-cand`,
+`pcsx2/picture-compare.txt`.
+
+**Within each arm first, because a between-arm number means nothing until the
+arm is repeatable.** Three captures per pose per arm, 512x512:
+
+| | garage day | outer day |
+| --- | ---: | ---: |
+| `picture-ctl`, repeats 2 and 3 against 1 | **0 px** | **0 px** |
+| `picture-cand`, repeats 2 and 3 against 1 | **0 px** | **0 px** |
+
+Then between them:
+
+| comparison | pose | size | differing pixels | worst channel |
+| --- | --- | ---: | ---: | ---: |
+| budget 0 vs budget 1 | garage day | 512x512 | **0** | **0** |
+| budget 0 vs budget 1 | outer day | 512x512 | **0** | **0** |
+
+**Byte-identical.** `pcsx2/picture-cand/garage-day.png` is the frame of record:
+the three car paints in the garage, sampling a target the candidate captured
+once and then reused for the whole run while the control re-captured it 120
+times. All three materials reflect the same scenery in both arms, which is
+Task 5's "verify that all three car materials still reflect actual scenery" —
+and the probe-object rows above say what that scenery IS (two towers, a loft
+and a workshop), so "the reflection is present" is a count as well as a look.
+
+The night poses are excluded by the fixture, not by choice: authored lamp
+flicker and twinkling stars mean three captures of ONE arm differ from each
+other there, so no between-arm number can be read from them.
+
 ## Reproducing
 
 ```powershell
@@ -189,12 +377,29 @@ build/tyrax-editor.exe --build examples/vehicle-playground
 git checkout -- examples/vehicle-playground/inc examples/vehicle-playground/res `
                 examples/vehicle-playground/src
 
-# the fixture, instrumented and compiled with the native toolchain directly
+# the frame inventory: one arm, instrumented and compiled with the native
+# toolchain directly (an editor --build would regenerate the instrument away)
 ./build-inventory.ps1 -Editor <abs path>/build/tyrax-editor.exe
 ./run-pcsx2-arm.ps1 -Fixture D:/tyra-probe-0916/arms/inventory `
                     -Out D:/tyra-probe-0916/results/inventory
-
 python ../summarize_inventory.py D:/tyra-probe-0916/arms/inventory --phase 0
+
+# the reuse budget: one pair per fixture, both arms from ONE editor
+./build-inventory.ps1 -Editor <exe> -Arm parked-ctl  -Budget 0
+./build-inventory.ps1 -Editor <exe> -Arm parked-cand -Budget 1
+./build-inventory.ps1 -Editor <exe> -Arm motion-ctl  -Budget 0 -Motion
+./build-inventory.ps1 -Editor <exe> -Arm motion-cand -Budget 1 -Motion
+./build-inventory.ps1 -Editor <exe> -Arm content-ctl  -Budget 0 -Content
+./build-inventory.ps1 -Editor <exe> -Arm content-cand -Budget 1 -Content
+python compare_probe.py ctl=<results>/motion-ctl cand=<results>/motion-cand `
+       --labels "idle,straight,turn 20,turn 90"
+
+# the picture, which needs `debug` (quiet-debug switches the Live Debugger off
+# and the game photographs itself through its command channel)
+./build-inventory.ps1 -Editor <exe> -Arm picture-ctl  -Budget 0 -Profile debug
+./capture-arm.ps1 -Fixture D:/tyra-probe-0916/arms/picture-ctl `
+                  -Out <results>/picture-ctl -Editor <exe>
+python compare_captures.py ctl=<results>/picture-ctl cand=<results>/picture-cand
 ```
 
 **THE EMULATOR AND THE CONSOLE ARE SHARED RESOURCES.** `run-pcsx2-arm.ps1`
@@ -204,9 +409,35 @@ by this round at all.
 
 ## What this does not establish
 
-Not one millisecond. The instrument drains telemetry dozens of times a frame,
-so its own frame times are meaningless, and PCSX2's would be inadmissible
-anyway. The traffic and the camera are both **parked**, so nothing here prices
-a producer whose cost depends on motion — the terrain chunk rebuild and the
-wheel rebake both look cheaper here than they are while driving. The four poses
-are the fixture's four; a fifth vantage would have a fifth inventory.
+**Not one measured millisecond.** Every `ms` figure on this page is a capture
+rate multiplied by the road round's hardware anchor of 4.14 ms per capture, and
+it is a projection until the arms are run on the console. The instrument drains
+telemetry dozens of times a frame, so its own frame times are meaningless, and
+PCSX2's would be inadmissible anyway (it emulates no EE data cache). **The
+reuse budget owes exactly one thing: a four-pose hardware A/B of `parked-ctl`
+against `parked-cand`, and of `motion-ctl` against `motion-cand`.** What it
+does not owe is a design decision — the counts and the staleness settle that.
+
+The inventory's four poses are all **parked**, so nothing in it prices a
+producer whose cost depends on motion: the terrain chunk rebuild and the wheel
+rebake both look cheaper there than they are while driving. The motion fixture
+fixes that for the reflection probe and for nothing else. The four poses are
+the fixture's four; a fifth vantage would have a fifth inventory.
+
+**No MOVING picture was compared.** The capture path freezes the game for a
+fixed spell, so two arms' `--capture-frame` calls do not land on the same frame
+of a moving route, and a pixel diff between them would report the sampler's own
+phase rather than the change. The moving evidence here is numeric — the capture
+rate and the worst staleness in target pixels — and the pixel evidence is
+parked. A motion-gate run
+(`.claude/skills/tyra-testing/scripts/motion-gate.ps1`) over the same two arms
+would close that, and it is the natural next check if the hardware A/B turns up
+anything surprising. The night poses are not pixel-comparable on this fixture
+at all (authored lamp flicker, twinkling stars), which is why the picture check
+uses the two DAY poses.
+
+**The traffic is parked in all three fixtures**, the invalidation one included.
+The district's five vehicles are not `reflected` objects, so they cannot change
+the probe's content — but a scene that DID reflect a moving car would behave
+like the `move` regime, i.e. get no reuse at all, and nothing here says how
+common that is in a real district.

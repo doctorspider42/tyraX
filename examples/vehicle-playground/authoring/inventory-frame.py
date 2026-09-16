@@ -162,6 +162,25 @@ static void addObject(Acc* table, int i, int type, int model,
   }
   bags = keep;  // the same drain is also charged to the slot-level total
 }
+// The reflection reuse gate's own verdict (docs/reflective-materials.md, "The
+// reuse budget"), recorded where it is decided. `worstReused` is the QUALITY
+// number of that change: the largest staleness, in pixels of the probe's own
+// 128-pixel target, that the gate actually let stand. A budget is a promise;
+// this is what was delivered against it.
+static unsigned reuseBeats[4];   // cadence beats the gate was consulted on
+static unsigned reuseTaken[4];   // ...of which the capture was skipped
+static float worstReused[4];     // worst drift, in target pixels, when skipped
+static float worstSeen[4];       // worst drift at a beat, skipped or not
+static void reuse(bool ok, float driftPx) {
+  if (!sampling()) return;
+  const unsigned ph = phase();
+  ++reuseBeats[ph];
+  if (driftPx > worstSeen[ph]) worstSeen[ph] = driftPx;
+  if (ok) {
+    ++reuseTaken[ph];
+    if (driftPx > worstReused[ph]) worstReused[ph] = driftPx;
+  }
+}
 static void save() {
   if (written) return;
   written = true;
@@ -196,6 +215,14 @@ static void save() {
               ph, i, objType[i], objModel[i], frames[ph], r.hits, r.tri, r.pkg,
               r.pkgOut, r.guard, r.verts, r.flush, r.bags);
     }
+    // The reuse gate's row. `hits` is the beats it was consulted on and
+    // `bags` the beats it skipped; the two drift figures ride in the columns
+    // the producers use for triangles and packages, scaled by 1000 because
+    // this file is integers throughout.
+    fprintf(f, "reuse,%u,env_reuse,-1,-1,-1,%u,%u,%u,%u,0,0,0,0,%u\n", ph,
+            frames[ph], reuseBeats[ph],
+            (unsigned)(worstReused[ph] * 1000.0F + 0.5F),
+            (unsigned)(worstSeen[ph] * 1000.0F + 0.5F), reuseTaken[ph]);
   }
   fclose(f);
 }
@@ -294,6 +321,19 @@ block = block.replace(needle, needle + '''
                                ro.data.type, ro.data.model, dmI);
         districtInv::add(%d, dmI); }''' % IDX['env_probe_objs'], 1)
 tail = tail[:lo] + block + tail[hi:]
+
+# The reflection reuse gate (1.106.0), when the tree under test has one: record
+# its verdict and the staleness it permitted, in the same target pixels the
+# budget is written in. Optional on purpose - this instrument must still apply
+# to a tree from before the gate existed, or it cannot measure the control.
+needle = '      envReuseOk = REFLECTION_REUSE_BUDGET > 0.0F &&\n' \
+         '                   drift <= REFLECTION_REUSE_BUDGET;'
+if tail.count(needle) == 1:
+    tail = tail.replace(
+        needle, needle + '\n      districtInv::reuse(envReuseOk, drift);', 1)
+    print('  (reflection reuse gate found - recording its verdict)')
+else:
+    print('  (no reflection reuse gate in this tree - the reuse row is zeros)')
 
 # The per-object submit block sits INSIDE the object loop, so its drain both
 # charges the object_submit slot and files a row against the object's index.

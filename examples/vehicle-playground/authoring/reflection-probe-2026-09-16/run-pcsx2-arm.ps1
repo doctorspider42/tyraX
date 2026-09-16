@@ -53,6 +53,9 @@ Start-Sleep -Seconds 2
 if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
 if (-not $done) { throw "Timed out waiting for $($Expect -join ', ')" }
 
+# The emulator's own log stays in $Out and is deliberately NOT part of what an
+# evidence directory carries: it is BIOS noise plus absolute Documents paths,
+# and the one line worth keeping (the PCSX2 version) goes in the README.
 foreach ($f in $Expect + @('log.txt')) {
     $src = Join-Path $Fixture "bin/$f"
     if (Test-Path -LiteralPath $src) { Copy-Item -Force $src (Join-Path $Out $f) }

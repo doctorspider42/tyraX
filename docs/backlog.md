@@ -425,6 +425,26 @@ What is now settled, and what is left:
   at 0.820 ms in PCSX2; the console says 2.5x that. The three options — fewer
   objects, a coarser LOD for the probe pass, a longer cadence — now deserve a
   design rather than a place behind the triangle budget.
+  **DESIGNED AND SHIPPED as a reuse budget, 1.106.0**
+  ([reflective-materials.md](reflective-materials.md), "The reuse budget"): the
+  probe skips its cadence beat while nothing that feeds the capture has moved,
+  with the staleness bounded in pixels of its own 128-pixel target rather than
+  in frames. Of the other two options, "fewer objects" is worth ~0 triangles in
+  the pose that is slow (four near buildings are everything the probe draws
+  there), and "a coarser LOD for the probe pass" needs the models re-baked with
+  tiers AND a second resident bag set per reflected part, because swapping the
+  live bag's tier twice a frame bumps `bboxVersion` and throws away the bbox
+  and retained-command caches. **What is left open is the hardware
+  millisecond**: the counts are PCSX2's and the conversion runs through the
+  road round's 4.14 ms per capture.
+- **A coarser LOD for the reflection probe is priced and not taken.** It is the
+  only option that removes triangles unconditionally - up to ~70% of 10 413 a
+  hit - and it needs three things this round did not build: a bake gate that
+  emits `.tmdl` tiers for `reflected` objects without turning main-view mesh
+  LOD on (which is refuted), a second resident bag set per reflected part, and
+  the RAM for both in a 32 MB machine. Worth doing only after the reuse budget
+  has been priced on hardware, because in a scene that is mostly still the two
+  overlap.
 - **World visibility is untried and is now the largest lever on the garage.**
   The garage-day frame contained only 614 of the 9 798 road triangles the
   lateral budget removed, which is the measured reason the triangle budget did

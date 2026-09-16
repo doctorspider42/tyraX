@@ -1,0 +1,17 @@
+WITHIN each arm - repeat 1 against every later repeat
+arm              pose   repeat    pixels   worst
+------------------------------------------------
+cand                0pose0-2.png         0       0
+cand                0pose0-3.png         0       0
+cand                2pose2-2.png         0       0
+cand                2pose2-3.png         0       0
+ctl                 0pose0-2.png         0       0
+ctl                 0pose0-3.png         0       0
+ctl                 2pose2-2.png         0       0
+ctl                 2pose2-3.png         0       0
+
+BETWEEN arms - repeat 1 of each, whole self-captured frame
+comparison                         pose        size    pixels   worst     mean
+------------------------------------------------------------------------------
+ctl vs cand                           0     512x512         0       0  0.00000
+ctl vs cand                           2     512x512         0       0  0.00000
