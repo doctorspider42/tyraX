@@ -3047,6 +3047,47 @@ instrumenting it, and **check a counter against the previous known-good run
 before concluding anything from a change in it** - a number that moved because
 the fixture is stale looks exactly like a regression.
 
+**AND `--refresh-gen` IS NOT ENOUGH ON ITS OWN, because the EDITOR BINARY can be
+older than HEAD.** `build/tyrax-editor.exe` is a build artifact, not a property
+of the checkout: a worktree sitting at the branch tip can hold an exe compiled
+hours earlier, and `--refresh-gen` will then faithfully regenerate the fixture
+with the OLD baker while every log line says "regenerated". Measured on the
+EE-submission probes, 2026-09-16: the binary was built at 15:17 and the commit
+that raised the VU1 package ceiling landed at 17:07, so seven arms were baked
+with `stripRun = 72u` against a tree whose `meshstrip::kRun` reads 75 - a legal,
+self-consistent fixture that is simply not the one the branch-tip table
+describes.
+
+**The capture hash does not catch it, and believing it does is the trap.** The
+strip run changes how a surface is cut into runs, not which pixels it covers, so
+the garage-day frame hashed to exactly the expected value. Check the things that
+are actually functions of the baker:
+
+```bash
+grep -E "ROADSTRIP|TERRAINSTRIP" <results>/host.log   # packages 470 / 588 verts, 8 pkgs at 75
+grep -n "stripRun = 7" <fixture>/src/terrain_game.cpp  # the baked constant itself
+```
+
+Compare the binary's mtime against the commit that last touched what you are
+measuring (`git log -1 --format=%ad <path>`), and rebuild the editor when in
+doubt. A round whose arms all share one wrong fixture keeps its DELTAS - that is
+what saved the probes - but loses the right to be quoted against anyone else's
+absolute numbers.
+
+**One more comparability trap from the same round: `--profile debug` leaves the
+LIVE TOOLS ON, and two of their pollers run inside the instrumenter's `update`
+bracket.** `livepad::tick` and `livedbg::tickFromLoop` `fopen` `livepad.bin` and
+`livedbg.cmd` over `host:` every frame - network I/O inside the measurement.
+Measured on the same fixture, garage day: **4.79 ms of `update` and 6.44 ms of
+`work`**, which is why that control read 36.51 ms against a published 30.42 for
+what a reader would assume was the same scene. `benchmark-district.py
+--profile quiet-debug` is the same build profile with `liveLink`, `liveDebug`,
+`liveLogic`, `timeMachine`, `remotePad` and `inputRecorder` off; with them off
+the two tables agreed to 0.35 ms of `work` and 0.00 ms of `total`. **Say which
+profile a frame-time table was taken on, or it cannot be read against another
+one** - and treat sporadic multi-millisecond `update` outliers as host-I/O
+contention rather than as a finding.
+
 ## Hardware timeline capture
 
 Use tools/hardware-trace.py arm PROJECT before a boot, then export the complete

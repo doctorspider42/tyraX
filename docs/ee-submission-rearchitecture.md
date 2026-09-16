@@ -236,9 +236,32 @@ Recorded so nobody spends a week re-discovering it:
 Both were run on the physical PS2. Raw evidence, arms, ELF hashes and the
 reproduction recipe:
 [ee-probes-2026-09-16](../examples/vehicle-playground/authoring/ee-probes-2026-09-16/README.md).
-Six ELFs, all hashed and distinct; two boots of the control give a
+Seven ELFs, all hashed and distinct; two boots of the control give a
 **repeatability floor of 0.135 ms of `work`**; every run collected all 960 rows
 and reported `reuploads` 0.000 in all four poses.
+
+**Do not read the probes' control against the four-pose table at the top of this
+page without these two facts.** Both are established in the evidence directory,
+not assumed.
+
+- **The probes' control runs the live tools; that table does not.** The probe
+  fixture is `--profile debug`, which leaves `liveDebug` and `remotePad` on, and
+  their pollers `fopen` over `host:` *inside* the instrumenter's `update`
+  bracket. An extra control boot with `--profile quiet-debug` prices them at
+  **4.79 ms of `update` and 6.44 ms of `work`**, and with them off the two tables
+  agree to 0.35 ms of `work` and 0.00 ms of `total` (30.071 against 30.42;
+  39.957 against 39.96). The probes' arm tables should therefore be read through
+  `submit`/`dispatch`, because `update` there carries host-I/O outliers of
+  +3.5 to +4.4 ms that no arm can produce.
+- **The probes' control is a 72-run fixture, not the branch-tip 75.** Its
+  `ROADSTRIP` reports 526 packages against 470 and its `stripRun` bakes `72u`,
+  because the editor binary that regenerated it was built two hours before
+  `9a9d25e0` raised the ceiling — **an editor binary in `build/` is not "the
+  editor at the tree's commit"**. Every arm shares it, so no delta is affected;
+  the absolute level would be a few per cent lower at 75, in the same direction
+  for all of them. And the garage-day capture still hashed to the expected
+  value, which is why **a capture hash is a picture check and never a fixture
+  check** — the producer lines and the baked constant are.
 
 **They cap both directions they were aimed at, and one of them falsifies the
 reason S1 was thought to be safe.** Garage day, frame `work`:
