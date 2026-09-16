@@ -253,6 +253,14 @@ Developer design docs (internals, not user guides):
   block, why one DMA `REF` may replay it, the three facts that turn out to be
   bake-time (the GIFtag, the Z scale and the `MSCAL`), and the memory it costs
   — about as much again as the vertex arrays it duplicates.
+- [The acceptance gate for a restructured static pipeline](baked-stream-acceptance-gate.md)
+  — the gate every earlier renderer round used pins `packetFlushes`, and a run
+  of packages under one `REF` tag cannot cross a flush boundary, so that gate
+  pins the prize. This designs the replacement: a canonical, NOP-normalised hash
+  of the word stream VIF1 actually receives, with texture mutations interleaved,
+  plus byte-identical pixels over a pose sweep — why the VU1 packet tap is the
+  right seam but the wrong shape, and the one hole (DMA lifetime on a frozen
+  fixture, which PCSX2 cannot see at all) that no gate on this fixture closes.
 - [Does the renderer work generalise?](engine-performance-on-a-second-map.md) —
   the control for six rounds of performance work driven by one scene: a second
   map with no content in common gains 8.9% of its work from the same engine.

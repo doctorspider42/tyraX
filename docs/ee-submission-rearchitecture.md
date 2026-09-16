@@ -172,9 +172,17 @@ Five things make this a bounded change here rather than a rewrite:
 4. **The slow path is unchanged.** A mesh whose box straddles the near plane or
    the guard band keeps today's classify-and-clip route. In garage day that is
    36.5 of 1 050 drawn packages.
-5. **It is checkable by construction.** The picture must be byte-identical and
-   the triangle, package and flush counters must not move. That is the same
-   acceptance gate the strip and batching work already used.
+5. **It is checkable by construction** — but **not by the gate this line
+   originally named.** "The triangle, package and flush counters must not move"
+   is the gate every earlier round used, and it is the reason the spike could
+   not deliver: a run of packages under one `REF` cannot cross a packet flush
+   boundary, so pinning `packetFlushes` pins the prize. The replacement is
+   designed in
+   [baked-stream-acceptance-gate.md](baked-stream-acceptance-gate.md) — a
+   canonical hash of the word stream VIF1 actually receives, with texture
+   mutations interleaved, plus byte-identical pixels over a pose sweep. The
+   byte-identical picture half of the old gate survives intact; the counters do
+   not.
 
 Two details to design, not discover: the GIF tag in the block encodes `NLOOP`
 and the primitive type (both bake-time facts), and the scale quadword carries
@@ -420,8 +428,10 @@ merely quieter.
    the picture with the packet already uncached. S1 cannot be built until that
    is answered, and it is worth 1.09 ms when it is.
 3. The baked VIF stream, behind a compile-time switch, with the existing path
-   as the A/B fallback and the counters as the correctness gate — **carrying a
-   per-package visibility test, which Probe A says it cannot drop**. Promoted
+   as the A/B fallback and
+   [the redesigned gate](baked-stream-acceptance-gate.md) — **not** the counters,
+   which pin the prize — as the correctness gate, **carrying a per-package
+   visibility test, which Probe A says it cannot drop**. Promoted
    above S4/S5 and above the `FlushCache` hunt: at 1.09 ms behind an unexplained
    corruption, S1 is now the worst value-for-risk on this page.
 4. S4 and S5 — the two cheap non-pipeline wins. They are needed to reach the

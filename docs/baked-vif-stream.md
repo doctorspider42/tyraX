@@ -137,7 +137,12 @@ The run stops at a **packet flush boundary**. The pipeline flushes every 16
 qbuffer groups, and a mesh whose packages straddle that boundary is submitted
 as two runs in two packets. That is not a defect to fix here: `packetFlushes` is
 one of the counters the acceptance gate pins, so a spike that changed the flush
-cadence could not be checked against the control at all. A mesh that fits inside
+cadence could not be checked against the control at all. **That constraint is
+the spike's, not the design's** — it is exactly why
+[baked-stream-acceptance-gate.md](baked-stream-acceptance-gate.md) replaces the
+counter gate with a check on the word stream VIF1 receives, under which the
+flush cadence is free to move and lengthening the runs becomes available.
+A mesh that fits inside
 one flush is **one tag**; a mesh that does not is two. `MSCNT` at the head of the
 second packet is exactly what the current code emits there too, so the split
 costs a tag and nothing else.

@@ -307,23 +307,29 @@ estimates of what a fix would save.
 ### The baked VIF stream: format proven, memory priced, the prize still unbuilt
 
 [baked-vif-stream.md](baked-vif-stream.md) spiked the central change of
-[ee-submission-rearchitecture.md](ee-submission-rearchitecture.md) — a wholly
+[ee-submission-rearchitecture.md](ee-submission-rearchitecture.md) ï¿½ a wholly
 visible mesh's whole per-frame VIF1 command stream emitted once and replayed by
-one DMA `REF` tag — behind `TYRA_STAPIP_BAKED_STREAM`, **default 0**. The format
+one DMA `REF` tag ï¿½ behind `TYRA_STAPIP_BAKED_STREAM`, **default 0**. The format
 works and the block layout is written down; what is left is everything the spike
 deliberately did not touch.
 
 1. **Decide whether the memory is affordable at all.** Inlining the payload
-   stores every static vertex twice — ~49 bytes per vertex for the textured
-   per-vertex-colour class, three to four megabytes for the Motor District — and
+   stores every static vertex twice ï¿½ ~49 bytes per vertex for the textured
+   per-vertex-colour class, three to four megabytes for the Motor District ï¿½ and
    nothing can free the originals (the bbox cacher, the clip route and the
    generated game all read them). That is the number to argue about before any
    more of this is built.
 2. **The prize is not in the spike.** The spike keeps the per-package
    classification and the 16-group qbuffer flush cadence, because `packetFlushes`
-   is one of the counters the acceptance gate pins. What the plan predicts —
-   ~0.4 ms against 20.44 — needs those removed too, and removing them changes
-   what the gate can compare. Design the next gate before the next change.
+   is one of the counters the acceptance gate pins. What the plan predicts ï¿½
+   ~0.4 ms against 20.44 ï¿½ needs those removed too, and removing them changes
+   what the gate can compare. **The replacement gate is now designed** ï¿½
+   [baked-stream-acceptance-gate.md](baked-stream-acceptance-gate.md): a
+   canonical hash of the word stream VIF1 actually receives, with texture
+   mutations interleaved, plus byte-identical pixels over a pose sweep. It
+   constrains the GS's input without constraining the chain that built it, so
+   the flush cadence is free to move. Its one hole is DMA lifetime on a frozen
+   fixture, which PCSX2 cannot see at all.
 3. **Then the console.** Nothing here is a millisecond on either machine, by
    construction.
 4. **The editor-side bake** (four named requirements at the end of
