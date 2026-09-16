@@ -2324,23 +2324,45 @@ vehicle runtime in templates.cpp; docs/vehicles.md explains the regression.
 ## Motor District and flat-road spans (1.85.0)
 
 The roadgen.cpp / templates.cpp buildRoads twins sample every lateral height,
-then retain the established horizontal collapse, or collapse a non-flat span only
-when every dense sample lies within 0.00001 of an affine 3-D quad. Do not infer planarity from the shoulders: an interior
-crown or saddle must retain its samples. Run examples/vehicle-playground/authoring/verify-road-twins.py
+then retain the established horizontal collapse, or merge a non-flat span's
+lateral cells into MAXIMAL RUNS whose every dense sample lies within
+`kSpanFlatness` of an affine 3-D quad whose parallelogram defect is within
+`kSpanShear` (roadgen.hpp; 1e-5 and 0.05). Do not infer planarity from the
+shoulders: an interior crown or saddle must retain its samples. Run
+examples/vehicle-playground/authoring/verify-road-twins.py
 for a compiled comparison of both actual implementations, then build/drive the
 example. ROADS now logs emitted vertices as well as chunks. The district's
 seven-road network is an EE memory stress case, not just a screenshot fixture.
+
+**The reduction used to be all-or-nothing, and that is why it bought nothing on
+a real map** (docs/roads.md, "The lateral budget"). A road is a decal sampled
+far more finely across than the heightfield under it - the Motor District's
+terrain cell is 4 world units against a 0.5-unit lateral sample - so the FULL
+width is almost never one plane, and every one of a 13-unit street's 26 cells
+survived although runs of eight sit inside one terrain triangle. Two lessons
+generalise past roads. A reduction whose test is "is the whole thing flat"
+answers no on every real surface; test sub-spans. And the budget that was
+actually blocking it was the UV one, not the surface one, because the two
+triangles of a trapezoid interpolate ST with two different affine maps and every
+street in the district is a curved spline - so measure which of your gates is
+firing before relaxing either.
 
 ## Road and terrain triangle strips (1.96.0)
 
 `roadgen::tessellateStrips` is a THIRD twin of the same surface, beside
 `tessellate` (the triangle list, which stays the source of truth for the editor
 viewport, picking and the align pass) and the generated `buildRoads`. Both
-emitters now share `buildRows` and `spanStride`, so the sampling, the height
+emitters now share `buildRows` and `spanCuts`, so the sampling, the height
 queries, the texture arc length, the lift and the exact planar-span reduction
-happen in ONE place and the two orders cannot drift apart. `spanStride` still
-contains the literal `const int stride = (flat || planar) ? crossSteps : 1;`
-that `verify-road-twins.py` pins by text - moving it is a deliberate act.
+happen in ONE place and the two orders cannot drift apart. `spanCuts` contains
+the greedy extension `while (j1 < crossSteps && spanIsExact(rows, i, j0, j1 + 1))
+++j1;` that `verify-road-twins.py` pins by text - moving it is a deliberate act,
+and the oracle builds its dense reference by DELETING that one line.
+
+`templates.cpp` carries both budgets as literals, because the generated
+`buildRoads` is a raw string and cannot read a constant. A `static_assert`
+against roadgen.hpp at the top of templates.cpp is what stops them drifting;
+change a budget and the editor build tells you which literal to follow.
 
 The strip half is where the frame's geometry actually is (93 150 road vertices
 in 90 chunks against 13 176 in every baked model), and being a grid it reaches

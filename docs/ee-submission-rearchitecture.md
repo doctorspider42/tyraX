@@ -204,23 +204,70 @@ Predicted EE cost: about 300 visibility units at roughly 400 cycles each, near
 | S1 | Build the frame's chain in the EE scratchpad (16 KB at `0x70000000`, unused by this engine) or in uncached memory, and stop calling `FlushCache` | **−1.09 MEASURED**, not −2.10 | **medium** — dropping the flush corrupted the picture even with the packet uncached; see the probes |
 | S2 | Remove the per-mesh `FLUSHE`: a second uniform bank at VU1 addresses 22..43 and a bank bit in the count word | via VIF1 wait; little until S1 and the redesign land | medium — touches 15 microprograms; sequence it last |
 | ~~S3~~ | ~~Classify per 1/3-bbox part instead of per package~~ **REFUTED, do not build** | the whole bracket is **1.79 ms** and the arm that coarsens it measured **+4.59** | — |
-| S4 | The shared reflection probe costs +26 flushes and +10 444 triangles on every second frame | ~1.5-2 averaged | low — fewer objects, coarser LOD, or a longer cadence |
+| S4 | The shared reflection probe costs +26 flushes and +10 444 triangles on every second frame | **2.07 / 2.56 MEASURED**, not predicted | low — fewer objects, coarser LOD, or a longer cadence |
 | S5 | `vehicles_included_ms` is a flat 2.26 ms with the car parked | ~1.5 | low — per-wheel matrices instead of an EE vertex rebake |
 
-## The triangle budget, which is the other cardinal half
+## The triangle budget, which is the other cardinal half — MEASURED, 2026-09-16
 
-- **The road surface alone is 31 050 triangles** in the whole map
+All three of the attacks below were run on hardware. Raw evidence, arms, ELF
+hashes and the reproduction recipe:
+[road-lod-2026-09-16](../examples/vehicle-playground/authoring/road-lod-2026-09-16/README.md).
+Nine boots, `--profile quiet-debug`, four parked poses, 240 recorded rows each,
+**repeatability floor 0.016 ms of `work`** — eight times tighter than the
+probes' round, because those ran `debug`.
+
+**The finding that reorders this section: the garage barely contains any road.**
+The road reduction that shipped takes the district from 31 050 road triangles to
+21 252 and from 470 packages to 337 — and the garage-day frame loses **614** of
+them, 1.5% of its 40 961. The outer-road poses lose 2 817, 17.6%. The bullet
+below was true about the MAP and wrong about the garage, which is the pose this
+whole page is about.
+
+| attack | garage day | garage night | outer day | outer night | verdict |
+| --- | ---: | ---: | ---: | ---: | --- |
+| road lateral budget | **−0.358** | −0.367 | **−0.591** | −0.547 | **shipped** |
+| + terrain LOD 160 | −0.738 | −0.821 | −0.607 | −0.609 | recommended, one check outstanding |
+| + mesh LOD 64 | −0.166 | −0.235 | −0.444 | −0.362 | **REFUTED, and now for a reason** |
+| + reflection probe every 4th frame | **−1.391** | **−1.645** | −1.133 | −1.087 | a bounding probe for S4 |
+
+- **The road surface was 31 050 triangles** in the whole map
   (`ROADSTRIP scene 0 strips 1 packages 470 triangles 31050`). A ribbon of
-  constant cross-section does not need them; longitudinal LOD is the largest
-  single content lever in this scene.
-- **Authored LOD distances are zero.** The LOD trials were rejected because they
-  repeated 25 / 25 / 50 / 50 — but that was measured while the EE was the
-  limiter, where no reduction in VU1 work could show. They must be re-run after
-  the EE half lands, not treated as settled.
+  near-constant cross-section does not need them — but the attack that worked
+  was **lateral**, not longitudinal, and the reason is in
+  [roads.md](roads.md), "The lateral budget": the reduction was all-or-nothing,
+  and a road is a decal sampled eight times more finely across than the 4-unit
+  terrain cell it is projected onto, so the full width was almost never one
+  plane and nothing ever merged. Merging maximal coplanar RUNS instead is
+  −31.6% of the triangles with the surface and every seam exactly unchanged.
+- **Authored LOD distances are zero, and the two halves of the rejected pair
+  have OPPOSITE SIGNS.** Re-run against `work_ms` rather than displayed FPS,
+  mesh LOD 64 removes 592 triangles, takes 0.32 ms out of `dispatch` and 0.31 ms
+  out of the VU1 wait — and makes the frame **0.19 ms slower**, because the
+  per-object tier selection costs more than the geometry it saves at this object
+  count. That is no longer a null result. Terrain LOD is the useful half, worth
+  **−0.44 ms of garage day at 96** — but 96 lets the second detail band (every
+  4th sample, beyond 2.2x the distance) reach the map, and there the coarse
+  ground rises up to 0.38 units above a road that floats 0.12 above the dense
+  heightfield. At **160** the second band starts at 352 units and cannot fire,
+  the worst rise is 0.0175 against the 0.12 lift, and −0.38 / −0.45 ms survives.
+- **The shared reflection probe is worth more in the garage than both of those
+  together.** Halving its cadence buys 1.03 / 1.28 ms, so the whole probe costs
+  **2.07 ms of garage day and 2.56 ms of garage night** — S4's "roughly 2 ms
+  averaged" was a prediction from counts and it was right. Anyone picking up the
+  triangle budget should start there, not at the road.
 - **There is no occlusion culling of any kind.** A city district is the textbook
   case for baked sectors/portals or a PVS. [portals.md](portals.md) and
   [impostors.md](impostors.md) exist as per-object features; what is missing is
-  world-level visibility.
+  world-level visibility. Nothing in this round touched it, and after this round
+  it is the largest untried lever on the garage.
+
+**A rule worth carrying forward, because two independent reductions now agree on
+it.** A triangle REMOVED from this frame is worth about **0.4** of its VU1 cycle
+count, while a triangle ADDED costs about **0.9** of it. The road arm's 614 and
+2 817 removed triangles predict 0.152 and 0.697 ms of unlit VU1 and moved the
+VIF1 wait by 0.055 and 0.274 — 36-39% — which is the same fraction the
+spot-light gate reached when it removed 60 cycles (41%), and the mirror of the
+87% that the +33% payload probe measured when it ADDED work. Budget accordingly.
 
 ## What is NOT the lever, with the evidence
 
@@ -425,11 +472,20 @@ merely quieter.
    above S4/S5 and above the `FlushCache` hunt: at 1.09 ms behind an unexplained
    corruption, S1 is now the worst value-for-risk on this page.
 4. S4 and S5 — the two cheap non-pipeline wins. They are needed to reach the
-   20 ms rung even with the architecture, so they are no longer optional.
-5. The triangle budget, promoted out of last place: road LOD, the authored LOD
-   distances the earlier trials could not evaluate while the EE was the limiter,
-   and world visibility. The recomputation above says the EE half does not clear
-   the rung on its own.
+   20 ms rung even with the architecture, so they are no longer optional. **S4
+   is now priced on hardware at 2.07 / 2.56 ms and is the single largest item
+   left on the garage frame outside the pipeline itself** — see the triangle
+   budget section. It should be promoted above the baked stream, not left below
+   it: it is worth twice what the whole triangle budget bought, and its three
+   options are content decisions rather than a rewrite.
+5. ~~The triangle budget.~~ **RUN, on hardware, 2026-09-16.** The road lateral
+   budget shipped (−0.358 / −0.591 ms; −31.6% of the district's road triangles
+   with the surface and every seam exactly unchanged). Mesh LOD is refuted with
+   a mechanism. Terrain LOD 160 is a measured −0.38 / −0.45 ms with its two
+   quality risks bounded in world units, and owes one drive across the band.
+   **The garage contained only 614 of the 9 798 road triangles removed, which is
+   why this front did not close the gap and why S4 outranks what is left of it.**
+   World visibility is untried and is now the largest lever on the garage.
 6. S2 — the uniform bank, once VU1 is the limiter and the drain costs something.
 
 ## What this page does not establish

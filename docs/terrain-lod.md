@@ -80,6 +80,49 @@ The peak *memory* is unchanged: a tile's buffers keep their capacity when a slot
 is recycled, so LOD buys transform and draw cost, not RAM. Memory is the view
 distance's job.
 
+## What it is worth, and what bounds it — measured on a PS2 (1.105)
+
+The Motor District is the worked example, and the two numbers below are the two
+halves of the choice. Physical console, `--profile quiet-debug`, four parked
+poses, repeatability floor 0.016 ms of frame `work`
+([evidence](../examples/vehicle-playground/authoring/road-lod-2026-09-16/README.md)):
+
+| detail distance | garage day | garage night | garage triangles |
+| ---: | ---: | ---: | ---: |
+| 96 | **−0.437 ms** | −0.530 ms | −2 350 |
+| 160 | −0.380 ms | −0.454 ms | −1 102 |
+
+Nothing gets worse in the outer-road poses at either setting, and **the saving
+is entirely EE-side**: `bounds` and `prepare` fall while the VU1 wait actually
+rises 0.01–0.05 ms. That is the shape to expect — a coarser tile is fewer VU1
+packages, and almost every per-frame term of static submission is per-package.
+
+**The constraint is the second band, and it is what picks the distance.** A road
+is a decal lifted 0.12 world units above the *dense* heightfield
+([roads.md](roads.md)); where a coarse tile rises above it, the ground shows
+through the asphalt. Sampled at all 49 149 of the district's seven roads' own
+dense sample positions:
+
+| coarsening | worst rise above the road | positions where the ground wins |
+| --- | ---: | ---: |
+| every 2nd sample | **0.0175** | 22 of 49 149 |
+| every 4th sample | **0.3807** | 3 023 of 49 149 |
+
+The first band is safe with a 6.9x margin on the lift. The second buries the
+road over about 6% of its area by more than three times the lift. Since the
+second band starts at **2.2x** the authored distance, a map with terrain-glued
+roads wants a distance large enough that the second band never reaches its far
+corner: 320 units of terrain needs about 160, and 96 does not do it.
+
+The transition itself is not the problem, and that is measurable too. The worst
+vertical disagreement between the dense mesh and the every-2nd-sample mesh
+anywhere on this heightfield is 0.2363 world units, and at 160 units away it
+subtends **0.57 pixels** on the PAL 512x448 raster — the settling is sub-pixel
+by construction rather than by opinion.
+
+`terrain-lod-burial.py` and `terrain-lod-step.py` in the evidence directory
+compute both tables for any project; neither needs a console or an emulator.
+
 ## See also
 
 - [The terrain](terrain.md) — view distance, streaming, and building without one.

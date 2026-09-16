@@ -302,6 +302,32 @@ bounded-span reduction is retained. Generic planar-slope fixtures improved, but
 they are not evidence that the authored district changed or that its FPS gain
 combines with other work.
 
+**Reopened and completed, 2026-09-16 (1.105).** The sentence above is the whole
+problem in one line: the reduction improved generic planar fixtures and did
+nothing to the authored district. It was all-or-nothing — one full-width quad,
+or all `crossSteps` lateral cells — and the district's streets are curved
+splines over a heightfield whose cell is 4 world units against the road's
+0.5-unit lateral sampling, so the full width was almost never one plane and the
+dense mesh always survived. Step 2 of this task ("first try exact reductions on
+linear/planar sections") had been read as *the whole span*; the reduction that
+pays is **per sub-span**.
+
+Merging maximal coplanar runs instead takes the district from **31 050 road
+triangles in 470 VU1 packages to 21 252 in 337**, with the surface and every
+T-vertex seam exactly unchanged and a worst UV drift of 0.36 of a texel. On the
+physical console that is **−0.358 ms of garage-day `work` and −0.591 ms in the
+outer-road poses**. The oracle this task asked for was extended, not bypassed:
+its tripwire fired on the changed reduction, and it now carries three checks
+that print their worst case — surface, UV in texels, and an exact T-vertex seam
+test — plus three heightfield fixtures, because none of the original eight can
+exercise a lateral merge at all. See [roads.md](roads.md), "The lateral budget",
+and [the raw evidence](../examples/vehicle-playground/authoring/road-lod-2026-09-16/README.md).
+
+**And the acceptance criterion this task should have carried.** The road surface
+is 31 050 triangles in the MAP; the garage-day frame contains 614 of the 9 798
+removed. A content reduction has to be measured in the pose that is slow, not in
+the map inventory.
+
 ### Task 5: shared reflection capture — complete correctness and attribution
 
 The shared `@sky` target already refreshed every second frame before this work;
@@ -317,6 +343,24 @@ teleports, moving or visibility-changing reflected geometry, alternate views
 and active gameplay make a broader reuse policy unsafe without a tested error
 budget. All three vehicle paint materials and reflection texture memory remain
 in scope.
+
+**What the probe costs is now measured, 2026-09-16.** Step 1 of this task asked
+for capture and body costs separately before choosing policy, and the capture
+half had never been priced on hardware. A bounding probe — the shared 128x128
+target refreshed every FOURTH frame instead of every second, forcing the
+constant of the cadence that is already adaptive, with the retained capture
+basis untouched — buys **1.033 ms of garage-day `work` and 1.278 ms at night**,
+0.54 in the outer poses, for −2 643 triangles and −6.5 packet flushes a frame.
+Halving the cadence removes half the probe, so **the whole shared probe costs
+about 2.07 ms of garage day and 2.56 ms of garage night**.
+
+That is larger than the road reduction and the terrain LOD together in the
+garage, and it makes this task's remaining half the most valuable item on the
+district. It is **not** a recommendation to ship the longer cadence: a 12.5 Hz
+reflection on a car the player is looking at is a visible thing and nobody has
+looked. The three options step 2 leaves open — fewer objects in the probe pass,
+a coarser LOD for it, or a longer cadence — are now worth designing against a
+real number. [Evidence](../examples/vehicle-playground/authoring/road-lod-2026-09-16/README.md).
 
 ## Full-asset hardware follow-up (2026-09-14)
 
@@ -338,6 +382,35 @@ prioritize EE-side static submission and host-I/O profiles, not GS pixel fill.
 - LOD trials are concluded for this pass: model 64 and model 64 / terrain 96
   both repeated 25 / 25 / 50 / 50. Keep authored distances at zero; no full
   crossing acceptance is claimed for these discarded variants.
+
+  **RE-RUN, 2026-09-16, and the pair splits.** Displayed FPS could not have
+  shown anything here: the frame was pinned to a vsync rung, so no reduction in
+  VU1 or EE work could move it. Measured against `work_ms` and the triangle
+  counter on the physical console, the two halves have **opposite signs**.
+  *Mesh LOD 64* removes 592 triangles and takes 0.32 ms out of `dispatch` and
+  0.31 ms out of the VU1 wait, and still makes the frame **0.19 ms slower** —
+  the per-object tier selection costs more than the geometry it saves at this
+  object count, visible as `prepare` +0.269 and `packet` +0.153. It is now
+  refuted with a mechanism rather than with a null result. *Terrain LOD* is the
+  useful half: **−0.437 ms of garage-day `work` at 96**, −0.530 at night, and
+  nothing worse anywhere. Step 4's own warning is what bounds it — a coarse tile
+  must not bury a road that follows the dense heightmap — and that is now a
+  number: across all 49 149 of the seven roads' dense sample positions the
+  every-2nd-sample mesh rises at most **0.0175** above a road lifted **0.12**,
+  while the every-4th-sample mesh rises **0.3807** and buries it over about 6%
+  of its area. The second band starts at 2.2x the authored distance, so the
+  setting must keep the whole map inside the first: **160** does (the second
+  band would start at 352 units in a 320-unit map) and keeps −0.380 / −0.454.
+  The worst shape settling at a band crossing subtends 0.57 pixels on the PAL
+  raster, which answers "no distracting transitions" with a measurement.
+
+  **The authored distances stay at zero all the same, and the reason is step 4
+  of this task.** A parked fixture cannot see the one cost terrain LOD has —
+  the tile rebuild when a band moves with the player — and "reject a setting
+  that only improves the parked-camera benchmark" is this plan's own rule. One
+  drive across the 160-unit band in both directions is the whole remaining gate.
+  Evidence, arms and harnesses:
+  [road-lod-2026-09-16](../examples/vehicle-playground/authoring/road-lod-2026-09-16/README.md).
 - The baseline repeat after all candidates returned 25 / 20 / 50 / 50.
   [Raw results](../examples/vehicle-playground/authoring/performance-results.json)
   record both baseline runs and all candidates.

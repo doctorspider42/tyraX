@@ -1,0 +1,17 @@
+{
+  "arm": "ctl",
+  "label": "boot1",
+  "pid": 33468,
+  "started": "2026-09-16T20:50:47.0163499+02:00",
+  "elf": "DEB78BF9C20E1C33DD39771141CF0582F735DBCF7E28ABF5E4441ECDE6B4BB68",
+  "armJson": {
+    "arm": "ctl",
+    "profile": "quiet-debug",
+    "stripRun": "75",
+    "elfSha256": "DEB78BF9C20E1C33DD39771141CF0582F735DBCF7E28ABF5E4441ECDE6B4BB68",
+    "built": "2026-09-16T20:48:16.1894878+02:00",
+    "editor": "C:\\Users\\papaj\\AppData\\Local\\Temp\\claude\\D--tyra-editor\\40dd8f5e-81d5-4703-bac0-575680f88601\\scratchpad\\tyrax-editor-ctl.exe",
+    "editorSha256": "E9E120E285A4124F51B496FAE739FC9AFB75139038C9AEBBA33379A3F2AF3A05",
+    "commit": "e24e358a55d9f563dcd0fc067a7bb62fb86bcbec"
+  }
+}

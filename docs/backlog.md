@@ -307,22 +307,22 @@ estimates of what a fix would save.
 ### The baked VIF stream: format proven, memory priced, the prize still unbuilt
 
 [baked-vif-stream.md](baked-vif-stream.md) spiked the central change of
-[ee-submission-rearchitecture.md](ee-submission-rearchitecture.md) — a wholly
+[ee-submission-rearchitecture.md](ee-submission-rearchitecture.md) ï¿½ a wholly
 visible mesh's whole per-frame VIF1 command stream emitted once and replayed by
-one DMA `REF` tag — behind `TYRA_STAPIP_BAKED_STREAM`, **default 0**. The format
+one DMA `REF` tag ï¿½ behind `TYRA_STAPIP_BAKED_STREAM`, **default 0**. The format
 works and the block layout is written down; what is left is everything the spike
 deliberately did not touch.
 
 1. **Decide whether the memory is affordable at all.** Inlining the payload
-   stores every static vertex twice — ~49 bytes per vertex for the textured
-   per-vertex-colour class, three to four megabytes for the Motor District — and
+   stores every static vertex twice ï¿½ ~49 bytes per vertex for the textured
+   per-vertex-colour class, three to four megabytes for the Motor District ï¿½ and
    nothing can free the originals (the bbox cacher, the clip route and the
    generated game all read them). That is the number to argue about before any
    more of this is built.
 2. **The prize is not in the spike.** The spike keeps the per-package
    classification and the 16-group qbuffer flush cadence, because `packetFlushes`
-   is one of the counters the acceptance gate pins. What the plan predicts —
-   ~0.4 ms against 20.44 — needs those removed too, and removing them changes
+   is one of the counters the acceptance gate pins. What the plan predicts ï¿½
+   ~0.4 ms against 20.44 ï¿½ needs those removed too, and removing them changes
    what the gate can compare. Design the next gate before the next change.
 3. **Then the console.** Nothing here is a millisecond on either machine, by
    construction.
@@ -398,6 +398,37 @@ The district itself remains at 93,150 road vertices in 90 chunks. Generic
 planar-slope fixtures improved, and both environment LOD trials (model 64; model 64 plus terrain 96)
 were rejected for this map: neither improved the four-view median FPS. Authored
 distances remain zero; discarded variants have no full driving acceptance.
+
+**All three of those were re-measured on a physical PS2, 2026-09-16, against
+frame `work` rather than displayed FPS** ([evidence](../examples/vehicle-playground/authoring/road-lod-2026-09-16/README.md)).
+What is now settled, and what is left:
+
+- ~~**The road's lateral reduction.**~~ **DONE in 1.105** â€” it was all-or-nothing
+  and therefore never fired on a curved street over a heightfield. Merging
+  maximal coplanar runs: 31 050 road triangles in 470 packages -> 21 252 in 337,
+  surface and seams exactly unchanged, âˆ’0.358 / âˆ’0.591 ms on the console.
+  ([roads.md](roads.md), "The lateral budget".)
+- ~~**Mesh LOD distance.**~~ **REFUTED with a mechanism**: 64 removes 592
+  triangles, takes 0.32 ms out of `dispatch` and 0.31 out of the VU1 wait, and
+  makes the frame **0.19 ms slower**. Do not retry it at this object count
+  without attacking the per-object tier selection first.
+- **Terrain LOD distance 160 is a real âˆ’0.38 / âˆ’0.45 ms and owes exactly one
+  check.** Both quality risks are bounded in world units (the coarse ground
+  rises at most 0.0175 above a road lifted 0.12; the band transition subtends
+  0.57 pixels). What a parked fixture cannot see is the tile rebuild while the
+  player moves, so one drive across the 160-unit band in both directions is the
+  whole remaining gate. ([terrain-lod.md](terrain-lod.md).)
+- **The shared reflection probe is the biggest item left on the garage frame**,
+  and it is no longer an estimate: a bounding probe halving its cadence buys
+  1.033 / 1.278 ms, so the whole probe costs **2.07 / 2.56 ms**. That is more
+  than the road reduction and the terrain LOD together. Item 4 above priced it
+  at 0.820 ms in PCSX2; the console says 2.5x that. The three options â€” fewer
+  objects, a coarser LOD for the probe pass, a longer cadence â€” now deserve a
+  design rather than a place behind the triangle budget.
+- **World visibility is untried and is now the largest lever on the garage.**
+  The garage-day frame contained only 614 of the 9 798 road triangles the
+  lateral budget removed, which is the measured reason the triangle budget did
+  not close the 20 ms rung: the road is in the map, not in that view.
 
 
 The retired `PROGRESS.md` is still available when old implementation history is

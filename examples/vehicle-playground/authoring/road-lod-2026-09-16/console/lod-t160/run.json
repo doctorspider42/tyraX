@@ -1,0 +1,19 @@
+{
+  "arm": "lod-t160",
+  "label": "",
+  "pid": 15060,
+  "started": "2026-09-16T21:12:22.1666430+02:00",
+  "elf": "1152919E7789B19CF64B8A6F45DA76999EE8B5EB87A8C2ACAAD22EE3F4CD9220",
+  "armJson": {
+    "arm": "lod-t160",
+    "profile": "quiet-debug",
+    "stripRun": "75",
+    "meshLod": 0.0,
+    "terrainLod": 160.0,
+    "elfSha256": "1152919E7789B19CF64B8A6F45DA76999EE8B5EB87A8C2ACAAD22EE3F4CD9220",
+    "built": "2026-09-16T21:12:12.9635278+02:00",
+    "editor": "C:\\Users\\papaj\\AppData\\Local\\Temp\\claude\\D--tyra-editor\\40dd8f5e-81d5-4703-bac0-575680f88601\\scratchpad\\tyrax-editor-cand.exe",
+    "editorSha256": "E5B3413EE1017CB83955B8FEE241BDB0578FC4EDC11FDF2F59190DFD7F41A788",
+    "commit": "e24e358a55d9f563dcd0fc067a7bb62fb86bcbec"
+  }
+}
