@@ -459,34 +459,62 @@ is the third of three things that all have to happen - which also means the
 redesign should be built so that fewer triangles make it cheaper rather than
 merely quieter.
 
+## The map is not the view, and this page promoted a front on the wrong inventory
+
+The triangle budget was promoted here on the strength of "the road surface alone
+is 31 050 triangles in the map". That sentence is true, and it was the wrong
+number to reason from. Cutting the district's road triangles by **31.6%
+map-wide** removes **614 from the garage-day frame, 1.5% of its 40 961**. The
+outer poses lose 17.6%, which is where that front's value turned out to be.
+
+**Inventory the view, never the map.** Nothing in the map-wide counter is wrong;
+it simply does not say what the camera draws, and every pose in this scene
+disagrees with it. The error was this page's, not the measurement's.
+
+Two numbers from that round worth carrying into every later estimate:
+
+- **A removed triangle is worth about 0.4 of its cycle count; an added one costs
+  about 0.9.** Two independent reductions now agree with the spot-light gate's
+  41%, against the payload probe's 87%. Do not budget a reduction at the full
+  rate.
+- **Per-bag cost is the term that does not shrink with the triangle count.**
+  Mesh LOD 64 removes 592 triangles and takes 0.315 ms more off `dispatch` than
+  the road arm, then adds 0.272 ms of `prepare` and nets +0.192. Anything that
+  multiplies distinct bags pays this, which is why LOD tiers keep failing here
+  and why making `prepare` scale with something other than the bag count would
+  unblock more than itself.
+
 ## Order of work
 
 1. ~~Probe A and Probe B.~~ **DONE, on hardware, 2026-09-16.** S3 does not ship;
    the recoverable part of the `send_packet2` bracket is 0.84 ms.
-2. **Find out what else `FlushCache` was writing back** - dropping it corrupted
-   the picture with the packet already uncached. S1 cannot be built until that
-   is answered, and it is worth 1.09 ms when it is.
-3. The baked VIF stream, behind a compile-time switch, with the existing path
-   as the A/B fallback and the counters as the correctness gate — **carrying a
-   per-package visibility test, which Probe A says it cannot drop**. Promoted
-   above S4/S5 and above the `FlushCache` hunt: at 1.09 ms behind an unexplained
-   corruption, S1 is now the worst value-for-risk on this page.
-4. S4 and S5 — the two cheap non-pipeline wins. They are needed to reach the
-   20 ms rung even with the architecture, so they are no longer optional. **S4
-   is now priced on hardware at 2.07 / 2.56 ms and is the single largest item
-   left on the garage frame outside the pipeline itself** — see the triangle
-   budget section. It should be promoted above the baked stream, not left below
-   it: it is worth twice what the whole triangle budget bought, and its three
-   options are content decisions rather than a rewrite.
-5. ~~The triangle budget.~~ **RUN, on hardware, 2026-09-16.** The road lateral
-   budget shipped (−0.358 / −0.591 ms; −31.6% of the district's road triangles
-   with the surface and every seam exactly unchanged). Mesh LOD is refuted with
-   a mechanism. Terrain LOD 160 is a measured −0.38 / −0.45 ms with its two
-   quality risks bounded in world units, and owes one drive across the band.
-   **The garage contained only 614 of the 9 798 road triangles removed, which is
-   why this front did not close the gap and why S4 outranks what is left of it.**
-   World visibility is untried and is now the largest lever on the garage.
-6. S2 — the uniform bank, once VU1 is the limiter and the drain costs something.
+2. ~~The triangle budget.~~ **RUN, on hardware, 2026-09-16.** The road lateral
+   budget shipped (−0.358 / −0.591 ms; −31.6% of the district's road
+   triangles with the surface and every seam exactly unchanged). Mesh LOD is
+   refuted with a mechanism. Terrain LOD 160 is a measured −0.38 / −0.45 ms
+   with its two quality risks bounded in world units, and owes one drive across
+   the band before it is authored.
+3. **S4, the shared reflection probe.** Priced on hardware at **2.07 ms garage
+   day and 2.56 at night** — more than the road budget and terrain LOD together
+   are worth there, and the largest unclaimed saving on this page. Its three
+   options are content decisions, not a rewrite. Task 5 of the
+   [Motor District plan](motor-district-performance-plan.md) sets the
+   correctness constraints; the capture-basis work there must not be undone.
+4. **The baked VIF stream**, behind a compile-time switch, with the existing
+   path as the A/B fallback — **carrying a per-package visibility test, which
+   Probe A says it cannot drop**, and gated by
+   [the acceptance gate](baked-stream-acceptance-gate.md) rather than by the
+   counters, which is what stopped the spike.
+5. **World visibility** — baked sectors, portals or a PVS. With the road front
+   priced, this is the largest untried lever on the garage, and the only one
+   that removes EE and VU1 work at the same time. There is still no occlusion
+   culling of any kind in a scene made of buildings.
+6. S5, the wheel rebake; and terrain LOD 160 once somebody drives the band.
+7. **The `FlushCache` hunt (S1).** Dropping it corrupted the picture with the
+   packet already uncached, and it is worth 1.09 ms when the cause is found.
+   That is the worst value-for-risk here; it stays on the list only because the
+   corruption itself is worth understanding.
+8. S2 — the uniform bank, once VU1 is the limiter and the drain costs something.
 
 ## What this page does not establish
 
