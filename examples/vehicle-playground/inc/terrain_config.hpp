@@ -123,6 +123,21 @@ constexpr float ANIM_LOD_DISTANCE = 0.0F;
 // the ~25% one. 0 = off (the build then bakes no LOD chains at all).
 constexpr float MESH_LOD_DISTANCE = 0.0F;
 
+// Shared reflection probe reuse (Preferences > Rendering,
+// docs/reflective-materials.md "The reuse budget"): how far the retained
+// 128x128 target may be out of date, IN PIXELS OF ITSELF, before the probe
+// re-renders. The probe already runs only every second frame and already
+// retains the basis that produced the image; this is the other half - do not
+// capture at all while nothing that feeds the capture has moved. 0 = capture
+// on every cadence beat, i.e. exactly the pre-1.106 behaviour.
+constexpr float REFLECTION_REUSE_BUDGET = 1.0F;
+// The probe's own raster, in pixels across, and its horizontal field of view
+// in degrees - the two numbers that turn an angle into a pixel count. They
+// must match the pushEnvView call in renderScene; both are compile-time facts
+// of RendererCoreEnvMap and of that call, not settings.
+constexpr float REFLECTION_PROBE_PIXELS = 128.0F;
+constexpr float REFLECTION_PROBE_FOV_DEG = 110.0F;
+
 // Static batching (Preferences > Rendering): merge non-moving primitives and
 // compact imported-model parts sharing a texture into world-space bags -
 // each StaPip submit costs ~0.7-1.5 ms of fixed EE overhead on real

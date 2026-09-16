@@ -20050,17 +20050,178 @@ void TerrainGame::renderScene() {
   // Reflected-probe mode renders a probe PER OBJECT, interleaved with the
   // object draws (renderObjectProbe) - this shared pass covers only the
   // classic level-forward aim.
-  if (!ENV_PROBE_REFLECTED && g_dynamicEnvUsers > 0 && skyDome.bag &&
-      (refreshEnvMap || !sharedEnvBasisValid) && !splitPassActive) {
-    const u32 costSharedEnvStart = costStart();
-    auto& core = engine->renderer.core;
-    // Level forward: keeps the sphere map's horizon on its center line.
-    V3 lvl = {envFwd.x, 0.0F, envFwd.z};
+  // Level forward: keeps the sphere map's horizon on its center line. Hoisted
+  // out of the capture block because the reuse gate below has to compare this
+  // frame's aim against the one that produced the retained image.
+  V3 lvl = {envFwd.x, 0.0F, envFwd.z};
+  {
     const float ll = sqrtf(lvl.x * lvl.x + lvl.z * lvl.z);
     if (ll > 0.0001F)
       lvl.x /= ll, lvl.z /= ll;
     else
       lvl = {1.0F, 0.0F, 0.0F};
+  }
+  // ---- the reuse budget (docs/reflective-materials.md) ---------------------
+  // Task 5 of the Motor District plan asks for two things: retain the capture
+  // BASIS with the target (done above, 1.85.0) and "detect conditions
+  // permitting reuse: unchanged capture pose and unchanged relevant
+  // scene/lighting". This is the second one. Everything that feeds the
+  // capture is compared against what produced the retained image, and the
+  // probe skips its cadence beat while nothing has moved far enough to matter.
+  //
+  // The quality contract is a NUMBER, not a cadence: how far the image may be
+  // out of date IN PIXELS OF ITS OWN 128-PIXEL TARGET. One radian of aim is
+  // REFLECTION_PROBE_PIXELS / (fov in radians) pixels, and every pose term -
+  // aim, eye translation seen as parallax on the NEAREST reflected object, the
+  // sun and moon directions, their radii, the moon's roll - converts through
+  // that one factor and is SUMMED, so the figure bounds the worst displacement
+  // rather than describing a typical one. Colour is not traded at all: the sky
+  // tint, the grade compensation and the moon's opacity are compared at the
+  // 8-bit precision the GS actually stores, so a capture is skipped only when
+  // the colours would come out bit-identical. Nor is content: a reflected
+  // object that moves, rotates, scales, appears, vanishes or dirties its
+  // geometry invalidates outright.
+  //
+  // It can only ever REDUCE captures - the every-second-frame cadence stays
+  // the ceiling - so the worst case is exactly the old behaviour. The honest
+  // statement of the staleness is "the budget, plus one cadence beat's motion",
+  // because the drift is noticed on a beat and acted on at that same beat.
+  static V3 sharedEnvFwd = {0.0F, 0.0F, 1.0F};
+  static float sharedEnvEyeX = 0.0F, sharedEnvEyeY = 0.0F, sharedEnvEyeZ = 0.0F;
+  static float sharedEnvNearest = 1.0F;  // to the nearest reflected object
+  static float sharedEnvSun[3] = {0.0F, 1.0F, 0.0F};
+  static float sharedEnvMoon[3] = {0.0F, -1.0F, 0.0F};
+  static float sharedEnvSunRad = 0.0F, sharedEnvMoonRad = 0.0F;
+  static float sharedEnvMoonRoll = 0.0F;
+  static unsigned int sharedEnvColorKey = ~0u;
+  static unsigned int sharedEnvContentKey = ~0u;
+  // Pixels per radian of the probe's own raster. Both constants are facts of
+  // the pushEnvView call below, not settings - keep them in step with it.
+  constexpr float kEnvPxPerRad =
+      REFLECTION_PROBE_PIXELS / (REFLECTION_PROBE_FOV_DEG * 0.01745329252F);
+  bool envReuseOk = false;
+  float envNearest = 1.0F;
+  unsigned int envColorKey = 0u, envContentKey = 0u;
+  // Only on a beat the cadence would have captured on: off-beat frames capture
+  // nothing either way, so the walk below would be pure cost.
+  if (!ENV_PROBE_REFLECTED && g_dynamicEnvUsers > 0 && skyDome.bag &&
+      (refreshEnvMap || !sharedEnvBasisValid) && !splitPassActive) {
+    // FNV-1a over the quantised inputs. Two keys, because they answer
+    // different questions: `color` is what the capture would PAINT, `content`
+    // is what it would DRAW.
+    unsigned int ck = 2166136261u, nk = 2166136261u;
+    auto mixByte = [](unsigned int& h, unsigned int b) {
+      h = (h ^ (b & 0xFFu)) * 16777619u;
+    };
+    auto mixWord = [&](unsigned int& h, unsigned int w) {
+      mixByte(h, w);
+      mixByte(h, w >> 8);
+      mixByte(h, w >> 16);
+      mixByte(h, w >> 24);
+    };
+    // Colour, at the 8-bit precision the GS stores. The dome's own colour
+    // bags are nominal 0..128, so 2x puts them on the same 0..255 grid as the
+    // 0..1 factors.
+    auto q255 = [](float v, float scale) -> unsigned int {
+      const float x = v * scale;
+      if (x <= 0.0F) return 0u;
+      if (x >= 255.0F) return 255u;
+      return (unsigned int)(x + 0.5F);
+    };
+    mixByte(ck, q255(scriptCtx.skyColor.r, 2.0F));
+    mixByte(ck, q255(scriptCtx.skyColor.g, 2.0F));
+    mixByte(ck, q255(scriptCtx.skyColor.b, 2.0F));
+    mixByte(ck, q255(dayNightTopR, 2.0F));
+    mixByte(ck, q255(dayNightTopG, 2.0F));
+    mixByte(ck, q255(dayNightTopB, 2.0F));
+    const bool envLive = daynight::active(currentScene);
+    if (envLive) {
+      // The grade compensation multiplies the dome, the discs and the stars;
+      // the moon's opacity is its vertex alpha. Both are colour, not pose.
+      mixByte(ck, q255(daynight::g_comp[0], 128.0F));
+      mixByte(ck, q255(daynight::g_comp[1], 128.0F));
+      mixByte(ck, q255(daynight::g_comp[2], 128.0F));
+      mixByte(ck, q255(DAYCYCLE_MOON_ALPHAS[currentScene], 255.0F));
+      mixByte(ck, q255(daynight::g_stars, 255.0F));
+    }
+    // Content: every object the probe would submit, and the shape it is in.
+    // Position, rotation and scale go in at 1/1024 of a unit - far below what
+    // a 128-pixel target can resolve at any distance this map has - so a
+    // physics jitter of nothing does not force a capture.
+    auto qFixed = [](float v) -> unsigned int {
+      return (unsigned int)(int)(v * 1024.0F);
+    };
+    for (int ri = 0; ri < (int)runtimeObjects.size(); ++ri) {
+      const RuntimeObject& ro = runtimeObjects[ri];
+      if (!ro.active || !ro.visible || !ro.data.reflected) continue;
+      mixWord(nk, (unsigned int)ri);
+      for (int k = 0; k < 3; ++k) {
+        mixWord(nk, qFixed(ro.data.position[k]));
+        mixWord(nk, qFixed(ro.data.rotation[k]));
+        mixWord(nk, qFixed(ro.data.scale[k]));
+      }
+      mixByte(nk, ro.dirty ? 1u : 0u);
+      const float ndx = ro.data.position[0] - cameraPosition.x;
+      const float ndy = ro.data.position[1] - cameraPosition.y;
+      const float ndz = ro.data.position[2] - cameraPosition.z;
+      const float nd2 = ndx * ndx + ndy * ndy + ndz * ndz;
+      if (nd2 > 1.0F && (envNearest <= 1.0F || nd2 < envNearest * envNearest))
+        envNearest = sqrtf(nd2);
+    }
+    envColorKey = ck;
+    envContentKey = nk;
+    if (sharedEnvBasisValid && sharedEnvColorKey == ck &&
+        sharedEnvContentKey == nk) {
+      // Aim: the angle between the two level-forward directions. Both are
+      // unit and level, so the dot IS the cosine.
+      float drift = 0.0F;
+      float d = lvl.x * sharedEnvFwd.x + lvl.z * sharedEnvFwd.z;
+      if (d > 1.0F) d = 1.0F;
+      if (d < -1.0F) d = -1.0F;
+      drift += acosf(d) * kEnvPxPerRad;
+      // Eye translation, as parallax on the nearest reflected object: the sky
+      // dome and the discs are parked on the eye and do not move with it, so
+      // the objects are the only thing translation can shift.
+      const float mx = cameraPosition.x - sharedEnvEyeX;
+      const float my = cameraPosition.y - sharedEnvEyeY;
+      const float mz = cameraPosition.z - sharedEnvEyeZ;
+      const float moved = sqrtf(mx * mx + my * my + mz * mz);
+      drift += (moved / (sharedEnvNearest < 1.0F ? 1.0F : sharedEnvNearest)) *
+               kEnvPxPerRad;
+      if (envLive) {
+        auto dirDrift = [&](const float a[3], const float b[3]) -> float {
+          float dd = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+          if (dd > 1.0F) dd = 1.0F;
+          if (dd < -1.0F) dd = -1.0F;
+          return acosf(dd) * kEnvPxPerRad;
+        };
+        // A body below the horizon is not drawn, so its direction cannot
+        // move anything; its RADIUS reaching zero is what removes it, and
+        // that term is measured either way.
+        if (daynight::g_sunRad > 0.0F || sharedEnvSunRad > 0.0F)
+          drift += dirDrift(daynight::g_sun, sharedEnvSun);
+        if (daynight::g_moonRad > 0.0F || sharedEnvMoonRad > 0.0F)
+          drift += dirDrift(daynight::g_moon, sharedEnvMoon);
+        drift += fabsf(daynight::g_sunRad - sharedEnvSunRad) * kEnvPxPerRad;
+        drift += fabsf(daynight::g_moonRad - sharedEnvMoonRad) * kEnvPxPerRad;
+        // A roll turns the disc about its own centre, so the worst point
+        // moves by the angle times the disc's radius in pixels.
+        drift += fabsf(daynight::g_moonRoll - sharedEnvMoonRoll) *
+                 daynight::g_moonRad * kEnvPxPerRad;
+      }
+      // A budget of 0 is OFF, not "reuse only a provably identical capture":
+      // the setting has to be able to restore the pre-1.106 behaviour exactly,
+      // and a scene with a stopped clock and nothing moving would otherwise
+      // still reuse at 0.
+      envReuseOk = REFLECTION_REUSE_BUDGET > 0.0F &&
+                   drift <= REFLECTION_REUSE_BUDGET;
+    }
+  }
+  if (!ENV_PROBE_REFLECTED && g_dynamicEnvUsers > 0 && skyDome.bag &&
+      (refreshEnvMap || !sharedEnvBasisValid) && !envReuseOk &&
+      !splitPassActive) {
+    const u32 costSharedEnvStart = costStart();
+    auto& core = engine->renderer.core;
     const Vec4 probeEye = cameraPosition;
     const V3 probeDir = lvl;
 
@@ -20113,6 +20274,25 @@ void TerrainGame::renderScene() {
     // completed the target update. The target's camera is level by design.
     sharedEnvRight = {-lvl.z, 0.0F, lvl.x};
     sharedEnvBasisValid = true;
+    // ...and, with it, everything the reuse gate above compares against. The
+    // basis is what the SAMPLER needs; these are what the next frame needs to
+    // decide whether this image is still the right one.
+    sharedEnvFwd = lvl;
+    sharedEnvEyeX = probeEye.x;
+    sharedEnvEyeY = probeEye.y;
+    sharedEnvEyeZ = probeEye.z;
+    sharedEnvNearest = envNearest;
+    sharedEnvColorKey = envColorKey;
+    sharedEnvContentKey = envContentKey;
+    if (daynight::active(currentScene)) {
+      for (int k = 0; k < 3; ++k) {
+        sharedEnvSun[k] = daynight::g_sun[k];
+        sharedEnvMoon[k] = daynight::g_moon[k];
+      }
+      sharedEnvSunRad = daynight::g_sunRad;
+      sharedEnvMoonRad = daynight::g_moonRad;
+      sharedEnvMoonRoll = daynight::g_moonRoll;
+    }
     // Deliberately a standalone phase: it is the shared target render, not
     // the later per-object sampling passes nested inside Objects.
     costEnd("Reflections_shared_probe", -1, costSharedEnvStart);
