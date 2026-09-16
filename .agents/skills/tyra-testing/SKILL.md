@@ -3027,6 +3027,39 @@ inadmissible anyway (no EE data cache) while its counters are exact. Evidence
 and the worked reading:
 `examples/vehicle-playground/authoring/reflection-probe-2026-09-16/README.md`.
 
+### Measuring a SKIP-WHEN-UNCHANGED change: three fixtures, not one
+
+`--keep-routes` exists because the district's traffic is parked and a change
+that skips work when an input did not change scores 100% on a still scene. The
+camera is parked too, and that is the other half of the same hazard. The
+reflection reuse budget (1.106.0) is the worked example, and the shape
+generalises to any such change:
+
+- **the parked fixture is the BEST case, and it must be labelled as one.** It
+  answers "what is this worth when nothing is happening" and nothing else.
+- **a MOTION fixture answers what it is worth in play.**
+  `authoring/reflection-probe-2026-09-16/motion-sampler.py` replaces the
+  sampler's four poses with four camera regimes (idle / straight / a gentle
+  turn / a hard turn), keeping the 1440-frame window and the
+  `district-benchmark.csv` "safe to write now" signal. Its result was the
+  finding: the saving falls as the camera turns faster and reaches ZERO in a
+  hard turn, which is exactly the case the change would be rejected for.
+- **an INVALIDATION fixture answers the question that actually decides it** —
+  does the skip ever hold something it should have thrown away?
+  `content-sampler.py` parks the camera and changes the SCENE instead (an
+  object hidden and shown, an object sliding, a day/night flip), so pose drift
+  is zero by construction and only the invalidation can force work. Give it a
+  regime where NOTHING changes as its own control: if that one does work, the
+  other three prove nothing.
+
+Two rules from it worth stealing. Predict each regime's number before the run —
+"one capture per toggle, 120 of 120 for a thing that moves every frame" is a
+sharp prediction and a shape is not. And state the quality cost in the unit the
+change is written in and record it FROM INSIDE the game: this one reports the
+worst staleness it actually permitted, in pixels of the reflection's own
+128-pixel target, so the acceptance criterion is a measurement rather than a
+screenshot.
+
 ## Motor District per-frame attribution
 
 After creating an isolated fixture with `examples/vehicle-playground/authoring/benchmark-district.py`
