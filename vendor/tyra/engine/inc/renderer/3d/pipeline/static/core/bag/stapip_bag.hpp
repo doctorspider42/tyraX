@@ -65,8 +65,8 @@ class StaPipBag {
    *
    * Several bags may draw the SAME vertex array in coplanar passes (a
    * reflective object's additive env pass, a baked lightmap pass). The derived
-   * size depends on the program class - an untextured base bag fits 108 verts
-   * per package where its textured companion fits 72 - so the same array
+   * size depends on the program class - an untextured base bag fits 111 verts
+   * per package where its textured companion fits 75 - so the same array
    * splits at different boundaries, and one pass can classify a triangle
    * IN_FRUSTUM (perspective divide on VU1) while the other classifies it
    * PARTIALLY_IN_FRUSTUM (clipped on the EE, drawn `as_is`). The two routes
@@ -75,7 +75,7 @@ class StaPipBag {
    * size and they classify identically.
    *
    * StaPipCore clamps this to the bag's own derived size (a class pinned above
-   * its capacity would overflow the VU1 buffer) and to a multiple of 9, so the
+   * its capacity would overflow the VU1 buffer) and to a multiple of 3, so the
    * value to pass is the MINIMUM over the passes that share the array.
    */
   u32 packageSize;

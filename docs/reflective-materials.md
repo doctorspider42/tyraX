@@ -95,8 +95,8 @@ ugly patches up close. It fades back in as you step away.
 - **Both passes are pinned to one VU1 package size** (`StaPipBag::packageSize`,
   set by the generated game's `pinPackageSize`). They must be: the engine
   derives the package size from the bag's *program class*, and an untextured
-  base pass fits **108** verts per package where its textured env twin fits
-  **72** — so without the pin the same array splits at different boundaries,
+  base pass fits **111** verts per package where its textured env twin fits
+  **75** — so without the pin the same array splits at different boundaries,
   and one pass can classify a triangle as fully inside (perspective divide on
   VU1) while the other sees a straddling package (clipped on the EE, drawn
   `as_is`). Two routes over one coplanar triangle disagree in the last bits of

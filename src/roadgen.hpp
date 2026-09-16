@@ -91,7 +91,7 @@ float tessellate(const std::vector<float>& pointsXZ, float width,
 // vertices, every one a self-contained strip, padded with repeats of the last
 // vertex, separate strips inside a run joined by repeating a vertex either
 // side of the seam, and every run length a multiple of 3.
-inline constexpr int kStripRun = 72;  // == meshstrip::kRun, asserted in the .cpp
+inline constexpr int kStripRun = 75;  // == meshstrip::kRun, asserted in the .cpp
 
 // Chunking, and the reason it belongs in this header now. TWIN NOTICE: the
 // generated buildRoads carries these as literals. They used to matter only to

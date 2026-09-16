@@ -1337,8 +1337,8 @@ Rules the same evening paid for:
   size.** `StaPipVU1Program::getMaxVertCount` derives the package size from
   the bag's PROGRAM CLASS — how many verts of (position [+ ST] [+ normal] +
   color) fit in half a VU1 double buffer. With the shipping buffer that is
-  **108** for untextured + per-vertex colors, **72** for textured, **90** for
-  textured + a single color, **144** for untextured + a single color. So an
+  **111** for untextured + per-vertex colors, **75** for textured, **90** for
+  textured + a single color, **150** for untextured + a single color. So an
   object whose base pass is untextured and whose companion pass is textured
   (a reflective sphere with no `map_Kd`, anything under the baked lightmap,
   an untextured terrain chunk under its layer passes) splits the SAME array at
@@ -1359,15 +1359,17 @@ Rules the same evening paid for:
   the slowdown smaller packages suggest; and `67e2893f`'s switch of the env
   pass to `PipelineZTest_Standard` was a mask for this defect, not its fix
   (keep it, it is still correct).
-- **AND 72 IS ESSENTIALLY THE CEILING, not just the minimum — so "make the
-  package bigger to cut the per-package cost" is closed.** Almost everything
-  left in `dispatch` scales with the package count, static geometry ships as
-  72-vertex strip runs that ARE the packages, and the obvious next move is to
-  lengthen the run. It does not exist. `setDoubleBuffer` splits 22..944 in two
+- **AND 75 IS ESSENTIALLY THE CEILING, not just the minimum — so "make the
+  package bigger to cut the per-package cost" is nearly closed.** Almost
+  everything left in `dispatch` scales with the package count, static geometry
+  ships as 75-vertex strip runs that ARE the packages, and the obvious next
+  move is to lengthen the run. `setDoubleBuffer` splits 22..944 in two
   for **460 quadwords** a half, `getMaxVertCount` takes 9 for the GIF tag block
   and divides the remaining **451** by `elementsPerVertex + reglistCount` — what
   the EE uploads plus what the program writes — so the textured classes get
-  451/6 = **75**, rounded down to 72 by the multiple-of-9 step. **The whole of
+  451/6 = **75**. That used to round down to 72 on a multiple-of-9 step, which
+  was relaxed to a multiple of 3 (round four) and is the whole of the slack
+  available at this memory layout. **The whole of
   VU1 data memory caps a six-quadword-per-vertex package at 81** (the clipping
   scratch would have to go entirely: `DBUFFER_END` ≥ 1014 against 80 quadwords
   of scratch), and **144 wants 1 770 of 1 024 quadwords** — the double buffer is
@@ -1375,14 +1377,31 @@ Rules the same evening paid for:
   Moving the clip plane table DOWN into the per-mesh constants buys **exactly
   zero** (the buffer pays twice below it and gains twice above it). The
   per-class pin costs the Motor District frame nothing — every class in it
-  derives 72, by two independent routes (`cull_tc`/`cull_tce` with per-vertex
+  derives 75, by two independent routes (`cull_tc`/`cull_tce` with per-vertex
   colours, and `cull_td` with a single colour; `cull_td` with per-vertex colours
   would derive 63 and is unreachable, `StaPipCore::render` asserts against it).
   And the only lever left is the six quadwords per vertex, where the claim to
   measure is the PACKAGE COUNT and not the payload: the probe that added 16
   bytes per vertex moved garage-day VIF1 wait by 0.067 ms. Derivation, sweep,
-  measured baseline and the two costed ways to reach 75 (−4.0% of packages) and
-  81 (−11.1%): docs/render-submission-attribution.md, "Round three".
+  measured baseline and the remaining way to reach 81 (−8.0% of packages):
+  docs/render-submission-attribution.md, "Round three" and "Round four".
+- **RAISING `maxVertCount` MOVES THE CLIP BUFFER TOO, and nothing clamps the
+  fan-out at runtime.** `clipPackageSize()` is derived from `maxVertCount`, so
+  a bigger package means a bigger clip package, and a clip package plus its
+  entire Sutherland–Hodgman fan-out has to fit one 460-quadword double-buffer
+  half. An overrun is silent corruption that PCSX2 cannot show you. Two traps
+  in doing that arithmetic. The worst case is **7 output triangles per input
+  triangle** and that is exact — a convex polygon gains at most one vertex per
+  plane and the plane loop runs exactly six times — so do not discount it. And
+  the constructor's `elementsPerVertex` / `reglistCount` pair is the SIZING
+  BUDGET, not the layout: `clip_d` is budgeted `2 + 3` but really uploads two
+  streams and stores two quadwords per emitted vertex, so using that pair for
+  the footprint reports false overruns on classes that ship today and work.
+  Read the layout off the `.vclpp`. This is what took `clipDivisor` from 5 to
+  6 when the ceiling moved to 75: at 5 the untextured single-colour class
+  landed on 459 of 460 quadwords. Runnable per class, and the check to re-run
+  after touching any of it:
+  `examples/vehicle-playground/authoring/package-ceiling-75-2026-09-16`.
 - **Widening the cull programs' ADC test is retired; real VU1 clipping is a
   separate program family.** Three attempts at a guard band inside
   `PerformClipCheck` all corrupted ADC bits (documented in `vcl_sml.i`); the

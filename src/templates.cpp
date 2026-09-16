@@ -24355,8 +24355,8 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   // representation too: a stripped chunk is a THIRD of the list's vertices,
   // and reserving the list size for it would hand back the RAM the change was
   // meant to save on every resident chunk of a streamed map.
-  const bool strips = hasMat && minPackageSize() >= 72U;
-  const u32 stripRun = 72U;
+  const bool strips = hasMat && minPackageSize() >= 75U;
+  const u32 stripRun = 75U;
   const size_t reserveN =
       strips ? (size_t)quadsZ * (size_t)(2 * (quadsX + 1) + 2) + 3
              : (size_t)quadsX * quadsZ * 6;
@@ -35027,14 +35027,14 @@ void TerrainGame::buildRoads(int scene) {
     if (procChunks[i - 1].owner == -3)
       procChunks.erase(procChunks.begin() + (i - 1));
   // Triangle strips (docs/roads.md, docs/model-pipeline.md "Triangle
-  // strips"). 72 is meshstrip::kRun, the smallest package any static program
+  // strips"). 75 is meshstrip::kRun, the smallest package any static program
   // class derives - the run every stripped array in this game is chopped
   // into. The ENGINE is asked rather than trusted: the constant is legal by
   // construction, and if it ever stops being one the triangle list is still
   // right, so the emitter keeps both halves and this is the knob that picks
   // between them (it is also the A/B knob - flip it and rebuild, one engine
   // and one editor, only the vertex ORDER moves).
-  const unsigned int stripRun = 72u;
+  const unsigned int stripRun = 75u;
   const bool useStrips = minPackageSize() >= stripRun;
   const Tyra::Color grey(128.0F, 128.0F, 128.0F, 128.0F);
   bool any = false;
@@ -35337,7 +35337,7 @@ void TerrainGame::buildRoads(int scene) {
     if (c.owner == -3) {
       ++roadChunks;
       roadVertices += (int)c.vertices.size();
-      const size_t run = c.stripRun > 0 ? (size_t)c.stripRun : (size_t)72;
+      const size_t run = c.stripRun > 0 ? (size_t)c.stripRun : (size_t)75;
       roadPackages += (int)((c.vertices.size() + run - 1) / run);
       if (c.stripRun <= 0) {
         roadTriangles += (int)(c.vertices.size() / 3);

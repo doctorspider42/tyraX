@@ -635,8 +635,8 @@ FTCLIP f=1200 cull=3451/110733 clip=1501/9409 guard=2094/68672 out=10416 flush=5
 Counts, never milliseconds: `work` above is the milliseconds and this line says
 why it moved. In an A/B the two arms' `cull + clip` totals must stay comparable,
 or the arms are not looking at the same scene — **except across a topology
-change**, where they cannot: a strip run of 72 vertices reports 70 triangles
-including the degenerate joins and padding, against a list package's 24 real
+change**, where they cannot: a strip run of 75 vertices reports 73 triangles
+including the degenerate joins and padding, against a list package's 25 real
 ones. Compare `verts` there, not the triangle halves.
 
 Every 512 frames it also dumps the raw per-frame `work` ticks as `FTRAW <first>
