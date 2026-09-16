@@ -1,13 +1,21 @@
-# Does the renderer work generalise? A second map says yes
+# Does the renderer work generalise? A second map says yes, except for one change
 
-Six rounds of renderer and code-generation work were driven by one scene, the
-Motor District in `examples/vehicle-playground`. That is the trap the work had to
+Rounds of renderer and code-generation work were driven by one scene, the Motor
+District in `examples/vehicle-playground`. That is the trap the work had to
 answer for: a change measured only on the scene it was written against may be
-tuning for that scene rather than improving the engine. This page is the control.
+tuning for that scene rather than improving the engine. This page is the control,
+and it has now returned both answers.
+
 `examples/large-terrain` — a different map with no content in common — gains
-**8.9% of its measured work and 11.4% of its render submission**, from the same
+**8.9% of its measured work and 11.4% of its render submission** from the same
 engine and the same code generator, with its triangle and packet-flush counts
-unchanged.
+unchanged. That is the bulk of the work, and it generalises.
+
+**One change does not**, and the control is the only reason anybody knows.
+Imported-model batching is worth −0.46 ms on the district and **+3.20 ms, 29% of
+the frame, on this map** — see [the last section](#the-control-earned-its-keep-one-change-does-not-generalise).
+The 8.9% above is measured with that change excluded; with it included this map
+is slower than before any of the work started.
 
 ## What the two maps do not share
 
