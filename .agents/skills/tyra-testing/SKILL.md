@@ -2274,7 +2274,12 @@ powershell -File .claude\skills\tyra-testing\scripts\shadow-ab.ps1 `
 `-Toggle` is any key the manifest writes on a line of its own —
 `spotShadowVolumes`, `flashShadowVolumes`, `blobShadows` — and it is **inserted**
 when the file does not carry it, which every project that never touched the
-setting does not. **`bakedShadows` needs a step in between** (docs/shadows.md): it reads a CACHE, so run `tyrax-editor --bake-shadows <project>` once with the key true before the A/B - the cache is content-hashed and survives the toggle flipping, so one bake serves every row. For each (value x vantage) the rig patches the setting and the
+setting does not. **`bakedShadows` is the one toggle that needs a step in
+between** (docs/shadows.md): it reads a CACHE, so patching the key alone
+switches a feature the project has no bake for. Run
+`tyrax-editor --bake-shadows <project>` once with the key true, then A/B it —
+the cache is content-hashed and survives the toggle going false and true again,
+so one bake serves every row of the run. For each (value x vantage) the rig patches the setting and the
 Player's pose, runs `--build --run` under a hard timeout, waits `-Settle`
 (14 s), screenshots **the emulator whose command line names this project**,
 greps the game's own `bin/log.txt` for `Assertion` / `=======` banners, and
@@ -2974,7 +2979,8 @@ may ship on: **`#ifndef NDEBUG` is not the devkit gate here** - a game build
 never defines NDEBUG, and a census keyed that way shipped live at ~1 ms a
 frame. Price the hooks with three arms of one fixture (plain / `--attribute` /
 `--attribute` + macro 1), and remember PCSX2 emulates no EE data cache, so its
-shares travel and its milliseconds do not.
+shares travel and its milliseconds do not. See
+[docs/render-submission-attribution.md](../../../docs/render-submission-attribution.md).
 
 **The macro now also splits `bounds` five ways and the package-creation box
 inside `dispatch`, and at that density the hooks ARE measurable** - +0.122 ms on
@@ -2993,15 +2999,14 @@ captures of ONE arm differ and nothing is comparable. Cropped
 repeats AND across arms - twelve captures, 0 pixels. The night poses have
 authored lamp flicker and twinkling stars, so their within-arm repeats never
 settle; that is the fixture, not the change. `compare_captures.py` in
-`examples/vehicle-playground/authoring/bounds-attribution-2026-09-16/` checks
-the within-arm repeats first and refuses to report a between-arm number until
-they are clean.
+[authoring/bounds-attribution-2026-09-16](../../../examples/vehicle-playground/authoring/bounds-attribution-2026-09-16/README.md)
+checks the within-arm repeats first and refuses to report a between-arm number
+until they are clean.
 
 **Hold a pose without touching the sampling window:** the benchmark fixture
 reads `bin/district-benchmark-pose.txt` every 30 frames only AFTER its 1440
 measured frames, which is also when the CSVs appear - so the CSV is the "it is
-safe to drive this" signal, and nothing is written during sampling. See
-[docs/render-submission-attribution.md](../../../docs/render-submission-attribution.md).
+safe to drive this" signal, and nothing is written during sampling.
 
 ### Devkit cadence overrides
 
@@ -3041,6 +3046,47 @@ that ghost. So `--build` (or at least `--refresh-gen`) the fixture once before
 instrumenting it, and **check a counter against the previous known-good run
 before concluding anything from a change in it** - a number that moved because
 the fixture is stale looks exactly like a regression.
+
+**AND `--refresh-gen` IS NOT ENOUGH ON ITS OWN, because the EDITOR BINARY can be
+older than HEAD.** `build/tyrax-editor.exe` is a build artifact, not a property
+of the checkout: a worktree sitting at the branch tip can hold an exe compiled
+hours earlier, and `--refresh-gen` will then faithfully regenerate the fixture
+with the OLD baker while every log line says "regenerated". Measured on the
+EE-submission probes, 2026-09-16: the binary was built at 15:17 and the commit
+that raised the VU1 package ceiling landed at 17:07, so seven arms were baked
+with `stripRun = 72u` against a tree whose `meshstrip::kRun` reads 75 - a legal,
+self-consistent fixture that is simply not the one the branch-tip table
+describes.
+
+**The capture hash does not catch it, and believing it does is the trap.** The
+strip run changes how a surface is cut into runs, not which pixels it covers, so
+the garage-day frame hashed to exactly the expected value. Check the things that
+are actually functions of the baker:
+
+```bash
+grep -E "ROADSTRIP|TERRAINSTRIP" <results>/host.log   # packages 470 / 588 verts, 8 pkgs at 75
+grep -n "stripRun = 7" <fixture>/src/terrain_game.cpp  # the baked constant itself
+```
+
+Compare the binary's mtime against the commit that last touched what you are
+measuring (`git log -1 --format=%ad <path>`), and rebuild the editor when in
+doubt. A round whose arms all share one wrong fixture keeps its DELTAS - that is
+what saved the probes - but loses the right to be quoted against anyone else's
+absolute numbers.
+
+**One more comparability trap from the same round: `--profile debug` leaves the
+LIVE TOOLS ON, and two of their pollers run inside the instrumenter's `update`
+bracket.** `livepad::tick` and `livedbg::tickFromLoop` `fopen` `livepad.bin` and
+`livedbg.cmd` over `host:` every frame - network I/O inside the measurement.
+Measured on the same fixture, garage day: **4.79 ms of `update` and 6.44 ms of
+`work`**, which is why that control read 36.51 ms against a published 30.42 for
+what a reader would assume was the same scene. `benchmark-district.py
+--profile quiet-debug` is the same build profile with `liveLink`, `liveDebug`,
+`liveLogic`, `timeMachine`, `remotePad` and `inputRecorder` off; with them off
+the two tables agreed to 0.35 ms of `work` and 0.00 ms of `total`. **Say which
+profile a frame-time table was taken on, or it cannot be read against another
+one** - and treat sporadic multi-millisecond `update` outliers as host-I/O
+contention rather than as a finding.
 
 ## Hardware timeline capture
 

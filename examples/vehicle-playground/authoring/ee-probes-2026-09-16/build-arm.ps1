@@ -21,6 +21,12 @@ param(
     [int]$LogSends = 0,           # Probe B reader - PCSX2 only, never a timing arm
     [int]$ForceFlush = 0,         # Probe B second control: uncached AND still flushing
     [int]$Attrib = 0,             # TYRA_STAPIP_ATTRIB - the classification bracket
+    # benchmark-district.py profile. `debug` keeps the live tools ON, and their
+    # per-frame host: fopen probing lands INSIDE the instrumenter's update
+    # bracket (livepad::tick, livedbg::tickFromLoop). `quiet-debug` is the same
+    # build profile with those six settings off - which is what the plan
+    # document's four-pose table was taken on. See the README.
+    [ValidateSet('debug', 'quiet-debug', 'release')][string]$Profile = 'debug',
     [string]$Root = 'D:/tyra-eeprobe-0916'
 )
 $ErrorActionPreference = 'Stop'
@@ -70,7 +76,7 @@ if ($bytes -contains 13) { throw "CRLF crept into $header - vendor/tyra is LF on
 Write-Output "== $Arm : acceptAll=$AcceptAll coarse=$CoarseClassify uncached=$UncachedChain logSends=$LogSends"
 
 # --- 2. fixture from the example, with the baked tree copied in -----------
-& python (Join-Path $example 'authoring/benchmark-district.py') $fixture --profile debug
+& python (Join-Path $example 'authoring/benchmark-district.py') $fixture --profile $Profile
 if ($LASTEXITCODE -ne 0) { throw 'benchmark-district.py failed' }
 Copy-Item -Recurse -Force (Join-Path $example '.res-baked') (Join-Path $fixture '.res-baked')
 New-Item -ItemType Directory -Force -Path (Join-Path $fixture 'bin') | Out-Null
@@ -97,7 +103,7 @@ $hash = (Get-FileHash -LiteralPath $elf -Algorithm SHA256).Hash
 [pscustomobject]@{
     arm = $Arm; acceptAll = $AcceptAll; coarseClassify = $CoarseClassify
     uncachedChain = $UncachedChain; logSends = $LogSends
-    forceFlush = $ForceFlush; stapipAttrib = $Attrib
+    forceFlush = $ForceFlush; stapipAttrib = $Attrib; profile = $Profile
     elfSha256 = $hash; built = (Get-Date).ToString('o')
     editorSha256 = (Get-FileHash -LiteralPath $editor -Algorithm SHA256).Hash
     commit = (& git -C $worktree rev-parse HEAD)

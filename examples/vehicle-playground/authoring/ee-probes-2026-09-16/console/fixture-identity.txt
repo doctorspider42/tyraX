@@ -1,0 +1,6 @@
+LOG: ROADSTRIP scene 0 strips 1 packages 526 triangles 31050
+LOG: TERRAINSTRIP scene 0 chunk 0,0 strips 1 vertices 591 packages 9 triangles 512
+
+# stripRun literal in the fixture's generated source:
+terrain_game.cpp:18709: const unsigned int stripRun = 72u;
+terrain_game.cpp:23453: const u32 stripRun = 72U;

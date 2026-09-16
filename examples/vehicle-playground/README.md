@@ -582,5 +582,15 @@ stopped calling `FlushCache` **corrupted the picture** — a 14-row band at the
 horizon — even with the packet allocated in uncached memory and the qbuffer copy
 pools still flushed.
 
+Two things about that round's CONTROL, before its absolute numbers are quoted
+anywhere: it runs `--profile debug`, so the live tools' per-frame `host:` polling
+sits inside the `update` bracket and costs **4.79 ms of `update` / 6.44 ms of
+`work`** (a `quiet-debug` control boot then matches the branch-tip table to
+0.35 ms of `work`); and it is a **72-run fixture** — `ROADSTRIP ... packages 526`
+against the branch tip's 470 — because the editor binary that regenerated it was
+built two hours before the commit that raised the ceiling to 75. Every arm shares
+both, so the deltas stand. **The garage-day capture hash matched anyway, which is
+why a capture hash is a picture check and never a fixture check.**
+
 See [the plan and what the probes changed in it](../../docs/ee-submission-rearchitecture.md)
 and [the raw arms, patches, captures and reproduction recipe](authoring/ee-probes-2026-09-16/README.md).
