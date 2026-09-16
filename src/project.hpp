@@ -1667,6 +1667,24 @@ struct ProjectSettings {
     // Gameplay is unaffected - collision and every height query read the
     // heightmap, never the mesh.
     float terrainLodDistance = 0.0f;  // world units, 0 = off
+    // Shared reflection probe: how far the captured image may be out of date
+    // before the probe re-renders, IN PIXELS OF ITS OWN 128-pixel target
+    // (docs/reflective-materials.md, "The reuse budget"). The probe already
+    // refreshes only every SECOND frame and already retains the basis that
+    // produced the image; this adds the other half Task 5 of the Motor
+    // District plan asked for - do not capture at all while nothing that feeds
+    // the capture has moved. The budget is the whole quality contract, and it
+    // is paid on top of a lag that already existed: the image was always up to
+    // one cadence beat old, so this is how many EXTRA target pixels of lag are
+    // accepted - and NONE at all while nothing moves, where the skipped
+    // capture would have produced the same image (measured: 0.000 px on a
+    // parked Motor District pose, 0.91 driving straight, 4.19 in a 90 deg/s
+    // turn, which is why a hard turn still captures every beat). 1.0 is one
+    // pixel of 128 and is the default; 0 disables the reuse and restores
+    // exactly the pre-1.106 behaviour. Every non-geometric input - the sky tint, the sun
+    // and moon, a reflected object moving, appearing or vanishing, a scene
+    // load - invalidates outright and is not traded against the budget.
+    float reflectionReuseBudget = 1.0f;  // target pixels, 0 = always capture
     // The flashlight's shadow technique (docs/flashlight.md, "The shadow").
     // false = silhouette slots: the caster's mesh silhouette from the torch,
     // sampled on a ground patch and painted on the wall behind - mesh-accurate
@@ -2052,7 +2070,7 @@ struct ProjectSettings {
     bool highlightOverlay = false;
 };
 
-static_assert(sizeof(ProjectSettings) == 752,
+static_assert(sizeof(ProjectSettings) == 760,
               "ProjectSettings changed size - a field was added or removed. "
               "Add it to operator== below as well, or its Preferences widget "
               "will silently do nothing; then update this number.");
@@ -2117,6 +2135,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.terrainDetail == b.terrainDetail &&
            a.terrainViewDistance == b.terrainViewDistance &&
            a.terrainLodDistance == b.terrainLodDistance &&
+           a.reflectionReuseBudget == b.reflectionReuseBudget &&
            a.flashShadowVolumes == b.flashShadowVolumes &&
            a.shadowVolumesDebug == b.shadowVolumesDebug &&
            a.spotShadowVolumes == b.spotShadowVolumes &&

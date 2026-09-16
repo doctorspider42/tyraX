@@ -246,6 +246,32 @@ and release. Add `--profile quiet-debug` or `--profile release` to compare live
 tooling overhead; add `--mesh-lod 64` and/or `--terrain-lod 96` for LOD trials.
 The original example is never overwritten.
 
+**`python authoring/inventory-frame.py <fixture>` answers a different question
+from the frame-cost instrumenter**: not where the milliseconds go, but what the
+frame is MADE OF. It brackets every producer in `renderScene` with a telemetry
+drain — which is an exclusive split, because `takeTelemetry()` clears as it
+reads — and writes `bin/frame-inventory.csv` with triangles, VU1 packages,
+bags, vertices and packet flushes per producer, per pose, plus one row per solo
+object and per object drawn into the reflection probe.
+`python authoring/summarize_inventory.py <fixture> --phase 0` prints it. Counts
+only: it is applied INSTEAD of `instrument-frame-cost.py`, PCSX2 is enough, and
+its own milliseconds are meaningless by construction. The garage-day reading —
+solo static models 44.8%, terrain 13.4%, the reflection probe 13.1%, roads
+8.1% — is in
+[the reflection-probe round's evidence](authoring/reflection-probe-2026-09-16/README.md).
+
+**The camera is parked too, and that is the other half of the same hazard.**
+`authoring/reflection-probe-2026-09-16/motion-sampler.py` and
+`content-sampler.py` replace the fixture's sampler so the four phases become
+four camera MOTION regimes (idle, straight, 20 deg/s, 90 deg/s) or four
+INVALIDATION regimes (nothing changes, a reflected object hidden and shown, a
+reflected object sliding, the day/night value flipping) with the camera still.
+Both keep the 1440-frame window and the `bin/district-benchmark.csv` "safe to
+write now" signal, so every other recipe on this page still applies. They were
+built for the reflection reuse budget, which is exactly a
+skip-when-unchanged change and could not honestly be measured on the parked
+fixture alone.
+
 **`--keep-routes` leaves the AI drivers driving**, and there is one class of
 change that must not be measured without it. Parking the traffic is what makes
 this fixture repeatable, but it also means every car is still, every frame,

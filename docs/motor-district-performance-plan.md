@@ -362,6 +362,34 @@ looked. The three options step 2 leaves open — fewer objects in the probe pass
 a coarser LOD for it, or a longer cadence — are now worth designing against a
 real number. [Evidence](../examples/vehicle-playground/authoring/road-lod-2026-09-16/README.md).
 
+**And step 2 is now DONE, 2026-09-16, as a reuse budget rather than as a
+cadence** ([reflective-materials.md](reflective-materials.md), "The reuse
+budget"; [raw evidence](../examples/vehicle-playground/authoring/reflection-probe-2026-09-16/README.md)).
+The three options were priced against a per-producer inventory of the frame
+first, which is what settled which one to build:
+
+| option | what it is worth in the garage | why |
+| --- | --- | --- |
+| fewer objects | ~0 triangles | four near buildings are everything the probe draws there; three of the seven submitted objects already draw nothing and cost 15 bags a hit |
+| a coarser LOD for the probe pass | up to ~70% of 10 413 triangles a hit | but the district bakes **no LOD tiers at all** (`meshLodDistance` is 0, and the bake gates on it), and swapping the live bag's tier twice a frame bumps `bboxVersion` and throws away the bbox and retained-command caches — so it needs an asset re-bake AND a second resident bag set per reflected part |
+| **reuse when nothing changed** | **everything, when nothing is moving** | it is step 2 of this task verbatim, it is codegen only, and it cannot make anything worse |
+
+The probe now skips its cadence beat while nothing that feeds the capture has
+moved, and "moved" is a **number in pixels of the probe's own 128-pixel
+target** rather than a frame count. Aim, camera travel seen as parallax on the
+nearest reflected object, and the sun and moon all convert through one
+pixels-per-radian factor and are summed. Colour is compared at the 8-bit
+precision the GS stores and content is compared exactly, so neither is traded
+against the budget. The every-second-frame cadence stays the ceiling, so the
+worst case is the old behaviour — which is why the default of 1.0 pixel is safe
+to enable for projects that predate the setting.
+
+Step 5's test list was run as three fixtures rather than by hand, and the third
+is the one that matters: a **parked camera with the SCENE changing** — a
+reflected object hidden and shown, a reflected object sliding, the day/night
+value flipping — which is where a reuse gate fails by holding an image it
+should have thrown away.
+
 ## Full-asset hardware follow-up (2026-09-14)
 
 The independent [physical recheck](performance-hardware-recheck.md) supersedes
