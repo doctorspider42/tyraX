@@ -156,6 +156,29 @@ void StaPipCore::setTelemetryEnabled(const bool& enabled) {
 }
 
 StaPipTelemetry StaPipCore::takeTelemetry() {
+#if TYRA_STAPIP_ATTRIB
+  // Added by TyraX: the cacher and the packager keep their own counters -
+  // neither has a view of `telemetry` - so they are folded in here and
+  // cleared, which gives them the same reset-on-read contract as everything
+  // else in StaPipTelemetry. `entries` is a level, not an accumulation, so it
+  // is assigned rather than added and is NOT zeroed with the rest.
+  telemetry.attrib.bboxCacheHits += cacher.stats.hits;
+  telemetry.attrib.bboxCacheRecalcs += cacher.stats.recalcs;
+  telemetry.attrib.bboxCacheFresh += cacher.stats.fresh;
+  telemetry.attrib.bboxCacheProbes += cacher.stats.probes;
+  telemetry.attrib.bboxCacheRecalcTicks += cacher.stats.recalcTicks;
+  telemetry.attrib.bboxCacheEntries = cacher.stats.entries;
+  telemetry.attrib.bboxCacheFrameEndTicks += cacher.stats.frameEndTicks;
+  const u32 keptEntries = cacher.stats.entries;
+  cacher.stats = StapipBagBBoxesCacher::Stats{};
+  cacher.stats.entries = keptEntries;
+
+  telemetry.attrib.dsClassifyTicks += packager.stats.classifyTicks;
+  telemetry.attrib.dsPackages += packager.stats.packages;
+  telemetry.attrib.dsMergeParts += packager.stats.mergeParts;
+  telemetry.attrib.dsMaskCalls += packager.stats.maskCalls;
+  packager.stats = StaPipBagPackager::Stats{};
+#endif
   const StaPipTelemetry result = telemetry;
   telemetry = StaPipTelemetry{};
   return result;
@@ -290,8 +313,17 @@ void StaPipCore::recordOutsideBag(const StaPipBag* bag) {
 }
 
 u32 StaPipCore::getMaxVertCountByBag(const StaPipBag* bag) {
-  const u32 derived = qbufferRenderer.getCullProgramByBag(bag)->getMaxVertCount(
+  // Added by TyraX: the two halves of this function are charged separately
+  // (stapip_attrib.hpp) - resolving the program against doing the arithmetic -
+  // because they have completely different fixes.
+  TYRA_ATTRIB_MARK(attribProgStart);
+  StaPipVU1Program* const cullProgram = qbufferRenderer.getCullProgramByBag(bag);
+  TYRA_ATTRIB_ADD(bdProgTicks, attribProgStart);
+
+  TYRA_ATTRIB_MARK(attribCalcStart);
+  const u32 derived = cullProgram->getMaxVertCount(
       bag->color->many == nullptr, qbufferRenderer.getBufferSize());
+  TYRA_ATTRIB_ADD(bdSizeCalcTicks, attribCalcStart);
 
   // Modified by TyraX: an explicit package size pins coplanar passes over one
   // vertex array to the same package boundaries, so they classify against the
@@ -388,12 +420,19 @@ void StaPipCore::render(StaPipBag* bag) {
   // decision, the frustum-culling read and the thirteen TYRA_ASSERTs, which
   // a release game really does execute - is charged here.
   TYRA_ATTRIB_SPAN(headTicks, attribRenderStart, boundsStart);
+  // Added by TyraX: the five parts of `bounds` (stapip_attrib.hpp). Two
+  // careful attacks on this bucket - a branchless AABB test and a compacted
+  // partBounds stride - together recovered 2% of it, so the cost is in one of
+  // these five and guessing which has already been paid for twice.
+  TYRA_ATTRIB_MARK(attribSizeStart);
   u32 maxVertCount = getMaxVertCountByBag(bag);
+  TYRA_ATTRIB_ADD(bdSizeTicks, attribSizeStart);
 
   // Imported models commonly submit one bag per material. Consecutive parts
   // point at the same model matrix, so their object-space frustum planes and
   // MVP are identical. Include the matrix values and current view-projection
   // in the key: live transforms and portal/split views remain exact.
+  TYRA_ATTRIB_MARK(attribXformStart);
   const M4x4& currentViewProj = rendererCore->renderer3D.getViewProj();
   const bool reuseTransform =
       transformCacheValid &&
@@ -403,18 +442,26 @@ void StaPipCore::render(StaPipBag* bag) {
              sizeof(transformCacheModel.data)) == 0 &&
       memcmp(transformCacheViewProj.data, currentViewProj.data,
              sizeof(transformCacheViewProj.data)) == 0;
+  TYRA_ATTRIB_ADD(bdXformTicks, attribXformStart);
 
   StaPipBagPackagesBBox* bbox = nullptr;
   if (bag->info->frustumCulling == PipelineInfoBagFrustumCulling_Precise) {
     // TyraX: the bag's bboxVersion invalidates the cached boxes for
     // reused vertex buffers with new content (the cacher recomputes the
     // entry in place - per-frame bumps stay allocation-free)
+    TYRA_ATTRIB_MARK(attribCacheStart);
     bbox = cacher.getBBoxes(bag->vertices, bag->count,
                             reinterpret_cast<u32>(bag->vertices),
                             bag->bboxVersion, maxVertCount);
+    TYRA_ATTRIB_ADD(bdCacheTicks, attribCacheStart);
   }
 
+  // Three stores, charged to the same bucket as the derivation that produced
+  // the value. Kept HERE rather than hoisted next to getMaxVertCountByBag so
+  // the instrumented build's call order is the shipped one.
+  TYRA_ATTRIB_MARK(attribSetSizeStart);
   setMaxVertCount(maxVertCount);
+  TYRA_ATTRIB_ADD(bdSizeTicks, attribSetSizeStart);
 
   CoreBBoxFrustum frustumCheck = OUTSIDE_FRUSTUM;
 
@@ -423,6 +470,7 @@ void StaPipCore::render(StaPipBag* bag) {
     // object space once; the main-bbox check and every package
     // classification then run the two-corner AABB test instead of
     // transforming 8 corners per box and dotting each against every plane.
+    TYRA_ATTRIB_MARK(attribPlanesStart);
     if (reuseTransform && transformCachePlanesValid) {
       for (u8 i = 0; i < 6; ++i)
         objectSpacePlanes[i] = transformCacheObjectSpacePlanes[i];
@@ -431,8 +479,11 @@ void StaPipCore::render(StaPipBag* bag) {
           objectSpacePlanes, rendererCore->renderer3D.frustumPlanes.getAll(),
           *bag->info->model);
     }
+    TYRA_ATTRIB_ADD(bdPlanesTicks, attribPlanesStart);
 
+    TYRA_ATTRIB_MARK(attribMainStart);
     frustumCheck = bbox->getMainBBox()->frustumCheckAABB(objectSpacePlanes);
+    TYRA_ATTRIB_ADD(bdMainTicks, attribMainStart);
 
     if (frustumCheck == OUTSIDE_FRUSTUM) {
       if (telemetryEnabled) telemetry.boundsTicks += readCoreTelemetryTicks()-boundsStart;
@@ -761,7 +812,9 @@ void StaPipCore::render(StaPipBag* bag) {
   // top of render(), because the prim state is part of the key and setInfo()
   // above is what finished writing it. `retainBag` false means every package
   // below is built the way it always was.
+  TYRA_ATTRIB_MARK(attribRetainStart);
   const bool retainBag = qbufferRenderer.beginRetainedBag(bag, maxVertCount);
+  TYRA_ATTRIB_ADD(dsRetainTicks, attribRetainStart);
   retainCurrentBag = retainBag;
   auto checkYesFrustumInClipYes =  // cull all
       frustumCull && frustumCheck == IN_FRUSTUM && bag->info->fullClipChecks;
@@ -786,6 +839,12 @@ void StaPipCore::render(StaPipBag* bag) {
     // The whole-bag bbox already proved every range visible. Point qbuffers
     // straight at the bag streams instead of filling pooled package records
     // whose classification result this branch ignores.
+    //
+    // NOTE for anyone reading the "package creation and classification"
+    // residual: this route calls neither the packager nor checkFrustum, so
+    // for these bags that residual is THIS loop and nothing else.
+    TYRA_ATTRIB_MARK(attribDirectStart);
+    TYRA_ATTRIB_INC(dsDirectBags);
     u16 packageIndex = 0;
     for (u32 offset = 0; offset < bag->count;
          offset += maxVertCount, ++packageIndex) {
@@ -805,7 +864,9 @@ void StaPipCore::render(StaPipBag* bag) {
       if (retainBag) buffer->retainIndex = static_cast<int>(packageIndex);
       qbufferRenderer.cull(buffer);
     }
+    TYRA_ATTRIB_ADD(dsDirectTicks, attribDirectStart);
   } else if (checkYesFrustumPartialClipYes || checkYesFrustumPartialClipNo) {
+    TYRA_ATTRIB_INC(dsPartialBags);
     u16 packagesCount = 0;
     auto doClip = checkYesFrustumPartialClipYes;
     if (bag->stripped) {
@@ -813,21 +874,35 @@ void StaPipCore::render(StaPipBag* bag) {
       // subpackage branch below (which cuts at clipPackageSize, and merges
       // three cuts back into one buffer) must not be reached - either would
       // splice unrelated vertices into one strip.
+      TYRA_ATTRIB_MARK(attribCreateStart);
       auto packages = packager.create(&packagesCount, bag, maxVertCount);
+      TYRA_ATTRIB_ADD(dsCreateTicks, attribCreateStart);
       Verbose("Material - partial, stripped. Packages: ", packagesCount);
+      TYRA_ATTRIB_MARK(attribRenderStripStart);
       renderStrippedPkgs(packages, doClip, packagesCount);
+      TYRA_ATTRIB_ADD(dsRenderTicks, attribRenderStripStart);
     } else if (!doClip || bag->count >= maxVertCount * 2) {
+      TYRA_ATTRIB_MARK(attribCreateStart);
       auto packages = packager.create(&packagesCount, bag, maxVertCount);
+      TYRA_ATTRIB_ADD(dsCreateTicks, attribCreateStart);
       Verbose("Material - partial. Packages: ", packagesCount);
+      TYRA_ATTRIB_MARK(attribRenderPkgsStart);
       renderPkgs(packages, doClip, packagesCount);
+      TYRA_ATTRIB_ADD(dsRenderTicks, attribRenderPkgsStart);
     } else {
+      TYRA_ATTRIB_MARK(attribCreateStart);
       auto subpkgs = packager.create(&packagesCount, bag, clipPackageSize());
+      TYRA_ATTRIB_ADD(dsCreateTicks, attribCreateStart);
       Verbose("Material - partial. Subpackages: ", packagesCount);
+      TYRA_ATTRIB_MARK(attribRenderSubStart);
       renderSubpkgs(subpkgs, packagesCount);
+      TYRA_ATTRIB_ADD(dsRenderTicks, attribRenderSubStart);
     }
   }
 
+  TYRA_ATTRIB_MARK(attribFlushStart);
   qbufferRenderer.flushBuffers();
+  TYRA_ATTRIB_ADD(dsFlushTicks, attribFlushStart);
   qbufferRenderer.endRetainedBag();  // Modified by TyraX
   retainCurrentBag = false;
   const u32 dispatchEnd = telemetryEnabled ? readCoreTelemetryTicks() : 0;

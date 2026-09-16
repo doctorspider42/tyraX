@@ -13,6 +13,19 @@
 
 namespace Tyra {
 
+#if TYRA_STAPIP_ATTRIB
+// Added by TyraX: the attribution pass' own clock, identical to the one
+// StaPipCore uses. Compiled out with the counters it feeds.
+static inline u32 readCacherAttribTicks() {
+  u32 ticks;
+  asm volatile("mfc0 %0, $9" : "=r"(ticks));
+  return ticks;
+}
+#define TYRA_CACHER_INC(field) (++stats.field)
+#else
+#define TYRA_CACHER_INC(field) ((void)0)
+#endif
+
 StapipBagBBoxesCacher::StapipBagBBoxesCacher() {
   std::fill(indexBuckets, indexBuckets + indexBucketCount, -1);
 }
@@ -20,6 +33,9 @@ StapipBagBBoxesCacher::StapipBagBBoxesCacher() {
 StapipBagBBoxesCacher::~StapipBagBBoxesCacher() {}
 
 void StapipBagBBoxesCacher::onFrameEnd() {
+#if TYRA_STAPIP_ATTRIB
+  const u32 attribStart = readCacherAttribTicks();
+#endif
   for (auto& item : storage) {
     if (item.framesLeftToDestroy > 0) {
       item.framesLeftToDestroy--;
@@ -35,6 +51,13 @@ void StapipBagBBoxesCacher::onFrameEnd() {
     storage.erase(newEnd, storage.end());
     rebuildIndex();
   }
+#if TYRA_STAPIP_ATTRIB
+  // This scan is per FRAME and lives outside StaPipCore::render, so it is
+  // outside `boundsTicks` and every other shipped bracket - which is exactly
+  // why nothing had ever measured it.
+  stats.entries = static_cast<u32>(storage.size());
+  stats.frameEndTicks += readCacherAttribTicks() - attribStart;
+#endif
 }
 
 StaPipBagPackagesBBox* StapipBagBBoxesCacher::getBBoxes(
@@ -54,16 +77,28 @@ StaPipBagPackagesBBox* StapipBagBBoxesCacher::getBBoxes(
     // prevented by the process-unique version stamps generated games use.
     if (cache->version != version ||
         cache->bboxes->getVertexCount() != count) {
+#if TYRA_STAPIP_ATTRIB
+      const u32 recalcStart = readCacherAttribTicks();
+#endif
       if (cache->bboxes->getVertexCount() == count) {
+        TYRA_CACHER_INC(recalcs);
         cache->bboxes->recalculate(vertices, maxVertCount);
       } else {
+        TYRA_CACHER_INC(fresh);
         cache->bboxes = std::make_unique<StaPipBagPackagesBBox>(vertices, count,
                                                                 maxVertCount);
       }
+#if TYRA_STAPIP_ATTRIB
+      // Only the RECOMPUTE, so `bdCacheTicks` minus this is the pure lookup.
+      stats.recalcTicks += readCacherAttribTicks() - recalcStart;
+#endif
       cache->version = version;
+    } else {
+      TYRA_CACHER_INC(hits);
     }
     return cache->bboxes.get();
   }
+  TYRA_CACHER_INC(fresh);
 
   auto bboxes =
       std::make_unique<StaPipBagPackagesBBox>(vertices, count, maxVertCount);
@@ -84,6 +119,7 @@ StapipBagBBoxesCacheItem* StapipBagBBoxesCacher::getCache(
   int itemIndex = indexBuckets[getBucket(maxVertCount, id)];
   while (itemIndex >= 0) {
     auto& item = storage[itemIndex];
+    TYRA_CACHER_INC(probes);
     if (item.vu1MaxVertCount == maxVertCount && item.id == id) {
       return &item;
     }

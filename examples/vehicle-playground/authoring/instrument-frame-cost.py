@@ -91,9 +91,23 @@ ATT_NAMES = ['rsTotal', 'rsHead', 'rsEnvProbe', 'rsPortal', 'rsSky',
 #   rsObjSubmit   < rsObjects  the per-object part loop, i.e. not the tests
 #   rsWheelSubmit < rsWheels   the ONE bag submit, i.e. not the EE wheel rebake
 ENG_NAMES = ['spRender', 'spHead', 'spTail', 'spCalls', 'spCulled', 'spPkgr',
-             'spTex', 'spProg', 'spLight', 'spBlss', 'spObjData', 'spGifWait']
+             'spTex', 'spProg', 'spLight', 'spBlss', 'spObjData', 'spGifWait',
+             # the five parts of `bounds`, plus the bbox cacher's own counters
+             'bdSize', 'bdProg', 'bdSizeCalc',
+             'bdXform', 'bdCache', 'bdPlanes', 'bdMain',
+             'bbHit', 'bbRecalc', 'bbFresh', 'bbProbe', 'bbEntries',
+             'bbFrameEnd', 'bbRecalcT',
+             # inside `dispatch`: the package creation/classification box
+             'dsRetain', 'dsDirect', 'dsCreate', 'dsClassify', 'dsRender',
+             'dsFlush', 'dsDirectBags', 'dsPartialBags', 'dsPackages',
+             'dsMergeParts', 'dsMaskCalls']
 # spCalls / spCulled are COUNTS, not ticks; everything else is COP0 ticks.
-ATT_COUNTS = {'spCalls', 'spCulled'}
+ATT_COUNTS = {'spCalls', 'spCulled',
+              'bbHit', 'bbRecalc', 'bbFresh', 'bbProbe', 'bbEntries',
+              'dsDirectBags', 'dsPartialBags', 'dsPackages',
+              'dsMergeParts', 'dsMaskCalls'}
+# `bbEntries` is a LEVEL (how many entries the 250-frame retention holds),
+# not something accumulated over the frame - the others are per-frame totals.
 
 if a.attribute:
     fields = ATT_NAMES + ENG_NAMES
@@ -172,7 +186,17 @@ if a.attribute:
       dmA.renderTicks, dmA.headTicks, dmA.tailTicks, dmA.renderCalls,
       dmA.renderCallsCulled, dmA.prepPackagerTicks, dmA.prepTextureTicks,
       dmA.prepProgramTicks, dmA.prepLightTicks, dmA.prepBlssTicks,
-      dmA.prepObjectDataTicks, dmA.gifWaitTicks};
+      dmA.prepObjectDataTicks, dmA.gifWaitTicks,
+      dmA.bdSizeTicks, dmA.bdProgTicks, dmA.bdSizeCalcTicks,
+      dmA.bdXformTicks, dmA.bdCacheTicks,
+      dmA.bdPlanesTicks, dmA.bdMainTicks,
+      dmA.bboxCacheHits, dmA.bboxCacheRecalcs, dmA.bboxCacheFresh,
+      dmA.bboxCacheProbes, dmA.bboxCacheEntries, dmA.bboxCacheFrameEndTicks,
+      dmA.bboxCacheRecalcTicks,
+      dmA.dsRetainTicks, dmA.dsDirectTicks, dmA.dsCreateTicks,
+      dmA.dsClassifyTicks, dmA.dsRenderTicks, dmA.dsFlushTicks,
+      dmA.dsDirectBags, dmA.dsPartialBags, dmA.dsPackages,
+      dmA.dsMergeParts, dmA.dsMaskCalls};
 #else
     const unsigned dmEng[''' + str(len(ENG_NAMES)) + '''] = {0};
 #endif

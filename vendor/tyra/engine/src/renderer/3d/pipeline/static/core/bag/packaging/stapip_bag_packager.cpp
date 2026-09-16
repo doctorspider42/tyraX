@@ -14,6 +14,18 @@
 // Modified by TyraX: integer ceiling division avoids software double math on EE.
 namespace Tyra {
 
+#if TYRA_STAPIP_ATTRIB
+// Added by TyraX: the attribution pass' own clock (stapip_attrib.hpp). The
+// classification is the one bracket in the dispatch split that is measured
+// EXCLUSIVELY rather than derived as a residual, which is the whole point of
+// putting it here rather than around create().
+static inline u32 readPackagerAttribTicks() {
+  u32 ticks;
+  asm volatile("mfc0 %0, $9" : "=r"(ticks));
+  return ticks;
+}
+#endif
+
 StaPipBagPackager::StaPipBagPackager() {}
 
 StaPipBagPackager::~StaPipBagPackager() {}
@@ -34,6 +46,9 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_size, StaPipBag* data,
               maxVertCount, " verts. Provided \"", size, "\"");
 
   *o_size = (data->count + size - 1) / size;
+#if TYRA_STAPIP_ATTRIB
+  stats.packages += *o_size;
+#endif
   // Modified by TyraX: grow-only pool instead of new[] per submit.
   // Pool entries are reused, so pointers absent from this bag must be
   // reset - a stale sts/colors/normals from a previous bag would otherwise
@@ -101,6 +116,9 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_count,
               maxVertCount, " verts. Provided \"", size, "\"");
 
   *o_count = (pkg.size + size - 1) / size;
+#if TYRA_STAPIP_ATTRIB
+  stats.packages += *o_count;
+#endif
   // Modified by TyraX: grow-only pool instead of new[] per split (see
   // the bag-level overload above; separate pool - the parent package array
   // is still alive during a split).
@@ -152,12 +170,29 @@ CoreBBoxFrustum StaPipBagPackager::checkFrustum(const StaPipBagPackage& pkg,
                                                 u8* crossingMask,
                                                 bool* o_guardBandOnly) {
   HardwareTrace::Scope trace("Package_classify");
+#if TYRA_STAPIP_ATTRIB
+  const u32 attribStart = readPackagerAttribTicks();
+  struct AttribClose {
+    StaPipBagPackager::Stats* s;
+    u32 start;
+    ~AttribClose() { s->classifyTicks += readPackagerAttribTicks() - start; }
+  } attribClose{&stats, attribStart};
+#endif
   if (o_guardBandOnly) *o_guardBandOnly = false;
   if (!renderBBox || !objectSpacePlanes)
     return CoreBBoxFrustum::OUTSIDE_FRUSTUM;
 
   Vec4 min, max;
 
+#if TYRA_STAPIP_ATTRIB
+  // The merge loop's trip count, so "is the classification the WALK or the
+  // arithmetic" stops being a guess. Counted here rather than inside
+  // getMergedMinMax to keep that hot function untouched.
+  stats.mergeParts +=
+      pkg.size <= (maxVertCount / 3)
+          ? (pkg.endIndexOf1By3BBox - pkg.indexOf1By3BBox + 1)
+          : ((pkg.size + maxVertCount / 3 - 1) / (maxVertCount / 3));
+#endif
   if (pkg.size <= (maxVertCount / 3)) {  // Is subpackage
     // A subpackage smaller than maxVertCount / 3 (VU1 clipping mode) can
     // straddle a 1/3 bbox boundary - classify it against the merged bbox
@@ -183,6 +218,9 @@ CoreBBoxFrustum StaPipBagPackager::checkFrustum(const StaPipBagPackage& pkg,
     // gets; bits 6..7 are the exact near/far pair, and a package that is
     // inside all eight needs no clipping (StaPipCore::isGuardBandOnly).
     // Both are answered by one pass over the same box.
+#if TYRA_STAPIP_ATTRIB
+    if (result == PARTIALLY_IN_FRUSTUM) ++stats.maskCalls;
+#endif
     const u8 mask =
         result == PARTIALLY_IN_FRUSTUM
             ? CoreBBox::activePlaneMaskAABB(clipObjectSpacePlanes, min, max, 8)

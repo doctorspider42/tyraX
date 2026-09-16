@@ -287,8 +287,20 @@ timing brackets do not cover the whole of `StaPipCore::render`** — the head
 does execute, because no game build defines NDEBUG) and the tail sit outside
 all of them. `TYRA_STAPIP_ATTRIB` in `stapip_attrib.hpp` (default **0**, and it
 must stay 0 in anything shipped) adds a `renderTicks` bracket around the whole
-function plus a six-way split of `prepare`, so "inside render, inside no
-bracket" is a subtraction rather than a guess — docs/render-submission-attribution.md.
+function plus a six-way split of `prepare`, a five-way split of `bounds` (with
+the bbox cacher's own hit/recalculate/fresh counters, and the per-frame expiry
+scan, which lives OUTSIDE render() and therefore lands in `finish` rather than
+in submission) and a split of the package-creation box inside `dispatch`, so
+"inside render, inside no bracket" is a subtraction rather than a guess —
+docs/render-submission-attribution.md. Unlike the first round's, THESE hooks
+are measurable: +0.122 ms on `bounds` and +0.062 on `dispatch`, so the children
+over-report by 6.3% and 1.1% and one COP0 read prices at ~11 cycles. What the
+split found: the bbox cacher is NOT the cost (226.5 lookups = 0.118 ms, 1.44
+probes each, zero allocations) — 0.618 ms is 10.5 `recalculate()` calls forced
+by a caller that bumps `bboxVersion` every frame; and 22% of `bounds` was
+`StaPipQBufferRenderer::setMaxVertCount` fanning one u32 out to all 32 qbuffers
+once per bag, which now returns early when the value has not moved (−0.34 ms,
+picture byte-identical).
 The C++ side
 must keep the prim giftag NLOOP at 6× the input count (`gsVertexCount`) — an undercounting
 NLOOP stalls the GIF. Billboard bags require multi-color, no lighting,

@@ -18,6 +18,7 @@
 
 #include <tamtypes.h>
 #include "./bag/packaging/stapip_bag_packages_bbox.hpp"
+#include "./stapip_attrib.hpp"
 #include "renderer/3d/mesh/mesh.hpp"
 #include <memory>
 #include <vector>
@@ -46,6 +47,31 @@ class StapipBagBBoxesCacher {
   StaPipBagPackagesBBox* getBBoxes(const Vec4* vertices, const u32& count,
                                    const u32& id, const u32& version,
                                    const u32& maxVertCount);
+
+#if TYRA_STAPIP_ATTRIB
+  /**
+   * Added by TyraX: attribution counters
+   * (docs/render-submission-attribution.md). Compiled out by default with
+   * everything else behind TYRA_STAPIP_ATTRIB - at 0 this class gains no
+   * field and no increment.
+   *
+   * StaPipCore folds them into StaPipTelemetry::attrib in takeTelemetry()
+   * and clears them there, so they reset on read like every other counter.
+   * They are gathered unconditionally rather than under `telemetryEnabled`,
+   * because the cacher has no view of that flag; the whole block only exists
+   * in an instrumented build anyway.
+   */
+  struct Stats {
+    u32 hits = 0;
+    u32 recalcs = 0;
+    u32 fresh = 0;
+    u32 probes = 0;
+    u32 entries = 0;
+    u32 frameEndTicks = 0;
+    u32 recalcTicks = 0;
+  };
+  Stats stats;
+#endif
 
  private:
   static const u32 indexBucketCount = 256;

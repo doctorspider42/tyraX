@@ -349,6 +349,19 @@ outside those brackets. **Everything left scales with the number of bags and
 packages rather than with triangles**, which is what the next round has to
 attack.
 
+**The `bounds` 4.0 in that list has since been attributed and cut.** Its five
+parts are measured in
+[render-submission-attribution.md](render-submission-attribution.md), "Round
+two", and the largest of them was not any of the three things this page's own
+rounds attacked: `StaPipQBufferRenderer::setMaxVertCount` fanning one `u32` out
+to all 32 qbuffers once per bag. Removing that redundant fan-out is worth
+**−0.34 ms of `bounds`** in the emulator (17.6% of the bucket), against 0.081 ms
+for the branchless AABB test and the compacted `partBounds` stride combined. The
+bbox cacher, which this page and its successor both nominated as the next
+suspect, is **exonerated**: every lookup in the frame costs 0.118 ms and nothing
+allocates. Read the 4.0 above as pre-fix, and note the lesson it cost: two of
+the three attacks on this bucket were aimed by a plausible story.
+
 **That last clause used to read "the generated game's own object loop and
 per-bag engine overhead", and it was a guess. It has now been measured, and the
 object loop is not in it** — see
