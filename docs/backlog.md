@@ -304,6 +304,41 @@ estimates of what a fix would save.
    five host writes per 1 440-frame run), same class as the census that cost
    1 ms a frame, and `--audit-release` catches neither.
 
+### The baked stream needs a caller contract for NON-POSITION data
+
+**This is the blocker that stops TYRA_STAPIP_BAKED_STREAM shipping above 0**, and
+it was found by the adversarial verify mode rather than by any gate leg -
+docs/baked-stream-acceptance-gate.md, and
+examples/vehicle-playground/authoring/ee-rearchitecture-2026-09-16.
+
+`TYRA_STAPIP_BAKED_VERIFY` rebuilds every block with the ordinary writers and
+compares it against what the cache holds. It mismatches **1438 times** on the
+Motor District, and all 1438 are the same shape: the colour-only program class,
+identical block length, and the first differing quadword landing on the FIRST
+COLOUR QUADWORD. The positions match; the per-vertex colours do not.
+
+**Why.** The key holds the colour array's POINTER and `bboxVersion`, and
+`bboxVersion` is a statement about the bounding box - `StapipBagBBoxesCacher` is
+its only other consumer. A caller that re-shades per-vertex colours IN PLACE,
+which this district does for its dynamic lights, changes what the block must
+contain without touching anything the key can see.
+
+**The retained cache is immune and that is the whole trade.** It stores the chain
+- tags and `REF`s that still name the bag's own arrays - so a re-shaded colour
+array is followed at DMA time and is always fresh. The exposure belongs to the
+baked stream BECAUSE it inlines the payload.
+
+**Why no gate can catch it here.** Once the fixture's camera freezes, the colours
+freeze too, so the picture and both hashes agree. It fires during the warm-up
+sweep and stops - 1438 on the parked fixture, 1451 on the moving one. This is
+the class benchmark-district.py's docstring warns about.
+
+**The fix is a contract, and it is on the generated game's side of the
+boundary**: either bump a version whenever ANY of a bag's arrays is rewritten
+(not just its positions), or add a second version field for contents that are not
+positions, so `bboxVersion` keeps meaning what the bbox cacher needs it to mean.
+Whoever takes it re-runs the verify arm; `failed=0` is the acceptance.
+
 ### Name the bag that is rewritten every frame on a frozen scene
 
 Two instruments now point at one submitter in the generated game, and neither

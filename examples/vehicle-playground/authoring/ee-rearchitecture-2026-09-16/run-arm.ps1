@@ -13,7 +13,7 @@
 # signal. Nothing may be written there before it.
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory=$true)][ValidateSet('ctl','cand')][string]$Arm,
+  [Parameter(Mandatory=$true)][ValidateSet('ctl','cand','verify','poison')][string]$Arm,
   [string]$Fx   = "$env:TEMP\tyra-editor-test\eeR2",
   [string]$Out  = "$env:TEMP\tyra-editor-test\eeR2-arms",
   [int]$Pose    = 0,

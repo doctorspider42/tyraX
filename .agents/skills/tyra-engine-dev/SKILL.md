@@ -2631,6 +2631,29 @@ docs/baked-vif-stream.md. It ships **off**; five things any edit must keep.
   buffers of SEVERAL bags, so a stale index would be read against another bag's
   arena.
 
+- **THE KEY DOES NOT COVER WHAT THE BLOCK CONTAINS, and that is the blocker.**
+  It holds each array's POINTER plus `bboxVersion`, and `bboxVersion` is a
+  statement about the bounding box, i.e. about POSITIONS. A caller that re-shades
+  per-vertex COLOURS in place - which the Motor District does for its dynamic
+  lights - changes what the block must contain without touching anything the key
+  can see, and the baked stream then replays stale lighting. Measured:
+  `TYRA_STAPIP_BAKED_VERIFY` mismatches 1438 times, all of them the colour-only
+  class, all of them with the first differing quadword landing on the first
+  COLOUR quadword. The RETAINED cache is immune because it stores the chain and
+  its `REF`s still name the bag's own arrays, so a re-shade is followed at DMA
+  time - the exposure belongs to the baked stream BECAUSE it inlines the payload.
+  No gate leg can see this on a frozen fixture: once the camera stops, the
+  colours stop. docs/baked-stream-acceptance-gate.md, and the backlog item.
+- **The two adversarial modes are how you find that class at all**, and they are
+  not optional before turning this on. `TYRA_STAPIP_BAKED_VERIFY` never replays -
+  it rebuilds every block with the ordinary writers and compares - so it needs no
+  control arm and runs under `--keep-routes` with the traffic MOVING.
+  `TYRA_STAPIP_BAKED_POISON` overwrites an evicted arena immediately instead of
+  letting the two-frame graveyard hide it; paired with
+  `TYRA_STAPIP_BAKED_BUDGET_QW` cut far below what the scene wants, it thrashes
+  eviction and proves the DMA lifetime. Poison PASSES at 16 384 quadwords against
+  1 541 KB wanted, with a byte-identical picture.
+
 The cost is the part the plan page (docs/ee-submission-rearchitecture.md) did
 not mention: inlining the payload stores every static vertex twice, ~49 bytes
 per vertex for the textured per-vertex-colour class, and **nothing can free the

@@ -305,22 +305,63 @@ pass a renderer whose invalidation is broken in a way this fixture never opens.
 
 Two modes close most of that, and both are cheap:
 
-**`TYRA_STAPIP_BAKED_VERIFY`** — before replaying a cached block, rebuild it from
-scratch by the ordinary path and assert the two are byte-identical. This catches
-"the cache served a block that no longer matches what the ordinary path would
-produce", i.e. every missing or wrong invalidation, and it needs no control arm,
-so it runs under `--keep-routes` with the traffic **moving** — the one fixture
-where a skip-when-unchanged bug can actually fire. (A `--keep-routes` A/B is
-impossible: the two arms run at different speeds and never share a frame.)
+**`TYRA_STAPIP_BAKED_VERIFY`** — never replay; rebuild every block from scratch by
+the ordinary path and compare byte for byte against what the cache is holding.
+This catches "the cache would have served a block that no longer matches what
+the ordinary path produces", i.e. every missing or wrong invalidation, and it
+needs no control arm, so it runs under `--keep-routes` with the traffic
+**moving**. (A `--keep-routes` A/B is impossible: the two arms run at different
+speeds and never share a frame.)
 
 **Poison on retire** — when a block is evicted, overwrite it with a recognisable
 pattern *immediately* instead of letting the two-frame graveyard hide it. Anything
 still referencing it then corrupts the picture loudly on the next capture rather
-than silently on some future content. This converts the latent Probe-B class of
-defect into one leg 2 can see, on the parked fixture. Running the sweep with
-`StaPipBakedStreams::kMaxQwords` cut far below the 1 431 KB the arena actually
-holds forces eviction and the graveyard to cycle, so the poison has something to
-catch.
+than silently on some future content. Paired with `TYRA_STAPIP_BAKED_BUDGET_QW`
+cut far below what the arena actually wants, so eviction and the graveyard cycle
+and the poison has something to catch.
+
+### MEASURED: one passes, one FAILS, and the failure is a shipping blocker
+
+**Poison passes.** Budget cut from 262 144 quadwords to **16 384** — 256 KB
+against the 1 541 KB the garage wants, so eviction thrashes continuously — with
+every evicted arena overwritten with `0xDE` the instant it is retired. The
+capture is still byte-identical (`415f970f…`), and the VIFcode, uniform and
+pool hashes are unchanged from the control. **No in-flight packet ever names a
+freed block:** the two-frame graveyard and the flush-before-eviction ordering
+hold under maximum pressure. That is the DMA-lifetime leg — the Probe B class —
+passing its adversarial test.
+
+**Verify fails, 1438 times, and it is the same thing every time:**
+
+```
+STAPIPVERIFY MISMATCH StaPip - Cull - C count=180 packages=2
+             cachedQw=372 freshQw=372 firstDiffQw=116 ofBlock0Qw=228
+```
+
+Every one of the 1438 is the **colour-only program class**, the lengths always
+agree, and `firstDiffQw=116` in a 228-quadword block lands on the **first colour
+quadword** — the positions are identical and the per-vertex colours are not.
+Identical burst on the parked fixture (1438) and the moving one (1451), during
+the warm-up camera sweep and never after the camera freezes.
+
+**So the cache key does not cover what the block contains.** It holds the colour
+array's *pointer* and `bboxVersion`, and `bboxVersion` is a statement about the
+bounding box, i.e. about positions. A caller that **re-shades per-vertex colours
+in place** — which this district does for its dynamic lights — changes what the
+block must contain without changing anything the key can see. The baked stream
+would replay stale lighting.
+
+**The retained cache is immune, and the reason is worth keeping.** It stores the
+*chain* — tags and `REF`s that still name the bag's own arrays — so a re-shaded
+colour array is followed at DMA time and is always fresh. The exposure is
+specific to the baked stream, and it is specific to it *because* it inlines the
+payload. Copying is what buys the tag count and copying is what creates this.
+
+Neither leg 1 nor leg 2 can see any of it on this fixture: once the camera
+stops, the colours stop too. This is exactly the class
+`benchmark-district.py`'s own docstring warns about and
+[wheel-rebake-skip.md](wheel-rebake-skip.md) records, and it is the whole reason
+the adversarial modes exist.
 
 ## Leg 3 — fixture identity, which is not a correctness check
 

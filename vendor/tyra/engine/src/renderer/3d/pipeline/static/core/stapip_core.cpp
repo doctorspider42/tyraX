@@ -166,6 +166,15 @@ void StaPipCore::onFrameEnd() {
                              : 7]);
         qbufferRenderer.clearBakedMisses();
       }
+#if TYRA_STAPIP_BAKED_VERIFY
+      // The adversarial arm's whole result in one line. `failed` must be 0;
+      // anything else means the cache would have replayed a block the ordinary
+      // writers no longer produce, i.e. a missing invalidation - and this arm
+      // is the only one that can fire on a fixture whose traffic MOVES.
+      TYRA_LOG("STAPIPVERIFY checked=", qbufferRenderer.getVerifyChecked(),
+               " failed=", qbufferRenderer.getVerifyFailed(), " over ",
+               bakeFrames, " frames");
+#endif
       bakeFrames = 0;
       bakeHits = 0;
       bakeBuilds = 0;

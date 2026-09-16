@@ -312,6 +312,18 @@ void StaPipBakedStreams::rebuildIndex() {
 void StaPipBakedStreams::retire(StaPipBakedEntry& item) {
   const u32 qw = item.arenaQw;
   usedQwords -= qw < usedQwords ? qw : usedQwords;
+#if TYRA_STAPIP_BAKED_POISON
+  // The adversarial mode: overwrite an evicted arena NOW instead of letting the
+  // two-frame graveyard hide it. If any in-flight packet still names this
+  // block, the next capture tears visibly instead of the defect waiting for
+  // content that happens to expose it. See TYRA_STAPIP_BAKED_POISON.
+  //
+  // The pattern is chosen to be loud rather than plausible: as a VIFcode 0xDE
+  // is not one this pipeline emits, so the gate's decoder latches `broken` and
+  // names it, and as geometry it is a wild float - either way the arm reports
+  // rather than limps.
+  if (item.arena != nullptr && qw > 0) memset(item.arena, 0xDE, qw * 16);
+#endif
   if (item.raw) graveyard[graveyardWrite].push_back(std::move(item.raw));
   item.arena = nullptr;
   item.arenaQw = 0;
@@ -1706,6 +1718,14 @@ bool StaPipQBufferRenderer::beginBakedBag(StaPipBag* bag,
   key.packages = static_cast<u16>((bag->count + packageSize - 1) / packageSize);
 
   bakedCurrent = baked.acquire(key);
+#if TYRA_STAPIP_BAKED_VERIFY
+  // Rewind a COMPLETE entry so the ordinary writers rebuild every block into
+  // bakeScratch this frame; `complete` and the arena are left alone, and
+  // endBakedBag compares rather than overwrites. The entry's offsets/sizes are
+  // rewritten as a side effect, which costs nothing because this arm never
+  // replays - a length difference still shows up in the comparison.
+  if (bakedCurrent != nullptr) bakedCurrent->built = 0;
+#endif
   return bakedCurrent != nullptr;
 }
 
@@ -1778,6 +1798,13 @@ bool StaPipQBufferRenderer::bakeBlock(packet2_t* packet, u32 fromQw, u32 toQw,
 bool StaPipQBufferRenderer::replayWholeBakedBag() {
   StaPipBakedEntry* entry = bakedCurrent;
   if (entry == nullptr || !entry->complete || entry->arenaQw == 0) return false;
+#if TYRA_STAPIP_BAKED_VERIFY
+  // The verify arm never replays. Returning false sends the bag down the
+  // ordinary loop, which runs the real writers and rebuilds every block into
+  // bakeScratch; endBakedBag then COMPARES that against what the cache is
+  // holding instead of overwriting it. See TYRA_STAPIP_BAKED_VERIFY.
+  return false;
+#else
   // A DMA tag's QWC is 16 bits. A bag whose arena is larger than that cannot be
   // one tag; it keeps the ordinary route rather than being split here, because
   // splitting it is exactly the per-package bookkeeping this exists to delete.
@@ -1828,6 +1855,7 @@ bool StaPipQBufferRenderer::replayWholeBakedBag() {
     flushPendingPacket();
   }
   return true;
+#endif  // TYRA_STAPIP_BAKED_VERIFY
 }
 
 void StaPipQBufferRenderer::endBakedBag() {
@@ -1837,6 +1865,42 @@ void StaPipQBufferRenderer::endBakedBag() {
     bakeScratch.clear();
     return;
   }
+#if TYRA_STAPIP_BAKED_VERIFY
+  // A complete entry plus a freshly rebuilt scratch is exactly the comparison
+  // this arm exists for: is what the cache WOULD have replayed still what the
+  // ordinary writers produce? Any mismatch is a missing invalidation.
+  if (entry->complete && entry->built == entry->packages &&
+      !bakeScratch.empty()) {
+    const u32 qw = static_cast<u32>(bakeScratch.size());
+    ++baked.verifyChecked;
+    if (qw != entry->arenaQw ||
+        memcmp(entry->arena, bakeScratch.data(), qw * 16) != 0) {
+      ++baked.verifyFailed;
+      // Name the program and the FIRST differing quadword. The offset is what
+      // says which stream moved: a package's block is a header, the scale and
+      // GIFtag, then one header + n quadwords per stream in the writer's order
+      // (positions, ST, colour), so an offset in the second run means the ST
+      // array was rewritten under an unchanged key.
+      u32 firstDiff = 0;
+      if (qw == entry->arenaQw) {
+        const u32* a = reinterpret_cast<const u32*>(entry->arena);
+        const u32* b = reinterpret_cast<const u32*>(bakeScratch.data());
+        const u32 words = qw * 4;
+        while (firstDiff < words && a[firstDiff] == b[firstDiff]) ++firstDiff;
+      }
+      auto* prog = static_cast<StaPipVU1Program*>(
+          const_cast<void*>(entry->program));
+      TYRA_LOG("STAPIPVERIFY MISMATCH ", prog->getStringName().c_str(),
+               " count=", entry->count, " packages=", entry->packages,
+               " cachedQw=", entry->arenaQw, " freshQw=", qw,
+               " firstDiffQw=", firstDiff / 4, " ofBlock0Qw=",
+               entry->sizes[0]);
+    }
+    entry->built = entry->packages;  // the entry itself is untouched
+    bakeScratch.clear();
+    return;
+  }
+#endif
   if (!entry->complete && entry->built == entry->packages &&
       !bakeScratch.empty()) {
     const u32 qw = static_cast<u32>(bakeScratch.size());
@@ -1878,6 +1942,17 @@ u32 StaPipQBufferRenderer::getBakedLoudReason() const {
   return baked.getLoudReason();
 }
 void StaPipQBufferRenderer::clearBakedMisses() { baked.clearMisses(); }
+#if TYRA_STAPIP_BAKED_VERIFY
+u32 StaPipQBufferRenderer::getVerifyChecked() const {
+  return baked.verifyChecked;
+}
+u32 StaPipQBufferRenderer::getVerifyFailed() const {
+  return baked.verifyFailed;
+}
+#else
+u32 StaPipQBufferRenderer::getVerifyChecked() const { return 0; }
+u32 StaPipQBufferRenderer::getVerifyFailed() const { return 0; }
+#endif
 
 #else
 
@@ -1894,6 +1969,8 @@ u32 StaPipQBufferRenderer::getBakedLoudCount() const { return 0; }
 u32 StaPipQBufferRenderer::getBakedLoudPackages() const { return 0; }
 u32 StaPipQBufferRenderer::getBakedLoudReason() const { return 0; }
 void StaPipQBufferRenderer::clearBakedMisses() {}
+u32 StaPipQBufferRenderer::getVerifyChecked() const { return 0; }
+u32 StaPipQBufferRenderer::getVerifyFailed() const { return 0; }
 
 #endif  // TYRA_STAPIP_BAKED_STREAM
 
@@ -1922,6 +1999,11 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
     // unpacks, the inline vertex data AND the MSCAL/MSCNT of every package in
     // the run. The run stops at the flush boundary `to`, which is why a mesh
     // that straddles one costs two tags instead of one.
+    // TYRA_STAPIP_BAKED_VERIFY must not replay HERE either, or the ordinary
+    // writers never run and there is nothing to compare the cache against.
+    // This is the per-package run replay - the fallback for a bag
+    // replayWholeBakedBag refused - and the verify arm has to see through both.
+#if !TYRA_STAPIP_BAKED_VERIFY
     {
       StaPipBakedEntry* bakedEntry = bakedCurrent;
       const int bakeIdx = buffers[i]->bakeIndex;
@@ -1951,6 +2033,7 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
         continue;
       }
     }
+#endif  // !TYRA_STAPIP_BAKED_VERIFY
     const u32 bakeFrom = packet2_get_qw_count(currentPacket);
 #endif
 
@@ -2020,8 +2103,15 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
     {
       StaPipBakedEntry* bakedEntry = bakedCurrent;
       const int bakeIdx = buffers[i]->bakeIndex;
-      if (bakedEntry != nullptr && !bakedEntry->complete && bakeIdx >= 0 &&
-          bakeIdx < bakedEntry->packages &&
+      // TYRA_STAPIP_BAKED_VERIFY rebuilds a COMPLETE entry too - that is the
+      // whole point of the arm - so the "not complete yet" guard is relaxed
+      // there and nowhere else.
+#if TYRA_STAPIP_BAKED_VERIFY
+      const bool bakeWanted = bakedEntry != nullptr;
+#else
+      const bool bakeWanted = bakedEntry != nullptr && !bakedEntry->complete;
+#endif
+      if (bakeWanted && bakeIdx >= 0 && bakeIdx < bakedEntry->packages &&
           bakeIdx == static_cast<int>(bakedEntry->built)) {
         if (!bakeBlock(currentPacket, bakeFrom,
                        packet2_get_qw_count(currentPacket), bakedEntry,

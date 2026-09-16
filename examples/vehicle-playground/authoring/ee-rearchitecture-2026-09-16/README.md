@@ -21,9 +21,18 @@ Headline, garage day, held pose, control against candidate:
 | routing counts, submitted vertices | identical |
 | package blocks rebuilt a frame | 64 (spike) -> **2–3** |
 
-And one negative result that bounds the gate: **the geometry payload is not
-byte-reproducible between two boots of one ELF**, though the structure, the
-uniforms and the picture all are. See "What the gate could NOT do".
+And two negative results, both of which matter more than the table above.
+
+**The adversarial verify mode FAILS, 1438 times, and it is a shipping blocker.**
+The cache key holds the colour array's *pointer* and `bboxVersion`, and
+`bboxVersion` is about positions — so a caller that re-shades per-vertex colours
+in place changes what the block must contain without changing anything the key
+can see. Neither the picture nor either hash can see it on a fixture whose
+camera is frozen. See "The two adversarial modes".
+
+**The geometry payload is not byte-reproducible between two boots of one ELF**,
+though the structure, the uniforms, the copy pools and the picture all are. See
+"What the gate could NOT do".
 
 ## The gate's self-test, and why it is the first thing in this directory
 
@@ -194,6 +203,66 @@ are exact. The geometry payload is checked by leg 2, the byte-identical picture,
 and by nothing else. For this round that is enough — the redesign changes
 *structure*, and `ctrl` is precisely the structure hash — but a future change
 that touched vertex data would be resting the whole argument on pixels again.
+
+## The two adversarial modes: one passes, one FAILS
+
+These exist because this fixture's traffic is parked AND its camera is frozen,
+which flatters any change that skips work when an input did not change - every
+car is still, every frame, for ever, and a skip test that would never fire in a
+real district scores 100% here. Legs 1 and 2 of the gate both pass a renderer
+whose invalidation is broken in a way this fixture never opens. Raw output:
+`console/adversarial.txt`.
+
+### Poison on retire: PASS
+
+`TYRA_STAPIP_BAKED_POISON` overwrites an evicted arena with `0xDE` the instant it
+is retired, instead of letting the two-frame graveyard hide it, and
+`TYRA_STAPIP_BAKED_BUDGET_QW` was cut from 262 144 quadwords to **16 384** - 256
+KB against the 1 541 KB the garage wants - so eviction thrashes continuously and
+the poison has something to catch.
+
+The capture is still `415f970f...73f1e`, and the VIFcode, uniform and pool
+hashes are unchanged from the control. **No in-flight packet ever names a freed
+block.** The two-frame graveyard and the flush-before-eviction ordering hold
+under maximum pressure; that is the DMA-lifetime leg - the Probe B class -
+passing its adversarial test.
+
+### Verify on replay: FAIL, 1438 times, and it is a shipping blocker
+
+`TYRA_STAPIP_BAKED_VERIFY` never replays: it rebuilds every block with the
+ordinary writers and compares byte for byte against what the cache holds. Every
+one of the 1438 mismatches is the same shape.
+
+```
+STAPIPVERIFY MISMATCH StaPip - Cull - C count=180 packages=2
+             cachedQw=372 freshQw=372 firstDiffQw=116 ofBlock0Qw=228
+```
+
+| | |
+| --- | --- |
+| program class | **all 1438 are `Cull - C`**, colour-only |
+| length | `cachedQw == freshQw` every time |
+| first differing quadword | **116** of a 228-quadword block - the first COLOUR quadword |
+| parked fixture | 1438 mismatches |
+| moving fixture (`--keep-routes`) | 1451 |
+| when | during the warm-up camera sweep; never once the camera freezes |
+
+**The key does not cover what the block contains.** It holds the colour array's
+POINTER and `bboxVersion`, and `bboxVersion` is a statement about the bounding
+box, i.e. about positions - `StapipBagBBoxesCacher` is its only other consumer. A
+caller that re-shades per-vertex colours in place, which this district does for
+its dynamic lights, changes what the block must contain without touching
+anything the key can see. The baked stream would replay stale lighting.
+
+**The retained cache is immune, and the reason is the whole trade.** It stores
+the chain - tags and `REF`s that still name the bag's own arrays - so a re-shaded
+colour array is followed at DMA time and is always fresh. This exposure belongs
+to the baked stream BECAUSE it inlines the payload: copying is what buys the tag
+count, and copying is what creates this.
+
+Neither leg 1 nor leg 2 can see any of it here, because once the camera stops
+the colours stop too. That is precisely the class `benchmark-district.py`'s own
+docstring warns about, and it is the whole reason these two modes exist.
 
 ## The fixture check, before any measurement in this directory is quotable
 

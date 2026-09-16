@@ -57,6 +57,39 @@
 // STAPIPRET one below: a host: write inside a sampling window is noise with a
 // period, so it is opt-in even though it only prints COUNTS. Build both arms
 // with -DTYRA_STAPIP_BAKED_REPORT=1 to read the per-frame DMA quadword count.
+// Modified by TyraX: THE TWO ADVERSARIAL MODES
+// (docs/baked-stream-acceptance-gate.md). Neither ships; both exist because
+// benchmark-district.py's traffic is PARKED, and a parked fixture flatters any
+// change that skips work when an input did not change - every car is still,
+// every frame, for ever, so a skip test that would never fire in a real
+// district scores 100% (docs/wheel-rebake-skip.md is the worked example).
+// Legs 1 and 2 of the gate would both pass a renderer whose invalidation is
+// broken in a way this fixture never opens.
+//
+// VERIFY does not replay at all. It runs the ordinary writers, rebuilds the
+// bag's blocks, and compares them byte for byte against what the cache is
+// holding - so it answers "would the cache have served something the ordinary
+// path would not have produced?". It needs NO control arm, which is what lets
+// it run under --keep-routes with the traffic MOVING: the one fixture where a
+// missing invalidation can actually fire. (A --keep-routes A/B is impossible;
+// the two arms run at different speeds and never share a frame.)
+#ifndef TYRA_STAPIP_BAKED_VERIFY
+#define TYRA_STAPIP_BAKED_VERIFY 0
+#endif
+// POISON overwrites an evicted arena with a recognisable pattern IMMEDIATELY,
+// instead of letting the two-frame graveyard hide it. Anything still naming it
+// then corrupts the picture loudly on the next capture rather than silently on
+// some future content - it converts the latent DMA-lifetime defect, the Probe B
+// class, into one leg 2 can see. Pair it with TYRA_STAPIP_BAKED_BUDGET_QW far
+// below the arena's real size, so eviction and the graveyard actually cycle and
+// the poison has something to catch.
+#ifndef TYRA_STAPIP_BAKED_POISON
+#define TYRA_STAPIP_BAKED_POISON 0
+#endif
+#ifndef TYRA_STAPIP_BAKED_BUDGET_QW
+#define TYRA_STAPIP_BAKED_BUDGET_QW 262144
+#endif
+
 #ifndef TYRA_STAPIP_BAKED_REPORT
 #define TYRA_STAPIP_BAKED_REPORT 0
 #endif
@@ -284,7 +317,7 @@ class StaPipBakedStreams {
    * District garage's cull-routed working set alone is about 2.9 MB at
    * 3 696 bytes a package, so this is a real bound and it is meant to be read
    * against the measured usage, not assumed generous. */
-  static const u32 kMaxQwords = 262144;
+  static const u32 kMaxQwords = TYRA_STAPIP_BAKED_BUDGET_QW;
   /** Refuse a single block larger than this - a runaway package size would
    * otherwise evict the whole cache for one bag. */
   static const u32 kMaxBlockQw = 1024;
@@ -344,6 +377,12 @@ class StaPipBakedStreams {
   u32 getLoudCount() const { return loudCount; }
   u32 getLoudPackages() const { return loudPackages; }
   u32 getLoudReason() const { return loudReason; }
+#if TYRA_STAPIP_BAKED_VERIFY
+  /** Blocks compared, and blocks that did NOT match. A single mismatch is a
+   * failure of the whole arm: it means the cache would have replayed something
+   * the ordinary writers no longer produce. */
+  u32 verifyChecked = 0, verifyFailed = 0;
+#endif
 
  private:
   static const u32 kBucketCount = 256;
@@ -582,6 +621,10 @@ class StaPipQBufferRenderer {
   u32 getBakedLoudPackages() const;
   u32 getBakedLoudReason() const;
   void clearBakedMisses();
+  /** TYRA_STAPIP_BAKED_VERIFY: blocks compared, and blocks that did not match.
+   * Zero when the arm is compiled out. */
+  u32 getVerifyChecked() const;
+  u32 getVerifyFailed() const;
 
   /** TyraX diagnostics: DMA quadwords the pipeline handed to VIF1 this frame,
    * summed over every submitted packet - the CHAIN, not the payload the REF
