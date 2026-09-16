@@ -4303,11 +4303,7 @@
 // 1.99.0: render submission is attributed to zero residual; the "gap" was
 // mostly the post-fx, HUD and game-side phases that `submit` always included.
 #define TYRAX_VERSION_MAJOR 1
-<<<<<<< HEAD
 #define TYRAX_VERSION_MINOR 102
-=======
-#define TYRAX_VERSION_MINOR 100
->>>>>>> 5be6a90f
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
