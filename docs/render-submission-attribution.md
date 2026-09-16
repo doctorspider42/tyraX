@@ -31,6 +31,14 @@ that had never been looked at because it reads as three stores. Removing it is
 worth **−0.34 ms of `bounds`**, ten times what the two previous attacks on that
 bucket managed between them.
 
+A third round then asked the question every per-package term raises —
+[can a package hold more vertices?](#round-three-the-package-size-is-at-its-ceiling-and-the-ceiling-is-81)
+The answer is no, and it is arithmetic rather than judgement: **72 is 96% of
+what the class this frame runs can derive and 89% of what the whole of VU1 data
+memory allows**, and the 144 that would halve the package count wants 1.73x that
+memory. The per-class pin is exonerated too — every class in the frame derives
+exactly 72, by two independent routes.
+
 ## The two instruments, and the one macro that must not ship
 
 Both halves are opt-in and both default to **off**.
@@ -549,6 +557,172 @@ carries seven bracket pairs per bag — fourteen `mfc0` reads — which prices o
 COP0 read at about **11 cycles**. The raw rows, the arms and the capture
 comparison are archived in
 [authoring/bounds-attribution-2026-09-16](../examples/vehicle-playground/authoring/bounds-attribution-2026-09-16/README.md).
+
+## Round three: the package size is at its ceiling, and the ceiling is 81
+
+Round two left almost every term of the package box scaling with the number of
+packages: classification at 2.45 µs each, the descriptor construction, both
+submission loops and the flush count. The garage-day frame is cut into **572.5
+packages**, and static geometry ships as triangle strips chopped into runs of
+exactly 72 vertices with `StaPipBag::packageSize` pinned to that, so a run *is*
+a package. The obvious question follows: **if a package held twice as many
+vertices there would be half as many packages.** So what sets 72, and can it be
+raised?
+
+**It cannot. 72 is 96% of what the binding program class can derive, and 89% of
+what the whole of VU1 data memory allows.** A doubling is not expensive, it is
+arithmetically impossible.
+
+### Where 72 comes from
+
+Two functions, and no other input.
+`StaPipQBufferRenderer::setDoubleBuffer` splits the memory between
+`VU1_STAPIP_LAST_ITEM_ADDR + 1` (22, above the per-mesh constants) and
+`VU1_STAPIP_DBUFFER_END` (944, the clipping scratch floor) into two halves:
+`(944 − 22) / 2 − 1` = **460 quadwords**. `StaPipVU1Program::getMaxVertCount`
+takes nine of those for the GIF tag block and divides the remaining **451** by
+the per-vertex footprint, which is `elementsPerVertex + reglistCount` — what the
+EE uploads plus what the program writes — then rounds down to a multiple of 9.
+
+Per class, from each program's own constructor arguments, verified against a
+native harness that runs both functions verbatim — it is archived with this
+round in
+[authoring/package-ceiling-2026-09-16](../examples/vehicle-playground/authoring/package-ceiling-2026-09-16/README.md),
+and it is the check to re-run after any edit to either function:
+
+| class | uploads | writes | qw/vertex | 451 / that | after the /9 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `cull_c` + per-vertex colours | 2 | 2 | 4 | 112 | 108 |
+| `cull_c` + one colour | 1 | 2 | 3 | 150 | 144 |
+| `cull_d` + one colour | 2 | 2 | 4 | 112 | 108 |
+| **`cull_tc` / `cull_tce` + per-vertex colours** | **3** | **3** | **6** | **75** | **72** |
+| `cull_tc` + one colour | 2 | 3 | 5 | 90 | 90 |
+| **`cull_td` + one colour** | **3** | **3** | **6** | **75** | **72** |
+
+`cull_td` with per-vertex colours would derive 63, and it is unreachable:
+`StaPipCore::render` asserts that a bag never carries both `color->many` and
+`lighting`. So the floor over every reachable combination is **72**, which is
+what `TerrainGame::minPackageSize()` computes and what `meshstrip::kRun` is
+baked to.
+
+### The per-class pin is not costing this frame anything
+
+"72 is the smallest package any static program class derives" reads like a tax
+the base pass pays for its companions. **Here it is not**: the district's static
+parts carry per-vertex colours on every pass (`part.colorBag->many`,
+`envColorBag->many`, `aoColorBag->many`, `emisColorBag->many`) and all of them
+are textured, so base, AO, emissive and env all derive 72 through `cull_tc` /
+`cull_tce`. The one pass that is different — the dynamically lit bag, which sets
+`litColorBag->many = nullptr` and carries directional lights — reaches 72 the
+other way, through `cull_td` with a single colour. Two independent classes,
+the same number. Roads and terrain chunks are textured with per-vertex colours
+too. **So a per-class run length would buy this frame nothing**: there is no bag
+in it whose class could take a longer one.
+
+### What the 944 floor is actually worth
+
+The clipping scratch occupies 944..1023 — 80 quadwords, of which 72 are used
+(12 for the six clip planes, 30 each for the two Sutherland–Hodgman polygons).
+Sweeping `VU1_STAPIP_DBUFFER_END` through the two functions:
+
+| `DBUFFER_END` | half | max vertices | |
+| ---: | ---: | ---: | --- |
+| 906 | 441 | 72 | the smallest value that still yields 72 |
+| **944** | **460** | **72** | **shipping** |
+| 1004 | 490 | 72 | |
+| 1014 | 495 | **81** | the smallest value that yields 81 |
+| 1024 | 500 | 81 | the whole memory, scratch deleted |
+
+Three things fall out of that column. **The shipping floor has 38 quadwords of
+slack that buy nothing** — anything from 906 to 1013 derives the same 72. **The
+absolute ceiling is 81**, reached only by reclaiming essentially all 80
+quadwords; 1014 leaves ten, and the plane table alone is twelve. And **moving
+the plane table down into the constants block buys exactly zero**, which is an
+identity rather than a near miss: the double buffer pays twice for a quadword
+below it and gains twice for one above it, so `(1024 − 34) / 2` and
+`(1012 − 22) / 2` are both 495.
+
+### Why a doubling is impossible, not merely hard
+
+At six quadwords per vertex, one double-buffer half holding N vertices needs
+`9 + 6N` quadwords and the buffer needs twice that, on top of the 22 quadwords
+of per-mesh constants:
+
+| vertices per package | double buffer | total of 1024 | |
+| ---: | ---: | ---: | --- |
+| 72 | 884 | 906 | fits |
+| 81 | 992 | 1014 | fits |
+| 90 | 1100 | 1122 | **does not fit** |
+| 144 | 1748 | **1770** | **does not fit** |
+
+**A 144-vertex package wants 1.73x the whole of VU1 data memory.** Even 90 — the
+next step up the /9 ladder — is 98 quadwords past the end. The double buffer is
+exactly the factor of two that makes it impossible (144 vertices fit in a
+*single* buffer at 895 quadwords), and giving that up trades the DMA/compute
+overlap the pipeline is built on.
+
+**So the only lever on the package count is the six quadwords per vertex**, and
+that is a microprogram ABI change: the three the EE uploads (position, ST,
+colour) and the three the program writes (ST, RGBAQ, XYZF2 — the GS reglist for
+a textured, per-vertex-coloured primitive, which cannot be shortened while the
+surface is both). Note what this does *not* argue for: the September 15 probe
+that added 16 bytes per vertex to the DMA payload moved the garage-day VIF1 wait
+by 0.067 ms, so **shrinking the per-vertex footprint would pay by fitting more
+vertices per package and cutting the EE's per-package work, never by moving
+fewer bytes.** Measure the packages, not the bandwidth.
+
+### The measured baseline, so a later arm has something to beat
+
+Arm `attrib-after` of the round-two archive, 240 warmed rows per pose:
+
+| | garage day | garage night | outer day | outer night |
+| --- | ---: | ---: | ---: | ---: |
+| **packages** | **572.5** | 599.5 | 224.5 | 230.5 |
+| packet flushes | 120.0 | 142.5 | 44.0 | 48.0 |
+| GS primitives | 40 502 | 41 176 | 16 386 | 16 720 |
+| primitives per package | 70.75 | 68.68 | 72.99 | 72.54 |
+| bags direct / partial | 53.5 / 59.0 | 76.0 / 65.0 | 13.0 / 20.5 | 16.0 / 21.5 |
+| implied vertices at 72 | 41 220 | 43 164 | 16 164 | 16 596 |
+
+A full 72-vertex strip run is 70 GS primitives and a 72-vertex *list* package is
+24. **Every pose reads about 70**, so essentially every package in the frame is
+a full strip run — the count really is `vertices / 72` and nothing is being lost
+to short tails. (The runs are padded at bake time, and the two counters
+`recordGuardBandPackage` / `recordOutsideBag` over-report for strips, which is
+why the number sits slightly above 70 rather than on it.)
+
+### The two things that would move it, costed rather than taken
+
+Neither is implemented here, because both are larger than their payoff justifies
+on their own and this round was asked for a bound, not for a change.
+
+- **Relax the multiple-of-9 rounding to a multiple of 3: 72 → 75, −4.0% of the
+  packages, with no memory change at all.** The 9 is documented as "the /3
+  subpackage split divisible by 3 again", and the two places that actually cut
+  triangles already round for themselves (`clipPackageSize()` is `(size / 3) * 3`
+  and the qbuffer chunk is `(maxVertCount / 3) * 3`); `maxVertCount / 3` survives
+  elsewhere only as the 1/3-bbox granularity, which is conservative by
+  construction. It is cheap in the engine and **not** cheap outside it: the runs
+  are baked, so `meshstrip::kRun` and the road/terrain run constants move with
+  it and every example project has to be re-baked and pixel-compared. 4% of the
+  per-package terms is not worth that on its own; fold it into the next change
+  that re-bakes anyway.
+- **Reclaim the clipping scratch: 72 → 81, −11.1% of the packages.** This needs
+  `DBUFFER_END` at 1014 or above, i.e. both Sutherland–Hodgman polygons *and*
+  the plane table out of absolute addresses. There is room for them: a clip
+  buffer's layout is **dynamic**, not sized by `maxVertCount` — the program
+  computes `stqData = vertexData + vertexCount` and its destination from the
+  real count — so a 12-vertex clip package occupies 2 + 36 + 9 = 47 quadwords of
+  its 461-quadword half, leaving 414 against a worst-case 252-quadword fan-out
+  (4 triangles x 7 output triangles x 3 vertices x 3 quadwords). **162 quadwords
+  spare, against the 72 the scratch uses**, and the margin survives at 81
+  (15-vertex packages, 130 spare). What it costs is the real objection: three
+  clip images rewritten to xtop-relative scratch addressing plus their `vugen.cpp`
+  twins, the plane upload moved from per-mesh to per-clip-package in the packet
+  writer and the retained-command key, VI register pressure in the hottest loop
+  in the pipeline (`clip_tc` is 269 cycles per triangle), `kRun` re-baked to 81,
+  and a full console A/B. It is a session of its own and it is in
+  [the backlog](backlog.md).
 
 ## Limits
 

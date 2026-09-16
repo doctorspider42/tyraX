@@ -394,7 +394,7 @@ within a millisecond of each other, so there is no single dominant term any more
 | | ms | what it is |
 | --- | ---: | --- |
 | the game's own `renderScene` phases | ~5.91 | outside `StaPipCore::render` entirely: the shared reflection probe, sky, terrain streaming, batches, procedural, animation, light effects, particles, HUD, post-fx |
-| package creation and classification | ~5.32 | inside `dispatch`, the largest thing still unopened |
+| package creation and classification | ~5.32 | inside `dispatch`, now split six ways and **bounded** — see below |
 | **VIF1 wait** | **5.47** | the only bucket that is genuinely *waiting* rather than working |
 | update | 2.96 | the game's simulation |
 | per-bag preparation | 2.90 | |
@@ -407,3 +407,19 @@ Presentation reads 10.05 ms, which is not a cost: 29.9 ms of work lands the fram
 on the second PAL field and that is the slack to the boundary. One field is
 20 ms, so **10 ms more has to come out before the display rate changes at all**,
 and 13.2 ms before a 60 Hz frame is possible.
+
+**And the obvious way to attack the package row is closed.** Almost every term
+inside it is per-package, the frame is cut into 572.5 packages, and static
+geometry ships as 72-vertex strip runs that ARE the packages — so "make the
+package bigger" is where anyone would go next. It does not exist: the class this
+frame runs derives **75** before `getMaxVertCount`'s multiple-of-9 rounding, and
+the whole of VU1 data memory caps a six-quadword-per-vertex package at **81**
+even with the clipping scratch deleted. A 144-vertex package wants 1 770 of
+1 024 quadwords. The derivation, the per-class table, the `DBUFFER_END` sweep
+and the two costed ways to reach 75 (−4.0% of packages) and 81 (−11.1%) are in
+[render-submission-attribution.md](render-submission-attribution.md), "Round
+three". **The single lever left on the package count is the six quadwords per
+vertex, and this page's own probe says what that would and would not buy**: the
+16-bytes-per-vertex arm moved VIF1 wait by 0.067 ms, so a smaller per-vertex
+footprint pays by fitting more vertices per package, never by moving fewer
+bytes.
