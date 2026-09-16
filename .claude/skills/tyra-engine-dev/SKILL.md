@@ -1359,6 +1359,30 @@ Rules the same evening paid for:
   the slowdown smaller packages suggest; and `67e2893f`'s switch of the env
   pass to `PipelineZTest_Standard` was a mask for this defect, not its fix
   (keep it, it is still correct).
+- **AND 72 IS ESSENTIALLY THE CEILING, not just the minimum — so "make the
+  package bigger to cut the per-package cost" is closed.** Almost everything
+  left in `dispatch` scales with the package count, static geometry ships as
+  72-vertex strip runs that ARE the packages, and the obvious next move is to
+  lengthen the run. It does not exist. `setDoubleBuffer` splits 22..944 in two
+  for **460 quadwords** a half, `getMaxVertCount` takes 9 for the GIF tag block
+  and divides the remaining **451** by `elementsPerVertex + reglistCount` — what
+  the EE uploads plus what the program writes — so the textured classes get
+  451/6 = **75**, rounded down to 72 by the multiple-of-9 step. **The whole of
+  VU1 data memory caps a six-quadword-per-vertex package at 81** (the clipping
+  scratch would have to go entirely: `DBUFFER_END` ≥ 1014 against 80 quadwords
+  of scratch), and **144 wants 1 770 of 1 024 quadwords** — the double buffer is
+  exactly the factor of two that makes a doubling impossible. Three corollaries.
+  Moving the clip plane table DOWN into the per-mesh constants buys **exactly
+  zero** (the buffer pays twice below it and gains twice above it). The
+  per-class pin costs the Motor District frame nothing — every class in it
+  derives 72, by two independent routes (`cull_tc`/`cull_tce` with per-vertex
+  colours, and `cull_td` with a single colour; `cull_td` with per-vertex colours
+  would derive 63 and is unreachable, `StaPipCore::render` asserts against it).
+  And the only lever left is the six quadwords per vertex, where the claim to
+  measure is the PACKAGE COUNT and not the payload: the probe that added 16
+  bytes per vertex moved garage-day VIF1 wait by 0.067 ms. Derivation, sweep,
+  measured baseline and the two costed ways to reach 75 (−4.0% of packages) and
+  81 (−11.1%): docs/render-submission-attribution.md, "Round three".
 - **Widening the cull programs' ADC test is retired; real VU1 clipping is a
   separate program family.** Three attempts at a guard band inside
   `PerformClipCheck` all corrupted ADC bits (documented in `vcl_sml.i`); the

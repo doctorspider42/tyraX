@@ -290,6 +290,14 @@ repeated at runtime.
 - 72 is the smallest package any static program class derives, so one baked
   number is legal for every pass an object can take. The game checks that
   against the engine at runtime and keeps the list if it ever stops being true.
+  **72 is also very nearly the largest number available, which is why the run
+  cannot simply be made longer to cut the package count.** The textured classes
+  derive 75 before the multiple-of-9 rounding, and the whole of VU1 data memory
+  caps a six-quadword-per-vertex package at **81** even with the clipping
+  scratch deleted — 144 would want 1.73x that memory. The derivation, the
+  sweep and what it would cost to reach 75 or 81 are in
+  [render-submission-attribution.md](render-submission-attribution.md),
+  "Round three".
 - Every run length is a multiple of 3 - the VU1 vertex loops step by three, and
   a count that is not runs off into VU1 memory. The padding repeats the last
   vertex, which makes a degenerate triangle the GS rasterises to nothing.

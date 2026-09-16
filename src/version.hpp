@@ -16,6 +16,43 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.102.1: THE VU1 PACKAGE SIZE IS AT ITS CEILING, AND THE CEILING IS 81
+// (docs/render-submission-attribution.md, "Round three"). Almost every term
+// left in the static pipeline's `dispatch` bracket is per-package, the garage
+// frame is cut into 572.5 packages, and static geometry ships as 72-vertex
+// strip runs that ARE the packages - so "make the package bigger" is the
+// obvious next attack. It does not exist.
+//
+// setDoubleBuffer splits VU1 data memory 22..944 in two for 460 quadwords a
+// half; getMaxVertCount takes 9 for the GIF tag block and divides the
+// remaining 451 by elementsPerVertex + reglistCount - what the EE uploads plus
+// what the program writes. The textured, per-vertex-coloured class the scene
+// runs gets 451/6 = 75, rounded down to 72 by the multiple-of-9 step. So 72 is
+// 96% of its class's raw figure and 89% of the 81 that the WHOLE of VU1 data
+// memory allows at six quadwords per vertex; 144 - the number that would halve
+// the package count - wants 1 770 of 1 024 quadwords, because the double
+// buffer is exactly the factor of two that makes a doubling impossible.
+//
+// Three things this also settles. The per-class pin costs this frame nothing:
+// every class in it derives exactly 72, by two independent routes (cull_tc /
+// cull_tce with per-vertex colours, cull_td with a single colour), so a
+// per-class run length would buy nothing. Moving the clip plane table down
+// into the per-mesh constants is worth exactly zero, since the double buffer
+// pays twice below it and gains twice above it. And the packages really are
+// full runs - 70.75 GS primitives each against 70 for a full 72-vertex strip
+// run and 24 for a list package - so the count is vertices/72 with no short
+// tails to reclaim.
+//
+// NO CODE CHANGED. The two costed ways past 72 are in the backlog: reclaim the
+// clipping scratch for 81 (-11.1% of the packages, and the non-obvious part is
+// that a clip buffer's layout is dynamic, leaving 162 spare quadwords in its
+// own half), or relax the multiple-of-9 rounding for 75 (-4.0%, free in the
+// engine and a full re-bake outside it). Verified by a native harness that
+// runs both functions verbatim and by re-reading the previous round's per-frame
+// counters, both archived in
+// examples/vehicle-playground/authoring/package-ceiling-2026-09-16/. No project
+// format change (kFormatVersion stays 54), no codegen change, no VU1 change.
+//
 // 1.102.0: THE WHEEL BATCH STOPS RE-BAKING RIGS THAT DID NOT MOVE, AND STOPS
 // LYING TO TWO CACHES ABOUT IT (docs/wheel-rebake-skip.md). 1.99.0's
 // attribution named renderVehicleWheels as the largest single item left in a
@@ -4304,7 +4341,7 @@
 // mostly the post-fx, HUD and game-side phases that `submit` always included.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 102
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
