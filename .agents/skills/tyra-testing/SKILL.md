@@ -2837,9 +2837,23 @@ so the harness above does not cover them. Their oracle is
 no emulator): it compiles the real host tessellator AND the actual generated
 `buildRoads` body with storage stubs, then checks the strip output vertex for
 vertex and chunk for chunk between the two, asserts the same run invariants
-(interior runs exactly 72, every run a multiple of 3), and compares the
-expanded triangle SET against the list emitter's. Run it before anything else -
-it is seconds, and it is the only check that sees both twins.
+(interior runs exactly `roadgen::kStripRun`, every run a multiple of 3), and
+compares the expanded triangle SET against the list emitter's. Run it before
+anything else - it is seconds, and it is the only check that sees both twins.
+
+Since 1.105 it also prints, per fixture, the three numbers behind the road's
+lateral budget (docs/roads.md): the **worst surface error** against the dense
+reference, the **worst UV drift in texels**, and the **worst T-vertex seam**.
+Two things about that seam check are worth stealing for any mesh reduction.
+It is an exact T-VERTEX test - a vertex lying strictly inside another triangle's
+edge in XZ and off it in Y - because SAMPLING a surface at its own vertices
+reads barycentric noise off every triangle that merely touches the point, and
+that noise floor (measured here at 5e-5) is larger than the seams worth finding.
+And its fixtures had to be built for it: the original eight are analytic
+surfaces, curved everywhere, with no coplanar runs to merge, so they passed a
+reduction they could not exercise. The three `heightfield ...` fixtures lay a
+road over a triangulated 4-unit grid - the district's real ground - and are the
+only ones in the file where the merge fires at all.
 
 **The PCSX2 knob for these is one expression, and it has to be flipped in
 `src/templates.cpp`, not in the generated game.** `buildRoads` and
@@ -2886,12 +2900,40 @@ primitives and legitimately differ by about 1.5x between representations.
 ## Motor District and flat-road spans (1.85.0)
 
 The roadgen.cpp / templates.cpp buildRoads twins sample every lateral height,
-then retain the established horizontal collapse, or collapse a non-flat span only
-when every dense sample lies within 0.00001 of an affine 3-D quad. Do not infer planarity from the shoulders: an interior
-crown or saddle must retain its samples. Run examples/vehicle-playground/authoring/verify-road-twins.py
+then retain the established horizontal collapse, or merge a non-flat span's
+lateral cells into maximal runs within the two budgets in roadgen.hpp
+(`kSpanFlatness`, the surface and the seam; `kSpanShear`, the UV). Do not infer
+planarity from the shoulders: an interior crown or saddle must retain its
+samples. Run examples/vehicle-playground/authoring/verify-road-twins.py
 for a compiled comparison of both actual implementations, then build/drive the
 example. ROADS now logs emitted vertices as well as chunks. The district's
 seven-road network is an EE memory stress case, not just a screenshot fixture.
+
+## Measuring a CONTENT change, where the arm is the editor (1.105)
+
+A codegen change has no engine macro to flip, so the two arms are two EDITOR
+binaries generating the same example. Build both from the worktree under test -
+`./build.ps1`, copy the exe aside, `git checkout <base> -- src/<the changed
+files>`, build again, copy aside, restore - and record BOTH hashes.
+`examples/vehicle-playground/authoring/road-lod-2026-09-16/build-arm.ps1` takes
+the editor as a parameter for exactly this reason, and holds the baked asset
+tree constant across the arms so the only difference is generated code.
+
+Three things that round taught, all of them cheap to repeat:
+
+- **`--profile quiet-debug`, not `debug`.** The live tools' `host:` pollers cost
+  6.44 ms of `work` and put +3.5 to +4.4 ms outliers inside `update`. With them
+  off the repeatability floor was **0.016 ms of `work`**, eight times tighter
+  than the same rig at `debug`.
+- **A map-wide count is not a frame.** The road reduction removed 9 798
+  triangles from the district and **614** from the garage-day frame. Measure the
+  pose that is slow, not the inventory.
+- **A quality criterion can usually be turned into a number instead of a
+  screenshot.** "Coarse terrain must not bury a road" became the worst rise of
+  the coarse ground above the road's own lift, at every dense sample of every
+  road (`terrain-lod-burial.py`); "no distracting LOD transitions" became the
+  worst mesh disagreement converted into pixels at the distance the band
+  switches (`terrain-lod-step.py`). Both run in seconds with no console.
 
 Textured vehicles: vehbake::Result::textures holds bin-relative names and PNG
 bytes for source images; bakeProject and vehicleRefreshBake both write them.

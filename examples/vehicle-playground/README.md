@@ -118,16 +118,32 @@ already included, so Blender and `C:\Assets` are not build dependencies.
 Run `python authoring/verify-road-twins.py` with g++ on PATH to compare the
 actual editor tessellator against the extracted generated runtime and a compiled
 preserved baseline (flat collapse retained; non-flat spans dense), including flat
-terrain, crowns with equal-height shoulders, slopes, saddles, curves and scene
-revisits. Also run `tyrax-editor --vehicle-check`, build and boot the game,
-then drive with `--pad` and capture with `--capture-frame`. Host checks alone
-are not evidence of console frame rate or reflection correctness.
+terrain, crowns with equal-height shoulders, slopes, saddles, curves, three
+heightfield fixtures on the district's own 4-unit ground, and scene revisits.
+It prints its worst surface error, its worst UV drift in texels and its worst
+T-vertex seam per fixture, so the numbers behind the lateral budget
+([docs/roads.md](../../docs/roads.md)) can be read rather than trusted. Also run
+`tyrax-editor --vehicle-check`, build and boot the game, then drive with `--pad`
+and capture with `--capture-frame`. Host checks alone are not evidence of
+console frame rate or reflection correctness.
+
+`python authoring/road-lod-2026-09-16/road-budget-sweep.py` sweeps the road's
+two lateral budgets over the district's REAL roads and heightfield and prices
+each setting against a reference commit's surface. It reproduces the console's
+own `ROADSTRIP` producer line exactly, so it is an oracle rather than an
+estimate, and it needs neither a console nor an emulator.
 
 `python authoring/make-lod-variants.py <empty-directory>` makes isolated
 model-only and model-plus-terrain LOD candidates. The checked-in project keeps
 both distances at zero until an equal-camera PCSX2 run verifies the vehicle
 silhouettes, lights, reflections and every terrain-projected road crossing;
-coarse terrain can otherwise appear through or over a road.
+coarse terrain can otherwise appear through or over a road. That last risk is
+now a number rather than a warning — `authoring/road-lod-2026-09-16/terrain-lod-burial.py`
+measures the coarse ground against the road's 0.12-unit lift at every dense
+sample of all seven roads — and so is the transition
+(`terrain-lod-step.py`, 0.57 pixels at a 160-unit band). What is still missing
+is the cost a parked fixture cannot see: the tile rebuild while the player
+moves.
 
 ## Verified on Windows / PCSX2
 
@@ -280,6 +296,21 @@ but no full driving/crossing acceptance is claimed for these discarded settings.
 Authoring keeps model and terrain LOD distances at zero. The additional exact
 planar road optimization passes the geometry/UV oracle but leaves this district
 at 93,150 road vertices and 90 chunks.
+
+**Both of those paragraphs were re-measured on a physical PS2 on 2026-09-16, and
+both of them understated what was there** — see
+[the raw evidence](authoring/road-lod-2026-09-16/README.md). Displayed FPS could
+not have separated the LOD trials: the frame was pinned to a vsync rung, so no
+reduction in work could move it. Against frame `work` and the triangle counter,
+mesh LOD 64 is 0.19 ms **slower** (the per-object tier selection costs more than
+the geometry it saves) while terrain LOD is worth −0.44 ms of garage day at 96
+and −0.38 at 160, which is the largest distance the district's terrain-glued
+roads allow. And the road reduction that "leaves this district at 93,150
+vertices" was all-or-nothing: merging maximal coplanar lateral runs instead
+takes it to **21 252 road triangles in 337 packages** from 31 050 in 470, with
+the surface and every seam exactly unchanged, for −0.358 ms of garage day and
+−0.591 ms in the outer poses. Authored LOD distances still ship at zero, because
+a parked fixture cannot see a terrain tile rebuild.
 
 [Raw samples and fixture settings](authoring/performance-results.json) retain the
 measurement evidence. PAL tops out at 50 FPS; the garage still misses that budget.

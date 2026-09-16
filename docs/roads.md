@@ -158,9 +158,123 @@ contact and chunk culling remain unchanged. A 13-unit planar road reduces from
 156 to 6 vertices per station (26x); total scene savings depend on the terrain.
 The game logs the actual road vertex count.
 
+## The lateral budget (1.99)
+
+That rule was **all-or-nothing**: one full-width quad, or every one of the
+`crossSteps` lateral cells. It is the wrong shape for what a road actually is —
+a decal sampled far more finely than the heightfield it is projected onto. The
+Motor District's terrain cell is **4 world units** and a road samples across at
+**0.5**, so a 13-unit street is 26 lateral cells laid over three or four terrain
+triangles. The full width is almost never one plane, so all 26 cells were
+retained, even though runs of eight of them sit *inside* a single terrain
+triangle and are exactly coplanar.
+
+`spanCuts` now merges **maximal runs** instead, greedily, one cell at a time. A
+single cell is the fallback and is never tested, so the previous behaviour is
+the reduction's lower bound and the full-width collapse its upper one; the
+established flat-span path is untouched and still skips the affine test.
+
+Two named budgets decide a merge, and they are **not the same kind of number**:
+
+| constant | bounds | costs |
+|---|---|---|
+| `kSpanFlatness` | how far a dense sample may sit off the merged quad's plane | the SURFACE, and the T-vertex seam |
+| `kSpanShear` | the quad's parallelogram defect | the UV only |
+
+**`kSpanFlatness` stays at the float noise floor (1e-5) and the surface is
+therefore exactly unchanged.** That also makes the reduction seamless, and the
+argument is worth stating because it is not obvious: neighbouring station pairs
+cut the row they *share* independently, so a merge that bridges a sample its
+neighbour keeps leaves a T-vertex. It cannot open a gap here, because a row's
+samples lie on a straight line in XZ, and a straight line that is also coplanar
+with the merged quad is a straight line in 3-D — so the two representations of
+the shared segment coincide. Raise the budget and that argument dissolves; the
+oracle checks the conclusion rather than trusting the proof.
+
+**`kSpanShear` is the one that was relaxed, to 0.05.** The two triangles of a
+trapezoid interpolate ST with two different affine maps, so a bend could never
+merge at all — and every street in the district except one is a curved spline,
+which is why the exact rule was buying almost nothing. Measured over the whole
+district, against the branch-tip surface, at every dense sample:
+
+| `kSpanShear` | road triangles | packages | worst surface error | worst UV drift |
+|---:|---:|---:|---:|---:|
+| 1e-5 (exact) | 29 432 | 448 | 0 | 0.004 texel |
+| 0.005 | 25 506 | 394 | 0 | 0.03 texel |
+| 0.01 | 23 830 | 373 | 0 | 0.06 texel |
+| 0.02 | 22 610 | 356 | 0 | 0.12 texel |
+| **0.05** | **21 252** | **337** | **0** | **0.36 texel** |
+| 0.1 | 20 790 | 331 | 0 | 0.77 texel |
+| 0.2 | 20 654 | 330 | 0 | 2.0 texel |
+
+Texels are on the district's 128-pixel road texture, which tiles every 4 units
+of arc. The reduction saturates just past 0.05 — 0.1 buys 2% more geometry for
+twice the error — so 0.05 is the knee, and it is the shipped value. Against the
+branch tip the whole network goes from **31 050 road triangles in 470 packages
+to 21 252 in 337**, with the surface and every seam untouched.
+
+`kSpanFlatness` is a live budget in the code, and the sweep behind it is
+recorded in
+[road-lod-2026-09-16](../examples/vehicle-playground/authoring/road-lod-2026-09-16/README.md).
+It is **not** raised here: at 0.02 the district drops to 7 428 triangles, but
+the worst T-vertex seam measures 0.028 world units against the road's 0.12 lift
+above the terrain, and this repository does not ship a crack it has not looked
+at from a car. That is a costed next step, not a rejected one.
+
+Both constants are `TYRA_ROAD_SPAN_*` overrides so the sweep can be re-run
+without editing the header, and `templates.cpp` carries them as literals with a
+`static_assert` against the header — the generated `buildRoads` is a raw string
+and cannot read a constant, and a literal that quietly stops matching its twin
+is exactly how a road ends up previewing half a metre off its console self.
+
+### What a variable cut breaks, and what it does not
+
+The two consumers that read the triangle list generically — the viewport's real
+road geometry and the picker's ray test, both in `viewport.cpp` — do not care
+how a station pair is cut, and did not change.
+
+The **selected road's cyan border overlay** did. It walked the list in strides
+of `crossSteps * 6`, one station pair at a time, and drew the first span's A→D
+edge and the last span's B→C edge as the two authored shoulders. That stride
+had already stopped being true when the flat collapse shipped — a collapsed pair
+emits six vertices, not `crossSteps * 6` — so the overlay was drifting off the
+station grid on any flat street and drawing the border through the middle of the
+asphalt; a variable cut would have made it drift everywhere. It now finds the
+borders **by U**, which is exactly 0 on the left shoulder and exactly 1 on the
+right by construction in `buildRows`: a span owns the left border when its first
+vertex's `u` is 0, and the right border when its second vertex's `u` is 1.
+
+That rule is an assumption about emission order, so the oracle pins it: a span
+begins a station pair **if and only if** the span before it ended one, and the
+last span of the road reaches the right shoulder. It also prints the station-pair
+count per fixture, which is the number that would move if the order ever did.
+
 The [Motor District example](../examples/vehicle-playground/README.md) exercises
 a seven-road network. Its `authoring/verify-road-twins.py` compiles the real
 host tessellator and the actual generated `buildRoads` body with storage stubs,
 then compares geometry/UVs and repeated scene loads against a compiled copy of
 the prior tessellator (horizontal collapse retained; non-flat spans dense), on
 planar, crowned, saddle, curved and transition fixtures.
+
+Three of its checks are what make the lateral budget above safe to ship, and
+each one prints its worst case rather than only asserting it:
+
+- **the surface** must still be represented at every dense-reference sample,
+  within `2 * kSpanFlatness` — the reduction may not move the asphalt;
+- **the UV** may drift, but only within the published budget, reported in
+  texels so the number can be read against a texture rather than a tolerance;
+- **the seams**, by an exact T-VERTEX test rather than a sampled one. Sampling
+  a surface at its own vertices reads barycentric noise off every triangle that
+  merely touches the point, and that noise floor (5e-5 here) is larger than the
+  seams worth finding; the test instead looks for a vertex lying strictly
+  inside another triangle's edge in XZ and off it in Y, which is what a crack
+  *is*.
+
+Two fixtures were added with the budget, because none of the original eight can
+exercise it: the analytic surfaces are curved everywhere and have no coplanar
+runs to find. `heightfield straight`, `heightfield curve` and `heightfield
+crest` lay a road over a **triangulated 4-unit heightfield** — the district's
+own ground, with the renderer's own diagonal — and are the fixtures that stand
+for the Motor District. The straight one merges to 0.306x, the curve to 0.795x,
+and `crown with equal shoulders` and `saddle` still measure 1.000x, which is
+the point: the shapes the reduction must not touch are still dense.

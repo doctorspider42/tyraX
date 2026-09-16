@@ -232,28 +232,51 @@ struct V3 {
   float x, y, z;
 };
 
-/** Rotation order: X, then Y, then Z (same as the editor viewport). */
-V3 rotated(const V3& v, const float* rotDeg) {
-  V3 r = v;
+/** The six sines and cosines rotated() needs, so a caller that rotates
+ * several vectors through the SAME angles pays the trigonometry once.
+ * cosf/sinf are software routines on the EE and are not `const`-attributed
+ * with errno enabled, so the compiler may not hoist them out of a loop by
+ * itself - see renderVehicleWheels(), which rotated twenty vectors per car
+ * through one attitude and paid for it twenty times. */
+struct RotTrig {
+  float cx, sx, cy, sy, cz, sz;
+};
+
+RotTrig rotTrigOf(const float* rotDeg) {
+  RotTrig t;
   const float rx = rotDeg[0] * PI / 180.0F;
   const float ry = rotDeg[1] * PI / 180.0F;
   const float rz = rotDeg[2] * PI / 180.0F;
+  t.cx = cosf(rx), t.sx = sinf(rx);
+  t.cy = cosf(ry), t.sy = sinf(ry);
+  t.cz = cosf(rz), t.sz = sinf(rz);
+  return t;
+}
+
+/** rotated() with the trigonometry already done. The three stages run in the
+ * same order on the same operands as below, so this is BIT-IDENTICAL to
+ * rotated() and not merely equivalent - which is what lets a caller swap to
+ * it without moving a pixel. */
+V3 rotatedBy(const V3& v, const RotTrig& t) {
+  V3 r = v;
   {
-    const float c = cosf(rx), s = sinf(rx);
-    const float y = r.y * c - r.z * s, z = r.y * s + r.z * c;
+    const float y = r.y * t.cx - r.z * t.sx, z = r.y * t.sx + r.z * t.cx;
     r.y = y, r.z = z;
   }
   {
-    const float c = cosf(ry), s = sinf(ry);
-    const float x = r.x * c + r.z * s, z = -r.x * s + r.z * c;
+    const float x = r.x * t.cy + r.z * t.sy, z = -r.x * t.sy + r.z * t.cy;
     r.x = x, r.z = z;
   }
   {
-    const float c = cosf(rz), s = sinf(rz);
-    const float x = r.x * c - r.y * s, y = r.x * s + r.y * c;
+    const float x = r.x * t.cz - r.y * t.sz, y = r.x * t.sz + r.y * t.cz;
     r.x = x, r.y = y;
   }
   return r;
+}
+
+/** Rotation order: X, then Y, then Z (same as the editor viewport). */
+V3 rotated(const V3& v, const float* rotDeg) {
+  return rotatedBy(v, rotTrigOf(rotDeg));
 }
 
 /** Inverse of rotated(): -Z, then -Y, then -X (world -> object local). */
@@ -1682,6 +1705,14 @@ Tyra::StaPipCore* core = nullptr;
 u32 tCull = 0, tClip = 0, tGuard = 0, tOut = 0;
 u32 tTriCull = 0, tTriClip = 0, tTriGuard = 0;
 u32 tFlush = 0, tVuWait = 0;
+// Triangle-strip routing (docs/model-pipeline.md, "Triangle strips").
+// `strip` counts the cull-routed packages submitted AS a strip, `sexp` the
+// stripped packages the clipper forced back into a triangle list, and `verts`
+// every vertex handed to a VU1 buffer. That last one is the number the EE's
+// per-package bill scales with - quote it, not the triangle count, when
+// comparing two builds of one view.
+u32 tStrip = 0, tStripExp = 0;
+u64 tVerts = 0;
 
 // u64, because a u32 SUM OVERFLOWS. 50 frames x 300 ms is 4.4e9 ticks against
 // a 4.29e9 ceiling, so on a scene slow enough to be worth profiling the mean
@@ -1763,6 +1794,9 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
     tTriGuard += t.trianglesGuardBand;
     tFlush += t.packetFlushes;
     tVuWait += t.vu1WaitTicks;
+    tStrip += t.packagesStrip;
+    tStripExp += t.packagesStripExpanded;
+    tVerts += t.verticesSubmitted;
   }
   if (rawN < kRaw) raw[rawN++] = FP::tFrameWork;
   if (rawN == 1) rawFirst = frame;
@@ -1836,16 +1870,21 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
   if (core != nullptr) {
     snprintf(line, sizeof(line),
              "FTCLIP f=%lu cull=%lu/%lu clip=%lu/%lu guard=%lu/%lu out=%lu "
-             "flush=%lu vuwait=%.2f",
+             "flush=%lu strip=%lu sexp=%lu verts=%lu vuwait=%.2f",
              (unsigned long)(frame - kWindow), (unsigned long)tCull,
              (unsigned long)tTriCull, (unsigned long)tClip,
              (unsigned long)tTriClip, (unsigned long)tGuard,
              (unsigned long)tTriGuard, (unsigned long)tOut,
-             (unsigned long)tFlush, (double)ms(tVuWait, kWindow));
+             (unsigned long)tFlush, (unsigned long)tStrip,
+             (unsigned long)tStripExp,
+             (unsigned long)(tVerts / (u64)kWindow),
+             (double)ms(tVuWait, kWindow));
     TYRA_LOG(line);
     tCull = tClip = tGuard = tOut = 0;
     tTriCull = tTriClip = tTriGuard = 0;
     tFlush = tVuWait = 0;
+    tStrip = tStripExp = 0;
+    tVerts = 0;
   }
   sBeg = sEnd = sCmp = sCmpEe = 0;
   sPrx = sAcc = sRep = sFea = sNet = sPkt = 0;
@@ -2348,16 +2387,6 @@ void TerrainGame::init() {
   // HOST at build time - this header is a stub until the build container has
   // done that, so a project builds the same with or without one.
   vuscript::install(stapip.core);
-  // The neural upscaler (docs/neural-upscaler.md): project-wide and
-  // baked - nothing at runtime turns it on or off. configure() sizes
-  // the low-res render target and the reconstruction knobs; in PLAIN
-  // mode (BLSS_NETWORK 0) it also switches off the proxy feed, the
-  // reprojection, the feature grid and the MLP, leaving the reduced
-  // raster and one bilinear composite pass.
-  engine->renderer.core.blss.configure(BLSS_SCALE_X, BLSS_SCALE_Y, BLSS_SHARPEN,
-                                       BLSS_TEMPORAL, BLSS_DEBUG_VIEW,
-                                       BLSS_JITTER, BLSS_NETWORK, BLSS_ADAPTIVE);
-  TYRA_LOG("BLSS: reconstruction = PLAIN (no network) - the reduced raster is blown up by one bilinear pass. No proxies, no reprojection, no feature grid, no MLP.");
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
   engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);
@@ -2972,15 +3001,7 @@ void TerrainGame::loop() {
       core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
       splitPassActive = false;
     } else {
-      updateAdaptiveResolution();
-      // The neural upscaler (docs/neural-upscaler.md): the 3D scene
-      // renders into the low-res target, then the composite blows it
-      // back up into the display buffer - before the depth of field,
-      // the post effects and every 2D pass below.
-      engine->renderer.core.blss.beginScene(scriptCtx.skyColor);
       renderScene();
-      engine->renderer.core.blss.endScene();
-      engine->renderer.core.blss.composite();
     }
     // Depth of field composites right after the 3D scene, BEFORE any 2D:
     // sprites stamp z = max across their whole rect (transparent margins
@@ -3875,6 +3896,12 @@ void TerrainGame::loadModelAsset(int i) {
     GameModelPart part;
     part.verts.swap(mat.vertices);
     part.vertexAo.swap(mat.vertexAo);  // baked AO sidecar (empty = none)
+    // Triangle strips (.tmdl v4). An .obj never has one, and a part that did
+    // not strip smaller than its list leaves stripRun at 0 and renders as the
+    // list it always was.
+    part.stripVerts.swap(mat.stripVertices);
+    part.stripVertexAo.swap(mat.stripVertexAo);
+    part.stripRun = part.stripVerts.empty() ? 0u : mat.stripRun;
     // Distance tiers (a .tmdl baked with mesh LOD on; never from an .obj)
     for (auto& lod : mat.lods) {
       part.lodVerts.push_back(std::vector<float>());
@@ -10555,8 +10582,19 @@ void TerrainGame::updateAndRenderLightPools() {
           const float* oc = runtimeObjects[oi].data.position;
           for (GeoPart& part : g.parts) {
             if (!part.bag) continue;
-            const size_t nvt = part.vertices.size() / 3 * 3;
-            for (size_t vi = 0; vi + 3 <= nvt; vi += 3) {
+            // A TRIANGLE-STRIP part (GeoPart::stripRun, docs/model-pipeline.md)
+            // steps by ONE vertex inside a run and never across a run boundary;
+            // a triangle list steps by three. The join and padding vertices a
+            // strip carries make degenerate triangles, whose zero normal fails
+            // the facing test below and skips itself.
+            const size_t nvt = part.stripRun
+                                  ? part.vertices.size()
+                                  : part.vertices.size() / 3 * 3;
+            const size_t vStep = part.stripRun ? 1 : 3;
+            for (size_t vi = 0; vi + 3 <= nvt; vi += vStep) {
+              if (part.stripRun &&
+                  vi % part.stripRun + 3 > part.stripRun)
+                continue;  // would splice two runs into one triangle
               // Two ceilings: this receiver's share, and the buffer itself.
               if ((int)b.wVerts.size() >= wLimit ||
                   b.wVerts.size() >= 3997)
@@ -11472,8 +11510,19 @@ void TerrainGame::updateAndRenderLightPools() {
           const float* oc = runtimeObjects[oi].data.position;
           for (GeoPart& part : g.parts) {
             if (!part.bag) continue;
-            const size_t nvt = part.vertices.size() / 3 * 3;
-            for (size_t vi = 0; vi + 3 <= nvt; vi += 3) {
+            // A TRIANGLE-STRIP part (GeoPart::stripRun, docs/model-pipeline.md)
+            // steps by ONE vertex inside a run and never across a run boundary;
+            // a triangle list steps by three. The join and padding vertices a
+            // strip carries make degenerate triangles, whose zero normal fails
+            // the facing test below and skips itself.
+            const size_t nvt = part.stripRun
+                                  ? part.vertices.size()
+                                  : part.vertices.size() / 3 * 3;
+            const size_t vStep = part.stripRun ? 1 : 3;
+            for (size_t vi = 0; vi + 3 <= nvt; vi += vStep) {
+              if (part.stripRun &&
+                  vi % part.stripRun + 3 > part.stripRun)
+                continue;  // would splice two runs into one triangle
               if ((int)w.sWVerts.size() >= wLimit || w.sWVerts.size() >= 3997)
                 break;
               const Vec4& a3 = part.vertices[vi];
@@ -13022,8 +13071,19 @@ void TerrainGame::renderProjShadows() {
     const float* woc = runtimeObjects[wo].data.position;
     for (GeoPart& part : wg.parts) {
       if (!part.bag) continue;
-      const size_t nvt = part.vertices.size() / 3 * 3;
-      for (size_t vi = 0; vi + 2 < nvt + 1; vi += 3) {
+      // A TRIANGLE-STRIP part (GeoPart::stripRun, docs/model-pipeline.md)
+      // steps by ONE vertex inside a run and never across a run boundary;
+      // a triangle list steps by three. The join and padding vertices a
+      // strip carries make degenerate triangles, whose zero normal fails
+      // the facing test below and skips itself.
+      const size_t nvt = part.stripRun
+                            ? part.vertices.size()
+                            : part.vertices.size() / 3 * 3;
+      const size_t vStep = part.stripRun ? 1 : 3;
+      for (size_t vi = 0; vi + 3 <= nvt; vi += vStep) {
+        if (part.stripRun &&
+            vi % part.stripRun + 3 > part.stripRun)
+          continue;  // would splice two runs into one triangle
         if (b.wallVerts.size() >= 3997) break;
         const Vec4& a3 = part.vertices[vi];
         const Vec4& b3 = part.vertices[vi + 1];
@@ -14252,7 +14312,23 @@ void TerrainGame::buildSkyDome() {
 // (It also un-splits the frustum-bbox cache, which is keyed by package size on
 // top of the vertex pointer - the passes now share one entry instead of
 // recomputing each other's boxes every frame.)
-void TerrainGame::pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags) {
+void TerrainGame::pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags,
+                                 u32 stripRun) {
+  if (stripRun != 0) {
+    // A stripped array is already chopped into self-contained runs of exactly
+    // this many vertices, and every pass over it has to split it there - a
+    // package boundary anywhere else fuses two strips. Nothing is derived:
+    // the run is by construction no larger than any class's own capacity
+    // (minPackageSize), so StaPipCore's clamp leaves it alone.
+    for (Tyra::StaPipBag* b : bags)
+      if (b && b->count != 0) {
+        b->packageSize = stripRun;
+        b->stripped = true;
+      }
+    return;
+  }
+  for (Tyra::StaPipBag* b : bags)
+    if (b) b->stripped = false;
   u32 size = 0;
   for (Tyra::StaPipBag* b : bags) {
     if (!b || b->count == 0) continue;
@@ -14263,6 +14339,22 @@ void TerrainGame::pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags) {
   if (size == 0) return;
   for (Tyra::StaPipBag* b : bags)
     if (b && b->count != 0) b->packageSize = size;
+}
+
+// See the declaration. Eight combinations, one of which (lighting with
+// per-vertex colours) the engine refuses, so it is skipped.
+u32 TerrainGame::minPackageSize() {
+  static u32 cached = 0;
+  if (cached != 0) return cached;
+  for (int single = 0; single < 2; ++single)
+    for (int lit = 0; lit < 2; ++lit)
+      for (int tex = 0; tex < 2; ++tex) {
+        if (lit && !single) continue;
+        const u32 v = stapip.core.getMaxVertCountByParams(single != 0, lit != 0,
+                                                          tex != 0);
+        if (v != 0 && (cached == 0 || v < cached)) cached = v;
+      }
+  return cached;
 }
 
 // Cylindrical captures are authored upright with a common horizontal scale.
@@ -14333,6 +14425,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
 
   for (int pi = 0; pi < partCount; ++pi) {
     GeoPart& part = g.parts[pi];
+    part.stripRun = 0;  // re-decided per rebuild, with the geometry
     part.vertices.clear();
     part.colors.clear();
     part.sts.clear();
@@ -14440,21 +14533,36 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       const GameModelPart& src = gm->parts[billboard ? g.impostorView : pi];
       GeoPart& part = g.parts[pi];
       const bool textured = src.texture != nullptr;
+      // TRIANGLE STRIPS (docs/model-pipeline.md). The bake stores the strip
+      // beside the list, so the shading pass below does not care which it is
+      // walking - it is per VERTEX, not per triangle, and the strip's joins
+      // and padding are ordinary duplicated vertices. An impostor billboard
+      // keeps the list: its part is one of eight captured quads chosen per
+      // frame, and nothing about it is worth a strip.
+      const bool useStrip = !billboard && src.stripRun != 0 &&
+                            !src.stripVerts.empty() &&
+                            src.stripRun <= minPackageSize();
+      const std::vector<float>& geo = useStrip ? src.stripVerts : src.verts;
+      part.stripRun = useStrip ? src.stripRun : 0u;
       // Baked raycast self-AO from the model's .aov sidecar (LeanObjLoader);
       // parallel to the vertex array, one byte per vertex.
-      const bool hasAo = src.vertexAo.size() * 8 == src.verts.size();
+      const std::vector<unsigned char>& geoAo =
+          useStrip ? src.stripVertexAo : src.vertexAo;
+      const bool hasAo = geoAo.size() * 8 == geo.size();
       g_litNormals = dynLit ? &part.litNormals : nullptr;
       g_envNormals = src.reflTexture ? &part.envNormals : nullptr;
-      for (size_t i = 0; i + 7 < src.verts.size(); i += 8) {
-        const float* v = &src.verts[i];
+      for (size_t i = 0; i + 7 < geo.size(); i += 8) {
+        const float* v = &geo[i];
         pushVert(part.vertices, part.colors, part.sts, visualData,
                  {v[0], v[1], v[2]}, billboard ? V3{0,1,0} : V3{v[3], v[4], v[5]}, v[6], v[7], src.kd,
-                 textured, hasAo ? src.vertexAo[i / 8] : (unsigned char)255,
+                 textured, hasAo ? geoAo[i / 8] : (unsigned char)255,
                  src.ke);
       }
     }
     g_envNormals = nullptr;
   } else {
+    // Primitives, decals and every other builder emit triangle lists.
+    for (GeoPart& part : g.parts) part.stripRun = 0;
     g_primKd = gmat ? gmat->kd : nullptr;
     g_primKe = gmat ? gmat->ke : nullptr;
     g_primTextured = gmat && gmat->texture;
@@ -14860,7 +14968,8 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     // coplanar companions ONE package size. LOD tiers only re-aim the
     // pointers, never the program class, so this pin survives applyGeoLod.
     pinPackageSize({part.bag.get(), part.envBag.get(), part.aoBag.get(),
-                    part.emisBag.get()});
+                    part.emisBag.get()},
+                   part.stripRun);
   }
   g_litNormals = nullptr;
   // Keep a single conservative AABB across all material parts. It is built
@@ -14947,6 +15056,10 @@ void TerrainGame::applyGeoLod(int index, int pi, int lod) {
     part.bag->vertices = part.vertices.data();
     part.bag->count = static_cast<u32>(part.vertices.size());
     part.bag->bboxVersion = part.baseStamp;
+    // Tier 0 is the only one the bake strips (docs/model-pipeline.md), so the
+    // topology flag moves with the pointer. packageSize stays pinned either
+    // way: the run length is legal for a list too, just slightly smaller.
+    part.bag->stripped = part.stripRun != 0;
     if (part.texBag) part.texBag->coordinates = part.sts.data();
     if (part.envBag) {
       part.envColorBag->many = part.envColors.data();
@@ -14954,6 +15067,7 @@ void TerrainGame::applyGeoLod(int index, int pi, int lod) {
       part.envBag->vertices = part.vertices.data();
       part.envBag->count = part.bag->count;
       part.envBag->bboxVersion = part.baseStamp;
+      part.envBag->stripped = part.bag->stripped;
     }
   } else {
     if ((int)part.lods.size() < lod) part.lods.resize(lod);
@@ -15156,21 +15270,95 @@ void TerrainGame::buildStaticBatchList() {
   // the map corner (terrain is centered on the origin) for the same reason.
   const float mapW =
       TERRAIN_WIDTH > TERRAIN_DEPTH ? TERRAIN_WIDTH : TERRAIN_DEPTH;
-  const float cellW = mapW * 0.25F > 48.0F ? mapW * 0.25F : 48.0F;
-  std::vector<int> keyX, keyZ;  // per-batch cell, only needed while grouping
-  auto addMember = [&](int object, int part, Texture* texture, int cx, int cz) {
+  const float baseCellW = mapW * 0.25F > 48.0F ? mapW * 0.25F : 48.0F;
+  // ...AND NEVER WIDER THAN THE DRAW DISTANCE ITS MEMBERS SHARE. A quarter of
+  // the map is a fraction of the wrong thing: it grows with the MAP, so the
+  // bigger the world the coarser the cull, which is backwards. On a 2048-unit
+  // map that is a 512-unit cell, and the batch built in it is one bag whose
+  // member-centre box renderStaticBatches tests ONCE - so a batch of props
+  // that individually vanish at 60 units stays drawn while the camera is
+  // within 60 units of a 512-unit box. Measured on examples/large-terrain:
+  // +2,015 triangles and +12 packet flushes against the same scene unbatched,
+  // which is the widened-bounds regression #269 warned about arriving through
+  // the draw-distance test rather than through the frustum.
+  //
+  // drawDistance is ALREADY a group key (every member of a batch shares one
+  // cut-off), so it is a per-group length the scene states about itself, and
+  // capping the cell with it makes the grid as coarse as the content allows
+  // instead of as coarse as the map is big. The Motor District is unchanged by
+  // construction - its batchable objects carry 145 or 0, and min(80, 145) is
+  // still 80 - while large-terrain's 1,100 cones drop from 512 to 60.
+  //
+  // 0 means unlimited and has no such length, so those groups keep the base
+  // cell. That is the remaining hole and it is deliberate: an OCCUPANCY test
+  // ("batch only when the members fill their union") was tried on paper and
+  // rejected, because it measures the wrong thing for this engine. The
+  // district's win comes precisely from merging small props that are sparse in
+  // their cell - three boxes of span 12 in an 80-unit cell fill 6.7% of it -
+  // so any ratio strict enough to catch a 512-unit cell also throws away the
+  // batches that pay. What costs is EXTENT AGAINST THE CULL DISTANCE, which is
+  // what the cap above bounds and what a fill ratio cannot see.
+  auto cellFor = [&](float drawDistance) -> float {
+    if (drawDistance <= 0.0F) return baseCellW;
+    return drawDistance < baseCellW ? drawDistance : baseCellW;
+  };
+  std::vector<int> keyX, keyZ, keyL;  // cell + lamp, only needed while grouping
+  // WHICH DYNAMIC LAMP REACHES THIS OBJECT, or -1. This is a grouping key, not
+  // a render decision, and it exists because of how the engine lights a bag:
+  // StaPipCore::render gives each bag ONE light slot, picked from that bag's
+  // world bounding sphere. Merge a lamp-lit prop with an unlit one and the
+  // merged sphere picks a single lamp for both - so the lit one can lose its
+  // highlight, or the unlit one gain one it should not have. On the Motor
+  // District at night that would have hit 7 of 49 batches (a streetlight
+  // standing under its own lamp merged with one standing under nothing,
+  // because they share a texture and a cell).
+  //
+  // Centre-vs-radius, not the engine's brightness x level x falloff score: the
+  // key only has to keep "a lamp reaches this" apart from "nothing reaches
+  // this", and every member of a lamp's group is within that lamp's radius, so
+  // the merged sphere stays in its neighbourhood. A lamp switched off (or the
+  // whole set, in daylight) makes every bag pick nothing, and members agree
+  // for that reason instead.
+  auto lampOf = [&](const SceneObjectData& d) -> int {
+    int best = -1;
+    float bestD2 = 0.0F;
+    for (size_t li = 0; li < g_dynLights.size(); ++li) {
+      const SceneObjectData& L = SCENE_OBJECTS[g_dynLights[li].objIndex];
+      if (L.lightRadius <= 0.0F) continue;
+      const float dx = L.position[0] - d.position[0];
+      const float dy = L.position[1] - d.position[1];
+      const float dz = L.position[2] - d.position[2];
+      const float d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 > L.lightRadius * L.lightRadius) continue;  // no influence at all
+      if (best < 0 || d2 < bestD2) {
+        best = (int)li;
+        bestD2 = d2;
+      }
+    }
+    return best;
+  };
+  // Draw distance joins the key. A batch is ONE bag with one cut-off test, so
+  // members that disagree about the distance must not share one - otherwise
+  // the nearest member's number would silently extend every other member's.
+  // Objects that leave it at 0 group exactly as they did before.
+  auto addMember = [&](int object, int part, Texture* texture, int cx, int cz,
+                       float dd, int lamp, unsigned int stripRun) {
     int bi = -1;
     for (int b = 0; b < (int)staticBatches.size(); ++b)
       if (staticBatches[b].texture == texture && keyX[b] == cx &&
-          keyZ[b] == cz) {
+          keyZ[b] == cz && staticBatches[b].drawDistance == dd &&
+          keyL[b] == lamp && staticBatches[b].stripRun == stripRun) {
         bi = b;
         break;
       }
     if (bi < 0) {
       staticBatches.emplace_back();
       staticBatches.back().texture = texture;
+      staticBatches.back().drawDistance = dd;
+      staticBatches.back().stripRun = stripRun;
       keyX.push_back(cx);
       keyZ.push_back(cz);
+      keyL.push_back(lamp);
       bi = (int)staticBatches.size() - 1;
     }
     staticBatches[bi].members.push_back({object, part});
@@ -15181,8 +15369,14 @@ void TerrainGame::buildStaticBatchList() {
     // Materials of always-resident objects are loaded by now; a reflective
     // one draws a second additive env pass per bag - keep those objects on
     // the solo path, which already handles the env bag.
+    // One grid per draw-distance class, never coarser than that class's own
+    // cut-off. drawDistance is part of the group key, so members that land in
+    // one batch always agreed about this width - the classes have different
+    // grids and cannot merge across them.
+    const float cellW = cellFor(d.drawDistance);
     const int cx = (int)floorf((d.position[0] + 0.5F * mapW) / cellW);
     const int cz = (int)floorf((d.position[2] + 0.5F * mapW) / cellW);
+    const int lamp = lampOf(d);
     if (d.type == 5) {
       if (d.model < 0 || d.model >= (int)gameModels.size()) continue;
       const GameModel& gm = gameModels[d.model];
@@ -15198,7 +15392,8 @@ void TerrainGame::buildStaticBatchList() {
         if (p.reflTexture) { reflective = true; break; }
       if (reflective || gm.parts.empty()) continue;
       for (int pi = 0; pi < (int)gm.parts.size(); ++pi)
-        addMember(i, pi, gm.parts[pi].texture, cx, cz);
+        addMember(i, pi, gm.parts[pi].texture, cx, cz, d.drawDistance, lamp,
+                  gm.parts[pi].stripRun);
     } else {
       if (d.material >= 0 &&
           (d.material >= (int)gameMaterials.size() ||
@@ -15206,7 +15401,7 @@ void TerrainGame::buildStaticBatchList() {
         continue;
       Texture* texture =
           d.material >= 0 ? gameMaterials[d.material].texture : nullptr;
-      addMember(i, -1, texture, cx, cz);
+      addMember(i, -1, texture, cx, cz, d.drawDistance, lamp, 0u);
     }
   }
   // A singleton saves no submit and only duplicates geometry. Drop it, then
@@ -15239,8 +15434,26 @@ void TerrainGame::buildStaticBatchList() {
     // dirty flag therefore means a runtime mutation and triggers demotion.
     runtimeObjects[i].dirty = false;
   }
+  // The batched/solo split and the widest cell any batch was allowed, so an
+  // A/B can read the grouping decision out of the game's own log instead of
+  // inferring it from triangle counts - and so two arms of a cell change say
+  // which is which. `eligible` counts the batchStatic-flagged objects, so
+  // eligible - batched is the number that stayed solo (a singleton group, a
+  // large model, or a reflective one).
+  int eligible = 0;
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
+    if (SCENE_OBJECTS[i].batchStatic) ++eligible;
+  float widestCell = 0.0F;
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
+    if (SCENE_OBJECTS[i].batchStatic) {
+      const float c = cellFor(SCENE_OBJECTS[i].drawDistance);
+      if (c > widestCell) widestCell = c;
+    }
   TYRA_LOG("Static batching: ", batched, " objects in ",
            (int)staticBatches.size(), " batches");
+  TYRA_LOG("Static batching: eligible ", eligible, ", solo ",
+           eligible - batched, ", base cell ", (int)baseCellW, ", widest cell ",
+           (int)widestCell);
   if (TEXTURE_ATLAS_INFO[0]) TYRA_LOG(TEXTURE_ATLAS_INFO);
 }
 
@@ -15262,6 +15475,41 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
   // rebuildObjectGeometry left set would shade a whole batch by accident.
   g_giLightmap = false;
   g_giProbeShade = SCENE_PROBES != nullptr;
+  // Strip or list for the WHOLE batch, decided before a single vertex is
+  // emitted. It has to be all-or-nothing: the combined array carries one
+  // topology, so emitting one member's strip beside another's list would hand
+  // the strip's vertices to a triangle-list walk and draw shredded geometry.
+  // stripRun is part of the group key, so this normally just confirms what
+  // grouping already decided; the loop below is the guard for a part whose
+  // baked strip is missing or not a whole number of runs.
+  bool useStrips = b.stripRun != 0;
+  if (useStrips)
+    for (const StaticBatchMember& m : b.members) {
+      const RuntimeObject& mo = runtimeObjects[m.object];
+      if (m.part < 0 || mo.data.model < 0 ||
+          mo.data.model >= (int)gameModels.size() ||
+          m.part >= (int)gameModels[mo.data.model].parts.size()) {
+        useStrips = false;
+        break;
+      }
+      const GameModelPart& p = gameModels[mo.data.model].parts[m.part];
+      if (p.stripRun != b.stripRun || p.stripVerts.empty()) {
+        useStrips = false;
+        break;
+      }
+    }
+  // The member-centre box the draw-distance test reads. Built over EVERY
+  // member, shown or not: a hidden member needs no drawing, but letting
+  // visibility move the box would make the batch's cut-off flicker with
+  // hide/show events for no benefit. Demotion DOES change it, and demotion
+  // always goes through this function (renderStaticBatches sets stale).
+  for (size_t k = 0; k < b.members.size(); ++k) {
+    const float* p = runtimeObjects[b.members[k].object].data.position;
+    for (int a = 0; a < 3; ++a) {
+      if (k == 0 || p[a] < b.ddMin[a]) b.ddMin[a] = p[a];
+      if (k == 0 || p[a] > b.ddMax[a]) b.ddMax[a] = p[a];
+    }
+  }
   for (size_t k = 0; k < b.members.size(); ++k) {
     const StaticBatchMember member = b.members[k];
     RuntimeObject& o = runtimeObjects[member.object];
@@ -15301,16 +15549,38 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
         member.part < (int)gameModels[o.data.model].parts.size()) {
       const GameModelPart& src = gameModels[o.data.model].parts[member.part];
       const bool textured = src.texture != nullptr;
-      const bool hasAo = src.vertexAo.size() * 8 == src.verts.size();
+      // Take the STRIP twin when this is a strip batch. Re-emitting the list
+      // here is what used to make batching cost more than it saved on a
+      // district of stripped models: the merged bag threw away the vertex
+      // saving the bake had already won. `useStrips` was decided for the whole
+      // batch above, so members can never disagree about topology.
+      const std::vector<float>& sv = useStrips ? src.stripVerts : src.verts;
+      const std::vector<unsigned char>& sao =
+          useStrips ? src.stripVertexAo : src.vertexAo;
+      const bool hasAo = sao.size() * 8 == sv.size();
       g_aoOff = true;
       g_prelitTex = o.data.prelit != 0;
       g_giProbeShade = !g_prelitTex && SCENE_PROBES != nullptr;
-      for (size_t vi = 0; vi + 7 < src.verts.size(); vi += 8) {
-        const float* v = &src.verts[vi];
+      for (size_t vi = 0; vi + 7 < sv.size(); vi += 8) {
+        const float* v = &sv[vi];
         pushVert(b.vertices, b.colors, b.sts, o.data, {v[0], v[1], v[2]},
                  {v[3], v[4], v[5]}, v[6], v[7], src.kd, textured,
-                 hasAo ? src.vertexAo[vi / 8] : (unsigned char)255, src.ke);
+                 hasAo ? sao[vi / 8] : (unsigned char)255, src.ke);
       }
+      // PAD THIS MEMBER UP TO A WHOLE RUN. A baked strip is chopped into runs
+      // of AT MOST stripRun vertices and only the runs before the last are
+      // padded out (the last one need only be a multiple of 3, meshstrip.hpp),
+      // which is fine for a solo bag - it is the end of the array - and wrong
+      // the moment another member follows it. Without this the next member
+      // would start mid-package and one package would splice two objects into
+      // a triangle. Repeating the last vertex is the same trick the baker
+      // uses: it makes degenerate triangles the GS rasterises to nothing.
+      if (useStrips && !b.vertices.empty())
+        while (b.vertices.size() % b.stripRun != 0) {
+          b.vertices.push_back(b.vertices.back());
+          b.colors.push_back(b.colors.back());
+          if (!b.sts.empty()) b.sts.push_back(b.sts.back());
+        }
       g_aoOff = false;
       g_prelitTex = false;
     } else {
@@ -15363,6 +15633,15 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
   } else {
     b.bag->texture = nullptr;
   }
+  // Strip batches draw PRIM_TRIANGLE_STRIP with every package exactly one
+  // baked run, which is the same contract pinPackageSize enforces for a solo
+  // stripped bag - so no package boundary can splice two members into one
+  // triangle. A batch that had to fall back to a list for any member is
+  // pinned the ordinary derived way instead.
+  {
+    std::vector<StaPipBag*> one{b.bag.get()};
+    pinPackageSize(one, useStrips ? b.stripRun : 0u);
+  }
   // World AABB for the split-screen band cull - the batch analogue of the
   // terrain chunks' build-time boxes.
   b.aabbMin[0] = b.aabbMax[0] = b.vertices[0].x;
@@ -15410,6 +15689,28 @@ void TerrainGame::renderStaticBatches() {
     }
     if (stale) rebuildStaticBatch(b);
     if (!b.bag || b.bag->count == 0) continue;
+    // Draw distance, applied to the batch rather than to each member - the
+    // per-frame analogue of beyondDrawDistance() and deliberately NOT routed
+    // through the shown snapshot above, because a cut-off crossed while the
+    // player drives is exactly the per-frame flip that would re-bake the
+    // batch every frame and cost more than the submit it saves.
+    //
+    // The whole batch draws while the NEAREST point of the member-centre box
+    // is inside the cut-off, so a member can outlive its own distance by up
+    // to the spread of its batch (bounded by the grouping cell) but can never
+    // disappear early. Over-drawing costs GS fill; disappearing early would
+    // be a visible pop, and this frame is bag-bound, not fill-bound.
+    if (b.drawDistance > 0.0F) {
+      float d2 = 0.0F;
+      const float c[3] = {cameraPosition.x, cameraPosition.y, cameraPosition.z};
+      for (int a = 0; a < 3; ++a) {
+        const float e = c[a] < b.ddMin[a]   ? b.ddMin[a] - c[a]
+                        : c[a] > b.ddMax[a] ? c[a] - b.ddMax[a]
+                                            : 0.0F;
+        d2 += e * e;
+      }
+      if (d2 > b.drawDistance * b.drawDistance) continue;
+    }
     // Split halves: same band early-out the terrain chunks use.
     if (splitBandActive && outsideSplitBand(b.aabbMin, b.aabbMax)) continue;
     stapip.core.render(b.bag.get());
@@ -15734,6 +16035,16 @@ void TerrainGame::procFinishChunks() {
     c.colorBag->many = c.colors.data();
     c.bag->vertices = c.vertices.data();
     c.bag->count = static_cast<u32>(c.vertices.size());
+    // Triangle strips (docs/model-pipeline.md). A stripped chunk's array is
+    // already chopped into self-contained runs, so the package size is PINNED
+    // to the run rather than derived: StaPipCore slices a bag at multiples of
+    // it, and a boundary anywhere else would fuse two strips. Nothing else is
+    // derived either - the run is by construction no larger than any static
+    // class's own capacity, which is what buildRoads checks before baking it.
+    // Re-stated every pass, like the info bag above: a regeneration may have
+    // turned a chunk from one representation into the other.
+    c.bag->stripped = c.stripRun > 0;
+    c.bag->packageSize = c.stripRun > 0 ? static_cast<u32>(c.stripRun) : 0U;
     c.bag->bboxVersion = ++g_bboxStamp;
     const Tyra::Texture* tex = c.roadTex;
     if (tex) {
@@ -17778,17 +18089,72 @@ int TerrainGame::vehicleLod(int vi) const {
   return g.parts.empty() ? 0 : g.parts[0].shownLod;
 }
 
+// WHEEL REBUILD ACCOUNTING. Off by default and off in a release game: the
+// readout is a host-filesystem write, which is a network round trip on a
+// ps2link deploy and lands inside any measurement window it fires in - the
+// same reason STAPIPRET is opt-in. Build with -DTYRA_WHEEL_REBUILD_REPORT=1.
+#ifndef TYRA_WHEEL_REBUILD_REPORT
+#define TYRA_WHEEL_REBUILD_REPORT 0
+#endif
+// THE IN-GAME FROZEN-WHEEL ORACLE. Separate from the report and far more
+// expensive - it re-bakes every wheel of every drawn car with the ORIGINAL
+// per-wheel arithmetic and compares the bytes, so it costs MORE than the work
+// it is checking and must never be on in anything measured or shipped. It
+// answers the one question a screenshot cannot: is a wheel ever one frame
+// behind its car, on real inputs - a driving car, an LOD crossing, a rig
+// entering and leaving the batch. Build with -DTYRA_WHEEL_REBUILD_VERIFY=1;
+// it turns the report on by itself, because the count is how it reports.
+#ifndef TYRA_WHEEL_REBUILD_VERIFY
+#define TYRA_WHEEL_REBUILD_VERIFY 0
+#endif
+// THE A/B KNOB FOR THE SECOND LEVER, ON ITS OWN. This function does three
+// independent things - skip a rig that did not move, keep bboxVersion when the
+// buffer is byte-identical, and hoist the trigonometry out of the per-wheel
+// loop - and they do NOT have the same cost profile. Setting this to 0 keeps
+// the skip and the hoist and restores the unconditional `++g_bboxStamp`, so a
+// three-arm run (pre-change / this / this with 0) prices the sticky stamp by
+// itself. It exists because the stamp is the one lever that can COST: a fresh
+// stamp makes the package-bbox cacher recompute the boxes from a vertex array
+// the EE has just written and still has hot, while a sticky one makes it read
+// boxes that may be hundreds of frames old and stone cold. PCSX2 models no EE
+// data cache and cannot price that trade in either direction.
+#ifndef TYRA_WHEEL_STICKY_BBOX
+#define TYRA_WHEEL_STICKY_BBOX 1
+#endif
+#if TYRA_WHEEL_REBUILD_VERIFY && !TYRA_WHEEL_REBUILD_REPORT
+#undef TYRA_WHEEL_REBUILD_REPORT
+#define TYRA_WHEEL_REBUILD_REPORT 1
+#endif
+#if TYRA_WHEEL_REBUILD_REPORT
+static u32 g_whReportFrames = 0, g_whCars = 0, g_whCarsRebuilt = 0;
+static u32 g_whWheels = 0, g_whWheelsRebuilt = 0, g_whStampBumps = 0;
+static u32 g_whBatches = 0;
+#endif
+#if TYRA_WHEEL_REBUILD_VERIFY
+static u32 g_whVerifyCars = 0, g_whVerifyFailWheels = 0;
+#endif
+
 void TerrainGame::renderVehicleWheels() {
   if (vehicleCount_ <= 0) return;
   const float kDeg = 3.14159265F / 180.0F;
   // Distinct definitions can use different palettes or source images. A single
   // shared bag would sample every car's wheel UVs through the last car's image.
+  // The bag POINTER may still be shared: both caches downstream are keyed by
+  // the vertex-buffer address (StapipBagBBoxesCacher's id, and the retained
+  // command key's `vertices`), never by the bag, and every batch owns its own
+  // vertex vector.
   for (int drawDef = 0; drawDef < VEHICLE_DEF_COUNT; ++drawDef) {
   if ((int)wheelBatches_.size() <= drawDef)
     wheelBatches_.resize((size_t)drawDef + 1);
   WheelBatch& batch = wheelBatches_[(size_t)drawDef];
-  batch.verts.clear();
+  // NOT cleared. The batch is addressed by SLOT - car k owns
+  // [k*vertsPerCar, (k+1)*vertsPerCar) - so a car whose inputs did not move
+  // keeps the vertices already sitting there, and the frame does no work for
+  // it at all. `changed` stays false only if every byte of the buffer is the
+  // byte it held last frame.
   const GameModelPart* src = nullptr;
+  int slot = 0;
+  bool changed = false;
   for (int vi = 0; vi < vehicleCount_; ++vi) {
     VehicleRt& v = vehicles_[vi];
     if (!v.active || v.def != drawDef) continue;
@@ -17854,67 +18220,219 @@ void TerrainGame::renderVehicleWheels() {
       if (outsideSplitBand(bmn, bmx)) continue;
     }
     src = &part;
-    const float hx = 0.5F * s.track * SC, hz = 0.5F * s.wheelBase * SC;
-    const float lx[4] = {-hx, hx, -hx, hx};
-    const float lz[4] = {hz, hz, -hz, -hz};
-    for (int w = 0; w < 4; ++w) {
-      // Steer the front pair, spin all four. Both are rotations about the
-      // wheel's own hub, which is why the bake centres it there.
-      const float st = (w < 2 ? v.steerAngle : 0.0F) * kDeg;
-      const float cs = cosf(st), ss = sinf(st);
-      const float sp = v.wheelSpin * kDeg;
-      const float cp = cosf(sp), spn = sinf(sp);
-      // The hub follows ITS OWN wheel's ground - one radius above it - and
-      // the travel clamp keeps it inside the arch. This is the computed
-      // suspension finally reaching the screen: over a crest the outer pair
-      // drops, over a kerb one corner rides up, and in the air all four hang
-      // at full droop. rideHeight = wheelRadius keeps the flat-ground case
-      // exactly where it always was.
-      // The suspension is a LINE in the body frame, not a world-Y slider:
-      // start at the fully transformed arch hardpoint and move along the
-      // body's local up until the tyre meets its sampled floor. This is the
-      // four-link analytic rig; no skeleton or IK is involved.
+    const u32 nv = (u32)(part.verts.size() / 8);
+    const u32 vpc = nv * 4;
+    // Every car in this batch reads the same definition, so this can only
+    // fire on the frame the wheel model itself changed, at slot 0.
+    if (batch.vertsPerCar != vpc) {
+      batch.vertsPerCar = vpc;
+      batch.staticCars = 0;
+      batch.cols.clear();
+      batch.sts.clear();
+      batch.slots.clear();
+      batch.verts.clear();
+      slot = 0;
+      changed = true;
+    }
+    const size_t base = (size_t)slot * (size_t)vpc;
+    if (batch.verts.size() < base + vpc) batch.verts.resize(base + vpc);
+    if ((int)batch.slots.size() <= slot)
+      batch.slots.resize((size_t)slot + 1);
+    WheelSlot& sl = batch.slots[(size_t)slot];
+    // THE SIGNATURE: every input the vertices below are a function of, held
+    // as raw floats and compared exactly - no hash, because a collision here
+    // is a wheel frozen one frame behind its car. The definition's own
+    // constants (track, wheelBase, wheelRadius, suspensionTravel) are not in
+    // it because VEHICLE_DEFS is immutable static data.
+    const float sig[9] = {v.pos[0],
+                          v.pos[1],
+                          v.pos[2],
+                          v.pitch + v.leanPitch,
+                          v.yaw,
+                          v.roll + v.leanRoll,
+                          v.steerAngle,
+                          v.wheelSpin,
+                          SC};
+    bool sameRig = sl.valid && sl.vehicle == vi &&
+                   sl.srcVerts == (const void*)part.verts.data();
+    if (sameRig)
+      for (int k = 0; k < 9; ++k)
+        if (sl.sig[k] != sig[k]) { sameRig = false; break; }
+    // Which of the four wheels actually has to be re-baked. Everything in
+    // `sig` is shared by all four, so a car that MOVED redoes all four; the
+    // per-wheel split only ever saves work for a car that is standing still
+    // while one corner's sampled ground moves under it.
+    int redo[4];
+    int nredo = 0;
+    if (!sameRig) {
+      for (int w = 0; w < 4; ++w) redo[w] = w;
+      nredo = 4;
+    } else {
+      for (int w = 0; w < 4; ++w)
+        if (sl.wy[w] != v.wheelY[w]) redo[nredo++] = w;
+    }
+#if TYRA_WHEEL_REBUILD_REPORT
+    ++g_whCars;
+    g_whWheels += 4;
+    if (nredo > 0) ++g_whCarsRebuilt;
+    g_whWheelsRebuilt += (u32)nredo;
+#endif
+    if (nredo > 0) {
+      changed = true;
+      const float hx = 0.5F * s.track * SC, hz = 0.5F * s.wheelBase * SC;
+      const float lx[4] = {-hx, hx, -hx, hx};
+      const float lz[4] = {hz, hz, -hz, -hz};
+      // ONCE PER CAR, not once per wheel. The body attitude, its six sines
+      // and cosines, the local up and the spin angle are identical for all
+      // four; this loop used to recompute every one of them four times, and
+      // vehBodyRotation alone is six transcendentals, three atan2s and a
+      // square root. rotatedBy() below performs rotated()'s arithmetic in
+      // rotated()'s order, so the vertices are bit-identical to the ones
+      // the per-wheel version produced.
       float bodyRot[3];
       vehBodyRotation(v.pitch + v.leanPitch, v.yaw, v.roll + v.leanRoll, bodyRot);
-      const V3 hard = rotated({lx[w], 0.0F, lz[w]}, bodyRot);
-      const V3 up = rotated({0.0F, 1.0F, 0.0F}, bodyRot);
-      const float targetY = v.wheelY[w] + s.wheelRadius * SC;
-      float travel = up.y > 0.2F
-                         ? (targetY - (v.pos[1] + hard.y)) / up.y
-                         : 0.0F;
-      const float lo = -s.suspensionTravel * SC * 0.45F;
-      const float hiTravel = s.suspensionTravel * SC * 0.10F;
-      const float hiRadius = s.wheelRadius * SC * 0.06F;
-      const float hi = hiTravel < hiRadius ? hiTravel : hiRadius;
-      if (travel < lo) travel = lo;
-      if (travel > hi) travel = hi;
-      const float ax = v.pos[0] + hard.x + up.x * travel;
-      const float ay = v.pos[1] + hard.y + up.y * travel;
-      const float az = v.pos[2] + hard.z + up.z * travel;
-      // Compose spin, steer and body attitude once per wheel, not once per
-      // vertex. These are the columns of the same linear transform.
-      const V3 bx = rotated({cs * SC, 0.0F, -ss * SC}, bodyRot);
-      const V3 by = rotated({spn * ss * SC, cp * SC, spn * cs * SC}, bodyRot);
-      const V3 bz = rotated({cp * ss * SC, -spn * SC, cp * cs * SC}, bodyRot);
-      const u32 nv = (u32)(part.verts.size() / 8);
-      for (u32 i = 0; i < nv; ++i) {
-        const float* q = &part.verts[(size_t)i * 8];
-        batch.verts.push_back(Tyra::Vec4(
-            ax + bx.x * q[0] + by.x * q[1] + bz.x * q[2],
-            ay + bx.y * q[0] + by.y * q[1] + bz.y * q[2],
-            az + bx.z * q[0] + by.z * q[1] + bz.z * q[2]));
+      const RotTrig br = rotTrigOf(bodyRot);
+      const V3 up = rotatedBy({0.0F, 1.0F, 0.0F}, br);
+      const float sp = v.wheelSpin * kDeg;
+      const float cp = cosf(sp), spn = sinf(sp);
+      // ... and once per STEER PAIR, not once per wheel. The basis below is a
+      // function of steer, spin, scale and attitude only - never of which
+      // side the wheel is on - so the front two share one and the rear two
+      // (steer fixed at zero) share another. Both are built lazily: a car
+      // that only needs one corner re-baked pays for one pair.
+      V3 bx[2], by[2], bz[2];
+      int haveBasis[2] = {0, 0};
+      for (int r = 0; r < nredo; ++r) {
+        const int w = redo[r];
+        const int pair = w < 2 ? 0 : 1;
+        if (!haveBasis[pair]) {
+          // Steer the front pair, spin all four. Both are rotations about
+          // the wheel's own hub, which is why the bake centres it there.
+          const float st = (pair == 0 ? v.steerAngle : 0.0F) * kDeg;
+          const float cs = cosf(st), ss = sinf(st);
+          // Compose spin, steer and body attitude once, not once per vertex.
+          // These are the columns of the same linear transform.
+          bx[pair] = rotatedBy({cs * SC, 0.0F, -ss * SC}, br);
+          by[pair] = rotatedBy({spn * ss * SC, cp * SC, spn * cs * SC}, br);
+          bz[pair] = rotatedBy({cp * ss * SC, -spn * SC, cp * cs * SC}, br);
+          haveBasis[pair] = 1;
+        }
+        // The hub follows ITS OWN wheel's ground - one radius above it - and
+        // the travel clamp keeps it inside the arch. This is the computed
+        // suspension finally reaching the screen: over a crest the outer pair
+        // drops, over a kerb one corner rides up, and in the air all four hang
+        // at full droop. rideHeight = wheelRadius keeps the flat-ground case
+        // exactly where it always was.
+        // The suspension is a LINE in the body frame, not a world-Y slider:
+        // start at the fully transformed arch hardpoint and move along the
+        // body's local up until the tyre meets its sampled floor. This is the
+        // four-link analytic rig; no skeleton or IK is involved.
+        const V3 hard = rotatedBy({lx[w], 0.0F, lz[w]}, br);
+        const float targetY = v.wheelY[w] + s.wheelRadius * SC;
+        float travel = up.y > 0.2F
+                           ? (targetY - (v.pos[1] + hard.y)) / up.y
+                           : 0.0F;
+        const float lo = -s.suspensionTravel * SC * 0.45F;
+        const float hiTravel = s.suspensionTravel * SC * 0.10F;
+        const float hiRadius = s.wheelRadius * SC * 0.06F;
+        const float hi = hiTravel < hiRadius ? hiTravel : hiRadius;
+        if (travel < lo) travel = lo;
+        if (travel > hi) travel = hi;
+        const float ax = v.pos[0] + hard.x + up.x * travel;
+        const float ay = v.pos[1] + hard.y + up.y * travel;
+        const float az = v.pos[2] + hard.z + up.z * travel;
+        const V3& mx3 = bx[pair];
+        const V3& my3 = by[pair];
+        const V3& mz3 = bz[pair];
+        // Straight into the slot. The old shape cleared the vector and
+        // push_back'd every vertex, which paid a capacity test and a size
+        // bump per vertex for a buffer whose length it already knew.
+        Tyra::Vec4* out = &batch.verts[base + (size_t)w * (size_t)nv];
+        for (u32 i = 0; i < nv; ++i) {
+          const float* q = &part.verts[(size_t)i * 8];
+          out[i] = Tyra::Vec4(
+              ax + mx3.x * q[0] + my3.x * q[1] + mz3.x * q[2],
+              ay + mx3.y * q[0] + my3.y * q[1] + mz3.y * q[2],
+              az + mx3.z * q[0] + my3.z * q[1] + mz3.z * q[2]);
+        }
       }
+      for (int k = 0; k < 9; ++k) sl.sig[k] = sig[k];
+      for (int w = 0; w < 4; ++w) sl.wy[w] = v.wheelY[w];
+      sl.srcVerts = (const void*)part.verts.data();
+      sl.vehicle = vi;
+      sl.valid = 1;
     }
+#if TYRA_WHEEL_REBUILD_VERIFY
+    // THE FROZEN-WHEEL ORACLE, RUNNING IN THE REAL GAME. A still screenshot
+    // cannot show a wheel one frame behind its car, and a driven one can only
+    // show a bad enough case. So re-derive this car's four wheels from
+    // scratch, with the ORIGINAL per-wheel arithmetic - rotated() and
+    // vehBodyRotation() called exactly as they were before this function was
+    // rewritten - and compare the bytes against whatever is actually in the
+    // slot. That checks BOTH levers at once on real inputs: a skip that
+    // should not have happened, and a hoist that is not bit-identical.
+    // Independent code on purpose: sharing a helper with the shipped path
+    // would let one bug hide the other, and the shipped path must not be
+    // reshaped for a checker that never ships.
+    {
+      const float vhx = 0.5F * s.track * SC, vhz = 0.5F * s.wheelBase * SC;
+      const float vlx[4] = {-vhx, vhx, -vhx, vhx};
+      const float vlz[4] = {vhz, vhz, -vhz, -vhz};
+      for (int w = 0; w < 4; ++w) {
+        const float st = (w < 2 ? v.steerAngle : 0.0F) * kDeg;
+        const float cs = cosf(st), ss = sinf(st);
+        const float sp = v.wheelSpin * kDeg;
+        const float cp = cosf(sp), spn = sinf(sp);
+        float bodyRot[3];
+        vehBodyRotation(v.pitch + v.leanPitch, v.yaw, v.roll + v.leanRoll,
+                        bodyRot);
+        const V3 hard = rotated({vlx[w], 0.0F, vlz[w]}, bodyRot);
+        const V3 up = rotated({0.0F, 1.0F, 0.0F}, bodyRot);
+        const float targetY = v.wheelY[w] + s.wheelRadius * SC;
+        float travel =
+            up.y > 0.2F ? (targetY - (v.pos[1] + hard.y)) / up.y : 0.0F;
+        const float lo = -s.suspensionTravel * SC * 0.45F;
+        const float hiTravel = s.suspensionTravel * SC * 0.10F;
+        const float hiRadius = s.wheelRadius * SC * 0.06F;
+        const float hi = hiTravel < hiRadius ? hiTravel : hiRadius;
+        if (travel < lo) travel = lo;
+        if (travel > hi) travel = hi;
+        const float ax = v.pos[0] + hard.x + up.x * travel;
+        const float ay = v.pos[1] + hard.y + up.y * travel;
+        const float az = v.pos[2] + hard.z + up.z * travel;
+        const V3 bx = rotated({cs * SC, 0.0F, -ss * SC}, bodyRot);
+        const V3 by = rotated({spn * ss * SC, cp * SC, spn * cs * SC}, bodyRot);
+        const V3 bz = rotated({cp * ss * SC, -spn * SC, cp * cs * SC}, bodyRot);
+        const Tyra::Vec4* live =
+            &batch.verts[base + (size_t)w * (size_t)nv];
+        for (u32 i = 0; i < nv; ++i) {
+          const float* q = &part.verts[(size_t)i * 8];
+          const Tyra::Vec4 want(ax + bx.x * q[0] + by.x * q[1] + bz.x * q[2],
+                                ay + bx.y * q[0] + by.y * q[1] + bz.y * q[2],
+                                az + bx.z * q[0] + by.z * q[1] + bz.z * q[2]);
+          if (memcmp(&live[i], &want, sizeof(float) * 3) != 0) {
+            ++g_whVerifyFailWheels;
+            break;
+          }
+        }
+      }
+      ++g_whVerifyCars;
+    }
+#endif
+    ++slot;
   }
-  if (batch.verts.empty() || !src) continue;
-  const u32 vertsPerCar = (u32)(src->verts.size() / 8) * 4;
-  const int cars = vertsPerCar > 0 ? (int)(batch.verts.size() / vertsPerCar) : 0;
-  if (batch.vertsPerCar != vertsPerCar) {
-    batch.vertsPerCar = vertsPerCar;
-    batch.staticCars = 0;
-    batch.cols.clear();
-    batch.sts.clear();
+  if (slot == 0 || !src) continue;
+  const u32 vertsPerCar = batch.vertsPerCar;
+  const int cars = slot;
+  // Trim the tail TOGETHER. Shrinking the vertices without dropping the
+  // slots would leave a slot claiming a match for vertices that no longer
+  // exist, which is the frozen-wheel bug this whole path is written to avoid.
+  const size_t total = (size_t)cars * (size_t)vertsPerCar;
+  if (batch.verts.size() != total) {
+    batch.verts.resize(total);
+    changed = true;
   }
+  if ((int)batch.slots.size() > cars) batch.slots.resize((size_t)cars);
   while (batch.staticCars < cars) {
     for (int w = 0; w < 4; ++w)
       for (u32 i = 0; i < vertsPerCar / 4; ++i) {
@@ -17936,7 +18454,33 @@ void TerrainGame::renderVehicleWheels() {
   wheelColorBag_->many = batch.cols.data();
   wheelBag_->vertices = batch.verts.data();
   wheelBag_->count = static_cast<u32>(batch.verts.size());
-  wheelBag_->bboxVersion = ++g_bboxStamp;
+  // THE STAMP IS STICKY. bboxVersion says "this vertex buffer holds different
+  // numbers than it did"; bumping it unconditionally made that a lie on every
+  // frame a car did not move, and it cost twice - the package-bbox cache
+  // recomputed boxes that had not changed, and the retained command blocks for
+  // these packages were thrown away and rebuilt. A reused stamp is only safe
+  // while the buffer's ADDRESS and LENGTH are also the ones it was stamped
+  // for: StapipBagBBoxesCacher keys on (vertex pointer, version) and stores no
+  // count, so a stamp carried across a resize would hand back boxes for the
+  // wrong package count.
+  if (batch.verts.data() != batch.lastVerts ||
+      batch.verts.size() != batch.lastCount || batch.stamp == 0)
+    changed = true;
+  batch.lastVerts = batch.verts.data();
+  batch.lastCount = batch.verts.size();
+#if !TYRA_WHEEL_STICKY_BBOX
+  changed = true;  // the control arm for the stamp lever alone
+#endif
+  if (changed) {
+    batch.stamp = ++g_bboxStamp;
+#if TYRA_WHEEL_REBUILD_REPORT
+    ++g_whStampBumps;
+#endif
+  }
+  wheelBag_->bboxVersion = batch.stamp;
+#if TYRA_WHEEL_REBUILD_REPORT
+  ++g_whBatches;
+#endif
   if (src->texture && batch.sts.size() >= batch.verts.size()) {
     if (!wheelTexBag_) wheelTexBag_ = std::make_unique<Tyra::StaPipTextureBag>();
     wheelTexBag_->texture = const_cast<Tyra::Texture*>(src->texture);
@@ -17947,6 +18491,31 @@ void TerrainGame::renderVehicleWheels() {
   }
   stapip.core.render(wheelBag_.get());
   }
+#if TYRA_WHEEL_REBUILD_REPORT
+  // Same 300-frame cadence as STAPIPRET, and the same reason for the cadence:
+  // one host write per five seconds is readable without being a per-frame cost.
+  if (++g_whReportFrames >= 300) {
+    char wl[240];
+#if TYRA_WHEEL_REBUILD_VERIFY
+    snprintf(wl, sizeof(wl),
+             "WHEELBAKE cars=%u rebuilt=%u wheels=%u rebuilt=%u "
+             "batches=%u stamped=%u VERIFY checked=%u STALE=%u per 300 frames",
+             g_whCars, g_whCarsRebuilt, g_whWheels, g_whWheelsRebuilt,
+             g_whBatches, g_whStampBumps, g_whVerifyCars, g_whVerifyFailWheels);
+    g_whVerifyCars = g_whVerifyFailWheels = 0;
+#else
+    snprintf(wl, sizeof(wl),
+             "WHEELBAKE cars=%u rebuilt=%u wheels=%u rebuilt=%u "
+             "batches=%u stamped=%u per 300 frames",
+             g_whCars, g_whCarsRebuilt, g_whWheels, g_whWheelsRebuilt,
+             g_whBatches, g_whStampBumps);
+#endif
+    TYRA_LOG(wl);
+    g_whReportFrames = 0;
+    g_whCars = g_whCarsRebuilt = g_whWheels = g_whWheelsRebuilt = 0;
+    g_whBatches = g_whStampBumps = 0;
+  }
+#endif
 }
 
 
@@ -17962,6 +18531,17 @@ void TerrainGame::buildRoads(int scene) {
   for (size_t i = procChunks.size(); i > 0; --i)
     if (procChunks[i - 1].owner == -3)
       procChunks.erase(procChunks.begin() + (i - 1));
+  // Triangle strips (docs/roads.md, docs/model-pipeline.md "Triangle
+  // strips"). 75 is meshstrip::kRun, the smallest package any static program
+  // class derives - the run every stripped array in this game is chopped
+  // into. The ENGINE is asked rather than trusted: the constant is legal by
+  // construction, and if it ever stops being one the triangle list is still
+  // right, so the emitter keeps both halves and this is the knob that picks
+  // between them (it is also the A/B knob - flip it and rebuild, one engine
+  // and one editor, only the vertex ORDER moves).
+  const unsigned int stripRun = 75u;
+  const bool useStrips = minPackageSize() >= stripRun;
+  const Tyra::Color grey(128.0F, 128.0F, 128.0F, 128.0F);
   bool any = false;
   for (int ri = 0; ri < ROAD_COUNT; ++ri) {
     const RoadDefRt& rd = ROAD_DEFS[ri];
@@ -18002,9 +18582,60 @@ void TerrainGame::buildRoads(int scene) {
     };
     ProcChunk* c = nullptr;
     int stationsInChunk = 0;
+    // Strip run state, per chunk. TWIN NOTICE: roadgen.cpp's
+    // tessellateStrips - the same packer, vertex for vertex.
+    size_t runStart = 0;
+    bool alongOpen = false;
+    auto runLen = [&]() { return c->vertices.size() - runStart; };
+    // One vertex into the open run. A run that fills MID-STRIP carries the
+    // two-vertex overlap into the next one, or the triangle across the cut is
+    // lost. That is the only place a run ever ends anywhere but at its full
+    // length, which is what lets the packages BE the runs.
+    auto pushRaw = [&](const Tyra::Vec4& p, const Tyra::Vec4& s) {
+      if (runLen() == (size_t)stripRun) {
+        const size_t m = c->vertices.size();
+        const Tyra::Vec4 pa = c->vertices[m - 2], pb = c->vertices[m - 1];
+        const Tyra::Vec4 sa = c->sts[m - 2], sb = c->sts[m - 1];
+        runStart = m;
+        c->vertices.push_back(pa); c->sts.push_back(sa); c->colors.push_back(grey);
+        c->vertices.push_back(pb); c->sts.push_back(sb); c->colors.push_back(grey);
+      }
+      c->vertices.push_back(p); c->sts.push_back(s); c->colors.push_back(grey);
+    };
+    // Begin an unrelated strip inside the open run: repeat the run's last
+    // vertex and the incoming strip's first. Four zero-area triangles, and
+    // the fifth is the incoming strip's own first real one.
+    auto startStrip = [&](const Tyra::Vec4& p, const Tyra::Vec4& s) {
+      if (runLen() > 0) {
+        const Tyra::Vec4 lp = c->vertices.back();
+        const Tyra::Vec4 ls = c->sts.back();
+        pushRaw(lp, ls);
+        pushRaw(p, s);
+      }
+      pushRaw(p, s);
+    };
+    // A chunk's LAST run owes only the multiple of 3 the VU1 vertex loops
+    // need; a count that is not runs off into VU1 memory. The padding repeats
+    // the last vertex, which makes a degenerate triangle the GS rasterises to
+    // nothing.
+    auto closeChunk = [&]() {
+      if (!useStrips || c == nullptr) return;
+      const size_t target = ((runLen() + 2) / 3) * 3;
+      while (runLen() < target) {
+        c->vertices.push_back(c->vertices.back());
+        c->sts.push_back(c->sts.back());
+        c->colors.push_back(grey);
+      }
+      runStart = c->vertices.size();
+    };
     std::vector<float> px0((size_t)crossSteps + 1);
     std::vector<float> py0((size_t)crossSteps + 1);
     std::vector<float> pz0((size_t)crossSteps + 1);
+    // Where this station pair is cut laterally. Hoisted out of the station
+    // loop: this runs on the EE at scene load, once per station of every road
+    // in the district, and a per-station heap allocation there is not free.
+    std::vector<int> cuts;
+    cuts.reserve((size_t)crossSteps + 1);
     float lv0 = 0.0F;
     bool havePrev = false;
     float arc = 0.0F, prevX = 0.0F, prevZ = 0.0F;
@@ -18061,80 +18692,162 @@ void TerrainGame::buildRoads(int scene) {
           // Two triangles per lateral cell, CCW seen from above - the twin's
           // stitch, emitted station by station so a chunk boundary never
           // leaves a gap (the previous row is re-used as the base).
-          const Tyra::Color grey(128.0F, 128.0F, 128.0F, 128.0F);
-          // Exact full-width reduction: every dense sample must lie on the
-          // proposed quad plane.  This keeps sloped terrain triangles cheap
-          // without flattening crowns or saddles (the roadgen.cpp twin).
-          const float ux = px0[(size_t)crossSteps] - px0[0];
-          const float uy = py0[(size_t)crossSteps] - py0[0];
-          const float uz = pz0[(size_t)crossSteps] - pz0[0];
-          const float vx = nx[0] - px0[0], vy = ny[0] - py0[0], vz = nz[0] - pz0[0];
-          const float pnx = uy * vz - uz * vy;
-          const float pny = uz * vx - ux * vz;
-          const float pnz = ux * vy - uy * vx;
-          const float pnl = sqrtf(pnx * pnx + pny * pny + pnz * pnz);
+          // Exact lateral reduction: every dense sample must lie on the
+          // proposed quad plane, and the quad must be an affine parallelogram
+          // so its two triangles interpolate ST as the cells they replace do.
+          // The reduction is per SUB-SPAN rather than all-or-nothing, because
+          // a road is a decal on a heightfield sampled far more finely than
+          // the heightfield itself - runs of lateral cells inside one terrain
+          // triangle are exactly coplanar even when the full width is not.
+          // The two budgets are the roadgen.hpp twin's kSpanFlatness (surface,
+          // and with it the T-junction) and kSpanShear (UV, tripped by bends).
+          auto spanIsExact = [&](int j0, int j1) {
+            const float ax = px0[(size_t)j0], ay = py0[(size_t)j0];
+            const float az = pz0[(size_t)j0];
+            const float bx = px0[(size_t)j1], by = py0[(size_t)j1];
+            const float bz = pz0[(size_t)j1];
+            const float dx = nx[(size_t)j0], dy = ny[(size_t)j0];
+            const float dz = nz[(size_t)j0];
+            const float cx = nx[(size_t)j1], cy = ny[(size_t)j1];
+            const float cz = nz[(size_t)j1];
+            const float ux = bx - ax, uy = by - ay, uz = bz - az;
+            const float vx = dx - ax, vy = dy - ay, vz = dz - az;
+            const float pnx = uy * vz - uz * vy;
+            const float pny = uz * vx - ux * vz;
+            const float pnz = ux * vy - uy * vx;
+            const float pnl = sqrtf(pnx * pnx + pny * pny + pnz * pnz);
+            if (!(pnl > 1e-6F)) return false;
+            const float qax = (bx - ax) - (cx - dx);
+            const float qay = (by - ay) - (cy - dy);
+            const float qaz = (bz - az) - (cz - dz);
+            if (sqrtf(qax * qax + qay * qay + qaz * qaz) > 0.05F)
+              return false;
+            for (int r = 0; r < 2; ++r)
+              for (int j = j0; j <= j1; ++j) {
+                const float qx = r ? nx[(size_t)j] : px0[(size_t)j];
+                const float qy = r ? ny[(size_t)j] : py0[(size_t)j];
+                const float qz = r ? nz[(size_t)j] : pz0[(size_t)j];
+                const float dist = fabsf(pnx * (qx - ax) + pny * (qy - ay) +
+                                         pnz * (qz - az)) / pnl;
+                if (dist > 0.00001F) return false;
+              }
+            return true;
+          };
           // Keep the long-standing horizontal reduction, including curved
-          // spans, as the roadgen.cpp twin does.
+          // spans, as the roadgen.cpp twin does. It is the one case that does
+          // NOT owe the affine check.
           bool flat = true;
           const float flatY = py0[0];
-          for (int r = 0; r < 2; ++r)
+          for (int r = 0; r < 2 && flat; ++r)
             for (int j = 0; j <= crossSteps; ++j) {
               const float qy = r ? ny[(size_t)j] : py0[(size_t)j];
               if (fabsf(qy - flatY) > 0.00001F) { flat = false; break; }
             }
-          // Coplanarity alone does not preserve interpolated ST on a curved
-          // quad. Require the affine parallelogram that roadgen.cpp checks.
-          const float qax = (px0[(size_t)crossSteps] - px0[0]) -
-                            (nx[(size_t)crossSteps] - nx[0]);
-          const float qay = (py0[(size_t)crossSteps] - py0[0]) -
-                            (ny[(size_t)crossSteps] - ny[0]);
-          const float qaz = (pz0[(size_t)crossSteps] - pz0[0]) -
-                            (nz[(size_t)crossSteps] - nz[0]);
-          bool planar = pnl > 1e-6F &&
-                        sqrtf(qax * qax + qay * qay + qaz * qaz) <= 0.00001F;
-          for (int r = 0; planar && r < 2; ++r)
-            for (int j = 0; j <= crossSteps; ++j) {
-              const float qx = r ? nx[(size_t)j] : px0[(size_t)j];
-              const float qy = r ? ny[(size_t)j] : py0[(size_t)j];
-              const float qz = r ? nz[(size_t)j] : pz0[(size_t)j];
-              const float dist = fabsf(pnx * (qx - px0[0]) +
-                                       pny * (qy - py0[0]) +
-                                       pnz * (qz - pz0[0])) / pnl;
-              if (dist > 0.00001F) { planar = false; break; }
+          cuts.clear();
+          cuts.push_back(0);
+          if (flat) {
+            cuts.push_back(crossSteps);
+          } else {
+            // Greedy maximal runs. A single cell is the fallback and is never
+            // tested, so this can only remove vertices from the dense mesh.
+            int j0 = 0;
+            while (j0 < crossSteps) {
+              int j1 = j0 + 1;
+              while (j1 < crossSteps && spanIsExact(j0, j1 + 1)) ++j1;
+              cuts.push_back(j1);
+              j0 = j1;
             }
-          const int stride = (flat || planar) ? crossSteps : 1;
+          }
+          const bool collapsed = cuts.size() == 2;
           // Amortize EE bag/bounds work on flat streets, without making dense
           // slopes unbounded or joining a whole road into one culling box.
-          const size_t spanVertices = (size_t)(crossSteps / stride) * 6;
+          // The budget is in the currency the chunk actually holds, so the
+          // two emitters cut a road into the SAME number of chunks only by
+          // accident - what matters is that a run never straddles one.
+          const size_t spanVertices =
+              useStrips
+                  ? (collapsed
+                         ? (alongOpen ? (size_t)2 : (size_t)4)
+                         : (2 * cuts.size() + 2))
+                  : (cuts.size() - 1) * 6;
           if (!c || stationsInChunk >= 36 ||
               c->vertices.size() + spanVertices > 1800) {
+            closeChunk();
             procChunks.push_back(ProcChunk());
             c = &procChunks.back();
             c->owner = -3;
             c->roadTex = tex;
+            c->stripRun = useStrips ? (int)stripRun : 0;
             stationsInChunk = 0;
+            runStart = 0;
+            alongOpen = false;
           }
-          for (int j = 0; j < crossSteps; j += stride) {
-            const float u0 = (float)j / (float)crossSteps;
-            const float u1 = (float)(j + stride) / (float)crossSteps;
-            const Tyra::Vec4 A(px0[(size_t)j], py0[(size_t)j],
-                               pz0[(size_t)j], 1.0F);
-            const Tyra::Vec4 B(px0[(size_t)j + stride], py0[(size_t)j + stride],
-                               pz0[(size_t)j + stride], 1.0F);
-            const Tyra::Vec4 C(nx[(size_t)j + stride], ny[(size_t)j + stride],
-                               nz[(size_t)j + stride], 1.0F);
-            const Tyra::Vec4 D(nx[(size_t)j], ny[(size_t)j],
-                               nz[(size_t)j], 1.0F);
-            const Tyra::Vec4 sA(u0, lv0, 1.0F, 0.0F);
-            const Tyra::Vec4 sB(u1, lv0, 1.0F, 0.0F);
-            const Tyra::Vec4 sC(u1, v, 1.0F, 0.0F);
-            const Tyra::Vec4 sD(u0, v, 1.0F, 0.0F);
-            c->vertices.push_back(A); c->sts.push_back(sA); c->colors.push_back(grey);
-            c->vertices.push_back(B); c->sts.push_back(sB); c->colors.push_back(grey);
-            c->vertices.push_back(C); c->sts.push_back(sC); c->colors.push_back(grey);
-            c->vertices.push_back(A); c->sts.push_back(sA); c->colors.push_back(grey);
-            c->vertices.push_back(C); c->sts.push_back(sC); c->colors.push_back(grey);
-            c->vertices.push_back(D); c->sts.push_back(sD); c->colors.push_back(grey);
+          // P is the previous station's row, N this one's.
+          auto vAt = [&](int j, bool newRow) {
+            return newRow ? Tyra::Vec4(nx[(size_t)j], ny[(size_t)j],
+                                       nz[(size_t)j], 1.0F)
+                          : Tyra::Vec4(px0[(size_t)j], py0[(size_t)j],
+                                       pz0[(size_t)j], 1.0F);
+          };
+          auto sAt = [&](int j, bool newRow) {
+            return Tyra::Vec4((float)j / (float)crossSteps,
+                              newRow ? v : lv0, 1.0F, 0.0F);
+          };
+          if (!useStrips) {
+            for (size_t ci = 0; ci + 1 < cuts.size(); ++ci) {
+              const int j = cuts[ci], j2 = cuts[ci + 1];
+              const float u0 = (float)j / (float)crossSteps;
+              const float u1 = (float)j2 / (float)crossSteps;
+              const Tyra::Vec4 A(px0[(size_t)j], py0[(size_t)j],
+                                 pz0[(size_t)j], 1.0F);
+              const Tyra::Vec4 B(px0[(size_t)j2], py0[(size_t)j2],
+                                 pz0[(size_t)j2], 1.0F);
+              const Tyra::Vec4 C(nx[(size_t)j2], ny[(size_t)j2],
+                                 nz[(size_t)j2], 1.0F);
+              const Tyra::Vec4 D(nx[(size_t)j], ny[(size_t)j],
+                                 nz[(size_t)j], 1.0F);
+              const Tyra::Vec4 sA(u0, lv0, 1.0F, 0.0F);
+              const Tyra::Vec4 sB(u1, lv0, 1.0F, 0.0F);
+              const Tyra::Vec4 sC(u1, v, 1.0F, 0.0F);
+              const Tyra::Vec4 sD(u0, v, 1.0F, 0.0F);
+              c->vertices.push_back(A); c->sts.push_back(sA); c->colors.push_back(grey);
+              c->vertices.push_back(B); c->sts.push_back(sB); c->colors.push_back(grey);
+              c->vertices.push_back(C); c->sts.push_back(sC); c->colors.push_back(grey);
+              c->vertices.push_back(A); c->sts.push_back(sA); c->colors.push_back(grey);
+              c->vertices.push_back(C); c->sts.push_back(sC); c->colors.push_back(grey);
+              c->vertices.push_back(D); c->sts.push_back(sD); c->colors.push_back(grey);
+            }
+          } else if (collapsed) {
+            // A collapsed span is ONE full-width quad, so a street of them is
+            // a grid one cell WIDE and many stations LONG - and a strip has
+            // to run along the long axis or it buys nothing. Taken laterally
+            // a collapsed span is 4 vertices plus a 2-vertex join against the
+            // list's 6: break-even on the EE and 3x the GS primitives, two
+            // thirds of them degenerate. Taken longitudinally it is 2
+            // vertices per STATION, the same 0.35x the dense spans reach.
+            // ... P[w], P[0], N[w], N[0] ... - successive triples are this
+            // span's two triangles, cut along P[0]-N[w], which is the cut the
+            // list stitch above makes. The other interleaving takes the other
+            // diagonal and silently reshapes every non-planar quad.
+            if (!alongOpen) {
+              startStrip(vAt(crossSteps, false), sAt(crossSteps, false));
+              pushRaw(vAt(0, false), sAt(0, false));
+              alongOpen = true;
+            }
+            pushRaw(vAt(crossSteps, true), sAt(crossSteps, true));
+            pushRaw(vAt(0, true), sAt(0, true));
+          } else {
+            // N[0], P[0], N[s], P[s], ... - same argument, same diagonal
+            // P[j]-N[j+s], walked ACROSS the road instead. The cuts are no
+            // longer uniformly spaced, which changes nothing here: the walk
+            // visits them in order and the diagonal is the same one.
+            alongOpen = false;
+            startStrip(vAt(0, true), sAt(0, true));
+            pushRaw(vAt(0, false), sAt(0, false));
+            for (size_t ci = 1; ci < cuts.size(); ++ci) {
+              pushRaw(vAt(cuts[ci], true), sAt(cuts[ci], true));
+              pushRaw(vAt(cuts[ci], false), sAt(cuts[ci], false));
+            }
           }
           ++stationsInChunk;
         }
@@ -18145,16 +18858,51 @@ void TerrainGame::buildRoads(int scene) {
         havePrev = true;
       }
     }
+    // This road's last chunk still has an open run.
+    closeChunk();
   }
   if (any) procFinishChunks();
-  int roadChunks = 0, roadVertices = 0;
+  int roadChunks = 0, roadVertices = 0, roadPackages = 0;
+  // Surface triangles, counted where they are KNOWN. A stripped package
+  // reports size - 2 triangles at the pipeline, and that is the number of
+  // primitives the GS really rasterises - degenerate joins and padding
+  // included - so it is NOT comparable with a list build's size / 3. The
+  // producer is the only place the two representations agree, so it says so
+  // here: this number must be identical in both arms of an A/B or the arms
+  // are not drawing the same road. See docs/model-pipeline.md.
+  int roadTriangles = 0;
   for (const ProcChunk& c : procChunks)
-    if (c.owner == -3) { ++roadChunks; roadVertices += (int)c.vertices.size(); }
+    if (c.owner == -3) {
+      ++roadChunks;
+      roadVertices += (int)c.vertices.size();
+      const size_t run = c.stripRun > 0 ? (size_t)c.stripRun : (size_t)75;
+      roadPackages += (int)((c.vertices.size() + run - 1) / run);
+      if (c.stripRun <= 0) {
+        roadTriangles += (int)(c.vertices.size() / 3);
+      } else {
+        for (size_t at = 0; at < c.vertices.size(); at += run) {
+          const size_t left = c.vertices.size() - at;
+          const size_t len = left < run ? left : run;
+          for (size_t k = 0; k + 2 < len; ++k) {
+            const Tyra::Vec4& a = c.vertices[at + k];
+            const Tyra::Vec4& b = c.vertices[at + k + 1];
+            const Tyra::Vec4& d = c.vertices[at + k + 2];
+            const bool degenerate =
+                (a.x == b.x && a.y == b.y && a.z == b.z) ||
+                (b.x == d.x && b.y == d.y && b.z == d.z) ||
+                (a.x == d.x && a.y == d.y && a.z == d.z);
+            if (!degenerate) ++roadTriangles;
+          }
+        }
+      }
+    }
   float y0 = 0.0F;
   for (const ProcChunk& c : procChunks)
     if (c.owner == -3 && !c.vertices.empty()) { y0 = c.vertices[0].y; break; }
   TYRA_LOG("ROADS scene ", scene, " chunks ", roadChunks, " vertices ", roadVertices, " y0x10 ",
            (int)(y0 * 10.0F));
+  TYRA_LOG("ROADSTRIP scene ", scene, " strips ", useStrips ? 1 : 0,
+           " packages ", roadPackages, " triangles ", roadTriangles);
 }
 
 void TerrainGame::renderProcChunks() {
@@ -20912,7 +21660,13 @@ bool TerrainGame::renderOnePortalView(int pi) {
         if (lit) normals.push_back(c.normal);
         if (many) colors.push_back(c.color);
       };
-      for (u32 vi=0; vi+2<source.count; vi+=3) {
+      // A TRIANGLE-STRIP source (GeoPart::stripRun) steps by one vertex
+      // inside a run and never across a run boundary. The OUTPUT is always a
+      // triangle list - Sutherland-Hodgman fans each clipped polygon - which
+      // is why cache.bag drops the topology flags below.
+      const u32 vStep = part.stripRun ? 1u : 3u;
+      for (u32 vi=0; vi+2<source.count; vi+=vStep) {
+        if (part.stripRun && vi % part.stripRun + 3 > part.stripRun) continue;
         Corner in[3], out[4];
         for (int k=0;k<3;++k) {
           Corner& c=in[k]; c.p=source.vertices[vi+k];
@@ -20954,6 +21708,12 @@ bool TerrainGame::renderOnePortalView(int pi) {
     // flags) even on a hit. Only clipped vertex streams are retained.
     cache.bag = source;
     cache.color = *source.color;
+    // The clipped stream is a plain triangle list however the source was
+    // stored, so neither the strip flag nor the run-sized package pin may be
+    // inherited (a list drawn as a strip is garbage; a pin that is not the run
+    // is merely unnecessary).
+    cache.bag.stripped = false;
+    cache.bag.packageSize = 0;
     cache.bag.vertices = vertices.data();
     cache.bag.count = (u32)vertices.size();
     cache.bag.bboxVersion = cache.stamp;
@@ -22532,15 +23292,24 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   // distant chunk asks for sixteen times the memory it fills.
   const int quadsX = (gx1 - gx0 + lod - 1) / lod;
   const int quadsZ = (gz1 - gz0 + lod - 1) / lod;
+  // Triangle strips (see the emitter below). The reserve has to follow the
+  // representation too: a stripped chunk is a THIRD of the list's vertices,
+  // and reserving the list size for it would hand back the RAM the change was
+  // meant to save on every resident chunk of a streamed map.
+  const bool strips = hasMat && minPackageSize() >= 75U;
+  const u32 stripRun = 75U;
+  const size_t reserveN =
+      strips ? (size_t)quadsZ * (size_t)(2 * (quadsX + 1) + 2) + 3
+             : (size_t)quadsX * quadsZ * 6;
 
   ch.vertices.clear();
   ch.colors.clear();
   ch.sts.clear();
   ch.emisCols.clear();
-  if (terrainMapLit) ch.emisCols.reserve((size_t)quadsX * quadsZ * 6);
-  ch.vertices.reserve((size_t)quadsX * quadsZ * 6);
-  ch.colors.reserve((size_t)quadsX * quadsZ * 6);
-  if (textured) ch.sts.reserve((size_t)quadsX * quadsZ * 6);
+  if (terrainMapLit) ch.emisCols.reserve(reserveN);
+  ch.vertices.reserve(reserveN);
+  ch.colors.reserve(reserveN);
+  if (textured) ch.sts.reserve(reserveN);
 
   // Painted terrain layers: find which layers have any weight on this chunk's
   // vertices - each gets one extra alpha-blended pass sharing ch.vertices.
@@ -22568,8 +23337,8 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     lp.layer = activeLayers[a];
     lp.colors.clear();
     lp.sts.clear();
-    lp.colors.reserve((size_t)quadsX * quadsZ * 6);
-    lp.sts.reserve((size_t)quadsX * quadsZ * 6);
+    lp.colors.reserve(reserveN);
+    lp.sts.reserve(reserveN);
   }
   auto splatAt = [&](int ix, int iz, int l) -> float {
     if (ix < 0) ix = 0;
@@ -22579,102 +23348,213 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     return splatW8[((size_t)iz * HM_W + ix) * layerN + l] / 255.0F;
   };
 
-  for (int z = gz0; z < gz1; z += lod) {
-    for (int x = gx0; x < gx1; x += lod) {
-      // The far corner, clamped: an edge chunk covers the map's remainder, so
-      // the last quad of a row may be shorter than the stride.
-      const int xN = x + lod > gx1 ? gx1 : x + lod;
-      const int zN = z + lod > gz1 ? gz1 : z + lod;
-      const float x0 = startX + x * stepX;
-      const float x1 = startX + xN * stepX;
-      const float z0 = startZ + z * stepZ;
-      const float z1 = startZ + zN * stepZ;
-      // The untextured checker counts QUADS, not cells: on x += 2 the parity of
-      // (x + z) never changes, so a distant chunk would come out one flat
-      // colour and the band boundary would read as a seam in the ground.
-      const float* base = ((x / lod + z / lod) % 2 == 0) ? baseA : baseB;
-
-      const float h00 = hAtE(x, z), h10 = hAtE(xN, z);
-      const float h01 = hAtE(x, zN), h11 = hAtE(xN, zN);
-      const V3 s00 = shadeAtE(x, z), s10 = shadeAtE(xN, z);
-      const V3 s01 = shadeAtE(x, zN), s11 = shadeAtE(xN, zN);
-      auto shaded = [&](const V3& s) {
-        return Color(base[0] * s.x, base[1] * s.y, base[2] * s.z, 128.0F);
-      };
-      auto st = [&](float wx, float wz) {
+  // Triangle strips (docs/model-pipeline.md, "Triangle strips"). A terrain
+  // chunk is a GRID, the shape a strip was made for: a row of n quads is 6n
+  // list vertices and 2(n + 1) strip ones, and every EE term of render
+  // submission scales with the VU1 package count, which scales with vertices.
+  //
+  // The one thing that cannot cross a quad boundary is the UNTEXTURED
+  // CHECKER. baseA/baseB are a per-QUAD colour and a strip vertex belongs to
+  // two quads, so a strip would have to pick one and the checker would
+  // collapse into a flat sheet. With a terrain material the two are the same
+  // colour and there is nothing in the way - which is why the gate is the
+  // material and not the texture. `emisCols` reads the same base, so it is
+  // covered by the same condition.
+  //
+  // Vertex for vertex the strip walks (x, z), (x, zN), (x + lod, z),
+  // (x + lod, zN), ... whose successive triples are this row's quads cut
+  // along (x + lod, z)-(x, zN) - exactly the diagonal the list stitch below
+  // uses. Nothing else moves: heights, shades, STs, splat weights and the LOD
+  // edge snap are all functions of the grid coordinate, so a shared vertex
+  // carries the same values it carried in both of its quads.
+  if (strips) {
+    // A chunk is one bag, so its runs must BE the VU1 packages: every run is
+    // exactly stripRun vertices except the chunk's last, which owes only the
+    // multiple of 3 the VU1 vertex loops need. TWIN NOTICE: the same packer
+    // buildRoads and roadgen.cpp's tessellateStrips use.
+    auto tintC = [&](int c) {  // GS modulate saturates at 255
+      const float w = baseA[c] * emisK;
+      return w > 255.0F ? 255.0F : w;
+    };
+    const Color ec(tintC(0), tintC(1), tintC(2), 128.0F);
+    size_t runStart = 0;
+    auto runLen = [&]() { return ch.vertices.size() - runStart; };
+    // Repeat one already-emitted vertex across EVERY parallel array the
+    // chunk keeps - they are all indexed by the same vertex, so padding one
+    // and not the others would shear the colours off the geometry.
+    auto repeatAt = [&](size_t idx) {
+      ch.vertices.push_back(ch.vertices[idx]);
+      ch.colors.push_back(ch.colors[idx]);
+      if (textured) ch.sts.push_back(ch.sts[idx]);
+      if (terrainMapLit) ch.emisCols.push_back(ch.emisCols[idx]);
+      for (int a = 0; a < activeN; ++a) {
+        TerrainChunk::LayerPass& lp = ch.layerPasses[a];
+        lp.colors.push_back(lp.colors[idx]);
+        lp.sts.push_back(lp.sts[idx]);
+      }
+    };
+    auto emitAt = [&](int ix, int iz) {
+      const float wx = startX + ix * stepX;
+      const float wz = startZ + iz * stepZ;
+      const V3 s = shadeAtE(ix, iz);
+      ch.vertices.push_back(Vec4(wx, hAtE(ix, iz), wz, 1.0F));
+      ch.colors.push_back(
+          Color(baseA[0] * s.x, baseA[1] * s.y, baseA[2] * s.z, 128.0F));
+      if (textured)
         ch.sts.push_back(
             Vec4(wx * TERRAIN_TILE_U, wz * TERRAIN_TILE_V, 1.0F, 0.0F));
-      };
-
-      ch.vertices.push_back(Vec4(x0, h00, z0, 1.0F));
-      ch.vertices.push_back(Vec4(x1, h10, z0, 1.0F));
-      ch.vertices.push_back(Vec4(x0, h01, z1, 1.0F));
-      ch.vertices.push_back(Vec4(x1, h10, z0, 1.0F));
-      ch.vertices.push_back(Vec4(x1, h11, z1, 1.0F));
-      ch.vertices.push_back(Vec4(x0, h01, z1, 1.0F));
-
-      if (textured) {
-        st(x0, z0);
-        st(x1, z0);
-        st(x0, z1);
-        st(x1, z0);
-        st(x1, z1);
-        st(x0, z1);
-      }
-
-      ch.colors.push_back(shaded(s00));
-      ch.colors.push_back(shaded(s10));
-      ch.colors.push_back(shaded(s01));
-      ch.colors.push_back(shaded(s10));
-      ch.colors.push_back(shaded(s11));
-      ch.colors.push_back(shaded(s01));
-
-      if (terrainMapLit) {
-        auto tintC = [&](int c) {
-          const float v = base[c] * emisK;  // GS modulate saturates at 255
-          return v > 255.0F ? 255.0F : v;
-        };
-        const Color ec(tintC(0), tintC(1), tintC(2), 128.0F);
-        for (int q = 0; q < 6; ++q) ch.emisCols.push_back(ec);
-      }
-
-      // Layer passes: same triangles, tiled layer STs, shade-lit tint colors
-      // whose alpha is the painted weight (128 = fully this layer). Weights sit
-      // on the vertices, so the GS Gouraud-interpolates the blend per pixel.
+      if (terrainMapLit) ch.emisCols.push_back(ec);
       for (int a = 0; a < activeN; ++a) {
         TerrainChunk::LayerPass& lp = ch.layerPasses[a];
         const int l = lp.layer;
         const float* tint = TERRAIN_LAYER_TINTS[g_activeScene][l];
         const bool ltex = TERRAIN_LAYER_TEXTURES[g_activeScene][l] >= 0;
         const float lk = ltex ? 128.0F : 255.0F;
-        const float ltu = TERRAIN_LAYER_TILE_US[g_activeScene][l];
-        const float ltv = TERRAIN_LAYER_TILE_VS[g_activeScene][l];
-        auto lcol = [&](const V3& s, float w) {
-          return Color(tint[0] * lk * s.x, tint[1] * lk * s.y,
-                       tint[2] * lk * s.z, w * 128.0F);
+        const float w = splatAt(ix, iz, l);
+        lp.colors.push_back(Color(tint[0] * lk * s.x, tint[1] * lk * s.y,
+                                  tint[2] * lk * s.z, w * 128.0F));
+        lp.sts.push_back(Vec4(wx * TERRAIN_LAYER_TILE_US[g_activeScene][l],
+                              wz * TERRAIN_LAYER_TILE_VS[g_activeScene][l],
+                              1.0F, 0.0F));
+      }
+    };
+    // A run that fills MID-STRIP carries the two-vertex overlap into the next
+    // one, or the triangle across the cut is lost.
+    auto carry = [&]() {
+      if (runLen() != (size_t)stripRun) return;
+      const size_t m = ch.vertices.size();
+      runStart = m;
+      repeatAt(m - 2);
+      repeatAt(m - 1);
+    };
+    auto pushRaw = [&](int ix, int iz) {
+      carry();
+      emitAt(ix, iz);
+    };
+    auto pushRepeat = [&](size_t idx) {
+      carry();
+      repeatAt(idx);
+    };
+    for (int z = gz0; z < gz1; z += lod) {
+      const int zN = z + lod > gz1 ? gz1 : z + lod;
+      // Each quad ROW is one strip; consecutive rows are joined inside the
+      // run by repeating a vertex either side of the seam (four zero-area
+      // triangles, and the fifth is the new row's own first real one).
+      if (runLen() > 0) {
+        pushRepeat(ch.vertices.size() - 1);
+        pushRaw(gx0, z);
+      }
+      pushRaw(gx0, z);
+      pushRaw(gx0, zN);
+      for (int x = gx0; x < gx1; x += lod) {
+        const int xN = x + lod > gx1 ? gx1 : x + lod;
+        pushRaw(xN, z);
+        pushRaw(xN, zN);
+      }
+    }
+    // The chunk's last run owes the multiple of 3; a count that is not one
+    // runs the VU1 vertex loop off into micro memory. The padding repeats the
+    // last vertex, which makes a degenerate triangle the GS rasterises away.
+    while (!ch.vertices.empty() && runLen() % 3 != 0)
+      repeatAt(ch.vertices.size() - 1);
+  } else {
+    for (int z = gz0; z < gz1; z += lod) {
+      for (int x = gx0; x < gx1; x += lod) {
+        // The far corner, clamped: an edge chunk covers the map's remainder, so
+        // the last quad of a row may be shorter than the stride.
+        const int xN = x + lod > gx1 ? gx1 : x + lod;
+        const int zN = z + lod > gz1 ? gz1 : z + lod;
+        const float x0 = startX + x * stepX;
+        const float x1 = startX + xN * stepX;
+        const float z0 = startZ + z * stepZ;
+        const float z1 = startZ + zN * stepZ;
+        // The untextured checker counts QUADS, not cells: on x += 2 the parity of
+        // (x + z) never changes, so a distant chunk would come out one flat
+        // colour and the band boundary would read as a seam in the ground.
+        const float* base = ((x / lod + z / lod) % 2 == 0) ? baseA : baseB;
+
+        const float h00 = hAtE(x, z), h10 = hAtE(xN, z);
+        const float h01 = hAtE(x, zN), h11 = hAtE(xN, zN);
+        const V3 s00 = shadeAtE(x, z), s10 = shadeAtE(xN, z);
+        const V3 s01 = shadeAtE(x, zN), s11 = shadeAtE(xN, zN);
+        auto shaded = [&](const V3& s) {
+          return Color(base[0] * s.x, base[1] * s.y, base[2] * s.z, 128.0F);
         };
-        // Sampled at the quad's own corners: a painted layer's weight is a
-        // blend factor, so a coarse chunk reading coarse weights loses detail
-        // in the painting exactly the way it loses it in the relief. The edge
-        // snap deliberately does NOT extend here - a weight that disagrees by a
-        // few percent across a seam is invisible, unlike a height.
-        const float w00 = splatAt(x, z, l), w10 = splatAt(xN, z, l);
-        const float w01 = splatAt(x, zN, l), w11 = splatAt(xN, zN, l);
-        lp.colors.push_back(lcol(s00, w00));
-        lp.colors.push_back(lcol(s10, w10));
-        lp.colors.push_back(lcol(s01, w01));
-        lp.colors.push_back(lcol(s10, w10));
-        lp.colors.push_back(lcol(s11, w11));
-        lp.colors.push_back(lcol(s01, w01));
-        auto lst = [&](float wx, float wz) {
-          lp.sts.push_back(Vec4(wx * ltu, wz * ltv, 1.0F, 0.0F));
+        auto st = [&](float wx, float wz) {
+          ch.sts.push_back(
+              Vec4(wx * TERRAIN_TILE_U, wz * TERRAIN_TILE_V, 1.0F, 0.0F));
         };
-        lst(x0, z0);
-        lst(x1, z0);
-        lst(x0, z1);
-        lst(x1, z0);
-        lst(x1, z1);
-        lst(x0, z1);
+
+        ch.vertices.push_back(Vec4(x0, h00, z0, 1.0F));
+        ch.vertices.push_back(Vec4(x1, h10, z0, 1.0F));
+        ch.vertices.push_back(Vec4(x0, h01, z1, 1.0F));
+        ch.vertices.push_back(Vec4(x1, h10, z0, 1.0F));
+        ch.vertices.push_back(Vec4(x1, h11, z1, 1.0F));
+        ch.vertices.push_back(Vec4(x0, h01, z1, 1.0F));
+
+        if (textured) {
+          st(x0, z0);
+          st(x1, z0);
+          st(x0, z1);
+          st(x1, z0);
+          st(x1, z1);
+          st(x0, z1);
+        }
+
+        ch.colors.push_back(shaded(s00));
+        ch.colors.push_back(shaded(s10));
+        ch.colors.push_back(shaded(s01));
+        ch.colors.push_back(shaded(s10));
+        ch.colors.push_back(shaded(s11));
+        ch.colors.push_back(shaded(s01));
+
+        if (terrainMapLit) {
+          auto tintC = [&](int c) {
+            const float v = base[c] * emisK;  // GS modulate saturates at 255
+            return v > 255.0F ? 255.0F : v;
+          };
+          const Color ec(tintC(0), tintC(1), tintC(2), 128.0F);
+          for (int q = 0; q < 6; ++q) ch.emisCols.push_back(ec);
+        }
+
+        // Layer passes: same triangles, tiled layer STs, shade-lit tint colors
+        // whose alpha is the painted weight (128 = fully this layer). Weights sit
+        // on the vertices, so the GS Gouraud-interpolates the blend per pixel.
+        for (int a = 0; a < activeN; ++a) {
+          TerrainChunk::LayerPass& lp = ch.layerPasses[a];
+          const int l = lp.layer;
+          const float* tint = TERRAIN_LAYER_TINTS[g_activeScene][l];
+          const bool ltex = TERRAIN_LAYER_TEXTURES[g_activeScene][l] >= 0;
+          const float lk = ltex ? 128.0F : 255.0F;
+          const float ltu = TERRAIN_LAYER_TILE_US[g_activeScene][l];
+          const float ltv = TERRAIN_LAYER_TILE_VS[g_activeScene][l];
+          auto lcol = [&](const V3& s, float w) {
+            return Color(tint[0] * lk * s.x, tint[1] * lk * s.y,
+                         tint[2] * lk * s.z, w * 128.0F);
+          };
+          // Sampled at the quad's own corners: a painted layer's weight is a
+          // blend factor, so a coarse chunk reading coarse weights loses detail
+          // in the painting exactly the way it loses it in the relief. The edge
+          // snap deliberately does NOT extend here - a weight that disagrees by a
+          // few percent across a seam is invisible, unlike a height.
+          const float w00 = splatAt(x, z, l), w10 = splatAt(xN, z, l);
+          const float w01 = splatAt(x, zN, l), w11 = splatAt(xN, zN, l);
+          lp.colors.push_back(lcol(s00, w00));
+          lp.colors.push_back(lcol(s10, w10));
+          lp.colors.push_back(lcol(s01, w01));
+          lp.colors.push_back(lcol(s10, w10));
+          lp.colors.push_back(lcol(s11, w11));
+          lp.colors.push_back(lcol(s01, w01));
+          auto lst = [&](float wx, float wz) {
+            lp.sts.push_back(Vec4(wx * ltu, wz * ltv, 1.0F, 0.0F));
+          };
+          lst(x0, z0);
+          lst(x1, z0);
+          lst(x0, z1);
+          lst(x1, z0);
+          lst(x1, z1);
+          lst(x0, z1);
+        }
       }
     }
   }
@@ -22799,7 +23679,46 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
       pins.push_back(lp.bag.get());
     pins.push_back(ch.aoBag.get());
     pins.push_back(ch.emisBag.get());
-    pinPackageSize(pins);
+    // Stripped: the packages ARE the baked runs, so the size is PINNED to the
+    // run rather than derived, and every pass over this array splits it at
+    // the same boundaries - which is the property that keeps the base pass
+    // and the lightmap passes on the same route and off a coplanar z-fight.
+    pinPackageSize(pins, strips ? stripRun : 0U);
+  }
+
+  // The chunk's SURFACE triangle count, which is the only place the two
+  // representations can be compared. A stripped package reports size - 2 at
+  // the pipeline and that is the number of primitives the GS really
+  // rasterises - degenerate joins and padding included - so it is not
+  // comparable with a list build's size / 3 (docs/model-pipeline.md, "What
+  // the triangle counters count"). This number must be identical in both arms
+  // of an A/B or the arms are not drawing the same ground.
+  {
+    int tris = 0;
+    if (!strips) {
+      tris = (int)(ch.vertices.size() / 3);
+    } else {
+      const size_t run = (size_t)stripRun;
+      for (size_t at = 0; at < ch.vertices.size(); at += run) {
+        const size_t left = ch.vertices.size() - at;
+        const size_t len = left < run ? left : run;
+        for (size_t k = 0; k + 2 < len; ++k) {
+          const Vec4& a = ch.vertices[at + k];
+          const Vec4& b = ch.vertices[at + k + 1];
+          const Vec4& d = ch.vertices[at + k + 2];
+          const bool dgn = (a.x == b.x && a.y == b.y && a.z == b.z) ||
+                           (b.x == d.x && b.y == d.y && b.z == d.z) ||
+                           (a.x == d.x && a.y == d.y && a.z == d.z);
+          if (!dgn) ++tris;
+        }
+      }
+    }
+    TYRA_LOG("TERRAINSTRIP scene ", g_activeScene, " chunk ", cx, ",", cz,
+             " strips ", strips ? 1 : 0, " vertices ",
+             (int)ch.vertices.size(), " packages ",
+             (int)((ch.vertices.size() + (size_t)stripRun - 1) /
+                   (size_t)stripRun),
+             " triangles ", tris);
   }
 
   // World AABB of the built mesh - the split-band cull tests it per half.

@@ -46,6 +46,40 @@ inline constexpr float kTexLen = 4.0f;
 // low enough that a wheel on the road reads as ON it.
 inline constexpr float kLift = 0.12f;
 
+// The two budgets that decide how coarsely a station pair may be stitched
+// laterally (roadgen.cpp, spanCuts). Both are world units and both are
+// measured against the DENSE sampling. THEY ARE NOT THE SAME KIND OF NUMBER,
+// which is the whole reason there are two of them:
+//
+//   - `kSpanFlatness` bounds how far a dense sample may sit off the merged
+//     quad's plane. It is the SURFACE error, and - because neighbouring
+//     station pairs cut the row they share independently - it is also the
+//     size of the T-vertex seam a merge can open. At 1e-5, the float noise
+//     floor at district coordinates, both are exactly zero: a row's samples
+//     lie on a straight line in XZ, so coplanar implies collinear and the
+//     shared segment has ONE representation. Raising it buys a great deal of
+//     geometry and starts opening cracks; the sweep in docs/roads.md prices
+//     both halves and this repository has not accepted that trade.
+//
+//   - `kSpanShear` bounds the quad's parallelogram defect. The two triangles
+//     of a trapezoid interpolate ST with two different affine maps, so this is
+//     a pure UV error - the surface and the seams are untouched by it, which
+//     is why it is the budget that was relaxed. It is what a BEND trips, and
+//     on the district's curved splines it is what was refusing every merge.
+//
+// 0.05 is the measured knee: the reduction saturates just past it, and the
+// worst UV drift it causes anywhere in the Motor District is 0.36 of a texel
+// on the 128-pixel road texture. docs/roads.md, "The lateral budget", carries
+// the sweep, the error at each setting and the harness that produced them.
+#ifndef TYRA_ROAD_SPAN_FLATNESS
+#define TYRA_ROAD_SPAN_FLATNESS 0.00001f
+#endif
+#ifndef TYRA_ROAD_SPAN_SHEAR
+#define TYRA_ROAD_SPAN_SHEAR 0.05f
+#endif
+inline constexpr float kSpanFlatness = TYRA_ROAD_SPAN_FLATNESS;
+inline constexpr float kSpanShear = TYRA_ROAD_SPAN_SHEAR;
+
 // Tessellates `pointsXZ` (x0,z0,x1,z1,... - at least 2 points) into a
 // triangle list, three Vertex per triangle, two triangles per longitudinal /
 // lateral cell.

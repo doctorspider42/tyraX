@@ -1,0 +1,15 @@
+{
+  "arm": "probe-cadence4",
+  "label": "",
+  "pid": 33604,
+  "started": "2026-09-16T21:18:23.4676979+02:00",
+  "elf": "E2055A7EC4AACA0240E8FD9A76F8EA32764811C1AB01B6BDF5AC532D50D221D0",
+  "armJson": {
+    "arm": "probe-cadence4",
+    "derivedFrom": "cand",
+    "probe": "shared reflection probe every 4th frame",
+    "elfSha256": "E2055A7EC4AACA0240E8FD9A76F8EA32764811C1AB01B6BDF5AC532D50D221D0",
+    "built": "2026-09-16T21:18:11.6761505+02:00",
+    "commit": "e24e358a55d9f563dcd0fc067a7bb62fb86bcbec"
+  }
+}

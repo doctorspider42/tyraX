@@ -31,6 +31,10 @@ their ownership and acceptance checks.
   with a brush, two-pass GS splatting, stochastic tiling.
 - [Terrain distance detail (LOD)](terrain-lod.md) — far tiles built from fewer
   heightmap samples, stitched so no crack shows; what makes a big map drawable.
+- [Roads](roads.md) — spline streets glued to the terrain: a handful of authored
+  points and one texture become a tessellated, terrain-projected ribbon, built
+  at scene load by a twin of the editor's own tessellator, shipped as triangle
+  strips, and reduced laterally against a published surface and UV budget.
 - [Areas (invisible volumes)](areas.md) — the box that replaces hand-typed
   distances: streaming zones, catch lists for mirrors/portals/feeds, the In
   Area trigger, reverb rooms.

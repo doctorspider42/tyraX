@@ -181,6 +181,13 @@ class TerrainGame : public Tyra::Game {
     std::vector<Tyra::Vec4> vertices;
     std::vector<Tyra::Color> colors;
     std::vector<Tyra::Vec4> sts;  // texture coordinates
+    // Non-zero when `vertices` is a TRIANGLE STRIP rather than a list: the
+    // run length, which is also the VU1 package size every bag over this
+    // array is pinned to. Anything that walks this part's TRIANGLES has to
+    // read it (see the receiver passes); anything that walks its VERTICES -
+    // the shading bake, the env normals, the coarse AABB - does not.
+    // Tier 0 only: applyGeoLod clears it while a LOD tier is shown.
+    unsigned int stripRun = 0;
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
@@ -351,9 +358,20 @@ class TerrainGame : public Tyra::Game {
     // empty unless the project's mesh LOD distance is on. Shared by every
     // instance - each object bakes its own shaded copy on demand.
     std::vector<std::vector<float>> lodVerts;
+    // The TRIANGLE-STRIP twin of `verts`, baked into the .tmdl (version 4+,
+    // docs/model-pipeline.md). Same 8-float layout, strip order, chopped into
+    // independent runs of `stripRun` vertices - roughly a third of the
+    // vertices for the same surface, which is a third of the VU1 packages and
+    // therefore a third of the EE's per-package bill. Empty (stripRun 0) when
+    // the part did not strip smaller than its list; `verts` stays the truth
+    // for every per-triangle consumer either way (collider, shadow proxy).
+    std::vector<float> stripVerts;
+    unsigned int stripRun = 0;
     // baked ambient-occlusion visibility per vertex (255 = open sky), from
     // the model's .aov sidecar; empty when the project bakes no AO
     std::vector<unsigned char> vertexAo;
+    // Parallel to stripVerts, same meaning as vertexAo.
+    std::vector<unsigned char> stripVertexAo;
     Tyra::Texture* texture = nullptr;
     float kd[3] = {1.0F, 1.0F, 1.0F};
     // Ke: emission - the brightness floor pushVert never shades below, so the
@@ -497,7 +515,12 @@ class TerrainGame : public Tyra::Game {
   // world-space bags at scene load, grouped by texture + a coarse world
   // cell - one StaPip submit per batch instead of per object (the fixed
   // ~1 ms per-bag EE cost on real hardware dominates scenes made of many
-  // small props). Members keep their runtimeObjects entry (collision,
+  // small props). THE CELL IS NEVER WIDER THAN THE DRAW DISTANCE ITS
+  // MEMBERS SHARE: a batch is one bag with one cut-off test and one
+  // bounding box, so a cell derived from the map size makes both coarser
+  // the bigger the world is, which is backwards - see
+  // docs/model-pipeline.md, "Why the cell is bounded by the draw
+  // distance". Members keep their runtimeObjects entry (collision,
   // raycasts and scripts read data as always) but skip the per-object draw
   // path. Runtime mutation of a member (Live Link edits, Raycast-driven
   // actions, global scripts - all set dirty) DEMOTES it to the solo path
@@ -519,6 +542,22 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
     float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};  // band culling
+    // Part of the group key, so every member shares one cut-off, and 0 =
+    // unlimited exactly as on SceneObjectData. The box is over member
+    // POSITIONS - the same centres beyondDrawDistance() tests on the solo
+    // path - not over the baked vertices, so the batch turns off as close to
+    // the per-object rule as one test can.
+    float drawDistance = 0.0F;
+    float ddMin[3] = {0, 0, 0}, ddMax[3] = {0, 0, 0};
+    // Also a group key. A batched part is re-emitted into the combined array,
+    // and if that is done from the LIST twin the object loses the triangle
+    // strip the build baked for it - which measured as the whole feature's
+    // cost on the Motor District. Members that share a run length keep their
+    // strips: the runs are self-contained and exactly `stripRun` vertices, so
+    // concatenating them and pinning packageSize to the same number makes
+    // every package exactly one run of one member. 0 = plain triangle list
+    // (primitives, and parts whose strips came out no smaller).
+    unsigned int stripRun = 0;
     bool dirty = true;
   };
   std::vector<StaticBatch> staticBatches;
@@ -559,6 +598,12 @@ class TerrainGame : public Tyra::Game {
     // model part or an .mtl. Owner is -3 for these, so a scene revisit can
     // clear and rebuild them without touching merged geometry.
     Tyra::Texture* roadTex = nullptr;
+    // Triangle strips (docs/model-pipeline.md): non-zero when this chunk's
+    // vertices are baked strip RUNS of that length rather than a triangle
+    // list. procFinishChunks pins StaPipBag::packageSize to it and sets
+    // StaPipBag::stripped, so the VU1 packages ARE the runs and no package
+    // boundary can ever splice two unrelated vertices into one triangle.
+    int stripRun = 0;
     std::vector<Tyra::Vec4> vertices;
     std::vector<Tyra::Color> colors;
     std::vector<Tyra::Vec4> sts;
@@ -693,7 +738,15 @@ class TerrainGame : public Tyra::Game {
   void buildSkyDome();
   // Pins every pass that draws one vertex array to a single VU1 package size -
   // see the implementation for why coplanar passes must classify identically.
-  void pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags);
+  // `stripRun` non-zero: the bags draw a TRIANGLE STRIP whose packages must
+  // be its baked runs, so the pin is the run and nothing is derived.
+  void pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags,
+                      unsigned int stripRun = 0);
+  // The SMALLEST VU1 package any static program class derives, asked once.
+  // A baked strip run above it would be clamped by StaPipCore and the
+  // package boundaries would leave the run boundaries - which splices two
+  // strips into one triangle. Checked rather than remembered.
+  unsigned int minPackageSize();
   // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
   void rebuildObjectGeometry(int index, bool localSpace = false);
   // Cheap whole-object reject for multi-part static geometry. The normal
@@ -813,6 +866,21 @@ class TerrainGame : public Tyra::Game {
   // Which camera the driver is looking through, cycled with Triangle.
   // 0 = chase, 1 = bumper, 2 = far. See vehicleCameraFor().
   int vehCamMode_ = 0;
+  // What one car's four wheels were last BAKED from. The batch is rebuilt
+  // slot by slot instead of cleared and refilled, so a rig whose inputs did
+  // not move keeps the vertices it already has - and if no slot moves, the
+  // whole buffer is byte-identical and its bboxVersion must NOT be bumped
+  // (see renderVehicleWheels).
+  struct WheelSlot {
+    // The nine inputs shared by all four wheels: position, body attitude,
+    // steer, spin, instance scale. Compared with != so a NaN always rebuilds.
+    float sig[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+    // The one input that is genuinely PER wheel: its own sampled ground.
+    float wy[4] = {0, 0, 0, 0};
+    const void* srcVerts = nullptr;  // the part, i.e. an LOD/model swap
+    int vehicle = -1;                // which car owns this slot
+    int valid = 0;
+  };
   // ONE bag per definition's material, not per vehicle: the wheels move
   // independently, so they cannot ride the body's matrix, but cars sharing a
   // definition still share one submit. The buffers must also live per
@@ -821,8 +889,17 @@ class TerrainGame : public Tyra::Game {
     std::vector<Tyra::Vec4> verts;
     std::vector<Tyra::Color> cols;
     std::vector<Tyra::Vec4> sts;
+    std::vector<WheelSlot> slots;
     u32 vertsPerCar = 0;
     int staticCars = 0;
+    // The sticky bboxVersion this batch hands the bag, and the count and
+    // buffer address it was stamped for. All three must agree before the
+    // stamp may be reused: the package-bbox cache is keyed by (vertex
+    // pointer, version) and does NOT re-check the count, so a stamp reused
+    // across a resize would return boxes for the wrong number of packages.
+    u32 stamp = 0;
+    size_t lastCount = 0;
+    const void* lastVerts = nullptr;
     // Largest source-vertex distance from the baked hub. Scanned once after
     // load and invalidated with the scene/model lifetime below.
     float localRadius = -1.0F;
