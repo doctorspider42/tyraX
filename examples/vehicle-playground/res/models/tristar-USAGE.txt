@@ -1,0 +1,16 @@
+Tristar Racer — designersoup, Low Poly Car Starter Pack
+Source supplied locally: C:/Assets/LowPolyCars/Tristar Racer.fbx and its .fbm PNG.
+Author page: https://designersoup.itch.io/low-poly-car-pack-1
+Checked 2026-09-12.
+
+The author permits modification and inclusion in commercial and non-commercial
+games. Attribution is appreciated. The same page labels the pack CC0 but also
+prohibits redistribution/repackaging as standalone models/textures or another
+asset pack. These statements conflict; this notice does not remove that conflict
+or grant additional rights. This prepared model is included in the Motor District
+game example. Do not assume the project's source license applies to this asset.
+
+Preparation: world transforms and wheel ownership normalized for the vehicle
+importer; body and palette preserved in GLB; outward wheel halves mirrored so rims show
+on both sides of the repeated wheel mesh. Runtime wheel mesh simplified
+by the TyraX vehicle bake. No endorsement by the author is implied.

@@ -1,0 +1,1 @@
+{ "id": "district4f59c697", "name": "Tristar Racer - test drive", "type": "vehicle", "position": [-8, 0.31, -22], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "shadowMode": 2, "vehicle": { "def": "Tristar Racer", "driveable": true } }

@@ -1,0 +1,14 @@
+{
+  "arm": "cheap",
+  "profile": "quiet-debug",
+  "stripRun": "75",
+  "cheapProjCaster": 1,
+  "roadStrip": "  TYRA_LOG(\"ROADSTRIP scene \", scene, \" strips \", useStrips ? 1 : 0,",
+  "terrainStrip": "    TYRA_LOG(\"TERRAINSTRIP scene \", g_activeScene, \" chunk \", cx, \",\", cz,",
+  "instrument": "inventory-frame.py (per-producer counters; NOT a timing run)",
+  "elfSha256": "130ED00CE6FAD6A0DC602C722063038A7AD93134A2718B4A1812DC3856F510EC",
+  "editor": "D:\\tyra-editor\\.claude\\worktrees\\agent-af461bddaf36021de\\build-dev\\tyrax-editor.exe",
+  "editorSha256": "27E6C07614E204B21EB49667107D50B3F76481B1A1901BF43B8AE58E35B73798",
+  "commit": "2c6a12a83e381d0ee81e7c1b8cc9703af0b52a7e",
+  "built": "2026-09-17T10:31:07.3365543+02:00"
+}

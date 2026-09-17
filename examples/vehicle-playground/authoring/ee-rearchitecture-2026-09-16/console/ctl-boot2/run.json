@@ -1,0 +1,15 @@
+{
+  "arm": "ctl",
+  "label": "boot2",
+  "pid": 39100,
+  "started": "2026-09-16T23:54:24.1572999+02:00",
+  "elf": "E1CD72F5397D78FCB785555731457BCBD76595FD2892588FD47CF81F3A2DE418",
+  "armJson": {
+    "elfSha256": "E1CD72F5397D78FCB785555731457BCBD76595FD2892588FD47CF81F3A2DE418",
+    "bakedStream": 0,
+    "arm": "ctl",
+    "built": "2026-09-16T23:30:00.3235761+02:00",
+    "commit": "0dc2356d169f0d219409203139bba51ce0e93d18",
+    "stripRun": "const unsigned int stripRun = 75u;"
+  }
+}

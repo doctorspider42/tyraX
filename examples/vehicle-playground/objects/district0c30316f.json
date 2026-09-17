@@ -1,0 +1,1 @@
+{ "id": "district0c30316f", "name": "Foundry link", "type": "road", "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "roadPoints": [-115, -70, -60, -58, 0, -55, 60, -58, 117, -70], "roadWidth": 10, "roadTexture": "res/textures/district-road.png" }

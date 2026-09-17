@@ -1,0 +1,166 @@
+{
+  "Align3D": {
+    "count": 40,
+    "mean_ms_per_frame": 0.6040818956163194
+  },
+  "Animation": {
+    "count": 4,
+    "mean_ms_per_frame": 0.0006646050347222222
+  },
+  "Blob_shadows": {
+    "count": 4,
+    "mean_ms_per_frame": 0.2279544406467014
+  },
+  "Bounds": {
+    "count": 1054,
+    "mean_ms_per_frame": 4.633054097493489
+  },
+  "Dispatch": {
+    "count": 518,
+    "mean_ms_per_frame": 22.809661865234375
+  },
+  "EndFrame": {
+    "count": 4,
+    "mean_ms_per_frame": 11.314414978027344
+  },
+  "Frame": {
+    "count": 4,
+    "mean_ms_per_frame": 54.9989013671875
+  },
+  "GIF_DMA_wait": {
+    "count": 624,
+    "mean_ms_per_frame": 0.0588319566514757
+  },
+  "GIF_STATE": {
+    "count": 1252,
+    "mean_ms_per_frame": 0.0
+  },
+  "GS_FINISH_wait": {
+    "count": 40,
+    "mean_ms_per_frame": 0.2137722439236111
+  },
+  "Game": {
+    "count": 4,
+    "mean_ms_per_frame": 54.9647945827908
+  },
+  "Highlights_and_outlines": {
+    "count": 4,
+    "mean_ms_per_frame": 3.3908420138888887e-06
+  },
+  "Info": {
+    "count": 4,
+    "mean_ms_per_frame": 0.002902560763888889
+  },
+  "Light_beams": {
+    "count": 4,
+    "mean_ms_per_frame": 0.010262383355034722
+  },
+  "Light_pools": {
+    "count": 4,
+    "mean_ms_per_frame": 0.011437310112847222
+  },
+  "Mirrors": {
+    "count": 4,
+    "mean_ms_per_frame": 3.3908420138888887e-06
+  },
+  "Object": {
+    "count": 320,
+    "mean_ms_per_frame": 16.153041415744358
+  },
+  "Objects": {
+    "count": 4,
+    "mean_ms_per_frame": 16.805009629991318
+  },
+  "Packet_qwords": {
+    "count": 624,
+    "mean_ms_per_frame": 0.0
+  },
+  "Pad": {
+    "count": 4,
+    "mean_ms_per_frame": 0.02687835693359375
+  },
+  "Particles": {
+    "count": 4,
+    "mean_ms_per_frame": 0.1807064480251736
+  },
+  "Portal": {
+    "count": 4,
+    "mean_ms_per_frame": 0.00048065185546875
+  },
+  "Portal_surfaces": {
+    "count": 4,
+    "mean_ms_per_frame": 3.3908420138888887e-06
+  },
+  "PostFx": {
+    "count": 4,
+    "mean_ms_per_frame": 0.4584011501736111
+  },
+  "Present": {
+    "count": 4,
+    "mean_ms_per_frame": 10.331612481011284
+  },
+  "Procedural": {
+    "count": 4,
+    "mean_ms_per_frame": 5.038750542534722
+  },
+  "Projected_shadows": {
+    "count": 4,
+    "mean_ms_per_frame": 2.7336044311523438
+  },
+  "Reflections_shared_probe": {
+    "count": 2,
+    "mean_ms_per_frame": 2.679149203830295
+  },
+  "Scene": {
+    "count": 4,
+    "mean_ms_per_frame": 37.8212398952908
+  },
+  "Shadow_decals": {
+    "count": 4,
+    "mean_ms_per_frame": 0.0004001193576388889
+  },
+  "Sky": {
+    "count": 4,
+    "mean_ms_per_frame": 0.3153449164496528
+  },
+  "Static_bag": {
+    "count": 1054,
+    "mean_ms_per_frame": 31.120891994900173
+  },
+  "Static_batches": {
+    "count": 4,
+    "mean_ms_per_frame": 0.961151123046875
+  },
+  "Terrain": {
+    "count": 4,
+    "mean_ms_per_frame": 4.8837229410807295
+  },
+  "Update": {
+    "count": 4,
+    "mean_ms_per_frame": 5.0396779378255205
+  },
+  "VIF1_DMA_wait": {
+    "count": 624,
+    "mean_ms_per_frame": 7.846794128417969
+  },
+  "VIF1_FRAME_START": {
+    "count": 4,
+    "mean_ms_per_frame": 0.0
+  },
+  "VIF1_WAIT_END": {
+    "count": 624,
+    "mean_ms_per_frame": 0.0
+  },
+  "VIF1_WAIT_START": {
+    "count": 624,
+    "mean_ms_per_frame": 0.0
+  },
+  "VIF1_submit": {
+    "count": 624,
+    "mean_ms_per_frame": 2.9654973347981772
+  },
+  "Wheels": {
+    "count": 4,
+    "mean_ms_per_frame": 3.826243930392795
+  }
+}

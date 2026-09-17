@@ -1,0 +1,13 @@
+{
+  "arm": "vis-counts",
+  "kind": "counts",
+  "profile": "quiet-debug",
+  "stripRun": "75",
+  "sampler": "parked: garage day-night, outer day-night",
+  "instrument": "inventory-frame.py (per-producer + per-object counters; NOT a timing run)",
+  "elfSha256": "CDDE404D1A33E85A12A8C4065F599171FFCEEFFD8992550A598510B264CCEF5B",
+  "editor": "D:\\tyra-editor\\.claude\\worktrees\\agent-aa4dd857197b86f19\\build\\tyrax-editor.exe",
+  "editorSha256": "583755C2C786563D8DD9E4C3F4B169EA3F4014D0755B8016D74E0CF49F876AAC",
+  "commit": "428e2c5978be103e54b8a418a3834fc6b1dd0245",
+  "built": "2026-09-17T06:42:03.1915302+02:00"
+}

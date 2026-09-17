@@ -1,0 +1,30 @@
+The claim: same words, different chains, same hash
+  control chain   36 qw   baked chain    2 qw (+ 155 qw block)
+  control hash   5d582faba13786b1
+  baked   hash   5d582faba13786b1
+  neither arm broke the decoder                              ok
+  36 chain qw and 2 chain qw hash IDENTICALLY                ok
+  ...and the two chains really are different shapes          ok
+
+The cadence is invisible: 1 packet vs 3 over the same bag
+  THREE packets hash exactly as ONE does                     ok
+  ...differing only by two extra end tags, whose slots are NOP ok
+  two baked packets == one unbaked packet: THE PRIZE IS CHECKABLE ok
+
+Six defects, each of which must be caught
+  one vertex word flipped, deep inside a REF payload         ok
+  one package dropped from the run                           ok
+  the same packages, submitted in the wrong order            ok
+  MSCAL naming a different microprogram address              ok
+  the prim GIFtag's NLOOP off by one                         ok
+  a texture upload between a different pair of draws         ok
+
+And one thing that must NOT be caught
+  six extra VIF NOPs change nothing                          ok
+  ...although they really were transferred                   ok
+
+And the failure mode is loud, not silent
+  an unknown VIFcode latches `broken` and names itself       ok
+  a misaligned REF address is refused, not hashed            ok
+
+PASS (0 failures)

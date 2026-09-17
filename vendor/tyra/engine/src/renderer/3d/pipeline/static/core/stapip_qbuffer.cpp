@@ -14,6 +14,8 @@
 #include <sstream>
 #include <iomanip>
 
+#include "debug/hardware_trace.hpp"
+
 namespace Tyra {
 
 namespace {
@@ -61,7 +63,18 @@ QBufferPool* poolFor(const void* owner) { return poolFor(owner, g_poolSide); }
 
 StaPipQBuffer::StaPipQBuffer() {
   size = 0;
+  // Modified by TyraX: was left uninitialised until the renderer's first
+  // setMaxVertCount fan-out. That fan-out now skips a no-op propagation
+  // (StaPipQBufferRenderer::setMaxVertCount), so a defined starting value is
+  // part of the invariant rather than tidiness.
+  maxVertCount = 0;
   clipPlaneMask = 0;
+  stripped = false;
+  retainIndex = -1;  // Modified by TyraX: see the field's comment.
+  bakeIndex = -1;    // Modified by TyraX: see the field's comment.
+#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
+  probeCopyFilled = false;  // Probe B, see stapip_probes.hpp.
+#endif
   _isDynamicallyAllocated = false;
   _stAllocated = false;
   _colorAllocated = false;
@@ -76,6 +89,35 @@ StaPipQBuffer::StaPipQBuffer() {
 StaPipQBuffer::~StaPipQBuffer() { deallocateDynamicData(); }
 
 void StaPipQBuffer::flipPoolSide() { g_poolSide ^= 1; }
+
+// Modified by TyraX: is this address inside one of the copy pools?
+//
+// Diagnostic only, and it exists for one question. The acceptance gate's
+// geometry hash is not reproducible between two boots of ONE ELF at a frozen
+// pose, while the VIFcodes, the uniforms and the picture all are
+// (docs/baked-stream-acceptance-gate.md). The suspect is these pools: a slot
+// keeps its arrays between bags and only the first `size` vertices of each are
+// rewritten, so anything transferred past that is whatever the pool held last.
+// This lets the hash fold pool-sourced payload separately from bag-sourced
+// payload and settle it by measurement instead of by reading the writers.
+bool StaPipQBuffer::isPoolAddress(const void* addr) {
+  if (addr == nullptr) return false;
+  const u8* a = static_cast<const u8*>(addr);
+  for (int side = 0; side < 2; ++side) {
+    for (int i = 0; i < kMaxPools; ++i) {
+      const QBufferPool& p = pools[side][i];
+      if (p.capacity == 0) continue;
+      const u32 bytes = static_cast<u32>(p.capacity) * sizeof(Vec4);
+      const Vec4* arrays[4] = {p.vertices, p.sts, p.colors, p.normals};
+      for (int k = 0; k < 4; ++k) {
+        if (arrays[k] == nullptr) continue;
+        const u8* base = reinterpret_cast<const u8*>(arrays[k]);
+        if (a >= base && a < base + bytes) return true;
+      }
+    }
+  }
+  return false;
+}
 
 void StaPipQBuffer::setMaxVertCount(const u32& count) { maxVertCount = count; }
 
@@ -93,6 +135,8 @@ void StaPipQBuffer::fillByPointer(const StaPipBagPackage& pkg) {
   normals = const_cast<Vec4*>(pkg.normals);
   size = pkg.size;
   clipPlaneMask = pkg.clipPlaneMask;
+  // Modified by TyraX: a package handed over whole keeps the bag's topology.
+  stripped = pkg.bag->stripped;
   bag = pkg.bag;
 }
 
@@ -110,12 +154,19 @@ void StaPipQBuffer::fillByPointer(StaPipBag* source, u32 offset, u32 count) {
   normals = source->lighting ? source->lighting->normals + offset : nullptr;
   size = count;
   clipPlaneMask = 0;
+  stripped = source->stripped;
   bag = source;
 }
 
 void StaPipQBuffer::fillByCopyMax(const StaPipBagPackage& pkg1,
                                   const StaPipBagPackage& pkg2,
                                   const StaPipBagPackage& pkg3) {
+  HardwareTrace::Scope trace("QBuffer_copy");
+#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
+  // Probe B: this buffer's REF tags will name the copy pool, whose cached
+  // stores only FlushCache writes back. See stapip_probes.hpp.
+  probeCopyFilled = true;
+#endif
   TYRA_ASSERT(pkg1.size <= maxVertCount / 3,
               "Wrong package size (1). Provided: ", pkg1.size);
   TYRA_ASSERT(pkg2.size <= maxVertCount / 3,
@@ -140,11 +191,18 @@ void StaPipQBuffer::fillByCopyMax(const StaPipBagPackage& pkg1,
     offset += pkg->size;
   }
 
+  stripped = false;
   bag = pkg1.bag;
 }
 
 void StaPipQBuffer::fillByCopy1By2(const StaPipBagPackage& pkg1,
                                    const StaPipBagPackage& pkg2) {
+  HardwareTrace::Scope trace("QBuffer_copy");
+#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
+  // Probe B: this buffer's REF tags will name the copy pool, whose cached
+  // stores only FlushCache writes back. See stapip_probes.hpp.
+  probeCopyFilled = true;
+#endif
   TYRA_ASSERT(pkg1.size <= maxVertCount / 3,
               "Wrong package size (1). Provided: ", pkg1.size);
   TYRA_ASSERT(pkg2.size <= maxVertCount / 3,
@@ -166,10 +224,17 @@ void StaPipQBuffer::fillByCopy1By2(const StaPipBagPackage& pkg1,
     offset += pkg->size;
   }
 
+  stripped = false;
   bag = pkg1.bag;
 }
 
 void StaPipQBuffer::fillByCopy1By3(const StaPipBagPackage& pkg) {
+  HardwareTrace::Scope trace("QBuffer_copy");
+#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
+  // Probe B: this buffer's REF tags will name the copy pool, whose cached
+  // stores only FlushCache writes back. See stapip_probes.hpp.
+  probeCopyFilled = true;
+#endif
   TYRA_ASSERT(pkg.size <= maxVertCount / 3,
               "Wrong package size (1). Provided: ", pkg.size);
 
@@ -184,6 +249,49 @@ void StaPipQBuffer::fillByCopy1By3(const StaPipBagPackage& pkg) {
   if (pkg.bag->color->many) memcpy(colors, pkg.colors, bytes);
   if (pkg.bag->lighting) memcpy(normals, pkg.normals, bytes);
 
+  stripped = false;
+  bag = pkg.bag;
+}
+
+// Modified by TyraX: strip -> list expansion for the clip route. See the
+// header for why it exists and what the caller owes.
+void StaPipQBuffer::fillByStripExpand(const StaPipBagPackage& pkg,
+                                      u32 firstTri, u32 triCount) {
+  HardwareTrace::Scope trace("QBuffer_copy");
+#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
+  // Probe B: this buffer's REF tags will name the copy pool, whose cached
+  // stores only FlushCache writes back. See stapip_probes.hpp.
+  probeCopyFilled = true;
+#endif
+  TYRA_ASSERT(triCount * 3 <= maxVertCount,
+              "Strip expansion does not fit the VU1 buffer. Triangles: ",
+              triCount);
+  TYRA_ASSERT(firstTri + triCount + 2 <= pkg.size,
+              "Strip expansion runs past the package. First: ", firstTri,
+              " count: ", triCount, " size: ", pkg.size);
+
+  deallocateDynamicData();
+  size = triCount * 3;
+  clipPlaneMask = pkg.clipPlaneMask;
+  allocateDynamicData(static_cast<u16>(size), pkg.bag);
+
+  const bool wantSts = pkg.bag->texture != nullptr;
+  const bool wantColors = pkg.bag->color->many != nullptr;
+  const bool wantNormals = pkg.bag->lighting != nullptr;
+
+  u32 out = 0;
+  for (u32 t = 0; t < triCount; t++) {
+    const u32 base = firstTri + t;
+    for (u32 k = 0; k < 3; k++, out++) {
+      const u32 src = base + k;
+      vertices[out] = pkg.vertices[src];
+      if (wantSts) sts[out] = pkg.sts[src];
+      if (wantColors) colors[out] = pkg.colors[src];
+      if (wantNormals) normals[out] = pkg.normals[src];
+    }
+  }
+
+  stripped = false;
   bag = pkg.bag;
 }
 
@@ -192,6 +300,7 @@ void StaPipQBuffer::reallocateManually(const u16& t_size) {
   allocateDynamicData(t_size, bag);
   size = t_size;
   clipPlaneMask = 0;
+  stripped = false;
 }
 
 void StaPipQBuffer::deallocateDynamicData() {

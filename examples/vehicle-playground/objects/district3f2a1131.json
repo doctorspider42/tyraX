@@ -1,0 +1,1 @@
+{ "id": "district3f2a1131", "name": "Pavement 13", "type": "box", "position": [65, 0.02, -82], "rotation": [0, 0, 0], "scale": [12, 0.16, 12], "color": [0.44, 0.46, 0.44], "physics": false, "collision": "none", "castShadow": false }

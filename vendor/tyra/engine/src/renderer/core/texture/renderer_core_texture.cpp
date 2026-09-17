@@ -13,14 +13,64 @@
 # renderer_core_gs_vram - see docs/gs-vram.md.
 */
 
+#include <string>
+#include <vector>
 #include "renderer/core/texture/renderer_core_texture.hpp"
 #include "debug/debug.hpp"
 
 namespace Tyra {
 
+// Modified by TyraX: the NAMED half of the VRAM instrument. VRAMSTAT counts
+// re-uploads and evictions; it never says WHICH texture is cycling or what
+// is holding the heap, and "12.17 re-uploads per frame" cannot be acted on
+// until it does (docs/gs-vram.md, "The residency census"). This block keeps
+// an id -> name map and the current frame's eviction victims, and
+// traceFrame() prints both with the periodic summary.
+//
+// It lives entirely in this .cpp and adds NO field to any header, so the
+// struct layouts are identical in both build profiles and the whole thing
+// compiles to nothing with TYRA_VRAM_CENSUS at 0 - the devkit zero-cost
+// rule. It is deliberately NOT keyed to NDEBUG: this engine never defines it
+// (docs/devkit.md) applies to the instrument as much as to the devkit.
+#if TYRA_VRAM_CENSUS
+namespace {
+
+struct VRamCensusName {
+  u32 id;
+  std::string name;
+};
+
+struct VRamCensusEvict {
+  std::string victim;
+  std::string incoming;
+  int words;
+};
+
+std::vector<VRamCensusName> censusNames;
+std::vector<VRamCensusEvict> censusEvicts;
+
+const char* censusNameOf(const u32& id) {
+  for (u32 i = 0; i < censusNames.size(); i++)
+    if (censusNames[i].id == id) return censusNames[i].name.c_str();
+  return "?";
+}
+
+void censusRemember(const Texture* tex) {
+  for (u32 i = 0; i < censusNames.size(); i++)
+    if (censusNames[i].id == tex->id) return;
+  censusNames.push_back({tex->id, tex->name});
+}
+
+}  // namespace
+#endif
+
 RendererCoreTexture::RendererCoreTexture() {}
 
 RendererCoreTexture::~RendererCoreTexture() {}
+
+void RendererCoreTexture::beforeMutation() {
+  if (mutationBarrier) mutationBarrier(mutationBarrierContext);
+}
 
 void RendererCoreTexture::init(RendererCoreGS* t_gs, Path3* t_path3) {
   gs = t_gs;
@@ -34,6 +84,7 @@ void RendererCoreTexture::init(RendererCoreGS* t_gs, Path3* t_path3) {
 void RendererCoreTexture::freeTextureBuffers(const u32& texId) {
   auto allocated = getAllocatedBuffersByTextureId(texId);
   if (allocated.id == 0) return;  // never uploaded - nothing on the GS
+  beforeMutation();
   // Modified by TyraX: residency counters. Freeing anything but the newest
   // allocation used to rewind the bump pointer under still-live textures;
   // the heap handles it now, but the counter stays as proof the path is
@@ -47,6 +98,7 @@ void RendererCoreTexture::freeTextureBuffers(const u32& texId) {
 
 // Modified by TyraX - see the header comment.
 void RendererCoreTexture::evictAll() {
+  if (!currentAllocations.empty()) beforeMutation();
   for (int i = currentAllocations.size() - 1; i >= 0; i--)
     sender.deallocate(currentAllocations[i]);
   currentAllocations.clear();
@@ -93,10 +145,14 @@ RendererCoreTextureBuffers RendererCoreTexture::useTexture(
   // Modified by TyraX: evict the coldest allocations until this one fits,
   // instead of dumping the entire resident set. The heap frees in any order
   // and coalesces, so the survivors keep their VRAM and their pixels.
+  beforeMutation();
   makeRoomFor(t_tex);
 
   auto newTexBuffer = sender.allocate(t_tex);
   newTexBuffer.lastUsedSeq = useSeq;
+#if TYRA_VRAM_CENSUS
+  censusRemember(t_tex);  // Modified by TyraX: see the census block above.
+#endif
   path3->sendTexture(t_tex, newTexBuffer);
   registerAllocation(newTexBuffer);
 
@@ -190,6 +246,18 @@ void RendererCoreTexture::makeRoomFor(const Texture* t_tex) {
          !gs->vram.canAllocatePair(coreWords, clutWords)) {
     const int victim = pickVictim();
     if (victim < 0) break;
+#if TYRA_VRAM_CENSUS
+    // Modified by TyraX: name the victim and what it was given up for.
+    if (censusEvicts.size() < 32) {
+      int vw = gs->vram.getAllocationWords(
+          currentAllocations[victim].core->address);
+      if (currentAllocations[victim].clut != nullptr)
+        vw += gs->vram.getAllocationWords(
+            currentAllocations[victim].clut->address);
+      censusEvicts.push_back(
+          {censusNameOf(currentAllocations[victim].id), t_tex->name, vw});
+    }
+#endif
     sender.deallocate(currentAllocations[victim]);
     currentAllocations.erase(currentAllocations.begin() + victim);
     stats.evictions++;
@@ -222,7 +290,55 @@ void RendererCoreTexture::traceFrame() {
   if (freeMB < stats.minFreeMB) stats.minFreeMB = freeMB;
 
   const bool evicted = stats.evictions != lastLoggedEvictions;
-  if (!evicted && (frameCounter % 120) != 0) return;
+  const bool summary = (frameCounter % 120) == 0;
+#if TYRA_VRAM_CENSUS
+  // Modified by TyraX: OPT-IN, and it has to be. `#if TYRA_VRAM_CENSUS` looked like
+  // the devkit rule and is not: the engine's own Makefile defines NDEBUG for
+  // one target only, so the native build never defines it and the census
+  // shipped live in a RELEASE-profile game. Measured on a physical console it
+  // wrote 1,016 host: lines in a 1,440-frame run and cost about 1 ms a frame -
+  // and it was briefly mis-attributed to the vehicle quantization measured in
+  // the same window, because both arms carried it. A debug channel that a
+  // release build still pays for is the exact thing docs/devkit.md forbids.
+  //
+  // The census, with the periodic summary only. One line
+  // per resident allocation answers "what is holding the heap", and the
+  // victims answer "what is cycling, and for whom" - the two questions
+  // VRAMSTAT's counters raise and cannot settle. A thrashing scene evicts
+  // every frame, so printing the victims on every eviction frame would be
+  // four lines a frame forever; the summary is enough to read a steady
+  // state, and the counters still carry the rate.
+  //
+  // The victim list is cleared when it is PRINTED, never per frame. Clearing
+  // it per frame made the instrument miss the one event it was built for:
+  // a pause menu opened between two summaries evicted eight allocations and
+  // the census reported none of them, because the eviction landed on a frame
+  // whose list was thrown away eight frames later. A rare eviction is
+  // exactly the interesting one.
+  if (summary) {
+    for (u32 i = 0; i < currentAllocations.size(); i++) {
+      int w = gs->vram.getAllocationWords(currentAllocations[i].core->address);
+      if (currentAllocations[i].clut != nullptr)
+        w += gs->vram.getAllocationWords(currentAllocations[i].clut->address);
+      TYRA_LOG("VRAMRES f=", frameCounter, " i=", (int)i, " words=", w,
+               " kb=", w / 256, " name=", censusNameOf(currentAllocations[i].id));
+    }
+    for (u32 i = 0; i < censusEvicts.size(); i++)
+      TYRA_LOG("VRAMEVICT f=", frameCounter, " words=", censusEvicts[i].words,
+               " kb=", censusEvicts[i].words / 256,
+               " victim=", censusEvicts[i].victim.c_str(),
+               " for=", censusEvicts[i].incoming.c_str());
+    censusEvicts.clear();
+  }
+#endif
+  // Modified by TyraX: the EVENT half still reports - an eviction is a real
+  // condition and worth a line. The 120-frame SUMMARY is off by default: no
+  // game build defines NDEBUG (docs/devkit.md), so it printed in a release
+  // game on a timer, landing inside the 240-row sampling window of every
+  // performance pose against benchmark-district.py's "no sample-time host
+  // writes" contract. Over ps2link a host: write is a network round trip, and
+  // a timed one is noise with a period. -DTYRA_VRAM_PERIODIC_STAT=1 restores it.
+  if (!evicted && !(summary && TYRA_VRAM_PERIODIC_STAT)) return;
   lastLoggedEvictions = stats.evictions;
 
   TYRA_LOG("VRAMSTAT f=", frameCounter, " bind=", stats.binds, " (+",
@@ -247,6 +363,7 @@ RendererCoreTextureBuffers RendererCoreTexture::updateTextureInfo(
   auto allocated = getAllocatedBuffersByTextureId(t_tex->id);
   TYRA_ASSERT(allocated.id != 0, "Can't update an unallocated texture!");
 
+  beforeMutation();
   path3->sendTexture(t_tex, allocated);
   return allocated;
 }

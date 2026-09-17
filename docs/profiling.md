@@ -41,6 +41,18 @@ divide tick deltas by 294912 for milliseconds.
 This is enough to answer "is the highlight/particles/scene the problem?". For a
 finer breakdown you drop to the manual technique.
 
+### Shared reflection-probe attribution
+
+**Render cost** captures add `Reflections_shared_probe` when a classic shared
+`@sky` environment target is refreshed. It covers only the 128 x 128 target
+bracket (clear, sky, sky bodies and objects marked **Show in reflections**),
+not the reflective material passes that remain nested in their ordinary
+`Object` rows. It appears only on the cadence frame that actually refreshes
+the target; compare repeated captures from the same frozen camera and report
+both the capture and non-capture frame. The serialized render-cost request
+drains the pipeline, so it is attribution evidence rather than an ordinary FPS
+sample.
+
 ### Cross-material transform reuse (1.86.2)
 
 An imported model normally enters StaPip once per material part even though
@@ -143,6 +155,105 @@ ambiguous: median `Total` 6.468 -> 3.281 ms (-49.3%) and object work
 VU1 wait stayed effectively flat at 0.567 -> 0.542 ms. A 512x512 GS capture
 showed all 30 numbered boxes with their correct atlas regions. Both arms were
 below the PAL frame budget, so ordinary gameplay remained refresh-capped.
+
+### Draw distance stopped disqualifying a batch (1.98.0)
+
+Before changing anything, the Motor District's own population was counted, and
+it did not say what it was expected to say. Of 142 authored objects, 111 are
+batchable shapes and exactly **27 carried `batchStatic = 1`** - every one a
+primitive box (walls, asphalt aprons, pavements, one sign). **Not one of the
+70 imported models was eligible.** The census, read off the committed
+`inc/scene_data.hpp` rather than inferred:
+
+| rejected by | objects |
+| --- | ---: |
+| not a batchable shape (road, area, light, vehicle, player) | 31 |
+| `reflected` (env-map re-submit) | 18 |
+| **`drawDistance != 0`** | **60** |
+| `physics` | 6 |
+| eligible (`batchStatic = 1`) | 27 |
+
+All 70 models carry `drawDistance = 145`; 60 of them reach that row, the other
+10 having already been taken by `reflected` or `physics`. **`dynamicLighting`
+rejected nothing at all** - no object in the scene sets it, which is the same
+fact the `cull_td` probe in
+[vu1-and-dma-cache-cost.md](vu1-and-dma-cache-cost.md) reported as a +0.000 ms
+null result. The ~61% of colour-program triangles that pick a dynamic light do
+so through `StaPipCore::render`'s **runtime** per-bag pick
+(`wantsLightPick = !bag->lighting && info->dynLightPick`), which is a different
+mechanism from the authored `dynamicLighting` flag and never touches batching
+eligibility.
+
+With the cut-off moved onto the batch
+([model-pipeline.md](model-pipeline.md), "Draw distance on a batch"),
+`batchStatic = 1` goes from **27 objects to 87** - the 60 the `drawDistance`
+row had been taking, read back out of a regenerated `scene_data.hpp`. The
+game's own scene-load line, read from `bin/log.txt` with each arm running in
+PCSX2, says what survived singleton-dropping:
+
+| arm | `Static batching:` |
+| --- | --- |
+| before | **18 objects in 8 batches** |
+| after | **65 objects in 48 batches** |
+
+Keying on the reaching lamp as well (see "A batch gets ONE dynamic light" in
+[model-pipeline.md](model-pipeline.md)) costs a little of that: without it the
+same scene reads **71 objects in 49 batches**, because six objects that the
+lamp key separates then fall into singleton groups and are dropped back to the
+solo path. Six solo bags is the price of not shading a lit prop from its
+neighbour's lamp, and it is worth paying.
+
+### What it actually costs, measured
+
+Three arms, one fixture, one knob each, PCSX2 software renderer with the
+camera pinned by the district benchmark sampler; counters are the game's own
+`FTCLIP` line out of `bin/log.txt`, per 50-frame window (`verts` is per
+frame). Each arm's captures repeat **byte-identically** in the day pose, so
+these are not noise:
+
+| garage day | before | + batching | + strips kept |
+| --- | ---: | ---: | ---: |
+| cull packages | 41 175 | 41 825 | **40 925** (−0.6%) |
+| strip packages | 25 925 | 22 025 | **25 675** |
+| vertices/frame | 54 930 | 56 754 | **55 602** (+1.2%) |
+| packet flushes | 5 900 | 6 000 | 6 000 (+1.7%) |
+| VIF1 wait ms | 0.20 | 0.20 | 0.22 |
+
+| garage night | before | + batching | + strips kept |
+| --- | ---: | ---: | ---: |
+| cull packages | 43 600 | 44 250 | **43 350** (−0.6%) |
+| vertices/frame | 56 952 | 58 776 | **57 624** (+1.2%) |
+| packet flushes | 7 025 | 7 125 | 7 125 (+1.4%) |
+
+**The honest reading: this does not pay on these two poses.** Keeping the
+strips recovers nearly all of the naive version's loss and takes cull
+packages slightly below the baseline, but **packet flushes — bags — go UP by
+two per frame** (118 → 120 day, 140 → 142 night) and vertices by 1.2%. 65
+objects merged into 48 batches is fewer bags in total, and yet more bags are
+*submitted*: a batch's bounds are the union of its members, so it passes the
+frustum where its members individually would not. In a view down a street,
+where most props are off-screen, that trade is a loss.
+
+This is the widened-bounds effect the cross-district experiment found,
+arriving at a smaller scale inside the existing 80-unit cell. The cell was
+not changed here, and a finer one is the obvious next lever — but it has to
+be measured, not assumed, because it also makes more singleton groups.
+
+**And here is the projection that got it wrong, kept because the way it was
+wrong is the lesson.** Counting the authored scene statically — how many
+groups, how many parts in each — predicted this:
+
+| pose | bags before | bags after | triangles |
+| --- | ---: | ---: | ---: |
+| garage (eye 0,4,-32) | 202 | 147 (−27%) | +360 (+1.6%) |
+| outer road (eye 4,9,102) | 145 | 108 (−26%) | +1340 (+8.8%) |
+
+The measured answer for the garage pose is **+1.7% bags, not −27%**. The
+projection counted the batches that exist; the console pays for the bags it
+**submits**, and a merged bag with union bounds is submitted in frames where
+none of its members would have been. A static group count cannot see frustum
+culling, so it cannot predict this sign, let alone its size. Measure bags with
+`flush`, never by counting groups.
 
 ## The three frame rate counters, and which one to believe
 
@@ -256,6 +367,15 @@ const float swapWaitMs = sample.programSetWaitTicks / 294912.0F;
 them **every frame** (`takeTelemetry` clears as it reads, so a skipped frame is
 a lost frame) and prints the `FTCLIP` line below beside `FRAMETIME`. Nothing
 outside that `#if` switches them on.
+
+**The three timing brackets do not cover the whole of `StaPipCore::render`,** and
+that is worth knowing before any of them is compared with a frame-level number.
+The function's head — the fog decision, the frustum-culling read and thirteen
+`TYRA_ASSERT`s that a release game really does execute — and its tail sit
+outside all three. `TYRA_STAPIP_ATTRIB` (default **0**) brackets the whole
+function, splits `prepare` six ways and picks up the GIF wait that lived inside
+no bracket at all; see
+[render-submission-attribution.md](render-submission-attribution.md).
 
 `takeTelemetry()` returns the accumulated interval and clears every counter.
 `activePlanePopcount[0..6]` is a histogram for clip-routed packages. With VU1
@@ -494,7 +614,7 @@ is what usually explains a `work` figure that moved without any BLSS number
 moving (docs/vu1-clipping.md):
 
 ```
-FTCLIP f=1200 cull=3451/110733 clip=1501/9409 guard=2094/68672 out=10416 flush=519 vuwait=0.01
+FTCLIP f=1200 cull=3451/110733 clip=1501/9409 guard=2094/68672 out=10416 flush=519 strip=0 sexp=0 verts=8214 vuwait=0.01
 ```
 
 - `cull` / `clip` / `guard` — `packages/triangles` over the window. `guard` is
@@ -502,10 +622,22 @@ FTCLIP f=1200 cull=3451/110733 clip=1501/9409 guard=2094/68672 out=10416 flush=5
   inside the VU1 guard band, i.e. what the clipper no longer sees.
 - `out` — packages dropped on the EE; `flush` — qbuffer flushes; `vuwait` — ms
   the EE spent waiting on VIF1/VU1.
+- `strip` — packages submitted as a TRIANGLE STRIP rather than a list
+  (model-pipeline.md, "Triangle strips"), a subset of `cull`. `sexp` — stripped
+  packages the clipper forced back into a triangle list on the EE, which is the
+  cost side of that change.
+- **`verts` — vertices handed to a VU1 buffer per FRAME** (every other count on
+  this line is a window total). This is the number every EE term in the static
+  pipeline scales with, so it is the one to quote when two builds of one view
+  are compared; `flush` counts BAGS rather than packages, so it barely moves
+  when the vertex count does.
 
 Counts, never milliseconds: `work` above is the milliseconds and this line says
 why it moved. In an A/B the two arms' `cull + clip` totals must stay comparable,
-or the arms are not looking at the same scene.
+or the arms are not looking at the same scene — **except across a topology
+change**, where they cannot: a strip run of 75 vertices reports 73 triangles
+including the degenerate joins and padding, against a list package's 25 real
+ones. Compare `verts` there, not the triangle halves.
 
 Every 512 frames it also dumps the raw per-frame `work` ticks as `FTRAW <first>
 <64 hex values>` × 8 lines — same I/O cost, 512× the data, and the only way to
@@ -1760,6 +1892,12 @@ check the contact sheet against what your fixture is supposed to look like.
 - [VU1 clipping and the guard band](vu1-clipping.md) — the cull/clip routing,
   the guard band the GS scissor finishes, and the measured cost of clipping
   what did not need it.
+- [Attributing render submission](render-submission-attribution.md) — the
+  opt-in counters that close the gap between the static pipeline's three
+  telemetry brackets and the whole `beginFrame`..`endFrame` block. **Read it
+  before subtracting one from the other**: they are not the same quantity, and
+  the "unmeasured pipeline overhead" that difference was read as is mostly the
+  post-process passes, the HUD and the generated game's own renderScene.
 
 ## On-demand render cost (1.80)
 
@@ -1801,6 +1939,8 @@ It waits up to 45 seconds for `bin/rendercost.txt` with the matching request
 sequence. The command uses spare bit 7 of the existing debugger protocol;
 regular snapshots and the project format are unchanged. The result is a
 versioned `TXRP 1` header, bounded timing rows and an `END` sequence echo.
+Stage names are whitespace-free protocol tokens (for example `Shadow_decals`);
+a space in a generated stage name makes the reader reject the entire report.
 
 ![Render-cost capture with a retained baseline](img/debugger-render-cost.png)
 

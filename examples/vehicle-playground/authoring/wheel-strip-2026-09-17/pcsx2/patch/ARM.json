@@ -1,0 +1,14 @@
+{
+  "arm": "patch",
+  "profile": "quiet-debug",
+  "stripRun": "75",
+  "stripWheels": 0,
+  "stripProjPatch": 1,
+  "wheelTmdl": "veh-cc96playground01-wheel.tmdl: list 942 -> strip 720 (0.764x), run 75, padded 750, 10 pkgs/wheel vs 13 | veh-ggbotrally0001-wheel.tmdl: list 84 -> strip 54 (0.643x), run 75, padded 75, 1 pkgs/wheel vs 2 | veh-tristarplay01-wheel.tmdl: list 417 -> strip 297 (0.712x), run 75, padded 300, 4 pkgs/wheel vs 6",
+  "instrument": "inventory-frame.py (per-producer counters; NOT a timing run)",
+  "elfSha256": "4F3929ABA2601515A3B29EE6F975C5F71FC248AA520E5323EAE57BB3BA7B5D91",
+  "editor": "D:\\tyra-editor\\.claude\\worktrees\\agent-a0d998caa5503357d\\build\\tyrax-editor.exe",
+  "editorSha256": "88549C21551F6BFB5836CF4EACA9916B7AD29CF8820AE1FF5F32238DCA290528",
+  "commit": "428e2c5978be103e54b8a418a3834fc6b1dd0245",
+  "built": "2026-09-17T07:26:52.0615670+02:00"
+}

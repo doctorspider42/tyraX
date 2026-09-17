@@ -20,7 +20,7 @@ it down one of three paths:
 |---|---|---|---|
 | `OUTSIDE_FRUSTUM` | dropped on the EE | — | nothing |
 | `IN_FRUSTUM` | **cull** | `stapip_cull_*` | DMA by reference, one kick |
-| `PARTIALLY_IN_FRUSTUM` | **clip** | `stapip_clip_*` | split into thirds, memcpy per stream, one kick each |
+| `PARTIALLY_IN_FRUSTUM` | **clip** | `stapip_clip_*` | split into sixths, memcpy per stream, one kick each |
 
 The cull programs transform, light and project, and mark a triangle that fails
 their `clipw` judgement as **not drawn** by setting its ADC bit. They never cut
@@ -29,11 +29,54 @@ planes on VU1, then fan-triangulate whatever polygon comes out and patch the
 prim giftag's NLOOP with the vertex count they actually produced.
 
 The clip route is the expensive one, and not mainly because of the cut. A
-crossing package is split into **thirds** so the scratch polygon fits, which
-triples the number of DMA chains and VU1 kicks; each third is filled with
+crossing package is split into **sixths** (`StaPipCore::clipDivisor`; the EE
+clipper uses thirds) so the whole worst-case fan-out fits, which multiplies the
+number of DMA chains and VU1 kicks; each subpackage is filled with
 `StaPipQBuffer::fillByCopy1By3`, a `memcpy` of the positions, STs, colours and
 normals, where the cull route hands VU1 a **pointer** and lets the DMA
 controller read the vertex array in place.
+
+## Why the split is a sixth: the clip buffer budget
+
+`clipDivisor` is not a taste. A clip package and everything it fans out into
+have to fit in **one VU1 double-buffer half**, 460 quadwords, and nothing in
+the microprogram clamps the fan-out at runtime — an overrun is silent
+corruption, and it is the one thing PCSX2 cannot show you, so the bound is
+arithmetic or it is nothing.
+
+For a package of `N` input vertices the half holds, in this order (read off
+`stapip_clip_tc_vu1.vclpp`; the other four clip images are the same shape):
+
+| | quadwords |
+| --- | --- |
+| buffer tags (scale + prim giftag) | 2 |
+| the uploaded streams | `uploaded * N` |
+| the GIF tag block at `destAddress` | 7 untextured, 9 textured |
+| the emitted vertices | `7 * N * outQw` |
+
+**The 7 is exact, not a safety factor.** Sutherland–Hodgman on a convex polygon
+gains at most one vertex per plane; the plane loop runs exactly six times
+(`planePtr` stops at `VU1_CLIP_PLANES_ADDR + 12`), so a triangle reaches at
+most 9 vertices and fan-triangulates to at most **7 output triangles**, 21
+output vertices. The scratch polygons hold ten vertices, which is headroom over
+that bound rather than a reachable state.
+
+`uploaded` and `outQw` are **not** the constructor's `elementsPerVertex` and
+`reglistCount`. Those two are `getMaxVertCount`'s sizing budget, and the
+`d`/`td` classes spend part of it on an uploaded normal stream rather than on
+output registers — `clip_d` is budgeted at `2 + 3` but really uploads two
+streams and stores two quadwords per emitted vertex. Using the constructor pair
+here over-states those classes by enough to report a false overrun.
+
+At the shipping configuration the tightest reachable class keeps **91
+quadwords**. The margins per class, and the arithmetic above as runnable code,
+are in `examples/vehicle-playground/authoring/package-ceiling-75-2026-09-16` —
+**re-run it after any change to `getMaxVertCount`, `clipPackageSize`,
+`clipDivisor` or a clip image's buffer layout.** That harness is why the
+divisor is 6: raising the package ceiling from 72 to 75 also raises
+`clipPackageSize`, and at a divisor of 5 the untextured single-colour class
+landed on 459 of 460 quadwords — provably fitting, with one quadword to spare,
+which is not a margin anybody should ship on a path they cannot test.
 
 ## The guard band
 

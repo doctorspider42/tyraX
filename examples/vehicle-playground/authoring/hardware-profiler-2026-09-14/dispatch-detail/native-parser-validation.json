@@ -1,0 +1,9 @@
+{
+  "missing-footer": "Incomplete capture: missing END footer",
+  "trailing": "Invalid capture size or trailing data",
+  "duplicate-frame": "Invalid event/frame count",
+  "overflow": "Capture overflow. Arm fewer frames.",
+  "outside": "Event outside frame bounds",
+  "negative": "Invalid unsigned field",
+  "extra-field": "Invalid capture size or trailing data"
+}

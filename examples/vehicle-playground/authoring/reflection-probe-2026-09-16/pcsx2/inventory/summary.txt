@@ -1,0 +1,368 @@
+D:\tyra-probe-0916\arms\inventory  pose 0 (garage day), 240 frames
+
+producer          tri/frame      %     pkg   bags  flush   verts  pkgOut  hits  tri/hit
+---------------------------------------------------------------------------------------
+object_submit       18087.0  44.8%   354.0   62.0   38.0   25449   121.0 56.00    323.0
+terrain              5416.0  13.4%    76.0   25.0   12.0    5712   124.0  1.00   5416.0
+env_probe_objs       5206.5  12.9%    78.0   17.5   12.0    5380    50.5  4.00   1301.6
+static_batches       5159.0  12.8%    89.0   45.0   18.0    5541   185.0  1.00   5159.0
+roads                3276.0   8.1%    48.0   59.0   22.0    3516   289.0 59.00     55.5
+proj_shadows         1544.0   3.8%    69.0    6.0    7.0    4632     0.0  1.00   1544.0
+wheels               1506.0   3.7%    61.0    3.0    6.0    4518    18.0  1.00   1506.0
+env_probe_sky          79.5   0.2%    14.5    1.0    1.0     238     2.0  0.50    159.0
+sky                    67.0   0.2%    12.0    2.0    1.0     201     6.0  1.00     67.0
+particles               4.0   0.0%     1.0    1.0    1.0      12     0.0  1.00      4.0
+blob_shadows            2.0   0.0%     1.0    3.0    1.0       6     2.0  1.00      2.0
+---------------------------------------------------------------------------------------
+TOTAL               40347.0 100.0%   803.5  224.5  119.0   55206   797.5
+
+Solo objects in the main view (object_submit) - top 30 by triangles (56 drew at all)
+
+  idx  type     model                                        tri/frame    pkg  bags  hits
+---------------------------------------------------------------------------------------
+   34  model    models/urban/district-tower.tmdl                3497.0   50.0   5.0  1.00
+   36  model    models/urban/district-tower.tmdl                3497.0   50.0   5.0  1.00
+   40  model    models/urban/district-tower.tmdl                3497.0   50.0   5.0  1.00
+   42  model    models/urban/district-loft.tmdl                 2237.0   32.0   5.0  1.00
+    1  model    vehicles/veh-cc96playground01-body.tmdl         1876.0   76.0   4.0  1.00
+  121  model    vehicles/veh-tristarplay01-body.tmdl             942.0   38.0   4.0  1.00
+  120  model    vehicles/veh-ggbotrally0001-body.tmdl            628.0   26.0   2.0  1.00
+   38  model    models/urban/district-loft.tmdl                  511.0    7.0   5.0  1.00
+   60  model    models/urban/detail-light-double.tmdl            399.0    6.0   1.0  1.00
+   61  model    models/urban/detail-light-double.tmdl            399.0    6.0   1.0  1.00
+   76  model    models/urban/tree-park-large.tmdl                290.0    5.0   3.0  1.00
+   79  model    models/urban/tree-park-large.tmdl                290.0    5.0   3.0  1.00
+   35  box      -                                                 12.0    2.0   1.0  1.00
+   41  box      -                                                 12.0    1.0   1.0  1.00
+    3  box      -                                                  0.0    0.0   1.0  1.00
+    7  model    vehicles/veh-ggbotrally0001-body.tmdl              0.0    0.0   1.0  1.00
+    8  box      -                                                  0.0    0.0   1.0  1.00
+    9  box      -                                                  0.0    0.0   1.0  1.00
+   10  box      -                                                  0.0    0.0   1.0  1.00
+   11  area     -                                                  0.0    0.0   0.0  1.00
+   12  area     -                                                  0.0    0.0   0.0  1.00
+   13  area     -                                                  0.0    0.0   0.0  1.00
+   14  area     -                                                  0.0    0.0   0.0  1.00
+   15  22       -                                                  0.0    0.0   0.0  1.00
+   16  22       -                                                  0.0    0.0   0.0  1.00
+   17  22       -                                                  0.0    0.0   0.0  1.00
+   18  22       -                                                  0.0    0.0   0.0  1.00
+   19  22       -                                                  0.0    0.0   0.0  1.00
+   20  22       -                                                  0.0    0.0   0.0  1.00
+   21  22       -                                                  0.0    0.0   0.0  1.00
+
+Grouped by model
+type     model                                          n  tri/frame    pkg  bags
+---------------------------------------------------------------------------------------
+model    models/urban/district-tower.tmdl               3    10491.0  150.0  15.0
+model    models/urban/district-loft.tmdl                2     2748.0   39.0  10.0
+model    vehicles/veh-cc96playground01-body.tmdl        1     1876.0   76.0   4.0
+model    vehicles/veh-tristarplay01-body.tmdl           1      942.0   38.0   4.0
+model    models/urban/detail-light-double.tmdl          5      798.0   12.0   5.0
+model    vehicles/veh-ggbotrally0001-body.tmdl          2      628.0   26.0   3.0
+model    models/urban/tree-park-large.tmdl              2      580.0   10.0   6.0
+box      -                                             12       24.0    3.0  12.0
+area     -                                             10        0.0    0.0   0.0
+22       -                                              7        0.0    0.0   0.0
+model    models/urban/pallet.tmdl                       3        0.0    0.0   3.0
+light    -                                              8        0.0    0.0   0.0
+
+Objects drawn INTO the reflection probe (env_probe_objs) - top 30 by triangles (7 drew at all)
+
+  idx  type     model                                        tri/frame    pkg  bags  hits
+---------------------------------------------------------------------------------------
+   34  model    models/urban/district-tower.tmdl                1748.5   25.0   2.5  0.50
+   36  model    models/urban/district-tower.tmdl                1748.5   25.0   2.5  0.50
+   38  model    models/urban/district-loft.tmdl                 1118.5   16.0   2.5  0.50
+   30  model    models/urban/district-workshop.tmdl              591.0   12.0   2.5  0.50
+   32  model    models/urban/district-workshop.tmdl                0.0    0.0   2.5  0.50
+   50  model    models/urban/district-loft.tmdl                    0.0    0.0   2.5  0.50
+   52  model    models/urban/district-tower.tmdl                   0.0    0.0   2.5  0.50
+
+Grouped by model
+type     model                                          n  tri/frame    pkg  bags
+---------------------------------------------------------------------------------------
+model    models/urban/district-tower.tmdl               3     3497.0   50.0   7.5
+model    models/urban/district-loft.tmdl                2     1118.5   16.0   5.0
+model    models/urban/district-workshop.tmdl            2      591.0   12.0   5.0
+
+D:\tyra-probe-0916\arms\inventory  pose 1 (garage night), 240 frames
+
+producer          tri/frame      %     pkg   bags  flush   verts  pkgOut  hits  tri/hit
+---------------------------------------------------------------------------------------
+object_submit       18183.0  44.3%   362.0   73.0   40.0   25737   124.0 67.00    271.4
+terrain              5416.0  13.2%    76.0   25.0   12.0    5712   124.0  1.00   5416.0
+env_probe_objs       5272.5  12.9%    83.5   23.0   17.5    5578    50.5  9.50    555.0
+static_batches       5159.0  12.6%    89.0   45.0   18.0    5541   185.0  1.00   5159.0
+roads                3276.0   8.0%    48.0   59.0   22.0    3516   289.0 59.00     55.5
+proj_shadows         1542.0   3.8%    68.0    6.0    7.0    4626     1.0  1.00   1542.0
+wheels               1506.0   3.7%    61.0    3.0    6.0    4518    18.0  1.00   1506.0
+sky                   387.0   0.9%    26.0    5.0    4.0    1161     6.0  1.00    387.0
+light_pools           158.0   0.4%    24.0    8.0    6.0     474    12.0  1.00    158.0
+env_probe_sky          79.5   0.2%    14.5    1.0    1.0     238     2.0  0.50    159.0
+light_beams            30.0   0.1%     7.0   16.0    6.0      90    10.0  1.00     30.0
+particles               4.0   0.0%     1.0    1.0    1.0      12     0.0  1.00      4.0
+blob_shadows            2.0   0.0%     1.0    3.0    1.0       6     2.0  1.00      2.0
+---------------------------------------------------------------------------------------
+TOTAL               41015.0 100.0%   861.0  268.0  141.5   57210   823.5
+
+Solo objects in the main view (object_submit) - top 30 by triangles (67 drew at all)
+
+  idx  type     model                                        tri/frame    pkg  bags  hits
+---------------------------------------------------------------------------------------
+   34  model    models/urban/district-tower.tmdl                3497.0   50.0   5.0  1.00
+   36  model    models/urban/district-tower.tmdl                3497.0   50.0   5.0  1.00
+   40  model    models/urban/district-tower.tmdl                3497.0   50.0   5.0  1.00
+   42  model    models/urban/district-loft.tmdl                 2237.0   32.0   5.0  1.00
+    1  model    vehicles/veh-cc96playground01-body.tmdl         1876.0   76.0   4.0  1.00
+  121  model    vehicles/veh-tristarplay01-body.tmdl             942.0   38.0   4.0  1.00
+  120  model    vehicles/veh-ggbotrally0001-body.tmdl            628.0   26.0   2.0  1.00
+   38  model    models/urban/district-loft.tmdl                  511.0    7.0   5.0  1.00
+   60  model    models/urban/detail-light-double.tmdl            399.0    6.0   1.0  1.00
+   61  model    models/urban/detail-light-double.tmdl            399.0    6.0   1.0  1.00
+   76  model    models/urban/tree-park-large.tmdl                290.0    5.0   3.0  1.00
+   79  model    models/urban/tree-park-large.tmdl                290.0    5.0   3.0  1.00
+   35  box      -                                                 12.0    2.0   1.0  1.00
+   41  box      -                                                 12.0    1.0   1.0  1.00
+  122  box      -                                                 12.0    1.0   1.0  1.00
+  123  box      -                                                 12.0    1.0   1.0  1.00
+  124  box      -                                                 12.0    1.0   1.0  1.00
+  125  box      -                                                 12.0    1.0   1.0  1.00
+  126  box      -                                                 12.0    1.0   1.0  1.00
+  127  box      -                                                 12.0    1.0   1.0  1.00
+  128  box      -                                                 12.0    1.0   1.0  1.00
+  129  box      -                                                 12.0    1.0   1.0  1.00
+    3  box      -                                                  0.0    0.0   1.0  1.00
+    7  model    vehicles/veh-ggbotrally0001-body.tmdl              0.0    0.0   1.0  1.00
+    8  box      -                                                  0.0    0.0   1.0  1.00
+    9  box      -                                                  0.0    0.0   1.0  1.00
+   10  box      -                                                  0.0    0.0   1.0  1.00
+   11  area     -                                                  0.0    0.0   0.0  1.00
+   12  area     -                                                  0.0    0.0   0.0  1.00
+   13  area     -                                                  0.0    0.0   0.0  1.00
+
+Grouped by model
+type     model                                          n  tri/frame    pkg  bags
+---------------------------------------------------------------------------------------
+model    models/urban/district-tower.tmdl               3    10491.0  150.0  15.0
+model    models/urban/district-loft.tmdl                2     2748.0   39.0  10.0
+model    vehicles/veh-cc96playground01-body.tmdl        1     1876.0   76.0   4.0
+model    vehicles/veh-tristarplay01-body.tmdl           1      942.0   38.0   4.0
+model    models/urban/detail-light-double.tmdl          5      798.0   12.0   5.0
+model    vehicles/veh-ggbotrally0001-body.tmdl          2      628.0   26.0   3.0
+model    models/urban/tree-park-large.tmdl              2      580.0   10.0   6.0
+box      -                                             23      120.0   11.0  23.0
+area     -                                             10        0.0    0.0   0.0
+22       -                                              7        0.0    0.0   0.0
+model    models/urban/pallet.tmdl                       3        0.0    0.0   3.0
+light    -                                              8        0.0    0.0   0.0
+
+Objects drawn INTO the reflection probe (env_probe_objs) - top 30 by triangles (18 drew at all)
+
+  idx  type     model                                        tri/frame    pkg  bags  hits
+---------------------------------------------------------------------------------------
+   34  model    models/urban/district-tower.tmdl                1748.5   25.0   2.5  0.50
+   36  model    models/urban/district-tower.tmdl                1748.5   25.0   2.5  0.50
+   38  model    models/urban/district-loft.tmdl                 1118.5   16.0   2.5  0.50
+   30  model    models/urban/district-workshop.tmdl              591.0   12.0   2.5  0.50
+  122  box      -                                                  6.0    0.5   0.5  0.50
+  123  box      -                                                  6.0    0.5   0.5  0.50
+  124  box      -                                                  6.0    0.5   0.5  0.50
+  125  box      -                                                  6.0    0.5   0.5  0.50
+  126  box      -                                                  6.0    0.5   0.5  0.50
+  127  box      -                                                  6.0    0.5   0.5  0.50
+  128  box      -                                                  6.0    0.5   0.5  0.50
+  129  box      -                                                  6.0    0.5   0.5  0.50
+  130  box      -                                                  6.0    0.5   0.5  0.50
+  131  box      -                                                  6.0    0.5   0.5  0.50
+  132  box      -                                                  6.0    0.5   0.5  0.50
+   32  model    models/urban/district-workshop.tmdl                0.0    0.0   2.5  0.50
+   50  model    models/urban/district-loft.tmdl                    0.0    0.0   2.5  0.50
+   52  model    models/urban/district-tower.tmdl                   0.0    0.0   2.5  0.50
+
+Grouped by model
+type     model                                          n  tri/frame    pkg  bags
+---------------------------------------------------------------------------------------
+model    models/urban/district-tower.tmdl               3     3497.0   50.0   7.5
+model    models/urban/district-loft.tmdl                2     1118.5   16.0   5.0
+model    models/urban/district-workshop.tmdl            2      591.0   12.0   5.0
+box      -                                             11       66.0    5.5   5.5
+
+D:\tyra-probe-0916\arms\inventory  pose 2 (outer day), 240 frames
+
+producer          tri/frame      %     pkg   bags  flush   verts  pkgOut  hits  tri/hit
+---------------------------------------------------------------------------------------
+roads                6271.0  47.4%    88.0   59.0   10.0    6591   249.0 59.00    106.3
+terrain              2848.0  21.5%    40.0   25.0   13.0    3768   160.0  1.00   2848.0
+static_batches       1776.0  13.4%    28.0   32.0    7.0    1872   152.0  1.00   1776.0
+env_probe_objs       1709.5  12.9%    25.5   17.5    5.0    1784   100.5  4.00    427.4
+object_submit         502.0   3.8%     9.0   25.0    4.0     540   155.0 45.00     11.2
+env_probe_sky          75.0   0.6%    14.5    1.0    1.0     225     2.0  0.50    150.0
+sky                    55.0   0.4%    10.0    2.0    1.0     165     8.0  1.00     55.0
+blob_shadows            0.0   0.0%     0.0    3.0    0.0       0     3.0  1.00      0.0
+particles               0.0   0.0%     0.0    1.0    0.0       0     1.0  1.00      0.0
+---------------------------------------------------------------------------------------
+TOTAL               13236.5 100.0%   215.0  165.5   41.0   14944   830.5
+
+Solo objects in the main view (object_submit) - top 30 by triangles (45 drew at all)
+
+  idx  type     model                                        tri/frame    pkg  bags  hits
+---------------------------------------------------------------------------------------
+   42  model    models/urban/district-loft.tmdl                  490.0    7.0   5.0  1.00
+    3  box      -                                                 12.0    2.0   1.0  1.00
+    7  model    vehicles/veh-ggbotrally0001-body.tmdl              0.0    0.0   1.0  1.00
+    8  box      -                                                  0.0    0.0   1.0  1.00
+    9  box      -                                                  0.0    0.0   1.0  1.00
+   10  box      -                                                  0.0    0.0   1.0  1.00
+   11  area     -                                                  0.0    0.0   0.0  1.00
+   12  area     -                                                  0.0    0.0   0.0  1.00
+   13  area     -                                                  0.0    0.0   0.0  1.00
+   14  area     -                                                  0.0    0.0   0.0  1.00
+   15  22       -                                                  0.0    0.0   0.0  1.00
+   16  22       -                                                  0.0    0.0   0.0  1.00
+   17  22       -                                                  0.0    0.0   0.0  1.00
+   18  22       -                                                  0.0    0.0   0.0  1.00
+   19  22       -                                                  0.0    0.0   0.0  1.00
+   20  22       -                                                  0.0    0.0   0.0  1.00
+   21  22       -                                                  0.0    0.0   0.0  1.00
+   26  box      -                                                  0.0    0.0   1.0  1.00
+   29  box      -                                                  0.0    0.0   1.0  1.00
+   31  box      -                                                  0.0    0.0   1.0  1.00
+   33  box      -                                                  0.0    0.0   1.0  1.00
+   35  box      -                                                  0.0    0.0   1.0  1.00
+   41  box      -                                                  0.0    0.0   1.0  1.00
+   51  box      -                                                  0.0    0.0   1.0  1.00
+   60  model    models/urban/detail-light-double.tmdl              0.0    0.0   1.0  1.00
+   61  model    models/urban/detail-light-double.tmdl              0.0    0.0   1.0  1.00
+   62  model    models/urban/detail-light-double.tmdl              0.0    0.0   1.0  1.00
+   63  model    models/urban/detail-light-double.tmdl              0.0    0.0   1.0  1.00
+  113  box      -                                                  0.0    0.0   1.0  1.00
+  114  area     -                                                  0.0    0.0   0.0  1.00
+
+Grouped by model
+type     model                                          n  tri/frame    pkg  bags
+---------------------------------------------------------------------------------------
+model    models/urban/district-loft.tmdl                1      490.0    7.0   5.0
+box      -                                             12       12.0    2.0  12.0
+model    vehicles/veh-ggbotrally0001-body.tmdl          2        0.0    0.0   2.0
+area     -                                             10        0.0    0.0   0.0
+22       -                                              7        0.0    0.0   0.0
+model    models/urban/detail-light-double.tmdl          4        0.0    0.0   4.0
+model    vehicles/veh-tristarplay01-body.tmdl           1        0.0    0.0   2.0
+light    -                                              8        0.0    0.0   0.0
+
+Objects drawn INTO the reflection probe (env_probe_objs) - top 30 by triangles (7 drew at all)
+
+  idx  type     model                                        tri/frame    pkg  bags  hits
+---------------------------------------------------------------------------------------
+   38  model    models/urban/district-loft.tmdl                 1118.5   16.0   2.5  0.50
+   32  model    models/urban/district-workshop.tmdl              591.0    9.5   2.5  0.50
+   30  model    models/urban/district-workshop.tmdl                0.0    0.0   2.5  0.50
+   34  model    models/urban/district-tower.tmdl                   0.0    0.0   2.5  0.50
+   36  model    models/urban/district-tower.tmdl                   0.0    0.0   2.5  0.50
+   50  model    models/urban/district-loft.tmdl                    0.0    0.0   2.5  0.50
+   52  model    models/urban/district-tower.tmdl                   0.0    0.0   2.5  0.50
+
+Grouped by model
+type     model                                          n  tri/frame    pkg  bags
+---------------------------------------------------------------------------------------
+model    models/urban/district-loft.tmdl                2     1118.5   16.0   5.0
+model    models/urban/district-workshop.tmdl            2      591.0    9.5   5.0
+model    models/urban/district-tower.tmdl               3        0.0    0.0   7.5
+
+D:\tyra-probe-0916\arms\inventory  pose 3 (outer night), 240 frames
+
+producer          tri/frame      %     pkg   bags  flush   verts  pkgOut  hits  tri/hit
+---------------------------------------------------------------------------------------
+roads                6271.0  46.2%    88.0   59.0   10.0    6591   249.0 59.00    106.3
+terrain              2848.0  21.0%    40.0   25.0   13.0    3768   160.0  1.00   2848.0
+static_batches       1776.0  13.1%    28.0   32.0    7.0    1872   152.0  1.00   1776.0
+env_probe_objs       1709.5  12.6%    25.5   23.0    5.0    1784   106.0  9.50    179.9
+object_submit         502.0   3.7%     9.0   36.0    4.0     540   166.0 56.00      9.0
+sky                   375.0   2.8%    24.0    5.0    4.0    1125     8.0  1.00    375.0
+env_probe_sky          75.0   0.6%    14.5    1.0    1.0     225     2.0  0.50    150.0
+light_pools            12.0   0.1%     3.0    8.0    1.0      36    18.0  1.00     12.0
+blob_shadows            0.0   0.0%     0.0    3.0    0.0       0     3.0  1.00      0.0
+light_beams             0.0   0.0%     0.0   16.0    0.0       0    16.0  1.00      0.0
+particles               0.0   0.0%     0.0    1.0    0.0       0     1.0  1.00      0.0
+---------------------------------------------------------------------------------------
+TOTAL               13568.5 100.0%   232.0  209.0   45.0   15940   881.0
+
+Solo objects in the main view (object_submit) - top 30 by triangles (56 drew at all)
+
+  idx  type     model                                        tri/frame    pkg  bags  hits
+---------------------------------------------------------------------------------------
+   42  model    models/urban/district-loft.tmdl                  490.0    7.0   5.0  1.00
+    3  box      -                                                 12.0    2.0   1.0  1.00
+    7  model    vehicles/veh-ggbotrally0001-body.tmdl              0.0    0.0   1.0  1.00
+    8  box      -                                                  0.0    0.0   1.0  1.00
+    9  box      -                                                  0.0    0.0   1.0  1.00
+   10  box      -                                                  0.0    0.0   1.0  1.00
+   11  area     -                                                  0.0    0.0   0.0  1.00
+   12  area     -                                                  0.0    0.0   0.0  1.00
+   13  area     -                                                  0.0    0.0   0.0  1.00
+   14  area     -                                                  0.0    0.0   0.0  1.00
+   15  22       -                                                  0.0    0.0   0.0  1.00
+   16  22       -                                                  0.0    0.0   0.0  1.00
+   17  22       -                                                  0.0    0.0   0.0  1.00
+   18  22       -                                                  0.0    0.0   0.0  1.00
+   19  22       -                                                  0.0    0.0   0.0  1.00
+   20  22       -                                                  0.0    0.0   0.0  1.00
+   21  22       -                                                  0.0    0.0   0.0  1.00
+   26  box      -                                                  0.0    0.0   1.0  1.00
+   29  box      -                                                  0.0    0.0   1.0  1.00
+   31  box      -                                                  0.0    0.0   1.0  1.00
+   33  box      -                                                  0.0    0.0   1.0  1.00
+   35  box      -                                                  0.0    0.0   1.0  1.00
+   41  box      -                                                  0.0    0.0   1.0  1.00
+   51  box      -                                                  0.0    0.0   1.0  1.00
+   60  model    models/urban/detail-light-double.tmdl              0.0    0.0   1.0  1.00
+   61  model    models/urban/detail-light-double.tmdl              0.0    0.0   1.0  1.00
+   62  model    models/urban/detail-light-double.tmdl              0.0    0.0   1.0  1.00
+   63  model    models/urban/detail-light-double.tmdl              0.0    0.0   1.0  1.00
+  113  box      -                                                  0.0    0.0   1.0  1.00
+  114  area     -                                                  0.0    0.0   0.0  1.00
+
+Grouped by model
+type     model                                          n  tri/frame    pkg  bags
+---------------------------------------------------------------------------------------
+model    models/urban/district-loft.tmdl                1      490.0    7.0   5.0
+box      -                                             23       12.0    2.0  23.0
+model    vehicles/veh-ggbotrally0001-body.tmdl          2        0.0    0.0   2.0
+area     -                                             10        0.0    0.0   0.0
+22       -                                              7        0.0    0.0   0.0
+model    models/urban/detail-light-double.tmdl          4        0.0    0.0   4.0
+model    vehicles/veh-tristarplay01-body.tmdl           1        0.0    0.0   2.0
+light    -                                              8        0.0    0.0   0.0
+
+Objects drawn INTO the reflection probe (env_probe_objs) - top 30 by triangles (18 drew at all)
+
+  idx  type     model                                        tri/frame    pkg  bags  hits
+---------------------------------------------------------------------------------------
+   38  model    models/urban/district-loft.tmdl                 1118.5   16.0   2.5  0.50
+   32  model    models/urban/district-workshop.tmdl              591.0    9.5   2.5  0.50
+   30  model    models/urban/district-workshop.tmdl                0.0    0.0   2.5  0.50
+   34  model    models/urban/district-tower.tmdl                   0.0    0.0   2.5  0.50
+   36  model    models/urban/district-tower.tmdl                   0.0    0.0   2.5  0.50
+   50  model    models/urban/district-loft.tmdl                    0.0    0.0   2.5  0.50
+   52  model    models/urban/district-tower.tmdl                   0.0    0.0   2.5  0.50
+  122  box      -                                                  0.0    0.0   0.5  0.50
+  123  box      -                                                  0.0    0.0   0.5  0.50
+  124  box      -                                                  0.0    0.0   0.5  0.50
+  125  box      -                                                  0.0    0.0   0.5  0.50
+  126  box      -                                                  0.0    0.0   0.5  0.50
+  127  box      -                                                  0.0    0.0   0.5  0.50
+  128  box      -                                                  0.0    0.0   0.5  0.50
+  129  box      -                                                  0.0    0.0   0.5  0.50
+  130  box      -                                                  0.0    0.0   0.5  0.50
+  131  box      -                                                  0.0    0.0   0.5  0.50
+  132  box      -                                                  0.0    0.0   0.5  0.50
+
+Grouped by model
+type     model                                          n  tri/frame    pkg  bags
+---------------------------------------------------------------------------------------
+model    models/urban/district-loft.tmdl                2     1118.5   16.0   5.0
+model    models/urban/district-workshop.tmdl            2      591.0    9.5   5.0
+model    models/urban/district-tower.tmdl               3        0.0    0.0   7.5
+box      -                                             11        0.0    0.0   5.5
+

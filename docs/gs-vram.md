@@ -393,6 +393,173 @@ The counters are always compiled (a few integer increments per bind); only the
 logging is debug-only, since `TYRA_LOG` compiles away under `NDEBUG`. Use a
 **debug** build profile to see it.
 
+### The residency census: WHICH textures, not how many
+
+Those counters raise a question they cannot answer. "12.17 re-uploads per frame"
+says a scene is thrashing; it does not say what is cycling, how big it is, or
+what is holding the rest of the heap — and none of that can be guessed from an
+asset list, because only a fraction of what a project ships is bound in any one
+view. **It does not even say whether the reading is real**: the 12.17 that
+started this investigation turned out to be a stale fixture (see below), and a
+census would have said so in one line by naming a texture nobody expected to be
+cycling. So the same 120-frame summary also prints **one line per resident
+allocation, by name and by words**, plus the eviction victims since the last
+summary and what each was given up for:
+
+```
+VRAMRES f=840 i=21 words=65536 kb=256 name=veh-tristarplay01-palette-image-0.png
+VRAMRES f=840 i=11 words=1088 kb=4 name=concrete.png
+VRAMEVICT f=5400 words=16384 kb=64 victim=icons.png for=district-pause.png
+```
+
+Victims are printed with the summary rather than on every eviction frame: a
+thrashing scene evicts every frame, so the per-frame form is four lines a frame
+forever and the counters already carry the rate. **The victim list is cleared
+when it is printed, never per frame** — clearing per frame made the instrument
+miss the one event it was built for, a pause menu that evicted eight allocations
+between two summaries and was reported as nothing at all. A rare eviction is
+exactly the interesting one.
+
+It is **debug-only and costs a release build nothing**, and the way it does that
+is worth copying: the id → name map and the victim list live in an anonymous
+namespace inside `renderer_core_texture.cpp` under `#ifndef NDEBUG`, so no
+header gains a field and the struct layouts are identical in both profiles. A
+debug-only member on `RendererCoreTexture` would be an ODR hazard the moment one
+translation unit disagreed about `NDEBUG`.
+
+### What the Motor District garage is made of
+
+Measured on `examples/vehicle-playground` (PCSX2 software renderer, PAL
+`Pal576i` 512×512, 32-bit colour, debug profile, parked benchmark poses). The
+permanent region first, and note that **three quarters of the 4 MB is gone
+before a single texture is loaded** — the `~1.08 MB` the budget table at the top
+of this page quotes is the 512×448 case, and this project is not it:
+
+| region | words | of 4 MB |
+|---|---:|---:|
+| frame buffers ×2 (512×512 PSMCT32) | 524 288 | 50% |
+| z buffer (512×512 PSMZ32) | 262 144 | 25% |
+| post-fx scratch ×2 + film-grain noise | 12 288 | 1.2% |
+| env-map target + its z (three shiny car bodies) | 32 768 | 3.1% |
+| projected-shadow slots ×4 + z (64×64) | 20 480 | 2.0% |
+| **texture heap** | **196 608** | **18.8%** |
+
+and the heap itself, 27 allocations holding **165 440 words (0.631 MB, 84% of
+it)**, largest free block 121 KB:
+
+| allocation | words | of the heap |
+|---|---:|---:|
+| `veh-tristarplay01-palette-image-0.png` (256×256 **RGBA32**) | 65 536 | **33.3%** |
+| `veh-ggbotrally0001-palette-image-0.png` (128×128 RGBA32) | 16 384 | 8.3% |
+| `loading.png`, `icons.png`, `flare-corona.png` (HUD, RGBA32) | 16 384 each | 8.3% each |
+| `district-sign.png` (256×128 PSMT4 + CLUT) | 4 160 | 2.1% |
+| `use-text.png`, `flare-glow.png` | 4 096 each | 2.1% each |
+| `district-road`, `district-asphalt` (128×128 PSMT4) | 2 112 each | 1.1% each |
+| the **whole city** — 14 urban 64×64 PSMT4 + the terrain | 15 232 | 7.7% |
+
+Read the last two rows together. Every building, tree, wall, roof and sign in
+the district costs **15 232 words**; one car's body texture costs **65 536**.
+The three vehicle textures are 83 392 words — **half the working set and 42% of
+the heap** — and they are the only shipped model textures that do not go through
+texbake's quantizer at all (`vehbake` writes them into a directory texbake's
+sweep skips, [vehicles.md](vehicles.md)), so a project set to 4-bit ships a
+32-bit car. That is a real bug and it is **not** a free win to fix: palettizing
+them buys 280 KB of heap this scene does not currently need, and costs GS time
+it does. See [backlog.md](backlog.md).
+
+Two smaller observations from the same census, neither a bug: `loading.png`
+stays resident for the whole run (nothing needs its 64 KB back, so tier 1 never
+picks it), and the HUD sprites together are 57 344 words — more than the city —
+because `res/hud/` is deliberately never palettized.
+
+**Nothing is allocated per frame.** Over 4 440 frames and four poses the whole
+run performed **28 uploads and zero re-uploads**, so "something transient that
+should be resident" is ruled out with a number rather than an argument. The
+eviction policy is not at fault either: with nothing evicted there is nothing
+for a policy to get wrong. This scene is not thrashing — it is standing next to
+a cliff.
+
+### The 12.17 re-uploads were a stale fixture
+
+Worth its own heading, because the instrument above exists partly because of it.
+The reading that started this — 12.17 re-uploads per frame in garage day, 5.75
+in garage night — came from a fixture built by `benchmark-district.py`, which
+copies the example's **committed** generated sources. Those drift. Every fixture
+since regenerated with the editor under test records **0.000 re-uploads and 0
+evictions in all four poses**, and the stale one also showed 3.6 ms more
+submission than the regenerated one.
+
+**A performance fixture built from committed generated sources is measuring a
+different game.** Regenerate before you measure, and before you believe a
+counter that disagrees with the last run. `docs/vu1-and-dma-cache-cost.md` says
+this too, and the script's own docstring now says it where somebody would
+actually look.
+
+### It is a cliff, and an ordinary menu walks off it
+
+Parked, this scene does not thrash: 0.119 MB free, zero evictions, for as long
+as you leave it alone — 4 440 frames of it. **Pressing Start does.** The pause
+menu binds `menus/district-pause.png` (32 768 words) and its values page (8 192)
+against 31 168 words of free heap, and the reading goes straight to the shape
+the console reported:
+
+| | free | largest free block | evict | reup |
+|---|---:|---:|---:|---:|
+| garage, parked | 0.119 MB | 121 KB | 0 | 0 |
+| garage, pause menu open | **0.0483 MB** | **25 KB** | 8 | 3 |
+| *(physical PS2, as reported)* | *0.048 MB* | *33 KB* | *+4/frame* | *+4/frame* |
+
+The free-VRAM figure matches the console's reported `freeMB=0.048` to the digit.
+The console reading itself came from a stale fixture (above) and its
+re-uploads-per-frame are not a real measurement — but the **cliff** is real and
+this is where it is. A scene sitting 4% of VRAM from its ceiling is one where
+which sprite happens to be on screen decides whether the frame costs four PATH3
+transfers, and the answer there is headroom rather than a cleverer victim.
+
+One honest caveat on the emulator. PCSX2's residency accounting is the engine's
+own (the allocator and the counters are the same code), so these numbers are not
+an emulation of anything — but the console's exact working set at the moment it
+was sampled is not knowable from here, and this run reaches 0.048 MB with `res`
+26 against the console's 17. Same free VRAM, a different mix of survivors: read
+the free/largest columns as the reproduced quantity and the counts as
+circumstantial.
+
+### Where the next 200 KB would come from, if it is ever needed
+
+Four levers, all of them **authoring** decisions rather than engine ones — and
+read the warning under the table before treating any palettization as free:
+
+- **The vehicle body textures** (71 552 words). They bypass `textureQuant`
+  entirely, so a 4-bit project ships a 32-bit car; fixing that is
+  [vehicles.md](vehicles.md), "The body texture obeys the project's depth".
+- **`menus/` follows its stylesheet's own `quant`**, which defaults to none. The
+  district's pause menu is 40 960 words at 32-bit against 5 248 at 4-bit, and it
+  is the allocation that walks this scene off the cliff. One line of a
+  stylesheet.
+- **`res/hud/` is never palettized** (57 344 words resident here, and
+  `hud/save-busy.png` alone is another 65 536 the moment a save runs). That is
+  deliberate — smooth alpha gradients are what palettes are worst at, and the
+  flashlight's corona would band. But `icons.png` and `loading.png` are flat
+  artwork, and a per-file override in the *Texture quality* map already exists.
+- **`palFullHeight`** costs **98 304 words (384 KB) of texture heap** against
+  plain PAL 512×448 — half the heap again, for 64 more scan lines. And 16-bit
+  colour would hand back 458 752 words, which would end this conversation
+  permanently at the price of the depth precision the colour-depth section
+  above prices in world units.
+
+> **Palettizing is not free, and the first three levers above are all
+> palettization.** Measured on a physical PS2, taking the vehicle-texture lever
+> alone cost **+0.51 to +0.74 ms of work per pose** on this scene — which has
+> 0.119 MB free and evicts nothing, so the VRAM it bought relieved nothing and
+> the whole delta was bill. More awkwardly, the `finish` rise showed up on poses
+> whose frames are **byte-identical between the arms**, i.e. where no changed
+> texel is sampled at all; the live hypothesis is that shrinking an allocation
+> moves every address after it and changes GS texture-cache behaviour
+> scene-wide. If that is right it applies to **every** entry above, so price a
+> lever before spending it. The fourth one is the exception: `palFullHeight`
+> changes no texture's format and no texture's address — it changes the heap
+> floor — so on this evidence it is the cheapest 384 KB on the list.
+
 ## Measured behaviour
 
 All PCSX2, software renderer, PAL, 512×448.

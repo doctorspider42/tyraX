@@ -1,0 +1,1 @@
+{ "id": "cc96car000000002", "name": "rival", "type": "vehicle", "position": [114, 5.318, -80], "rotation": [0, 25, 0], "scale": [1.5, 1.5, 1.5], "color": [0.6, 0.6, 0.6], "physics": false, "shadowMode": 2, "vehicle": { "def": "CC96", "driveable": true, "route": "circuit-" } }

@@ -1,0 +1,70 @@
+THIRD-PARTY NOTICES
+===================
+
+This game is built with TyraX and runs on the Tyra engine. You may release it
+commercially and you may keep your source code closed - nothing here is a
+copyleft license, and none of it requires you to publish anything you wrote.
+
+What IS required is attribution: ship this file with your game (next to the ELF,
+in the package, or reproduced in an in-game credits screen - any of those works)
+and keep the notices below intact. That is the whole obligation.
+
+
+Tyra engine - Apache License 2.0
+--------------------------------
+Copyright Sandro Sobczynski (h4570) and the Tyra contributors.
+https://github.com/h4570/tyra
+
+This game links the Tyra engine, used under the Apache License 2.0. A copy of
+the license is at http://www.apache.org/licenses/LICENSE-2.0 and in the TyraX
+repository at vendor/tyra/LICENSE. The engine as shipped by TyraX is a modified
+fork; the modifications are marked "Modified by TyraX" in its sources.
+
+
+PS2SDK - Academic Free License v2.0
+-----------------------------------
+Copyright the ps2dev project contributors.
+https://github.com/ps2dev/ps2sdk
+
+This game links PS2SDK, used under the Academic Free License version 2.0
+(https://opensource.org/license/afl-2-0-php). If your project enables positional
+audio, it also includes a build of the PS2SDK audsrv module modified to support
+L/R panning.
+
+
+TyraX (the editor and its code templates)
+-----------------------------------------
+Copyright 2026 doctorspider42.
+https://github.com/doctorspider42/tyraX
+
+The generated C++ in this project came from TyraX's templates. TyraX grants
+those generated files to you with NO conditions attached - no attribution, no
+license text, no notice. See LICENSE-EXCEPTION.md in the TyraX repository. This
+section is a courtesy credit, and you may delete it.
+
+Motor District example assets
+-----------------------------
+Kenney — Retro Urban Kit 2.0 (CC0), https://www.kenney.nl
+Includes adapted building kitbashes; original notice: res/models/urban/LICENSE.txt.
+GGBotNet — PSX Style Cars, Car 04 (CC0), https://www.ggbot.net
+Wheels separated and source scaled; original notice: res/models/ggbot-CC0.txt.
+CC96 coupe — CC0; no author name in supplied license.
+Original notice: res/models/car1-CC0-licence.txt.
+District layout, generated sign/road/ground textures: TyraX contributors.
+
+Tristar Racer — designersoup, Low Poly Car Starter Pack
+Source supplied locally: C:/Assets/LowPolyCars/Tristar Racer.fbx and its .fbm PNG.
+Author page: https://designersoup.itch.io/low-poly-car-pack-1
+Checked 2026-09-12.
+
+The author permits modification and inclusion in commercial and non-commercial
+games. Attribution is appreciated. The same page labels the pack CC0 but also
+prohibits redistribution/repackaging as standalone models/textures or another
+asset pack. These statements conflict; this notice does not remove that conflict
+or grant additional rights. This prepared model is included in the Motor District
+game example. Do not assume the project's source license applies to this asset.
+
+Preparation: world transforms and wheel ownership normalized for the vehicle
+importer; body and palette preserved in GLB; outward wheel halves mirrored so rims show
+on both sides of the repeated wheel mesh. Runtime wheel mesh simplified
+by the TyraX vehicle bake. No endorsement by the author is implied.

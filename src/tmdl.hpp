@@ -23,7 +23,8 @@
 namespace tmdl {
 
 // Bumped when the layout changes; the loader accepts a range of versions.
-constexpr unsigned int kVersion = 3;  // 2 added Part::ke, 3 Model::shadowVerts
+constexpr unsigned int kVersion = 4;  // 2 added Part::ke, 3 Model::shadowVerts,
+                                      // 4 the triangle-strip twin of every mesh
 
 // One decimated variant of a part's mesh (same layout, fewer triangles),
 // rendered instead of the full mesh beyond a distance. Baked by the build,
@@ -31,6 +32,10 @@ constexpr unsigned int kVersion = 3;  // 2 added Part::ke, 3 Model::shadowVerts
 struct Lod {
     std::vector<float> verts;       // interleaved 8 floats per vertex
     std::vector<unsigned char> ao;  // empty, or one byte per vertex
+    // Version 4: the same mesh as triangle STRIPS, chopped into independent
+    // runs of meshstrip::kRun vertices. Empty = stripping was not worth it.
+    std::vector<float> stripVerts;
+    std::vector<unsigned char> stripAo;
 };
 
 // One draw batch: all triangles of the model that share a material.
@@ -48,6 +53,19 @@ struct Part {
     std::vector<float> verts;       // flat triangle list, 8 floats per vertex
     std::vector<unsigned char> ao;  // empty, or one byte per vertex
     std::vector<Lod> lods;          // distance tiers, coarsest last (max 2)
+    // Version 4: the TRIANGLE STRIP twin of `verts` (meshstrip::build), same
+    // 8-float layout and the same surface, in strip order and chopped into
+    // independent runs of `stripRun` vertices. It is a SECOND copy rather
+    // than a replacement on purpose: `verts` is what the collider, the shadow
+    // proxy, the decal projector and every other per-triangle consumer walk,
+    // and only the render bag wants the strip. Empty = this part did not
+    // strip smaller than its list (a mesh with no shared corners does not),
+    // and the game renders it as the list it always was.
+    std::vector<float> stripVerts;
+    std::vector<unsigned char> stripAo;
+    // Vertices per strip run, == the VU1 package size the game must pin.
+    // 0 with a non-empty stripVerts is malformed.
+    unsigned int stripRun = 0;
 };
 
 struct Model {
@@ -84,6 +102,13 @@ struct Model {
 //     u8   ao[aoCount]
 //     u32  lodCount
 //     lodCount * { u32 vertexCount; f32 verts[vc*8]; u32 aoCount; u8 ao[] }
+//     u32  stripRun             // version >= 4; 0 = this part has no strip
+//     1 + lodCount * {          // base mesh first, then each tier in order
+//       u32 vertexCount         //   0 = no strip for this mesh
+//       f32 verts[vertexCount * 8]
+//       u32 aoCount             //   0 or == vertexCount
+//       u8  ao[aoCount]
+//     }
 //   }
 //   u32    shadowCornerCount    // version >= 3; a multiple of 3, 0 = none
 //   f32    shadowXyz[shadowCornerCount * 3]

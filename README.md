@@ -136,7 +136,9 @@ Then, in the editor:
   side lives inside WSL.
 - **Keep the project path short.** PCSX2's `host:` loader silently refuses an ELF
   path longer than ~145 characters — the game never starts and nothing is logged.
-  The editor warns in *Output*.
+  The editor warns in *Output*. Build & Run passes an absolute native path;
+  invoking PCSX2 by hand should do the same, because its host loader can rebase
+  a relative `-elf` path below `bin/` and leave only a black screen.
 
 ## What it does
 
@@ -228,6 +230,10 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [streaming layers](docs/streaming-layers.md),
   [world facts](docs/world-facts.md), runtime spawning and the
   [endless scroller](docs/endless-scroller.md).
+- **[Roads](docs/roads.md) and [vehicles](docs/vehicles.md)** — textured spline
+  roads projected onto the terrain in both the editor and game, plus imported,
+  budgeted cars with wheel suspension, gears, drifting and AI drivers. Try the
+  [Motor District](examples/vehicle-playground) city course and live paint reflections.
 - **[NavMesh + NPC AI](docs/navigation-ai.md)** — baked on the host, A* on the EE.
 - **[Cinematics](docs/cutscenes.md)** — the Cutscene Director, fed by keyframes
   or by a [phone-recorded 6DoF take](docs/camera-takes.md) or the
@@ -252,7 +258,14 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 
 - [Static batching for primitives and compact repeated models](docs/model-pipeline.md#compact-static-model-batching),
   [texture atlasing](docs/texture-atlasing.md), mesh LOD, draw distances and an
-  adaptive overdraw budget for distant optional effects.
+  adaptive overdraw budget for distant optional effects. A
+  [draw distance no longer forces an object to draw alone](docs/model-pipeline.md#draw-distance-on-a-batch) —
+  it groups the batch instead and cuts the whole batch off together.
+- [Triangle strips for static models](docs/model-pipeline.md#triangle-strips) —
+  the build ships the strip beside the list, so a shared corner is packaged,
+  transferred and transformed once instead of once per triangle; the
+  [vehicle wheel batch](docs/vehicles.md) and the
+  [projected-shadow receiver patch](docs/shadows.md) take one too.
 - **[GS VRAM residency](docs/gs-vram.md)** — the frame buffers can be **16-bit**
   (with the GS's ordered dithering to keep skies from banding), which roughly
   doubles the texture budget; a texture is charged the GS blocks it really
@@ -263,14 +276,21 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   picture and the GS scissor crops it, so only near-plane crossings pay for a
   real cut.
 - The in-game [frame profiler](docs/profiling.md).
+- [Static submission batching](docs/static-submission-batching.md) combines resident object draws while preserving draw order and texture lifetimes.
+- [Retained static command data](docs/retained-static-commands.md): a static bag's VU1 command block is captured once and replayed, so only the matrix, the light and the culling are rebuilt per frame.
+- [VU1 arithmetic and DMA cache-flush cost](docs/vu1-and-dma-cache-cost.md): what a VU1 cycle per triangle costs on a physical PS2, measured.
+- [Renderer work, checked on a second map](docs/engine-performance-on-a-second-map.md): the control that says it is the engine and not the showcase.
+- [Attributing render submission](docs/render-submission-attribution.md): opt-in counters that account for the whole `beginFrame`..`endFrame` block, not just the static pipeline, down to a zero residual.
+- [Not re-baking wheels that did not move](docs/wheel-rebake-skip.md): the vehicle wheel batch skips a rig whose inputs did not change, and keeps its `bboxVersion` when the vertices are byte-identical.
+- A [physical PS2 timeline](docs/hardware-profiler.md) in the editor and HTML/Perfetto, with EE scopes, DMA waits and pipeline-state snapshots.
 - [On-demand render costs](docs/profiling.md#on-demand-render-cost-178): debugger phase/object timings, sortable by name, cost or delta, with baseline comparison and CSV export on PCSX2 and PS2.
 - The [VU framework](docs/vu-framework.md): describe a microprogram in C++,
   generate both sides of it and run it in a host simulator with no PS2 —
   and [compose VU1 programs out of stages](docs/vu-authoring.md), or write a
   VU0 compute kernel, with no assembly.
 
-**Iterating on a running game** — the [devkit](docs/devkit.md), and a release
-build that provably carries none of it
+**Iterating on a running game** — the [devkit](docs/devkit.md) with per-channel
+polling/report intervals, and a release build that provably carries none of it
 
 - **Build & Run** in PCSX2 (`F5`), or on a
   [real PS2 over ethernet](docs/ps2link-setup.md) (`F6`).
@@ -365,6 +385,7 @@ wait for their polish pass.
 | [upscaler-lab](examples/upscaler-lab) | The fill-bound scene built to make the neural upscaler sweat. It wins: 1.63× on real hardware |
 | [video-modes](examples/video-modes) | 480i / 480p / 1080i and 4:3 / 16:9, switched at runtime — with keep-or-revert |
 | [vu-lab](examples/vu-lab) | Six props on five VU1 paths — capture a draw off the console, replay it on the host |
+| [vehicle-playground](examples/vehicle-playground) | Motor District: seven roads, CC0 city scenery, three driveable car models, menu-selectable day/night and live paint reflections |
 
 ## CLI
 

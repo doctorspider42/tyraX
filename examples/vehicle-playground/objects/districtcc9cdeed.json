@@ -1,0 +1,1 @@
+{ "id": "districtcc9cdeed", "name": "Traffic signal -9 -64", "type": "model", "position": [-9, 0, -64], "rotation": [0, 90, 0], "scale": [5, 5, 5], "color": [1, 1, 1], "physics": false, "drawDistance": 145, "castShadow": false, "model": "res/models/urban/detail-light-traffic.obj" }

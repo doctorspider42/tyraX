@@ -182,7 +182,11 @@ the editor's custom screen effects, `docs/custom-screen-effects.md`; the effect
 body appends GS primitives through the now-public `blit()`/`flatQuad()` and the
 framebuffer/noise/scratch-buffer accessors, and the engine wraps the state
 setup/teardown + DMA kick), WAV-header-aware song
-player, `bboxVersion` on `StaPipBag` for moving geometry,
+player, `bboxVersion` on `StaPipBag` for moving geometry and
+`contentVersion` beside it for arrays REWRITTEN IN PLACE (the baked
+VIF stream inlines the payload, so a re-shade goes stale where a move
+does not - docs/bag-content-version.md; the generated game owns it
+structurally with `BagArray<T>`, whose `data()` is const),
 `StaPipBag::packageSize` (0 = derive) pinning coplanar passes over one vertex
 array to identical package boundaries — see the pitfall below, `Pad::setActuators` (act-direct DualShock rumble —
 the on/off buzz motor + 0-255 heavy motor — behind the Vibrate Pad flow node /
@@ -281,7 +285,27 @@ memory to 1676/2042, so they live in their own packet swapped in on demand
 restored by the next non-billboard bag. Opt-in `StaPipTelemetry` records the
 transition count and full wait/upload ticks, plus cull/clip/outside routes,
 active-plane population, qbuffer flushes, and VIF1/VU1 wait ticks; disabled
-telemetry keeps the AABB early-out and performs no COP0 reads. The C++ side
+telemetry keeps the AABB early-out and performs no COP0 reads. **Its three
+timing brackets do not cover the whole of `StaPipCore::render`** — the head
+(the fog decision and the thirteen `TYRA_ASSERT`s, which a release game really
+does execute, because no game build defines NDEBUG) and the tail sit outside
+all of them. `TYRA_STAPIP_ATTRIB` in `stapip_attrib.hpp` (default **0**, and it
+must stay 0 in anything shipped) adds a `renderTicks` bracket around the whole
+function plus a six-way split of `prepare`, a five-way split of `bounds` (with
+the bbox cacher's own hit/recalculate/fresh counters, and the per-frame expiry
+scan, which lives OUTSIDE render() and therefore lands in `finish` rather than
+in submission) and a split of the package-creation box inside `dispatch`, so
+"inside render, inside no bracket" is a subtraction rather than a guess —
+docs/render-submission-attribution.md. Unlike the first round's, THESE hooks
+are measurable: +0.122 ms on `bounds` and +0.062 on `dispatch`, so the children
+over-report by 6.3% and 1.1% and one COP0 read prices at ~11 cycles. What the
+split found: the bbox cacher is NOT the cost (226.5 lookups = 0.118 ms, 1.44
+probes each, zero allocations) — 0.618 ms is 10.5 `recalculate()` calls forced
+by a caller that bumps `bboxVersion` every frame; and 22% of `bounds` was
+`StaPipQBufferRenderer::setMaxVertCount` fanning one u32 out to all 32 qbuffers
+once per bag, which now returns early when the value has not moved (−0.34 ms,
+picture byte-identical).
+The C++ side
 must keep the prim giftag NLOOP at 6× the input count (`gsVertexCount`) — an undercounting
 NLOOP stalls the GIF. Billboard bags require multi-color, no lighting,
 frustum culling `None` + no clip checks (the one legitimate `None` — the
@@ -1317,8 +1341,8 @@ Rules the same evening paid for:
   size.** `StaPipVU1Program::getMaxVertCount` derives the package size from
   the bag's PROGRAM CLASS — how many verts of (position [+ ST] [+ normal] +
   color) fit in half a VU1 double buffer. With the shipping buffer that is
-  **108** for untextured + per-vertex colors, **72** for textured, **90** for
-  textured + a single color, **144** for untextured + a single color. So an
+  **111** for untextured + per-vertex colors, **75** for textured, **90** for
+  textured + a single color, **150** for untextured + a single color. So an
   object whose base pass is untextured and whose companion pass is textured
   (a reflective sphere with no `map_Kd`, anything under the baked lightmap,
   an untextured terrain chunk under its layer passes) splits the SAME array at
@@ -1339,6 +1363,49 @@ Rules the same evening paid for:
   the slowdown smaller packages suggest; and `67e2893f`'s switch of the env
   pass to `PipelineZTest_Standard` was a mask for this defect, not its fix
   (keep it, it is still correct).
+- **AND 75 IS ESSENTIALLY THE CEILING, not just the minimum — so "make the
+  package bigger to cut the per-package cost" is nearly closed.** Almost
+  everything left in `dispatch` scales with the package count, static geometry
+  ships as 75-vertex strip runs that ARE the packages, and the obvious next
+  move is to lengthen the run. `setDoubleBuffer` splits 22..944 in two
+  for **460 quadwords** a half, `getMaxVertCount` takes 9 for the GIF tag block
+  and divides the remaining **451** by `elementsPerVertex + reglistCount` — what
+  the EE uploads plus what the program writes — so the textured classes get
+  451/6 = **75**. That used to round down to 72 on a multiple-of-9 step, which
+  was relaxed to a multiple of 3 (round four) and is the whole of the slack
+  available at this memory layout. **The whole of
+  VU1 data memory caps a six-quadword-per-vertex package at 81** (the clipping
+  scratch would have to go entirely: `DBUFFER_END` ≥ 1014 against 80 quadwords
+  of scratch), and **144 wants 1 770 of 1 024 quadwords** — the double buffer is
+  exactly the factor of two that makes a doubling impossible. Three corollaries.
+  Moving the clip plane table DOWN into the per-mesh constants buys **exactly
+  zero** (the buffer pays twice below it and gains twice above it). The
+  per-class pin costs the Motor District frame nothing — every class in it
+  derives 75, by two independent routes (`cull_tc`/`cull_tce` with per-vertex
+  colours, and `cull_td` with a single colour; `cull_td` with per-vertex colours
+  would derive 63 and is unreachable, `StaPipCore::render` asserts against it).
+  And the only lever left is the six quadwords per vertex, where the claim to
+  measure is the PACKAGE COUNT and not the payload: the probe that added 16
+  bytes per vertex moved garage-day VIF1 wait by 0.067 ms. Derivation, sweep,
+  measured baseline and the remaining way to reach 81 (−8.0% of packages):
+  docs/render-submission-attribution.md, "Round three" and "Round four".
+- **RAISING `maxVertCount` MOVES THE CLIP BUFFER TOO, and nothing clamps the
+  fan-out at runtime.** `clipPackageSize()` is derived from `maxVertCount`, so
+  a bigger package means a bigger clip package, and a clip package plus its
+  entire Sutherland–Hodgman fan-out has to fit one 460-quadword double-buffer
+  half. An overrun is silent corruption that PCSX2 cannot show you. Two traps
+  in doing that arithmetic. The worst case is **7 output triangles per input
+  triangle** and that is exact — a convex polygon gains at most one vertex per
+  plane and the plane loop runs exactly six times — so do not discount it. And
+  the constructor's `elementsPerVertex` / `reglistCount` pair is the SIZING
+  BUDGET, not the layout: `clip_d` is budgeted `2 + 3` but really uploads two
+  streams and stores two quadwords per emitted vertex, so using that pair for
+  the footprint reports false overruns on classes that ship today and work.
+  Read the layout off the `.vclpp`. This is what took `clipDivisor` from 5 to
+  6 when the ceiling moved to 75: at 5 the untextured single-colour class
+  landed on 459 of 460 quadwords. Runnable per class, and the check to re-run
+  after touching any of it:
+  `examples/vehicle-playground/authoring/package-ceiling-75-2026-09-16`.
 - **Widening the cull programs' ADC test is retired; real VU1 clipping is a
   separate program family.** Three attempts at a guard band inside
   `PerformClipCheck` all corrupted ADC bits (documented in `vcl_sml.i`); the
@@ -1439,9 +1506,23 @@ Rules the same evening paid for:
   depth-tested-no-z-write trick). Symptom to recognise: transparency itself
   works, but geometry behind a transparent area is missing, cut along the
   straight edges of the quad in front of it.
-- The engine bbox cache is keyed by bag pointer — geometry that changes at
-  runtime must bump `bboxVersion` on its `StaPipBag`, or culling uses stale
-  boxes.
+- The engine bbox cache is keyed by the **vertex-buffer pointer**, not the bag
+  pointer (`StapipBagBBoxesCacher`'s `id` is
+  `reinterpret_cast<u32>(bag->vertices)`) — so two bags sharing one vertex
+  array share an entry, and one bag swapped between two arrays gets two.
+  Geometry that changes at runtime must bump `bboxVersion` on its `StaPipBag`,
+  or culling uses stale boxes.
+- **The converse is a real cost, not a safe default: do NOT bump `bboxVersion`
+  when the vertex buffer did not actually change.** The stamp is a claim about
+  contents, and bumping it unconditionally disables two caches at once — the
+  package boxes are recomputed in `bounds`, and the retained command blocks are
+  thrown away and rebuilt in `dispatch`, because `bboxVersion` is part of that
+  key too. A per-frame rebuilder that produces an identical buffer pays both
+  for nothing; see `docs/wheel-rebake-skip.md`. Two constraints on keeping a
+  stamp sticky: the cacher stores **no count**, so a reused stamp is only valid
+  while the buffer's ADDRESS and LENGTH are also unchanged, and the retained
+  key has no bag pointer in it, so sharing one bag across several buffers is
+  fine but sharing one buffer across several contents is not.
 - Upstream's default `PlanesClipAlgorithm::clipMargin` pushes the near plane
   ~10 units from the camera; generated games override it.
 - **Do not derive the VU1 active-plane mask from `FrustumPlanes`.** The clipper
@@ -1576,6 +1657,25 @@ Rules the same evening paid for:
   1.15 MB free (2.04 MB at 16-bit colour) and never evicts anything — if you
   are chasing a VRAM problem in a palettized project, measure before assuming
   there is one.
+  **`VRAMSTAT` counts; `VRAMRES`/`VRAMEVICT` NAME.** The same debug build also
+  prints one line per resident allocation with its texture name and words, plus
+  the eviction victims since the last summary and what each was given up for.
+  Reach for those first: "12.17 re-uploads per frame" is not actionable and
+  "one car's body texture is a third of the heap" is, and an asset listing
+  cannot substitute — only a fraction of what a project ships is bound in any
+  one view. The census is debug-only in an **anonymous namespace inside the
+  .cpp** under `#ifndef NDEBUG`, deliberately not a header field: a debug-only
+  member would be an ODR hazard the moment one TU disagreed about `NDEBUG`.
+  Its victim list is cleared when PRINTED, not per frame — clearing per frame
+  made it miss the one eviction it existed for.
+  **Attribute a thrash before touching the policy.** On the Motor District
+  garage (docs/gs-vram.md) the answer was neither the eviction policy nor a
+  per-frame allocation — the run did 28 uploads and zero re-uploads in 4 440
+  frames — but a working set 84% of a 0.75 MB heap, half of it three vehicle
+  textures that had bypassed the project's palettization. A scene that close to
+  its ceiling thrashes on the next thing that binds: opening the pause menu
+  took it from 0.119 MB free / 121 KB largest block to 0.052 / 25, which is the
+  state a console reported as four evictions and four re-uploads per frame.
 - **The framebuffer PSM is a setting, not a constant** (TyraX fork,
   docs/gs-vram.md). `RendererSettings::getFrameBufferPsm()` returns PSMCT32 or
   PSMCT16 per the project's colour depth, and **everything that writes a
@@ -2172,7 +2272,9 @@ The first buffer flush appends to that packet instead of resetting it, writes
 one END and submits once after the ordinary VIF1 wait. A wholly culled mesh may
 replace the unsent packet. Never let a draw escape `render()` with pending
 geometry that references stack MVP/light data, and keep the packet capacity at
-least the worst-case uniform chain plus all 32 qbuffer command groups.
+least the worst-case uniform chain plus one 16-group qbuffer half. The 1.93
+explicit scope additionally copies transient uniforms inline and requires
+retained external streams; see the bounded batching contract below.
 
 Every submitted combined or geometry-only packet uses the SDK's full D-cache
 writeback because its REF streams may point outside packet storage. A trial
@@ -2183,6 +2285,13 @@ VU1 clipping references immutable source streams, like culling; legacy EE
 clipping still copies into writable qbuffers. Coarse AABBs cover eight full
 packages (24 one-third bounds), follow bboxVersion rebuilds, and only inherit
 whole-IN/OUT decisions; partial groups keep exact child/guard-band tests.
+The package-bbox cache uses a fixed 256-bucket hash index over buffer id and VU
+package capacity. Buckets and per-entry collision links store vector indices,
+not pointers: vector relocation stays safe, hits allocate nothing, and the
+index is rebuilt only when expiry compacts storage. Keep `bboxVersion`, vertex
+count, capacity and the 250-frame unused lifetime checks intact; together they
+protect rewritten buffers, capacity variants and recycled addresses. The index
+costs 1,024 bytes plus four bytes per retained entry on the 32-bit EE.
 Wholly visible bags skip redundant package classification and, since 1.86.3,
 point each qbuffer directly at the bag's contiguous source range instead of
 constructing unused pooled package descriptors. Partial and EE-clip paths still
@@ -2204,6 +2313,483 @@ Render-cost telemetry includes both uniform and geometry VIF waits; counting
 only the latter under-reports synchronization. The counters overlap stages.
 See [profiling](../../../docs/profiling.md) and the Aster example for measurements.
 
+
+### Bounded cross-bag submission batching (1.93)
+
+`StaPipCore::beginSubmissionBatch()` / `endSubmissionBatch()` are an explicit
+ownership scope. Generated callers may use them only around direct static bags
+whose vertex, texture-coordinate, colour and normal streams remain alive and
+unchanged through the next VIF1 synchronization. End submits asynchronously; it
+is not a completion fence. Close the scope before view changes, GS operations,
+render-cost drains or pipeline switches.
+
+The packet stays one native contiguous chain. Every new bag retains
+`FLUSHE -> inline uniforms -> geometry`; never join separately allocated packets
+with DMA `NEXT`/`CALL`. MVP, light matrices/directions and single colours are
+inline only for retained bags. Partial-frustum classification, VU1/EE clipping,
+qbuffer copies, billboards and game-supplied program overrides are excluded.
+Overrides have no bounded qbuffer writer ABI, so the built-in eight-qword
+command bound cannot be assumed. Treat any installed override as a global
+batching exclusion. `setOverride(slot, program)` does not require the program's
+self-reported name to match `slot`, so querying the resolved program name can
+miss the override; use the repository's cached any-override state.
+
+Resident textures may batch only when both wrap axes are REPEAT. A texture miss,
+upload, update, free or eviction invokes the active StaPip mutation barrier:
+submit pending geometry and `align3D()` before VRAM contents or addresses
+change. Track already-submitted textured batches too; `objectDataPending == false`
+does not mean the GS finished sampling. Register this hook in `allocateOnUse`,
+clear it only for the owning pipeline in `deallocateOnUse`, and drain readers
+before clearing it.
+
+Keep batching bounded to four direct bags of at most 15 VU packages each.
+The physical-PS2 large-bag experiment reduced submissions but regressed garage
+render-submission time from 37.286/43.546 ms to 38.264/44.580 ms. Packet build
+added about 0.2 ms and the garage VIF1 DMA wait rose about 0.6 ms, with no capacity
+split observed. Do not restore geometry-only packet continuations without a new
+hardware hypothesis and gate. The final cached override flag and early eligibility gate passed the physical
+four-pose gate: submission saved 0.95/1.14/0.37/0.34 ms. This is not evidence
+of a whole-game FPS jump. See the report for the 240-eviction/12-switch stress
+test and the full-asset image checks.
+
+### What a VU1 cycle and a DMA cache flush actually cost (2026-09-15)
+
+Two physical-PS2 experiments, both reverted, priced the next two candidate
+directions. Full numbers and the reproduction recipe are in
+[docs/vu1-and-dma-cache-cost.md](../../../docs/vu1-and-dma-cache-cost.md).
+
+**VU1 arithmetic is worth 0.0768 ms of frame time per cycle per triangle** in the
+Motor District garage view, and 97% of it surfaces as VIF1 DMA wait: adding twelve
+measured cycles per triangle moved render submission 40.830 -> 41.752 ms and the
+wait bucket 6.794 -> 7.688 ms. There is no slack, so arithmetic removed from a
+program comes straight off the frame at the same rate. Read a program's real cost
+out of the generated assembler - the lines between the loop label and the loop
+branch in the native cache's `.o.vsm` are **cycles per triangle**, because every
+static-pipeline loop processes three vertices per iteration. Under the shipped
+`openvcl`: `cull_tc` 133, `cull_c` 130, `cull_tce` 109, `cull_td` 107,
+`clip_tc` 269.
+
+**AIM A VU1 EXPERIMENT AT THE PROGRAM THE SCENE ACTUALLY RUNS.** The first arm
+instrumented `cull_td` and measured exactly zero, which reads as "VU1 is free"
+and is nothing of the kind: a generated game attaches a lighting bag only to
+dynamically lit objects, so ordinary static geometry has `lighting == nullptr`
+and selects the COLOUR programs. `getCullProgramByParams(isLightingEnabled,
+isTextureEnabled)` is the whole decision; check it before instrumenting anything.
+
+
+### The spot-light gate, and the two facts it cost (1.94.0)
+
+`CalculateTyraSpotLight` is 21 upper-pipe operations a vertex - 63 a triangle -
+and it ran in every colour program on every mesh, lit or not. It is gated now on
+the SIGN of `VU1_OPTIONS_ADDR.y`, which the EE sets from
+`StaPipClipperSpot::enabled` (the same predicate `addSpotToColor` uses, so both
+halves of the formula hang off one fact). Measured on `.o.vsm`, cycles per
+triangle, unlit -> lit: `cull_c` 130 -> **72** / 130, `cull_tc` 133 -> **73** /
+133, `clip_c` 230 -> **173** / 232, `clip_tc` 241 -> **184** / 243 (the clip rows
+are the COLOUR path). Micro memory 1684 -> 1862 of 2042. Details in docs/flashlight.md, "The cone costs nothing
+when nothing is lit". Four things generalise:
+
+- **`VU1_OPTIONS_ADDR.y` IS THREE-STATE NOW** - `> 0` the shared clip image's
+  peer path, `0` base, `< 0` base plus a live dynamic light. That was free
+  because every reader of the lane only ever tested `> 0` against `<= 0`. Any
+  new reader must keep that discipline, and anything that wants a THIRD fact in
+  that lane has to widen the tests first.
+- **A BRANCH IS A SCHEDULING BARRIER, AND THE CONSOLE PRICED IT.** The first
+  shipped shape gated the spot INSIDE the loop. Four parked Motor District
+  poses: garage day **-1.059 ms**, outer day -0.620, outer night -0.701 - and
+  **garage night, the HEAVIEST pose, +1.264 ms**. At night the lamps are on, so
+  nearly every mesh picks a dynamic light and takes the LIT path, where the
+  branch cost 11 cycles a triangle of lost pairing (`cull_tc` 133 -> 144).
+  25 090 triangles x 11 cycles predicts 0.93 ms against 1.26 measured, so the
+  0.0768 ms rate converts well - what was missing was asking WHICH PATH the
+  scene takes (~39% unlit in garage day, ~0% at night). Three shapes, `cull_tc`
+  lit/unlit: gate per corner **154/91**, one gate before the first
+  `MatrixMultiplyVertex` **144/81**, **two whole loops picked once per batch
+  133/73**. The cull pair ships as two loops with the lit one byte-for-byte the
+  original body - the strongest available guarantee that it cannot regress -
+  and the clip pair keeps a branch but DUPLICATES the colour clamp instead of
+  jumping into the middle of the lit block, which is +2 rather than +7.
+  **Price the path that does NOT take your new branch, on the pose where it is
+  the common one.** (A program carrying a project's own stage list keeps one
+  loop and a per-corner gate: its body is far larger, and its stage slots must
+  still see the vertex in the order they always did.)
+- **THE RESIDENT SET IS NOT NEAR THE CEILING ANY MORE, whatever
+  docs/toolchain-image.md still says - but it is tighter than it was.** The
+  shared clip images left real room: MEASURED at 1684 of 2042 words before this
+  change (8 distinct images - 5 cull + 3 clip, since clip C/D and TC/TCE alias)
+  and **1862 after**, 180 spare, nearly all of the growth being the two
+  duplicated cull loops. The ~1988 figure on that page predates the shared-image
+  work. Two rules: measure with `nm` on the built objects before designing
+  around a headroom number, and do NOT trust `--vu-check`'s budget line for
+  this - its upper bound is pessimistic by construction (it cannot know how VCL
+  will pair instructions) and now reads `1102..2201 of 2042`, above a ceiling
+  the real build clears by 180.
+- **`--vu-check` COULD NOT SEE THE SPOT LIGHT AT ALL, and still passed.**
+  `stageInput` filled the lights-direction block with random xyz and left every
+  W at zero - and all three of `invRange2`, `cosCut2` and `invSoft` are Ws, so
+  the macro's colour addend was exactly 0 in every trial and a program that ran
+  it agreed with one that did not. Fixed (plausible constants plus a per-trial
+  alternation of the gate lane), and the fix was FALSIFIED before being trusted:
+  flipping one `ibgez` to `ibltz` in the handwritten `cull_c` now fails the
+  check within three trials, where before it passed. **If you add a gate to a
+  microprogram, prove the harness fails when the gate is inverted** - otherwise
+  a green `--vu-check` says nothing about the branch you just wrote.
+
+**`dma_channel_send_packet2(p, ch, true)` is `FlushCache(0)` - syscall 100, a
+write-back invalidate of the entire 8 KiB data cache - then
+`dma_channel_send_chain`.** At 131.65 submissions per garage-day frame the whole
+bracket is 2.358 ms, 17.9 us per call, which bounds what removing it can save
+(plus an unmeasured refill tax on the bag preparation that follows). Adding
+redundant flushes is correctness-neutral and measures the marginal cost: 0.61 ms
+for the first, 0.437 ms for each further one on an already-clean cache.
+
+**Suppressing the flush hangs the console.** An arm passing `flush_cache = false`
+wedged ps2link until a physical Reset. The memory the DMA must see coherently is
+**the packet itself**, written by the EE into cached memory microseconds before
+the send; static vertex arrays reached by `REF` tags were written at load time
+and are long evicted. So an explicit-ownership redesign must give the packet
+buffers - and the qbuffer copy pools, written between sends - an owner
+(`P2_TYPE_UNCACHED` / `P2_TYPE_UNCACHED_ACCL`, or a hit-based write-back by
+address), not simply drop the call.
+
+**ps2sdk offers no cheap range write-back, and that is still not a reason to fork
+it.** It is AFL-2.0, so a fork is permitted (this repo already vendors AFL-2.0
+PS2SDK code in `tools/toolchain/bin2s`). But `SyncDCache` is not the range
+operation its signature suggests: `_SyncDCache` loops over **all 128 cache
+indices in both ways**, issuing `sync` before and after every `cache`
+instruction, and only then compares tags against the range - which is exactly why
+the earlier experiment that synchronised each DMA `REF` range separately came out
+slower than the baseline. What the pipeline wants is about ten instructions and
+exists in neither function. It remains the wrong lever anyway: the cost is
+proportional to the NUMBER of submissions, so a retained-command redesign removes
+most of it for free.
+
+### The EE-submission bounding probes (2026-09-16) — two directions CAPPED
+
+`TYRA_STAPIP_PROBE_*` in `stapip_probes.hpp`, all default **0** and none of it
+ships (same zero-cost gate as `TYRA_STAPIP_ATTRIB` - `#ifndef NDEBUG` is NOT the
+gate in this engine). Physical PS2, six hashed ELFs, 0.135 ms repeatability
+floor. Full account:
+`examples/vehicle-playground/authoring/ee-probes-2026-09-16/README.md` and
+docs/ee-submission-rearchitecture.md.
+
+- **Per-package frustum rejection PAYS FOR ITSELF: it buys 2.60 ms and the whole
+  `checkFrustum` bracket costs 1.79 ms** (garage day, `work`). So any redesign of
+  the static pipeline has to keep an equivalent visibility test, and 1.79 ms is
+  the hard ceiling on anything that only makes classification cheaper. Most of
+  what rejection buys is VU1, not EE: 1.09 of the 2.60 ms is VIF1 wait.
+- **CLASSIFYING MORE COARSELY IS A NET LOSS - do not re-open it.** One
+  classification per existing eight-package coarse group, reused by all eight
+  with rejection and clip routing intact, measured **+4.59 ms** while adding
+  FEWER triangles than the accept-all arm. A coarser box crosses more clip
+  planes, so whole groups of eight take the CLIP route where one package would
+  have, and clipping is the expensive one (`packet` +1.08 ms, flushes +26).
+- **A "1/3-bbox part" is one third of a PACKAGE.** `StaPipBagPackagesBBox` splits
+  a bag into `maxVertCount / 3`-vertex parts and a full package spans exactly
+  three of them, so "classify per part instead of per package" is three tests
+  where there is one, and parts are not shared between packages so nothing
+  amortises. The coarse level that DOES amortise already exists: one box per 24
+  parts = 8 packages, short-circuiting wholly-in and wholly-out groups.
+- **An arm that forces `IN_FRUSTUM` without running the test is CORRUPT, not a
+  probe.** It routes near-plane-crossing geometry to the cull programs, which do
+  not clip. Map only the `OUTSIDE_FRUSTUM` verdict and leave
+  `PARTIALLY_IN_FRUSTUM` alone - and cover the coarse test too, or most of the
+  frame's rejections survive and the arm measures nothing.
+- **`FlushCache` is worth 0.84 ms of the send bracket / 1.09 ms of work, half
+  what was predicted** - and **dropping it CORRUPTS THE PICTURE even with the
+  packet allocated `P2_TYPE_UNCACHED`** and the qbuffer copy pools still on the
+  flushing path. 1 271 of 262 144 pixels, a 14-row band at the horizon. The
+  same build that stays uncached and still calls `FlushCache` is BYTE-IDENTICAL
+  to the control, which is what localises it to the flush and not to the
+  allocation. So the packet is not the only thing being written back, or
+  `FlushCache(0)` is also supplying an ordering barrier. **Unresolved - answer
+  it before building anything that removes the flush.**
+- **Uncached packets are SLOW: +7.55 ms.** `packet2` writes floats one at a time
+  and an uncached store does not gather, so the chain costs seven times more to
+  build than not flushing it saves.
+- **`P2_TYPE_UNCACHED_ACCL` IS UNSAFE WITH THE STOCK ps2sdk BUILDER.**
+  `packet2_vif_close_unpack_auto` does an `lbu` of byte 3 and an `sb` into byte 2
+  of the open unpack VIFcode (disassembled from `ps2sdk/ee/lib/libpacket2.a`),
+  and the chain helpers back-patch a DMA tag's QWC the same way. Under UCAB those
+  go through the EE's 128-byte write-gather buffer - the read can see memory the
+  buffer has not flushed, and a sub-word back-patch of an already-gathered block
+  is undefined. That is a corrupt VIFcode, i.e. a hung VIF1, i.e. the wedge.
+  `P2_TYPE_UNCACHED` has no write-gather buffer and is the safe arm.
+- **`packet2_create` asserts `qwords % 4 == 0` for EITHER uncached type**, which
+  no header says. `packetSize` is 784 today; keep `kWorstBagPacketSize *
+  kSubmissionBatchSize` a multiple of 4 or an uncached packet traps at
+  allocation.
+- **A parked fixture cannot see one whole class of flush-removal bug**: a
+  per-frame rebake that writes the SAME bytes every frame leaves stale lines
+  indistinguishable from fresh ones. Re-run any flush experiment with
+  `--keep-routes` before calling it correct.
+
+### Retained static command data (1.96.0)
+
+The static pipeline stops rebuilding, every frame, the DMA/VIF commands that did
+not change. Full account: docs/retained-static-commands.md. Five things any edit
+here must keep.
+
+- **The block is CAPTURED, not re-derived.** `addBuffersDataToPacket` runs the
+  ordinary builders on a miss and then memcpys the bytes they just wrote **out of
+  the packet** into the entry. That is what makes the replay byte-identical by
+  construction - for every program class, for strips and lists, and for a
+  game-supplied program the engine knows nothing about. Do NOT "simplify" it into
+  a struct that describes the packet format: that is a second description to keep
+  in sync, and the reason this one cannot drift.
+- **Copying finished DMA tags is legal because none of them names its own
+  position.** A `CNT` tag counts the quadwords that follow it, a `REF` names an
+  absolute address outside the packet, and with TTE the VIF codes ride in the
+  tag's upper half. `NEXT` and `CALL` are the exception and the pipeline writes
+  neither (see docs/static-submission-batching.md for what happened when one was
+  tried).
+- **The retained storage is EE-private and is NEVER referenced by DMA.** Its REF
+  tags name the bag's own arrays exactly as before, so this adds no new
+  DMA-lifetime exposure at all and the double-buffered qbuffer slot pool is
+  untouched. Only the CULL route is retained: a clip buffer's count word carries
+  a camera-dependent plane mask, and a copied/merged/strip-expanded buffer points
+  into that pool, whose address is not a property of the bag.
+- **The key is every input the block encodes** - stream pointers, count, package
+  size, `bboxVersion`, the resolved VU1 program pointer, the prim state, the Z
+  scale (`RendererCoreDepth::scale`, which a display-mode switch moves) and the
+  single-colour/strip flags. If you add anything to what a package's commands
+  contain, add it to the key in `beginRetainedBag` in the same edit. Two
+  invalidations are unconditional because a pointer compare cannot see them: a
+  pipeline teardown (`deallocateOnUse`) and a VU1 clipping-mode switch both clear
+  the cache outright. Note what the key does not need: a recycled heap address
+  with the same layout produces the same block, because the block carries
+  addresses and counts and no vertex data.
+- **The same capture-and-replay covers the clipping chain.** `addClipChain`'s
+  fifteen quadwords - 52 float stores **per mesh** - depend only on the
+  renderer's near/far pair and the guard band, so they are captured once.
+  `init()` and `setVU1Clipping()` are the only places those inputs move and both
+  drop the capture.
+
+Counts: `StaPipCore::takeRetainedCommandHits/Builds/getRetainedCommandBytes`,
+and a debug engine logs `STAPIPRET` every 300 frames (which makes a debug build
+the only in-engine consumer of those counters - they reset on read).
+`TYRA_STAPIP_RETAINED_COMMANDS = 0` restores the previous construction exactly
+and is the A/B control arm. Measured in PCSX2 on the Motor District benchmark
+fixture, three boots per arm: **18 `--capture-frame` images hash to one value**,
+and garage day - the only pose not pinned to a vsync division - goes
+27.889 -> 30.769 median FPS (35.86 -> 32.50 ms, **-3.36 ms**) against a 0.222 FPS
+control spread and a **0.001 FPS same-build repeatability**; 76 % of the frame's
+package command blocks replay (`retained=772 rebuilt=246, cache=106 KB`). Two
+tuning facts came out of that run and are the reason the constants are what they
+are: the first shape reserved 8 quadwords per package and never evicted, the cap
+bound, the cache held geometry the camera had left, and it measured **1.35 FPS
+slower** than the shipped 7-quadword + bounded-LRU one. **PCSX2 cannot price
+this change fully**: it emulates no EE data cache, and the change trades
+computing bytes for reading them out of a cold 128 KB arena, so an emulator
+delta is an upper bound on the hardware saving and nothing more.
+
+### The baked VIF stream spike (TYRA_STAPIP_BAKED_STREAM, default 0)
+
+A wholly visible static bag's whole per-frame VIF1 command stream emitted once
+and replayed by ONE DMA `REF` tag. Format, arithmetic and what verified:
+docs/baked-vif-stream.md. It ships **off**; five things any edit must keep.
+
+- **A `REF` payload may contain NO DMA tags.** The DMAC does not interpret tags
+  inside referenced data - it feeds every word of it to VIF1 as a VIFcode - so
+  the baked block is a pure VIFcode stream: `STCYCL` + `UNPACK` followed
+  **inline** by the data that unpack transfers, repeated, then `FLUSH` +
+  `MSCAL`/`MSCNT`. That is not a new thing to ask of VIF1: with TTE a chain tag
+  is 8 bytes of DMA tag plus 8 bytes of VIFcodes, so VIF1 already receives an
+  unbroken WORD stream in which codes and data alternate with no relation to
+  quadword boundaries - `packet2_utils_vu_open_unpack` + `packet2_add_float`
+  (the `submissionBatchCandidate` branch of `sendObjectData`) is the shipping
+  existence proof.
+- **The block is TRANSCODED, never re-derived.** `bakeBlock` walks the chain
+  fragment the ordinary writers just produced and turns each tag into ONE header
+  quadword carrying that tag's own two VIFcodes **verbatim**, preceded by two
+  VIF `NOP`s, followed by the quadwords the tag transferred. The NOPs go in
+  FRONT - an `UNPACK` eats the words that immediately follow it, so trailing
+  padding would be read as unpack data - and they keep every payload quadword
+  aligned, which is what makes the payload a copy rather than a shift. Anything
+  that is not `CNT` or `REF` refuses the bake. Same reasoning as
+  StaPipRetainedCommands: no second description of the packet format to drift.
+- **THE PROGRAM KICK IS A BAKE-TIME FACT, and that is what makes one `REF` per
+  MESH possible.** `addBuffersDataToPacket` picks `MSCAL` or `MSCNT` off
+  `lastProgramName`, which looks per-frame - but `StaPipCore::render` calls
+  `clearLastProgramName()` **once per bag**, so package 0 always produced
+  `MSCAL <program address>` and every later package `MSCNT`. The kick therefore
+  lives inside the block and the program's micro-memory destination joins the
+  key. If you ever stop clearing that per bag, this breaks silently.
+- **A baked block IS live DMA memory**, unlike a retained one. It is written
+  once, when built, and only read afterwards - never patched in place - and
+  eviction may not free what the last submitted packet still names, so every
+  free goes through a two-frame graveyard. And the arena is hand-aligned to 16
+  bytes: a DMA tag's address field drops its low four bits, so a misaligned
+  arena transfers from somewhere else, silently.
+- **Only the DIRECT, wholly-visible cull route bakes**, and the run a single
+  `REF` covers stops at the 16-group packet flush boundary. Both are deliberate:
+  the direct route is the one whose packages are a fixed slice of the bag, and
+  changing the flush cadence would move `packetFlushes`, which is one of the
+  counters the acceptance gate pins. **That second reason is the spike's
+  self-imposed limit, and it is where the prize is** - a longer run is a bigger
+  saving and only a moved cadence lengthens runs. Lifting it requires a gate that
+  is not built on counters: docs/baked-stream-acceptance-gate.md, which checks a
+  canonical hash of the word stream VIF1 actually receives instead.
+  `StaPipQBuffer::bakeIndex` is reset by
+  `getBuffer()` for the same reason `retainIndex` is - a half flush covers
+  buffers of SEVERAL bags, so a stale index would be read against another bag's
+  arena.
+
+- **IT IS WORTH 1.287 ms OF GARAGE-DAY `work` ON HARDWARE, against a 0.012 ms
+  floor - a fifth of the 5.5-6.5 ms the plan budgeted.** Measured with NO
+  instrument in either arm (no gate hash, no verify, no poison, no periodic
+  report): a gate arm and a verify arm are correctness arms and neither may
+  produce a millisecond. `total_ms` does not move in garage day at all - the
+  saving goes into `present`, because the vsync rung is 10.42 ms away - but
+  garage night stops juddering (43.9 ms averaged over a two/three-field
+  alternation becomes a flat 39.959). Two reasons it is not bigger: only half the
+  bags take the direct route (`dsDirectBags` 53.5 against `dsPartialBags` 59), and
+  `prepare` RISES 0.315 ms, the same term that refuted mesh LOD 64.
+- **THE EE PAYS PER PACKAGE, and the arithmetic closes twice.** Packet
+  construction is 1.898 ms over 803.5 packages = **2.362 us a package**; replaying
+  360 of them predicts 0.850 ms and 0.808 was measured. That is why badly packed
+  geometry costs out of proportion - projected shadows and wheels run 22-25
+  triangles a VU1 package against a strip's ~70, taking 16% of the frame's
+  packages for 7.6% of its triangles.
+- **THE KEY DOES NOT COVER WHAT THE BLOCK CONTAINS, and that is the blocker.**
+  It holds each array's POINTER plus `bboxVersion`, and `bboxVersion` is a
+  statement about the bounding box, i.e. about POSITIONS. A caller that re-shades
+  per-vertex COLOURS in place - which the Motor District does for its dynamic
+  lights - changes what the block must contain without touching anything the key
+  can see, and the baked stream then replays stale lighting. Measured:
+  `TYRA_STAPIP_BAKED_VERIFY` mismatches 1438 times, all of them the colour-only
+  class, all of them with the first differing quadword landing on the first
+  COLOUR quadword. The RETAINED cache is immune because it stores the chain and
+  its `REF`s still name the bag's own arrays, so a re-shade is followed at DMA
+  time - the exposure belongs to the baked stream BECAUSE it inlines the payload.
+  No gate leg can see this on a frozen fixture: once the camera stops, the
+  colours stop. docs/baked-stream-acceptance-gate.md, and the backlog item.
+- **The two adversarial modes are how you find that class at all**, and they are
+  not optional before turning this on. `TYRA_STAPIP_BAKED_VERIFY` never replays -
+  it rebuilds every block with the ordinary writers and compares - so it needs no
+  control arm and runs under `--keep-routes` with the traffic MOVING.
+  `TYRA_STAPIP_BAKED_POISON` overwrites an evicted arena immediately instead of
+  letting the two-frame graveyard hide it; paired with
+  `TYRA_STAPIP_BAKED_BUDGET_QW` cut far below what the scene wants, it thrashes
+  eviction and proves the DMA lifetime. Poison PASSES at 16 384 quadwords against
+  1 541 KB wanted, with a byte-identical picture.
+
+The cost is the part the plan page (docs/ee-submission-rearchitecture.md) did
+not mention: inlining the payload stores every static vertex twice, ~49 bytes
+per vertex for the textured per-vertex-colour class, and **nothing can free the
+originals** - the bbox cacher, the clip route and the generated game all still
+read them. `STAPIPBAKE` (behind `TYRA_STAPIP_BAKED_REPORT`, default 0) prints
+the arena size and the per-frame DMA chain quadword count; that last counter is
+compiled into BOTH arms, which is what makes the A/B readable.
+
+**`STAPIPMISS` beside it answers WHY a bag rebuilt, and that question is the one
+worth instrumenting.** A cache that never converges contaminates whatever is
+measured next, and "it churns" is not actionable - the field that moved is. It
+tallies one reason per invalidation (`bbox`, `prim`, `streams`, `program`,
+`size`, `new`, `incomplete`) and records the largest bag that moved, by vertex
+and package count, so a mesh can be named by its size rather than by a heap
+address. Measured on the Motor District garage, held pose: **one**
+`bboxVersion` bump and **two** prim-state collisions per frame, zero everywhere
+else, costing 64 rebuilt packages because those three bags are 31 and 51
+packages each - and at the outer-road pose, zero of everything with every drawn
+direct bag replayed. Both mechanisms are known shapes: `bboxVersion` bumped
+unconditionally is the defect docs/wheel-rebake-skip.md records, and a second
+pass over one vertex array thrashes the single entry the cache holds per
+(array, package size). Keep this counter when you touch the key; it is how the
+next round avoids pricing a cache that is not working.
+
+### Triangle strips for static geometry (1.95.0)
+
+`StaPipBag::stripped` says the bag's `vertices` are a TRIANGLE STRIP. The whole
+feature is **zero VU1 instructions** - no microprogram changed, micro memory is
+still 1862 of 2042 words - because the per-vertex ADC judgement the cull
+programs already write (`fcand 0x3FFFF` over the last three `clipw` results) is
+exactly the triangle a strip vertex kicks. Numbers, format and the picture
+comparison: docs/model-pipeline.md, "Triangle strips".
+
+Five things any edit here must keep.
+
+- **The GS primitive is per BUFFER, not per pipeline.** `StaPipQBuffer::stripped`
+  is what `StaPipVU1Program::addStandardBufferDataToPacket` turns into
+  `PRIM_TRIANGLE_STRIP`, on a COPY of the shared `prim_t`. It has to be
+  per-buffer because a stripped bag's clip-routed packages are expanded back to
+  lists and travel in the same flush as its stripped ones.
+- **The runs ARE the packages.** A VU1 package is a contiguous slice of the
+  bag's array, so the bake chops the strip into independent runs of exactly
+  `packageSize` vertices (`meshstrip::kRun` = 72, the smallest size any static
+  program class derives) and the submitter pins `packageSize` to that. Nothing
+  at runtime repeats a two-vertex overlap; a package boundary simply cannot fall
+  inside a strip. Every run length is a multiple of 3 (the vertex loops step by
+  three), padded with a repeat of the last vertex - a degenerate triangle.
+- **`renderStrippedPkgs` is a separate route and must stay one.** A stripped bag
+  never reaches `renderSubpkgs`: its 1/3 subpackages would not be strips, and
+  `fillByCopyMax`/`fillByCopy1By2` would fuse two of them into one buffer.
+- **A package that genuinely crosses a clip plane is expanded to a LIST on the
+  EE** (`StaPipQBuffer::fillByStripExpand`, into the double-buffered copy pool)
+  and clipped exactly as before - `clip_*` and the EE clipper are both
+  per-triangle over a list, and neither was touched. Chunked at the same
+  triangle budget a list subpackage carries. At the garage-day pose this fired
+  ZERO times; from inside a building, 29.5 packages a frame.
+- **Anything that walks a bag's TRIANGLES has to read the run length.** In the
+  fork that is nothing, because the microprograms do not; in the generated game
+  it is `GeoPart::stripRun`, and the three flashlight receiver passes plus the
+  portal exit clipper each step by ONE vertex inside a run and skip the triple
+  that would span two runs. The portal clipper's OUTPUT is a list, so it clears
+  `stripped` and the pin on its cached bag. Anything that walks VERTICES - the
+  shading bake, env normals, `renderAtFloor`'s y-clamp copy, the coarse AABB -
+  needs no change at all, which is most of the reason this was affordable.
+
+Telemetry gained `packagesStrip`, `packagesStripExpanded` and
+`verticesSubmitted` (counted where a buffer is packetised). **Triangle counts
+are NOT comparable across the change**: a strip run of 72 reports 70 triangles
+including its degenerate joins and padding, against a list package's 24 real
+ones. Compare `verticesSubmitted`.
+
+The `triangles*` fields are **GS primitives**, and that is the whole of what
+they are. One surface reports 25 650 as a list and 38 427 as strips on the
+garage-day pose - a **measured 1.498x, not a miscount**: the frame submits
+11.3% fewer vertices and asks for about half as many more primitives, nearly
+all zero-area. The runtime cannot recover the surface count (the degenerate
+total depends on how the bake packed the runs and no package records it), so
+the PRODUCERS log theirs instead - `ROADSTRIP`/`TERRAINSTRIP` in `bin/log.txt`,
+degenerates dropped - and that is what an A/B across representations compares.
+Two counters in `StaPipCore` are outright wrong for a strip and are **still
+unfixed** (left alone because the submission path was being edited in
+parallel): `recordGuardBandPackage` charges `package.size / 3` with no strip
+branch, so `guard=` uses a different rule from the `cull=` it is a subset of;
+and `recordOutsideBag` charges a whole bag `count - 2` when the bag is sliced
+into `ceil(count / maxVertCount)` runs that are each their own strip,
+over-counting by `2 * (packages - 1)`.
+
+### The generated game's own grids (1.96.0)
+
+Roads and terrain are stripped too, and they are where the geometry is - 93 150
+road vertices against 13 176 in all the district's models. Neither goes through
+`meshstrip`: a ribbon's and a heightfield's rows ARE the strip, and `buildRoads`
+tessellates on the **EE at scene load**, where a weld hash plus a
+six-orientation greedy walk is not affordable at all. Both keep the run
+contract above exactly (72, multiples of 3, padded tails, two-vertex joins,
+`stripped` + `packageSize` pinned - roads in `procFinishChunks`, terrain through
+`pinPackageSize(pins, stripRun)`, which already had the parameter). Three
+things to keep:
+
+- **The strip must follow the grid's LONG axis, and for roads that axis
+  changes.** A dense span is a row of lateral cells and strips ACROSS the road;
+  a span the planar reduction COLLAPSED is one full-width quad, so a street of
+  them is a grid one cell wide and many stations long and must strip ALONG the
+  road. Taken laterally a collapsed span is 4 vertices plus a 2-vertex join
+  against the list's 6 - exactly break-even, and three times the GS primitives
+  with two thirds of them degenerate. That was measured, not guessed.
+- **Which interleaving you pick decides which DIAGONAL splits each quad.** Both
+  orders are legal strips; only one reproduces the list stitch's own cut. The
+  wrong one is invisible in a vertex count and obvious on a crest.
+- **Terrain strips only with a terrain MATERIAL.** The untextured fallback is a
+  two-green checker and that colour belongs to the QUAD, while a strip vertex
+  belongs to two - stripping it flattens the checker. With a material both
+  colours are the same tint. Everything else on a terrain vertex (height,
+  shade, ST, splat weight, the geomipmap edge snap) is a function of the grid
+  coordinate and shares correctly; `emisCols` reads the same per-quad base, so
+  it rides the same gate.
 
 ## Signed RGB SH and exact skin reuse (1.74.0)
 
@@ -2262,12 +2848,39 @@ flashes despite passing VU arithmetic tests. Both lighting senders now use
 CNT/UNPACK with inline colour floats (four extra packet-storage qwords; the
 same VU layout). DynPip waits before resetting its reusable packet; StaPip
 keeps inline values in its double-buffered combined packet and does not reuse
-that side until the intervening submission has completed. StaPip allocates 185
-qwords per side (57 reserved for worst-case uniforms/barrier plus 128 for the
-32 qbuffer command groups); DynPip's uniform packet capacity is 24 qwords.
+that side until the intervening submission has completed. Before 1.93, StaPip allocated 185
+qwords per side (57 for uniforms/barrier plus 128 for one 16-group half);
+1.93 uses 784 qwords per side for bounded cross-bag submission; DynPip's uniform packet capacity is 24 qwords.
 
 The 1.80 merge retains inline SH colour storage with deferred StaPip uniforms.
 Since 1.86.4 that data shares the first geometry packet. It is safe to reset
 because sendPacket waits for the prior VIF1 DMA before flipping contexts and
 the other packet is used while the submitted one drains; DynPip retains its
 own wait-before-reset contract.
+
+### Missing resources can invalidate a performance comparison
+
+Native compilation alone does not populate a missing .res-baked mirror.
+PNG soft-error placeholders and skipped missing TMDLs can leave a game running
+with much less work than the intended scene. Validate deployed asset hashes
+and actual GS images, not just successful ELF linking or equal triangle counts
+between two broken fixtures. The full-asset gate and September 14 correction
+are recorded in docs/performance-hardware-recheck.md.
+
+## Hardware timeline capture
+
+Use tools/hardware-trace.py arm PROJECT before a boot, then export the complete
+bin/hardware-trace.csv to HTML/Perfetto. The engine captures bounded RAM events
+without new drains and writes after sampling. Scope totals overlap; VIF1 DMA
+wait is not VU1 execution, and VIF/GIF snapshots are not utilization. Compare
+unarmed/armed controls and reject dropped or stale events. See
+docs/hardware-profiler.md for start-frame semantics and capture limits.
+
+### Native hardware timeline (1.92)
+
+`src/hardware_timeline.cpp` reads the same bounded CSV as the offline exporter.
+Debugger > Hardware timeline arms the next boot and loads completed captures on
+demand, with frame selection, zoom, raw marker tooltips and inclusive totals.
+No browser, Python or extra debugger polling is required. Engine detail scopes
+separate package creation/classification, qbuffer copies and packet construction.
+See `docs/hardware-profiler.md`; use unarmed controls to rank performance.

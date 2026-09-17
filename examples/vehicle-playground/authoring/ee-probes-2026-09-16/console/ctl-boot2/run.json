@@ -1,0 +1,18 @@
+{
+  "arm": "ctl",
+  "label": "boot2",
+  "pid": 38216,
+  "started": "2026-09-16T18:59:41.8066819+02:00",
+  "elf": "0FA62C5A2AA009694AAB257E9D72CBB8CA12BAD6A4DEEAD589076EAD7121D998",
+  "armJson": {
+    "arm": "ctl",
+    "acceptAll": 0,
+    "coarseClassify": 0,
+    "uncachedChain": 0,
+    "logSends": 0,
+    "elfSha256": "0FA62C5A2AA009694AAB257E9D72CBB8CA12BAD6A4DEEAD589076EAD7121D998",
+    "built": "2026-09-16T18:43:46.0378882+02:00",
+    "editorSha256": "B54E4CA4FCD63D992B8E9DE8FF9C63935DE63AF7464C3680A37F9A89EA661999",
+    "commit": "a64155fef2d5ac9b36af6100d0e7cfbcfd64e2c0"
+  }
+}

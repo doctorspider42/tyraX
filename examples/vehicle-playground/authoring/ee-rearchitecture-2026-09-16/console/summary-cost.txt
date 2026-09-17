@@ -1,0 +1,72 @@
+
+== garage-day   (baseline: ctl1)
+metric                          ctl1        ctl2        cand      d ctl2      d cand
+work_ms                       30.070      30.082      28.783      +0.012      -1.287
+total_ms                      39.960      39.959      39.960      -0.001      -0.000
+update_ms                      2.843       2.846       2.933      +0.002      +0.089
+submit_ms                     26.203      26.212      24.802      +0.010      -1.401
+finish_ms                      1.024       1.024       1.049      +0.000      +0.025
+present_ms                     9.890       9.877      11.177      -0.013      +1.287
+bounds_included_ms             2.491       2.485       2.317      -0.006      -0.173
+prepare_included_ms            2.716       2.711       3.031      -0.006      +0.315
+dispatch_included_ms          15.022      15.039      13.596      +0.017      -1.426
+packet_included_ms             1.898       1.907       1.089      +0.009      -0.808
+dma_included_ms                2.156       2.150       1.970      -0.006      -0.185
+vif_wait_included_ms           5.619       5.626       5.702      +0.007      +0.083
+flushes                      120.000     120.000     109.000      +0.000     -11.000
+triangles                  40961.000   40961.000   40961.000      +0.000      +0.000
+reuploads                      0.000       0.000       0.000      +0.000      +0.000
+
+== garage-night   (baseline: ctl1)
+metric                          ctl1        ctl2        cand      d ctl2      d cand
+work_ms                       37.405      37.376      36.212      -0.030      -1.193
+total_ms                      43.877      43.044      39.959      -0.833      -3.919
+update_ms                      2.919       2.920       3.018      +0.001      +0.098
+submit_ms                     32.959      32.918      31.567      -0.041      -1.391
+finish_ms                      1.527       1.538       1.627      +0.011      +0.100
+present_ms                     6.472       5.669       3.747      -0.804      -2.725
+bounds_included_ms             3.397       3.391       3.235      -0.005      -0.161
+prepare_included_ms            4.621       4.620       4.896      -0.001      +0.275
+dispatch_included_ms          16.839      16.833      15.560      -0.006      -1.278
+packet_included_ms             2.094       2.097       1.315      +0.003      -0.779
+dma_included_ms                2.554       2.561       2.356      +0.007      -0.198
+vif_wait_included_ms           6.082       6.080       6.111      -0.001      +0.030
+flushes                      142.500     142.500     131.500      +0.000     -11.000
+triangles                  41629.000   41629.000   41629.000      +0.000      +0.000
+reuploads                      0.000       0.000       0.000      +0.000      +0.000
+
+== outer-day   (baseline: ctl1)
+metric                          ctl1        ctl2        cand      d ctl2      d cand
+work_ms                       13.448      13.445      13.419      -0.003      -0.029
+total_ms                      19.957      19.956      19.955      -0.001      -0.001
+update_ms                      2.850       2.853       2.944      +0.003      +0.094
+submit_ms                      9.551       9.551       9.423      +0.000      -0.128
+finish_ms                      1.047       1.040       1.052      -0.007      +0.005
+present_ms                     6.509       6.511       6.536      +0.002      +0.027
+bounds_included_ms             1.384       1.381       1.276      -0.003      -0.108
+prepare_included_ms            0.802       0.799       0.824      -0.002      +0.022
+dispatch_included_ms           5.267       5.267       5.297      -0.000      +0.030
+packet_included_ms             0.782       0.778       0.600      -0.004      -0.182
+dma_included_ms                0.776       0.776       0.726      +0.000      -0.050
+vif_wait_included_ms           1.265       1.263       1.582      -0.002      +0.317
+flushes                       43.000      43.000      40.000      +0.000      -3.000
+triangles                  16053.500   16053.500   16053.500      +0.000      +0.000
+reuploads                      0.000       0.000       0.000      +0.000      +0.000
+
+== outer-night   (baseline: ctl1)
+metric                          ctl1        ctl2        cand      d ctl2      d cand
+work_ms                       16.369      16.363      16.252      -0.006      -0.118
+total_ms                      19.960      19.960      19.959      +0.000      -0.001
+update_ms                      2.923       2.921       3.010      -0.002      +0.087
+submit_ms                     11.895      11.890      11.687      -0.005      -0.208
+finish_ms                      1.551       1.552       1.554      +0.001      +0.003
+present_ms                     3.591       3.597       3.708      +0.007      +0.117
+bounds_included_ms             1.981       1.982       1.867      +0.002      -0.114
+prepare_included_ms            1.298       1.303       1.334      +0.005      +0.035
+dispatch_included_ms           5.453       5.455       5.427      +0.002      -0.026
+packet_included_ms             0.836       0.840       0.610      +0.003      -0.226
+dma_included_ms                0.844       0.843       0.787      -0.001      -0.057
+vif_wait_included_ms           1.222       1.220       1.530      -0.003      +0.308
+flushes                       47.000      47.000      44.000      +0.000      -3.000
+triangles                  16385.500   16385.500   16385.500      +0.000      +0.000
+reuploads                      0.000       0.000       0.000      +0.000      +0.000

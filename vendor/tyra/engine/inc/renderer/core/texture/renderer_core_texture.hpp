@@ -17,6 +17,22 @@
 #include "renderer/core/paths/path3/path3.hpp"
 #include "./renderer_core_texture_buffers.hpp"
 
+// Modified by TyraX: the GS VRAM residency census (docs/gs-vram.md). OFF by
+// default and deliberately not keyed to NDEBUG - the engine's Makefile defines
+// that for one target only, so a "debug-only" census gated on it shipped live
+// in a release-profile game and cost about 1 ms a frame on a physical console.
+// Build with -DTYRA_VRAM_CENSUS=1 to name what is resident.
+#ifndef TYRA_VRAM_CENSUS
+#define TYRA_VRAM_CENSUS 0
+#endif
+
+// The 120-frame VRAMSTAT summary. The eviction-driven line is unconditional -
+// that one reports an event. This one is a timer, and a timer that writes to
+// host: inside a measurement window is noise with a period.
+#ifndef TYRA_VRAM_PERIODIC_STAT
+#define TYRA_VRAM_PERIODIC_STAT 0
+#endif
+
 namespace Tyra {
 
 /**
@@ -47,6 +63,7 @@ struct RendererCoreVRamStats {
 
 class RendererCoreTexture {
  public:
+  typedef void (*MutationBarrier)(void* context);
   RendererCoreTexture();
   ~RendererCoreTexture();
 
@@ -54,6 +71,16 @@ class RendererCoreTexture {
   TextureRepository repository;
 
   RendererCoreTextureBuffers useTexture(const Texture* t_tex);
+  /** Modified by TyraX: called only before VRAM content/address mutation. */
+  void setMutationBarrier(MutationBarrier barrier, void* context) {
+    mutationBarrier = barrier;
+    mutationBarrierContext = context;
+  }
+  void clearMutationBarrier(void* context) {
+    if (mutationBarrierContext != context) return;
+    mutationBarrier = nullptr;
+    mutationBarrierContext = nullptr;
+  }
 
   /**
    * Called by user after changing texture wrap settings
@@ -126,6 +153,9 @@ class RendererCoreTexture {
   RendererCoreGS* gs;
   RendererCoreTextureSender sender;
   Path3* path3;
+  MutationBarrier mutationBarrier = nullptr;
+  void* mutationBarrierContext = nullptr;
+  void beforeMutation();
 };
 
 }  // namespace Tyra

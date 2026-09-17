@@ -1,0 +1,1 @@
+{ "id": "district94b4bbe8", "name": "Garage boulevard", "type": "road", "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "roadPoints": [0, -108, 0, -50, 0, 0, 0, 55, 0, 112], "roadWidth": 13, "roadTexture": "res/textures/district-road.png" }

@@ -1,0 +1,1 @@
+{ "id": "districtc63f23f6", "name": "Loft block 05", "type": "model", "position": [48, 0, 34], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "drawDistance": 145, "reflected": true, "castShadow": false, "model": "res/models/urban/district-loft.obj" }

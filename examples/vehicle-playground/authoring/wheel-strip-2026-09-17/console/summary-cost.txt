@@ -1,0 +1,91 @@
+REPEATABILITY FLOOR - two boots of the SAME ELF
+bracket                        ctl1       ctl2      drift
+---------------------------------------------------------
+work                         27.741     27.721     -0.020
+submit_ms                    23.883     23.863     -0.019
+dispatch_included_ms         13.532     13.542     +0.010
+packet_included_ms            1.732      1.724     -0.007
+bounds_included_ms            2.061      2.057     -0.004
+prepare_included_ms           2.534      2.524     -0.010
+dma_included_ms               1.955      1.957     +0.002
+vif_wait_included_ms          5.004      4.997     -0.008
+flushes                         106        106     +0.000
+triangles                     35061      35061     +0.000
+total_ms                     39.961     39.961     -0.001
+
+=== pose 0 (garage day) ===
+bracket                     control  candidate      delta
+---------------------------------------------------------
+work                         27.731     27.281     -0.449
+submit_ms                    23.873     23.439     -0.434
+dispatch_included_ms         13.537     13.255     -0.282
+packet_included_ms            1.728      1.724     -0.004
+bounds_included_ms            2.059      2.146     +0.087
+prepare_included_ms           2.529      2.489     -0.040
+dma_included_ms               1.956      1.895     -0.062
+vif_wait_included_ms          5.001      4.838     -0.163
+flushes                         106        105     -1.000
+triangles                     35061      36868  +1807.000
+total_ms                     39.961     39.960     -0.001
+
+=== pose 1 (garage night) ===
+bracket                     control  candidate      delta
+---------------------------------------------------------
+work                         34.686     33.987     -0.699
+submit_ms                    30.218     29.522     -0.696
+dispatch_included_ms         15.026     14.787     -0.239
+packet_included_ms            1.876      1.906     +0.030
+bounds_included_ms            2.909      2.949     +0.040
+prepare_included_ms           4.272      4.207     -0.065
+dma_included_ms               2.255      2.173     -0.083
+vif_wait_included_ms          5.409      5.225     -0.184
+flushes                         123        122     -1.000
+triangles                     35663      37472  +1809.000
+total_ms                     39.959     39.960     +0.001
+
+=== pose 2 (outer day) ===
+bracket                     control  candidate      delta
+---------------------------------------------------------
+work                         11.808     11.872     +0.064
+submit_ms                     7.925      8.001     +0.076
+dispatch_included_ms          4.383      4.431     +0.048
+packet_included_ms            0.669      0.685     +0.016
+bounds_included_ms            1.107      1.129     +0.022
+prepare_included_ms           0.669      0.665     -0.005
+dma_included_ms               0.648      0.637     -0.010
+vif_wait_included_ms          0.920      0.913     -0.006
+flushes                          35         35     +0.000
+triangles                     11452      11452     +0.000
+total_ms                     19.955     19.956     +0.001
+
+=== pose 3 (outer night) ===
+bracket                     control  candidate      delta
+---------------------------------------------------------
+work                         14.699     14.700     +0.000
+submit_ms                    10.243     10.249     +0.006
+dispatch_included_ms          4.589      4.630     +0.040
+packet_included_ms            0.713      0.731     +0.018
+bounds_included_ms            1.672      1.666     -0.006
+prepare_included_ms           1.156      1.145     -0.012
+dma_included_ms               0.716      0.709     -0.008
+vif_wait_included_ms          0.894      0.895     +0.001
+flushes                          39         39     +0.000
+triangles                     11784      11784     +0.000
+total_ms                     19.960     19.960     +0.000
+
+WHAT ONE VU1 PACKAGE COSTS, pose 0 (garage day)
+  the candidate removes 23 of the control's 711 packages
+  repeatability floor on `work`: 0.020 ms - read every figure below against it
+bracket                    delta ms   us/package
+------------------------------------------------
+work                         -0.449       19.541
+submit_ms                    -0.434       18.881
+dispatch_included_ms         -0.282       12.253
+packet_included_ms           -0.004        0.193
+bounds_included_ms           +0.087       -3.784
+prepare_included_ms          -0.040        1.731
+dma_included_ms              -0.062        2.685
+
+  For contrast, the figure this round was priced against:
+    packet construction alone, control = 2.430 us/package
+    the whole `dispatch` bracket, control = 19.039 us/package

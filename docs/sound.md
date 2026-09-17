@@ -89,6 +89,35 @@ waveform the old sample was — a transient masks it, a sustained quiet sample
 may not — and it is a property of the hardware, not of the code: measure it in
 your own game rather than assuming either answer.
 
+## Looping samples
+
+**A WAV under `res/sfx` whose name ends in `-loop.wav` is encoded with
+`adpenc -L`**, which sets the SPU2 block loop flags so the voice repeats instead
+of ending. Everything else is encoded as a one-shot.
+
+The loop is therefore a property of the **encoded sample**, not of the play call:
+no runtime call can turn a one-shot into a loop, and none can stop a loop either
+(`AudioAdpcm`'s own doc comment — "ADPCM sample can't be stopped"). Silence a
+looping voice by setting its volume to zero.
+
+The convention lives in the file name rather than in the project because `adpenc`
+runs over `res/sfx` as a directory during the build and has no access to the
+project model — the same reasoning as `*-lit.png`. A picker that offers a looping
+sound should filter on that suffix; the Vehicle Editor's engine-sound picker does.
+
+**Pitch.** `AudioAdpcm::setPitch(channel, reg)` retunes a playing voice
+(`SD_VPARAM_PITCH`). `reg` is relative to the sample's **own** encoded rate, which
+audsrv reports and which is *not* `0x1000` — a 22 kHz sample reports 1881, because
+the SPU2's reference is 48 kHz. Use `AudioAdpcm::naturalPitch(sample)` and
+multiply. The register is 14 bits and saturates at `0x3FFF`; above that it wraps
+to a much lower pitch, which sounds like the note dropping an octave rather than
+like a clamp, so `setPitch` clamps for you.
+
+It costs a **blocking IOP RPC** per write (`sceSdSetParam` → `SifCallRpc` with no
+callback), so write it only when the value actually changes. Vehicle engine sound
+(docs/vehicles.md) quantises the register to 32 steps for exactly this reason: at
+a steady cruise that is no calls at all.
+
 ## What it costs
 
 The ranking is plain arithmetic over the scene's emitters — no calls into the

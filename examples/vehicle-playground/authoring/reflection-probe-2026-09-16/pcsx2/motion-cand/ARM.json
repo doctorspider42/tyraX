@@ -1,0 +1,14 @@
+{
+  "arm": "motion-cand",
+  "profile": "quiet-debug",
+  "stripRun": "75",
+  "reflectionReuseBudget": 1.0,
+  "sampler": "motion: idle / straight / turn 20 / turn 90",
+  "keepRoutes": false,
+  "instrument": "inventory-frame.py (per-producer counters; NOT a timing run)",
+  "elfSha256": "09698EF0916F4FA25474A5D50CD5E8B5DD85C4BDDD8558237780F28B6FCD6190",
+  "editor": "D:\\tyra-editor\\.claude\\worktrees\\agent-a839bcfe5782f9b39\\build\\tyrax-editor.exe",
+  "editorSha256": "0A8938B013D84D8DD8DF194196E3F75909181058D97278484393D8FE6B9B4D21",
+  "commit": "f27d78016c1e0b9ea62fcb116f6b4e162f6170dc",
+  "built": "2026-09-16T23:04:08.7204234+02:00"
+}

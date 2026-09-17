@@ -1,0 +1,10 @@
+{
+  "dispatch-detail": {
+    "resources": 105,
+    "match": true
+  },
+  "dispatch-reuse": {
+    "resources": 105,
+    "match": true
+  }
+}

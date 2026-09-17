@@ -1,0 +1,1 @@
+{ "id": "districtf6b970d2", "name": "Streetlight start", "type": "model", "position": [-9, 0, -14], "rotation": [0, 90, 0], "scale": [6, 6, 6], "color": [1, 1, 1], "physics": false, "drawDistance": 145, "castShadow": false, "model": "res/models/urban/detail-light-double.obj" }

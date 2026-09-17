@@ -1,0 +1,171 @@
+; _____        ____   ___
+;   |     \/   ____| |___|
+;   |     |   |   \  |   |
+;---------------------------------------------------------------
+; Copyright 2022, tyra - https://github.com/h4570/tyra
+; Licensed under Apache License 2.0
+; Sandro Sobczyński <sandro.sobczynski@gmail.com>
+;
+;---------------------------------------------------------------
+; Triangle list
+; Cull = Standard PS2 way. clipw polys are culled.
+; Colors
+;---------------------------------------------------------------
+
+.syntax new
+.name StaPipVU1Cull_C
+.vu
+.init_vf_all
+.init_vi_all
+
+#include "src/renderer/3d/pipeline/shared/vcl_sml.i"
+#include "src/renderer/3d/pipeline/shared/tyra_macros.i"
+#include "inc/renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h"
+
+#define RGBA_STORE_OFFSET   0
+#define XYZ2_STORE_OFFSET   1
+
+--enter
+--endenter
+
+#vuprog StaPipVU1CullC
+
+    ResetClipFlags{ }
+    MatrixLoad{ mvp, VU1_MVP_MATRIX_ADDR, vi00 }
+    LoadTyraSingleColor{ singleColor, singleColorEnabled, VU1_SINGLE_COLOR_ADDR, VU1_OPTIONS_ADDR }
+    ; Modified by TyraX: GS hardware fog (packed XYZF2)
+    LoadTyraFogParams{ fogParams, VU1_OPTIONS_ADDR }
+    MakeTyraAdcMask{ adcMask }
+    ; Modified by TyraX: spot light (flashlight)
+    LoadTyraSpotLight{ spotPos, spotDirV, spotColV, VU1_LIGHTS_DIRS_ADDR }
+
+    ; Modified by TyraX: the GIF-tag registers are loaded INSIDE the batch loop
+    ; (below, next to the store that is their only reader) rather than here.
+    ; `begin:` is a loop, so a register loaded above it has to stay live across the
+    ; whole body - and the from-source assembler reuses these four for per-vertex
+    ; values instead, so every batch after the first one stored GARBAGE GIF TAGS and
+    ; its geometry never reached the GS. Free either way: the tag block is written
+    ; once per batch, so the loads simply moved to their reader, and peak register
+    ; pressure drops with them. Three sibling programs already carry this change;
+    ; see "A miscompile this uncovered" in docs/toolchain-image.md.
+
+begin:
+    xtop buffer
+    LoadTyraBufferTags{ scale, primTag, buffer }
+
+    iaddiu  vertexData,         buffer,         VU1_STAPIP_VERT_DATA_ADDR
+    ilw.w   vertexCount,        0(buffer)
+    iadd    colorData,          vertexData,     vertexCount
+    iblez   singleColorEnabled, setDestAddrMultiColor
+    iadd    kickAddress,        vertexData,     vertexCount
+    b       setDestAddr
+setDestAddrMultiColor:
+    iadd    kickAddress,        colorData,      vertexCount
+setDestAddr:
+    iaddiu  destAddress,        kickAddress,    0
+
+    ; Modified by TyraX: loaded here, not above `begin:` - see the note there.
+    LoadTyraStaticData{ gifSetTag }
+    LoadTyraTags{ lodGifTag, testsTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR }
+    ; Modified by TyraX: per-mesh GS blend equation, in-band
+    LoadTyraAlphaTag{ alphaGifTag, VU1_ALPHA_ADDR }
+    StoreTyraGifTagsAlpha{ gifSetTag, lodGifTag, alphaGifTag, primTag, testsTag, destAddress }
+
+    ;--- Loop
+    iadd vertexCounter, buffer, vertexCount
+vertexLoop:
+
+        iblez  singleColorEnabled, multiColor
+        ;--- Load vertices single color
+        add      color1,    vf00,   singleColor
+        add      color2,    vf00,   singleColor
+        add      color3,    vf00,   singleColor
+        b processing
+
+multiColor:
+        ;--- Load vertices colors
+        lq      color1,   (colorData)
+        lq      color2,   1(colorData)
+        lq      color3,   2(colorData)
+        
+processing:
+        ;--- Load vertex1
+        lq      vertex1,  (vertexData)
+
+        ;--- Load vertex2
+        lq      vertex2,  1(vertexData)
+
+        ;--- Load vertex3
+        lq      vertex3,  2(vertexData)
+
+        ;--- Calculate vertex1
+        CalculateTyraSpotLight{ color1, vertex1, spotPos, spotDirV, spotColV }
+        MatrixMultiplyVertex{ vertex1, mvp, vertex1 }
+        CalculateTyraFog{ fogInt, vertex1, fogParams }
+        PerformTyraFogClipCheck{ vertex1, destAddress, XYZ2_STORE_OFFSET, fogInt, adcMask }
+        VertexPersCorr{ vertex1, vertex1 }
+        ScaleVertexToGSFormat{ scale, vertex1 }
+        FixColor{ color1 }
+
+        ;--- Calculate vertex2
+        CalculateTyraSpotLight{ color2, vertex2, spotPos, spotDirV, spotColV }
+        MatrixMultiplyVertex{ vertex2, mvp, vertex2 }
+        CalculateTyraFog{ fogInt, vertex2, fogParams }
+        PerformTyraFogClipCheck{ vertex2, destAddress, XYZ2_STORE_OFFSET+2, fogInt, adcMask }
+        VertexPersCorr{ vertex2, vertex2 }
+        ScaleVertexToGSFormat{ scale, vertex2 }
+        FixColor{ color2 }
+    
+        ;--- Calculate vertex3
+        CalculateTyraSpotLight{ color3, vertex3, spotPos, spotDirV, spotColV }
+        MatrixMultiplyVertex{ vertex3, mvp, vertex3 }
+        CalculateTyraFog{ fogInt, vertex3, fogParams }
+        PerformTyraFogClipCheck{ vertex3, destAddress, XYZ2_STORE_OFFSET+4, fogInt, adcMask }
+        VertexPersCorr{ vertex3, vertex3 }
+        ScaleVertexToGSFormat{ scale, vertex3 }
+        FixColor{ color3 }
+
+        ;--- TyraX VU1 SENSITIVITY PROBE (diagnostic build only). Extra
+        ;--- per-vertex arithmetic stored into free VU1 data memory
+        ;--- (1016..1018, see stapip_vu1_shared_defines.h) so the assembler
+        ;--- cannot eliminate it and the GIF packet stays bit-identical.
+        MatrixMultiplyVertex{ probeAcc, mvp, vertex1 }
+        sq      probeAcc,       1016(vi00)
+        MatrixMultiplyVertex{ probeAcc, mvp, vertex2 }
+        sq      probeAcc,       1017(vi00)
+        MatrixMultiplyVertex{ probeAcc, mvp, vertex3 }
+        sq      probeAcc,       1018(vi00)
+
+        ;--- Store vertex1 
+        sq      color1,         RGBA_STORE_OFFSET(destAddress)
+        sq.xyz  vertex1,        XYZ2_STORE_OFFSET(destAddress)
+
+        ;--- Store vertex2
+        sq      color2,         RGBA_STORE_OFFSET+2(destAddress)
+        sq.xyz  vertex2,        XYZ2_STORE_OFFSET+2(destAddress)
+
+        ;--- Store vertex3
+        sq      color3,         RGBA_STORE_OFFSET+4(destAddress)
+        sq.xyz  vertex3,        XYZ2_STORE_OFFSET+4(destAddress)
+
+        ;-------------------------------
+
+        iaddiu  vertexData,     vertexData,     3      
+        iaddiu  colorData,      colorData,      3  
+        iaddiu  destAddress,    destAddress,    6
+
+        ;--- Fix loop
+        iaddi   vertexCounter,  vertexCounter,  -3  ; decrement the loop counter 
+        ibne    vertexCounter,  buffer, vertexLoop  ; and repeat if needed
+
+    xgkick kickAddress ; dispatch to the GS rasterizer.
+
+--barrier ; Why the hell I must add barrier AFTER XGKICK? VCL does not adds E bit without it...
+--cont
+
+    b   begin
+
+#endvuprog
+
+--exit
+--endexit

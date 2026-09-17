@@ -1,0 +1,30 @@
+{
+  "control": {
+    "required_assets": 105,
+    "mismatches": []
+  },
+  "no-host": {
+    "required_assets": 105,
+    "mismatches": []
+  },
+  "16bpp": {
+    "required_assets": 105,
+    "mismatches": []
+  },
+  "no-extra-passes": {
+    "required_assets": 105,
+    "mismatches": []
+  },
+  "scissor/game": {
+    "required_assets": 105,
+    "mismatches": []
+  },
+  "unlit/game": {
+    "required_assets": 105,
+    "mismatches": []
+  },
+  "control-repeat": {
+    "required_assets": 105,
+    "mismatches": []
+  }
+}

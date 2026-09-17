@@ -1,0 +1,11 @@
+[ui] running 8 step(s)
+[ui] wait 5
+[ui] click 'Hardware timeline'
+[ui] click 'Load hardware capture'
+[ui] frames 3
+[ui] click 'Next hardware frame'
+[ui] frames 3
+[ui] shot D:/tyra-hw-profiler-0914/editor-timeline-final.png
+[shot] D:/tyra-hw-profiler-0914/editor-timeline-final.png (1920x1009)
+[ui] (implicit quit)
+[ui] done - 8 step(s)

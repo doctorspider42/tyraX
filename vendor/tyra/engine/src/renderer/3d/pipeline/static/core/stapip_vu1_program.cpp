@@ -100,10 +100,19 @@ void StaPipVU1Program::addStandardBufferDataToPacket(packet2_t* packet,
     }
     packet2_add_u32(packet, packedCount);  // vertex count + clip-plane mask
 
-    // Modified by TyraX: NLOOP counts the GS vertices the program EMITS -
-    // 6x the input count for the billboard family (gsVertexCount).
-    packet2_utils_gs_add_prim_giftag(packet, prim, gsVertexCount(buffer->size),
-                                     reglist, reglistCount, 0);
+    // Modified by TyraX: the GS primitive is a property of the BUFFER, not of
+    // the pipeline. A stripped buffer (StaPipBag::stripped) carries a triangle
+    // STRIP, so the GS must take one vertex per triangle after the first two -
+    // and a stripped bag's clip-routed packages travel in the same flush as
+    // ordinary triangle lists, so the decision cannot live on the shared
+    // prim_t. NLOOP is unchanged either way: it counts the GS vertices the
+    // program EMITS, which is still one per input vertex (6x for the billboard
+    // family - gsVertexCount).
+    prim_t bufferPrim = *prim;
+    if (buffer->stripped) bufferPrim.type = PRIM_TRIANGLE_STRIP;
+    packet2_utils_gs_add_prim_giftag(packet, &bufferPrim,
+                                     gsVertexCount(buffer->size), reglist,
+                                     reglistCount, 0);
   }
   packet2_utils_vu_close_unpack(packet);
 }
@@ -120,12 +129,27 @@ u16 StaPipVU1Program::getMaxVertCount(const bool& singleColorEnabled,
   // Buffer size = VU1 double buffer size (xtop)
   // QBufferSize = res (it is placed inside VU1)
 
-  // Must be dividable by 3 and the result also dividable by 3. Why?
-  // 1st dividable reason - triangle, and packaging system in 3d rendering
-  // 2nd dividable reason - subpackaging system. We are splitting packages into
-  // 3 subpackages in 3d renderer.
-  res = res / 3 / 3;
-  res = res * 3 * 3;
+  // Must be divisible by 3: a package boundary through the middle of a
+  // triangle corrupts the geometry, and every loop in the pipeline - the cull
+  // programs, the clip programs, the EE clipper - walks whole triangles.
+  //
+  // Modified by TyraX: this used to round to a multiple of NINE, so that the
+  // 1/3 subpackage split came out divisible by 3 as well. That second
+  // condition is not required by any live path, and it cost the textured +
+  // per-vertex-colour class - the one every static pass of a real scene takes
+  // - three vertices a package (75 -> 72, 4% more packages, and almost every
+  // per-package term in StaPipCore::dispatch scales with the count). The two
+  // places that actually CUT triangles round for themselves and do not care
+  // what this returns:
+  //   - StaPipCore::clipPackageSize() is (maxVertCount / clipDivisor / 3) * 3
+  //   - the clip drain chunk in StaPipQBufferRenderer is (maxVertCount / 3) * 3
+  // and maxVertCount / 3 survives elsewhere only as the 1/3-bbox granularity
+  // (StaPipBagPackagesBBox), which is a ceiling division with a remainder part
+  // and is conservative by construction.
+  //
+  // Raising this REQUIRES re-baking the strip runs that are pinned to it
+  // (meshstrip::kRun and the road/terrain emitters) - see docs/model-pipeline.md.
+  res = (res / 3) * 3;
   return res;
 }
 

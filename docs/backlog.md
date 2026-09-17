@@ -4,6 +4,835 @@ This is only unfinished work that still has a clear payoff and a testable end.
 Finished investigations belong in commit history; reusable facts belong in the
 relevant guide or developer skill.
 
+## Motor District follow-up after the integrated frozen-camera pass
+
+### What else was `FlushCache` writing back? (2026-09-16, BLOCKING S1)
+
+The EE-submission Probe B removed `dma_channel_send_packet2`'s `FlushCache(0)`
+with the static pipeline's two packets allocated `P2_TYPE_UNCACHED` and with
+every send whose chain references a qbuffer copy pool still flushing — and the
+**picture came back corrupt** (1 271 of 262 144 pixels, a 14-row band at the
+horizon where the road and far buildings tear into slices). The same uncached
+build that still calls `FlushCache` is **byte-identical** to the control, which
+localises it to the flush rather than to the allocation.
+
+Two hypotheses, not separated:
+
+1. another EE-written, DMA-read buffer reached by a `REF` tag that is not one of
+   the copy pools (the horizon band points at the road or terrain strips);
+2. `FlushCache(0)` is also supplying an ordering barrier, and removing it lets
+   the DMAC start before the EE's stores have landed.
+
+**S1 (the frame chain out of cached memory) cannot be built until this is
+answered**, and it is worth 1.09 ms of garage-day `work` when it is — half the
+2.10 ms the plan predicted. Re-run with `--keep-routes`: a parked fixture cannot
+see a per-frame rebake that writes the same bytes every frame.
+
+Evidence, arms and recipe:
+[ee-probes-2026-09-16](../examples/vehicle-playground/authoring/ee-probes-2026-09-16/README.md).
+
+**Closed by the same round, do not re-open:** S3 (classify per 1/3-bbox part) is
+**refuted** — per-package rejection buys 2.60 ms against a 1.79 ms classification
+bracket, so it pays for itself, and the arm that actually coarsens the
+classification measured **+4.59 ms**.
+
+The September 14 asset pass and physical PS2 attribution are recorded in the
+[example README](../examples/vehicle-playground/README.md#lean-vehicles-2026-09-14).
+Lean CC96/Tristar geometry and configurable devkit cadence are complete. Next
+experiments should separately reduce repeated bounds/preparation and submission,
+using the saved native-raster hardware CSVs as the reference. Do not treat
+disabled debug channels as a renderer improvement or mix adaptive BLSS into
+this asset comparison. The indexed-bounds-cache step is complete: the hardware
+bounds bucket fell about 30%, with whole-frame improvement in the day views
+but roughly neutral night results. See the work plan's raw evidence and limits.
+The multi-entry transform experiment was rejected; see
+[its measurements](performance-transform-reuse.md). Bounded resident static
+submission batching is the next completed step; see
+[the physical comparison](static-submission-batching.md). **Persistent static
+command data is the next completed step** — see
+[retained-static-commands.md](retained-static-commands.md): a wholly visible
+bag's VU1 command block and the fifteen-quadword clipping chain are captured
+once and replayed with a memcpy, with the packet byte-identical by construction
+and no new DMA-lifetime exposure (the retained storage is copied, never
+referenced). Partially clipped geometry stayed on the current path exactly as
+this entry asked. Measured in PCSX2, three boots per arm: 18 `--capture-frame`
+images hash to one value, and garage day — the only pose not sitting on a vsync
+division — goes 27.889 → 30.769 median FPS (35.86 → 32.50 ms, **−3.36 ms**)
+against a 0.222 FPS control spread and a 0.001 FPS same-build repeatability,
+with 76 % of the frame's package command blocks replayed. What it does NOT
+cover, in order of what would pay:
+
+- **The per-bag UNIFORM tail is still rebuilt** — the OPTIONS/LOD/TEST/TEX0
+  group, the ALPHA quadword and the single colour are per-bag constants that
+  change only with a material, a z-test mode or a texture's VRAM address, but
+  they are not retained. That needs a key over the texture buffer as well, which
+  is the one input a pointer compare does not settle (eviction re-uploads to a
+  new address), so it was left for its own change with its own eviction stress.
+- **`buildSpotForBag` runs an affine inverse per bag per frame**, and the model
+  matrix it inverts is the same one `transformCacheModel` already proved
+  unchanged for consecutive parts of one model. Caching the inverse beside the
+  MVP is a small, self-contained follow-up.
+- **The hardware number.** Everything measured for this change is PCSX2 and
+  counts. PCSX2 emulates no EE data cache, and this change trades computing
+  bytes for reading them out of a cold 128 KB arena, so the emulator sees the
+  removed work and none of the added misses: treat its delta as an upper bound.
+- **The lifetime stress on a console.** The structural argument (copied, never
+  referenced) is strong and is exactly the kind of argument the slot-pool race
+  also had. Run the submission-batching stress harness — forced evictions with a
+  batch pending, pipeline switches, LOD crossings, a scene reload — on hardware.
+
+Road changes remain deferred; 50 FPS still requires a much larger reduction in
+whole-frame work than submission batching and retained commands together.
+
+### The package count is at its ceiling — one costed way past it left (2026-09-16)
+
+Almost every term left in `dispatch` is per-package and the garage frame is cut
+into 572.5 of them, so "make the package bigger" is the obvious attack. The
+cheap half of it has been taken: the rounding step went from a multiple of 9 to
+a multiple of 3 and the baked run with it, so the ceiling is **75**, not 72.
+What is left is closed as far as rearranging memory goes — 75 is 93% of the 81
+that the whole of VU1 data memory allows at six quadwords per vertex, and the
+144 that would halve the count wants 1.73x that memory. The full derivation,
+the per-class table, the `DBUFFER_END` sweep and the measured baseline are in
+[render-submission-attribution.md](render-submission-attribution.md), "Round
+three" (the bound) and "Round four" (the change). **Do not re-open "pin the
+package size per class"**: every class this frame uses derives exactly 75, by
+two independent routes, so a per-class run would buy nothing. What is left:
+
+- **Reclaim the clipping scratch: 75 → 81 vertices, −8.0% of the packages.**
+  Needs `VU1_STAPIP_DBUFFER_END` at 1014 or above, i.e. both Sutherland–Hodgman
+  polygons *and* the six-plane table out of absolute VU1 addresses. There is
+  room for them inside the clip programs' own double-buffer half, and this is
+  the non-obvious part: a clip buffer's layout is **dynamic**, computed from the
+  real vertex count (`stqData = vertexData + vertexCount`), not reserved at
+  `maxVertCount` — so a 12-vertex clip package uses 47 of its 460 quadwords and
+  leaves 161 spare against a 252-quadword worst-case fan-out. **Re-do that
+  margin at 81 before starting**: round four's harness prices the clip
+  footprint per class properly (uploaded streams, the real per-output-vertex
+  store count, the real tag block) and the number round three quoted is not the
+  one that binds — with the scratch moved INTO the half it also has to be paid
+  for out of the same 500 quadwords. The cost is the objection: three clip
+  images rewritten to xtop-relative scratch addressing plus their
+  `src/vugen.cpp` twins (or `--vu-check` fails), the plane upload moved from
+  per-mesh to per-clip-package in the packet writer **and** in the
+  retained-command key, VI register pressure in `clip_tc` (269 cycles per
+  triangle, the hottest loop in the pipeline), `meshstrip::kRun` re-baked to 81
+  with the road/terrain run constants, and a frozen-camera console A/B. Note
+  that moving the plane table DOWN into the per-mesh constants instead is worth
+  exactly zero — the double buffer pays twice below it and gains twice above it.
+  Note also that at 81 the rounding step is irrelevant (both /9 and /3 give
+  81), so this lever and round four's do **not** add up.
+- ~~**Relax `getMaxVertCount`'s multiple-of-9 rounding to a multiple of 3: 72 →
+  75, −4.0% of the packages, no memory change.**~~ **DONE (2026-09-16, "Round
+  four").** It cost one thing round three did not price: the relaxation also
+  moves `clipPackageSize()`, and it took the untextured single-colour class to
+  a **one-quadword** clip-buffer margin. `clipDivisor` went 5 → 6 in the same
+  commit, which puts every reachable class back above 91 quadwords — better
+  than the 35 the textured single-colour class was already shipping on — and
+  leaves the clip package size of the three classes a textured scene actually
+  uses (`cull_tc`, `cull_tce`, `cull_td`) **unchanged at 12**. The margins are
+  derived per class by
+  `examples/vehicle-playground/authoring/package-ceiling-75-2026-09-16`.
+- **The only other lever is the six quadwords per vertex** — three uploaded
+  (position, ST, colour) and three written (the GS reglist for a textured,
+  per-vertex-coloured primitive). Whatever is attempted there, the claim to
+  measure is the package count, not the payload: the September 15 probe that
+  added 16 bytes per vertex moved garage-day VIF1 wait by 0.067 ms, so bandwidth
+  is not the limiter and a compression pass that does not raise `maxVertCount`
+  buys nothing.
+
+### The vehicle BODIES are still triangle lists, and `meshstrip` is right to refuse them (2026-09-17)
+
+The worst-packed-producer round attacked the two producers the frame inventory
+named — the wheel batch and the projected-shadow receiver patch — and took
+**23 of the garage frame's 711 VU1 packages**, additively, **worth a measured
+0.449 ms of `work` on the physical PS2** (0.699 at night) against a two-ELF
+floor of 0.064. The patch's captures are byte-identical; the wheels' differ in
+54 pixels of 512x512 at one channel step, which is the GS's per-triangle setup
+and not a geometry change
+(`examples/vehicle-playground/authoring/wheel-strip-2026-09-17/`,
+[vehicles.md](vehicles.md) "The wheel batch is a strip",
+[shadows.md](shadows.md) "Almost all of it is the CASTER's geometry").
+
+What it found on the way is the bigger item, and it is not what the inventory
+predicted. `proj_shadows` is **87% the caster's own model bags**, re-submitted
+from the light's point of view — 60 packages of 69 — and those bags are lists
+because **no vehicle model in the district carries a strip at all**. The cars
+are also 3 446 triangles of `object_submit`, and the probe pass draws them
+again.
+
+### A WELD KEY IS A PROPERTY OF THE BAG, NOT OF THE MESH
+
+That is the general statement, and it is the transferable half of this round.
+Whether a mesh strips at all is decided by **which attributes the GS actually
+receives for it**, which is a fact about the bag that draws it — not about the
+geometry. The same Motor District wheel mesh, unchanged:
+
+| weld key | strips to | verdict |
+| --- | ---: | --- |
+| position + normal + UV (`Weld::kFull`) | **1.605x** the list | `meshstrip` REFUSES it |
+| position + UV (`Weld::kNoNormal`) | **0.764x** | 10 VU1 packages a wheel against 13 |
+
+A 2.1x swing, on one mesh, from changing nothing but the definition of "the
+same vertex". **This generalises to every unlit, single-colour bag in any
+project** — anything submitted with `lighting == nullptr` and a flat
+modulate-identity colour has position and UV for its whole vertex, and a
+flat-shaded mesh that the ordinary weld refuses may strip well under the other
+key. Today the only caller is `vehbake`'s wheel; the rule is worth applying
+wherever a producer is found submitting a list.
+
+The converse is the safety rule and it is absolute: **using `kNoNormal` for a
+bag that IS lit is a rendering bug, not a slower render.** Neighbouring faces
+would take one face's normal across a crease.
+
+### The projected silhouette wants a PER-MATERIAL alpha gate (2026-09-17)
+
+`TYRA_CHEAP_PROJ_CASTER` ships at **0** and takes 60 VU1 packages to 32 on the
+garage frame when it is 1 (docs/shadows.md, "Halving that, without touching the
+geometry"). The only reason it is not on by default is one unanswered question:
+**does this caster's texture carry alpha?**
+
+The colour half of the change is exact and needs no gate — `pushVert` writes
+alpha 128 for every model vertex, so per-vertex colour carries nothing the
+coverage reads, and the runtime check already in `casterBag` refuses a part whose
+vertex alphas are not all 128 (a mirror is `opacity * 128`, a portal is 70).
+The TEXTURE half is what needs one: the GS modulates alpha as well as RGB, so a
+caster whose texture is an alpha-tested cutout — foliage, a chain-link fence —
+gets its silhouette holes from that texture and would cast a solid blob without
+it.
+
+`Texture` exposes no alpha predicate at runtime, and `.tmdl` carries no opaque
+flag, so this cannot be decided where the bag is built. It has to come from the
+bake, which DOES read the pixels: the natural shape is a per-part `opaque` bit
+written by `bakeStaticModels`/`vehbake` and read here, at which point the knob
+can default to 1 and the check becomes per-material rather than per-project.
+Note `blsscorpus.cpp` already has a `cutout` notion for the BLSS bestiary — it is
+the same question asked in a different place, and worth reading before inventing
+a second answer.
+
+Nothing in the Motor District needs it: its only two `shadowMode 3` objects are
+vehicles with opaque palette bakes, which is why the measurement was possible at
+all.
+
+### A projected shadow on a ROAD is currently invisible (2026-09-17)
+
+Found while building the picture gate for the item above, and it is the more
+valuable half of that round. In the Motor District's garage pose the slots are
+held, the silhouettes are rendered and the receiver patches are submitted — and
+deleting the caster submit **entirely** leaves the capture byte-identical. The
+patch is depth-tested and lands under the road its caster is parked on, so 60 VU1
+packages a frame (about 19.5 us each in garage day, by the console's own
+measurement) buy a shadow that is not on screen.
+
+This is not a regression from anything; it is how `projSurfaceAt` and the patch
+placement have always interacted when a caster stands on GEOMETRY rather than on
+the terrain. Two things to decide: whether the patch should be placed on the
+geometry it actually rests on, and whether a caster whose patch is fully occluded
+should release its slot rather than hold one of four. The second is the cheaper
+win and needs no new surface query.
+
+Until one of them lands, **no projected-shadow change can be accepted on a
+capture from that pose**, and any round that tries must build a known-bad arm
+first — see docs/shadows.md, "A caster standing on GEOMETRY can pay for a shadow
+nobody sees".
+
+### The vehicle BODIES: 0.757x is on the table and cannot be taken yet
+
+`vehbake` now calls `meshstrip` for the WHEEL. It cannot for the BODY, and the
+refusal is correct rather than a gap: the body is lit, so its key is the full
+one, and on the full key 2 242 of its 2 280 corners are unique.
+
+**The arithmetic, so nobody has to re-derive it.** Measured by running
+`meshstrip::build` over the baked `.tmdl` parts under both keys
+(`wheel-strip-2026-09-17/stripcheck-wheels.cpp` is the harness shape; point it
+at `*-body.tmdl` and pass `Weld::kFull` as well):
+
+| baked part | list verts | unique, kFull | strip, kFull | unique, kNoNormal | strip, kNoNormal |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `veh-cc96playground01-body` part 0 | 2 280 | 2 242 | 3 762 (1.650x) | 776 | **1 725 (0.757x)** |
+| `veh-cc96playground01-body` part 1 | 888 | 886 | 1 479 (1.666x) | 324 | **645 (0.726x)** |
+| `veh-cc96playground01-body` part 2 (`lamps`) | 180 | 72 | 126 (0.700x) | 72 | 126 (0.700x) |
+
+Note the third row: the untextured `lamps` part already has shared normals and
+strips under the ORDINARY key at 0.700x — so some of this is available with no
+shading decision at all, and `bakeStaticModels`-style stripping of the parts
+that qualify is the cheapest thing on this list. (It is also the part the bake
+must never reorder: the rear/front lamp split is a corner index range.)
+
+What the body is worth if it can be taken: the three car bodies are 3 446
+triangles of `object_submit`, they are drawn AGAIN by the reflection probe, and
+AGAIN as the projected-shadow silhouette (60 of that producer's 69 packages).
+At roughly 0.75x the vertices that is the same reduction three times over.
+
+Two routes, neither measured:
+
+- **Smooth-normal welding at import, with a crease angle.** Turns the body into
+  a mesh that strips on the ordinary key and carries all three passes with it.
+  Concretely: weld in `vehbake`'s `collect()` before `decimateTo`, averaging
+  normals across faces whose angle is under the threshold, leaving a hard edge
+  above it — and the tiers must be regenerated after, because `meshlod` runs on
+  the welded mesh. The objection is that it changes what the car LOOKS like,
+  which is a picture decision and not a packing one, and this repo's
+  crease-smoothing attempt is already PARKED for exactly that reason (the
+  static-model A/B: quad-diagonal stripes on bare solids). **A picture gate
+  comes first and the packing number second**, on the two day poses, and note
+  that a lit re-shade will NOT be byte-identical, so the gate has to be a stated
+  budget rather than zero.
+- **A second, unlit vertex array for the silhouette pass only.** The shadow map
+  renders a solid silhouette and reads no normal, so `renderProjShadows` could
+  submit a `kNoNormal` strip of the body and leave the main view alone — worth
+  the 60 packages directly, with no picture risk at all, because a silhouette
+  is a coverage mask. The cost is a second RESIDENT bag set per caster: at
+  0.757x of 3 348 vertices that is ~2 535 x 32 bytes ≈ **81 KB per distinct
+  caster model**, plus its `GeoPart`/bag overhead, in a 32 MB machine. That is
+  the same trade that stopped the probe-LOD option in
+  [reflective-materials.md](reflective-materials.md) ("per-bag cost is the term
+  that does not shrink"), and it should be priced the same way — RAM first, then
+  a count, then hardware — before anyone builds it. Note it does NOT need a
+  crease decision, which is what makes it the safer of the two.
+
+Also still a list: the **torch's wall copy** in `renderProjShadows`, built per
+frame from arbitrary receiver geometry. No sunlit pose reaches it, so this
+round could not price it at all; a flashlight fixture would have to.
+
+**And the follow-up the hardware run opened**, which is cheap and worth doing
+before the next packing decision: `submit` fell 0.434 ms and the three
+StaPipCore brackets (`bounds`, `prepare`, `dispatch`) explain only **0.072** of
+it, so about **0.36 ms is in the unbracketed part of `submit`** —
+post-process, the 2D HUD, the game-side per-object tests, and
+`renderVehicleWheels`' own bake loop. Re-run `t-ctl` and `t-cand` with
+`instrument-frame-cost.py --attribute` (and `TYRA_STAPIP_ATTRIB=1` for the
+engine half) and find out where. It needs no new code and no new fixture — the
+arms are archived — and it is what turns "a stripped producer is worth ~19.5 µs
+a package" from an effective rate into an attributed one. Note also that
+**packet construction did not move at all** in this run, which a per-package
+model says it should have: whatever explains that is the same investigation.
+
+### Where the remaining frame time is, measured (2026-09-15)
+
+Two physical-PS2 experiments closed the DMA-cache question and opened the VU1
+one; see [VU1 arithmetic and DMA cache-flush cost](vu1-and-dma-cache-cost.md).
+
+- **Do not fork ps2sdk for the cache flush.** It is AFL-2.0 so a fork is allowed,
+  and neither `FlushCache(0)` (a syscall that invalidates the whole 8 KiB data
+  cache) nor `SyncDCache` (which walks all 128 indices in both ways) is the range
+  write-back the pipeline wants. But the whole bill is bounded by 2.36 ms of a
+  50 ms frame and is proportional to the number of submissions, so retained
+  command chains remove most of it as a side effect. Suppressing the flush
+  outright hangs the console: the memory that needs coherency is the packet, so
+  an explicit-ownership design must give the packet buffers and the qbuffer copy
+  pools an owner (uncached/UCAB allocation, or a hit-based write-back by address)
+  rather than simply dropping the call.
+- **VU1 arithmetic is worth 0.0768 ms of frame time per cycle per triangle** in
+  the garage view, and it lands almost entirely in VIF1 wait, so reductions pay
+  immediately without waiting for the EE redesign. The shipped `openvcl` loops
+  cost 133 cycles per triangle (`cull_tc`, what this scene's static geometry
+  actually runs), 130 (`cull_c`), 107 (`cull_td`) and 269 (`clip_tc`). Two
+  reductions were visible in the source. **The spot-light one is DONE (1.94.0)**
+  — the colour programs skip `CalculateTyraSpotLight` when the mesh's light is
+  inert, taking `cull_c` 130 → 72, `cull_tc` 133 → 73, `clip_c` 230 → 173 and
+  `clip_tc` 241 → 184 cycles per triangle, for **+0 / +0 / +2 / +2** on a mesh
+  that IS lit and +178 words of micro memory
+  ([flashlight.md](flashlight.md), "The cone costs nothing when nothing is
+  lit"). The other is untouched: the static pipeline emits **no triangle strips
+  at all**, so every shared vertex is transformed once per triangle that uses
+  it. **That half is now DONE for baked static models** - see
+  [model-pipeline.md](model-pipeline.md), "Triangle strips": zero VU1
+  instructions (the cull programs' ADC judgement was already strip-correct),
+  micro memory unchanged at 1862/2042, the district's models 13 176 -> 9 648
+  vertices, and the garage view 76 951 -> 68 235 submitted vertices per frame
+  in 56 625 -> 50 525 VU1 packages. What is left of it is listed below.
+- **A BRANCH IS A SCHEDULING BARRIER, and the console said so in milliseconds.**
+  The first shipped shape of the gate branched inside the loop. Four parked
+  Motor District poses: garage day **−1.059 ms**, outer day −0.620, outer night
+  −0.701 — and **garage night, the heaviest pose, +1.264 ms**, because the lamps
+  are on at night, nearly every mesh picks a light, and the branch cost the LIT
+  path 11 cycles a triangle of lost pairing. Solving the cycle table against the
+  deltas puts the unlit fraction of colour-program triangles at ~39% in garage
+  day and ~0% in garage night. The fix is two whole loops picked once per batch,
+  the lit one byte-for-byte the original. **Whenever a gate is added to a hot
+  VU1 loop, price the path that does NOT take it**, and do it on the pose where
+  that path is the common one.
+- **Triangle strips: what is left.** In order of what the garage view would pay
+  for it. The first item is done; the rest are not.
+  1. ~~**Roads and terrain.**~~ **DONE in 1.96.0** - see [roads.md](roads.md)
+     and [terrain.md](terrain.md), both "Triangle strips". They were the rest
+     of the frame (93 150 road vertices in 90 chunks, plus the terrain) and
+     being grids they reach **0.355-0.374x** on the host fixtures rather than
+     the flat-shaded models' 0.732x. No general stripifier: a ribbon's and a
+     heightfield's rows ARE the strip, and the road half runs on the EE at
+     scene load where `meshstrip` could not. The runtime contract is the
+     models' (`StaPipBag::stripped`, `packageSize` pinned to the 72-vertex
+     run). Two things the job turned out to hide. The road's own planar-span
+     reduction changes which axis is long, so **collapsed spans have to strip
+     ALONG the road** - taken laterally a collapsed span is exactly break-even
+     and triples the GS primitives - and the **terrain checker is a per-QUAD
+     colour**, so an untextured terrain (no material) keeps its list. What is
+     still owed on this item: a **console** measurement, and the
+     millisecond conversion that goes with it.
+  2. **Distance LOD tiers.** The `.tmdl` carries the slot (`tmdl::Lod::
+     stripVerts`) and the bake leaves it empty; `applyGeoLod` drops the bag back
+     to `PRIM_TRIANGLE` while a tier is shown. A tier is a small fraction of any
+     frame by definition, which is why it was left.
+  3. **Hardware.** Everything above is measured in PCSX2 and in counts. The
+     millisecond conversion is the console's, and this change has never been on
+     one.
+  4. **The pipeline's own triangle counters are not a geometry-equality
+     check**, and two of them are outright wrong for a strip. The `triangles*`
+     fields are GS PRIMITIVES, degenerate joins and padding included, so one
+     surface reports 25 650 as a list and 38 427 as strips - a real 1.498x, not
+     a miscount (docs/model-pipeline.md, "What the triangle counters count").
+     The producers now log their own surface counts (`ROADSTRIP`,
+     `TERRAINSTRIP`) and that is what an A/B should compare. Still unfixed, in
+     `StaPipCore` and left alone deliberately because the static submission
+     path was being edited in parallel: `recordGuardBandPackage` charges
+     `package.size / 3` with no strip branch, so `guard=` is computed on a
+     different rule from the `cull=` it is a subset of; and
+     `recordOutsideBag` charges a whole bag `count - 2` when the bag is sliced
+     into `ceil(count / maxVertCount)` runs that are each their own strip,
+     over-counting by `2 * (packages - 1)`. Both are two-line fixes.
+  5. **The examples' committed `.tmdl` files are still version 3**, i.e. they
+     carry no strip and every example renders its models as lists until someone
+     rebuilds them. That is correct rather than broken - the loader reads 1..4 -
+     and it is deliberately not in the same commit: regenerating thirty baked
+     binaries belongs in the periodic example-regeneration pass, not in a
+     feature diff.
+- **The two-loop spot gate wants its own console arm.** The shape that was
+  measured is not the shape that shipped: the current one is host-verified only
+  (`--vu-check` plus the `.o.vsm` cycle counts). Re-run the same four-pose A/B —
+  garage night is the row that matters, and the claim to falsify is that it is
+  now neutral rather than +1.264.
+- **Aim a VU1 experiment at the program the scene runs.** The first arm
+  instrumented `cull_td`, measured exactly zero, and looked like a null result
+  about VU1; the generated game attaches a lighting bag only to dynamically lit
+  objects.
+- **The ~7.5 ms that was in no bucket is ATTRIBUTED** — see
+  [render-submission-attribution.md](render-submission-attribution.md). The
+  short version, because it changes how every earlier row on this page should be
+  read: `submit_ms` is the whole `beginFrame()`..`endFrame()` block and
+  `bounds`/`prepare`/`dispatch` only ever covered `StaPipCore::render`, so the
+  two were never the same quantity and the "gap" was never unmeasured pipeline
+  overhead. In the emulator, **97% of it is outside `StaPipCore::render`
+  entirely**, and the renderScene level closes with a residual of 0.000 ms.
+
+### Where the next three rounds should go, from the attribution
+
+Everything below is PCSX2, garage day, against a 14.595 ms render submission,
+and none of it has been on a console. Sizes are what the numbers support, not
+estimates of what a fix would save.
+
+1. ~~**`renderVehicleWheels`, 2.962 ms — 20% of render submission, and 1.970 of
+   it is not submission at all.**~~ **DONE**, see
+   [wheel-rebake-skip.md](wheel-rebake-skip.md). Both levers were taken — a
+   slot-addressed batch with an exact per-car signature so an unchanged rig is
+   not re-baked, and a sticky `bboxVersion` that is only bumped when the buffer
+   really did change — plus one the entry did not name and which turned out to
+   matter more for moving traffic: the body attitude, its six sines and cosines
+   and the steer basis were being recomputed **per wheel**, so a car paid 176
+   transcendental calls a frame where 22 suffice. `benchmark-district.py`
+   grew `--keep-routes` for the second fixture the entry demanded, and the
+   page quotes the parked best case and the moving realistic case side by side.
+   The engine side of the `bboxVersion` half was priced independently at
+   **0.618 ms of `bounds` on garage day**, 10.5 recalculations at 58.8 µs each
+   (render-submission-attribution.md, "Round two"). What is still owed is a
+   console repeat; see that page's Limits.
+2. ~~**Package creation and classification, 3.346 ms — 56% of `dispatch`.** The
+   largest single unopened box left.~~ **DONE**, together with a split of
+   `bounds` — render-submission-attribution.md, "Round two". Both close. Three
+   results to carry forward:
+   - The box's NAME is half wrong: about half the submitted bags (53.5 against
+     59.0 partial) take the wholly-visible route and are never classified, so
+     for those the residual is the fill-and-cull loop.
+   - The classification that does run is **1.401 ms over 572.5 packages**,
+     honest 6-plus-8-plane arithmetic with a **2.31-part** merge walk. No
+     obvious redundancy is left in it — which is why compacting that walk's
+     stride bought 0.5%.
+   - **The bbox cacher is exonerated**: 226.5 lookups cost 0.118 ms, the hash
+     runs 1.44 probes per lookup, the expiry scan is 0.011 ms and NOTHING
+     allocates (0 fresh entries in every pose). What cost 0.618 ms was 10.5
+     forced `recalculate()` calls, which item 1 has now removed.
+3. **The clamped-wrap double drain, 1.730 ms of garage night** (0.299 in the
+   day). A bag whose texture is not REPEAT costs `sync.align3D()` twice — once
+   to set the wrap and once to restore it — and the night scene has more of them
+   because the lamps' pools and projected shadows sample clamped targets. The
+   engine comment is right that an ordinary mesh pays one pointer comparison;
+   it is the clamped bags that serialise the pipeline, twice each.
+4. **The shared reflection probe is the whole of renderScene's head**, 0.820 ms
+   on a 2-frame cadence, i.e. ~1.64 on the frames it runs. Everything else in
+   that head — split band, sky retint, env basis, camera feed — is 0.001.
+5. **A console repeat of all of it.** PCSX2 models no EE data cache, so the
+   shares travel and the milliseconds do not; the hardware gap is 25% of
+   submission where the emulator's is 38%, and the difference is expected to sit
+   in the pipeline brackets rather than in the terms named above.
+6. **Two release-build log lines that should not exist**, found while reading:
+   `VRAMSTAT` every 120 frames and `STAPIPRET` every 300 both survive into a
+   release ELF, because the census `#endif` closes above the summary line and
+   because `!defined(NDEBUG)` is always true in a game build. Small (fifteen and
+   five host writes per 1 440-frame run), same class as the census that cost
+   1 ms a frame, and `--audit-release` catches neither.
+
+### ~~The baked stream needs a caller contract for NON-POSITION data~~ DONE
+
+**DONE, 2026-09-17 - and it is a TYPE rather than a rule**
+([bag-content-version.md](bag-content-version.md)). The trade this entry
+priced - "1.29 ms for roughly 110 obligations that nothing enforces at compile
+time" - was refused on its own terms and then dissolved, because the census
+underneath it was wrong in the direction that mattered. The exact count is **280
+write sites in 42 generated functions behind 108 array declarations**, and
+**every one is generator-emitted**: fixed template text in `src/templates.cpp`,
+zero in other editor sources, zero in checked-in example game sources, and zero
+reachable from user-authored code. A closed population in one file is a type
+problem. The arrays are now `BagArray<T>` - `data()` is const, every mutation
+stamps `contentVersion`, and a raw write DOES NOT COMPILE, with a negative test
+(`tools/bag-array-enforcement.sh`) that was falsified before it was believed.
+The 280 write sites did not change.
+
+**Acceptance met**: `--keep-routes` with the traffic MOVING, **169 843 blocks
+checked, `failed=0`** over ~12 600 frames; against the control, every count that
+describes what is drawn identical to the digit and the captures byte-identical,
+with packet flushes -300/50 frames and `chainQw` -26.0%.
+`TYRA_STAPIP_BAKED_STREAM` defaults to 1.
+
+The original diagnosis is kept below because the shape of the defect is the
+argument for the shape of the fix.
+
+**This WAS the blocker that stopped TYRA_STAPIP_BAKED_STREAM shipping above 0**, and
+it was found by the adversarial verify mode rather than by any gate leg -
+docs/baked-stream-acceptance-gate.md, and
+examples/vehicle-playground/authoring/ee-rearchitecture-2026-09-16.
+
+`TYRA_STAPIP_BAKED_VERIFY` rebuilds every block with the ordinary writers and
+compares it against what the cache holds. It mismatches **1438 times** on the
+Motor District, and all 1438 are the same shape: the colour-only program class,
+identical block length, and the first differing quadword landing on the FIRST
+COLOUR QUADWORD. The positions match; the per-vertex colours do not.
+
+**Why.** The key holds the colour array's POINTER and `bboxVersion`, and
+`bboxVersion` is a statement about the bounding box - `StapipBagBBoxesCacher` is
+its only other consumer. A caller that re-shades per-vertex colours IN PLACE,
+which this district does for its dynamic lights, changes what the block must
+contain without touching anything the key can see.
+
+**The retained cache is immune and that is the whole trade.** It stores the chain
+- tags and `REF`s that still name the bag's own arrays - so a re-shaded colour
+array is followed at DMA time and is always fresh. The exposure belongs to the
+baked stream BECAUSE it inlines the payload.
+
+**Why no gate can catch it here.** Once the fixture's camera freezes, the colours
+freeze too, so the picture and both hashes agree. It fires during the warm-up
+sweep and stops - 1438 on the parked fixture, 1451 on the moving one. This is
+the class benchmark-district.py's docstring warns about.
+
+**The fix is a contract, and it is on the generated game's side of the
+boundary**: either bump a version whenever ANY of a bag's arrays is rewritten
+(not just its positions), or add a second version field for contents that are not
+positions, so `bboxVersion` keeps meaning what the bbox cacher needs it to mean.
+Whoever takes it re-runs the verify arm; `failed=0` is the acceptance.
+
+**AND HERE IS THE DECISION, PRICED ON BOTH SIDES, so it is not taken on the
+prize alone.** The architecture is now measured on the physical PS2: garage-day
+`work` **−1.287 ms** against a 0.012 ms repeatability floor, `total_ms`
+unchanged in garage day (the saving is absorbed by `present`, because the vsync
+rung is 10.42 ms away), and garage night's judder removed. The contract it needs
+costs:
+
+| | |
+| --- | ---: |
+| sites that bump `bboxVersion` today | **26** |
+| sites that write into a bag-backing array (conservative grep of `templates.cpp`) | **~110** |
+
+So the proposition is **1.29 ms for roughly 110 obligations that nothing
+enforces at compile time**, whose failure mode is stale lighting visible only
+while the camera moves — the hardest class to catch, and one the benchmark
+fixture is structurally blind to. That is a trade to accept or refuse, not a bug
+to route around. See `docs/ee-submission-rearchitecture.md`, order of work
+item 3.
+
+### ~~Name the bag that is rewritten every frame on a frozen scene~~ NAMED
+
+**NAMED, 2026-09-17, and it was not in the family this entry suspected.** The
+26 `bag->bboxVersion = ++g_bboxStamp` sites in the lamp/beam/flashlight family
+were the theory; the answer is the **vehicle PAINT PASS**
+(docs/vehicles.md, "A shiny body"), which recomputes a per-vertex fresnel rim
+and a Blinn-Phong specular from the camera EVERY FRAME for ~1 100 vertices of
+each visible car. It never bumped anything - it wrote the colours by
+`const_cast`-ing the bag's own `many` pointer, which bypassed the owning array
+altogether, so no instrument keyed on `bboxVersion` could ever have seen it.
+
+**It was found by the adversarial verify arm, not by the bisection procedure
+below**, and the shape of the evidence is worth copying: the arm named the
+program class (`Cull - TCE`), the vertex count (2 280 in 31 packages) and the
+first differing quadword, and enriching its report with the four stream
+pointers and the differing quadword's floats turned it into three equal RGB
+lanes drifting by 0.012 with an alpha drifting by 0.002 - which is what a
+camera-dependent shade looks like and nothing else does.
+
+**The instrument that would have named it now exists**: `STAPIPMISS` splits
+`bbox=` from `content=` (docs/bag-content-version.md), so "a mesh moved" and "a
+mesh was re-shaded" no longer read as the same counter. At the garage-day pose
+it reads `bbox=300 content=600` over 300 frames, and the 600 are the two cars.
+
+**What is still open** is the `prepare` +0.315 ms hypothesis this entry fed:
+that the rise is data-cache pressure from rebakes, and that fixing the caller
+would recover most of it. That is now testable rather than theoretical - the
+caller is named and the counter separates it - and it wants a hardware round,
+not an emulator one.
+
+The original procedure is kept below; it remains the right shape for the next
+caller of this class.
+
+### The original entry: name the bag that is rewritten every frame on a frozen scene
+
+Two instruments now point at one submitter in the generated game, and neither
+can name it because the fix is a change to a CALLER's contract.
+
+**The symptom, measured** (docs/baked-stream-acceptance-gate.md, and
+examples/vehicle-playground/authoring/ee-rearchitecture-2026-09-16): at the
+Motor District garage-day pose, held, one ELF, two boots, the picture
+byte-identical and the DMA chain identical to the quadword - the VIFcodes and
+the absolute-address uniforms hash the same, the geometry that comes out of the
+qbuffer COPY POOLS hashes the same, and the geometry that comes out of the
+BAGS' OWN ARRAYS is different on every frame. `STAPIPMISS` reads `bbox=1` a
+frame at that pose and names the bag as **96 vertices in 2 packages**. The
+outer-road pose, which reads `bbox=0`, is correspondingly cleaner.
+
+**The suspect.** The generated game has 26 unconditional
+`bag->bboxVersion = ++g_bboxStamp` sites in `src/templates.cpp`, most of them in
+the lamp, beam and flashlight family, and several of those rebuild their vertex
+or colour arrays from wall-clock-driven fade terms (`angleFade`,
+`DynLightRt::lastLevel`). A term driven by real time is not frame-deterministic
+under an emulator, which is exactly why the same frame number gives different
+bytes on a second boot.
+
+**The experiment**, so whoever takes this starts with a procedure rather than a
+theory: build with `TYRA_STAPIP_VIFHASH` and `TYRA_STAPIP_BAKED_REPORT` at 1,
+hold garage day, and bisect the 26 bump sites by making each one conditional on
+the array actually having changed - docs/wheel-rebake-skip.md is the worked
+example of that fix for a different caller. The bag is named the moment
+`STAPIPMISS bbox` reaches 0 and the bag-sourced geometry hash starts repeating
+across two boots. Both are one grep of the log.
+
+**Why it is worth doing.** Three things at once: the acceptance gate gets its
+third leg back, so a future change touching vertex data need not rest its whole
+argument on pixels; one bag a frame stops invalidating the bake cache and the
+bbox cacher; and a scene that claims to be frozen actually is, which every
+future A/B on this fixture depends on.
+
+### Wire the SAMPLED verify to the project devkit profile
+
+`TYRA_STAPIP_BAKED_SAMPLE_VERIFY` (docs/bag-content-version.md) is the cheap
+half of the adversarial arm: it verifies ONE baked block per frame, round-robin,
+and replays everything else - about 1/360 of the exhaustive arm on the
+garage-day frame - so a missing content invalidation surfaces within seconds of
+play instead of only in a dedicated ELF. It is built, it prints the same
+`STAPIPVERIFY checked= failed=` line, and it is **default 0 behind an engine
+header flip** rather than following a project's devkit profile.
+
+**Why it is not wired, which is the part worth knowing before trying.**
+`libtyra.a` is archived once per CHECKOUT from engine sources with no
+per-project flags (`tools/toolchain/native-build.sh` rebuilds it only when
+engine sources change), so an engine macro cannot follow a project setting
+without giving the engine build its own stamp file. Doing that carelessly
+recreates the trap the toolchain-image round already paid for: a flag swap that
+touches no source rebuilds NOTHING, the previous objects are relinked, and three
+consecutive probes measure the same ELF (tyra-testing, "An image swap used to
+rebuild NOTHING"). The `.vcl-stamp` mechanism is the worked precedent - hash the
+resolved flag set into a stamp file the engine build depends on.
+
+**The check that it works** is the same one that found the paint pass: turn it
+on, drive the district with `--keep-routes`, and confirm `failed=0` with a
+`checked` around one per frame rather than ~400.
+
+### The baked VIF stream: format proven, memory priced, the prize still unbuilt
+
+[baked-vif-stream.md](baked-vif-stream.md) spiked the central change of
+[ee-submission-rearchitecture.md](ee-submission-rearchitecture.md) � a wholly
+visible mesh's whole per-frame VIF1 command stream emitted once and replayed by
+one DMA `REF` tag � behind `TYRA_STAPIP_BAKED_STREAM`, **default 0**. The format
+works and the block layout is written down; what is left is everything the spike
+deliberately did not touch.
+
+1. **Decide whether the memory is affordable at all.** Inlining the payload
+   stores every static vertex twice � ~49 bytes per vertex for the textured
+   per-vertex-colour class, three to four megabytes for the Motor District � and
+   nothing can free the originals (the bbox cacher, the clip route and the
+   generated game all read them). That is the number to argue about before any
+   more of this is built.
+2. **The prize is not in the spike.** The spike keeps the per-package
+   classification and the 16-group qbuffer flush cadence, because `packetFlushes`
+   is one of the counters the acceptance gate pins. What the plan predicts �
+   ~0.4 ms against 20.44 � needs those removed too, and removing them changes
+   what the gate can compare. **The replacement gate is now designed** �
+   [baked-stream-acceptance-gate.md](baked-stream-acceptance-gate.md): a
+   canonical hash of the word stream VIF1 actually receives, with texture
+   mutations interleaved, plus byte-identical pixels over a pose sweep. It
+   constrains the GS's input without constraining the chain that built it, so
+   the flush cadence is free to move. Its one hole is DMA lifetime on a frozen
+   fixture, which PCSX2 cannot see at all.
+3. **Then the console.** Nothing here is a millisecond on either machine, by
+   construction.
+4. **The editor-side bake** (four named requirements at the end of
+   baked-vif-stream.md), of which the awkward one is that the district's models
+   are shade-baked per placed object, so two instances of one model share no
+   vertex array and would share no baked stream either.
+
+### GS VRAM in the Motor District garage — ATTRIBUTED, and the reading was stale
+
+The garage poses were reported at 12.17 texture re-uploads per frame (day) and
+5.75 (night) with `freeMB=0.048`, `largestKB=33` and four evictions per frame.
+**Two findings, and the first retires the question.**
+
+**The re-upload figure was a stale fixture.** `benchmark-district.py` copies the
+example's *committed* generated sources, and those drift; every fixture since
+regenerated with the editor under test records **0.000 re-uploads and 0
+evictions in all four poses**, on the console. The stale build also showed 3.6 ms
+more submission than the regenerated one. A performance fixture built from
+committed generated sources is measuring a different game — now written down in
+[gs-vram.md](gs-vram.md), [vu1-and-dma-cache-cost.md](vu1-and-dma-cache-cost.md)
+and the script's own docstring.
+
+**The cliff underneath it is real.** The texture heap is **196 608 words
+(0.75 MB)** — `Pal576i` at 32-bit colour spends three quarters of the 4 MB on
+the frame and z buffers before a texture is loaded — and the garage holds
+**165 440 words of it in 27 allocations**, 84% full with a 121 KB largest free
+block. Of that, **83 392 words are three vehicle textures** and 15 232 are the
+entire city. Nothing is allocated per frame (28 uploads, zero re-uploads over
+4 440 frames) and nothing is evicted parked, so neither the AO atlas nor the
+eviction policy was ever involved. But opening the pause menu binds 40 960 words
+against 31 168 free and the reading drops to `freeMB=0.0483` / `largestKB=25`
+with eight evictions — the `0.048` the console reported, reached by one button
+press.
+
+Levers, all of them **authoring** decisions rather than engine ones, and none of
+them urgent while the scene is not actually thrashing:
+
+- **Vehicle body textures bypass the project's `textureQuant` entirely**
+  (`vehbake` writes into a directory texbake's sweep skips), so a 4-bit project
+  ships a 32-bit car — one 256×256 RGBA32 image holding a third of the heap.
+  A real bug, and **a VRAM-for-GS-time trade rather than a free win**: measured
+  on hardware it buys 280 KB of heap and costs ~0.5-0.7 ms of work per pose on
+  a scene with no thrash to relieve. See the dedicated commit and
+  [vehicles.md](vehicles.md).
+- **`menus/` follows its stylesheet's `quant`, which defaults to none.** The
+  district's pause menu is 40 960 words at 32-bit against 5 248 at 4-bit, and it
+  is what walks the parked scene off the cliff. One line of a stylesheet — but
+  price it against the same GS-time trade before taking it.
+- **`res/hud/` is never palettized** (57 344 words resident in the garage; a
+  save adds another 65 536). Deliberate — palettes are worst at smooth alpha.
+- **`palFullHeight` costs 98 304 words (384 KB) of texture heap** for 64 scan
+  lines, and costs no GS sampling time at all. On this evidence it is the
+  cheapest 384 KB available. Worth a deliberate decision rather than a default.
+
+The `1ce38d2b` baseline and integrated `af8e6762` were measured in PAL
+software-renderer frozen parked views with no competing builds or benchmark
+emulators. Garage day/night moved 25.00 / 20.37 FPS to 25.00 / 25.00; outer
+day/night remained 50.00 / 50.00. Quiet-debug and release repeated the
+integrated 25 / 25 / 50 / 50 samples. These are ordinary-FPS measurements, not
+serialized profile times and not a 60 FPS, hardware, Linux, traffic-drive or
+complete reflection-state claim. See [Motor District performance work
+plan](motor-district-performance-plan.md).
+
+The shared `@sky` target was already every-second-frame before this pass. Its
+accepted change is capture-basis and scene-reload correctness plus a dedicated
+serialized `Reflections_shared_probe` row, not a claimed cadence saving. Keep
+the conservative cadence until a content-reuse proposal has a bounded visual
+error test across day/night, teleports, reflected-object movement and alternate
+views.
+
+The district itself remains at 93,150 road vertices in 90 chunks. Generic
+planar-slope fixtures improved, and both environment LOD trials (model 64; model 64 plus terrain 96)
+were rejected for this map: neither improved the four-view median FPS. Authored
+distances remain zero; discarded variants have no full driving acceptance.
+
+**All three of those were re-measured on a physical PS2, 2026-09-16, against
+frame `work` rather than displayed FPS** ([evidence](../examples/vehicle-playground/authoring/road-lod-2026-09-16/README.md)).
+What is now settled, and what is left:
+
+- ~~**The road's lateral reduction.**~~ **DONE in 1.105** — it was all-or-nothing
+  and therefore never fired on a curved street over a heightfield. Merging
+  maximal coplanar runs: 31 050 road triangles in 470 packages -> 21 252 in 337,
+  surface and seams exactly unchanged, −0.358 / −0.591 ms on the console.
+  ([roads.md](roads.md), "The lateral budget".)
+- ~~**Mesh LOD distance.**~~ **REFUTED with a mechanism**: 64 removes 592
+  triangles, takes 0.32 ms out of `dispatch` and 0.31 out of the VU1 wait, and
+  makes the frame **0.19 ms slower**. Do not retry it at this object count
+  without attacking the per-object tier selection first.
+- **Terrain LOD distance 160 is a real −0.38 / −0.45 ms and owes exactly one
+  check.** Both quality risks are bounded in world units (the coarse ground
+  rises at most 0.0175 above a road lifted 0.12; the band transition subtends
+  0.57 pixels). What a parked fixture cannot see is the tile rebuild while the
+  player moves, so one drive across the 160-unit band in both directions is the
+  whole remaining gate. ([terrain-lod.md](terrain-lod.md).)
+- **The shared reflection probe is the biggest item left on the garage frame**,
+  and it is no longer an estimate: a bounding probe halving its cadence buys
+  1.033 / 1.278 ms, so the whole probe costs **2.07 / 2.56 ms**. That is more
+  than the road reduction and the terrain LOD together. Item 4 above priced it
+  at 0.820 ms in PCSX2; the console says 2.5x that. The three options — fewer
+  objects, a coarser LOD for the probe pass, a longer cadence — now deserve a
+  design rather than a place behind the triangle budget.
+  **DESIGNED AND SHIPPED as a reuse budget, 1.106.0**
+  ([reflective-materials.md](reflective-materials.md), "The reuse budget"): the
+  probe skips its cadence beat while nothing that feeds the capture has moved,
+  with the staleness bounded in pixels of its own 128-pixel target rather than
+  in frames. Of the other two options, "fewer objects" is worth ~0 triangles in
+  the pose that is slow (four near buildings are everything the probe draws
+  there), and "a coarser LOD for the probe pass" needs the models re-baked with
+  tiers AND a second resident bag set per reflected part, because swapping the
+  live bag's tier twice a frame bumps `bboxVersion` and throws away the bbox
+  and retained-command caches. **What is left open is the hardware
+  millisecond**: the counts are PCSX2's and the conversion runs through the
+  road round's 4.14 ms per capture.
+- **A coarser LOD for the reflection probe is priced and not taken.** It is the
+  only option that removes triangles unconditionally - up to ~70% of 10 413 a
+  hit - and it needs three things this round did not build: a bake gate that
+  emits `.tmdl` tiers for `reflected` objects without turning main-view mesh
+  LOD on (which is refuted), a second resident bag set per reflected part, and
+  the RAM for both in a 32 MB machine. Worth doing only after the reuse budget
+  has been priced on hardware, because in a scene that is mostly still the two
+  overlap.
+- ~~**World visibility is untried and is now the largest lever on the garage.**~~
+  **PROBED, 2026-09-17, and it is NOT an occlusion problem.** Each solo object
+  was hidden at runtime and the frame photographed and diffed against the
+  control. **The garage is genuinely visible**: twelve of the fourteen objects
+  that submit triangles paint pixels, and only **3 509 triangles / 51 packages /
+  6 bags** (one tower plus its pavement slab) are strictly occluded — two
+  objects out of 142. A PVS or portal scheme buys that, in one pose, for an
+  authoring concept, a baker and a per-object test paid by all 142 objects every
+  frame; in the outer-road poses `object_submit` is only 502 triangles in total,
+  so it buys almost nothing there.
+  **The live number is triangles per visible pixel.** The two near towers pay
+  ~0.10; four distant objects pay 2.4 to infinity, and together **6 532
+  triangles — 18.6% of the frame — buy 327 pixels, 0.12% of the screen**. That
+  is what impostors are for, and impostors already ship, are distance-driven so
+  they survive driving, and do not multiply bags.
+  ([Evidence](../examples/vehicle-playground/authoring/world-visibility-2026-09-17/README.md).)
+
+  **THE THRESHOLD IS BUILT, 2026-09-17**, and priced in packages because the
+  console has since measured one at 19.5 us (day) / 31.8 us (night): eight-view
+  impostors on the two building models at **100 units** take garage day from
+  **750 to 670 packages (−10.7%)** and garage night from 803 to 723, with the
+  strictly-occluded tower falling 50 packages → 1. The outer poses do not move
+  at all, correctly — the same buildings are 32 and 44 units away there.
+  Collisions and picking are proved unchanged in the generated scene data
+  rather than by capture.
+  ([Evidence](../examples/vehicle-playground/authoring/impostor-threshold-2026-09-17/README.md).)
+  **What it still owes**: a HARDWARE arm. Every figure is a PCSX2 count or
+  pixel, and the milliseconds quoted are conversions through somebody else's
+  measured rate — whose own caveat is that the bracket split does not support a
+  pure per-package model.
+  **Headroom left on the table**: the two distant streetlights and the far park
+  tree are another ~9 packages the same rule would take at the same threshold;
+  they were left out because thin geometry on a card is a different quality
+  risk from a building and deserves its own look.
+- **Nothing has ever attacked the frame's worst PACKING.** Projected shadows
+  and the wheels are triangle LISTS — 25 triangles per VU1 package against a
+  strip's 73 — so together they take 130 of garage day's 803.5 packages for
+  3 050 of its 40 347 triangles: 16% of the packages for 7.5% of the triangles,
+  on a page whose whole thesis is that the EE pays per package. Stripping
+  either would be the cheapest package reduction on the list.
+  ([The inventory](../examples/vehicle-playground/authoring/reflection-probe-2026-09-16/README.md).)
+
+
 The retired `PROGRESS.md` is still available when old implementation history is
 actually needed:
 
@@ -819,6 +1648,17 @@ whole-box projection, tile count and part stride on the host; enable both twins
 in one change and re-run parity plus performance measurements. See
 [BLSS reconstruction](blss-reconstruction.md).
 
+### Attribute hardware pipeline stalls before further micro-optimizations
+
+The [hardware timeline](hardware-profiler.md) and seven
+[physical controls](hardware-profiler-results.md) are complete. Raster-area
+suppression saves little; host I/O costs roughly 5 ms, and EE-side static
+submission remains expensive. Next split Dispatch into package classification,
+copies and packet assembly, then select a retained representation with explicit
+DMA ownership. VIF1 DMA wait is not a VU1 execution timer; no exact hardware
+utilization percentage is claimed. The transform-cache and DMA clip-table
+candidates still do not earn integration.
+
 ### Cache static packet templates only after proving packet lifetime
 
 Static geometry, transforms and bounds are already cached, and compact model
@@ -828,6 +1668,64 @@ its contents, while earlier attempts to retain or recycle packet storage froze a
 physical PS2 until a hardware reset. Isolate an immutable geometry-only segment,
 record its ownership through DMA completion, and prove it with a console stress
 test before enabling any cache. Do not treat a PCSX2 pass as lifetime proof.
+
+### The static batcher's remaining exclusions, counted not guessed
+
+With `drawDistance` moved onto the batch key (1.98.0), the Motor District's
+census reads: 142 objects, 31 not batchable shapes at all (roads, areas,
+lights, vehicles, the player), **18 rejected by `reflected`**, **6 by
+`physics`**, and 87 eligible. The two remaining rows are worth the same
+treatment the distance cut-off just got, in this order:
+
+- **`reflected`** is the bigger one and the harder one. The object is
+  re-submitted into the environment-map pass through its own solo bag, and a
+  batched member has no solo bag. The projected-shadow, portal and highlight
+  passes already solved exactly this by baking the solo geometry on first use
+  (`objectGeometry[i].parts.empty() && !o.dirty`); the env pass could do the
+  same and let the object batch for its MAIN draw. Measure before believing
+  it: 18 objects is 18 submits, but the env pass runs per frame.
+- **`physics`** is genuinely not batchable while a body is awake. A sleeping
+  body is a different question - `physSleep` exists - but a batch that
+  re-bakes when a body wakes is the per-frame-rebuild trap, so this needs the
+  demotion path to be cheap enough first.
+
+Do the census before any of it. On this scene the exclusion everyone expected
+to matter (`dynamicLighting`) rejects nothing at all.
+
+### Price static batching on wide-spread content with NO draw distance
+
+Done, for everything that has a cut-off: the grouping cell is bounded by the
+draw distance its members share, which removed the +3.20 ms `large-terrain`
+regression outright and leaves the Motor District untouched
+([model-pipeline.md](model-pipeline.md), "Why the cell is bounded by the draw
+distance").
+
+What is left is the case that states no length. `drawDistance` 0 keeps the base
+cell (`max(mapW / 4, 48)`), so a big map full of unlimited-distance props still
+groups coarsely. Measured on an adversarial `large-terrain` with every cut-off
+zeroed, that is a **trade rather than a loss** - +23.5% triangles against
+**-43% packet flushes** - where the draw-distance case was worse on both axes
+at once. On this console a submit is the expensive half, so it may well pay;
+nobody has priced it.
+
+Two things that measurement needs, and neither exists yet:
+
+- **A shipped example of that shape.** Every example in the tree is inert for
+  this rule: the district and `impostor-grove` have cells that already fit,
+  `deep-forest` batches nothing at all (eligible 0), and `large-terrain`'s
+  content all carries a cut-off. The adversarial fixture was constructed by
+  zeroing 1,180 draw distances, and **its own repeats are not byte-identical**
+  (283-419 px of 200,704 between two captures of one arm), so it can only be
+  read for counts. A deliberate example with a frozen, repeatable vantage would
+  make this answerable.
+- **Hardware milliseconds.** PCSX2 gives the counts and the pixels; the
+  flush-versus-triangle trade is exactly the kind of thing its missing EE data
+  cache prices wrong.
+
+If it turns out not to pay, the lever is already shaped: give `cellFor` a bound
+for the 0 case too, derived from the batchable objects' own extent rather than
+from the terrain width (the object cloud is 940 units wide on a 2048-unit map,
+so `mapW` over-states the spread by more than 2x).
 
 ### Measure opaque state sorting beyond static batches
 
@@ -986,3 +1884,11 @@ in PCSX2, with identical geometry and full-rate animation.
 - Impostor follow-up: measure cold versus warm batch GPU capture time and consider
   background batch baking. Configurable 4/8/16 views and optional GPU capture
   with CPU fallback are implemented; see [impostors](impostors.md).
+
+### Hardware timeline follow-up (1.92)
+
+Native editor viewing and finer package/classification/copy/packet scopes are
+implemented. The bounded same-range classification reuse trial was rejected: no
+convincing submission-time gain on physical PS2. Larger submission scheduling
+changes remain open; do not treat this as a shipped engine speedup. See
+[hardware profiler results](hardware-profiler-results.md).

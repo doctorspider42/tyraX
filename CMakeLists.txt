@@ -225,6 +225,7 @@ add_executable(tyrax-editor
     src/credits_ui.cpp
     src/cutscene_ui.cpp
     src/devkit_ui.cpp
+    src/hardware_timeline.cpp
     src/devsession.cpp
     src/facts.cpp
     src/facts_ui.cpp
@@ -273,6 +274,7 @@ add_executable(tyrax-editor
     src/menustyle.cpp
     src/menustyle_ui.cpp
     src/meshlod.cpp
+    src/meshstrip.cpp
     src/migrations.cpp
     src/pcsx2_config.cpp
     src/phonecam.cpp
@@ -309,6 +311,11 @@ add_executable(tyrax-editor
     src/update.cpp
     src/update_ui.cpp
     src/uvunwrap.cpp
+    src/vehbake.cpp
+    src/vehicle_ui.cpp
+    src/roadgen.cpp
+    src/vehcheck.cpp
+    src/vehiclesim.cpp
     src/save_assets.cpp
     src/templates.cpp
     src/viewport.cpp

@@ -8,6 +8,55 @@ the devkit completely.
 Enable individual channels in **Project > Preferences > Build**. Most need a
 game launched with **Build & Run** (`F5`) or **Run on PS2** (`F6`).
 
+## Choosing the work and frequency
+
+![Devkit frequency settings](img/devkit-frequency.png)
+
+The channel checkboxes select what the game actually includes. Disable Live
+Link when not editing the scene/textures, Live Logic when not patching graphs,
+Time Machine when not rewinding, and Remote Pad when using a physical pad.
+Keep Live Debugger for frame statistics, watches, breakpoints and captures.
+The input recorder remains a separate opt-in channel.
+
+**Devkit frequency** in the same Build tab provides five independent overrides:
+
+| Setting | Work scheduled |
+|---|---|
+| Live Link / textures interval | Scene-edit and painted-texture command reads |
+| Live Logic interval | Graph patch reads; graph execution still runs every update |
+| Debugger commands interval | Breakpoints, stop/step and capture request reads |
+| Debugger reports interval | Snapshot writes with statistics and watched history |
+| Time machine interval | Restore request reads and state capture writes |
+
+Values are game updates: **0 = existing platform defaults**, 1 = every update,
+up to 120. Missing fields in older projects mean 0. Changes require rebuilding
+the game. At 50 FPS, 50 updates take one second; at 16 FPS, about three seconds.
+Increasing an interval trades response latency or history density for fewer
+host filesystem operations. It does not disable per-node counters, per-update
+watch sampling or graph execution; disable the corresponding channel to remove
+that work. Longer report gaps can overwrite older entries in bounded history
+rings before the editor receives them.
+
+Automatic intervals remain 6 updates locally and 25 over ps2link for Link,
+Logic and debugger I/O; Time Machine retains its platform defaults. The initial
+poll phases stay staggered. Paused debugger command polling is capped at two
+loop ticks and forced reports still bypass the report interval. The editor's
+missing-heartbeat tolerance scales with the configured report interval and
+reported FPS. Remote Pad polling and input recording/playback keep their
+existing timing; these controls must not make a held button lag or lose frames.
+
+For a lighter hardware session, try Link/Logic/Time Machine at 100, debugger
+commands at 25 and reports at 50, then disable the unused channels. This is a
+starting configuration, not a measured FPS guarantee. No extra polling channel
+is introduced, and release builds still omit all these runtimes.
+
+Verified for 1.90.0 on Windows: settings save/reopen and range clamping,
+Preferences editing, automatic/custom/disabled/release code generation, native
+game build, and PCSX2 plus physical PS2 runtime checks. With reports set to 50,
+successive snapshot frame ids differed by exactly 50 on both. Physical PS2
+halt/one-step/resume succeeded (step and resume about 0.15 s), and frame capture
+worked. This is functional validation, not a measured performance improvement.
+
 ## Release builds stay clean
 
 Devkit code is generated only for the debug profile. A release build removes
@@ -246,6 +295,27 @@ picker before assuming the first geometry belongs to the object you care about.
 Only the last mesh in a multi-mesh chain can currently be replayed by the host
 VU simulator.
 
+Two limits are worth knowing before a capture is used as evidence rather than as
+a debugging aid.
+
+**The capture buffers clamp silently, and a heavy scene is already at the edge.**
+The devkit holds 2 048 quadwords of chain, 64 referenced blocks and 2 048
+quadwords of referenced data, and every one of those limits is applied by
+truncation with no marker in the file. The Motor District's garage-day frame
+submits about 1 050 packages over 120 flushes, i.e. 8.75 packages per flush,
+which is roughly **1 986 referenced quadwords against the 2 048 limit — 97%
+full**. A flush carrying the full 16 groups overflows it and nothing says so.
+
+**The VU1 memory half is one package's residue, not a frame's output.** The
+second hook waits for VU1 to idle and copies the whole of VU1 data memory, which
+includes the GIF packet the microprogram staged for `XGKICK` — but that lives in
+the double buffer and every package overwrites it, so what the snapshot holds is
+whatever the **last** package of that one chain left. It is the right instrument
+for "what did this draw hand the GS"; it is not, and cannot be made into, a
+recording of the frame's GS stream. See
+[baked-stream-acceptance-gate.md](baked-stream-acceptance-gate.md), which wanted
+exactly that and had to build something else.
+
 For VU source work, the faster checks are:
 
 ```text
@@ -323,3 +393,9 @@ Do not chain a failed marker write into an execee command. In PowerShell use
 directory already ending in `bin` must not receive another relative `bin/`.
 Also stop an emulator serving the same project before hardware captures: its
 fresh `livedbg.bin`/`frame.tga` can otherwise disguise a disconnected console.
+
+## Native hardware timeline
+
+**Debugger > Hardware timeline** reads bounded engine captures without extra
+polling: arm the next boot, load the completed CSV, choose a frame and zoom.
+See [hardware profiler](hardware-profiler.md) for limits and HTML/Perfetto export.

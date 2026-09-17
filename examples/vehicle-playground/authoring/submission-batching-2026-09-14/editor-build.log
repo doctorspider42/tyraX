@@ -1,0 +1,6 @@
+== Building ==
+[0/2] Re-checking globbed directories...
+[1/4] Embedding docs/ pages
+[2/4] Building CXX object CMakeFiles/tyrax-editor.dir/src/aichat.cpp.obj
+[3/4] Linking CXX executable tyrax-editor.exe
+OK: build\tyrax-editor.exe

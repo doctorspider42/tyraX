@@ -1,0 +1,23 @@
+# Multi-user collaboration for this Tyra project.
+#
+# Object bodies are split one file per object (objects/<id>.json), so two people
+# editing DIFFERENT objects touch different files and git merges them with no
+# conflict - just edit. The manifest (<name>.tyra) and per-object files are text.
+#
+# The files below cannot be sanely auto-merged (a heightmap grid, binary assets).
+# Lock one before you edit it so nobody else edits the same file at the same
+# time. Locking needs Git LFS installed once per clone (`git lfs install`); it
+# uses only LFS's lock registry, not LFS storage, so no special remote is needed:
+#     git lfs lock   terrain-main.heights     # claim it
+#     git lfs unlock terrain-main.heights     # release it
+# `git lfs locks` lists who holds what. A lockable file is read-only in your
+# working tree until you lock it - that read-only bit is the reminder.
+
+terrain-*.heights lockable -merge
+res/models/**     lockable -merge
+res/materials/**  lockable -merge
+res/textures/**   lockable -merge
+res/fonts/**      lockable -merge
+res/audio/**      lockable -merge
+res/sfx/**        lockable -merge
+res/hud/**        lockable -merge

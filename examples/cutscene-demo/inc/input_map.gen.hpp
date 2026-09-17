@@ -10,7 +10,7 @@ namespace Cutscene_demo {
 // inputPressed()/inputClicked() with one of the action indices
 // below - never through pad.getClicked().<Button> - so a preset
 // switch or an in-game rebind reaches it.
-constexpr int INPUT_ACTION_COUNT = 18;
+constexpr int INPUT_ACTION_COUNT = 24;
 constexpr int INPUT_PRESET_COUNT = 1;
 constexpr int INPUT_DEFAULT_PRESET = 0;
 // 1 = an in-game rebind row may change bindings (Input Map).
@@ -37,6 +37,12 @@ constexpr int IA_MENU_UP = 14;  // Menu up
 constexpr int IA_MENU_DOWN = 15;  // Menu down
 constexpr int IA_MENU_LEFT = 16;  // Menu left
 constexpr int IA_MENU_RIGHT = 17;  // Menu right
+constexpr int IA_VEH_THROTTLE = 18;  // Vehicle throttle
+constexpr int IA_VEH_BRAKE = 19;  // Vehicle brake
+constexpr int IA_VEH_HANDBRAKE = 20;  // Vehicle handbrake
+constexpr int IA_VEH_NITROUS = 21;  // Vehicle nitrous
+constexpr int IA_VEH_CAMERA = 22;  // Vehicle camera
+constexpr int IA_VEH_REARVIEW = 23;  // Vehicle rear view
 
 // Role slots: the action driving each built-in behavior (-1 =
 // the project has no action for it, so that behavior never fires).
@@ -58,6 +64,12 @@ constexpr int IA_ROLE_MOVE_FORWARD = 0;
 constexpr int IA_ROLE_MOVE_BACK = 1;
 constexpr int IA_ROLE_MOVE_LEFT = 2;
 constexpr int IA_ROLE_MOVE_RIGHT = 3;
+constexpr int IA_ROLE_VEH_THROTTLE = 18;
+constexpr int IA_ROLE_VEH_BRAKE = 19;
+constexpr int IA_ROLE_VEH_HANDBRAKE = 20;
+constexpr int IA_ROLE_VEH_NITROUS = 21;
+constexpr int IA_ROLE_VEH_CAMERA = 22;
+constexpr int IA_ROLE_VEH_REARVIEW = 23;
 
 // One action's physical inputs. pad = kPadButtonNames index (-1 =
 // none), key = USB HID usage code (0 = none), mouse = 1 left /
@@ -97,6 +109,11 @@ void inputRebuild();  // preset + overrides -> g_inputBind
 void inputSetPreset(int preset);
 void inputSetOverride(int action, int code);
 bool inputPressed(Tyra::Pad& pad, int action);  // held this frame
+// The bound pad button's PRESSURE, 0..1 - a DualShock 2 reports
+// 0..255 for the twelve pressure buttons, which is what an analog
+// throttle wants. Digital sources (keyboard, mouse, the four
+// pressure-less buttons) read as exactly 1 while held.
+float inputAnalog(Tyra::Pad& pad, int action);
 bool inputClicked(Tyra::Pad& pad, int action);  // went down now
 // Left-stick deflection (-127..127) the move-* actions ask for on a
 // keyboard; 0/0 when no key is down or no keyboard is attached.
