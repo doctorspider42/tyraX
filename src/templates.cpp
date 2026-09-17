@@ -1009,6 +1009,24 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> envInfoBag;
     std::unique_ptr<Tyra::StaPipColorBag> envColorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> envTexBag;
+    // The projected-silhouette caster bag (TYRA_CHEAP_PROJ_CASTER). Shares
+    // this part's vertex array like the env pass does, but carries NEITHER a
+    // texture bag NOR per-vertex colours: the shadow map is coverage-only, so
+    // the silhouette goes through the colour VU1 class with one colour at 150
+    // vertices a package instead of the textured class at 75. Built on first
+    // use and re-aimed at the base bag's current pointer on every submit,
+    // because a LOD tier moves it. `silAlphaOk` caches the one thing that
+    // makes the swap legal - every vertex colour alpha is 128, so a single
+    // 128 writes the coverage the per-vertex array would have - and is
+    // re-judged whenever baseStamp says the geometry was rebuilt.
+    // It shares the part's own INFO bag too, deliberately: whatever culling,
+    // clipping and blend state the base pass carries into this render today
+    // is what the silhouette must keep carrying, so there is nothing here to
+    // drift out of step.
+    std::unique_ptr<Tyra::StaPipBag> silBag;
+    std::unique_ptr<Tyra::StaPipColorBag> silColorBag;
+    unsigned int silJudgedStamp = 0;
+    bool silAlphaOk = false;
     // Experimental textured AO: the scene lightmap atlas multiplied over the
     // base pass (alpha-over blend of a black texture = per-pixel darkening).
     // aoSts map this part's vertices into the object's atlas regions; shares
@@ -2606,6 +2624,24 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> envInfoBag;
     std::unique_ptr<Tyra::StaPipColorBag> envColorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> envTexBag;
+    // The projected-silhouette caster bag (TYRA_CHEAP_PROJ_CASTER). Shares
+    // this part's vertex array like the env pass does, but carries NEITHER a
+    // texture bag NOR per-vertex colours: the shadow map is coverage-only, so
+    // the silhouette goes through the colour VU1 class with one colour at 150
+    // vertices a package instead of the textured class at 75. Built on first
+    // use and re-aimed at the base bag's current pointer on every submit,
+    // because a LOD tier moves it. `silAlphaOk` caches the one thing that
+    // makes the swap legal - every vertex colour alpha is 128, so a single
+    // 128 writes the coverage the per-vertex array would have - and is
+    // re-judged whenever baseStamp says the geometry was rebuilt.
+    // It shares the part's own INFO bag too, deliberately: whatever culling,
+    // clipping and blend state the base pass carries into this render today
+    // is what the silhouette must keep carrying, so there is nothing here to
+    // drift out of step.
+    std::unique_ptr<Tyra::StaPipBag> silBag;
+    std::unique_ptr<Tyra::StaPipColorBag> silColorBag;
+    unsigned int silJudgedStamp = 0;
+    bool silAlphaOk = false;
     // Experimental textured AO: the scene lightmap atlas multiplied over the
     // base pass (alpha-over blend of a black texture = per-pixel darkening).
     // aoSts map this part's vertices into the object's atlas regions; shares
@@ -15782,6 +15818,47 @@ constexpr int kProjPatchStripVerts =
 #define TYRA_STRIP_PROJ_PATCH 1
 #endif
 
+// THE CHEAP CASTER BAG. 87% of the projected-shadow bracket is the caster's
+// OWN model bags re-submitted from the light (the garage-day inventory: 60 of
+// 69 packages, 4 440 of 4 632 vertices, and every one of them a car body).
+// They are submitted exactly as the object loop submits them - textured, with
+// per-vertex colours - which is the TEXTURE+COLOUR VU1 class at 75 vertices a
+// package. The shadow map does not want either attribute:
+// RendererCoreShadowMap is 64x64 and says so itself - no colour fidelity,
+// only the alpha coverage matters, because the receiver draws black modulated
+// by the silhouette's alpha.
+//
+// Drop both and the same geometry goes through the COLOUR class with a SINGLE
+// colour, which is 150 vertices a package - exactly double. getMaxVertCount is
+// (dbuffer - 9) / (colorElementsPerVertex + reglistCount) rounded down to a
+// multiple of 3; the double buffer is (944 - 22) / 2 = 461, and cull_c is
+// built with elementsPerVertex 2, reglistCount 2:
+//   textured + per-vertex  452 / (3 + 3) -> 75    (what this pass submits now)
+//   untextured + per-vertex 452 / (2 + 2) -> 111
+//   untextured + SINGLE     452 / (1 + 2) -> 150
+// No geometry changes, no second vertex array, no bake and no format change:
+// the silhouette bag shares the part's own vertices and is re-aimed at them
+// every submit (a LOD tier moves that pointer).
+//
+// WHY IT DEFAULTS TO 0. The colour half is exact - pushVert writes alpha 128
+// for every model vertex, so per-vertex colour carries nothing the coverage
+// reads, and a single 128 writes the same alpha. The TEXTURE half is not: the
+// GS modulates alpha as well as RGB, so a caster whose texture has alpha -
+// foliage, a chain-link fence, any alpha-tested cutout - gets its holes from
+// the texture and would cast a solid blob without it. That is a per-model
+// property this pass cannot see (Texture exposes no alpha predicate), so the
+// knob is off until a project's casters are known to be opaque. In the
+// vehicle playground both casters are vehicles (the only two shadowMode 3
+// objects in the district) and their bodies are opaque palette bakes.
+#ifndef TYRA_CHEAP_PROJ_CASTER
+#define TYRA_CHEAP_PROJ_CASTER 0
+#endif
+// The one colour every cheap silhouette casts in. Alpha 128 is the whole
+// point - it is what pushVert writes for every model vertex, so the coverage
+// the shadow map receives is bit-for-bit what the per-vertex array produced.
+// The RGB is never read: the receiver draws BLACK modulated by this alpha.
+static const Tyra::Color kProjSilhouetteColor(128.0F, 128.0F, 128.0F, 128.0F);
+
 // Projected silhouette shadows: per-scene setup. The engine's shadow-map
 // slots were allocated at boot (PROJ_SHADOWS_USED); each in-use slot gets a
 // terrain-conforming receiver patch bound to that slot's VRAM-resident
@@ -16870,10 +16947,86 @@ void TerrainGame::renderProjShadows() {
       bag->vertices = keepVerts;
       bag->bboxVersion = keepStamp;
     };
+    // Which bag a static part casts from (TYRA_CHEAP_PROJ_CASTER, above).
+    // The base bag is textured with per-vertex colours - 75 vertices a VU1
+    // package - and the shadow map reads neither attribute, only coverage.
+    // The silhouette bag is the same vertices through the single-colour
+    // untextured class at 150. It is re-aimed every submit because a LOD tier
+    // moves the base bag's pointer, and it is handed to renderAtFloor like
+    // any other bag, so the below-the-floor clamp rewrites ITS vertices and
+    // leaves the base bag alone.
+    //
+    // The animated branch is left exactly as it was: an animated part already
+    // carries a single colour (its material ambient), so the colour half wins
+    // nothing there, and the vehicles this was built for are static parts.
+    auto casterBag = [&](GeoPart& part) -> StaPipBag* {
+      StaPipBag* base = part.bag.get();
+#if TYRA_CHEAP_PROJ_CASTER
+      if (!base || !base->vertices || base->count == 0) return base;
+      // Re-judge only when the geometry was rebuilt. The swap is legal only
+      // if every vertex the base bag would have drawn has alpha 128: that is
+      // what pushVert writes for a model, but a mirror (opacity * 128) and a
+      // portal (70) do not, and those alphas ARE the coverage.
+      if (part.silJudgedStamp != part.baseStamp) {
+        part.silJudgedStamp = part.baseStamp;
+        part.silAlphaOk = false;
+        const StaPipColorBag* cb = base->color;
+        if (cb && cb->single) {
+          part.silAlphaOk = cb->single->a == 128.0F;
+        } else if (cb && cb->many) {
+          part.silAlphaOk = true;
+          for (u32 vi = 0; vi < base->count; ++vi)
+            if (cb->many[vi].a != 128.0F) {
+              part.silAlphaOk = false;
+              break;
+            }
+        }
+      }
+      if (!part.silAlphaOk) return base;
+      if (!part.silBag) {
+        part.silColorBag = std::make_unique<StaPipColorBag>();
+        part.silColorBag->single = &kProjSilhouetteColor;
+        part.silColorBag->many = nullptr;
+        part.silBag = std::make_unique<StaPipBag>();
+        part.silBag->texture = nullptr;
+        part.silBag->lighting = nullptr;
+        part.silBag->billboard = nullptr;
+        part.silBag->color = part.silColorBag.get();
+      }
+      part.silBag->info = base->info;
+      part.silBag->vertices = base->vertices;
+      part.silBag->count = base->count;
+      part.silBag->bboxVersion = base->bboxVersion;
+      // THE PACKAGE SIZE IS NOT INHERITED, and that is the whole saving.
+      // pinPackageSize gives the base bag the MINIMUM size over itself and
+      // its coplanar companions - the reflective env pass, the AO pass, the
+      // emissive one - because those rasterize over the same pixels in the
+      // same frame buffer and a GEQUAL test cannot survive two passes that
+      // classify a triangle differently. A car body is reflective, so its
+      // base bag is pinned to the env pass's smaller size; copying that pin
+      // held the silhouette at the textured class's 75 and the arm moved
+      // nothing at all.
+      //
+      // The silhouette is coplanar with NOTHING. It rasterizes alone into a
+      // 64x64 slot target with its own z-buffer, cleared per caster, and no
+      // other pass ever draws there. So it asks for its own DERIVED size -
+      // 150 for the single-colour untextured class.
+      //
+      // The one thing it must still honour is a STRIPPED array: those runs
+      // are self-contained and a package boundary anywhere but a run boundary
+      // fuses two strips, so a stripped part keeps its run and wins only the
+      // class change, not the packing.
+      part.silBag->stripped = base->stripped;
+      part.silBag->packageSize = base->stripped ? base->packageSize : 0U;
+      return part.silBag.get();
+#else
+      return base;
+#endif
+    };
     if (anim) {
       for (auto& ap : g.animParts) renderAtFloor(ap.bag.get());
     } else {
-      for (GeoPart& part : g.parts) renderAtFloor(part.bag.get());
+      for (GeoPart& part : g.parts) renderAtFloor(casterBag(part));
     }
     core.renderer3D.popEnvView(mainCam);
 

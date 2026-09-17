@@ -1,0 +1,115 @@
+LOG: IRX: Loading audsrv...
+LOG: IRX: Audsrv loaded!
+LOG: Path3 initialized
+LOG: GS buffers: frame 512x512 x2, z 512x512 at 524288, drawing into 0, showing 1
+LOG: Framebuffers, zBuffer set and allocated!
+LOG: Drawing environment initialized!
+LOG: Renderer core initialized!
+LOG: PostFx initialized!
+LOG: Dynamic env map initialized (VRAM at 798720)
+LOG: Env map target disabled - no VRAM reserved
+LOG: Renderer texture initialized!
+LOG: Clut set!
+LOG: Frustum planes initialized!
+LOG: RendererCore3D initialized!
+LOG: Creating audio semaphore
+LOG: AudioSong semaphore created
+LOG: Audio initialized!
+LOG: Initializing pad
+LOG: Pad state changed
+LOG: Pad state changed
+LOG: Pad state changed
+LOG: Pad is ready!
+LOG: Enabling dual shock functions.
+LOG: Pad state changed
+LOG: Pad is ready!
+LOG: Pad has pressure sensitive buttons? 1
+LOG: Pad state changed
+LOG: Pad is ready!
+LOG: # of actuators: 2
+LOG: padSetActAlign: 1
+LOG: Pad state changed
+LOG: Pad is ready!
+LOG: Pad initialized!
+LOG: StaPipQBufferRenderer initialized
+LOG: Save system: memory card ready
+LOG: Shadow map slots initialized (VRAM at 831488)
+LOG: ADPCM loaded: host:/C:/tyra-probe-0917-caster/arms/mv-cheap/bin/sfx/engine-loop.adpcm (2560 bytes, pitch 1881, id 4961008)
+LOG: ADPCM loaded: host:/C:/tyra-probe-0917-caster/arms/mv-cheap/bin/sfx/engine-high-loop.adpcm (2560 bytes, pitch 1881, id 5290624)
+LOG: ADPCM loaded: host:/C:/tyra-probe-0917-caster/arms/mv-cheap/bin/sfx/screech-loop.adpcm (2560 bytes, pitch 1881, id 5290656)
+LOG: ADPCM loaded: host:/C:/tyra-probe-0917-caster/arms/mv-cheap/bin/sfx/gear-shift.adpcm (1552 bytes, pitch 1881, id 5234064)
+LOG: SIF RPC guard: seen 519, guarded 0
+LOG: VEH setup obj 1 def 0
+LOG: VEH setup obj 6 def 0
+LOG: VEH setup obj 7 def 1
+LOG: VEH setup obj 120 def 1
+LOG: VEH setup obj 121 def 2
+LOG: Static batching: 65 objects in 48 batches
+LOG: Static batching: eligible 87, solo 22, base cell 80, widest cell 80
+LOG: ROADS scene 0 chunks 59 vertices 24417 y0x10 1
+LOG: ROADSTRIP scene 0 strips 1 packages 337 triangles 21252
+LOG: TERRAINSTRIP scene 0 chunk 2,2 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 2,1 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 1,2 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 3,2 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 1,1 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 3,1 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 2,3 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 1,3 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 3,3 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 2,0 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 1,0 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 0,2 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 3,0 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 4,2 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 0,1 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 4,1 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 2,4 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 0,3 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 4,3 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 1,4 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 3,4 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 0,0 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 4,0 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 0,4 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 4,4 strips 1 vertices 588 packages 8 triangles 512
+LOG: Hello from TyraX! Edit src/scripts/example_interaction.cpp.
+LOG: Motor District mood: DAY
+LOG: VEHAI 1 pos 118 -55 wp 1 spd10 224 av 0 lod 0
+LOG: VEHAI 2 pos 115 -73 wp 0 spd10 171 av 0 lod 0
+LOG: VEHAI 1 pos 121 0 wp 1 spd10 290 av 0 lod 0
+LOG: VEHAI 2 pos 121 -26 wp 1 spd10 259 av 0 lod 1
+LOG: VEHAI 1 pos 115 57 wp 2 spd10 289 av 0 lod 0
+LOG: VEHAI 2 pos 122 25 wp 1 spd10 259 av 0 lod 2
+LOG: Motor District mood: NIGHT
+LOG: VEHAI 1 pos 87 106 wp 3 spd10 267 av 0 lod 0
+LOG: VEHAI 2 pos 108 74 wp 2 spd10 260 av 0 lod 2
+LOG: VEHAI 1 pos 29 112 wp 3 spd10 289 av 0 lod 0
+LOG: VEHAI 2 pos 76 113 wp 3 spd10 260 av 0 lod 2
+LOG: VEHAI 1 pos -27 109 wp 4 spd10 289 av 0 lod 0
+LOG: VEHAI 2 pos 24 112 wp 3 spd10 259 av 0 lod 2
+LOG: VEHAI 1 pos -85 103 wp 5 spd10 289 av 0 lod 0
+LOG: VEHAI 2 pos -27 109 wp 4 spd10 259 av 0 lod 2
+LOG: Motor District mood: DAY
+LOG: VEHAI 1 pos -120 61 wp 6 spd10 289 av 0 lod 0
+LOG: VEHAI 2 pos -79 104 wp 4 spd10 259 av 0 lod 1
+LOG: SIF RPC guard: seen 2840, guarded 0
+LOG: VEHAI 1 pos -122 3 wp 6 spd10 289 av 0 lod 0
+LOG: VEHAI 2 pos -117 74 wp 5 spd10 259 av 0 lod 2
+LOG: VEHAI 1 pos -122 -54 wp 7 spd10 289 av 0 lod 0
+LOG: VEHAI 2 pos -123 23 wp 6 spd10 259 av 0 lod 2
+LOG: Motor District mood: NIGHT
+LOG: VEHAI 1 pos -99 -90 wp 7 spd10 205 av 0 lod 0
+LOG: VEHAI 2 pos -122 -28 wp 6 spd10 259 av 0 lod 2
+LOG: VEHAI 1 pos -55 -103 wp 8 spd10 289 av 0 lod 0
+LOG: VEHAI 2 pos -113 -78 wp 7 spd10 259 av 0 lod 2
+LOG: VEHAI 1 pos 2 -107 wp 9 spd10 289 av 0 lod 0
+LOG: VEHAI 2 pos -109 -83 wp 8 spd10 -35 av 0 lod 2
+LOG: VEHAI 1 pos 59 -103 wp 9 spd10 289 av 0 lod 0
+LOG: VEHAI 2 pos -106 -76 wp 8 spd10 -26 av 0 lod 2
+LOG: VEHAI 1 pos 110 -84 wp 0 spd10 287 av 0 lod 0
+LOG: VEHAI 2 pos -105 -76 wp 8 spd10 10 av 0 lod 2
+LOG: VEHAI 1 pos 120 -27 wp 1 spd10 288 av 0 lod 0
+LOG: VEHAI 2 pos -109 -78 wp 8 spd10 46 av 0 lod 2
+LOG: VEHAI 1 pos 122 30 wp 1 spd10 289 av 0 lod 0
+LOG: VEHAI 2 pos -109 -83 wp 8 spd10 0 av 0 lod 2

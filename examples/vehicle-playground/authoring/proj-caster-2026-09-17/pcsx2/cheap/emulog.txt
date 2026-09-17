@@ -1,0 +1,558 @@
+[    0.0516] Program Path: C:\Program Files\PCSX2\pcsx2-qt.exe
+[    0.0518] AppRoot Directory: C:\Program Files\PCSX2
+[    0.0518] Resources Directory: C:\Program Files\PCSX2\resources
+[    0.0524] DataRoot Directory: C:\Users\papaj\OneDrive - Iteo S.A\Dokumenty\PCSX2
+[    0.0525] Loading config from C:\Users\papaj\OneDrive - Iteo S.A\Dokumenty\PCSX2\inis\PCSX2.ini.
+[    0.0531] Loading secrets from C:\Users\papaj\OneDrive - Iteo S.A\Dokumenty\PCSX2\inis\secrets.ini.
+[    0.0558] BIOS Directory: C:\Users\papaj\OneDrive - Iteo S.A\Dokumenty\PCSX2\bios
+[    0.0559] Snapshots Directory: C:\Users\papaj\OneDrive - Iteo S.A\Dokumenty\PCSX2\snaps
+[    0.0559] Savestates Directory: C:\Users\papaj\OneDrive - Iteo S.A\Dokumenty\PCSX2\sstates
+[    0.0566] MemoryCards Directory: C:\Users\papaj\OneDrive - Iteo S.A\Dokumenty\PCSX2\memcards
+[    0.0566] Logs Directory: C:\Users\papaj\OneDrive - Iteo S.A\Dokumenty\PCSX2\logs
+[    0.0566] Cheats Directory: C:\Users\papaj\OneDrive - Iteo S.A\Dokumenty\PCSX2\cheats
+[    0.0566] Patches Directory: C:\Users\papaj\OneDrive - Iteo S.A\Dokumenty\PCSX2\patches
+[    0.0566] Covers Directory: C:\Users\papaj\OneDrive - Iteo S.A\Dokumenty\PCSX2\covers
+[    0.0566] Game Settings Directory: C:\Users\papaj\OneDrive - Iteo S.A\Dokumenty\PCSX2\gamesettings
+[    0.0566] Resources Directory: C:\Program Files\PCSX2\resources
+[    0.0566] User Resources Directory: C:\Users\papaj\OneDrive - Iteo S.A\Dokumenty\PCSX2\resources
+[    0.0567] Cache Directory: C:\Users\papaj\OneDrive - Iteo S.A\Dokumenty\PCSX2\cache
+[    0.0567] Textures Directory: C:\Users\papaj\OneDrive - Iteo S.A\Dokumenty\PCSX2\textures
+[    0.0567] Input Profile Directory: C:\Users\papaj\OneDrive - Iteo S.A\Dokumenty\PCSX2\inputprofiles
+[    0.0567] Video Dumping Directory: C:\Users\papaj\OneDrive - Iteo S.A\Dokumenty\PCSX2\videos
+[    0.0567] Debugger Layouts Directory: C:\Users\papaj\OneDrive - Iteo S.A\Dokumenty\PCSX2\inis\debuggerlayouts
+[    0.0567] Debugger Settings Directory: C:\Users\papaj\OneDrive - Iteo S.A\Dokumenty\PCSX2\inis\debuggersettings
+[    0.0627] Loaded translation file for language en-US
+[    0.0660] PCSX2 v2.6.3
+[    0.0661] Savestate version: 0x9a550000
+[    0.0661] 
+[    0.0661] 
+[    0.0661] Host Machine Init:
+[    0.0662]   Operating System = Microsoft Windows 10+
+[    0.0662]   Available RAM    = 7490 MB (7.32 GB)
+[    0.0662]   Physical RAM     = 28494 MB (27.83 GB)
+[    0.0662] 
+[    0.0662]   Processor        = AMD Ryzen 7 PRO 5850U with
+[    0.0662]   Core Count       = 8 cores
+[    0.0662]   Thread Count     = 16 threads
+[    0.0662]   Cluster Count    = 1 clusters
+[    0.0690]   Power Profile    = 'Balanced'
+[    0.0691]   Power States (min/max)
+[    0.0691]     AC             = 80% / 100%
+[    0.0691]     Battery        = 5% / 100%
+[    0.0691] 
+[    0.0691] CPU Extensions Detected:
+[    0.0691]   AVX AVX2
+[    0.0691] 
+[    0.0691] Graphics Adapters Detected:
+[    0.0890]   GPU              = AMD Radeon PRO Graphics
+[    0.0890]   Driver Version   = 31.0.21924.4004
+[    0.0890] 
+[    0.0899]   GPU              = Microsoft Basic Render Driver
+[    0.0900]   Driver Version   = 10.0.26100.9278
+[    0.0900] 
+[    0.0900] Allocating host memory for virtual systems...
+[    0.0901] Data Memory                      @ 0x00007FF770000000 -> 0x00007FF779F00000 [159mb]
+[    0.0902] Code Memory                      @ 0x00007FF779F00000 -> 0x00007FF78D000000 [305mb]
+[    0.0902]   EE Main Memory                   @ 0x00007FF770000000 -> 0x00007FF778F00000 [143mb]
+[    0.0902]   IOP Main Memory                  @ 0x00007FF778F00000 -> 0x00007FF779200000 [3mb]
+[    0.0902]   VU0/1 On-Chip Memory             @ 0x00007FF779200000 -> 0x00007FF779300000 [1mb]
+[    0.0902]   VTLB Virtual Map                 @ 0x00007FF779300000 -> 0x00007FF779B00000 [8mb]
+[    0.0902]   VTLB Address Map                 @ 0x00007FF779B00000 -> 0x00007FF779F00000 [4mb]
+[    0.0902]   R5900 Recompiler Cache           @ 0x00007FF779F00000 -> 0x00007FF77DF00000 [64mb]
+[    0.0902]   R3000A Recompiler Cache          @ 0x00007FF77DF00000 -> 0x00007FF77FF00000 [32mb]
+[    0.0903]   Micro VU0 Recompiler Cache       @ 0x00007FF780F00000 -> 0x00007FF784F00000 [64mb]
+[    0.0903]   Micro VU0 Recompiler Cache       @ 0x00007FF784F00000 -> 0x00007FF788F00000 [64mb]
+[    0.0903]   VIF0 Unpack Recompiler Cache     @ 0x00007FF77FF00000 -> 0x00007FF780700000 [8mb]
+[    0.0903]   VIF1 Unpack Recompiler Cache     @ 0x00007FF780700000 -> 0x00007FF780F00000 [8mb]
+[    0.0903]   VIF Unpack Recompiler Cache      @ 0x00007FF788F00000 -> 0x00007FF789000000 [1mb]
+[    0.0903]   GS Software Renderer             @ 0x00007FF789000000 -> 0x00007FF78D000000 [64mb]
+[    0.0915] Fastmem area: 0000022A3F6E0000 - 0000022B3F6DFFFF
+[    0.0925] Generating SSE-optimized unpacking functions for VIF interpreters...
+[    0.0925] Unpack function generation complete.  Generated function statistics:
+[    0.0926]   Reserved buffer    : 1048576 bytes @ 0x00007FF788F00000
+[    0.0926]   x86 code generated : 7344 bytes
+[    0.0926] 
+[    0.0936] SDLInputSource: Using Controller DB from resources.
+[    0.8671] SDLInputSource: 862 gamepad mappings are loaded.
+[    0.8917] Surface refresh rate: 75 hz
+[    1.1008] Enumerated 0 devices
+[    1.1023] Loading BIOS...
+[    1.1027] BIOS Found: Europe  v01.20(02/09/2000)  Console 20000902-234321
+[    1.1052] BIOS rom1 module not found, skipping...
+[    1.1053] BIOS rom2 module not found, skipping...
+[    1.1057] Mechacon version: 0x00020603
+[    1.1057] Opening CDVD...
+[    1.1080] Initializing Elf: 3670164 bytes
+[    1.1087] Disc changed to .
+[    1.1087]   Name: vehicle-playground [?]
+[    1.1087]   Serial: vehicle-playground
+[    1.1087]   Version: 
+[    1.1087]   CRC: 5F7A124B
+[    1.1089] No game settings found (tried 'C:\Users\papaj\OneDrive - Iteo S.A\Dokumenty\PCSX2\gamesettings\5F7A124B.ini')
+[    1.1090] Applying settings...
+[    1.1103] GameDB: Has not been initialized yet, initializing...
+[    1.1776] GameDB: 12838 games on record (loaded in 67.29ms)
+[    1.2184] Reopening memory cards...
+[    1.2187] McdSlot 0 [File]: Mcd001.ps2 [8 MB, Formatted]
+[    1.2189] McdSlot 1 [File]: Mcd002.ps2 [8 MB, UNFORMATTED]
+[    1.2200] HLE Host: Set 'host:' root path to: C:\tyra-probe-0917-caster\arms\cheap\bin
+[    1.2200] 
+[    1.2203] EE/iR5900 Recompiler Reset
+[    1.2428] iR3000A Recompiler reset.
+[    1.2484] mVU Reset
+[    1.2485] mVU Reset
+[    1.2561] Resetting host memory for virtual systems...
+[    1.4828] Time Zone Offset: GMT+00:00
+[    1.4829] Time Zone Location: United Kingdom
+[    1.4829] DST: Winter Time
+[    1.4829] Time Format: 24-Hour
+[    1.4829] Date Format: YYYY/MM/DD
+[    1.4829] System Time Basis: Operating System Time
+[    1.4829] Resulting System Time: 2026-09-17 08:40:53
+[    1.4829] Close virtual disk tray
+[    1.4829] Media already loaded (fast boot)
+[    1.4829] Opening GS...
+[    1.5073] D3D11 feature level for autodetection: c000
+[    1.5176] VK: Enabling extension: VK_KHR_get_surface_capabilities2
+[    1.5519] acquireRenderWindow() recreate=true fullscreen=false render_to_main=false surfaceless=false
+[    1.5709] Surface refresh rate: 75 hz
+[    1.5803] VK: Enabling extension: VK_KHR_surface
+[    1.5803] VK: Enabling extension: VK_KHR_win32_surface
+[    1.5803] VK: Enabling extension: VK_KHR_get_surface_capabilities2
+[    1.6116] No GPU requested, using first (AMD Radeon PRO Graphics)
+[    1.6116] 3 vulkan queue families
+[    1.6116] VK: Enabling extension: VK_KHR_swapchain
+[    1.6117] VK: Enabling extension: VK_KHR_push_descriptor
+[    1.6117] VK: Enabling extension: VK_EXT_provoking_vertex
+[    1.6117] VK: Enabling extension: VK_EXT_memory_budget
+[    1.6117] VK: Enabling extension: VK_EXT_calibrated_timestamps
+[    1.6117] VK: Enabling extension: VK_EXT_attachment_feedback_loop_layout
+[    1.6117] VK: Enabling extension: VK_EXT_line_rasterization
+[    1.6117] VK: Enabling extension: VK_KHR_driver_properties
+[    1.6117] VK: Enabling extension: VK_EXT_full_screen_exclusive
+[    1.6223] GPU timing is supported (TS=1 TS valid bits=64, TS period=10.000000)
+[    1.6225] VK_EXT_provoking_vertex is supported
+[    1.6225] VK_EXT_memory_budget is supported
+[    1.6226] VK_EXT_calibrated_timestamps is supported
+[    1.6226] VK_EXT_rasterization_order_attachment_access is NOT supported
+[    1.6226] VK_EXT_swapchain_maintenance1 is NOT supported
+[    1.6226] VK_EXT_full_screen_exclusive is supported
+[    1.6226] VK_KHR_driver_properties is supported
+[    1.6226] VK_EXT_attachment_feedback_loop_layout is supported
+[    1.6246] Read 60 entries from 'C:\Users\papaj\OneDrive - Iteo S.A\Dokumenty\PCSX2\cache\vulkan_shaders.idx'
+[    1.6358] Creating a swap chain with 2 images in present mode VK_PRESENT_MODE_IMMEDIATE_KHR
+[    1.6476] Optional features: primitive_id texture_barrier provoking_vertex_last vs_expand
+[    1.6476] Using hardware for point expansion and hardware for line expansion.
+[    1.7417] Vulkan Graphics Driver Info:
+[    1.7418] Driver 2.0.279
+[    1.7418] Vulkan 1.3.260
+[    1.7419] Conformance Version 1.3.3.1
+[    1.7419] 23.19.24.04 (AMD proprietary shader compiler)
+[    1.7419] AMD proprietary driver
+[    1.7419] AMD Radeon PRO Graphics
+[    1.7456] Processor count: 8 cores, 16 processors, 1 clusters
+[    1.7457] Ordered processor list: 0, 2, 4, 6, 8, 10, 12, 14
+[    1.7459] Opening SPU2...
+[    1.7479] Creating Cubeb audio stream, sample rate = 48000, expansion = Disabled, buffer = 50, latency = 20, stretching enabled, driver = , device = 
+[    1.7562] MultiPause time: 199ns
+[    1.7564] MultiPause time: 193ns
+[    1.7565] MultiPause time: 191ns
+[    1.7623] cubeb_wasapi.cpp:1912:default device period: 100000, minimum device period: 30000
+[    1.7624] cubeb_wasapi.cpp:1927:Minimum latency in frames: 480
+[    1.7624] Minimum latency: 10 ms (480 audio frames)
+[    1.7625] Allocated buffer of 38400 frames for buffer of 50 ms [expansion Disabled (block size 2048), stretch enabled, target size 2432].
+[    1.7626] cubeb_wasapi.cpp:2617:(0000022A09917E60) Setup render: device=0000000000000000
+[    1.7667] cubeb_wasapi.cpp:2333:Setup requested=[f=0 r=48000 c=2 l=3] mix=[f=0 r=192000 c=2 l=3]
+[    1.8210] cubeb_wasapi.cpp:2431:Buffer size is: 4224 for render
+[    1.8211] 
+[    1.8212] cubeb_wasapi.cpp:2668:Target sample rate: 48000
+[    1.8213] cubeb_resampler_internal.h:615:Resampling output (192000Hz) to target and input rate of 48000Hz
+[    1.8213] cubeb_wasapi.cpp:2870:Follow the system default input or/and output devices
+[    1.8223] cubeb_wasapi.cpp:2898:Stream init successful (0000022A09917E60)
+[    1.8236] Initializing Pad...
+[    1.8236] Initializing SIO2...
+[    1.8236] Initializing SIO0...
+[    1.8236] Opening DEV9...
+[    1.8236] DEV9: DEV9init
+[    1.8237] DEV9: DEV9init2
+[    1.8237] DEV9: DEV9init3
+[    1.8278] DEV9: DEV9init ok
+[    1.8279] DEV9: DEV9open
+[    1.8279] Opening USB...
+[    1.8279] (USB) Creating a HID Keyboard (Konami) in port 1
+[    1.8279] (UsbHIDState): Missing host mapping for QKey 'ACBack'
+[    1.8280] (UsbHIDState): Missing host mapping for QKey 'ACBookmarks'
+[    1.8280] (UsbHIDState): Missing host mapping for QKey 'ACForward'
+[    1.8280] (UsbHIDState): Missing host mapping for QKey 'ACHome'
+[    1.8280] (UsbHIDState): Missing host mapping for QKey 'ACRefresh'
+[    1.8280] (UsbHIDState): Missing host mapping for QKey 'Again'
+[    1.8280] (UsbHIDState): Missing host mapping for QKey 'Alt_r'
+[    1.8280] (UsbHIDState): Missing host mapping for QKey 'AudioMute'
+[    1.8280] (UsbHIDState): Missing host mapping for QKey 'AudioNext'
+[    1.8280] (UsbHIDState): Missing host mapping for QKey 'AudioPlay'
+[    1.8280] (UsbHIDState): Missing host mapping for QKey 'AudioPrev'
+[    1.8280] (UsbHIDState): Missing host mapping for QKey 'AudioStop'
+[    1.8281] (UsbHIDState): Missing host mapping for QKey 'Caps_lock'
+[    1.8281] (UsbHIDState): Missing host mapping for QKey 'Compose'
+[    1.8281] (UsbHIDState): Missing host mapping for QKey 'Computer'
+[    1.8281] (UsbHIDState): Missing host mapping for QKey 'Control_r'
+[    1.8281] (UsbHIDState): Missing host mapping for QKey 'Front'
+[    1.8281] (UsbHIDState): Missing host mapping for QKey 'KatakanaHiragana'
+[    1.8282] (UsbHIDState): Missing host mapping for QKey 'Lf'
+[    1.8282] (UsbHIDState): Missing host mapping for QKey 'Mail'
+[    1.8282] (UsbHIDState): Missing host mapping for QKey 'MediaSelect'
+[    1.8283] (UsbHIDState): Missing host mapping for QKey 'Num_lock'
+[    1.8283] (UsbHIDState): Missing host mapping for QKey 'Power'
+[    1.8283] (UsbHIDState): Missing host mapping for QKey 'Props'
+[    1.8283] (UsbHIDState): Missing host mapping for QKey 'Ro'
+[    1.8283] (UsbHIDState): Missing host mapping for QKey 'Scroll_lock'
+[    1.8283] (UsbHIDState): Missing host mapping for QKey 'Shift_r'
+[    1.8283] (UsbHIDState): Missing host mapping for QKey 'Sysrq'
+[    1.8284] (UsbHIDState): Missing host mapping for QKey 'Wake'
+[    1.8284] (UsbHIDState): Missing host mapping for QKey 'Yen'
+[    1.8284] Opening FW...
+[    1.8286] Frame rate: 60, target speed: 1, target frame rate: 60, ticks per frame: 166666
+[    1.8416] VM subsystems initialized in 739.67 ms
+[    1.8589] # Initialize memory (rev:3.42, ctm:393Mhz, cpuclk:295Mhz )
+[    1.8753] R3000 Debugger: Branch to 0x890 (SYSMEM). Clearing modules.
+[    1.8765] RegisterLibraryEntries: excepman version 1.01
+[    1.8771] RegisterLibraryEntries:  intrman version 1.02
+[    1.8772] RegisterLibraryEntries:   ssbusc version 1.01
+[    1.8775] RegisterLibraryEntries:  dmacman version 1.02
+[    1.8778] RegisterLibraryEntries:  timrman version 1.01
+[    1.8779] RegisterLibraryEntries:  sysclib version 1.01
+[    1.8780] RegisterLibraryEntries:    stdio version 1.01
+[    1.8781] RegisterLibraryEntries:  heaplib version 1.01
+[    1.8789] RegisterLibraryEntries:   thbase version 1.01
+[    1.8791] RegisterLibraryEntries:  thevent version 1.01
+[    1.8791] RegisterLibraryEntries:  thsemap version 1.01
+[    1.8791] RegisterLibraryEntries:  thmsgbx version 1.01
+[    1.8791] RegisterLibraryEntries:  thfpool version 1.01
+[    1.8792] RegisterLibraryEntries:  thvpool version 1.01
+[    1.8796] Updating psxCounter[5] mode old repeat 1 new 0 old toggle 0 new 0
+[    1.8798] RegisterLibraryEntries:   vblank version 1.01
+[    1.8802] RegisterLibraryEntries:    ioman version 1.02
+[    1.8808] RegisterLibraryEntries:  modload version 1.01
+[    1.8811] RegisterLibraryEntries:   romdrv version 2.01
+[    1.8812] RegisterLibraryEntries:    stdio version 1.02
+[    1.8817] RegisterLibraryEntries:   sifman version 1.01
+[    1.9091] # Total accessable memory size: 32 MB (B:2:8:0) (342:2:7c30)
+[    1.9108] # TLB spad=0 kernel=1:12 default=13:30 extended=31:38
+[    2.1070] # Initialize Start.
+[    2.1161] # Initialize GS ...
+[    2.1161] # Initialize INTC ...
+[    2.1161] # Initialize TIMER ...
+[    2.1162] # Initialize DMAC ...
+[    2.1164] # Initialize VU1 ...
+[    2.1168] # Initialize VIF1 ...
+[    2.1169] # Initialize GIF ...
+[    2.1169] # Initialize VU0 ...
+[    2.1172] # Initialize VIF0 ...
+[    2.1173] # Initialize IPU ...
+[    2.1176] # Initialize FPU ...
+[    2.1176] # Initialize User Memory ...
+[    2.1732] # Initialize Scratch Pad ...
+[    2.1734] # Initialize Done.
+[    2.1748] 
+[    2.1749] EE DECI2 Manager version 0.06 May 11 2000 18:08:48
+[    2.1749]   CPUID=2e20, BoardID=0, ROMGEN=2000-0902, 32M
+[    2.1749] 
+[    2.1753] RegisterLibraryEntries:   sifcmd version 1.01
+[    2.1790] Initializing Elf: 3670164 bytes
+[    2.1810] ELF Loading: host:C:\tyra-probe-0917-caster\arms\cheap\bin\vehicle-playground.elf, Game CRC = 5F7A124B, EntryPoint = 0x00100E78
+[    2.1883] RegisterLibraryEntries:  cdvdman version 1.01
+[    2.1915] RegisterLibraryEntries:  cdvdfsv version 1.01
+[    2.1954] RegisterLibraryEntries:  secrman version 1.03
+[    2.1962] RegisterLibraryEntries:   eesync version 1.01
+[    2.2206] # Restart Without Memory Clear.
+[    2.2254] # Initialize GS ...
+[    2.2255] # Initialize INTC ...
+[    2.2255] # Initialize TIMER ...
+[    2.2255] # Initialize DMAC ...
+[    2.2255] # Initialize VU1 ...
+[    2.2259] # Initialize VIF1 ...
+[    2.2259] # Initialize GIF ...
+[    2.2259] # Initialize VU0 ...
+[    2.2260] # Initialize VIF0 ...
+[    2.2260] # Initialize IPU ...
+[    2.2260] # Initialize FPU ...
+[    2.2260] # Initialize Scratch Pad ...
+[    2.2261] # Restart Without Memory Clear Done.
+[    2.2263] ELF host:C:\tyra-probe-0917-caster\arms\cheap\bin\vehicle-playground.elf with entry point at 0x00100E78 is executing.
+[    2.2264] ELF changed, active CRC 5F7A124B (host:C:\tyra-probe-0917-caster\arms\cheap\bin\vehicle-playground.elf)
+[    2.2300] Applying core settings...
+[    2.2307] Updating CPU configuration...
+[    2.2308] iR3000A Recompiler reset.
+[    2.2358] mVU Reset
+[    2.2358] mVU Reset
+[    2.3408] iR3000A Recompiler reset.
+[    2.3449] mVU Reset
+[    2.3449] mVU Reset
+[    2.3651] EE/iR5900 Recompiler Reset
+[    2.3824] BIOS: Successfully found the instruction pattern. Assuming the thread list is here: 80017b40
+[    2.3864] Warning: GetOsdConfigParam2 Reading extended language/version configs, may be incorrect!
+[    2.4053] R3000 Debugger: Branch to 0x890 (SYSMEM). Clearing modules.
+[    2.4077] RegisterLibraryEntries: excepman version 1.01
+[    2.4087] RegisterLibraryEntries:  intrman version 1.02
+[    2.4089] RegisterLibraryEntries:   ssbusc version 1.01
+[    2.4094] RegisterLibraryEntries:  dmacman version 1.02
+[    2.4099] RegisterLibraryEntries:  timrman version 1.01
+[    2.4106] RegisterLibraryEntries:  sysclib version 1.01
+[    2.4108] RegisterLibraryEntries:    stdio version 1.01
+[    2.4111] RegisterLibraryEntries:  heaplib version 1.01
+[    2.4138] RegisterLibraryEntries:   thbase version 1.01
+[    2.4141] RegisterLibraryEntries:  thevent version 1.01
+[    2.4142] RegisterLibraryEntries:  thsemap version 1.01
+[    2.4143] RegisterLibraryEntries:  thmsgbx version 1.01
+[    2.4143] RegisterLibraryEntries:  thfpool version 1.01
+[    2.4143] RegisterLibraryEntries:  thvpool version 1.01
+[    2.4150] Updating psxCounter[5] mode old repeat 0 new 1 old toggle 0 new 0
+[    2.4151] Updating psxCounter[5] mode old repeat 1 new 0 old toggle 0 new 0
+[    2.4155] RegisterLibraryEntries:   vblank version 1.01
+[    2.4161] RegisterLibraryEntries:    ioman version 1.02
+[    2.4175] RegisterLibraryEntries:  modload version 1.01
+[    2.4181] RegisterLibraryEntries:   romdrv version 2.01
+[    2.4185] RegisterLibraryEntries:    stdio version 1.02
+[    2.4190] RegisterLibraryEntries:   sifman version 1.01
+[    2.4201] RegisterLibraryEntries:   sifcmd version 1.01
+[    2.4245] RegisterLibraryEntries:  cdvdman version 1.01
+[    2.4269] RegisterLibraryEntries:  cdvdfsv version 1.01
+[    2.4298] RegisterLibraryEntries:  secrman version 1.03
+[    2.4300] RegisterLibraryEntries:   eesync version 1.01
+[    2.4339] [EE] Skipping timeout loop at 0x002A7370 -> 0x002A7390
+[    2.4440] RegisterLibraryEntries:   iomanx version 1.01
+[    2.4457] RegisterLibraryEntries:  sio2man version 2.07
+[    2.4459] RegisterLibraryEntries:  sio2man version 1.02
+[    2.4469] RegisterLibraryEntries:   padman version 1.02
+[    2.4480] RegisterLibraryEntries:    libsd version 1.04
+[    2.4669] RegisterLibraryEntries:   audsrv version 1.04
+[    2.4749] UpdateVSyncRate: Mode Changed to PAL.
+[    2.4750] Frame rate: 49.76, target speed: 1, target frame rate: 49.76, ticks per frame: 200964
+[    2.4750] Set GS CRTC configuration. PAL  640x512 @ 50.000 (49.76) Interlaced (FIELD)
+[    2.4752] UpdateVSyncRate: Mode Changed to PAL.
+[    2.4752] Frame rate: 50, target speed: 1, target frame rate: 50, ticks per frame: 200000
+[    4.8233] [EE] Skipping timeout loop at 0x00102CB0 -> 0x00102CD0
+[    5.0986] Pad: DS2 Config Finished - P1/S1 - AL: Off - AB: Usable - VS: Disabled - VL: Disabled - RB: D (0x00000000)
+[    5.2187] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Disabled - VL: Disabled - RB: D (0x00000000)
+[    5.4586] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Disabled - VL: Disabled - RB: D (0x00000000)
+[    5.8185] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Disabled - VL: Disabled - RB: D+A+P (0x0003FFFF)
+[    6.0586] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Disabled - VL: Disabled - RB: D+A+P (0x0003FFFF)
+[    6.1786] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Normal - VL: Normal - RB: D+A+P (0x0003FFFF)
+[    6.2193] RegisterLibraryEntries:    mcman version 2.03
+[    6.2203] RegisterLibraryEntries:   mcserv version 1.01
+[    6.2205] [EE] Skipping timeout loop at 0x00104940 -> 0x00104960
+[    6.4619] OSD [MemoryCardSave0]: Memory Card 'Mcd001.ps2' was saved to storage.
+[    7.0028] microVU1: Cached Prog = [000] [PC=3fd0] [List=01] (Cache=0.000%) [0.0mb]
+[    8.7989] microVU1: Cached Prog = [001] [PC=07b0] [List=01] (Cache=0.000%) [0.0mb]
+[    8.7989] microVU1: 2 cycle stall on branch instruction [0840]
+[    8.7992] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.7992] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.7995] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.7995] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.7996] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.7996] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.7999] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.7999] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8000] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.8001] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8001] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.8002] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8003] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.8003] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8004] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8004] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8004] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.8005] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8007] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.8007] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8008] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.8008] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8012] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.8012] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8014] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.8014] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8016] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.8016] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8021] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.8021] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8022] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8022] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8025] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8025] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8026] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8026] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8027] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.8027] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8028] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8028] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8029] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8030] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8031] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.8031] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8032] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8032] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8033] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8033] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8034] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8034] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8036] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8036] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8037] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8037] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8038] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8039] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8040] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8040] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8041] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8041] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8042] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8042] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8044] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8044] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8045] microVU1: 3 cycle stall on branch instruction [0868]
+[    8.8045] microVU1: Cached Prog = [002] [PC=1270] [List=01] (Cache=0.830%) [0.5mb]
+[    8.8045] microVU1: 2 cycle stall on branch instruction [0840]
+[    8.8047] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.8047] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8049] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.8049] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8050] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.8050] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8053] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.8053] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8055] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.8055] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8056] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.8056] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8057] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.8057] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8057] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8057] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8058] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.8058] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8060] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.8061] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8061] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.8062] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8065] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.8065] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8066] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.8066] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8067] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.8067] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8071] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.8072] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8072] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8072] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8075] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8075] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8076] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8076] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8077] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.8077] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8078] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8078] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8079] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8080] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8081] microVU1: 3 cycle stall on branch instruction [11f0]
+[    8.8081] microVU1: 3 cycle stall on branch instruction [1218]
+[    8.8082] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8082] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8083] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8083] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8084] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8084] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8085] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8086] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8087] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8087] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8088] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8088] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8089] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8090] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8091] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8092] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8093] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8093] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8094] microVU1: 3 cycle stall on branch instruction [0ad0]
+[    8.8095] microVU1: 3 cycle stall on branch instruction [0b58]
+[    8.8096] microVU1: 3 cycle stall on branch instruction [0868]
+[    8.8101] microVU1: Cached Prog = [003] [PC=2350] [List=01] (Cache=1.659%) [1.0mb]
+[    8.8110] microVU1: Cached Prog = [004] [PC=2b30] [List=01] (Cache=1.824%) [1.1mb]
+[    8.8823] microVU1: Cached Prog = [005] [PC=2b40] [List=01] (Cache=1.989%) [1.2mb]
+[    8.8824] microVU1: 1 cycle stall on branch instruction [2bf0]
+[    8.8824] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8826] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8827] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8829] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8829] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8831] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8831] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8834] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8834] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8836] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8836] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8837] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8837] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8838] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8838] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8840] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8840] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8840] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8841] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8844] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8844] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8844] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8845] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8847] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8848] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8849] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8849] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8851] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8851] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8855] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8855] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8857] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8858] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8864] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8865] microVU1: Cached Prog = [006] [PC=3548] [List=01] (Cache=2.641%) [1.6mb]
+[    8.8865] microVU1: 1 cycle stall on branch instruction [2bf0]
+[    8.8865] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8867] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8867] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8869] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8869] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8870] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8870] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8873] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8873] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8875] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8875] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8876] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8876] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8877] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8878] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8879] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8879] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8880] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8880] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8882] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8882] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8883] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8883] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8886] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8886] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8888] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8888] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8890] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8890] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8894] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8894] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8896] microVU1: 3 cycle stall on branch instruction [34f0]
+[    8.8896] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8903] microVU1: 3 cycle stall on branch instruction [2cb0]
+[    8.8906] microVU1: Cached Prog = [007] [PC=0000] [List=01] (Cache=3.294%) [2.0mb]
+[    8.8915] microVU1: Cached Prog = [008] [PC=07a0] [List=01] (Cache=3.446%) [2.1mb]
+[    9.0392] microVU1: Cached Prog = [009] [PC=3560] [List=01] (Cache=3.599%) [2.1mb]
+[    9.0398] microVU1: Cached Prog = [010] [PC=3a20] [List=01] (Cache=3.685%) [2.2mb]
+[   43.0585] (VMManager) Pausing...
