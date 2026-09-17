@@ -260,6 +260,24 @@ solo static models 44.8%, terrain 13.4%, the reflection probe 13.1%, roads
 8.1% — is in
 [the reflection-probe round's evidence](authoring/reflection-probe-2026-09-16/README.md).
 
+**`authoring/world-visibility-2026-09-17/` asks what the frame is SEEN to draw**,
+which the inventory above cannot say. `visibility-sampler.py` parks the camera
+at the garage-day pose and hides objects named in a command file at runtime;
+`probe-visibility.ps1` photographs one probe after another **from a single
+boot** through the game's own `--capture-frame` channel, so the whole
+142-object population costs one build and one boot instead of an hour per
+object. An object whose removal changes **zero pixels** contributed nothing by
+any path — silhouette, shadow, baked AO or reflection — and is free to cull.
+`analyze_visibility.py` joins that with the counts arm's per-object rows and
+prints **triangles per visible pixel**.
+
+The garage-day answer: **the frame is not overdrawing.** Twelve of the fourteen
+solo objects that submit triangles are seen; only Tower block 06 and the
+pavement under it are strictly occluded (3 509 triangles, 51 packages, 6 bags).
+But **6 532 triangles — 18.6% of the frame — buy 327 pixels between them**, and
+that ratio, not "occluded", is what ranks the population.
+[Raw evidence](authoring/world-visibility-2026-09-17/README.md).
+
 **The camera is parked too, and that is the other half of the same hazard.**
 `authoring/reflection-probe-2026-09-16/motion-sampler.py` and
 `content-sampler.py` replace the fixture's sampler so the four phases become

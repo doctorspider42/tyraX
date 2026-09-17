@@ -1,0 +1,207 @@
+LOG: IRX: Loading audsrv...
+LOG: IRX: Audsrv loaded!
+LOG: Path3 initialized
+LOG: GS buffers: frame 512x512 x2, z 512x512 at 524288, drawing into 0, showing 1
+LOG: Framebuffers, zBuffer set and allocated!
+LOG: Drawing environment initialized!
+LOG: Renderer core initialized!
+LOG: PostFx initialized!
+LOG: Dynamic env map initialized (VRAM at 798720)
+LOG: Env map target disabled - no VRAM reserved
+LOG: Renderer texture initialized!
+LOG: Clut set!
+LOG: Frustum planes initialized!
+LOG: RendererCore3D initialized!
+LOG: Creating audio semaphore
+LOG: AudioSong semaphore created
+LOG: Audio initialized!
+LOG: Initializing pad
+LOG: Pad state changed
+LOG: Pad is ready!
+LOG: Enabling dual shock functions.
+LOG: Pad state changed
+LOG: Pad is ready!
+LOG: Pad has pressure sensitive buttons? 1
+LOG: Pad state changed
+LOG: Pad is ready!
+LOG: # of actuators: 2
+LOG: padSetActAlign: 1
+LOG: Pad state changed
+LOG: Pad is ready!
+LOG: Pad initialized!
+LOG: StaPipQBufferRenderer initialized
+LOG: Save system: memory card ready
+LOG: Shadow map slots initialized (VRAM at 831488)
+LOG: ADPCM loaded: host:/D:/tyra-probe-0917/arms/vis-pixels/bin/sfx/engine-loop.adpcm (2560 bytes, pitch 1881, id 5356992)
+LOG: ADPCM loaded: host:/D:/tyra-probe-0917/arms/vis-pixels/bin/sfx/engine-high-loop.adpcm (2560 bytes, pitch 1881, id 5415120)
+LOG: ADPCM loaded: host:/D:/tyra-probe-0917/arms/vis-pixels/bin/sfx/screech-loop.adpcm (2560 bytes, pitch 1881, id 5415152)
+LOG: ADPCM loaded: host:/D:/tyra-probe-0917/arms/vis-pixels/bin/sfx/gear-shift.adpcm (1552 bytes, pitch 1881, id 5415184)
+LOG: SIF RPC guard: seen 508, guarded 0
+LOG: VEH setup obj 1 def 0
+LOG: VEH setup obj 6 def 0
+LOG: VEH setup obj 7 def 1
+LOG: VEH setup obj 120 def 1
+LOG: VEH setup obj 121 def 2
+LOG: Static batching: 65 objects in 48 batches
+LOG: Static batching: eligible 87, solo 22, base cell 80, widest cell 80
+LOG: ROADS scene 0 chunks 59 vertices 24417 y0x10 1
+LOG: ROADSTRIP scene 0 strips 1 packages 337 triangles 21252
+LOG: TERRAINSTRIP scene 0 chunk 2,2 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 2,1 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 1,2 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 3,2 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 1,1 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 3,1 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 2,3 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 1,3 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 3,3 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 2,0 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 1,0 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 0,2 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 3,0 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 4,2 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 0,1 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 4,1 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 2,4 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 0,3 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 4,3 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 1,4 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 3,4 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 0,0 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 4,0 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 0,4 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 4,4 strips 1 vertices 588 packages 8 triangles 512
+LOG: Hello from TyraX! Edit src/scripts/example_interaction.cpp.
+LOG: Motor District mood: DAY
+LOG: SIF RPC guard: seen 5470, guarded 0
+LOG: SIF RPC guard: seen 8348, guarded 0
+LOG: Frame capture: 512x512 psm 0 at frame 2091 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 2211 written to frame.tga
+LOG: SIF RPC guard: seen 13803, guarded 0
+LOG: Frame capture: 512x512 psm 0 at frame 2727 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 2841 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 3357 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 3471 written to frame.tga
+LOG: SIF RPC guard: seen 21540, guarded 0
+LOG: Frame capture: 512x512 psm 0 at frame 3987 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 4107 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 4623 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 4743 written to frame.tga
+==WARN: Frame capture: wrote 1036306 of 1048594 bytes - the host: write did not complete
+LOG: IRX: Loading audsrv...
+LOG: IRX: Audsrv loaded!
+LOG: Path3 initialized
+LOG: GS buffers: frame 512x512 x2, z 512x512 at 524288, drawing into 0, showing 1
+LOG: Framebuffers, zBuffer set and allocated!
+LOG: Drawing environment initialized!
+LOG: Renderer core initialized!
+LOG: PostFx initialized!
+LOG: Dynamic env map initialized (VRAM at 798720)
+LOG: Env map target disabled - no VRAM reserved
+LOG: Renderer texture initialized!
+LOG: Clut set!
+LOG: Frustum planes initialized!
+LOG: RendererCore3D initialized!
+LOG: Creating audio semaphore
+LOG: AudioSong semaphore created
+LOG: Audio initialized!
+LOG: Initializing pad
+LOG: Pad state changed
+LOG: Pad is ready!
+LOG: Enabling dual shock functions.
+LOG: Pad state changed
+LOG: Pad is ready!
+LOG: Pad has pressure sensitive buttons? 1
+LOG: Pad state changed
+LOG: Pad is ready!
+LOG: # of actuators: 2
+LOG: padSetActAlign: 1
+LOG: Pad state changed
+LOG: Pad is ready!
+LOG: Pad initialized!
+LOG: StaPipQBufferRenderer initialized
+LOG: Save system: memory card ready
+LOG: Shadow map slots initialized (VRAM at 831488)
+LOG: ADPCM loaded: host:/C:/tyra-probe-0917/arms/vis-pixels/bin/sfx/engine-loop.adpcm (2560 bytes, pitch 1881, id 5356992)
+LOG: ADPCM loaded: host:/C:/tyra-probe-0917/arms/vis-pixels/bin/sfx/engine-high-loop.adpcm (2560 bytes, pitch 1881, id 5415120)
+LOG: ADPCM loaded: host:/C:/tyra-probe-0917/arms/vis-pixels/bin/sfx/screech-loop.adpcm (2560 bytes, pitch 1881, id 5415152)
+LOG: ADPCM loaded: host:/C:/tyra-probe-0917/arms/vis-pixels/bin/sfx/gear-shift.adpcm (1552 bytes, pitch 1881, id 5415184)
+LOG: SIF RPC guard: seen 508, guarded 0
+LOG: VEH setup obj 1 def 0
+LOG: VEH setup obj 6 def 0
+LOG: VEH setup obj 7 def 1
+LOG: VEH setup obj 120 def 1
+LOG: VEH setup obj 121 def 2
+LOG: Static batching: 65 objects in 48 batches
+LOG: Static batching: eligible 87, solo 22, base cell 80, widest cell 80
+LOG: ROADS scene 0 chunks 59 vertices 24417 y0x10 1
+LOG: ROADSTRIP scene 0 strips 1 packages 337 triangles 21252
+LOG: TERRAINSTRIP scene 0 chunk 2,2 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 2,1 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 1,2 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 3,2 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 1,1 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 3,1 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 2,3 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 1,3 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 3,3 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 2,0 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 1,0 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 0,2 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 3,0 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 4,2 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 0,1 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 4,1 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 2,4 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 0,3 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 4,3 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 1,4 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 3,4 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 0,0 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 4,0 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 0,4 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 4,4 strips 1 vertices 588 packages 8 triangles 512
+LOG: Hello from TyraX! Edit src/scripts/example_interaction.cpp.
+LOG: Motor District mood: DAY
+LOG: SIF RPC guard: seen 5470, guarded 0
+LOG: SIF RPC guard: seen 8344, guarded 0
+LOG: Frame capture: 512x512 psm 0 at frame 2031 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 2127 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 2559 written to frame.tga
+LOG: SIF RPC guard: seen 14872, guarded 0
+LOG: Frame capture: 512x512 psm 0 at frame 2667 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 3087 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 3195 written to frame.tga
+LOG: SIF RPC guard: seen 21576, guarded 0
+LOG: Frame capture: 512x512 psm 0 at frame 3645 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 3759 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 4131 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 4221 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 4623 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 4725 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 5139 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 5235 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 5625 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 5721 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 6117 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 6213 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 6579 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 6681 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 7173 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 7293 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 7809 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 7929 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 8445 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 8565 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 9081 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 9195 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 9711 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 9831 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 10347 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 10461 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 10977 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 11091 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 11607 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 11727 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 12243 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 12357 written to frame.tga

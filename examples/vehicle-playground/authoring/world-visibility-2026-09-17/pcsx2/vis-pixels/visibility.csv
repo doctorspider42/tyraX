@@ -1,0 +1,15 @@
+object,name,model,distance,triangles_per_frame,packages,bags,visible_pixels,pct_of_screen,triangles_per_visible_pixel,silhouette_pixels_when_occluder_removed,verdict
+34,Tower block 03,district-tower,48.3,3497,50,5,33385,12.7354,0.105,,SEEN
+36,Tower block 04,district-tower,48.3,3497,50,5,35074,13.3797,0.1,,SEEN
+40,Tower block 06,district-tower,116.8,3497,50,5,0,0.0,,2575,OCCLUDED
+42,Loft block 07,district-loft,118.4,2237,32,5,128,0.0488,17.477,1270,marginal
+1,coupe (player),vehicle,14.5,1876,76,4,3832,1.4618,0.49,,SEEN
+121,Tristar Racer,vehicle,13.3,942,38,4,1069,0.4078,0.881,,SEEN
+120,Rally 04,vehicle,13.3,628,26,2,1294,0.4936,0.485,,SEEN
+38,Loft block 05,district-loft,81.7,511,7,5,610,0.2327,0.838,,SEEN
+60,Streetlight -9 24,detail-light-double,56.9,399,6,1,163,0.0622,2.448,,marginal
+61,Streetlight 9 83,detail-light-double,115.4,399,6,1,36,0.0137,11.083,,marginal
+76,Park tree 14 40,tree-park-large,73.5,290,5,3,808,0.3082,0.359,,SEEN
+79,Park tree -72 87,tree-park-large,139.1,290,5,3,357,0.1362,0.812,,SEEN
+35,Pavement 03,box,48.3,12,2,1,426,0.1625,0.028,,SEEN
+41,Pavement 06,box,116.8,12,1,1,0,0.0,,,OCCLUDED
