@@ -542,13 +542,27 @@ What is now settled, and what is left:
   the RAM for both in a 32 MB machine. Worth doing only after the reuse budget
   has been priced on hardware, because in a scene that is mostly still the two
   overlap.
-- **World visibility is untried and is now the largest lever on the garage.**
-  The garage-day frame contained only 614 of the 9 798 road triangles the
-  lateral budget removed, which is the measured reason the triangle budget did
-  not close the 20 ms rung: the road is in the map, not in that view. **The
-  inventory now names its population**: three `district-tower` instances are
-  10 491 triangles, 26.0% of the frame, and 797.5 packages a frame are already
-  classified and rejected against 803.5 drawn.
+- ~~**World visibility is untried and is now the largest lever on the garage.**~~
+  **PROBED, 2026-09-17, and it is NOT an occlusion problem.** Each solo object
+  was hidden at runtime and the frame photographed and diffed against the
+  control. **The garage is genuinely visible**: twelve of the fourteen objects
+  that submit triangles paint pixels, and only **3 509 triangles / 51 packages /
+  6 bags** (one tower plus its pavement slab) are strictly occluded — two
+  objects out of 142. A PVS or portal scheme buys that, in one pose, for an
+  authoring concept, a baker and a per-object test paid by all 142 objects every
+  frame; in the outer-road poses `object_submit` is only 502 triangles in total,
+  so it buys almost nothing there.
+  **The live number is triangles per visible pixel.** The two near towers pay
+  ~0.10; four distant objects pay 2.4 to infinity, and together **6 532
+  triangles — 18.6% of the frame — buy 327 pixels, 0.12% of the screen**. That
+  is what impostors are for, and impostors already ship, are distance-driven so
+  they survive driving, and do not multiply bags.
+  ([Evidence](../examples/vehicle-playground/authoring/world-visibility-2026-09-17/README.md).)
+  **Two things still owed before anything is built on it**: the same probe set
+  under the MOTION regimes — occlusion is a property of a viewpoint and the
+  parked forecourt is the friendliest one in the scene, so 3 509 is an upper
+  bound for a parked camera — and a hardware A/B, because every figure above is
+  a count or a pixel and none is a millisecond.
 - **Nothing has ever attacked the frame's worst PACKING.** Projected shadows
   and the wheels are triangle LISTS — 25 triangles per VU1 package against a
   strip's 73 — so together they take 130 of garage day's 803.5 packages for

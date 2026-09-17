@@ -648,10 +648,41 @@ Two numbers from that round worth carrying into every later estimate:
    contract worth roughly 110 unenforced obligations in the generated game, whose
    failure mode is stale lighting visible only while the camera moves?"** It
    ships at 0 until that is answered.
-5. **World visibility** — baked sectors, portals or a PVS. With the road front
-   priced, this is the largest untried lever on the garage, and the only one
-   that removes EE and VU1 work at the same time. There is still no occlusion
-   culling of any kind in a scene made of buildings.
+5. ~~**World visibility** — baked sectors, portals or a PVS.~~ **MEASURED FIRST,
+   2026-09-17, and it redirects the front.** "There is still no occlusion
+   culling of any kind in a scene made of buildings" is true and it is not a
+   reason to build one. The garage-day frame was probed object by object by
+   REMOVAL — hide one object, photograph the frame, diff it against the control
+   — and **the garage is not overdrawing: it is genuinely visible.** Twelve of
+   the fourteen solo objects that submit triangles paint pixels. **Strictly
+   occluded: 3 509 triangles, 51 packages, 6 bags — one tower and the pavement
+   slab under it**, 10.0% of this commit's 35 061-triangle frame and 7.2% of its
+   711 packages. The population a pure occlusion scheme could work on is **two
+   objects out of 142**.
+   [Evidence](../examples/vehicle-playground/authoring/world-visibility-2026-09-17/README.md).
+
+   **The number that ranks this population is triangles per visible pixel, and
+   it did not exist before this round.** The two near towers pay ~0.10; four
+   distant objects pay between 2.4 and infinity. **6 532 triangles — 18.6% of
+   the frame — buy 327 pixels between them, 0.12% of the screen.** That is a
+   representation problem, not a culling one, and it points at item 5's own
+   fallback: impostors already ship
+   ([impostors.md](impostors.md)), are distance-driven so they work in every
+   pose and while driving, and **do not multiply bags** — the card is six
+   vertices updated in place, which is the exact failure mode that killed mesh
+   LOD twice. A threshold between 48 and 115 units captures every object in that
+   bottom row **including both strictly-occluded ones**, because they are the
+   most distant things in it. The impostor lever therefore CONTAINS the
+   occlusion lever here, at a fraction of the machinery.
+
+   Two things this does NOT establish, and they bound the claim. **Not one
+   millisecond** — 3 509 triangles and 51 packages are counts, and the plan's
+   own constants (0.4 of the cycle count for a removed triangle; per-bag cost
+   that does not shrink) cut against a naive conversion. And **one parked
+   pose**, which is the most favourable viewpoint in the scene for occlusion —
+   nothing yet says how much of that tower stays hidden while the player
+   **drives**, and the same probe set under the motion regimes is the next
+   check. Until then the 3 509 triangles are an upper bound for a parked camera.
 6. S5, the wheel rebake; and terrain LOD 160 once somebody drives the band.
 7. **The `FlushCache` hunt (S1).** Dropping it corrupted the picture with the
    packet already uncached, and it is worth 1.09 ms when the cause is found.
@@ -666,5 +697,14 @@ estimate is derived from a measured per-cycle rate and a routing mix taken from
 a different build, not measured directly. The 0.4 ms redesign figure is an
 arithmetic sketch. The measured numbers here are the four-pose table at the top,
 the FTCLIP package counts, **the two probes' section and everything it links**,
-and the prior results this page cites by link. Everything else remains a
-prediction.
+the **per-object visible-pixel table** behind item 5 (counts and pixels, PCSX2,
+with its own repeatability, control-drift and positive controls run before any
+zero was read), and the prior results this page cites by link. Everything else
+remains a prediction.
+
+One methodological rule this page earned twice over and should not need a third
+time: **inventory the view, never the map — and then ask what the view is SEEN
+to draw, because those are two different questions as well.** The map-wide road
+count promoted the wrong front; the submission inventory that replaced it
+promoted item 5 on a population that turned out to be almost entirely visible.
+Each step was a real measurement of the wrong quantity.
