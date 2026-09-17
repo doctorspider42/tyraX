@@ -2811,6 +2811,28 @@ differently and that is how two real defects were found (seed order, and the
 three-versus-six seed orientations) - plus a cube, ten cubes, and a pile of
 triangles sharing nothing, which must be REFUSED rather than stripped.
 
+**Take the multiset over the attributes the BAG receives, not over all eight
+floats.** `meshstrip::Weld::kNoNormal` (docs/model-pipeline.md, "The weld key is
+a property of the BAG") welds on position and UV, so a strip vertex may legally
+carry a different normal from the corner a given triangle had - an all-eight
+comparison FAILS on a correct stripper, which is the kind of check that gets
+"fixed" the wrong way. A worked instance is
+`examples/vehicle-playground/authoring/wheel-strip-2026-09-17/stripcheck-wheels.cpp`,
+which runs the property against the district's three REAL baked wheels rather
+than against synthetic input:
+
+```bash
+g++ -std=gnu++20 -O1 -I src -o stripcheck     examples/vehicle-playground/authoring/wheel-strip-2026-09-17/stripcheck-wheels.cpp     src/meshstrip.cpp
+./stripcheck examples/vehicle-playground/.res-baked/vehicles
+```
+
+**And a hand-written grid strip needs a PICTURE, because no count can see its
+one failure mode.** The quad diagonal flips unless each column pair is emitted
+far-corner-first, which on a terrain-following surface is a different surface -
+54 pixels of one 512x512 self-capture, against arms that were each
+byte-identical over three repeats. `meshstrip` output is immune (the multiset
+test covers it); roads, terrain and the projected-shadow receiver patch are not.
+
 **The PCSX2 arm is one knob, not two builds of different trees.** Build two
 editor binaries from the SAME worktree differing only in whether the bake calls
 `meshstrip::build`, and run both against one project directory. The engine, the

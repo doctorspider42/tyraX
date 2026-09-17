@@ -100,6 +100,40 @@ from a caster loses its shadow smoothly rather than switching it off. Nothing
 scales that with the caster's size — a building's shadow goes at the same range
 a crate's does.
 
+### Almost all of it is the CASTER's geometry, not the shadow's
+
+Worth knowing before anyone optimises this producer, because the shape of the
+cost is not where it looks. Measured per producer on the Motor District's
+garage-day frame (`examples/vehicle-playground/authoring/wheel-strip-2026-09-17/`),
+with the bracket split three ways:
+
+| what submits it | VU1 packages | vertices | bags |
+| --- | ---: | ---: | ---: |
+| the caster's own model bags, into the slot | **60** | **4 440** | 4 |
+| the receiver patches | 2 | 96 | 2 |
+| the torch's wall copy | 0 | 0 | 0 |
+
+**87% of the packages and 96% of the vertices are the caster's own bags being
+re-submitted from the light's point of view** — geometry this feature neither
+builds nor owns, and which is packed exactly as well as the object loop packs
+it. If a caster's model is a triangle list, its shadow is one too, and the fix
+is in that model's bake, not here. (In this scene they are: the casters are two
+imported cars, and an imported car is flat-shaded — see
+[vehicles.md](vehicles.md), "The wheel batch is a strip".)
+
+The receiver patch, the only array this feature generates, is written as a
+**triangle strip**: one strip per row of cells joined by degenerate seams, 48
+vertices where the list was 96, and `StaPipBag::packageSize` pinned to it. That
+is a bigger saving than halving the vertex count suggests — a list patch is a
+single 96-vertex package that the partial-frustum route then sub-splits into
+thirds, and a stripped package is never sub-split, so the two patches fell from
+**9 packages to 2**. The pixels are byte-identical; a patch is a grid, which is
+the shape a strip is best at.
+
+The torch's **wall copy** is still a triangle list, built per frame from
+arbitrary receiver geometry. Nothing above prices it, because no sunlit pose
+reaches it at all.
+
 ### The four slots change hands slowly
 
 ### Distance

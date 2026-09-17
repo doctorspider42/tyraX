@@ -263,7 +263,9 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   it groups the batch instead and cuts the whole batch off together.
 - [Triangle strips for static models](docs/model-pipeline.md#triangle-strips) —
   the build ships the strip beside the list, so a shared corner is packaged,
-  transferred and transformed once instead of once per triangle.
+  transferred and transformed once instead of once per triangle; the
+  [vehicle wheel batch](docs/vehicles.md) and the
+  [projected-shadow receiver patch](docs/shadows.md) take one too.
 - **[GS VRAM residency](docs/gs-vram.md)** — the frame buffers can be **16-bit**
   (with the GS's ordered dithering to keep skies from banding), which roughly
   doubles the texture budget; a texture is charged the GS blocks it really

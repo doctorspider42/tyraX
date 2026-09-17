@@ -15760,6 +15760,28 @@ void TerrainGame::updateAndRenderBlobShadows() {
   }
 }
 
+// THE RECEIVER PATCH'S SHAPE, shared by the setup that allocates it and the
+// per-frame fill (renderProjShadows) - one definition, because the count the
+// bag is created with and the count the fill writes must be the same number.
+//
+// 4x4 cells. As a triangle LIST that is 6 vertices a cell, 96 in all. As a
+// TRIANGLE STRIP (docs/model-pipeline.md) each ROW of cells is one strip of
+// 2 * (cells + 1) vertices, the rows are joined by the usual two-vertex
+// degenerate seam, and the tail is padded to the multiple of 3 the VU1 vertex
+// loops step by: 46 vertices, padded to 48. Half the list, for the same
+// quads, the same STs and the same pixels - a patch is a grid, which is the
+// shape a strip is best at. "The same quads" is a property the fill has to
+// WORK for, not one it gets: see the diagonal note in renderProjShadows.
+constexpr int kProjPatchCells = 4;
+constexpr int kProjPatchListVerts = kProjPatchCells * kProjPatchCells * 6;
+constexpr int kProjPatchStripVerts =
+    ((2 * (kProjPatchCells + 1) * kProjPatchCells +
+      2 * (kProjPatchCells - 1)) + 2) / 3 * 3;
+// The A/B knob, on the same terms as TYRA_STRIP_WHEELS: 0 restores the list.
+#ifndef TYRA_STRIP_PROJ_PATCH
+#define TYRA_STRIP_PROJ_PATCH 1
+#endif
+
 // Projected silhouette shadows: per-scene setup. The engine's shadow-map
 // slots were allocated at boot (PROJ_SHADOWS_USED); each in-use slot gets a
 // terrain-conforming receiver patch bound to that slot's VRAM-resident
@@ -15783,14 +15805,21 @@ void TerrainGame::setupProjShadows() {
   const int slots = (int)projCasters.size() < Tyra::RendererCoreShadowMap::slots
                         ? (int)projCasters.size()
                         : Tyra::RendererCoreShadowMap::slots;
-  // 5x5 cells of 2 triangles = 150 vertices per receiver patch.
-  constexpr int kCells = 4;
+  // The engine is ASKED, not trusted: a run longer than a program class
+  // derives would let StaPipCore's clamp move the package boundary off the
+  // run boundary, and the list is still right - so the decision is taken once,
+  // here, and it sizes the buffers. renderProjShadows reads it back off
+  // StaPipBag::stripped, so the fill and the allocation can never disagree.
+  const bool stripPatch = TYRA_STRIP_PROJ_PATCH != 0 &&
+                          (u32)kProjPatchStripVerts <= minPackageSize();
+  const int patchVerts =
+      stripPatch ? kProjPatchStripVerts : kProjPatchListVerts;
   for (int s = 0; s < slots; ++s) {
     projShadows.emplace_back();
     ProjShadow& b = projShadows.back();
     b.mat.identity();
-    b.verts.assign(kCells * kCells * 6, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
-    b.sts.assign(kCells * kCells * 6, Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+    b.verts.assign(patchVerts, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+    b.sts.assign(patchVerts, Vec4(0.0F, 0.0F, 1.0F, 0.0F));
     b.color = Color(0.0F, 0.0F, 0.0F, 55.0F);
     b.info = std::make_unique<StaPipInfoBag>();
     b.info->model = &b.mat;
@@ -15821,6 +15850,13 @@ void TerrainGame::setupProjShadows() {
     b.bag->texture = b.texBag.get();
     b.bag->vertices = b.verts.data();
     b.bag->count = (u32)b.verts.size();
+    // The run IS the package, and the patch is exactly one run - pinning the
+    // size to it is what keeps a package boundary out of the middle of the
+    // strip.
+    if (stripPatch) {
+      b.bag->packageSize = (u32)patchVerts;
+      b.bag->stripped = true;
+    }
     // GS CLAMP on the slot texture, for the WALL copy below: its STs are the
     // silhouette projection evaluated per PIXEL (STQ), so there is no vertex
     // to clamp on the EE the way the flat patch does - and REPEAT would tile
@@ -16908,10 +16944,11 @@ void TerrainGame::renderProjShadows() {
 
   // Receiver patches: centered and sized in the caster loop above, where the
   // light that threw each shadow was still in hand.
-  // 4x4 cells = 96 vertices - the same single-VU1-package size as the light
-  // pools, which never exhibited the multi-package drop the 5x5 (150-vert)
-  // patch showed on the pad walks.
-  constexpr int kCells = 4;
+  // 4x4 cells, which the 5x5 (150-vert) patch replaced after it showed a
+  // multi-package drop on the pad walks. Written out as a TRIANGLE STRIP when
+  // setupProjShadows could pin the package size to it - see kProjPatchCells
+  // there for the two shapes and why they are the same quads.
+  constexpr int kCells = kProjPatchCells;
   // Clip space -> slot texel. Tyra's projection does NOT normalize to +-1:
   // the visible frustum ends at |x|,|y| = w * size/4096, because VU1 scales
   // the divided vertex by a fixed 2048 (the same convention the portal
@@ -17087,48 +17124,93 @@ void TerrainGame::renderProjShadows() {
       return onGeometry ? baseY : terrainHeightAt(px, pz);
     };
 
+    // ONE emitter for both orders. The list and the strip must put bit-for-bit
+    // the same vertex at the same grid corner - that is what makes the strip a
+    // packing change and not a picture change - so the arithmetic lives here
+    // once and the two loops below only decide the ORDER corners are visited
+    // in. `gi`/`gk` are the grid indices, 0..kCells inclusive.
     int v = 0;
-    for (int iz = 0; iz < kCells; ++iz) {
-      for (int ix = 0; ix < kCells; ++ix) {
-        const float x0 = gx + ((float)ix / kCells - 0.5F) * 2.0F * half;
-        const float x1 = gx + ((float)(ix + 1) / kCells - 0.5F) * 2.0F * half;
-        const float z0 = gz + ((float)iz / kCells - 0.5F) * 2.0F * half;
-        const float z1 = gz + ((float)(iz + 1) / kCells - 0.5F) * 2.0F * half;
-        const Vec4 p00(x0, patchY(x0, z0) + 0.05F, z0, 1.0F);
-        const Vec4 p10(x1, patchY(x1, z0) + 0.05F, z0, 1.0F);
-        const Vec4 p11(x1, patchY(x1, z1) + 0.05F, z1, 1.0F);
-        const Vec4 p01(x0, patchY(x0, z1) + 0.05F, z1, 1.0F);
-        const Vec4 tp[6] = {p00, p10, p11, p00, p11, p01};
-        for (int k = 0; k < 6; ++k) {
-          // STs come from the TRUE surface point: the depth bias below must
-          // move the patch in z only, never slide the silhouette across it.
-          const Vec4 clip = lightVP[s] * tp[k];
-          float u = 0.0F, vv = 0.0F;
-          if (clip.w > 0.0001F) {
-            u = 0.5F + clip.x / clip.w * kUv;
-            vv = 0.5F + clip.y / clip.w * kUv;
-          }
-          // Clamp HERE, on the EE, not with the GS wrap mode: nothing in the
-          // 3D pipeline ever emits GS_REG_CLAMP (only the 2D path and the
-          // post-fx blits do), so the register holds whatever the last of
-          // those left and a texture's own wrap setting is silently ignored.
-          // The patch is sized in world units while these STs come out of the
-          // light's projection, so its outer ring lands well outside 0..1 -
-          // measured -0.38..1.39 - and sampled the silhouette a second time,
-          // which is the thin dark "corner" that survived at the patch edge.
-          // Clamping costs nothing: the light frustum is sized to leave the
-          // silhouette a ~22% transparent border, so the edge these vertices
-          // now sample is empty by construction. Only the outer ring of a 4x4
-          // patch moves, and it moves within that border.
-          if (u < 0.0F) u = 0.0F;
-          if (u > 1.0F) u = 1.0F;
-          if (vv < 0.0F) vv = 0.0F;
-          if (vv > 1.0F) vv = 1.0F;
-          b.sts[v + k] = Vec4(u, vv, 1.0F, 0.0F);
-          b.verts[v + k] = zBias(tp[k]);
-        }
-        v += 6;
+    auto corner = [&](int gi, int gk) {
+      const float px = gx + ((float)gi / kCells - 0.5F) * 2.0F * half;
+      const float pz = gz + ((float)gk / kCells - 0.5F) * 2.0F * half;
+      const Vec4 p(px, patchY(px, pz) + 0.05F, pz, 1.0F);
+      // STs come from the TRUE surface point: the depth bias below must
+      // move the patch in z only, never slide the silhouette across it.
+      const Vec4 clip = lightVP[s] * p;
+      float u = 0.0F, vv = 0.0F;
+      if (clip.w > 0.0001F) {
+        u = 0.5F + clip.x / clip.w * kUv;
+        vv = 0.5F + clip.y / clip.w * kUv;
       }
+      // Clamp HERE, on the EE, not with the GS wrap mode: nothing in the
+      // 3D pipeline ever emits GS_REG_CLAMP (only the 2D path and the
+      // post-fx blits do), so the register holds whatever the last of
+      // those left and a texture's own wrap setting is silently ignored.
+      // The patch is sized in world units while these STs come out of the
+      // light's projection, so its outer ring lands well outside 0..1 -
+      // measured -0.38..1.39 - and sampled the silhouette a second time,
+      // which is the thin dark "corner" that survived at the patch edge.
+      // Clamping costs nothing: the light frustum is sized to leave the
+      // silhouette a ~22% transparent border, so the edge these vertices
+      // now sample is empty by construction. Only the outer ring of a 4x4
+      // patch moves, and it moves within that border.
+      if (u < 0.0F) u = 0.0F;
+      if (u > 1.0F) u = 1.0F;
+      if (vv < 0.0F) vv = 0.0F;
+      if (vv > 1.0F) vv = 1.0F;
+      b.sts[v] = Vec4(u, vv, 1.0F, 0.0F);
+      b.verts[v] = zBias(p);
+      ++v;
+    };
+    if (b.bag->stripped) {
+      // One strip per ROW of cells: the corners alternate across z, so each
+      // pair adds a cell. Rows are joined by repeating the row's last corner
+      // and the next row's first - four degenerate triangles the GS
+      // rasterises to nothing - and the tail is padded with the last vertex
+      // to the multiple of 3 the VU1 vertex loops step by.
+      //
+      // THE FAR CORNER COMES FIRST IN EACH PAIR, and that is not a style
+      // choice: it is what keeps the cell's diagonal where the triangle list
+      // put it. A strip's shared edge is its trailing pair, so emitting
+      // (near, far) splits every cell along p01-p10 while the list splits it
+      // along p00-p11. On a FLAT quad the two are the same picture; over
+      // TERRAIN they are not, because the four corners are then at four
+      // heights and two triangulations of a warped quad are two different
+      // surfaces, with two different interpolations of the STs across them.
+      //
+      // No capture in this repo has caught it, and that is the point rather
+      // than a reason to relax: the patch goes FLAT the moment it lands on
+      // geometry (see patchY), so the pose that would show it is a caster on
+      // open, sloping ground. Written down in docs/model-pipeline.md, "A
+      // hand-written grid strip flips the quad diagonal", because roads and
+      // terrain lay their strips out by hand too.
+      for (int iz = 0; iz < kCells; ++iz) {
+        if (iz != 0) {
+          b.verts[v] = b.verts[v - 1];
+          b.sts[v] = b.sts[v - 1];
+          ++v;
+          corner(0, iz + 1);
+        }
+        for (int ix = 0; ix <= kCells; ++ix) {
+          corner(ix, iz + 1);
+          corner(ix, iz);
+        }
+      }
+      while (v < (int)b.verts.size()) {
+        b.verts[v] = b.verts[v - 1];
+        b.sts[v] = b.sts[v - 1];
+        ++v;
+      }
+    } else {
+      for (int iz = 0; iz < kCells; ++iz)
+        for (int ix = 0; ix < kCells; ++ix) {
+          corner(ix, iz);
+          corner(ix + 1, iz);
+          corner(ix + 1, iz + 1);
+          corner(ix, iz);
+          corner(ix + 1, iz + 1);
+          corner(ix, iz + 1);
+        }
     }
     // sfade = the distance fade; the day/night factor is the twilight handover
     // (see updateAndRenderBlobShadows and ambience::Resolved::shadowFade).
@@ -34742,6 +34824,14 @@ int TerrainGame::vehicleLod(int vi) const {
 #ifndef TYRA_WHEEL_STICKY_BBOX
 #define TYRA_WHEEL_STICKY_BBOX 1
 #endif
+// THE A/B KNOB FOR THE STRIP. 0 restores the triangle LIST this batch used to
+// concatenate, so one editor and one generated source produce both arms of the
+// packing measurement and no second baker can go stale between them. The bake
+// side is unconditional - the .tmdl carries the strip either way - so flipping
+// this moves the vertex ORDER and nothing else.
+#ifndef TYRA_STRIP_WHEELS
+#define TYRA_STRIP_WHEELS 1
+#endif
 #if TYRA_WHEEL_REBUILD_VERIFY && !TYRA_WHEEL_REBUILD_REPORT
 #undef TYRA_WHEEL_REBUILD_REPORT
 #define TYRA_WHEEL_REBUILD_REPORT 1
@@ -34774,6 +34864,11 @@ void TerrainGame::renderVehicleWheels() {
   // it at all. `changed` stays false only if every byte of the buffer is the
   // byte it held last frame.
   const GameModelPart* src = nullptr;
+  // The array the four wheels are baked FROM, and the run it is chopped into.
+  // See the strip block below; `srcRun` 0 means this batch is a triangle list.
+  const std::vector<float>* srcGeo = nullptr;
+  unsigned int srcReal = 0;
+  unsigned int srcRun = 0;
   int slot = 0;
   bool changed = false;
   for (int vi = 0; vi < vehicleCount_; ++vi) {
@@ -34841,7 +34936,33 @@ void TerrainGame::renderVehicleWheels() {
       if (outsideSplitBand(bmn, bmx)) continue;
     }
     src = &part;
-    const u32 nv = (u32)(part.verts.size() / 8);
+    // TRIANGLE STRIPS (docs/vehicles.md, "The wheel batch is a strip", and
+    // docs/model-pipeline.md). vehbake writes the wheel's strip into the .tmdl
+    // on a weld that IGNORES NORMALS, which is legal for exactly this bag and
+    // for no other: it carries no lighting bag and one flat modulate-identity
+    // colour, so position and UV are the whole of its vertex. The engine is
+    // asked rather than trusted - a run longer than any program class derives
+    // would let StaPipCore's clamp move the package boundaries off the run
+    // boundaries - and the list is still right, so the guard simply picks it.
+    //
+    // THE PER-WHEEL BLOCK IS ROUNDED UP TO A WHOLE NUMBER OF RUNS. A VU1
+    // package is a contiguous slice of this bag's array and the bag
+    // concatenates four wheels per car, so a block that ended mid-run would
+    // put a package boundary inside the NEXT wheel's run and splice two wheels
+    // into one triangle - a tyre-wide spike across the car. The padding
+    // repeats the strip's last vertex; the transform is per vertex, so a
+    // repeat stays a repeat and the GS rasterises the degenerate triangle to
+    // nothing. It costs 30 vertices of 750 on the district's largest wheel.
+    const bool useStrip = TYRA_STRIP_WHEELS && part.stripRun != 0 &&
+                          !part.stripVerts.empty() &&
+                          part.stripRun <= minPackageSize();
+    const std::vector<float>& geo = useStrip ? part.stripVerts : part.verts;
+    const u32 run = useStrip ? part.stripRun : 0u;
+    const u32 real = (u32)(geo.size() / 8);  // vertices that carry geometry
+    const u32 nv = run ? ((real + run - 1) / run) * run : real;
+    srcGeo = &geo;
+    srcReal = real;
+    srcRun = run;
     const u32 vpc = nv * 4;
     // Every car in this batch reads the same definition, so this can only
     // fire on the frame the wheel model itself changed, at slot 0.
@@ -34875,7 +34996,7 @@ void TerrainGame::renderVehicleWheels() {
                           v.wheelSpin,
                           SC};
     bool sameRig = sl.valid && sl.vehicle == vi &&
-                   sl.srcVerts == (const void*)part.verts.data();
+                   sl.srcVerts == (const void*)geo.data();
     if (sameRig)
       for (int k = 0; k < 9; ++k)
         if (sl.sig[k] != sig[k]) { sameRig = false; break; }
@@ -34970,7 +35091,8 @@ void TerrainGame::renderVehicleWheels() {
         // bump per vertex for a buffer whose length it already knew.
         Tyra::Vec4* out = &batch.verts[base + (size_t)w * (size_t)nv];
         for (u32 i = 0; i < nv; ++i) {
-          const float* q = &part.verts[(size_t)i * 8];
+          // Past `real` this is the run padding: the last vertex again.
+          const float* q = &geo[(size_t)(i < real ? i : real - 1) * 8];
           out[i] = Tyra::Vec4(
               ax + mx3.x * q[0] + my3.x * q[1] + mz3.x * q[2],
               ay + mx3.y * q[0] + my3.y * q[1] + mz3.y * q[2],
@@ -34979,7 +35101,7 @@ void TerrainGame::renderVehicleWheels() {
       }
       for (int k = 0; k < 9; ++k) sl.sig[k] = sig[k];
       for (int w = 0; w < 4; ++w) sl.wy[w] = v.wheelY[w];
-      sl.srcVerts = (const void*)part.verts.data();
+      sl.srcVerts = (const void*)geo.data();
       sl.vehicle = vi;
       sl.valid = 1;
     }
@@ -35027,7 +35149,10 @@ void TerrainGame::renderVehicleWheels() {
         const Tyra::Vec4* live =
             &batch.verts[base + (size_t)w * (size_t)nv];
         for (u32 i = 0; i < nv; ++i) {
-          const float* q = &part.verts[(size_t)i * 8];
+          // The same array and the same padding rule the shipped path walks -
+          // the oracle checks the ARITHMETIC, not which order the vertices
+          // come in - but everything below it is still independent code.
+          const float* q = &geo[(size_t)(i < real ? i : real - 1) * 8];
           const Tyra::Vec4 want(ax + bx.x * q[0] + by.x * q[1] + bz.x * q[2],
                                 ay + bx.y * q[0] + by.y * q[1] + bz.y * q[2],
                                 az + bx.z * q[0] + by.z * q[1] + bz.z * q[2]);
@@ -35057,7 +35182,11 @@ void TerrainGame::renderVehicleWheels() {
   while (batch.staticCars < cars) {
     for (int w = 0; w < 4; ++w)
       for (u32 i = 0; i < vertsPerCar / 4; ++i) {
-        const float* q = &src->verts[(size_t)i * 8];
+        // Padding again: a repeated vertex needs its ST repeated with it, or
+        // the degenerate triangle would sample somewhere else - harmless while
+        // it has no area, but the two arrays must stay the same length.
+        const float* q =
+            &(*srcGeo)[(size_t)(i < srcReal ? i : srcReal - 1) * 8];
         // Flat mid grey: the wheel's colour comes from its palette TEXEL,
         // and 128 is the modulate identity the textured path expects.
         batch.cols.push_back(Tyra::Color(128.0F, 128.0F, 128.0F, 128.0F));
@@ -35075,6 +35204,12 @@ void TerrainGame::renderVehicleWheels() {
   wheelColorBag_->many = batch.cols.data();
   wheelBag_->vertices = batch.verts.data();
   wheelBag_->count = static_cast<u32>(batch.verts.size());
+  // The runs ARE the packages. Every per-wheel block is a whole number of
+  // runs, so pinning the package size to the run means no package boundary can
+  // fall inside a run or across two wheels. 0 asks for the derived size, which
+  // is what a triangle-list batch wants.
+  wheelBag_->stripped = srcRun != 0;
+  wheelBag_->packageSize = srcRun;
   // THE STAMP IS STICKY. bboxVersion says "this vertex buffer holds different
   // numbers than it did"; bumping it unconditionally made that a lie on every
   // frame a car did not move, and it cost twice - the package-bbox cache

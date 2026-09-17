@@ -72,6 +72,15 @@ not move, all three were done to produce a byte-identical result.
 quarter of that. Nothing is cleared; a car whose inputs did not move keeps the
 vertices already sitting in its slot, and the frame does no work for it at all.
 
+Since 1.107.0 the array those slots hold is the wheel's **triangle strip**
+rather than its list, and each wheel's quarter is rounded up to a whole number
+of VU1 runs ([vehicles.md](vehicles.md), "The wheel batch is a strip"). That is
+deliberately arranged not to disturb anything on this page: the quarter is still
+a fixed length per definition, so a slot still answers "these vertices are
+already right" the same way, and the two mechanisms do not interact. What
+changed is only how many packages the finished buffer becomes — 79 to 60 in the
+Motor District garage.
+
 **A signature decides, and it is compared exactly.** Nine floats — position,
 body attitude including the weight-transfer lean, steer, spin, instance scale —
 plus the source part's address and the vehicle index. They are the complete set
@@ -255,6 +264,12 @@ padded with degenerate triangles. **They are not.** The buffer is resized to
 exactly `cars * vertsPerCar` at the end of every frame, which is the same length
 the old clear-and-refill produced, so the bag's `count` is identical car for
 car. That is the argument; here is the measurement.
+
+(1.107.0 does introduce padding, and for an unrelated reason: a strip's
+per-wheel block has to end on a run boundary, which costs 30 vertices of 750 on
+the district's largest wheel. It is not this mechanism's, and the arithmetic
+below is unaffected — `vertsPerCar` is still one number per definition and the
+buffer is still exactly `cars * vertsPerCar`.)
 
 The A/B is **one project directory, release profile, two compiles**, swapping
 only the generated `terrain_game.cpp`/`.hpp` — which removes the fixture, the

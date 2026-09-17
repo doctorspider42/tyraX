@@ -4509,9 +4509,52 @@
 // TYRA_STAPIP_BAKED_POISON) and TYRA_STAPIP_BAKED_BUDGET_QW, all default off.
 // Otherwise docs, evidence and harness; no project format change
 // (kFormatVersion stays 54), no codegen change, no VU1 change.
+// 1.107.0: THE FRAME'S TWO WORST-PACKED PRODUCERS ARE STRIPS NOW, and finding
+// out why they were lists is worth more than the packages. The garage-day
+// inventory named `wheels` and `proj_shadows` as 16% of the frame's VU1
+// packages for 7.6% of its triangles, on the theory that both "are generated at
+// runtime and never got a strip". Neither half of that was right.
+//
+// `proj_shadows` is 87% of its packages the CASTER's own model bags,
+// re-submitted from the light's point of view - geometry the feature neither
+// builds nor owns. And those bags are lists because vehbake had never called
+// meshstrip at ALL, so no vehicle model in the district carries a strip; when
+// you do call it, it REFUSES, because an imported car is flat-shaded and 2 242
+// of a body part's 2 280 corners are unique (the strip is 1.65x the list).
+//
+// What made the wheel possible is that a weld key is a property of the BAG:
+// the wheel batch has no lighting bag and one flat colour, so its vertex is
+// position and UV only. meshstrip::Weld::kNoNormal says that out loud (the
+// emitted vertex still keeps its source corner's normal, so the array stays a
+// well-formed mesh - it is simply not the array to shade), and on that key the
+// three refused wheels strip to 0.64-0.76x. The BODY is lit and is NOT
+// stripped; meshstrip's refusal of it is the right answer, and the backlog now
+// carries the two costed ways past it.
+//
+// Measured in PCSX2, one editor and one generated source with the consumers'
+// two `#define`s as the only difference: the wheel batch 79 packages -> 60,
+// the projected-shadow receiver patch 9 -> 2 (more than halving the vertices
+// suggests, because a stripped package is never sub-split into thirds by the
+// partial-frustum route), additively -23 of the garage frame's 711 and -22 of
+// garage night's 763, with the outer poses untouched because neither producer
+// submits anything there.
+//
+// THE PICTURE, separated by a one-knob arm rather than assumed: the receiver
+// patch is BYTE-IDENTICAL, and the wheels differ in 54 pixels of 512x512 at one
+// channel step, in one of two day poses, all of them on the two side cars'
+// tyres. That is not a defect and it cannot be driven to zero - the GS derives a
+// triangle's ST gradients and its equal-z tie-break from the triangle ORDER, and
+// a strip is a different order over the same vertices; on a palettized texture
+// one texel is a whole colour index. The geometry is proved unchanged on the
+// host instead (stripcheck-wheels.cpp: the identical 314/28/139 surface
+// triangles, none lost, none invented). NOTE also that `triangles` RISES,
+// 1 506 -> 3 285 for the wheels, which is the documented behaviour of a strip's
+// degenerate seams and padding under `size - 2` - the vertex count is the honest
+// column. No project format change (kFormatVersion stays 54) and no VU1 change;
+// the .tmdl gains a strip for the wheel part, which is an existing v4 field.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 106
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 107
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

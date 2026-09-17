@@ -491,7 +491,8 @@ The part to trust is that the packet arithmetic closes exactly: 1.898 ms over
 measured twice over — which is also why the frame's worst-packed geometry costs
 out of proportion to its triangles: projected shadows and wheels run 22–25
 triangles a package against a strip's ~70, taking 16% of the frame's packages
-for 7.6% of its triangles.
+for 7.6% of its triangles. (Attacked in 1.107.0 — see the bullet below for what
+that turned out to be, and for the 23 packages it was worth.)
 
 **And `total_ms` did not move in garage day at all**: 39.960 in every arm, the
 whole saving absorbed by `present`. The rung needs 10.42 ms and this is an
@@ -570,6 +571,36 @@ Four things this says that no earlier number could:
   where terrain, roads and the probe are strips (up to 73). This page's whole
   thesis is that the EE pays per package, so those two producers are worth
   about twice their triangle share — and neither has ever been attacked.
+
+  **ATTACKED IN 1.107.0, and the diagnosis above was right about the symptom
+  and wrong about the cause.** Neither producer "was generated at runtime and
+  never got a strip". Both are lists because **`vehbake` never called
+  `meshstrip` at all** — no vehicle model in the district has ever carried one —
+  and when you do call it, it REFUSES them: an imported car is flat-shaded, so
+  2 242 of a body's 2 280 corners are unique and the strip is 1.65x the list.
+  Splitting the shadow bracket three ways says the rest:
+
+  | producer | VU1 packages, garage day | what it is |
+  | --- | ---: | --- |
+  | `proj_shadows` → caster silhouette | **60** | the CASTER's own bags, re-submitted |
+  | `proj_shadows` → receiver patches | 9 | the only array the feature builds |
+  | `proj_shadows` → torch wall copy | 0 | no sunlit pose reaches it |
+  | `wheels` | 61 drawn + 18 rejected | the wheel batch |
+
+  So 87% of the "projected shadows" row is the car bodies, priced a second time
+  from the light's point of view; the feature's own geometry is 9 packages.
+  Two things followed. The **wheel** batch can strip, because its bag is unlit
+  and flat-coloured so its vertex is position and UV only
+  (`meshstrip::Weld::kNoNormal`, [vehicles.md](vehicles.md)): **79 packages →
+  60**. The **receiver patch** is a grid and strips trivially: **9 → 2**, more
+  than the vertex halving suggests, because a stripped package is never
+  sub-split into thirds by the partial-frustum route. Together **−23 of the
+  frame's 711 packages (−3.2%)**, additively, with byte-identical captures.
+  The **body** is lit and is NOT stripped — `meshstrip`'s refusal of it is the
+  right answer, and reaching those 60 packages needs something else.
+
+  Note the denominator: 711, not the 803.5 in the inventory above. The shipped
+  reflection reuse budget zeroes both `env_probe_*` rows at a parked pose.
 
 And half of all classified packages are thrown away: **797.5 rejected against
 803.5 drawn** in garage day. Probe A already established that the rejection

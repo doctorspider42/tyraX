@@ -54,6 +54,34 @@ namespace meshstrip {
 // so a .tmdl baked by an older editor stays correct, just slower.
 inline constexpr unsigned kRun = 75;
 
+// WHICH ATTRIBUTES DECIDE THAT TWO CORNERS ARE THE SAME VERTEX.
+//
+// A strip vertex is submitted once and read by up to three triangles, so two
+// corners may share one only when every attribute the GS receives for them is
+// identical. Which attributes those ARE is a property of the BAG, not of the
+// mesh, and the difference is the whole reason a mesh strips or refuses to.
+//
+// kFull is the answer for anything the pipeline shades: position, normal and
+// UV. A flat-shaded mesh gives every face its own normals, so almost no corner
+// welds and build() honestly reports that the strip is bigger than the list -
+// measured on the Motor District's vehicles, 2 242 unique corners out of 2 280
+// and a 1.65x strip.
+//
+// kNoNormal is the answer for a bag the pipeline renders UNLIT - no lighting
+// bag, a single flat colour - where the normal is never read and is therefore
+// not an attribute the GS receives. The emitted vertex still carries the
+// normal of the corner it was welded from, so the array stays a well-formed
+// 8-float mesh; it is simply not the array to shade. The same three vehicle
+// wheels that refuse kFull strip to 0.64-0.76x under it
+// (docs/vehicles.md, "The wheel batch is a strip").
+//
+// Using kNoNormal for a bag that IS lit is a rendering bug, not a slower
+// render: neighbouring faces would take one face's normal.
+enum class Weld {
+    kFull,
+    kNoNormal,
+};
+
 // Stripify an interleaved 8-float-per-vertex triangle list.
 //
 // `ao` is either empty or one byte per input vertex, and is reordered with the
@@ -64,7 +92,8 @@ inline constexpr unsigned kRun = 75;
 // keeps the list in that case and the bag is not marked stripped.
 bool build(const std::vector<float>& verts,
            const std::vector<unsigned char>& ao, unsigned run,
-           std::vector<float>& outVerts, std::vector<unsigned char>& outAo);
+           std::vector<float>& outVerts, std::vector<unsigned char>& outAo,
+           Weld weld = Weld::kFull);
 
 // Diagnostics for the host harness (docs/model-pipeline.md). Set by every
 // build() call; nothing in the editor or the game reads them.

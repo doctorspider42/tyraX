@@ -1050,6 +1050,78 @@ One trap this cost: the model table's four parallel arrays emit a placeholder
 vehicle that placeholder pushed `MODEL_COUNT` one short of the rows actually
 written. The emptiness test has to consider the appended vehicle slots too.
 
+## The wheel batch is a strip
+
+The wheel `.tmdl` carries a **triangle strip** beside its list, and
+`renderVehicleWheels` concatenates the strip
+([model-pipeline.md](model-pipeline.md), "Triangle strips"). Until 1.107.0 it
+did not, and the wheels were one of only two things in a Motor District frame
+still submitted as a pure triangle list.
+
+**Why it had to be built here.** A vehicle model never goes through
+`bakeStaticModels`, which is where every other model gets its strip; the wheel
+is an artifact of `vehbake`, and nothing in that bake had ever called
+`meshstrip`. Adding the call is not enough on its own, though, and the reason is
+the interesting half: an imported car is **flat-shaded**, so under the ordinary
+weld 878 of the CC96 wheel's 942 corners are unique and the strip comes out
+**1.6x the list** — `meshstrip` refuses it, correctly.
+
+What makes the wheel different from the body is the BAG. The wheel batch has no
+lighting bag and one flat modulate-identity colour, so the attributes the GS
+receives are position and UV, and nothing else. On that weld
+(`meshstrip::Weld::kNoNormal`) the same three wheels strip cleanly:
+
+| wheel | list verts | strip | ratio | padded | VU1 packages per wheel |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `veh-cc96playground01` | 942 | 720 | 0.764x | 750 | **10** against 13 |
+| `veh-ggbotrally0001` | 84 | 54 | 0.643x | 75 | **1** against 2 |
+| `veh-tristarplay01` | 417 | 297 | 0.712x | 300 | **4** against 6 |
+
+**The body is NOT stripped on that key and must not be** — it is lit, and
+welding across its face boundaries would make it look melted. `meshstrip`'s
+refusal of the body is the right answer, not a gap.
+
+**The per-wheel block is rounded up to a whole number of runs.** A VU1 package
+is a contiguous slice of the bag's array and this bag concatenates four wheels
+per car, so a block ending mid-run would put a package boundary inside the
+*next* wheel's run and splice two wheels into one triangle — a tyre-wide spike
+across the car. The padding repeats the strip's last vertex; the transform is
+per vertex, so a repeat stays a repeat and the GS rasterises the degenerate
+triangle to nothing. It costs 30 vertices of 750 on the largest wheel. The
+fixed block length is also what keeps the skip-when-unchanged batch
+([wheel-rebake-skip.md](wheel-rebake-skip.md)) addressable by slot; that
+mechanism is untouched.
+
+**Measured in PCSX2 on the garage-day pose**, one editor and one generated
+source with the consumer's `TYRA_STRIP_WHEELS` knob as the only difference
+(`examples/vehicle-playground/authoring/wheel-strip-2026-09-17/`):
+
+| garage day, per frame | list | strip |
+| --- | ---: | ---: |
+| VU1 packages drawn | 61 | **45** |
+| VU1 packages classified and rejected | 18 | **15** |
+| vertices submitted | 4 518 | **3 375** |
+| bags | 3 | 3 |
+
+**79 packages become 60**, which is 16 of the frame's 711. `triangles` RISES,
+from 1 506 to 3 285, and that is not a regression: `StaPipTelemetry` counts a
+package's GS primitives as `size - 2`, so a strip reports its degenerate seams
+and padding ([model-pipeline.md](model-pipeline.md), "What the triangle
+counters count"). The vertex count is the honest column.
+
+**What it costs in pixels, and why that number is not zero.** The geometry is
+provably unchanged — a host property test expands the strip back and finds the
+identical 314, 28 and 139 surface triangles, none lost and none invented — but
+the game's own `--capture-frame` puts the stripped wheels **54 pixels of
+512x512 apart from the list, at one channel step**, in one of two day poses, and
+every one of those pixels is on a tyre. It cannot be driven to zero: the GS
+derives a triangle's ST gradients and its equal-`z` tie-break from the triangle
+ORDER, a strip is a different order over the same vertices, and on a palettized
+wheel texture one texel is a whole colour index. See
+[model-pipeline.md](model-pipeline.md), "A re-triangulation is not bit-exact on
+the GS" — and note that the projected-shadow patch, which only re-ORDERS whole
+triangles, IS byte-identical.
+
 ## Verifying a drive without eyes
 
 **`tyrax-editor --vehicle-check`** runs the drive model's property tests -
