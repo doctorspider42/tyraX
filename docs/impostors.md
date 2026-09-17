@@ -71,6 +71,29 @@ turning on the flag alone does not convert their old two-card assets.
   existing static mesh LOD. Per-view billboards remain future work.
 - Both source and far assets stay loaded. Atlas storage grows with the number of views. Fewer triangles are not a proportional
   frame-rate guarantee: texture traffic, draw calls and alpha overdraw still cost.
+- Assigning an impostor makes an object ineligible for **static batching**, for
+  the same reason a catch-area object is: a batched member has no bag of its
+  own, so there would be nothing to swap for a card.
+
+## Measured on buildings, not just foliage
+
+Impostors were built for trees, but the largest measured win so far is on
+**district buildings**. On the Motor District, eight-view impostors for the two
+building models switching at 100 world units take the garage-day frame from
+**750 to 670 VU1 packages (−10.7%)** and garage night from 803 to 723, with the
+outer-road poses unchanged because the same buildings are near the camera there.
+Packages are the unit that matters — the EE pays about 19.5 us per package in
+that scene ([the submission plan](ee-submission-rearchitecture.md)) — and a
+triangle count would have understated it.
+
+Two lessons that transfer to any impostor threshold. **Pick the distance from
+measured screen contribution, not from the model size**: the threshold above
+sits in the gap between the furthest building the frame was measured to SEE
+(82 units) and the nearest one it was not (117 units). And **the win is
+pose-shaped**: a distance rule cannot save work the camera is not already
+spending, so the same threshold is worth 80 packages from the garage forecourt
+and nothing at all from the outer road.
+[Raw evidence](../examples/vehicle-playground/authoring/impostor-threshold-2026-09-17/README.md).
 
 ## Data and implementation
 

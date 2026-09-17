@@ -1,0 +1,15 @@
+{
+  "arm": "counts-cand",
+  "kind": "counts",
+  "profile": "quiet-debug",
+  "impostorDistance": 100.0,
+  "impostorAssetRefsInGeneratedScene": 0,
+  "stripRun": "75",
+  "sampler": "parked: garage day-night, outer day-night",
+  "instrument": "inventory-frame.py (per-producer + per-object counters)",
+  "elfSha256": "E785846BDF38F3C410C1D988A89D0E14D16104E911330BA30540F0A97AC98110",
+  "editor": "D:\\tyra-editor\\.claude\\worktrees\\agent-aa4dd857197b86f19\\build\\tyrax-editor.exe",
+  "editorSha256": "6406CD08D1A976F5C3AEF703E793FACB10E428E998EA027A6EC30ED24C896C18",
+  "commit": "ae616f8e529335243a01e54ce47f44a8c59f6556",
+  "built": "2026-09-17T08:50:09.8165922+02:00"
+}

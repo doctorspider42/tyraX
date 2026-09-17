@@ -3087,6 +3087,54 @@ tear (`wrote N of M bytes - the host: write did not complete`). It is a
 transient — **retry the capture** rather than letting it kill a long single-boot
 run, which is exactly what it did the first time.
 
+### Proving "collisions and picking are unchanged" WITHOUT a capture
+
+A capture can only show the poses you thought to photograph. When a change is
+supposed to leave gameplay data alone, diff the GENERATED SCENE DATA instead —
+it covers every object at once and it is exact.
+
+The obvious version of that diff FAILS, and the reason generalises to any
+change that adds an asset. Adding models to a project inserts them into
+`model_data.gen.hpp` **in place**, so every model index above the insertion
+shifts and a plain diff of `scene_data.hpp` reports a change on most rows. The
+coupe's `model` going 11 -> 13 is the same vehicle body. So:
+
+1. read both `model_data.gen.hpp` tables and build `index -> name` for each;
+2. rewrite the control's model field to the candidate's index for the SAME
+   NAME;
+3. diff, and require the residual to be only the fields the change owns.
+
+`examples/vehicle-playground/authoring/impostor-threshold-2026-09-17/verify_scene_identity.py`
+is the worked example. Two things it learned the hard way: select the object
+rows by their FIELD COUNT (other tables in the same header share the
+`{...}, // name` shape), and expect **consequences** as well as the change —
+assigning an impostor also clears `batchStatic`, because a batched member has
+no bag of its own to swap. Report those rather than allow-listing them silently.
+
+### Judging a POP: the ratio, not the pixel count
+
+A representation swap (impostor, LOD tier) is supposed to change the picture, so
+"the pixels changed" is not a defect and a capture A/B at one pose cannot decide
+anything. Park the camera at a series of STATIONS across the switch distance —
+stations, not a moving camera, because the capture path freezes the game and two
+arms' `--capture-frame` calls never land on the same frame of a moving route.
+Then compare:
+
+* `move(ctl)`  — pixels changing between adjacent stations in the CONTROL. This
+  is the yardstick: what the eye already accepts as "the camera moved".
+* `move(cand)` — the same step in the candidate, which contains the swap.
+
+**A swap step whose ratio to the control step is near 1 is invisible against
+motion that is happening anyway; one far above 1 is a pop, and the ratio is how
+bad.** Judging by the candidate-vs-control column alone is wrong — that column
+is large wherever the cheap representation is showing at all, including where
+nothing is popping.
+
+Cover BOTH kinds of swap. Distance swaps need an approach route; a multi-view
+billboard also changes view sector as the camera moves AROUND the object, and
+rotating the camera in place does NOT test that (the view is chosen from the
+object-to-camera-POSITION vector), so add an orbit at a fixed radius.
+
 ### Measuring a SKIP-WHEN-UNCHANGED change: three fixtures, not one
 
 `--keep-routes` exists because the district's traffic is parked and a change
