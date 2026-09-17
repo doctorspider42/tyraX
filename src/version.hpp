@@ -4502,9 +4502,16 @@
 // replaces those counters, and a fix for the `prim` half of the cache churn.
 // No project format change (kFormatVersion stays 54), no codegen change, no
 // VU1 instruction change; both switches ship at 0.
+// 1.105.1: measure the EE submission rearchitecture on the physical PS2 -
+// garage-day work -1.287 ms against a 0.012 ms floor, a fifth of what the plan
+// budgeted, with total_ms unchanged in garage day and garage night's judder
+// removed. Adds the two adversarial modes (TYRA_STAPIP_BAKED_VERIFY,
+// TYRA_STAPIP_BAKED_POISON) and TYRA_STAPIP_BAKED_BUDGET_QW, all default off.
+// Otherwise docs, evidence and harness; no project format change
+// (kFormatVersion stays 54), no codegen change, no VU1 change.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 106
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

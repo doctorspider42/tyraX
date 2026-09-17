@@ -460,6 +460,46 @@ survives** - `bounds` and `prepare` because the visibility test needs them, and
 So the projection, and it is a projection: **work 30.07 -> about 24**, and with
 S4 and S5 on top, **about 21**. That is still **above** the 20 ms rung.
 
+**THAT PROJECTION IS NOW MEASURED AND IT WAS ABOUT FIVE TIMES TOO OPTIMISTIC.**
+The architecture was built and run on the physical PS2 — a complete baked bag
+replayed by ONE DMA `REF`, skipping the qbuffer ring entirely — and garage-day
+`work` falls **1.287 ms**, not 5.5–6.5, against a repeatability floor of
+**0.012 ms**
+([ee-rearchitecture-2026-09-16](../examples/vehicle-playground/authoring/ee-rearchitecture-2026-09-16/README.md)).
+
+The column above was not wrong about *which* brackets are removable. It was
+wrong about how much of each one this architecture can reach:
+
+| bracket | budgeted removable | measured |
+| --- | ---: | ---: |
+| packet construction | 1.79 | **−0.808** |
+| `dsDirect`, `dsRetain`, `dsCreate`−classify, part of `dsRender` | ~4.3 | inside `dispatch`'s **−1.426** |
+| `bounds` | none | −0.173 |
+| `prepare` | none | **+0.315** |
+| **`work`** | **5.5–6.5** | **−1.287** |
+
+Two reasons, both worth carrying into the next estimate on this page. **Only
+half the bags take the direct route at all** — `dsDirectBags` 53.5 against
+`dsPartialBags` 59 — so a change confined to that route can never reach a whole
+bracket: the 360 packages it replays are 45% of the frame's 803.5. And
+**`prepare` RISES**, by 0.315 ms, which is the same term that refuted mesh
+LOD 64 (+0.272 ms there).
+
+The part to trust is that the packet arithmetic closes exactly: 1.898 ms over
+803.5 packages is **2.362 µs a package**, 360 packages replayed predicts
+**0.850 ms**, and **0.808** was measured. **The EE pays per PACKAGE**, now
+measured twice over — which is also why the frame's worst-packed geometry costs
+out of proportion to its triangles: projected shadows and wheels run 22–25
+triangles a package against a strip's ~70, taking 16% of the frame's packages
+for 7.6% of its triangles.
+
+**And `total_ms` did not move in garage day at all**: 39.960 in every arm, the
+whole saving absorbed by `present`. The rung needs 10.42 ms and this is an
+eighth of it. Garage night is the exception — the control averages 43.9 ms
+(frames alternating between the two-field rung and a three-field spill, i.e.
+judder) while the candidate reads a flat 39.959. **Stutter removed,
+milliseconds not.**
+
 **One correction from S4's own round, and it makes the 21 an optimistic
 reading.** S4 is now built, and what it recovers depends on how the camera is
 moving: the full 2.07 ms when nothing moves, about half of it driving straight
@@ -596,7 +636,18 @@ Two numbers from that round worth carrying into every later estimate:
    drop, and it is gated by [the acceptance gate](baked-stream-acceptance-gate.md)
    rather than by the counters — which is what stopped the spike, and what the
    moved flush count proves. **Hardware milliseconds outstanding**, and they
-   are the whole question: PCSX2 emulates no EE data cache.
+   **MEASURED ON HARDWARE, 2026-09-17: garage-day `work` falls 1.287 ms,
+   about a fifth of what this page budgeted**, against a 0.012 ms floor,
+   and garage-day `total_ms` does not move at all — 39.960 in every arm,
+   the whole saving absorbed by `present`. Garage night is the exception and
+   it is real: the control alternates 43.877 / 43.044, off the rung and
+   juddering, where the candidate is a flat 39.959. **Stutter removed,
+   milliseconds not.** Then the adversarial verify mode blocked it: the key
+   holds each array's
+   So the open question is not "fix the key" but **"does 1.287 ms earn a
+   contract worth roughly 110 unenforced obligations in the generated game, whose
+   failure mode is stale lighting visible only while the camera moves?"** It
+   ships at 0 until that is answered.
 5. **World visibility** — baked sectors, portals or a PVS. With the road front
    priced, this is the largest untried lever on the garage, and the only one
    that removes EE and VU1 work at the same time. There is still no occlusion

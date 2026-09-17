@@ -1,0 +1,16 @@
+# The check a capture hash cannot do. Both console arms, one editor,
+# one worktree commit.
+
+--- ctl ---
+const unsigned int stripRun = 75u;
+{   "elfSha256": "E1CD72F5397D78FCB785555731457BCBD76595FD2892588FD47CF81F3A2DE418",   "bakedStream": 0,   "arm": "ctl",   "built": "2026-09-16T23:30:00.3235761+02:00",   "commit": "0dc2356d169f0d219409203139bba51ce0e93d18",   "stripRun": "const unsigned int stripRun = 75u;" } 
+
+--- cand ---
+const unsigned int stripRun = 75u;
+{   "built": "2026-09-16T23:33:36.5614682+02:00",   "bakedStream": 1,   "elfSha256": "6B122B2B8A7B0E4C250C6656695116355BE8F261AC236000BADAD80329850825",   "arm": "cand",   "commit": "0dc2356d169f0d219409203139bba51ce0e93d18",   "stripRun": "const unsigned int stripRun = 75u;" } 
+
+--- provenance, from the ELF symbol tables rather than from bookkeeping ---
+ctl  links ONLY the no-op stub  _ZN4Tyra21StaPipQBufferRenderer19replayWholeBakedBagEv
+     and NO StaPipBakedStreams symbols at all  -> built with the macro at 0
+cand links StaPipBakedStreams::{acquire,retire,onFrameEnd,clear,rebuildIndex,keyMatches}
+     -> built with the macro at 1
