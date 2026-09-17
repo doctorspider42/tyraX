@@ -207,6 +207,50 @@ second version field for contents that are not positions. Either is a change to
 the generated game's side of the boundary. Until then this ships at 0, and any
 future round that turns it on owes a verify run first.
 
+### MEASURED ON HARDWARE: 1.287 ms, a fifth of what was budgeted
+
+Physical PS2, `--profile quiet-debug`, four parked poses, 960 rows a run, three
+runs (control, candidate, control). **No instrument in either arm** - no gate
+hash, no verify, no poison, no periodic report. Repeatability floor from two
+boots of one ELF: `work` **+0.012 ms**.
+
+| garage day | control | candidate | |
+| --- | ---: | ---: | --- |
+| **`work`** | 30.070 | 28.783 | **-1.287** |
+| `dispatch` | 15.022 | 13.596 | -1.426 |
+| **packet construction** | 1.898 | 1.089 | **-0.808** |
+| `bounds` | 2.491 | 2.317 | -0.173 |
+| `dma` | 2.156 | 1.970 | -0.185 |
+| **`prepare`** | 2.716 | 3.031 | **+0.315** |
+| `flushes` | 120 | 109 | -11 |
+| `triangles` | 40 961 | 40 961 | 0 |
+| `total_ms` | 39.960 | 39.960 | **0** |
+
+`work` over the other three poses: garage night **-1.193**, outer day -0.029,
+outer night -0.118.
+
+**The packet arithmetic closes and it is the strongest evidence for the whole
+thesis.** 1.898 ms over the frame's 803.5 packages is **2.362 us a package**;
+the candidate replays 360 of them, predicting 0.850 ms; 0.808 was measured. The
+EE pays per PACKAGE, and the frame's worst-packed geometry - projected shadows
+and wheels at 22-25 triangles a package against a strip's ~70 - costs far more
+than its 7.6% of triangles suggests.
+
+**`total_ms` does not move in garage day**: the saving is absorbed by `present`,
+because the vsync rung is 10.42 ms away and this is an eighth of it. Garage night
+is the one visible case - the control averages 43.9 ms, alternating between the
+two-field rung and a three-field spill, and the candidate reads a flat 39.959.
+**Stutter removed, milliseconds not.**
+
+**`prepare` rises 0.315 ms**, twenty-six times the floor, and it is the same term
+that refuted mesh LOD 64. It is not the call reordering - the instrumenter's
+`prepare` bracket closes before `beginBakedBag` runs. The leading hypothesis is
+data-cache pressure from the rebakes: 2-3 blocks a frame at up to ~7 000
+quadwords is on the order of 340 KB of memcpy a frame through an 8 KB D-cache,
+and `prepare` is where the next bag's uniforms are written float by float. If so,
+fixing the caller that bumps `bboxVersion` on a frozen scene recovers most of it.
+**Hypothesis, not measurement.**
+
 ### MEASURED, garage day, held pose, PCSX2
 
 One worktree, one project directory, one knob, two distinct ELFs. Raw evidence:

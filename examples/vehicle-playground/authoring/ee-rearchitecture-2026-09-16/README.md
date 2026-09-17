@@ -4,12 +4,19 @@ Item 3 of [docs/ee-submission-rearchitecture.md](../../../../docs/ee-submission-
 order of work, built behind the gate designed in
 [docs/baked-stream-acceptance-gate.md](../../../../docs/baked-stream-acceptance-gate.md).
 
-**No console was touched for anything in this directory.** Everything here is
-host arithmetic or PCSX2 counts and pixels. **No number here is a millisecond
-and none may be turned into one** — PCSX2 emulates no EE data cache, and these
-arms carry the gate, which alone costs about 2.7 MB of folding a frame.
+This directory holds three kinds of run and they may not be read as one. The
+**host self-test** is arithmetic. The **PCSX2 arms** are counts and pixels, and
+no millisecond may be taken from them - PCSX2 emulates no EE data cache, and they
+carry the gate, which folds 2.7 MB a frame. The **console arms** are the
+milliseconds, and they carry no instrument at all.
 
-Headline, garage day, held pose, control against candidate:
+**Headline: the direction is worth 1.287 ms of garage-day `work` on the physical
+PS2, against the 5.5-6.5 ms the recomputation budgeted for it** - about a fifth.
+`total_ms` does not move in garage day at all; garage night stops juddering. And
+it cannot ship without a contract worth roughly 110 unenforced obligations in the
+generated game. See "THE HARDWARE SWEEP" and "The two adversarial modes".
+
+PCSX2 counts, garage day, held pose, control against candidate:
 
 | | |
 | --- | ---: |
@@ -33,6 +40,108 @@ camera is frozen. See "The two adversarial modes".
 **The geometry payload is not byte-reproducible between two boots of one ELF**,
 though the structure, the uniforms, the copy pools and the picture all are. See
 "What the gate could NOT do".
+
+## THE HARDWARE SWEEP: 1.29 ms, against a 5.5-6.5 ms budget
+
+Physical PS2, 192.168.100.150, 2026-09-16/17. `--profile quiet-debug`, four
+parked poses, 120 warm-up frames then 240 recorded rows each = 960 rows per run,
+all three runs collected all 960. **No instrument in either arm**: no gate hash,
+no verify, no poison, no periodic report, no `TYRA_FRAME_PROFILE`. The only knob
+that differs is `TYRA_STAPIP_BAKED_STREAM`. Control alternated with candidate and
+booted twice for the floor. Raw: `console/{ctl-boot1,cand-boot1,ctl-boot2}/`,
+`console/summary-cost.txt`, `console/fixture-identity.txt`.
+
+**Repeatability floor**, two boots of ONE ELF, garage day: `work` **+0.012 ms**,
+`submit` +0.010, `dispatch` +0.017, triangles and flushes identical. Ten times
+tighter than round one's 0.135, because `quiet-debug` removes the live tools'
+host-I/O outliers. **Read every delta below against 0.012 ms.**
+
+| garage day | ctl1 | ctl2 | cand | d cand |
+| --- | ---: | ---: | ---: | ---: |
+| **`work`** | 30.070 | 30.082 | 28.783 | **-1.287** |
+| `submit` | 26.203 | 26.212 | 24.802 | -1.401 |
+| `dispatch` | 15.022 | 15.039 | 13.596 | -1.426 |
+| **packet construction** | 1.898 | 1.907 | 1.089 | **-0.808** |
+| `bounds` | 2.491 | 2.485 | 2.317 | -0.173 |
+| `dma` (`send_packet2`) | 2.156 | 2.150 | 1.970 | -0.185 |
+| **`prepare`** | 2.716 | 2.711 | 3.031 | **+0.315** |
+| `vif_wait` | 5.619 | 5.626 | 5.702 | +0.083 |
+| `flushes` | 120 | 120 | 109 | -11 |
+| `triangles` | 40 961 | 40 961 | 40 961 | 0 |
+| `total_ms` | 39.960 | 39.959 | 39.960 | **-0.000** |
+
+| all four poses, `work` ms | garage day | garage night | outer day | outer night |
+| --- | ---: | ---: | ---: | ---: |
+| candidate - control | **-1.287** | **-1.193** | -0.029 | -0.118 |
+
+### Say it plainly: this is about a fifth of what was budgeted
+
+The recomputation in
+[ee-submission-rearchitecture.md](../../../../docs/ee-submission-rearchitecture.md)
+budgeted **5.5-6.5 ms** removable for this whole direction. The measurement is
+**1.287 ms**. No configuration was hunted for that reaches the budget, and the
+number is measured `work` rather than a cycle-count projection, so the 0.4
+discount for predicted reductions does not apply to it.
+
+### The packet arithmetic closes, which is the strongest evidence for the thesis
+
+Control packet construction is 1.898 ms over the frame's **803.5 packages** =
+**2.362 us a package**. The candidate replays **360** of them (the +3 602 VIF
+words of `NOP` padding divided by ten words a package), so the predicted saving
+is 360 x 2.362 = **0.850 ms**. Measured: **0.808 ms**, within 5 %.
+
+**The EE really does pay per PACKAGE, and that is now measured twice over.** It
+is also why the frame's worst-packed geometry matters out of proportion:
+projected shadows and wheels run 22-25 triangles a package against a strip's
+~70, taking 16 % of the frame's packages for 7.6 % of its triangles. At 2.362 us
+a package that packing is worth more than the triangles in it.
+
+### `total_ms` did not move in garage day, and that is the honest headline
+
+39.960 in every arm - still exactly two PAL fields, with the whole 1.287 ms
+going into `present`. The plan page says the rung needs `work` to fall 10.42 ms;
+1.287 is an eighth of that. **Garage day looks identical to a player.**
+
+**Garage night is the exception and it is a real one.** The control reads
+`total_ms` 43.877 and 43.044 on its two boots - an average of frames that make
+the two-field rung and frames that spill to three (43.9 is about 80 % / 20 % of
+39.96 and 59.94), which is judder. The candidate reads **39.959**: every frame
+on the rung. That is the one pose where this change is visible, and what it
+removes is stutter rather than milliseconds.
+
+### `prepare` went UP by 0.315 ms, and that is not noise
+
+Twenty-six times the floor. It is the same term that refuted mesh LOD 64
+(+0.272 ms of `prepare`), so it wants naming rather than absorbing. It is **not**
+the reordering - the instrumenter's `prepare` bracket closes before
+`beginBakedBag` is ever called. The leading hypothesis is **data-cache pressure
+from the rebakes**: the candidate rebuilds 2-3 blocks a frame at up to ~7 000
+quadwords each, so it memcpys on the order of 340 KB a frame into fresh arenas
+through an 8 KB D-cache, and `prepare` is where the next bag's uniforms are
+written float by float. If that is right, fixing the one caller that bumps
+`bboxVersion` on a frozen scene would recover most of it - which ties the two
+open findings together. **Hypothesis, not measurement.**
+
+## What the direction costs, not only what it wins
+
+The blocker below means this cannot ship without a contract the generated game
+must honour: bump a version whenever ANY of a bag's arrays is rewritten, not
+just its positions. The size of that obligation, counted:
+
+| | |
+| --- | ---: |
+| sites that bump `bboxVersion` today | **26** |
+| sites that write into a bag-backing array (conservative grep) | **~110** |
+
+So the contract does not add 26 obligations, it adds roughly **110**, of which
+26 have any bookkeeping today - and those 26 are about positions, and at least
+one of them fires every frame on a scene that is not moving. Nothing enforces
+any of it at compile time, and the failure mode is **stale lighting that only
+appears while the camera moves** - the hardest class there is to catch, and one
+this fixture is structurally blind to.
+
+**1.29 ms for ~110 unenforced obligations** is the proposition, stated at the
+size the decision needs.
 
 ## The gate's self-test, and why it is the first thing in this directory
 

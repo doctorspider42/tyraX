@@ -2631,6 +2631,22 @@ docs/baked-vif-stream.md. It ships **off**; five things any edit must keep.
   buffers of SEVERAL bags, so a stale index would be read against another bag's
   arena.
 
+- **IT IS WORTH 1.287 ms OF GARAGE-DAY `work` ON HARDWARE, against a 0.012 ms
+  floor - a fifth of the 5.5-6.5 ms the plan budgeted.** Measured with NO
+  instrument in either arm (no gate hash, no verify, no poison, no periodic
+  report): a gate arm and a verify arm are correctness arms and neither may
+  produce a millisecond. `total_ms` does not move in garage day at all - the
+  saving goes into `present`, because the vsync rung is 10.42 ms away - but
+  garage night stops juddering (43.9 ms averaged over a two/three-field
+  alternation becomes a flat 39.959). Two reasons it is not bigger: only half the
+  bags take the direct route (`dsDirectBags` 53.5 against `dsPartialBags` 59), and
+  `prepare` RISES 0.315 ms, the same term that refuted mesh LOD 64.
+- **THE EE PAYS PER PACKAGE, and the arithmetic closes twice.** Packet
+  construction is 1.898 ms over 803.5 packages = **2.362 us a package**; replaying
+  360 of them predicts 0.850 ms and 0.808 was measured. That is why badly packed
+  geometry costs out of proportion - projected shadows and wheels run 22-25
+  triangles a VU1 package against a strip's ~70, taking 16% of the frame's
+  packages for 7.6% of its triangles.
 - **THE KEY DOES NOT COVER WHAT THE BLOCK CONTAINS, and that is the blocker.**
   It holds each array's POINTER plus `bboxVersion`, and `bboxVersion` is a
   statement about the bounding box, i.e. about POSITIONS. A caller that re-shades

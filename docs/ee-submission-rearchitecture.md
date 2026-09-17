@@ -412,6 +412,46 @@ survives** - `bounds` and `prepare` because the visibility test needs them, and
 So the projection, and it is a projection: **work 30.07 -> about 24**, and with
 S4 and S5 on top, **about 21**. That is still **above** the 20 ms rung.
 
+**THAT PROJECTION IS NOW MEASURED AND IT WAS ABOUT FIVE TIMES TOO OPTIMISTIC.**
+The architecture was built and run on the physical PS2 — a complete baked bag
+replayed by ONE DMA `REF`, skipping the qbuffer ring entirely — and garage-day
+`work` falls **1.287 ms**, not 5.5–6.5, against a repeatability floor of
+**0.012 ms**
+([ee-rearchitecture-2026-09-16](../examples/vehicle-playground/authoring/ee-rearchitecture-2026-09-16/README.md)).
+
+The column above was not wrong about *which* brackets are removable. It was
+wrong about how much of each one this architecture can reach:
+
+| bracket | budgeted removable | measured |
+| --- | ---: | ---: |
+| packet construction | 1.79 | **−0.808** |
+| `dsDirect`, `dsRetain`, `dsCreate`−classify, part of `dsRender` | ~4.3 | inside `dispatch`'s **−1.426** |
+| `bounds` | none | −0.173 |
+| `prepare` | none | **+0.315** |
+| **`work`** | **5.5–6.5** | **−1.287** |
+
+Two reasons, both worth carrying into the next estimate on this page. **Only
+half the bags take the direct route at all** — `dsDirectBags` 53.5 against
+`dsPartialBags` 59 — so a change confined to that route can never reach a whole
+bracket: the 360 packages it replays are 45% of the frame's 803.5. And
+**`prepare` RISES**, by 0.315 ms, which is the same term that refuted mesh
+LOD 64 (+0.272 ms there).
+
+The part to trust is that the packet arithmetic closes exactly: 1.898 ms over
+803.5 packages is **2.362 µs a package**, 360 packages replayed predicts
+**0.850 ms**, and **0.808** was measured. **The EE pays per PACKAGE**, now
+measured twice over — which is also why the frame's worst-packed geometry costs
+out of proportion to its triangles: projected shadows and wheels run 22–25
+triangles a package against a strip's ~70, taking 16% of the frame's packages
+for 7.6% of its triangles.
+
+**And `total_ms` did not move in garage day at all**: 39.960 in every arm, the
+whole saving absorbed by `present`. The rung needs 10.42 ms and this is an
+eighth of it. Garage night is the exception — the control averages 43.9 ms
+(frames alternating between the two-field rung and a three-field spill, i.e.
+judder) while the candidate reads a flat 39.959. **Stutter removed,
+milliseconds not.**
+
 **Read that as the plan's central correction.** The first version of this page
 expected the supporting changes to reach the rung by themselves; the probes
 refuted that. This recomputation says the architecture plus the supporting
@@ -427,13 +467,29 @@ merely quieter.
 2. **Find out what else `FlushCache` was writing back** - dropping it corrupted
    the picture with the packet already uncached. S1 cannot be built until that
    is answered, and it is worth 1.09 ms when it is.
-3. The baked VIF stream, behind a compile-time switch, with the existing path
-   as the A/B fallback and
-   [the redesigned gate](baked-stream-acceptance-gate.md) — **not** the counters,
-   which pin the prize — as the correctness gate, **carrying a per-package
-   visibility test, which Probe A says it cannot drop**. Promoted
-   above S4/S5 and above the `FlushCache` hunt: at 1.09 ms behind an unexplained
-   corruption, S1 is now the worst value-for-risk on this page.
+3. ~~The baked VIF stream, behind a compile-time switch.~~ **BUILT AND MEASURED
+   ON HARDWARE: worth 1.287 ms of garage-day `work`, and BLOCKED on a contract.**
+   A complete baked bag is replayed by one DMA `REF` and skips the qbuffer ring
+   entirely; the flush cadence moved 120 → 109, which the old counter gate could
+   never have accepted, and
+   [the redesigned gate](baked-stream-acceptance-gate.md) accepted it on a
+   bit-identical VIFcode stream and a byte-identical picture. The per-package
+   visibility test is untouched — the direct route never had one to lose, since
+   Probe A's finding is about the partial branch.
+
+   **The blocker is not an oversight, it is the direction's own trade**:
+   inlining the payload is what buys the tag count, and inlining the payload is
+   what creates a copy that can go stale invisibly. The key holds each array's
+   pointer plus `bboxVersion`, and `bboxVersion` is about positions, so a caller
+   re-shading per-vertex colours in place changes what the block must contain
+   without changing anything the key can see — measured, 1438 times, by the
+   adversarial verify mode. The retained cache is immune precisely because it
+   stores the chain and lets the DMA follow the pointer at transfer time.
+
+   So the open question is not "fix the key" but **"does 1.287 ms earn a
+   contract worth roughly 110 unenforced obligations in the generated game, whose
+   failure mode is stale lighting visible only while the camera moves?"** It
+   ships at 0 until that is answered.
 4. S4 and S5 — the two cheap non-pipeline wins. They are needed to reach the
    20 ms rung even with the architecture, so they are no longer optional.
 5. The triangle budget, promoted out of last place: road LOD, the authored LOD

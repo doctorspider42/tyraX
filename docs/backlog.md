@@ -339,6 +339,25 @@ boundary**: either bump a version whenever ANY of a bag's arrays is rewritten
 positions, so `bboxVersion` keeps meaning what the bbox cacher needs it to mean.
 Whoever takes it re-runs the verify arm; `failed=0` is the acceptance.
 
+**AND HERE IS THE DECISION, PRICED ON BOTH SIDES, so it is not taken on the
+prize alone.** The architecture is now measured on the physical PS2: garage-day
+`work` **−1.287 ms** against a 0.012 ms repeatability floor, `total_ms`
+unchanged in garage day (the saving is absorbed by `present`, because the vsync
+rung is 10.42 ms away), and garage night's judder removed. The contract it needs
+costs:
+
+| | |
+| --- | ---: |
+| sites that bump `bboxVersion` today | **26** |
+| sites that write into a bag-backing array (conservative grep of `templates.cpp`) | **~110** |
+
+So the proposition is **1.29 ms for roughly 110 obligations that nothing
+enforces at compile time**, whose failure mode is stale lighting visible only
+while the camera moves — the hardest class to catch, and one the benchmark
+fixture is structurally blind to. That is a trade to accept or refuse, not a bug
+to route around. See `docs/ee-submission-rearchitecture.md`, order of work
+item 3.
+
 ### Name the bag that is rewritten every frame on a frozen scene
 
 Two instruments now point at one submitter in the generated game, and neither
