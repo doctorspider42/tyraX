@@ -15,6 +15,7 @@ namespace Tyra {
 StaPipColorBag::StaPipColorBag() {
   single = nullptr;
   many = nullptr;
+  contentVersion = nullptr;  // Modified by TyraX: content stamp, opt-in
 }
 
 StaPipColorBag::~StaPipColorBag() {}

@@ -659,10 +659,22 @@ re-emitted per bag).
 
 Vehicles only: `vehiclePaintFor` gates it, so a chrome sphere or mirror ball
 elsewhere keeps its exact look. Three rules the loop lives by, each from a
-field underneath: write through `envColorBag->many` (the LOD tiers re-aim it),
-never bump `bboxVersion` (the env bag shares the base pass's frustum-box cache
-entry), and keep alpha ≥ 1 — the GS alpha test is NOTEQUAL 0, and a zero
-specular would erase the reflection with it. The editor's per-pixel program
+field underneath: write through the **`BagArray` the env colour bag is
+currently aimed at** (the LOD tiers re-aim it, so the tier is selected by
+`shownLod` rather than assumed), never bump `bboxVersion` (the env bag shares
+the base pass's frustum-box cache entry), and keep alpha ≥ 1 — the GS alpha
+test is NOTEQUAL 0, and a zero specular would erase the reflection with it.
+
+**This loop is why the content stamp exists**
+([bag-content-version.md](bag-content-version.md)). It rewrites every vertex
+colour of a visible car **every frame** from the camera, so the baked VIF
+stream's inlined payload goes stale the moment the car or the camera moves —
+and it used to write them by `const_cast`-ing the bag's own `many` pointer,
+which bypassed the owning array altogether, so nothing keyed on `bboxVersion`
+could ever have seen it. The adversarial verify arm found it by name
+(`Cull - TCE`, 2 280 vertices, three equal RGB lanes drifting by 0.012). Going
+through the array is what moves the stamp; one `span()` for the whole run does
+it once rather than 1 100 times. The editor's per-pixel program
 mirrors both terms; the PS2-shading GS variant keeps the plain reflection — a
 stated divergence.
 

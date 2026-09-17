@@ -15,6 +15,7 @@ namespace Tyra {
 StaPipLightingBag::StaPipLightingBag() {
   lightMatrix = nullptr;
   normals = nullptr;
+  contentVersion = nullptr;  // Modified by TyraX: content stamp, opt-in
   dirLights = nullptr;
 }
 

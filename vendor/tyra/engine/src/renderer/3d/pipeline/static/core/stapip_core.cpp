@@ -151,26 +151,35 @@ void StaPipCore::onFrameEnd() {
       // one that fires every frame, and dividing would hide that.
       const u32* miss = qbufferRenderer.getBakedMisses();
       if (miss != nullptr) {
+        // Modified by TyraX: `content` is the new column - a stream rewritten
+        // in place, which is the class bboxVersion was never a statement
+        // about. The two now read separately, which is the point of splitting
+        // them: `bbox=N content=0` is a mesh that moved, `bbox=0 content=N` is
+        // one that was re-shaded.
         static const char* const kReason[] = {
-            "new", "bboxVersion", "primState", "streams",
+            "new", "bboxVersion", "contentVersion", "primState", "streams",
             "program", "countOrSize", "incomplete", "-"};
         TYRA_LOG("STAPIPMISS new=", miss[0], " bbox=", miss[1],
-                 " prim=", miss[2], " streams=", miss[3],
-                 " program=", miss[4], " size=", miss[5],
-                 " incomplete=", miss[6], " over ", bakeFrames,
+                 " content=", miss[2], " prim=", miss[3], " streams=", miss[4],
+                 " program=", miss[5], " size=", miss[6],
+                 " incomplete=", miss[7], " over ", bakeFrames,
                  " frames; loudest bag count=",
                  qbufferRenderer.getBakedLoudCount(), " packages=",
                  qbufferRenderer.getBakedLoudPackages(), " reason=",
-                 kReason[qbufferRenderer.getBakedLoudReason() < 7
+                 kReason[qbufferRenderer.getBakedLoudReason() < 8
                              ? qbufferRenderer.getBakedLoudReason()
-                             : 7]);
+                             : 8]);
         qbufferRenderer.clearBakedMisses();
       }
-#if TYRA_STAPIP_BAKED_VERIFY
+#if TYRA_STAPIP_BAKED_ANY_VERIFY
       // The adversarial arm's whole result in one line. `failed` must be 0;
       // anything else means the cache would have replayed a block the ordinary
       // writers no longer produce, i.e. a missing invalidation - and this arm
       // is the only one that can fire on a fixture whose traffic MOVES.
+      //
+      // The sampled arm prints the SAME line with a much smaller `checked`
+      // (one block a frame instead of every block), so a devkit log is read
+      // exactly the way an acceptance log is: `failed=0` or a bug.
       TYRA_LOG("STAPIPVERIFY checked=", qbufferRenderer.getVerifyChecked(),
                " failed=", qbufferRenderer.getVerifyFailed(), " over ",
                bakeFrames, " frames");

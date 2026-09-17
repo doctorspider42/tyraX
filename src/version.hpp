@@ -4565,8 +4565,64 @@
 // `bounds` rose 0.087, the StaPipCore brackets explain only 0.072 of the 0.434
 // in `submit`, and part of the win is the 2.5% fewer VERTICES a strip submits.
 // `total_ms` is unchanged - two PAL fields either way, the saving in `present`.
+
+// 1.108.0: THE BAKED VIF STREAM SHIPS, AND THE CONTRACT THAT UNPARKED IT IS A
+// TYPE RATHER THAN A RULE (docs/bag-content-version.md).
+// TYRA_STAPIP_BAKED_STREAM has been measured at -1.287 ms of Motor District
+// garage-day `work` on the physical PS2 since 1.105.1 and shipped at 0 for one
+// reason: its cache key could not see a caller REWRITING a bag's array in
+// place. The key held each array's pointer plus `bboxVersion`, and
+// `bboxVersion` is a statement about the bounding BOX - so a per-vertex
+// re-shade changed what the inlined block must contain while every field the
+// key could see stayed put. The adversarial arm caught it 1 438 times, and
+// ONLY while the camera moved, so the parked fixture and both hash legs of the
+// acceptance gate all agreed the renderer was fine.
+//
+// The decision hung on a census, and the census was wrong in the direction
+// that mattered. Not "roughly 110 unenforced obligations" but **280 write
+// sites in 42 generated functions behind 108 array declarations** - and every
+// one GENERATOR-EMITTED: fixed template text in src/templates.cpp, zero in
+// other editor sources, zero in checked-in example game sources, and zero
+// reachable from user-authored code (ScriptContext carries no geometry pointer
+// and objectGeometry is private). A closed population in one file is a TYPE
+// problem, not a discipline problem.
+//
+// So `StaPipBag::contentVersion` is a second stamp - about CONTENTS, never
+// widening bboxVersion, because that conflation IS the defect - and the
+// generated game owns it structurally. Every bag-backing array is a
+// `BagArray<T>` (inc/bag_array.gen.hpp): `data()` is const, no public member
+// hands out a writable pointer, the four bind() overloads aim the stream
+// pointer AND the stamp together, and every mutating member stamps. The 280
+// write sites did not change - they keep their syntax and gain the obligation,
+// and a raw write no longer compiles. tools/bag-array-enforcement.sh is the
+// negative test, and it was FALSIFIED before it was believed (make data()
+// non-const and it goes red on exactly the two cases that property guards).
+//
+// The one exception is named rather than implied away: SkelInstance::skinParts
+// skins LOD 0 in place into engine-owned mesh-frame arrays, which no generated
+// wrapper can own - and which bboxVersion already covers correctly, because
+// skinning moves positions and normals.
+//
+// ACCEPTANCE, on the arm that found the defect: --keep-routes with the traffic
+// MOVING, 169 843 blocks checked, failed=0, over ~12 600 frames. Against the
+// control on a parked fixture (two real ELFs, 827C5B90 vs 9385E57D): cull,
+// clip, guard, out, strip, sexp and verts identical TO THE DIGIT, captures
+// byte-identical, and only the two numbers the change exists to move - packet
+// flushes -300 per 50 frames and chainQw -26.0%.
+//
+// The arm then found a SECOND caller of a different shape, which is the whole
+// argument for running it rather than reasoning about the contract: the
+// VEHICLE PAINT PASS recomputes a per-vertex fresnel and specular from the
+// camera every frame and wrote them by const_cast-ing the bag's own pointer,
+// bypassing the array. It now writes through the BagArray via one span(). That
+// also answers the backlog's "name the bag rewritten every frame on a frozen
+// scene", which had suspected the lamp/beam family; and STAPIPMISS now splits
+// bbox= from content=, so "a mesh moved" and "a mesh was re-shaded" stop
+// reading as one counter. No project format change (kFormatVersion stays 55),
+// no VU1 change. NOT re-measured on hardware: the contract adds one global RMW
+// per mutating call and one u32 to the key, and PCSX2 can price neither.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 107
+#define TYRAX_VERSION_MINOR 108
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

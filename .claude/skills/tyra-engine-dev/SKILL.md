@@ -182,7 +182,11 @@ the editor's custom screen effects, `docs/custom-screen-effects.md`; the effect
 body appends GS primitives through the now-public `blit()`/`flatQuad()` and the
 framebuffer/noise/scratch-buffer accessors, and the engine wraps the state
 setup/teardown + DMA kick), WAV-header-aware song
-player, `bboxVersion` on `StaPipBag` for moving geometry,
+player, `bboxVersion` on `StaPipBag` for moving geometry and
+`contentVersion` beside it for arrays REWRITTEN IN PLACE (the baked
+VIF stream inlines the payload, so a re-shade goes stale where a move
+does not - docs/bag-content-version.md; the generated game owns it
+structurally with `BagArray<T>`, whose `data()` is const),
 `StaPipBag::packageSize` (0 = derive) pinning coplanar passes over one vertex
 array to identical package boundaries — see the pitfall below, `Pad::setActuators` (act-direct DualShock rumble —
 the on/off buzz motor + 0-255 heavy motor — behind the Vibrate Pad flow node /
