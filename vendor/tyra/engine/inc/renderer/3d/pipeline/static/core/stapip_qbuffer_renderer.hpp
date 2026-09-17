@@ -58,7 +58,7 @@
  * the arena budget below caps. 0 is the control arm.
  */
 #ifndef TYRA_STAPIP_BAKED_STREAM
-#define TYRA_STAPIP_BAKED_STREAM 1
+#define TYRA_STAPIP_BAKED_STREAM 0
 #endif
 
 // The periodic STAPIPBAKE / STAPIPQW readout. Same reasoning as the
