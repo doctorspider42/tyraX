@@ -56,8 +56,45 @@ class StaPipBag {
 
   /** Bump whenever the content of `vertices` changes (TyraX addition).
    * The frustum-culling bbox cache is keyed by the vertex pointer plus this
-   * version, so reused buffers with new data do not hit stale boxes. */
+   * version, so reused buffers with new data do not hit stale boxes.
+   *
+   * THIS IS A STATEMENT ABOUT THE BOUNDING BOX, i.e. about POSITIONS, and it
+   * must stay that way - `StapipBagBBoxesCacher` is its consumer. For "the
+   * bytes this bag's streams contain have changed", which is a different and
+   * wider claim, see `contentVersion` below. */
   u32 bboxVersion;
+
+  /**
+   * Optional (TyraX addition). Points at a stamp word the OWNER of `vertices`
+   * bumps whenever it rewrites that array's contents. nullptr = no tracking,
+   * which is what every caller that does not opt in gets, and what the legacy
+   * `StaticPipeline` path keeps.
+   *
+   * WHY THIS IS A POINTER AND NOT A VALUE, which is the whole design. A value
+   * would have to be refreshed at every submit - one more line before every
+   * `render()` call, i.e. another rule to remember, which is the thing this
+   * exists to delete. A pointer is wired ONCE, where the stream pointer itself
+   * is wired, and after that a write to the array updates what the engine
+   * reads with no further cooperation from the caller. The obligation becomes
+   * "bind the array", which cannot be forgotten, because a bag with no array
+   * bound draws nothing.
+   *
+   * WHAT READS IT. The BAKED VIF STREAM cache only
+   * (docs/baked-vif-stream.md). That cache INLINES the vertex payload into a
+   * pre-built VIF block, so a re-write of a bag's array leaves the block stale
+   * while every other field of its key is unchanged. The retained-command
+   * cache deliberately does NOT read it: it stores the chain, whose `REF`s
+   * still name the bag's own arrays, so re-written contents are followed at
+   * DMA time and are always fresh - folding this in would rebuild its blocks
+   * for nothing.
+   *
+   * The three companion bags carry their own, for the same reason and read by
+   * the same cache: `StaPipColorBag::contentVersion` for `many`,
+   * `StaPipTextureBag::contentVersion` for `coordinates`, and
+   * `StaPipLightingBag::contentVersion` for `normals`. A bag that re-shades
+   * per-vertex colours in place moves only the colour one.
+   */
+  const u32* contentVersion;
 
   /**
    * Optional (TyraX addition). Pins the VU1 package size for this bag instead

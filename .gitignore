@@ -19,6 +19,11 @@ tools/*
 !tools/hardware-trace.py
 !tools/hardware-probe.py
 !tools/instrument-frame-cost.py
+# The BagArray enforcement check (docs/bag-content-version.md). It is the
+# NEGATIVE test behind the whole content-version design - "a raw write does not
+# compile" is a claim, and this is what makes somebody watch the compiler refuse
+# it - so it ships with the repo rather than living in a scratch directory.
+!tools/bag-array-enforcement.sh
 !tools/ps2client/
 tools/ps2client/*
 !tools/ps2client/bin/

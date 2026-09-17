@@ -46,8 +46,16 @@
  * package - is emitted once into EE-private storage and replayed with a single
  * DMA REF tag per contiguous run of packages.
  *
- * OFF by default: it duplicates the vertex payload, which is expensive
- * (docs/baked-vif-stream.md, "The memory"). 1 is the candidate arm.
+ * ON since the content-version contract landed. It was parked at 0 for one
+ * reason and one only: the cache key could not see a caller re-writing a
+ * bag's array in place, so a re-shade replayed stale lighting
+ * (docs/baked-vif-stream.md, "THE BLOCKER"). `contentVersion` closes that -
+ * and it closes it STRUCTURALLY, with the generated game's BagArray type, not
+ * with a rule somebody has to remember at 280 write sites
+ * (docs/bag-content-version.md). Measured on the physical PS2 at -1.287 ms of
+ * garage-day `work`, with garage night's judder removed; it costs the
+ * duplicated vertex payload (docs/baked-vif-stream.md, "The memory"), which
+ * the arena budget below caps. 0 is the control arm.
  */
 #ifndef TYRA_STAPIP_BAKED_STREAM
 #define TYRA_STAPIP_BAKED_STREAM 0
@@ -76,6 +84,36 @@
 #ifndef TYRA_STAPIP_BAKED_VERIFY
 #define TYRA_STAPIP_BAKED_VERIFY 0
 #endif
+// SAMPLED VERIFY: the same comparison, priced so it can run in an ordinary
+// devkit build instead of only in a dedicated ELF.
+//
+// The exhaustive arm above rebuilds EVERY block every frame and replays NONE
+// of them, so it deletes the whole saving by construction - it is a
+// correctness ELF, like TYRA_STAPIP_VIFHASH, and never a timing one. That is
+// fine for an acceptance run and useless as a routine check, and the failure
+// mode it guards is invisible (stale colours, only while something moves, no
+// crash and no counter).
+//
+// This verifies ONE entry per frame, round-robin, and replays everything else.
+// On the Motor District's garage-day frame that is one block of ~360, about
+// 1/360 of the arm's cost, and a missing invalidation on any bag is found
+// within a few seconds of play rather than only when somebody thinks to build
+// the special ELF.
+//
+// DEFAULT 0, AND THE GATE IS THE DEVKIT ONE. `#ifndef NDEBUG` is NOT that gate
+// in this engine - a game build never defines NDEBUG, which is how a census
+// once shipped live at ~1 ms a frame (docs/ps2-perf-measurement-traps.md). The
+// generated game defines this from the project's devkit profile, so a release
+// ELF carries none of it and `--audit-release` stays clean.
+#ifndef TYRA_STAPIP_BAKED_SAMPLE_VERIFY
+#define TYRA_STAPIP_BAKED_SAMPLE_VERIFY 0
+#endif
+#if TYRA_STAPIP_BAKED_VERIFY && TYRA_STAPIP_BAKED_SAMPLE_VERIFY
+#error "TYRA_STAPIP_BAKED_VERIFY and TYRA_STAPIP_BAKED_SAMPLE_VERIFY are two arms of one check; enable exactly one."
+#endif
+/** Either arm compiles the comparison in. */
+#define TYRA_STAPIP_BAKED_ANY_VERIFY \
+  (TYRA_STAPIP_BAKED_VERIFY || TYRA_STAPIP_BAKED_SAMPLE_VERIFY)
 // POISON overwrites an evicted arena with a recognisable pattern IMMEDIATELY,
 // instead of letting the two-frame graveyard hide it. Anything still naming it
 // then corrupts the picture loudly on the next capture rather than silently on
@@ -276,6 +314,29 @@ struct StaPipBakedEntry {
   u32 count;
   u32 maxVertCount;
   u32 bboxVersion;
+  /**
+   * Modified by TyraX: THE FIX FOR THE DEFECT THAT PARKED THIS FEATURE, and
+   * the reason it is a separate field rather than a wider reading of
+   * `bboxVersion`.
+   *
+   * `bboxVersion` is a statement about the bounding BOX, i.e. about positions,
+   * and `StapipBagBBoxesCacher` is its consumer - so a caller that re-shades
+   * per-vertex COLOURS in place changed what this block must contain without
+   * touching anything the key could see. The adversarial verify arm caught
+   * exactly that, 1 438 times on the Motor District, every one of them in the
+   * colour-only program class with the first differing quadword landing on the
+   * first colour quadword.
+   *
+   * This folds the four per-stream stamps the bags now carry (see
+   * `StaPipBag::contentVersion`) into one word. A stream whose owner does not
+   * opt in contributes nothing, which is what keeps the legacy
+   * `StaticPipeline` path and any un-migrated caller behaving exactly as
+   * before. The retained cache deliberately does NOT carry this - it stores
+   * the chain, whose `REF`s still name the caller's arrays, so re-written
+   * contents are followed at DMA time and folding this in would rebuild its
+   * blocks for nothing.
+   */
+  u32 contentVersion;
   u32 primKey;
   u32 depthScaleBits;
   u32 programAddr;
@@ -351,7 +412,8 @@ class StaPipBakedStreams {
    */
   enum MissReason {
     MissNewEntry = 0,   // no entry for this (array, package size) at all
-    MissBBoxVersion,    // the caller claims the buffer's CONTENTS changed
+    MissBBoxVersion,    // the caller claims the buffer's POSITIONS changed
+    MissContentVersion,  // a stream's CONTENTS were rewritten in place
     MissPrimState,      // same array, different prim/GIFtag - a second pass
     MissStreams,        // an ST/colour/normal stream pointer moved
     MissProgram,        // a different VU1 program, or a different address
@@ -377,12 +439,49 @@ class StaPipBakedStreams {
   u32 getLoudCount() const { return loudCount; }
   u32 getLoudPackages() const { return loudPackages; }
   u32 getLoudReason() const { return loudReason; }
-#if TYRA_STAPIP_BAKED_VERIFY
+#if TYRA_STAPIP_BAKED_ANY_VERIFY
   /** Blocks compared, and blocks that did NOT match. A single mismatch is a
    * failure of the whole arm: it means the cache would have replayed something
    * the ordinary writers no longer produce. */
   u32 verifyChecked = 0, verifyFailed = 0;
 #endif
+#if TYRA_STAPIP_BAKED_SAMPLE_VERIFY
+  /** The round-robin cursor of the sampled arm, and the entry it selected for
+   * THIS frame. `verifyTarget` is what `replayBakedBag` refuses to replay, so
+   * exactly one bag a frame takes the ordinary route and gets compared while
+   * every other bag is replayed at full speed. Advanced once per frame, at the
+   * same place the frame's other per-frame bookkeeping happens, so the cursor
+   * cannot race the submission order within a frame. */
+  u32 verifyCursor = 0;
+  const StaPipBakedEntry* verifyTarget = nullptr;
+  /** Choose this frame's victim. Called once a frame; walks the storage so
+   * every resident entry is checked in turn. Defined out of line because it
+   * reads `storage`, which is declared below. */
+  void pickVerifyTarget();
+  const StaPipBakedEntry* getVerifyTarget() const { return verifyTarget; }
+#endif
+
+  /**
+   * Is this entry being VERIFIED this frame - rebuilt by the ordinary writers
+   * and compared against the arena - rather than replayed from it?
+   *
+   * This is the ONE predicate the two arms differ in, and every site that used
+   * to test the macro now tests this instead. The exhaustive arm answers yes
+   * for every entry, which is why it deletes the whole saving; the sampled arm
+   * answers yes for one entry a frame, which is why it can ship. With neither
+   * arm compiled in it is a compile-time false and every branch behind it
+   * folds away, so a release build carries none of it.
+   */
+  bool verifying(const StaPipBakedEntry* e) const {
+#if TYRA_STAPIP_BAKED_VERIFY
+    return e != nullptr;
+#elif TYRA_STAPIP_BAKED_SAMPLE_VERIFY
+    return e != nullptr && e == verifyTarget;
+#else
+    (void)e;
+    return false;
+#endif
+  }
 
  private:
   static const u32 kBucketCount = 256;

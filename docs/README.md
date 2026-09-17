@@ -258,6 +258,16 @@ Developer design docs (internals, not user guides):
   block, why one DMA `REF` may replay it, the three facts that turn out to be
   bake-time (the GIFtag, the Z scale and the `MSCAL`), and the memory it costs
   — about as much again as the vertex arrays it duplicates.
+- [The content version](bag-content-version.md) — the contract that unparked
+  that spike, and the reason it is a TYPE rather than a rule. The baked
+  stream's cache key could not see a caller re-shading per-vertex colours in
+  place, because `bboxVersion` is a statement about the bounding box; the
+  adversarial arm caught it 1 438 times, only while the camera moved. The
+  generated game's arrays are now a `BagArray<T>` whose `data()` is const and
+  whose every mutation stamps, so a write that forgets to invalidate does not
+  compile — with a negative test that was falsified before it was believed, the
+  one engine exception named rather than implied away, and the second caller
+  the arm then found (the vehicle paint pass, `const_cast`-ing past the array).
 - [The acceptance gate for a restructured static pipeline](baked-stream-acceptance-gate.md)
   — the gate every earlier renderer round used pins `packetFlushes`, and a run
   of packages under one `REF` tag cannot cross a flush boundary, so that gate

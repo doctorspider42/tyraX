@@ -7999,6 +7999,15 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "docker-compose.yml" ||
             f.relativePath == "src\\main.cpp" ||
             f.relativePath == "inc\\terrain_config.hpp" ||
+            // BagArray, the owning array type for everything a StaPipBag draws
+            // from (docs/bag-content-version.md). Both game headers include it
+            // unconditionally and the generated terrain_game.cpp is written in
+            // terms of it, so a project scaffolded before it existed - i.e.
+            // every project already on disk, and every performance fixture,
+            // which is how this was caught - regenerates code that needs it and
+            // then fails to compile with "bag_array.gen.hpp: No such file or
+            // directory". Exactly the live_pad.gen.cpp mistake noted below.
+            f.relativePath == "inc\\bag_array.gen.hpp" ||
             f.relativePath == "inc\\scene_data.hpp" ||
             f.relativePath == ".vscode\\c_cpp_properties.json" ||
             f.relativePath == "src\\gen\\flow_graph.gen.cpp" ||

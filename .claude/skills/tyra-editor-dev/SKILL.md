@@ -1888,6 +1888,22 @@ simply delegates are not.
   inheriting whatever the last object left set silently mis-shades a whole
   batch.
   Chunk/part passes that reuse one vertex buffer must also share ONE
+  `contentVersion` (docs/bag-content-version.md): the SECOND stamp, and the
+  one the generated game does not have to remember. `bboxVersion` below means
+  "the bounding BOX moved" and `StapipBagBBoxesCacher` is its consumer; the
+  baked VIF stream INLINES the vertex payload, so an array rewritten in place
+  (a re-shade, a per-frame fresnel) leaves its block stale while every other
+  key field is unchanged. Do NOT widen `bboxVersion` to cover it - that
+  conflation IS the defect. Every bag-backing array in the generated game is a
+  `BagArray<T>` (inc/bag_array.gen.hpp): `data()` is const, there is no public
+  way to get a writable pointer, the four `bind()` overloads aim the stream
+  pointer AND the stamp together, and every mutating member stamps. So a new
+  write site inherits the obligation and a raw write does not compile -
+  `tools/bag-array-enforcement.sh` is the negative test, and it goes red when
+  `data()` is made non-const. The one exception is engine-owned: skinning
+  writes LOD 0 in place into the mesh frame's arrays, which moves positions and
+  normals, which `bboxVersion` legitimately covers.
+
   `bboxVersion`: the engine's package-bbox cache is keyed by the vertex pointer,
   so differing stamps make each pass recompute the boxes the previous one just
   built, every frame.
