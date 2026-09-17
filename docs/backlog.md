@@ -185,6 +185,57 @@ The converse is the safety rule and it is absolute: **using `kNoNormal` for a
 bag that IS lit is a rendering bug, not a slower render.** Neighbouring faces
 would take one face's normal across a crease.
 
+### The projected silhouette wants a PER-MATERIAL alpha gate (2026-09-17)
+
+`TYRA_CHEAP_PROJ_CASTER` ships at **0** and takes 60 VU1 packages to 32 on the
+garage frame when it is 1 (docs/shadows.md, "Halving that, without touching the
+geometry"). The only reason it is not on by default is one unanswered question:
+**does this caster's texture carry alpha?**
+
+The colour half of the change is exact and needs no gate — `pushVert` writes
+alpha 128 for every model vertex, so per-vertex colour carries nothing the
+coverage reads, and the runtime check already in `casterBag` refuses a part whose
+vertex alphas are not all 128 (a mirror is `opacity * 128`, a portal is 70).
+The TEXTURE half is what needs one: the GS modulates alpha as well as RGB, so a
+caster whose texture is an alpha-tested cutout — foliage, a chain-link fence —
+gets its silhouette holes from that texture and would cast a solid blob without
+it.
+
+`Texture` exposes no alpha predicate at runtime, and `.tmdl` carries no opaque
+flag, so this cannot be decided where the bag is built. It has to come from the
+bake, which DOES read the pixels: the natural shape is a per-part `opaque` bit
+written by `bakeStaticModels`/`vehbake` and read here, at which point the knob
+can default to 1 and the check becomes per-material rather than per-project.
+Note `blsscorpus.cpp` already has a `cutout` notion for the BLSS bestiary — it is
+the same question asked in a different place, and worth reading before inventing
+a second answer.
+
+Nothing in the Motor District needs it: its only two `shadowMode 3` objects are
+vehicles with opaque palette bakes, which is why the measurement was possible at
+all.
+
+### A projected shadow on a ROAD is currently invisible (2026-09-17)
+
+Found while building the picture gate for the item above, and it is the more
+valuable half of that round. In the Motor District's garage pose the slots are
+held, the silhouettes are rendered and the receiver patches are submitted — and
+deleting the caster submit **entirely** leaves the capture byte-identical. The
+patch is depth-tested and lands under the road its caster is parked on, so 60 VU1
+packages a frame (about 19.5 us each in garage day, by the console's own
+measurement) buy a shadow that is not on screen.
+
+This is not a regression from anything; it is how `projSurfaceAt` and the patch
+placement have always interacted when a caster stands on GEOMETRY rather than on
+the terrain. Two things to decide: whether the patch should be placed on the
+geometry it actually rests on, and whether a caster whose patch is fully occluded
+should release its slot rather than hold one of four. The second is the cheaper
+win and needs no new surface query.
+
+Until one of them lands, **no projected-shadow change can be accepted on a
+capture from that pose**, and any round that tries must build a known-bad arm
+first — see docs/shadows.md, "A caster standing on GEOMETRY can pay for a shadow
+nobody sees".
+
 ### The vehicle BODIES: 0.757x is on the table and cannot be taken yet
 
 `vehbake` now calls `meshstrip` for the WHEEL. It cannot for the BODY, and the

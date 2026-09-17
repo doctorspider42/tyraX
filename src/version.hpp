@@ -4621,8 +4621,42 @@
 // reading as one counter. No project format change (kFormatVersion stays 55),
 // no VU1 change. NOT re-measured on hardware: the contract adds one global RMW
 // per mutating call and one u32 to the key, and PCSX2 can price neither.
+// 1.109.0 - THE PROJECTED SILHOUETTE STOPS PAYING FOR ATTRIBUTES IT DOES NOT
+// READ. The garage-day inventory found that 87% of the `proj_shadows` bracket
+// is the caster's own model bags re-submitted from the light: 60 VU1 packages,
+// 4 440 vertices, 4 bags, all of it two car bodies. They were submitted exactly
+// as the object loop submits them - textured, per-vertex colours - which is the
+// 75-vertices-a-package class, and the 64x64 shadow map reads neither attribute,
+// only alpha coverage. TYRA_CHEAP_PROJ_CASTER (generated, DEFAULT 0) submits the
+// same vertices through the single-colour untextured class at 150.
+//
+// MEASURED in PCSX2 (counters exact, milliseconds not; no console this round):
+// silhouette 60 -> 32 packages per frame in garage day AND garage night, with
+// vertices (4 440), bags (4) and the receiver patch all unchanged. Outer day and
+// outer night hold no caster and are structurally 0 in both arms. With a MOVING
+// caster the vertices match to the digit between arms (132.7) and packages fall
+// 1.8 -> 1.0, so the bag tracks a caster that is driving.
+//
+// TWO TRAPS, both of which cost an arm. The package size must NOT be copied from
+// the base bag: pinPackageSize gives it the MINIMUM over its coplanar companions
+// and a car body is reflective, so the first arm inherited the env pass's pin and
+// moved literally nothing. And the silhouette shares the base bag's BINDING -
+// pointer, count and contentVersion - rather than binding an array, because a LOD
+// tier re-aims the base bag.
+//
+// WHY 0: the colour half is exact (pushVert writes alpha 128 for every model
+// vertex) but the texture half is not - the GS modulates alpha, so an
+// alpha-tested caster would cast a solid blob. That wants a per-material gate,
+// which is NOT built; see docs/backlog.md.
+//
+// The picture gate needed building before it could be read: the shipped garage
+// pose shows NO car shadow at all (the receiver patch is depth-rejected under the
+// road it stands on), so a known-bad arm that removes the silhouette entirely
+// leaves the capture byte-identical. On a fixture where the shadow IS visible the
+// gate separates 113 levels for "shadow removed" from 2 for this change. No
+// project format change (kFormatVersion stays 55), no VU1 change, no bake change.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 108
+#define TYRAX_VERSION_MINOR 109
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
