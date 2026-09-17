@@ -32,10 +32,10 @@ LOG: Pad initialized!
 LOG: StaPipQBufferRenderer initialized
 LOG: Save system: memory card ready
 LOG: Shadow map slots initialized (VRAM at 831488)
-LOG: ADPCM loaded: host:/C:/tyra-probe-0917-caster/arms/control/bin/sfx/engine-loop.adpcm (2560 bytes, pitch 1881, id 4960240)
-LOG: ADPCM loaded: host:/C:/tyra-probe-0917-caster/arms/control/bin/sfx/engine-high-loop.adpcm (2560 bytes, pitch 1881, id 5289856)
-LOG: ADPCM loaded: host:/C:/tyra-probe-0917-caster/arms/control/bin/sfx/screech-loop.adpcm (2560 bytes, pitch 1881, id 5289888)
-LOG: ADPCM loaded: host:/C:/tyra-probe-0917-caster/arms/control/bin/sfx/gear-shift.adpcm (1552 bytes, pitch 1881, id 5233280)
+LOG: ADPCM loaded: host:/C:/tyra-probe-0917-caster/arms/control/bin/sfx/engine-loop.adpcm (2560 bytes, pitch 1881, id 4964976)
+LOG: ADPCM loaded: host:/C:/tyra-probe-0917-caster/arms/control/bin/sfx/engine-high-loop.adpcm (2560 bytes, pitch 1881, id 5294592)
+LOG: ADPCM loaded: host:/C:/tyra-probe-0917-caster/arms/control/bin/sfx/screech-loop.adpcm (2560 bytes, pitch 1881, id 5294624)
+LOG: ADPCM loaded: host:/C:/tyra-probe-0917-caster/arms/control/bin/sfx/gear-shift.adpcm (1552 bytes, pitch 1881, id 5238016)
 LOG: SIF RPC guard: seen 507, guarded 0
 LOG: VEH setup obj 1 def 0
 LOG: VEH setup obj 6 def 0

@@ -17245,8 +17245,20 @@ void TerrainGame::renderProjShadows() {
         part.silBag->color = part.silColorBag.get();
       }
       part.silBag->info = base->info;
+      // MIRROR THE BASE BAG'S BINDING, rather than binding an array directly.
+      // `part.vertices.bind(part.silBag)` would be the ordinary way to aim a
+      // bag (it sets the pointer, the count and the content stamp together),
+      // and it would be WRONG here for the reason the clamp below states: a
+      // LOD tier re-aims the base bag at the tier's own array, so the array to
+      // follow is whichever one the base currently points at, not this part's
+      // tier-0 one. The three fields moved here are exactly the three
+      // BagArray::bindTo sets, kept together for the same reason it keeps
+      // them together - the content stamp belongs to the array, and a bag
+      // pointing at an array without its stamp is what the baked VIF stream
+      // cache would serve stale (docs/bag-content-version.md).
       part.silBag->vertices = base->vertices;
       part.silBag->count = base->count;
+      part.silBag->contentVersion = base->contentVersion;
       part.silBag->bboxVersion = base->bboxVersion;
       // THE PACKAGE SIZE IS NOT INHERITED, and that is the whole saving.
       // pinPackageSize gives the base bag the MINIMUM size over itself and

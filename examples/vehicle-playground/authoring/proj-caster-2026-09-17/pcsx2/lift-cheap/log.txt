@@ -30,13 +30,13 @@ LOG: Pad state changed
 LOG: Pad is ready!
 LOG: Pad initialized!
 LOG: StaPipQBufferRenderer initialized
-LOG: Save system: no memory card - using host files
+LOG: Save system: memory card ready
 LOG: Shadow map slots initialized (VRAM at 831488)
-LOG: ADPCM loaded: host:/C:/tyra-probe-0917-caster/arms/lift-cheap/bin/sfx/engine-loop.adpcm (2560 bytes, pitch 1881, id 5419856)
-LOG: ADPCM loaded: host:/C:/tyra-probe-0917-caster/arms/lift-cheap/bin/sfx/engine-high-loop.adpcm (2560 bytes, pitch 1881, id 5419888)
-LOG: ADPCM loaded: host:/C:/tyra-probe-0917-caster/arms/lift-cheap/bin/sfx/screech-loop.adpcm (2560 bytes, pitch 1881, id 5419920)
-LOG: ADPCM loaded: host:/C:/tyra-probe-0917-caster/arms/lift-cheap/bin/sfx/gear-shift.adpcm (1552 bytes, pitch 1881, id 5419952)
-LOG: SIF RPC guard: seen 511, guarded 0
+LOG: ADPCM loaded: host:/C:/tyra-probe-0917-caster/arms/lift-cheap/bin/sfx/engine-loop.adpcm (2560 bytes, pitch 1881, id 5423184)
+LOG: ADPCM loaded: host:/C:/tyra-probe-0917-caster/arms/lift-cheap/bin/sfx/engine-high-loop.adpcm (2560 bytes, pitch 1881, id 5423216)
+LOG: ADPCM loaded: host:/C:/tyra-probe-0917-caster/arms/lift-cheap/bin/sfx/screech-loop.adpcm (2560 bytes, pitch 1881, id 5423248)
+LOG: ADPCM loaded: host:/C:/tyra-probe-0917-caster/arms/lift-cheap/bin/sfx/gear-shift.adpcm (1552 bytes, pitch 1881, id 5423280)
+LOG: SIF RPC guard: seen 508, guarded 0
 LOG: VEH setup obj 1 def 0
 LOG: VEH setup obj 6 def 0
 LOG: VEH setup obj 7 def 1
@@ -75,9 +75,9 @@ LOG: Hello from TyraX! Edit src/scripts/example_interaction.cpp.
 LOG: Motor District mood: DAY
 LOG: Motor District mood: NIGHT
 LOG: Motor District mood: DAY
-LOG: SIF RPC guard: seen 5517, guarded 0
+LOG: SIF RPC guard: seen 5514, guarded 0
 LOG: Motor District mood: NIGHT
 LOG: Motor District mood: DAY
-LOG: SIF RPC guard: seen 8409, guarded 0
-LOG: Frame capture: 512x512 psm 0 at frame 1983 written to frame.tga
-LOG: Frame capture: 512x512 psm 0 at frame 2103 written to frame.tga
+LOG: SIF RPC guard: seen 8398, guarded 0
+LOG: Frame capture: 512x512 psm 0 at frame 2025 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 2145 written to frame.tga

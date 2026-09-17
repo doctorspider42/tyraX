@@ -3,12 +3,18 @@
   "profile": "quiet-debug",
   "stripRun": "75",
   "cheapProjCaster": 1,
+  "noSilhouette": false,
+  "shadowCam": false,
+  "projDebug": false,
+  "patchLift": 0.0,
+  "keepRoutes": false,
+  "movingCaster": false,
   "roadStrip": "  TYRA_LOG(\"ROADSTRIP scene \", scene, \" strips \", useStrips ? 1 : 0,",
   "terrainStrip": "    TYRA_LOG(\"TERRAINSTRIP scene \", g_activeScene, \" chunk \", cx, \",\", cz,",
   "instrument": "inventory-frame.py (per-producer counters; NOT a timing run)",
-  "elfSha256": "D4E29D36418BE08E9181F21572EFD9644F37AA145352645383039C43769794CC",
+  "elfSha256": "85E129EC97684A646723E7F3D43BC16D3461DE2827BC610E4700F3FFAC9F96FA",
   "editor": "D:\\tyra-editor\\.claude\\worktrees\\agent-af461bddaf36021de\\build-dev\\tyrax-editor.exe",
-  "editorSha256": "834758A53CEE3C1EBBF5EB5CC8D4B4B8EA429CE19A3F0304B4E8A208B97A7511",
-  "commit": "2c6a12a83e381d0ee81e7c1b8cc9703af0b52a7e",
-  "built": "2026-09-17T10:39:57.9452520+02:00"
+  "editorSha256": "E9E923A30991F16E16A5D479D8A4D8EB4E75CB5CDDE46422551239AEB0029A8F",
+  "commit": "133d2bcee3552a807aea2e367c1e03350c1fdfe3",
+  "built": "2026-09-17T12:15:54.7248061+02:00"
 }

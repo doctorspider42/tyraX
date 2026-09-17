@@ -116,10 +116,64 @@ with the bracket split three ways:
 **87% of the packages and 96% of the vertices are the caster's own bags being
 re-submitted from the light's point of view** — geometry this feature neither
 builds nor owns, and which is packed exactly as well as the object loop packs
-it. If a caster's model is a triangle list, its shadow is one too, and the fix
-is in that model's bake, not here. (In this scene they are: the casters are two
-imported cars, and an imported car is flat-shaded — see
-[vehicles.md](vehicles.md), "The wheel batch is a strip".)
+it. If a caster's model is a triangle list, its shadow is one too. (In this
+scene they are: the casters are two imported cars, and an imported car is
+flat-shaded — see [vehicles.md](vehicles.md), "The wheel batch is a strip".)
+
+### Halving that, without touching the geometry
+
+The vertices are not the lever; **how they are packaged** is. Those bags are
+submitted exactly as the object loop submits them — textured, with per-vertex
+colours — which is the texture+colour VU1 class at **75 vertices a package**.
+The shadow map reads neither attribute. It is 64x64, and
+`RendererCoreShadowMap` says so itself: no colour fidelity, only the alpha
+coverage matters, because the receiver draws black modulated by that alpha.
+
+Submit the same vertices with no texture bag and ONE colour and they go through
+the colour class at **150 a package** — exactly double. `getMaxVertCount` is
+`(dbuffer - 9) / (colorElementsPerVertex + reglistCount)` rounded down to a
+multiple of 3; the double buffer is `(944 - 22) / 2 = 461` and `cull_c` is built
+with `elementsPerVertex 2, reglistCount 2`:
+
+| silhouette bag | vertices per package |
+| --- | ---: |
+| textured + per-vertex colour | 75 |
+| untextured + per-vertex colour | 111 |
+| untextured + single colour | **150** |
+
+That is `TYRA_CHEAP_PROJ_CASTER` in the generated game, and on the garage frame
+it takes the silhouette from **60 packages to 32**, in both the day and the
+night pose, with the vertex count, the bag count and the receiver patch
+unchanged. No geometry changes, no second vertex array, no bake and no format
+change: the silhouette bag shares the part's own vertices.
+
+Two things make it work, and both were paid for:
+
+- **The package size must NOT be inherited from the base bag.** `pinPackageSize`
+  gives that bag the minimum size over itself and its coplanar companions — the
+  reflective env pass, the AO pass, the emissive one — because they rasterize
+  the same pixels and a GEQUAL test cannot survive two passes that classify a
+  triangle differently. A car body is reflective, so copying its pin held the
+  silhouette at 75 and the change moved *nothing at all*. The silhouette is
+  coplanar with nothing: it rasterizes alone into a slot target with its own
+  z-buffer, so it asks for its own derived size. A **stripped** array is the
+  exception — its runs are self-contained, so it keeps its run and wins only
+  the class change.
+- **It shares the base bag's binding, not an array.** A LOD tier re-aims the
+  base bag at the tier's own array, so the silhouette follows whichever array
+  the base currently points at — pointer, count and `contentVersion` together
+  (docs/bag-content-version.md).
+
+**Why it defaults to 0.** The colour half is exact: `pushVert` writes alpha 128
+for every model vertex, so per-vertex colour carries nothing the coverage reads.
+The texture half is not. The GS modulates alpha as well as RGB, so a caster
+whose texture has alpha — foliage, a chain-link fence, any alpha-tested cutout —
+gets its holes from that texture and would cast a solid blob without it. That is
+a per-model property the pass cannot see (`Texture` exposes no alpha predicate),
+so the knob stays off until a project's casters are known to be opaque. A
+per-material gate is the real fix and is not built. In the Motor District both
+casters are vehicles — the only two `shadowMode 3` objects in it — and their
+bodies are opaque palette bakes.
 
 The receiver patch, the only array this feature generates, is written as a
 **triangle strip**: one strip per row of cells joined by degenerate seams, 48
@@ -133,6 +187,28 @@ the shape a strip is best at.
 The torch's **wall copy** is still a triangle list, built per frame from
 arbitrary receiver geometry. Nothing above prices it, because no sunlit pose
 reaches it at all.
+
+### A caster standing on GEOMETRY can pay for a shadow nobody sees
+
+Found while trying to photograph the change above, and it is worth knowing
+before anyone reads a projected-shadow frame cost as money well spent. The
+receiver patch is depth-**tested** and never writes z, and it is placed on the
+surface `projSurfaceAt` reports, a little above it. When the caster stands on
+the TERRAIN that is the right surface. When it stands on **geometry** — a road,
+a platform, a bridge deck — the patch can land under that geometry, lose the
+depth test against it, and contribute nothing.
+
+That is the state of the Motor District's garage pose today. Both casters are
+parked on a road; the slots are held (`PROJDBG` reports `fade 1 reach 1`), the
+silhouettes are rendered, the patches are submitted — and removing the caster
+submit **entirely** does not move one pixel of the shipped shot. 60 VU1 packages
+a frame, which the console prices at about 19.5 us each in garage day, are spent
+on a shadow that is not on screen.
+
+The practical consequence for anyone testing this feature: **a capture is not a
+gate until a known-bad arm has moved it.** Build one that removes the silhouette
+and check the picture changes; if it does not, the pose cannot see the shadow
+and an A/B taken from it means nothing, however many pixels match.
 
 ### The four slots change hands slowly
 

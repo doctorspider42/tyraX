@@ -17,6 +17,8 @@ LOG: AudioSong semaphore created
 LOG: Audio initialized!
 LOG: Initializing pad
 LOG: Pad state changed
+LOG: Pad state changed
+LOG: Pad state changed
 LOG: Pad is ready!
 LOG: Enabling dual shock functions.
 LOG: Pad state changed
@@ -30,13 +32,13 @@ LOG: Pad state changed
 LOG: Pad is ready!
 LOG: Pad initialized!
 LOG: StaPipQBufferRenderer initialized
-LOG: Save system: no memory card - using host files
+LOG: Save system: memory card ready
 LOG: Shadow map slots initialized (VRAM at 831488)
-LOG: ADPCM loaded: host:/C:/tyra-probe-0917-caster/arms/lift-control/bin/sfx/engine-loop.adpcm (2560 bytes, pitch 1881, id 5419728)
-LOG: ADPCM loaded: host:/C:/tyra-probe-0917-caster/arms/lift-control/bin/sfx/engine-high-loop.adpcm (2560 bytes, pitch 1881, id 5419760)
-LOG: ADPCM loaded: host:/C:/tyra-probe-0917-caster/arms/lift-control/bin/sfx/screech-loop.adpcm (2560 bytes, pitch 1881, id 5419792)
-LOG: ADPCM loaded: host:/C:/tyra-probe-0917-caster/arms/lift-control/bin/sfx/gear-shift.adpcm (1552 bytes, pitch 1881, id 5419824)
-LOG: SIF RPC guard: seen 511, guarded 0
+LOG: ADPCM loaded: host:/C:/tyra-probe-0917-caster/arms/lift-control/bin/sfx/engine-loop.adpcm (2560 bytes, pitch 1881, id 5422416)
+LOG: ADPCM loaded: host:/C:/tyra-probe-0917-caster/arms/lift-control/bin/sfx/engine-high-loop.adpcm (2560 bytes, pitch 1881, id 5422448)
+LOG: ADPCM loaded: host:/C:/tyra-probe-0917-caster/arms/lift-control/bin/sfx/screech-loop.adpcm (2560 bytes, pitch 1881, id 5422480)
+LOG: ADPCM loaded: host:/C:/tyra-probe-0917-caster/arms/lift-control/bin/sfx/gear-shift.adpcm (1552 bytes, pitch 1881, id 5422512)
+LOG: SIF RPC guard: seen 520, guarded 0
 LOG: VEH setup obj 1 def 0
 LOG: VEH setup obj 6 def 0
 LOG: VEH setup obj 7 def 1
@@ -75,9 +77,9 @@ LOG: Hello from TyraX! Edit src/scripts/example_interaction.cpp.
 LOG: Motor District mood: DAY
 LOG: Motor District mood: NIGHT
 LOG: Motor District mood: DAY
-LOG: SIF RPC guard: seen 5517, guarded 0
+LOG: SIF RPC guard: seen 5526, guarded 0
 LOG: Motor District mood: NIGHT
 LOG: Motor District mood: DAY
-LOG: SIF RPC guard: seen 8405, guarded 0
-LOG: Frame capture: 512x512 psm 0 at frame 2001 written to frame.tga
-LOG: Frame capture: 512x512 psm 0 at frame 2115 written to frame.tga
+LOG: SIF RPC guard: seen 8410, guarded 0
+LOG: Frame capture: 512x512 psm 0 at frame 2025 written to frame.tga
+LOG: Frame capture: 512x512 psm 0 at frame 2145 written to frame.tga

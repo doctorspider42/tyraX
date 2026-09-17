@@ -7,12 +7,14 @@
   "shadowCam": true,
   "projDebug": false,
   "patchLift": 1.2,
+  "keepRoutes": false,
+  "movingCaster": false,
   "roadStrip": "  TYRA_LOG(\"ROADSTRIP scene \", scene, \" strips \", useStrips ? 1 : 0,",
   "terrainStrip": "    TYRA_LOG(\"TERRAINSTRIP scene \", g_activeScene, \" chunk \", cx, \",\", cz,",
   "instrument": "none (picture arm)",
-  "elfSha256": "879B478DB81389D8E9F4854F300F726C4D22F3AF32356581920143506A2D32C2",
+  "elfSha256": "14B9E6F0F6AA2F1CAA0717CE944AFC3822678C574B08D6EC2D379CB5ADBDF25D",
   "editor": "D:\\tyra-editor\\.claude\\worktrees\\agent-af461bddaf36021de\\build-dev\\tyrax-editor.exe",
-  "editorSha256": "834758A53CEE3C1EBBF5EB5CC8D4B4B8EA429CE19A3F0304B4E8A208B97A7511",
-  "commit": "2c6a12a83e381d0ee81e7c1b8cc9703af0b52a7e",
-  "built": "2026-09-17T11:18:16.1010381+02:00"
+  "editorSha256": "E9E923A30991F16E16A5D479D8A4D8EB4E75CB5CDDE46422551239AEB0029A8F",
+  "commit": "133d2bcee3552a807aea2e367c1e03350c1fdfe3",
+  "built": "2026-09-17T12:22:27.4009621+02:00"
 }
