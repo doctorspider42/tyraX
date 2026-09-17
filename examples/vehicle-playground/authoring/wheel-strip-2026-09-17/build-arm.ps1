@@ -26,6 +26,13 @@ param(
     # Skip the telemetry instrument: for the PICTURE arms, which need the game
     # to photograph itself rather than count anything.
     [switch]$NoInstrument,
+    # A TIMING arm, for the physical PS2. Uses instrument-frame-cost.py instead
+    # of inventory-frame.py, which is not a preference: the inventory instrument
+    # DRAINS StaPipCore telemetry dozens of times a frame, so its own
+    # milliseconds are its own, and it must never be the thing a hardware
+    # number comes out of. Everything else about the arm is identical, so the
+    # counts and the milliseconds are taken on the same knob.
+    [switch]$Timing,
     [string]$Root = 'C:/tyra-probe-0917-strip'
 )
 $ErrorActionPreference = 'Stop'
@@ -71,7 +78,11 @@ foreach ($knob in @(@('TYRA_STRIP_WHEELS', $StripWheels),
 }
 Set-Content -LiteralPath $game -Value $g -NoNewline
 
-if (-not $NoInstrument) {
+if ($Timing -and $NoInstrument) { throw 'Pick one: -Timing or -NoInstrument' }
+if ($Timing) {
+    & python (Join-Path $example 'authoring/instrument-frame-cost.py') $fixture
+    if ($LASTEXITCODE -ne 0) { throw 'instrument-frame-cost.py failed' }
+} elseif (-not $NoInstrument) {
     & python (Join-Path $example 'authoring/inventory-frame.py') $fixture
     if ($LASTEXITCODE -ne 0) { throw 'inventory-frame.py failed' }
 }
@@ -106,6 +117,7 @@ if (!(Test-Path -LiteralPath $elf)) { throw 'No ELF produced' }
     stripWheels = $StripWheels; stripProjPatch = $StripPatch
     wheelTmdl = ($wheelInfo -join ' | ')
     instrument = $(if ($NoInstrument) { 'none (picture arm)' }
+                   elseif ($Timing) { 'instrument-frame-cost.py (COP0 brackets; a TIMING arm)' }
                    else { 'inventory-frame.py (per-producer counters; NOT a timing run)' })
     elfSha256 = (Get-FileHash -LiteralPath $elf -Algorithm SHA256).Hash
     editor = $Editor

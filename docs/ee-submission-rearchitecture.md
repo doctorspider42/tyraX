@@ -492,7 +492,9 @@ measured twice over — which is also why the frame's worst-packed geometry cost
 out of proportion to its triangles: projected shadows and wheels run 22–25
 triangles a package against a strip's ~70, taking 16% of the frame's packages
 for 7.6% of its triangles. (Attacked in 1.107.0 — see the bullet below for what
-that turned out to be, and for the 23 packages it was worth.)
+that turned out to be, and for the 23 packages it was worth. **2.362 µs is the
+floor of what a package costs, not the price of one**: removing 23 of them was
+measured at 19.5 µs each — see "What one VU1 package costs" below.)
 
 **And `total_ms` did not move in garage day at all**: 39.960 in every arm, the
 whole saving absorbed by `present`. The rung needs 10.42 ms and this is an
@@ -595,12 +597,69 @@ Four things this says that no earlier number could:
   60**. The **receiver patch** is a grid and strips trivially: **9 → 2**, more
   than the vertex halving suggests, because a stripped package is never
   sub-split into thirds by the partial-frustum route. Together **−23 of the
-  frame's 711 packages (−3.2%)**, additively, with byte-identical captures.
-  The **body** is lit and is NOT stripped — `meshstrip`'s refusal of it is the
+  frame's 711 packages (−3.2%)**, additively. The **body** is lit and is NOT stripped — `meshstrip`'s refusal of it is the
   right answer, and reaching those 60 packages needs something else.
 
   Note the denominator: 711, not the 803.5 in the inventory above. The shipped
   reflection reuse budget zeroes both `env_probe_*` rows at a parked pose.
+
+## WHAT ONE VU1 PACKAGE COSTS, measured end to end
+
+This page's thesis is that the EE pays per package, and until 2026-09-17 the
+only *price* for one was **2.362 us**, which is packet construction alone. The
+worst-packed-producer round could do better, because it removes a counted number
+of packages and changes nothing else about the scene - so its millisecond
+divided by its packages is the whole submission path's marginal cost rather than
+one bracket's. Physical PS2, control alternated with candidate, control booted
+twice (`examples/vehicle-playground/authoring/wheel-strip-2026-09-17/`,
+`console/`).
+
+| pose | control `work` | candidate | delta | packages removed | **us/package** |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| garage day | 27.731 | 27.281 | **-0.449** | 23 | **19.5** |
+| garage night | 34.686 | 33.987 | **-0.699** | 22 | **31.8** |
+| outer day | 11.808 | 11.872 | +0.064 | 0 | - |
+| outer night | 14.699 | 14.700 | +0.000 | 0 | - |
+
+**Read it against two floors**: 0.020 ms for two boots of ONE ELF, and
+**0.064 ms** for two DIFFERENT ELFs in a pose where the change cannot act (the
+outer poses, where neither producer submits anything). The second is the honest
+one for a code change, and it is three times the first; garage day clears it
+sevenfold and garage night elevenfold.
+
+**The prediction that was right was the generous one.** 23 packages priced at
+packet construction alone gives 0.054 ms; priced at the whole `dispatch`
+bracket's per-package average (19.0 us) it gives 0.43 ms. Measured **0.449**.
+**A package removed from this frame is worth about EIGHT TIMES the
+packet-construction figure**, and roughly half of an average package's total
+`work` share (39.0 us).
+
+**But do not carry 19.5 us as a constant**, and this caveat matters more than
+the headline. The bracket split does not support a pure per-package model:
+
+- **packet construction did not move at all** (-0.004 ms, inside its own 0.007
+  floor). The one term with a published per-package price is absent from the
+  saving, where a pure package model predicts -0.054.
+- **`bounds` ROSE** by 0.087 ms, four times its floor - the same direction
+  `prepare` moved in the baked-stream round, and the term that refuted mesh
+  LOD 64.
+- The three StaPipCore brackets explain only **-0.072 ms of the -0.434** in
+  `submit`. About 0.36 ms sits in the unbracketed region that
+  `instrument-frame-cost.py --attribute` exists to split, and which this page
+  already flagged as 7.5 ms nobody had looked inside.
+- `vif_wait` fell 0.163 ms because the candidate submits **2.5% fewer
+  vertices** - a VU1 effect, not an EE per-package one.
+
+So the defensible general claim is narrower than the headline and still useful:
+**stripping a producer is worth roughly the whole-`dispatch` per-package
+average, ~8x the packet-construction figure** - for a change that removes
+packages AND vertices together, which stripping always does. A change that
+re-packs an array without removing vertices should be budgeted lower, and
+nothing here says how much lower. The cheap next probe is these same two arms
+under `--attribute`.
+
+`total_ms` is unchanged, 39.961 -> 39.960: two PAL fields either way, the whole
+saving absorbed by `present`, exactly as the baked stream's 1.287 ms was.
 
 And half of all classified packages are thrown away: **797.5 rejected against
 803.5 drawn** in garage day. Probe A already established that the rejection

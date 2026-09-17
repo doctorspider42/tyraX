@@ -4552,6 +4552,19 @@
 // degenerate seams and padding under `size - 2` - the vertex count is the honest
 // column. No project format change (kFormatVersion stays 54) and no VU1 change;
 // the .tmdl gains a strip for the wheel part, which is an existing v4 field.
+//
+// AND THE HARDWARE NUMBER, which outlives the change: on the physical PS2 the
+// garage-day frame's `work` falls 0.449 ms and garage night's 0.699, against a
+// two-ELF floor of 0.064 ms (the outer poses, where neither producer submits
+// anything, so the candidate differs only in dead code). That is 19.5 and
+// 31.8 us per package removed - EIGHT TIMES what the 2.362 us packet-
+// construction figure predicts, and close to the whole `dispatch` bracket's
+// 19.0 us per-package average. The round was priced at 0.054 ms or 0.43 ms
+// depending on which term followed; the generous estimate was right to 4%.
+// Do NOT carry 19.5 us as a constant: packet construction itself did not move,
+// `bounds` rose 0.087, the StaPipCore brackets explain only 0.072 of the 0.434
+// in `submit`, and part of the win is the 2.5% fewer VERTICES a strip submits.
+// `total_ms` is unchanged - two PAL fields either way, the saving in `present`.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 107
 #define TYRAX_VERSION_PATCH 0

@@ -145,9 +145,11 @@ two independent routes, so a per-class run would buy nothing. What is left:
 
 The worst-packed-producer round attacked the two producers the frame inventory
 named — the wheel batch and the projected-shadow receiver patch — and took
-**23 of the garage frame's 711 VU1 packages**, additively. The patch's captures
-are byte-identical; the wheels' differ in 54 pixels of 512x512 at one channel
-step, which is the GS's per-triangle setup and not a geometry change
+**23 of the garage frame's 711 VU1 packages**, additively, **worth a measured
+0.449 ms of `work` on the physical PS2** (0.699 at night) against a two-ELF
+floor of 0.064. The patch's captures are byte-identical; the wheels' differ in
+54 pixels of 512x512 at one channel step, which is the GS's per-triangle setup
+and not a geometry change
 (`examples/vehicle-playground/authoring/wheel-strip-2026-09-17/`,
 [vehicles.md](vehicles.md) "The wheel batch is a strip",
 [shadows.md](shadows.md) "Almost all of it is the CASTER's geometry").
@@ -159,36 +161,101 @@ because **no vehicle model in the district carries a strip at all**. The cars
 are also 3 446 triangles of `object_submit`, and the probe pass draws them
 again.
 
-`vehbake` now calls `meshstrip` for the WHEEL. It cannot for the BODY, and the
-refusal is correct rather than a gap: an imported car is flat-shaded, so 2 242
-of a body part's 2 280 corners are unique, every triangle is its own island and
-the strip comes out **1.65x the list**. The wheel only works because its bag is
-unlit and flat-coloured, so its vertex identity is position and UV
-(`meshstrip::Weld::kNoNormal`) — on that key the same meshes reach 0.64–0.76x,
-and the body reaches 0.73–0.76x too but **cannot use it**, because it is lit and
+### A WELD KEY IS A PROPERTY OF THE BAG, NOT OF THE MESH
+
+That is the general statement, and it is the transferable half of this round.
+Whether a mesh strips at all is decided by **which attributes the GS actually
+receives for it**, which is a fact about the bag that draws it — not about the
+geometry. The same Motor District wheel mesh, unchanged:
+
+| weld key | strips to | verdict |
+| --- | ---: | --- |
+| position + normal + UV (`Weld::kFull`) | **1.605x** the list | `meshstrip` REFUSES it |
+| position + UV (`Weld::kNoNormal`) | **0.764x** | 10 VU1 packages a wheel against 13 |
+
+A 2.1x swing, on one mesh, from changing nothing but the definition of "the
+same vertex". **This generalises to every unlit, single-colour bag in any
+project** — anything submitted with `lighting == nullptr` and a flat
+modulate-identity colour has position and UV for its whole vertex, and a
+flat-shaded mesh that the ordinary weld refuses may strip well under the other
+key. Today the only caller is `vehbake`'s wheel; the rule is worth applying
+wherever a producer is found submitting a list.
+
+The converse is the safety rule and it is absolute: **using `kNoNormal` for a
+bag that IS lit is a rendering bug, not a slower render.** Neighbouring faces
 would take one face's normal across a crease.
 
-So the lever here is not the stripper. It is the SHADING of imported vehicle
-geometry, and there are two costed-looking ways at it, neither measured:
+### The vehicle BODIES: 0.757x is on the table and cannot be taken yet
+
+`vehbake` now calls `meshstrip` for the WHEEL. It cannot for the BODY, and the
+refusal is correct rather than a gap: the body is lit, so its key is the full
+one, and on the full key 2 242 of its 2 280 corners are unique.
+
+**The arithmetic, so nobody has to re-derive it.** Measured by running
+`meshstrip::build` over the baked `.tmdl` parts under both keys
+(`wheel-strip-2026-09-17/stripcheck-wheels.cpp` is the harness shape; point it
+at `*-body.tmdl` and pass `Weld::kFull` as well):
+
+| baked part | list verts | unique, kFull | strip, kFull | unique, kNoNormal | strip, kNoNormal |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `veh-cc96playground01-body` part 0 | 2 280 | 2 242 | 3 762 (1.650x) | 776 | **1 725 (0.757x)** |
+| `veh-cc96playground01-body` part 1 | 888 | 886 | 1 479 (1.666x) | 324 | **645 (0.726x)** |
+| `veh-cc96playground01-body` part 2 (`lamps`) | 180 | 72 | 126 (0.700x) | 72 | 126 (0.700x) |
+
+Note the third row: the untextured `lamps` part already has shared normals and
+strips under the ORDINARY key at 0.700x — so some of this is available with no
+shading decision at all, and `bakeStaticModels`-style stripping of the parts
+that qualify is the cheapest thing on this list. (It is also the part the bake
+must never reorder: the rear/front lamp split is a corner index range.)
+
+What the body is worth if it can be taken: the three car bodies are 3 446
+triangles of `object_submit`, they are drawn AGAIN by the reflection probe, and
+AGAIN as the projected-shadow silhouette (60 of that producer's 69 packages).
+At roughly 0.75x the vertices that is the same reduction three times over.
+
+Two routes, neither measured:
 
 - **Smooth-normal welding at import, with a crease angle.** Turns the body into
-  a mesh that strips on the ordinary key, and would carry `object_submit`, the
-  probe pass and the shadow silhouette with it — roughly 0.73x the vertices of
-  every car in the frame. The objection is that it changes what the car LOOKS
-  like, which is a picture decision, not a packing one, and this repo's
-  crease-smoothing attempt is already PARKED for exactly that reason (see the
-  static-model A/B notes: quad-diagonal stripes on bare solids). Any attempt
-  needs a picture gate first and a packing number second.
+  a mesh that strips on the ordinary key and carries all three passes with it.
+  Concretely: weld in `vehbake`'s `collect()` before `decimateTo`, averaging
+  normals across faces whose angle is under the threshold, leaving a hard edge
+  above it — and the tiers must be regenerated after, because `meshlod` runs on
+  the welded mesh. The objection is that it changes what the car LOOKS like,
+  which is a picture decision and not a packing one, and this repo's
+  crease-smoothing attempt is already PARKED for exactly that reason (the
+  static-model A/B: quad-diagonal stripes on bare solids). **A picture gate
+  comes first and the packing number second**, on the two day poses, and note
+  that a lit re-shade will NOT be byte-identical, so the gate has to be a stated
+  budget rather than zero.
 - **A second, unlit vertex array for the silhouette pass only.** The shadow map
-  renders a solid silhouette and reads no normal, so it could take a
-  `kNoNormal` strip of the body. It needs a second RESIDENT bag set per caster
-  and the RAM for it in a 32 MB machine — the same trade that stopped the
-  probe-LOD option in [reflective-materials.md](reflective-materials.md), and
-  it should be priced the same way before anyone builds it.
+  renders a solid silhouette and reads no normal, so `renderProjShadows` could
+  submit a `kNoNormal` strip of the body and leave the main view alone — worth
+  the 60 packages directly, with no picture risk at all, because a silhouette
+  is a coverage mask. The cost is a second RESIDENT bag set per caster: at
+  0.757x of 3 348 vertices that is ~2 535 x 32 bytes ≈ **81 KB per distinct
+  caster model**, plus its `GeoPart`/bag overhead, in a 32 MB machine. That is
+  the same trade that stopped the probe-LOD option in
+  [reflective-materials.md](reflective-materials.md) ("per-bag cost is the term
+  that does not shrink"), and it should be priced the same way — RAM first, then
+  a count, then hardware — before anyone builds it. Note it does NOT need a
+  crease decision, which is what makes it the safer of the two.
 
 Also still a list: the **torch's wall copy** in `renderProjShadows`, built per
 frame from arbitrary receiver geometry. No sunlit pose reaches it, so this
 round could not price it at all; a flashlight fixture would have to.
+
+**And the follow-up the hardware run opened**, which is cheap and worth doing
+before the next packing decision: `submit` fell 0.434 ms and the three
+StaPipCore brackets (`bounds`, `prepare`, `dispatch`) explain only **0.072** of
+it, so about **0.36 ms is in the unbracketed part of `submit`** —
+post-process, the 2D HUD, the game-side per-object tests, and
+`renderVehicleWheels`' own bake loop. Re-run `t-ctl` and `t-cand` with
+`instrument-frame-cost.py --attribute` (and `TYRA_STAPIP_ATTRIB=1` for the
+engine half) and find out where. It needs no new code and no new fixture — the
+arms are archived — and it is what turns "a stripped producer is worth ~19.5 µs
+a package" from an effective rate into an attributed one. Note also that
+**packet construction did not move at all** in this run, which a per-package
+model says it should have: whatever explains that is the same investigation.
 
 ### Where the remaining frame time is, measured (2026-09-15)
 

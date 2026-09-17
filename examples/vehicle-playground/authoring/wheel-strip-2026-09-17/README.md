@@ -13,9 +13,15 @@ found the target:
 That reading is correct. **The reason it gave for it is not**, and the reason
 is the whole of this round's value.
 
-Everything here is a **COUNT**. PCSX2 emulates no EE data cache, so its
-milliseconds are not admissible; its counters are exact. No console was used,
-none was needed, and the console was not touched.
+**Two instruments, two machines, and the split is not negotiable.** Every COUNT
+on this page — packages, vertices, bags, and the pixel comparisons — was taken
+in PCSX2, whose counters are exact. Every MILLISECOND was taken on the physical
+PS2 at 192.168.100.150, because PCSX2 emulates no EE data cache and its timings
+are inadmissible. The two agree on the frame they are describing: garage-day
+`triangles` reads 35 061 in both.
+
+The hardware sweep is at the end, and it answers a question this round was set
+up to ask: **what one VU1 package costs, end to end**.
 
 ## The headline: it was not two producers, it was one missing bake call
 
@@ -324,38 +330,130 @@ write can land as a **torn CSV** that reads as a corrupt file rather than as a
 disk error. If a capture or a CSV comes back malformed, check free space before
 suspecting the change.
 
+## THE HARDWARE SWEEP: what one VU1 package actually costs
+
+Physical PS2, **192.168.100.150**, 2026-09-17. `--profile quiet-debug`, four
+parked poses, 120 warm-up frames then 240 recorded rows each = 960 rows a run;
+all three runs collected all 960. Control alternated with candidate and booted
+twice for the floor. The timing arms carry `instrument-frame-cost.py` and **not**
+the inventory instrument — that one drains telemetry dozens of times a frame, so
+its milliseconds are its own. Raw: `console/{ctl-boot1,cand-boot1,ctl-boot2}/`,
+`console/summary-cost.txt`, `console/fixture-identity.txt`.
+
+The counts instrument and the timing instrument agree on the frame: garage-day
+`triangles` reads **35 061** on the console, the same number the PCSX2 rows give.
+
+### Two floors, and the second one is the one to use
+
+| floor | garage day `work` |
+| --- | ---: |
+| two boots of **one** ELF | **0.020 ms** |
+| two **different** ELFs, in a pose where the change cannot act (outer day) | **+0.064 ms** |
+
+The second is the honest one for this comparison, and it is three times the
+first. Outer day and outer night submit no wheels and hold no shadow slot, so
+the candidate differs there only in dead code — and still reads +0.064 and
++0.000. That spread is instruction-cache layout, and it is the noise any
+two-ELF delta on this fixture has to clear.
+
+### The result
+
+| pose | control `work` | candidate | delta | packages removed | **µs per package** |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| **garage day** | 27.731 | 27.281 | **−0.449** | 23 | **19.5** |
+| **garage night** | 34.686 | 33.987 | **−0.699** | 22 | **31.8** |
+| outer day | 11.808 | 11.872 | +0.064 | 0 | — |
+| outer night | 14.699 | 14.700 | +0.000 | 0 | — |
+
+`total_ms` is **39.961 → 39.960** in garage day and 39.959 → 39.960 at night —
+still exactly two PAL fields, with the saving absorbed by `present`, the same
+way the baked-stream round's 1.287 ms was. **Nobody sees this; the frame budget
+does.**
+
+### The factor of eight resolves to the UPPER end
+
+This round was priced two ways, and the gap between them was the open question:
+
+| if the term that follows is… | predicted for 23 packages | µs/package |
+| --- | ---: | ---: |
+| packet construction only | 0.054 ms | 2.43 |
+| the whole `dispatch` bracket | 0.43 ms | 19.0 |
+| **measured** | **0.449 ms** | **19.5** |
+
+**The upper estimate was right, to within 4%.** A package removed from this
+frame is worth **19.5 µs of `work`** in garage day and **31.8 µs** at night —
+**eight times** what packet construction alone would have predicted. For scale,
+the control spends 39.0 µs of `work` per package overall, so a removed package
+returns about **half** of an average package's full cost.
+
+### …but the bracket split does NOT support a pure per-package model, and that matters
+
+This is the part to carry forward, because quoting 19.5 µs as a constant would
+be wrong. Where the 0.449 ms came from, garage day:
+
+| bracket | control | candidate | delta |
+| --- | ---: | ---: | ---: |
+| `bounds` | 2.059 | 2.146 | **+0.087** |
+| `prepare` | 2.529 | 2.489 | −0.040 |
+| `dispatch` (contains `vif_wait`) | 13.537 | 13.255 | −0.282 |
+| ‣ of which `vif_wait` | 5.001 | 4.838 | **−0.163** |
+| ‣ of which **packet construction** | 1.728 | 1.724 | **−0.004** |
+| `dma` (`send_packet2`) | 1.956 | 1.895 | −0.062 |
+| **EE render** (`bounds`+`prepare`+`dispatch`−`vif_wait`) | 13.124 | 13.052 | **−0.072** |
+| **`submit`** | 23.873 | 23.439 | **−0.434** |
+
+Three things refuse to fit a per-package story:
+
+- **Packet construction did not move at all** (−0.004 ms, inside its own 0.007
+  floor). It is the one term with a published per-package price — 2.362 µs,
+  measured twice — and a pure package model predicts −0.054 here. It is not
+  there.
+- **`bounds` ROSE**, by 0.087 ms, four times its floor. The same term rose in
+  the baked-stream round (`prepare` +0.315 there) and refuted mesh LOD 64.
+- **The three StaPipCore brackets account for only −0.072 ms of the −0.434 in
+  `submit`.** About 0.36 ms is inside `submit` and outside all of them — the
+  region `instrument-frame-cost.py --attribute` exists to split, and which an
+  earlier round already flagged as 7.5 ms nobody had looked inside.
+
+And part of the saving is a **vertex** effect rather than a package one:
+`vif_wait` fell 0.163 ms, and the candidate submits 48 348 vertices against
+49 587 (−2.5%), so VU1 genuinely has less to transform.
+
+**So 19.5 µs/package is an EFFECTIVE rate for a change that removed packages
+AND vertices together, not a constant for packages alone.** A future change that
+removes packages without removing vertices — re-packing an existing array, say —
+should not be budgeted at this rate. The honest general claim this round
+supports is narrower and still useful: **stripping a producer is worth roughly
+the whole-`dispatch` per-package average, about 8x what the packet-construction
+figure alone suggests.**
+
+The obvious next probe, and it is cheap: re-run these two arms with
+`instrument-frame-cost.py --attribute` and find where the 0.36 ms of unbracketed
+`submit` went. Nothing on this page needs it, but the next packing decision
+would be priced better with it.
+
 ## What this does not establish
 
-**Not one measured millisecond.** Every number here is a count. What 23
-packages are worth depends on which per-package term they carry, and this page
-cannot say which:
+**Where 0.36 ms of the saving lives.** See the bracket split above: `submit`
+fell 0.434 ms and the three StaPipCore brackets explain 0.072 of it. A plausible
+candidate is `renderVehicleWheels`' own game-side work — a smaller vertex buffer
+is a smaller EE working set, which is exactly the class of effect PCSX2 cannot
+model — but nothing here isolates it, and it should not be asserted.
 
-- if only **packet construction** follows, the measured rate is **2.362 µs a
-  package** ([ee-submission-rearchitecture.md](../../../../docs/ee-submission-rearchitecture.md)),
-  so 23 packages is **0.054 ms**;
-- if the whole `dispatch` bracket follows — 15.0 ms over 803.5 packages in the
-  round that measured it, i.e. 18.7 µs a package — it is **0.43 ms**.
+**Nothing about a MOVING frame.** All four poses are parked, so the wheel
+batch's skip-when-unchanged path is in its best case throughout
+([wheel-rebake-skip.md](../../../../docs/wheel-rebake-skip.md)). This round
+changes the representation rather than the amount of work, so the package count
+is a function of which cars are drawn rather than of whether they moved — but
+the 0.36 ms of unattributed `submit` is exactly the kind of term that could
+behave differently with `--keep-routes`, and it was not run.
 
-**That factor of eight is the open question, and only hardware can close it.**
-The arms are built and paired for it: `ctl` against `both`, four poses, on
-`192.168.100.150`. Note also that a removed package is not a removed triangle,
-and this repo's own rule — a removed triangle is worth about 0.4 of its cycle
-count — has no counterpart for packages yet.
+**The torch's wall copy is unpriced.** It is still a triangle list, built per
+frame from arbitrary receiver geometry, and no sunlit pose reaches it — all four
+poses report 0. Pricing it needs a flashlight fixture.
 
 **The frame denominator is 711, not the 803.5 the inventory quotes.** The
 shipped reflection reuse budget zeroes both `env_probe_*` rows at a parked
 pose, so this round measures a smaller frame than the round that named its
 target. Quoting −23 against 803.5 would understate it by 12%.
 
-**The torch's wall copy is unpriced.** It is still a triangle list, built per
-frame from arbitrary receiver geometry, and no sunlit pose reaches it — all
-four of this fixture's poses report 0. Pricing it needs a flashlight fixture.
-
-**The moving fixture was not run.** The wheel batch already skips a rig that
-did not move ([wheel-rebake-skip.md](../../../../docs/wheel-rebake-skip.md)),
-and a parked fixture flatters that mechanism — but this round changes the
-REPRESENTATION rather than the amount of work, so the package count is a
-function of which cars are drawn and not of whether they moved. `--keep-routes`
-would confirm that rather than discover anything, and the two levers do not
-interact: the skip is addressed by slot, and the block length is fixed per
-definition either way.
