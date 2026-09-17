@@ -442,7 +442,7 @@ take one face's normal.
 
 ### A hand-written grid strip flips the quad diagonal, and that is a picture change
 
-Worth its own heading because it cost a capture and is invisible in every count.
+Worth its own heading because it is invisible in every count.
 `meshstrip` cannot bite you here — it re-triangulates a welded mesh and is
 checked against the triangle multiset — but the two grid emitters that do NOT
 go through it (roads and terrain, and now the projected-shadow receiver patch)
@@ -463,6 +463,24 @@ silhouette is not a saving.
 The counts cannot see it — same vertices, same packages, same everything — so
 the only check that can catch it is a picture, on a pose where the receiver is
 not flat.
+
+**And the Motor District has no such pose, which is how this nearly went the
+other way.** The projected-shadow patch was found flipping its diagonal by
+READING it. The round that fixed it had a candidate differing from its control
+in 54 pixels, assumed those 54 were the flip, and rebuilt every arm around the
+fix — after which the candidate differed from the control in **exactly the same
+54 pixels, the same set, pixel for pixel**. The flip was worth zero there,
+because `patchY` goes flat the moment the patch lands on geometry and in that
+scene it does; the 54 were the vehicle wheels' re-triangulation all along, and a
+one-knob arm is what finally said so.
+
+Two lessons, and the second is the one that generalises:
+
+- **A fixture can be completely silent about a defect whose fix you are
+  shipping.** "The captures did not move" is not evidence that a geometry change
+  is correct; it can equally mean the fixture never exercises it.
+- **Attributing a difference to the thing you just changed is a guess.** The
+  only thing that turns it into a measurement is an arm with one knob in it.
 
 ### A re-triangulation is not bit-exact on the GS, and cannot be made so
 

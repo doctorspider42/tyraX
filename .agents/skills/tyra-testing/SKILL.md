@@ -3128,6 +3128,19 @@ the example. It patches only that fixture's generated loop. Compile with
 `tools/toolchain/native-build.ps1` / `.sh` directly: an editor build would
 regenerate the instrumentation away. No engine source switch is needed.
 
+**Build the fixture where it will live, and keep it off a full disk.** The
+build runs under WSL, and `make` there does not respect an NTFS junction: point
+a fixture's in-tree `bin/` or `obj/` at another volume and `make` REPLACES the
+junction with a real directory on the original one. On a disk with no free
+space the compile then proceeds normally and the LINK dies with
+`ld: final link failed: Input/output error` - which reads as a toolchain fault,
+not as a full disk, and sends you hunting the linker. Put the whole fixture
+under a root with room (`benchmark-district.py <dir>` takes one, and
+`native-build.ps1 -Project/-Cache` take explicit paths) rather than redirecting
+pieces of it. The same full disk also produces a **torn `host:` write**: a CSV
+that comes back truncated or malformed reads as a corrupt capture rather than
+as a disk error, so check free space before suspecting the change under test.
+
 The 960 raw rows in `bin/frame-cost.csv` are written after four warmed-up phases.
 Do not capture or write commands during sampling. Update/submit/finish/present
 are disjoint, but the included telemetry buckets overlap. Finish is not a GS-only
