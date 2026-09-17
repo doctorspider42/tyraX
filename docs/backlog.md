@@ -674,11 +674,24 @@ What is now settled, and what is left:
   is what impostors are for, and impostors already ship, are distance-driven so
   they survive driving, and do not multiply bags.
   ([Evidence](../examples/vehicle-playground/authoring/world-visibility-2026-09-17/README.md).)
-  **Two things still owed before anything is built on it**: the same probe set
-  under the MOTION regimes — occlusion is a property of a viewpoint and the
-  parked forecourt is the friendliest one in the scene, so 3 509 is an upper
-  bound for a parked camera — and a hardware A/B, because every figure above is
-  a count or a pixel and none is a millisecond.
+
+  **THE THRESHOLD IS BUILT, 2026-09-17**, and priced in packages because the
+  console has since measured one at 19.5 us (day) / 31.8 us (night): eight-view
+  impostors on the two building models at **100 units** take garage day from
+  **750 to 670 packages (−10.7%)** and garage night from 803 to 723, with the
+  strictly-occluded tower falling 50 packages → 1. The outer poses do not move
+  at all, correctly — the same buildings are 32 and 44 units away there.
+  Collisions and picking are proved unchanged in the generated scene data
+  rather than by capture.
+  ([Evidence](../examples/vehicle-playground/authoring/impostor-threshold-2026-09-17/README.md).)
+  **What it still owes**: a HARDWARE arm. Every figure is a PCSX2 count or
+  pixel, and the milliseconds quoted are conversions through somebody else's
+  measured rate — whose own caveat is that the bracket split does not support a
+  pure per-package model.
+  **Headroom left on the table**: the two distant streetlights and the far park
+  tree are another ~9 packages the same rule would take at the same threshold;
+  they were left out because thin geometry on a card is a different quality
+  risk from a building and deserves its own look.
 - **Nothing has ever attacked the frame's worst PACKING.** Projected shadows
   and the wheels are triangle LISTS — 25 triangles per VU1 package against a
   strip's 73 — so together they take 130 of garage day's 803.5 packages for

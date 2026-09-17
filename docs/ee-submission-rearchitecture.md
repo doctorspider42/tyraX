@@ -773,6 +773,60 @@ Two numbers from that round worth carrying into every later estimate:
    nothing yet says how much of that tower stays hidden while the player
    **drives**, and the same probe set under the motion regimes is the next
    check. Until then the 3 509 triangles are an upper bound for a parked camera.
+
+   **THE THRESHOLD IS BUILT AND PRICED IN PACKAGES, 2026-09-17**
+   ([evidence](../examples/vehicle-playground/authoring/impostor-threshold-2026-09-17/README.md)).
+   Eight-view impostors for the two building models, assigned to all ten
+   instances, switching at **100 units** — a threshold placed in the gap the
+   visibility round measured between the furthest building the frame is SEEN to
+   draw (82 units, 610 px) and the nearest one it is not (117 units, 0 px).
+
+   | pose | packages | delta | triangles | converted |
+   | --- | ---: | ---: | ---: | ---: |
+   | garage day | 750.0 → 670.0 | **−80.0 (−10.7%)** | −5 730 | −1.560 ms |
+   | garage night | 803.0 → 723.0 | **−80.0 (−10.0%)** | −5 730 | −2.544 ms |
+   | outer day | 175.0 → 175.0 | 0 | 0 | 0 |
+   | outer night | 192.0 → 192.0 | 0 | 0 | 0 |
+
+   **The millisecond column is a CONVERSION** through this page's own
+   19.5 / 31.8 us per package, not a measurement; no console was available for
+   this round. Two objects move, in both garage poses: Tower block 06 goes
+   50 packages → 1 and Loft block 07 32 → 1. **The strictly-occluded object is
+   captured by the distance rule with no occlusion machinery**, which was the
+   whole argument for preferring this lever.
+
+   Two corrections this round owes its own predecessor. The claim that a
+   threshold captures **both** strictly-occluded objects is **wrong**: the other
+   is a box primitive and impostors apply only to static OBJ models, so there is
+   no asset to bake. It is 12 triangles and 1 package, so the error is
+   numerically trivial and a PVS would still have taken it. And **the outer
+   poses gain nothing at all** — the same buildings are 32 and 44 units away
+   there and correctly stay full models, so this lever is worth exactly zero
+   outside the garage. That is a property of the scene, not a defect of the
+   threshold.
+
+   **Driven, not just parked**, at 20 camera stations — 12 along the garage
+   approach and 8 orbiting the switched object. **At the garage pose the whole
+   80-package saving costs 123 pixels**, 0.05% of the screen, because the object
+   it removes is the one measured to contribute nothing. Hysteresis holds the
+   card from 117 units down to 90 and the full model returns at 88, so **the pop
+   is 5 297 px (2.02% of screen)** in one step — against 173 137 px that the
+   same 2 units of camera motion changes anyway, a ratio of 1.00. That ratio
+   flatters it: the stations are coarser than one frame of driving, and scaled
+   to a frame the swap is nearer **18%** of the change rather than 3%. That
+   scaling is an extrapolation.
+   **The orbit is the worse of the two pops**: at a constant 110 units the
+   8-view card's error swings from 0 to **7 150 px (2.73%)** with azimuth,
+   because a card is up to 22.5 degrees off its captured view. 16 views halves
+   that angular error and is the obvious move if it is judged too visible.
+   Collisions and picking are proved unchanged across all 142 objects in the
+   generated scene data. **Nothing appears late** — the card is present wherever
+   the model was; what changes is fidelity, not presence.
+
+   **This owes a hardware arm and nothing else.** No console was available; the
+   millisecond columns above are conversions through this page's own
+   19.5 / 31.8 us, whose caveat (the bracket split does not support a pure
+   per-package model) applies in full.
 6. S5, the wheel rebake; and terrain LOD 160 once somebody drives the band.
 7. **The `FlushCache` hunt (S1).** Dropping it corrupted the picture with the
    packet already uncached, and it is worth 1.09 ms when the cause is found.

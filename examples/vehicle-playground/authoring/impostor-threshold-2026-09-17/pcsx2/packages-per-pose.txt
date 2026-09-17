@@ -1,0 +1,26 @@
+FRAME TOTAL, per pose. Packages lead; triangles are secondary.
+pose            pkg ctl  pkg cand    dpkg       %   tri ctl  tri cand     dtri  bags d
+--------------------------------------------------------------------------------------
+garage day        750.0     670.0   -80.0  -10.7%     38440     32710    -5730   -10.0
+garage night      803.0     723.0   -80.0  -10.0%     39044     33314    -5730   -10.0
+outer day         175.0     175.0     0.0    0.0%     11452     11452        0    -1.0
+outer night       192.0     192.0     0.0    0.0%     11784     11784        0    -1.0
+
+CONVERTED to milliseconds. THIS IS A CONVERSION, NOT A MEASUREMENT.
+  rate: 19.5 us/package (day), 31.8 us/package (night), measured on the console by the wheel-strip round on a change that
+  removed packages AND vertices together - which this one also does.
+  garage day       -80.0 packages  ->   -1.560 ms (converted)
+  garage night     -80.0 packages  ->   -2.544 ms (converted)
+  outer day          0.0 packages  ->    0.000 ms (converted)
+  outer night        0.0 packages  ->    0.000 ms (converted)
+
+BY PRODUCER, garage day (phase 0) - where the change acts
+producer            pkg ctl  pkg cand    dpkg   tri ctl  tri cand     dtri
+--------------------------------------------------------------------------
+object_submit         354.0     274.0   -80.0     18087     12357    -5730
+
+BY OBJECT, garage day - every object whose packages moved
+  idx  pkg ctl  pkg cand    dpkg   tri ctl  tri cand     dtri
+-------------------------------------------------------------
+   40     50.0       1.0   -49.0      3497         2    -3495
+   42     32.0       1.0   -31.0      2237         2    -2235

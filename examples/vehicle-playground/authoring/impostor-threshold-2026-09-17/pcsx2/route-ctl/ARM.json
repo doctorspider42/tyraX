@@ -1,0 +1,15 @@
+{
+  "arm": "route-ctl",
+  "kind": "pixels",
+  "profile": "debug",
+  "impostorDistance": 0.0,
+  "impostorAssetRefsInGeneratedScene": 0,
+  "stripRun": "75",
+  "sampler": "route: camera parked at station N of a drive-in route",
+  "instrument": "none (capture arm)",
+  "elfSha256": "EA53CDA66FF8EC8DA12E9EC5166B6EFEFCE75F7374692022BDD5067126E667B8",
+  "editor": "D:\\tyra-editor\\.claude\\worktrees\\agent-aa4dd857197b86f19\\build\\tyrax-editor.exe",
+  "editorSha256": "6406CD08D1A976F5C3AEF703E793FACB10E428E998EA027A6EC30ED24C896C18",
+  "commit": "ae616f8e529335243a01e54ce47f44a8c59f6556",
+  "built": "2026-09-17T08:55:45.6293935+02:00"
+}

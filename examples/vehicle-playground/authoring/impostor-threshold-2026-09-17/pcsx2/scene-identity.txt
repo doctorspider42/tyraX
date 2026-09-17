@@ -1,0 +1,16 @@
+model table: control 17 entries, candidate 19
+  added by the candidate: ['models/impostors/district-tower-far.tmdl', 'models/impostors/district-loft-far.tmdl']
+  15 of 17 control indices shift; every one still resolves to the SAME model file
+scene object rows: 142 in both, 69 fields each
+10 rows differ only in the impostor fields (+ batchStatic where it applies)
+5 objects lost static-batch eligibility, which is a consequence of the assignment:
+    row   40 Tower block 06           batchStatic 1 -> 0
+    row   42 Loft block 07            batchStatic 1 -> 0
+    row   44 Loft block 08            batchStatic 1 -> 0
+    row   48 Loft block 10            batchStatic 1 -> 0
+    row   54 Loft block 13            batchStatic 1 -> 0
+
+PASS: after the model-table remap, the two scenes differ ONLY in the impostor fields
+      and in batchStatic on the objects that received one. Positions, scales,
+      collision boxes, `pickable` and `usable` are identical on every object,
+      so collisions and picking cannot have changed.

@@ -289,6 +289,22 @@ But **6 532 triangles — 18.6% of the frame — buy 327 pixels between them**, 
 that ratio, not "occluded", is what ranks the population.
 [Raw evidence](authoring/world-visibility-2026-09-17/README.md).
 
+**`authoring/impostor-threshold-2026-09-17/` builds the lever that finding
+pointed at, and prices it in PACKAGES.** A VU1 package costs the EE about
+19.5 us in garage day and 31.8 at night, measured on the console, so the
+package column leads and the triangle column follows — in the round that
+measured the rate, triangles ROSE while the frame got faster.
+`set-impostors.py` assigns eight-view impostors to the district's two building
+models and sets the switch distance; the two arms differ in that one number.
+At **100 units** — placed in the gap between the furthest building the frame is
+SEEN to draw (82) and the nearest one it is not (117) — garage day falls from
+**750 to 670 packages (−10.7%)** and garage night from 803 to 723, while the
+outer poses correctly do not move at all, because the same buildings are 32 and
+44 units away there. `verify_scene_identity.py` proves collisions and picking
+unchanged in the generated scene data, and `route-sampler.py` parks the camera
+at stations along a drive-in approach and an orbit so the swap can be checked
+for popping. [Raw evidence](authoring/impostor-threshold-2026-09-17/README.md).
+
 **The camera is parked too, and that is the other half of the same hazard.**
 `authoring/reflection-probe-2026-09-16/motion-sampler.py` and
 `content-sampler.py` replace the fixture's sampler so the four phases become
