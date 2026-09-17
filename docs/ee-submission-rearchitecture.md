@@ -736,8 +736,40 @@ Two numbers from that round worth carrying into every later estimate:
    holds each array's
    So the open question is not "fix the key" but **"does 1.287 ms earn a
    contract worth roughly 110 unenforced obligations in the generated game, whose
-   failure mode is stale lighting visible only while the camera moves?"** It
-   ships at 0 until that is answered.
+   failure mode is stale lighting visible only while the camera moves?"**
+
+   **ANSWERED, AND THE PREMISE WAS WRONG — it ships at 1**
+   ([bag-content-version.md](bag-content-version.md)). The obligations are not
+   unenforced and there are not 110 to remember: the exact census is **280 write
+   sites in 42 generated functions behind 108 array declarations**, and **every
+   one is generator-emitted** — fixed template text in `src/templates.cpp`, zero
+   in other editor sources, zero in checked-in example game sources, and zero
+   reachable from user-authored code (`ScriptContext` carries no geometry
+   pointer and `objectGeometry` is private). A closed population in one file is
+   a **type** problem, not a discipline problem, so the arrays became
+   `BagArray<T>`: `data()` is const, every mutation stamps, and a raw write does
+   not compile. The 280 sites did not change — they keep their syntax and gain
+   the obligation.
+
+   Acceptance, on the arm that found the defect: Motor District under
+   `--keep-routes` with the traffic **moving**, **169 843 blocks checked,
+   `failed=0`** over ~12 600 frames. Against the control on a parked fixture,
+   two real ELFs: every count that describes what is drawn identical to the
+   digit (`cull`, `clip`, `guard`, `out`, `strip`, `sexp`, `verts`), the
+   captures **byte-identical**, and only the two numbers the change exists to
+   move — packet flushes −300 per 50 frames and `chainQw` **−26.0%**.
+
+   Two things the round added beyond the fix. The arm found a **second** caller
+   of a different shape (the vehicle paint pass, recomputing a per-vertex
+   fresnel from the camera every frame through a `const_cast` past the array),
+   which is the argument for running it rather than reasoning about the
+   contract. And `STAPIPMISS` now splits `bbox=` from `content=`, so "a mesh
+   moved" and "a mesh was re-shaded" stop reading as the same thing — which
+   makes the `prepare` +0.315 ms hypothesis above testable for the first time.
+
+   **Still owed: the hardware re-measure.** The −1.287 ms was taken before this
+   contract existed; the contract adds one global RMW per mutating call and one
+   `u32` to the key, and PCSX2 can price neither.
 5. ~~**World visibility** — baked sectors, portals or a PVS.~~ **MEASURED FIRST,
    2026-09-17, and it redirects the front.** "There is still no occlusion
    culling of any kind in a scene made of buildings" is true and it is not a

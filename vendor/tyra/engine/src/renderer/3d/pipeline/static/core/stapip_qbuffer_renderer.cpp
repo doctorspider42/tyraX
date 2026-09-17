@@ -286,11 +286,27 @@ bool StaPipBakedStreams::keyMatches(const StaPipBakedEntry& a,
   return a.vertices == b.vertices && a.sts == b.sts && a.colors == b.colors &&
          a.normals == b.normals && a.program == b.program &&
          a.count == b.count && a.maxVertCount == b.maxVertCount &&
-         a.bboxVersion == b.bboxVersion && a.primKey == b.primKey &&
+         a.bboxVersion == b.bboxVersion &&
+         // Modified by TyraX: the second version field. See
+         // StaPipBakedEntry::contentVersion - this is what sees a caller
+         // re-shading per-vertex colours in place, which bboxVersion cannot
+         // and must not, because its meaning is the bounding box.
+         a.contentVersion == b.contentVersion && a.primKey == b.primKey &&
          a.depthScaleBits == b.depthScaleBits &&
          a.programAddr == b.programAddr && a.singleColor == b.singleColor &&
          a.stripped == b.stripped;
 }
+
+#if TYRA_STAPIP_BAKED_SAMPLE_VERIFY
+void StaPipBakedStreams::pickVerifyTarget() {
+  if (storage.empty()) {
+    verifyTarget = nullptr;
+    return;
+  }
+  verifyTarget = storage[verifyCursor % storage.size()].get();
+  ++verifyCursor;
+}
+#endif
 
 void StaPipBakedStreams::rebuildIndex() {
   std::fill(indexBuckets, indexBuckets + kBucketCount, -1);
@@ -341,17 +357,25 @@ void StaPipBakedStreams::onFrameEnd() {
       if (item->framesLeftToDestroy <= 0) expired = true;
     }
   }
-  if (!expired) return;
+  if (expired) {
+    for (auto& item : storage)
+      if (item->framesLeftToDestroy <= 0) retire(*item);
+    const auto newEnd =
+        std::remove_if(storage.begin(), storage.end(),
+                       [](const std::unique_ptr<StaPipBakedEntry>& item) {
+                         return item->framesLeftToDestroy <= 0;
+                       });
+    storage.erase(newEnd, storage.end());
+    rebuildIndex();
+  }
 
-  for (auto& item : storage)
-    if (item->framesLeftToDestroy <= 0) retire(*item);
-  const auto newEnd =
-      std::remove_if(storage.begin(), storage.end(),
-                     [](const std::unique_ptr<StaPipBakedEntry>& item) {
-                       return item->framesLeftToDestroy <= 0;
-                     });
-  storage.erase(newEnd, storage.end());
-  rebuildIndex();
+#if TYRA_STAPIP_BAKED_SAMPLE_VERIFY
+  // Modified by TyraX: choose the NEXT frame's verification victim, and do it
+  // AFTER the expiry sweep above - picking before it could leave `verifyTarget`
+  // naming an entry this very call erased. Once a frame, outside the
+  // submission order, so the cursor cannot race the bags within a frame.
+  pickVerifyTarget();
+#endif
 }
 
 void StaPipBakedStreams::clear() {
@@ -360,6 +384,9 @@ void StaPipBakedStreams::clear() {
   std::fill(indexBuckets, indexBuckets + kBucketCount, -1);
   usedQwords = 0;
   evictionsThisFrame = 0;
+#if TYRA_STAPIP_BAKED_SAMPLE_VERIFY
+  verifyTarget = nullptr;  // everything it could have named is gone
+#endif
 }
 
 bool StaPipBakedStreams::evictFor(u32 wanted) {
@@ -375,6 +402,13 @@ bool StaPipBakedStreams::evictFor(u32 wanted) {
     }
     if (victim < 0) return false;
     retire(*storage[victim]);
+#if TYRA_STAPIP_BAKED_SAMPLE_VERIFY
+    // Modified by TyraX: eviction runs mid-frame, so drop the sampled arm's
+    // target if this is it. `verifying()` only ever COMPARES the pointer, but
+    // a later entry allocated at the same address would otherwise be picked by
+    // accident - a harmless wrong answer is still a wrong answer.
+    if (verifyTarget == storage[victim].get()) verifyTarget = nullptr;
+#endif
     storage.erase(storage.begin() + victim);
     rebuildIndex();
     ++evictionsThisFrame;
@@ -452,6 +486,8 @@ StaPipBakedEntry* StaPipBakedStreams::acquire(const StaPipBakedEntry& key) {
       MissReason reason = MissCountOrSize;
       if (item.bboxVersion != key.bboxVersion)
         reason = MissBBoxVersion;
+      else if (item.contentVersion != key.contentVersion)
+        reason = MissContentVersion;
       else if (item.primKey != key.primKey || item.singleColor != key.singleColor ||
                item.stripped != key.stripped)
         reason = MissPrimState;
@@ -477,6 +513,7 @@ StaPipBakedEntry* StaPipBakedStreams::acquire(const StaPipBakedEntry& key) {
       item.program = key.program;
       item.count = key.count;
       item.bboxVersion = key.bboxVersion;
+      item.contentVersion = key.contentVersion;
       item.primKey = key.primKey;
       item.depthScaleBits = key.depthScaleBits;
       item.programAddr = key.programAddr;
@@ -506,6 +543,7 @@ StaPipBakedEntry* StaPipBakedStreams::acquire(const StaPipBakedEntry& key) {
   entry->count = key.count;
   entry->maxVertCount = key.maxVertCount;
   entry->bboxVersion = key.bboxVersion;
+  entry->contentVersion = key.contentVersion;
   entry->primKey = key.primKey;
   entry->depthScaleBits = key.depthScaleBits;
   entry->programAddr = key.programAddr;
@@ -1677,6 +1715,11 @@ u32 StaPipQBufferRenderer::getRetainedBytes() const { return 0; }
 // Modified by TyraX: the BAKED VIF STREAM spike - docs/baked-vif-stream.md.
 #if TYRA_STAPIP_BAKED_STREAM
 
+/** Read an optional content stamp. A null pointer means the owner does not
+ * track its array's contents, and contributes nothing to the key - which is
+ * how every caller that has not opted in keeps its previous behaviour. */
+static inline u32 stampOf(const u32* p) { return p != nullptr ? *p : 0u; }
+
 bool StaPipQBufferRenderer::beginBakedBag(StaPipBag* bag,
                                           const u32& packageSize) {
   bakedCurrent = nullptr;
@@ -1698,6 +1741,21 @@ bool StaPipQBufferRenderer::beginBakedBag(StaPipBag* bag,
   key.count = bag->count;
   key.maxVertCount = packageSize;
   key.bboxVersion = bag->bboxVersion;
+  // Modified by TyraX: fold the four per-stream content stamps. A stream whose
+  // owner does not opt in has a null pointer and contributes nothing, so an
+  // un-migrated caller keeps exactly the behaviour it had. The mixing constants
+  // are there so that two streams swapping equal stamps is not a no-op; a
+  // plain sum or XOR would hide that.
+  key.contentVersion = stampOf(bag->contentVersion) * 0x9E3779B1U +
+                       stampOf(bag->color->contentVersion) * 0x85EBCA6BU +
+                       stampOf(bag->texture != nullptr
+                                   ? bag->texture->contentVersion
+                                   : nullptr) *
+                           0xC2B2AE35U +
+                       stampOf(bag->lighting != nullptr
+                                   ? bag->lighting->contentVersion
+                                   : nullptr) *
+                           0x27D4EB2FU;
   const u32 mapping =
       (bag->texture != nullptr && bag->texture->texture != nullptr) ? 1u : 0u;
   key.primKey = static_cast<u32>(prim->type) |
@@ -1718,13 +1776,17 @@ bool StaPipQBufferRenderer::beginBakedBag(StaPipBag* bag,
   key.packages = static_cast<u16>((bag->count + packageSize - 1) / packageSize);
 
   bakedCurrent = baked.acquire(key);
-#if TYRA_STAPIP_BAKED_VERIFY
+#if TYRA_STAPIP_BAKED_ANY_VERIFY
   // Rewind a COMPLETE entry so the ordinary writers rebuild every block into
   // bakeScratch this frame; `complete` and the arena are left alone, and
   // endBakedBag compares rather than overwrites. The entry's offsets/sizes are
-  // rewritten as a side effect, which costs nothing because this arm never
-  // replays - a length difference still shows up in the comparison.
-  if (bakedCurrent != nullptr) bakedCurrent->built = 0;
+  // rewritten as a side effect, which costs nothing because a verified entry
+  // is not replayed - a length difference still shows up in the comparison.
+  //
+  // Modified by TyraX: `verifying()` rather than the macro, so the sampled arm
+  // rewinds only THIS FRAME'S victim and every other bag is replayed at full
+  // speed. See StaPipBakedStreams::verifying.
+  if (baked.verifying(bakedCurrent)) bakedCurrent->built = 0;
 #endif
   return bakedCurrent != nullptr;
 }
@@ -1798,13 +1860,19 @@ bool StaPipQBufferRenderer::bakeBlock(packet2_t* packet, u32 fromQw, u32 toQw,
 bool StaPipQBufferRenderer::replayWholeBakedBag() {
   StaPipBakedEntry* entry = bakedCurrent;
   if (entry == nullptr || !entry->complete || entry->arenaQw == 0) return false;
-#if TYRA_STAPIP_BAKED_VERIFY
-  // The verify arm never replays. Returning false sends the bag down the
-  // ordinary loop, which runs the real writers and rebuilds every block into
+#if TYRA_STAPIP_BAKED_ANY_VERIFY
+  // A VERIFIED bag never replays. Returning false sends it down the ordinary
+  // loop, which runs the real writers and rebuilds every block into
   // bakeScratch; endBakedBag then COMPARES that against what the cache is
-  // holding instead of overwriting it. See TYRA_STAPIP_BAKED_VERIFY.
-  return false;
-#else
+  // holding instead of overwriting it.
+  //
+  // Modified by TyraX: this is the one line that turns the exhaustive arm into
+  // a shippable sampled one. It used to be an unconditional `return false`, so
+  // NOTHING was replayed and the whole 1.287 ms went with it. Asking
+  // `verifying()` instead refuses exactly this frame's victim, and the other
+  // ~359 bags of a garage-day frame are replayed at full speed.
+  if (baked.verifying(entry)) return false;
+#endif
   // A DMA tag's QWC is 16 bits. A bag whose arena is larger than that cannot be
   // one tag; it keeps the ordinary route rather than being split here, because
   // splitting it is exactly the per-package bookkeeping this exists to delete.
@@ -1855,7 +1923,6 @@ bool StaPipQBufferRenderer::replayWholeBakedBag() {
     flushPendingPacket();
   }
   return true;
-#endif  // TYRA_STAPIP_BAKED_VERIFY
 }
 
 void StaPipQBufferRenderer::endBakedBag() {
@@ -1865,12 +1932,12 @@ void StaPipQBufferRenderer::endBakedBag() {
     bakeScratch.clear();
     return;
   }
-#if TYRA_STAPIP_BAKED_VERIFY
+#if TYRA_STAPIP_BAKED_ANY_VERIFY
   // A complete entry plus a freshly rebuilt scratch is exactly the comparison
   // this arm exists for: is what the cache WOULD have replayed still what the
   // ordinary writers produce? Any mismatch is a missing invalidation.
-  if (entry->complete && entry->built == entry->packages &&
-      !bakeScratch.empty()) {
+  if (baked.verifying(entry) && entry->complete &&
+      entry->built == entry->packages && !bakeScratch.empty()) {
     const u32 qw = static_cast<u32>(bakeScratch.size());
     ++baked.verifyChecked;
     if (qw != entry->arenaQw ||
@@ -1895,6 +1962,26 @@ void StaPipQBufferRenderer::endBakedBag() {
                " cachedQw=", entry->arenaQw, " freshQw=", qw,
                " firstDiffQw=", firstDiff / 4, " ofBlock0Qw=",
                entry->sizes[0]);
+      // Modified by TyraX: name the STREAM and show the bytes. "the first
+      // differing quadword is at 156" is only actionable once you know which
+      // array that offset lives in and what actually moved - the first round
+      // of this arm cost a lot of guessing for want of these two lines.
+      {
+        const u32* a = reinterpret_cast<const u32*>(entry->arena);
+        const u32* b = reinterpret_cast<const u32*>(bakeScratch.data());
+        const u32 q = firstDiff / 4;
+        TYRA_LOG("             streams v=", reinterpret_cast<u32>(entry->vertices),
+                 " st=", reinterpret_cast<u32>(entry->sts),
+                 " col=", reinterpret_cast<u32>(entry->colors),
+                 " nrm=", reinterpret_cast<u32>(entry->normals),
+                 " maxVert=", entry->maxVertCount,
+                 " bboxV=", entry->bboxVersion,
+                 " contentV=", entry->contentVersion);
+        TYRA_LOG("             cached qw[", q, "]=", a[q * 4], ",", a[q * 4 + 1],
+                 ",", a[q * 4 + 2], ",", a[q * 4 + 3]);
+        TYRA_LOG("             fresh  qw[", q, "]=", b[q * 4], ",", b[q * 4 + 1],
+                 ",", b[q * 4 + 2], ",", b[q * 4 + 3]);
+      }
     }
     entry->built = entry->packages;  // the entry itself is untouched
     bakeScratch.clear();
@@ -1942,7 +2029,7 @@ u32 StaPipQBufferRenderer::getBakedLoudReason() const {
   return baked.getLoudReason();
 }
 void StaPipQBufferRenderer::clearBakedMisses() { baked.clearMisses(); }
-#if TYRA_STAPIP_BAKED_VERIFY
+#if TYRA_STAPIP_BAKED_ANY_VERIFY
 u32 StaPipQBufferRenderer::getVerifyChecked() const {
   return baked.verifyChecked;
 }
@@ -1999,15 +2086,15 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
     // unpacks, the inline vertex data AND the MSCAL/MSCNT of every package in
     // the run. The run stops at the flush boundary `to`, which is why a mesh
     // that straddles one costs two tags instead of one.
-    // TYRA_STAPIP_BAKED_VERIFY must not replay HERE either, or the ordinary
-    // writers never run and there is nothing to compare the cache against.
-    // This is the per-package run replay - the fallback for a bag
-    // replayWholeBakedBag refused - and the verify arm has to see through both.
-#if !TYRA_STAPIP_BAKED_VERIFY
+    // A VERIFIED bag must not replay HERE either, or the ordinary writers
+    // never run and there is nothing to compare the cache against. This is the
+    // per-package run replay - the fallback for a bag replayWholeBakedBag
+    // refused - and the verify arms have to see through both.
     {
       StaPipBakedEntry* bakedEntry = bakedCurrent;
       const int bakeIdx = buffers[i]->bakeIndex;
-      if (bakedEntry != nullptr && bakedEntry->complete && bakeIdx >= 0 &&
+      if (!baked.verifying(bakedEntry) && bakedEntry != nullptr &&
+          bakedEntry->complete && bakeIdx >= 0 &&
           bakeIdx < bakedEntry->packages) {
         u32 runQw = bakedEntry->sizes[bakeIdx];
         u32 next = i + 1;
@@ -2033,7 +2120,6 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
         continue;
       }
     }
-#endif  // !TYRA_STAPIP_BAKED_VERIFY
     const u32 bakeFrom = packet2_get_qw_count(currentPacket);
 #endif
 
@@ -2103,14 +2189,12 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
     {
       StaPipBakedEntry* bakedEntry = bakedCurrent;
       const int bakeIdx = buffers[i]->bakeIndex;
-      // TYRA_STAPIP_BAKED_VERIFY rebuilds a COMPLETE entry too - that is the
-      // whole point of the arm - so the "not complete yet" guard is relaxed
-      // there and nowhere else.
-#if TYRA_STAPIP_BAKED_VERIFY
-      const bool bakeWanted = bakedEntry != nullptr;
-#else
-      const bool bakeWanted = bakedEntry != nullptr && !bakedEntry->complete;
-#endif
+      // A VERIFIED entry is rebuilt even when COMPLETE - that is the whole
+      // point of the arm - so the "not complete yet" guard is relaxed for it
+      // and for nothing else.
+      const bool bakeWanted =
+          bakedEntry != nullptr &&
+          (!bakedEntry->complete || baked.verifying(bakedEntry));
       if (bakeWanted && bakeIdx >= 0 && bakeIdx < bakedEntry->packages &&
           bakeIdx == static_cast<int>(bakedEntry->built)) {
         if (!bakeBlock(currentPacket, bakeFrom,

@@ -420,9 +420,32 @@ estimates of what a fix would save.
    five host writes per 1 440-frame run), same class as the census that cost
    1 ms a frame, and `--audit-release` catches neither.
 
-### The baked stream needs a caller contract for NON-POSITION data
+### ~~The baked stream needs a caller contract for NON-POSITION data~~ DONE
 
-**This is the blocker that stops TYRA_STAPIP_BAKED_STREAM shipping above 0**, and
+**DONE, 2026-09-17 - and it is a TYPE rather than a rule**
+([bag-content-version.md](bag-content-version.md)). The trade this entry
+priced - "1.29 ms for roughly 110 obligations that nothing enforces at compile
+time" - was refused on its own terms and then dissolved, because the census
+underneath it was wrong in the direction that mattered. The exact count is **280
+write sites in 42 generated functions behind 108 array declarations**, and
+**every one is generator-emitted**: fixed template text in `src/templates.cpp`,
+zero in other editor sources, zero in checked-in example game sources, and zero
+reachable from user-authored code. A closed population in one file is a type
+problem. The arrays are now `BagArray<T>` - `data()` is const, every mutation
+stamps `contentVersion`, and a raw write DOES NOT COMPILE, with a negative test
+(`tools/bag-array-enforcement.sh`) that was falsified before it was believed.
+The 280 write sites did not change.
+
+**Acceptance met**: `--keep-routes` with the traffic MOVING, **169 843 blocks
+checked, `failed=0`** over ~12 600 frames; against the control, every count that
+describes what is drawn identical to the digit and the captures byte-identical,
+with packet flushes -300/50 frames and `chainQw` -26.0%.
+`TYRA_STAPIP_BAKED_STREAM` defaults to 1.
+
+The original diagnosis is kept below because the shape of the defect is the
+argument for the shape of the fix.
+
+**This WAS the blocker that stopped TYRA_STAPIP_BAKED_STREAM shipping above 0**, and
 it was found by the adversarial verify mode rather than by any gate leg -
 docs/baked-stream-acceptance-gate.md, and
 examples/vehicle-playground/authoring/ee-rearchitecture-2026-09-16.
@@ -474,7 +497,40 @@ fixture is structurally blind to. That is a trade to accept or refuse, not a bug
 to route around. See `docs/ee-submission-rearchitecture.md`, order of work
 item 3.
 
-### Name the bag that is rewritten every frame on a frozen scene
+### ~~Name the bag that is rewritten every frame on a frozen scene~~ NAMED
+
+**NAMED, 2026-09-17, and it was not in the family this entry suspected.** The
+26 `bag->bboxVersion = ++g_bboxStamp` sites in the lamp/beam/flashlight family
+were the theory; the answer is the **vehicle PAINT PASS**
+(docs/vehicles.md, "A shiny body"), which recomputes a per-vertex fresnel rim
+and a Blinn-Phong specular from the camera EVERY FRAME for ~1 100 vertices of
+each visible car. It never bumped anything - it wrote the colours by
+`const_cast`-ing the bag's own `many` pointer, which bypassed the owning array
+altogether, so no instrument keyed on `bboxVersion` could ever have seen it.
+
+**It was found by the adversarial verify arm, not by the bisection procedure
+below**, and the shape of the evidence is worth copying: the arm named the
+program class (`Cull - TCE`), the vertex count (2 280 in 31 packages) and the
+first differing quadword, and enriching its report with the four stream
+pointers and the differing quadword's floats turned it into three equal RGB
+lanes drifting by 0.012 with an alpha drifting by 0.002 - which is what a
+camera-dependent shade looks like and nothing else does.
+
+**The instrument that would have named it now exists**: `STAPIPMISS` splits
+`bbox=` from `content=` (docs/bag-content-version.md), so "a mesh moved" and "a
+mesh was re-shaded" no longer read as the same counter. At the garage-day pose
+it reads `bbox=300 content=600` over 300 frames, and the 600 are the two cars.
+
+**What is still open** is the `prepare` +0.315 ms hypothesis this entry fed:
+that the rise is data-cache pressure from rebakes, and that fixing the caller
+would recover most of it. That is now testable rather than theoretical - the
+caller is named and the counter separates it - and it wants a hardware round,
+not an emulator one.
+
+The original procedure is kept below; it remains the right shape for the next
+caller of this class.
+
+### The original entry: name the bag that is rewritten every frame on a frozen scene
 
 Two instruments now point at one submitter in the generated game, and neither
 can name it because the fix is a change to a CALLER's contract.
@@ -510,6 +566,31 @@ third leg back, so a future change touching vertex data need not rest its whole
 argument on pixels; one bag a frame stops invalidating the bake cache and the
 bbox cacher; and a scene that claims to be frozen actually is, which every
 future A/B on this fixture depends on.
+
+### Wire the SAMPLED verify to the project devkit profile
+
+`TYRA_STAPIP_BAKED_SAMPLE_VERIFY` (docs/bag-content-version.md) is the cheap
+half of the adversarial arm: it verifies ONE baked block per frame, round-robin,
+and replays everything else - about 1/360 of the exhaustive arm on the
+garage-day frame - so a missing content invalidation surfaces within seconds of
+play instead of only in a dedicated ELF. It is built, it prints the same
+`STAPIPVERIFY checked= failed=` line, and it is **default 0 behind an engine
+header flip** rather than following a project's devkit profile.
+
+**Why it is not wired, which is the part worth knowing before trying.**
+`libtyra.a` is archived once per CHECKOUT from engine sources with no
+per-project flags (`tools/toolchain/native-build.sh` rebuilds it only when
+engine sources change), so an engine macro cannot follow a project setting
+without giving the engine build its own stamp file. Doing that carelessly
+recreates the trap the toolchain-image round already paid for: a flag swap that
+touches no source rebuilds NOTHING, the previous objects are relinked, and three
+consecutive probes measure the same ELF (tyra-testing, "An image swap used to
+rebuild NOTHING"). The `.vcl-stamp` mechanism is the worked precedent - hash the
+resolved flag set into a stamp file the engine build depends on.
+
+**The check that it works** is the same one that found the paint pass: turn it
+on, drive the district with `--keep-routes`, and confirm `failed=0` with a
+`checked` around one per frame rather than ~400.
 
 ### The baked VIF stream: format proven, memory priced, the prize still unbuilt
 

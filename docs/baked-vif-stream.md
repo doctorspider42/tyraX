@@ -168,7 +168,27 @@ only when the whole-bag bbox already proved every range visible; it calls
 neither the packager nor `checkFrustum` and has no per-package verdict to lose.
 Probe A's 2.60 ms is about the **partial** branch, which is untouched.
 
-### THE BLOCKER: the key does not cover what the block contains
+### THE BLOCKER: the key does not cover what the block contains — CLOSED, and the fix is a TYPE
+
+**Resolved. See [bag-content-version.md](bag-content-version.md).** The section
+below is the diagnosis as it stood, kept because the shape of the defect is the
+argument for the shape of the fix. What changed: `StaPipBag::contentVersion`
+and its three companions are a SECOND stamp, about contents rather than about
+the bounding box, and the generated game carries it structurally — every array
+a bag draws from is a `BagArray<T>` whose `data()` is const and whose every
+mutation stamps, so the obligation cannot be forgotten at any of the 280 write
+sites because a raw write does not compile.
+
+The arm that found this now reads **`checked=169843 failed=0`** on the Motor
+District under `--keep-routes` with the traffic MOVING, and the counters and the
+picture are unchanged against the control. `TYRA_STAPIP_BAKED_STREAM` therefore
+defaults to **1**.
+
+It also found a SECOND caller of a different shape on the way — the vehicle
+paint pass, which recomputes a per-vertex fresnel from the camera every frame
+and used to `const_cast` the bag's own pointer — which is the argument for
+running the arm rather than reasoning about the contract.
+
 
 **Found by the adversarial verify mode, and it is why this cannot ship above 0
 yet even though the A/B below is clean.** `TYRA_STAPIP_BAKED_VERIFY` rebuilds
@@ -201,11 +221,17 @@ copying is what creates this.
 the camera freezes the colours freeze too. It fires during the warm-up sweep and
 stops, identically on the parked fixture (1438) and the moving one (1451).
 
-So the feature needs a **caller contract that does not exist yet** — "bump a
-version when you rewrite *any* of a bag's arrays, not just its positions" — or a
-second version field for contents that are not positions. Either is a change to
-the generated game's side of the boundary. Until then this ships at 0, and any
-future round that turns it on owes a verify run first.
+So the feature needs a **caller contract** — "bump a version when you rewrite
+*any* of a bag's arrays, not just its positions" — or a second version field for
+contents that are not positions. Either is a change to the generated game's side
+of the boundary.
+
+**Both, as it turns out, and neither as a rule.** The census that decided it
+found 280 write sites in 42 generated functions, and — the load-bearing fact —
+**all 280 are generator-emitted**, none reachable from user code. That makes the
+population closed, which makes a type-level fix enforceable by the game's own
+compiler forever. [bag-content-version.md](bag-content-version.md) is the
+design, the negative test, the one engine exception, and the acceptance run.
 
 ### MEASURED ON HARDWARE: 1.287 ms, a fifth of what was budgeted
 

@@ -3372,6 +3372,39 @@ pointer AND count), reload the scene, and move the camera over hundreds of
 frames. `rebuilt` per frame is the instrument: it should be near zero on a
 parked pose and spike exactly where geometry changed.
 
+### The content-version contract, and its negative test
+
+`BagArray<T>` (docs/bag-content-version.md) is what makes the baked stream's
+invalidation structural instead of a rule: every array the generated game hands
+a `StaPipBag` is one, `data()` is const, and every mutation stamps
+`contentVersion`. **The whole argument for that design is that a raw write does
+not compile, so the check is a NEGATIVE one and it needs no PS2 toolchain:**
+
+```bash
+tools/bag-array-enforcement.sh <project>/inc/bag_array.gen.hpp
+```
+
+Seven cases against the REAL generated header (`TYRAX_BAG_ARRAY_NO_TYRA` drops
+only the four `bind()` overloads): two positive - the sanctioned API compiles,
+and the stamp MOVES on every mutation - and five escapes that must each be
+refused. **Falsify it before believing it**: make `data()` non-const in a copy
+of the header and it must go red on exactly the two cases that property guards
+(measured: `passed 5, failed 2`). The positive control is load bearing too - a
+header that failed to compile at all would "pass" every negative case.
+
+Two traps this conversion produced, both of which read as something else:
+
+- **`bind()` aims the bag at `data()`, and an EMPTY vector's `data()` may be
+  null**, which the engine rejects with *"Vertices are required in 3D render
+  bag!"* at the first frame. A raw C array could not have that problem and could
+  not carry a stamp either; size the ring before binding.
+- **A new generated file must join `refreshGenerated`'s allowlist, not just the
+  `--new` scaffold.** `inc/bag_array.gen.hpp` was written at creation and not on
+  refresh, so every existing project - and every performance fixture, which is
+  how it was caught - regenerated code that needs it and then failed to compile.
+  Same silent shape as the `live_pad.gen.cpp` mistake the allowlist comments
+  already name.
+
 ### Baked VIF stream acceptance (TYRA_STAPIP_BAKED_STREAM)
 
 Same shape as the retained-command A/B above and one extra rule.
@@ -3435,6 +3468,27 @@ in **both** arms (they are measurement flips - revert them before committing).
   `bbox=1 prim=2` per frame and zero everywhere else, and on the outer-road pose
   it reads zero everywhere - so the design converges and the garage contains
   three callers that lie to it.
+- **`STAPIPMISS` splits `bbox=` from `content=` since the content-version
+  contract**, and the split is the point: `bbox=N content=0` is a mesh that
+  MOVED, `bbox=0 content=N` is one that was RE-SHADED. Both used to read as
+  `bbox`, which is why "the cache churns" was never actionable. At garage day
+  the district now reads `bbox=300 content=600` over 300 frames and names the
+  2 280-vertex bag - the two cars' paint pass.
+- **THE ADVERSARIAL ARM IS THE ONE THAT FINDS REAL DEFECTS, AND IT NEEDS NO
+  CONTROL.** `TYRA_STAPIP_BAKED_VERIFY` rebuilds every block with the ordinary
+  writers and compares, so it runs under `--keep-routes` with the traffic
+  MOVING - the one fixture where a missing invalidation can fire, and the one
+  where an A/B is impossible (two arms never share a frame). `failed=0` is the
+  acceptance. Measured 2026-09-17: **169 843 blocks checked, `failed=0`** over
+  ~12 600 frames. **Enrich its MISMATCH line before hunting**: the program
+  class and first differing quadword alone cost a lot of guessing; the stream
+  pointers plus the differing quadword's four floats named the caller in one
+  run (three equal RGB lanes drifting by 0.012 is a camera-dependent shade and
+  nothing else is).
+- **`--profile quiet-debug` turns Live Debugger OFF, so `--capture-frame` does
+  not work on that fixture.** The counters (`FTCLIP`, `STAPIPBAKE`,
+  `STAPIPMISS`) do. For the pixel half of the gate, flip `"liveDebug": true` in
+  the fixture's `.tyra` for BOTH arms rather than changing profile between them.
 
 ### Skip-when-unchanged acceptance, and the fixture that lies about it (1.100)
 

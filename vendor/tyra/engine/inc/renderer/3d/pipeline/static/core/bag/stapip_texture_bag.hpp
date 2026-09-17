@@ -23,6 +23,11 @@ class StaPipTextureBag {
   /** Mandatory. Texture coordinates per vertex. */
   Vec4* coordinates;
 
+  /** Optional (TyraX addition). Stamp word for `coordinates`' CONTENTS - see
+   * `StaPipBag::contentVersion`. nullptr = no tracking. In env (matcap) mode
+   * this array carries object-space NORMALS, so the same stamp covers those. */
+  const u32* contentVersion;
+
   /** Mandatory. Texture image. */
   Texture* texture;
 
