@@ -97,6 +97,16 @@ run *contract*: full runs padded with repeats of the last vertex, separate
 strips joined by repeating a vertex either side of the seam, every run length a
 multiple of 3.
 
+**Every hand-written grid strip owes one more thing than the run contract: the
+QUAD DIAGONAL.** A strip's shared edge is its trailing pair, so walking each
+column pair near-first splits every cell along the opposite diagonal from the
+one a triangle list writes. On a flat quad that is the same picture; on a quad
+whose four corners are at four heights — which is every road glued to terrain —
+it is a different surface. `verify-road-twins.py` compares the two emitters
+vertex for vertex, so the roads are safe by construction, but the trap is real
+and cost a capture elsewhere: see [model-pipeline.md](model-pipeline.md), "A
+hand-written grid strip flips the quad diagonal".
+
 The one real subtlety is **which way the strip runs**, and the adaptive budget
 above is what creates it. A dense span is a row of `crossSteps` lateral cells,
 so its strip walks **across** the road: `N[0], P[0], N[s], P[s], …`, 2(n + 1)

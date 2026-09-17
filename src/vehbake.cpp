@@ -11,6 +11,7 @@
 
 #include "fbxparser.hpp"  // animimport::parseSkel - .glb and .fbx alike
 #include "meshlod.hpp"
+#include "meshstrip.hpp"
 #include "pngquant.hpp"
 
 #include <stb_image.h>
@@ -768,6 +769,38 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
 
     computeBounds(out.body);
     computeBounds(out.wheel);
+
+    // THE WHEEL'S TRIANGLE STRIP (docs/vehicles.md, "The wheel batch is a
+    // strip"; docs/model-pipeline.md, "Triangle strips").
+    //
+    // Built HERE and nowhere else, because the wheel model never goes through
+    // bakeStaticModels: it is an artifact of this bake, and until now it was
+    // the one mesh in a district that reached the console as a pure triangle
+    // list. The garage-day frame inventory measured what that costs - the
+    // wheel batch ran 24.7 triangles a VU1 package against a strip's ~70,
+    // which is 25 (75/3) with partial packages, i.e. exactly a list.
+    //
+    // The weld IGNORES NORMALS, and that is the whole reason this works. An
+    // imported car is flat-shaded, so under the ordinary weld 878 of the CC96
+    // wheel's 942 corners are unique and the strip comes out 1.6x the LIST -
+    // meshstrip refuses it, correctly. But the bag that draws a wheel
+    // (TerrainGame::renderVehicleWheels) has no lighting bag and one flat
+    // colour, so the attributes the GS actually receives are position and UV;
+    // on that key the same mesh strips to 0.764x. The body is NOT stripped
+    // here: it is lit, its weld is the full one, and meshstrip's refusal of it
+    // is the right answer.
+    //
+    // The tiers above are already built from `verts` and are untouched, which
+    // matters: a far tier carries the wheels INTO the lit body part, so it
+    // must keep the list's real normals.
+    for (tmdl::Part& p : out.wheel.parts) {
+        p.stripVerts.clear();
+        p.stripAo.clear();
+        p.stripRun = 0;
+        if (meshstrip::build(p.verts, p.ao, meshstrip::kRun, p.stripVerts,
+                             p.stripAo, meshstrip::Weld::kNoNormal))
+            p.stripRun = meshstrip::kRun;
+    }
     for (size_t k = 0; k < out.body.parts.size(); ++k)
         if (out.body.parts[k].name == "lamps") {
             out.lampPart = (int)k;

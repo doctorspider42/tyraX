@@ -66,6 +66,23 @@ SLOTS = [
     'light_beams',     # 20
     'highlight',       # 21 - highlights and outlines
     'particles',       # 22 - INCLUDES vehicle smoke, skids and the glow pass
+    # --- SUB-SLOTS ---------------------------------------------------------
+    # Appended, never inserted: every index above is a column in the archived
+    # CSVs of earlier rounds. These four are DOUBLE-CHARGED (see addSub in the
+    # helper): the telemetry they fold also reaches `proj_shadows`, so the
+    # producer table is unchanged and these four partition one of its rows.
+    #
+    # They exist because "projected shadows are a triangle list" turned out to
+    # be a statement about two completely different things, and the split is
+    # the only way to tell which. `proj_silhouette` re-submits the CASTER's own
+    # model bags into a shadow-map slot - geometry this producer does not own
+    # and did not build. `proj_patch` is the receiver quad grid, which is the
+    # only array renderProjShadows generates itself. `proj_wall` is the torch's
+    # wall copy (docs/flashlight.md), which no sunlit pose reaches at all.
+    'proj_silhouette',  # 23 - the caster's OWN bags, re-submitted
+    'proj_patch',       # 24 - the receiver quad grid
+    'proj_wall',        # 25 - the torch's wall copy
+    'proj_rest',        # 26 - slot arbitration and everything unbracketed
 ]
 IDX = {n: i for i, n in enumerate(SLOTS)}
 
@@ -151,6 +168,17 @@ static void fold(Acc& acc, const Tyra::StaPipTelemetry& t) {
 static void add(unsigned s, const Tyra::StaPipTelemetry& t) {
   if (sampling() && s < kSlots) fold(slot[phase()][s], t);
   bags = 0;
+}
+// A drain charged to a producer AND to one of its sub-slots. The producer row
+// is therefore exactly what it was before the split existed, and the sub-slots
+// sum to it - which is what lets this page's table be compared with the
+// archived one row for row.
+static void addSub(unsigned main, unsigned sub,
+                   const Tyra::StaPipTelemetry& t) {
+  const unsigned keep = bags;
+  if (sampling() && sub < kSlots) fold(slot[phase()][sub], t);
+  bags = keep;
+  add(main, t);
 }
 static void addObject(Acc* table, int i, int type, int model,
                       const Tyra::StaPipTelemetry& t) {
@@ -334,6 +362,46 @@ if tail.count(needle) == 1:
     print('  (reflection reuse gate found - recording its verdict)')
 else:
     print('  (no reflection reuse gate in this tree - the reuse row is zeros)')
+
+# --- inside renderProjShadows: which of its three producers is the list? -----
+# Matched inside the function's own text, because `b.bag->bboxVersion =
+# ++g_bboxStamp;` is also how updateAndRenderBlobShadows submits.
+lo = tail.index('void TerrainGame::renderProjShadows() {')
+hi = tail.index('void TerrainGame::updateAndRenderLightBeams(', lo)
+block = tail[lo:hi]
+
+
+def sub(slot_name):
+    return ('\n  { const Tyra::StaPipTelemetry dmI = stapip.core.takeTelemetry();'
+            ' districtInv::addSub(%d, %d, dmI); }' %
+            (IDX['proj_shadows'], IDX[slot_name]))
+
+
+# The SILHOUETTE: everything between the light camera going up and coming down
+# is the caster's own bags, however many parts it has.
+needle = '    core.renderer3D.popEnvView(mainCam);'
+assert block.count(needle) == 1, 'silhouette bracket shape changed'
+block = block.replace(needle, needle + sub('proj_silhouette'), 1)
+# The WALL copy (torch slots only) and the receiver PATCH: one drain after
+# each submit. Both open on whatever the slot arbitration left, which lands in
+# proj_rest at the function's own closing drain.
+needle = '''    b.wallBag->bboxVersion = ++g_bboxStamp;
+    ++districtInv::bags, stapip.core.render(b.wallBag.get());'''
+assert block.count(needle) == 1, 'wall submit shape changed'
+block = block.replace(needle, needle + sub('proj_wall'), 1)
+needle = '''    b.bag->bboxVersion = ++g_bboxStamp;
+    ++districtInv::bags, stapip.core.render(b.bag.get());'''
+assert block.count(needle) == 1, 'patch submit shape changed'
+block = block.replace(needle, needle + sub('proj_patch'), 1)
+tail = tail[:lo] + block + tail[hi:]
+# ...and the producer's own closing drain carries the remainder into proj_rest.
+needle = close('proj_shadows').rstrip('\n')
+assert tail.count(needle) == 1, 'proj_shadows producer bracket not found'
+tail = tail.replace(
+    needle,
+    '  { const Tyra::StaPipTelemetry dmI = stapip.core.takeTelemetry();'
+    ' districtInv::addSub(%d, %d, dmI); }' %
+    (IDX['proj_shadows'], IDX['proj_rest']), 1)
 
 # The per-object submit block sits INSIDE the object loop, so its drain both
 # charges the object_submit slot and files a row against the object's index.

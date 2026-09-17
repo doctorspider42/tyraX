@@ -411,6 +411,88 @@ repeated at runtime.
   not marked stripped. A cube is the honest example: 36 list vertices against
   24 unique ones plus 10 of join is 34, and 34 is not worth a second copy.
 
+### The weld key is a property of the BAG, not of the mesh
+
+Two corners may share one strip vertex only when every attribute the GS
+receives for them is identical, so **which attributes those are decides whether
+a mesh strips at all**. `meshstrip::Weld` names the two answers.
+
+`Weld::kFull` — position, normal and UV — is the answer for anything the
+pipeline shades, and it is what `bakeStaticModels` uses for every ordinary
+model. Its cost is that a **flat-shaded** mesh gives every face its own normals
+and therefore almost no shared corners: measured on the Motor District's
+imported cars, **2 242 unique corners out of 2 280**, so the strip comes out
+**1.65x** the list and `build()` correctly refuses it. That refusal is right and
+must not be "fixed" — welding a hard normal crease is what makes a model look
+melted.
+
+`Weld::kNoNormal` — position and UV only — is the answer for a bag the pipeline
+renders **unlit**: no lighting bag, one flat colour, so the normal is never
+read and is not an attribute the GS receives. The emitted vertex still carries
+the normal of the corner it was welded from, so the array stays a well-formed
+8-float mesh; it is simply not the array to shade. On the same three refused
+wheels it strips to **0.64–0.76x**.
+
+There is exactly one caller today, and the gate is a property of the consumer:
+the **vehicle wheel** (`vehbake`, see [vehicles.md](vehicles.md), "The wheel
+batch is a strip"), whose bag is a flat-grey unlit batch. The car BODY is not
+stripped on this key and must not be — it is lit. **Using `kNoNormal` for a bag
+that is lit is a rendering bug, not a slower render**: neighbouring faces would
+take one face's normal.
+
+### A hand-written grid strip flips the quad diagonal, and that is a picture change
+
+Worth its own heading because it cost a capture and is invisible in every count.
+`meshstrip` cannot bite you here — it re-triangulates a welded mesh and is
+checked against the triangle multiset — but the two grid emitters that do NOT
+go through it (roads and terrain, and now the projected-shadow receiver patch)
+lay their own strips out by hand, and the obvious layout is wrong.
+
+A quad has two triangulations. A triangle list writes `p00 p10 p11` +
+`p00 p11 p01`, i.e. the **`p00`–`p11`** diagonal. A strip's shared edge is its
+trailing pair, so walking a row as (near, far), (near, far)… splits every cell
+along the **other** one, `p01`–`p10`. Emit the FAR corner of each pair first and
+the list's diagonal comes back.
+
+On a flat quad the two are the same picture, which is why this survives casual
+inspection. On a quad whose four corners are at four heights — a patch that
+follows the terrain, a road on a slope — they are **two different surfaces**,
+and the STs interpolated across them differ with it. A strip that changes a
+silhouette is not a saving.
+
+The counts cannot see it — same vertices, same packages, same everything — so
+the only check that can catch it is a picture, on a pose where the receiver is
+not flat.
+
+### A re-triangulation is not bit-exact on the GS, and cannot be made so
+
+The check above is about a strip that draws the WRONG surface. This one is about
+a strip that draws the RIGHT surface and still does not produce the same
+framebuffer, which is a different thing and has to be budgeted for rather than
+fixed.
+
+A strip submits the same vertices in a different order and groups them into
+different triangles. The GS derives each triangle's ST and colour gradients from
+its three vertices in fixed point, and resolves an equal-`z` tie in favour of
+whatever is drawn last. Both of those are functions of the triangle ORDER, so a
+re-triangulated surface can land a texel coordinate on the other side of a texel
+boundary, and on a **palettized** texture one texel is a whole colour index.
+
+Measured: the Motor District's vehicle WHEELS, stripped, differ from the list in
+**54 pixels of a 512x512 self-capture, worst channel step 1**, in one of two day
+poses, against arms that were each byte-identical over three repeats. The pixels
+are on the two side cars' tyres, and the geometry is provably the same — the
+host property test expands the strip back and finds the identical 314, 28 and
+139 surface triangles, none lost and none invented.
+
+So **"byte-identical captures" is not an available acceptance gate for a change
+that re-triangulates a textured surface**, and asking for one will send you
+hunting a bug that is not there. What IS available, and what this repo used:
+the triangle multiset on the host, the vertex and package counts, and a pixel
+budget stated in advance. A grid emitter that only re-ORDERS whole triangles
+(the receiver patch, once its diagonal is right) can still be exactly zero, and
+was.
+
 ### What the triangle counters count
 
 `StaPipTelemetry`'s `triangles*` fields are **GS primitives**, not surface

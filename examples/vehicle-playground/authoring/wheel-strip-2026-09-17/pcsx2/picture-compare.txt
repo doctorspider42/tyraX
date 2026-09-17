@@ -1,0 +1,34 @@
+WITHIN each arm - repeat 1 against every later repeat
+arm              pose   repeat    pixels   worst
+------------------------------------------------
+cand                0pose0-2.png         0       0
+cand                0pose0-3.png         0       0
+cand                2pose2-2.png         0       0
+cand                2pose2-3.png         0       0
+ctl                 0pose0-2.png         0       0
+ctl                 0pose0-3.png         0       0
+ctl                 2pose2-2.png         0       0
+ctl                 2pose2-3.png         0       0
+wheels              0pose0-2.png         0       0
+wheels              0pose0-3.png         0       0
+wheels              2pose2-2.png         0       0
+wheels              2pose2-3.png         0       0
+
+BETWEEN arms - repeat 1 of each, whole self-captured frame
+comparison                         pose        size    pixels   worst     mean
+------------------------------------------------------------------------------
+ctl vs wheels                         0     512x512        54       1  0.00021
+ctl vs wheels                         2     512x512         0       0  0.00000
+ctl vs cand                           0     512x512        54       1  0.00021
+ctl vs cand                           2     512x512         0       0  0.00000
+
+ATTRIBUTION - the two levers, separated (pose 0, repeat 1)
+--------------------------------------------------------------
+picture-ctl      -> picture-wheels   the WHEEL strip alone         54 px, worst 1
+picture-wheels   -> picture-cand     adding the PATCH strip         0 px, worst 0
+picture-ctl      -> picture-cand     both                          54 px, worst 1
+
+WHERE: x 20-499, y 324-340, in two clusters
+       (x 20-30 and x 480-500) - the two side cars' tyres, which is
+       what the wheel batch draws. The ground receiver patch under the
+       hero coupe is not among them.

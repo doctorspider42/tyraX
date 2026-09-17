@@ -260,6 +260,17 @@ solo static models 44.8%, terrain 13.4%, the reflection probe 13.1%, roads
 8.1% — is in
 [the reflection-probe round's evidence](authoring/reflection-probe-2026-09-16/README.md).
 
+It also splits `proj_shadows` three ways — the caster's own bags, the receiver
+patch and the torch's wall copy — because "projected shadows are badly packed"
+turned out to be a statement about the CASTERS' models rather than about the
+shadow. The split, and the packing round it settled, are in
+[the wheel-strip round's evidence](authoring/wheel-strip-2026-09-17/README.md).
+`python authoring/wheel-strip-2026-09-17/compare_packing.py ctl=<dir> ...`
+prints any number of arms side by side, and
+`wheel-strip-report.py <dir>/.res-baked/vehicles` says what the baked wheel
+models actually carry — which a generated-source grep cannot see, because half
+of that change lives in an asset.
+
 **`authoring/world-visibility-2026-09-17/` asks what the frame is SEEN to draw**,
 which the inventory above cannot say. `visibility-sampler.py` parks the camera
 at the garage-day pose and hides objects named in a command file at runtime;

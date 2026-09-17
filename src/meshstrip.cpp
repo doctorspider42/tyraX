@@ -76,7 +76,8 @@ bool triHasEdge(const Tri& t, uint32_t x, uint32_t y) {
 
 bool build(const std::vector<float>& verts,
            const std::vector<unsigned char>& ao, unsigned run,
-           std::vector<float>& outVerts, std::vector<unsigned char>& outAo) {
+           std::vector<float>& outVerts, std::vector<unsigned char>& outAo,
+           Weld weld) {
     if (run < 6 || run % 3 != 0) return false;
     const size_t corners = verts.size() / 8;
     if (corners < 3 || corners % 3 != 0 || verts.size() % 8 != 0) return false;
@@ -92,6 +93,12 @@ bool build(const std::vector<float>& verts,
     for (size_t c = 0; c < corners; ++c) {
         Key k;
         std::memcpy(k.v, &verts[c * 8], sizeof(k.v));
+        // kNoNormal welds on position and UV alone. The normal is blanked in
+        // the KEY only - `unique` still names a source corner, so the emitted
+        // vertex keeps its own - which is what lets the array stay a
+        // well-formed 8-float mesh while the weld ignores a field the bag
+        // that draws it never reads.
+        if (weld == Weld::kNoNormal) k.v[3] = k.v[4] = k.v[5] = 0.0f;
         auto it = seen.find(k);
         if (it == seen.end()) {
             const uint32_t id = (uint32_t)unique.size();

@@ -141,6 +141,55 @@ two independent routes, so a per-class run would buy nothing. What is left:
   is not the limiter and a compression pass that does not raise `maxVertCount`
   buys nothing.
 
+### The vehicle BODIES are still triangle lists, and `meshstrip` is right to refuse them (2026-09-17)
+
+The worst-packed-producer round attacked the two producers the frame inventory
+named — the wheel batch and the projected-shadow receiver patch — and took
+**23 of the garage frame's 711 VU1 packages**, additively. The patch's captures
+are byte-identical; the wheels' differ in 54 pixels of 512x512 at one channel
+step, which is the GS's per-triangle setup and not a geometry change
+(`examples/vehicle-playground/authoring/wheel-strip-2026-09-17/`,
+[vehicles.md](vehicles.md) "The wheel batch is a strip",
+[shadows.md](shadows.md) "Almost all of it is the CASTER's geometry").
+
+What it found on the way is the bigger item, and it is not what the inventory
+predicted. `proj_shadows` is **87% the caster's own model bags**, re-submitted
+from the light's point of view — 60 packages of 69 — and those bags are lists
+because **no vehicle model in the district carries a strip at all**. The cars
+are also 3 446 triangles of `object_submit`, and the probe pass draws them
+again.
+
+`vehbake` now calls `meshstrip` for the WHEEL. It cannot for the BODY, and the
+refusal is correct rather than a gap: an imported car is flat-shaded, so 2 242
+of a body part's 2 280 corners are unique, every triangle is its own island and
+the strip comes out **1.65x the list**. The wheel only works because its bag is
+unlit and flat-coloured, so its vertex identity is position and UV
+(`meshstrip::Weld::kNoNormal`) — on that key the same meshes reach 0.64–0.76x,
+and the body reaches 0.73–0.76x too but **cannot use it**, because it is lit and
+would take one face's normal across a crease.
+
+So the lever here is not the stripper. It is the SHADING of imported vehicle
+geometry, and there are two costed-looking ways at it, neither measured:
+
+- **Smooth-normal welding at import, with a crease angle.** Turns the body into
+  a mesh that strips on the ordinary key, and would carry `object_submit`, the
+  probe pass and the shadow silhouette with it — roughly 0.73x the vertices of
+  every car in the frame. The objection is that it changes what the car LOOKS
+  like, which is a picture decision, not a packing one, and this repo's
+  crease-smoothing attempt is already PARKED for exactly that reason (see the
+  static-model A/B notes: quad-diagonal stripes on bare solids). Any attempt
+  needs a picture gate first and a packing number second.
+- **A second, unlit vertex array for the silhouette pass only.** The shadow map
+  renders a solid silhouette and reads no normal, so it could take a
+  `kNoNormal` strip of the body. It needs a second RESIDENT bag set per caster
+  and the RAM for it in a 32 MB machine — the same trade that stopped the
+  probe-LOD option in [reflective-materials.md](reflective-materials.md), and
+  it should be priced the same way before anyone builds it.
+
+Also still a list: the **torch's wall copy** in `renderProjShadows`, built per
+frame from arbitrary receiver geometry. No sunlit pose reaches it, so this
+round could not price it at all; a flashlight fixture would have to.
+
 ### Where the remaining frame time is, measured (2026-09-15)
 
 Two physical-PS2 experiments closed the DMA-cache question and opened the VU1
