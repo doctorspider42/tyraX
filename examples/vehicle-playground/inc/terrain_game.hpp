@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "bag_array.gen.hpp"
 #include "save_system.gen.hpp"
 #include "scripts/script.hpp"
 
@@ -59,9 +60,9 @@ class TerrainGame : public Tyra::Game {
   // Slots live in a pool sized once per scene load (resetTerrainChunks) and
   // never move afterwards - each bag points into its own slot's vectors.
   struct TerrainChunk {
-    std::vector<Tyra::Vec4> vertices;
-    std::vector<Tyra::Color> colors;
-    std::vector<Tyra::Vec4> sts;  // texture coordinates (textured terrain)
+    BagArray<Tyra::Vec4> vertices;
+    BagArray<Tyra::Color> colors;
+    BagArray<Tyra::Vec4> sts;  // texture coordinates (textured terrain)
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     Tyra::StaPipTextureBag texBag;
@@ -69,8 +70,8 @@ class TerrainGame : public Tyra::Game {
     // layer with any weight in this chunk. Shares the chunk's vertices; own
     // tiled STs + shade colors whose alpha carries the painted weight.
     struct LayerPass {
-      std::vector<Tyra::Color> colors;
-      std::vector<Tyra::Vec4> sts;
+      BagArray<Tyra::Color> colors;
+      BagArray<Tyra::Vec4> sts;
       std::unique_ptr<Tyra::StaPipBag> bag;
       std::unique_ptr<Tyra::StaPipColorBag> colorBag;
       Tyra::StaPipTextureBag texBag;
@@ -85,12 +86,12 @@ class TerrainGame : public Tyra::Game {
     //     an exact per-pixel multiply (a white color would drag the light
     //     channel into the darkening);
     //   emisCols: the terrain's own base tint -> the map's RGB, added.
-    std::vector<Tyra::Vec4> aoSts;
-    std::vector<Tyra::Color> aoCols;
+    BagArray<Tyra::Vec4> aoSts;
+    BagArray<Tyra::Color> aoCols;
     std::unique_ptr<Tyra::StaPipBag> aoBag;
     std::unique_ptr<Tyra::StaPipColorBag> aoColorBag;
     Tyra::StaPipTextureBag aoTexBag;
-    std::vector<Tyra::Color> emisCols;
+    BagArray<Tyra::Color> emisCols;
     std::unique_ptr<Tyra::StaPipBag> emisBag;
     std::unique_ptr<Tyra::StaPipColorBag> emisColorBag;
     Tyra::StaPipTextureBag emisTexBag;
@@ -140,8 +141,8 @@ class TerrainGame : public Tyra::Game {
   // caster. The geometry was projected onto the receivers on the host and is
   // never touched again: this is a vertex array, a texture and a colour.
   struct ShadowDraw {
-    std::vector<Tyra::Vec4> vertices;
-    std::vector<Tyra::Vec4> sts;
+    BagArray<Tyra::Vec4> vertices;
+    BagArray<Tyra::Vec4> sts;
     // ONE colour for the whole bag (StaPipColorBag::single). The page's own
     // RGB is the shadow's tint, so the vertex colour is plain white and its
     // ALPHA is the only thing that ever moves - which is what lets the
@@ -170,17 +171,17 @@ class TerrainGame : public Tyra::Game {
       u32 sourceStamp = 0, sourceCount = 0, stamp = 0;
       const Tyra::Vec4* sourceVertices = nullptr;
       float plane[4] = {}, matrix[16] = {};
-      std::vector<Tyra::Vec4> vertices, sts, normals;
-      std::vector<Tyra::Color> colors;
+      BagArray<Tyra::Vec4> vertices, sts, normals;
+      BagArray<Tyra::Color> colors;
       Tyra::StaPipBag bag;
       Tyra::StaPipColorBag color;
       Tyra::StaPipTextureBag texture;
       Tyra::StaPipLightingBag lighting;
     };
     std::vector<std::unique_ptr<PortalClip>> portalClips;
-    std::vector<Tyra::Vec4> vertices;
-    std::vector<Tyra::Color> colors;
-    std::vector<Tyra::Vec4> sts;  // texture coordinates
+    BagArray<Tyra::Vec4> vertices;
+    BagArray<Tyra::Color> colors;
+    BagArray<Tyra::Vec4> sts;  // texture coordinates
     // Non-zero when `vertices` is a TRIANGLE STRIP rather than a list: the
     // run length, which is also the VU1 package size every bag over this
     // array is pinned to. Anything that walks this part's TRIANGLES has to
@@ -201,12 +202,30 @@ class TerrainGame : public Tyra::Game {
     // program, which fits more verts per VU1 package than the textured env
     // one - so the two are pinned to one package size (pinPackageSize) or
     // they would split the array differently and disagree about depth.
-    std::vector<Tyra::Vec4> envNormals;
-    std::vector<Tyra::Color> envColors;  // all-white 128 = unmodulated texel
+    BagArray<Tyra::Vec4> envNormals;
+    BagArray<Tyra::Color> envColors;  // all-white 128 = unmodulated texel
     std::unique_ptr<Tyra::StaPipBag> envBag;
     std::unique_ptr<Tyra::StaPipInfoBag> envInfoBag;
     std::unique_ptr<Tyra::StaPipColorBag> envColorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> envTexBag;
+    // The projected-silhouette caster bag (TYRA_CHEAP_PROJ_CASTER). Shares
+    // this part's vertex array like the env pass does, but carries NEITHER a
+    // texture bag NOR per-vertex colours: the shadow map is coverage-only, so
+    // the silhouette goes through the colour VU1 class with one colour at 150
+    // vertices a package instead of the textured class at 75. Built on first
+    // use and re-aimed at the base bag's current pointer on every submit,
+    // because a LOD tier moves it. `silAlphaOk` caches the one thing that
+    // makes the swap legal - every vertex colour alpha is 128, so a single
+    // 128 writes the coverage the per-vertex array would have - and is
+    // re-judged whenever baseStamp says the geometry was rebuilt.
+    // It shares the part's own INFO bag too, deliberately: whatever culling,
+    // clipping and blend state the base pass carries into this render today
+    // is what the silhouette must keep carrying, so there is nothing here to
+    // drift out of step.
+    std::unique_ptr<Tyra::StaPipBag> silBag;
+    std::unique_ptr<Tyra::StaPipColorBag> silColorBag;
+    unsigned int silJudgedStamp = 0;
+    bool silAlphaOk = false;
     // Experimental textured AO: the scene lightmap atlas multiplied over the
     // base pass (alpha-over blend of a black texture = per-pixel darkening).
     // aoSts map this part's vertices into the object's atlas regions; shares
@@ -217,7 +236,7 @@ class TerrainGame : public Tyra::Game {
     // The engine refuses per-vertex colors on a lit bag ("Multicolor is not
     // supported with lighting"), so litBase is the ONE base color and every
     // bit of shading is VU1's N.L - exactly the deal animated models take.
-    std::vector<Tyra::Vec4> litNormals;
+    BagArray<Tyra::Vec4> litNormals;
     Tyra::Color litBase;
     float litAlbedo[3] = {1.0F, 1.0F, 1.0F};
     // The color space the finished light lands in. VU1 clamps its sum to 255
@@ -235,8 +254,8 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipLightingBag> litBag;
     std::unique_ptr<Tyra::PipelineDirLightsBag> litLights;
     std::unique_ptr<Tyra::StaPipColorBag> litColorBag;
-    std::vector<Tyra::Vec4> aoSts;
-    std::vector<Tyra::Color> aoCols;  // flat BLACK - the texture's alpha is
+    BagArray<Tyra::Vec4> aoSts;
+    BagArray<Tyra::Color> aoCols;  // flat BLACK - the texture's alpha is
                                       // the whole occlusion (see the rebuild)
     std::unique_ptr<Tyra::StaPipBag> aoBag;
     std::unique_ptr<Tyra::StaPipColorBag> aoColorBag;
@@ -248,11 +267,11 @@ class TerrainGame : public Tyra::Game {
     // each tier keeps its own frustum-bbox cache entry (the cache is keyed by
     // vertex pointer, so distinct buffers never invalidate each other).
     struct Lod {
-      std::vector<Tyra::Vec4> vertices;
-      std::vector<Tyra::Color> colors;
-      std::vector<Tyra::Vec4> sts;
-      std::vector<Tyra::Vec4> envNormals;
-      std::vector<Tyra::Color> envColors;
+      BagArray<Tyra::Vec4> vertices;
+      BagArray<Tyra::Color> colors;
+      BagArray<Tyra::Vec4> sts;
+      BagArray<Tyra::Vec4> envNormals;
+      BagArray<Tyra::Color> envColors;
       u32 stamp = 0;  // bboxVersion of these buffers
     };
     std::vector<Lod> lods;
@@ -260,7 +279,7 @@ class TerrainGame : public Tyra::Game {
     u32 baseStamp = 0;  // tier 0's bboxVersion, to restore on the way back
     // The additive twin of the pass above: same atlas, same STs, WHITE vertex
     // colors, so it sees the baked emissive light in the texture's RGB.
-    std::vector<Tyra::Color> emisCols;
+    BagArray<Tyra::Color> emisCols;
     std::unique_ptr<Tyra::StaPipBag> emisBag;
     std::unique_ptr<Tyra::StaPipColorBag> emisColorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> emisTexBag;
@@ -323,8 +342,8 @@ class TerrainGame : public Tyra::Game {
     // Usable-object highlight: terrain-hugging glow ring around the base,
     // built when first highlighted, cleared whenever the object rebuilds
     // (see buildHighlightApron)
-    std::vector<Tyra::Vec4> apronVerts;
-    std::vector<Tyra::Color> apronCols;
+    BagArray<Tyra::Vec4> apronVerts;
+    BagArray<Tyra::Color> apronCols;
     u32 apronStamp = 0;
     // Low-detail stand-in the highlight shells are drawn from (positions
     // only - shells are single-color flat). Subdividing a primitive never
@@ -332,7 +351,7 @@ class TerrainGame : public Tyra::Game {
     // pixel-near-identical rim for a fraction of the clip/transform cost
     // (see buildHighlightProxy). Built when first highlighted, cleared
     // whenever the object rebuilds.
-    std::vector<Tyra::Vec4> hullProxyVerts;
+    BagArray<Tyra::Vec4> hullProxyVerts;
     // The same proxy ALREADY GROWN along its own surface normals - the shell a
     // shell-pass program asks for (vuscript::shellActive, e.g. a cell-shading
     // outline). Grown here rather than on VU1 because the EE clipper cuts a
@@ -340,7 +359,7 @@ class TerrainGame : public Tyra::Game {
     // afterwards is grown past a cut computed without it, and the line tears
     // wherever an object meets the edge of the screen. Baked once per geometry
     // rebuild, so the per-frame cost is one extra draw and nothing else.
-    std::vector<Tyra::Vec4> outlineVerts;
+    BagArray<Tyra::Vec4> outlineVerts;
     // Whether this proxy was built at the object's own detail (a shell pass
     // needs that) or at the highlight's coarser one. An object first seen with
     // no shell program active would otherwise keep its coarse proxy when one
@@ -535,9 +554,9 @@ class TerrainGame : public Tyra::Game {
     Tyra::Texture* texture = nullptr;  // group key; colors already carry Kd
     std::vector<StaticBatchMember> members;
     std::vector<unsigned char> shown;  // per member: baked as visible?
-    std::vector<Tyra::Vec4> vertices;  // world-space baked, like terrain
-    std::vector<Tyra::Color> colors;
-    std::vector<Tyra::Vec4> sts;
+    BagArray<Tyra::Vec4> vertices;  // world-space baked, like terrain
+    BagArray<Tyra::Color> colors;
+    BagArray<Tyra::Vec4> sts;
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
@@ -604,9 +623,9 @@ class TerrainGame : public Tyra::Game {
     // StaPipBag::stripped, so the VU1 packages ARE the runs and no package
     // boundary can ever splice two unrelated vertices into one triangle.
     int stripRun = 0;
-    std::vector<Tyra::Vec4> vertices;
-    std::vector<Tyra::Color> colors;
-    std::vector<Tyra::Vec4> sts;
+    BagArray<Tyra::Vec4> vertices;
+    BagArray<Tyra::Color> colors;
+    BagArray<Tyra::Vec4> sts;
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
@@ -697,8 +716,8 @@ class TerrainGame : public Tyra::Game {
   Tyra::Texture* sunDiscTex = nullptr;
   Tyra::Texture* moonDiscTex = nullptr;
   struct SkyBody {
-    std::vector<Tyra::Vec4> verts;  // 6
-    std::vector<Tyra::Vec4> sts;    // 6
+    BagArray<Tyra::Vec4> verts;  // 6
+    BagArray<Tyra::Vec4> sts;    // 6
     Tyra::Color color{128.0F, 128.0F, 128.0F, 128.0F};
     Tyra::M4x4 mat = Tyra::M4x4::Identity;
     std::unique_ptr<Tyra::StaPipInfoBag> info;
@@ -711,9 +730,9 @@ class TerrainGame : public Tyra::Game {
   // the whole field, and the brightness/twinkle ride the bags' additive FIX -
   // so fading the stars in at dusk costs three bytes a frame, not a rebuild.
   struct StarBag {
-    std::vector<Tyra::Vec4> verts;
-    std::vector<Tyra::Vec4> sts;
-    std::vector<Tyra::Color> colors;
+    BagArray<Tyra::Vec4> verts;
+    BagArray<Tyra::Vec4> sts;
+    BagArray<Tyra::Color> colors;
     std::unique_ptr<Tyra::StaPipInfoBag> info;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
@@ -886,9 +905,9 @@ class TerrainGame : public Tyra::Game {
   // definition still share one submit. The buffers must also live per
   // definition: PATH1 DMA may still read one draw while the next is prepared.
   struct WheelBatch {
-    std::vector<Tyra::Vec4> verts;
-    std::vector<Tyra::Color> cols;
-    std::vector<Tyra::Vec4> sts;
+    BagArray<Tyra::Vec4> verts;
+    BagArray<Tyra::Color> cols;
+    BagArray<Tyra::Vec4> sts;
     std::vector<WheelSlot> slots;
     u32 vertsPerCar = 0;
     int staticCars = 0;
@@ -917,12 +936,17 @@ class TerrainGame : public Tyra::Game {
   // can never disagree. Its own billboard bag - the particle system's exact
   // shape, VU1 expanding each centre + 2x2 basis weights into a quad.
   enum { kVehSmokeMax = 48 };
-  Tyra::Vec4 smokePos_[kVehSmokeMax];
+  // BagArray rather than a raw C array: the vehicle rings are
+  // bag-backing, so the same type - and the same content stamp - has to
+  // own them. A partial conversion would read as enforced and not be.
+  // They are sized during setupVehicles, before either per-frame updater can
+  // touch them. The bag itself stays lazy until the first visible puff.
+  BagArray<Tyra::Vec4> smokePos_;
   Tyra::Vec4 smokeVel_[kVehSmokeMax];
   float smokeLife_[kVehSmokeMax] = {};
   float smokeMaxLife_[kVehSmokeMax] = {};
-  Tyra::Vec4 smokeParams_[kVehSmokeMax];
-  Tyra::Color smokeCols_[kVehSmokeMax];
+  BagArray<Tyra::Vec4> smokeParams_;
+  BagArray<Tyra::Color> smokeCols_;
   int smokeNext_ = 0;
   int smokeAlive_ = 0;
   std::unique_ptr<Tyra::StaPipBag> smokeBag_;
@@ -938,8 +962,12 @@ class TerrainGame : public Tyra::Game {
   // shape), one submit, skipped when empty. bboxVersion bumps only when a
   // quad SPAWNS - the fade touches colors alone.
   enum { kVehSkidMax = 96 };
-  Tyra::Vec4 skidVerts_[kVehSkidMax * 6];
-  Tyra::Color skidCols_[kVehSkidMax * 6];
+  // BagArray rather than a raw C array: the vehicle rings are
+  // bag-backing, so the same type - and the same content stamp - has to
+  // own them. A partial conversion would read as enforced and not be.
+  // They are sized once, where their bags are created.
+  BagArray<Tyra::Vec4> skidVerts_;
+  BagArray<Tyra::Color> skidCols_;
   float skidLife_[kVehSkidMax] = {};
   int skidNext_ = 0;
   int skidAlive_ = 0;
@@ -953,8 +981,12 @@ class TerrainGame : public Tyra::Game {
   // backfire flashes at the exhaust on an upshift, and the headlight pools
   // painted on the terrain ahead (the scene lights' ground-pool trick).
   enum { kVehGlowMax = 16 };
-  Tyra::Vec4 glowVerts_[kVehGlowMax * 6];
-  Tyra::Color glowCols_[kVehGlowMax * 6];
+  // BagArray rather than a raw C array: the vehicle rings are
+  // bag-backing, so the same type - and the same content stamp - has to
+  // own them. A partial conversion would read as enforced and not be.
+  // They are sized once, where their bags are created.
+  BagArray<Tyra::Vec4> glowVerts_;
+  BagArray<Tyra::Color> glowCols_;
   int glowCount_ = 0;
   std::unique_ptr<Tyra::StaPipBag> glowBag_;
   std::unique_ptr<Tyra::StaPipInfoBag> glowInfoBag_;
@@ -1307,8 +1339,8 @@ class TerrainGame : public Tyra::Game {
   // the nearest COLLISION_BOX_LIMIT colliders, so it follows physics bodies
   // and anything a flow node moves.
   void renderCollisionBoxes();
-  std::vector<Tyra::Vec4> collisionBoxVerts;
-  std::vector<Tyra::Color> collisionBoxCols;
+  BagArray<Tyra::Vec4> collisionBoxVerts;
+  BagArray<Tyra::Color> collisionBoxCols;
   std::unique_ptr<Tyra::StaPipBag> collisionBoxBag;
   std::unique_ptr<Tyra::StaPipColorBag> collisionBoxColorBag;
   // Does this object take part in collision at all? Geometry-less markers and
@@ -1341,10 +1373,11 @@ class TerrainGame : public Tyra::Game {
   struct ParticleSystem {
     int objectIndex = -1;
     unsigned int rng = 1;
-    std::vector<Tyra::Vec4> pos, vel;
+    BagArray<Tyra::Vec4> pos;  // bag-backing: the particle CENTRES
+    std::vector<Tyra::Vec4> vel;
     std::vector<float> life, maxLife;
-    std::vector<Tyra::Vec4> params;  // per-particle (m00, m01, m10, m11)
-    std::vector<Tyra::Color> cols;   // one RGBA per particle
+    BagArray<Tyra::Vec4> params;  // per-particle (m00, m01, m10, m11)
+    BagArray<Tyra::Color> cols;   // one RGBA per particle
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
@@ -1556,8 +1589,8 @@ class TerrainGame : public Tyra::Game {
   struct LightBeam {
     int objIndex = -1;
     int kind = 0;  // 1 glow, 2 glow + cone
-    std::vector<Tyra::Vec4> coronaVerts, coronaSts, coneVerts;
-    std::vector<Tyra::Color> coneColors;
+    BagArray<Tyra::Vec4> coronaVerts, coronaSts, coneVerts;
+    BagArray<Tyra::Color> coneColors;
     Tyra::Color coronaColor;
     Tyra::M4x4 mat;  // identity - geometry is world space
     std::unique_ptr<Tyra::StaPipInfoBag> coronaInfo, coneInfo;
@@ -1576,7 +1609,7 @@ class TerrainGame : public Tyra::Game {
   // instead - same corona sprite, same flicker breathing.
   struct LightPool {
     int objIndex = -1;
-    std::vector<Tyra::Vec4> verts, sts;
+    BagArray<Tyra::Vec4> verts, sts;
     Tyra::Color color;
     // The flashlight's SECOND patch, for the wall its beam is touching. Both
     // are drawn every frame and the depth buffer decides where each shows,
@@ -1584,14 +1617,14 @@ class TerrainGame : public Tyra::Game {
     // at once - one patch had to teleport from one to the other, and that read
     // as the light blinking off and on again. Its own buffers, never a second
     // pass over the first: the DMA may still be reading them.
-    std::vector<Tyra::Vec4> wVerts, wSts;
+    BagArray<Tyra::Vec4> wVerts, wSts;
     // Per-vertex Gouraud colors, torch patches only: the projective STQ has
     // no distance falloff of its own - along the beam's axis the mapping
     // converges to the gobo's hot centre at ANY range, so a grazing pool lit
     // its far reaches at full strength (bright trapezoids on every rise the
     // beam touched, reported from the console). The reach falloff rides the
     // vertex color instead, which the GS interpolates per pixel.
-    std::vector<Tyra::Color> colors, wColors;
+    BagArray<Tyra::Color> colors, wColors;
     Tyra::Color wColor;
     std::unique_ptr<Tyra::StaPipInfoBag> wInfo;
     std::unique_ptr<Tyra::StaPipColorBag> wColorBag;
@@ -1603,7 +1636,7 @@ class TerrainGame : public Tyra::Game {
     // faces SUBTRACT it back - TestOnly vs the scene depth - and one resolve
     // per caster ORs count>0 into the destination-alpha mask; without it the
     // convex sub-box fallback writes the alpha bit directly (0x80 / 0).
-    std::vector<Tyra::Vec4> volFront, volBack;
+    BagArray<Tyra::Vec4> volFront, volBack;
     Tyra::Color volSetColor, volClrColor;
     std::unique_ptr<Tyra::StaPipInfoBag> volInfo, volClrInfo;
     std::unique_ptr<Tyra::StaPipColorBag> volSetBagC, volClrBagC;
@@ -1612,8 +1645,8 @@ class TerrainGame : public Tyra::Game {
     // the solids its cone touches, drawn a second time per pixel through the
     // mask - the torch's wall pass on a scene lamp. Its own buffers, on the
     // torch's pool like the volume buffers: one spot carves per frame.
-    std::vector<Tyra::Vec4> sWVerts, sWSts;
-    std::vector<Tyra::Color> sWColors;
+    BagArray<Tyra::Vec4> sWVerts, sWSts;
+    BagArray<Tyra::Color> sWColors;
     Tyra::Color sWColor;
     std::unique_ptr<Tyra::StaPipInfoBag> sWInfo;
     std::unique_ptr<Tyra::StaPipColorBag> sWColorBag;
@@ -1649,7 +1682,7 @@ class TerrainGame : public Tyra::Game {
   // may still be reading a submitted quad, so casters never share buffers.
   struct BlobShadow {
     int objIndex = -1;
-    std::vector<Tyra::Vec4> verts, sts;
+    BagArray<Tyra::Vec4> verts, sts;
     Tyra::Color color;
     Tyra::M4x4 mat;
     std::unique_ptr<Tyra::StaPipInfoBag> info;
@@ -1665,7 +1698,7 @@ class TerrainGame : public Tyra::Game {
   // existing bags re-render into a small VRAM target from a light camera,
   // then a terrain patch under it samples the silhouette (renderProjShadows).
   struct ProjShadow {
-    std::vector<Tyra::Vec4> verts, sts;  // receiver patch (terrain-conforming)
+    BagArray<Tyra::Vec4> verts, sts;  // receiver patch (terrain-conforming)
     Tyra::Color color;
     // The WALL copy (docs/flashlight.md, "The shadow"): when the torch is the
     // light that threw this slot's silhouette, the geometry the shadow ray
@@ -1673,7 +1706,7 @@ class TerrainGame : public Tyra::Game {
     // view-proj - the same second-pass trick the torch's own light uses, so a
     // caster in the beam paints its shadow ON the wall behind it. Own buffers:
     // the DMA may still be reading the ground patch's.
-    std::vector<Tyra::Vec4> wallVerts, wallSts;
+    BagArray<Tyra::Vec4> wallVerts, wallSts;
     Tyra::Color wallColor;
     std::unique_ptr<Tyra::StaPipInfoBag> wallInfo;
     std::unique_ptr<Tyra::StaPipColorBag> wallColorBag;

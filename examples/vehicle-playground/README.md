@@ -127,6 +127,12 @@ T-vertex seam per fixture, so the numbers behind the lateral budget
 and capture with `--capture-frame`. Host checks alone are not evidence of
 console frame rate or reflection correctness.
 
+For physical-console smoke testing, the game must reach its first idle frame
+after the loading screen with empty tyre-smoke and skid pools and with the
+parked vehicles' lights visible. This covers every fixed-capacity vehicle
+effect buffer's scene-setup lifetime: PCSX2 maps address zero and can hide a
+null `Vec4::set` that real hardware reports as a cause-3 TLB store miss.
+
 `python authoring/road-lod-2026-09-16/road-budget-sweep.py` sweeps the road's
 two lateral budgets over the district's REAL roads and heightfield and prices
 each setting against a reference commit's surface. It reproduces the console's

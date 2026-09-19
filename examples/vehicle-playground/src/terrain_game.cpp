@@ -188,6 +188,16 @@ namespace Vehicle_playground {
 
 using namespace Tyra;
 
+// The content stamp declared by inc/bag_array.gen.hpp. Every BagArray
+// mutation takes the next value and the engine reads it back through
+// StaPipBag::contentVersion, so the baked VIF stream cannot replay a block
+// whose source array was rewritten. It is a SEPARATE counter from
+// g_bboxStamp because that one means "the bounding box moved" and
+// StapipBagBBoxesCacher is its consumer - conflating the two is exactly the
+// defect this closes. It lives OUTSIDE the anonymous namespace below,
+// because the header declares it `extern`. docs/bag-content-version.md.
+unsigned int g_contentStamp = 0;
+
 namespace {
 
 constexpr float PI = 3.14159265358979F;
@@ -450,7 +460,7 @@ bool g_giProbeShade = false;
  * vertices plus a world matrix, so VU1 rotates the normal too), world for
  * everything else (its matrix is identity). Getting that space wrong does not
  * crash - it lights the object as if it never turned. */
-std::vector<Vec4>* g_litNormals = nullptr;
+BagArray<Vec4>* g_litNormals = nullptr;
 
 /** ...and this one: the surface's light comes from the scene LIGHTMAP, per
  * pixel through the additive atlas pass. Its vertex shade is black; the pass
@@ -671,7 +681,7 @@ bool g_aoAtlas = false;
 bool g_emisAtlas = false;
 const AoAtlasRect* g_aoAtlasRects = nullptr;
 int g_aoRegion = 0;
-std::vector<Vec4>* g_aoSts = nullptr;
+BagArray<Vec4>* g_aoSts = nullptr;
 // Imported models: AO receive/self fully off for now (see the staging in
 // rebuildObjectGeometry) - per-vertex occlusion looks triangulated there.
 bool g_aoOff = false;
@@ -993,7 +1003,7 @@ bool g_bakeLocal = false;
 // Reflective materials: while non-null, pushVert also captures the rotated
 // (world-space) normal of every emitted vertex - the per-frame sphere-map ST
 // computation needs them (see renderScene). Staged per part like g_primKd.
-std::vector<Vec4>* g_envNormals = nullptr;
+BagArray<Vec4>* g_envNormals = nullptr;
 
 // Loaded materials/model parts using the "@sky" dynamic env map. While > 0,
 // renderScene renders the sky dome into the engine's env-map target each
@@ -1009,6 +1019,12 @@ int g_dynamicEnvUsers = 0;
 // stapip_bag_packages_bbox assert). One monotonic stamp shared by every
 // bag makes each (pointer, version) pair unique for the whole run.
 u32 g_bboxStamp = 0;
+
+// The SECOND version - about CONTENTS rather than about the bounding box - is
+// declared in inc/bag_array.gen.hpp and DEFINED just below the namespace
+// opening above, deliberately outside this anonymous namespace: the header
+// declares it `extern`, and a definition in here would have internal linkage
+// and never resolve. See docs/bag-content-version.md.
 
 // Clip-name resolution for scripts/flow graph: ScriptContext carries a plain
 // function pointer (script.hpp must stay engine-agnostic), so the game
@@ -1051,8 +1067,8 @@ void generateVolumeThunk(int volumeIndex, int seed, bool clear) {
 // ke: material emission (MTL Ke), null/zero = matte - see the floor below.
 // textured: this batch draws with a texture (a model part's map_Kd or a
 // primitive material's) - switches the color to modulation scale (128 = 1.0).
-void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
-              std::vector<Vec4>& sts, const SceneObjectData& o, V3 p, V3 n,
+void pushVert(BagArray<Vec4>& verts, BagArray<Color>& cols,
+              BagArray<Vec4>& sts, const SceneObjectData& o, V3 p, V3 n,
               float u, float v, const float* kdArg = nullptr,
               bool texturedArg = false, unsigned char selfAo = 255,
               const float* keArg = nullptr) {
@@ -1173,8 +1189,8 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
                                         : Vec4(n.x, n.y, n.z, 0.0F));
 }
 
-void pushQuad(std::vector<Vec4>& verts, std::vector<Color>& cols,
-              std::vector<Vec4>& sts, const SceneObjectData& o, V3 a, V3 b, V3 c,
+void pushQuad(BagArray<Vec4>& verts, BagArray<Color>& cols,
+              BagArray<Vec4>& sts, const SceneObjectData& o, V3 a, V3 b, V3 c,
               V3 d, V3 n) {
   pushVert(verts, cols, sts, o, a, n, 0, 0);
   pushVert(verts, cols, sts, o, b, n, 1, 0);
@@ -1184,8 +1200,8 @@ void pushQuad(std::vector<Vec4>& verts, std::vector<Color>& cols,
   pushVert(verts, cols, sts, o, d, n, 0, 1);
 }
 
-void addBox(std::vector<Vec4>& verts, std::vector<Color>& cols,
-            std::vector<Vec4>& sts, const SceneObjectData& o) {
+void addBox(BagArray<Vec4>& verts, BagArray<Color>& cols,
+            BagArray<Vec4>& sts, const SceneObjectData& o) {
   // Detail = subdivisions per edge (1 = plain 6-quad box); each face is an
   // n x n grid, UVs span 0..1 per face. Mirror of the editor's unitBox.
   const int n = o.primDetail < 1 ? 1 : (o.primDetail > 16 ? 16 : o.primDetail);
@@ -1217,8 +1233,8 @@ void addBox(std::vector<Vec4>& verts, std::vector<Color>& cols,
   face({h, -h, -h}, {-H, 0, 0}, {0, H, 0}, {0, 0, -1});  // -Z
 }
 
-void addSphere(std::vector<Vec4>& verts, std::vector<Color>& cols,
-               std::vector<Vec4>& sts, const SceneObjectData& o) {
+void addSphere(BagArray<Vec4>& verts, BagArray<Color>& cols,
+               BagArray<Vec4>& sts, const SceneObjectData& o) {
   // Detail = radial segments; stacks ~5:7 of that (mirror of the editor's
   // primSphereStacks in project.hpp - keep the two in sync).
   int slices = o.primDetail < 3 ? 3 : (o.primDetail > 64 ? 64 : o.primDetail);
@@ -1251,8 +1267,8 @@ void addSphere(std::vector<Vec4>& verts, std::vector<Color>& cols,
   }
 }
 
-void addCylinder(std::vector<Vec4>& verts, std::vector<Color>& cols,
-                 std::vector<Vec4>& sts, const SceneObjectData& o) {
+void addCylinder(BagArray<Vec4>& verts, BagArray<Color>& cols,
+                 BagArray<Vec4>& sts, const SceneObjectData& o) {
   const int seg = o.primDetail < 3 ? 3 : (o.primDetail > 64 ? 64 : o.primDetail);
   // Rings along the axis (mirror of primCylinderStacks in project.hpp - keep
   // the two in sync), opt-in per object. Without them every vertex-baked term
@@ -1307,8 +1323,8 @@ void addCylinder(std::vector<Vec4>& verts, std::vector<Color>& cols,
 // keeps the transform, lighting and vertex format identical to every other
 // primitive. A wireframe and not a translucent solid on purpose - a filled
 // volume hides the very objects you opened it to look at.
-void addAreaWireframe(std::vector<Vec4>& verts, std::vector<Color>& cols,
-                      std::vector<Vec4>& sts, const SceneObjectData& o) {
+void addAreaWireframe(BagArray<Vec4>& verts, BagArray<Color>& cols,
+                      BagArray<Vec4>& sts, const SceneObjectData& o) {
   const float ax = o.scale[0] < 0.0F ? -o.scale[0] : o.scale[0];
   const float ay = o.scale[1] < 0.0F ? -o.scale[1] : o.scale[1];
   const float az = o.scale[2] < 0.0F ? -o.scale[2] : o.scale[2];
@@ -1336,8 +1352,8 @@ void addAreaWireframe(std::vector<Vec4>& verts, std::vector<Color>& cols,
 }
 
 // Flat unit square in the XZ plane, double-sided (visible from both faces).
-void addPlane(std::vector<Vec4>& verts, std::vector<Color>& cols,
-              std::vector<Vec4>& sts, const SceneObjectData& o) {
+void addPlane(BagArray<Vec4>& verts, BagArray<Color>& cols,
+              BagArray<Vec4>& sts, const SceneObjectData& o) {
   const float h = 0.5F;
   // The underside sits slightly below the top face: nothing here backface-culls
   // (the GS draws both), so two coplanar quads with different baked shades
@@ -1357,8 +1373,8 @@ void addPlane(std::vector<Vec4>& verts, std::vector<Color>& cols,
 // is placed on instead of z-fighting it. Single-sided (front only). U runs with
 // local -X (slide-projector convention) so the texture reads correctly - not
 // mirrored - viewed from the +Z front; matches unitDecal + the projected decal.
-void addDecal(std::vector<Vec4>& verts, std::vector<Color>& cols,
-              std::vector<Vec4>& sts, const SceneObjectData& o) {
+void addDecal(BagArray<Vec4>& verts, BagArray<Color>& cols,
+              BagArray<Vec4>& sts, const SceneObjectData& o) {
   const float h = 0.5F, z = 0.02F;  // DECAL_OFFSET, local units (scaled by Z)
   const V3 n = {0, 0, 1};
   pushVert(verts, cols, sts, o, {-h, -h, z}, n, 1, 0);
@@ -1369,8 +1385,8 @@ void addDecal(std::vector<Vec4>& verts, std::vector<Color>& cols,
   pushVert(verts, cols, sts, o, {-h, h, z}, n, 1, 1);
 }
 
-void addCone(std::vector<Vec4>& verts, std::vector<Color>& cols,
-             std::vector<Vec4>& sts, const SceneObjectData& o) {
+void addCone(BagArray<Vec4>& verts, BagArray<Color>& cols,
+             BagArray<Vec4>& sts, const SceneObjectData& o) {
   const int seg = o.primDetail < 3 ? 3 : (o.primDetail > 64 ? 64 : o.primDetail);
   const float r = 0.5F, h = 0.5F;
   const float nl = 0.894F, ny = 0.447F;  // side normal for r=0.5, h=1
@@ -6104,14 +6120,14 @@ void TerrainGame::buildParticles() {
     ps.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_None;
     ps.infoBag->fullClipChecks = false;
     ps.colorBag = std::make_unique<StaPipColorBag>();
-    ps.colorBag->many = ps.cols.data();
+    ps.cols.bind(ps.colorBag);
     ps.billboardBag = std::make_unique<StaPipBillboardBag>();
     ps.bag = std::make_unique<StaPipBag>();
     ps.bag->info = ps.infoBag.get();
     ps.bag->color = ps.colorBag.get();
     ps.bag->lighting = nullptr;
     ps.bag->billboard = ps.billboardBag.get();
-    ps.bag->vertices = ps.pos.data();
+    ps.pos.bind(ps.bag);
     ps.bag->count = 0;
     // The texture bag is mandatory for billboard bags - its coordinates
     // channel carries the per-particle basis weights. Textured particles:
@@ -6119,7 +6135,7 @@ void TerrainGame::buildParticles() {
     // emitter color is the tint); corner UVs are fixed in the VU1 program.
     ps.texBag = std::make_unique<StaPipTextureBag>();
     ps.texBag->texture = nullptr;
-    ps.texBag->coordinates = ps.params.data();
+    ps.params.bind(ps.texBag);
     const int mi = runtimeObjects[i].data.material;  // data copy: spawn slots too
     if (mi >= 0 && mi < (int)gameMaterials.size() && gameMaterials[mi].texture)
       ps.texBag->texture = gameMaterials[mi].texture;
@@ -8633,16 +8649,16 @@ void TerrainGame::buildStarField() {
     sb.info->blssProxy = false;     // a camera-centred shell, like the dome
     sb.info->additiveBlendFix = 128;
     sb.colorBag = std::make_unique<StaPipColorBag>();
-    sb.colorBag->many = sb.colors.data();
+    sb.colors.bind(sb.colorBag);
     sb.bag = std::make_unique<StaPipBag>();
     sb.bag->info = sb.info.get();
     sb.bag->color = sb.colorBag.get();
-    sb.bag->vertices = sb.verts.data();
+    sb.verts.bind(sb.bag);
     sb.bag->count = static_cast<u32>(sb.verts.size());
     if (beamCoronaTex) {
       sb.texBag = std::make_unique<StaPipTextureBag>();
       sb.texBag->texture = beamCoronaTex;
-      sb.texBag->coordinates = sb.sts.data();
+      sb.sts.bind(sb.texBag);
       sb.bag->texture = sb.texBag.get();
     } else {
       sb.bag->texture = nullptr;
@@ -8792,12 +8808,12 @@ void TerrainGame::setupSkyBodies() {
     b.colorBag->single = &b.color;
     b.texBag = std::make_unique<StaPipTextureBag>();
     b.texBag->texture = tex;
-    b.texBag->coordinates = b.sts.data();
+    b.sts.bind(b.texBag);
     b.bag = std::make_unique<StaPipBag>();
     b.bag->info = b.info.get();
     b.bag->color = b.colorBag.get();
     b.bag->texture = b.texBag.get();
-    b.bag->vertices = b.verts.data();
+    b.verts.bind(b.bag);
     b.bag->count = 6;
   };
   if (sunDiscTex) init(sunBody, sunDiscTex, true);
@@ -8936,12 +8952,12 @@ void TerrainGame::setupLightBeams() {
     b.coronaColorBag->single = &b.coronaColor;
     b.coronaTexBag = std::make_unique<StaPipTextureBag>();
     b.coronaTexBag->texture = beamCoronaTex;
-    b.coronaTexBag->coordinates = b.coronaSts.data();
+    b.coronaSts.bind(b.coronaTexBag);
     b.coronaBag = std::make_unique<StaPipBag>();
     b.coronaBag->info = b.coronaInfo.get();
     b.coronaBag->color = b.coronaColorBag.get();
     b.coronaBag->texture = b.coronaTexBag.get();
-    b.coronaBag->vertices = b.coronaVerts.data();
+    b.coronaVerts.bind(b.coronaBag);
     b.coronaBag->count = 6;
 
     if (b.kind == 2) {
@@ -8955,11 +8971,11 @@ void TerrainGame::setupLightBeams() {
       b.coneInfo->zTestType = PipelineZTest_TestOnly;
       b.coneInfo->fullClipChecks = true;  // walk-through shafts: clip, not drop
       b.coneColorBag = std::make_unique<StaPipColorBag>();
-      b.coneColorBag->many = b.coneColors.data();
+      b.coneColors.bind(b.coneColorBag);
       b.coneBag = std::make_unique<StaPipBag>();
       b.coneBag->info = b.coneInfo.get();
       b.coneBag->color = b.coneColorBag.get();
-      b.coneBag->vertices = b.coneVerts.data();
+      b.coneVerts.bind(b.coneBag);
       b.coneBag->count = 24;
     }
   }
@@ -9314,8 +9330,8 @@ static void emitMeshShadowVolume(const ShadowMesh& m,
                                  const SceneObjectData& cdd,
                                  const ProjBox& basis, const Vec4& vL,
                                  const Vec4& cam, float range, bool farCaps,
-                                 std::vector<Vec4>& outFront,
-                                 std::vector<Vec4>& outBack) {
+                                 BagArray<Vec4>& outFront,
+                                 BagArray<Vec4>& outBack) {
   const int nv = (int)(m.pos.size() / 3);
   const int nt = (int)(m.tri.size() / 3);
   static std::vector<float> nw;  // near points (pushed), world
@@ -9368,7 +9384,7 @@ static void emitMeshShadowVolume(const ShadowMesh& m,
     if (s < 0.0F) nx = -nx, ny = -ny, nz = -nz;
     const bool front =
         nx * (cam.x - cx) + ny * (cam.y - cy) + nz * (cam.z - cz) > 0.0F;
-    std::vector<Vec4>& dst = front ? outFront : outBack;
+    BagArray<Vec4>& dst = front ? outFront : outBack;
     if (dst.size() > 3996) return;  // fill-rate backstop
     dst.push_back(Vec4(a[0], a[1], a[2], 1.0F));
     dst.push_back(Vec4(b[0], b[1], b[2], 1.0F));
@@ -9453,8 +9469,8 @@ static void emitMeshShadowVolume(const ShadowMesh& m,
 // piece per bracket).
 static void emitBoxShadowVolume(const ProjBox& pb, const Vec4& origin,
                                 const Vec4& cam, float range, bool farCaps,
-                                std::vector<Vec4>& outFront,
-                                std::vector<Vec4>& outBack) {
+                                BagArray<Vec4>& outFront,
+                                BagArray<Vec4>& outBack) {
   // Box corners (bit code x|y<<1|z<<2), pushed a hair AWAY from the light:
   // the push only breaks the depth TIE against the next surface a cap might
   // touch.
@@ -9502,7 +9518,7 @@ static void emitBoxShadowVolume(const ProjBox& pb, const Vec4& origin,
     const bool front =
         nx2 * (cam.x - cx3) + ny2 * (cam.y - cy3) + nz2 * (cam.z - cz3) >
         0.0F;
-    std::vector<Vec4>& dst = front ? outFront : outBack;
+    BagArray<Vec4>& dst = front ? outFront : outBack;
     if (dst.size() > 3996) return;
     dst.push_back(a3);
     dst.push_back(b3);
@@ -9592,9 +9608,9 @@ static const ShadowMesh* primShadowMesh(const SceneObjectData& cdd) {
   // pushVert feeds several side channels of the scene build; none is live
   // at render time, but a stale pointer would be a silent write into a
   // freed vector, so they are parked for the duration.
-  std::vector<Vec4>* litSave = g_litNormals;
-  std::vector<Vec4>* envSave = g_envNormals;
-  std::vector<Vec4>* aoStsSave = g_aoSts;
+  BagArray<Vec4>* litSave = g_litNormals;
+  BagArray<Vec4>* envSave = g_envNormals;
+  BagArray<Vec4>* aoStsSave = g_aoSts;
   const bool aoAtlasSave = g_aoAtlas;
   g_litNormals = nullptr, g_envNormals = nullptr, g_aoSts = nullptr;
   g_aoAtlas = false;
@@ -9605,9 +9621,9 @@ static const ShadowMesh* primShadowMesh(const SceneObjectData& cdd) {
   for (int detail = cdd.primDetail < 1 ? 1 : cdd.primDetail; detail >= 1;
        detail = detail > 3 ? detail * 3 / 4 : detail - 1) {
     unit.primDetail = detail;
-    std::vector<Vec4> verts;
-    std::vector<Color> cols;
-    std::vector<Vec4> sts;
+    BagArray<Vec4> verts;
+    BagArray<Color> cols;
+    BagArray<Vec4> sts;
     switch (cdd.type) {
       case 0: addBox(verts, cols, sts, unit); break;
       case 1: addSphere(verts, cols, sts, unit); break;
@@ -9645,8 +9661,8 @@ template <typename ModelVec>
 static void emitCasterVolume(const ProjBox& castPb, const ModelVec& gameModels,
                              const SceneObjectData& cdd, const Vec4& origin,
                              const Vec4& cam, float range, bool farCaps,
-                             std::vector<Vec4>& outFront,
-                             std::vector<Vec4>& outBack) {
+                             BagArray<Vec4>& outFront,
+                             BagArray<Vec4>& outBack) {
   const ShadowMesh* mesh = primShadowMesh(cdd);
   if (cdd.type == 5 && cdd.model >= 0 &&
       cdd.model < (int)gameModels.size()) {
@@ -9814,7 +9830,7 @@ void TerrainGame::setupLightPools() {
       // note) - one flat color per patch cannot dim the far end of a pool
       // that stretches forty units down a grazing beam.
       b.colors.assign(b.verts.size(), Color(0.0F, 0.0F, 0.0F, 128.0F));
-      b.colorBag->many = b.colors.data();
+      b.colors.bind(b.colorBag);
       b.colorBag->single = nullptr;
       b.info->shadingType = TyraShadingGouraud;
       // GS CLAMP, and only on this one texture: the pool's STs come out of a
@@ -9826,12 +9842,12 @@ void TerrainGame::setupLightPools() {
       if (b.texBag->texture)
         b.texBag->texture->setWrapSettings(Tyra::Clamp, Tyra::Clamp);
     }
-    b.texBag->coordinates = b.sts.data();
+    b.sts.bind(b.texBag);
     b.bag = std::make_unique<StaPipBag>();
     b.bag->info = b.info.get();
     b.bag->color = b.colorBag.get();
     b.bag->texture = b.texBag.get();
-    b.bag->vertices = b.verts.data();
+    b.verts.bind(b.bag);
     b.bag->count = (u32)b.verts.size();
     // The flashlight's second patch - same everything, its own buffers, for the
     // wall the beam is touching while it also lights the floor.
@@ -9866,12 +9882,12 @@ void TerrainGame::setupLightPools() {
       b.wColorBag->single = &b.wColor;
       b.wTexBag = std::make_unique<StaPipTextureBag>();
       b.wTexBag->texture = b.texBag->texture;
-      b.wTexBag->coordinates = b.wSts.data();
+      b.wSts.bind(b.wTexBag);
       b.wBag = std::make_unique<StaPipBag>();
       b.wBag->info = b.wInfo.get();
       b.wBag->color = b.wColorBag.get();
       b.wBag->texture = b.wTexBag.get();
-      b.wBag->vertices = b.wVerts.data();
+      b.wVerts.bind(b.wBag);
       b.wBag->count = (u32)b.wVerts.size();
       // The carving spot's receiver pass: the torch's wall pass with its own
       // buffers (the torch refills wVerts later in the same frame).
@@ -9893,12 +9909,12 @@ void TerrainGame::setupLightPools() {
         b.sWColorBag->single = &b.sWColor;
         b.sWTexBag = std::make_unique<StaPipTextureBag>();
         b.sWTexBag->texture = flashGoboTex ? flashGoboTex : b.texBag->texture;
-        b.sWTexBag->coordinates = b.sWSts.data();
+        b.sWSts.bind(b.sWTexBag);
         b.sWBag = std::make_unique<StaPipBag>();
         b.sWBag->info = b.sWInfo.get();
         b.sWBag->color = b.sWColorBag.get();
         b.sWBag->texture = b.sWTexBag.get();
-        b.sWBag->vertices = b.sWVerts.data();
+        b.sWVerts.bind(b.sWBag);
         b.sWBag->count = 0;
       }
       // ONE SET OF VOLUME BUFFERS FOR THE WHOLE FRAME, and they live on the
@@ -9952,12 +9968,12 @@ void TerrainGame::setupLightPools() {
         b.volSetBag = std::make_unique<StaPipBag>();
         b.volSetBag->info = b.volInfo.get();
         b.volSetBag->color = b.volSetBagC.get();
-        b.volSetBag->vertices = b.volFront.data();
+        b.volFront.bind(b.volSetBag);
         b.volSetBag->count = 0;
         b.volClrBag = std::make_unique<StaPipBag>();
         b.volClrBag->info = b.volClrInfo.get();
         b.volClrBag->color = b.volClrBagC.get();
-        b.volClrBag->vertices = b.volBack.data();
+        b.volBack.bind(b.volClrBag);
         b.volClrBag->count = 0;
       }
     }
@@ -9973,7 +9989,7 @@ void TerrainGame::setupLightPools() {
       // re-pointed with the verts each frame.
     }
     if (b.objIndex < 0 && b.colorBag) {
-      b.colorBag->many = b.colors.data();
+      b.colors.bind(b.colorBag);
       b.colorBag->single = nullptr;
     }
     if (b.volInfo) {
@@ -10096,7 +10112,7 @@ void TerrainGame::updateAndRenderLightPools() {
   // night yard, halved the frame rate). Returns whether the mask now holds
   // this light's shadows; the caller's light passes then draw with dateLit,
   // and the caller owes a repaintAlpha before anything else touches alpha.
-  auto buildVolMask = [&](std::vector<Vec4>& front, std::vector<Vec4>& back,
+  auto buildVolMask = [&](BagArray<Vec4>& front, BagArray<Vec4>& back,
                           StaPipBag* setBag, StaPipBag* clrBag,
                           const ProjBox* const picks[4], int n,
                           const Vec4& vOrigin, float range) -> bool {
@@ -10137,7 +10153,7 @@ void TerrainGame::updateAndRenderLightPools() {
     bool bWhole = false;
     const M4x4 volVp = rc.renderer3D.getViewProj();
     for (int half = 0; half < 2 && !bWhole; ++half) {
-      const std::vector<Vec4>& vv = half ? back : front;
+      const BagArray<Vec4>& vv = half ? back : front;
       for (const Vec4& p3 : vv) {
         const Vec4 clip2 = volVp * p3;
         if (clip2.w < 0.05F) {
@@ -10204,13 +10220,13 @@ void TerrainGame::updateAndRenderLightPools() {
         continue;
       }
       if (!front.empty() && SHADOW_VOLUMES_DEBUG != 2) {
-        setBag->vertices = front.data();
+        front.bind(setBag);
         setBag->count = (u32)front.size();
         setBag->bboxVersion = ++g_bboxStamp;
         stapip.core.render(setBag);
       }
       if (!back.empty() && SHADOW_VOLUMES_DEBUG != 2) {
-        clrBag->vertices = back.data();
+        back.bind(clrBag);
         clrBag->count = (u32)back.size();
         clrBag->bboxVersion = ++g_bboxStamp;
         stapip.core.render(clrBag);
@@ -10713,10 +10729,10 @@ void TerrainGame::updateAndRenderLightPools() {
       auto renderSlice = [&](int ri) {
         if (!wLightOn || wSliceCount[ri] <= 0) return;
         b.wInfo->dateLit = volMask;
-        b.wBag->vertices = b.wVerts.data() + wSliceStart[ri];
+        b.wVerts.bindFrom(b.wBag, wSliceStart[ri]);
         b.wBag->count = (u32)wSliceCount[ri];
-        b.wTexBag->coordinates = b.wSts.data() + wSliceStart[ri];
-        b.wColorBag->many = b.wColors.data() + wSliceStart[ri];
+        b.wSts.bindFrom(b.wTexBag, wSliceStart[ri]);
+        b.wColors.bindFrom(b.wColorBag, wSliceStart[ri]);
         b.wColorBag->single = nullptr;
         b.wInfo->additiveBlendFix = (u8)wfix;
         b.wBag->bboxVersion = ++g_bboxStamp;
@@ -10821,13 +10837,13 @@ void TerrainGame::updateAndRenderLightPools() {
               rc.alphaMask.beginKeep();
             }
             if (!b.volFront.empty()) {
-              b.volSetBag->vertices = b.volFront.data();
+              b.volFront.bind(b.volSetBag);
               b.volSetBag->count = (u32)b.volFront.size();
               b.volSetBag->bboxVersion = ++g_bboxStamp;
               stapip.core.render(b.volSetBag.get());
             }
             if (!b.volBack.empty()) {
-              b.volClrBag->vertices = b.volBack.data();
+              b.volBack.bind(b.volClrBag);
               b.volClrBag->count = (u32)b.volBack.size();
               b.volClrBag->bboxVersion = ++g_bboxStamp;
               stapip.core.render(b.volClrBag.get());
@@ -11591,10 +11607,10 @@ void TerrainGame::updateAndRenderLightPools() {
         if (!w.sWVerts.empty()) {
           w.sWInfo->dateLit = true;
           w.sWInfo->additiveBlendFix = b.info->additiveBlendFix;
-          w.sWBag->vertices = w.sWVerts.data();
+          w.sWVerts.bind(w.sWBag);
           w.sWBag->count = (u32)w.sWVerts.size();
-          w.sWTexBag->coordinates = w.sWSts.data();
-          w.sWColorBag->many = w.sWColors.data();
+          w.sWSts.bind(w.sWTexBag);
+          w.sWColors.bind(w.sWColorBag);
           w.sWColorBag->single = nullptr;
           w.sWBag->bboxVersion = ++g_bboxStamp;
           stapip.core.render(w.sWBag.get());
@@ -11691,8 +11707,8 @@ void TerrainGame::setupShadowDecals() {
   for (ShadowDraw& d : shadowDraws) {
     d.colorBag->single = &d.color;
     d.texBag->texture = d.texture;
-    d.texBag->coordinates = d.sts.data();
-    d.bag->vertices = d.vertices.data();
+    d.sts.bind(d.texBag);
+    d.vertices.bind(d.bag);
   }
 }
 
@@ -11760,12 +11776,12 @@ void TerrainGame::setupBlobShadows() {
     b.colorBag->single = &b.color;
     b.texBag = std::make_unique<StaPipTextureBag>();
     b.texBag->texture = blobShadowTex;
-    b.texBag->coordinates = b.sts.data();
+    b.sts.bind(b.texBag);
     b.bag = std::make_unique<StaPipBag>();
     b.bag->info = b.info.get();
     b.bag->color = b.colorBag.get();
     b.bag->texture = b.texBag.get();
-    b.bag->vertices = b.verts.data();
+    b.verts.bind(b.bag);
     b.bag->count = 6;
   }
   // See setupLightBeams: the bags point INTO the vector elements, so they are
@@ -11837,6 +11853,69 @@ void TerrainGame::updateAndRenderBlobShadows() {
   }
 }
 
+// THE RECEIVER PATCH'S SHAPE, shared by the setup that allocates it and the
+// per-frame fill (renderProjShadows) - one definition, because the count the
+// bag is created with and the count the fill writes must be the same number.
+//
+// 4x4 cells. As a triangle LIST that is 6 vertices a cell, 96 in all. As a
+// TRIANGLE STRIP (docs/model-pipeline.md) each ROW of cells is one strip of
+// 2 * (cells + 1) vertices, the rows are joined by the usual two-vertex
+// degenerate seam, and the tail is padded to the multiple of 3 the VU1 vertex
+// loops step by: 46 vertices, padded to 48. Half the list, for the same
+// quads, the same STs and the same pixels - a patch is a grid, which is the
+// shape a strip is best at. "The same quads" is a property the fill has to
+// WORK for, not one it gets: see the diagonal note in renderProjShadows.
+constexpr int kProjPatchCells = 4;
+constexpr int kProjPatchListVerts = kProjPatchCells * kProjPatchCells * 6;
+constexpr int kProjPatchStripVerts =
+    ((2 * (kProjPatchCells + 1) * kProjPatchCells +
+      2 * (kProjPatchCells - 1)) + 2) / 3 * 3;
+// The A/B knob, on the same terms as TYRA_STRIP_WHEELS: 0 restores the list.
+#ifndef TYRA_STRIP_PROJ_PATCH
+#define TYRA_STRIP_PROJ_PATCH 1
+#endif
+
+// THE CHEAP CASTER BAG. 87% of the projected-shadow bracket is the caster's
+// OWN model bags re-submitted from the light (the garage-day inventory: 60 of
+// 69 packages, 4 440 of 4 632 vertices, and every one of them a car body).
+// They are submitted exactly as the object loop submits them - textured, with
+// per-vertex colours - which is the TEXTURE+COLOUR VU1 class at 75 vertices a
+// package. The shadow map does not want either attribute:
+// RendererCoreShadowMap is 64x64 and says so itself - no colour fidelity,
+// only the alpha coverage matters, because the receiver draws black modulated
+// by the silhouette's alpha.
+//
+// Drop both and the same geometry goes through the COLOUR class with a SINGLE
+// colour, which is 150 vertices a package - exactly double. getMaxVertCount is
+// (dbuffer - 9) / (colorElementsPerVertex + reglistCount) rounded down to a
+// multiple of 3; the double buffer is (944 - 22) / 2 = 461, and cull_c is
+// built with elementsPerVertex 2, reglistCount 2:
+//   textured + per-vertex  452 / (3 + 3) -> 75    (what this pass submits now)
+//   untextured + per-vertex 452 / (2 + 2) -> 111
+//   untextured + SINGLE     452 / (1 + 2) -> 150
+// No geometry changes, no second vertex array, no bake and no format change:
+// the silhouette bag shares the part's own vertices and is re-aimed at them
+// every submit (a LOD tier moves that pointer).
+//
+// WHY IT DEFAULTS TO 0. The colour half is exact - pushVert writes alpha 128
+// for every model vertex, so per-vertex colour carries nothing the coverage
+// reads, and a single 128 writes the same alpha. The TEXTURE half is not: the
+// GS modulates alpha as well as RGB, so a caster whose texture has alpha -
+// foliage, a chain-link fence, any alpha-tested cutout - gets its holes from
+// the texture and would cast a solid blob without it. That is a per-model
+// property this pass cannot see (Texture exposes no alpha predicate), so the
+// knob is off until a project's casters are known to be opaque. In the
+// vehicle playground both casters are vehicles (the only two shadowMode 3
+// objects in the district) and their bodies are opaque palette bakes.
+#ifndef TYRA_CHEAP_PROJ_CASTER
+#define TYRA_CHEAP_PROJ_CASTER 0
+#endif
+// The one colour every cheap silhouette casts in. Alpha 128 is the whole
+// point - it is what pushVert writes for every model vertex, so the coverage
+// the shadow map receives is bit-for-bit what the per-vertex array produced.
+// The RGB is never read: the receiver draws BLACK modulated by this alpha.
+static const Tyra::Color kProjSilhouetteColor(128.0F, 128.0F, 128.0F, 128.0F);
+
 // Projected silhouette shadows: per-scene setup. The engine's shadow-map
 // slots were allocated at boot (PROJ_SHADOWS_USED); each in-use slot gets a
 // terrain-conforming receiver patch bound to that slot's VRAM-resident
@@ -11860,14 +11939,21 @@ void TerrainGame::setupProjShadows() {
   const int slots = (int)projCasters.size() < Tyra::RendererCoreShadowMap::slots
                         ? (int)projCasters.size()
                         : Tyra::RendererCoreShadowMap::slots;
-  // 5x5 cells of 2 triangles = 150 vertices per receiver patch.
-  constexpr int kCells = 4;
+  // The engine is ASKED, not trusted: a run longer than a program class
+  // derives would let StaPipCore's clamp move the package boundary off the
+  // run boundary, and the list is still right - so the decision is taken once,
+  // here, and it sizes the buffers. renderProjShadows reads it back off
+  // StaPipBag::stripped, so the fill and the allocation can never disagree.
+  const bool stripPatch = TYRA_STRIP_PROJ_PATCH != 0 &&
+                          (u32)kProjPatchStripVerts <= minPackageSize();
+  const int patchVerts =
+      stripPatch ? kProjPatchStripVerts : kProjPatchListVerts;
   for (int s = 0; s < slots; ++s) {
     projShadows.emplace_back();
     ProjShadow& b = projShadows.back();
     b.mat.identity();
-    b.verts.assign(kCells * kCells * 6, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
-    b.sts.assign(kCells * kCells * 6, Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+    b.verts.assign(patchVerts, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+    b.sts.assign(patchVerts, Vec4(0.0F, 0.0F, 1.0F, 0.0F));
     b.color = Color(0.0F, 0.0F, 0.0F, 55.0F);
     b.info = std::make_unique<StaPipInfoBag>();
     b.info->model = &b.mat;
@@ -11891,13 +11977,20 @@ void TerrainGame::setupProjShadows() {
     b.colorBag->single = &b.color;
     b.texBag = std::make_unique<StaPipTextureBag>();
     b.texBag->texture = engine->renderer.core.shadowMap.getTexture(s);
-    b.texBag->coordinates = b.sts.data();
+    b.sts.bind(b.texBag);
     b.bag = std::make_unique<StaPipBag>();
     b.bag->info = b.info.get();
     b.bag->color = b.colorBag.get();
     b.bag->texture = b.texBag.get();
-    b.bag->vertices = b.verts.data();
+    b.verts.bind(b.bag);
     b.bag->count = (u32)b.verts.size();
+    // The run IS the package, and the patch is exactly one run - pinning the
+    // size to it is what keeps a package boundary out of the middle of the
+    // strip.
+    if (stripPatch) {
+      b.bag->packageSize = (u32)patchVerts;
+      b.bag->stripped = true;
+    }
     // GS CLAMP on the slot texture, for the WALL copy below: its STs are the
     // silhouette projection evaluated per PIXEL (STQ), so there is no vertex
     // to clamp on the EE the way the flat patch does - and REPEAT would tile
@@ -11921,12 +12014,12 @@ void TerrainGame::setupProjShadows() {
     b.wallColorBag->single = &b.wallColor;
     b.wallTexBag = std::make_unique<StaPipTextureBag>();
     b.wallTexBag->texture = b.texBag->texture;
-    b.wallTexBag->coordinates = b.wallSts.data();
+    b.wallSts.bind(b.wallTexBag);
     b.wallBag = std::make_unique<StaPipBag>();
     b.wallBag->info = b.wallInfo.get();
     b.wallBag->color = b.wallColorBag.get();
     b.wallBag->texture = b.wallTexBag.get();
-    b.wallBag->vertices = b.wallVerts.data();
+    b.wallVerts.bind(b.wallBag);
     b.wallBag->count = 0;
   }
   // See setupLightBeams: the bags point INTO the vector elements, so they are
@@ -12880,7 +12973,7 @@ void TerrainGame::renderProjShadows() {
     // its underground part, a mesh's underground part flattens to a sliver
     // at floor level. Read the bag's own pointer, not part.vertices - a LOD
     // tier re-aims it.
-    static std::vector<Vec4> projClamp;
+    static BagArray<Vec4> projClamp;
     auto renderAtFloor = [&](StaPipBag* bag) {
       if (!bag || !bag->vertices || bag->count == 0) return;
       bool below = false;
@@ -12905,16 +12998,114 @@ void TerrainGame::renderProjShadows() {
         if (v.y < gy0) v.y = gy0;
       Vec4* const keepVerts = bag->vertices;
       const u32 keepStamp = bag->bboxVersion;
-      bag->vertices = projClamp.data();
+      // The bag is aimed at the shared clamp buffer for ONE render and put
+      // back afterwards, so its content stamp has to be saved and restored
+      // with its vertex pointer - bind() moves both, and leaving the stamp
+      // pointing at projClamp would make the caster's own array look like it
+      // changed on every shadow pass. (A raw `bag->vertices = ...` used to be
+      // written here; the BagArray type is what makes that impossible now, so
+      // the pairing is explicit instead of implied.)
+      const unsigned int* const keepContent = bag->contentVersion;
+      projClamp.bind(bag);
+      bag->count = static_cast<u32>(projClamp.size());
       bag->bboxVersion = ++g_bboxStamp;
       stapip.core.render(bag);
       bag->vertices = keepVerts;
+      bag->contentVersion = keepContent;
       bag->bboxVersion = keepStamp;
+    };
+    // Which bag a static part casts from (TYRA_CHEAP_PROJ_CASTER, above).
+    // The base bag is textured with per-vertex colours - 75 vertices a VU1
+    // package - and the shadow map reads neither attribute, only coverage.
+    // The silhouette bag is the same vertices through the single-colour
+    // untextured class at 150. It is re-aimed every submit because a LOD tier
+    // moves the base bag's pointer, and it is handed to renderAtFloor like
+    // any other bag, so the below-the-floor clamp rewrites ITS vertices and
+    // leaves the base bag alone.
+    //
+    // The animated branch is left exactly as it was: an animated part already
+    // carries a single colour (its material ambient), so the colour half wins
+    // nothing there, and the vehicles this was built for are static parts.
+    auto casterBag = [&](GeoPart& part) -> StaPipBag* {
+      StaPipBag* base = part.bag.get();
+#if TYRA_CHEAP_PROJ_CASTER
+      if (!base || !base->vertices || base->count == 0) return base;
+      // Re-judge only when the geometry was rebuilt. The swap is legal only
+      // if every vertex the base bag would have drawn has alpha 128: that is
+      // what pushVert writes for a model, but a mirror (opacity * 128) and a
+      // portal (70) do not, and those alphas ARE the coverage.
+      if (part.silJudgedStamp != part.baseStamp) {
+        part.silJudgedStamp = part.baseStamp;
+        part.silAlphaOk = false;
+        const StaPipColorBag* cb = base->color;
+        if (cb && cb->single) {
+          part.silAlphaOk = cb->single->a == 128.0F;
+        } else if (cb && cb->many) {
+          part.silAlphaOk = true;
+          for (u32 vi = 0; vi < base->count; ++vi)
+            if (cb->many[vi].a != 128.0F) {
+              part.silAlphaOk = false;
+              break;
+            }
+        }
+      }
+      if (!part.silAlphaOk) return base;
+      if (!part.silBag) {
+        part.silColorBag = std::make_unique<StaPipColorBag>();
+        part.silColorBag->single = &kProjSilhouetteColor;
+        part.silColorBag->many = nullptr;
+        part.silBag = std::make_unique<StaPipBag>();
+        part.silBag->texture = nullptr;
+        part.silBag->lighting = nullptr;
+        part.silBag->billboard = nullptr;
+        part.silBag->color = part.silColorBag.get();
+      }
+      part.silBag->info = base->info;
+      // MIRROR THE BASE BAG'S BINDING, rather than binding an array directly.
+      // `part.vertices.bind(part.silBag)` would be the ordinary way to aim a
+      // bag (it sets the pointer, the count and the content stamp together),
+      // and it would be WRONG here for the reason the clamp below states: a
+      // LOD tier re-aims the base bag at the tier's own array, so the array to
+      // follow is whichever one the base currently points at, not this part's
+      // tier-0 one. The three fields moved here are exactly the three
+      // BagArray::bindTo sets, kept together for the same reason it keeps
+      // them together - the content stamp belongs to the array, and a bag
+      // pointing at an array without its stamp is what the baked VIF stream
+      // cache would serve stale (docs/bag-content-version.md).
+      part.silBag->vertices = base->vertices;
+      part.silBag->count = base->count;
+      part.silBag->contentVersion = base->contentVersion;
+      part.silBag->bboxVersion = base->bboxVersion;
+      // THE PACKAGE SIZE IS NOT INHERITED, and that is the whole saving.
+      // pinPackageSize gives the base bag the MINIMUM size over itself and
+      // its coplanar companions - the reflective env pass, the AO pass, the
+      // emissive one - because those rasterize over the same pixels in the
+      // same frame buffer and a GEQUAL test cannot survive two passes that
+      // classify a triangle differently. A car body is reflective, so its
+      // base bag is pinned to the env pass's smaller size; copying that pin
+      // held the silhouette at the textured class's 75 and the arm moved
+      // nothing at all.
+      //
+      // The silhouette is coplanar with NOTHING. It rasterizes alone into a
+      // 64x64 slot target with its own z-buffer, cleared per caster, and no
+      // other pass ever draws there. So it asks for its own DERIVED size -
+      // 150 for the single-colour untextured class.
+      //
+      // The one thing it must still honour is a STRIPPED array: those runs
+      // are self-contained and a package boundary anywhere but a run boundary
+      // fuses two strips, so a stripped part keeps its run and wins only the
+      // class change, not the packing.
+      part.silBag->stripped = base->stripped;
+      part.silBag->packageSize = base->stripped ? base->packageSize : 0U;
+      return part.silBag.get();
+#else
+      return base;
+#endif
     };
     if (anim) {
       for (auto& ap : g.animParts) renderAtFloor(ap.bag.get());
     } else {
-      for (GeoPart& part : g.parts) renderAtFloor(part.bag.get());
+      for (GeoPart& part : g.parts) renderAtFloor(casterBag(part));
     }
     core.renderer3D.popEnvView(mainCam);
 
@@ -12985,10 +13176,11 @@ void TerrainGame::renderProjShadows() {
 
   // Receiver patches: centered and sized in the caster loop above, where the
   // light that threw each shadow was still in hand.
-  // 4x4 cells = 96 vertices - the same single-VU1-package size as the light
-  // pools, which never exhibited the multi-package drop the 5x5 (150-vert)
-  // patch showed on the pad walks.
-  constexpr int kCells = 4;
+  // 4x4 cells, which the 5x5 (150-vert) patch replaced after it showed a
+  // multi-package drop on the pad walks. Written out as a TRIANGLE STRIP when
+  // setupProjShadows could pin the package size to it - see kProjPatchCells
+  // there for the two shapes and why they are the same quads.
+  constexpr int kCells = kProjPatchCells;
   // Clip space -> slot texel. Tyra's projection does NOT normalize to +-1:
   // the visible frustum ends at |x|,|y| = w * size/4096, because VU1 scales
   // the divided vertex by a fixed 2048 (the same convention the portal
@@ -13126,9 +13318,9 @@ void TerrainGame::renderProjShadows() {
     b.wallSts.resize(b.wallVerts.size());
     if (b.wallVerts.empty()) break;
     b.wallColor.a = 55.0F * sfade[s];
-    b.wallBag->vertices = b.wallVerts.data();
+    b.wallVerts.bind(b.wallBag);
     b.wallBag->count = (u32)b.wallVerts.size();
-    b.wallTexBag->coordinates = b.wallSts.data();
+    b.wallSts.bind(b.wallTexBag);
     b.wallBag->bboxVersion = ++g_bboxStamp;
     stapip.core.render(b.wallBag.get());
     b.barren = 0;  // this slot is earning its keep
@@ -13164,48 +13356,93 @@ void TerrainGame::renderProjShadows() {
       return onGeometry ? baseY : terrainHeightAt(px, pz);
     };
 
+    // ONE emitter for both orders. The list and the strip must put bit-for-bit
+    // the same vertex at the same grid corner - that is what makes the strip a
+    // packing change and not a picture change - so the arithmetic lives here
+    // once and the two loops below only decide the ORDER corners are visited
+    // in. `gi`/`gk` are the grid indices, 0..kCells inclusive.
     int v = 0;
-    for (int iz = 0; iz < kCells; ++iz) {
-      for (int ix = 0; ix < kCells; ++ix) {
-        const float x0 = gx + ((float)ix / kCells - 0.5F) * 2.0F * half;
-        const float x1 = gx + ((float)(ix + 1) / kCells - 0.5F) * 2.0F * half;
-        const float z0 = gz + ((float)iz / kCells - 0.5F) * 2.0F * half;
-        const float z1 = gz + ((float)(iz + 1) / kCells - 0.5F) * 2.0F * half;
-        const Vec4 p00(x0, patchY(x0, z0) + 0.05F, z0, 1.0F);
-        const Vec4 p10(x1, patchY(x1, z0) + 0.05F, z0, 1.0F);
-        const Vec4 p11(x1, patchY(x1, z1) + 0.05F, z1, 1.0F);
-        const Vec4 p01(x0, patchY(x0, z1) + 0.05F, z1, 1.0F);
-        const Vec4 tp[6] = {p00, p10, p11, p00, p11, p01};
-        for (int k = 0; k < 6; ++k) {
-          // STs come from the TRUE surface point: the depth bias below must
-          // move the patch in z only, never slide the silhouette across it.
-          const Vec4 clip = lightVP[s] * tp[k];
-          float u = 0.0F, vv = 0.0F;
-          if (clip.w > 0.0001F) {
-            u = 0.5F + clip.x / clip.w * kUv;
-            vv = 0.5F + clip.y / clip.w * kUv;
-          }
-          // Clamp HERE, on the EE, not with the GS wrap mode: nothing in the
-          // 3D pipeline ever emits GS_REG_CLAMP (only the 2D path and the
-          // post-fx blits do), so the register holds whatever the last of
-          // those left and a texture's own wrap setting is silently ignored.
-          // The patch is sized in world units while these STs come out of the
-          // light's projection, so its outer ring lands well outside 0..1 -
-          // measured -0.38..1.39 - and sampled the silhouette a second time,
-          // which is the thin dark "corner" that survived at the patch edge.
-          // Clamping costs nothing: the light frustum is sized to leave the
-          // silhouette a ~22% transparent border, so the edge these vertices
-          // now sample is empty by construction. Only the outer ring of a 4x4
-          // patch moves, and it moves within that border.
-          if (u < 0.0F) u = 0.0F;
-          if (u > 1.0F) u = 1.0F;
-          if (vv < 0.0F) vv = 0.0F;
-          if (vv > 1.0F) vv = 1.0F;
-          b.sts[v + k] = Vec4(u, vv, 1.0F, 0.0F);
-          b.verts[v + k] = zBias(tp[k]);
-        }
-        v += 6;
+    auto corner = [&](int gi, int gk) {
+      const float px = gx + ((float)gi / kCells - 0.5F) * 2.0F * half;
+      const float pz = gz + ((float)gk / kCells - 0.5F) * 2.0F * half;
+      const Vec4 p(px, patchY(px, pz) + 0.05F, pz, 1.0F);
+      // STs come from the TRUE surface point: the depth bias below must
+      // move the patch in z only, never slide the silhouette across it.
+      const Vec4 clip = lightVP[s] * p;
+      float u = 0.0F, vv = 0.0F;
+      if (clip.w > 0.0001F) {
+        u = 0.5F + clip.x / clip.w * kUv;
+        vv = 0.5F + clip.y / clip.w * kUv;
       }
+      // Clamp HERE, on the EE, not with the GS wrap mode: nothing in the
+      // 3D pipeline ever emits GS_REG_CLAMP (only the 2D path and the
+      // post-fx blits do), so the register holds whatever the last of
+      // those left and a texture's own wrap setting is silently ignored.
+      // The patch is sized in world units while these STs come out of the
+      // light's projection, so its outer ring lands well outside 0..1 -
+      // measured -0.38..1.39 - and sampled the silhouette a second time,
+      // which is the thin dark "corner" that survived at the patch edge.
+      // Clamping costs nothing: the light frustum is sized to leave the
+      // silhouette a ~22% transparent border, so the edge these vertices
+      // now sample is empty by construction. Only the outer ring of a 4x4
+      // patch moves, and it moves within that border.
+      if (u < 0.0F) u = 0.0F;
+      if (u > 1.0F) u = 1.0F;
+      if (vv < 0.0F) vv = 0.0F;
+      if (vv > 1.0F) vv = 1.0F;
+      b.sts[v] = Vec4(u, vv, 1.0F, 0.0F);
+      b.verts[v] = zBias(p);
+      ++v;
+    };
+    if (b.bag->stripped) {
+      // One strip per ROW of cells: the corners alternate across z, so each
+      // pair adds a cell. Rows are joined by repeating the row's last corner
+      // and the next row's first - four degenerate triangles the GS
+      // rasterises to nothing - and the tail is padded with the last vertex
+      // to the multiple of 3 the VU1 vertex loops step by.
+      //
+      // THE FAR CORNER COMES FIRST IN EACH PAIR, and that is not a style
+      // choice: it is what keeps the cell's diagonal where the triangle list
+      // put it. A strip's shared edge is its trailing pair, so emitting
+      // (near, far) splits every cell along p01-p10 while the list splits it
+      // along p00-p11. On a FLAT quad the two are the same picture; over
+      // TERRAIN they are not, because the four corners are then at four
+      // heights and two triangulations of a warped quad are two different
+      // surfaces, with two different interpolations of the STs across them.
+      //
+      // No capture in this repo has caught it, and that is the point rather
+      // than a reason to relax: the patch goes FLAT the moment it lands on
+      // geometry (see patchY), so the pose that would show it is a caster on
+      // open, sloping ground. Written down in docs/model-pipeline.md, "A
+      // hand-written grid strip flips the quad diagonal", because roads and
+      // terrain lay their strips out by hand too.
+      for (int iz = 0; iz < kCells; ++iz) {
+        if (iz != 0) {
+          b.verts[v] = b.verts[v - 1];
+          b.sts[v] = b.sts[v - 1];
+          ++v;
+          corner(0, iz + 1);
+        }
+        for (int ix = 0; ix <= kCells; ++ix) {
+          corner(ix, iz + 1);
+          corner(ix, iz);
+        }
+      }
+      while (v < (int)b.verts.size()) {
+        b.verts[v] = b.verts[v - 1];
+        b.sts[v] = b.sts[v - 1];
+        ++v;
+      }
+    } else {
+      for (int iz = 0; iz < kCells; ++iz)
+        for (int ix = 0; ix < kCells; ++ix) {
+          corner(ix, iz);
+          corner(ix + 1, iz);
+          corner(ix + 1, iz + 1);
+          corner(ix, iz);
+          corner(ix + 1, iz + 1);
+          corner(ix, iz + 1);
+        }
     }
     // sfade = the distance fade; the day/night factor is the twilight handover
     // (see updateAndRenderBlobShadows and ambience::Resolved::shadowFade).
@@ -13595,8 +13832,8 @@ void TerrainGame::renderCollisionBoxes() {
     collisionBoxBag->lighting = nullptr;
     collisionBoxBag->texture = nullptr;
   }
-  collisionBoxColorBag->many = collisionBoxCols.data();
-  collisionBoxBag->vertices = collisionBoxVerts.data();
+  collisionBoxCols.bind(collisionBoxColorBag);
+  collisionBoxVerts.bind(collisionBoxBag);
   collisionBoxBag->count = static_cast<u32>(collisionBoxVerts.size());
   collisionBoxBag->bboxVersion = ++g_bboxStamp;
   stapip.core.render(collisionBoxBag.get());
@@ -14279,11 +14516,11 @@ void TerrainGame::buildSkyDome() {
   // widest proxy of an `fpp` frame was the top 106 rows of the screen.
   skyDome.infoBag->blssProxy = false;
   skyDome.colorBag = std::make_unique<StaPipColorBag>();
-  skyDome.colorBag->many = skyDome.colors.data();
+  skyDome.colors.bind(skyDome.colorBag);
   skyDome.bag = std::make_unique<StaPipBag>();
   skyDome.bag->info = skyDome.infoBag.get();
   skyDome.bag->color = skyDome.colorBag.get();
-  skyDome.bag->vertices = skyDome.vertices.data();
+  skyDome.vertices.bind(skyDome.bag);
   skyDome.bag->count = static_cast<u32>(skyDome.vertices.size());
   skyDome.bag->texture = nullptr;
   skyDome.bag->lighting = nullptr;
@@ -14706,8 +14943,8 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     // rather than at bag creation because the mode is a run-time switch.
     part.infoBag->fullClipChecks =
         !vuscript::movesGeometry() || vuprog::vu1Clipping();
-    part.colorBag->many = part.colors.data();
-    part.bag->vertices = part.vertices.data();
+    part.colors.bind(part.colorBag);
+    part.vertices.bind(part.bag);
     part.bag->count = static_cast<u32>(part.vertices.size());
     part.baseStamp = ++g_bboxStamp;         // geometry changed - fresh boxes
     part.bag->bboxVersion = part.baseStamp;
@@ -14761,7 +14998,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     if (tex) {
       if (!part.texBag) part.texBag = std::make_unique<StaPipTextureBag>();
       part.texBag->texture = tex;
-      part.texBag->coordinates = part.sts.data();
+      part.sts.bind(part.texBag);
       part.bag->texture = part.texBag.get();
     } else {
       part.bag->texture = nullptr;
@@ -14810,7 +15047,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       const float fix = envStr * 128.0F + 0.5F;
       part.envInfoBag->additiveBlendFix =
           fix > 255.0F ? 255 : (fix < 1.0F ? 1 : (u8)fix);
-      part.envColorBag->many = part.envColors.data();
+      part.envColors.bind(part.envColorBag);
       part.envTexBag->texture = envTex;
       // "-rounded" materials: overwrite the captured face normals with
       // directions radiating from the part centroid - a flat face then
@@ -14843,9 +15080,9 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       // The normals ride in the ST slot and the TCE programs (cull/as_is/
       // clip) compute the matcap ST from the per-mesh camera basis - zero
       // EE per-vertex work, no pipeline barriers, in both clipping modes.
-      part.envTexBag->coordinates = part.envNormals.data();
+      part.envNormals.bind(part.envTexBag);
       part.envTexBag->coordinatesAreNormals = true;
-      part.envBag->vertices = part.vertices.data();
+      part.vertices.bind(part.envBag);
       part.envBag->count = static_cast<u32>(part.vertices.size());
       part.envBag->bboxVersion = part.bag->bboxVersion;
     } else {
@@ -14878,10 +15115,10 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
         part.aoBag->texture = part.aoTexBag.get();
         part.aoBag->lighting = nullptr;
       }
-      part.aoColorBag->many = part.aoCols.data();
+      part.aoCols.bind(part.aoColorBag);
       part.aoTexBag->texture = aoAtlasTexture;
-      part.aoTexBag->coordinates = part.aoSts.data();
-      part.aoBag->vertices = part.vertices.data();
+      part.aoSts.bind(part.aoTexBag);
+      part.vertices.bind(part.aoBag);
       part.aoBag->count = static_cast<u32>(part.vertices.size());
       part.aoBag->bboxVersion = part.bag->bboxVersion;
     } else {
@@ -14902,10 +15139,10 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
         part.emisBag->texture = part.emisTexBag.get();
         part.emisBag->lighting = nullptr;
       }
-      part.emisColorBag->many = part.emisCols.data();
+      part.emisCols.bind(part.emisColorBag);
       part.emisTexBag->texture = aoAtlasTexture;
-      part.emisTexBag->coordinates = part.aoSts.data();
-      part.emisBag->vertices = part.vertices.data();
+      part.aoSts.bind(part.emisTexBag);
+      part.vertices.bind(part.emisBag);
       part.emisBag->count = static_cast<u32>(part.vertices.size());
       part.emisBag->bboxVersion = part.bag->bboxVersion;
     } else {
@@ -14944,7 +15181,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       // the object comes out dark and hard-banded (it did).
       part.infoBag->shadingType = TyraShadingGouraud;
       part.litBag->lightMatrix = part.infoBag->model;
-      part.litBag->normals = part.litNormals.data();
+      part.litNormals.bind(part.litBag);
       part.litLights->setLightsManually(part.litColors, part.litDirs);
       part.litBag->dirLights = part.litLights.get();
       part.bag->color = part.litColorBag.get();
@@ -15052,19 +15289,19 @@ void TerrainGame::applyGeoLod(int index, int pi, int lod) {
   if (lod == part.shownLod) return;
 
   if (lod == 0) {
-    part.colorBag->many = part.colors.data();
-    part.bag->vertices = part.vertices.data();
+    part.colors.bind(part.colorBag);
+    part.vertices.bind(part.bag);
     part.bag->count = static_cast<u32>(part.vertices.size());
     part.bag->bboxVersion = part.baseStamp;
     // Tier 0 is the only one the bake strips (docs/model-pipeline.md), so the
     // topology flag moves with the pointer. packageSize stays pinned either
     // way: the run length is legal for a list too, just slightly smaller.
     part.bag->stripped = part.stripRun != 0;
-    if (part.texBag) part.texBag->coordinates = part.sts.data();
+    if (part.texBag) part.sts.bind(part.texBag);
     if (part.envBag) {
-      part.envColorBag->many = part.envColors.data();
-      part.envTexBag->coordinates = part.envNormals.data();
-      part.envBag->vertices = part.vertices.data();
+      part.envColors.bind(part.envColorBag);
+      part.envNormals.bind(part.envTexBag);
+      part.vertices.bind(part.envBag);
       part.envBag->count = part.bag->count;
       part.envBag->bboxVersion = part.baseStamp;
       part.envBag->stripped = part.bag->stripped;
@@ -15128,15 +15365,15 @@ void TerrainGame::applyGeoLod(int index, int pi, int lod) {
       }
       tier.stamp = ++g_bboxStamp;
     }
-    part.colorBag->many = tier.colors.data();
-    part.bag->vertices = tier.vertices.data();
+    tier.colors.bind(part.colorBag);
+    tier.vertices.bind(part.bag);
     part.bag->count = static_cast<u32>(tier.vertices.size());
     part.bag->bboxVersion = tier.stamp;
-    if (part.texBag) part.texBag->coordinates = tier.sts.data();
+    if (part.texBag) tier.sts.bind(part.texBag);
     if (part.envBag) {
-      part.envColorBag->many = tier.envColors.data();
-      part.envTexBag->coordinates = tier.envNormals.data();
-      part.envBag->vertices = tier.vertices.data();
+      tier.envColors.bind(part.envColorBag);
+      tier.envNormals.bind(part.envTexBag);
+      tier.vertices.bind(part.envBag);
       part.envBag->count = part.bag->count;
       part.envBag->bboxVersion = tier.stamp;
     }
@@ -15621,14 +15858,14 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
     b.bag->texture = nullptr;
     b.bag->lighting = nullptr;
   }
-  b.colorBag->many = b.colors.data();
-  b.bag->vertices = b.vertices.data();
+  b.colors.bind(b.colorBag);
+  b.vertices.bind(b.bag);
   b.bag->count = static_cast<u32>(b.vertices.size());
   b.bag->bboxVersion = ++g_bboxStamp;  // geometry changed - fresh boxes
   if (b.texture) {
     if (!b.texBag) b.texBag = std::make_unique<StaPipTextureBag>();
     b.texBag->texture = b.texture;
-    b.texBag->coordinates = b.sts.data();
+    b.sts.bind(b.texBag);
     b.bag->texture = b.texBag.get();
   } else {
     b.bag->texture = nullptr;
@@ -16032,8 +16269,8 @@ void TerrainGame::procFinishChunks() {
     // Re-stated every pass, not only on creation: a regeneration reuses the
     // chunk, and a world whose blocks moved may have gained or lost the AO.
     c.bag->info = c.smooth ? procSmoothInfoBag.get() : batchInfoBag.get();
-    c.colorBag->many = c.colors.data();
-    c.bag->vertices = c.vertices.data();
+    c.colors.bind(c.colorBag);
+    c.vertices.bind(c.bag);
     c.bag->count = static_cast<u32>(c.vertices.size());
     // Triangle strips (docs/model-pipeline.md). A stripped chunk's array is
     // already chopped into self-contained runs, so the package size is PINNED
@@ -16056,7 +16293,7 @@ void TerrainGame::procFinishChunks() {
     if (tex) {
       if (!c.texBag) c.texBag = std::make_unique<StaPipTextureBag>();
       c.texBag->texture = const_cast<Tyra::Texture*>(tex);
-      c.texBag->coordinates = c.sts.data();
+      c.sts.bind(c.texBag);
       c.bag->texture = c.texBag.get();
     } else {
       c.bag->texture = nullptr;
@@ -16123,18 +16360,18 @@ void TerrainGame::renderVehicleSmoke() {
     // translucent smoke must not carve holes into anything drawn after it.
     smokeInfoBag_->zTestType = PipelineZTest_TestOnly;
     smokeColorBag_ = std::make_unique<StaPipColorBag>();
-    smokeColorBag_->many = smokeCols_;
+    smokeCols_.bind(smokeColorBag_);
     smokeBillboardBag_ = std::make_unique<StaPipBillboardBag>();
     smokeTexBag_ = std::make_unique<StaPipTextureBag>();
     smokeTexBag_->texture = nullptr;  // untextured puffs; the weights channel
-    smokeTexBag_->coordinates = smokeParams_;
+    smokeParams_.bind(smokeTexBag_);
     smokeBag_ = std::make_unique<StaPipBag>();
     smokeBag_->info = smokeInfoBag_.get();
     smokeBag_->color = smokeColorBag_.get();
     smokeBag_->lighting = nullptr;
     smokeBag_->billboard = smokeBillboardBag_.get();
     smokeBag_->texture = smokeTexBag_.get();
-    smokeBag_->vertices = smokePos_;
+    smokePos_.bind(smokeBag_);
   }
   // Camera-plane basis, the particle pass's own arithmetic.
   Vec4 fwd = cameraLookAt - cameraPosition;
@@ -16192,7 +16429,7 @@ void TerrainGame::updateVehicleSkids(float dt) {
       const int q = skidNext_;
       skidNext_ = (skidNext_ + 1) % kVehSkidMax;
       skidLife_[q] = 6.0F;
-      Tyra::Vec4* qv = &skidVerts_[q * 6];
+      auto qv = skidVerts_.span(q * 6, 6);
       qv[0].set(ax - rx - fx, ay, az - rz - fz, 1.0F);
       qv[1].set(ax + rx - fx, ay, az + rz - fz, 1.0F);
       qv[2].set(ax + rx + fx, ay, az + rz + fz, 1.0F);
@@ -16223,13 +16460,13 @@ void TerrainGame::renderVehicleSkids() {
     skidInfoBag_->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
     skidInfoBag_->zTestType = PipelineZTest_TestOnly;
     skidColorBag_ = std::make_unique<StaPipColorBag>();
-    skidColorBag_->many = skidCols_;
+    skidCols_.bind(skidColorBag_);
     skidBag_ = std::make_unique<StaPipBag>();
     skidBag_->info = skidInfoBag_.get();
     skidBag_->color = skidColorBag_.get();
     skidBag_->lighting = nullptr;
     skidBag_->texture = nullptr;
-    skidBag_->vertices = skidVerts_;
+    skidVerts_.bind(skidBag_);
   }
   skidBag_->count = (u32)(kVehSkidMax * 6);
   if (skidDirty_) {
@@ -16297,8 +16534,8 @@ void TerrainGame::renderVehicleGlow() {
       const float nw = 0.55F * s.track * SC, fw = 1.1F * s.track * SC;
       const float rxn = cy * nw, rzn = -sy * nw;
       const float rxf = cy * fw, rzf = -sy * fw;
-      Tyra::Vec4* g = &glowVerts_[glowCount_ * 6];
-      Tyra::Color* c = &glowCols_[glowCount_ * 6];
+      auto g = glowVerts_.span(glowCount_ * 6, 6);
+      auto c = glowCols_.span(glowCount_ * 6, 6);
       const float e = 0.06F;
       g[0].set(nx - rxn, terrainHeightAt(nx - rxn, nz - rzn) + e, nz - rzn, 1.0F);
       g[1].set(nx + rxn, terrainHeightAt(nx + rxn, nz + rzn) + e, nz + rzn, 1.0F);
@@ -16341,8 +16578,8 @@ void TerrainGame::renderVehicleGlow() {
         const float by = v.pos[1] +
                          (measured ? s.lampRear[1] * SC : 0.10F * SC);
         const float rx = rxu * hw, rz = rzu * hw;
-        Tyra::Vec4* g = &glowVerts_[glowCount_ * 6];
-        Tyra::Color* c = &glowCols_[glowCount_ * 6];
+        auto g = glowVerts_.span(glowCount_ * 6, 6);
+        auto c = glowCols_.span(glowCount_ * 6, 6);
         g[0].set(bx - rx, by - hh, bz - rz, 1.0F);
         g[1].set(bx + rx, by - hh, bz + rz, 1.0F);
         g[2].set(bx + rx, by + hh, bz + rz, 1.0F);
@@ -16357,8 +16594,8 @@ void TerrainGame::renderVehicleGlow() {
         // the pool never hit this because it lies flat. The probe said
         // "3 quads submitted" while the screen said "no lights"; this is
         // what the difference was.
-        Tyra::Vec4* g2 = &glowVerts_[glowCount_ * 6];
-        Tyra::Color* c2 = &glowCols_[glowCount_ * 6];
+        auto g2 = glowVerts_.span(glowCount_ * 6, 6);
+        auto c2 = glowCols_.span(glowCount_ * 6, 6);
         for (int j = 0; j < 6; ++j) {
           g2[j] = g[5 - j];
           c2[j] = red;
@@ -16373,8 +16610,8 @@ void TerrainGame::renderVehicleGlow() {
       const float by = v.pos[1] - 0.02F;
       const float hw = 0.22F * SC * (0.6F + 0.4F * k), hh = 0.18F * SC;
       const float rx = cy * hw, rz = -sy * hw;
-      Tyra::Vec4* g = &glowVerts_[glowCount_ * 6];
-      Tyra::Color* c = &glowCols_[glowCount_ * 6];
+      auto g = glowVerts_.span(glowCount_ * 6, 6);
+      auto c = glowCols_.span(glowCount_ * 6, 6);
       g[0].set(bx - rx, by - hh, bz - rz, 1.0F);
       g[1].set(bx + rx, by - hh, bz + rz, 1.0F);
       g[2].set(bx + rx, by + hh, bz + rz, 1.0F);
@@ -16385,8 +16622,8 @@ void TerrainGame::renderVehicleGlow() {
       for (int j = 0; j < 6; ++j) c[j] = fire;
       ++glowCount_;
       if (glowCount_ < kVehGlowMax) {
-        Tyra::Vec4* g2 = &glowVerts_[glowCount_ * 6];
-        Tyra::Color* c2 = &glowCols_[glowCount_ * 6];
+        auto g2 = glowVerts_.span(glowCount_ * 6, 6);
+        auto c2 = glowCols_.span(glowCount_ * 6, 6);
         for (int j = 0; j < 6; ++j) {
           g2[j] = g[5 - j];
           c2[j] = fire;
@@ -16408,13 +16645,13 @@ void TerrainGame::renderVehicleGlow() {
     // could not see, and a light that only a telemetry line can observe is
     // not a light. Alpha gradients do the falloff instead.
     glowColorBag_ = std::make_unique<StaPipColorBag>();
-    glowColorBag_->many = glowCols_;
+    glowCols_.bind(glowColorBag_);
     glowBag_ = std::make_unique<StaPipBag>();
     glowBag_->info = glowInfoBag_.get();
     glowBag_->color = glowColorBag_.get();
     glowBag_->lighting = nullptr;
     glowBag_->texture = nullptr;
-    glowBag_->vertices = glowVerts_;
+    glowVerts_.bind(glowBag_);
   }
   glowBag_->count = (u32)(glowCount_ * 6);
   glowBag_->bboxVersion = ++g_bboxStamp;  // it moves with the cars
@@ -16481,6 +16718,17 @@ static float vehShiftDownFrac(const VehicleDefData& s) {
 void TerrainGame::setupVehicles(int scene) {
   vehicleCount_ = 0;
   vehicleDriver_ = -1;
+  // Every fixed-capacity vehicle effect writes before its lazy render bag is
+  // guaranteed to exist: smoke clears dead slots, skids may spawn from the
+  // first physics step, and glow builds lit lamps before checking glowBag_.
+  // Size all backing arrays here so none can index/span an empty vector.
+  smokePos_.resize(kVehSmokeMax);
+  smokeParams_.resize(kVehSmokeMax);
+  smokeCols_.resize(kVehSmokeMax);
+  skidVerts_.resize(kVehSkidMax * 6);
+  skidCols_.resize(kVehSkidMax * 6);
+  glowVerts_.resize(kVehGlowMax * 6);
+  glowCols_.resize(kVehGlowMax * 6);
   // Source parts are resident only for this scene. Drop every pointer-derived
   // run/radius now, before loadModelAsset can replace or free its vectors.
   wheelBatches_.clear();
@@ -18121,6 +18369,14 @@ int TerrainGame::vehicleLod(int vi) const {
 #ifndef TYRA_WHEEL_STICKY_BBOX
 #define TYRA_WHEEL_STICKY_BBOX 1
 #endif
+// THE A/B KNOB FOR THE STRIP. 0 restores the triangle LIST this batch used to
+// concatenate, so one editor and one generated source produce both arms of the
+// packing measurement and no second baker can go stale between them. The bake
+// side is unconditional - the .tmdl carries the strip either way - so flipping
+// this moves the vertex ORDER and nothing else.
+#ifndef TYRA_STRIP_WHEELS
+#define TYRA_STRIP_WHEELS 1
+#endif
 #if TYRA_WHEEL_REBUILD_VERIFY && !TYRA_WHEEL_REBUILD_REPORT
 #undef TYRA_WHEEL_REBUILD_REPORT
 #define TYRA_WHEEL_REBUILD_REPORT 1
@@ -18153,6 +18409,11 @@ void TerrainGame::renderVehicleWheels() {
   // it at all. `changed` stays false only if every byte of the buffer is the
   // byte it held last frame.
   const GameModelPart* src = nullptr;
+  // The array the four wheels are baked FROM, and the run it is chopped into.
+  // See the strip block below; `srcRun` 0 means this batch is a triangle list.
+  const std::vector<float>* srcGeo = nullptr;
+  unsigned int srcReal = 0;
+  unsigned int srcRun = 0;
   int slot = 0;
   bool changed = false;
   for (int vi = 0; vi < vehicleCount_; ++vi) {
@@ -18220,7 +18481,33 @@ void TerrainGame::renderVehicleWheels() {
       if (outsideSplitBand(bmn, bmx)) continue;
     }
     src = &part;
-    const u32 nv = (u32)(part.verts.size() / 8);
+    // TRIANGLE STRIPS (docs/vehicles.md, "The wheel batch is a strip", and
+    // docs/model-pipeline.md). vehbake writes the wheel's strip into the .tmdl
+    // on a weld that IGNORES NORMALS, which is legal for exactly this bag and
+    // for no other: it carries no lighting bag and one flat modulate-identity
+    // colour, so position and UV are the whole of its vertex. The engine is
+    // asked rather than trusted - a run longer than any program class derives
+    // would let StaPipCore's clamp move the package boundaries off the run
+    // boundaries - and the list is still right, so the guard simply picks it.
+    //
+    // THE PER-WHEEL BLOCK IS ROUNDED UP TO A WHOLE NUMBER OF RUNS. A VU1
+    // package is a contiguous slice of this bag's array and the bag
+    // concatenates four wheels per car, so a block that ended mid-run would
+    // put a package boundary inside the NEXT wheel's run and splice two wheels
+    // into one triangle - a tyre-wide spike across the car. The padding
+    // repeats the strip's last vertex; the transform is per vertex, so a
+    // repeat stays a repeat and the GS rasterises the degenerate triangle to
+    // nothing. It costs 30 vertices of 750 on the district's largest wheel.
+    const bool useStrip = TYRA_STRIP_WHEELS && part.stripRun != 0 &&
+                          !part.stripVerts.empty() &&
+                          part.stripRun <= minPackageSize();
+    const std::vector<float>& geo = useStrip ? part.stripVerts : part.verts;
+    const u32 run = useStrip ? part.stripRun : 0u;
+    const u32 real = (u32)(geo.size() / 8);  // vertices that carry geometry
+    const u32 nv = run ? ((real + run - 1) / run) * run : real;
+    srcGeo = &geo;
+    srcReal = real;
+    srcRun = run;
     const u32 vpc = nv * 4;
     // Every car in this batch reads the same definition, so this can only
     // fire on the frame the wheel model itself changed, at slot 0.
@@ -18254,7 +18541,7 @@ void TerrainGame::renderVehicleWheels() {
                           v.wheelSpin,
                           SC};
     bool sameRig = sl.valid && sl.vehicle == vi &&
-                   sl.srcVerts == (const void*)part.verts.data();
+                   sl.srcVerts == (const void*)geo.data();
     if (sameRig)
       for (int k = 0; k < 9; ++k)
         if (sl.sig[k] != sig[k]) { sameRig = false; break; }
@@ -18347,9 +18634,10 @@ void TerrainGame::renderVehicleWheels() {
         // Straight into the slot. The old shape cleared the vector and
         // push_back'd every vertex, which paid a capacity test and a size
         // bump per vertex for a buffer whose length it already knew.
-        Tyra::Vec4* out = &batch.verts[base + (size_t)w * (size_t)nv];
+        auto out = batch.verts.span(base + (size_t)w * (size_t)nv, nv);
         for (u32 i = 0; i < nv; ++i) {
-          const float* q = &part.verts[(size_t)i * 8];
+          // Past `real` this is the run padding: the last vertex again.
+          const float* q = &geo[(size_t)(i < real ? i : real - 1) * 8];
           out[i] = Tyra::Vec4(
               ax + mx3.x * q[0] + my3.x * q[1] + mz3.x * q[2],
               ay + mx3.y * q[0] + my3.y * q[1] + mz3.y * q[2],
@@ -18358,7 +18646,7 @@ void TerrainGame::renderVehicleWheels() {
       }
       for (int k = 0; k < 9; ++k) sl.sig[k] = sig[k];
       for (int w = 0; w < 4; ++w) sl.wy[w] = v.wheelY[w];
-      sl.srcVerts = (const void*)part.verts.data();
+      sl.srcVerts = (const void*)geo.data();
       sl.vehicle = vi;
       sl.valid = 1;
     }
@@ -18403,10 +18691,16 @@ void TerrainGame::renderVehicleWheels() {
         const V3 bx = rotated({cs * SC, 0.0F, -ss * SC}, bodyRot);
         const V3 by = rotated({spn * ss * SC, cp * SC, spn * cs * SC}, bodyRot);
         const V3 bz = rotated({cp * ss * SC, -spn * SC, cp * cs * SC}, bodyRot);
+        // A pure READ, so it goes through the const data() rather than through
+        // operator[] - taking a mutable reference here would stamp the array
+        // and make the oracle itself look like a content change.
         const Tyra::Vec4* live =
-            &batch.verts[base + (size_t)w * (size_t)nv];
+            batch.verts.data() + base + (size_t)w * (size_t)nv;
         for (u32 i = 0; i < nv; ++i) {
-          const float* q = &part.verts[(size_t)i * 8];
+          // The same array and the same padding rule the shipped path walks -
+          // the oracle checks the ARITHMETIC, not which order the vertices
+          // come in - but everything below it is still independent code.
+          const float* q = &geo[(size_t)(i < real ? i : real - 1) * 8];
           const Tyra::Vec4 want(ax + bx.x * q[0] + by.x * q[1] + bz.x * q[2],
                                 ay + bx.y * q[0] + by.y * q[1] + bz.y * q[2],
                                 az + bx.z * q[0] + by.z * q[1] + bz.z * q[2]);
@@ -18436,7 +18730,11 @@ void TerrainGame::renderVehicleWheels() {
   while (batch.staticCars < cars) {
     for (int w = 0; w < 4; ++w)
       for (u32 i = 0; i < vertsPerCar / 4; ++i) {
-        const float* q = &src->verts[(size_t)i * 8];
+        // Padding again: a repeated vertex needs its ST repeated with it, or
+        // the degenerate triangle would sample somewhere else - harmless while
+        // it has no area, but the two arrays must stay the same length.
+        const float* q =
+            &(*srcGeo)[(size_t)(i < srcReal ? i : srcReal - 1) * 8];
         // Flat mid grey: the wheel's colour comes from its palette TEXEL,
         // and 128 is the modulate identity the textured path expects.
         batch.cols.push_back(Tyra::Color(128.0F, 128.0F, 128.0F, 128.0F));
@@ -18451,9 +18749,15 @@ void TerrainGame::renderVehicleWheels() {
     wheelBag_->lighting = nullptr;
   }
   wheelBag_->info = batchInfoBag.get();
-  wheelColorBag_->many = batch.cols.data();
-  wheelBag_->vertices = batch.verts.data();
+  batch.cols.bind(wheelColorBag_);
+  batch.verts.bind(wheelBag_);
   wheelBag_->count = static_cast<u32>(batch.verts.size());
+  // The runs ARE the packages. Every per-wheel block is a whole number of
+  // runs, so pinning the package size to the run means no package boundary can
+  // fall inside a run or across two wheels. 0 asks for the derived size, which
+  // is what a triangle-list batch wants.
+  wheelBag_->stripped = srcRun != 0;
+  wheelBag_->packageSize = srcRun;
   // THE STAMP IS STICKY. bboxVersion says "this vertex buffer holds different
   // numbers than it did"; bumping it unconditionally made that a lie on every
   // frame a car did not move, and it cost twice - the package-bbox cache
@@ -18484,7 +18788,7 @@ void TerrainGame::renderVehicleWheels() {
   if (src->texture && batch.sts.size() >= batch.verts.size()) {
     if (!wheelTexBag_) wheelTexBag_ = std::make_unique<Tyra::StaPipTextureBag>();
     wheelTexBag_->texture = const_cast<Tyra::Texture*>(src->texture);
-    wheelTexBag_->coordinates = batch.sts.data();
+    batch.sts.bind(wheelTexBag_);
     wheelBag_->texture = wheelTexBag_.get();
   } else {
     wheelBag_->texture = nullptr;
@@ -20438,11 +20742,22 @@ void TerrainGame::renderScene() {
     // authored Body shine. ~1100 vertices of a few flops each - the same
     // order as the wheel rebuild the docs already price at microseconds.
     //
-    // Three rules from the fields underneath: write through envColorBag->many
-    // (the LOD tiers re-aim it), NEVER bump bboxVersion (the env bag shares
-    // the base pass's cache entry), and keep alpha >= 1 - the GS alpha test
-    // is NOTEQUAL 0, and a specular of zero would erase the reflection with
-    // it.
+    // Three rules from the fields underneath: write through the BagArray the
+    // env colour bag is currently aimed at (the LOD tiers re-aim it, so the
+    // tier has to be selected rather than assumed), NEVER bump bboxVersion
+    // (the env bag shares the base pass's cache entry - what invalidates the
+    // baked block is the array's own CONTENT stamp, which the write below
+    // moves by itself), and keep alpha >= 1 - the GS alpha test is NOTEQUAL 0,
+    // and a specular of zero would erase the reflection with it.
+    //
+    // THIS LOOP IS WHY THE CONTENT STAMP EXISTS, and it is the one the
+    // adversarial verify arm caught twice. It rewrites every vertex colour of
+    // a visible mesh EVERY FRAME from the camera, so the baked VIF stream's
+    // inlined payload goes stale the moment the car or the camera moves - and
+    // nothing in the old key could see it, because `bboxVersion` is a
+    // statement about the bounding box and these are colours. It used to
+    // `const_cast` the bag's own `many` pointer, which bypassed the array
+    // altogether; going through the BagArray is what makes the stamp move.
     const int paint = vehiclePaintFor(objectIndex);
     if (paint && part.envTexBag->coordinates && part.envColorBag->many) {
       part.envTexBag->textureFunction = 3;  // TEXTURE_FUNCTION_HIGHLIGHT2
@@ -20460,9 +20775,19 @@ void TerrainGame::renderScene() {
         hL.y /= hl;
         hL.z /= hl;
       }
-      Tyra::Color* dst = const_cast<Tyra::Color*>(part.envColorBag->many);
+      // The tier the bags currently point at - applyGeoLod re-aims
+      // envColorBag at part.envColors (tier 0) or at a tier's own array, and
+      // `shownLod` is the field it keeps in step with that.
+      BagArray<Tyra::Color>& dstArr =
+          (part.shownLod == 0 || (int)part.lods.size() < part.shownLod)
+              ? part.envColors
+              : part.lods[part.shownLod - 1].envColors;
       const Tyra::Vec4* nrm = part.envTexBag->coordinates;
-      const u32 n = part.envBag->count;
+      u32 n = part.envBag->count;
+      if (n > (u32)dstArr.size()) n = (u32)dstArr.size();
+      // One span for the whole run: it stamps ONCE, where a per-element
+      // operator[] would stamp 1 100 times for the same answer.
+      auto dst = dstArr.span(0, n);
       for (u32 k = 0; k < n; ++k) {
         const float df = nrm[k].x * fwdL.x + nrm[k].y * fwdL.y + nrm[k].z * fwdL.z;
         // 0.3 floor: pure fresnel dims the whole reflection (it is < 1
@@ -21894,19 +22219,19 @@ bool TerrainGame::renderOnePortalView(int pi) {
     // is merely unnecessary).
     cache.bag.stripped = false;
     cache.bag.packageSize = 0;
-    cache.bag.vertices = vertices.data();
+    vertices.bind(&cache.bag);
     cache.bag.count = (u32)vertices.size();
     cache.bag.bboxVersion = cache.stamp;
     cache.bag.color = &cache.color;
-    if (many) cache.color.many = colors.data();
+    if (many) colors.bind(&cache.color);
     if (textured) {
       cache.texture = *source.texture;
-      cache.texture.coordinates = sts.data();
+      sts.bind(&cache.texture);
       cache.bag.texture = &cache.texture;
     }
     if (lit) {
       cache.lighting = *source.lighting;
-      cache.lighting.normals = normals.data();
+      normals.bind(&cache.lighting);
       cache.bag.lighting = &cache.lighting;
     }
     stapip.core.render(&cache.bag);
@@ -22795,7 +23120,7 @@ void TerrainGame::renderHighlightHull(int index) {
     // One submit per shell over the proxy positions; the package boxes live
     // in their own cache slot (keyed by the proxy pointer) and recompute
     // only when the proxy rebuilds - never per frame.
-    hullBag->vertices = g.hullProxyVerts.data();
+    g.hullProxyVerts.bind(hullBag);
     hullBag->count = static_cast<u32>(g.hullProxyVerts.size());
     hullBag->bboxVersion = g.hullProxyStamp;
     stapip.core.render(hullBag.get());
@@ -22824,8 +23149,8 @@ void TerrainGame::renderHighlightHull(int index) {
         apronBag->texture = nullptr;
         apronBag->lighting = nullptr;
       }
-      apronColorBag->many = g.apronCols.data();
-      apronBag->vertices = g.apronVerts.data();
+      g.apronCols.bind(apronColorBag);
+      g.apronVerts.bind(apronBag);
       apronBag->count = static_cast<u32>(g.apronVerts.size());
       apronBag->bboxVersion = g.apronStamp;
       stapip.core.render(apronBag.get());
@@ -22953,7 +23278,7 @@ void TerrainGame::renderOutlineShells() {
     // be dark grey. It has to be zeroed after the quantise, on VU1.
     stapip.core.setVuParams(1.0F, 0.0F, 0.0F, 0.0F);
     outlineColorBag->single = &outlineCol;
-    outlineBag->vertices = g.outlineVerts.data();
+    g.outlineVerts.bind(outlineBag);
     outlineBag->count = static_cast<u32>(g.outlineVerts.size());
     outlineBag->bboxVersion = g.hullProxyStamp;
     stapip.core.render(outlineBag.get());
@@ -23001,8 +23326,8 @@ void TerrainGame::buildHighlightProxy(int index) {
     }
     // The builders emit colors/sts too; shells only need positions, the
     // rest is discarded (built once per geometry rebuild).
-    std::vector<Color> cols;
-    std::vector<Vec4> sts;
+    BagArray<Color> cols;
+    BagArray<Vec4> sts;
     switch (o.data.type) {
       case 1: addSphere(g.hullProxyVerts, cols, sts, low); break;
       case 2: addCylinder(g.hullProxyVerts, cols, sts, low); break;
@@ -23761,13 +24086,13 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     ch.bag->info = infoBag.get();
     ch.bag->lighting = nullptr;
   }
-  ch.colorBag->many = ch.colors.data();
+  ch.colors.bind(ch.colorBag);
   ch.bag->color = ch.colorBag.get();
-  ch.bag->vertices = ch.vertices.data();
+  ch.vertices.bind(ch.bag);
   ch.bag->count = static_cast<u32>(ch.vertices.size());
   if (textured) {  // `textured` already means "loaded", see the color scale
     ch.texBag.texture = loadedTextures[TERRAIN_TEXTURE];
-    ch.texBag.coordinates = ch.sts.data();
+    ch.sts.bind(&ch.texBag);
     ch.bag->texture = &ch.texBag;
   } else {
     ch.bag->texture = nullptr;
@@ -23786,14 +24111,14 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
       lp.bag->lighting = nullptr;
     }
     lp.bag->info = layerInfoBag.get();
-    lp.colorBag->many = lp.colors.data();
+    lp.colors.bind(lp.colorBag);
     lp.bag->color = lp.colorBag.get();
-    lp.bag->vertices = ch.vertices.data();
+    ch.vertices.bind(lp.bag);
     lp.bag->count = static_cast<u32>(ch.vertices.size());
     const int lti = TERRAIN_LAYER_TEXTURES[g_activeScene][lp.layer];
     if (lti >= 0 && loadedTextures[lti]) {
       lp.texBag.texture = loadedTextures[lti];
-      lp.texBag.coordinates = lp.sts.data();
+      lp.sts.bind(&lp.texBag);
       lp.bag->texture = &lp.texBag;
     } else {
       lp.bag->texture = nullptr;
@@ -23814,12 +24139,12 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
       ch.aoBag->lighting = nullptr;
     }
     ch.aoBag->info = layerInfoBag.get();
-    ch.aoColorBag->many = ch.aoCols.data();
+    ch.aoCols.bind(ch.aoColorBag);
     ch.aoBag->color = ch.aoColorBag.get();
-    ch.aoBag->vertices = ch.vertices.data();
+    ch.vertices.bind(ch.aoBag);
     ch.aoBag->count = static_cast<u32>(ch.vertices.size());
     ch.aoTexBag.texture = aoMapTexture;
-    ch.aoTexBag.coordinates = ch.aoSts.data();
+    ch.aoSts.bind(&ch.aoTexBag);
     ch.aoBag->texture = &ch.aoTexBag;
     ch.aoBag->bboxVersion = ch.bag->bboxVersion;
   } else {
@@ -23836,12 +24161,12 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
       ch.emisBag->lighting = nullptr;
     }
     ch.emisBag->info = lightAddInfoBag.get();
-    ch.emisColorBag->many = ch.emisCols.data();
+    ch.emisCols.bind(ch.emisColorBag);
     ch.emisBag->color = ch.emisColorBag.get();
-    ch.emisBag->vertices = ch.vertices.data();
+    ch.vertices.bind(ch.emisBag);
     ch.emisBag->count = static_cast<u32>(ch.vertices.size());
     ch.emisTexBag.texture = aoMapTexture;
-    ch.emisTexBag.coordinates = ch.aoSts.data();
+    ch.aoSts.bind(&ch.emisTexBag);
     ch.emisBag->texture = &ch.emisTexBag;
     ch.emisBag->bboxVersion = ch.bag->bboxVersion;
   } else {

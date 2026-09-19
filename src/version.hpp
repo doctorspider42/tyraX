@@ -59,6 +59,15 @@
 // pixels the unbatched scene culled), and no case was found that the existing
 // cell key does not already cover. MINOR.
 
+// 1.109.1: every fixed-capacity vehicle-effect BagArray is now sized during
+// scene setup: smoke, skid vertices/colours and glow vertices/colours. The
+// content-version conversion had left resize in each lazy render-bag path,
+// although smoke updates and glow/skid geometry writes happen before those
+// paths initialise their bags. The first write therefore called Vec4::set
+// through an empty vector's null data pointer. PCSX2 maps RAM at zero and hid
+// it, while physical hardware raised a cause-3 TLB store miss at BadAddr 0
+// immediately after the loading screen.
+//
 // 1.106.0: THE SHARED REFLECTION PROBE NOW HAS A REUSE BUDGET, AND THE
 // BUDGET IS THE QUALITY CONTRACT (docs/reflective-materials.md, "The reuse
 // budget"). Measured on hardware the probe costs 2.07 ms of Motor District

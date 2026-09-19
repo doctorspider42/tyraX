@@ -552,6 +552,15 @@ spawns no puffs at all — invisible smoke was spending the shared pool. A dead 
 a degenerate quad, and the bag is skipped outright when the pool is empty, so a
 clean drive pays nothing.
 
+All fixed-capacity vehicle-effect arrays are sized during scene setup: smoke,
+skid vertices/colours and glow vertices/colours. They must not be sized only
+in their lazy render-bag setup. Smoke clears dead slots before rendering,
+skids can spawn during the first physics step, and glow builds the lit-lamp
+geometry before it checks whether its bag exists. An empty `BagArray` returns
+a null data pointer, so either `operator[]` or `span()` followed by `Vec4::set`
+becomes a hardware-only TLB store miss (`BadAddr 0`) immediately after the
+loading screen. PCSX2 maps RAM at zero and therefore does not expose this bug.
+
 ### Engine sound
 
 A looping sample whose **SPU2 pitch register** follows the engine speed. Set it in

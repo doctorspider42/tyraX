@@ -1914,7 +1914,12 @@ simply delegates are not.
   pointer AND the stamp together, and every mutating member stamps. So a new
   write site inherits the obligation and a raw write does not compile -
   `tools/bag-array-enforcement.sh` is the negative test, and it goes red when
-  `data()` is made non-const. The one exception is engine-owned: skinning
+  `data()` is made non-const. A converted fixed C array must be resized before
+  its FIRST updater, not merely before its bag is lazily bound: indexing an
+  empty `BagArray` is a null write that PCSX2 hides and hardware reports as a
+  cause-3 TLB miss at `BadAddr 0`. Vehicle smoke, skid and glow were the worked
+  case: all three write before their lazy render-bag setup is guaranteed to run.
+  The one exception is engine-owned: skinning
   writes LOD 0 in place into the mesh frame's arrays, which moves positions and
   normals, which `bboxVersion` legitimately covers.
 

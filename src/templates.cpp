@@ -33176,7 +33176,8 @@ static std::string vehicleMembers(const Project& p) {
   // BagArray rather than a raw C array: the vehicle rings are
   // bag-backing, so the same type - and the same content stamp - has to
   // own them. A partial conversion would read as enforced and not be.
-  // They are sized once, where their bags are created.
+  // They are sized during setupVehicles, before either per-frame updater can
+  // touch them. The bag itself stays lazy until the first visible puff.
   BagArray<Tyra::Vec4> smokePos_;
   Tyra::Vec4 smokeVel_[kVehSmokeMax];
   float smokeLife_[kVehSmokeMax] = {};
@@ -33284,9 +33285,6 @@ void TerrainGame::renderVehicleSmoke() {
     // Depth-tested but never writing Z (alpha-test all-fail + AFAIL=FB_ONLY):
     // translucent smoke must not carve holes into anything drawn after it.
     smokeInfoBag_->zTestType = PipelineZTest_TestOnly;
-    smokePos_.resize(kVehSmokeMax);
-    smokeParams_.resize(kVehSmokeMax);
-    smokeCols_.resize(kVehSmokeMax);
     smokeColorBag_ = std::make_unique<StaPipColorBag>();
     smokeCols_.bind(smokeColorBag_);
     smokeBillboardBag_ = std::make_unique<StaPipBillboardBag>();
@@ -33387,13 +33385,6 @@ void TerrainGame::renderVehicleSkids() {
     // trails across the map cull away by bbox, spawn bumps bboxVersion.
     skidInfoBag_->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
     skidInfoBag_->zTestType = PipelineZTest_TestOnly;
-    // Size the ring BEFORE binding: BagArray::bind() aims the bag at
-    // data(), and an empty vector's data() is allowed to be null - which
-    // the engine rejects with "Vertices are required in 3D render bag".
-    // A raw C array could not have this problem and could not carry a
-    // content stamp either; this is the price, and it is one line.
-    skidVerts_.resize(kVehSkidMax * 6);
-    skidCols_.resize(kVehSkidMax * 6);
     skidColorBag_ = std::make_unique<StaPipColorBag>();
     skidCols_.bind(skidColorBag_);
     skidBag_ = std::make_unique<StaPipBag>();
@@ -33579,13 +33570,6 @@ void TerrainGame::renderVehicleGlow() {
     // variant submitted five quads the probe could count and the screen
     // could not see, and a light that only a telemetry line can observe is
     // not a light. Alpha gradients do the falloff instead.
-    // Size the ring BEFORE binding: BagArray::bind() aims the bag at
-    // data(), and an empty vector's data() is allowed to be null - which
-    // the engine rejects with "Vertices are required in 3D render bag".
-    // A raw C array could not have this problem and could not carry a
-    // content stamp either; this is the price, and it is one line.
-    glowVerts_.resize(kVehGlowMax * 6);
-    glowCols_.resize(kVehGlowMax * 6);
     glowColorBag_ = std::make_unique<StaPipColorBag>();
     glowCols_.bind(glowColorBag_);
     glowBag_ = std::make_unique<StaPipBag>();
@@ -33660,6 +33644,17 @@ static float vehShiftDownFrac(const VehicleDefData& s) {
 void TerrainGame::setupVehicles(int scene) {
   vehicleCount_ = 0;
   vehicleDriver_ = -1;
+  // Every fixed-capacity vehicle effect writes before its lazy render bag is
+  // guaranteed to exist: smoke clears dead slots, skids may spawn from the
+  // first physics step, and glow builds lit lamps before checking glowBag_.
+  // Size all backing arrays here so none can index/span an empty vector.
+  smokePos_.resize(kVehSmokeMax);
+  smokeParams_.resize(kVehSmokeMax);
+  smokeCols_.resize(kVehSmokeMax);
+  skidVerts_.resize(kVehSkidMax * 6);
+  skidCols_.resize(kVehSkidMax * 6);
+  glowVerts_.resize(kVehGlowMax * 6);
+  glowCols_.resize(kVehGlowMax * 6);
   // Source parts are resident only for this scene. Drop every pointer-derived
   // run/radius now, before loadModelAsset can replace or free its vectors.
   wheelBatches_.clear();

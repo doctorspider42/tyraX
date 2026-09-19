@@ -3423,7 +3423,13 @@ Two traps this conversion produced, both of which read as something else:
 - **`bind()` aims the bag at `data()`, and an EMPTY vector's `data()` may be
   null**, which the engine rejects with *"Vertices are required in 3D render
   bag!"* at the first frame. A raw C array could not have that problem and could
-  not carry a stamp either; size the ring before binding.
+  not carry a stamp either; size the ring before binding. Size it before the
+  FIRST updater/builder too, not merely before the lazy bag setup. Vehicle
+  smoke clears dead slots, skid geometry may spawn in the physics update, and
+  vehicle glow writes its lit-lamp geometry before checking whether its bag
+  exists. Indexing or spanning those zero-length arrays called `Vec4::set`
+  through null. PCSX2 hid the write because its RAM starts at zero; hardware
+  reported cause 3, `BadAddr 0`, immediately after the loading screen.
 - **A new generated file must join `refreshGenerated`'s allowlist, not just the
   `--new` scaffold.** `inc/bag_array.gen.hpp` was written at creation and not on
   refresh, so every existing project - and every performance fixture, which is
