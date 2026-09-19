@@ -748,6 +748,10 @@ std::string objectJson(const SceneObject& o) {
         (o.drawDistance > 0.0f
              ? ", \"drawDistance\": " + fmtFloat(o.drawDistance)
              : "") +
+        // Manual static-batch opt-out; default (false) stays implicit, which
+        // is what keeps every project that never touches it resaving byte for
+        // byte after this field was added.
+        (o.batchExclude ? std::string(", \"batchExclude\": true") : "") +
         // rendered into the dynamic env map; default (false) stays implicit
         (o.reflected ? std::string(", \"reflected\": true") : "") +
         (!o.castShadow ? std::string(", \"castShadow\": false") : "") +
@@ -5083,6 +5087,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             o.drawDistance = (float)v->numberOr(0.0);
             if (o.drawDistance < 0.0f) o.drawDistance = 0.0f;
         }
+        if (const auto* v = jo.find("batchExclude"))
+            o.batchExclude = v->boolOr(false);
         if (const auto* v = jo.find("reflected")) o.reflected = v->boolOr(false);
         if (const auto* v = jo.find("castShadow")) o.castShadow = v->boolOr(true);
         if (const auto* v = jo.find("bakedLighting"))
@@ -7502,6 +7508,11 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, (uint64_t)o.primDetail);
     fnvMix(h, o.primRings ? 1 : 0);
     fnvMixF(h, o.drawDistance);
+    // Build-time baked: it decides this object's batchStatic column, and the
+    // batch list is built once at scene load. Live Link cannot re-group a
+    // running game, so toggling it has to read as "rebuild" rather than
+    // silently showing a grouping the ELF does not have.
+    fnvMix(h, o.batchExclude ? 1 : 0);
     fnvMixS(h, o.impostorPath);
     fnvMixF(h, o.impostorDistance);
     fnvMix(h, o.impostorBillboard ? 1 : 0);

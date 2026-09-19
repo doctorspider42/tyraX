@@ -23,6 +23,11 @@ their ownership and acceptance checks.
   game reads a binary model instead of your `.obj`, distance LOD with authored
   or auto-decimated tiers, and the triangle strips the build ships beside the
   triangle list so a shared corner costs one VU1 package instead of three.
+- [Seeing how static objects batch](static-batching.md) — which objects merged
+  into one submission and which did not, with the reason named for every object
+  that stayed solo; what a batch costs in VU1 packages against its members
+  drawn separately, why the merged box is the number to look at, and the
+  per-object opt-out for when one outlying member keeps a whole group drawn.
 - [World scale: units, meters and imports](world-scale.md) — what a unit is
   worth, why imports land several times too small, and the tools that tell you.
 - [The terrain, and building without one](terrain.md) — the per-scene ground

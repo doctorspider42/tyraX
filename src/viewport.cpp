@@ -6552,6 +6552,41 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         }
     }
 
+    // Static-batch overlay (docs/static-batching.md). Pure presentation: the
+    // app pushed these boxes in already grouped, so nothing here decides
+    // anything about batching. Drawn after the collision boxes and before the
+    // light gizmos, in world space, depth-tested like the rest of the scene -
+    // an overlay that ignored depth would put a batch box for the far side of
+    // the map on top of the building in front of you.
+    if (!batchOverlay_.empty()) {
+        for (const BatchOverlayBox& b : batchOverlay_) {
+            const float cx = 0.5f * (b.min[0] + b.max[0]);
+            const float cy = 0.5f * (b.min[1] + b.max[1]);
+            const float cz = 0.5f * (b.min[2] + b.max[2]);
+            // A degenerate axis (a flat plane, a single-member cell) would
+            // collapse the cube to a quad that z-fights the surface it sits
+            // on, so every side gets a floor.
+            const float sx = std::max(b.max[0] - b.min[0], 0.02f);
+            const float sy = std::max(b.max[1] - b.min[1], 0.02f);
+            const float sz = std::max(b.max[2] - b.min[2], 0.02f);
+            Mat4 m = scaleM(sx, sy, sz);
+            m = mul(translation(cx, cy, cz), m);
+            // The merged box is drawn twice, offset by a hair, because GL
+            // line width above 1 is not portable (the core profile is allowed
+            // to clamp it) - two nested cubes read as a heavier line on every
+            // driver instead of on some.
+            draw(collisionCube_, GL_LINES, mul(viewProj, m), b.color[0],
+                 b.color[1], b.color[2]);
+            if (b.thick) {
+                Mat4 m2 = scaleM(sx * 1.004f + 0.01f, sy * 1.004f + 0.01f,
+                                 sz * 1.004f + 0.01f);
+                m2 = mul(translation(cx, cy, cz), m2);
+                draw(collisionCube_, GL_LINES, mul(viewProj, m2), b.color[0],
+                     b.color[1], b.color[2]);
+            }
+        }
+    }
+
     // Point-light reach: a ring sphere scaled to the radius - or, for a
     // SPOT, the actual cone: apex at the light, opening down the object's
     // local -Y for the reach, base sized by the cone half-angle. The sphere

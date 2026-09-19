@@ -1052,6 +1052,22 @@ void App::drawPropertiesWindow() {
                 "switch off together, so a batched object can stay visible\n"
                 "a little past its own distance - never less.");
 
+        // The one per-object static-batching lever (docs/static-batching.md).
+        // Everything else about batching is inferred by the build; this is a
+        // decision the author makes, for the case the rules cannot see - a
+        // member whose position widens its batch's merged box enough to keep
+        // the whole group drawn past what the scene would cull. Tools >
+        // Static Batches is where that is visible.
+        if (ImGui::Checkbox("Exclude from static batch", &o.batchExclude))
+            committed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Keep this object out of every static batch - it submits its\n"
+                "own bag, as it did before batching existed. A batch is culled\n"
+                "as a UNIT against the union of its members, so one outlying\n"
+                "member can keep the rest drawn; excluding it is the fix.\n"
+                "Tools > Static Batches shows the merged boxes and the cost.");
+
         // Rendered into the dynamic ("@sky") environment map, so reflective
         // materials mirror this object - costs a second small render per frame.
         if (ImGui::Checkbox("Show in reflections", &o.reflected)) committed = true;

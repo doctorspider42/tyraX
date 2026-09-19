@@ -1692,6 +1692,16 @@ treatment the distance cut-off just got, in this order:
 Do the census before any of it. On this scene the exclusion everyone expected
 to matter (`dynamicLighting`) rejects nothing at all.
 
+**The census is now one command** (1.110.0):
+`tyrax-editor --batch-report <projectDir>`, or *Tools > Static Batches*, which
+name the reason per object instead of totalling it
+([static-batching.md](static-batching.md)). It reproduces the figures above
+from the twin rather than by reading the generated header — 87 eligible, 65
+batched in 48 batches, and the 22 solo are **all singleton groups**, which is
+the row this item did not have before. So the next step on either bullet
+starts by running it on the scene in question, and an arm's effect on the
+grouping is a diff of its `[batch]` tail.
+
 ### Price static batching on wide-spread content with NO draw distance
 
 Done, for everything that has a cut-off: the grouping cell is bounded by the

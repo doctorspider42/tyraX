@@ -21,6 +21,21 @@
 #include "tmdl.hpp"  // vehicles draw from the import bake, not from an asset path
 #include "objparser.hpp"
 
+// One world-space wire box of the static-batch overlay (Viewport::
+// setBatchOverlay). Axis-aligned, because every box this overlay draws
+// already is: a batch's merged bounds, its grouping cell, and a member's own
+// world AABB.
+struct BatchOverlayBox {
+    float min[3] = {0, 0, 0};
+    float max[3] = {0, 0, 0};
+    float color[3] = {1, 1, 1};
+    // A member's box is drawn thin and a batch's merged box twice as thick,
+    // because the merged one is the thing worth looking at - it is what the
+    // frustum and the draw-distance test are applied to, and an over-wide one
+    // is the regression this overlay exists to make visible.
+    bool thick = false;
+};
+
 // 3D preview of the project terrain and scene objects, rendered into an
 // offscreen texture shown inside an ImGui window. Orbit camera (drag+scroll).
 class Viewport {
@@ -51,6 +66,19 @@ public:
 
     void setCollisionOverlay(bool on) { collisionOverlay_ = on; }
     bool collisionOverlay() const { return collisionOverlay_; }
+
+    // Static-batch overlay (Tools > Static Batches, View > Static batches).
+    // The app computes the grouping - staticbatch::compute, whose answer the
+    // panel and the generated game share - and pushes a flat list of world
+    // boxes in once per frame; the viewport only draws them. Deliberately
+    // dumb: a viewport that re-derived the grouping would be a third
+    // implementation of it, and the whole point of the feature is that there
+    // are two and they are checked against each other.
+    //
+    // Empty = the overlay is off.
+    void setBatchOverlay(std::vector<BatchOverlayBox> boxes) {
+        batchOverlay_ = std::move(boxes);
+    }
 
     void setViewMode(ViewMode m) { viewMode_ = m; }
     ViewMode viewMode() const { return viewMode_; }
@@ -763,6 +791,7 @@ private:
 
     // Nav-mesh overlay mesh (see setNavOverlay)
     bool collisionOverlay_ = false;
+    std::vector<BatchOverlayBox> batchOverlay_;
     bool navOverlayOn_ = false;
     std::vector<char> scrollerGhosts_;
     uint64_t navOverlayVersion_ = 0;

@@ -114,4 +114,42 @@ struct Model {
 //   f32    shadowXyz[shadowCornerCount * 3]
 std::string write(const Model& m);
 
+// What a part looks like to somebody who only needs to know HOW IT DRAWS -
+// which texture it binds, whether it takes the reflective second pass, and
+// the package size its baked strip pins. Deliberately not `Part`: the caller
+// this exists for (staticbatch.cpp, the host twin of the generated game's
+// static-batch grouping) reads every model in the scene and cares about none
+// of the geometry, so `readInfo` SEEKS PAST the vertex payloads instead of
+// copying tens of megabytes to look at three fields.
+struct PartInfo {
+    std::string name;
+    std::string texture;      // bin-relative, "" = untextured
+    std::string reflTexture;  // non-empty = draws a second additive env pass
+    unsigned int stripRun = 0;
+    // Tier-0 vertex counts, which are what a VU1 package count is derived
+    // from. Both are carried because the two representations package
+    // differently: a strip is chopped into whole runs of `stripRun`, a list
+    // is cut at the program's own derived package size.
+    unsigned int vertexCount = 0;
+    unsigned int stripVertexCount = 0;  // 0 = this part ships no strip
+};
+
+struct Info {
+    float min[3] = {0, 0, 0};
+    float max[3] = {0, 0, 0};
+    std::vector<PartInfo> parts;
+};
+
+// Parses the header and the per-part metadata out of a .tmdl image. Returns
+// false on a bad magic, an unsupported version or a truncated file - never
+// a partially filled `out`, because a caller that grouped a scene against
+// half a model would report a batch layout the game does not build.
+//
+// This reads the SHIPPED artifact rather than re-deriving anything from the
+// .obj, which is the point: `stripRun` and the resolved texture names are
+// products of the bake (meshstrip, the atlas rects, the per-object .mtl
+// override), and a second derivation of them is exactly the drift the twin
+// oracle exists to catch.
+bool readInfo(const std::string& bytes, Info& out);
+
 }  // namespace tmdl

@@ -76,6 +76,12 @@ end clears the cache, and projection-only (`TyraMP`) submissions bypass it.
 
 ## Compact static-model batching
 
+> **To see what this does to your own scene**, open *Tools > Static Batches*
+> or run `--batch-report`: it lists every batch with its members, merged box
+> and VU1 packages, and names the reason for every object that is not batched.
+> [static-batching.md](static-batching.md) explains how to read it, and why
+> the merged box is the number that matters.
+
 Static batching also accepts compact, immutable imported models when they do
 not use distance LOD, impostors, reflections, dynamic lighting or another
 per-object runtime path. Each material part joins the batch for its actual
