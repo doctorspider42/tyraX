@@ -242,8 +242,9 @@ class RendererCore : public RendererCore2dBounds {
   /**
    * Apply a subset of the full-screen post effects NOW instead of at endFrame
    * (TyraX fork). `passes` is a RendererCorePostFx::Pass bitmask - the
-   * UI Editor screen stack applies bloom(+grading) and grain at independent
-   * points, e.g. bloom under the HUD, grain over everything. Call it
+   * UI Editor screen stack applies bloom(+grading), grain and motion blur at
+   * independent points, e.g. motion blur under the HUD (so a moving HUD
+   * element does not smear), bloom under it too, grain over everything. Call it
    * mid-frame - after the scene, before the HUD sprites you want on top.
    * Each pass runs at most once per frame; endFrame() composites whatever is
    * still unapplied. The PATH1 drain barrier (endFrame's) runs once, on the

@@ -2230,6 +2230,22 @@ Only an invalidation drains PATH1 before replacing buffers; view-camera changes
 reuse them. Refresh live bag descriptors even on hits. Whole-front bags bypass
 it; animated bags retain their bounds-only path.
 
+## Motion-blur idle history (1.89.0)
+
+`ProjectSettings::motionBlurIdleClear` is a project-wide policy beside the
+authored motion-blur amount. Generated games keep the amount from the UI Editor
+or `Set Motion Blur` in `g_motionBlurBase`; after about 0.12 seconds below the
+meaningful camera translation/turn-rate threshold they
+send zero to the renderer for ONE frame, then restore that base even if the
+camera remains parked. Never turn this back into continuous speed scaling: that
+silently disables blur for objects moving past a stationary player. Reset the
+camera/idle state on scene load so history cannot cross scenes. The optional key
+is written only when false; update equality, settings serialization, UI,
+`sceneDataContent` and both generated game templates together. See
+`docs/motion-blur.md`. Keep the detector in units per second: the original
+per-frame comparison worked at 60 FPS in PCSX2 but physical-pad drift crossed
+the same threshold when a console fell to ~30 FPS and prevented the clear.
+
 ## The portal doorway rule (1.81.0)
 
 `TerrainGame::portalDoorwayOpens(obstacle, plane, pierce)` is the ONE

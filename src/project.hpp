@@ -1681,6 +1681,22 @@ struct ProjectSettings {
     // tight fringe; raise it for a real corona around emissive surfaces.
     float bloomSpread = 0.0f;
     float grain = 0.0f;  // animated film grain noise overlay
+    // Motion blur (docs/motion-blur.md): how much of the PREVIOUS rendered
+    // frame is blended over this one. 0 = off, 1 = the strongest the editor
+    // offers - which is deliberately NOT the GS's full weight, see
+    // kMotionBlurMaxFix. Costs no VRAM (the other display buffer IS the
+    // previous frame) and the trail decays geometrically, because every frame
+    // blends a predecessor that blended its own. Presented everywhere as a
+    // percentage: this is a fraction of the effect's own range, not a
+    // distance or a count. The Set Motion Blur flow node overrides it at
+    // runtime.
+    float motionBlur = 0.0f;
+    // Clear the temporal history ONCE after the view settles. That one
+    // unblended frame replaces the 16-bit accumulator and its quantized ghost;
+    // the authored blur then comes straight back, so an object moving past a
+    // parked camera still blurs. Off preserves a completely uninterrupted
+    // accumulator (useful for a drugged/dazed look, but rougher at 16-bit).
+    bool motionBlurIdleClear = true;
     // Depth of field: the image blurs progressively past dofFocus (world
     // units from the camera), reaching the full dofAmount blur at
     // dofFocus + dofRange. Composites right after the 3D scene (per-pixel
@@ -1816,7 +1832,7 @@ struct ProjectSettings {
     bool highlightOverlay = false;
 };
 
-static_assert(sizeof(ProjectSettings) == 728,
+static_assert(sizeof(ProjectSettings) == 736,
               "ProjectSettings changed size - a field was added or removed. "
               "Add it to operator== below as well, or its Preferences widget "
               "will silently do nothing; then update this number.");
@@ -1918,7 +1934,9 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.terrainMaterial == b.terrainMaterial && a.bloom == b.bloom &&
            a.bloomThreshold == b.bloomThreshold &&
            a.bloomSpread == b.bloomSpread &&
-           a.grain == b.grain && a.dofAmount == b.dofAmount &&
+           a.grain == b.grain && a.motionBlur == b.motionBlur &&
+           a.motionBlurIdleClear == b.motionBlurIdleClear &&
+           a.dofAmount == b.dofAmount &&
            a.dofFocus == b.dofFocus && a.dofRange == b.dofRange &&
            a.flare == b.flare && a.godRays == b.godRays &&
            a.blobShadows == b.blobShadows &&
@@ -1947,6 +1965,47 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.highlightOverlay == b.highlightOverlay;
 }
 
+// The GS blend weight that motion blur 1.0 actually asks for, out of the 128
+// the hardware FIX byte can carry (docs/motion-blur.md).
+//
+// 128 is "the previous frame, entirely", and the arithmetic is exact - the
+// destination becomes its own predecessor and the picture stops updating FOR
+// EVER while the game runs on behind it. That is not a strong setting, it is a
+// broken one, and a slider whose top end is broken is a slider nobody can use
+// the top half of. 115 (90%) is the strongest weight that still lets the
+// picture through, so the authored range 0..1 maps onto 0..115 and the top of
+// the slider is a usable value.
+//
+// Read by every site that turns the authored amount into a weight: the scene
+// table, the Set Motion Blur node's codegen and the Live Logic interpreter.
+// They must not each carry a number.
+inline constexpr int kMotionBlurMaxFix = 115;
+
+// ...and the same question answered again for a 16-BIT frame buffer, where the
+// answer is much lower and for a second reason.
+//
+// The blend truncates on every write, always downward, and an accumulator at
+// weight f multiplies any per-frame bias by 1/(1-f). At PSMCT16 a write drops
+// three bits, so that bias is eight times what it is at PSMCT32 and the picture
+// visibly BLEEDS BRIGHTNESS - it is not a tint, the whole image goes dark and
+// stays dark. Dithering only pays part of it back: the offsets have to stay
+// non-negative (1.70.4) and DIMX entries are 3-bit SIGNED, so 0..3 is all the
+// hardware offers and its mean of 1.5 is less than half the 3.5 unbiased
+// rounding would want.
+//
+// Measured on the fpp fixture, settled green against the same scene with the
+// blur off - 16-bit: -4.2% at 35%, -8.3% at 60%, -11.3% at 75%, -43.1% at 100%;
+// 32-bit at 100%: -10.4%. So the top of the slider is unusable at 16-bit and
+// merely dim at 32-bit, and the fix is the same one the constant above already
+// is: make the top of the range a value somebody can actually use. 80 puts the
+// 16-bit maximum at about the loss 32-bit takes at ITS maximum.
+inline constexpr int kMotionBlurMaxFix16 = 80;
+
+// The blend weight motion blur 1.0 asks for in a given project.
+inline int motionBlurMaxFix(const ProjectSettings& s) {
+    return s.colorDepth == "16bit" ? kMotionBlurMaxFix16 : kMotionBlurMaxFix;
+}
+
 // Per-scene override switches (Scene > Preferences). Each "scene-visual"
 // category can override the project defaults; when a flag is off, the scene
 // inherits Project::settings for that category (see project::resolvedSettings).
@@ -1956,7 +2015,8 @@ struct SceneOverrides {
     bool sky = false;         // skyColor, skyTopColor, skyDome
     bool clipping = false;    // clipping mode
     bool terrainMat = false;  // terrainMaterial
-    bool postFx = false;      // bloom, grain, depth of field, flare, god rays
+    bool postFx = false;      // bloom, grain, motion blur, depth of field,
+                              // flare, god rays
     bool fog = false;         // fogEnabled, fogColor, fogStart, fogEnd
     bool highlight = false;   // highlightUsable + distance/color/width/steps
     // The neural upscaler: blssEnabled + blssNetwork ONLY (docs/
@@ -3250,15 +3310,23 @@ struct Project {
     // docs/hud-animation.md). Drawn above the HUD stack, under the texts.
     std::vector<HudBar> hudBars;
     // Where the full-screen post effects sit in the screen stack (Tools > UI
-    // Editor). Bloom (with color grading) and film grain are placed
-    // independently: the effect applies right before the HUD sprite at that
-    // index, so sprites with a lower index get the effect and higher ones draw
-    // crisp on top. -1 = apply at the very end of the frame, over everything
-    // including menus (the classic behavior, and the default). Typical split:
-    // bloom under the HUD so it does not blur the crosshair, grain at -1 as a
-    // filmic overlay over the whole screen. Grading rides with bloom.
+    // Editor). Bloom (with color grading), film grain and motion blur are
+    // placed independently: the effect applies right before the HUD sprite at
+    // that index, so sprites with a lower index get the effect and higher ones
+    // draw crisp on top. -1 = apply at the very end of the frame, over
+    // everything including menus (the classic behavior, and the default).
+    // Typical split: bloom under the HUD so it does not blur the crosshair,
+    // grain at -1 as a filmic overlay over the whole screen. Grading rides
+    // with bloom.
+    //
+    // Motion blur defaults to 0 (under the whole HUD stack) rather than -1,
+    // and that is not cosmetic: its source is the finished previous frame,
+    // HUD and menus included, so applied at the top a MOVING HUD element
+    // smears over the picture. Under the stack the trail is the scene's and
+    // the UI redraws crisp on top of it every frame.
     int hudBloomLayer = -1;
     int hudGrainLayer = -1;
+    int hudMotionBlurLayer = 0;
     // Custom screen effects placed in the screen stack (Tools > UI Editor).
     // Each placement references a <project>/screen-effects/*.screenfx file by
     // its key ("custom:<stem>") and carries the effect's per-placement param
@@ -3884,7 +3952,7 @@ bool parseProcGraph(const std::string& body, ProcGraph& out);
 // time; save()/load() are recomposed from the same writers/readers.
 enum class Section {
     Settings = 0,    // "settings" (project preferences)
-    Hud,             // "hud", "usePrompt", "hudTexts", bloom/grain layers, "screenFx"
+    Hud,             // "hud", "usePrompt", "hudTexts", the post-fx layers, "screenFx"
     Audio,           // "music", "musicBuild", "sounds"
     TexQuality,      // "textureQuality" (per-asset overrides)
     ModelLods,       // "modelLods" (per-model custom LOD meshes)

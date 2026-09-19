@@ -91,6 +91,7 @@ const std::vector<ActionMap>& actionMap() {
         {"RotateObjectBy", OP_RotateObjectBy},
         {"SetRotation", OP_SetRotation},
         {"SpinObject", OP_SpinObject},
+        {"SetMotionBlur", OP_SetMotionBlur},
     };
     return v;
 }

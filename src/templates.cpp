@@ -3899,6 +3899,18 @@ bool g_particlesOn = true;
 // POSTFX_FLARE). Consumed by updateAndRenderFlare.
 int g_flareAmount = 0;
 
+// Motion blur, 0..cap (Set Motion Blur flow node; seeded per scene from
+// POSTFX_MOTIONBLUR). This is the AUTHORED amount; the idle-history flush is a
+// one-frame override and must never overwrite it (docs/motion-blur.md).
+int g_motionBlurBase = 0;
+// Last frame's view and the one-shot idle-history flush state.
+float g_mbPrevEye[3] = {0.0F, 0.0F, 0.0F};
+float g_mbPrevFwd[3] = {0.0F, 0.0F, 1.0F};
+bool g_mbHavePrev = false;
+float g_mbIdleTime = 0.0F;
+bool g_mbIdleFlushed = false;
+bool g_mbFlushNext = true;
+
 // Runtime analog stick deadzone (Preferences > Input; a menu "Deadzone" option
 // block changes it live via applyMenuBindings). Seeded from the baked
 // ANALOG_DEADZONE_* constants in buildScene (they are namespaced, this scope is
@@ -6135,6 +6147,13 @@ void TerrainGame::init() {
   engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
   engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  g_motionBlurBase = POSTFX_MOTIONBLUR;
+  engine->renderer.core.postFx.setMotionBlur(POSTFX_MOTIONBLUR);
+  // Start with no full-screen history; the first real frame stays sharp.
+  g_mbHavePrev = false;
+  g_mbIdleTime = 0.0F;
+  g_mbIdleFlushed = false;
+  g_mbFlushNext = true;
   engine->renderer.core.postFx.setGodRays(POSTFX_GODRAYS);
   g_flareAmount = POSTFX_FLARE;
   engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
@@ -6452,7 +6471,8 @@ void TerrainGame::loop() {
     g_playerLocked = scriptCtx.lockInput == 0;
     scriptCtx.lockInput = -1;
   }
-  // Runtime graphics switches (Set Fog / Bloom / Grain / Particles flow nodes).
+  // Runtime graphics switches (Set Fog / Bloom / Grain / Motion Blur /
+  // Particles flow nodes).
   if (scriptCtx.fog >= 0) {
     if (scriptCtx.fog)
       engine->renderer.core.setFog(Color(FOG_R, FOG_G, FOG_B), FOG_START, FOG_END);
@@ -6467,6 +6487,11 @@ void TerrainGame::loop() {
   if (scriptCtx.grain >= 0) {
     engine->renderer.core.postFx.setGrain(scriptCtx.grain);
     scriptCtx.grain = -1;
+  }
+  if (scriptCtx.motionBlur >= 0) {
+    // The BASE - the idle flush may override the renderer for one frame only.
+    g_motionBlurBase = scriptCtx.motionBlur;
+    scriptCtx.motionBlur = -1;
   }
   if (scriptCtx.flare >= 0) {
     g_flareAmount = scriptCtx.flare;
@@ -6680,18 +6705,82 @@ void TerrainGame::loop() {
     // DoF pass (a crosshair HUD showed through the blur as a box).
     // Sun state first (god-rays zoom center + flare fade), then the depth
     // of field + god-rays composite, then the flare sprites on top of both.
+    // Optional one-shot history clear after the camera settles
+    // (docs/motion-blur.md). This is deliberately NOT "blur only in motion":
+    // one unblended frame flushes the quantized 16-bit ghost, then the authored
+    // amount comes back even while the camera stays parked, so moving scene
+      // objects still blur. Measure velocity per SECOND, not displacement per
+      // frame: on hardware a 30 fps frame used to make the same pad drift look
+      // twice as fast as it did in PCSX2 at 60 fps, so the flush never fired.
+    {
+      float fx = cameraLookAt.x - cameraPosition.x;
+      float fy = cameraLookAt.y - cameraPosition.y;
+      float fz = cameraLookAt.z - cameraPosition.z;
+      const float fl = sqrtf(fx * fx + fy * fy + fz * fz);
+      if (fl > 0.0001F) { fx /= fl; fy /= fl; fz /= fl; }
+      bool moving = false;
+      if (g_mbHavePrev) {
+        const float dx = cameraPosition.x - g_mbPrevEye[0];
+        const float dy = cameraPosition.y - g_mbPrevEye[1];
+        const float dz = cameraPosition.z - g_mbPrevEye[2];
+        const float moved = sqrtf(dx * dx + dy * dy + dz * dz);
+        float dot = fx * g_mbPrevFwd[0] + fy * g_mbPrevFwd[1] + fz * g_mbPrevFwd[2];
+        if (dot > 1.0F) dot = 1.0F;
+        if (dot < -1.0F) dot = -1.0F;
+        const float dt = g_frameDt > 0.0001F ? g_frameDt : 0.0001F;
+        const float turnRate = sqrtf(2.0F * (1.0F - dot)) / dt;
+        const float moveRate = moved / dt;
+        // Intentional motion, not sub-deadzone hardware noise. Once this has
+        // armed a settle, a slow-moving camera still loses only ONE history
+        // frame; authored blur comes straight back on the following frame.
+        moving = turnRate >= 0.35F || moveRate >= 0.5F;
+      }
+      bool flush = g_mbFlushNext;
+      if (flush) {
+        g_mbIdleTime = 0.12F;
+        g_mbIdleFlushed = true;
+      }
+      g_mbFlushNext = false;
+      if (POSTFX_MOTIONBLUR_IDLE_CLEAR && g_mbHavePrev) {
+        if (moving) {
+          g_mbIdleTime = 0.0F;
+          g_mbIdleFlushed = false;
+        } else if (g_mbIdleTime < 0.12F) {
+          g_mbIdleTime += g_frameDt;
+        }
+        if (!g_mbIdleFlushed && g_mbIdleTime >= 0.12F) {
+          flush = true;
+          g_mbIdleFlushed = true;
+        }
+      }
+      const int mb = flush ? 0 : g_motionBlurBase;
+      engine->renderer.core.postFx.setMotionBlur((unsigned char)mb);
+      g_mbPrevEye[0] = cameraPosition.x;
+      g_mbPrevEye[1] = cameraPosition.y;
+      g_mbPrevEye[2] = cameraPosition.z;
+      g_mbPrevFwd[0] = fx;
+      g_mbPrevFwd[1] = fy;
+      g_mbPrevFwd[2] = fz;
+      g_mbHavePrev = true;
+    }
     updateSunFx();
     engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassDof |
                                       Tyra::RendererCorePostFx::PassGodRays);
     renderFlare();
     // Full-screen effects can sit inside the HUD stack (Tools > UI Editor):
-    // bloom (with color grading) and film grain composite at independent
-    // points, so sprites drawn afterwards stay crisp on top of them. -1 = the
-    // pass applies at endFrame, over everything (menus included).
+    // bloom (with color grading), film grain and motion blur composite at
+    // independent points, so sprites drawn afterwards stay crisp on top of
+    // them. -1 = the pass applies at endFrame, over everything (menus
+    // included).
     // Animated HUD: pose every element for this frame first (loops,
     // transitions, effects, bar easing - docs/hud-animation.md).
     updateHudMotion();
     for (int i = 0; i < (int)hudSprites.size(); ++i) {
+      // Motion blur first when several effects share a slot: the trail is
+      // the SCENE smearing, so this frame's own glow and grain go on top.
+      if (i == HUD_MOTION_BLUR_LAYER)
+        engine->renderer.core.applyPostFx(
+            Tyra::RendererCorePostFx::PassMotionBlur);
       if (i == HUD_BLOOM_LAYER)
         engine->renderer.core.applyPostFx(
             Tyra::RendererCorePostFx::PassBloom |
@@ -9225,6 +9314,13 @@ void TerrainGame::loadScene(int sceneIndex) {
   engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
   engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  g_motionBlurBase = POSTFX_MOTIONBLUR;
+  engine->renderer.core.postFx.setMotionBlur(POSTFX_MOTIONBLUR);
+  // Never carry the previous scene's full-screen history across a load.
+  g_mbHavePrev = false;
+  g_mbIdleTime = 0.0F;
+  g_mbIdleFlushed = false;
+  g_mbFlushNext = true;
   engine->renderer.core.postFx.setGodRays(POSTFX_GODRAYS);
   g_flareAmount = POSTFX_FLARE;
   engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
@@ -24306,6 +24402,13 @@ void TerrainGame::init() {
   engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
   engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  g_motionBlurBase = POSTFX_MOTIONBLUR;
+  engine->renderer.core.postFx.setMotionBlur(POSTFX_MOTIONBLUR);
+  // Start with no full-screen history; the first real frame stays sharp.
+  g_mbHavePrev = false;
+  g_mbIdleTime = 0.0F;
+  g_mbIdleFlushed = false;
+  g_mbFlushNext = true;
   engine->renderer.core.postFx.setGodRays(POSTFX_GODRAYS);
   g_flareAmount = POSTFX_FLARE;
   engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
@@ -24690,7 +24793,8 @@ void TerrainGame::loop() {
     g_playerLocked = scriptCtx.lockInput == 0;
     scriptCtx.lockInput = -1;
   }
-  // Runtime graphics switches (Set Fog / Bloom / Grain / Particles flow nodes).
+  // Runtime graphics switches (Set Fog / Bloom / Grain / Motion Blur /
+  // Particles flow nodes).
   if (scriptCtx.fog >= 0) {
     if (scriptCtx.fog)
       engine->renderer.core.setFog(Color(FOG_R, FOG_G, FOG_B), FOG_START, FOG_END);
@@ -24705,6 +24809,11 @@ void TerrainGame::loop() {
   if (scriptCtx.grain >= 0) {
     engine->renderer.core.postFx.setGrain(scriptCtx.grain);
     scriptCtx.grain = -1;
+  }
+  if (scriptCtx.motionBlur >= 0) {
+    // The BASE - the idle flush may override the renderer for one frame only.
+    g_motionBlurBase = scriptCtx.motionBlur;
+    scriptCtx.motionBlur = -1;
   }
   if (scriptCtx.flare >= 0) {
     g_flareAmount = scriptCtx.flare;
@@ -24918,18 +25027,82 @@ void TerrainGame::loop() {
     // DoF pass (a crosshair HUD showed through the blur as a box).
     // Sun state first (god-rays zoom center + flare fade), then the depth
     // of field + god-rays composite, then the flare sprites on top of both.
+    // Optional one-shot history clear after the camera settles
+    // (docs/motion-blur.md). This is deliberately NOT "blur only in motion":
+    // one unblended frame flushes the quantized 16-bit ghost, then the authored
+    // amount comes back even while the camera stays parked, so moving scene
+      // objects still blur. Measure velocity per SECOND, not displacement per
+      // frame: on hardware a 30 fps frame used to make the same pad drift look
+      // twice as fast as it did in PCSX2 at 60 fps, so the flush never fired.
+    {
+      float fx = cameraLookAt.x - cameraPosition.x;
+      float fy = cameraLookAt.y - cameraPosition.y;
+      float fz = cameraLookAt.z - cameraPosition.z;
+      const float fl = sqrtf(fx * fx + fy * fy + fz * fz);
+      if (fl > 0.0001F) { fx /= fl; fy /= fl; fz /= fl; }
+      bool moving = false;
+      if (g_mbHavePrev) {
+        const float dx = cameraPosition.x - g_mbPrevEye[0];
+        const float dy = cameraPosition.y - g_mbPrevEye[1];
+        const float dz = cameraPosition.z - g_mbPrevEye[2];
+        const float moved = sqrtf(dx * dx + dy * dy + dz * dz);
+        float dot = fx * g_mbPrevFwd[0] + fy * g_mbPrevFwd[1] + fz * g_mbPrevFwd[2];
+        if (dot > 1.0F) dot = 1.0F;
+        if (dot < -1.0F) dot = -1.0F;
+        const float dt = g_frameDt > 0.0001F ? g_frameDt : 0.0001F;
+        const float turnRate = sqrtf(2.0F * (1.0F - dot)) / dt;
+        const float moveRate = moved / dt;
+        // Intentional motion, not sub-deadzone hardware noise. Once this has
+        // armed a settle, a slow-moving camera still loses only ONE history
+        // frame; authored blur comes straight back on the following frame.
+        moving = turnRate >= 0.35F || moveRate >= 0.5F;
+      }
+      bool flush = g_mbFlushNext;
+      if (flush) {
+        g_mbIdleTime = 0.12F;
+        g_mbIdleFlushed = true;
+      }
+      g_mbFlushNext = false;
+      if (POSTFX_MOTIONBLUR_IDLE_CLEAR && g_mbHavePrev) {
+        if (moving) {
+          g_mbIdleTime = 0.0F;
+          g_mbIdleFlushed = false;
+        } else if (g_mbIdleTime < 0.12F) {
+          g_mbIdleTime += g_frameDt;
+        }
+        if (!g_mbIdleFlushed && g_mbIdleTime >= 0.12F) {
+          flush = true;
+          g_mbIdleFlushed = true;
+        }
+      }
+      const int mb = flush ? 0 : g_motionBlurBase;
+      engine->renderer.core.postFx.setMotionBlur((unsigned char)mb);
+      g_mbPrevEye[0] = cameraPosition.x;
+      g_mbPrevEye[1] = cameraPosition.y;
+      g_mbPrevEye[2] = cameraPosition.z;
+      g_mbPrevFwd[0] = fx;
+      g_mbPrevFwd[1] = fy;
+      g_mbPrevFwd[2] = fz;
+      g_mbHavePrev = true;
+    }
     updateSunFx();
     engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassDof |
                                       Tyra::RendererCorePostFx::PassGodRays);
     renderFlare();
     // Full-screen effects can sit inside the HUD stack (Tools > UI Editor):
-    // bloom (with color grading) and film grain composite at independent
-    // points, so sprites drawn afterwards stay crisp on top of them. -1 = the
-    // pass applies at endFrame, over everything (menus included).
+    // bloom (with color grading), film grain and motion blur composite at
+    // independent points, so sprites drawn afterwards stay crisp on top of
+    // them. -1 = the pass applies at endFrame, over everything (menus
+    // included).
     // Animated HUD: pose every element for this frame first (loops,
     // transitions, effects, bar easing - docs/hud-animation.md).
     updateHudMotion();
     for (int i = 0; i < (int)hudSprites.size(); ++i) {
+      // Motion blur first when several effects share a slot: the trail is
+      // the SCENE smearing, so this frame's own glow and grain go on top.
+      if (i == HUD_MOTION_BLUR_LAYER)
+        engine->renderer.core.applyPostFx(
+            Tyra::RendererCorePostFx::PassMotionBlur);
       if (i == HUD_BLOOM_LAYER)
         engine->renderer.core.applyPostFx(
             Tyra::RendererCorePostFx::PassBloom |
@@ -26088,13 +26261,17 @@ struct ScriptContext {
   float shakeAmp = -1.0F;
   float shakeSec = 0.0F;
 
-  // Runtime graphics switches (Set Fog / Set Bloom / Set Grain / Set Particles
-  // / Set Lens Flare / Set God Rays flow nodes). fog / particles: -1 = leave,
-  // 0 = off, 1 = on. bloom / grain / flare / godRays: -1 = leave, else a
-  // 0..128 fixed-point amount. The game applies and resets.
+  // Runtime graphics switches (Set Fog / Set Bloom / Set Grain / Set Motion
+  // Blur / Set Particles / Set Lens Flare / Set God Rays flow nodes). fog /
+  // particles: -1 = leave, 0 = off, 1 = on. bloom / grain / motionBlur /
+  // flare / godRays: -1 = leave, else a 0..128 fixed-point amount. The game
+  // applies and resets.
   int fog = -1;
   int bloom = -1;
   int grain = -1;
+  // Motion blur (Set Motion Blur flow node): -1 = leave, else a 0..128 weight
+  // for the previous frame (0 = off). The game applies and resets it.
+  int motionBlur = -1;
   int particles = -1;
   int flare = -1;
   int godRays = -1;
@@ -29800,7 +29977,20 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         return 1 + (int)(s * 3.0f + 0.5f);
     });
     sceneInts("POSTFX_GRAINS", [&](int si) { return fx128(rs[si].grain); });
+    // Motion blur: the previous frame's blend weight (docs/motion-blur.md).
+    // NOT fx128 - the authored 0..1 maps onto 0..kMotionBlurMaxFix, because
+    // the full 128 freezes the picture for ever rather than blurring it.
+    sceneInts("POSTFX_MOTIONBLURS", [&](int si) {
+        float v = rs[si].motionBlur;
+        v = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
+        // Colour depth is project-wide, so the cap is the project's.
+        return (int)(v * (float)motionBlurMaxFix(p.settings) + 0.5f);
+    });
     sceneInts("POSTFX_FLARES", [&](int si) { return fx128(rs[si].flare); });
+    out << "// Clear motion-blur history once after the camera settles. The\n"
+           "// authored blur returns on the next frame, even if it stays parked.\n"
+        << "constexpr int POSTFX_MOTIONBLUR_IDLE_CLEAR = "
+        << (p.settings.motionBlurIdleClear ? 1 : 0) << ";\n";
     sceneInts("POSTFX_GODRAYS_ARR", [&](int si) { return fx128(rs[si].godRays); });
     // Gates the flare-sprite texture load; MUST equal the refreshGenerated
     // predicate that bakes res/hud/flare-*.png (templates::projectUsesFlare).
@@ -30337,6 +30527,7 @@ inline int everyFrames(float seconds) {
 #define POSTFX_BLOOM_CUT POSTFX_BLOOM_CUTS[g_activeScene]
 #define POSTFX_BLOOM_SPREAD POSTFX_BLOOM_SPREADS[g_activeScene]
 #define POSTFX_GRAIN POSTFX_GRAINS[g_activeScene]
+#define POSTFX_MOTIONBLUR POSTFX_MOTIONBLURS[g_activeScene]
 #define POSTFX_DOF POSTFX_DOFS[g_activeScene]
 #define POSTFX_DOF_FOCUS POSTFX_DOF_FOCUSES[g_activeScene]
 #define POSTFX_DOF_RANGE POSTFX_DOF_RANGES[g_activeScene]
@@ -35436,18 +35627,28 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 c << pad << "ctx.particles = " << (n.num[0] != 0.0f ? "1" : "0")
                   << ";\n";
             } else if (n.type == "SetBloom" || n.type == "SetGrain" ||
-                       n.type == "SetFlare" || n.type == "SetGodRays") {
+                       n.type == "SetFlare" || n.type == "SetGodRays" ||
+                       n.type == "SetMotionBlur") {
                 // Bloom's re-add FIX is a whole byte, so it accepts up to 2
                 // (over-add, hot glow); grain / flare / god rays top out at 1.
-                const int hi = n.type == "SetBloom" ? 255 : 128;
+                // Motion blur is the exception in BOTH directions: its amount
+                // is a fraction of kMotionBlurMaxFix rather than of 128,
+                // because the full weight freezes the picture (project.hpp).
+                const bool isBlur = n.type == "SetMotionBlur";
+                const int blurMax = motionBlurMaxFix(p.settings);
+                const int hi = n.type == "SetBloom" ? 255
+                               : isBlur            ? blurMax
+                                                   : 128;
+                const float scale = isBlur ? (float)blurMax : 128.0f;
                 const char* field = n.type == "SetBloom"   ? "bloom"
                                     : n.type == "SetGrain" ? "grain"
                                     : n.type == "SetFlare" ? "flare"
+                                    : n.type == "SetMotionBlur" ? "motionBlur"
                                                            : "godRays";
                 const std::string wired = numInput(n);
                 if (wired.empty()) {
                     // Nothing wired: fold the clamp at codegen time.
-                    int v = (int)(n.num[0] * 128.0f + 0.5f);
+                    int v = (int)(n.num[0] * scale + 0.5f);
                     if (v < 0) v = 0;
                     if (v > hi) v = hi;
                     c << pad << "ctx." << field << " = " << v << ";\n";
@@ -35455,7 +35656,8 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     // A wired number (a Tween ramping the effect up) has to be
                     // clamped where it is read.
                     c << pad << "{\n"
-                      << pad << "  int a = (int)(" << wired << " * 128.0F + 0.5F);\n"
+                      << pad << "  int a = (int)(" << wired << " * "
+                      << floatLit(scale) << " + 0.5F);\n"
                       << pad << "  if (a < 0) a = 0;\n"
                       << pad << "  if (a > " << hi << ") a = " << hi << ";\n"
                       << pad << "  ctx." << field << " = a;\n"
@@ -37584,6 +37786,16 @@ static const std::vector<std::pair<std::string, std::string>>& liveLogicOpBodies
          "        ctx.grain = v < 0 ? 0 : (v > 128 ? 128 : v);\n"
          "      }\n"},
         {"OP_SetParticles", "      ctx.particles = in.num[0] != 0.0F ? 1 : 0;\n"},
+        // The one opcode whose scale is not 128: motion blur's authored 1.0 is
+        // motionBlurMaxFix(), which depends on the project's COLOUR DEPTH, and
+        // this table is a static that has never seen a Project - hence the
+        // placeholder, substituted where the cases are emitted.
+        {"OP_SetMotionBlur",
+         "      {\n"
+         "        int v = (int)(in.num[0] * {{BLURMAX}}.0F + 0.5F);\n"
+         "        ctx.motionBlur = v < 0 ? 0 : (v > {{BLURMAX}} ? {{BLURMAX}} "
+         ": v);\n"
+         "      }\n"},
         // The rotation family. flowWrapDeg lives in flow_graph.gen.cpp (emitted
         // only when a graph uses the node), so the fold is spelled out here.
         {"OP_RotateObjectBy",
@@ -38220,7 +38432,10 @@ static std::string liveLogicSource(const Project& p) {
                   << " (add one to liveLogicOpBodies in templates.cpp)\n";
             continue;
         }
-        cases << "    case " << name << ":\n" << *body << "      break;\n";
+        cases << "    case " << name << ":\n"
+              << replaceAll(*body, "{{BLURMAX}}",
+                            std::to_string(motionBlurMaxFix(p.settings)))
+              << "      break;\n";
     }
 
     std::string s = TPL_LIVE_LOGIC_CPP;
@@ -43126,9 +43341,12 @@ static std::string hudDataHeader(const Project& p) {
            "// Editor). The effect applies right before the HUD sprite at this\n"
            "// index, so lower-index sprites get it and higher ones draw crisp on\n"
            "// top. -1 = at end of frame, over everything including menus. Bloom\n"
-           "// carries color grading; film grain is placed independently.\n"
+           "// carries color grading; film grain and motion blur are placed\n"
+           "// independently.\n"
         << "constexpr int HUD_BLOOM_LAYER = " << p.hudBloomLayer << ";\n"
-        << "constexpr int HUD_GRAIN_LAYER = " << p.hudGrainLayer << ";\n";
+        << "constexpr int HUD_GRAIN_LAYER = " << p.hudGrainLayer << ";\n"
+        << "constexpr int HUD_MOTION_BLUR_LAYER = " << p.hudMotionBlurLayer
+        << ";\n";
 
     // The USE prompt (Tools > UI Editor): the built-in hud/use.png unless a
     // custom image replaces it; placement is normalized, center anchor.

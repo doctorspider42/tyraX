@@ -539,7 +539,7 @@ void RendererCoreAlphaMask::countResolve(int x0, int y0, int x1, int y1,
   q++;
   // The project's dither comes back for the picture (countBegin turned it
   // off; emitRasterRestore does not carry DTHE).
-  PACK_GIFTAG(q, GS_SET_DTHE(settings->getDither() ? 1 : 0), GS_REG_DTHE);
+  PACK_GIFTAG(q, GS_SET_DTHE(settings->isDitherActive() ? 1 : 0), GS_REG_DTHE);
   q++;
   packet2_update(countResolvePacket, q);
   packet2_update(countResolvePacket,
@@ -556,7 +556,7 @@ void RendererCoreAlphaMask::countAbort() {
   qword_t* q = endPacket->next;
   PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
   q++;
-  PACK_GIFTAG(q, GS_SET_DTHE(settings->getDither() ? 1 : 0), GS_REG_DTHE);
+  PACK_GIFTAG(q, GS_SET_DTHE(settings->isDitherActive() ? 1 : 0), GS_REG_DTHE);
   q++;
   packet2_update(endPacket, q);
   packet2_update(endPacket, gs->emitRasterRestore(endPacket->next, false));

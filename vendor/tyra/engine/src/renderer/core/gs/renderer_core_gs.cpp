@@ -321,6 +321,11 @@ void RendererCoreGS::allocateVramBuffers() {
   if (context >= bufferCount) context = 0;
   displayedBuffer = (context + 1) % bufferCount;
   lastRealBuffer = displayedBuffer;
+  // Modified by TyraX: nothing has been RENDERED into that buffer yet - the
+  // layout has just been (re)built and the VRAM holds whatever was there.
+  // Anything reading the previous frame (motion blur) waits for the first real
+  // flip below (RendererCoreGS::hasRealFrame).
+  realFramePresented = false;
   pendingBuffer = -1;
 
   // The handler IS the third buffer's present path, so the two are decided
@@ -675,18 +680,19 @@ void RendererCoreGS::initDrawingEnvironment() {
     q++;
     packet2_update(packet2, q);
   }
-  // Modified by TyraX: GS ordered dithering. The GS only dithers when it
-  // writes a 16-bit destination, so this is inert at PSMCT32 and is what
-  // makes PSMCT16 usable: 5 bits per channel band visibly in skies, fog and
-  // the post-fx blur, and the 4x4 offset matrix trades that banding for
-  // noise the TV's own filtering then blurs away.
+  // Modified by TyraX: GS ordered dithering. It makes PSMCT16 usable: 5 bits
+  // per channel band visibly in skies, fog and the post-fx blur, and the 4x4
+  // offset matrix trades that banding for noise the TV filters away. DTHE
+  // MUST stay off at PSMCT32/24: the GS manual calls that result unspecified,
+  // and a real console applies a visible checker while PCSX2 hides the bug.
   {
     qword_t* q = packet2->next;
     PACK_GIFTAG(q, GIF_SET_TAG(2, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
     q++;
     PACK_GIFTAG(q, tyraxDitherMatrix(), GS_REG_DIMX);
     q++;
-    PACK_GIFTAG(q, GS_SET_DTHE(settings->getDither() ? 1 : 0), GS_REG_DTHE);
+    PACK_GIFTAG(q, GS_SET_DTHE(settings->isDitherActive() ? 1 : 0),
+                GS_REG_DTHE);
     q++;
     packet2_update(packet2, q);
   }
@@ -850,7 +856,10 @@ void RendererCoreGS::flipBuffers(bool throttle, bool synthetic) {
   // and the EE owns the other buffer the moment this returns.
   if (bufferCount < 3) {
     presentFrameBuffer(context);  // Modified by TyraX (DTV modes)
-    if (!synthetic) lastRealBuffer = context;  // Modified by TyraX
+    if (!synthetic) {  // Modified by TyraX
+      lastRealBuffer = context;
+      realFramePresented = true;
+    }
     context ^= 1;
     displayedBuffer = context ^ 1;
     emitDrawTargetSwitch(context);
@@ -909,7 +918,10 @@ void RendererCoreGS::flipBuffers(bool throttle, bool synthetic) {
   // would let the handler put a half-drawn frame on screen.
   emitDrawTargetSwitch(next);
 
-  if (!synthetic) lastRealBuffer = finished;  // Modified by TyraX
+  if (!synthetic) {  // Modified by TyraX
+    lastRealBuffer = finished;
+    realFramePresented = true;
+  }
   context = next;
   pendingBuffer = finished;  // hands ownership to the interrupt handler
 }

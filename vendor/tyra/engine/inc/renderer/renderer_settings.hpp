@@ -117,6 +117,12 @@ class RendererSettings {
   /** GS ordered dithering, only meaningful at Bits16 (TyraX fork). */
   const bool& getDither() const { return dither; }
   void setDither(const bool& on) { dither = on; }
+  /** What may actually be written to DTHE. The GS manual requires dithering
+   * OFF for PSMCT32/24; real hardware leaves that result unspecified while
+   * PCSX2 commonly treats it as inert. */
+  bool isDitherActive() const {
+    return dither && colorDepth == ColorDepth::Bits16;
+  }
   /** The GS pixel storage mode of the frame buffers (TyraX fork): the
    * one place that maps colour depth onto a PSM. Everything that writes a
    * FRAME register for the screen - the drawing environment, the post-fx
