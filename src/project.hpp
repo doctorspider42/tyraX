@@ -349,6 +349,24 @@ struct SceneObject {
     // drawn at all (collision, sounds and scripts still run). 0 = unlimited.
     // The cheapest LOD there is - era-correct for dense scenes.
     float drawDistance = 0.0f;
+    // Keep this object OUT of static batching, whatever the automatic rules
+    // decide (Tools > Static Batches, or Properties > Exclude from static
+    // batch). It is the only per-object lever there is: `batchStatic` in the
+    // generated scene table is a build-time VERDICT computed by
+    // templates.cpp's staticBatchEligible, not an authored field, so before
+    // this the only way to refuse one batch was to switch batching off for
+    // the entire project.
+    //
+    // The case it serves is the merged-box regression (docs/static-batching.md):
+    // a batch is culled as a unit against the union of its members, so one
+    // outlying member can keep the whole group drawn - measured once as 400
+    // pixels of geometry the unbatched scene culled. Excluding that one
+    // member is the surgical fix; the alternatives are re-authoring the scene
+    // or losing batching everywhere.
+    //
+    // Written to the .tyra only when true, so every project that never
+    // touches it resaves byte for byte.
+    bool batchExclude = false;
     std::string impostorPath; // optional static far model; collision stays original
     float impostorDistance = 0.0f; // 0 disables, world units
     bool impostorBillboard = false; // ordered view parts, upright/equal XZ scale
@@ -1237,6 +1255,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.layer == b.layer &&
            a.primDetail == b.primDetail && a.primRings == b.primRings &&
            a.drawDistance == b.drawDistance &&
+           a.batchExclude == b.batchExclude &&
            a.impostorPath == b.impostorPath &&
            a.impostorDistance == b.impostorDistance &&
            a.impostorBillboard == b.impostorBillboard &&

@@ -173,6 +173,7 @@ TYRAX --bake-model-ao <projectDir> [--texbake]   # per-model self-AO, no Docker
 TYRAX --bake-prelit <projectDir> [sceneName]     # re-bake STALE pre-lit objects
 TYRAX --dump <projectDir>            # JSON project summary
 TYRAX --atlas-report <projectDir>    # what texture atlasing packed, refused (with reasons), and costs
+TYRAX --batch-report <projectDir> [scene]  # how static objects batch, and WHY each one that does not (docs/static-batching.md)
 TYRAX --chat-prompt [projectDir]     # what the AI Assistant is told (docs/ai-chat.md)
 TYRAX --list-nodes <projectDir>      # what the graph generator is told
 TYRAX --dump-graph <projectDir> <object> [scene]
@@ -2862,6 +2863,31 @@ vertex and chunk for chunk between the two, asserts the same run invariants
 (interior runs exactly `roadgen::kStripRun`, every run a multiple of 3), and
 compares the expanded triangle SET against the list emitter's. Run it before
 anything else - it is seconds, and it is the only check that sees both twins.
+
+**The static-batch grouping has the same shape of oracle, and for the same
+reason.** `TerrainGame::buildStaticBatchList` is generated code that runs on
+the EE; `src/staticbatch.cpp` is its host twin (what *Tools > Static Batches*,
+the viewport overlay and `--batch-report` all read). Their oracle is
+`examples/vehicle-playground/authoring/verify-batch-twins.py` (Python 3 + g++,
+no emulator, seconds): it lifts `buildStaticBatchList` VERBATIM out of
+templates.cpp by string index, compiles it beside the twin against small stubs,
+and diffs the batch assignment member for member over eleven fixtures - texture
+and cell and lamp and strip-run keys, the singleton drop, the oversized-model
+guard, batching off, and a deliberate MISSING-TEXTURE case (acquireTexture
+returns nullptr for a file that is not on disk, so every missing texture
+batches with every untextured primitive - a twin that "fixes" that is wrong).
+
+Two things worth copying. It asserts the shape of what it LIFTED (the key
+names must still appear in the body) so an agreeing diff of two implementations
+cannot silently become a diff of nothing. And it was checked that it can FAIL:
+break one key in the twin and two fixtures disagree with a readable diff and a
+non-zero exit - an oracle nobody has seen fail is not evidence.
+
+The ELIGIBILITY half needs no harness at all: `batchStatic` in a generated
+`inc/scene_data.hpp` IS the twin's stage-1 verdict, so `--refresh-gen` plus a
+census of that column checks it (87 of 142 on examples/vehicle-playground). And
+`--batch-report`'s totals can be read against the running game's own two log
+lines ("Static batching: eligible 87, solo 22" / "65 objects in 48 batches").
 
 Since 1.105 it also prints, per fixture, the three numbers behind the road's
 lateral budget (docs/roads.md): the **worst surface error** against the dense

@@ -261,6 +261,10 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   adaptive overdraw budget for distant optional effects. A
   [draw distance no longer forces an object to draw alone](docs/model-pipeline.md#draw-distance-on-a-batch) —
   it groups the batch instead and cuts the whole batch off together.
+- [See how static objects batch](docs/static-batching.md) — a panel and a
+  viewport overlay showing what merged with what, what each batch costs in VU1
+  packages, and the reason named for every object that stayed solo; plus a
+  per-object opt-out for when one outlying member keeps a whole batch drawn.
 - [Triangle strips for static models](docs/model-pipeline.md#triangle-strips) —
   the build ships the strip beside the list, so a shared corner is packaged,
   transferred and transformed once instead of once per triangle; the

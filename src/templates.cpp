@@ -29595,6 +29595,16 @@ static std::set<std::string> batchBlockedNames(const Project& p,
 static bool staticBatchEligible(const SceneObject& o,
                                 const std::set<std::string>& blocked,
                                 const ProjectSettings& settings) {
+    // The author's own opt-out, tested before anything automatic: this is the
+    // one per-object lever there is (docs/static-batching.md), and it exists
+    // for the merged-box regression - a batch is culled as a unit, so one
+    // outlying member can keep the whole group drawn. Everything below is a
+    // rule the editor infers; this is a decision somebody made.
+    //
+    // Its host twin is staticbatch::eligibility, which reports the SAME
+    // verdict to the Static Batches panel. Default false, so a project that
+    // never touches it regenerates byte for byte.
+    if (o.batchExclude) return false;
     // Geometry primitives and immutable imported models. Model material parts
     // become separate batch memberships, so each keeps its own texture while
     // objects that share that texture collapse to one StaPip submit.

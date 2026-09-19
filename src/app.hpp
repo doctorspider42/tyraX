@@ -45,6 +45,7 @@
 #include "prefab.hpp"
 #include "vehbake.hpp"  // the import bake cached per vehicle definition
 #include "project.hpp"
+#include "staticbatch.hpp"
 #include "texatlas.hpp"
 #include "vugen.hpp"  // vugen::Built - the VU panel keeps a live preview
 #include "runner.hpp"
@@ -2067,6 +2068,24 @@ private:
     // the packer merged with what, why a texture was refused, and the VRAM
     // arithmetic. The plan reads every candidate image off disk, so it is
     // cached and recomputed only when something that feeds it changes.
+    // Tools > Static Batches (docs/static-batching.md, src/batch_ui.cpp): what
+    // merged with what, what it costs in VU1 packages, and why every object
+    // that is not batched is not batched. The grouping comes from
+    // staticbatch::compute - the host twin of the generated
+    // buildStaticBatchList - and is cached because it reads every baked
+    // .tmdl in the scene.
+    bool showStaticBatches_ = false;
+    bool showBatchOverlay_ = false;  // View > Static batches
+    bool showBatchCells_ = false;    // the selected batch's grouping cell
+    bool batchDirty_ = true;
+    int batchSelected_ = -1;  // focuses the overlay on one batch, -1 = all
+    staticbatch::Result batchResult_;
+    std::vector<std::string> batchWarnings_;
+    void drawStaticBatchesWindow();
+    void refreshStaticBatches();
+    void updateBatchOverlay();
+    void drawBatchExcludeCheckbox(int objectIndex);
+
     bool showTextureAtlas_ = false;
     bool atlasPlanDirty_ = true;
     texatlas::Plan atlasPlan_;

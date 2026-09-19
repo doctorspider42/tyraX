@@ -48,6 +48,7 @@
 #include "procbake.hpp"
 #include "project.hpp"
 #include "shadowbake.hpp"
+#include "staticbatch.hpp"
 #include "texatlas.hpp"
 #include "runner.hpp"
 
@@ -699,6 +700,114 @@ static int atlasReportFromCli(int argc, char** argv) {
     std::printf("[atlas] pages=%zu members=%zu excluded=%zu savedKb=%d\n",
                 plan.pages.size(), plan.entries.size(), plan.excluded.size(),
                 v.savedKb);
+    return 0;
+}
+
+// tyrax-editor.exe --batch-report <projectDir> [sceneIndex]
+// How the static objects batch, and WHY each one that does not, does not
+// (docs/static-batching.md). The headless twin of Tools > Static Batches.
+//
+// It exists for the reason --atlas-report does: the generated game already
+// prints the two TOTALS at scene load ("Static batching: eligible 87, solo
+// 22"), and a total is not something anybody can act on. Naming the objects
+// is what turns it into a decision - the 1.98.0 census, where 111 of 142
+// objects were batchable shapes and 27 carried the flag because one
+// build-time rule rejected every imported model, is exactly the shape of
+// answer this prints in one command.
+static int batchReportFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(
+            stderr,
+            "usage: tyrax-editor --batch-report <projectDir> [sceneIndex]\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    const int only = argc > 3 ? std::atoi(argv[3]) : -1;
+    std::vector<std::string> warnings;
+    const staticbatch::Inputs in = staticbatch::diskInputs(p, &warnings);
+
+    int totalBatches = 0, totalEligible = 0, totalBatched = 0;
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
+        if (only >= 0 && (int)si != only) continue;
+        const SceneData& sc = p.scenes[si];
+        const staticbatch::Result r = staticbatch::compute(p, sc, in, {});
+        totalBatches += (int)r.batches.size();
+        totalEligible += r.eligible;
+        totalBatched += r.batched;
+        std::printf("\n=== scene %zu: %s ===\n", si, sc.name.c_str());
+        std::printf("map %.0f, base cell %.0f, %d of %zu objects eligible, "
+                    "%d batched into %zu batches\n",
+                    r.mapW, r.baseCellW, r.eligible, sc.objects.size(),
+                    r.batched, r.batches.size());
+
+        for (size_t bi = 0; bi < r.batches.size(); ++bi) {
+            const staticbatch::Batch& b = r.batches[bi];
+            const float ddSpan =
+                std::max({b.ddMax[0] - b.ddMin[0], b.ddMax[1] - b.ddMin[1],
+                          b.ddMax[2] - b.ddMin[2]});
+            std::printf(
+                "\nbatch %-3zu %-34s cell %.0f at %d,%d  draw %.0f  %zu members\n",
+                bi, b.texture.empty() ? "(no texture)" : b.texture.c_str(),
+                b.cellW, b.cellX, b.cellZ, b.drawDistance, b.members.size());
+            // Packages are the unit the EE pays for, so the comparison that
+            // decides whether a batch is worth having is printed on its own
+            // line rather than left to arithmetic.
+            std::printf("          VU1 packages %d batched vs %d solo",
+                        b.packages, b.soloPackages);
+            if (b.soloPackages > b.packages)
+                std::printf("  (saves %d)", b.soloPackages - b.packages);
+            else if (b.packages > b.soloPackages)
+                std::printf("  (COSTS %d)", b.packages - b.soloPackages);
+            std::printf("\n");
+            // The merged box is the thing that caused a real regression: a
+            // batch passes the frustum and the draw-distance test as a unit,
+            // so its spread is what can keep culled geometry on screen.
+            std::printf("          merged box %.1f x %.1f x %.1f, "
+                        "member-centre spread %.1f\n",
+                        b.geomMax[0] - b.geomMin[0], b.geomMax[1] - b.geomMin[1],
+                        b.geomMax[2] - b.geomMin[2], ddSpan);
+            if (b.lamp >= 0 && b.lamp < (int)sc.objects.size())
+                std::printf("          lit by %s\n",
+                            sc.objects[b.lamp].name.c_str());
+            for (const staticbatch::Member& m : b.members)
+                std::printf("            %-34s%s\n",
+                            sc.objects[m.object].name.c_str(),
+                            m.part >= 0
+                                ? ("  part " + std::to_string(m.part)).c_str()
+                                : "");
+        }
+
+        // The half that earns its keep.
+        std::printf("\nnot batched:\n");
+        int shown = 0;
+        for (size_t oi = 0; oi < sc.objects.size(); ++oi) {
+            const staticbatch::Reason rr = r.objects[oi].reason;
+            if (rr == staticbatch::Reason::Batched) continue;
+            // A marker that could never carry geometry is noise here, not a
+            // finding - the question is which SHAPES are missing out.
+            if (rr == staticbatch::Reason::NotABatchableShape) continue;
+            std::printf("    %-34s %-8s %s\n", sc.objects[oi].name.c_str(),
+                        staticbatch::reasonStage(rr),
+                        staticbatch::reasonLabel(rr));
+            ++shown;
+        }
+        if (!shown) std::printf("    (every batchable shape is in a batch)\n");
+    }
+
+    if (!warnings.empty()) {
+        std::printf("\nwarnings:\n");
+        for (const std::string& w : warnings)
+            std::printf("    %s\n", w.c_str());
+    }
+    // Machine-readable tail, the --blss-coverage convention: a number a
+    // script can diff across two arms without parsing the prose above.
+    std::printf("\n[batch] eligible=%d batched=%d solo=%d batches=%d\n",
+                totalEligible, totalBatched, totalEligible - totalBatched,
+                totalBatches);
     return 0;
 }
 
@@ -4352,6 +4461,8 @@ int main(int argc, char** argv) {
     if (argc > 1 && std::strcmp(argv[1], "--dump") == 0) return dumpFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--atlas-report") == 0)
         return atlasReportFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--batch-report") == 0)
+        return batchReportFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--dump-graph") == 0)
         return dumpGraphFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--apply-graph") == 0)
@@ -4495,6 +4606,11 @@ int main(int argc, char** argv) {
             "ask the GS for, against the\n"
             "                                          measured break-even: the "
             "speed half of 'turn it on?'\n"
+            "  --batch-report <projectDir> [sceneIndex]\n"
+            "                                          how the static objects "
+            "batch, and why each one that\n"
+            "                                          does not "
+            "(docs/static-batching.md)\n"
             "AI-agent tools (docs/ai-tools.md):\n"
             "  --dump <projectDir>\n"
             "  --list-nodes <projectDir>\n"

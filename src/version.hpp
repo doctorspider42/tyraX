@@ -16,6 +16,49 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.110.0: YOU CAN SEE HOW STATIC OBJECTS BATCH, AND EXCLUDE ONE
+// (docs/static-batching.md). Tools > Static Batches lists every batch with
+// its members, texture, cell, merged box and VU1 packages against what those
+// members would cost solo, and - the half that earns its keep - names the
+// reason FOR EVERY OBJECT THAT IS NOT BATCHED. The generated game already
+// logs the two totals ("Static batching: eligible 87, solo 22"); what it
+// cannot say is which objects and why each one, which is exactly the question
+// that took three rounds of measurement in 1.98.0, when 111 of the Motor
+// District's 142 objects were batchable shapes and 27 carried the flag
+// because one build-time rule rejected every imported model.
+//
+// THE GROUPING IS A TWIN, NOT A SHARED FUNCTION, and that is forced rather
+// than chosen. buildStaticBatchList is generated code that runs on the EE and
+// reads loaded models, materials, g_dynLights and the engine's own Texture*
+// pointers; moving it host-side would mean baking a batch table into
+// scene_data.hpp, i.e. changing the generated output of every project. So
+// src/staticbatch.{hpp,cpp} is a host twin in the scrollsim/livelogic/
+// menulayout tradition, and examples/vehicle-playground/authoring/
+// verify-batch-twins.py is its ORACLE: it lifts buildStaticBatchList verbatim
+// out of templates.cpp, compiles it beside the twin and diffs the assignment
+// member for member, the way verify-road-twins.py does for roadgen. The
+// eligibility half gets a second free check - `batchStatic` in any generated
+// scene_data.hpp is that verdict, 87 of 142 on the district.
+//
+// The oracle carries a deliberate MISSING-TEXTURE fixture, because the
+// subtlest thing a reimplementation gets wrong here is that acquireTexture
+// hands back a null pointer for a file that is not on disk - so every missing
+// texture groups with every untextured primitive. That is the engine's
+// behaviour, it looks like a bug, and "fixing" it in the twin would make the
+// panel confidently wrong.
+//
+// THE EXCLUSION NEEDED NEW STATE, contrary to how it was first specified.
+// `batchStatic` is not an authored flag: it is a build-time verdict computed
+// by staticBatchEligible, and the only authored lever was the project-wide
+// ProjectSettings::staticBatching. SceneObject::batchExclude (format v56,
+// written only when true, no migration step) is the per-object one, and it
+// acts as a single line at the top of staticBatchEligible - so it shows up in
+// the generated column and the oracle covers it for nothing. Deliberately a
+// bool and not a group id: the case it serves is the merged-box regression
+// (one outlying member keeping a whole batch drawn, measured once at 400
+// pixels the unbatched scene culled), and no case was found that the existing
+// cell key does not already cover. MINOR.
+
 // 1.106.0: THE SHARED REFLECTION PROBE NOW HAS A REUSE BUDGET, AND THE
 // BUDGET IS THE QUALITY CONTRACT (docs/reflective-materials.md, "The reuse
 // budget"). Measured on hardware the probe costs 2.07 ms of Motor District
@@ -4656,7 +4699,7 @@
 // gate separates 113 levels for "shadow removed" from 2 for this change. No
 // project format change (kFormatVersion stays 55), no VU1 change, no bake change.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 109
+#define TYRAX_VERSION_MINOR 110
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -5025,7 +5068,12 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // without the key reads the default 1.0 pixel, which is sub-pixel on the
 // 128-pixel probe target and therefore cannot change what it draws - so no
 // migration step is registered.
-inline constexpr int kFormatVersion = 55;
+// v56: SceneObject::batchExclude, the per-object static-batch opt-out
+// (docs/static-batching.md). Written only when TRUE, so a project that never
+// uses it resaves byte for byte and regenerates byte for byte; missing reads
+// as false, which is exactly the behaviour every existing project has. Purely
+// additive - no migration step.
+inline constexpr int kFormatVersion = 56;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

@@ -235,6 +235,7 @@ add_executable(tyrax-editor
     src/mateditor_ui.cpp
     src/prefab_ui.cpp
     src/atlas_ui.cpp
+    src/batch_ui.cpp
     src/procui.cpp
     src/vu_ui.cpp
     src/props_ui.cpp
@@ -298,6 +299,8 @@ add_executable(tyrax-editor
     src/screenfx.cpp
     src/session.cpp
     src/starfield.cpp
+    src/staticbatch.cpp
+    src/staticbatchdisk.cpp
     src/stochtile.cpp
     src/texatlas.cpp
     src/texbake.cpp

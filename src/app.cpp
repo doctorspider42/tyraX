@@ -981,6 +981,7 @@ void App::drawUI() {
     vehicleDriveTick();
     drawVehicleWindow();
     drawTextureAtlasWindow();
+    drawStaticBatchesWindow();
     drawWorldFactsWindow();
     drawVuProgramsWindow();
     drawDroneGeneratorWindow();
@@ -1539,6 +1540,19 @@ void App::drawMenuBar() {
                     "prop you cannot walk up to or a\ncamera that pulls in "
                     "early. The running game can draw the same\nboxes - "
                     "Preferences > Build > Show collision boxes.");
+            if (ImGui::MenuItem("Static batches", nullptr, showBatchOverlay_,
+                                hasProject_)) {
+                showBatchOverlay_ = !showBatchOverlay_;
+                batchDirty_ = true;
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Colour every static object by the batch it merges into, "
+                    "with\nsolo objects in grey, and draw each batch's MERGED "
+                    "BOX. That box\nis what the frustum and the draw-distance "
+                    "test are applied to -\na batch draws as a unit - so an "
+                    "over-wide one is geometry the\nunbatched scene would "
+                    "cull. Tools > Static Batches lists them.");
             if (ImGui::MenuItem("Procedural preview", nullptr, showProcPreview_,
                                 hasProject_))
                 showProcPreview_ = !showProcPreview_;
@@ -1786,6 +1800,17 @@ void App::drawMenuBar() {
                     "reconstruction network, and look at the pictures it makes.\n"
                     "Everything --blss-train / --blss-eval / --blss-emit can do,\n"
                     "without a terminal. Proof of concept - read the notes.");
+            if (ImGui::MenuItem("Static Batches...")) {
+                showStaticBatches_ = true;
+                batchDirty_ = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Which static objects merged into one submit, what each\n"
+                    "batch costs in VU1 packages against drawing its members\n"
+                    "solo, and WHY every object that is not batched is not.\n"
+                    "A batch is culled as a unit, so its merged box is worth\n"
+                    "looking at.");
             if (ImGui::MenuItem("VU Programs...")) showVuPrograms_ = true;
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
@@ -2949,6 +2974,7 @@ void App::drawViewportWindow() {
         updateShadowDecals();
         updateNavOverlay();
         viewport_.setCollisionOverlay(showCollisionBoxes_);
+        updateBatchOverlay();
         updateProcPreview();
         // Pushed every frame rather than on change: the geometry follows the
         // project's display settings, which the Preferences dialog can change
@@ -5234,6 +5260,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "chat") return &showAiChat_;
     if (key == "blss") return &showBlss_;
     if (key == "atlas") return &showTextureAtlas_;
+    if (key == "batches") return &showStaticBatches_;
     if (key == "projectprefs") return &showProjectPrefs_;
     return nullptr;
 }
@@ -5257,7 +5284,7 @@ static const char* const kLayoutWindowKeys[] = {
     // "credits" was missing here while showFlagForKey knew it - exactly the
     // leak the note above describes (the Credits Editor stayed open across
     // every layout switch while every other window reset).
-    "credits",  "vu",       "chat",     "blss",     "atlas",
+    "credits",  "vu",       "chat",     "blss",     "atlas",   "batches",
     // Project Preferences stopped being a modal in 1.20.0 and became an
     // ordinary window, so it needs the same deterministic open/close every
     // other optional window has.
@@ -5629,6 +5656,12 @@ void App::commitChange() {
     // Push an undo snapshot; mark the project dirty only when the edit actually
     // changed something. No disk write - saving is on demand (see saveAll).
     layerRamCache_.clear();  // objects/layers may have changed - re-estimate
+    // The static-batch grouping is a function of the scene, so any commit can
+    // move it: a transform crosses a cell boundary, a material changes the
+    // texture key, a flow-graph reference makes an object ineligible. Cheap
+    // to invalidate, expensive to recompute, so it is recomputed lazily by
+    // whoever next needs it (the panel or the overlay).
+    batchDirty_ = true;
     // Stamp ids on any freshly inserted / pasted object before it enters an
     // undo snapshot or hits disk, so every persisted object has a stable id.
     project::ensureObjectIds(project_);
