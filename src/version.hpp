@@ -18,8 +18,8 @@
 
 // 1.89.0: motion blur, the fourth built-in full-screen effect. The other
 // display buffer already holds the previous RENDERED frame, so the pass is one
-// full-screen GS alpha blend of it over this one - no history buffer, no VRAM,
-// no EE work - and because every frame blends a predecessor that blended its
+// full-screen GS alpha blend - no history buffer or extra VRAM - and because
+// every frame blends a predecessor that blended its
 // own, a held trail decays geometrically (0.2-0.4 is already a long smear).
 // Authored in Tools > UI Editor as its own screen-stack entry (per-scene
 // strength under Scene Preferences > Post effects) and driven at runtime by
@@ -31,7 +31,8 @@
 // accumulator fed a synthesised warp frame compounds the displacement - and
 // RendererCoreGS::hasRealFrame() gates the first frame after boot or a layout
 // rebuild, whose "previous" buffer is uninitialised VRAM nobody cleared.
-// ProjectSettings gains motionBlur and Project gains hudMotionBlurLayer;
+// ProjectSettings gains motionBlur + the optional motionBlurIdleClear policy,
+// and Project gains hudMotionBlurLayer;
 // kFormatVersion 47 -> 48, additive, no migration step. MINOR.
 //
 // The amount is a PERCENTAGE on every surface that shows it (the UI Editor,
@@ -47,23 +48,40 @@
 // numChoices precedent, because "Amount" names four different ranges in that
 // registry).
 //
-// The cap is PER COLOUR DEPTH (115 at 32-bit, 80 at 16-bit): the accumulator
-// truncates downward on every write and the loop multiplies that by 1/(1-f), so
-// a 16-bit project lost 43% of its brightness at the top of the slider (9% with
-// the lower cap, against 10% for 32-bit at its own maximum).
+// The cap is PER COLOUR DEPTH (115 at 32-bit, 80 at 16-bit). The two-pass
+// experiment below measured a 16-bit project losing 43% of its brightness at
+// the old top of the slider (9% with the lower cap, against 10% for 32-bit at
+// its own maximum); the lower 16-bit cap stays as the conservative usable range
+// after returning to one framebuffer write.
 //
-// The pass is DARKEN-then-ADD rather than a one-sprite lerp, and it rolls the
-// dither matrix a cell per frame - both needed, and only at 16-bit colour does
-// it show. A lerp moves a pixel by an INCREMENT, and on a 5-bit channel an
-// increment inside one storable step rounds to nothing, so the error stops
-// decaying and a ghost of wherever the camera used to point stays on screen for
-// ever; the fixed dither matrix cannot rescue it because the cells whose offset
-// is 0 never cross either. Rebuilding the pixel from two large terms
-// (Cd * (128-fix)/128, then + Cs * fix/128 - the grading gain and the bloom
-// add-back, already in that file) plus a rolling matrix settles it: measured on
-// flat ground 4 s after the camera stops, the ghost goes 40/32/51 -> 15/23/15
-// against a 32-bit control of 12/20/6, and 32-bit is unchanged. Costs one extra
-// full-screen sprite. Full weight still freezes at any depth, so the cap stands.
+// A split DARKEN-then-ADD workaround for 16-bit fixed points was removed again:
+// it quantized the 5-bit framebuffer twice per frame, and the accumulator fed
+// both downward errors back into visible brightness loss. The single lerp only
+// converts once. Its residual can still land on a fixed point, so the default
+// one-shot idle clear replaces the history exactly after the camera settles,
+// then restores the authored strength so moving objects still blur. Rolling the
+// dither matrix cleared more residue but made 16.6% of a parked sky shimmer each
+// frame, so it stays fixed. Full weight still freezes at any depth, so the cap
+// stands.
+//
+// Physical-PS2 follow-up: DTHE is now forced off at PSMCT32/24. The GS manual
+// calls dithering those targets unspecified and explicitly says to disable it;
+// PCSX2 treated it as inert, while a console exposed the 4x4 DIMX matrix as a
+// fine checker over a correctly allocated 32-bit framebuffer. All DTHE restore
+// sites use RendererSettings::isDitherActive(). The idle-history gate also
+// measures camera translation/turn per second and waits about 0.12 s, instead
+// of comparing per-frame displacement for two frames: at ~30 FPS on hardware,
+// ordinary pad drift was doubled versus a 60 FPS emulator run and could keep
+// the one-shot clear armed forever. PATCH within the unreleased feature.
+//
+// The 1:1 history sprite now samples UV at texel centres (+0.5 at both ends).
+// GS screen pixels are centred at .0 while texels are centred at .5; the old
+// 0..size mapping sat on boundaries. PCSX2 chose the intended neighbour, but a
+// physical GS in PSMCT16 consistently chose the lower/right one, shifting the
+// accumulated history a pixel per frame and stretching even stationary HUD
+// text diagonally down-right after an idle clear. Point filtering alone was
+// not sufficient; the centre bias makes a parked frame spatially invariant.
+// PATCH within the unreleased feature.
 //
 // Live Logic gains one state: an amber LOGIC (off) whenever a flow graph
 // differs from the one the running build compiled AND the feature is off. The
@@ -3765,7 +3783,8 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // additive - no migration step.
 // v48 (motion blur, docs/motion-blur.md): ProjectSettings gains motionBlur
 // (written with the rest of the always-emitted post-fx block, project-wide and
-// per scene) and the manifest gains hudMotionBlurLayer. An older editor would
+// per scene) plus optional motionBlurIdleClear, and the manifest gains
+// hudMotionBlurLayer. An older editor would
 // drop both on its next save, which is what the refusal is for. Purely
 // additive - no migration step.
 inline constexpr int kFormatVersion = 48;

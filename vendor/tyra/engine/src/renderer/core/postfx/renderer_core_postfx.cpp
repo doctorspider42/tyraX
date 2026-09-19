@@ -641,32 +641,33 @@ void RendererCorePostFx::apply(int passes) {
       // examples/showcase 16.6% of the sky's pixels moved every frame, against
       // 0.0% with the matrix left alone, and a shimmering sky is a worse
       // artefact than a faint static one - reported as "it just flickers, most
-      // visible looking at the sky". The darken+add form above plus the lower
-      // 16-bit cap already do most of the work the roll was added for.
-      // DARKEN, then ADD - not the one-sprite lerp this used to be, and the
-      // difference is entirely about QUANTIZATION (docs/motion-blur.md).
+      // visible looking at the sky".
       //
-      // The lerp `Cd += (Cs - Cd) * fix >> 7` is algebraically the same
-      // weighted average and stalls at 16-bit colour: it moves a pixel by an
-      // INCREMENT, and once the residual is within a 5-bit step that increment
-      // rounds to less than one storable level, so the error stops decaying
-      // and a ghost stays on screen for ever. The two-sprite form never
-      // computes a small increment - each frame the pixel is rebuilt from two
-      // large terms:
+      // ONE lerp, and one 16-bit conversion. A previous workaround split the
+      // same weighted sum into "darken fresh" then "add history". It narrowed
+      // one settled-ghost spread, but every half wrote PSMCT16 separately, so
+      // it quantized twice per frame and its downward bias was fed back by the
+      // accumulator. That is why the picture darkened most where the workaround
+      // was supposed to help. The generated game now breaks the fixed point
+      // exactly with one unblended frame after the camera settles; keeping the
+      // blend as one GS operation is both brighter and half the fill.
       //
-      //   1) Cd = Cd * (128 - fix) / 128   the fresh frame, weighted down
-      //   2) Cd = Cd + Cs * fix / 128      the previous frame, weighted in
+      // (Cs - Cd) * FIX / 128 + Cd, with source = previous frame and
+      // destination = the freshly rendered one. Point sampling: this is 1:1;
+      // a bilinear tap would shift the trail half a texel per frame.
       //
-      // Both equations already exist in this file (the colour grading's gain
-      // and the bloom's add-back), and the total is the same weighted average.
-      // Two full-screen sprites instead of one - the same fill as film grain.
-      q = flatQuad(q, fbVram, fbBufW, 0xFF000000u, 0x80, 0x80, 0x80, 0x80,
-                   GS_SET_ALPHA(1, 2, 2, 2, (u8)(128 - fix)));
-      // Point sampling: the blit is 1:1, and a bilinear tap would shift the
-      // trail half a texel per frame into a directional smear.
-      q = blit(q, prevVram, prevBufW, fbW, fbH, 0, 0, fbW << 4, fbH << 4,
-               fbVram, fbBufW, 0, 0, fbW, fbH, false, false, 1,
-               GS_SET_ALPHA(0, 2, 2, 1, fix));
+      // The GS pixel centre is at .0 but its texel centre is at .5. Sampling
+      // UV 0..size therefore sits exactly on texel boundaries. PCSX2 happened
+      // to choose the expected neighbour; a physical GS consistently chose
+      // the lower/right one for this PSMCT16 feedback pass, moving history by
+      // a pixel each frame and growing a diagonal copy of static HUD text.
+      // Bias BOTH ends by 8 in UV's 12.4 units: pixel (x,y) now samples the
+      // centre of texel (x,y), so a parked frame is spatially invariant.
+      constexpr int kTexelCenter = 8;
+      q = blit(q, prevVram, prevBufW, fbW, fbH, kTexelCenter, kTexelCenter,
+               (fbW << 4) + kTexelCenter, (fbH << 4) + kTexelCenter, fbVram,
+               fbBufW, 0, 0, fbW, fbH, false, false, 1,
+               GS_SET_ALPHA(0, 1, 2, 1, fix));
     }
   }
 

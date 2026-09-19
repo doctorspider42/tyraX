@@ -680,18 +680,19 @@ void RendererCoreGS::initDrawingEnvironment() {
     q++;
     packet2_update(packet2, q);
   }
-  // Modified by TyraX: GS ordered dithering. The GS only dithers when it
-  // writes a 16-bit destination, so this is inert at PSMCT32 and is what
-  // makes PSMCT16 usable: 5 bits per channel band visibly in skies, fog and
-  // the post-fx blur, and the 4x4 offset matrix trades that banding for
-  // noise the TV's own filtering then blurs away.
+  // Modified by TyraX: GS ordered dithering. It makes PSMCT16 usable: 5 bits
+  // per channel band visibly in skies, fog and the post-fx blur, and the 4x4
+  // offset matrix trades that banding for noise the TV filters away. DTHE
+  // MUST stay off at PSMCT32/24: the GS manual calls that result unspecified,
+  // and a real console applies a visible checker while PCSX2 hides the bug.
   {
     qword_t* q = packet2->next;
     PACK_GIFTAG(q, GIF_SET_TAG(2, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
     q++;
     PACK_GIFTAG(q, tyraxDitherMatrix(), GS_REG_DIMX);
     q++;
-    PACK_GIFTAG(q, GS_SET_DTHE(settings->getDither() ? 1 : 0), GS_REG_DTHE);
+    PACK_GIFTAG(q, GS_SET_DTHE(settings->isDitherActive() ? 1 : 0),
+                GS_REG_DTHE);
     q++;
     packet2_update(packet2, q);
   }

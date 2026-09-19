@@ -1346,7 +1346,17 @@ Notes:
   seconds, capture twice. A settled frame that is SHARP is a trail; one that is
   smeared - or, in the case that produced this note, still showing the **boot
   splash** thousands of frames into the run - is a freeze. One look at the image
-  answers it, where three pixel tables did not.
+  answers it, where three pixel tables did not. Also inspect static high-contrast
+  HUD text after the idle clear: a diagonal down-right tail means the 1:1
+  history sprite sampled texel boundaries instead of centres, even when point
+  filtering is enabled. Motion blur's default idle
+  clear is ONE sharp frame after about 0.12 seconds below its meaningful-motion
+  rate threshold, not a permanent zero
+  amount: after the settle capture, keep the camera parked and move an object
+  across it. The object must still trail. Test the option-off arm separately
+  because its 16-bit fixed-point residue is expected. Test at a forced low frame
+  rate or on hardware too: a per-frame displacement threshold passed at 60 FPS
+  in PCSX2 and failed at ~30 FPS on PS2 because pad drift doubled per frame.
 - **Rendering correctness**: switch PCSX2 to the **software renderer** before
   judging visuals — the HW renderer masks GS raster-window wrap bugs that real
   hardware shows. Give the game a few seconds to reach a steady state, then

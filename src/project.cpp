@@ -1740,6 +1740,10 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"grain\": " << fmtFloat(p.settings.grain) << ",\n"
          << "    \"motionBlur\": " << fmtFloat(p.settings.motionBlur)
          << ",\n"
+         // Written only when OFF: the default keeps every project byte for byte.
+         << (p.settings.motionBlurIdleClear
+                 ? ""
+                 : "    \"motionBlurIdleClear\": false,\n")
          << "    \"dofAmount\": " << fmtFloat(p.settings.dofAmount) << ",\n"
          << "    \"dofFocus\": " << fmtFloat(p.settings.dofFocus) << ",\n"
          << "    \"dofRange\": " << fmtFloat(p.settings.dofRange) << ",\n"
@@ -5547,6 +5551,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("grain")) st.grain = clamp01((float)v->numberOr(0.0));
         if (const auto* v = s->find("motionBlur"))
             st.motionBlur = clamp01((float)v->numberOr(0.0));
+        if (const auto* v = s->find("motionBlurIdleClear"))
+            st.motionBlurIdleClear = v->boolOr(true);
         if (const auto* v = s->find("dofAmount"))
             st.dofAmount = clamp01((float)v->numberOr(0.0));
         if (const auto* v = s->find("dofFocus"))

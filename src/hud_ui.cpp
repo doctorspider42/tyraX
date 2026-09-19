@@ -2966,9 +2966,18 @@ void App::drawUiEditorWindow() {
                 "weight the frame IS its predecessor and the picture stops\n"
                 "updating for ever, which is not a strong setting but a\n"
                 "broken one.");
+        if (ImGui::Checkbox("Clear trail when camera settles",
+                            &project_.settings.motionBlurIdleClear))
+            changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Clears the accumulated history once after the camera stops.\n"
+                "The blur immediately comes back at its authored strength, so\n"
+                "objects moving past a parked camera still leave a trail.\n"
+                "Recommended at 16-bit colour to remove quantized ghosts.");
         ImGui::TextDisabled(
             "One full-screen GS blend of the last frame. No VRAM (the other\n"
-            "display buffer IS that frame) and no EE time.");
+            "display buffer IS that frame) and negligible EE time.");
         ImGui::Spacing();
         ImGui::TextWrapped(
             "Keep this UNDER the HUD entries. The blur's source is the "

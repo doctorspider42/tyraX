@@ -1691,6 +1691,12 @@ struct ProjectSettings {
     // distance or a count. The Set Motion Blur flow node overrides it at
     // runtime.
     float motionBlur = 0.0f;
+    // Clear the temporal history ONCE after the view settles. That one
+    // unblended frame replaces the 16-bit accumulator and its quantized ghost;
+    // the authored blur then comes straight back, so an object moving past a
+    // parked camera still blurs. Off preserves a completely uninterrupted
+    // accumulator (useful for a drugged/dazed look, but rougher at 16-bit).
+    bool motionBlurIdleClear = true;
     // Depth of field: the image blurs progressively past dofFocus (world
     // units from the camera), reaching the full dofAmount blur at
     // dofFocus + dofRange. Composites right after the 3D scene (per-pixel
@@ -1929,6 +1935,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.bloomThreshold == b.bloomThreshold &&
            a.bloomSpread == b.bloomSpread &&
            a.grain == b.grain && a.motionBlur == b.motionBlur &&
+           a.motionBlurIdleClear == b.motionBlurIdleClear &&
            a.dofAmount == b.dofAmount &&
            a.dofFocus == b.dofFocus && a.dofRange == b.dofRange &&
            a.flare == b.flare && a.godRays == b.godRays &&

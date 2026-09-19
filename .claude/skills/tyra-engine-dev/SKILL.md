@@ -1588,6 +1588,26 @@ Rules the same evening paid for:
   1.15 MB free (2.04 MB at 16-bit colour) and never evicts anything — if you
   are chasing a VRAM problem in a palettized project, measure before assuming
   there is one.
+- **Motion blur gets ONE 16-bit conversion, then an explicit history break.**
+  `RendererCorePostFx` lerps the previous real frame over the fresh destination
+  in one sprite. Its 1:1 UVs are biased by +0.5 texel at BOTH ends: GS pixels
+  are centred at .0 but texels at .5, and the old boundary-aligned mapping
+  shifted PSMCT16 history down/right on hardware until static HUD text grew a
+  diagonal tail (PCSX2 chose the intended neighbour). Do not split the
+  algebraically identical sum into a darken quad
+  plus an additive blit: at PSMCT16 each half is stored and truncated separately,
+  then the accumulator feeds both downward errors back as brightness loss. The
+  generated game solves the lerp's fixed-point residue with one unblended frame
+  after the camera settles, then restores the authored amount so object-only
+  motion still blurs. Rolling DIMX was measured too and made 16.6% of a parked
+  sky shimmer per frame. See `docs/motion-blur.md`.
+- **Never arm DTHE for PSMCT32/24.** The GS manual calls the result
+  unspecified and says to turn it off. PCSX2 commonly treats the combination
+  as inert; a physical console exposed the 4x4 DIMX matrix as a fine checker
+  over a correctly allocated 32-bit framebuffer. Use
+  `RendererSettings::isDitherActive()` at EVERY DTHE restore site, including
+  alpha-mask brackets; `getDither()` is the authored preference, not a legal
+  hardware-register value by itself.
 - **The framebuffer PSM is a setting, not a constant** (TyraX fork,
   docs/gs-vram.md). `RendererSettings::getFrameBufferPsm()` returns PSMCT32 or
   PSMCT16 per the project's colour depth, and **everything that writes a
@@ -1612,8 +1632,8 @@ Rules the same evening paid for:
   with `0x03`** while a DIMX entry is 3-bit SIGNED (-4..3), so the negative
   half of the standard dither matrix (encoded 4..7) collapses to 0..3 and the
   dither comes out one-sided — `renderer_core_gs.cpp` packs the qword by hand;
-  and the GS only dithers **16-bit destinations**, so `DTHE` is inert at 32bpp
-  and the switch cannot be tested there.
+  and the GS dither is only legal for **16-bit destinations**. Do not call it
+  inert at 32bpp: that emulator assumption produced a hardware-only checker.
 - **The env-map and camera-feed targets are opt-in** (TyraX fork). Two
   128×128 targets plus their z buffers, 128 KB each, were reserved for every
   project whether or not anything sampled them — a quarter of the 32-bit

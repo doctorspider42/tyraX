@@ -4,12 +4,19 @@ The fourth built-in full-screen effect, next to bloom, colour grading and film
 grain. It blends the **previous rendered frame** over the current one, which is
 how the PS2 era did motion blur: there is no velocity buffer and no pixel
 shader, but the other display buffer already holds the last frame, so the whole
-effect is **one full-screen alpha blend** — no extra VRAM, no EE time, one
-screen of GS fill.
+effect is **one full-screen GS blend** — no extra VRAM, negligible EE time and
+one screen of fill.
 
 Turn it on in *Tools > UI Editor* (the **Motion blur** entry of the screen
 stack), per scene in *Scene > Scene Preferences > Post effects*, or from a flow
 graph with **Set Motion Blur**.
+
+**Clear trail when camera settles** is on by default in the UI Editor. It drops
+the blend for one frame after about 0.12 seconds of quiet view motion, which replaces the accumulated
+16-bit history with the fresh picture. The blur returns at full authored strength
+on the next frame even while the camera remains parked, so a moving object still
+leaves a trail. Turn the option off for an uninterrupted drugged/dazed-style
+accumulator.
 
 ![Motion blur off and at 85%, mid-turn](img/motion-blur.png)
 
@@ -102,19 +109,27 @@ logic — see [Live Logic](live-logic.md)):
   the Debugger's *Logic* tab names the node.
 
 Scene changes re-apply the scene's authored amount, so a graph that raised the
-blur does not leak it into the next scene.
+blur does not leak it into the next scene. The idle clear is a one-frame override
+of the renderer, not of that authored/runtime amount, so **Set Motion Blur** keeps
+working after a clear instead of being silently overwritten by the camera gate.
 
 ## How it works
 
 `RendererCorePostFx::apply()` (`vendor/tyra/engine/.../renderer_core_postfx.cpp`)
-adds one sprite:
+adds one full-screen sprite:
 
 - source: `RendererCoreGS::getPreviousRealFrameBuffer()`, blitted 1:1 over the
   current display buffer,
-- blend: `(Cs - Cd) * FIX >> 7 + Cd`, i.e. the plain alpha blend with `FIX` =
-  the amount as a 0..128 byte,
+- blend: `(Cs - Cd) * FIX >> 7 + Cd`, with the previous frame as `Cs` and the
+  fresh frame as `Cd`,
 - point sampling, because the blit is 1:1 and a bilinear tap would drift the
-  trail half a texel per frame into a directional smear.
+  trail half a texel per frame into a directional smear,
+- UV coordinates biased by `+0.5` texel at both ends. A GS pixel is centred at
+  `.0`, while a texel is centred at `.5`; sampling `0..size` sits on the
+  boundaries. PCSX2 selected the intended neighbour, but a physical GS running
+  the 16-bit feedback pass selected the lower/right texel and shifted history
+  one pixel per frame. The growing diagonal copies of otherwise stationary HUD
+  text were that sampling error, not quantization.
 
 Two details are load-bearing:
 
@@ -130,25 +145,38 @@ Two details are load-bearing:
   changing resolution — holds whatever was in that VRAM. The pass simply does not
   run until one real frame has been flipped.
 
+## Colour depth and GS dithering
+
+The renderer only writes `DTHE = 1` for a PSMCT16 framebuffer. This guard is
+not optional: the GS manual says the result of dithering an RGBA32/RGB24 target
+is not guaranteed and tells software to turn it off. PCSX2 commonly treats that
+combination as a no-op; a physical GS instead exposed the 4x4 DIMX pattern as a
+fine checkerboard over a 32-bit picture. VRAM usage still correctly reported a
+32-bit framebuffer — the pattern came from an invalid dither state, not a
+silent colour-depth fallback. Every path that restores DTHE, including the
+alpha-mask bracket, uses `RendererSettings::isDitherActive()` so it cannot
+re-arm the invalid combination behind the drawing environment.
+
 ## 16-bit colour
 
 A 16-bit frame buffer (*Project Preferences > Display > Colour depth*) stores 5
-bits per channel, and an accumulator is the one pass that really cares, because
+bits per channel, and an accumulator is the one effect that really cares, because
 it feeds its own output back in at a loop gain of `1/(1-f)` — about ten at the
-top of the slider. Two distinct things go wrong there, and both are fixed above
-by different means.
+top of the slider. Quantization is a real hardware limit, but it is not a reason
+to leave a permanent trail on screen: the lower cap limits the error while the
+optional idle clear cuts the feedback loop once the view settles.
 
-**It used to leave a permanent ghost.** The obvious blend,
-`Cd += (Cs - Cd) * fix >> 7`, moves a pixel by an *increment*; once the residual
-is inside one 5-bit step that increment rounds to less than one storable level
-and the error stops decaying for ever. Two changes, and **both** are needed:
+The blend moves a pixel by an *increment*. Once the residual is inside one
+5-bit step, that increment can round to less than one storable level and stop
+decaying. The default idle clear is the exact way out: one frame does not blend
+history at all, so there is no residual to quantize.
 
-1. **Darken, then add.** The pixel is rebuilt from two large terms —
-   `Cd = Cd * (128 - fix) / 128`, then `Cd += Cs * fix / 128` — which is the
-   same weighted average with no small increment in it. (Both equations were
-   already in the file: the grading's gain and the bloom's add-back.)
-2. **A lower cap** (below), which shortens the trail and with it the width of
-   the band the ghost can hide in — see *Why the ghost is permanent*.
+A two-pass workaround was tried before that policy existed: darken the fresh
+frame, then add the history. It narrowed one measured ghost spread, but both
+halves wrote the 16-bit framebuffer separately. That means **two quantizations
+per frame**, with both downward errors fed back by the accumulator — the reason
+the picture lost brightness while moving. Once the one-shot reset existed, the
+workaround was strictly the wrong trade: the pass returned to a single lerp.
 
 A dither matrix that ROLLS one cell per frame was tried and removed. It does
 clear the last of the ghost (settled sky 6/0/0 against 19/5/4), because a moving
@@ -164,30 +192,31 @@ arithmetic — the residual decays as `weight^n`. It is integer truncation that
 breaks it, and the mechanism is worth knowing because it explains every other
 number on this page.
 
-A 16-bit channel stores `k` in 0..31 and the GS reads it back as `8k`. With the
-scene constant at `S` and weight `f` out of 128, one frame is
+A 16-bit channel stores `k` in 0..31 and the GS reads it back as `8k`. If the
+fresh frame stores `n`, the previous frame stores `k`, the fixed dither entry is
+`d`, and the weight is `f` out of 128, one frame is
 
 ```
-k' = ( floor(S*(128-f)/128) + floor(8k*f/128) ) >> 3
+k' = ( 8n + floor((8k-8n)*f/128) + d ) >> 3
 ```
 
-At `f = 80` and `S = 200` that is `k' = (75 + 5k) >> 3`, and iterating it from
-below climbs 10 -> 15 -> 18 -> 20 -> 21 -> 22 -> **23**, where it stops. But 24
-and 25 are *also* fixed (`195>>3 = 24`, `200>>3 = 25`). The map has a BAND of
-fixed points, and which one a pixel lands on depends on where it started — that
-is, on what used to be on screen. Nothing decays; the pixel is already home.
+The map can have a BAND of fixed points, and which one a pixel lands on depends
+on where it started — that is, on what used to be on screen. Once it reaches
+one, waiting longer changes nothing; the pixel is already home.
 
 The band is about `1/(1-f/128)` quantization steps wide, which is why:
 
 * it is far worse at 16-bit — the step is 1/32 of the range instead of 1/256;
 * a stronger blur is worse — the band widens with the weight;
-* the settled picture is also DARKER, because `floor` puts every fixed point at
-  or below the true value;
+* a continuous accumulator tends darker, because `floor` puts fixed points at
+  or below the truth;
 * dithering removes it — a varying offset makes the update non-deterministic, so
   no value is stable and the pixel wanders to the truth — at the price of the
   shimmer above.
 
-Settled-frame ghost over flat groundSettled-frame ghost over flat ground, 5th-to-95th percentile per channel:
+The historical experiments are still useful because they show why neither
+"split the blend" nor "move the dither" is a free fix. Settled-frame ghost over
+flat ground, 5th-to-95th percentile per channel:
 
 | 16-bit variant | R | G | B |
 |---|---|---|---|
@@ -197,16 +226,16 @@ Settled-frame ghost over flat groundSettled-frame ghost over flat ground, 5th-to
 | **darken+add, rolled matrix** | **15** | **23** | **15** |
 | 32-bit control | 12 | 20 | 6 |
 
-**And it BLEEDS BRIGHTNESS**, which is the more visible half and the one a ghost
-metric cannot see. Every write truncates downward, the loop multiplies that bias
-by `1/(1-f)`, and at PSMCT16 a write drops three bits — eight times the bias of a
-32-bit one. The picture does not tint, it goes dark and stays dark. Dithering
-pays back only part of it: unbiased rounding would want offsets averaging 3.5,
-`DIMX` entries are **3-bit signed** so anything above 3 is negative (1.70.4), and
-0..3 averages 1.5. A "full range 0..7" matrix was tried and is exactly the
-darkening that note warns about.
+The two-pass experiment also exposed the more visible failure that a spread
+metric missed: **brightness loss**. Every framebuffer write truncates downward,
+the loop multiplies that bias by `1/(1-f)`, and the split form did it twice per
+frame. The picture did not tint; it went dark and stayed dark. Dithering paid
+back only part of it: unbiased rounding wants offsets averaging 3.5, while
+`DIMX` entries are 3-bit signed and this engine keeps them in the safe 0..3
+range. A "full range 0..7" matrix is half negative and darkens additive passes.
 
-Settled green against the same scene with the blur off:
+Settled green from that old two-pass experiment, against the same scene with the
+blur off:
 
 | amount | 16-bit | 32-bit |
 |---|---|---|
@@ -220,8 +249,28 @@ So the cap is **per colour depth** — `kMotionBlurMaxFix` 115, `kMotionBlurMaxF
 80, resolved by `motionBlurMaxFix()` and read by the scene table, the node's
 codegen and the Live Logic interpreter alike. It is the same decision the 115
 already was: the top of the slider has to be a value somebody can use, and at
-16-bit that is a shorter trail. 100% there now costs about what 100% costs at
-32-bit, and the settled picture is clean on flat ground and sky alike.
+16-bit that is a shorter trail. The cap remains conservative after returning to
+one write per frame; with idle clearing enabled, the settled frame is exact
+rather than merely close because no quantized history survives the clear.
+
+### Why the idle clear is one shot
+
+An earlier version scaled the blur continuously by camera speed and held it at
+zero while the player stood still. That fixed the background but also disabled
+the effect for a vehicle, projectile, enemy or particle moving past a parked
+camera — precisely the content whole-frame accumulation is able to blur.
+
+The shipped policy instead waits for about 0.12 seconds of quiet camera motion,
+sets the renderer's amount to zero for **one frame**, then restores the authored
+amount. Translation and turn rates are measured per second, not per rendered
+frame. This matters on hardware: a 30 FPS frame contains twice the displacement
+of a 60 FPS frame, and the old per-frame threshold mistook small physical-pad
+drift for continuous camera movement, so the clear never fired. Camera bob,
+float noise and normal stick drift sit below the meaningful-motion threshold.
+A scene load also forces one
+fresh frame so the previous scene cannot smear into the next one. This cannot
+detect every later object-only transition; if an uninterrupted accumulator is
+required, disable the option and accept the 16-bit fixed-point residue.
 
 ## Triple buffering
 
@@ -232,22 +281,9 @@ buffers the rotation is `shown -> finished -> free`, and
 frame still blends its immediate predecessor. The buffer being drawn into holds
 an image from two frames ago, which the frame clear overwrites.
 
-What DOES change is the rolling dither: three buffers means three accumulator
-states in flight at three different dither phases, so consecutive displayed
-frames come from different phases. Measured as the difference between two
-settled captures a second apart (mean per channel, 0..255):
-
-| | 2 buffers | 3 buffers |
-|---|---|---|
-| 32-bit | 0.006 | 0.021 |
-| 16-bit | 0.199 | **0.780** |
-| 16-bit, blur off (control) | — | 0.007 |
-
-So four times the shimmer at 16-bit — and still **0.3% of range**, with no pixel
-outside PCSX2's own FPS readout moving by more than one 5-bit step. The ghost
-level itself is identical to the two-buffer case (15/23/15). It reads as what
-dither always reads as, and it is the price of the matrix that stops the ghost;
-at 32-bit the roll is inert and there is nothing to see either way.
+The dither matrix stays fixed in screen space. Rolling it was measured and
+removed: it cleared more of the residual, but made 16.6% of a parked sky change
+every frame. Triple buffering therefore adds no special dither phase or shimmer.
 
 ## Interactions
 
@@ -266,8 +302,9 @@ at 32-bit the roll is inert and there is nothing to see either way.
 ## Cost
 
 One full-screen alpha-blended sprite — the same GS fill as one bloom composite
-pass and about a third of what film grain costs (grain draws two). No EE work,
-no VU work, no VRAM: the source is a buffer the renderer already owns.
+and about half of film grain. No VU work and no VRAM: the source is a buffer the
+renderer already owns. The idle gate adds only a few scalar camera comparisons
+on the EE and draws nothing on its clear frame.
 
 ## Verifying it
 
@@ -302,7 +339,8 @@ the image answers it:
 | Weight | settled frame after the camera stops |
 |---|---|
 | 0% (control) | sharp |
-| 100% (= 115/128, the cap) | **sharp** — a long trail, fully caught up |
+| 100% (= the colour-depth cap), idle clear on | **sharp** — one fresh frame replaces the history |
+| 100%, idle clear off | may retain a faint 16-bit fixed-point residue |
 | 128/128 (only reachable by removing the cap) | **the TyraX boot splash**, thousands of frames later |
 
 The last row is what the cap exists for: at 128 the blend is `Cd += (Cs-Cd)*128>>7`,
