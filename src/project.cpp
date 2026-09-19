@@ -1173,6 +1173,7 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
       << ", \"bloomThreshold\": " << fmtFloat(s.bloomThreshold)
       << ", \"bloomSpread\": " << fmtFloat(s.bloomSpread)
       << ", \"grain\": " << fmtFloat(s.grain)
+      << ", \"motionBlur\": " << fmtFloat(s.motionBlur)
       << ", \"dofAmount\": " << fmtFloat(s.dofAmount)
       << ", \"dofFocus\": " << fmtFloat(s.dofFocus)
       << ", \"dofRange\": " << fmtFloat(s.dofRange)
@@ -1254,6 +1255,8 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
                 if (const auto* v = pf->find("bloomSpread"))
                     s.bloomSpread = clamp01((float)v->numberOr(0.0));
                 if (const auto* v = pf->find("grain")) s.grain = clamp01((float)v->numberOr(0.0));
+                if (const auto* v = pf->find("motionBlur"))
+                    s.motionBlur = clamp01((float)v->numberOr(0.0));
                 if (const auto* v = pf->find("dofAmount"))
                     s.dofAmount = clamp01((float)v->numberOr(0.0));
                 if (const auto* v = pf->find("dofFocus"))
@@ -1413,6 +1416,7 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
         r.bloomThreshold = o.bloomThreshold;
         r.bloomSpread = o.bloomSpread;
         r.grain = o.grain;
+        r.motionBlur = o.motionBlur;
         r.dofAmount = o.dofAmount;
         r.dofFocus = o.dofFocus;
         r.dofRange = o.dofRange;
@@ -1782,6 +1786,12 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << ",\n"
          << "    \"bloomSpread\": " << fmtFloat(p.settings.bloomSpread) << ",\n"
          << "    \"grain\": " << fmtFloat(p.settings.grain) << ",\n"
+         << "    \"motionBlur\": " << fmtFloat(p.settings.motionBlur)
+         << ",\n"
+         // Written only when OFF: the default keeps every project byte for byte.
+         << (p.settings.motionBlurIdleClear
+                 ? ""
+                 : "    \"motionBlurIdleClear\": false,\n")
          << "    \"dofAmount\": " << fmtFloat(p.settings.dofAmount) << ",\n"
          << "    \"dofFocus\": " << fmtFloat(p.settings.dofFocus) << ",\n"
          << "    \"dofRange\": " << fmtFloat(p.settings.dofRange) << ",\n"
@@ -2045,6 +2055,7 @@ static void writeHudSection(std::ostream& json, const Project& p) {
     json << (p.textIcons.empty() ? "]" : "\n  ]");
     json << ",\n  \"hudBloomLayer\": " << p.hudBloomLayer;
     json << ",\n  \"hudGrainLayer\": " << p.hudGrainLayer;
+    json << ",\n  \"hudMotionBlurLayer\": " << p.hudMotionBlurLayer;
     if (!p.screenFx.empty()) {
         json << ",\n  \"screenFx\": [";
         for (size_t i = 0; i < p.screenFx.size(); ++i) {
@@ -5836,6 +5847,10 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("bloomSpread"))
             st.bloomSpread = clamp01((float)v->numberOr(0.0));
         if (const auto* v = s->find("grain")) st.grain = clamp01((float)v->numberOr(0.0));
+        if (const auto* v = s->find("motionBlur"))
+            st.motionBlur = clamp01((float)v->numberOr(0.0));
+        if (const auto* v = s->find("motionBlurIdleClear"))
+            st.motionBlurIdleClear = v->boolOr(true);
         if (const auto* v = s->find("dofAmount"))
             st.dofAmount = clamp01((float)v->numberOr(0.0));
         if (const auto* v = s->find("dofFocus"))
@@ -6152,11 +6167,21 @@ static void readHudSection(const json::Value& root, Project& out) {
         out.hudBloomLayer = (int)v->numberOr(-1.0);
     if (const auto* v = root.find("hudGrainLayer"))
         out.hudGrainLayer = (int)v->numberOr(-1.0);
+    // Motion blur defaults to 0 (under the whole HUD stack) - see
+    // Project::hudMotionBlurLayer for why it is not -1 like the other two.
+    if (const auto* v = root.find("hudMotionBlurLayer"))
+        out.hudMotionBlurLayer = (int)v->numberOr(0.0);
+    // ABOVE the stack, not merely at its end: an index equal to the sprite
+    // count already behaves as topmost (the game's loop never reaches it), and
+    // motion blur's default 0 has to survive a project with no HUD sprites at
+    // all - with `>=` that read as out of range and --resave rewrote the file
+    // it had just read.
     auto clampLayer = [&](int& L) {
-        if (L < -1 || L >= (int)out.hud.size()) L = -1;
+        if (L < -1 || L > (int)out.hud.size()) L = -1;
     };
     clampLayer(out.hudBloomLayer);
     clampLayer(out.hudGrainLayer);
+    clampLayer(out.hudMotionBlurLayer);
 
     // Custom screen effect placements. A placement whose .screenfx file was not
     // loaded above (missing / moved project) is dropped - the same rule that

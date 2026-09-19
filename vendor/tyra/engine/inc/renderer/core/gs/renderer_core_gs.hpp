@@ -99,6 +99,19 @@ class RendererCoreGS {
   }
 
   /**
+   * Modified by TyraX: true once a SCENE-rendered frame has actually been
+   * finished and flipped, i.e. once getPreviousRealFrameBuffer() names an
+   * image and not uninitialised VRAM.
+   *
+   * The buffers are never cleared at allocation, so on the first frame after
+   * boot (or after a layout rebuild - a display-mode switch, the adaptive
+   * upscaler's resolution change) the "previous" buffer holds whatever was in
+   * that VRAM. Motion blur reads it every frame, so a pass that trusted
+   * lastRealBuffer alone would blend one frame of garbage over the picture.
+   */
+  bool hasRealFrame() const { return realFramePresented; }
+
+  /**
    * Modified by TyraX: INTERRUPT CONTEXT - called from the INTC vblank
    * handler, never by game code. Latches the queued buffer into DISPFB and
    * releases the one it replaces.
@@ -319,6 +332,12 @@ class RendererCoreGS {
   // Modified by TyraX: which buffer last received a SCENE-rendered frame (see
   // getPreviousRealFrameBuffer). Synthesised frames never claim it.
   s32 lastRealBuffer = 1;
+  // Modified by TyraX: has any SCENE-rendered frame finished yet? False until
+  // the first non-synthetic flip after a layout (re)build - see
+  // hasRealFrame(). lastRealBuffer names a buffer either way, so anything
+  // READING the previous frame needs this to tell "the frame before last" from
+  // "VRAM nobody has written".
+  bool realFramePresented = false;
   /** INTC handler id from AddIntcHandler, -1 when not installed. */
   s32 vblankHandlerId = -1;
   // Modified by TyraX (BLSS): the raster redirect currently open, if any.

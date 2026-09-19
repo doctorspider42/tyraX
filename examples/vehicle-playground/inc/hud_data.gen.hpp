@@ -23,9 +23,11 @@ inline const HudImageData HUD_IMAGES[HUD_COUNT > 0 ? HUD_COUNT : 1] = {
 // Editor). The effect applies right before the HUD sprite at this
 // index, so lower-index sprites get it and higher ones draw crisp on
 // top. -1 = at end of frame, over everything including menus. Bloom
-// carries color grading; film grain is placed independently.
+// carries color grading; film grain and motion blur are placed
+// independently.
 constexpr int HUD_BLOOM_LAYER = -1;
 constexpr int HUD_GRAIN_LAYER = -1;
+constexpr int HUD_MOTION_BLUR_LAYER = 0;
 
 // The USE prompt sprite (shown while looking at a usable object)
 constexpr const char* USE_PROMPT_PATH = "hud/use-text.png";

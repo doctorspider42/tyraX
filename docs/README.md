@@ -103,6 +103,9 @@ their ownership and acceptance checks.
   console pays nothing.
 - [Day / night cycle](day-night-cycle.md) — the time-of-day slider the whole
   bake follows, sun and moon arcs, the runtime clock.
+- [Motion blur](motion-blur.md) — the previous frame smeared over this one, for
+  one full-screen blend and no VRAM; what the amount means, why it belongs under
+  the HUD, and the Set Motion Blur node.
 - [Custom screen effects](custom-screen-effects.md) — your own full-screen post
   effects in `.screenfx` text files, no editor rebuild.
 - [The neural upscaler (BLSS)](neural-upscaler.md) — reduce the 3D raster and

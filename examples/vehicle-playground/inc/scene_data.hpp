@@ -798,7 +798,11 @@ constexpr int POSTFX_BLOOMS[SCENE_COUNT] = {15};
 constexpr int POSTFX_BLOOM_CUTS[SCENE_COUNT] = {179};
 constexpr int POSTFX_BLOOM_SPREADS[SCENE_COUNT] = {1};
 constexpr int POSTFX_GRAINS[SCENE_COUNT] = {0};
+constexpr int POSTFX_MOTIONBLURS[SCENE_COUNT] = {0};
 constexpr int POSTFX_FLARES[SCENE_COUNT] = {0};
+// Clear motion-blur history once after the camera settles. The
+// authored blur returns on the next frame, even if it stays parked.
+constexpr int POSTFX_MOTIONBLUR_IDLE_CLEAR = 1;
 constexpr int POSTFX_GODRAYS_ARR[SCENE_COUNT] = {0};
 constexpr int FLARE_USED = 0;
 constexpr int BEAMS_USED = 1;
@@ -1088,6 +1092,7 @@ inline int everyFrames(float seconds) {
 #define POSTFX_BLOOM_CUT POSTFX_BLOOM_CUTS[g_activeScene]
 #define POSTFX_BLOOM_SPREAD POSTFX_BLOOM_SPREADS[g_activeScene]
 #define POSTFX_GRAIN POSTFX_GRAINS[g_activeScene]
+#define POSTFX_MOTIONBLUR POSTFX_MOTIONBLURS[g_activeScene]
 #define POSTFX_DOF POSTFX_DOFS[g_activeScene]
 #define POSTFX_DOF_FOCUS POSTFX_DOF_FOCUSES[g_activeScene]
 #define POSTFX_DOF_RANGE POSTFX_DOF_RANGES[g_activeScene]

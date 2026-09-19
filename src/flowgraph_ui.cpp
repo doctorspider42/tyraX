@@ -1443,6 +1443,23 @@ void App::drawFlowGraphWindow() {
                     }
                     continue;
                 }
+                // A declared fraction, like a declared choice, wins over the
+                // label heuristics: it is drawn as a percentage and BOUNDED,
+                // where the generic drag at the end of this loop takes any
+                // value at all - including the negatives and the hundreds that
+                // codegen then silently clamps away.
+                if (t->numPercent[a]) {
+                    float pct = n.num[a] * 100.0f;
+                    if (ImGui::SliderFloat(t->numLabels[a], &pct, 0.0f, 100.0f,
+                                           "%.0f%%",
+                                           ImGuiSliderFlags_AlwaysClamp)) {
+                        n.num[a] = pct * 0.01f;
+                        changed = true;
+                    }
+                    changed |= ImGui::IsItemDeactivatedAfterEdit();
+                    paramTip(flowNumTip(*t, a));
+                    continue;
+                }
                 const bool isLoop = std::strcmp(t->numLabels[a], "Loop") == 0 ||
                                     std::strcmp(t->numLabels[a], "Once") == 0 ||
                                     std::strcmp(t->numLabels[a], "Whole") == 0 ||

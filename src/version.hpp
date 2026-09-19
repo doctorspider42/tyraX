@@ -16,6 +16,13 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.112.0: merge this branch with main's motion blur. The generated runtime
+// now carries the one-pass previous-frame blend, its explicit idle history
+// break and the legal DTHE restores for 16-bit targets alongside the branch's
+// proxy/junction work. Main's additive format v48 fields are renumbered to v58
+// here because this branch had already published distinct v48..v57 fields.
+// MINOR.
+//
 // 1.111.0: CHEAP GEOMETRY WHERE THE PIXELS CANNOT JUSTIFY THE REAL MODEL.
 // Properties > Bake hull proxy writes a one-material convex XZ footprint
 // prism and assigns it through the existing far-model path: the authored OBJ,
@@ -4730,7 +4737,7 @@
 // gate separates 113 levels for "shadow removed" from 2 for this change. No
 // project format change (kFormatVersion stays 55), no VU1 change, no bake change.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 111
+#define TYRAX_VERSION_MINOR 112
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -5107,7 +5114,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v57: SceneObject::reflectionProxy and roadIntersectionTexture. Missing means
 // the historical full-model env submission / no automatic junctions. Both are
 // additive; the boolean is written only when true. No migration step.
-inline constexpr int kFormatVersion = 57;
+// v58 (motion blur, docs/motion-blur.md): ProjectSettings gains motionBlur and
+// optional motionBlurIdleClear, while the manifest gains hudMotionBlurLayer.
+// This is main's additive v48 change renumbered after this branch's v57.
+// No migration step.
+inline constexpr int kFormatVersion = 58;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

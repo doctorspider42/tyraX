@@ -1291,9 +1291,50 @@ void App::livedbgTick() {
 // ---------------------------------------------------------------------------
 void App::liveLogicTick() {
     namespace fs = std::filesystem;
-    if (!hasProject_ || !project_.settings.liveLogic ||
-        project_.settings.buildProfile != "debug") {
+    if (!hasProject_ || project_.settings.buildProfile != "debug") {
         liveLogicState_ = LogicState::Off;
+        return;
+    }
+    // Live Logic OFF still owes one answer: "are my graph edits in the running
+    // game?" - and the honest answer is no. Nothing else says it. Live Link is
+    // the chip people watch and it stays green, correctly, because it streams
+    // OBJECT edits and has never carried flow-graph logic; the editor used to
+    // return here and show nothing at all, so an edited graph that needs a
+    // rebuild was indistinguishable from one already running. Compare the
+    // hashes (cheap - no compile, no capability check) and let the chip say so.
+    if (!project_.settings.liveLogic) {
+        const double nowOff = ImGui::GetTime();
+        // The throttle must LEAVE the last answer standing. Clearing the state
+        // here and re-deciding only every half second made the chip correct
+        // for one frame in thirty and invisible in practice - the state is
+        // what the toolbar reads every frame, not a scratch variable.
+        if (nowOff < liveLogicNextTick_) return;
+        liveLogicNextTick_ = nowOff + 0.5;
+        liveLogicState_ = LogicState::Off;
+        livelogic::BuiltList list;
+        if (!livelogic::loadBuiltList(
+                (fs::path(project_.dir) / "src" / "gen" / "livelogic.built")
+                    .string(),
+                list))
+            return;
+        for (size_t si = 0; si < project_.scenes.size(); ++si) {
+            const SceneData& sc = project_.scenes[si];
+            for (const SceneObject& o : sc.objects) {
+                if (o.flowGraph.empty()) continue;
+                const uint64_t live = livelogic::graphHash(o.flowGraph);
+                bool wasBuilt = false;
+                for (const livelogic::BuiltGraph& g : list.graphs)
+                    if (g.scene == (int)si && g.objectId == o.id) {
+                        wasBuilt = true;
+                        if (g.hash != live) liveLogicState_ = LogicState::OffStale;
+                        break;
+                    }
+                // A graph the build never saw (a new object, or one that had
+                // no graph then) is the same answer: nothing in the running
+                // game runs it.
+                if (!wasBuilt) liveLogicState_ = LogicState::OffStale;
+            }
+        }
         return;
     }
     const double now = ImGui::GetTime();

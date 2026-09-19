@@ -1676,6 +1676,16 @@ Rules the same evening paid for:
   its ceiling thrashes on the next thing that binds: opening the pause menu
   took it from 0.119 MB free / 121 KB largest block to 0.052 / 25, which is the
   state a console reported as four evictions and four re-uploads per frame.
+- **Motion blur gets ONE 16-bit conversion, then an explicit history break.**
+  `RendererCorePostFx` lerps the previous real frame over the fresh destination
+  in one sprite. Its 1:1 UVs are biased by +0.5 texel at both ends; splitting
+  the blend into two passes feeds PSMCT16 rounding back as brightness loss.
+  The generated game emits one clean frame after the camera settles, then
+  restores the authored amount. See `docs/motion-blur.md`.
+- **Never arm DTHE for PSMCT32/24.** The GS calls that unspecified and PCSX2
+  can hide the resulting physical-hardware checker. Use
+  `RendererSettings::isDitherActive()` at every DTHE restore site, including
+  alpha-mask brackets; `getDither()` is only the authored preference.
 - **The framebuffer PSM is a setting, not a constant** (TyraX fork,
   docs/gs-vram.md). `RendererSettings::getFrameBufferPsm()` returns PSMCT32 or
   PSMCT16 per the project's colour depth, and **everything that writes a

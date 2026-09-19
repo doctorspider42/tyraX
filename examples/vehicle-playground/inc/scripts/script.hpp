@@ -232,13 +232,17 @@ struct ScriptContext {
   float shakeAmp = -1.0F;
   float shakeSec = 0.0F;
 
-  // Runtime graphics switches (Set Fog / Set Bloom / Set Grain / Set Particles
-  // / Set Lens Flare / Set God Rays flow nodes). fog / particles: -1 = leave,
-  // 0 = off, 1 = on. bloom / grain / flare / godRays: -1 = leave, else a
-  // 0..128 fixed-point amount. The game applies and resets.
+  // Runtime graphics switches (Set Fog / Set Bloom / Set Grain / Set Motion
+  // Blur / Set Particles / Set Lens Flare / Set God Rays flow nodes). fog /
+  // particles: -1 = leave, 0 = off, 1 = on. bloom / grain / motionBlur /
+  // flare / godRays: -1 = leave, else a 0..128 fixed-point amount. The game
+  // applies and resets.
   int fog = -1;
   int bloom = -1;
   int grain = -1;
+  // Motion blur (Set Motion Blur flow node): -1 = leave, else a 0..128 weight
+  // for the previous frame (0 = off). The game applies and resets it.
+  int motionBlur = -1;
   int particles = -1;
   int flare = -1;
   int godRays = -1;
