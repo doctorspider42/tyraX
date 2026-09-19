@@ -3972,7 +3972,10 @@ void Viewport::clearModelCache() {
 }
 
 void Viewport::clearRoadDraws() {
-    for (auto& [id, road] : roadDraws_) destroyMesh(road.mesh);
+    for (auto& [id, road] : roadDraws_) {
+        destroyMesh(road.mesh);
+        destroyMesh(road.junctionMesh);
+    }
     roadDraws_.clear();
 }
 
@@ -3983,6 +3986,16 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         const auto* p = static_cast<const unsigned char*>(data);
         for (size_t i = 0; i < size; ++i) h = (h ^ p[i]) * 1099511628211ULL;
     };
+    uint64_t junctionSig = 1469598103934665603ULL;
+    for (const SceneObject& r : objects) {
+        if (r.type != PrimitiveType::Road) continue;
+        mix(junctionSig, &r.roadWidth, sizeof(r.roadWidth));
+        if (!r.roadPoints.empty())
+            mix(junctionSig, r.roadPoints.data(),
+                r.roadPoints.size() * sizeof(float));
+        mix(junctionSig, r.roadIntersectionTexture.data(),
+            r.roadIntersectionTexture.size());
+    }
     std::map<std::string, bool> alive;
     for (size_t oi = 0; oi < objects.size(); ++oi) {
         const SceneObject& o = objects[oi];
@@ -3991,6 +4004,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         alive[key] = true;
         uint64_t sig = 1469598103934665603ULL;
         mix(sig, &roadTerrainRevision_, sizeof(roadTerrainRevision_));
+        mix(sig, &junctionSig, sizeof(junctionSig));
         mix(sig, &o.roadWidth, sizeof(o.roadWidth));
         if (!o.roadPoints.empty())
             mix(sig, o.roadPoints.data(), o.roadPoints.size() * sizeof(float));
@@ -4007,12 +4021,41 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         for (const roadgen::Vertex& v : strip)
             interleaved.insert(interleaved.end(),
                                {v.x, v.y, v.z, 1.0f, 1.0f, 1.0f, v.u, v.v});
+        std::vector<float> junctionInterleaved;
+        if (!o.roadIntersectionTexture.empty()) {
+            for (size_t oj = oi + 1; oj < objects.size(); ++oj) {
+                const SceneObject& other = objects[oj];
+                if (other.type != PrimitiveType::Road ||
+                    other.roadPoints.size() < 4 ||
+                    other.roadIntersectionTexture != o.roadIntersectionTexture)
+                    continue;
+                std::vector<roadgen::Junction> junctions;
+                roadgen::findJunctions(o.roadPoints, o.roadWidth,
+                                       other.roadPoints, other.roadWidth,
+                                       junctions);
+                for (const roadgen::Junction& junction : junctions) {
+                    std::vector<roadgen::Vertex> triangles;
+                    roadgen::tessellateJunction(
+                        junction,
+                        [&](float x, float z) { return terrainHeight(x, z); },
+                        triangles);
+                    for (const roadgen::Vertex& v : triangles)
+                        junctionInterleaved.insert(
+                            junctionInterleaved.end(),
+                            {v.x, v.y, v.z, 1.0f, 1.0f, 1.0f, v.u, v.v});
+                }
+            }
+        }
         RoadDraw next;
         next.mesh = uploadMesh(interleaved);
+        if (!junctionInterleaved.empty())
+            next.junctionMesh = uploadMesh(junctionInterleaved);
         next.texture = o.roadTexture;
+        next.junctionTexture = o.roadIntersectionTexture;
         next.signature = sig;
         if (it != roadDraws_.end()) {
             destroyMesh(it->second.mesh);
+            destroyMesh(it->second.junctionMesh);
             it->second = std::move(next);
         } else {
             roadDraws_.emplace(key, std::move(next));
@@ -4024,6 +4067,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
             continue;
         }
         destroyMesh(it->second.mesh);
+        destroyMesh(it->second.junctionMesh);
         it = roadDraws_.erase(it);
     }
 }
@@ -5890,6 +5934,14 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                     // survive instead of pairing arbitrary triangle corners.
                     draw(ri->second.mesh, GL_TRIANGLES, viewProj, o.color[0],
                          o.color[1], o.color[2], tex);
+                    if (ri->second.junctionMesh.vertexCount > 0) {
+                        const uint32_t junctionTex =
+                            asLines || ri->second.junctionTexture.empty()
+                                ? 0
+                                : glTexture(ri->second.junctionTexture);
+                        draw(ri->second.junctionMesh, GL_TRIANGLES, viewProj,
+                             o.color[0], o.color[1], o.color[2], junctionTex);
+                    }
                     ps2NoDyn = 0;  // do not leak the road's static-light mode
                 }
                 continue;

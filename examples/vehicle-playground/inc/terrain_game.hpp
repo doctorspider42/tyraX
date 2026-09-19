@@ -312,6 +312,9 @@ class TerrainGame : public Tyra::Game {
     Tyra::Vec4 probeRight;
     Tyra::Vec4 probeUp;
     bool probeBasis = false;
+    // Optional reflection-only stand-in: a single untextured box bag built
+    // from the current visual geometry. It never replaces main-view data.
+    std::unique_ptr<GeoPart> reflectionProxy;
     // Animated models (.glb): this object's skeletal instance (own
     // playback state + skinned output mesh, samples the shared SkelModel).
     std::unique_ptr<Tyra::SkelInstance> animInst;
@@ -1082,6 +1085,7 @@ class TerrainGame : public Tyra::Game {
   // target because the bracket's begin() drains PATH1: the previous
   // object's draws sample THEIR map before it is overwritten.
   void renderObjectProbe(int index);
+  void renderReflectionProxy(int index);
   // Portal objects (type 16): a linked pair of surfaces. renderPortalView
   // renders the through-view of the best on-screen portal into the engine's
   // portal render target (the player camera mapped through the pair, so the

@@ -2600,3 +2600,25 @@ the MVP, the picked dynamic light and the frustum classification are rebuilt
 per frame. It is engine-only - no codegen, no project format, and the packet
 that reaches VIF1 is byte-identical - so a generated game inherits it by
 rebuilding, and nothing in src/ changed for it.
+
+## Static material consolidation and cheap visual proxies (1.111.0)
+
+`templates::bakeStaticModels` merges OBJ parts only after their final atlas
+texture, Kd/Ke, reflection state and LOD chain are known. Exact render-state
+equality is required; material names are not render state. Build triangle
+strips after the merge so they may cross former `usemtl` boundaries. Never
+merge ordered billboard-impostor parts: their part index is the capture view.
+
+`modelproxy.cpp` writes a one-material convex XZ footprint prism and assigns it
+through the existing non-billboard `impostorPath`; it is an ordinary OBJ/MTL,
+not a new runtime asset type. `SceneObject::reflectionProxy` (format v57) is a
+separate opt-in: the generated game lazily builds one 12-triangle untextured
+box bag from current visual bounds and submits it only inside the two dynamic
+env-map object loops. Main rendering, collision and picking remain full detail.
+
+Automatic road intersections are host decisions too. A Road's
+`roadIntersectionTexture` must match the other crossing road;
+`roadgen::findJunctions` samples the same Catmull-Rom centre line, codegen
+stores centre plus four strip-overlap corners, and `buildRoads` only emits the
+resulting four triangles. Keep the viewport's junction mesh and generated data
+on that shared host result; do not move pairwise road detection onto the EE.

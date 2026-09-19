@@ -189,7 +189,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - **Generators** — [procedural scatter graphs](docs/procedural-generation.md)
   baked to chunk meshes or [run on the EE](docs/procedural-runtime.md),
   [prefabs](docs/prefabs.md), the [Tree Generator](docs/tree-generator.md),
-  [GPU/CPU impostors with 4/8/16 views](docs/impostors.md) and
+  [GPU/CPU impostors with 4/8/16 views plus one-material hull proxies](docs/impostors.md) and
   the [Drone Generator](docs/drone-generator.md) for ambient music.
 - **[World scale](docs/world-scale.md)** — one number that keeps imported reality
   the size your own content is.
@@ -231,7 +231,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [world facts](docs/world-facts.md), runtime spawning and the
   [endless scroller](docs/endless-scroller.md).
 - **[Roads](docs/roads.md) and [vehicles](docs/vehicles.md)** — textured spline
-  roads projected onto the terrain in both the editor and game, plus imported,
+  roads and automatically generated, separately textured intersections,
+  projected onto the terrain in both the editor and game, plus imported,
   budgeted cars with wheel suspension, gears, drifting and AI drivers. Try the
   [Motor District](examples/vehicle-playground) city course and live paint reflections.
 - **[NavMesh + NPC AI](docs/navigation-ai.md)** — baked on the host, A* on the EE.

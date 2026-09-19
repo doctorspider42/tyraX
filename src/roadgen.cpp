@@ -201,6 +201,20 @@ void spanCuts(const std::vector<std::vector<Vertex>>& rows, size_t i,
     }
 }
 
+std::vector<P> centreLine(const std::vector<float>& pts) {
+    std::vector<P> out;
+    const int n = (int)(pts.size() / 2);
+    if (n < 2) return out;
+    for (int seg = 0; seg < n - 1; ++seg) {
+        const P a = pointAt(pts, seg), b = pointAt(pts, seg + 1);
+        const float len = std::hypot(b.x - a.x, b.z - a.z);
+        const int steps = len > kSampleStep ? (int)(len / kSampleStep) + 1 : 1;
+        for (int k = seg == 0 ? 0 : 1; k <= steps; ++k)
+            out.push_back(sample(pts, seg, (float)k / (float)steps));
+    }
+    return out;
+}
+
 }  // namespace
 
 float tessellate(const std::vector<float>& pointsXZ, float width,
@@ -338,6 +352,87 @@ float tessellateStrips(const std::vector<float>& pointsXZ, float width,
     }
     closeChunk();
     return arc;
+}
+
+void findJunctions(const std::vector<float>& aPoints, float aWidth,
+                   const std::vector<float>& bPoints, float bWidth,
+                   std::vector<Junction>& out) {
+    out.clear();
+    const std::vector<P> a = centreLine(aPoints), b = centreLine(bPoints);
+    const float wa = std::max(0.1f, aWidth) * 0.5f + 0.15f;
+    const float wb = std::max(0.1f, bWidth) * 0.5f + 0.15f;
+    for (size_t ai = 0; ai + 1 < a.size(); ++ai) {
+        const float adx = a[ai + 1].x - a[ai].x;
+        const float adz = a[ai + 1].z - a[ai].z;
+        const float al = std::hypot(adx, adz);
+        if (!(al > 1e-5f)) continue;
+        const float dax = adx / al, daz = adz / al;
+        for (size_t bi = 0; bi + 1 < b.size(); ++bi) {
+            const float bdx = b[bi + 1].x - b[bi].x;
+            const float bdz = b[bi + 1].z - b[bi].z;
+            const float bl = std::hypot(bdx, bdz);
+            if (!(bl > 1e-5f)) continue;
+            const float dbx = bdx / bl, dbz = bdz / bl;
+            const float den = adx * bdz - adz * bdx;
+            // Below ~14 degrees the overlap is a huge needle and is better
+            // authored as a merge than disguised as an automatic crossing.
+            if (std::fabs(dax * dbz - daz * dbx) < 0.25f) continue;
+            const float qx = b[bi].x - a[ai].x;
+            const float qz = b[bi].z - a[ai].z;
+            const float ta = (qx * bdz - qz * bdx) / den;
+            const float tb = (qx * adz - qz * adx) / den;
+            if (ta < -1e-4f || ta > 1.0001f || tb < -1e-4f || tb > 1.0001f)
+                continue;
+            Junction j;
+            j.x = a[ai].x + adx * ta;
+            j.z = a[ai].z + adz * ta;
+            const float mergeRadius = 0.5f * std::min(aWidth, bWidth);
+            bool duplicate = false;
+            for (const Junction& old : out)
+                duplicate |= std::hypot(old.x - j.x, old.z - j.z) < mergeRadius;
+            if (duplicate) continue;
+
+            // Intersection of the two infinite width strips. Their right
+            // normals are the two linear equations; four sign combinations
+            // produce the convex parallelogram around the centre.
+            const float nax = daz, naz = -dax;
+            const float nbx = dbz, nbz = -dbx;
+            const float nd = nax * nbz - naz * nbx;
+            struct Corner { float x, z, angle; } c[4];
+            int ci = 0;
+            for (int sa : {-1, 1}) for (int sb : {-1, 1}) {
+                const float ca = (float)sa * wa, cb = (float)sb * wb;
+                const float ox = (ca * nbz - naz * cb) / nd;
+                const float oz = (nax * cb - ca * nbx) / nd;
+                c[ci++] = {j.x + ox, j.z + oz, std::atan2(oz, ox)};
+            }
+            std::sort(c, c + 4,
+                      [](const Corner& l, const Corner& r) { return l.angle < r.angle; });
+            for (int k = 0; k < 4; ++k) {
+                j.cornerXZ[k * 2] = c[k].x;
+                j.cornerXZ[k * 2 + 1] = c[k].z;
+            }
+            out.push_back(j);
+        }
+    }
+}
+
+void tessellateJunction(const Junction& j, const HeightFn& height,
+                        std::vector<Vertex>& out) {
+    const float cy = (height ? height(j.x, j.z) : 0.0f) + kLift + 0.02f;
+    Vertex center{j.x, cy, j.z, 0.5f, 0.5f};
+    for (int k = 0; k < 4; ++k) {
+        const int n = (k + 1) & 3;
+        const float ax = j.cornerXZ[k * 2], az = j.cornerXZ[k * 2 + 1];
+        const float bx = j.cornerXZ[n * 2], bz = j.cornerXZ[n * 2 + 1];
+        const Vertex a{ax, (height ? height(ax, az) : 0.0f) + kLift + 0.02f,
+                       az, 0.5f + (ax - j.x) / 32.0f,
+                       0.5f + (az - j.z) / 32.0f};
+        const Vertex b{bx, (height ? height(bx, bz) : 0.0f) + kLift + 0.02f,
+                       bz, 0.5f + (bx - j.x) / 32.0f,
+                       0.5f + (bz - j.z) / 32.0f};
+        out.push_back(center); out.push_back(a); out.push_back(b);
+    }
 }
 
 void splineAt(const std::vector<float>& pointsXZ, float t, float* x, float* z) {

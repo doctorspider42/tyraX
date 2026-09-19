@@ -26,6 +26,14 @@ struct Vertex {
     float u, v;     // u 0..1 across the width, v = arc length / texLen
 };
 
+// A crossing of two sampled centre lines. `cornerXZ` is the convex overlap of
+// the two road-width strips, ordered around the centre. Codegen stores these
+// ten floats directly, so the PS2 never performs pairwise road detection.
+struct Junction {
+    float x = 0, z = 0;
+    float cornerXZ[8] = {};
+};
+
 // Ground height under a world XZ (the terrain, on both consumers).
 using HeightFn = std::function<float(float x, float z)>;
 
@@ -150,6 +158,15 @@ inline constexpr int kChunkBudget = 1800; // ... and this many vertices
 float tessellateStrips(const std::vector<float>& pointsXZ, float width,
                        const HeightFn& height, std::vector<Vertex>& out,
                        std::vector<int>* chunkSizes = nullptr);
+
+// Find centre-line crossings and turn each into four terrain-projected
+// triangles. Near-parallel crossings are rejected because their strip overlap
+// grows without bound; repeated hits within one road width are deduplicated.
+void findJunctions(const std::vector<float>& aPoints, float aWidth,
+                   const std::vector<float>& bPoints, float bWidth,
+                   std::vector<Junction>& out);
+void tessellateJunction(const Junction& junction, const HeightFn& height,
+                        std::vector<Vertex>& out);
 
 // The spline position alone (for the align-terrain pass and the editor's
 // point handles): world XZ at parameter t in [0, 1] over the whole polyline.

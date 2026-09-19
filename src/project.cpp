@@ -754,6 +754,7 @@ std::string objectJson(const SceneObject& o) {
         (o.batchExclude ? std::string(", \"batchExclude\": true") : "") +
         // rendered into the dynamic env map; default (false) stays implicit
         (o.reflected ? std::string(", \"reflected\": true") : "") +
+        (o.reflectionProxy ? std::string(", \"reflectionProxy\": true") : "") +
         (!o.castShadow ? std::string(", \"castShadow\": false") : "") +
         (!o.bakedLighting ? std::string(", \"bakedLighting\": false") : "") +
         (o.dynamicLighting ? std::string(", \"dynamicLighting\": true") : "") +
@@ -1049,6 +1050,9 @@ std::string objectJson(const SceneObject& o) {
         }
         if (!o.roadTexture.empty())
             json += ", \"roadTexture\": \"" + jsonEscape(o.roadTexture) + "\"";
+        if (!o.roadIntersectionTexture.empty())
+            json += ", \"roadIntersectionTexture\": \"" +
+                    jsonEscape(o.roadIntersectionTexture) + "\"";
     }
     if (!o.procSource.empty())
         json += ", \"procSource\": \"" + jsonEscape(o.procSource) + "\"";
@@ -5090,6 +5094,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         if (const auto* v = jo.find("batchExclude"))
             o.batchExclude = v->boolOr(false);
         if (const auto* v = jo.find("reflected")) o.reflected = v->boolOr(false);
+        if (const auto* v = jo.find("reflectionProxy"))
+            o.reflectionProxy = v->boolOr(false);
         if (const auto* v = jo.find("castShadow")) o.castShadow = v->boolOr(true);
         if (const auto* v = jo.find("bakedLighting"))
             o.bakedLighting = v->boolOr(true);
@@ -5468,6 +5474,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         }
         if (const auto* rt = jo.find("roadTexture"))
             o.roadTexture = rt->stringOr("");
+        if (const auto* rt = jo.find("roadIntersectionTexture"))
+            o.roadIntersectionTexture = rt->stringOr("");
         if (const auto* v = jo.find("procSource")) o.procSource = v->stringOr("");
         if (const auto* v = jo.find("editorGroup"))
             o.editorGroup = v->stringOr("");
@@ -7513,6 +7521,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     // running game, so toggling it has to read as "rebuild" rather than
     // silently showing a grouping the ELF does not have.
     fnvMix(h, o.batchExclude ? 1 : 0);
+    fnvMix(h, o.reflectionProxy ? 1 : 0);
     fnvMixS(h, o.impostorPath);
     fnvMixF(h, o.impostorDistance);
     fnvMix(h, o.impostorBillboard ? 1 : 0);

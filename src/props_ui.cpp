@@ -11,6 +11,7 @@
 #include "roadgen.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cfloat>
 #include <cmath>
 #include <cstdint>
@@ -37,6 +38,7 @@
 #include "menubake.hpp"
 #include "objparser.hpp"
 #include "impostorbake.hpp"
+#include "modelproxy.hpp"
 #include "pngquant.hpp"
 #include "uvunwrap.hpp"
 #include "stochtile.hpp"
@@ -675,6 +677,18 @@ void App::drawPropertiesWindow() {
                 "along the road - one repeat per 4 units, so ONE small texture\n"
                 "carries a street of any length. Empty = untextured grey.");
         }
+        {
+            char buf[256];
+            std::snprintf(buf, sizeof(buf), "%s",
+                          o.roadIntersectionTexture.c_str());
+            ImGui::SetNextItemWidth(scaled(300));
+            if (ImGui::InputText("Intersection texture", buf, sizeof(buf)))
+                o.roadIntersectionTexture = buf;
+            prefHelp(
+                "When two roads cross and both name this same non-empty image,\n"
+                "TyraX generates a terrain-hugging junction patch at build time.\n"
+                "Different or empty values leave the crossing unchanged.");
+        }
         // The points, world-space XZ. A table, not a gizmo (yet): blunt but
         // complete - insert after, remove, drag both axes.
         ImGui::SeparatorText("Points");
@@ -1071,6 +1085,13 @@ void App::drawPropertiesWindow() {
         // Rendered into the dynamic ("@sky") environment map, so reflective
         // materials mirror this object - costs a second small render per frame.
         if (ImGui::Checkbox("Show in reflections", &o.reflected)) committed = true;
+        if (o.reflected) {
+            if (ImGui::Checkbox("Reflection box proxy", &o.reflectionProxy))
+                committed = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Draw one 12-triangle, one-material box in 128px environment maps.\n"
+                                  "The main view, collision and picking keep the full object.");
+        }
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
                 "Materials with a <dynamic - live sky> sphere map will mirror\n"
@@ -2888,6 +2909,7 @@ void App::drawMultiProperties() {
         multiDragF("Draw distance", &SceneObject::drawDistance, 0.5f, 0.0f, 2000.0f,
                    "%.0f units");
         multiCheck("Show in reflections", &SceneObject::reflected);
+        multiCheck("Reflection box proxy", &SceneObject::reflectionProxy);
         multiCheck("Projected shadow (live)", &SceneObject::projShadow);
         multiCheck("Cast shadow", &SceneObject::castShadow);
         multiCheck("Physics (rigid body)", &SceneObject::physics);
@@ -3071,6 +3093,34 @@ bool App::drawLodOverrides(SceneObject& o, bool animated) {
             ImGui::SetTooltip("Bake this OBJ and its material into the selected number of 128px views.\n"
                               "Requires a static, upright object with equal positive X/Z scale.\n"
                               "Reflection and emission are unsupported. Rebuild the game after baking.");
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!supported);
+        if (ImGui::Button("Bake hull proxy")) {
+            std::string key = o.id;
+            for (char& c : key)
+                if (!std::isalnum((unsigned char)c) && c != '-') c = '_';
+            std::string path, error;
+            float extent = 0.0f;
+            int triangles = 0;
+            if (modelproxy::bakeHull(project_.dir, o.modelPath, o.materialPath,
+                    "res/models/proxies/model-" + key, &path, &extent,
+                    &triangles, &error)) {
+                o.impostorPath = path;
+                o.impostorBillboard = false;
+                if (o.impostorDistance <= 0)
+                    o.impostorDistance = std::max(1.0f, extent *
+                        std::max(o.scale[0], o.scale[1]) * 6.0f);
+                viewport_.invalidateAssets();
+                committed = true;
+                statusMessage_ = "Baked " + std::to_string(triangles) +
+                    "-triangle hull proxy for '" + o.name + "'";
+            } else statusMessage_ = "Hull proxy bake failed: " + error;
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Build one-material geometry from the model's convex XZ silhouette and height.\n"
+                              "Useful for distant buildings and rocks; collision keeps the original mesh.\n"
+                              "Requires the same upright/equal-XZ transform as a captured impostor.");
     }
     if (!animated && !o.impostorPath.empty()) {
         ImGui::TextWrapped("Impostor: %s (%d views)", o.impostorPath.c_str(), o.impostorViews);

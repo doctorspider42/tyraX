@@ -529,7 +529,7 @@ with tempfile.TemporaryDirectory() as td:
     td = Path(td)
     (td / 'runtime.cpp').write_text(STUB + runtime + HOST_STUBS + MAIN, encoding='utf-8')
     exe = td / ('twins.exe' if sys.platform == 'win32' else 'twins')
-    cmd = ['g++', '-std=c++20', '-O0', '-I', str(root / 'src'),
+    cmd = ['g++', '-std=c++20', '-O0', '-static', '-I', str(root / 'src'),
            str(td / 'runtime.cpp'), str(root / 'src/staticbatch.cpp'),
            '-o', str(exe)]
     build = subprocess.run(cmd, capture_output=True, text=True)

@@ -14618,6 +14618,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   ObjectGeometry& g = objectGeometry[index];
   o.dirty = false;
   g.coarseBoxValid = false;
+  g.reflectionProxy.reset();
   g.matrixMode = localSpace;
   o.onMatrixPath = localSpace;  // the Script-visible mirror; see RuntimeObject
   g_bakeLocal = localSpace;
@@ -15233,6 +15234,51 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     }
   }
   if (needsLitSeed) fillDynLitColors(index);
+}
+
+// Draw one cheap silhouette-volume into an environment map. The target is
+// 128x128 and sphere-mapped afterwards, so material seams and facade detail
+// are usually sub-pixel there; paying one bag and one package for the object's
+// bounds is the useful approximation. Main-view geometry is untouched.
+void TerrainGame::renderReflectionProxy(int index) {
+  ObjectGeometry& g = objectGeometry[index];
+  if (!g.reflectionProxy) {
+    Vec4 mn(1e30F, 1e30F, 1e30F, 1.0F), mx(-1e30F, -1e30F, -1e30F, 1.0F);
+    bool any = false;
+    float cr=0, cg=0, cb=0, cn=0;
+    for (const GeoPart& src : g.parts) {
+      for (const Vec4& v : src.vertices) {
+        mn.x=fminf(mn.x,v.x); mn.y=fminf(mn.y,v.y); mn.z=fminf(mn.z,v.z);
+        mx.x=fmaxf(mx.x,v.x); mx.y=fmaxf(mx.y,v.y); mx.z=fmaxf(mx.z,v.z);
+        any = true;
+      }
+      for (const Color& c : src.colors) { cr+=c.r; cg+=c.g; cb+=c.b; cn+=1.0F; }
+    }
+    if (!any) return;
+    auto p = std::make_unique<GeoPart>();
+    const Vec4 v[8] = {
+      {mn.x,mn.y,mn.z,1},{mx.x,mn.y,mn.z,1},{mx.x,mx.y,mn.z,1},{mn.x,mx.y,mn.z,1},
+      {mn.x,mn.y,mx.z,1},{mx.x,mn.y,mx.z,1},{mx.x,mx.y,mx.z,1},{mn.x,mx.y,mx.z,1}};
+    static const u8 tri[36] = {0,2,1,0,3,2, 4,5,6,4,6,7,
+      0,1,5,0,5,4, 3,7,6,3,6,2, 0,4,7,0,7,3, 1,2,6,1,6,5};
+    const Color col(cn ? cr/cn : 160.0F, cn ? cg/cn : 160.0F,
+                    cn ? cb/cn : 160.0F, 128.0F);
+    for (u8 i : tri) { p->vertices.push_back(v[i]); p->colors.push_back(col); }
+    p->infoBag = std::make_unique<StaPipInfoBag>();
+    p->infoBag->model = g.matrixMode ? &g.objMat : &model;
+    p->infoBag->shadingType = TyraShadingGouraud;
+    p->infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    p->infoBag->fullClipChecks = true;
+    p->colorBag = std::make_unique<StaPipColorBag>();
+    p->bag = std::make_unique<StaPipBag>();
+    p->bag->info = p->infoBag.get(); p->bag->color = p->colorBag.get();
+    p->bag->texture = nullptr; p->bag->lighting = nullptr;
+    p->colors.bind(p->colorBag); p->vertices.bind(p->bag);
+    p->bag->count = (u32)p->vertices.size();
+    p->bag->bboxVersion = ++g_bboxStamp;
+    g.reflectionProxy = std::move(p);
+  }
+  if (g.reflectionProxy->bag) stapip.core.render(g.reflectionProxy->bag.get());
 }
 
 bool TerrainGame::coarseObjectOutside(int index) const {
@@ -19165,6 +19211,42 @@ void TerrainGame::buildRoads(int scene) {
     // This road's last chunk still has an open run.
     closeChunk();
   }
+  // Junction detection ran on the host during codegen. The EE receives only
+  // ready convex patches: four triangles, one material, one ordinary proc
+  // chunk each. There is no O(roads^2) work in-game and no per-frame branch.
+  for (int ji = 0; ji < ROAD_JUNCTION_COUNT; ++ji) {
+    const RoadJunctionRt& j = ROAD_JUNCTIONS[ji];
+    if (j.scene != scene) continue;
+    any = true;
+    Tyra::Texture* tex = nullptr;
+    if (j.tex >= 0 && j.tex < ROAD_TEXTURE_COUNT) {
+      if (!roadTextures_[j.tex])
+        roadTextures_[j.tex] = acquireTexture(ROAD_TEXTURE_PATHS[j.tex]);
+      tex = roadTextures_[j.tex];
+    }
+    procChunks.push_back(ProcChunk());
+    ProcChunk& c = procChunks.back();
+    c.owner = -3;
+    c.roadTex = tex;
+    c.stripRun = 0;
+    const Tyra::Vec4 center(j.xz[0], terrainHeightAt(j.xz[0], j.xz[1]) + 0.14F,
+                            j.xz[1], 1.0F);
+    const Tyra::Vec4 centerSt(0.5F, 0.5F, 1.0F, 0.0F);
+    for (int k = 0; k < 4; ++k) {
+      const int n = (k + 1) & 3;
+      const float ax = j.xz[2 + k * 2], az = j.xz[3 + k * 2];
+      const float bx = j.xz[2 + n * 2], bz = j.xz[3 + n * 2];
+      const Tyra::Vec4 a(ax, terrainHeightAt(ax, az) + 0.14F, az, 1.0F);
+      const Tyra::Vec4 b(bx, terrainHeightAt(bx, bz) + 0.14F, bz, 1.0F);
+      const Tyra::Vec4 ast(0.5F + (ax - j.xz[0]) / 32.0F,
+                           0.5F + (az - j.xz[1]) / 32.0F, 1.0F, 0.0F);
+      const Tyra::Vec4 bst(0.5F + (bx - j.xz[0]) / 32.0F,
+                           0.5F + (bz - j.xz[1]) / 32.0F, 1.0F, 0.0F);
+      c.vertices.push_back(center); c.sts.push_back(centerSt); c.colors.push_back(grey);
+      c.vertices.push_back(a); c.sts.push_back(ast); c.colors.push_back(grey);
+      c.vertices.push_back(b); c.sts.push_back(bst); c.colors.push_back(grey);
+    }
+  }
   if (any) procFinishChunks();
   int roadChunks = 0, roadVertices = 0, roadPackages = 0;
   // Surface triangles, counted where they are KNOWN. A stripped package
@@ -20569,8 +20651,11 @@ void TerrainGame::renderScene() {
       }
       if (ro.dirty) rebuildObjectGeometry(ri);
       if (objectGeometry[ri].matrixMode) updateObjMat(ri);
-      for (GeoPart& part : objectGeometry[ri].parts)
-        if (part.bag) stapip.core.render(part.bag.get());
+      if (ro.data.reflectionProxy)
+        renderReflectionProxy(ri);
+      else
+        for (GeoPart& part : objectGeometry[ri].parts)
+          if (part.bag) stapip.core.render(part.bag.get());
     }
     core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
     core.envMap.end();
@@ -21773,8 +21858,11 @@ void TerrainGame::renderObjectProbe(int index) {
     }
     if (ro.dirty) rebuildObjectGeometry(ri);
     if (objectGeometry[ri].matrixMode) updateObjMat(ri);
-    for (GeoPart& part : objectGeometry[ri].parts)
-      if (part.bag) stapip.core.render(part.bag.get());
+    if (ro.data.reflectionProxy)
+      renderReflectionProxy(ri);
+    else
+      for (GeoPart& part : objectGeometry[ri].parts)
+        if (part.bag) stapip.core.render(part.bag.get());
   }
   core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   core.envMap.end();

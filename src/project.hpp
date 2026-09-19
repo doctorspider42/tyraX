@@ -376,6 +376,9 @@ struct SceneObject {
     // trick's second half. Each marked object costs a second (128x128,
     // wide-FOV) render per frame; mark the few props that sell the effect.
     bool reflected = false;
+    // Use one cheap box in dynamic environment maps. Main-view geometry,
+    // collision and picking keep the full object.
+    bool reflectionProxy = false;
     // Ambient occlusion: this object darkens nearby terrain and objects
     // (a baked contact shadow - docs/ambient-occlusion.md). Off = the object
     // casts nothing; it still receives shadows from others.
@@ -867,6 +870,10 @@ struct SceneObject {
     std::vector<float> roadHeights;
     float roadWidth = 6.0f;
     std::string roadTexture;  // project texture path; "" = untextured grey
+    // Optional overlay shared by two crossing roads. A junction is generated
+    // only when both roads name the same non-empty texture, which keeps an
+    // ambiguous crossing deterministic and costs no per-frame detection.
+    std::string roadIntersectionTexture;
     // Set on the chunk objects a Scatter bake produced: the id of the Scatter
     // object that owns them. They are real scene objects (so codegen,
     // culling, LOD and the disc layout need no special case) but the editor
@@ -1260,7 +1267,9 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.impostorDistance == b.impostorDistance &&
            a.impostorBillboard == b.impostorBillboard &&
            a.impostorViews == b.impostorViews &&
-           a.reflected == b.reflected && a.castShadow == b.castShadow &&
+           a.reflected == b.reflected &&
+           a.reflectionProxy == b.reflectionProxy &&
+           a.castShadow == b.castShadow &&
            a.projShadow == b.projShadow && a.shadowMode == b.shadowMode &&
            a.bakedLighting == b.bakedLighting &&
            a.dynamicLighting == b.dynamicLighting && a.prelit == b.prelit &&
@@ -1360,6 +1369,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.roadPoints == b.roadPoints && a.roadHeights == b.roadHeights &&
            a.roadWidth == b.roadWidth &&
            a.roadTexture == b.roadTexture &&
+           a.roadIntersectionTexture == b.roadIntersectionTexture &&
            a.vuParams[0] == b.vuParams[0] && a.vuParams[1] == b.vuParams[1] &&
            a.vuParams[2] == b.vuParams[2] && a.vuParams[3] == b.vuParams[3] &&
            a.prefabSource == b.prefabSource && a.editorGroup == b.editorGroup &&

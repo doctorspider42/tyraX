@@ -3655,3 +3655,26 @@ flicker; compare repeated same-build captures before calling a pixel delta
 a renderer regression. A lower DMA count alone is not acceptance: the larger
 bag prototype reduced sends but increased pipeline waits. See
 docs/static-submission-batching.md for measurements and the evidence recipe.
+
+### Hull and reflection proxy acceptance (1.111.0)
+
+For a hull proxy, bake a concave multi-material OBJ through the Properties UI,
+resave, refresh generated assets, and inspect the emitted OBJ: one `usemtl`,
+`4n-4` faces for its convex XZ ring, and a non-billboard far assignment. Boot
+near/far poses and verify collision/picking identity from generated scene data.
+For material consolidation, use a fixture with repeated `usemtl` groups that
+resolve to identical state and inspect `.tmdl` part counts; include a captured
+4/8/16-view impostor as the negative control whose ordered parts must survive.
+For a reflection box proxy, compare the per-producer frame inventory and a
+console self-capture with only `reflectionProxy` changed. The env-probe object
+row should fall to one bag / one package while the main-view rows and generated
+collision fields remain identical.
+
+For automatic road junctions, cross two roads with the same intersection
+texture, one road with no value and one pair with different values. The first
+pair alone must produce a `ROAD_JUNCTIONS` row, 12 vertices / four triangles /
+normally one package; the viewport and PCSX2 patch must match. Move one spline
+off the crossing, resave and refresh: the row must disappear. Always rerun
+`verify-road-twins.py`. The separate physical-PS2 stretched-road bug is not
+closed by this feature: A/B the strip switch on hardware and preserve the
+submitted triangle count before accepting a fix.

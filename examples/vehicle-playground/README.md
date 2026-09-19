@@ -120,6 +120,8 @@ actual editor tessellator against the extracted generated runtime and a compiled
 preserved baseline (flat collapse retained; non-flat spans dense), including flat
 terrain, crowns with equal-height shoulders, slopes, saddles, curves, three
 heightfield fixtures on the district's own 4-unit ground, and scene revisits.
+It also pins the automatic-junction primitive: perpendicular centre lines
+produce one finite 12-vertex patch, while a near-parallel pair produces none.
 It prints its worst surface error, its worst UV drift in texels and its worst
 T-vertex seam per fixture, so the numbers behind the lateral budget
 ([docs/roads.md](../../docs/roads.md)) can be read rather than trusted. Also run

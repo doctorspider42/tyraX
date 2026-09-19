@@ -1075,7 +1075,9 @@ private:
     // sculpting under a road rebuilds exactly the strip that moved.
     struct RoadDraw {
         Mesh mesh;
+        Mesh junctionMesh;
         std::string texture;
+        std::string junctionTexture;
         uint64_t signature = 0;
     };
     std::map<std::string, RoadDraw> roadDraws_;  // keyed by stable object id

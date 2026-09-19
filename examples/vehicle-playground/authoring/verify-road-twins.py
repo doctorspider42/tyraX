@@ -36,6 +36,9 @@ int ROAD_COUNT=1, ROAD_TEXTURE_COUNT=0;
 RoadDefRt ROAD_DEFS[1];
 float ROAD_POINTS[64];
 const char* ROAD_TEXTURE_PATHS[1]={""};
+struct RoadJunctionRt { int scene,tex; float xz[10]; };
+int ROAD_JUNCTION_COUNT=0;
+RoadJunctionRt ROAD_JUNCTIONS[1]{};
 struct TerrainGame {
 std::vector<ProcChunk> procChunks;
 Tyra::Texture* roadTextures_[1]={nullptr};
@@ -347,6 +350,19 @@ int main() {
   // has to stop at the fold rather than bridge it.
   check("heightfield crest",{-20,0,0,0,20,0},13,
         [](float x,float z){return gridHeight(x,z)+(x<0?0.f:0.05f*x);});
+  std::vector<roadgen::Junction> junctions;
+  roadgen::findJunctions({-10,0,10,0},6,{0,-10,0,10},8,junctions);
+  require(junctions.size()==1,"perpendicular roads must create one junction");
+  std::vector<roadgen::Vertex> junctionMesh;
+  roadgen::tessellateJunction(junctions[0],gridHeight,junctionMesh);
+  require(junctionMesh.size()==12,"one junction must be four triangles");
+  for(const auto& v:junctionMesh)
+    require(std::isfinite(v.x)&&std::isfinite(v.y)&&std::isfinite(v.z)&&
+            std::isfinite(v.u)&&std::isfinite(v.v),
+            "junction geometry contains a non-finite value");
+  roadgen::findJunctions({-10,0,10,0},6,{-10,1,10,1},6,junctions);
+  require(junctions.empty(),"near-parallel roads must not create a junction");
+  std::printf("junctions: perpendicular=1 vertices=12; near-parallel=0\n");
   return 0;
 }
 '''
@@ -368,6 +384,6 @@ with tempfile.TemporaryDirectory(prefix='tyrax-roads-') as tmp:
                             .replace('namespace roadgen', 'namespace roadgen_dense')
                             .replace(baseline_merge, ''))
     source.write_text(stub + '#include "roadgen_dense.hpp"\n' + runtime + test)
-    subprocess.run(['g++','-std=c++20','-O2','-I',str(root/'src'),'-I',tmp,str(source),
+    subprocess.run(['g++','-std=c++20','-O2','-static','-I',str(root/'src'),'-I',tmp,str(source),
                     str(root/'src/roadgen.cpp'),str(dense_source),'-o',str(binary)],check=True)
     subprocess.run([str(binary)],check=True)

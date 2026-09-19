@@ -47,6 +47,23 @@ The Tree Generator keeps its convenient export checkbox and shares the capture
 kernel. Existing crossed cards remain ordinary replacement meshes. Static models
 imported into the editor as OBJ use the same button; animated models are excluded.
 
+### Geometry hull proxies
+
+For a building, rock or other solid object, **Properties > Bake hull proxy**
+offers a geometry alternative to captured cards. It computes the convex outline
+of every source vertex in the XZ plane, extrudes that outline between the
+model's minimum and maximum Y, and writes one OBJ part with one averaged `Kd`
+material. This is not QEM decimation: internal detail, UV seams and source
+material boundaries do not enter the result. The proxy preserves the footprint
+silhouette and height with `4n - 4` triangles for an `n`-point outline.
+
+The files live under `res/models/proxies/`. Baking assigns the OBJ as the
+ordinary non-billboard far representation and chooses the same initial
+six-extents distance as a captured impostor. Collision, scripts, picking and
+near rendering keep the original model. Hull proxies are untextured and
+deliberately crude; use a captured impostor when facade colour or foliage
+cutouts matter more than volume.
+
 `impostorBillboard: true` opts into the multi-view asset contract: exactly the saved number of
 ordered material parts sharing the generated atlas, each holding one XY card.
 The generator sets it automatically. Leave it false for ordinary far meshes.
@@ -111,6 +128,10 @@ output, and retains the tree wrapper.
 visual geometry without changing `SceneObjectData::model`. UV updates use loaded
 model coordinates, retaining texture-atlas remapping. No engine/VU changes or new
 console texture format are required.
+
+`modelproxy.cpp` owns the convex-footprint generator. It emits ordinary OBJ/MTL
+assets, so the existing far-model path, `.tmdl` bake and runtime switch need no
+special proxy format.
 
 See [the grove example](../examples/impostor-grove/README.md) and
 [rendering directions](rendering-directions.md).

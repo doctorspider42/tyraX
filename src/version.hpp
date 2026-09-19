@@ -16,6 +16,28 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.111.0: CHEAP GEOMETRY WHERE THE PIXELS CANNOT JUSTIFY THE REAL MODEL.
+// Properties > Bake hull proxy writes a one-material convex XZ footprint
+// prism and assigns it through the existing far-model path: the authored OBJ,
+// collision and gameplay identity stay intact while distant buildings/rocks
+// stop paying for their source topology. This is a silhouette approximation,
+// not another decimator. A reflected object can additionally opt into a
+// reflection-only box proxy: one 12-triangle bag is drawn into the 128px env
+// target while the main view, collision and picking retain full geometry.
+//
+// Static-model baking now coalesces usemtl groups whose FINAL resolved state
+// is identical (atlas page, Kd/Ke, reflection state and every LOD tier). An
+// override MTL can therefore truly reduce bags instead of merely repainting
+// the old splits. Ordered billboard-impostor parts are explicitly exempt.
+// SceneObject::reflectionProxy is format v57, additive and written only when
+// true. No engine/VU change. MINOR.
+// Roads with the same non-empty intersection texture now get host-detected,
+// terrain-projected four-triangle junction patches. Generated data stores the
+// centre/corners, so the EE does no pair search and the frame has no junction
+// branch. roadIntersectionTexture shares additive format v57.
+// Road data emission is also no longer accidentally nested under the vehicle
+// feature gate, so road-only projects produce the tables their runtime uses.
+
 // 1.110.0: YOU CAN SEE HOW STATIC OBJECTS BATCH, AND EXCLUDE ONE
 // (docs/static-batching.md). Tools > Static Batches lists every batch with
 // its members, texture, cell, merged box and VU1 packages against what those
@@ -4708,7 +4730,7 @@
 // gate separates 113 levels for "shadow removed" from 2 for this change. No
 // project format change (kFormatVersion stays 55), no VU1 change, no bake change.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 110
+#define TYRAX_VERSION_MINOR 111
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -5082,7 +5104,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // uses it resaves byte for byte and regenerates byte for byte; missing reads
 // as false, which is exactly the behaviour every existing project has. Purely
 // additive - no migration step.
-inline constexpr int kFormatVersion = 56;
+// v57: SceneObject::reflectionProxy and roadIntersectionTexture. Missing means
+// the historical full-model env submission / no automatic junctions. Both are
+// additive; the boolean is written only when true. No migration step.
+inline constexpr int kFormatVersion = 57;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

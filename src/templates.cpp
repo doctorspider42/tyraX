@@ -1335,6 +1335,9 @@ class TerrainGame : public Tyra::Game {
     Tyra::Vec4 probeRight;
     Tyra::Vec4 probeUp;
     bool probeBasis = false;
+    // Optional reflection-only stand-in: a single untextured box bag built
+    // from the current visual geometry. It never replaces main-view data.
+    std::unique_ptr<GeoPart> reflectionProxy;
     // Animated models (.glb): this object's skeletal instance (own
     // playback state + skinned output mesh, samples the shared SkelModel).
     std::unique_ptr<Tyra::SkelInstance> animInst;
@@ -1896,6 +1899,7 @@ class TerrainGame : public Tyra::Game {
   // target because the bracket's begin() drains PATH1: the previous
   // object's draws sample THEIR map before it is overwritten.
   void renderObjectProbe(int index);
+  void renderReflectionProxy(int index);
   // Portal objects (type 16): a linked pair of surfaces. renderPortalView
   // renders the through-view of the best on-screen portal into the engine's
   // portal render target (the player camera mapped through the pair, so the
@@ -2952,6 +2956,9 @@ class TerrainGame : public Tyra::Game {
     Tyra::Vec4 probeRight;
     Tyra::Vec4 probeUp;
     bool probeBasis = false;
+    // Optional reflection-only stand-in: a single untextured box bag built
+    // from the current visual geometry. It never replaces main-view data.
+    std::unique_ptr<GeoPart> reflectionProxy;
     // Animated models (.glb): this object's skeletal instance (own
     // playback state + skinned output mesh, samples the shared SkelModel).
     std::unique_ptr<Tyra::SkelInstance> animInst;
@@ -3513,6 +3520,7 @@ class TerrainGame : public Tyra::Game {
   // target because the bracket's begin() drains PATH1: the previous
   // object's draws sample THEIR map before it is overwritten.
   void renderObjectProbe(int index);
+  void renderReflectionProxy(int index);
   // Portal objects (type 16): a linked pair of surfaces. renderPortalView
   // renders the through-view of the best on-screen portal into the engine's
   // portal render target (the player camera mapped through the pair, so the
@@ -18795,6 +18803,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   ObjectGeometry& g = objectGeometry[index];
   o.dirty = false;
   g.coarseBoxValid = false;
+  g.reflectionProxy.reset();
   g.matrixMode = localSpace;
   o.onMatrixPath = localSpace;  // the Script-visible mirror; see RuntimeObject
   g_bakeLocal = localSpace;
@@ -19410,6 +19419,51 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     }
   }
   if (needsLitSeed) fillDynLitColors(index);
+}
+
+// Draw one cheap silhouette-volume into an environment map. The target is
+// 128x128 and sphere-mapped afterwards, so material seams and facade detail
+// are usually sub-pixel there; paying one bag and one package for the object's
+// bounds is the useful approximation. Main-view geometry is untouched.
+void TerrainGame::renderReflectionProxy(int index) {
+  ObjectGeometry& g = objectGeometry[index];
+  if (!g.reflectionProxy) {
+    Vec4 mn(1e30F, 1e30F, 1e30F, 1.0F), mx(-1e30F, -1e30F, -1e30F, 1.0F);
+    bool any = false;
+    float cr=0, cg=0, cb=0, cn=0;
+    for (const GeoPart& src : g.parts) {
+      for (const Vec4& v : src.vertices) {
+        mn.x=fminf(mn.x,v.x); mn.y=fminf(mn.y,v.y); mn.z=fminf(mn.z,v.z);
+        mx.x=fmaxf(mx.x,v.x); mx.y=fmaxf(mx.y,v.y); mx.z=fmaxf(mx.z,v.z);
+        any = true;
+      }
+      for (const Color& c : src.colors) { cr+=c.r; cg+=c.g; cb+=c.b; cn+=1.0F; }
+    }
+    if (!any) return;
+    auto p = std::make_unique<GeoPart>();
+    const Vec4 v[8] = {
+      {mn.x,mn.y,mn.z,1},{mx.x,mn.y,mn.z,1},{mx.x,mx.y,mn.z,1},{mn.x,mx.y,mn.z,1},
+      {mn.x,mn.y,mx.z,1},{mx.x,mn.y,mx.z,1},{mx.x,mx.y,mx.z,1},{mn.x,mx.y,mx.z,1}};
+    static const u8 tri[36] = {0,2,1,0,3,2, 4,5,6,4,6,7,
+      0,1,5,0,5,4, 3,7,6,3,6,2, 0,4,7,0,7,3, 1,2,6,1,6,5};
+    const Color col(cn ? cr/cn : 160.0F, cn ? cg/cn : 160.0F,
+                    cn ? cb/cn : 160.0F, 128.0F);
+    for (u8 i : tri) { p->vertices.push_back(v[i]); p->colors.push_back(col); }
+    p->infoBag = std::make_unique<StaPipInfoBag>();
+    p->infoBag->model = g.matrixMode ? &g.objMat : &model;
+    p->infoBag->shadingType = TyraShadingGouraud;
+    p->infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    p->infoBag->fullClipChecks = true;
+    p->colorBag = std::make_unique<StaPipColorBag>();
+    p->bag = std::make_unique<StaPipBag>();
+    p->bag->info = p->infoBag.get(); p->bag->color = p->colorBag.get();
+    p->bag->texture = nullptr; p->bag->lighting = nullptr;
+    p->colors.bind(p->colorBag); p->vertices.bind(p->bag);
+    p->bag->count = (u32)p->vertices.size();
+    p->bag->bboxVersion = ++g_bboxStamp;
+    g.reflectionProxy = std::move(p);
+  }
+  if (g.reflectionProxy->bag) stapip.core.render(g.reflectionProxy->bag.get());
 }
 
 bool TerrainGame::coarseObjectOutside(int index) const {
@@ -21853,8 +21907,11 @@ void TerrainGame::renderScene() {
       }
       if (ro.dirty) rebuildObjectGeometry(ri);
       if (objectGeometry[ri].matrixMode) updateObjMat(ri);
-      for (GeoPart& part : objectGeometry[ri].parts)
-        if (part.bag) stapip.core.render(part.bag.get());
+      if (ro.data.reflectionProxy)
+        renderReflectionProxy(ri);
+      else
+        for (GeoPart& part : objectGeometry[ri].parts)
+          if (part.bag) stapip.core.render(part.bag.get());
     }
     core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
     core.envMap.end();
@@ -23053,8 +23110,11 @@ void TerrainGame::renderObjectProbe(int index) {
     }
     if (ro.dirty) rebuildObjectGeometry(ri);
     if (objectGeometry[ri].matrixMode) updateObjMat(ri);
-    for (GeoPart& part : objectGeometry[ri].parts)
-      if (part.bag) stapip.core.render(part.bag.get());
+    if (ro.data.reflectionProxy)
+      renderReflectionProxy(ri);
+    else
+      for (GeoPart& part : objectGeometry[ri].parts)
+        if (part.bag) stapip.core.render(part.bag.get());
   }
   core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   core.envMap.end();
@@ -28617,6 +28677,7 @@ static void writeObjectDataRow(std::ostringstream& out, const Project& p,
         << o.lightBeam << ", " << (o.saveState ? 1 : 0) << ", "
         << o.collisionMode << ", " << floatLit(o.drawDistance) << ", "
         << (o.reflected && o.collisionMode != 3 ? 1 : 0) << ", "
+        << (o.reflectionProxy ? 1 : 0) << ", "
         << (o.projShadow && o.collisionMode != 3 ? 1 : 0) << ", "
         << o.shadowMode << ", "
         << (o.dynamicLighting ? 1 : 0) << ", " << (o.prelit ? 1 : 0) << ", "
@@ -29753,6 +29814,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  float drawDistance;  // not drawn farther than this from the camera;\n"
            "                       // 0 = unlimited (collision/logic always run)\n"
            "  int reflected;  // 1 = rendered into the dynamic (\"@sky\") env map\n"
+           "  int reflectionProxy; // 1 = one-material box in env maps only\n"
            "  int projShadow; // 1 = live projected silhouette shadow (the\n"
            "                  // per-object AO 'castShadow' is baked, not here)\n"
            "  int shadowMode; // which DYNAMIC shadow this object casts:\n"
@@ -30362,27 +30424,35 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         }
         out << "};\n";
 
-        // Roads (docs/roads.md): the whole road is DATA - points, width, a
+    }
+
+    // Roads (docs/roads.md): the whole road is DATA - points, width, a
         // texture slot - and the game tessellates at boot. Gated zero-cost:
         // no roads, no tables (and no members/impl either, same switch).
         {
             std::vector<std::string> roadTex;
             std::vector<float> roadPts;
-            struct RoadRow { int scene, first, count, tex; float width; std::string name; };
+            auto textureIndex = [&](const std::string& path) {
+                if (path.empty()) return -1;
+                for (size_t k = 0; k < roadTex.size(); ++k)
+                    if (roadTex[k] == path) return (int)k;
+                roadTex.push_back(path);
+                return (int)roadTex.size() - 1;
+            };
+            struct RoadRow {
+                int scene, first, count, tex;
+                float width;
+                std::string name;
+                const SceneObject* source;
+            };
+            struct JunctionRow { int scene, tex; roadgen::Junction shape; };
             std::vector<RoadRow> roadRows;
+            std::vector<JunctionRow> junctionRows;
             for (size_t si = 0; si < p.scenes.size(); ++si)
                 for (const SceneObject& o : p.scenes[si].objects) {
                     if (o.type != PrimitiveType::Road || o.roadPoints.size() < 4)
                         continue;
-                    int tix = -1;
-                    if (!o.roadTexture.empty()) {
-                        for (size_t k = 0; k < roadTex.size(); ++k)
-                            if (roadTex[k] == o.roadTexture) tix = (int)k;
-                        if (tix < 0) {
-                            tix = (int)roadTex.size();
-                            roadTex.push_back(o.roadTexture);
-                        }
-                    }
+                    const int tix = textureIndex(o.roadTexture);
                     RoadRow r;
                     r.scene = (int)si;
                     r.first = (int)roadPts.size();
@@ -30390,15 +30460,41 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     r.tex = tix;
                     r.width = o.roadWidth;
                     r.name = o.name;
+                    r.source = &o;
                     roadRows.push_back(r);
                     roadPts.insert(roadPts.end(), o.roadPoints.begin(),
                                    o.roadPoints.end());
+                }
+            for (size_t ai = 0; ai < roadRows.size(); ++ai)
+                for (size_t bi = ai + 1; bi < roadRows.size(); ++bi) {
+                    const RoadRow& a = roadRows[ai];
+                    const RoadRow& b = roadRows[bi];
+                    if (a.scene != b.scene) continue;
+                    const std::string& mat = a.source->roadIntersectionTexture;
+                    if (mat.empty() || mat != b.source->roadIntersectionTexture)
+                        continue;
+                    std::vector<roadgen::Junction> found;
+                    roadgen::findJunctions(a.source->roadPoints, a.width,
+                                           b.source->roadPoints, b.width, found);
+                    for (const roadgen::Junction& shape : found) {
+                        bool duplicate = false;
+                        for (const JunctionRow& old : junctionRows)
+                            if (old.scene == a.scene &&
+                                std::hypot(old.shape.x - shape.x,
+                                           old.shape.z - shape.z) < 0.5f)
+                                duplicate = true;
+                        if (!duplicate)
+                            junctionRows.push_back(
+                                {a.scene, textureIndex(mat), shape});
+                    }
                 }
             if (!roadRows.empty()) {
                 out << "\n// Roads (docs/roads.md): points in, geometry at boot.\n"
                     << "constexpr int ROAD_COUNT = " << roadRows.size() << ";\n"
                     << "constexpr int ROAD_TEXTURE_COUNT = " << roadTex.size()
                     << ";\n"
+                    << "constexpr int ROAD_JUNCTION_COUNT = "
+                    << junctionRows.size() << ";\n"
                     << "struct RoadDefRt { int scene; int first; int pointCount;"
                        " float width; int tex; };\n"
                     << "constexpr RoadDefRt ROAD_DEFS[" << roadRows.size()
@@ -30412,7 +30508,23 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << "] = {";
                 for (size_t k = 0; k < roadPts.size(); ++k)
                     out << (k ? ", " : "") << floatLit(roadPts[k]);
-                out << "};\n";
+                out << "};\n"
+                    << "struct RoadJunctionRt { int scene; int tex; float xz[10]; };\n";
+                if (junctionRows.empty()) {
+                    out << "constexpr RoadJunctionRt ROAD_JUNCTIONS[1] = {};\n";
+                } else {
+                    out << "constexpr RoadJunctionRt ROAD_JUNCTIONS["
+                        << junctionRows.size() << "] = {\n";
+                    for (const JunctionRow& j : junctionRows) {
+                        out << "    {" << j.scene << ", " << j.tex << ", {"
+                            << floatLit(j.shape.x) << ", "
+                            << floatLit(j.shape.z);
+                        for (float v : j.shape.cornerXZ)
+                            out << ", " << floatLit(v);
+                        out << "}},\n";
+                    }
+                    out << "};\n";
+                }
                 if (roadTex.empty()) {
                     out << "constexpr const char* ROAD_TEXTURE_PATHS[1] = "
                            "{\"\"};\n";
@@ -30434,6 +30546,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             }
         }
 
+    if (projectHasVehicles(p)) {
         std::ostringstream irecs;
         std::vector<float> wpTable;  // x,y,z per waypoint, sliced per instance
         int instCount = 0;
@@ -36171,6 +36284,42 @@ void TerrainGame::buildRoads(int scene) {
     }
     // This road's last chunk still has an open run.
     closeChunk();
+  }
+  // Junction detection ran on the host during codegen. The EE receives only
+  // ready convex patches: four triangles, one material, one ordinary proc
+  // chunk each. There is no O(roads^2) work in-game and no per-frame branch.
+  for (int ji = 0; ji < ROAD_JUNCTION_COUNT; ++ji) {
+    const RoadJunctionRt& j = ROAD_JUNCTIONS[ji];
+    if (j.scene != scene) continue;
+    any = true;
+    Tyra::Texture* tex = nullptr;
+    if (j.tex >= 0 && j.tex < ROAD_TEXTURE_COUNT) {
+      if (!roadTextures_[j.tex])
+        roadTextures_[j.tex] = acquireTexture(ROAD_TEXTURE_PATHS[j.tex]);
+      tex = roadTextures_[j.tex];
+    }
+    procChunks.push_back(ProcChunk());
+    ProcChunk& c = procChunks.back();
+    c.owner = -3;
+    c.roadTex = tex;
+    c.stripRun = 0;
+    const Tyra::Vec4 center(j.xz[0], terrainHeightAt(j.xz[0], j.xz[1]) + 0.14F,
+                            j.xz[1], 1.0F);
+    const Tyra::Vec4 centerSt(0.5F, 0.5F, 1.0F, 0.0F);
+    for (int k = 0; k < 4; ++k) {
+      const int n = (k + 1) & 3;
+      const float ax = j.xz[2 + k * 2], az = j.xz[3 + k * 2];
+      const float bx = j.xz[2 + n * 2], bz = j.xz[3 + n * 2];
+      const Tyra::Vec4 a(ax, terrainHeightAt(ax, az) + 0.14F, az, 1.0F);
+      const Tyra::Vec4 b(bx, terrainHeightAt(bx, bz) + 0.14F, bz, 1.0F);
+      const Tyra::Vec4 ast(0.5F + (ax - j.xz[0]) / 32.0F,
+                           0.5F + (az - j.xz[1]) / 32.0F, 1.0F, 0.0F);
+      const Tyra::Vec4 bst(0.5F + (bx - j.xz[0]) / 32.0F,
+                           0.5F + (bz - j.xz[1]) / 32.0F, 1.0F, 0.0F);
+      c.vertices.push_back(center); c.sts.push_back(centerSt); c.colors.push_back(grey);
+      c.vertices.push_back(a); c.sts.push_back(ast); c.colors.push_back(grey);
+      c.vertices.push_back(b); c.sts.push_back(bst); c.colors.push_back(grey);
+    }
   }
   if (any) procFinishChunks();
   int roadChunks = 0, roadVertices = 0, roadPackages = 0;
@@ -50891,10 +51040,19 @@ std::vector<File> bakeStaticModels(const Project& p,
         const std::string& relPath = key.first;        // the .obj source
         const std::string& materialPath = key.second;  // "" or override .mtl
         bool lodWanted = p.settings.meshLodDistance > 0.0f;
-        for (const SceneData& sc : p.scenes)
-            for (const SceneObject& obj : sc.objects)
+        // A captured impostor encodes its view sectors as ordered material
+        // parts. Those parts may have identical final state but are selected
+        // one at a time at runtime, so they are the one model kind whose draw
+        // groups are semantic and must never be consolidated.
+        bool orderedImpostorParts = false;
+        for (const SceneData& sc : p.scenes) {
+            for (const SceneObject& obj : sc.objects) {
                 if (obj.meshLodOverride > 0.0f && obj.modelPath == relPath)
                     lodWanted = true;
+                if (obj.impostorBillboard && obj.impostorPath == relPath)
+                    orderedImpostorParts = true;
+            }
+        }
         const std::string full = p.filePath(relPath);
         const std::string mtlFull =
             materialPath.empty()
@@ -51042,23 +51200,43 @@ std::vector<File> bakeStaticModels(const Project& p,
                     part.lods.push_back({std::move(tier), {}});
             }
 
-            // Triangle strips (docs/model-pipeline.md, "Triangle strips").
-            // Built LAST, after the atlas UV fold and after the tiers exist,
-            // because the weld that makes a strip possible compares the final
-            // UVs - folding an atlas rect in afterwards would be welding
-            // corners that are not actually the same vertex. The list stays
-            // exactly as it was; this is a second copy the render bag uses.
+            // `usemtl` boundaries are authoring boundaries, not necessarily
+            // draw-state boundaries. An override MTL that maps ten source
+            // names onto one final material would otherwise still ship ten
+            // bags. Merge only byte-equivalent resolved state, after atlas UV
+            // folding and after every LOD tier exists; no appearance changes,
+            // no new texture, and no runtime work.
+            auto sameState = [](const tmdl::Part& a, const tmdl::Part& b) {
+                if (a.texture != b.texture || a.reflTexture != b.reflTexture ||
+                    a.reflStrength != b.reflStrength ||
+                    a.reflRounded != b.reflRounded ||
+                    a.lods.size() != b.lods.size()) return false;
+                for (int c=0;c<3;++c)
+                    if (a.kd[c] != b.kd[c] || a.ke[c] != b.ke[c]) return false;
+                return true;
+            };
+            bool merged = false;
+            if (!orderedImpostorParts) {
+                for (tmdl::Part& dst : out.parts) {
+                    if (!sameState(dst, part)) continue;
+                    dst.verts.insert(dst.verts.end(), part.verts.begin(), part.verts.end());
+                    for (size_t li=0; li<dst.lods.size(); ++li)
+                        dst.lods[li].verts.insert(dst.lods[li].verts.end(),
+                            part.lods[li].verts.begin(), part.lods[li].verts.end());
+                    merged = true;
+                    break;
+                }
+            }
+            if (!merged) out.parts.push_back(std::move(part));
+        }
+
+        // Triangle strips are built after compatible parts have coalesced, so
+        // the stripifier can cross former usemtl boundaries and the saved bag
+        // count agrees with the geometry it sees.
+        for (tmdl::Part& part : out.parts) {
             if (meshstrip::build(part.verts, part.ao, meshstrip::kRun,
                                  part.stripVerts, part.stripAo))
                 part.stripRun = meshstrip::kRun;
-            // Tier 0 only, deliberately. A distance tier is a small fraction
-            // of the frame's vertices by definition, and applyGeoLod re-aims
-            // the bag at a tier's own buffers - so a tier keeps its list and
-            // the bag drops back to PRIM_TRIANGLE while it is shown. The
-            // format carries the slot (Lod::stripVerts) for when that is
-            // worth doing.
-
-            out.parts.push_back(std::move(part));
         }
 
         // Shadow proxy: with the flashlight's shadow volumes on, a model

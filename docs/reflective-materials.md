@@ -74,6 +74,18 @@ the effect. The env pass owns a dedicated 128×128 z-buffer, so marked
 objects occlude each other correctly inside the map. The editor viewport's
 approximation shows the sky only — check object reflections in the game.
 
+For a large background object, enable **Reflection box proxy** below that
+checkbox. The environment-map pass then draws one untextured box over the
+object's current visual bounds: 12 triangles in one material bag, normally one
+VU1 package. The main camera still draws the full model, and collision and
+picking are unchanged. This is intentionally a reflection-only lie: the target
+is 128×128 and is sphere-mapped afterwards, so a building's material seams and
+window geometry often cost many packages while resolving to only a few blurred
+texels. Leave it off for nearby hero props or silhouettes that are not box-like.
+
+The field is stored as `"reflectionProxy": true` (format v57). Existing
+projects retain full-model reflection submission until the option is enabled.
+
 A marked object the camera is standing right next to is **skipped** from the
 map (within ~1.9× its bounding radius): it would swamp the whole reflection —
 typically as the inspected surface's own dark self-reflection, which read as

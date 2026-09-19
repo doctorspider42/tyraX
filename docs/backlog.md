@@ -4,6 +4,20 @@ This is only unfinished work that still has a clear payoff and a testable end.
 Finished investigations belong in commit history; reusable facts belong in the
 relevant guide or developer skill.
 
+## Physical PS2: road strip corruption (2026-09-20, BUG)
+
+On physical hardware a road can lose its lane markings and collapse visually
+into what looks like one texel stretched across the surface. PCSX2 does not
+reproduce it. Treat the triangle-strip path as the first suspect: capture the
+same frozen camera with `useStrips` on/off, log the affected chunk's vertex,
+ST and package boundaries, and compare the first corrupt package with
+`verify-road-twins.py`. In particular verify that every DMA-visible road vertex
+and ST buffer is written back before PATH1 starts; the nearby unresolved
+`FlushCache(0)` experiment already produced road/horizon corruption only on
+hardware. Acceptance is a repeated console capture with intact lane markings,
+equal producer triangle counts in both arms, and no regression in the road
+twin oracle. Do not diagnose this from PCSX2 alone.
+
 ## Motor District follow-up after the integrated frozen-camera pass
 
 ### What else was `FlushCache` writing back? (2026-09-16, BLOCKING S1)

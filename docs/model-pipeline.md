@@ -53,6 +53,22 @@ volumes* on and the model is over the volumes' 1200-triangle budget, a
 positions-only **shadow proxy** decimated under that budget, which is what the
 torch extrudes the model's shadow from (docs/flashlight.md, "The shadow").
 
+### Compatible material parts collapse at bake time
+
+OBJ `usemtl` groups are preserved while parsing, but the `.tmdl` baker now
+coalesces groups whose **final render state** is identical: resolved atlas page
+or texture, `Kd`, `Ke`, reflection map/strength/mode, and the same LOD tier
+count. Their vertex arrays are appended before triangle-strip generation, so
+the game receives one bag instead of several and the stripifier may continue
+across what used to be an authoring-only boundary.
+
+This is the useful version of assigning a simpler override MTL. Merely giving
+several source names the same colour does not normally remove their `usemtl`
+groups; the bake-time comparison does. Parts with different final state remain
+separate, so the merge is lossless. Multi-view billboard impostors are exempt:
+their ordered parts are view sectors selected one at a time, not redundant
+draw batches.
+
 ## Whole-model frustum rejection
 
 A static model with at least three material parts gets one conservative AABB

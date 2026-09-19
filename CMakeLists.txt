@@ -310,6 +310,7 @@ add_executable(tyrax-editor
     src/treeimpostor.cpp
     src/impostorgpu.cpp
     src/modelimpostor.cpp
+    src/modelproxy.cpp
     src/uiscript.cpp
     src/update.cpp
     src/update_ui.cpp
