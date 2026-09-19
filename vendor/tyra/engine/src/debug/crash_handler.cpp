@@ -63,9 +63,13 @@ void crashTrampoline() {
     scr_setXY(0, 2);
     scr_printf("  ==============  TYRAX  =============\n");
     scr_printf("  |\n");
-    scr_printf("  | EE CRASH - the game is dead.\n");
+    scr_printf("  | EE CRASH [TXE-EE-%04u]\n",
+               (unsigned int)g_info.excCode);
     scr_printf("  |\n");
     scr_printf("  | %s\n", g_info.name ? g_info.name : "unknown");
+    scr_printf("  | %s\n",
+               CrashHandler::causeDescription(g_info.excCode,
+                                              g_info.badvaddr));
     scr_printf("  | excCode  %d (level %d)\n", (int)g_info.excCode,
                g_info.level);
     scr_printf("  | epc      0x%08x\n", (unsigned int)g_info.epc);
@@ -148,6 +152,38 @@ const char* CrashHandler::causeName(u32 excCode) {
     case 13: return "Trap";
     case 15: return "Floating point exception";
     default: return "Unknown exception";
+  }
+}
+
+const char* CrashHandler::causeDescription(u32 excCode, u32 badvaddr) {
+  const bool nearNull = badvaddr < 0x00010000U;
+  switch (excCode) {
+    case 0: return "Unexpected interrupt reached the crash handler.";
+    case 1: return "A write targeted a read-only mapped memory page.";
+    case 2:
+      return nearNull ? "Likely null/near-null pointer read or call."
+                      : "A read or instruction fetch targeted unmapped memory.";
+    case 3:
+      return nearNull ? "Likely null/near-null pointer write."
+                      : "A write targeted unmapped memory.";
+    case 4:
+      return nearNull ? "Likely null/near-null pointer read or call."
+                      : "Invalid or unaligned read/instruction fetch.";
+    case 5:
+      return nearNull ? "Likely null/near-null pointer write."
+                      : "Invalid or unaligned write.";
+    case 6: return "The CPU could not fetch an instruction from memory.";
+    case 7: return "The CPU could not complete a data-memory access.";
+    case 8: return "A system call reached the crash handler unexpectedly.";
+    case 9: return "A breakpoint instruction stopped execution.";
+    case 10:
+      return "The CPU encountered an invalid or unsupported instruction.";
+    case 11:
+      return "An instruction used a disabled or unavailable coprocessor.";
+    case 12: return "Signed integer arithmetic overflowed.";
+    case 13: return "A trap condition stopped execution.";
+    case 15: return "A floating-point operation raised an exception.";
+    default: return "Unknown CPU exception; keep the raw register dump.";
   }
 }
 

@@ -3495,8 +3495,12 @@ private:
     // its addresses on demand.
     struct DbgCrash {
         bool present = false;
+        bool fromPs2Link = false;  // raw TLB/IOP dump, no frame/scene metadata
         std::string raw;      // the whole report, for Copy
+        std::string code;     // stable TXE-EE/IOP-nnnn identifier
         std::string cause;    // decoded name
+        std::string description;  // short human diagnosis
+        int excCode = -1;
         uint32_t epc = 0, badvaddr = 0, frame = 0;
         int scene = -1;
         std::vector<uint32_t> trace;
@@ -3505,6 +3509,7 @@ private:
         bool resolving = false;
     };
     DbgCrash dbgCrash_;
+    size_t dbgPs2ExceptionScanSize_ = 0;  // ignore old cumulative-log lines
     size_t dbgCrashSize_ = 0;   // last seen size of crash.txt (change = new)
     double dbgCrashNextRead_ = 0.0;
     // VU1 packet capture (docs/devkit.md): "show me what the EE actually fed

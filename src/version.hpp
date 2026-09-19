@@ -1,5 +1,12 @@
 #pragma once
 
+// 1.90.0: EE and IOP exceptions now carry stable TXE-<CPU>-<ExcCode> error
+// IDs and human diagnoses on the engine/ps2link crash screens. TyraX ps2link
+// r7 identifies likely null/near-null reads and writes without hiding the raw
+// registers. The editor also decodes raw Cause/BadVAddr/Status/EPC lines from
+// old or r7 ps2link into the Debugger, so TLB faults no longer bypass its crash
+// UI merely because the game correctly leaves the kernel's TLB vectors alone.
+
 // Editor and project-format versioning. Two independent numbers:
 //
 // - The editor version (semver, for humans): every feature bumps MINOR, every
@@ -3408,7 +3415,7 @@
 // 1.86.0: merge baked shadow decals with main's render-cost table and
 // object-group line.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 89
+#define TYRAX_VERSION_MINOR 90
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
