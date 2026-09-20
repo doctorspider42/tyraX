@@ -2426,6 +2426,14 @@ top of the preserved-surface baseline. `ROADSTRIP` / `TERRAINSTRIP` in
 counters cannot answer "same geometry?" across representations
 (docs/model-pipeline.md, "What the triangle counters count").
 
+Since 1.117, both road emitters and generated `buildRoads` rebase longitudinal
+V by `floor(V at chunk start)`. The integer offset is texture-identical under
+REPEAT but keeps physical-GS ST values bounded; switching roads from strips to
+lists did not fix the console smear because topology was not its root cause.
+The list and strip may choose different chunk boundaries, so the oracle
+canonicalizes only whole V repeats when comparing their triangle sets and the
+dense baseline. Runtime-to-host strip vertices remain exact inside each chunk.
+
 Textured vehicles: vehbake::Result::textures holds bin-relative names and PNG
 bytes for source images; bakeProject and vehicleRefreshBake both write them.
 The viewport resolves ModelPart::bakedTextureRel per draw, never a cached GL
@@ -2639,6 +2647,13 @@ not a new runtime asset type. `SceneObject::reflectionProxy` (format v57) is a
 separate opt-in: the generated game lazily builds one 12-triangle untextured
 box bag from current visual bounds and submits it only inside the two dynamic
 env-map object loops. Main rendering, collision and picking remain full detail.
+
+Since 1.117, both dynamic env-map paths submit `renderTerrain()` followed by
+`renderRoadChunks()` before reflected objects. The latter filters `procChunks`
+to reserved owner `-3`; never call the general procedural renderer there or a
+cheap 128px ground cue turns into every prefab and runtime volume submitted a
+second time. The probe deliberately reuses the main camera's resident ring;
+do not start independent terrain streaming for a 128px auxiliary view.
 
 Automatic road intersections are host decisions too. The Properties picker
 stores a material path in the legacy-named `roadTexture` /

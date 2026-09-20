@@ -45,8 +45,9 @@ finer breakdown you drop to the manual technique.
 
 **Render cost** captures add `Reflections_shared_probe` when a classic shared
 `@sky` environment target is refreshed. It covers only the 128 x 128 target
-bracket (clear, sky, sky bodies and objects marked **Show in reflections**),
-not the reflective material passes that remain nested in their ordinary
+bracket (clear, sky, sky bodies, resident terrain, road chunks and objects
+marked **Show in reflections**), not the reflective material passes that remain
+nested in their ordinary
 `Object` rows. It appears only on the cadence frame that actually refreshes
 the target; compare repeated captures from the same frozen camera and report
 both the capture and non-capture frame. The serialized render-cost request

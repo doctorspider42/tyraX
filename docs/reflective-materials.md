@@ -61,9 +61,10 @@ the filename token `@sky`):
 refl -type sphere -mm 0 0.9 @sky
 ```
 
-The game then re-renders the scene's **sky dome** into a small VRAM texture
-every second frame and samples that as the sphere map — reflections follow the live
-sky, including script retints (*Set Sky Color*). The editor viewport
+The game then re-renders the scene's **sky dome, resident terrain and roads**
+into a small VRAM texture every second frame and samples that as the sphere map —
+reflections follow the live sky and the ground under the vehicle, including
+script retints (*Set Sky Color*). The editor viewport
 approximates it with the analytic horizon/zenith gradient.
 
 **Objects in reflections:** mark an object's *Show in reflections* checkbox
@@ -155,6 +156,12 @@ ugly patches up close. It fades back in as you step away.
   that basis invalid and forces the next non-split classic view to capture,
   regardless of the cadence phase. Since 1.106.0 the cadence is a CEILING
   rather than a schedule: see "The reuse budget" below.
+- Terrain uses the chunks already resident around the main camera. Road capture
+  filters the shared procedural list to owner `-3`, so it draws asphalt and
+  automatic junctions without also paying for prefabs or procedural volumes.
+  These ground layers are static capture content; scene generation
+  invalidates the retained map, while ordinary camera translation is already
+  bounded by the reuse budget's conservative one-unit nearest distance.
 
 The editor's GLSL twin lives in the viewport fragment shader (`uReflOn` block)
 — flat normals from screen-space derivatives, the same camera-basis formula.
@@ -176,9 +183,11 @@ The editor's GLSL twin lives in the viewport fragment shader (`uReflOn` block)
   sample correctly.
 - Animated (`.glb`) models and terrain don't take reflections; static
   primitives and `.obj` models do.
-- Dynamic mode reflects the sky and objects marked **Show in reflections**.
-  Terrain and unmarked scenery are not submitted; each included object costs
-  an additional render in the environment pass.
+- Dynamic mode reflects the sky, terrain, roads and objects marked **Show in
+  reflections**. Unmarked ordinary scenery is not submitted; each included
+  object costs an additional render in the environment pass. Terrain and roads
+  add their visible chunk submissions on capture frames, so profile the shared
+  probe when using many small chunks.
 - Remaining "pro" idea: smoothed normals for the env pass.
 
 ## Probe aim: reflected ray (Preferences > Rendering)

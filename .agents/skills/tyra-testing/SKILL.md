@@ -2887,6 +2887,14 @@ vertex and chunk for chunk between the two, asserts the same run invariants
 compares the expanded triangle SET against the list emitter's. Run it before
 anything else - it is seconds, and it is the only check that sees both twins.
 
+Since 1.117, road V is rebased by a whole repeat per chunk to keep physical-GS
+ST values bounded. The list and strip chunk boundaries can differ, so the
+oracle compares their V modulo integers while keeping positions, U, fractional
+V and the host/runtime strip stream exact. Do not replace that with raw V
+equality: it would reject texture-identical output and tempt the hardware fix
+back out. A stationary physical-console capture is still the acceptance gate;
+PCSX2 did not reproduce the stretched-one-texel failure.
+
 **The static-batch grouping has the same shape of oracle, and for the same
 reason.** `TerrainGame::buildStaticBatchList` is generated code that runs on
 the EE; `src/staticbatch.cpp` is its host twin (what *Tools > Static Batches*,
@@ -3698,6 +3706,8 @@ texture, one road with no value and one pair with different values. The first
 pair alone must produce a `ROAD_JUNCTIONS` row, 12 vertices / four triangles /
 normally one package; the viewport and PCSX2 patch must match. Move one spline
 off the crossing, resave and refresh: the row must disappear. Always rerun
-`verify-road-twins.py`. The separate physical-PS2 stretched-road bug is not
-closed by this feature: A/B the strip switch on hardware and preserve the
-submitted triangle count before accepting a fix.
+`verify-road-twins.py`. For the physical-PS2 stretched-road regression, inspect
+the generated road STs first: each chunk's V must begin in `[0,1)` and stay
+bounded by roughly that chunk's nine repeats. Then park the same camera on
+hardware and confirm lane markings survive; PCSX2 is only the topology/image
+regression arm because it never reproduced the original smear.

@@ -99,7 +99,11 @@ void requireBaselineSurface(const std::vector<roadgen::Vertex>& opt,
       std::vector<roadgen::Vertex> one={opt[k],opt[k+1],opt[k+2]}; roadgen::Vertex q;
       if(!sample(one,x,z,&q)) continue;
       const double dy=std::fabs(q.y-y);
-      const double duv=std::max(std::fabs(q.u-u),std::fabs(q.v-v));
+      // V may differ by a whole repeat: road bags deliberately rebase it near
+      // zero for physical-GS precision, which is texture-identical under REPEAT.
+      const double dv=(double)q.v-(double)v;
+      const double duv=std::max(std::fabs((double)q.u-(double)u),
+                                std::fabs(dv-std::round(dv)));
       // A tightly looping road overlaps itself in XZ; the far side of the loop
       // is many texture repeats away, and is not this sample's surface.
       if(duv>0.5) continue;
@@ -186,13 +190,14 @@ static TriKey triKey(const roadgen::Vertex& a, const roadgen::Vertex& b,
                      const roadgen::Vertex& c) {
   const roadgen::Vertex* p[3]={&a,&b,&c};
   std::sort(p,p+3,[](const roadgen::Vertex* x,const roadgen::Vertex* y){
-    const float xa[5]={x->x,x->y,x->z,x->u,x->v};
-    const float ya[5]={y->x,y->y,y->z,y->u,y->v};
+    const float xa[5]={x->x,x->y,x->z,x->u,x->v-std::floor(x->v)};
+    const float ya[5]={y->x,y->y,y->z,y->u,y->v-std::floor(y->v)};
     for(int i=0;i<5;++i){ if(xa[i]<ya[i]) return true; if(xa[i]>ya[i]) return false; }
     return false; });
   TriKey k{};
   for(int i=0;i<3;++i){ k[i*5+0]=p[i]->x; k[i*5+1]=p[i]->y; k[i*5+2]=p[i]->z;
-                        k[i*5+3]=p[i]->u; k[i*5+4]=p[i]->v; }
+                        k[i*5+3]=p[i]->u;
+                        k[i*5+4]=p[i]->v-std::floor(p[i]->v); }
   return k;
 }
 static bool degenerateTri(const roadgen::Vertex& a, const roadgen::Vertex& b,
@@ -266,6 +271,14 @@ size_t check(const char* name, const std::vector<float>& points, float width,
     require(c.stripRun==roadgen::kStripRun,"runtime chunk is not marked stripped");
     require(ci<chunkSizes.size(),"runtime has extra chunks");
     require((size_t)chunkSizes[ci]==c.vertices.size(),"host/runtime chunk size mismatch");
+    require(!c.sts.empty(),"runtime road chunk has no ST stream");
+    float minV=1e30f;
+    for(const auto& st:c.sts) {
+      minV=std::min(minV,st.y);
+      require(st.y>=0.f && st.y<16.f,
+              "runtime chunk V escaped the physical-GS-safe range");
+    }
+    require(minV<1.f,"runtime chunk V was not rebased at its first station");
     ++ci;
     for(size_t k=0;k<c.vertices.size();++k,++i) {
       require(i<hostStrip.size(),"runtime has extra vertices");

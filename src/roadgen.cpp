@@ -229,17 +229,36 @@ float tessellate(const std::vector<float>& pointsXZ, float width,
     // Stitch every lateral cell. Wound counter-clockwise seen from above
     // (+Y), the terrain's own convention.
     std::vector<int> cuts;
+    int spansInChunk = 0;
+    size_t verticesInChunk = 0;
+    float chunkVBase = 0.0f;
     for (size_t i = 0; i + 1 < rows.size(); ++i) {
         spanCuts(rows, i, crossSteps, cuts);
+        const size_t cost = (cuts.size() - 1) * 6;
+        if (spansInChunk == 0 || spansInChunk >= kChunkSpans ||
+            verticesInChunk + cost > (size_t)kChunkBudget) {
+            // The GS repeats the texture every integer V. Rebase each runtime
+            // bag to a nearby integer so a long road never feeds a large ST
+            // coordinate into the physical PS2's fixed-precision path.
+            chunkVBase = std::floor(rows[i][0].v);
+            spansInChunk = 0;
+            verticesInChunk = 0;
+        }
+        auto local = [&](Vertex v) {
+            v.v -= chunkVBase;
+            return v;
+        };
         for (size_t k = 0; k + 1 < cuts.size(); ++k) {
             const int j = cuts[k], j2 = cuts[k + 1];
-            out.push_back(rows[i][(size_t)j]);
-            out.push_back(rows[i][(size_t)j2]);
-            out.push_back(rows[i + 1][(size_t)j2]);
-            out.push_back(rows[i][(size_t)j]);
-            out.push_back(rows[i + 1][(size_t)j2]);
-            out.push_back(rows[i + 1][(size_t)j]);
+            out.push_back(local(rows[i][(size_t)j]));
+            out.push_back(local(rows[i][(size_t)j2]));
+            out.push_back(local(rows[i + 1][(size_t)j2]));
+            out.push_back(local(rows[i][(size_t)j]));
+            out.push_back(local(rows[i + 1][(size_t)j2]));
+            out.push_back(local(rows[i + 1][(size_t)j]));
         }
+        ++spansInChunk;
+        verticesInChunk += cost;
     }
     return arc;
 }
@@ -311,6 +330,11 @@ float tessellateStrips(const std::vector<float>& pointsXZ, float width,
     // spans reach. So the emitter follows the grid: dense spans strip ACROSS
     // the road, consecutive collapsed spans strip ALONG it.
     bool alongOpen = false;
+    float chunkVBase = 0.0f;
+    auto local = [&](Vertex v) {
+        v.v -= chunkVBase;
+        return v;
+    };
     std::vector<int> cuts;
     for (size_t i = 0; i + 1 < rows.size(); ++i) {
         spanCuts(rows, i, crossSteps, cuts);
@@ -322,6 +346,7 @@ float tessellateStrips(const std::vector<float>& pointsXZ, float width,
             closeChunk();
             alongOpen = false;
             open = true;
+            chunkVBase = std::floor(rows[i][0].v);
         }
         if (collapsed) {
             // ... P[w], P[0], N[w], N[0] ... - successive triples are this
@@ -329,23 +354,23 @@ float tessellateStrips(const std::vector<float>& pointsXZ, float width,
             // list stitch makes. The other interleaving takes the other
             // diagonal and silently reshapes every non-planar quad.
             if (!alongOpen) {
-                startStrip(rows[i][(size_t)crossSteps]);
-                pushRaw(rows[i][0]);
+                startStrip(local(rows[i][(size_t)crossSteps]));
+                pushRaw(local(rows[i][0]));
                 alongOpen = true;
             }
-            pushRaw(rows[i + 1][(size_t)crossSteps]);
-            pushRaw(rows[i + 1][0]);
+            pushRaw(local(rows[i + 1][(size_t)crossSteps]));
+            pushRaw(local(rows[i + 1][0]));
         } else {
             // N[0], P[0], N[s], P[s], ... - same argument, same diagonal
             // P[j]-N[j+s], walked across the road instead. The cuts are no
             // longer uniformly spaced, which changes nothing here: the walk
             // visits them in order and the diagonal is the same one.
             alongOpen = false;
-            startStrip(rows[i + 1][0]);
-            pushRaw(rows[i][0]);
+            startStrip(local(rows[i + 1][0]));
+            pushRaw(local(rows[i][0]));
             for (size_t k = 1; k < cuts.size(); ++k) {
-                pushRaw(rows[i + 1][(size_t)cuts[k]]);
-                pushRaw(rows[i][(size_t)cuts[k]]);
+                pushRaw(local(rows[i + 1][(size_t)cuts[k]]));
+                pushRaw(local(rows[i][(size_t)cuts[k]]));
             }
         }
         ++spansInChunk;

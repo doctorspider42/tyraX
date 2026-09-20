@@ -97,18 +97,29 @@ Road tables are emitted independently of vehicle tables. A road-only project
 therefore gets `ROAD_DEFS`/`ROAD_JUNCTIONS` even when it has no vehicle
 definition; this is covered by the headless road-only generation fixture.
 
-![Triangle-list road runtime with intact lane markings](img/road-list-runtime.png)
+![Triangle-list road runtime](img/road-list-runtime.png)
 
-## Triangle strips: retained producer, hardware-safe list default
+## Physical-PS2 texture coordinates and the list default
 
 Roads currently reach VU1 as **triangle lists**. The strip producer and its
 host oracle remain in the source, but the generated runtime keeps it disabled:
 on a physical PS2 a valid-looking strip package could sample one stretched
 texel across the road, erasing the lane markings. PCSX2 did not reproduce the
-fault. The list arm uses the same sampled positions, STs, chunks, planar-span
-collapse and junctions, and is the hardware-safe source of truth. This changes
-only the road's vertex/package count; model, terrain, wheel and projected-shadow
-strips remain enabled.
+fault. Switching to the list isolated strip topology but **did not cure the
+physical console**, which ruled the strip out as the root cause.
+
+The remaining hardware-specific hazard was the longitudinal V coordinate:
+`arc / 4` grew for the full road, even though the sampler repeats every integer.
+Each generated chunk now subtracts `floor(V at chunk start)` from all of its
+vertices. This changes no sampled texel or seam — the offset is a whole repeat —
+but keeps the GS/VU ST values close to zero instead of eventually overflowing
+their useful fixed-precision range. The editor list, retained strip oracle and
+runtime twin all use the same rebasing; `verify-road-twins.py` compares V modulo
+whole repeats and still checks geometry, fractional UV, seams and runtime output
+vertex-for-vertex. A physical-console capture remains the final acceptance gate.
+
+The list arm uses the same sampled positions, chunks, planar-span collapse and
+junctions. Model, terrain, wheel and projected-shadow strips remain enabled.
 
 The rest of this section documents the retained strip producer and why it is
 not the shipping default.
@@ -186,7 +197,8 @@ answer that question; see "What the triangle counters count" in
 of truth: the editor's real geometry cache calls it directly, and `buildRoads` in
 templates.cpp carries its arithmetic as a raw string. **CHANGE ONE AND CHANGE
 BOTH** — a road that previews half a metre off its console self is a road
-nobody can author.
+nobody can author. Whole-repeat V offsets are texture-equivalent, so the oracle
+canonicalizes only that integer part; positions and fractional UVs remain exact.
 
 ## Files
 

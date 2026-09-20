@@ -1721,6 +1721,7 @@ class TerrainGame : public Tyra::Game {
                            const unsigned char* blockAo = nullptr);
   void procFinishChunks();
   void renderProcChunks();
+  void renderRoadChunks();
   GeoPart skyDome;
   // Re-centered on the camera every frame (renderScene) so a large map can
   // never let the player walk (or climb) out from under the sky. The dome
@@ -3346,6 +3347,7 @@ class TerrainGame : public Tyra::Game {
                            const unsigned char* blockAo = nullptr);
   void procFinishChunks();
   void renderProcChunks();
+  void renderRoadChunks();
   GeoPart skyDome;
   // Re-centered on the camera every frame (renderScene) so a large map can
   // never let the player walk (or climb) out from under the sky. The dome
@@ -20749,6 +20751,15 @@ void TerrainGame::renderProcChunks() {
   }
 }
 
+void TerrainGame::renderRoadChunks() {
+  // Reflection views need the asphalt without paying for every procedural
+  // volume and prefab in the scene. Roads own the reserved -3 producer id.
+  for (ProcChunk& c : procChunks) {
+    if (c.owner != -3 || !c.bag || c.bag->count == 0) continue;
+    stapip.core.render(c.bag.get());
+  }
+}
+
 // --- the block collision field ---------------------------------------------
 // A block world's ground is not the terrain heightmap, so the walker needs a
 // second source. It is one bitfield lookup: the column word says which levels
@@ -22067,6 +22078,11 @@ void TerrainGame::renderScene() {
     stapip.core.render(skyDome.bag.get());
     renderSkyBodies(probeEye, envLook);
     skyDome.infoBag->zTestType = prevZTest;
+    // The world under the car matters more to paint than another distant prop.
+    // Draw only resident terrain and reserved road chunks here: no new
+    // geometry, pair search, or unrelated procedural/prefab bags.
+    renderTerrain();
+    renderRoadChunks();
     // "Show in reflections" objects render into the map too - base passes
     // only (no env pass inside the env pass), depth-tested against the
     // target's dedicated z-buffer so they occlude each other correctly.
@@ -23278,6 +23294,8 @@ void TerrainGame::renderObjectProbe(int index) {
     renderSkyBodies(probeEye, probeLook);
     skyDome.infoBag->zTestType = prevZTest;
   }
+  renderTerrain();
+  renderRoadChunks();
   for (int ri = 0; ri < (int)runtimeObjects.size(); ++ri) {
     RuntimeObject& ro = runtimeObjects[ri];
     if (!ro.active || !ro.visible || !ro.data.reflected) continue;
@@ -36333,6 +36351,7 @@ void TerrainGame::buildRoads(int scene) {
     };
     ProcChunk* c = nullptr;
     int stationsInChunk = 0;
+    float chunkVBase = 0.0F;
     // Strip run state, per chunk. TWIN NOTICE: roadgen.cpp's
     // tessellateStrips - the same packer, vertex for vertex.
     size_t runStart = 0;
@@ -36529,6 +36548,11 @@ void TerrainGame::buildRoads(int scene) {
             c->owner = -3;
             c->roadTex = tex;
             c->stripRun = useStrips ? (int)stripRun : 0;
+            // Texture repeat is invariant under an integer V offset. Keep the
+            // value local to this bag: long roads otherwise feed ever-growing
+            // ST coordinates into the physical GS/VU path, where the lost
+            // fractional precision can smear one texel over the whole road.
+            chunkVBase = floorf(lv0);
             stationsInChunk = 0;
             runStart = 0;
             alongOpen = false;
@@ -36542,7 +36566,7 @@ void TerrainGame::buildRoads(int scene) {
           };
           auto sAt = [&](int j, bool newRow) {
             return Tyra::Vec4((float)j / (float)crossSteps,
-                              newRow ? v : lv0, 1.0F, 0.0F);
+                              (newRow ? v : lv0) - chunkVBase, 1.0F, 0.0F);
           };
           if (!useStrips) {
             for (size_t ci = 0; ci + 1 < cuts.size(); ++ci) {
@@ -36557,10 +36581,10 @@ void TerrainGame::buildRoads(int scene) {
                                  nz[(size_t)j2], 1.0F);
               const Tyra::Vec4 D(nx[(size_t)j], ny[(size_t)j],
                                  nz[(size_t)j], 1.0F);
-              const Tyra::Vec4 sA(u0, lv0, 1.0F, 0.0F);
-              const Tyra::Vec4 sB(u1, lv0, 1.0F, 0.0F);
-              const Tyra::Vec4 sC(u1, v, 1.0F, 0.0F);
-              const Tyra::Vec4 sD(u0, v, 1.0F, 0.0F);
+              const Tyra::Vec4 sA(u0, lv0 - chunkVBase, 1.0F, 0.0F);
+              const Tyra::Vec4 sB(u1, lv0 - chunkVBase, 1.0F, 0.0F);
+              const Tyra::Vec4 sC(u1, v - chunkVBase, 1.0F, 0.0F);
+              const Tyra::Vec4 sD(u0, v - chunkVBase, 1.0F, 0.0F);
               c->vertices.push_back(A); c->sts.push_back(sA); c->colors.push_back(grey);
               c->vertices.push_back(B); c->sts.push_back(sB); c->colors.push_back(grey);
               c->vertices.push_back(C); c->sts.push_back(sC); c->colors.push_back(grey);

@@ -16,6 +16,15 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.117.0: LIVE PAINT REFLECTIONS INCLUDE THE GROUND UNDER THE VEHICLE.
+// Both shared and per-object dynamic probes submit the already-resident terrain
+// plus road-only procedural chunks before reflected props; unrelated runtime
+// geometry stays out of the 128x128 pass. Runtime road UVs are also
+// rebased by whole texture repeats per chunk, keeping identical tiling while
+// preventing long-road ST values from overflowing the physical GS precision
+// path (the triangle-list fallback alone did not cure the stretched texel).
+// Project JSON stays format 59; no engine or VU1 program change. MINOR.
+//
 // 1.116.0: BAKED BLOB SHAPES ARE PER OBJECT, NOT A VEHICLE PRIVILEGE.
 // Every renderable SceneObject can bake a soft 128x128 top-down silhouette or
 // choose an existing PNG in Properties; the generated runtime still draws one
@@ -4782,7 +4791,7 @@
 // gate separates 113 levels for "shadow removed" from 2 for this change. No
 // project format change (kFormatVersion stays 55), no VU1 change, no bake change.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 116
+#define TYRAX_VERSION_MINOR 117
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
