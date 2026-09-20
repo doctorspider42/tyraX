@@ -114,6 +114,21 @@ back to solo can turn another model's group into a singleton. Runtime mutation
 demotes every part of that object from its batches before drawing it through
 the normal path.
 
+An object that requests the matrix fast path is never admitted to a static
+batch, even if stale authored data still marks it `batchStatic`. Vehicles,
+endless-scroller clones and similar runtime movers own a changing model matrix;
+baking any of their parts into a world-space batch would make the solo renderer
+skip geometry that can no longer follow the object. This guard also covers a
+multi-part model whose compatible parts could otherwise form a batch with
+itself.
+
+Large and LOD-switched models already use build-time helper volumes as a
+two-level cull. A conservative aggregate box can reject the whole object before
+StaPip sees its parts; an intersecting object falls through to the ordinary
+per-part/package boxes. A future oriented or convex aggregate can tighten that
+first level, but it must conservatively contain every animated or matrix-path
+pose: one false negative makes the whole object disappear.
+
 Those spatial limits are intentional. An earlier Aster experiment grouped
 model parts by material across districts: it destroyed culling, and even
 per-district groups widened four bags enough to cost roughly 3.8-4.5 ms in

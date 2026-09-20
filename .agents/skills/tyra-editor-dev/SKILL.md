@@ -586,6 +586,10 @@ the **matrix fast path**, not in a flow node fired every frame:
 the object's entire per-frame render cost. Built for physics bodies (PROGRESS
 116), now also `updateSpinners()` (the Spin Object node, PROGRESS 222): the
 node writes only a RATE onto the RuntimeObject and the loop integrates it.
+`buildStaticBatchList` must reject `wantsMatrixPath` even when stale authored
+data says `batchStatic`: a world-space batch would make the solo loop skip a
+vehicle/scroller whose geometry can no longer follow its matrix. Do this guard
+before group construction so compatible parts cannot batch with each other.
 Ineligible objects (usable, reflective, animated models) must fall back to
 `dirty`. The inherited trade-off: baked shading freezes at the pose the object
 was promoted in — fine for something permanently in motion, wrong for a prop

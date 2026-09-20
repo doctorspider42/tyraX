@@ -215,9 +215,12 @@ subtly. The day starts with the night dressing off.
 
 Eight lights are the existing scene budget; their projected pools and coronas
 provide local illumination without a second terrain or a second scene. Shadow
-volumes are disabled on these lamps. The generated authoring header records the
-night dressing indices; rerun the district authoring script after changing its
-object order. Other scene objects keep their normal visibility.
+volumes are disabled on these lamps. The generated authoring header records
+stable FNV-1a hashes of the night dressing object IDs. The runtime resolves
+those hashes against the active scene's ID table, so inserting or deleting an
+unrelated object cannot make the day/night script hide the object that inherited
+its old row index. Rerun the district authoring script after changing the
+dressing IDs themselves. Other scene objects keep their normal visibility.
 
 This uses the hybrid runtime lighting path: geometry shading stays baked at
 noon, while the world grade supplies the night brightness/tint and dynamic

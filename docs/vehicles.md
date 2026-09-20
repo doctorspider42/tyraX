@@ -1291,6 +1291,23 @@ VEH ... spd10 0   gear  0 rpm  800 nos10 6  cam 1   ← refilling
 A screenshot cannot say who moved; this can. It caught three of the four bugs
 below inside one session.
 
+## Cached paint modulation on PS2
+
+The dynamic environment texture and its object-relative camera basis still
+update every frame. The much broader per-vertex Fresnel/specular modulation is
+quantised separately and refreshed only after the basis moves by four 1/128
+steps (roughly 1.8 degrees), with the current LOD tier in the cache key. This
+hysteresis prevents camera bob from alternating between two buckets while a
+parked vehicle looks unchanged. Stable colour arrays retain their content stamp,
+so StaPip can replay the already baked VIF payload for the reflection overlay.
+
+Physical-PS2 render-cost captures of the strip-study CC96 in the same chase
+pose, with `bodyShine = 0.45`, measured the vehicle row at **5.586 -> 2.379 ms**
+(-57.4%), total measured render work at **18.484 -> 14.859 ms** (-19.6%), and
+dispatch at **9.770 -> 6.228 ms** (-36.3%). Seven post-warm-up samples produced
+the latter medians. A driven turning capture retained the paint/reflection pass
+and settled at 2.400-2.413 ms for the vehicle after the shared probe update.
+
 ## Bugs the telemetry and one screenshot found
 
 Worth recording, because each looked like a different feature failing:
@@ -1320,6 +1337,13 @@ the line that already applies a cutscene's *Hide player*), so getting out restor
 the avatar with no second writer and no flag anybody has to remember to clear. FPP
 needs nothing — there is no body to see, which is exactly why the example project
 never showed the bug.
+
+**A driveable vehicle could be completely invisible by day.** The Motor
+District mood script used scene row numbers for its night-only dressing. After
+objects were deleted, a new car inherited one of those rows: collision and
+driving still worked, but the script correctly hid the wrong object. The example
+now stores stable FNV-1a object-ID hashes and resolves them through
+`SCENE_OBJECT_ID_TABLES` when the scene loads.
 
 ## Not built yet
 

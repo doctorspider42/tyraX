@@ -338,10 +338,18 @@ p['ambience'][0]['cycle']={'enabled':True,'time':12,'runtime':True,'dayLength':8
     'moonAzimuth':105,'moonTilt':34,'moonOffset':12,'moonSize':4,'moonPhase':.65,
     'starsEnabled':True,'starCount':160,'starSeed':4096,'keys':[night,day]}
 p['settings'].update(bloom=.12,bloomThreshold=.7,bloomSpread=.12)
-indices = [i for i,o in enumerate(objects) if o['id'] in night_objects]
+def fnv64(text):
+    h = 14695981039346656037
+    for b in text.encode('utf-8'):
+        h = ((h ^ b) * 1099511628211) & 0xffffffffffffffff
+    return h
+
+night_ids = [o['id'] for o in objects if o['id'] in night_objects]
 write(ROOT/'inc/scripts/district_data.hpp', '#pragma once\nnamespace Vehicle_playground {\n'
       + f'constexpr int DISTRICT_NIGHT_VALUE = {night_value};\n'
-      + 'constexpr int DISTRICT_NIGHT_OBJECTS[] = {' + ','.join(map(str,indices)) + '};\n}\n')
+      + '// Stable object-id hashes; scene row indices change when objects are edited.\n'
+      + 'constexpr unsigned long long DISTRICT_NIGHT_OBJECTS[] = {'
+      + ','.join(f'0x{fnv64(i):016x}ULL' for i in night_ids) + '};\n}\n')
 
 p['editor'].update(selectedObject=1,cam=[.75,.65,145,0,0,0])
 scene['objects'] = [o['id'] for o in objects]

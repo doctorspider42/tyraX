@@ -22,8 +22,13 @@ class DistrictMood : public Script {
       if (ctx.objects[i].data.type == 9 && ctx.lightRequest)
         ctx.lightRequest[i] = night ? 1 : 0;
     }
-    for (const int i : DISTRICT_NIGHT_OBJECTS)
-      if (i >= 0 && i < ctx.objectCount) ctx.objects[i].visible = night;
+    const unsigned long long* ids = SCENE_OBJECT_ID_TABLES[ctx.scene];
+    for (const unsigned long long wanted : DISTRICT_NIGHT_OBJECTS)
+      for (int i = 0; i < ctx.objectCount; ++i)
+        if (ids[i] == wanted) {
+          ctx.objects[i].visible = night;
+          break;
+        }
     TYRA_LOG("Motor District mood: ", night ? "NIGHT" : "DAY");
   }
 };

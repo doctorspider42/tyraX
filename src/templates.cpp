@@ -1300,6 +1300,13 @@ class TerrainGame : public Tyra::Game {
     std::vector<Lod> lods;
     int shownLod = 0;  // tier the bags currently point at
     u32 baseStamp = 0;  // tier 0's bboxVersion, to restore on the way back
+    // Vehicle paint rewrites envColors only when its object-relative view
+    // basis crosses a visible quantization step. Stable colours keep their
+    // content stamp, allowing StaPip's baked VIF stream to replay the full
+    // reflection pass instead of rebuilding it every frame.
+    short envPaintKey[6] = {};
+    signed char envPaintLod = -1;
+    bool envPaintValid = false;
     // The additive twin of the pass above: same atlas, same STs, WHITE vertex
     // colors, so it sees the baked emissive light in the texture's RGB.
     BagArray<Tyra::Color> emisCols;
@@ -2926,6 +2933,13 @@ class TerrainGame : public Tyra::Game {
     std::vector<Lod> lods;
     int shownLod = 0;  // tier the bags currently point at
     u32 baseStamp = 0;  // tier 0's bboxVersion, to restore on the way back
+    // Vehicle paint rewrites envColors only when its object-relative view
+    // basis crosses a visible quantization step. Stable colours keep their
+    // content stamp, allowing StaPip's baked VIF stream to replay the full
+    // reflection pass instead of rebuilding it every frame.
+    short envPaintKey[6] = {};
+    signed char envPaintLod = -1;
+    bool envPaintValid = false;
     // The additive twin of the pass above: same atlas, same STs, WHITE vertex
     // colors, so it sees the baked emissive light in the texture's RGB.
     BagArray<Tyra::Color> emisCols;
@@ -20006,6 +20020,12 @@ void TerrainGame::buildStaticBatchList() {
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
     const SceneObjectData& d = SCENE_OBJECTS[i];
     if (!d.batchStatic) continue;
+    // Vehicles, endless scrollers and any future owner of the matrix fast
+    // path move after scene load. Baking one into world-space static geometry
+    // makes the solo renderer skip it forever; a multi-part model whose parts
+    // share a texture could even form a "batch" with itself. setupVehicles()
+    // and other runtime owners set this request before this list is built.
+    if (runtimeObjects[i].wantsMatrixPath) continue;
     // Materials of always-resident objects are loaded by now; a reflective
     // one draws a second additive env pass per bag - keep those objects on
     // the solo path, which already handles the env bag.
@@ -22329,14 +22349,12 @@ void TerrainGame::renderScene() {
     // moves by itself), and keep alpha >= 1 - the GS alpha test is NOTEQUAL 0,
     // and a specular of zero would erase the reflection with it.
     //
-    // THIS LOOP IS WHY THE CONTENT STAMP EXISTS, and it is the one the
-    // adversarial verify arm caught twice. It rewrites every vertex colour of
-    // a visible mesh EVERY FRAME from the camera, so the baked VIF stream's
-    // inlined payload goes stale the moment the car or the camera moves - and
-    // nothing in the old key could see it, because `bboxVersion` is a
-    // statement about the bounding box and these are colours. It used to
-    // `const_cast` the bag's own `many` pointer, which bypassed the array
-    // altogether; going through the BagArray is what makes the stamp move.
+    // These colours are part of the baked VIF payload. Rewriting them for
+    // sub-pixel camera changes used to invalidate that payload every frame,
+    // making the paint overlay almost as expensive as the whole base car.
+    // Quantise the object-relative basis and keep the previous colours while
+    // it stays in the same bucket. The reflection coordinates still update
+    // continuously; only the broad Fresnel/specular modulation is stepped.
     const int paint = {{VEHICLE_PAINT_FOR}};
     if (paint && part.envTexBag->coordinates && part.envColorBag->many) {
       part.envTexBag->textureFunction = 3;  // TEXTURE_FUNCTION_HIGHLIGHT2
@@ -22354,36 +22372,62 @@ void TerrainGame::renderScene() {
         hL.y /= hl;
         hL.z /= hl;
       }
-      // The tier the bags currently point at - applyGeoLod re-aims
-      // envColorBag at part.envColors (tier 0) or at a tier's own array, and
-      // `shownLod` is the field it keeps in step with that.
-      BagArray<Tyra::Color>& dstArr =
-          (part.shownLod == 0 || (int)part.lods.size() < part.shownLod)
-              ? part.envColors
-              : part.lods[part.shownLod - 1].envColors;
-      const Tyra::Vec4* nrm = part.envTexBag->coordinates;
-      u32 n = part.envBag->count;
-      if (n > (u32)dstArr.size()) n = (u32)dstArr.size();
-      // One span for the whole run: it stamps ONCE, where a per-element
-      // operator[] would stamp 1 100 times for the same answer.
-      auto dst = dstArr.span(0, n);
-      for (u32 k = 0; k < n; ++k) {
-        const float df = nrm[k].x * fwdL.x + nrm[k].y * fwdL.y + nrm[k].z * fwdL.z;
-        // 0.3 floor: pure fresnel dims the whole reflection (it is < 1
-        // almost everywhere) - the floor keeps the authored strength's
-        // overall level and spends the rest on the rim.
-        const float f = 0.30F + 0.70F * (1.0F - (df < 0.0F ? -df : df));
-        float sp = nrm[k].x * hL.x + nrm[k].y * hL.y + nrm[k].z * hL.z;
-        if (sp < 0.0F) sp = 0.0F;
-        sp *= sp;
-        sp *= sp;
-        sp *= sp;  // p = 8
-        float a = 1.0F + 220.0F * sp;
-        if (a > 255.0F) a = 255.0F;
-        dst[k].r = 128.0F * f;
-        dst[k].g = 128.0F * f;
-        dst[k].b = 128.0F * f;
-        dst[k].a = a;
+      auto paintKey = [](float v) -> short {
+        const float scaled = v * 128.0F;
+        int q = (int)(scaled + (scaled >= 0.0F ? 0.5F : -0.5F));
+        if (q < -32768) q = -32768;
+        if (q > 32767) q = 32767;
+        return (short)q;
+      };
+      const short key[6] = {paintKey(fwdL.x), paintKey(fwdL.y),
+                            paintKey(fwdL.z), paintKey(hL.x),
+                            paintKey(hL.y),   paintKey(hL.z)};
+      bool paintChanged = !part.envPaintValid ||
+                          part.envPaintLod != (signed char)part.shownLod;
+      // Four 1/128 steps are deliberate hysteresis. Camera suspension/bob can
+      // hover on either side of a rounded bucket while the apparent view is
+      // unchanged; waiting for a real angular move prevents alternating
+      // rebuild/replay frames at rest.
+      for (int k = 0; k < 6; ++k) {
+        int delta = (int)part.envPaintKey[k] - (int)key[k];
+        if (delta < 0) delta = -delta;
+        if (delta >= 4) paintChanged = true;
+      }
+      if (paintChanged) {
+        for (int k = 0; k < 6; ++k) part.envPaintKey[k] = key[k];
+        part.envPaintLod = (signed char)part.shownLod;
+        part.envPaintValid = true;
+        // The tier the bags currently point at - applyGeoLod re-aims
+        // envColorBag at part.envColors (tier 0) or at a tier's own array.
+        BagArray<Tyra::Color>& dstArr =
+            (part.shownLod == 0 || (int)part.lods.size() < part.shownLod)
+                ? part.envColors
+                : part.lods[part.shownLod - 1].envColors;
+        const Tyra::Vec4* nrm = part.envTexBag->coordinates;
+        u32 n = part.envBag->count;
+        if (n > (u32)dstArr.size()) n = (u32)dstArr.size();
+        // One span for the whole run: it stamps ONCE, where a per-element
+        // operator[] would stamp 1 100 times for the same answer.
+        auto dst = dstArr.span(0, n);
+        for (u32 k = 0; k < n; ++k) {
+          const float df = nrm[k].x * fwdL.x + nrm[k].y * fwdL.y +
+                           nrm[k].z * fwdL.z;
+          // 0.3 floor keeps the authored strength's overall level and spends
+          // the rest on the rim.
+          const float f = 0.30F + 0.70F *
+                                      (1.0F - (df < 0.0F ? -df : df));
+          float sp = nrm[k].x * hL.x + nrm[k].y * hL.y + nrm[k].z * hL.z;
+          if (sp < 0.0F) sp = 0.0F;
+          sp *= sp;
+          sp *= sp;
+          sp *= sp;  // p = 8
+          float a = 1.0F + 220.0F * sp;
+          if (a > 255.0F) a = 255.0F;
+          dst[k].r = 128.0F * f;
+          dst[k].g = 128.0F * f;
+          dst[k].b = 128.0F * f;
+          dst[k].a = a;
+        }
       }
     }
     stapip.core.render(part.envBag.get());

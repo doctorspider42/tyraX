@@ -4839,9 +4839,15 @@
 // leaves the capture byte-identical. On a fixture where the shadow IS visible the
 // gate separates 113 levels for "shadow removed" from 2 for this change. No
 // project format change (kFormatVersion stays 55), no VU1 change, no bake change.
+// 1.117.5 - Vehicle paint keeps its baked VIF payload while the relative view
+// stays inside a small hysteresis window; physical-PS2 chase captures reduced
+// the strip-study vehicle row 5.586 -> 2.379 ms without disabling reflections.
+// Matrix-path owners are also excluded defensively from world-space static
+// batches, and the Motor District night script addresses dressing by stable
+// object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 117
-#define TYRAX_VERSION_PATCH 4
+#define TYRAX_VERSION_PATCH 5
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
