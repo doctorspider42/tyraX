@@ -384,6 +384,11 @@ with tempfile.TemporaryDirectory(prefix='tyrax-roads-') as tmp:
                             .replace('namespace roadgen', 'namespace roadgen_dense')
                             .replace(baseline_merge, ''))
     source.write_text(stub + '#include "roadgen_dense.hpp"\n' + runtime + test)
-    subprocess.run(['g++','-std=c++20','-O2','-static','-I',str(root/'src'),'-I',tmp,str(source),
+    # The shipping runtime defaults roads to lists after a hardware-only PS2
+    # strip corruption. This oracle deliberately enables the retained strip
+    # producer: it verifies that the diagnostic arm still expands to the exact
+    # list surface if it is used for future hardware investigation.
+    subprocess.run(['g++','-std=c++20','-O2','-static','-DTYRA_STRIP_ROADS=1',
+                    '-I',str(root/'src'),'-I',tmp,str(source),
                     str(root/'src/roadgen.cpp'),str(dense_source),'-o',str(binary)],check=True)
     subprocess.run([str(binary)],check=True)

@@ -158,7 +158,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [the console does](docs/ps2-viewport.md) — GS raster, per-vertex flat-shaded
   lighting, 16-bit colour with the GS dither, and the lights' own
   [visible beams](docs/flashlight.md) drawn the game's way.
-- **[Shadows](docs/shadows.md)** - a blob, a real projected silhouette, or one
+- **[Shadows](docs/shadows.md)** - a blob (including a baked, yaw-following
+  vehicle silhouette), a real projected silhouette, or one
   **baked into a projected decal**, chosen per object; the cheap one works on a
   static prop too. The baked one is traced here and costs the console one draw
   call per atlas page however many shadows there are — the only static shadow

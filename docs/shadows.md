@@ -7,7 +7,7 @@ LIGHT rather than an object ("Spot-light shadow volumes"):
 | | Blob | Projected silhouette | Baked (decal) |
 | --- | --- | --- | --- |
 | What it is | one soft dark quad that follows the ground under the object | the object rendered a second time (64×64, from the sun) and projected under itself | the shadow traced once on your machine and projected onto whatever is under it |
-| Shape | none — a smudge | the real silhouette, animation included | the real silhouette, with a real penumbra |
+| Shape | vehicles: baked top-down body silhouette; other objects: a round smudge | the real silhouette, animation included | the real silhouette, with a real penumbra |
 | Moves | yes | yes | **no** — it is baked |
 | Cost | one quad | a second render per frame, **four casters at a time** (the nearest to the camera win) | one submit per atlas page, whatever the shadow count |
 | Good for | crowds, small props, anything you want grounded | hero objects | static scenery, and anything standing on a textured floor or against a wall |
@@ -56,8 +56,12 @@ cannot use baked shadow decals: the baker rejects them, and their selector
 offers only runtime modes, including for objects without the generic physics
 flag. Their
 size comes from the imported body's real model bounds rather than the instance's
-unit-cube scale: the blob covers the wheelbase instead of sitting between the
-axles, and the 64x64 projected-shadow camera frames the whole body. The
+unit-cube scale. The vehicle import also rasterises the canonical body's
+top-down triangles into a soft 128×128 alpha mask. Blob mode puts that mask on
+one yaw-aligned, four-corner terrain-conforming quad, so the low-cost shadow
+reads as the car's shape instead of a circle without adding another model
+render. The blob covers the wheelbase instead of sitting between the axles,
+and the 64x64 projected-shadow camera frames the whole body. The
 projected pass renders the body model; the separately batched near wheels do not
 consume another shadow submit (at distance they are already baked into the body
 LOD).
@@ -87,8 +91,9 @@ part, a model's underground part flattens to a sliver at floor level.
 The projected system claims its VRAM at boot **only if some object asks for a
 silhouette** (`PROJ_SHADOWS_USED`), and the blob system loads its sprite only if
 some object asks for a blob or the preference is on (`BLOB_SHADOWS_USED`) — so a
-project that uses neither pays for neither. The blob's alpha mask is the flare
-glow sprite, baked into `res/hud/` when either half wants it.
+project that uses neither pays for neither. A vehicle blob uses its derived
+`.res-baked/vehicles/veh-<id>-shadow.png`; other blobs fall back to the flare
+glow sprite baked into `res/hud/` when either half wants it.
 
 Four projected casters are active per frame, ranked by apparent size (distance
 divided by their bounding radius), so marking everything does not draw

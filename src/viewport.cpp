@@ -889,6 +889,8 @@ out float gFog;
 out vec2 gSt;
 out vec3 gWorld;  // the per-pixel flashlight in FS_VTX_MAIN reads it
 out vec3 gTint;   // the raw corner colour - the terrain lightmap's tint
+out float gPaintFactor;
+out float gPaintSpec;
 
 void main() {
     // The console's flat normal comes from the triangle's WINDING (the .tmdl
@@ -912,6 +914,21 @@ void main() {
         if (uReflOn != 0)
             st = envSt(uReflRounded != 0 ? normalize(vWorld[i] - uReflCenter)
                                          : n);
+        // Vehicle paint is a HIGHLIGHT2 env pass on PS2: reflection RGB is
+        // multiplied by a per-vertex Fresnel factor and the specular rides in
+        // texture alpha as an additive white term. The old PS2-preview shader
+        // ignored both and could turn the same baked palette silver here and
+        // purple on the console.
+        float paintFactor = 1.0;
+        float paintSpec = 0.0;
+        if (uPaintFx != 0 && uReflOn != 0) {
+            float df = dot(n, uFogFwd);
+            paintFactor = 0.30 + 0.70 * (1.0 - abs(df));
+            vec3 h = normalize(vec3(0.35, 0.85, 0.35) - uFogFwd);
+            float sp = max(dot(n, h), 0.0);
+            sp = sp * sp; sp = sp * sp; sp = sp * sp;
+            paintSpec = min(1.0 + 220.0 * sp, 255.0) / 128.0;
+        }
         gUV = vUV[i];
         gShade = corner;
         gShadeFlat = corner;
@@ -919,6 +936,8 @@ void main() {
         gSt = st;
         gWorld = vWorld[i];
         gTint = vColor[i];
+        gPaintFactor = paintFactor;
+        gPaintSpec = paintSpec;
         gl_Position = gl_in[i].gl_Position;
         EmitVertex();
     }
@@ -938,6 +957,8 @@ in float gFog;
 in vec2 gSt;
 in vec3 gWorld;
 in vec3 gTint;
+in float gPaintFactor;
+in float gPaintSpec;
 uniform int uPs2Flat;
 out vec4 FragColor;
 
@@ -963,7 +984,12 @@ void main() {
     }
     vec3 color = (shade + lmAdd) * texel.rgb;
     if (uFogOn != 0 && uLit != 0) color = mix(uFogColor, color, gFog);
-    if (uReflOn != 0) color += uReflStrength * envColor(gSt);
+    if (uReflOn != 0) {
+        vec3 refl = envColor(gSt);
+        color += uReflStrength *
+                 (uPaintFx != 0 ? refl * gPaintFactor + vec3(gPaintSpec)
+                                : refl);
+    }
     FragColor = vec4(color, a * uOpacity);
 }
 )";

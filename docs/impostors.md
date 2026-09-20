@@ -17,8 +17,10 @@ triangles**. Each capture keeps its own projected bounds and the source origin.
 The view is selected relative to the object's authored yaw, in sectors of 360 degrees divided by the capture count.
 Binary alpha and RGB padding keep the silhouette clear of black filter fringes.
 
-The inserted object switches beyond six authored tree heights by default. Change
-**Impostor distance** in its LOD properties; zero disables replacement. The game
+The inserted object switches beyond six authored tree heights by default. In
+the selected model's **Properties > LOD**, the result is named **Distant
+representation** (captured impostor or hull proxy); change **Switch distance**
+directly below it. Zero disables replacement. The game
 returns to the full model below 90% of that distance. At most four representation
 switches happen per scene render. Initial geometry is built directly in the
 selected representation. Camera movement subsequently updates six positions and
@@ -39,7 +41,7 @@ The output is `res/models/impostors/model-<object-id>.obj`, `.mtl` and `.png`.
 Baking assigns it to this object, sets the billboard flag and refreshes the
 viewport. A positive existing distance is preserved; otherwise the initial
 threshold is six times the largest local dimension multiplied by the largest
-supported instance scale. Change **Impostor distance** afterwards. The scene
+supported instance scale. Change **Switch distance** afterwards. The scene
 assignment is undoable; exported files remain on disk. Re-baking overwrites this
 object's generated assets, so undo does not restore an earlier texture bake.
 

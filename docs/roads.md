@@ -97,9 +97,23 @@ Road tables are emitted independently of vehicle tables. A road-only project
 therefore gets `ROAD_DEFS`/`ROAD_JUNCTIONS` even when it has no vehicle
 definition; this is covered by the headless road-only generation fixture.
 
-## Triangle strips (1.96.0)
+![Triangle-list road runtime with intact lane markings](img/road-list-runtime.png)
 
-A road chunk reaches VU1 as a **triangle strip**, not a triangle list — the
+## Triangle strips: retained producer, hardware-safe list default
+
+Roads currently reach VU1 as **triangle lists**. The strip producer and its
+host oracle remain in the source, but the generated runtime keeps it disabled:
+on a physical PS2 a valid-looking strip package could sample one stretched
+texel across the road, erasing the lane markings. PCSX2 did not reproduce the
+fault. The list arm uses the same sampled positions, STs, chunks, planar-span
+collapse and junctions, and is the hardware-safe source of truth. This changes
+only the road's vertex/package count; model, terrain, wheel and projected-shadow
+strips remain enabled.
+
+The rest of this section documents the retained strip producer and why it is
+not the shipping default.
+
+A road chunk can reach VU1 as a **triangle strip** instead of a triangle list — the
 same contract a baked `.tmdl` keeps (see
 [model-pipeline.md](model-pipeline.md), "Triangle strips"): `StaPipBag::
 stripped` set and `packageSize` pinned to the 72-vertex run, so the VU1
@@ -158,10 +172,11 @@ budget, editor drawing and picking, and the exact planar-span collapse all read
 the same. The editor viewport still previews through `roadgen::tessellate`, the
 triangle **list**, which stays the source of truth for the surface.
 
-`ROADSTRIP scene N strips 1 packages P triangles T` in `bin/log.txt` is the
+`ROADSTRIP scene N strips 0 packages P triangles T` in `bin/log.txt` is the
 acceptance line. `triangles` is the **surface** count, computed by the producer
-with degenerates dropped — it must be identical in both arms of an A/B or the
-arms are not drawing the same road. The pipeline's own triangle counters cannot
+with degenerates dropped. A diagnostic A/B may temporarily enable the retained
+producer; its triangle count must remain identical to the list arm or the arms
+are not drawing the same road. The pipeline's own triangle counters cannot
 answer that question; see "What the triangle counters count" in
 [model-pipeline.md](model-pipeline.md).
 

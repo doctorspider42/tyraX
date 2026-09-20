@@ -16,6 +16,23 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.115.0: ROAD SURFACES KEEP THEIR LANE MARKINGS ON PHYSICAL PS2 HARDWARE:
+// runtime roads default to the proven triangle-list arm while the strip
+// producer remains available to its host oracle. Vehicle imports also bake a
+// soft 128x128 top-down silhouette for one-quad moving blob shadows, PS2-shaded
+// vehicle paint previews reproduce the runtime HIGHLIGHT2 Fresnel/specular
+// terms, and distant impostor/hull-proxy switch distance is named explicitly
+// in Properties. Generated vehicle data gains a derived shadow-texture path;
+// project JSON is unchanged (kFormatVersion stays 58), no VU1 change.
+//
+// 1.114.3: Motor District's efficient CC96/Tristar variants preserve the near
+// body and lamp geometry, with regular 76-triangle textured wheels. Rally's
+// already-small wheels stay unchanged. Asset-only; no format change.
+//
+// 1.114.2: Motor District buildings use 22-triangle exterior shells with one
+// shared facade atlas and one material; original bounds and pitched roofs stay.
+// Asset-only content change; no project format change.
+//
 // 1.114.1: STATIC BATCHING NO LONGER HOLLOWS OUT MULTI-MATERIAL MODELS. A
 // model now enters the batched path only when every material part survives
 // grouping; otherwise all of its parts fall back to the solo renderer. The
@@ -4758,8 +4775,8 @@
 // gate separates 113 levels for "shadow removed" from 2 for this change. No
 // project format change (kFormatVersion stays 55), no VU1 change, no bake change.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 114
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 115
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

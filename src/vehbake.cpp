@@ -331,14 +331,15 @@ std::vector<unsigned char> paletteImage(const Merge& mg, int width) {
     return rgba;
 }
 
-std::vector<unsigned char> encodePng(const std::vector<unsigned char>& rgba, int width) {
+std::vector<unsigned char> encodePng(const std::vector<unsigned char>& rgba,
+                                     int width, int height = kPaletteH) {
     std::vector<unsigned char> out;
     stbi_write_png_to_func(
         [](void* ctx, void* data, int len) {
             auto* v = (std::vector<unsigned char>*)ctx;
             v->insert(v->end(), (unsigned char*)data, (unsigned char*)data + len);
         },
-        &out, width, kPaletteH, 4, rgba.data(), width * 4);
+        &out, width, height, 4, rgba.data(), width * 4);
     return out;
 }
 
@@ -566,6 +567,69 @@ void computeBounds(tmdl::Model& m) {
     for (int a = 0; a < 3; ++a) m.min[a] = mn[a], m.max[a] = mx[a];
 }
 
+// A 128px top-down occupancy bake. This is deliberately geometry-only: the
+// vehicle's paint and windows must not punch holes in the shadow, and a mask
+// made from the canonical body stays aligned with the runtime's yaw. Two box
+// blur passes give the hard raster a small era-appropriate penumbra while the
+// opaque centre keeps the Burnout-like silhouette readable.
+std::vector<unsigned char> shadowImage(const tmdl::Model& body) {
+    constexpr int S = 128;
+    std::vector<unsigned char> mask((size_t)S * S, 0);
+    const float dx = body.max[0] - body.min[0];
+    const float dz = body.max[2] - body.min[2];
+    if (!(dx > 1e-5f) || !(dz > 1e-5f)) return {};
+    constexpr float pad = 4.0f;
+    auto px = [&](float x) { return pad + (x - body.min[0]) / dx * (S - 1 - 2 * pad); };
+    auto py = [&](float z) { return pad + (z - body.min[2]) / dz * (S - 1 - 2 * pad); };
+    auto edge = [](float ax, float ay, float bx, float by, float x, float y) {
+        return (x - ax) * (by - ay) - (y - ay) * (bx - ax);
+    };
+    for (const tmdl::Part& part : body.parts)
+        for (size_t i = 0; i + 23 < part.verts.size(); i += 24) {
+            const float x0 = px(part.verts[i]),      y0 = py(part.verts[i + 2]);
+            const float x1 = px(part.verts[i + 8]),  y1 = py(part.verts[i + 10]);
+            const float x2 = px(part.verts[i + 16]), y2 = py(part.verts[i + 18]);
+            const float area = edge(x0, y0, x1, y1, x2, y2);
+            if (std::fabs(area) < 1e-5f) continue;
+            const int xa = std::max(0, (int)std::floor(std::min({x0, x1, x2})));
+            const int xb = std::min(S - 1, (int)std::ceil(std::max({x0, x1, x2})));
+            const int ya = std::max(0, (int)std::floor(std::min({y0, y1, y2})));
+            const int yb = std::min(S - 1, (int)std::ceil(std::max({y0, y1, y2})));
+            for (int y = ya; y <= yb; ++y)
+                for (int x = xa; x <= xb; ++x) {
+                    const float fx = x + 0.5f, fy = y + 0.5f;
+                    const float a = edge(x0, y0, x1, y1, fx, fy);
+                    const float b = edge(x1, y1, x2, y2, fx, fy);
+                    const float c = edge(x2, y2, x0, y0, fx, fy);
+                    if ((a >= 0 && b >= 0 && c >= 0) ||
+                        (a <= 0 && b <= 0 && c <= 0))
+                        mask[(size_t)y * S + x] = 255;
+                }
+        }
+    std::vector<unsigned char> tmp(mask.size());
+    for (int pass = 0; pass < 2; ++pass) {
+        for (int y = 0; y < S; ++y)
+            for (int x = 0; x < S; ++x) {
+                int sum = 0, n = 0;
+                for (int oy = -1; oy <= 1; ++oy)
+                    for (int ox = -1; ox <= 1; ++ox) {
+                        const int qx = x + ox, qy = y + oy;
+                        if (qx < 0 || qx >= S || qy < 0 || qy >= S) continue;
+                        sum += mask[(size_t)qy * S + qx];
+                        ++n;
+                    }
+                tmp[(size_t)y * S + x] = (unsigned char)(sum / n);
+            }
+        mask.swap(tmp);
+    }
+    std::vector<unsigned char> rgba((size_t)S * S * 4, 255);
+    for (size_t i = 0; i < mask.size(); ++i) {
+        rgba[i * 4 + 0] = rgba[i * 4 + 1] = rgba[i * 4 + 2] = 255;
+        rgba[i * 4 + 3] = mask[i];
+    }
+    return encodePng(rgba, S, S);
+}
+
 int modelTris(const tmdl::Model& m) {
     int n = 0;
     for (const tmdl::Part& p : m.parts) n += (int)(p.verts.size() / 24);
@@ -680,6 +744,12 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
             p.reflStrength = opt.bodyShine > 1.0f ? 1.0f : opt.bodyShine;
         }
     }
+
+    // The mask needs the pre-decimation footprint; computeBounds is repeated
+    // after the final tiers below because decimation remains free to move the
+    // visible model's extrema.
+    computeBounds(out.body);
+    out.shadowPng = shadowImage(out.body);
 
     const int bodyBefore = modelTris(out.body), wheelBefore = modelTris(out.wheel);
     // The body budget covers the WHOLE body, split across its parts by their
@@ -936,6 +1006,7 @@ BakedPaths pathsFor(const VehicleDef& v) {
     b.body = stem + "-body.tmdl";
     b.wheel = stem + "-wheel.tmdl";
     b.palette = stem + "-palette.png";
+    b.shadow = stem + "-shadow.png";
     return b;
 }
 
@@ -1071,6 +1142,9 @@ std::string bakeProject(Project& p,
         if (!r.palettePng.empty())
             put(bp.palette, std::string((const char*)r.palettePng.data(),
                                         r.palettePng.size()));
+        if (!r.shadowPng.empty())
+            put(bp.shadow, std::string((const char*)r.shadowPng.data(),
+                                       r.shadowPng.size()));
         // The body texture follows the project's texture depth like every
         // other model texture does (see quantizedTexture above). The colour
         // PALETTE strip written just before this is deliberately NOT

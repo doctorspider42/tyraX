@@ -2500,6 +2500,9 @@ class TerrainGame : public Tyra::Game {
   // may still be reading a submitted quad, so casters never share buffers.
   struct BlobShadow {
     int objIndex = -1;
+    bool shaped = false;
+    std::string texPath;
+    Tyra::Texture* texture = nullptr;
     BagArray<Tyra::Vec4> verts, sts;
     Tyra::Color color;
     Tyra::M4x4 mat;
@@ -4121,6 +4124,9 @@ class TerrainGame : public Tyra::Game {
   // may still be reading a submitted quad, so casters never share buffers.
   struct BlobShadow {
     int objIndex = -1;
+    bool shaped = false;
+    std::string texPath;
+    Tyra::Texture* texture = nullptr;
     BagArray<Tyra::Vec4> verts, sts;
     Tyra::Color color;
     Tyra::M4x4 mat;
@@ -16017,6 +16023,8 @@ void TerrainGame::renderShadowDecals() {
 }
 
 void TerrainGame::setupBlobShadows() {
+  for (BlobShadow& b : blobShadows)
+    if (!b.texPath.empty()) releaseTexture(b.texPath);
   blobShadows.clear();
   if (!BLOB_SHADOWS_USED) return;
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
@@ -16039,6 +16047,13 @@ void TerrainGame::setupBlobShadows() {
     blobShadows.emplace_back();
     BlobShadow& b = blobShadows.back();
     b.objIndex = i;
+    const char* vehicleMask = {{VEHICLE_BLOB_TEXTURE_FOR}};
+    if (vehicleMask && vehicleMask[0]) {
+      b.texPath = vehicleMask;
+      b.texture = acquireTexture(b.texPath);
+      b.shaped = b.texture != nullptr;
+    }
+    if (!b.texture) b.texture = blobShadowTex;
     b.mat.identity();
     b.verts.assign(6, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
     b.sts.clear();
@@ -16063,7 +16078,7 @@ void TerrainGame::setupBlobShadows() {
     b.colorBag = std::make_unique<StaPipColorBag>();
     b.colorBag->single = &b.color;
     b.texBag = std::make_unique<StaPipTextureBag>();
-    b.texBag->texture = blobShadowTex;
+    b.texBag->texture = b.texture;
     b.sts.bind(b.texBag);
     b.bag = std::make_unique<StaPipBag>();
     b.bag->info = b.info.get();
@@ -16084,8 +16099,9 @@ void TerrainGame::setupBlobShadows() {
 // samples conform it to slopes), fade with the caster's height above the
 // ground, alpha-blend (the glow texture's alpha is the soft edge).
 void TerrainGame::updateAndRenderBlobShadows() {
-  if (blobShadows.empty() || !blobShadowTex) return;
+  if (blobShadows.empty()) return;
   for (BlobShadow& b : blobShadows) {
+    if (!b.texture) continue;
     if (b.objIndex >= (int)runtimeObjects.size()) continue;
     const RuntimeObject& ro = runtimeObjects[b.objIndex];
     if (!ro.active || !ro.visible) continue;
@@ -16094,6 +16110,7 @@ void TerrainGame::updateAndRenderBlobShadows() {
     float halfY = d.scale[1] * 0.5F;
     float r = d.scale[0] > d.scale[2] ? d.scale[0] : d.scale[2];
     r = r * 0.75F + 0.2F;
+    float shapeHx = r, shapeHz = r;
     // A model is not a unit cube. Vehicles make the mismatch especially
     // obvious: their instance scale is usually 1..1.5 while the body is four
     // units long, which produced a tiny blob between the axles. Use the loaded
@@ -16113,6 +16130,8 @@ void TerrainGame::updateAndRenderBlobShadows() {
       const float hx = 0.5F * (gm.mx[0] - gm.mn[0]) * sx;
       const float hz = 0.5F * (gm.mx[2] - gm.mn[2]) * sz;
       r = sqrtf(hx * hx + hz * hz) * 0.9F + 0.12F;
+      shapeHx = hx * 1.05F + 0.06F;
+      shapeHz = hz * 1.05F + 0.06F;
       halfY = -gm.mn[1] * sy;
     }
     // Object base: the player entity sits at its feet, everything else is
@@ -16129,12 +16148,28 @@ void TerrainGame::updateAndRenderBlobShadows() {
     if (fade <= 0.02F) continue;
     if (fade > 1.0F) fade = 1.0F;
     const float lift = 0.06F;
-    b.verts[0] = Vec4(cx - r, terrainHeightAt(cx - r, cz + r) + lift, cz + r, 1.0F);
-    b.verts[1] = Vec4(cx + r, terrainHeightAt(cx + r, cz + r) + lift, cz + r, 1.0F);
-    b.verts[2] = Vec4(cx + r, terrainHeightAt(cx + r, cz - r) + lift, cz - r, 1.0F);
-    b.verts[3] = b.verts[0];
-    b.verts[4] = b.verts[2];
-    b.verts[5] = Vec4(cx - r, terrainHeightAt(cx - r, cz - r) + lift, cz - r, 1.0F);
+    if (b.shaped) {
+      const float a = d.rotation[1] * 0.017453293F;
+      const float cy = cosf(a), sy = sinf(a);
+      auto corner = [&](float lx, float lz) {
+        const float x = cx + lx * cy + lz * sy;
+        const float z = cz - lx * sy + lz * cy;
+        return Vec4(x, terrainHeightAt(x, z) + lift, z, 1.0F);
+      };
+      b.verts[0] = corner(-shapeHx, shapeHz);
+      b.verts[1] = corner( shapeHx, shapeHz);
+      b.verts[2] = corner( shapeHx,-shapeHz);
+      b.verts[3] = b.verts[0];
+      b.verts[4] = b.verts[2];
+      b.verts[5] = corner(-shapeHx,-shapeHz);
+    } else {
+      b.verts[0] = Vec4(cx - r, terrainHeightAt(cx - r, cz + r) + lift, cz + r, 1.0F);
+      b.verts[1] = Vec4(cx + r, terrainHeightAt(cx + r, cz + r) + lift, cz + r, 1.0F);
+      b.verts[2] = Vec4(cx + r, terrainHeightAt(cx + r, cz - r) + lift, cz - r, 1.0F);
+      b.verts[3] = b.verts[0];
+      b.verts[4] = b.verts[2];
+      b.verts[5] = Vec4(cx - r, terrainHeightAt(cx - r, cz - r) + lift, cz - r, 1.0F);
+    }
     b.color.a = 60.0F * fade;
     b.bag->bboxVersion = ++g_bboxStamp;
     stapip.core.render(b.bag.get());
@@ -30531,7 +30566,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                "// also the object's own model, so it renders through the ordinary\n"
                "// static path with the matrix fast path applying its motion.\n"
                "struct VehicleDefData {\n"
-               "  int bodyModel; int wheelModel;\n";
+               "  int bodyModel; int wheelModel; const char* shadowTexture;\n";
         for (const vehiclesim::SpecField& f : fields)
             out << "  float " << f.key << ";\n";
         out << "  float camDist; float camHeight; float camPitch;\n"
@@ -30564,7 +30599,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             << "constexpr VehicleDefData VEHICLE_DEFS["
             << (defs.empty() ? 1 : defs.size()) << "] = {\n";
         if (defs.empty()) {
-            out << "    {-1, -1";
+            out << "    {-1, -1, \"\"";
             for (size_t i = 0; i < fields.size(); ++i) out << ", 0.0F";
             out << ", 0.0F, 0.0F, 0.0F, {0.0F, 0.0F, 0.0F}, -1, 1.0F, 1.0F, 0,"
                    " -1, -1, -1, 80, 80, 0, {0.0F, 0.0F, 0.0F, 0.0F},"
@@ -30572,10 +30607,12 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         } else {
             for (const VehicleDef* v : defs) {
                 const int base = vehicleBodyModel(p, v->name);
+                const vehbake::BakedPaths baked = vehbake::pathsFor(*v);
                 vehiclesim::DriveSpec spec = v->drive;
                 const std::vector<vehiclesim::SpecField> vf =
                     vehiclesim::specFields(spec);
-                out << "    {" << base << ", " << (base < 0 ? -1 : base + 1);
+                out << "    {" << base << ", " << (base < 0 ? -1 : base + 1)
+                    << ", \"" << escapeCString(baked.shadow) << "\"";
                 for (const vehiclesim::SpecField& f : vf)
                     out << ", " << floatLit(*f.value);
                 // The engine note resolves to a SND_PATHS slot. Stored as a
@@ -33577,6 +33614,7 @@ static std::string vehicleMembers(const Project& p) {
   void renderVehicleHud();
   // Is this runtime object a placed vehicle? The paint pass asks per part.
   int vehiclePaintFor(int objIdx);
+  const char* vehicleBlobTextureFor(int objIdx) const;
 )";
 }
 
@@ -35508,6 +35546,16 @@ int TerrainGame::vehiclePaintFor(int objIdx) {
   return 0;
 }
 
+const char* TerrainGame::vehicleBlobTextureFor(int objIdx) const {
+  for (int i = 0; i < VEHICLE_COUNT; ++i) {
+    const VehicleInstData& inst = VEHICLES[i];
+    if (inst.scene != currentScene || inst.object != objIdx || inst.def < 0)
+      continue;
+    return VEHICLE_DEFS[inst.def].shadowTexture;
+  }
+  return nullptr;
+}
+
 // The pause menu's mute. Forgetting the channel (engineCh = -1) is what makes
 // closing the menu RESTART the loop through the ordinary enter path instead of
 // resuming a voice whose volume something else may have touched meanwhile; the
@@ -36194,7 +36242,16 @@ void TerrainGame::buildRoads(int scene) {
   // between them (it is also the A/B knob - flip it and rebuild, one engine
   // and one editor, only the vertex ORDER moves).
   const unsigned int stripRun = 75u;
-  const bool useStrips = minPackageSize() >= stripRun;
+  // Keep roads on triangle lists. The strip producer is byte/triangle-correct
+  // in the host oracle and in PCSX2, but real GS hardware can sample a single
+  // stretched texel for a whole strip package (lane markings disappear while
+  // the geometry remains). A road is loaded once and already chunked, so the
+  // list's extra vertices are a much better trade than a hardware-only broken
+  // surface. Other proven strip users (terrain/models/wheels) stay untouched.
+#ifndef TYRA_STRIP_ROADS
+#define TYRA_STRIP_ROADS 0
+#endif
+  const bool useStrips = TYRA_STRIP_ROADS && minPackageSize() >= stripRun;
   const Tyra::Color grey(128.0F, 128.0F, 128.0F, 128.0F);
   bool any = false;
   for (int ri = 0; ri < ROAD_COUNT; ++ri) {
@@ -36980,6 +37037,9 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{VEHICLE_PAINT_FOR}}",
                    projectHasVehicles(p) ? "vehiclePaintFor(objectIndex)"
                                          : "0");
+    s = replaceAll(s, "{{VEHICLE_BLOB_TEXTURE_FOR}}",
+                   projectHasVehicles(p) ? "vehicleBlobTextureFor(i)"
+                                         : "nullptr");
     s = replaceAll(s, "{{VEHICLE_DRIVING_AND}}", vehicleDrivingAnd(p));
     s = replaceAll(s, "{{VEHICLE_UPDATE}}", vehicleUpdateCall(p));
     s = replaceAll(s, "{{VEHICLE_RENDER}}", vehicleRenderCall(p));

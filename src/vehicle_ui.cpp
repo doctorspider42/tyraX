@@ -132,6 +132,10 @@ void App::vehicleRefreshBake(int index, bool force) {
         put("veh-" + v.id + "-palette.png",
             std::string((const char*)c.result.palettePng.data(),
                         c.result.palettePng.size()));
+    if (!c.result.shadowPng.empty())
+        put("veh-" + v.id + "-shadow.png",
+            std::string((const char*)c.result.shadowPng.data(),
+                        c.result.shadowPng.size()));
     for (const auto& texture : c.result.textures)
         put(fs::path(texture.path).filename().string(),
             std::string((const char*)texture.png.data(), texture.png.size()));

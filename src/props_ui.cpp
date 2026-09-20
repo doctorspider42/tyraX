@@ -99,7 +99,7 @@ static const char* typeLabel(PrimitiveType t) {
 static bool drawDynamicShadowControls(SceneObject& o) {
     bool changed = false;
     const char* shadowNames[] = {"Default (follow the project)", "None",
-                                 "Blob (soft quad)",
+                                 "Blob (baked vehicle shape)",
                                  "Projected silhouette"};
     int mode = o.shadowMode;
     if (mode < 0 || mode > 3) mode = 0;
@@ -116,8 +116,9 @@ static bool drawDynamicShadowControls(SceneObject& o) {
             "ticked.\n"
             "NONE - nothing, whatever the project says.\n"
             "BLOB - one soft dark quad that follows the ground under\n"
-            "it. Cheap enough for traffic and crowds; it has no shape\n"
-            "of its own.\n"
+            "it. The vehicle import bakes its top-down body silhouette,\n"
+            "so it rotates with the car without another model render.\n"
+            "Cheap enough for traffic and crowds.\n"
             "PROJECTED - the real silhouette: the object renders a\n"
             "second time each frame (64x64, from the sun). The 4\n"
             "casters largest on screen are active at a time, so use it\n"
@@ -1123,8 +1124,9 @@ void App::drawPropertiesWindow() {
                     "ticked.\n"
                     "NONE - nothing, whatever the project says.\n"
                     "BLOB - one soft dark quad that follows the ground under\n"
-                    "it. Cheap enough for a crowd, and it works on a static\n"
-                    "prop too; it has no shape of its own.\n"
+                    "it. Vehicles use the top-down silhouette baked during\n"
+                    "their import; other objects use the round fallback.\n"
+                    "Cheap enough for traffic and crowds.\n"
                     "PROJECTED - the real silhouette: the object renders a\n"
                     "second time each frame (64x64, from the sun) and the\n"
                     "shape is projected under it. The 4 casters nearest the\n"
@@ -3116,13 +3118,19 @@ bool App::drawLodOverrides(SceneObject& o, bool animated) {
                               "Requires the same upright/equal-XZ transform as a captured impostor.");
     }
     if (!animated && !o.impostorPath.empty()) {
-        ImGui::TextWrapped("Impostor: %s (%d views)", o.impostorPath.c_str(), o.impostorViews);
-        ImGui::DragFloat("Impostor distance", &o.impostorDistance, 1.0f,
+        if (o.impostorBillboard)
+            ImGui::TextWrapped("Distant representation: captured impostor (%d views)\n%s",
+                               o.impostorViews, o.impostorPath.c_str());
+        else
+            ImGui::TextWrapped("Distant representation: hull proxy\n%s",
+                               o.impostorPath.c_str());
+        ImGui::DragFloat("Switch distance", &o.impostorDistance, 1.0f,
                           0.0f, 2000.0f, "%.0f units");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("0 disables the distant model. Collision keeps the original mesh.\n"
-                              "Eight-view cards approximate the silhouette; the swap is not blended.");
+            ImGui::SetTooltip("Camera distance at which the distant representation replaces the model.\n"
+                              "0 disables the swap. Collision always keeps the original mesh;\n"
+                              "the visual transition is not blended.");
     }
     return committed;
 }

@@ -29,7 +29,9 @@ while **Blob** is the low-cost choice for AI traffic. The selection belongs to
 the placed instance, not the shared vehicle definition, so one CC96 can be the
 projected hero and twenty CC96 rivals can use blobs. Both use the imported
 body's actual bounds for their footprint/framing and follow player-driven and
-AI-driven transforms. See [shadows.md](shadows.md) for the four projected-slot
+AI-driven transforms. The import writes a soft 128×128 top-down body mask next
+to the `.tmdl` files; Blob rotates that mask with the car on a single
+terrain-conforming quad. See [shadows.md](shadows.md) for the four projected-slot
 budget and the project-default behaviour.
 
 The wheel batch composes spin, steering, body attitude and instance scale into

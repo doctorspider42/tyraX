@@ -97,6 +97,11 @@ struct Result {
     std::vector<unsigned char> palettePng;
     int paletteSize = 0;  // square side in pixels
 
+    // Top-down body silhouette used by the cheap moving blob-shadow quad.
+    // It is derived from the exact canonical body bake, so the runtime gets a
+    // car-shaped shadow without re-rendering the vehicle from a light camera.
+    std::vector<unsigned char> shadowPng;
+
     // Source images retained by textured body/wheel parts. Names are the
     // bin-relative paths stored in the TMDL; both build and preview write them.
     struct Texture {
@@ -177,7 +182,7 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
 // Files are content-compared before writing, so a build that changed nothing
 // hands the compiler no fresh mtimes.
 struct BakedPaths {
-    std::string body, wheel, palette;  // bin-relative, "" if not produced
+    std::string body, wheel, palette, shadow;  // bin-relative
 };
 
 // Bin-relative paths for one definition. Pure string arithmetic, so codegen can
