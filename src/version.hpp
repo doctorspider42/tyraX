@@ -16,6 +16,16 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.117.2: ROAD STRIPS SHIP AGAIN AFTER THE PHYSICAL-GS UV FIX.
+// TYRA_STRIP_ROADS now defaults to 1. The earlier hardware smear survived the
+// triangle-list control and was fixed by 1.117's per-chunk whole-repeat V
+// rebasing, so topology was innocent. On the physical PAL road-only district,
+// strips reduce 63,966 vertices / 880 packages / 83 chunks to 24,576 / 347 / 68
+// with the same 21,322 surface triangles. Three matched captures reduce median
+// procedural cost 7.782 -> 4.149 ms and total 17.020 -> 13.611 ms; lane marks
+// survive default, junction, long-road and moving views. Project format stays 59.
+// PATCH.
+//
 // 1.117.1: STATIC CHUNKS STOP AT THE CAMERA, AND BAKED VIF STREAMS SHIP.
 // Generated road/prefab/procedural chunks use their existing world AABB for a
 // cheap caller-side frustum reject before entering StaPip; the pipeline still
@@ -4803,7 +4813,7 @@
 // project format change (kFormatVersion stays 55), no VU1 change, no bake change.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 117
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

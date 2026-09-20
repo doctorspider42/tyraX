@@ -3711,3 +3711,7 @@ the generated road STs first: each chunk's V must begin in `[0,1)` and stay
 bounded by roughly that chunk's nine repeats. Then park the same camera on
 hardware and confirm lane markings survive; PCSX2 is only the topology/image
 regression arm because it never reproduced the original smear.
+Road strips ship on since 1.117.2. `ROADSTRIP ... strips 1` is expected; use
+`TYRA_STRIP_ROADS=0` only as the list control. Across an A/B, compare the
+producer's surface-triangle count (it must be identical), then packages,
+vertices, synchronized frame costs and several physical-console road views.

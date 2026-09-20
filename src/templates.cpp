@@ -36316,14 +36316,13 @@ void TerrainGame::buildRoads(int scene) {
   // between them (it is also the A/B knob - flip it and rebuild, one engine
   // and one editor, only the vertex ORDER moves).
   const unsigned int stripRun = 75u;
-  // Keep roads on triangle lists. The strip producer is byte/triangle-correct
-  // in the host oracle and in PCSX2, but real GS hardware can sample a single
-  // stretched texel for a whole strip package (lane markings disappear while
-  // the geometry remains). A road is loaded once and already chunked, so the
-  // list's extra vertices are a much better trade than a hardware-only broken
-  // surface. Other proven strip users (terrain/models/wheels) stay untouched.
+  // The physical-GS smear that originally parked this at 0 came from unbounded
+  // road V coordinates, not from strip topology. Each chunk now rebases V by a
+  // whole repeat before either emitter sees it; hardware A/B keeps lane marks
+  // intact while the strip removes hundreds of packages from a district.
+  // Keep 0 as the triangle-list control arm for future renderer work.
 #ifndef TYRA_STRIP_ROADS
-#define TYRA_STRIP_ROADS 0
+#define TYRA_STRIP_ROADS 1
 #endif
   const bool useStrips = TYRA_STRIP_ROADS && minPackageSize() >= stripRun;
   const Tyra::Color grey(128.0F, 128.0F, 128.0F, 128.0F);

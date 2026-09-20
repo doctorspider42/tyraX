@@ -103,14 +103,13 @@ definition; this is covered by the headless road-only generation fixture.
 
 ![Triangle-list road runtime](img/road-list-runtime.png)
 
-## Physical-PS2 texture coordinates and the list default
+## Physical-PS2 texture coordinates and the strip default
 
-Roads currently reach VU1 as **triangle lists**. The strip producer and its
-host oracle remain in the source, but the generated runtime keeps it disabled:
-on a physical PS2 a valid-looking strip package could sample one stretched
-texel across the road, erasing the lane markings. PCSX2 did not reproduce the
-fault. Switching to the list isolated strip topology but **did not cure the
-physical console**, which ruled the strip out as the root cause.
+Roads reach VU1 as **triangle strips** by default. A temporary triangle-list
+control once appeared necessary because physical GS hardware sampled one
+stretched texel across a road and erased its lane markings; PCSX2 did not
+reproduce the fault. The list produced the same corruption, which ruled strip
+topology out as the cause.
 
 The remaining hardware-specific hazard was the longitudinal V coordinate:
 `arc / 4` grew for the full road, even though the sampler repeats every integer.
@@ -120,13 +119,11 @@ but keeps the GS/VU ST values close to zero instead of eventually overflowing
 their useful fixed-precision range. The editor list, retained strip oracle and
 runtime twin all use the same rebasing; `verify-road-twins.py` compares V modulo
 whole repeats and still checks geometry, fractional UV, seams and runtime output
-vertex-for-vertex. A physical-console capture remains the final acceptance gate.
+vertex-for-vertex. `TYRA_STRIP_ROADS=0` remains the list control arm. A
+physical-console capture remains the final acceptance gate.
 
-The list arm uses the same sampled positions, chunks, planar-span collapse and
-junctions. Model, terrain, wheel and projected-shadow strips remain enabled.
-
-The rest of this section documents the retained strip producer and why it is
-not the shipping default.
+The list arm uses the same sampled positions, planar-span collapse and
+junctions; chunk boundaries may differ because its vertex budget is larger.
 
 A road chunk can reach VU1 as a **triangle strip** instead of a triangle list — the
 same contract a baked `.tmdl` keeps (see
@@ -187,13 +184,24 @@ budget, editor drawing and picking, and the exact planar-span collapse all read
 the same. The editor viewport still previews through `roadgen::tessellate`, the
 triangle **list**, which stays the source of truth for the surface.
 
-`ROADSTRIP scene N strips 0 packages P triangles T` in `bin/log.txt` is the
+`ROADSTRIP scene N strips 1 packages P triangles T` in `bin/log.txt` is the
 acceptance line. `triangles` is the **surface** count, computed by the producer
 with degenerates dropped. A diagnostic A/B may temporarily enable the retained
-producer; its triangle count must remain identical to the list arm or the arms
+list arm; its triangle count must remain identical to the strip arm or the arms
 are not drawing the same road. The pipeline's own triangle counters cannot
 answer that question; see "What the triangle counters count" in
 [model-pipeline.md](model-pipeline.md).
+
+The shipping hardware A/B on 2026-09-20 used one road-only project and one
+macro. The list arm reported 63,966 vertices, 880 packages and 83 chunks; the
+strip arm reported 24,576 vertices, 347 packages and 68 chunks. Both reported
+the same 21,322 surface triangles. Across three synchronized captures at the
+same parked camera, median procedural time fell **7.782 -> 4.149 ms** and total
+render time **17.020 -> 13.611 ms**. Physical-console captures at the spawn,
+through the junction, down the long marked road and after movement retained the
+lane markings. The spawn pictures differed on 637 of 187,904 non-HUD pixels
+(0.34%, 2,608 total RGB levels), confined to small raster/interpolation changes
+on the asphalt rather than the old stretched-texel failure.
 
 ## The tessellator is a twin
 

@@ -2433,6 +2433,10 @@ lists did not fix the console smear because topology was not its root cause.
 The list and strip may choose different chunk boundaries, so the oracle
 canonicalizes only whole V repeats when comparing their triangle sets and the
 dense baseline. Runtime-to-host strip vertices remain exact inside each chunk.
+Since 1.117.2, `TYRA_STRIP_ROADS` defaults to 1 again; 0 is the diagnostic list
+arm. The physical road-only district fell from 63,966 vertices / 880 packages
+to 24,576 / 347 with the same 21,322 surface triangles, and lane markings
+survived multiple hardware views after the bounded-V fix.
 
 Textured vehicles: vehbake::Result::textures holds bin-relative names and PNG
 bytes for source images; bakeProject and vehicleRefreshBake both write them.
