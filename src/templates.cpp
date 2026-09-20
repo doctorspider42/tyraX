@@ -19968,15 +19968,50 @@ void TerrainGame::buildStaticBatchList() {
       addMember(i, -1, texture, cx, cz, d.drawDistance, lamp, 0u);
     }
   }
-  // A singleton saves no submit and only duplicates geometry. Drop it, then
-  // derive object membership from the batches that actually survived. This is
-  // especially important for multi-part models: two unrelated one-part bags
-  // must not hide the object's solo geometry merely because it was eligible.
-  for (size_t b = 0; b < staticBatches.size();) {
-    if (staticBatches[b].members.size() < 2)
-      staticBatches.erase(staticBatches.begin() + (long)b);
-    else
-      ++b;
+  // A model is skipped by the solo path as ONE object, so batching it is also
+  // all-or-nothing. Material parts group independently and some of their groups
+  // can be singletons; keeping only the groups that survived would draw a roof
+  // or windows from a batch, skip the whole solo model, and leave its walls
+  // missing. Prune incomplete objects, then repeat because that removal can
+  // turn another object's group into a singleton. The fixed point contains
+  // only objects whose every part has exactly one surviving batch member.
+  int partialFallback = 0;
+  for (;;) {
+    for (size_t b = 0; b < staticBatches.size();) {
+      if (staticBatches[b].members.size() < 2)
+        staticBatches.erase(staticBatches.begin() + (long)b);
+      else
+        ++b;
+    }
+    std::vector<unsigned short> memberCount(SCENE_OBJECT_COUNT, 0);
+    for (const StaticBatch& b : staticBatches)
+      for (const StaticBatchMember& m : b.members)
+        if (m.object >= 0 && m.object < SCENE_OBJECT_COUNT)
+          ++memberCount[m.object];
+    std::vector<unsigned char> incomplete(SCENE_OBJECT_COUNT, 0);
+    bool anyIncomplete = false;
+    for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
+      if (memberCount[i] == 0) continue;
+      const SceneObjectData& d = SCENE_OBJECTS[i];
+      unsigned int expected = 1;
+      if (d.type == 5) {
+        if (d.model < 0 || d.model >= (int)gameModels.size()) expected = 0;
+        else expected = (unsigned int)gameModels[d.model].parts.size();
+      }
+      if (memberCount[i] == expected) continue;
+      incomplete[i] = 1;
+      anyIncomplete = true;
+      ++partialFallback;
+    }
+    if (!anyIncomplete) break;
+    for (StaticBatch& b : staticBatches)
+      for (size_t k = 0; k < b.members.size();) {
+        const int object = b.members[k].object;
+        if (object >= 0 && object < SCENE_OBJECT_COUNT && incomplete[object])
+          b.members.erase(b.members.begin() + (long)k);
+        else
+          ++k;
+      }
   }
   objectBatchOf.assign(SCENE_OBJECT_COUNT, -1);
   for (int bi = 0; bi < (int)staticBatches.size(); ++bi)
@@ -20018,6 +20053,7 @@ void TerrainGame::buildStaticBatchList() {
   TYRA_LOG("Static batching: eligible ", eligible, ", solo ",
            eligible - batched, ", base cell ", (int)baseCellW, ", widest cell ",
            (int)widestCell);
+  TYRA_LOG("Static batching: partial models kept solo ", partialFallback);
   if (TEXTURE_ATLAS_INFO[0]) TYRA_LOG(TEXTURE_ATLAS_INFO);
 }
 

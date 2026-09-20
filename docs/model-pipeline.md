@@ -103,9 +103,16 @@ not use distance LOD, impostors, reflections, dynamic lighting or another
 per-object runtime path. Each material part joins the batch for its actual
 loaded texture and coarse world cell; atlas-backed materials therefore merge
 even when their source material names differ. Singleton groups are discarded,
-and a model whose horizontal footprint exceeds half a cell stays solo. Runtime
-mutation demotes every part of that object from its batches before drawing it
-through the normal path.
+and a model whose horizontal footprint exceeds half a cell stays solo. A
+multi-material model joins the batched path only when **every** one of its
+parts has a surviving group; if even one material part would be a singleton,
+the complete model stays on the solo path. This all-or-nothing rule matters
+because the normal render loop skips batched objects as a whole: accepting a
+roof batch while rejecting the wall batch would otherwise leave a visibly
+hollow building. The pruning runs to a fixed point, since falling one model
+back to solo can turn another model's group into a singleton. Runtime mutation
+demotes every part of that object from its batches before drawing it through
+the normal path.
 
 Those spatial limits are intentional. An earlier Aster experiment grouped
 model parts by material across districts: it destroyed culling, and even

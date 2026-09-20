@@ -20,7 +20,9 @@ Actual software-renderer captures: [Tristar Racer](preview/tristar.png), [coupe]
   assets; changing either material's `map_Kd` updates every road that uses it.
 - Fourteen workshop, loft and tower blocks assembled from Kenney's Retro Urban
   Kit, with pavements, trees, benches, traffic signals, streetlights, dumpsters
-  and barriers. The garage sign and road/ground textures are original assets.
+  and barriers. Static batching keeps a building on the solo path unless every
+  material part can be batched, so walls cannot disappear while a roof or its
+  windows survive. The garage sign and road/ground textures are original assets.
 - A garage apron and western yard for handbrake turns. Loose crates and pallets
   can be pushed; buildings, street furniture and perimeter walls collide.
 - A flat city floor and gentle eastern crests. Roads and wheel contacts use the

@@ -16,6 +16,13 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.114.1: STATIC BATCHING NO LONGER HOLLOWS OUT MULTI-MATERIAL MODELS. A
+// model now enters the batched path only when every material part survives
+// grouping; otherwise all of its parts fall back to the solo renderer. The
+// pruning reaches a fixed point because removing one incomplete model can turn
+// another group into a singleton. No serialized field changed, so
+// kFormatVersion stays 58.
+//
 // 1.114.0: ROAD SURFACES ARE MATERIAL ASSETS, NOT PATH-TYPING EXERCISES. The
 // Properties panel lists project .mtl files for both the road and its automatic
 // junction, opens the chosen one in the Material Editor, and codegen plus the
@@ -4752,7 +4759,7 @@
 // project format change (kFormatVersion stays 55), no VU1 change, no bake change.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 114
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
