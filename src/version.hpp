@@ -16,6 +16,12 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.113.0: MOTOR DISTRICT NOW DEMONSTRATES AUTOMATIC ROAD JUNCTIONS. Three
+// eastern crossings share district-asphalt.png and therefore generate the
+// cheap four-triangle junction patches; the authoring script persists the same
+// setup on future rebuilds. Example/data only: no project-format or runtime
+// behavior change, so kFormatVersion stays 58.
+//
 // 1.112.0: merge this branch with main's motion blur. The generated runtime
 // now carries the one-pass previous-frame blend, its explicit idle history
 // break and the legal DTHE restores for 16-bit targets alongside the branch's
@@ -4737,7 +4743,7 @@
 // gate separates 113 levels for "shadow removed" from 2 for this change. No
 // project format change (kFormatVersion stays 55), no VU1 change, no bake change.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 112
+#define TYRAX_VERSION_MINOR 113
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

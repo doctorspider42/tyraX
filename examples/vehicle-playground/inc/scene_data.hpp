@@ -495,8 +495,8 @@ constexpr VehicleDefData VEHICLE_DEFS[3] = {
 
 // Roads (docs/roads.md): points in, geometry at boot.
 constexpr int ROAD_COUNT = 7;
-constexpr int ROAD_TEXTURE_COUNT = 1;
-constexpr int ROAD_JUNCTION_COUNT = 0;
+constexpr int ROAD_TEXTURE_COUNT = 2;
+constexpr int ROAD_JUNCTION_COUNT = 3;
 struct RoadDefRt { int scene; int first; int pointCount; float width; int tex; };
 constexpr RoadDefRt ROAD_DEFS[7] = {
     {0, 0, 11, 13.0F, 0},  // Ring road
@@ -507,10 +507,14 @@ constexpr RoadDefRt ROAD_DEFS[7] = {
     {0, 62, 5, 9.0F, 0},  // East crest run
     {0, 72, 4, 9.0F, 0},  // West service lane
 };
-constexpr float ROAD_POINTS[80] = {-96.0F, -100.0F, 0.0F, -108.0F, 96.0F, -100.0F, 120.0F, -64.0F, 122.0F, 44.0F, 94.0F, 103.0F, 0.0F, 112.0F, -94.0F, 103.0F, -122.0F, 64.0F, -122.0F, -64.0F, -96.0F, -100.0F, 0.0F, -108.0F, 0.0F, -50.0F, 0.0F, 0.0F, 0.0F, 55.0F, 0.0F, 112.0F, -122.0F, 0.0F, -65.0F, 0.0F, 0.0F, 0.0F, 62.0F, 0.0F, 122.0F, 0.0F, -115.0F, -70.0F, -60.0F, -58.0F, 0.0F, -55.0F, 60.0F, -58.0F, 117.0F, -70.0F, -119.0F, 65.0F, -60.0F, 58.0F, 0.0F, 58.0F, 58.0F, 58.0F, 116.0F, 65.0F, 62.0F, -58.0F, 80.0F, -30.0F, 70.0F, 0.0F, 88.0F, 30.0F, 62.0F, 58.0F, -60.0F, -58.0F, -65.0F, -25.0F, -65.0F, 0.0F, -60.0F, 58.0F};
+constexpr float ROAD_POINTS[80] = {-96.0F, -100.0F, 0.0F, -108.0F, 96.0F, -100.0F, 120.0F, -64.0F, 122.0F, 44.0F, 94.0F, 103.0F, 0.0F, 112.0F, -94.0F, 103.0F, -122.0F, 64.0F, -122.0F, -64.0F, -96.0F, -100.0F, 0.0F, -108.0F, 0.0F, -50.0F, 0.0F, 0.0F, 0.0F, 55.0F, 0.0F, 112.0F, -122.0F, 0.0F, -65.0F, 0.0F, 0.0F, 0.0F, 62.0F, 0.0F, 122.0F, 0.0F, -115.0F, -70.0F, -60.0F, -58.0F, 0.0F, -55.0F, 60.0F, -58.0F, 117.0F, -70.0F, -119.0F, 65.0F, -60.0F, 58.0F, 0.0F, 58.0F, 58.0F, 58.0F, 116.0F, 65.0F, 60.0F, -58.0F, 80.0F, -30.0F, 70.0F, 0.0F, 88.0F, 30.0F, 58.0F, 58.0F, -60.0F, -58.0F, -65.0F, -25.0F, -65.0F, 0.0F, -60.0F, 58.0F};
 struct RoadJunctionRt { int scene; int tex; float xz[10]; };
-constexpr RoadJunctionRt ROAD_JUNCTIONS[1] = {};
-constexpr const char* ROAD_TEXTURE_PATHS[1] = {"textures/district-road.png"};
+constexpr RoadJunctionRt ROAD_JUNCTIONS[3] = {
+    {0, 1, {70.0F, 0.0F, 64.8264F, -5.65F, 74.1635F, -5.65F, 75.1736F, 5.65F, 65.8365F, 5.65F}},
+    {0, 1, {60.0F, -58.0F, 51.1735F, -62.0751F, 61.7679F, -63.4145F, 68.8265F, -53.9249F, 58.2321F, -52.5855F}},
+    {0, 1, {58.0F, 58.0F, 56.8554F, 52.7745F, 69.9121F, 53.5361F, 59.1446F, 63.2255F, 46.0879F, 62.4639F}},
+};
+constexpr const char* ROAD_TEXTURE_PATHS[2] = {"textures/district-road.png", "textures/district-asphalt.png"};
 constexpr int VEHICLE_COUNT = 5;
 constexpr VehicleInstData VEHICLES[5] = {
     {0, 1, 0, 1, -1, 0},

@@ -13,7 +13,10 @@ Actual software-renderer captures: [Tristar Racer](preview/tristar.png), [coupe]
 ## The district
 
 - Seven spline roads: a wide perimeter loop, Garage Boulevard, two cross-city
-  links, Market Street, a western service lane and the eastern crest run.
+  links, Market Street, a western service lane and the eastern crest run. The
+  three eastern crossings use generated four-triangle asphalt junction patches;
+  the older central/western crossings retain their deliberately larger drift
+  aprons.
 - Fourteen workshop, loft and tower blocks assembled from Kenney's Retro Urban
   Kit, with pavements, trees, benches, traffic signals, streetlights, dumpsters
   and barriers. The garage sign and road/ground textures are original assets.

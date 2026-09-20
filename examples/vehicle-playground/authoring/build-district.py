@@ -156,18 +156,24 @@ def model(name, asset, x, z, scale=1, reflected=False, yaw=0):
                drawDistance=145, reflected=reflected, castShadow=False)
 
 
-def road(name, points, width=11):
+def road(name, points, width=11, junctions=False):
+    extra = ({'roadIntersectionTexture': 'res/textures/district-asphalt.png'}
+             if junctions else {})
     add(name, 'road', (0, 0, 0), roadPoints=[v for pair in points for v in pair],
-        roadWidth=width, roadTexture='res/textures/district-road.png')
+        roadWidth=width, roadTexture='res/textures/district-road.png', **extra)
 
 
 road('Ring road', [(-96,-100),(0,-108),(96,-100),(120,-64),(122,44),
                    (94,103),(0,112),(-94,103),(-122,64),(-122,-64),(-96,-100)], 13)
 road('Garage boulevard', [(0,-108),(0,-50),(0,0),(0,55),(0,112)], 13)
-road('Market cross street', [(-122,0),(-65,0),(0,0),(62,0),(122,0)], 11)
-road('Foundry link', [(-115,-70),(-60,-58),(0,-55),(60,-58),(117,-70)], 10)
-road('Skyline avenue', [(-119,65),(-60,58),(0,58),(58,58),(116,65)], 10)
-road('East crest run', [(62,-58),(80,-30),(70,0),(88,30),(62,58)], 9)
+road('Market cross street', [(-122,0),(-65,0),(0,0),(62,0),(122,0)], 11,
+     junctions=True)
+road('Foundry link', [(-115,-70),(-60,-58),(0,-55),(60,-58),(117,-70)], 10,
+     junctions=True)
+road('Skyline avenue', [(-119,65),(-60,58),(0,58),(58,58),(116,65)], 10,
+     junctions=True)
+road('East crest run', [(60,-58),(80,-30),(70,0),(88,30),(58,58)], 9,
+     junctions=True)
 road('West service lane', [(-60,-58),(-65,-25),(-65,0),(-60,58)], 9)
 
 # Pads mask centre-line overlaps at the flat crossroads and make drift space.
