@@ -21,9 +21,10 @@
 // cheap caller-side frustum reject before entering StaPip; the pipeline still
 // performs precise clipping for intersecting chunks. The same reject applies
 // to road-only reflection submissions. TYRA_STAPIP_BAKED_STREAM now defaults
-// to 1 after a physical PAL PS2 A/B on the 83-chunk road-only district: the
-// coarse reject reduced serialized frame cost about 1.48 ms and stream replay
-// another 1.77 ms, with 0 changed non-HUD pixels and about 1.4 MB extra EE RAM.
+// to 1 after physical PAL PS2 measurements on the 83-chunk road-only district.
+// The coarse reject cut about 1.48 ms in comparable (not pixel-matched) parked
+// views; the separate stream-replay A/B cut 1.77 ms in one identical view, with
+// 0 changed non-HUD pixels and about 1.4 MB extra EE RAM.
 // Project JSON stays format 59. PATCH.
 //
 // 1.117.0: LIVE PAINT REFLECTIONS INCLUDE THE GROUND UNDER THE VEHICLE.
