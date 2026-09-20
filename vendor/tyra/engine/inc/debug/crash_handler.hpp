@@ -68,6 +68,10 @@ class CrashHandler {
 
   /** Name for a Cause.ExcCode, for callers that format their own text. */
   static const char* causeName(u32 excCode);
+
+  /** Short human diagnosis for a Cause.ExcCode and fault address. Stable error
+   * IDs are formatted as TXE-EE-%04u from excCode; this prose may improve. */
+  static const char* causeDescription(u32 excCode, u32 badvaddr);
 };
 
 }  // namespace Tyra

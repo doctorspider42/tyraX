@@ -1736,6 +1736,13 @@ later one until the write finishes.   `livedbg.cmd` before booting a fixture** -
   the TYRAX error block (a `.flownode` calling `TYRA_SOFT_ERROR` puts a real one
   in the game's log), and the heartbeat post-mortem (kill the game and watch the
   Debugger notice).
+  The raw ps2link decoder has its own host harness: compile
+  `tools/test-ee-exception.cpp` with `src/eeexception.cpp` and run it. It covers
+  old/r7 line shapes, EE/IOP selection, near-null versus distant addresses and
+  all 32 deterministic IDs. On hardware, r7 should add `TXE-EE-0012` to the
+  forced-overflow report or `TXE-EE-0003` to a near-null write while retaining
+  the original `Cause`/`BadVAddr`/`Status`/`EPC` line. That final delivery check
+  cannot be claimed from PCSX2.
 - **Prove a release build is devkit-free**: `tyrax-editor --audit-release
   <projectDir>` reads the built ELF and exits 0 (clean) / 1 (something leaked),
   printing text/data/bss so the debug-vs-release cost is a number. Every release

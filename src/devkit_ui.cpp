@@ -29,6 +29,7 @@
 #include "decalproj.hpp"
 #include "devsession.hpp"
 #include "editorcfg.hpp"
+#include "eeexception.hpp"
 #include "gl_loader.h"
 #include "fbxparser.hpp"
 #include "glbparser.hpp"
@@ -524,6 +525,8 @@ void App::dbgReadCrashReport() {
         if (!line.empty() && line.back() == '\r') line.pop_back();
         if (line.rfind("| CRASH:", 0) == 0) {
             dbgCrash_.cause = valueAfter(line);
+        } else if (line.rfind("| excCode", 0) == 0) {
+            dbgCrash_.excCode = std::atoi(valueAfter(line).c_str());
         } else if (line.rfind("| epc", 0) == 0) {
             dbgCrash_.epc = (uint32_t)std::strtoul(valueAfter(line).c_str(), nullptr, 0);
         } else if (line.rfind("| badvaddr", 0) == 0) {
@@ -541,6 +544,13 @@ void App::dbgReadCrashReport() {
                 dbgCrash_.trace.push_back(
                     (uint32_t)std::strtoul(line.c_str() + hex, nullptr, 16));
         }
+    }
+    if (dbgCrash_.excCode >= 0) {
+        const eeexception::Diagnosis d = eeexception::diagnose(
+            static_cast<uint32_t>(dbgCrash_.excCode) << 2U,
+            dbgCrash_.badvaddr, 0, dbgCrash_.epc);
+        dbgCrash_.code = d.code;
+        dbgCrash_.description = d.description;
     }
     // Pull the editor forward - a crash deserves the same attention an assert
     // gets (PCSX2 has the foreground when the game dies).
@@ -1750,9 +1760,18 @@ void App::drawDebuggerWindow() {
                                             ? "EE exception"
                                             : dbgCrash_.cause.c_str());
         ImGui::PopStyleColor();
-        ImGui::Text("epc 0x%08x   badvaddr 0x%08x   frame %u   scene %d",
-                    dbgCrash_.epc, dbgCrash_.badvaddr, dbgCrash_.frame,
-                    dbgCrash_.scene);
+        if (!dbgCrash_.code.empty()) {
+            ImGui::Text("Error code: %s", dbgCrash_.code.c_str());
+            if (!dbgCrash_.description.empty())
+                ImGui::TextWrapped("%s", dbgCrash_.description.c_str());
+        }
+        if (dbgCrash_.fromPs2Link)
+            ImGui::Text("epc 0x%08x   badvaddr 0x%08x",
+                        dbgCrash_.epc, dbgCrash_.badvaddr);
+        else
+            ImGui::Text("epc 0x%08x   badvaddr 0x%08x   frame %u   scene %d",
+                        dbgCrash_.epc, dbgCrash_.badvaddr, dbgCrash_.frame,
+                        dbgCrash_.scene);
         if (ImGui::SmallButton("Resolve names")) dbgResolveCrashNames();
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
@@ -1773,6 +1792,7 @@ void App::drawDebuggerWindow() {
         if (ImGui::SmallButton(onPs2 ? "Run again on PS2" : "Run again")) {
             dbgCrash_ = DbgCrash();
             dbgCrashSize_ = 0;
+            dbgPs2ExceptionScanSize_ = runner_.log().size();
             if (onPs2)
                 runner_.buildAndRunPs2(projectForBuild(), false);
             else
@@ -3111,10 +3131,41 @@ void App::pollGameError() {
     // pop again instead of being deduped against the stale text.
     const size_t gsz =
         fileSizeOr0((std::filesystem::path(project_.dir) / "bin" / "log.txt").string());
-    const size_t rsz = runner_.log().size();
-    if (gsz < errorGameLogSize_ || rsz < errorRunnerLogSize_) errorSeenSig_.clear();
+    const std::string runnerLog = runner_.log();
+    const size_t rsz = runnerLog.size();
+    if (gsz < errorGameLogSize_ || rsz < errorRunnerLogSize_) {
+        errorSeenSig_.clear();
+        if (rsz < dbgPs2ExceptionScanSize_) dbgPs2ExceptionScanSize_ = 0;
+    }
     errorGameLogSize_ = gsz;
     errorRunnerLogSize_ = rsz;
+
+    // TLB exceptions deliberately bypass the in-game crash handler so the
+    // kernel can service legitimate refill faults. ps2link still prints their
+    // raw register line; turn that line into the same Debugger experience as a
+    // crash.txt report. Works with stock/old ps2link too - r7 merely prints the
+    // friendly diagnosis on the console before the unchanged raw line.
+    eeexception::Diagnosis ee;
+    if (eeexception::parseLast(runnerLog, ee) &&
+        ee.lineOffset >= dbgPs2ExceptionScanSize_) {
+        dbgCrash_ = DbgCrash();
+        dbgCrash_.present = true;
+        dbgCrash_.fromPs2Link = true;
+        dbgCrash_.excCode = static_cast<int>(ee.excCode);
+        dbgCrash_.code = ee.code;
+        dbgCrash_.cause = ee.title;
+        dbgCrash_.description = ee.description;
+        dbgCrash_.epc = ee.epc;
+        dbgCrash_.badvaddr = ee.badvaddr;
+        dbgCrash_.raw = eeexception::format(ee);
+        showDebugger_ = true;
+        statusMessage_ = "Game crashed: " + ee.code + " - " + ee.description;
+        if (window_) {
+            glfwRequestWindowAttention(window_);
+            glfwFocusWindow(window_);
+        }
+    }
+    dbgPs2ExceptionScanSize_ = rsz;
 
     const std::string block = latestGameAssert();
     if (block.empty() || block == errorSeenSig_) return;

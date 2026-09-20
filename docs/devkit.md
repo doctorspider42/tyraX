@@ -99,16 +99,54 @@ PCSX2 does not reproduce every EE exception, so a crash handler must ultimately
 be checked on real hardware. Assertions and soft errors are testable in the
 emulator.
 
-### A null pointer gets you no crash report at all
+### Stable exception codes and human diagnoses
+
+Every CPU exception shown by TyraX has a stable identifier:
+
+```text
+TXE-<CPU>-<four-digit ExcCode>
+```
+
+For example, `TXE-EE-0003` is EE Cause.ExcCode 3 (TLB store), while
+`TXE-IOP-0010` is an IOP reserved-instruction exception. The numeric part is
+the processor's architectural `ExcCode`, not a hand-maintained sequence, so it
+does not change when the wording improves. Known codes receive a plain-English
+title and diagnosis; codes 0–31 always receive an identifier and unknown codes
+retain the raw register dump.
+
+| Code | Meaning |
+|---|---|
+| `0001` | write to a read-only mapped page (TLB modification) |
+| `0002` | read or instruction fetch from unmapped memory |
+| `0003` | write to unmapped memory |
+| `0004` / `0005` | invalid or unaligned read / write |
+| `0006` / `0007` | instruction / data bus error |
+| `0009` | breakpoint instruction |
+| `0010` | invalid or unsupported instruction |
+| `0011` | unavailable coprocessor |
+| `0012` | signed integer overflow |
+| `0013` | trap condition |
+| `0015` | floating-point exception |
+
+For codes 2–5, a `BadVAddr` below `0x00010000` is reported as a **likely
+null/near-null pointer** read, call or write. This is deliberately a diagnosis,
+not a different error code: the hardware proves the exception class and fault
+address, but it cannot prove the C++ pointer's history.
+
+### Null pointers and other TLB exceptions
 
 The report above covers the faults the handler hooks — address errors, bus
 errors, reserved instructions, coprocessor-unusable, overflow and traps. The
 **TLB causes are deliberately handed straight back to the kernel** (the reason
 is in `crash_handler.cpp`: a hooked TLB refill with nothing to service it spins
 in the vector forever), and a wild pointer into unmapped memory is exactly a TLB
-refill. So the single most ordinary C++ bug there is produces **no
-`bin/crash.txt`, no TYRAX banner and nothing on the TV** — just ps2link's own
-register dump in the console log:
+refill. It therefore produces no in-game `bin/crash.txt`: ps2link, not the game
+handler, owns the final TLB dump. TyraX ps2link r7 decodes it on the TV as, for
+example, `TXE-EE-0003` plus "Likely null/near-null pointer write", then retains
+the raw values. The editor recognizes the unchanged raw line from **both old
+and r7 ps2link**, opens the Debugger and offers EPC symbolization:
+
+![Debugger showing a decoded EE exception](img/exception-diagnostics.png)
 
 ```text
 Cause:7000800C   BadAddr:00000004   Status:70030C13   EPC:0013B988
@@ -132,8 +170,9 @@ That printed `TerrainGame::setupLightPools() src/terrain_game.cpp:8435` and the
 line was a bag field assigned before its `make_unique` (fixed in 1.54.1).
 **PCSX2 cannot show you any of this**: its main RAM starts at address 0, so a
 null store is an ordinary write there and the game runs on happily. A
-null-pointer bug on this platform is a hardware-only symptom, and the crash
-handler is not the thing that will report it.
+null-pointer bug on this platform is a hardware-only symptom. The game crash
+handler is still not on the TLB path; ps2link and the editor's raw-dump decoder
+are the reporters.
 
 ### The SIF RPC completion guard
 

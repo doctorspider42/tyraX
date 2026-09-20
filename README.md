@@ -282,7 +282,8 @@ build that provably carries none of it
 - [The input recorder](docs/input-replay.md) — record a play session and perform
   it again on demand; `--replay` exits 0 when the run reproduced exactly, so a
   bug becomes a regression test.
-- VU1 packet capture, self-reporting crashes and
+- VU1 packet capture, self-reporting crashes, stable `TXE` CPU-exception codes
+  with null-pointer/invalid-access diagnoses, and
   [logs split by severity](docs/log-panels.md).
 - [UI scripting](docs/ui-scripting.md) — the editor drives itself by widget name.
 

@@ -113,20 +113,21 @@ build in — ps2link is a standalone program. The ELF is gitignored; the patch i
 what this repo maintains.
 
 You can tell our build apart on the console: the boot screen reads
-**“Welcome to TyraX ps2link r6 (USB keyboard + mouse)”** instead of
+**“Welcome to TyraX ps2link r7 (USB keyboard + mouse)”** instead of
 “Welcome to ps2link”. The `r<n>` is bumped whenever the patch changes console
 behaviour — r1 was USB HID only, r2 added the hang/leak fixes, r3 silences the
 SPU2, r4 makes stopping a running game work, r5 takes stdio out of every error
 path (a `printf()` after a restart faults on newlib's cleared stdout lock and
-kills the EE instead of reporting), r6 stops rebooting the IOP twice per Stop —
-which is what made the console need a power cycle after one — so a memory card
-can be identified without guessing.
+kills the EE instead of reporting), r6 stops rebooting the IOP twice per Stop,
+and r7 gives EE/IOP exceptions stable `TXE` codes and human diagnoses while
+retaining the raw registers. The banner makes a flashed card identifiable
+without guessing.
 
 ## What the patch does
 
-Four groups: the USB HID stack it started as, a set of robustness fixes to
-upstream's error paths, the SPU2 silencing, and making the reset command work
-against a running game.
+Five groups: the USB HID stack it started as, a set of robustness fixes to
+upstream's error paths, the SPU2 silencing, making the reset command work
+against a running game, and readable CPU-exception diagnostics.
 
 ### 1. The USB HID stack
 
@@ -256,6 +257,23 @@ on their own limit. Before r6 the low build died on the *first* Stop every time.
 (An earlier "four cycles back to back" claim for r4 could not be reproduced on
 any build and is retracted.)
 
+### 5. Human exception diagnostics (r7)
+
+r7 turns the old register-only EE and IOP dumps into a useful first line while
+keeping the raw values underneath. Every report carries a stable identifier in
+the form `TXE-<CPU>-<four-digit ExcCode>`, the exception name, a short diagnosis,
+the fault address and the instruction address. For example, a TLB-store fault
+near address zero is shown as `TXE-EE-0003` with "Likely null/near-null pointer
+write". A distant address with the same exception code is described as an
+unmapped write instead; the ID stays the same because it identifies the CPU
+exception, not a guess about the program's intent.
+
+The wording and IDs are shared with the engine crash screen and the editor's
+Debugger. The editor also recognises the raw one-line dump from older ps2link
+builds and adds the same diagnosis there, so an old card remains debuggable.
+The original `Cause`, `BadVAddr`, `Status` and `EPC` line is deliberately
+unchanged for scripts and low-level investigation.
+
 ## Testing it without a console
 
 **ps2link itself runs in PCSX2** — a portable second copy of the emulator with
@@ -282,7 +300,8 @@ checking framing, EOF handling, short reads and the buffer clamps. `-Pristine` /
 change `net_fio.c`, keep both halves honest. Needs `build/` to exist (run
 `build.ps1` once) and a host `gcc`.
 
-Anything touching threads, the SIF or the GS is still hardware-only.
+Anything touching threads, the SIF, the GS or real CPU-exception delivery is
+still hardware-only.
 
 ## Changing it
 

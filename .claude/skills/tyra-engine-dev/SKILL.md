@@ -1144,6 +1144,14 @@ Three properties to preserve if you touch it:
 - **A crash takes the screen** (`init_scr`/`scr_printf`) before idling. An
   assertion may halt quietly and let the editor surface it; an exception may not,
   because a frozen last frame is indistinguishable from a hang.
+- **Exception IDs are a cross-layer contract.** The screen prints
+  `TXE-EE-<four-digit ExcCode>` plus `causeDescription()`. The suffix is the
+  exact MIPS `Cause.ExcCode`; a `BadVAddr` below `0x10000` only changes the
+  diagnosis to likely null/near-null and never changes the ID. Keep the mapping
+  and wording in lockstep with `src/eeexception.cpp`, the ps2link patch and
+  docs/devkit.md. TLB causes 1..3 still MUST stay on the restored kernel vector:
+  r7 ps2link prints those and the editor decodes its raw line. Do not hook them
+  merely to make `crash.txt` exist; that resurrects the infinite refill loop.
 
 **Verified on hardware** (2026-07-29): a forced signed-overflow `add` produced
 `CRASH: Arithmetic overflow`, `bin/crash.txt` and a `--symbolize` hit on the

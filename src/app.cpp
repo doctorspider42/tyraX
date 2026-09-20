@@ -1892,6 +1892,10 @@ void App::drawMenuBar() {
 // stays closed until the next launch, and a launch never steals focus from or
 // re-docks a panel that is already open.
 void App::openDebuggerForLaunch() {
+    // The runner log is intentionally cumulative. Start after its current end
+    // so an old raw exception does not reopen, while an identical line from
+    // this launch (at a new offset) is still reported.
+    dbgPs2ExceptionScanSize_ = runner_.log().size();
     if (!showDebugger_ && project_.settings.buildProfile == "debug" &&
         project_.settings.liveDebug)
         showDebugger_ = true;
@@ -7006,6 +7010,7 @@ void App::attachProject() {
     dbgSnapPrevFrame_ = 0;
     dbgNextTick_ = dbgSymNextRead_ = 0.0;
     dbgCrash_ = DbgCrash();
+    dbgPs2ExceptionScanSize_ = runner_.log().size();
     dbgCrashSize_ = 0;
     dbgVuCap_ = vucap::Capture();
     dbgVuCapSize_ = 0;

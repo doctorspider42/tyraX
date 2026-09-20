@@ -35,7 +35,7 @@ tools/ps2link/build.ps1 -Low -NoUsb -Packed
    **No `IPCONFIG.DAT` and the console silently falls back to `192.168.1.10`**
    and vanishes from the LAN.
 3. **Boot it** from your launcher. The screen must read
-   `Welcome to TyraX ps2link r6 (no USB)` and end with a `Net config:` line
+   `Welcome to TyraX ps2link r7 (no USB)` and end with a `Net config:` line
    showing the address you chose. A lower `r<n>`, or plain "Welcome to ps2link",
    means the wrong build — see the [troubleshooting table](#when-it-does-not-work).
 4. **Point the editor at it** — *Edit > Preferences > Real PS2 (network deploy)
@@ -487,9 +487,20 @@ Differences on real hardware:
   *Also over ps2link* sub-option under it is already on — the game reuses
   ps2link's resident USB stack instead of loading one it cannot load. See
   [keyboard-mouse.md](keyboard-mouse.md).
-- **The EE crash handler** ([devkit.md](devkit.md#crashes-and-hangs))
-  is still opt-in and unproven on hardware; the heartbeat post-mortem needs
-  nothing from the game and works here.
+- **CPU exceptions are readable in r7.** The TV shows a stable code such as
+  `TXE-EE-0003`, the exception name, a short diagnosis, the fault address and
+  the instruction address before the unchanged raw register dump. Addresses
+  below `0x00010000` are described as likely null/near-null accesses; the same
+  CPU exception at a distant address is described as an unmapped or invalid
+  access. The prefix says whether the fault came from the EE or IOP and the
+  four digits are the MIPS `Cause.ExcCode`, so the ID does not change when the
+  wording improves. The editor recognises both the r7 summary and the raw dump
+  printed by older cards, opens the Debugger and offers EPC symbolization.
+- **The EE crash handler** ([devkit.md](devkit.md#crashes-and-hangs)) is opt-in.
+  Exceptions it safely owns also write `bin/crash.txt`; TLB refill exceptions
+  must remain with the kernel/ps2link vector and therefore have no file report.
+  The heartbeat post-mortem needs nothing from the game and works in either
+  case.
 
 **Stop on PS2** kills the file server and sends `reset` — the file server
 first, both because the game polling `host:` every frame is what the command
@@ -547,7 +558,7 @@ one (a wedge still answers ARP and usually ping).
 | `[editor] Could not reach ps2link at <ip>` | `ps2client reset` failed outright — wrong IP, console not booted into ps2link, cable/link down. |
 | `[editor] No response from <ip> within 15s` | The commands went out and nothing came back. Check the IP against the console's `Net config:` line, then the PC firewall (inbound **UDP 18194** for `ps2client` — without it the game may actually be running with its log going nowhere). |
 | Boot screen says "Welcome to ps2link" | Stock ps2link. Rebuild from `tools/ps2link/` and reflash. |
-| Boot banner is below `r6` | r1 = keyboard/mouse only; r2 = plus the hang fixes; r3 = plus the SPU2 silencing, but Stop still wedges the console; r4 = Stop kills the game reliably; r5 = no stdio on any error path. **Stop only survives from r6.** Reflash. |
+| Boot banner is below `r7` | r1 = keyboard/mouse only; r2 = plus the hang fixes; r3 = plus the SPU2 silencing, but Stop still wedges the console; r4 = Stop kills the game reliably; r5 = no stdio on any error path; r6 = reliable repeated Stop; r7 = readable EE/IOP exception diagnostics. Reflash for the complete set. |
 | Stop leaves the console frozen on the game | Fixed in r4. On a pre-r4 build the reset either never reached the console or killed the game and took ps2link down with it; only a power cycle recovered. |
 | Stop kills the game but the console then needs a power cycle | **Fixed in r6** — `pkoReset()` rebooted the IOP immediately before `ExecPS2()` and crt0 then ran against an IOP with no modules (12/12 cycles since; see "One IOP reboot per Stop" above). On r4 it could show as an EE exception with `BadAddr 8` and on r5 as a black screen with no exception; both are the same wedge wearing different faces. Reflash r6. |
 | The game boots to a frozen Tyra logo, last log line `Curent pad(0,0) status: DISCONNECT` | The pad had not settled yet and the engine waited for it forever. Fixed in the engine (`vendor/tyra`, `Pad::waitPadReady` is bounded now), so rebuild the game. A deploy also waits ~10 s after the reset for exactly this reason. |
@@ -845,7 +856,7 @@ so this also tells you which of the two link addresses is flashed. A card
 running the recommended build answers:
 
 ```
-Welcome to TyraX ps2link r6 (no USB)
+Welcome to TyraX ps2link r7 (no USB)
 SPU2 silenced
 ```
 

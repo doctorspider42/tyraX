@@ -482,10 +482,10 @@ index c860132..7fda5a4 100644
  extern int userThreadID;
  extern int excepscrdump;
 diff --git a/ee/excepHandler.c b/ee/excepHandler.c
-index eaa1d7d..3ae7128 100644
+index eaa1d7d..818b50b 100644
 --- a/ee/excepHandler.c
 +++ b/ee/excepHandler.c
-@@ -38,6 +38,21 @@ static char codeTxt[14][24] =
+@@ -38,6 +38,73 @@ static char codeTxt[14][24] =
          "Bus error (data)", "Syscall", "Breakpoint", "Reserved instruction",
          "Coprocessor unusable", "Arithmetic overflow", "Trap"};
  
@@ -498,30 +498,116 @@ index eaa1d7d..3ae7128 100644
 +{
 +    int index = code >> 2;
 +
++    if (index == 15) {
++        return "Floating-point exception";
++    }
 +    if ((index < 0) || (index >= (int)(sizeof(codeTxt) / sizeof(codeTxt[0])))) {
 +        return "Unknown";
 +    }
 +    return codeTxt[index];
 +}
 +
++/* Stable TyraX error IDs use the MIPS Cause.ExcCode verbatim. The prose may
++ * improve, but TXE-EE-0003 will always mean exception code 3 (TLB store).
++ * Keep this wording in lockstep with the engine crash screen and the editor's
++ * decoder; docs/devkit.md is the public contract. */
++static const char *exceptionDescription(int index, unsigned int badvaddr)
++{
++    const int nearNull = badvaddr < 0x00010000U;
++
++    switch (index) {
++        case 0: return "Unexpected interrupt reached the crash handler.";
++        case 1: return "A write targeted a read-only mapped memory page.";
++        case 2:
++            return nearNull ? "Likely null/near-null pointer read or call."
++                            : "A read or instruction fetch targeted unmapped memory.";
++        case 3:
++            return nearNull ? "Likely null/near-null pointer write."
++                            : "A write targeted unmapped memory.";
++        case 4:
++            return nearNull ? "Likely null/near-null pointer read or call."
++                            : "Invalid or unaligned read/instruction fetch.";
++        case 5:
++            return nearNull ? "Likely null/near-null pointer write."
++                            : "Invalid or unaligned write.";
++        case 6: return "The CPU could not fetch an instruction from memory.";
++        case 7: return "The CPU could not complete a data-memory access.";
++        case 8: return "A system call reached the crash handler unexpectedly.";
++        case 9: return "A breakpoint instruction stopped execution.";
++        case 10: return "The CPU encountered an invalid or unsupported instruction.";
++        case 11: return "An instruction used a disabled or unavailable coprocessor.";
++        case 12: return "Signed integer arithmetic overflowed.";
++        case 13: return "A trap condition stopped execution.";
++        case 15: return "A floating-point operation raised an exception.";
++        default: return "Unknown CPU exception; keep the raw register dump.";
++    }
++}
++
++static void printExceptionSummary(void (*out)(const char *, ...),
++                                  const char *unit, int cause,
++                                  unsigned int badvaddr, unsigned int epc)
++{
++    const int index = (cause >> 2) & 0x1f;
++    const int code = cause & 0x7c;
++
++    out("\n\n  TYRAX %s CRASH [TXE-%s-%04d]\n", unit, unit, index);
++    out("  %s\n", exceptionName(code));
++    out("  %s\n", exceptionDescription(index, badvaddr));
++    out("  Fault address %08X, instruction %08X\n\n", badvaddr, epc);
++}
++
  char _exceptionStack[8 * 1024] __attribute__((aligned(16)));
  eeReg _savedRegs[32 + 4] __attribute__((aligned(16)));
  
-@@ -66,7 +81,7 @@ void pkoDebug(int cause, int badvaddr, int status, int epc, eeReg *regs)
+@@ -46,7 +113,6 @@ eeReg _savedRegs[32 + 4] __attribute__((aligned(16)));
+ void pkoDebug(int cause, int badvaddr, int status, int epc, eeReg *regs)
+ {
+     int i;
+-    int code;
+     static void (*excpPrintf)(const char *, ...);
+ 
+     FlushCache(0);
+@@ -57,16 +123,13 @@ void pkoDebug(int cause, int badvaddr, int status, int epc, eeReg *regs)
+         DeleteThread(userThreadID);
+     }
+ 
+-    code = cause & 0x7c;
+-
+     if (excepscrdump) {
+         init_scr();
+         excpPrintf = scr_printf;
+     } else
          excpPrintf = (void *)printf;
  
-     excpPrintf("\n\n           EE Exception handler: %s exception\n\n",
+-    excpPrintf("\n\n           EE Exception handler: %s exception\n\n",
 -               codeTxt[code >> 2]);
-+               exceptionName(code));
++    printExceptionSummary(excpPrintf, "EE", cause, badvaddr, epc);
  
      excpPrintf("      Cause %08X  BadVAddr %08X  Status %08X  EPC %08X\n\n",
                 cause, badvaddr, status, epc);
-@@ -106,7 +121,7 @@ void iopException(int cause, int badvaddr, int status, int epc, u32 *regs, int r
+@@ -86,7 +149,6 @@ void pkoDebug(int cause, int badvaddr, int status, int epc, eeReg *regs)
+ void iopException(int cause, int badvaddr, int status, int epc, u32 *regs, int repc, char *name)
+ {
+     int i;
+-    int code;
+     static void (*excpPrintf)(const char *, ...);
+ 
+     FlushCache(0);
+@@ -97,16 +159,13 @@ void iopException(int cause, int badvaddr, int status, int epc, u32 *regs, int r
+         DeleteThread(userThreadID);
+     }
+ 
+-    code = cause & 0x7c;
+-
+     if (excepscrdump) {
+         init_scr();
+         excpPrintf = scr_printf;
+     } else
          excpPrintf = (void *)printf;
  
-     excpPrintf("\n\n         IOP Exception handler: %s exception\n\n",
+-    excpPrintf("\n\n         IOP Exception handler: %s exception\n\n",
 -               codeTxt[code >> 2]);
-+               exceptionName(code));
++    printExceptionSummary(excpPrintf, "IOP", cause, badvaddr, epc);
  
      excpPrintf("               Module Name \"%s\" Relative EPC %08X\n\n",
                 name, repc);
@@ -547,7 +633,7 @@ index 0cf38a6..14cbb38 100644
 +
  #endif /* IRX_VARIABLES_H */
 diff --git a/ee/ps2link.c b/ee/ps2link.c
-index d566140..64a9a27 100644
+index d566140..04f6038 100644
 --- a/ee/ps2link.c
 +++ b/ee/ps2link.c
 @@ -23,6 +23,7 @@
@@ -576,7 +662,7 @@ index d566140..64a9a27 100644
  {
      int ret;
  
-@@ -176,25 +177,66 @@ static void loadModules(void)
+@@ -176,25 +177,67 @@ static void loadModules(void)
      dbgscr_printf("Exec ps2link module. (%x,%d) ", (unsigned int)ps2link_irx, size_ps2link_irx);
      SifExecModuleBuffer(ps2link_irx, size_ps2link_irx, 0, NULL, &ret);
      dbgscr_printf("[%d] returned\n", ret);
@@ -610,14 +696,15 @@ index d566140..64a9a27 100644
 +     * hardening, r3 silences the SPU2 on reset, r4 lets commands preempt the
 +     * host: file server and quiesces the EE peripherals before restarting, r5
 +     * takes stdio out of every error path in cmdHandler.c, r6 stops rebooting
-+     * the IOP twice per Stop - which is what made a Stop wedge the console. */
++     * the IOP twice per Stop, and r7 gives CPU exceptions stable TXE codes and
++     * human-readable diagnoses without removing the raw register dump. */
 +#ifdef TYRAX_USB_HID
-+    scr_printf("Welcome to TyraX ps2link r6 (USB keyboard + mouse)\n");
++    scr_printf("Welcome to TyraX ps2link r7 (USB keyboard + mouse)\n");
 +#else
 +    /* TyraX: the banner has to say which of the two this is - they differ in
 +     * what stays resident on the IOP and in how far the image reaches, and the
 +     * second is the whole reason this variant exists. */
-+    scr_printf("Welcome to TyraX ps2link r6 (no USB)\n");
++    scr_printf("Welcome to TyraX ps2link r7 (no USB)\n");
 +#endif
 +    scr_printf("based on ps2link %s\n", APP_VERSION);
      scr_printf("ps2link loaded at 0x%08X-0x%08X, size: 0x%08X\n", (unsigned int)&__start, (unsigned int)&_end, (unsigned int)&_end - (unsigned int)&__start);
@@ -646,7 +733,7 @@ index d566140..64a9a27 100644
     SifInitRpc(0);
     sbv_patch_enable_lmb();
     sbv_patch_disable_prefix_check();
-@@ -211,22 +253,40 @@ void _libcglue_rtc_update() {}
+@@ -211,22 +254,40 @@ void _libcglue_rtc_update() {}
  
  DISABLE_PATCHED_FUNCTIONS(); // Disable the patched functionalities
  DISABLE_EXTRA_TIMERS_FUNCTIONS(); // Disable the extra functionalities for timers
