@@ -118,7 +118,11 @@ flare-glow fallback baked into `res/hud/` when either half wants it.
 
 Four projected casters are active per frame, ranked by apparent size (distance
 divided by their bounding radius), so marking everything does not draw
-everything. Blobs have no such limit; they are a quad each.
+everything. Blobs have no such limit; they are a quad each. A blob does,
+however, follow its caster's authored draw distance and uses a conservative
+whole-footprint frustum test before rebuilding the quad or sampling terrain.
+Off-screen casters therefore do not pay five terrain queries merely to be
+rejected later by per-package culling.
 
 A silhouette also fades out with distance on its own: it is dropped past **50
 units** from the camera and dissolves over the last 15 of them, so backing away

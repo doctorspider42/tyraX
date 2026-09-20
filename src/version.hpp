@@ -16,6 +16,20 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.117.3: IDLE DEBUG TOOLS AND PARKED VEHICLES STOP BURNING THE FRAME.
+// The boot snapshot remains the runner's liveness marker and command polling
+// remains the attach path. Periodic reports now start only after a valid editor
+// command. A 24-frame physical PAL trace showed ordinary work at 13.5-13.9 ms,
+// a command poll at 15.95 ms, and the old unconsumed report at 20.05 ms / one
+// 40 ms presented frame. Hardware traces now name the debugger tick, poll and
+// flush scopes directly. Settled grounded non-AI vehicles also sleep past their
+// ground/collider/suspension work until entered or moved by another car; prompt,
+// audio shutdown and car-to-car wake-up remain live. Three parked cars in the
+// five-car physical-console fixture cut vehicle update from 2.14 to 0.95 ms.
+// Blob shadows now reject caster draw distance and a conservative whole-footprint
+// frustum AABB before rebuilding or sampling terrain. Project format stays 59.
+// PATCH.
+//
 // 1.117.2: ROAD STRIPS SHIP AGAIN AFTER THE PHYSICAL-GS UV FIX.
 // TYRA_STRIP_ROADS now defaults to 1. The earlier hardware smear survived the
 // triangle-list control and was fixed by 1.117's per-chunk whole-repeat V
@@ -4813,7 +4827,7 @@
 // project format change (kFormatVersion stays 55), no VU1 change, no bake change.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 117
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 3
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

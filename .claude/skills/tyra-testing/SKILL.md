@@ -3385,6 +3385,13 @@ without new drains and writes after sampling. Scope totals overlap; VIF1 DMA
 wait is not VU1 execution, and VIF/GIF snapshots are not utilization. Compare
 unarmed/armed controls and reject dropped or stale events. See
 docs/hardware-profiler.md for start-frame semantics and capture limits.
+For debug builds, inspect per-frame `Live_debug_poll` and `Live_debug_flush`
+before blaming gameplay update spikes. An unattached debugger should write its
+one boot marker but no periodic flushes; a valid command attaches it and resumes
+the configured report cadence.
+Vehicle projects expose `Vehicles_update`, `Vehicle_smoke_update` and
+`Vehicle_skids_update`; nested `Vehicle_sleep` events count parked instances
+that skipped the expensive ground/collider/suspension path.
 
 ### Native hardware timeline (1.92)
 

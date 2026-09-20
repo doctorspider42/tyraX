@@ -45,6 +45,14 @@ missing-heartbeat tolerance scales with the configured report interval and
 reported FPS. Remote Pad polling and input recording/playback keep their
 existing timing; these controls must not make a held button lag or lose frames.
 
+The Live Debugger writes one initial snapshot as the runner's game-is-up marker,
+then sends periodic reports only after it has received a valid editor command.
+A debug game launched from the CLI therefore stays inspectable but does not pay
+for an unconsumed synchronous `host:` snapshot every 25 updates. Command polling
+continues, so opening the Debugger attaches normally and requests an immediate
+answer. On a physical PAL PS2 this removed a repeatable 7.2 ms update spike that
+turned one frame in every 25 into a 40 ms frame; ordinary work stayed unchanged.
+
 For a lighter hardware session, try Link/Logic/Time Machine at 100, debugger
 commands at 25 and reports at 50, then disable the unused channels. This is a
 starting configuration, not a measured FPS guarantee. No extra polling channel

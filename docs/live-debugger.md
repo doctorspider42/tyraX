@@ -270,9 +270,11 @@ narrow enough to do both, and a `(?)` nobody can see is the same as no
 explanation at all. `textWrappedHelp` in `app_internal.hpp` is the version that
 wraps as one piece and makes the whole sentence the hover target.
 
-Because the game rewrites the file every 6 frames (25 over ps2link — roughly
-half a second either way), several seconds of silence is a dead channel and not
-a slow one. A collapsed frame rate makes the snapshot *late*, never absent.
+After the editor has sent a command, the game rewrites the file every 6 frames
+(25 over ps2link — roughly half a second either way), so several seconds of
+silence is a dead attached channel and not a slow one. Before attachment the
+single boot snapshot is intentionally allowed to age. A collapsed frame rate
+makes an attached snapshot *late*, never absent.
 
 ## Limits
 

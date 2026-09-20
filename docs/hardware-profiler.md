@@ -29,6 +29,13 @@ still uses the same CSV and remains available with the command below.
 Detailed engine lanes include `Package_create` (metadata and classification),
 `Package_classify` (nested inside creation), `QBuffer_copy` (including pooled
 allocation bookkeeping), and `Packet_build` (commands, excluding send/wait).
+Generated debug games also expose `Live_debug`, with nested
+`Live_debug_poll` and `Live_debug_flush` scopes when those synchronous host-file
+operations actually run. These are the first place to look when an otherwise
+fast physical-console frame periodically doubles.
+Vehicle projects split `Vehicles_update`, `Vehicle_smoke_update` and
+`Vehicle_skids_update`; `Vehicle_sleep` is nested once for every parked instance
+that skipped its static physics work in that frame.
 These extra hooks have measurable capture overhead; do not rank optimizations
 using their short armed captures alone.
 

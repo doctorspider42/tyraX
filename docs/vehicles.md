@@ -719,6 +719,18 @@ the whole response — 0 is a kart on rails, 2 an American sofa — and the foll
 rate is 35°/s, stiffened from 25 after the softer version read as a boat from
 the driver's seat.
 
+### Parked vehicle sleep
+
+A grounded non-AI vehicle that remains stopped for 25 updates (half a second at
+the PAL simulation rate) and is not being driven skips its ground probes,
+collider gather and suspension solve. The prompt and
+enter/exit test still run before the sleep gate. Car-to-car collision runs after
+all vehicles and wakes a parked car by giving it motion, so a traffic hit is
+simulated on the next frame rather than turning the parked car into scenery with
+no physics. An exiting vehicle also stays awake until its looping audio channels
+have been silenced. Physical-console traces expose the aggregate as
+`Vehicles_update` and each skipped instance as `Vehicle_sleep`.
+
 ### AI drivers
 
 `vehiclesim::step` **never reads a pad**. Its input is a `DriveInput` — throttle,
