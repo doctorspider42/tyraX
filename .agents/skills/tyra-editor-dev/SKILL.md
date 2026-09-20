@@ -2647,6 +2647,10 @@ to reserved owner `-3`; never call the general procedural renderer there or a
 cheap 128px ground cue turns into every prefab and runtime volume submitted a
 second time. The probe deliberately reuses the main camera's resident ring;
 do not start independent terrain streaming for a 128px auxiliary view.
+Since 1.117.1, both this road-only pass and the main `renderProcChunks()` loop
+reject a chunk's world AABB against the current frustum before calling StaPip.
+Keep StaPip's precise path for intersecting chunks; the caller-side test only
+removes wholly invisible bags and is not a replacement clipper.
 
 Automatic road intersections are host decisions too. The Properties picker
 stores a material path in the legacy-named `roadTexture` /

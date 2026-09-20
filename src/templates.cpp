@@ -20738,6 +20738,16 @@ void TerrainGame::renderProcChunks() {
   if (procChunks.empty()) return;
   for (ProcChunk& c : procChunks) {
     if (!c.bag || c.bag->count == 0) continue;
+    // StaPip has its own precise clipper, but entering it for every generated
+    // road/prefab chunk still pays the bag setup and classification cost. The
+    // chunks already own world-space bounds, so reject wholly invisible ones
+    // here and leave only intersecting chunks to the pipeline's safe clipper.
+    const Tyra::Vec4 mn(c.aabbMin[0], c.aabbMin[1], c.aabbMin[2], 1.0F);
+    const Tyra::Vec4 mx(c.aabbMax[0], c.aabbMax[1], c.aabbMax[2], 1.0F);
+    if (Tyra::CoreBBox::frustumCheckAABB(
+            engine->renderer.core.renderer3D.frustumPlanes.getAll(), mn, mx) ==
+        Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
+      continue;
     // Per-chunk draw distance: the cheapest LOD there is, and the reason
     // chunk size is a real authoring decision rather than a detail.
     if (c.drawDist > 0.0F) {
@@ -20756,6 +20766,12 @@ void TerrainGame::renderRoadChunks() {
   // volume and prefab in the scene. Roads own the reserved -3 producer id.
   for (ProcChunk& c : procChunks) {
     if (c.owner != -3 || !c.bag || c.bag->count == 0) continue;
+    const Tyra::Vec4 mn(c.aabbMin[0], c.aabbMin[1], c.aabbMin[2], 1.0F);
+    const Tyra::Vec4 mx(c.aabbMax[0], c.aabbMax[1], c.aabbMax[2], 1.0F);
+    if (Tyra::CoreBBox::frustumCheckAABB(
+            engine->renderer.core.renderer3D.frustumPlanes.getAll(), mn, mx) ==
+        Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
+      continue;
     stapip.core.render(c.bag.get());
   }
 }

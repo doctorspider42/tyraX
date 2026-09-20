@@ -2593,11 +2593,12 @@ this change fully**: it emulates no EE data cache, and the change trades
 computing bytes for reading them out of a cold 128 KB arena, so an emulator
 delta is an upper bound on the hardware saving and nothing more.
 
-### The baked VIF stream spike (TYRA_STAPIP_BAKED_STREAM, default 0)
+### The baked VIF stream (TYRA_STAPIP_BAKED_STREAM, default 1 since 1.117.1)
 
 A wholly visible static bag's whole per-frame VIF1 command stream emitted once
 and replayed by ONE DMA `REF` tag. Format, arithmetic and what verified:
-docs/baked-vif-stream.md. It ships **off**; five things any edit must keep.
+docs/baked-vif-stream.md. It ships **on**; 0 is the control arm, and five things
+any edit must keep.
 
 - **A `REF` payload may contain NO DMA tags.** The DMAC does not interpret tags
   inside referenced data - it feeds every word of it to VIF1 as a VIFcode - so
@@ -2661,7 +2662,7 @@ docs/baked-vif-stream.md. It ships **off**; five things any edit must keep.
   geometry costs out of proportion - projected shadows and wheels run 22-25
   triangles a VU1 package against a strip's ~70, taking 16% of the frame's
   packages for 7.6% of its triangles.
-- **THE KEY DOES NOT COVER WHAT THE BLOCK CONTAINS, and that is the blocker.**
+- **THE OLD KEY DID NOT COVER WHAT THE BLOCK CONTAINS; `BagArray` is the fix.**
   It holds each array's POINTER plus `bboxVersion`, and `bboxVersion` is a
   statement about the bounding box, i.e. about POSITIONS. A caller that re-shades
   per-vertex COLOURS in place - which the Motor District does for its dynamic
@@ -2672,8 +2673,11 @@ docs/baked-vif-stream.md. It ships **off**; five things any edit must keep.
   COLOUR quadword. The RETAINED cache is immune because it stores the chain and
   its `REF`s still name the bag's own arrays, so a re-shade is followed at DMA
   time - the exposure belongs to the baked stream BECAUSE it inlines the payload.
-  No gate leg can see this on a frozen fixture: once the camera stops, the
-  colours stop. docs/baked-stream-acceptance-gate.md, and the backlog item.
+  No gate leg could see this on a frozen fixture: once the camera stopped, the
+  colours stopped. Generated mutable arrays now use `BagArray`, whose enforced
+  mutation API stamps `contentVersion`; the baked key includes that stamp.
+  The moving-route verifier checked 169,843 blocks with zero failures. See
+  docs/bag-content-version.md and docs/baked-stream-acceptance-gate.md.
 - **The two adversarial modes are how you find that class at all**, and they are
   not optional before turning this on. `TYRA_STAPIP_BAKED_VERIFY` never replays -
   it rebuilds every block with the ordinary writers and compares - so it needs no
@@ -2691,6 +2695,13 @@ originals** - the bbox cacher, the clip route and the generated game all still
 read them. `STAPIPBAKE` (behind `TYRA_STAPIP_BAKED_REPORT`, default 0) prints
 the arena size and the per-frame DMA chain quadword count; that last counter is
 compiled into BOTH arms, which is what makes the A/B readable.
+
+The shipping flip was measured on a physical PAL PS2 on 2026-09-20, after the
+content-version contract existed: in an 83-road-chunk carless district, three
+synchronized captures per arm measured 18.776 -> 17.012 ms median total and
+8.856 -> 7.769 ms procedural; EE memory rose 14.3 -> 15.7 MB, and 187,904
+non-HUD capture pixels were identical. That is the hardware price that the old
+"park at 0" commit was waiting for, not an emulator extrapolation.
 
 **`STAPIPMISS` beside it answers WHY a bag rebuilt, and that question is the one
 worth instrumenting.** A cache that never converges contaminates whatever is

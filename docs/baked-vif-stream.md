@@ -13,8 +13,8 @@ timing claims belong to a later console round and no PCSX2 number may stand in
 for them.
 
 **Switch:** `TYRA_STAPIP_BAKED_STREAM` in `stapip_qbuffer_renderer.hpp`,
-**default 0**, in the style of `TYRA_STAPIP_RETAINED_COMMANDS`. 1 is the
-candidate arm. `TYRA_STAPIP_BAKED_REPORT` (default 0) adds the periodic
+**default 1 since 1.117.1**, in the style of `TYRA_STAPIP_RETAINED_COMMANDS`.
+0 remains the control arm. `TYRA_STAPIP_BAKED_REPORT` (default 0) adds the periodic
 `STAPIPBAKE` readout, which also prints the per-frame DMA chain quadword count
 and is therefore built into **both** arms when a measurement is being taken.
 
@@ -430,9 +430,10 @@ For scale, the whole Motor District's static geometry as the scene-load lines
 report it: `ROADSTRIP scene 0 strips 1 packages 470 triangles 31050` — 470
 packages of road alone, 1.74 MB baked — plus 25 terrain chunks at 8 packages
 each (0.74 MB) and the district's models at 9 648 strip vertices. A PS2 has
-32 MB, so it fits; it is a **three-to-four-megabyte line item** on a console
-where the garage already runs its texture heap at 84% occupancy
-([gs-vram.md](gs-vram.md)), and it is the reason the switch ships at 0.
+32 MB, so it fits; it is a **three-to-four-megabyte worst-case line item** on a
+console where the garage already runs its texture heap at 84% occupancy
+([gs-vram.md](gs-vram.md)). The bounded arena and LRU below keep that cost
+explicit rather than letting it grow with the map.
 
 The run-time cache is therefore a hard byte budget with bounded LRU eviction and
 the same 250-frame expiry the retained cache and the bbox cacher use:
@@ -476,6 +477,19 @@ Everything else falls through to the path it took before, byte for byte:
 `stapip_bag_packager.cpp` is untouched.
 
 ## Verification
+
+### Shipping hardware A/B (2026-09-20)
+
+The final default was priced on a physical PAL PS2 with the road-only Motor
+District copy: 83 runtime road chunks, 63,966 vertices and 880 packages. With
+the new caller-side chunk AABB reject already present, three synchronized
+captures per arm measured median total render cost **18.776 -> 17.012 ms** and
+median procedural cost **8.856 -> 7.769 ms** when the baked stream changed from
+0 to 1. Packet construction fell **1.390 -> 0.719 ms**. The ordinary HUD showed
+EE memory **14.3 -> 15.7 MB**. Captures from the same parked camera had **0
+different pixels out of 187,904** below the changing profiler HUD. This is a
+single-pose shipping measurement, not a claim that every view gains 1.77 ms;
+the moving-route verification below remains the correctness gate.
 
 PCSX2 software renderer, `examples/vehicle-playground` through
 `authoring/benchmark-district.py` (parked traffic, frozen four-pose camera),

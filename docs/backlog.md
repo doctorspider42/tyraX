@@ -491,7 +491,11 @@ The 280 write sites did not change.
 checked, `failed=0`** over ~12 600 frames; against the control, every count that
 describes what is drawn identical to the digit and the captures byte-identical,
 with packet flushes -300/50 frames and `chainQw` -26.0%.
-`TYRA_STAPIP_BAKED_STREAM` defaults to 1.
+`TYRA_STAPIP_BAKED_STREAM` defaults to 1. The missing hardware price for the
+content-version contract was supplied on 2026-09-20: on a physical PAL PS2,
+the 83-chunk road-only district measured 18.776 -> 17.012 ms median total and
+8.856 -> 7.769 ms procedural across three synchronized captures per arm, while
+EE memory rose 14.3 -> 15.7 MB and 187,904 non-HUD pixels stayed identical.
 
 The original diagnosis is kept below because the shape of the defect is the
 argument for the shape of the fix.

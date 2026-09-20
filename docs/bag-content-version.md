@@ -222,8 +222,8 @@ the exhaustive one answers yes for every entry, the sampled one for this frame's
 victim, and with neither compiled in it folds to a compile-time `false` so a
 release build carries none of it. Enabling both is a `#error`.
 
-**It is an engine flag (default 0), not a project setting, and that is a
-limitation rather than a choice.** `libtyra.a` is archived once per checkout
+**It is an engine flag (default 1 since 1.117.1), not a project setting.**
+0 remains the A/B control arm. `libtyra.a` is archived once per checkout
 from engine sources with no per-project flags, so an engine macro cannot follow
 a project's devkit profile without giving the engine build its own stamp file —
 and doing that badly recreates the "an image swap rebuilt nothing" trap

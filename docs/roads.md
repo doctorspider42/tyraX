@@ -79,8 +79,12 @@ holds `.res-baked`'s content) — and `buildRoads(scene)`
 tessellates them into **procChunks** at scene load, at most 36 spans per chunk
 and a target budget of 1,800 vertices (a single wider span stays indivisible),
 under owner `-3`. That buys the proc pipeline's whole economy for free:
-per-chunk AABBs and Precise frustum culling, one submit per visible chunk,
-`procFinishChunks()` building the bags. The call sits **after** the
+per-chunk AABBs, one submit per visible chunk, and `procFinishChunks()` building
+the bags. Since 1.117.1, the generated renderer tests each chunk's world AABB
+against the current view before entering StaPip; wholly invisible chunks pay
+only that coarse test, while intersecting chunks still use StaPip's precise
+package classification and clipping. The road-only reflection pass uses the
+same early reject against the probe camera. The call sits **after** the
 procedural-volume build on purpose — that block clears `procChunks` on every
 scene load, and the first placement of this call built five chunks that were
 wiped ten lines later (a road only the boot log ever saw). `ROADS scene N

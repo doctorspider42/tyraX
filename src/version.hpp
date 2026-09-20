@@ -16,6 +16,16 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.117.1: STATIC CHUNKS STOP AT THE CAMERA, AND BAKED VIF STREAMS SHIP.
+// Generated road/prefab/procedural chunks use their existing world AABB for a
+// cheap caller-side frustum reject before entering StaPip; the pipeline still
+// performs precise clipping for intersecting chunks. The same reject applies
+// to road-only reflection submissions. TYRA_STAPIP_BAKED_STREAM now defaults
+// to 1 after a physical PAL PS2 A/B on the 83-chunk road-only district: the
+// coarse reject reduced serialized frame cost about 1.48 ms and stream replay
+// another 1.77 ms, with 0 changed non-HUD pixels and about 1.4 MB extra EE RAM.
+// Project JSON stays format 59. PATCH.
+//
 // 1.117.0: LIVE PAINT REFLECTIONS INCLUDE THE GROUND UNDER THE VEHICLE.
 // Both shared and per-object dynamic probes submit the already-resident terrain
 // plus road-only procedural chunks before reflected props; unrelated runtime
@@ -4792,7 +4802,7 @@
 // project format change (kFormatVersion stays 55), no VU1 change, no bake change.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 117
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
