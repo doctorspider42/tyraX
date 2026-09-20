@@ -28,6 +28,7 @@
 
 #include "aisupport.hpp"
 #include "animedit.hpp"
+#include "blobshadowbake.hpp"
 #include "decalproj.hpp"
 #include "devsession.hpp"
 #include "editorcfg.hpp"
@@ -95,11 +96,95 @@ static const char* typeLabel(PrimitiveType t) {
     return "Object";
 }
 
+static std::string blobShadowFileName(const SceneObject& o) {
+    std::string id = o.id.empty() ? o.name : o.id;
+    for (char& c : id)
+        if (!std::isalnum((unsigned char)c) && c != '-' && c != '_') c = '-';
+    if (id.empty()) id = "object";
+    return "res/textures/blob-shadows/" + id + ".png";
+}
+
+// One control for every SceneObject kind. A Vehicle already owns an automatic
+// import-time mask, but may override it here; ordinary renderables may bake
+// directly from their mesh or choose any project PNG.
+static bool drawBlobShadowShape(Project& project, SceneObject& o,
+                                std::string& status) {
+    bool changed = false;
+    const char* fallback = o.type == PrimitiveType::Vehicle
+                               ? "<automatic vehicle silhouette>"
+                               : "<round fallback>";
+    const char* shown = o.blobShadowTexture.empty()
+                            ? fallback
+                            : o.blobShadowTexture.c_str();
+    if (ImGui::BeginCombo("Blob shape", shown)) {
+        std::vector<std::string> pngs;
+        const std::filesystem::path root =
+            std::filesystem::path(project.dir) / "res";
+        std::error_code ec;
+        for (std::filesystem::recursive_directory_iterator it(root, ec), end;
+             it != end && !ec; it.increment(ec)) {
+            if (!it->is_regular_file(ec)) continue;
+            std::string ext = it->path().extension().string();
+            for (char& c : ext) c = (char)std::tolower((unsigned char)c);
+            if (ext != ".png") continue;
+            pngs.push_back(std::filesystem::relative(it->path(), project.dir, ec)
+                               .generic_string());
+            if (ec) break;
+        }
+        std::sort(pngs.begin(), pngs.end());
+        if (ImGui::Selectable(fallback, o.blobShadowTexture.empty()) &&
+            !o.blobShadowTexture.empty()) {
+            o.blobShadowTexture.clear();
+            o.blobShadowSize[0] = o.blobShadowSize[1] = 0.0f;
+            changed = true;
+        }
+        for (const std::string& path : pngs)
+            if (ImGui::Selectable(path.c_str(), path == o.blobShadowTexture) &&
+                path != o.blobShadowTexture) {
+                o.blobShadowTexture = path; changed = true;
+                o.blobShadowSize[0] = o.blobShadowSize[1] = 0.0f;
+            }
+        ImGui::EndCombo();
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Alpha mask sampled by the single runtime quad. Pick an existing\n"
+            "project PNG or bake the object's top-down mesh below. This does\n"
+            "not add another model render on the console.");
+
+    if (blobshadowbake::canBake(o)) {
+        if (ImGui::Button("Bake blob shape")) {
+            const std::string path = blobShadowFileName(o);
+            std::string error;
+            float footprint[2] = {};
+            if (blobshadowbake::bake(project, o, path, footprint, error)) {
+                o.blobShadowTexture = path;
+                o.blobShadowSize[0] = footprint[0];
+                o.blobShadowSize[1] = footprint[1];
+                status = "Baked blob-shadow shape for '" + o.name + "'";
+                changed = true;
+            } else {
+                status = "Blob-shadow bake failed: " + error;
+            }
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Bake a soft 128x128 top-down silhouette from this mesh.\n"
+                "Animated models use frame zero; the mask then follows the\n"
+                "object's position and yaw at runtime.");
+    } else if (o.type == PrimitiveType::Vehicle) {
+        ImGui::TextDisabled("Vehicle import already bakes this shape");
+    } else {
+        ImGui::TextDisabled("No drawable mesh to bake; choose a PNG if needed");
+    }
+    return changed;
+}
+
 // Moving vehicles support runtime shadows; baked decals cannot follow them.
 static bool drawDynamicShadowControls(SceneObject& o) {
     bool changed = false;
     const char* shadowNames[] = {"Default (follow the project)", "None",
-                                 "Blob (baked vehicle shape)",
+                                 "Blob (baked shape)",
                                  "Projected silhouette"};
     int mode = o.shadowMode;
     if (mode < 0 || mode > 3) mode = 0;
@@ -116,8 +201,8 @@ static bool drawDynamicShadowControls(SceneObject& o) {
             "ticked.\n"
             "NONE - nothing, whatever the project says.\n"
             "BLOB - one soft dark quad that follows the ground under\n"
-            "it. The vehicle import bakes its top-down body silhouette,\n"
-            "so it rotates with the car without another model render.\n"
+            "it. A baked top-down mask rotates with the object without\n"
+            "another model render; vehicles receive one on import.\n"
             "Cheap enough for traffic and crowds.\n"
             "PROJECTED - the real silhouette: the object renders a\n"
             "second time each frame (64x64, from the sun). The 4\n"
@@ -497,6 +582,9 @@ void App::drawPropertiesWindow() {
         }
         ImGui::SeparatorText("Rendering");
         if (drawDynamicShadowControls(o)) committed = true;
+        if (o.shadowMode == 2 &&
+            drawBlobShadowShape(project_, o, statusMessage_))
+            committed = true;
         ImGui::TextDisabled(
             "Blob suits traffic; projected silhouette suits the hero car.");
     }
@@ -1124,8 +1212,8 @@ void App::drawPropertiesWindow() {
                     "ticked.\n"
                     "NONE - nothing, whatever the project says.\n"
                     "BLOB - one soft dark quad that follows the ground under\n"
-                    "it. Vehicles use the top-down silhouette baked during\n"
-                    "their import; other objects use the round fallback.\n"
+                    "it. Bake or pick a top-down mask below; vehicles also\n"
+                    "receive one automatically during import.\n"
                     "Cheap enough for traffic and crowds.\n"
                     "PROJECTED - the real silhouette: the object renders a\n"
                     "second time each frame (64x64, from the sun) and the\n"
@@ -1157,6 +1245,9 @@ void App::drawPropertiesWindow() {
                 else
                     ImGui::TextDisabled("Bake it in Ambience Editor > Baked lighting");
             }
+            if (o.shadowMode == 2 &&
+                drawBlobShadowShape(project_, o, statusMessage_))
+                committed = true;
             // The old flag still means "projected" while the mode follows the
             // project, so it stays reachable - and stays the thing every
             // existing .tyra carries.

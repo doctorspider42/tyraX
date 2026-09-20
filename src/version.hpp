@@ -16,6 +16,13 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.116.0: BAKED BLOB SHAPES ARE PER OBJECT, NOT A VEHICLE PRIVILEGE.
+// Every renderable SceneObject can bake a soft 128x128 top-down silhouette or
+// choose an existing PNG in Properties; the generated runtime still draws one
+// yaw-following, terrain-conforming quad. Animated GLB/FBX models bake frame
+// zero. SceneObject gains blobShadowTexture and blobShadowSize, so project
+// format 58 -> 59; purely additive, no migration step.
+//
 // 1.115.0: ROAD SURFACES KEEP THEIR LANE MARKINGS ON PHYSICAL PS2 HARDWARE:
 // runtime roads default to the proven triangle-list arm while the strip
 // producer remains available to its host oracle. Vehicle imports also bake a
@@ -4775,7 +4782,7 @@
 // gate separates 113 levels for "shadow removed" from 2 for this change. No
 // project format change (kFormatVersion stays 55), no VU1 change, no bake change.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 115
+#define TYRAX_VERSION_MINOR 116
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -5156,7 +5163,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // optional motionBlurIdleClear, while the manifest gains hudMotionBlurLayer.
 // This is main's additive v48 change renumbered after this branch's v57.
 // No migration step.
-inline constexpr int kFormatVersion = 58;
+// v59: SceneObject::blobShadowTexture and blobShadowSize. Missing means the
+// historical round fallback (or the vehicle definition's derived mask), so
+// this is additive and needs no migration step.
+inline constexpr int kFormatVersion = 59;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

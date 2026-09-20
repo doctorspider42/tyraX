@@ -220,6 +220,7 @@ add_executable(tyrax-editor
     src/blssscene.cpp
     src/blss_ui.cpp
     src/blss_window.cpp
+    src/blobshadowbake.cpp
     src/camtake.cpp
     src/chat_ui.cpp
     src/credits_ui.cpp

@@ -7,7 +7,7 @@ LIGHT rather than an object ("Spot-light shadow volumes"):
 | | Blob | Projected silhouette | Baked (decal) |
 | --- | --- | --- | --- |
 | What it is | one soft dark quad that follows the ground under the object | the object rendered a second time (64×64, from the sun) and projected under itself | the shadow traced once on your machine and projected onto whatever is under it |
-| Shape | vehicles: baked top-down body silhouette; other objects: a round smudge | the real silhouette, animation included | the real silhouette, with a real penumbra |
+| Shape | a baked/picked top-down mask per object; round fallback when none is assigned | the real silhouette, animation included | the real silhouette, with a real penumbra |
 | Moves | yes | yes | **no** — it is baked |
 | Cost | one quad | a second render per frame, **four casters at a time** (the nearest to the camera win) | one submit per atlas page, whatever the shadow count |
 | Good for | crowds, small props, anything you want grounded | hero objects | static scenery, and anything standing on a textured floor or against a wall |
@@ -47,6 +47,26 @@ Picking anything else overrides both, in both directions:
   below instead. It needs a bake and it needs the caster to stand still.
 
 Lights and markers never cast either kind, whatever the mode says.
+
+## Baked blob shapes
+
+Choose **Blob**, then use **Blob shape** in the same Rendering section. Every
+renderable scene object can pick an existing project PNG or press **Bake blob
+shape**. The bake rasterises the object's top-down triangles into a soft
+128x128 alpha mask under `res/textures/blob-shadows/`; static OBJ models and
+primitives use their authored mesh, while animated GLB/FBX models use frame
+zero. The stored X/Z footprint keeps rectangular objects rectangular after the
+mask is normalised into a square texture.
+
+![A box using its per-object baked blob silhouette in Properties](img/blob-shadow-shape.png)
+
+The console cost does not grow with mesh complexity: it still samples the mask
+on one yaw-aligned quad whose four corners follow the terrain. Re-bake after a
+model's silhouette changes. Picking a PNG manually is useful for an art-directed
+shadow; because an arbitrary image has no geometry metadata, its quad size is
+inferred from the runtime model or primitive. Lights, cameras, markers and
+other objects without drawable triangles may pick a mask, but cannot generate
+one from themselves.
 
 Vehicles expose the same choice in their **Rendering** section. A projected
 silhouette is intended for the player's car or another hero vehicle; a blob is
@@ -91,9 +111,10 @@ part, a model's underground part flattens to a sliver at floor level.
 The projected system claims its VRAM at boot **only if some object asks for a
 silhouette** (`PROJ_SHADOWS_USED`), and the blob system loads its sprite only if
 some object asks for a blob or the preference is on (`BLOB_SHADOWS_USED`) — so a
-project that uses neither pays for neither. A vehicle blob uses its derived
-`.res-baked/vehicles/veh-<id>-shadow.png`; other blobs fall back to the flare
-glow sprite baked into `res/hud/` when either half wants it.
+project that uses neither pays for neither. An assigned per-object mask wins;
+a vehicle otherwise uses its derived
+`.res-baked/vehicles/veh-<id>-shadow.png`; blobs with neither use the round
+flare-glow fallback baked into `res/hud/` when either half wants it.
 
 Four projected casters are active per frame, ranked by apparent size (distance
 divided by their bounding radius), so marking everything does not draw

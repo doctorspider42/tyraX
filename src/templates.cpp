@@ -2501,6 +2501,7 @@ class TerrainGame : public Tyra::Game {
   struct BlobShadow {
     int objIndex = -1;
     bool shaped = false;
+    float shapeX = 0.0F, shapeZ = 0.0F;  // baked local footprint, if known
     std::string texPath;
     Tyra::Texture* texture = nullptr;
     BagArray<Tyra::Vec4> verts, sts;
@@ -4125,6 +4126,7 @@ class TerrainGame : public Tyra::Game {
   struct BlobShadow {
     int objIndex = -1;
     bool shaped = false;
+    float shapeX = 0.0F, shapeZ = 0.0F;  // baked local footprint, if known
     std::string texPath;
     Tyra::Texture* texture = nullptr;
     BagArray<Tyra::Vec4> verts, sts;
@@ -16022,6 +16024,8 @@ void TerrainGame::renderShadowDecals() {
   }
 }
 
+{{OBJECT_BLOB_IMPL}}
+
 void TerrainGame::setupBlobShadows() {
   for (BlobShadow& b : blobShadows)
     if (!b.texPath.empty()) releaseTexture(b.texPath);
@@ -16047,9 +16051,12 @@ void TerrainGame::setupBlobShadows() {
     blobShadows.emplace_back();
     BlobShadow& b = blobShadows.back();
     b.objIndex = i;
-    const char* vehicleMask = {{VEHICLE_BLOB_TEXTURE_FOR}};
-    if (vehicleMask && vehicleMask[0]) {
-      b.texPath = vehicleMask;
+    const char* shapedMask = objectBlobTextureFor(currentScene, i,
+                                                   &b.shapeX, &b.shapeZ);
+    if (!shapedMask || !shapedMask[0])
+      shapedMask = {{VEHICLE_BLOB_TEXTURE_FOR}};
+    if (shapedMask && shapedMask[0]) {
+      b.texPath = shapedMask;
       b.texture = acquireTexture(b.texPath);
       b.shaped = b.texture != nullptr;
     }
@@ -16111,6 +16118,15 @@ void TerrainGame::updateAndRenderBlobShadows() {
     float r = d.scale[0] > d.scale[2] ? d.scale[0] : d.scale[2];
     r = r * 0.75F + 0.2F;
     float shapeHx = r, shapeHz = r;
+    if (b.shaped && b.shapeX > 0.0F && b.shapeZ > 0.0F) {
+      shapeHx = 0.525F * b.shapeX * fabsf(d.scale[0]) + 0.06F;
+      shapeHz = 0.525F * b.shapeZ * fabsf(d.scale[2]) + 0.06F;
+    } else if (b.shaped) {
+      // Hand-picked masks do not carry bake metadata. Primitive dimensions
+      // are still better than forcing every rectangular object into a square.
+      shapeHx = 0.525F * fabsf(d.scale[0]) + 0.06F;
+      shapeHz = 0.525F * fabsf(d.scale[2]) + 0.06F;
+    }
     // A model is not a unit cube. Vehicles make the mismatch especially
     // obvious: their instance scale is usually 1..1.5 while the body is four
     // units long, which produced a tiny blob between the axles. Use the loaded
@@ -16130,8 +16146,10 @@ void TerrainGame::updateAndRenderBlobShadows() {
       const float hx = 0.5F * (gm.mx[0] - gm.mn[0]) * sx;
       const float hz = 0.5F * (gm.mx[2] - gm.mn[2]) * sz;
       r = sqrtf(hx * hx + hz * hz) * 0.9F + 0.12F;
-      shapeHx = hx * 1.05F + 0.06F;
-      shapeHz = hz * 1.05F + 0.06F;
+      if (b.shapeX <= 0.0F || b.shapeZ <= 0.0F) {
+        shapeHx = hx * 1.05F + 0.06F;
+        shapeHz = hz * 1.05F + 0.06F;
+      }
       halfY = -gm.mn[1] * sy;
     }
     // Object base: the player entity sits at its feet, everything else is
@@ -33409,6 +33427,28 @@ static bool projectHasVehicles(const Project& p) {
     return false;
 }
 
+// Sparse per-object blob metadata. Keeping an asset path out of the fixed
+// SceneObjectData POD means projects that use only the round/vehicle defaults
+// pay no pointer or footprint fields on every unrelated object.
+static std::string objectBlobImpl(const Project& p) {
+    std::ostringstream out;
+    out << "static const char* objectBlobTextureFor(int scene, int object, "
+           "float* sx, float* sz) {\n"
+           "  *sx = 0.0F; *sz = 0.0F;\n";
+    for (size_t si = 0; si < p.scenes.size(); ++si)
+        for (size_t oi = 0; oi < p.scenes[si].objects.size(); ++oi) {
+            const SceneObject& o = p.scenes[si].objects[oi];
+            if (o.blobShadowTexture.empty()) continue;
+            out << "  if (scene == " << si << " && object == " << oi << ") { "
+                << "*sx = " << floatLit(o.blobShadowSize[0]) << "; *sz = "
+                << floatLit(o.blobShadowSize[1]) << "; return \""
+                << escapeCString(vehbake::binReflPath(o.blobShadowTexture))
+                << "\"; }\n";
+        }
+    out << "  return nullptr;\n}\n";
+    return out.str();
+}
+
 static std::string vehicleMembers(const Project& p) {
     if (!projectHasVehicles(p)) return "";
     return R"(  // --- vehicles (docs/vehicles.md) ---
@@ -37040,6 +37080,7 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{VEHICLE_BLOB_TEXTURE_FOR}}",
                    projectHasVehicles(p) ? "vehicleBlobTextureFor(i)"
                                          : "nullptr");
+    s = replaceAll(s, "{{OBJECT_BLOB_IMPL}}", objectBlobImpl(p));
     s = replaceAll(s, "{{VEHICLE_DRIVING_AND}}", vehicleDrivingAnd(p));
     s = replaceAll(s, "{{VEHICLE_UPDATE}}", vehicleUpdateCall(p));
     s = replaceAll(s, "{{VEHICLE_RENDER}}", vehicleRenderCall(p));

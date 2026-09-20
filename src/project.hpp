@@ -478,6 +478,13 @@ struct SceneObject {
     // caster AND its receivers to stand still - a moving one is refused by
     // shadowbake::plan with its name said out loud.
     int shadowMode = 0;
+    // Optional baked alpha mask for the cheap one-quad blob. Project-relative
+    // PNG; empty keeps the round fallback (or a vehicle definition's automatic
+    // body mask). The runtime rotates it with the object's yaw.
+    std::string blobShadowTexture;
+    // Local X/Z footprint captured with the mask. Zero means infer from the
+    // runtime model/primitive (also the value for hand-picked legacy masks).
+    float blobShadowSize[2] = {0.0f, 0.0f};
     std::string modelPath;    // for PrimitiveType::Model, e.g. "res/models/tree.obj"
     // Material library (.mtl) assigned to the object, e.g.
     // "res/materials/walls.mtl". Primitives take the file's FIRST material
@@ -1274,6 +1281,9 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.reflectionProxy == b.reflectionProxy &&
            a.castShadow == b.castShadow &&
            a.projShadow == b.projShadow && a.shadowMode == b.shadowMode &&
+           a.blobShadowTexture == b.blobShadowTexture &&
+           a.blobShadowSize[0] == b.blobShadowSize[0] &&
+           a.blobShadowSize[1] == b.blobShadowSize[1] &&
            a.bakedLighting == b.bakedLighting &&
            a.dynamicLighting == b.dynamicLighting && a.prelit == b.prelit &&
            a.prelitWanted == b.prelitWanted && a.prelitSig == b.prelitSig &&

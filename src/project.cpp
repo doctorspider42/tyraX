@@ -776,6 +776,14 @@ std::string objectJson(const SceneObject& o) {
         (o.shadowMode != 0
              ? ", \"shadowMode\": " + std::to_string(o.shadowMode)
              : "") +
+        (o.blobShadowTexture.empty()
+             ? ""
+             : ", \"blobShadowTexture\": \"" +
+                   jsonEscape(o.blobShadowTexture) + "\"") +
+        (o.blobShadowSize[0] > 0.0f && o.blobShadowSize[1] > 0.0f
+             ? ", \"blobShadowSize\": [" + fmtFloat(o.blobShadowSize[0]) +
+                   ", " + fmtFloat(o.blobShadowSize[1]) + "]"
+             : "") +
         (o.modelPath.empty() ? "" : ", \"model\": \"" + jsonEscape(o.modelPath) + "\"") +
         (o.materialPath.empty() ? ""
                                 : ", \"material\": \"" + jsonEscape(o.materialPath) + "\"") +
@@ -5145,6 +5153,13 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             const int m = (int)v->numberOr(0);
             if (m >= 0 && m <= 4) o.shadowMode = m;
         }
+        if (const auto* v = jo.find("blobShadowTexture"))
+            o.blobShadowTexture = v->stringOr("");
+        if (const auto* v = jo.find("blobShadowSize");
+            v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+            o.blobShadowSize[0] = std::max(0.0f, (float)v->arr[0].numberOr(0));
+            o.blobShadowSize[1] = std::max(0.0f, (float)v->arr[1].numberOr(0));
+        }
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
         if (const auto* v = jo.find("impostor")) o.impostorPath = v->stringOr("");
         if (const auto* v = jo.find("impostorBillboard")) o.impostorBillboard = v->boolOr(false);
@@ -7557,6 +7572,9 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
                   (o.pickable ? 32 : 0) | (o.pickThrow ? 64 : 0) |
                   (o.decalProject ? 8 : 0) | (o.projShadow ? 128 : 0));
     fnvMix(h, (uint64_t)o.shadowMode);
+    fnvMixS(h, o.blobShadowTexture);
+    fnvMixF(h, o.blobShadowSize[0]);
+    fnvMixF(h, o.blobShadowSize[1]);
     fnvMix(h, (uint64_t)o.collisionMode);
     fnvMixS(h, o.layer);
     fnvMix(h, (uint64_t)o.primDetail);

@@ -341,6 +341,8 @@ void App::rebuildAssetUsage() {
             const std::string where = sn + " / " + o.name;
             if (!o.modelPath.empty()) note(o.modelPath, 0, where + " (model)", si, oi);
             if (!o.impostorPath.empty()) note(o.impostorPath, 0, where + " (impostor)", si, oi);
+            if (!o.blobShadowTexture.empty())
+                note(o.blobShadowTexture, 0, where + " (blob shadow)", si, oi);
             if (!o.materialPath.empty())
                 note(o.materialPath, 0, where + " (material)", si, oi);
             if (!o.roadTexture.empty())
@@ -375,6 +377,8 @@ void App::rebuildAssetUsage() {
             const std::string where = "prefab \"" + pf.name + "\" / " + o.name;
             if (!o.modelPath.empty()) note(o.modelPath, 0, where + " (model)");
             if (!o.impostorPath.empty()) note(o.impostorPath, 0, where + " (impostor)");
+            if (!o.blobShadowTexture.empty())
+                note(o.blobShadowTexture, 0, where + " (blob shadow)");
             if (!o.materialPath.empty())
                 note(o.materialPath, 0, where + " (material)");
             if (!o.roadTexture.empty())
@@ -636,10 +640,18 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
             ++hits;
         }
     };
+    auto swapBlob = [&](SceneObject& object) {
+        if (object.blobShadowTexture != from) return;
+        object.blobShadowTexture = to;
+        if (to.empty())
+            object.blobShadowSize[0] = object.blobShadowSize[1] = 0.0f;
+        ++hits;
+    };
     for (SceneData& scene : project_.scenes) {
         for (SceneObject& o : scene.objects) {
             swap(o.modelPath);
             swap(o.impostorPath);
+            swapBlob(o);
             swap(o.materialPath);
             swap(o.roadTexture);
             swap(o.roadIntersectionTexture);
@@ -667,6 +679,7 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
         for (SceneObject& o : pf.objects) {
             swap(o.modelPath);
             swap(o.impostorPath);
+            swapBlob(o);
             swap(o.materialPath);
             swap(o.roadTexture);
             swap(o.roadIntersectionTexture);
