@@ -1573,6 +1573,27 @@ TerrainMaterial resolveTerrainMaterial(const Project& p, const std::string& matR
     return out;
 }
 
+std::string resolveRoadTexture(const std::string& projectDir,
+                               const std::string& surfaceRel) {
+    if (surfaceRel.empty()) return {};
+    std::string ext = fs::path(surfaceRel).extension().string();
+    for (char& c : ext) c = (char)std::tolower((unsigned char)c);
+    if (ext == ".mtl") {
+        std::vector<objparser::MtlMaterial> mats;
+        if (!objparser::loadMtl((fs::path(projectDir) / surfaceRel).string(), mats) ||
+            mats.empty() || mats.front().texture.empty())
+            return {};
+        return (fs::path(surfaceRel).parent_path() / mats.front().texture)
+            .lexically_normal()
+            .generic_string();
+    }
+    return surfaceRel;
+}
+
+std::string resolveRoadTexture(const Project& p, const std::string& surfaceRel) {
+    return resolveRoadTexture(p.dir, surfaceRel);
+}
+
 // --- Manifest section writers -------------------------------------------------
 // Each writes its group of top-level .tyra keys WITHOUT the leading ",\n  "
 // separator (the composers below add it), preserving the exact historical byte

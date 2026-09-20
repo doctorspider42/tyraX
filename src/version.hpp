@@ -16,6 +16,14 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.114.0: ROAD SURFACES ARE MATERIAL ASSETS, NOT PATH-TYPING EXERCISES. The
+// Properties panel lists project .mtl files for both the road and its automatic
+// junction, opens the chosen one in the Material Editor, and codegen plus the
+// viewport resolve its first map_Kd. Existing direct PNG references remain
+// valid and live in a clearly labelled legacy section. Asset move/rename and
+// reference census now cover both road fields. No serialized field changed, so
+// kFormatVersion stays 58.
+//
 // 1.113.0: MOTOR DISTRICT NOW DEMONSTRATES AUTOMATIC ROAD JUNCTIONS. Three
 // eastern crossings share district-asphalt.png and therefore generate the
 // cheap four-triangle junction patches; the authoring script persists the same
@@ -4743,7 +4751,7 @@
 // gate separates 113 levels for "shadow removed" from 2 for this change. No
 // project format change (kFormatVersion stays 55), no VU1 change, no bake change.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 113
+#define TYRAX_VERSION_MINOR 114
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

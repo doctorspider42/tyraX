@@ -3907,6 +3907,7 @@ void Viewport::invalidateAssets() {
     clearModelCache();  // also drops materialCache_
     clearTexCache();
     clearThumbCache();  // browser thumbnails are baked from those caches
+    clearRoadDraws();   // a road material may now point at a different map_Kd
     emisGlowCache_.clear();  // .mtl emission re-read on the next frame
 }
 
@@ -4050,8 +4051,9 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         next.mesh = uploadMesh(interleaved);
         if (!junctionInterleaved.empty())
             next.junctionMesh = uploadMesh(junctionInterleaved);
-        next.texture = o.roadTexture;
-        next.junctionTexture = o.roadIntersectionTexture;
+        next.texture = project::resolveRoadTexture(projectDir_, o.roadTexture);
+        next.junctionTexture =
+            project::resolveRoadTexture(projectDir_, o.roadIntersectionTexture);
         next.signature = sig;
         if (it != roadDraws_.end()) {
             destroyMesh(it->second.mesh);

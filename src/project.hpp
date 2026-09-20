@@ -869,7 +869,10 @@ struct SceneObject {
     // climbs smoothly between anchors - dunes-jump material.
     std::vector<float> roadHeights;
     float roadWidth = 6.0f;
-    std::string roadTexture;  // project texture path; "" = untextured grey
+    // Road surface asset. New authoring points at a .mtl (its first map_Kd);
+    // direct PNG paths remain accepted for projects authored before the
+    // material picker existed. Empty = untextured grey.
+    std::string roadTexture;
     // Optional overlay shared by two crossing roads. A junction is generated
     // only when both roads name the same non-empty texture, which keeps an
     // ambiguous crossing deterministic and costs no per-frame detection.
@@ -4430,6 +4433,13 @@ struct TerrainMaterial {
 // .mtl is unreadable. Codegen, the editor viewport and the ISO planner resolve
 // through this so they agree on the terrain's texture, color and tiling.
 TerrainMaterial resolveTerrainMaterial(const Project& p, const std::string& matRel);
+
+// Resolves a road surface reference to the texture the runtime needs. A .mtl
+// uses its first material's map_Kd (relative to the material and normalized);
+// legacy direct image paths pass through unchanged.
+std::string resolveRoadTexture(const std::string& projectDir,
+                               const std::string& surfaceRel);
+std::string resolveRoadTexture(const Project& p, const std::string& surfaceRel);
 
 // Loads the single <name>.tyra project file from an existing project
 // directory (game data + editor-side state + window layout).

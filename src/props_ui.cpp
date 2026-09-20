@@ -666,29 +666,22 @@ void App::drawPropertiesWindow() {
         ImGui::SetNextItemWidth(scaled(220));
         ImGui::SliderFloat("Width", &o.roadWidth, 1.0f, 24.0f, "%.1f");
         prefHelp("Full width of the surface, world units.");
-        {
-            char buf[256];
-            std::snprintf(buf, sizeof(buf), "%s", o.roadTexture.c_str());
-            ImGui::SetNextItemWidth(scaled(300));
-            if (ImGui::InputText("Texture", buf, sizeof(buf)))
-                o.roadTexture = buf;
-            prefHelp(
-                "A project-relative image (e.g. res/textures/road.png), tiled\n"
-                "along the road - one repeat per 4 units, so ONE small texture\n"
-                "carries a street of any length. Empty = untextured grey.");
-        }
-        {
-            char buf[256];
-            std::snprintf(buf, sizeof(buf), "%s",
-                          o.roadIntersectionTexture.c_str());
-            ImGui::SetNextItemWidth(scaled(300));
-            if (ImGui::InputText("Intersection texture", buf, sizeof(buf)))
-                o.roadIntersectionTexture = buf;
-            prefHelp(
-                "When two roads cross and both name this same non-empty image,\n"
-                "TyraX generates a terrain-hugging junction patch at build time.\n"
-                "Different or empty values leave the crossing unchanged.");
-        }
+        if (drawRoadSurfaceCombo("Surface material", "road-surface",
+                                 o.roadTexture))
+            committed = true;
+        prefHelp(
+            "A project material; its first map_Kd is tiled along the road -\n"
+            "one repeat per 4 units, so one small texture carries a street of\n"
+            "any length. Direct PNG references from older projects still work.\n"
+            "Empty = untextured grey.");
+        if (drawRoadSurfaceCombo("Intersection material", "road-intersection",
+                                 o.roadIntersectionTexture))
+            committed = true;
+        prefHelp(
+            "When two roads cross and both name this same non-empty material,\n"
+            "TyraX generates a terrain-hugging junction patch at build time.\n"
+            "Different or empty values leave the crossing unchanged; old direct\n"
+            "PNG references remain supported.");
         // The points, world-space XZ. A table, not a gizmo (yet): blunt but
         // complete - insert after, remove, drag both axes.
         ImGui::SeparatorText("Points");

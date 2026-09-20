@@ -30629,7 +30629,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                 for (const SceneObject& o : p.scenes[si].objects) {
                     if (o.type != PrimitiveType::Road || o.roadPoints.size() < 4)
                         continue;
-                    const int tix = textureIndex(o.roadTexture);
+                    const int tix =
+                        textureIndex(project::resolveRoadTexture(p, o.roadTexture));
                     RoadRow r;
                     r.scene = (int)si;
                     r.first = (int)roadPts.size();
@@ -30661,8 +30662,10 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                                            old.shape.z - shape.z) < 0.5f)
                                 duplicate = true;
                         if (!duplicate)
-                            junctionRows.push_back(
-                                {a.scene, textureIndex(mat), shape});
+                            junctionRows.push_back({
+                                a.scene,
+                                textureIndex(project::resolveRoadTexture(p, mat)),
+                                shape});
                     }
                 }
             if (!roadRows.empty()) {

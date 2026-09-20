@@ -343,6 +343,11 @@ void App::rebuildAssetUsage() {
             if (!o.impostorPath.empty()) note(o.impostorPath, 0, where + " (impostor)", si, oi);
             if (!o.materialPath.empty())
                 note(o.materialPath, 0, where + " (material)", si, oi);
+            if (!o.roadTexture.empty())
+                note(o.roadTexture, 2, where + " (road surface)", si, oi);
+            if (!o.roadIntersectionTexture.empty())
+                note(o.roadIntersectionTexture, 2,
+                     where + " (intersection surface)", si, oi);
             if (!o.soundPath.empty()) note(o.soundPath, 0, where + " (sound)", si, oi);
             for (const FlowNode& n : o.flowGraph.nodes) {
                 const FlowNodeType* t = flowNodeType(n.type);
@@ -372,6 +377,11 @@ void App::rebuildAssetUsage() {
             if (!o.impostorPath.empty()) note(o.impostorPath, 0, where + " (impostor)");
             if (!o.materialPath.empty())
                 note(o.materialPath, 0, where + " (material)");
+            if (!o.roadTexture.empty())
+                note(o.roadTexture, 2, where + " (road surface)");
+            if (!o.roadIntersectionTexture.empty())
+                note(o.roadIntersectionTexture, 2,
+                     where + " (intersection surface)");
             if (!o.soundPath.empty()) note(o.soundPath, 0, where + " (sound)");
         }
 
@@ -631,6 +641,8 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
             swap(o.modelPath);
             swap(o.impostorPath);
             swap(o.materialPath);
+            swap(o.roadTexture);
+            swap(o.roadIntersectionTexture);
             // The material a Revert would put back (docs/prelit-models.md): a
             // stored asset path like any other, so renaming that .mtl must
             // follow it or Revert points a pre-lit object at a file that has
@@ -656,6 +668,8 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
             swap(o.modelPath);
             swap(o.impostorPath);
             swap(o.materialPath);
+            swap(o.roadTexture);
+            swap(o.roadIntersectionTexture);
             swap(o.prelitSource);
             swap(o.soundPath);
         }

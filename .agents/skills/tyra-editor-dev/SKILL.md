@@ -2632,8 +2632,11 @@ separate opt-in: the generated game lazily builds one 12-triangle untextured
 box bag from current visual bounds and submits it only inside the two dynamic
 env-map object loops. Main rendering, collision and picking remain full detail.
 
-Automatic road intersections are host decisions too. A Road's
-`roadIntersectionTexture` must match the other crossing road;
+Automatic road intersections are host decisions too. The Properties picker
+stores a material path in the legacy-named `roadTexture` /
+`roadIntersectionTexture` fields; `project::resolveRoadTexture` resolves the
+first `map_Kd`, while direct PNG values remain a backwards-compatible path.
+Two crossing roads' authored intersection references must match;
 `roadgen::findJunctions` samples the same Catmull-Rom centre line, codegen
 stores centre plus four strip-overlap corners, and `buildRoads` only emits the
 resulting four triangles. Keep the viewport's junction mesh and generated data

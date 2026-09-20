@@ -230,8 +230,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [streaming layers](docs/streaming-layers.md),
   [world facts](docs/world-facts.md), runtime spawning and the
   [endless scroller](docs/endless-scroller.md).
-- **[Roads](docs/roads.md) and [vehicles](docs/vehicles.md)** — textured spline
-  roads and automatically generated, separately textured intersections,
+- **[Roads](docs/roads.md) and [vehicles](docs/vehicles.md)** — material-driven
+  spline roads and automatically generated, separately surfaced intersections,
   projected onto the terrain in both the editor and game, plus imported,
   budgeted cars with wheel suspension, gears, drifting and AI drivers. Try the
   [Motor District](examples/vehicle-playground) city course and live paint reflections.

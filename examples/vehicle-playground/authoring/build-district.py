@@ -157,10 +157,10 @@ def model(name, asset, x, z, scale=1, reflected=False, yaw=0):
 
 
 def road(name, points, width=11, junctions=False):
-    extra = ({'roadIntersectionTexture': 'res/textures/district-asphalt.png'}
+    extra = ({'roadIntersectionTexture': 'res/materials/district-asphalt.mtl'}
              if junctions else {})
     add(name, 'road', (0, 0, 0), roadPoints=[v for pair in points for v in pair],
-        roadWidth=width, roadTexture='res/textures/district-road.png', **extra)
+        roadWidth=width, roadTexture='res/materials/district-road.mtl', **extra)
 
 
 road('Ring road', [(-96,-100),(0,-108),(96,-100),(120,-64),(122,44),

@@ -8273,6 +8273,73 @@ bool App::pickProjectTexture(const char* popupId, std::string& path) {
     return changed;
 }
 
+bool App::drawRoadSurfaceCombo(const char* label, const char* id,
+                               std::string& surfacePath) {
+    const char* noneLabel = "<none - untextured grey>";
+    std::string current = surfacePath.empty() ? noneLabel : surfacePath;
+    if (current.rfind("res/", 0) == 0) current = current.substr(4);
+
+    bool changed = false;
+    ImGui::SetNextItemWidth(scaled(300));
+    if (ImGui::BeginCombo(label, current.c_str())) {
+        if (ImGui::Selectable(noneLabel, surfacePath.empty()) &&
+            !surfacePath.empty()) {
+            surfacePath.clear();
+            changed = true;
+        }
+
+        ImGui::SeparatorText("Materials");
+        const std::vector<std::string> materials = listMaterialAssets();
+        for (const std::string& rel : materials) {
+            const std::string item = rel.rfind("res/", 0) == 0 ? rel.substr(4) : rel;
+            if (ImGui::Selectable(item.c_str(), rel == surfacePath) &&
+                rel != surfacePath) {
+                surfacePath = rel;
+                changed = true;
+            }
+        }
+        if (materials.empty()) ImGui::TextDisabled("No .mtl assets yet.");
+
+        ImGui::SeparatorText("Direct textures (legacy)");
+        const std::vector<std::string> textures =
+            listAssetFiles("textures", ".png");
+        for (const std::string& name : textures) {
+            const std::string rel = "res/textures/" + name;
+            if (ImGui::Selectable(name.c_str(), rel == surfacePath) &&
+                rel != surfacePath) {
+                surfacePath = rel;
+                changed = true;
+            }
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem("Import material (.mtl)...")) {
+            const std::string imported = importMaterialAsset();
+            if (!imported.empty()) {
+                surfacePath = imported;
+                changed = true;
+            }
+        }
+        if (ImGui::MenuItem("Import texture (.png, legacy)...")) {
+            const std::string imported = importTextureAsset();
+            if (!imported.empty()) {
+                surfacePath = imported;
+                changed = true;
+            }
+        }
+        ImGui::EndCombo();
+    }
+    std::string ext = std::filesystem::path(surfacePath).extension().string();
+    for (char& c : ext) c = (char)std::tolower((unsigned char)c);
+    if (ext == ".mtl") {
+        ImGui::SameLine();
+        if (ImGui::SmallButton((std::string("Edit...##") + id).c_str()))
+            activateAsset(surfacePath);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Open this road material in the Material Editor.");
+    }
+    return changed;
+}
+
 const App::ModelInfo& App::modelInfo(const std::string& relPath,
                                      const std::string& materialRel) {
     const std::string key = relPath + "|" + materialRel;

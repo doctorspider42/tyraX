@@ -628,6 +628,10 @@ private:
     std::vector<std::string> listAnimatedModelFiles();
     // "Pick..." button + popup listing res/textures; true when path changed
     bool pickProjectTexture(const char* popupId, std::string& path);
+    // Road surface picker: materials first, legacy direct PNGs second. A .mtl
+    // resolves through its first map_Kd in both viewport and generated game.
+    bool drawRoadSurfaceCombo(const char* label, const char* id,
+                              std::string& surfacePath);
     // Cached objparser summary of a model (for the properties panel)
     struct ModelInfo {
         bool ok = false;
