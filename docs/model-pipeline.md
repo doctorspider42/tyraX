@@ -462,12 +462,16 @@ the normal of the corner it was welded from, so the array stays a well-formed
 8-float mesh; it is simply not the array to shade. On the same three refused
 wheels it strips to **0.64–0.76x**.
 
-There is exactly one caller today, and the gate is a property of the consumer:
-the **vehicle wheel** (`vehbake`, see [vehicles.md](vehicles.md), "The wheel
-batch is a strip"), whose bag is a flat-grey unlit batch. The car BODY is not
-stripped on this key and must not be — it is lit. **Using `kNoNormal` for a bag
-that is lit is a rendering bug, not a slower render**: neighbouring faces would
-take one face's normal.
+There is exactly one `kNoNormal` caller today, and the gate is a property of the
+consumer: the **vehicle wheel** (`vehbake`, see
+[vehicles.md](vehicles.md), "The wheel batch is a strip"), whose bag is a
+flat-grey unlit batch. A vehicle BODY may also carry a strip, but only from a
+separate `kFull` attempt: the CC96 strip-study paint part's shared smooth
+normals and atlas reduce 11,058 list corners to 4,212 strip vertices (148 to 57
+packages), while legacy flat-shaded bodies are refused and keep their lists.
+Lamp parts stay lists because their rear/front colour ranges are corner-order
+data. **Using `kNoNormal` for a bag that is lit is a rendering bug, not a slower
+render**: neighbouring faces would take one face's normal.
 
 ### A hand-written grid strip flips the quad diagonal, and that is a picture change
 

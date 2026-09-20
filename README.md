@@ -235,7 +235,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   spline roads and automatically generated, separately surfaced intersections,
   projected onto the terrain in both the editor and game, plus imported,
   budgeted cars with wheel suspension, gears, drifting and AI drivers. Try the
-  [Motor District](examples/vehicle-playground) city course and live paint reflections
+  [Motor District](examples/vehicle-playground) city course, strip-ready
+  atlas-authored vehicle bodies and live paint reflections
   of the sky, terrain, roads and selected scenery.
 - **[NavMesh + NPC AI](docs/navigation-ai.md)** — baked on the host, A* on the EE.
 - **[Cinematics](docs/cutscenes.md)** — the Cutscene Director, fed by keyframes

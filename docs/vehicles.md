@@ -1085,6 +1085,50 @@ One trap this cost: the model table's four parallel arrays emit a placeholder
 vehicle that placeholder pushed `MODEL_COUNT` one short of the rows actually
 written. The emptiness test has to consider the appended vehicle slots too.
 
+## Strip-ready bodies
+
+`vehbake` now gives every non-lamp body part the same full-attribute triangle
+strip attempt as an ordinary static model. There is no asset flag: the strip is
+accepted only when exact position, normal and UV sharing makes it smaller than
+the triangle list. Old flat-shaded cars therefore keep their list unchanged;
+an atlas-authored, smooth-normal body gets the cheaper representation
+automatically. The list remains beside it for collision, shadow generation and
+distance-tier construction, while the generated game's existing `GeoPart`
+path selects the strip for the close render, including its reflection pass.
+
+The CC96 strip study is the reference shape. Its 3,686-triangle paint part is
+11,058 list corners but 4,212 strip vertices: **148 to 57 VU1 packages**, a
+61.9% vertex reduction and 61.5% package reduction for that part. Its 96 lamp
+triangles remain a 288-corner list. Lamp order is not negotiable: the runtime
+addresses rear and front lamps as two corner ranges and rewrites their colours,
+so stripifying that part would scramble the ranges.
+
+The physical PAL PS2 A/B used the same generated ELF and the same 24 complete
+frames from the full vehicle playground; only the baked CC96 `.tmdl` changed.
+The traced CC96 object (`Object` value 2: scene index 1 is stored as index + 1)
+fell from **3.827 ms to 1.509 ms median** (**-60.6%**). Median non-vsync frame
+work fell from **24.690 ms to 22.202 ms** (**-2.488 ms, -10.1%**) and the whole
+`Objects` section from **8.516 ms to 6.190 ms** (**-27.3%**). `Dispatch`, package
+creation/classification and VIF1 submit/wait stayed effectively flat, which
+locates the win in processing the smaller body stream rather than in unrelated
+frame noise. Total frame time remained 40 ms: the saved work became additional
+`Present` wait because 22.2 ms still misses the PAL 20 ms rung. This is a real
+headroom gain, not yet a 25-to-50 fps transition by itself.
+
+Atlas sharing exposed a separate importer rule. `glbparser` batches primitives
+by material, which means four rigid wheel nodes using one atlas arrive in one
+`SkelPart`. `vehbake` now splits such a part back by each triangle's rigid
+identity-IBM palette owner before wheel detection and collection. Genuinely
+skinned parts keep the old dominant-owner path. Without that split the reference
+asset was misread as a 3,906-triangle body with no wheel; with it the bake sees
+the authored 3,782-triangle body plus one 76-triangle wheel.
+
+For a controlled list arm, compile the editor with
+`TYRA_STRIP_VEHICLE_BODIES_BAKE=0`. This changes only the body `.tmdl`; the game
+and engine do not need a second topology switch. Distance tiers deliberately
+remain lists for now because they are staged lazily by `applyGeoLod`, and the
+close tier is the expensive representation this work targets.
+
 ## The wheel batch is a strip
 
 The wheel `.tmdl` carries a **triangle strip** beside its list, and
@@ -1112,9 +1156,9 @@ receives are position and UV, and nothing else. On that weld
 | `veh-ggbotrally0001` | 84 | 54 | 0.643x | 75 | **1** against 2 |
 | `veh-tristarplay01` | 417 | 297 | 0.712x | 300 | **4** against 6 |
 
-**The body is NOT stripped on that key and must not be** — it is lit, and
-welding across its face boundaries would make it look melted. `meshstrip`'s
-refusal of the body is the right answer, not a gap.
+**The body is NOT stripped on that key and must not be** — it is lit. Its
+separate attempt uses the full position+normal+UV key described above;
+`kNoNormal` would weld across face boundaries and make it look melted.
 
 **The per-wheel block is rounded up to a whole number of runs.** A VU1 package
 is a contiguous slice of the bag's array and this bag concatenates four wheels

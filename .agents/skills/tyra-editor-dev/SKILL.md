@@ -2490,11 +2490,23 @@ The wheel `.tmdl` carries a TRIANGLE STRIP and the batch concatenates it
 (1.107.0, docs/vehicles.md "The wheel batch is a strip"). `vehbake` builds it -
 a vehicle model never goes through `bakeStaticModels`, which is where every
 other model gets one - with `meshstrip::Weld::kNoNormal`, because the wheel bag
-is unlit and single-coloured so position and UV are its whole vertex. The BODY
-is lit and is deliberately NOT stripped: it is flat-shaded, 2 242 of 2 280
-corners are unique, and `meshstrip` refusing it is correct. Each wheel's block
-in the batch is rounded up to a whole number of runs, or a VU1 package would
-splice two wheels into one triangle.
+is unlit and single-coloured so position and UV are its whole vertex. Since
+1.117.4 the BODY has a separate `kFull` attempt: position, normal and UV must
+all match, so legacy flat-shaded bodies are honestly refused while a smooth,
+atlas-authored CC96 part falls from 11,058 list corners to 4,212 strip vertices
+(148 to 57 packages). Never apply `kNoNormal` to the lit body. Lamp parts remain
+lists because their rear/front ranges are corner indices. Each wheel's block in
+the batch is rounded up to a whole number of runs, or a VU1 package would splice
+two wheels into one triangle.
+
+`glbparser` batches primitives by MATERIAL, including geometry from several
+rigid nodes. `vehbake::meshNodes` and `collect` therefore split a single-weight,
+identity-IBM part per triangle's palette owner before detecting/collecting the
+body and wheels; a genuinely skinned part stays on the dominant-owner path.
+Without that distinction, four wheels sharing one atlas are assigned to one
+node and disappear into the body. `TYRA_STRIP_VEHICLE_BODIES_BAKE=0` is the
+editor-build A/B control; it changes the body `.tmdl`, not generated runtime
+code or the engine.
 
 ## Static shading and portal bounds (1.77.1)
 

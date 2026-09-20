@@ -16,6 +16,20 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.117.4: SHARED VERTICES REACH VEHICLE BODY TRIANGLE STRIPS.
+// vehbake now tries the full position+normal+UV strip weld on every non-lamp
+// body part; legacy flat-shaded bodies keep their lists, while the indexed CC96
+// study falls from 11,058 to 4,212 submitted paint vertices and 148 to 57 VU1
+// packages. Lamp corner ranges stay ordered lists. The importer also separates
+// rigid triangles by their identity-IBM palette owner before wheel detection,
+// so one atlas/material shared by four wheel nodes no longer folds them into
+// the body. The reference asset now bakes as 3,782 body + 76 wheel triangles.
+// On a physical PAL PS2, an otherwise identical 24-frame A/B reduced the CC96
+// object's median render cost from 3.827 ms to 1.509 ms and non-vsync frame work
+// from 24.690 ms to 22.202 ms. That is real headroom, though still above the
+// 20 ms rung needed to leave 25 fps in this full scene.
+// Project format stays 59. PATCH.
+//
 // 1.117.3: IDLE DEBUG TOOLS AND PARKED VEHICLES STOP BURNING THE FRAME.
 // The boot snapshot remains the runner's liveness marker and command polling
 // remains the attach path. Periodic reports now start only after a valid editor
@@ -4827,7 +4841,7 @@
 // project format change (kFormatVersion stays 55), no VU1 change, no bake change.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 117
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_PATCH 4
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

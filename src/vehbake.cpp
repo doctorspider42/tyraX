@@ -115,6 +115,47 @@ int ownerNode(const glbparser::Skel& sk, const glbparser::SkelPart& p, bool* mix
     return best;
 }
 
+bool identityIbm(const float* m) {
+    for (int c = 0; c < 4; ++c)
+        for (int r = 0; r < 4; ++r) {
+            const float want = c == r ? 1.0f : 0.0f;
+            if (std::fabs(m[c * 4 + r] - want) > 1e-6f) return false;
+        }
+    return true;
+}
+
+// glbparser batches primitives by MATERIAL, so four rigid wheel nodes sharing
+// one atlas arrive as one SkelPart. Their first palette slot still records the
+// node of every corner. Distinguish that case from a genuinely skinned part:
+// rigid corners have one full-weight identity-IBM slot, and every triangle is
+// owned by one node. Returning false keeps the old dominant-owner behaviour
+// for skins instead of mistaking their bones for separate vehicle meshes.
+bool rigidOwners(const glbparser::Skel& sk, const glbparser::SkelPart& p) {
+    if (p.vertexCount <= 0 || p.joints.size() != (size_t)p.vertexCount * 4 ||
+        p.weights.size() != (size_t)p.vertexCount * 4)
+        return false;
+    for (int v = 0; v < p.vertexCount; ++v) {
+        const size_t i = (size_t)v * 4;
+        const int slot = p.joints[i];
+        if (slot < 0 || slot >= (int)sk.palette.size() ||
+            p.weights[i] != 255 || p.weights[i + 1] || p.weights[i + 2] ||
+            p.weights[i + 3] || !identityIbm(sk.palette[(size_t)slot].ibm))
+            return false;
+    }
+    for (int v = 0; v + 2 < p.vertexCount; v += 3) {
+        const int a = sk.palette[p.joints[(size_t)v * 4]].node;
+        const int b = sk.palette[p.joints[(size_t)(v + 1) * 4]].node;
+        const int c = sk.palette[p.joints[(size_t)(v + 2) * 4]].node;
+        if (a != b || a != c) return false;
+    }
+    return true;
+}
+
+int rigidCornerNode(const glbparser::Skel& sk, const glbparser::SkelPart& p,
+                    int corner) {
+    return sk.palette[p.joints[(size_t)corner * 4]].node;
+}
+
 struct Corner {
     float p[3], n[3], uv[2];
 };
@@ -137,12 +178,18 @@ std::vector<vehiclesim::MeshNode> meshNodes(const glbparser::Skel& sk) {
         }
     }
     for (const glbparser::SkelPart& p : sk.parts) {
-        const int node = ownerNode(sk, p, nullptr);
-        if (node < 0 || node >= (int)out.size()) continue;
-        vehiclesim::MeshNode& mn = out[node];
-        mn.vertexCount += p.vertexCount;
-        mn.materials.push_back(p.material);
+        const bool splitRigid = rigidOwners(sk, p);
+        const int fallback = ownerNode(sk, p, nullptr);
+        std::vector<bool> materialAdded(out.size(), false);
         for (int v = 0; v < p.vertexCount; ++v) {
+            const int node = splitRigid ? rigidCornerNode(sk, p, v) : fallback;
+            if (node < 0 || node >= (int)out.size()) continue;
+            vehiclesim::MeshNode& mn = out[(size_t)node];
+            ++mn.vertexCount;
+            if (!materialAdded[(size_t)node]) {
+                mn.materials.push_back(p.material);
+                materialAdded[(size_t)node] = true;
+            }
             float w[3];
             g[node].point(&p.positions[(size_t)v * 3], w);
             for (int a = 0; a < 3; ++a) {
@@ -406,24 +453,50 @@ void collect(const glbparser::Skel& sk, const std::vector<M4>& g, const M4& cano
     std::vector<float> lampRearVerts, lampFrontVerts;
     float lampRearKd[3] = {-1.0f, 0.0f, 0.0f};
     float lampFrontKd[3] = {-1.0f, 0.0f, 0.0f};
+    std::string lampTexture;
     // Textured materials keep their own part - real UVs cannot be rewritten.
     std::map<std::string, tmdl::Part> textured;
 
     for (size_t pi = 0; pi < sk.parts.size(); ++pi) {
         const glbparser::SkelPart& p = sk.parts[pi];
         if (p.vertexCount <= 0) continue;
-        const int node = ownerNode(sk, p, nullptr);
-        if (std::find(nodes.begin(), nodes.end(), node) == nodes.end()) continue;
+        const bool splitRigid = rigidOwners(sk, p);
+        const int fallback = ownerNode(sk, p, nullptr);
+        int selectedCorners = 0;
+        for (int c = 0; c + 2 < p.vertexCount; c += 3) {
+            const int node = splitRigid ? rigidCornerNode(sk, p, c) : fallback;
+            if (std::find(nodes.begin(), nodes.end(), node) != nodes.end())
+                selectedCorners += 3;
+        }
+        if (!selectedCorners) continue;
         ++srcParts;
-        srcTris += p.vertexCount / 3;
+        srcTris += selectedCorners / 3;
 
-        const M4 xf = M4::mul(canon, g[node]);
         const bool isTextured = p.image >= 0;
 
         std::vector<float>* dst = nullptr;
         tmdl::Part* tp = nullptr;
         float u = 0.0f, v = 0.0f;
-        if (isTextured || !merge) {
+        // Lamp identity beats the ordinary image merge. Atlas-authored cars
+        // commonly put paint and both lamp materials in ONE image; merging by
+        // image first would bury their rear/front corner ranges inside the
+        // body part, then a body strip would reorder them. A lamp image may be
+        // shared by front and rear, but one runtime part cannot bind two
+        // different images, so a later lamp on another image stays an ordinary
+        // textured part instead of sampling the wrong texture.
+        bool lampFront = false;
+        const bool lamp = merge && lampMaterial(p.material, &lampFront) &&
+                          (!isTextured || lampTexture.empty() ||
+                           lampTexture == imagePaths[(size_t)p.image]);
+        if (lamp) {
+            dst = lampFront ? &lampFrontVerts : &lampRearVerts;
+            float* lkd = lampFront ? lampFrontKd : lampRearKd;
+            if (lkd[0] < 0.0f)
+                for (int a = 0; a < 3; ++a) lkd[a] = p.baseColor[a];
+            if (isTextured && lampTexture.empty())
+                lampTexture = imagePaths[(size_t)p.image];
+            u = v = 0.0f;
+        } else if (isTextured || !merge) {
             const std::string key = isTextured ? ("img" + std::to_string(p.image)) : p.material;
             tmdl::Part& part = textured[key];
             if (part.name.empty()) {
@@ -435,35 +508,6 @@ void collect(const glbparser::Skel& sk, const std::vector<M4>& g, const M4& cano
             dst = &part.verts;
             v = 0.0f;  // real UVs, nothing to patch later
         } else {
-            // LAMP materials become their own part ("lamps", docs/vehicles.md):
-            // the runtime brightens their vertex colors per instance (brake
-            // flare, the lights toggle), which only works if the lamp geometry
-            // is addressable - inside the palette merge it would be just more
-            // body texels. Fullbright via ke below. Gated on the merge alone:
-            // a matte car has lamps too.
-            bool lampFront = false;
-            if (lampMaterial(p.material, &lampFront)) {
-                dst = lampFront ? &lampFrontVerts : &lampRearVerts;
-                float* lkd = lampFront ? lampFrontKd : lampRearKd;
-                if (lkd[0] < 0.0f)
-                    for (int a = 0; a < 3; ++a) lkd[a] = p.baseColor[a];
-                u = 0.0f;
-                v = 0.0f;  // real (dummy) UVs - never palette-marked
-                for (int c = 0; c < p.vertexCount; ++c) {
-                    Corner k;
-                    xf.point(&p.positions[(size_t)c * 3], k.p);
-                    for (int a = 0; a < 3; ++a) k.p[a] -= offset[a];
-                    xf.dir(&p.normals[(size_t)c * 3], k.n);
-                    const float len = std::sqrt(k.n[0] * k.n[0] +
-                                                k.n[1] * k.n[1] +
-                                                k.n[2] * k.n[2]);
-                    if (len > 1e-8f)
-                        for (int a = 0; a < 3; ++a) k.n[a] /= len;
-                    dst->insert(dst->end(), {k.p[0], k.p[1], k.p[2], k.n[0],
-                                             k.n[1], k.n[2], 0.0f, 0.0f});
-                }
-                continue;
-            }
             // The palette CELL INDEX rides in the u slot with v = -1 as the
             // marker, and resolvePaletteUvs turns both into a real coordinate
             // once the palette's final size is known. The alternative is
@@ -475,25 +519,35 @@ void collect(const glbparser::Skel& sk, const std::vector<M4>& g, const M4& cano
             v = -1.0f;
         }
 
-        for (int c = 0; c < p.vertexCount; ++c) {
-            Corner k;
-            xf.point(&p.positions[(size_t)c * 3], k.p);
-            for (int a = 0; a < 3; ++a) k.p[a] -= offset[a];
-            xf.dir(&p.normals[(size_t)c * 3], k.n);
-            const float len = std::sqrt(k.n[0] * k.n[0] + k.n[1] * k.n[1] + k.n[2] * k.n[2]);
-            if (len > 1e-8f)
-                for (int a = 0; a < 3; ++a) k.n[a] /= len;
-            if (v < 0.0f) {
-                k.uv[0] = u;
-                k.uv[1] = -1.0f;
-            } else if (!p.uvs.empty()) {
-                k.uv[0] = p.uvs[(size_t)c * 2];
-                k.uv[1] = p.uvs[(size_t)c * 2 + 1];
-            } else {
-                k.uv[0] = k.uv[1] = 0.0f;
+        for (int tri = 0; tri + 2 < p.vertexCount; tri += 3) {
+            const int node =
+                splitRigid ? rigidCornerNode(sk, p, tri) : fallback;
+            if (std::find(nodes.begin(), nodes.end(), node) == nodes.end())
+                continue;
+            const M4 xf = M4::mul(canon, g[(size_t)node]);
+            for (int c = tri; c < tri + 3; ++c) {
+                Corner k;
+                xf.point(&p.positions[(size_t)c * 3], k.p);
+                for (int a = 0; a < 3; ++a) k.p[a] -= offset[a];
+                xf.dir(&p.normals[(size_t)c * 3], k.n);
+                const float len = std::sqrt(k.n[0] * k.n[0] +
+                                            k.n[1] * k.n[1] +
+                                            k.n[2] * k.n[2]);
+                if (len > 1e-8f)
+                    for (int a = 0; a < 3; ++a) k.n[a] /= len;
+                if (v < 0.0f) {
+                    k.uv[0] = u;
+                    k.uv[1] = -1.0f;
+                } else if (!p.uvs.empty()) {
+                    k.uv[0] = p.uvs[(size_t)c * 2];
+                    k.uv[1] = p.uvs[(size_t)c * 2 + 1];
+                } else {
+                    k.uv[0] = k.uv[1] = 0.0f;
+                }
+                dst->insert(dst->end(),
+                            {k.p[0], k.p[1], k.p[2], k.n[0], k.n[1],
+                             k.n[2], k.uv[0], k.uv[1]});
             }
-            dst->insert(dst->end(), {k.p[0], k.p[1], k.p[2], k.n[0], k.n[1], k.n[2], k.uv[0],
-                                     k.uv[1]});
         }
     }
 
@@ -525,6 +579,7 @@ void collect(const glbparser::Skel& sk, const std::vector<M4>& g, const M4& cano
     if (!lampRearVerts.empty() || !lampFrontVerts.empty()) {
         tmdl::Part part;
         part.name = "lamps";
+        part.texture = lampTexture;
         const float* lkd = lampRearVerts.empty() ? lampFrontKd : lampRearKd;
         for (int a = 0; a < 3; ++a) {
             part.kd[a] = lkd[0] < 0.0f ? 1.0f : lkd[a];
@@ -840,8 +895,64 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
     computeBounds(out.body);
     computeBounds(out.wheel);
 
-    // THE WHEEL'S TRIANGLE STRIP (docs/vehicles.md, "The wheel batch is a
-    // strip"; docs/model-pipeline.md, "Triangle strips").
+    // VEHICLE TRIANGLE STRIPS (docs/vehicles.md, "Strip-ready bodies" and
+    // "The wheel batch is a strip"; docs/model-pipeline.md, "Triangle strips").
+    //
+    // A body is lit, textured and may be drawn again by the reflection pass,
+    // so its weld key MUST contain position, normal and UV. Old flat-shaded
+    // vehicle exports usually fail that honest test: nearly every face owns a
+    // different normal and the joined strips are larger than the list. A mesh
+    // authored with shared smooth normals and an atlas can, however, remove
+    // most of the repeated corners. meshstrip::build refuses the former and
+    // keeps the latter automatically; no import checkbox or asset-specific
+    // path is needed.
+    //
+    // The lamp part is deliberately left as a list. Its rear/front split is a
+    // CORNER INDEX and renderVehicleGlow writes those two ranges in place;
+    // strip order would destroy that contract. Distance tiers also remain
+    // lists: applyGeoLod currently stages their list vertices lazily and tier
+    // 0 is the expensive close representation this optimisation targets.
+#ifndef TYRA_STRIP_VEHICLE_BODIES_BAKE
+#define TYRA_STRIP_VEHICLE_BODIES_BAKE 1
+#endif
+#if TYRA_STRIP_VEHICLE_BODIES_BAKE
+    size_t bodyListVerts = 0, bodyStripVerts = 0;
+    int bodyStripParts = 0;
+    for (tmdl::Part& p : out.body.parts) {
+        p.stripVerts.clear();
+        p.stripAo.clear();
+        p.stripRun = 0;
+        bodyListVerts += p.verts.size() / 8;
+        if (p.name != "lamps" &&
+            meshstrip::build(p.verts, p.ao, meshstrip::kRun, p.stripVerts,
+                             p.stripAo, meshstrip::Weld::kFull)) {
+            p.stripRun = meshstrip::kRun;
+            bodyStripVerts += p.stripVerts.size() / 8;
+            ++bodyStripParts;
+        } else {
+            bodyStripVerts += p.verts.size() / 8;
+        }
+    }
+    if (bodyStripParts > 0) {
+        char buf[220];
+        size_t listPkgs = 0, stripPkgs = 0;
+        for (const tmdl::Part& p : out.body.parts) {
+            const size_t listN = p.verts.size() / 8;
+            listPkgs += (listN + meshstrip::kRun - 1) / meshstrip::kRun;
+            const size_t n =
+                (p.stripRun ? p.stripVerts : p.verts).size() / 8;
+            stripPkgs += (n + meshstrip::kRun - 1) / meshstrip::kRun;
+        }
+        std::snprintf(buf, sizeof(buf),
+                      "Body strips: %zu -> %zu submitted vertices; packages "
+                      "%zu -> %zu across %d eligible part(s).",
+                      bodyListVerts, bodyStripVerts, listPkgs, stripPkgs,
+                      bodyStripParts);
+        out.notes.push_back(buf);
+    }
+#endif
+
+    // The wheel uses a different, intentionally weaker weld key.
     //
     // Built HERE and nowhere else, because the wheel model never goes through
     // bakeStaticModels: it is an artifact of this bake, and until now it was
@@ -856,9 +967,8 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
     // meshstrip refuses it, correctly. But the bag that draws a wheel
     // (TerrainGame::renderVehicleWheels) has no lighting bag and one flat
     // colour, so the attributes the GS actually receives are position and UV;
-    // on that key the same mesh strips to 0.764x. The body is NOT stripped
-    // here: it is lit, its weld is the full one, and meshstrip's refusal of it
-    // is the right answer.
+    // on that key the same mesh strips to 0.764x. A body above uses kFull;
+    // using this wheel-only key for it would silently corrupt its lighting.
     //
     // The tiers above are already built from `verts` and are untouched, which
     // matters: a far tier carries the wheels INTO the lit body part, so it
@@ -921,14 +1031,17 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
         for (const glbparser::SkelPart& p : sk.parts) {
             bool front = false;
             if (!isLamp(p.material, &front)) continue;
-            const int node = ownerNode(sk, p, nullptr);
-            if (node < 0) continue;
-            if (std::find(out.detection.bodyNodes.begin(),
-                          out.detection.bodyNodes.end(),
-                          node) == out.detection.bodyNodes.end())
-                continue;
-            const M4 xf = M4::mul(canon, g2[node]);
+            const bool splitRigid = rigidOwners(sk, p);
+            const int fallback = ownerNode(sk, p, nullptr);
             for (int c = 0; c < p.vertexCount; ++c) {
+                const int node =
+                    splitRigid ? rigidCornerNode(sk, p, c) : fallback;
+                if (node < 0 ||
+                    std::find(out.detection.bodyNodes.begin(),
+                              out.detection.bodyNodes.end(), node) ==
+                        out.detection.bodyNodes.end())
+                    continue;
+                const M4 xf = M4::mul(canon, g2[(size_t)node]);
                 float w[3];
                 xf.point(&p.positions[(size_t)c * 3], w);
                 for (int a = 0; a < 3; ++a) w[a] -= bodyOrigin[a];
