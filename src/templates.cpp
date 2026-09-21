@@ -37,6 +37,7 @@
 #include "meshstrip.hpp"
 #include "navmesh.hpp"
 #include "objparser.hpp"
+#include "occlusionbake.hpp"
 #include "platform.hpp"
 #include "prefab.hpp"
 #include "procrt.hpp"
@@ -1631,6 +1632,11 @@ class TerrainGame : public Tyra::Game {
   void buildStaticBatchList();
   void rebuildStaticBatch(StaticBatch& b);
   void renderStaticBatches();
+
+  void buildOcclusionBuffer();
+  bool occlusionHiddenObject(int index);
+  bool occlusionHiddenAabb(const float* mn, const float* mx);
+  bool occlusionObjectIsOccluder(int index) const;
 
   // --- Runtime procedural + prefab geometry (docs/procedural-runtime.md,
   // docs/prefabs.md) --------------------------------------------------------
@@ -3267,6 +3273,11 @@ class TerrainGame : public Tyra::Game {
   void rebuildStaticBatch(StaticBatch& b);
   void renderStaticBatches();
 
+  void buildOcclusionBuffer();
+  bool occlusionHiddenObject(int index);
+  bool occlusionHiddenAabb(const float* mn, const float* mx);
+  bool occlusionObjectIsOccluder(int index) const;
+
   // --- Runtime procedural + prefab geometry (docs/procedural-runtime.md,
   // docs/prefabs.md) --------------------------------------------------------
   // Both features end in the same place: a set of world-space vertex bags the
@@ -4325,6 +4336,7 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "texture_data.gen.hpp"
 #include "decal_data.gen.hpp"  // baked projected-decal meshes (host-computed)
 #include "shadow_data.gen.hpp"  // baked shadow decals (docs/shadows.md)
+#include "occlusion_data.gen.hpp"  // conservative runtime visibility proxies
 #include "ao_data.gen.hpp"      // ambient-occlusion occluder tables (host-baked)
 #include "daynight.gen.hpp"     // day/night cycle keys (docs/day-night-cycle.md)
 #include "probe_data.gen.hpp"  // baked GI light probes (host-baked, L1 SH)
@@ -20413,6 +20425,151 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
 // - a visibility/residency flip vs the shown snapshot (hide/show can skip
 //   the dirty flag) only rebuilds the batch in place - the member may well
 //   reappear, and hides are events, not per-frame animation.
+// Conservative software occlusion. 48x42 is deliberately tiny: its job is to
+// reject whole bags before the expensive pipeline, not reproduce the GS. A
+// one-cell erosion and expanded target rectangles make uncertainty visible
+// rather than deleting geometry.
+namespace {
+constexpr int OCC_W=48, OCC_H=42;
+float g_occDepth[OCC_W*OCC_H];
+unsigned char g_occCover[OCC_W*OCC_H], g_occEroded[OCC_W*OCC_H];
+M4x4 g_occVp;
+float g_occSx=1.0F,g_occSy=1.0F;
+int g_occTested=0,g_occHidden=0,g_occProxies=0;
+bool occProject(const V3& p,float& x,float& y,float& w){
+  const Vec4 c=g_occVp*Vec4(p.x,p.y,p.z,1.0F); w=c.w;
+  if(w<=0.15F)return false;
+  x=(0.5F+c.x/w*g_occSx*0.5F)*OCC_W;
+  y=(0.5F+c.y/w*g_occSy*0.5F)*OCC_H;
+  return true;
+}
+float occEdge(float ax,float ay,float bx,float by,float px,float py){
+  return (bx-ax)*(py-ay)-(by-ay)*(px-ax);
+}
+struct OccPt{float x,y;};
+bool occBox(const V3* v){
+  OccPt p[8]; float farW=0.0F;
+  for(int i=0;i<8;++i){float w;if(!occProject(v[i],p[i].x,p[i].y,w))return false;
+    if(w>farW)farW=w;}
+  // Eight points, so insertion sort is cheaper and smaller than pulling a
+  // general sorter into the generated ELF.
+  for(int i=1;i<8;++i){OccPt q=p[i];int j=i;
+    while(j>0&&(p[j-1].x>q.x||(p[j-1].x==q.x&&p[j-1].y>q.y))){p[j]=p[j-1];--j;}p[j]=q;}
+  OccPt h[16];int n=0;
+  auto cross=[](const OccPt&a,const OccPt&b,const OccPt&c){
+    return (b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);};
+  for(int i=0;i<8;++i){while(n>=2&&cross(h[n-2],h[n-1],p[i])<=0.0F)--n;h[n++]=p[i];}
+  const int lower=n;
+  for(int i=6;i>=0;--i){while(n>lower&&cross(h[n-2],h[n-1],p[i])<=0.0F)--n;h[n++]=p[i];}
+  if(n<4)return false;
+  --n; // last point repeats the first
+  float fx0=h[0].x,fx1=h[0].x,fy0=h[0].y,fy1=h[0].y;
+  for(int i=1;i<n;++i){fx0=std::min(fx0,h[i].x);fx1=std::max(fx1,h[i].x);
+    fy0=std::min(fy0,h[i].y);fy1=std::max(fy1,h[i].y);}
+  int x0=(int)floorf(fx0),x1=(int)ceilf(fx1),y0=(int)floorf(fy0),y1=(int)ceilf(fy1);
+  if(x0<0)x0=0;
+  if(y0<0)y0=0;
+  if(x1>=OCC_W)x1=OCC_W-1;
+  if(y1>=OCC_H)y1=OCC_H-1;
+  // Erosion below cannot leave a useful cell for a thinner projection.
+  if(x1-x0<2||y1-y0<2)return false;
+  for(int Y=y0;Y<=y1;++Y)for(int X=x0;X<=x1;++X){
+    const float px=X+0.5F,py=Y+0.5F;bool in=true;
+    for(int e=0;e<n;++e)if(occEdge(h[e].x,h[e].y,h[(e+1)%n].x,h[(e+1)%n].y,px,py)<0.0F){in=false;break;}
+    if(in){const int i=Y*OCC_W+X;g_occCover[i]=1;if(farW<g_occDepth[i])g_occDepth[i]=farW;}
+  }
+  return true;
+}
+}
+
+bool TerrainGame::occlusionObjectIsOccluder(int index) const {
+  return occlusionIsOccluder(currentScene,index);
+}
+
+void TerrainGame::buildOcclusionBuffer(){
+  static int reportBeat=0;
+  if(DEBUG_SHOW_PROFILER && OCCLUSION_CULLING && ++reportBeat>=120){
+    TYRA_LOG("OCC proxies=",g_occProxies," hidden=",g_occHidden,"/",g_occTested);
+    reportBeat=0;
+  }
+  g_occTested=g_occHidden=g_occProxies=0;
+  if(!OCCLUSION_CULLING)return;
+  for(int i=0;i<OCC_W*OCC_H;++i)g_occDepth[i]=1e30F,g_occCover[i]=0;
+  g_occVp=engine->renderer.core.renderer3D.getViewProj();
+  const auto& scr=engine->renderer.core.getSettings();
+  g_occSx=4096.0F/scr.getRasterWidthF();
+  g_occSy=4096.0F/scr.getRasterHeightF();
+  for(int ri=0;ri<OCCLUSION_OBJECT_COUNT;++ri){
+    const OcclusionProxyObject& r=OCCLUSION_OBJECTS[ri];
+    if(r.scene!=currentScene||r.object<0||r.object>=(int)runtimeObjects.size())continue;
+    const RuntimeObject& o=runtimeObjects[r.object];
+    if(!o.active||!o.visible)continue;
+    // boxRotate evaluates Euler trig, so derive the scaled basis once per
+    // object instead of once for every one of every proxy box's corners.
+    const V3 ax=boxRotate({o.data.scale[0],0.0F,0.0F},o.data);
+    const V3 ay=boxRotate({0.0F,o.data.scale[1],0.0F},o.data);
+    const V3 az=boxRotate({0.0F,0.0F,o.data.scale[2]},o.data);
+    for(int bi=0;bi<r.count;++bi){
+      const OcclusionProxyBox& b=OCCLUSION_BOXES[r.first+bi]; V3 v[8];
+      for(int k=0;k<8;++k){
+        const float x=k&1?b.mx[0]:b.mn[0],y=k&2?b.mx[1]:b.mn[1],z=k&4?b.mx[2]:b.mn[2];
+        v[k]={o.data.position[0]+ax.x*x+ay.x*y+az.x*z,
+              o.data.position[1]+ax.y*x+ay.y*y+az.y*z,
+              o.data.position[2]+ax.z*x+ay.z*y+az.z*z};
+      }
+      if(occBox(v))++g_occProxies; // near-plane/tiny boxes are rejected inside
+    }
+  }
+  // Erode coverage by one cell. Depth keeps the farthest proxy surface in a
+  // covered cell; target tests add another world-depth bias below.
+  for(int y=0;y<OCC_H;++y)for(int x=0;x<OCC_W;++x){
+    bool on=g_occCover[y*OCC_W+x]!=0;
+    for(int yy=y-1;yy<=y+1&&on;++yy)for(int xx=x-1;xx<=x+1;++xx)
+      if(xx<0||yy<0||xx>=OCC_W||yy>=OCC_H||!g_occCover[yy*OCC_W+xx]){on=false;break;}
+    g_occEroded[y*OCC_W+x]=on?1:0;
+  }
+}
+
+bool TerrainGame::occlusionHiddenAabb(const float* mn,const float* mx){
+  if(!OCCLUSION_CULLING)return false;
+  ++g_occTested;
+  // Most candidates in an open view cannot possibly be fully covered. Test
+  // their centre before paying for eight corner transforms and a rectangle.
+  V3 mid{(mn[0]+mx[0])*0.5F,(mn[1]+mx[1])*0.5F,(mn[2]+mx[2])*0.5F};
+  float midX,midY,midW;
+  if(!occProject(mid,midX,midY,midW))return false;
+  const int midXi=(int)floorf(midX),midYi=(int)floorf(midY);
+  if(midXi<0||midYi<0||midXi>=OCC_W||midYi>=OCC_H||
+     !g_occEroded[midYi*OCC_W+midXi])return false;
+  float x0=1e30F,y0=1e30F,x1=-1e30F,y1=-1e30F,nearW=1e30F;
+  for(int k=0;k<8;++k){V3 p{k&1?mx[0]:mn[0],k&2?mx[1]:mn[1],k&4?mx[2]:mn[2]};
+    float x,y,w;if(!occProject(p,x,y,w))return false;
+    x0=std::min(x0,x);x1=std::max(x1,x);y0=std::min(y0,y);y1=std::max(y1,y);nearW=std::min(nearW,w);
+  }
+  int X0=(int)floorf(x0)-1,Y0=(int)floorf(y0)-1,X1=(int)ceilf(x1)+1,Y1=(int)ceilf(y1)+1;
+  if(X0<0||Y0<0||X1>=OCC_W||Y1>=OCC_H)return false;
+  for(int y=Y0;y<=Y1;++y)for(int x=X0;x<=X1;++x){const int i=y*OCC_W+x;
+    if(!g_occEroded[i]||g_occDepth[i]+0.35F>=nearW)return false;}
+  ++g_occHidden;return true;
+}
+
+bool TerrainGame::occlusionHiddenObject(int index){
+  if(!occlusionCanCull(currentScene,index)||occlusionObjectIsOccluder(index))return false;
+  if(index<0||index>=(int)runtimeObjects.size())return false;
+  const RuntimeObject& o=runtimeObjects[index]; const CollisionBox b=objectCollisionBox(o);
+  const V3 ax=boxRotate({1.0F,0.0F,0.0F},o.data),
+           ay=boxRotate({0.0F,1.0F,0.0F},o.data),
+           az=boxRotate({0.0F,0.0F,1.0F},o.data);
+  float mn[3]={1e30F,1e30F,1e30F},mx[3]={-1e30F,-1e30F,-1e30F};
+  for(int k=0;k<8;++k){const float x=b.center[0]+(k&1?b.half[0]:-b.half[0]),
+    y=b.center[1]+(k&2?b.half[1]:-b.half[1]),z=b.center[2]+(k&4?b.half[2]:-b.half[2]);
+    const float p[3]={o.data.position[0]+ax.x*x+ay.x*y+az.x*z,
+      o.data.position[1]+ax.y*x+ay.y*y+az.y*z,
+      o.data.position[2]+ax.z*x+ay.z*y+az.z*z};
+    for(int a=0;a<3;++a){mn[a]=std::min(mn[a],p[a]);mx[a]=std::max(mx[a],p[a]);}}
+  return occlusionHiddenAabb(mn,mx);
+}
+
 void TerrainGame::renderStaticBatches() {
   for (StaticBatch& b : staticBatches) {
     bool stale = b.dirty;
@@ -20457,6 +20614,10 @@ void TerrainGame::renderStaticBatches() {
     }
     // Split halves: same band early-out the terrain chunks use.
     if (splitBandActive && outsideSplitBand(b.aabbMin, b.aabbMax)) continue;
+    bool ownsOccluder = false;
+    for (const StaticBatchMember& m : b.members)
+      if (occlusionObjectIsOccluder(m.object)) { ownsOccluder = true; break; }
+    if (!ownsOccluder && occlusionHiddenAabb(b.aabbMin, b.aabbMax)) continue;
     stapip.core.render(b.bag.get());
   }
 }
@@ -20850,6 +21011,7 @@ void TerrainGame::renderProcChunks() {
       if (dx * dx + dy * dy + dz * dz > c.drawDist * c.drawDist) continue;
     }
     if (splitBandActive && outsideSplitBand(c.aabbMin, c.aabbMax)) continue;
+    if (occlusionHiddenAabb(c.aabbMin, c.aabbMax)) continue;
     stapip.core.render(c.bag.get());
   }
 }
@@ -20873,6 +21035,7 @@ void TerrainGame::renderRoadChunks() {
       if (dx * dx + dy * dy + dz * dz > c.drawDist * c.drawDist) continue;
     }
     if (splitBandActive && outsideSplitBand(c.aabbMin, c.aabbMax)) continue;
+    if (occlusionHiddenAabb(c.aabbMin, c.aabbMax)) continue;
     stapip.core.render(c.bag.get());
   }
 }
@@ -22357,6 +22520,7 @@ void TerrainGame::renderScene() {
   }
   renderTerrain();
   costEnd("Terrain",-1,costTerrainStart);
+  { const u32 ct=costStart(); buildOcclusionBuffer(); costEnd("Occlusion",-1,ct); }
   // Static batches: one submit per material x cell group of the non-moving
   // primitives (rebuilt first when a member changed). Opaque z-tested
   // geometry, so drawing before the solo objects is order-free.
@@ -22617,6 +22781,7 @@ void TerrainGame::renderScene() {
     // off-screen case one six-plane AABB test. A VU program that moves geometry
     // can escape the baked box, so it deliberately stays on the old path.
     if (coarseObjectOutside(i)) continue;
+    if (occlusionHiddenObject(i)) continue;
     // Six vertices, no allocation/rebuild: the selected capture and facing
     // update in place. Texture coordinates come from the loaded (atlas-remapped)
     // model, so the normal asset bake remains authoritative.
@@ -29734,6 +29899,87 @@ static std::string dayNightHeader(const Project& p) {
            "}\n\n"
            "}  // namespace daynight\n"
            "}  // namespace " << ns << "\n";
+    return out.str();
+}
+
+// inc/occlusion_data.gen.hpp - conservative inner proxy boxes. Unlike baked
+// AO these are consumed every frame by the visibility buffer, so uncertainty
+// means refusal rather than a prettier-but-risky hull.
+static std::string occlusionDataHeader(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    struct Row { int scene, object, first, count; };
+    std::vector<Row> rows;
+    std::vector<occlusionbake::Box> boxes;
+    std::vector<int> offsets{0};
+    std::vector<int> canCull;
+    std::vector<int> isOccluder;
+    std::map<std::pair<std::string,std::string>,occlusionbake::Result> cache;
+    for (size_t si=0; si<p.scenes.size(); ++si) {
+        const SceneData& sc=p.scenes[si];
+        for (size_t oi=0; oi<sc.objects.size(); ++oi) {
+            const SceneObject& o=sc.objects[oi];
+            canCull.push_back(o.occlusionCull ? 1 : 0);
+            isOccluder.push_back(0);
+            const bool still=!o.physics&&!o.usable&&!o.pickable&&!o.saveState&&
+                o.layer.empty()&&o.flowGraph.nodes.empty()&&o.scripts.empty();
+            if (!still || o.occluderExclude || o.collisionMode==3) continue;
+            const int first=(int)boxes.size();
+            if (o.type==PrimitiveType::Box && o.materialPath.empty()) {
+                occlusionbake::Box b;
+                for(int a=0;a<3;++a)b.min[a]=-0.46f,b.max[a]=0.46f;
+                boxes.push_back(b);
+            } else if (o.type==PrimitiveType::Model && !o.modelPath.empty() &&
+                       !isAnimatedModelPath(o.modelPath)) {
+                const std::pair<std::string,std::string> key{
+                    p.filePath(o.modelPath),o.materialPath.empty()?"":p.filePath(o.materialPath)};
+                auto it=cache.find(key);
+                if(it==cache.end()) it=cache.emplace(key,occlusionbake::build(key.first,key.second)).first;
+                const occlusionbake::Result& r=it->second;
+                boxes.insert(boxes.end(),r.boxes.begin(),r.boxes.end());
+                if (r.boxes.empty() && p.settings.occlusionCulling)
+                    std::printf("[occlusion] %s/%s: not an occluder (%s)\n",
+                        sc.name.c_str(),o.name.c_str(),r.reason.c_str());
+            }
+            const int count=(int)boxes.size()-first;
+            if(count) {
+                rows.push_back({(int)si,(int)oi,first,count});
+                isOccluder.back()=1;
+            }
+        }
+        offsets.push_back((int)canCull.size());
+    }
+    std::ostringstream out;
+    out << "// Generated by TyraX. Do not edit. Conservative visibility proxies.\n"
+           "#pragma once\n\nnamespace " << ns << " {\n"
+           "struct OcclusionProxyBox { float mn[3], mx[3]; };\n"
+           "struct OcclusionProxyObject { int scene, object, first, count; };\n"
+           "constexpr bool OCCLUSION_CULLING = " << (p.settings.occlusionCulling?"true":"false") << ";\n"
+           "static const OcclusionProxyBox OCCLUSION_BOXES[] = {\n";
+    if(boxes.empty()) out << "  {{0,0,0},{0,0,0}},\n";
+    for(const auto& b:boxes) out << "  {{"<<floatLit(b.min[0])<<","<<floatLit(b.min[1])<<","<<floatLit(b.min[2])<<"},{"<<floatLit(b.max[0])<<","<<floatLit(b.max[1])<<","<<floatLit(b.max[2])<<"}},\n";
+    out << "};\nstatic const OcclusionProxyObject OCCLUSION_OBJECTS[] = {\n";
+    if(rows.empty()) out << "  {-1,-1,0,0},\n";
+    for(const Row& r:rows) out << "  {"<<r.scene<<","<<r.object<<","<<r.first<<","<<r.count<<"},\n";
+    out << "};\nconstexpr int OCCLUSION_OBJECT_COUNT = "<<rows.size()<<";\n"
+           "static const int OCCLUSION_SCENE_OFFSETS[] = {";
+    for(size_t i=0;i<offsets.size();++i) out<<(i?",":"")<<offsets[i];
+    out << "};\nstatic const unsigned char OCCLUSION_CAN_CULL[] = {";
+    if(canCull.empty()) out<<"0";
+    for(size_t i=0;i<canCull.size();++i) out<<(i?",":"")<<canCull[i];
+    out << "};\nstatic const unsigned char OCCLUSION_IS_OCCLUDER[] = {";
+    if(isOccluder.empty()) out<<"0";
+    for(size_t i=0;i<isOccluder.size();++i) out<<(i?",":"")<<isOccluder[i];
+    out << "};\ninline int occlusionObjectIndex(int scene,int object){\n"
+           "  if(scene<0 || scene+1>=(int)(sizeof(OCCLUSION_SCENE_OFFSETS)/sizeof(int))) return -1;\n"
+           "  const int i=OCCLUSION_SCENE_OFFSETS[scene]+object;\n"
+           "  return object>=0 && i<OCCLUSION_SCENE_OFFSETS[scene+1] ? i : -1;\n"
+           "}\ninline bool occlusionCanCull(int scene,int object){\n"
+           "  const int i=occlusionObjectIndex(scene,object);\n"
+           "  return i>=0 && OCCLUSION_CAN_CULL[i]!=0;\n"
+           "}\ninline bool occlusionIsOccluder(int scene,int object){\n"
+           "  const int i=occlusionObjectIndex(scene,object);\n"
+           "  return i>=0 && OCCLUSION_IS_OCCLUDER[i]!=0;\n"
+           "}\n}  // namespace "<<ns<<"\n";
     return out.str();
 }
 
@@ -52886,6 +53132,7 @@ std::vector<File> generate(const Project& p) {
         {"inc\\texture_data.gen.hpp", textureDataHeader(p)},
         {"inc\\decal_data.gen.hpp", decalDataHeader(p)},
         {"inc\\shadow_data.gen.hpp", shadowDataHeader(p)},
+        {"inc\\occlusion_data.gen.hpp", occlusionDataHeader(p)},
         {"inc\\ao_data.gen.hpp", aoDataHeader(p)},
         {"inc\\daynight.gen.hpp", dayNightHeader(p)},
         {"inc\\probe_data.gen.hpp", probeDataHeader(p)},

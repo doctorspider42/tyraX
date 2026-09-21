@@ -269,6 +269,7 @@ add_executable(tyrax-editor
     src/matbake.cpp
     src/modelao.cpp
     src/objparser.cpp
+    src/occlusionbake.cpp
     src/iso9660.cpp
     src/isoexport.cpp
     src/menubake.cpp

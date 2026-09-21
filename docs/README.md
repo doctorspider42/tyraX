@@ -98,6 +98,9 @@ their ownership and acceptance checks.
   shadows where geometry meets, and the knobs; plus **Model AO**, each `.obj`
   model's own self-occlusion baked automatically into the texture it already
   ships, for no extra VRAM.
+- [Conservative occlusion culling](occlusion-culling.md) — build-time inner
+  proxy boxes, the runtime CPU visibility buffer, safety refusals and per-object
+  opt-outs.
 - [Baked global illumination + light probes](global-illumination.md) — a
   multi-bounce lightmap plus a probe grid, traced on your desktop so the
   console pays nothing.

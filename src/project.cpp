@@ -752,6 +752,8 @@ std::string objectJson(const SceneObject& o) {
         // is what keeps every project that never touches it resaving byte for
         // byte after this field was added.
         (o.batchExclude ? std::string(", \"batchExclude\": true") : "") +
+        (o.occluderExclude ? std::string(", \"occluderExclude\": true") : "") +
+        (!o.occlusionCull ? std::string(", \"occlusionCull\": false") : "") +
         // rendered into the dynamic env map; default (false) stays implicit
         (o.reflected ? std::string(", \"reflected\": true") : "") +
         (o.reflectionProxy ? std::string(", \"reflectionProxy\": true") : "") +
@@ -1696,6 +1698,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"animPlayFps\": " << fmtFloat(p.settings.animPlayFps) << ",\n"
          << "    \"staticBatching\": "
          << (p.settings.staticBatching ? "true" : "false") << ",\n"
+         << "    \"occlusionCulling\": "
+         << (p.settings.occlusionCulling ? "true" : "false") << ",\n"
          << "    \"envProbeReflected\": "
          << (p.settings.envProbeReflected ? "true" : "false") << ",\n"
          << "    \"navCellSize\": " << fmtFloat(p.settings.navCellSize) << ",\n"
@@ -5135,6 +5139,10 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         }
         if (const auto* v = jo.find("batchExclude"))
             o.batchExclude = v->boolOr(false);
+        if (const auto* v = jo.find("occluderExclude"))
+            o.occluderExclude = v->boolOr(false);
+        if (const auto* v = jo.find("occlusionCull"))
+            o.occlusionCull = v->boolOr(true);
         if (const auto* v = jo.find("reflected")) o.reflected = v->boolOr(false);
         if (const auto* v = jo.find("reflectionProxy"))
             o.reflectionProxy = v->boolOr(false);
@@ -5715,6 +5723,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (st.animPlayFps > 240.0f) st.animPlayFps = 240.0f;
         if (const auto* v = s->find("staticBatching"))
             st.staticBatching = v->boolOr(true);
+        if (const auto* v = s->find("occlusionCulling"))
+            st.occlusionCulling = v->boolOr(false);
         if (const auto* v = s->find("envProbeReflected"))
             st.envProbeReflected = v->boolOr(false);
         if (const auto* v = s->find("navCellSize")) {
@@ -7592,6 +7602,8 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     // running game, so toggling it has to read as "rebuild" rather than
     // silently showing a grouping the ELF does not have.
     fnvMix(h, o.batchExclude ? 1 : 0);
+    fnvMix(h, o.occluderExclude ? 1 : 0);
+    fnvMix(h, o.occlusionCull ? 1 : 0);
     fnvMix(h, o.reflectionProxy ? 1 : 0);
     fnvMixS(h, o.impostorPath);
     fnvMixF(h, o.impostorDistance);
@@ -8152,6 +8164,7 @@ std::string refreshGenerated(const Project& p) {
             // creation. A generated file that reaches only `project::create`
             // is the live_pad.gen.cpp mistake, and it is silent.
             f.relativePath == "inc\\shadow_data.gen.hpp" ||
+            f.relativePath == "inc\\occlusion_data.gen.hpp" ||
             f.relativePath == "inc\\ao_data.gen.hpp" ||
             // The trained BLSS network (docs/neural-upscaler.md). Only ever IN
             // `generated` while the upscaler is enabled - but when it is there

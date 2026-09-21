@@ -199,3 +199,9 @@ fields. Format 52 additionally retains main's baked shadow decal mode/settings
 Format 60 adds the optional per-road `roadSampleStep` field. It is purely
 additive: missing means the original 1 m longitudinal spacing, so no migration
 step is required.
+
+Format 61 adds the project-wide `occlusionCulling` opt-in and the per-object
+`occluderExclude` / `occlusionCull` controls. Missing keeps occlusion disabled,
+allows the object to receive culling if the project is later enabled and lets
+proved-safe static geometry act as an occluder. The fields are additive, so no
+migration step is required.

@@ -16,6 +16,16 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.120.0: CONSERVATIVE SOFTWARE OCCLUSION CULLING.
+// An opt-in 48x42 CPU depth buffer rejects complete object, static-batch,
+// road and procedural bounds before StaPip. Build-time proxies are inward
+// boxes: plain Box primitives use an inset cube; static OBJ models must be
+// opaque, geometrically closed and retain a one-cell-eroded sampled interior;
+// otherwise they are refused. Per-object switches independently opt out of
+// occluding and receiving. The profiler prices the pass as Occlusion and the
+// debug log reports proxy/test/reject counts. Format 61 adds the two object
+// booleans and the project-wide opt-in. MINOR.
+//
 // 1.119.0: AUTHORED ROAD LONGITUDINAL SPACING.
 // Each road can choose a 1..2 metre geometry-row spacing. Texture arc length
 // keeps the original one-metre integration cadence so changing detail cannot
@@ -4880,7 +4890,7 @@
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 119
+#define TYRAX_VERSION_MINOR 120
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -5264,7 +5274,13 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v59: SceneObject::blobShadowTexture and blobShadowSize. Missing means the
 // historical round fallback (or the vehicle definition's derived mask), so
 // this is additive and needs no migration step.
-inline constexpr int kFormatVersion = 60;
+// v60: SceneObject::roadSampleStep. Missing retains the historical 1 m road
+// station spacing. Additive; no migration step.
+// v61 (docs/occlusion-culling.md): ProjectSettings::occlusionCulling plus
+// SceneObject::occluderExclude and occlusionCull. Missing keeps the feature
+// off project-wide, allows receiving and lets safe geometry be considered if
+// the project is later enabled. All keys are additive; no migration step.
+inline constexpr int kFormatVersion = 61;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

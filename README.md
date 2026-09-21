@@ -270,6 +270,9 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   viewport overlay showing what merged with what, what each batch costs in VU1
   packages, and the reason named for every object that stayed solo; plus a
   per-object opt-out for when one outlying member keeps a whole batch drawn.
+- [Conservative occlusion culling](docs/occlusion-culling.md) — build-time
+  inner proxies and a tiny CPU visibility buffer reject whole draw units behind
+  solid walls, with per-object occluder and receiver opt-outs.
 - [Triangle strips for static models](docs/model-pipeline.md#triangle-strips) —
   the build ships the strip beside the list, so a shared corner is packaged,
   transferred and transformed once instead of once per triangle; the

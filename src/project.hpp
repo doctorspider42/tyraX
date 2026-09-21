@@ -367,6 +367,12 @@ struct SceneObject {
     // Written to the .tyra only when true, so every project that never
     // touches it resaves byte for byte.
     bool batchExclude = false;
+    // Conservative software occlusion (docs/occlusion-culling.md). Static,
+    // opaque geometry may contribute an inward proxy unless excluded.
+    bool occluderExclude = false;
+    // Receiving is separate: glass may be hidden by a wall without ever
+    // pretending to be that wall.
+    bool occlusionCull = true;
     std::string impostorPath; // optional static far model; collision stays original
     float impostorDistance = 0.0f; // 0 disables, world units
     bool impostorBillboard = false; // ordered view parts, upright/equal XZ scale
@@ -1276,6 +1282,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.primDetail == b.primDetail && a.primRings == b.primRings &&
            a.drawDistance == b.drawDistance &&
            a.batchExclude == b.batchExclude &&
+           a.occluderExclude == b.occluderExclude &&
+           a.occlusionCull == b.occlusionCull &&
            a.impostorPath == b.impostorPath &&
            a.impostorDistance == b.impostorDistance &&
            a.impostorBillboard == b.impostorBillboard &&
@@ -1660,6 +1668,11 @@ struct ProjectSettings {
     // actions) trigger a batch rebuild. Off = every object submits its own
     // bag (pre-batching behavior; the A/B lever for profiling).
     bool staticBatching = true;
+
+    // Build conservative inner proxies for opaque static objects and use a
+    // tiny CPU depth buffer to reject fully hidden objects/chunks before they
+    // enter StaPip. Off by default until measured on target hardware.
+    bool occlusionCulling = false;
 
     // Dynamic reflection probe aim (docs/reflective-materials.md). false =
     // the classic GT3 aim: the env camera looks level along the player
@@ -2189,6 +2202,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.animSourceFps == b.animSourceFps &&
            a.animPlayFps == b.animPlayFps &&
            a.staticBatching == b.staticBatching &&
+           a.occlusionCulling == b.occlusionCulling &&
            a.envProbeReflected == b.envProbeReflected &&
            a.navCellSize == b.navCellSize && a.navMaxSlope == b.navMaxSlope &&
            a.navAgentRadius == b.navAgentRadius &&

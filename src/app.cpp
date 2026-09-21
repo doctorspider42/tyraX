@@ -15718,6 +15718,15 @@ void App::drawPreferencesWindow() {
         "with physics, LODs, scripts, runtime references, save-state or a\n"
         "streaming layer stay individual.");
 
+    ImGui::Checkbox("Conservative occlusion culling",
+                    &prefSettings_.occlusionCulling);
+    prefHelp(
+        "Builds inward proxies for static opaque objects, rasterizes them\n"
+        "into a tiny CPU depth buffer, then skips fully hidden objects and\n"
+        "chunks before they enter the renderer. Open, non-manifold and\n"
+        "alpha-textured models are refused as occluders. Existing projects\n"
+        "default off: verify the trade with the profiler on target hardware.");
+
     // Texture quantization - the PS2-native "compression" (palettized
     // PSMT8/PSMT4 textures). Applied at build time into .res-baked; per
     // model/material overrides live in the Asset Browser's inspector.

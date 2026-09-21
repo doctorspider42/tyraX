@@ -106,6 +106,13 @@ Chunk culling and the 1 m longitudinal sampling remain in place. This matters
 for EE RAM as well as drawing: the initial dense district exhausted its budget.
 The boot log reports `ROADS ... chunks ... vertices ...` for inspection.
 
+The editor also offers opt-in conservative occlusion culling for district-style
+layouts. It generates inset solid proxies during code generation and tests
+objects, road chunks and procedural chunks against a 48x42 CPU visibility
+buffer. It remains disabled in this fixture until a physical-console camera
+sweep proves a net win; an open road can expose the fixed buffer cost without
+hiding enough work. See [the occlusion-culling guide](../../docs/occlusion-culling.md).
+
 The current fixture now exercises the road's authored longitudinal spacing.
 Foundry link, Market cross street, Skyline avenue, Garage boulevard and West
 service lane use 2 m; the tighter Ring road and uneven East crest run retain the

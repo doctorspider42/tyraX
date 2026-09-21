@@ -1172,6 +1172,20 @@ void App::drawPropertiesWindow() {
                 "member can keep the rest drawn; excluding it is the fix.\n"
                 "Tools > Static Batches shows the merged boxes and the cost.");
 
+        if (ImGui::Checkbox("Never occlude other objects", &o.occluderExclude))
+            committed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Opt out of the build-time occluder proxy. Moving, open,\n"
+                "non-manifold and alpha-textured geometry is rejected\n"
+                "automatically even when this remains unchecked.");
+        if (ImGui::Checkbox("Can be occlusion culled", &o.occlusionCull))
+            committed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Allow this object's complete bounds to be skipped when they\n"
+                "are safely behind the conservative visibility buffer.");
+
         // Rendered into the dynamic ("@sky") environment map, so reflective
         // materials mirror this object - costs a second small render per frame.
         if (ImGui::Checkbox("Show in reflections", &o.reflected)) committed = true;
@@ -3004,6 +3018,8 @@ void App::drawMultiProperties() {
                    "%.0f units");
         multiCheck("Show in reflections", &SceneObject::reflected);
         multiCheck("Reflection box proxy", &SceneObject::reflectionProxy);
+        multiCheck("Never occlude other objects", &SceneObject::occluderExclude);
+        multiCheck("Can be occlusion culled", &SceneObject::occlusionCull);
         multiCheck("Projected shadow (live)", &SceneObject::projShadow);
         multiCheck("Cast shadow", &SceneObject::castShadow);
         multiCheck("Physics (rigid body)", &SceneObject::physics);
