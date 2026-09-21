@@ -755,6 +755,14 @@ void App::drawPropertiesWindow() {
         ImGui::SetNextItemWidth(scaled(220));
         ImGui::SliderFloat("Width", &o.roadWidth, 1.0f, 24.0f, "%.1f");
         prefHelp("Full width of the surface, world units.");
+        ImGui::SetNextItemWidth(scaled(220));
+        if (ImGui::SliderFloat("Longitudinal spacing", &o.roadSampleStep,
+                               1.0f, 2.0f, "%.2f m"))
+            committed = true;
+        prefHelp(
+            "Distance between geometry rows along the spline. 1 m follows\n"
+            "sharp terrain folds most closely; up to 2 m reduces road\n"
+            "triangles and VU1 packages. Inspect crests and tight bends.");
         if (drawRoadSurfaceCombo("Surface material", "road-surface",
                                  o.roadTexture))
             committed = true;

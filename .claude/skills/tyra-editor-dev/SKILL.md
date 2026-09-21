@@ -2401,6 +2401,15 @@ firing before relaxing either.
 
 ## Road and terrain triangle strips (1.96.0)
 
+Since 1.119 each road carries optional `roadSampleStep` (1..2, default 1).
+`roadgen::tessellate`, viewport drawing/picking and generated `RoadDefRt` /
+`buildRoads` must receive the same value. Geometry may be coarse, but texture V
+still integrates the spline at the original 1 m cadence; otherwise lane marks
+slide when detail changes. `road-budget-sweep.py` compares candidates against
+the dense surface and treats per-chunk whole-repeat V rebasing as equivalent.
+Motor District keeps Ring road and East crest at 1 m and uses 2 m on the other
+five roads; do not promote 2 m to a universal default without crest/bend tests.
+
 `roadgen::tessellateStrips` is a THIRD twin of the same surface, beside
 `tessellate` (the triangle list, which stays the source of truth for the editor
 viewport, picking and the align pass) and the generated `buildRoads`. Both

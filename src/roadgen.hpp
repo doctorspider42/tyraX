@@ -14,11 +14,12 @@
 // road nobody can author.
 //
 // The economics this encodes: a road OBJECT is only its points, width and one
-// texture name. All geometry is derived - sampled every ~1 unit along a
-// Catmull-Rom through the points and every ~0.5 unit across its width, every
-// vertex glued to the caller's height function. V runs along the arc length
-// so ONE small texture tiles the whole street. The authored data is still
-// only a few hundred floats per kilometre in the .tyra and one texture in VRAM.
+// texture name. All geometry is derived - sampled at the road's authored
+// 1..2-unit longitudinal spacing along a Catmull-Rom through the points and
+// every ~0.5 unit across its width, every vertex glued to the caller's height
+// function. V runs along the arc length so ONE small texture tiles the whole
+// street. The authored data is still only a few hundred floats per kilometre
+// in the .tyra and one texture in VRAM.
 namespace roadgen {
 
 struct Vertex {
@@ -37,11 +38,14 @@ struct Junction {
 // Ground height under a world XZ (the terrain, on both consumers).
 using HeightFn = std::function<float(float x, float z)>;
 
-// How far apart the spline is sampled, world units. The strip is deliberately
-// denser than the ordinary terrain grid: its triangles may cross a terrain
-// cell's diagonal, so a two-unit chord can still cut through a sharp fold even
-// when both end vertices sit on the rendered ground.
-inline constexpr float kSampleStep = 1.0f;
+// Default distance between spline samples, in world units. Individual roads
+// may opt into a coarser 1..2-unit spacing; the one-unit default remains the
+// safe choice for sharp terrain folds.
+#ifndef TYRA_ROAD_SAMPLE_STEP
+#define TYRA_ROAD_SAMPLE_STEP 1.0f
+#endif
+inline constexpr float kSampleStep = TYRA_ROAD_SAMPLE_STEP;
+inline constexpr float kArcSampleStep = 1.0f;
 // A two-edge strip spans an entire road with one plane. On a terrain cell
 // wider than the strip's lift that plane can pass below the heightfield in
 // the middle, showing grass triangles through the asphalt. Subdivide across
@@ -100,7 +104,8 @@ inline constexpr float kSpanShear = TYRA_ROAD_SPAN_SHEAR;
 // generated vertex is projected onto the height function.
 float tessellate(const std::vector<float>& pointsXZ, float width,
                  const HeightFn& height, std::vector<Vertex>& out,
-                 const std::vector<float>& lifts = {});
+                 const std::vector<float>& lifts = {},
+                 float sampleStep = kSampleStep);
 
 // --- triangle strips (docs/model-pipeline.md, "Triangle strips") ------------
 //
@@ -157,7 +162,8 @@ inline constexpr int kChunkBudget = 1800; // ... and this many vertices
 // out.size()). Returns the total arc length; `out` is cleared first.
 float tessellateStrips(const std::vector<float>& pointsXZ, float width,
                        const HeightFn& height, std::vector<Vertex>& out,
-                       std::vector<int>* chunkSizes = nullptr);
+                       std::vector<int>* chunkSizes = nullptr,
+                       float sampleStep = kSampleStep);
 
 // Find centre-line crossings and turn each into four terrain-projected
 // triangles. Near-parallel crossings are rejected because their strip overlap

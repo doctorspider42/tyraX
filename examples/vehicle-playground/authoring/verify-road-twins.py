@@ -31,7 +31,7 @@ using Color = Vec4;
 }
 struct ProcChunk { int owner=0; Tyra::Texture* roadTex=nullptr; int stripRun=0;
 std::vector<Tyra::Vec4> vertices,sts,colors; };
-struct RoadDefRt { int scene,pointCount,tex,first; float width; };
+struct RoadDefRt { int scene,first,pointCount; float width,sampleStep; int tex; };
 int ROAD_COUNT=1, ROAD_TEXTURE_COUNT=0;
 RoadDefRt ROAD_DEFS[1];
 float ROAD_POINTS[64];
@@ -238,14 +238,14 @@ static std::vector<TriKey> expandRuns(const std::vector<roadgen::Vertex>& v,
   return out;
 }
 size_t check(const char* name, const std::vector<float>& points, float width,
-             std::function<float(float,float)> height) {
-  ROAD_DEFS[0]={0,(int)points.size()/2,-1,0,width};
+             std::function<float(float,float)> height, float sampleStep=1.0F) {
+  ROAD_DEFS[0]={0,0,(int)points.size()/2,width,sampleStep,-1};
   for(size_t i=0;i<points.size();++i) ROAD_POINTS[i]=points[i];
   std::vector<roadgen::Vertex> host, hostStrip;
   std::vector<roadgen_dense::Vertex> dense;
   std::vector<int> chunkSizes;
-  roadgen::tessellate(points,width,height,host);
-  roadgen::tessellateStrips(points,width,height,hostStrip,&chunkSizes);
+  roadgen::tessellate(points,width,height,host,{},sampleStep);
+  roadgen::tessellateStrips(points,width,height,hostStrip,&chunkSizes,sampleStep);
   roadgen_dense::tessellate(points,width,height,dense);
   double worstY = 0.0, worstUv = 0.0;
   requireBaselineSurface(host,dense,&worstY,&worstUv);
@@ -330,6 +330,7 @@ int main() {
   std::vector<float> straight={0,0,0,30};
   const auto flat=check("flat",straight,13,[](float,float){return 0.f;});
   const auto slope=check("slope",straight,13,[](float x,float z){return .1f*x+.2f*z;});
+  check("slope 2m",straight,13,[](float x,float z){return .1f*x+.2f*z;},2.0F);
   require(slope==flat,"a planar slope must collapse without changing its surface");
   const auto crown=check("crown with equal shoulders",straight,13,[](float x,float){return 1.f-x*x/42.25f;});
   require(crown==flat*26,"equal shoulders must not flatten an interior crown");

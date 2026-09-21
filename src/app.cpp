@@ -3273,7 +3273,7 @@ void App::drawViewportWindow() {
             roadgen::tessellate(
                 ro.roadPoints, ro.roadWidth,
                 [&](float x, float z) { return viewport_.terrainHeight(x, z); },
-                strip);
+                strip, {}, ro.roadSampleStep);
             ImDrawList* dl = ImGui::GetWindowDrawList();
             // The filled, textured strip is real viewport geometry now. This
             // overlay owns only the selected road's handles and crisp edges.

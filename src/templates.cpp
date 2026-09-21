@@ -64,6 +64,8 @@ static_assert(roadgen::kSpanFlatness == 0.00001f,
               "buildRoads carries the flatness budget as the literal 0.00001F");
 static_assert(roadgen::kSpanShear == 0.05f,
               "buildRoads carries the shear budget as the literal 0.05F");
+static_assert(roadgen::kSampleStep == 1.0f,
+              "buildRoads carries the longitudinal sample step as the literal 1.0F");
 
 // The texture-table key for a terrain texture: the baked supertile path when
 // stochastic tiling is on (docs/terrain-painting.md), else the source as-is.
@@ -30920,7 +30922,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             };
             struct RoadRow {
                 int scene, first, count, tex;
-                float width;
+                float width, sampleStep;
                 std::string name;
                 const SceneObject* source;
             };
@@ -30939,6 +30941,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     r.count = (int)(o.roadPoints.size() / 2);
                     r.tex = tix;
                     r.width = o.roadWidth;
+                    r.sampleStep = o.roadSampleStep;
                     r.name = o.name;
                     r.source = &o;
                     roadRows.push_back(r);
@@ -30978,12 +30981,13 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << "constexpr int ROAD_JUNCTION_COUNT = "
                     << junctionRows.size() << ";\n"
                     << "struct RoadDefRt { int scene; int first; int pointCount;"
-                       " float width; int tex; };\n"
+                       " float width; float sampleStep; int tex; };\n"
                     << "constexpr RoadDefRt ROAD_DEFS[" << roadRows.size()
                     << "] = {\n";
                 for (const RoadRow& r : roadRows)
                     out << "    {" << r.scene << ", " << r.first << ", "
-                        << r.count << ", " << floatLit(r.width) << ", " << r.tex
+                        << r.count << ", " << floatLit(r.width) << ", "
+                        << floatLit(r.sampleStep) << ", " << r.tex
                         << "},  // " << escapeCString(r.name) << "\n";
                 out << "};\n"
                     << "constexpr float ROAD_POINTS[" << roadPts.size()
@@ -36628,6 +36632,9 @@ void TerrainGame::buildRoads(int scene) {
     const float* pts = &ROAD_POINTS[rd.first];
     const int n = rd.pointCount;
     const float hw = 0.5F * (rd.width > 0.1F ? rd.width : 0.1F);
+    const float sampleStep = rd.sampleStep >= 1.0F
+                                 ? (rd.sampleStep <= 2.0F ? rd.sampleStep : 2.0F)
+                                 : 1.0F;
     int crossSteps = (int)ceilf((hw * 2.0F) / 0.5F);
     if (crossSteps < 1) crossSteps = 1;
     // Catmull-Rom, clamped ends - the roadgen twin's cr()/pointAt()/sample().
@@ -36719,7 +36726,9 @@ void TerrainGame::buildRoads(int scene) {
       ptAt(seg + 1, &bx, &bz);
       const float segLen =
           sqrtf((bx - ax) * (bx - ax) + (bz - az) * (bz - az));
-      const int steps = segLen > 1.0F ? (int)(segLen / 1.0F) + 1 : 1;
+      const int steps = segLen > sampleStep
+                            ? (int)(segLen / sampleStep) + 1
+                            : 1;
       for (int k = (seg == 0 ? 0 : 1); k <= steps; ++k) {
         const float t = (float)k / (float)steps;
         float cx2, cz2, dx2, dz2;
@@ -36745,8 +36754,22 @@ void TerrainGame::buildRoads(int scene) {
           tz = 1.0F;
         }
         const float rxu = tz * hw, rzu = -tx * hw;
-        arc += sqrtf((cx2 - prevX) * (cx2 - prevX) +
-                     (cz2 - prevZ) * (cz2 - prevZ));
+        // Geometry spacing is authored, but texture arc length always keeps
+        // the original one-unit integration cadence. A cheaper road must not
+        // make its lane markings slide or accumulate a different repeat.
+        const float prevT = k > 0 ? (float)(k - 1) / (float)steps : 0.0F;
+        int arcSteps = k > 0 ? (int)ceilf((t - prevT) * segLen / 1.0F) : 0;
+        if (k > 0 && arcSteps < 1) arcSteps = 1;
+        for (int ak = 1; ak <= arcSteps; ++ak) {
+          const float at = prevT + (t - prevT) *
+                                       ((float)ak / (float)arcSteps);
+          float apx, apz;
+          sampleAt(seg, at, &apx, &apz);
+          arc += sqrtf((apx - prevX) * (apx - prevX) +
+                       (apz - prevZ) * (apz - prevZ));
+          prevX = apx;
+          prevZ = apz;
+        }
         prevX = cx2;
         prevZ = cz2;
         const float v = arc / 4.0F;

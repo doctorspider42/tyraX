@@ -766,6 +766,13 @@ What is now settled, and what is left:
   maximal coplanar runs: 31 050 road triangles in 470 packages -> 21 252 in 337,
   surface and seams exactly unchanged, −0.358 / −0.591 ms on the console.
   ([roads.md](roads.md), "The lateral budget".)
+- **Road longitudinal spacing is implemented and host-bounded in 1.119.** Five
+  gentle Motor District roads use 2 m while the looping ring and eastern crest
+  stay at 1 m: 21 286 -> 18 750 triangles and 338 -> 297 packages, with 0.0351
+  maximum height error and sub-texel UV error. A physical-PS2, four-pose
+  `quiet-debug` A/B retained the same 25 / 16.67 / 50 / 25 median FPS; it is a
+  safe geometry reduction, not a demonstrated vsync-rung win. A driven
+  crest/bend inspection remains.
 - ~~**Mesh LOD distance.**~~ **REFUTED with a mechanism**: 64 removes 592
   triangles, takes 0.32 ms out of `dispatch` and 0.31 out of the VU1 wait, and
   makes the frame **0.19 ms slower**. Do not retry it at this object count

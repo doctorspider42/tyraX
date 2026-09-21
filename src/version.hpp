@@ -16,6 +16,16 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.119.0: AUTHORED ROAD LONGITUDINAL SPACING.
+// Each road can choose a 1..2 metre geometry-row spacing. Texture arc length
+// keeps the original one-metre integration cadence so changing detail cannot
+// slide lane markings. Motor District uses 2 m on five measured gentle roads
+// and retains 1 m on the looping ring and eastern crest. The mixed network
+// falls from 21,286 to 18,750 road triangles and 338 to 297 packages in the
+// host oracle. A physical-console four-pose A/B retained the same FPS medians,
+// accepting stability but not a frame-time win. Format 60 adds the optional
+// roadSampleStep object field. MINOR.
+//
 // 1.118.0: BOUNDED PROJECTED VEHICLE HEADLIGHTS.
 // Vehicle headlights now draw through the flashlight gobo in their own capped,
 // textured receiver bag. Entering a vehicle suppresses the player's camera
@@ -4870,7 +4880,7 @@
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 118
+#define TYRAX_VERSION_MINOR 119
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -5254,7 +5264,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v59: SceneObject::blobShadowTexture and blobShadowSize. Missing means the
 // historical round fallback (or the vehicle definition's derived mask), so
 // this is additive and needs no migration step.
-inline constexpr int kFormatVersion = 59;
+inline constexpr int kFormatVersion = 60;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

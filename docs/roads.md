@@ -235,6 +235,45 @@ contact and chunk culling remain unchanged. A 13-unit planar road reduces from
 156 to 6 vertices per station (26x); total scene savings depend on the terrain.
 The game logs the actual road vertex count.
 
+## Longitudinal spacing (1.119)
+
+Each road exposes **Longitudinal spacing** from 1 to 2 world units. One metre
+is the compatibility/default surface and follows sharp heightfield folds most
+closely. Two metres roughly halves its stations and is intended for broad,
+gently varying streets after the crest and bend have been inspected. The
+editor viewport, picking mesh and generated `buildRoads` use the same authored
+value; the optional `roadSampleStep` object field is omitted at its 1 m default.
+
+![A selected road exposing its longitudinal spacing in Properties](img/road-longitudinal-spacing.png)
+
+Texture V deliberately does **not** use the cheaper chord length. It integrates
+the Catmull-Rom at the original one-metre cadence even when geometry uses 2 m,
+so changing detail cannot accumulate a different number of texture repeats and
+slide lane markings down the road.
+
+The Motor District oracle priced 2 m on all seven roads at 13 172 triangles /
+205 packages versus 21 286 / 338, but rejected that blanket setting: the loop
+and eastern crest reached 4.6 and 12.5 texels of longitudinal interpolation
+drift. The checked-in scene therefore uses 2 m only on five measured gentle
+roads and keeps those two at 1 m. The mixed network is **18 750 triangles / 297
+packages**; against the 1 m reference its worst height error is 0.0351 world
+units, worst lateral UV error 0.00030 and worst longitudinal UV error 0.00710
+(under one texel on the 128 px road texture), with no missed reference sample.
+
+A physical-PS2 A/B used the same parked, four-pose Motor District fixture and
+`quiet-debug` profile, with eight rolling FPS samples per pose. The all-1 m
+control and mixed candidate retained the same 25 / 16.67 / 50 / 25 median FPS
+for garage day/night and outer-road day/night: this reduction is not large
+enough to cross another vsync rung. The outer-road-day sample floor moved from
+44 to 48 FPS, while the other ranges overlapped; eight samples do not justify
+claiming that tail as a frame-time win. The hardware run accepts stability, not
+a measurable median-FPS improvement. A driven crest/bend inspection remains.
+
+`road-budget-sweep.py` accepts `--sample-step` as the fallback for roads without
+an authored value and reads `roadSampleStep` from the real fixture. Its V metric
+compares modulo whole repeats because runtime chunks intentionally rebase that
+integer part for physical-GS precision.
+
 ## The lateral budget (1.99)
 
 That rule was **all-or-nothing**: one full-width quad, or every one of the

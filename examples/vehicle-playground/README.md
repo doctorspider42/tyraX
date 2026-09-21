@@ -106,6 +106,19 @@ Chunk culling and the 1 m longitudinal sampling remain in place. This matters
 for EE RAM as well as drawing: the initial dense district exhausted its budget.
 The boot log reports `ROADS ... chunks ... vertices ...` for inspection.
 
+The current fixture now exercises the road's authored longitudinal spacing.
+Foundry link, Market cross street, Skyline avenue, Garage boulevard and West
+service lane use 2 m; the tighter Ring road and uneven East crest run retain the
+1 m default. Against the all-1 m reference, the host oracle reports **21 286 ->
+18 750 road triangles** and **338 -> 297 packages**. The worst sampled height
+change is 0.0351 world units and both UV axes stay below one texel on the 128 px
+road texture. On a physical PS2, the identical parked four-pose `quiet-debug`
+A/B retained 25 / 16.67 / 50 / 25 median FPS for garage day/night and outer-road
+day/night. The outer-road-day floor moved from 44 to 48 FPS, but only eight
+samples were taken and the other ranges overlap. Treat this as accepted geometry
+and package reduction, not a claimed frame-time improvement; driven crest/bend
+inspection remains.
+
 ## Reproduce and verify
 
 ### Active CC96 strip study

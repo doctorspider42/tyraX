@@ -53,6 +53,10 @@ static bool degenerate(const roadgen::Vertex& a, const roadgen::Vertex& b,
 struct Sample {
     float y, u, v;
 };
+static float repeatDiff(float a, float b) {
+    const float d = a - b;
+    return std::fabs(d - std::round(d));
+}
 static bool lookup(const std::vector<roadgen::Vertex>& mesh, float x, float z,
                    float refY, float refV, Sample* out) {
     bool found = false;
@@ -69,8 +73,11 @@ static bool lookup(const std::vector<roadgen::Vertex>& mesh, float x, float z,
         if (w0 < -1e-4f || w1 < -1e-4f || w2 < -1e-4f) continue;
         Sample s{w0 * a.y + w1 * b.y + w2 * c.y, w0 * a.u + w1 * b.u + w2 * c.u,
                  w0 * a.v + w1 * b.v + w2 * c.v};
-        const float key =
-            std::fabs(s.v - refV) * 1000.0f + std::fabs(s.y - refY);
+        // Each chunk rebases V by a whole texture repeat. Different sampling
+        // can move chunk boundaries, so raw V is not comparable across arms;
+        // only its fractional part reaches the repeated texture.
+        const float key = repeatDiff(s.v, refV) * 1000.0f +
+                          std::fabs(s.y - refY);
         if (!found || key < bestKey) {
             found = true;
             bestKey = key;
@@ -137,17 +144,21 @@ int main(int argc, char** argv) {
     for (int r = 0; r < nroads; ++r) {
         std::getline(in, line);
         const size_t b1 = line.find('|'), b2 = line.find('|', b1 + 1);
+        const size_t b3 = line.find('|', b2 + 1);
         const std::string name = line.substr(0, b1);
         const float width = std::stof(line.substr(b1 + 1, b2 - b1 - 1));
-        const int np = std::stoi(line.substr(b2 + 1));
+        const float sampleStep =
+            std::stof(line.substr(b2 + 1, b3 - b2 - 1));
+        const int np = std::stoi(line.substr(b3 + 1));
         std::vector<float> pts((size_t)np * 2);
         for (auto& p : pts) in >> p;
         std::getline(in, line);
 
         std::vector<roadgen::Vertex> list, strip;
         std::vector<int> chunkSizes;
-        roadgen::tessellate(pts, width, terrainHeight, list);
-        roadgen::tessellateStrips(pts, width, terrainHeight, strip, &chunkSizes);
+        roadgen::tessellate(pts, width, terrainHeight, list, {}, sampleStep);
+        roadgen::tessellateStrips(pts, width, terrainHeight, strip, &chunkSizes,
+                                  sampleStep);
 
         std::vector<roadref::Vertex> refList;
         std::vector<roadref::Vertex> refStrip;
@@ -215,7 +226,7 @@ int main(int argc, char** argv) {
             }
             const double dy = std::fabs(s.y - y);
             const double du = std::fabs(s.u - u);
-            const double dv = std::fabs(s.v - v);
+            const double dv = repeatDiff(s.v, v);
             wy = std::max(wy, dy);
             wu = std::max(wu, du);
             wv = std::max(wv, dv);

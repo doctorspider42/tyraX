@@ -195,3 +195,7 @@ The vehicles branch integration used format 51 for vehicle/road fields from
 branch formats 44–50 together with main's optional editorGroup and invisible-box
 fields. Format 52 additionally retains main's baked shadow decal mode/settings
 (main format 46). These fields are additive and need no value conversion.
+
+Format 60 adds the optional per-road `roadSampleStep` field. It is purely
+additive: missing means the original 1 m longitudinal spacing, so no migration
+step is required.

@@ -49,7 +49,7 @@ inline P sample(const std::vector<float>& pts, int seg, float t) {
 // every height query, the texture arc length and the lift - happens once here
 // and neither emitter can drift from the other.
 float buildRows(const std::vector<float>& pointsXZ, float width,
-                const HeightFn& height,
+                const HeightFn& height, float sampleStep,
                 std::vector<std::vector<Vertex>>& rows, int* crossStepsOut) {
     rows.clear();
     *crossStepsOut = 1;
@@ -66,8 +66,8 @@ float buildRows(const std::vector<float>& pointsXZ, float width,
         const P a = pointAt(pointsXZ, seg), b = pointAt(pointsXZ, seg + 1);
         const float segLen = std::sqrt((b.x - a.x) * (b.x - a.x) +
                                        (b.z - a.z) * (b.z - a.z));
-        const int steps =
-            segLen > kSampleStep ? (int)(segLen / kSampleStep) + 1 : 1;
+        const float spacing = std::clamp(sampleStep, 1.0f, 2.0f);
+        const int steps = segLen > spacing ? (int)(segLen / spacing) + 1 : 1;
         for (int k = (seg == 0 ? 0 : 1); k <= steps; ++k) {
             const float t = (float)k / (float)steps;
             const P c = sample(pointsXZ, seg, t);
@@ -96,8 +96,23 @@ float buildRows(const std::vector<float>& pointsXZ, float width,
             }
             // Right of travel: (tz, -tx) for +Y up.
             const float rx = tz * hw, rz = -tx * hw;
-            arc += std::sqrt((c.x - prev.x) * (c.x - prev.x) +
-                             (c.z - prev.z) * (c.z - prev.z));
+            // Geometry may use a coarser authored spacing, but texture V is
+            // always integrated at the original one-unit cadence. Changing
+            // road detail must not make lane markings slide along the street.
+            const float prevT = k > 0 ? (float)(k - 1) / (float)steps : 0.0f;
+            const int arcSteps = k > 0
+                                     ? std::max(1, (int)std::ceil(
+                                                       (t - prevT) * segLen /
+                                                       kArcSampleStep))
+                                     : 0;
+            for (int ak = 1; ak <= arcSteps; ++ak) {
+                const float at = prevT + (t - prevT) *
+                                             ((float)ak / (float)arcSteps);
+                const P ap = sample(pointsXZ, seg, at);
+                arc += std::sqrt((ap.x - prev.x) * (ap.x - prev.x) +
+                                 (ap.z - prev.z) * (ap.z - prev.z));
+                prev = ap;
+            }
             prev = c;
             const float v = arc / kTexLen;
             std::vector<Vertex> row;
@@ -219,12 +234,13 @@ std::vector<P> centreLine(const std::vector<float>& pts) {
 
 float tessellate(const std::vector<float>& pointsXZ, float width,
                  const HeightFn& height, std::vector<Vertex>& out,
-                 const std::vector<float>& lifts) {
+                 const std::vector<float>& lifts, float sampleStep) {
     (void)lifts;  // legacy project field; roads are always terrain-projected
     out.clear();
     std::vector<std::vector<Vertex>> rows;
     int crossSteps = 1;
-    const float arc = buildRows(pointsXZ, width, height, rows, &crossSteps);
+    const float arc =
+        buildRows(pointsXZ, width, height, sampleStep, rows, &crossSteps);
 
     // Stitch every lateral cell. Wound counter-clockwise seen from above
     // (+Y), the terrain's own convention.
@@ -267,7 +283,7 @@ float tessellate(const std::vector<float>& pointsXZ, float width,
 // packing verbatim, chunk policy included - change one and change both.
 float tessellateStrips(const std::vector<float>& pointsXZ, float width,
                        const HeightFn& height, std::vector<Vertex>& out,
-                       std::vector<int>* chunkSizes) {
+                       std::vector<int>* chunkSizes, float sampleStep) {
     static_assert(kStripRun == (int)meshstrip::kRun,
                   "the road run must be the run the .tmdl bake uses - both are "
                   "the smallest package a static program class derives");
@@ -275,7 +291,8 @@ float tessellateStrips(const std::vector<float>& pointsXZ, float width,
     if (chunkSizes != nullptr) chunkSizes->clear();
     std::vector<std::vector<Vertex>> rows;
     int crossSteps = 1;
-    const float arc = buildRows(pointsXZ, width, height, rows, &crossSteps);
+    const float arc =
+        buildRows(pointsXZ, width, height, sampleStep, rows, &crossSteps);
 
     // Run and chunk bookkeeping. A chunk is a bag; a run is one VU1 package
     // inside it, so the LAST run of a chunk owes only the multiple of 3 the

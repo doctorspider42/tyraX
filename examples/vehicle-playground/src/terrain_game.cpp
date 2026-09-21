@@ -19271,6 +19271,9 @@ void TerrainGame::buildRoads(int scene) {
     const float* pts = &ROAD_POINTS[rd.first];
     const int n = rd.pointCount;
     const float hw = 0.5F * (rd.width > 0.1F ? rd.width : 0.1F);
+    const float sampleStep = rd.sampleStep >= 1.0F
+                                 ? (rd.sampleStep <= 2.0F ? rd.sampleStep : 2.0F)
+                                 : 1.0F;
     int crossSteps = (int)ceilf((hw * 2.0F) / 0.5F);
     if (crossSteps < 1) crossSteps = 1;
     // Catmull-Rom, clamped ends - the roadgen twin's cr()/pointAt()/sample().
@@ -19362,7 +19365,9 @@ void TerrainGame::buildRoads(int scene) {
       ptAt(seg + 1, &bx, &bz);
       const float segLen =
           sqrtf((bx - ax) * (bx - ax) + (bz - az) * (bz - az));
-      const int steps = segLen > 1.0F ? (int)(segLen / 1.0F) + 1 : 1;
+      const int steps = segLen > sampleStep
+                            ? (int)(segLen / sampleStep) + 1
+                            : 1;
       for (int k = (seg == 0 ? 0 : 1); k <= steps; ++k) {
         const float t = (float)k / (float)steps;
         float cx2, cz2, dx2, dz2;
@@ -19388,8 +19393,22 @@ void TerrainGame::buildRoads(int scene) {
           tz = 1.0F;
         }
         const float rxu = tz * hw, rzu = -tx * hw;
-        arc += sqrtf((cx2 - prevX) * (cx2 - prevX) +
-                     (cz2 - prevZ) * (cz2 - prevZ));
+        // Geometry spacing is authored, but texture arc length always keeps
+        // the original one-unit integration cadence. A cheaper road must not
+        // make its lane markings slide or accumulate a different repeat.
+        const float prevT = k > 0 ? (float)(k - 1) / (float)steps : 0.0F;
+        int arcSteps = k > 0 ? (int)ceilf((t - prevT) * segLen / 1.0F) : 0;
+        if (k > 0 && arcSteps < 1) arcSteps = 1;
+        for (int ak = 1; ak <= arcSteps; ++ak) {
+          const float at = prevT + (t - prevT) *
+                                       ((float)ak / (float)arcSteps);
+          float apx, apz;
+          sampleAt(seg, at, &apx, &apz);
+          arc += sqrtf((apx - prevX) * (apx - prevX) +
+                       (apz - prevZ) * (apz - prevZ));
+          prevX = apx;
+          prevZ = apz;
+        }
         prevX = cx2;
         prevZ = cz2;
         const float v = arc / 4.0F;

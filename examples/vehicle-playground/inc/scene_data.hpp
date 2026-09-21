@@ -488,15 +488,15 @@ constexpr VehicleDefData VEHICLE_DEFS[3] = {
 constexpr int ROAD_COUNT = 7;
 constexpr int ROAD_TEXTURE_COUNT = 2;
 constexpr int ROAD_JUNCTION_COUNT = 9;
-struct RoadDefRt { int scene; int first; int pointCount; float width; int tex; };
+struct RoadDefRt { int scene; int first; int pointCount; float width; float sampleStep; int tex; };
 constexpr RoadDefRt ROAD_DEFS[7] = {
-    {0, 0, 11, 13.0F, 0},  // Ring road
-    {0, 22, 5, 13.0F, 0},  // Garage boulevard
-    {0, 32, 5, 11.0F, 0},  // Market cross street
-    {0, 42, 5, 10.0F, 0},  // Foundry link
-    {0, 52, 5, 10.0F, 0},  // Skyline avenue
-    {0, 62, 5, 9.0F, 0},  // East crest run
-    {0, 72, 4, 9.0F, 0},  // West service lane
+    {0, 0, 11, 13.0F, 1.0F, 0},  // Ring road
+    {0, 22, 5, 13.0F, 2.0F, 0},  // Garage boulevard
+    {0, 32, 5, 11.0F, 2.0F, 0},  // Market cross street
+    {0, 42, 5, 10.0F, 2.0F, 0},  // Foundry link
+    {0, 52, 5, 10.0F, 2.0F, 0},  // Skyline avenue
+    {0, 62, 5, 9.0F, 1.0F, 0},  // East crest run
+    {0, 72, 4, 9.0F, 2.0F, 0},  // West service lane
 };
 constexpr float ROAD_POINTS[80] = {-96.0F, -100.0F, 0.0F, -108.0F, 96.0F, -100.0F, 120.0F, -64.0F, 122.0F, 44.0F, 94.0F, 103.0F, 0.0F, 112.0F, -94.0F, 103.0F, -122.0F, 64.0F, -122.0F, -64.0F, -96.0F, -100.0F, 0.0F, -108.0F, 0.0F, -50.0F, 0.0F, 0.0F, 0.0F, 55.0F, 0.0F, 112.0F, -122.0F, 0.0F, -65.0F, 0.0F, 0.0F, 0.0F, 62.0F, 0.0F, 122.0F, 0.0F, -115.0F, -70.0F, -60.0F, -58.0F, 0.0F, -55.0F, 60.0F, -58.0F, 117.0F, -70.0F, -119.0F, 65.0F, -60.0F, 58.0F, 0.0F, 58.0F, 58.0F, 58.0F, 116.0F, 65.0F, 60.0F, -58.0F, 80.0F, -30.0F, 70.0F, 0.0F, 88.0F, 30.0F, 58.0F, 58.0F, -60.0F, -58.0F, -65.0F, -25.0F, -65.0F, 0.0F, -60.0F, 58.0F};
 struct RoadJunctionRt { int scene; int tex; float xz[10]; };

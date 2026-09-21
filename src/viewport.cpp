@@ -3162,7 +3162,8 @@ void Viewport::pickAll(float u, float v, const std::vector<SceneObject>& objects
             std::vector<roadgen::Vertex> strip;
             roadgen::tessellate(
                 o.roadPoints, o.roadWidth,
-                [&](float x, float z) { return terrainHeight(x, z); }, strip);
+                [&](float x, float z) { return terrainHeight(x, z); }, strip,
+                {}, o.roadSampleStep);
             float best = 1e30f;
             for (size_t vi = 0; vi + 2 < strip.size(); vi += 3) {
                 const Vec3 a{strip[vi].x, strip[vi].y, strip[vi].z};
@@ -4033,6 +4034,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         mix(sig, &roadTerrainRevision_, sizeof(roadTerrainRevision_));
         mix(sig, &junctionSig, sizeof(junctionSig));
         mix(sig, &o.roadWidth, sizeof(o.roadWidth));
+        mix(sig, &o.roadSampleStep, sizeof(o.roadSampleStep));
         if (!o.roadPoints.empty())
             mix(sig, o.roadPoints.data(), o.roadPoints.size() * sizeof(float));
         mix(sig, o.roadTexture.data(), o.roadTexture.size());
@@ -4042,7 +4044,8 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         std::vector<roadgen::Vertex> strip;
         roadgen::tessellate(
             o.roadPoints, o.roadWidth,
-            [&](float x, float z) { return terrainHeight(x, z); }, strip);
+            [&](float x, float z) { return terrainHeight(x, z); }, strip, {},
+            o.roadSampleStep);
         std::vector<float> interleaved;
         interleaved.reserve(strip.size() * 8);
         for (const roadgen::Vertex& v : strip)

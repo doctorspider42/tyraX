@@ -41,6 +41,8 @@ ap.add_argument('budgets', nargs='*', default=['0.00001,0.05'],
                 help='flatness,shear pairs to sweep')
 ap.add_argument('--reference', default='HEAD~1',
                 help='commit-ish whose src/roadgen.* is the reference surface')
+ap.add_argument('--sample-step', type=float, default=1.0,
+                help='candidate longitudinal spacing in world units (default: 1)')
 args = ap.parse_args()
 
 
@@ -56,14 +58,17 @@ def dump_fixture(dst):
     for f in sorted(glob.glob(str(EXAMPLE / 'objects' / '*.json'))):
         o = json.loads(Path(f).read_text(encoding='utf-8'))
         if o.get('type') == 'road':
-            roads.append((o['name'], float(o['roadWidth']), o['roadPoints']))
+            roads.append((o['name'], float(o['roadWidth']),
+                          float(o.get('roadSampleStep', args.sample_step)),
+                          o['roadPoints']))
     with open(dst, 'w') as fh:
         fh.write('%d %d %g %g\n' % (hmW, hmD, scene['terrain']['width'],
                                     scene['terrain']['depth']))
         fh.write(' '.join('%.9g' % h for h in heights) + '\n')
         fh.write('%d\n' % len(roads))
-        for name, w, pts in roads:
-            fh.write('%s|%.9g|%d\n' % (name, w, len(pts) // 2))
+        for name, w, step, pts in roads:
+            fh.write('%s|%.9g|%.9g|%d\n' %
+                     (name, w, step, len(pts) // 2))
             fh.write(' '.join('%.9g' % p for p in pts) + '\n')
     return len(roads)
 
@@ -96,6 +101,7 @@ with tempfile.TemporaryDirectory(prefix='tyrax-roadbudget-') as tmp:
             ['g++', '-std=c++20', '-O2', '-static',
              '-DTYRA_ROAD_SPAN_FLATNESS=%sf' % flat,
              '-DTYRA_ROAD_SPAN_SHEAR=%sf' % shear,
+             '-DTYRA_ROAD_SAMPLE_STEP=%sf' % args.sample_step,
              '-I', str(ROOT / 'src'), '-I', str(tmp),
              str(HERE / 'road-budget-probe.cpp'), str(ROOT / 'src/roadgen.cpp'),
              str(tmp / 'ref_roadgen.cpp'), '-o', str(exe)], check=True)
