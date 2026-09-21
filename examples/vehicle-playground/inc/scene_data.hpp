@@ -367,7 +367,7 @@ constexpr SceneObjectData SCENE_0_OBJECTS[133] = {
     {9, {40.0F, 5.7F, 7.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.75F, 0.52F, 0.23F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.15F, 16.0F, 1, 0.0F, 1, 48.0F, 1, 2, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8},  // District night lamp 6
     {9, {-9.0F, 5.7F, -14.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.75F, 0.52F, 0.23F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.15F, 16.0F, 1, 0.025F, 1, 48.0F, 1, 2, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8},  // District night lamp 7
     {9, {-25.0F, 4.8F, -22.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.18F, 0.65F, 0.8F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.15F, 16.0F, 1, 0.0F, 1, 48.0F, 1, 2, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8},  // District night lamp 8
-    {5, {0.0F, 0.5F, -5.02119F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 11, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 48.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8},  // vehicle-1
+    {5, {0.0F, 0.5F, -5.02119F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 11, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 2, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 48.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8},  // vehicle-1
 };
 
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {133};
@@ -804,6 +804,7 @@ constexpr int POSTFX_GODRAYS_ARR[SCENE_COUNT] = {0};
 constexpr int FLARE_USED = 0;
 constexpr int BEAMS_USED = 1;
 constexpr int FLASHLIGHT_USED = 0;
+constexpr int VEHICLE_HEADLIGHTS_USED = 1;
 constexpr int DAYCYCLE_USED = 1;
 constexpr int STAR_COUNT = 160;
 struct StarData { float x, y, z, size; unsigned char r, g, b, tier; };
@@ -852,7 +853,7 @@ constexpr StarData STARS[160] = {
 constexpr int STAR_TIERS = 3;
 constexpr int BLOB_SHADOWS = 0;
 constexpr float PROJ_SHADOW_DISTANCE = 50.0F;
-constexpr int BLOB_SHADOWS_USED = 0;
+constexpr int BLOB_SHADOWS_USED = 1;
 constexpr int BLSS_ADAPTIVE = 0;
 #define BLSS_SCENE_ON 0
 #define BLSS_SCENE_NET 0

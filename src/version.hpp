@@ -16,6 +16,13 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.118.0: BOUNDED PROJECTED VEHICLE HEADLIGHTS.
+// Vehicle headlights now draw through the flashlight gobo in their own capped,
+// textured receiver bag. Entering a vehicle suppresses the player's camera
+// flashlight without changing its toggle state, and grazing flashlight floor
+// receivers have absolute length/width caps after one physical-PS2 view priced
+// an otherwise small scene at 125 ms. Project format stays 59. MINOR.
+//
 // 1.117.7: MOVING ROAD EFFECTS SAMPLE INSIDE THEIR FOOTPRINT.
 // Vehicle headlight beams and runtime blob shadows use compact 3x3 receiver
 // grids instead of one quad. Interior samples see a raised road even when the
@@ -4863,8 +4870,8 @@
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 117
-#define TYRAX_VERSION_PATCH 7
+#define TYRAX_VERSION_MINOR 118
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

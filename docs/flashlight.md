@@ -411,10 +411,21 @@ The rule is a property of the object, not of the aim:
 
 The pool's texture *is* the shape of the light. The editor bakes one into
 `res/hud/flashlight-gobo.png` (128x128) for any project that can show a
-flashlight: a hot centre, a soft penumbra, the faint ring a dish reflector
+flashlight **or projected vehicle headlights**: a hot centre, a soft penumbra, the faint ring a dish reflector
 throws, and two low-frequency lobes so the circle is not perfectly round. It
 costs about 6% of the console's ~1.08 MB texture heap ([GS VRAM](gs-vram.md)),
-and a project with no flashlight never loads it.
+and a project with neither use never loads it.
+
+Entering a vehicle suspends the camera flashlight (pool, spot lighting and its
+projected-shadow contribution) but does not flip the authored/toggled state.
+It returns on exit. The car's own bounded headlight projector uses this same
+gobo independently; see [Vehicles](vehicles.md).
+
+The floor receiver also has absolute half-width and length caps after all cone
+and landing calculations. This is intentionally stricter than the flashlight's
+authored range: at a grazing angle the useful gobo occupies a small part of a
+huge mostly-black canvas, and on physical hardware that invisible fill once
+cost 125.06 ms by itself in a 147.07 ms frame.
 
 The pool's gain is solved so its peak lands at 0.8, not at 1.0. That matters
 more than it sounds: the blend is `Cs*FIX/128 + Cd`, and a peak at or over 1.0

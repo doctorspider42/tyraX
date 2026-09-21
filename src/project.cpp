@@ -8671,13 +8671,14 @@ std::string refreshGenerated(const Project& p) {
         }
     }
 
-    // The camera flashlight's gobo (docs/flashlight.md): the pool patch under
+    // The camera flashlight/vehicle headlight gobo (docs/flashlight.md): the pool patch under
     // the beam takes its STs from the light's own frustum, so this image IS the
     // shape of the light. Gated exactly like the sprites above -
-    // FLASHLIGHT_USED in scene_data.hpp reads the same predicate, and a project
-    // with no flashlight pays no GS VRAM for it. Written through writeFile so
+    // the generated use gates read the same predicates, and a project with
+    // neither effect pays no GS VRAM for it. Written through writeFile so
     // an unchanged bake keeps its mtime and the build stays incremental.
     if (templates::projectUsesFlashlight(p) ||
+        templates::projectUsesVehicleHeadlights(p) ||
         templates::projectUsesSpotVolumes(p)) {
         std::vector<unsigned char> png;
         if (!menubake::bakeFlashGoboPNG(png))

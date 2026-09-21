@@ -464,18 +464,21 @@ nothing when idle:
   the shape-blind heuristic (trim-shouldering sizes pushed past
   `bodyOverhang`) stays the fallback, and a model authored before this
   existed changes nothing.
-- **Headlights** (`headlights` on the definition, off by default): an
-  additive beam painted on the ground ahead of the nose, bright at the bumper
-  and gone at the far end (gouraud does the falloff) — the scene lights'
-  ground-pool trick. Its 3x3 trapezoid grid samples the baked road/junction
-  surface as well as terrain, so a raised street crossing the middle no longer
-  depth-tests the beam away. The 54 Gouraud vertices still fit one VU1 package.
-  Sells a night map; subtle by day.
+- **Headlights** (`headlights` on the definition, off by default): a bounded
+  projection of the flashlight gobo onto the ground ahead of the nose. Its
+  warm Gouraud tint fades toward the far edge while the texture supplies the
+  hot centre and soft penumbra, so it reads like illumination instead of a
+  translucent yellow trapezoid. The 3x3 grid samples baked road/junction
+  triangles as well as terrain; 54 vertices still fit one VU1 package.
+- Headlights have their **own textured submit**. Tail lamps and backfire remain
+  in the untextured glow bag, so the gobo cannot stamp itself onto either.
+  Rendering is capped at eight vehicle pools per frame; traffic beyond that
+  keeps its emissive lamp mesh but cannot turn fill rate into a wood chipper.
+  Both bags use precise frustum culling and full clip checks.
 
-Backfire and headlights share ONE additive submit (the glow bag). Both new
-bags ride `PipelineInfoBagFrustumCulling_Precise` with full clip checks —
-the engine asserts on the None combination, and a world quad the camera
-drives over without clip checks is the giant smeared polygon of legend.
+The player's camera flashlight is suspended while `vehicleDriver_ >= 0`, across
+its projected pool, per-vertex spot and projected-shadow paths. Its toggle state
+is preserved and resumes on exit. Vehicle headlights remain independent.
 
 ### The sound pack
 

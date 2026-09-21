@@ -1,1 +1,1 @@
-{ "id": "ff1376132626282d", "name": "vehicle-1", "type": "vehicle", "position": [0, 0.5, -5.02119], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.6, 0.6, 0.6], "physics": false, "vehicle": { "def": "CC96", "driveable": true } }
+{ "id": "ff1376132626282d", "name": "vehicle-1", "type": "vehicle", "position": [0, 0.5, -5.02119], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.6, 0.6, 0.6], "physics": false, "shadowMode": 2, "vehicle": { "def": "CC96", "driveable": true } }

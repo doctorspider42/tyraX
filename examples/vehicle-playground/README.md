@@ -782,6 +782,15 @@ none of its four corners. Each effect remains within one VU1 package (54
 vertices), so the fix adds triangles inside the existing submit rather than an
 extra draw call.
 
+The headlight grid is now a dedicated textured projector using the flashlight
+gobo, with warm Gouraud falloff and an eight-vehicle receiver cap. The player's
+camera flashlight is suspended while driving, so it no longer lights the boot
+lid or stacks an unbounded receiver under the car. A physical-PS2 capture from
+the reported worst view attributed **125.06 ms of 147.07 ms** to `Light_pools`;
+with the driver suppression active, a synchronized in-car capture measured
+**0.026 ms** there and **19.51 ms total**. The latter is a single parked frame,
+not a map-wide minimum or a claim that every view holds 50 FPS.
+
 [Hardware summary](authoring/frame-cost-2026-09-14/hardware-summary.json) and
 [raw evidence](authoring/frame-cost-2026-09-14/) retain the measured frames.
 

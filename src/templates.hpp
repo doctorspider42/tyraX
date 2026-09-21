@@ -109,6 +109,10 @@ bool projectUsesBeams(const Project& p);
 // Gates the res/hud/flashlight-gobo.png bake and FLASHLIGHT_USED in
 // scene_data.hpp - keep them equal, like projectUsesFlare and FLARE_USED.
 bool projectUsesFlashlight(const Project& p);
+// True when a vehicle definition can draw its projected headlight pool. The
+// result shares the flashlight gobo bake/load without enabling the player's
+// camera light.
+bool projectUsesVehicleHeadlights(const Project& p);
 // Does any spot light in the project carve shadow volumes? The ONE
 // answer - scene_data.hpp's SPOT_SHADOW_VOLUMES_USED, the gobo bake and
 // the VRAM gate all read it (docs/shadows.md).

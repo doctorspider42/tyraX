@@ -7176,7 +7176,7 @@ void TerrainGame::loop() {
   // cheap cone is deferred, and on the props that keep it one frame is
   // invisible.
   static bool flashSpotArmed = false;
-  const bool flashOnNow = g_flashEnabled && g_flashOn;
+  const bool flashOnNow = g_flashEnabled && g_flashOn{{VEHICLE_DRIVING_AND}};
   if (flashOnNow && flashSpotArmed) {
     Vec4 flashDir = cameraLookAt - cameraPosition;
     // The cone is a FILL now, not the light (docs/flashlight.md): the ground
@@ -8057,14 +8057,14 @@ void TerrainGame::buildScene() {
     if (BEAMS_USED || STAR_COUNT > 0)
       beamCoronaTex = engine->renderer.getTextureRepository().add(
           FileUtils::fromCwd("hud/flare-corona.png"));
-    // The camera flashlight's gobo (docs/flashlight.md): the pool patch takes
+    // The camera flashlight/vehicle headlight gobo (docs/flashlight.md): the pool patch takes
     // its STs from the light's own frustum, so this 128x128 IS the shape of the
     // beam. A SCENE spot light's pool is projected through the same image, and
     // a carved shadow needs a pool to carve - so a project with no flashlight
     // but with a shadow-casting spot loads it too (docs/shadows.md). The two
     // gates match the refreshGenerated predicates that bake it, so a project
     // with neither pays no VRAM for it.
-    if (FLASHLIGHT_USED || SPOT_SHADOW_VOLUMES_USED)
+    if (FLASHLIGHT_USED || VEHICLE_HEADLIGHTS_USED || SPOT_SHADOW_VOLUMES_USED)
       flashGoboTex = engine->renderer.getTextureRepository().add(
           FileUtils::fromCwd("hud/flashlight-gobo.png"));
     // Blob shadows: the glow sprite doubles as the shadow's alpha mask. The
@@ -14649,7 +14649,7 @@ void TerrainGame::updateAndRenderLightPools() {
       // uses to sample a silhouette - and the gobo texture decides what a torch
       // looks like. Nothing below depends on how finely the ground is
       // tessellated, which is the whole point.
-      if (!g_flashEnabled || !g_flashOn) {
+      if (!(g_flashEnabled && g_flashOn{{VEHICLE_DRIVING_AND}})) {
         // Torch off: every wall gets its own cone back (there is none to give,
         // but the flag must not outlive the light that set it).
         for (int prev : flashSpotOffList) setFlashSpotOff(prev, true);
@@ -15372,6 +15372,12 @@ void TerrainGame::updateAndRenderLightPools() {
         if (along > across * 8.0F) along = across * 8.0F;
       }
       if (nearEnd) along = across * 8.0F;  // the reach is what ends it
+      // A nearly horizontal torch used to turn the receiver into a colossal
+      // off-screen carpet. On real PS2 hardware that single light pool cost
+      // 125 ms in an otherwise 7 ms view. The gobo is already black outside
+      // its useful core, so drawing more than this cannot improve the image;
+      // it only feeds the GS a fill-rate wood chipper.
+      if (along > 16.0F) along = 16.0F;
       // A far end lays the canvas back toward the player; a near end lays
       // it outward, starting a cell behind the hit so the rim fades in.
       const float shift = farEnd    ? -(along - across) * 0.5F
@@ -15495,6 +15501,7 @@ void TerrainGame::updateAndRenderLightPools() {
         float w = d * tanA * 1.3F + 0.35F;
         const float wMax = FLASHLIGHT_RANGE * tanA * 1.3F + 0.35F;
         if (w > wMax) w = wMax;
+        if (w > 7.0F) w = 7.0F;
         return w < across ? across : w;
       };
       // THE CANVAS RIDES THE RELIEF'S HULL, NOT ITS SAMPLES. A vertex at the
@@ -17240,7 +17247,8 @@ void TerrainGame::renderProjShadows() {
     // light you stand next to can still outbid it through its falloff term.
     // (Volumes mode carries the torch's shadows in the destination alpha
     // instead - the slots stay free for the scene's own lights there.)
-    if (!FLASH_SHADOW_VOLUMES && g_flashEnabled && g_flashOn) {
+    if (!FLASH_SHADOW_VOLUMES && g_flashEnabled &&
+        g_flashOn{{VEHICLE_DRIVING_AND}}) {
       const float tx2 = cx - torchPos.x, ty2 = cy - torchPos.y,
                   tz2 = cz - torchPos.z;
       const float td = sqrtf(tx2 * tx2 + ty2 * ty2 + tz2 * tz2);
@@ -26894,7 +26902,7 @@ void TerrainGame::loop() {
   // cheap cone is deferred, and on the props that keep it one frame is
   // invisible.
   static bool flashSpotArmed = false;
-  const bool flashOnNow = g_flashEnabled && g_flashOn;
+  const bool flashOnNow = g_flashEnabled && g_flashOn{{VEHICLE_DRIVING_AND}};
   if (flashOnNow && flashSpotArmed) {
     Vec4 flashDir = cameraLookAt - cameraPosition;
     // The cone is a FILL now, not the light (docs/flashlight.md): the ground
@@ -32335,6 +32343,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     // (templates::projectUsesFlashlight, docs/flashlight.md).
     out << "constexpr int FLASHLIGHT_USED = "
         << (projectUsesFlashlight(p) ? 1 : 0) << ";\n";
+    out << "constexpr int VEHICLE_HEADLIGHTS_USED = "
+        << (projectUsesVehicleHeadlights(p) ? 1 : 0) << ";\n";
     // ...and for the day/night cycle's sun and moon discs
     // (templates::projectUsesDayCycle bakes res/hud/{sun,moon}-disc.png).
     out << "constexpr int DAYCYCLE_USED = " << (projectUsesDayCycle(p) ? 1 : 0)
@@ -33838,9 +33848,9 @@ static std::string vehicleMembers(const Project& p) {
   std::unique_ptr<Tyra::StaPipColorBag> skidColorBag_;
   void updateVehicleSkids(float dt);
   void renderVehicleSkids();
-  // The GLOW bag - everything a car ADDS light with, one additive submit:
-  // backfire flashes at the exhaust on an upshift, and the headlight pools
-  // painted on the terrain ahead (the scene lights' ground-pool trick).
+  // The GLOW bag - untextured tail-lamp and backfire quads. Headlights use a
+  // separate textured projector below: mixing them here would force the gobo
+  // over every lamp and flame in the same submission.
   enum { kVehGlowMax = 16 };
   // BagArray rather than a raw C array: the vehicle rings are
   // bag-backing, so the same type - and the same content stamp - has to
@@ -33852,6 +33862,17 @@ static std::string vehicleMembers(const Project& p) {
   std::unique_ptr<Tyra::StaPipBag> glowBag_;
   std::unique_ptr<Tyra::StaPipInfoBag> glowInfoBag_;
   std::unique_ptr<Tyra::StaPipColorBag> glowColorBag_;
+  // At most eight visible headlight pools, each a 3x3 terrain-conforming grid.
+  // The hard cap makes their fill/packet cost predictable even in traffic.
+  enum { kVehHeadlightCells = 9, kVehHeadlightMax = 8 * kVehHeadlightCells };
+  BagArray<Tyra::Vec4> headlightVerts_;
+  BagArray<Tyra::Vec4> headlightSts_;
+  BagArray<Tyra::Color> headlightCols_;
+  int headlightCount_ = 0;
+  std::unique_ptr<Tyra::StaPipBag> headlightBag_;
+  std::unique_ptr<Tyra::StaPipInfoBag> headlightInfoBag_;
+  std::unique_ptr<Tyra::StaPipColorBag> headlightColorBag_;
+  std::unique_ptr<Tyra::StaPipTextureBag> headlightTexBag_;
   void renderVehicleGlow();
   void updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s, int driving);
   void muteVehicleEngines();
@@ -34027,16 +34048,15 @@ void TerrainGame::renderVehicleSkids() {
   stapip.core.render(skidBag_.get());
 }
 
-// The GLOW bag: one ADDITIVE submit for everything a car adds light with -
-// rebuilt every frame from the vehicles (it is tiny), submitted only when
-// anything glows. Headlight pools are the scene lights' ground-pool trick:
-// a terrain-hugging trapezoid, bright at the nose, gone at the far end -
-// gouraud does the falloff. The backfire is a vertical quad at the exhaust
-// for a tenth of a second on every upshift, the shift sound's visual twin.
+// Vehicle light effects, rebuilt every frame from the vehicles (they are tiny).
+// Tail lamps and backfire remain untextured glow; headlights are a bounded,
+// terrain-hugging gobo projection, the camera flashlight's attractive part
+// without its unbounded grazing-angle receiver.
 void TerrainGame::renderVehicleGlow() {
   glowCount_ = 0;
+  headlightCount_ = 0;
   const float kDeg = 0.017453293F;
-  for (int vi = 0; vi < vehicleCount_ && glowCount_ + 3 <= kVehGlowMax; ++vi) {
+  for (int vi = 0; vi < vehicleCount_; ++vi) {
     VehicleRt& v = vehicles_[vi];
     if (!v.active || v.def < 0) continue;
     const VehicleDefData& s = VEHICLE_DEFS[v.def];
@@ -34072,7 +34092,8 @@ void TerrainGame::renderVehicleGlow() {
         for (int ci = nRear; ci < (int)cols.size(); ++ci) cols[(size_t)ci] = fc;
       }
     }
-    if (v.lightsOn > 0 && glowCount_ + 9 <= kVehGlowMax) {
+    if (v.lightsOn > 0 && flashGoboTex &&
+        headlightCount_ + kVehHeadlightCells <= kVehHeadlightMax) {
       // The beam starts at the measured front lamps when the model marked
       // them, else just past the bumper.
       const float nose = s.lampFront[3] > 0.0F
@@ -34102,7 +34123,9 @@ void TerrainGame::renderVehicleGlow() {
         return Vec4(x, groundSurfaceAt(x, z) + e, z, 1.0F);
       };
       auto beamColor = [&](float t) {
-        return Tyra::Color(210.0F, 200.0F, 140.0F, 64.0F * (1.0F - t));
+        const float fade = 1.0F - t;
+        return Tyra::Color(235.0F * fade, 225.0F * fade,
+                           175.0F * fade, 128.0F);
       };
       constexpr int tri[6] = {0, 1, 2, 0, 2, 3};
       for (int iz = 0; iz < kCells; ++iz) {
@@ -34115,13 +34138,26 @@ void TerrainGame::renderVehicleGlow() {
                              point(t1, s1), point(t1, s0)};
           const Tyra::Color pc[4] = {beamColor(t0), beamColor(t0),
                                      beamColor(t1), beamColor(t1)};
-          auto g = glowVerts_.span(glowCount_ * 6, 6);
-          auto c = glowCols_.span(glowCount_ * 6, 6);
+          // Crop into the gobo's useful soft disc. Mapping the full image made
+          // a pin-prick in the middle of a seven-metre trapezoid because most
+          // of the texture is deliberately black padding for the flashlight's
+          // perspective projection.
+          const float u0 = 0.18F + 0.64F * (s0 + 1.0F) * 0.5F;
+          const float u1 = 0.18F + 0.64F * (s1 + 1.0F) * 0.5F;
+          const float v0 = 0.18F + 0.64F * t0;
+          const float v1 = 0.18F + 0.64F * t1;
+          const Tyra::Vec4 uv[4] = {
+              Vec4(u0, v0, 1.0F, 0.0F), Vec4(u1, v0, 1.0F, 0.0F),
+              Vec4(u1, v1, 1.0F, 0.0F), Vec4(u0, v1, 1.0F, 0.0F)};
+          auto g = headlightVerts_.span(headlightCount_ * 6, 6);
+          auto st = headlightSts_.span(headlightCount_ * 6, 6);
+          auto c = headlightCols_.span(headlightCount_ * 6, 6);
           for (int j = 0; j < 6; ++j) {
             g[j] = p[tri[j]];
+            st[j] = uv[tri[j]];
             c[j] = pc[tri[j]];
           }
-          ++glowCount_;
+          ++headlightCount_;
         }
       }
     }
@@ -34180,7 +34216,7 @@ void TerrainGame::renderVehicleGlow() {
         ++glowCount_;
       }
     }
-    if (v.backfireT > 0.0F) {
+    if (v.backfireT > 0.0F && glowCount_ < kVehGlowMax) {
       const float k = v.backfireT / 0.09F;
       const float bx = v.pos[0] - sy * (hz + (s.bodyOverhang + 0.24F) * SC);
       const float bz = v.pos[2] - cy * (hz + (s.bodyOverhang + 0.24F) * SC);
@@ -34208,6 +34244,35 @@ void TerrainGame::renderVehicleGlow() {
         ++glowCount_;
       }
     }
+  }
+  if (headlightCount_ > 0) {
+    if (!headlightBag_) {
+      headlightInfoBag_ = std::make_unique<StaPipInfoBag>();
+      headlightInfoBag_->model = &model;
+      headlightInfoBag_->shadingType = TyraShadingGouraud;
+      headlightInfoBag_->fullClipChecks = true;
+      headlightInfoBag_->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+      headlightInfoBag_->zTestType = PipelineZTest_TestOnly;
+      headlightInfoBag_->dynLightPick = false;
+      headlightInfoBag_->spotLit = false;
+      headlightInfoBag_->fogDisabled = true;
+      headlightInfoBag_->additiveBlendFix = 72;
+      headlightColorBag_ = std::make_unique<StaPipColorBag>();
+      headlightCols_.bind(headlightColorBag_);
+      headlightTexBag_ = std::make_unique<StaPipTextureBag>();
+      headlightTexBag_->texture = flashGoboTex;
+      flashGoboTex->setWrapSettings(Tyra::Clamp, Tyra::Clamp);
+      headlightSts_.bind(headlightTexBag_);
+      headlightBag_ = std::make_unique<StaPipBag>();
+      headlightBag_->info = headlightInfoBag_.get();
+      headlightBag_->color = headlightColorBag_.get();
+      headlightBag_->lighting = nullptr;
+      headlightBag_->texture = headlightTexBag_.get();
+      headlightVerts_.bind(headlightBag_);
+    }
+    headlightBag_->count = (u32)(headlightCount_ * 6);
+    headlightBag_->bboxVersion = ++g_bboxStamp;
+    stapip.core.render(headlightBag_.get());
   }
   if (glowCount_ <= 0) return;
   if (!glowBag_) {
@@ -34306,6 +34371,9 @@ void TerrainGame::setupVehicles(int scene) {
   skidCols_.resize(kVehSkidMax * 6);
   glowVerts_.resize(kVehGlowMax * 6);
   glowCols_.resize(kVehGlowMax * 6);
+  headlightVerts_.resize(kVehHeadlightMax * 6);
+  headlightSts_.resize(kVehHeadlightMax * 6);
+  headlightCols_.resize(kVehHeadlightMax * 6);
   // Source parts are resident only for this scene. Drop every pointer-derived
   // run/radius now, before loadModelAsset can replace or free its vectors.
   wheelBatches_.clear();
@@ -37439,6 +37507,19 @@ bool projectUsesFlashlight(const Project& p) {
                 return true;
             for (const FlowNode& n : o.flowGraph.nodes)
                 if (n.type == "SetFlashlight") return true;
+        }
+    return false;
+}
+
+bool projectUsesVehicleHeadlights(const Project& p) {
+    // Vehicle definitions are shared assets, but an unplaced definition must
+    // not make every generated game pay the gobo's VRAM. Resolve the instance
+    // back to its definition and count only headlights that can actually draw.
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects) {
+            if (o.type != PrimitiveType::Vehicle) continue;
+            for (const VehicleDef& v : p.vehicles)
+                if (v.name == o.vehicleDef && v.headlights) return true;
         }
     return false;
 }

@@ -991,9 +991,9 @@ class TerrainGame : public Tyra::Game {
   std::unique_ptr<Tyra::StaPipColorBag> skidColorBag_;
   void updateVehicleSkids(float dt);
   void renderVehicleSkids();
-  // The GLOW bag - everything a car ADDS light with, one additive submit:
-  // backfire flashes at the exhaust on an upshift, and the headlight pools
-  // painted on the terrain ahead (the scene lights' ground-pool trick).
+  // The GLOW bag - untextured tail-lamp and backfire quads. Headlights use a
+  // separate textured projector below: mixing them here would force the gobo
+  // over every lamp and flame in the same submission.
   enum { kVehGlowMax = 16 };
   // BagArray rather than a raw C array: the vehicle rings are
   // bag-backing, so the same type - and the same content stamp - has to
@@ -1005,6 +1005,17 @@ class TerrainGame : public Tyra::Game {
   std::unique_ptr<Tyra::StaPipBag> glowBag_;
   std::unique_ptr<Tyra::StaPipInfoBag> glowInfoBag_;
   std::unique_ptr<Tyra::StaPipColorBag> glowColorBag_;
+  // At most eight visible headlight pools, each a 3x3 terrain-conforming grid.
+  // The hard cap makes their fill/packet cost predictable even in traffic.
+  enum { kVehHeadlightCells = 9, kVehHeadlightMax = 8 * kVehHeadlightCells };
+  BagArray<Tyra::Vec4> headlightVerts_;
+  BagArray<Tyra::Vec4> headlightSts_;
+  BagArray<Tyra::Color> headlightCols_;
+  int headlightCount_ = 0;
+  std::unique_ptr<Tyra::StaPipBag> headlightBag_;
+  std::unique_ptr<Tyra::StaPipInfoBag> headlightInfoBag_;
+  std::unique_ptr<Tyra::StaPipColorBag> headlightColorBag_;
+  std::unique_ptr<Tyra::StaPipTextureBag> headlightTexBag_;
   void renderVehicleGlow();
   void updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s, int driving);
   void muteVehicleEngines();
