@@ -29,6 +29,7 @@
 #include <kernel.h>  // FlushCache - the readback lands behind the data cache
 
 #include "debug/crash_handler.hpp"  // EE exception -> crash report
+#include "debug/hardware_trace.hpp"  // opt-in physical-console timeline scopes
 #include "renderer/3d/pipeline/static/core/stapip_vu_tap.hpp"  // VU1 packet tap
 #include "scripts/script.hpp"
 #include "scripts/live_debug.gen.hpp"
@@ -178,6 +179,10 @@ void writeVuCapture(ScriptContext& ctx);  // both defined below
 void writeFrameCapture(ScriptContext& ctx);
 unsigned int cmdSeq = 0;  // last applied command
 unsigned int outSeq = 0;  // snapshots written
+// The first snapshot is always written as the runner's game-is-up marker.
+// After that, do not keep paying for synchronous host: writes until a valid
+// command proves an editor is actually consuming them.
+bool editorAttached = false;
 int pollCooldown = 21;  // poll phase - see docs/devkit.md
 // The FLUSH deliberately keeps phase 1 and is the one that must not be moved:
 // it is the editor's liveness signal, and delaying it delays "the game is up".
@@ -225,6 +230,7 @@ void readVar(ScriptContext& ctx, int i, float* out) {
 }
 
 void pollCommand() {
+  Tyra::HardwareTrace::Scope trace("Live_debug_poll");
   static unsigned char c[CMD_HEADER + MAX_BP * 2 + MAX_FIRE * 2 +
                         MAX_WATCH * 2 + MAX_FACT_SET * 16 + 4];
   FILE* f = fopen(Tyra::FileUtils::fromCwd("livedbg.cmd").c_str(), "rb");
@@ -259,6 +265,7 @@ void pollCommand() {
   memcpy(&foot, c + CMD_HEADER + listLen + factc * 16, 4);
   if (foot != (seq ^ FOOTER_XOR)) return;  // torn write
 
+  editorAttached = true;
   cmdSeq = seq;
   int watchc;
   memcpy(&watchc, c + 28, 4);
@@ -322,6 +329,7 @@ void pollCommand() {
 }
 
 void flush(ScriptContext& ctx) {
+  Tyra::HardwareTrace::Scope trace("Live_debug_flush");
   unsigned char* p = snapBuf;
   ++outSeq;
   put32(p + 0, SNAP_MAGIC);
@@ -483,6 +491,7 @@ void flush(ScriptContext& ctx) {
 }
 
 void tickImpl(ScriptContext& ctx) {
+  Tyra::HardwareTrace::Scope trace("Live_debug");
   lastScene = ctx.scene;
   // The editor's manual fact overrides, re-asserted at the top of the frame so
   // the graphs and rules that run after this SEE them. Re-applied every frame
@@ -599,8 +608,9 @@ void tickImpl(ScriptContext& ctx) {
 
   if (--flushCooldown <= 0 || flushNow) {
     flushCooldown = ps2link ? 25 : 6;
+    const bool shouldFlush = flushNow || editorAttached;
     flushNow = false;
-    flush(ctx);
+    if (shouldFlush) flush(ctx);
   }
   // Clear the armed-timer list only AFTER the flush: the graphs report their
   // countdowns while they run, i.e. after this pump - so at flush time the list

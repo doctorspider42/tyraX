@@ -60,12 +60,12 @@ inline const char* MODEL_SOURCES[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "res/models/urban/detail-dumpster-closed.obj",
     "res/models/urban/detail-bench.obj",
     "res/models/urban/pallet.obj",
-    "res/models/car1.fbx",
-    "res/models/car1.fbx",
+    "res/models/cc96-strip-study/cc96-strip-study.glb",
+    "res/models/cc96-strip-study/cc96-strip-study.glb",
     "res/models/ggbot-rally.glb",
     "res/models/ggbot-rally.glb",
-    "res/models/tristar-lean.glb",
-    "res/models/tristar-lean.glb",
+    "res/models/tristar-efficient.glb",
+    "res/models/tristar-efficient.glb",
 };
 constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false};
 

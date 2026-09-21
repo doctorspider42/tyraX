@@ -277,6 +277,13 @@ class TerrainGame : public Tyra::Game {
     std::vector<Lod> lods;
     int shownLod = 0;  // tier the bags currently point at
     u32 baseStamp = 0;  // tier 0's bboxVersion, to restore on the way back
+    // Vehicle paint rewrites envColors only when its object-relative view
+    // basis crosses a visible quantization step. Stable colours keep their
+    // content stamp, allowing StaPip's baked VIF stream to replay the full
+    // reflection pass instead of rebuilding it every frame.
+    short envPaintKey[6] = {};
+    signed char envPaintLod = -1;
+    bool envPaintValid = false;
     // The additive twin of the pass above: same atlas, same STs, WHITE vertex
     // colors, so it sees the baked emissive light in the texture's RGB.
     BagArray<Tyra::Color> emisCols;
@@ -698,6 +705,9 @@ class TerrainGame : public Tyra::Game {
                            const unsigned char* blockAo = nullptr);
   void procFinishChunks();
   void renderProcChunks();
+  void renderRoadChunks();
+  float roadSurfaceAt(float x, float z) const;
+  float groundSurfaceAt(float x, float z) const;
   GeoPart skyDome;
   // Re-centered on the camera every frame (renderScene) so a large map can
   // never let the player walk (or climb) out from under the sky. The dome
@@ -874,6 +884,7 @@ class TerrainGame : public Tyra::Game {
     int aiAvoid = 0;  // cars the traffic rule saw ahead this frame (telemetry)
     int wpCount = 0;
     int wpCur = 0;
+    int sleepFrames = 0;  // settled parked frames before static-physics sleep
   };
   VehicleRt vehicles_[VEHICLE_COUNT > 0 ? VEHICLE_COUNT : 1];
   int vehicleCount_ = 0;
@@ -1000,6 +1011,7 @@ class TerrainGame : public Tyra::Game {
   void renderVehicleHud();
   // Is this runtime object a placed vehicle? The paint pass asks per part.
   int vehiclePaintFor(int objIdx);
+  const char* vehicleBlobTextureFor(int objIdx) const;
 
   // --- roads (docs/roads.md) ---
   // Built at scene load from ROAD_DEFS: the tessellated chunks live in
@@ -1686,6 +1698,10 @@ class TerrainGame : public Tyra::Game {
   // may still be reading a submitted quad, so casters never share buffers.
   struct BlobShadow {
     int objIndex = -1;
+    bool shaped = false;
+    float shapeX = 0.0F, shapeZ = 0.0F;  // baked local footprint, if known
+    std::string texPath;
+    Tyra::Texture* texture = nullptr;
     BagArray<Tyra::Vec4> verts, sts;
     Tyra::Color color;
     Tyra::M4x4 mat;

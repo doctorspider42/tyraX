@@ -85,25 +85,4 @@ bool factProfileDirty() {
 
 // No object has a flow graph yet.
 
-// Time machine (docs/time-machine.md): every graph's own state.
-unsigned int flowTimeScriptBytes() {
-  return 0;
-}
-void flowTimeScriptCapture(unsigned char* p) {
-  (void)p;
-}
-void flowTimeScriptRestore(const unsigned char* p) {
-  (void)p;
-}
-
-// Time machine (docs/time-machine.md): the flow variables and the event bus, both directions.
-int flowTimeVarCount() { return 0; }
-void flowTimeRead(int index, float* out3) {
-  out3[0] = out3[1] = out3[2] = 0.0F;
-  (void)index;  // this project defines no flow variables
-}
-void flowTimeWrite(int index, const float* in3) {
-  (void)index; (void)in3;
-}
-
 }  // namespace Vehicle_playground

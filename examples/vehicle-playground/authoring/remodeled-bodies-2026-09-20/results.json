@@ -1,0 +1,73 @@
+{
+  "hardware": "PS2 via ps2link 192.168.100.150",
+  "video": "NTSC interlaced 512x448, vsync on",
+  "profile": "Release; live tools off",
+  "traffic": "parked; four fixed day/night camera phases",
+  "sampling": "32 rolling FPS readings after warmup, writes only after 1440 frames",
+  "baseline": "Existing bodies with the earlier efficient 76-triangle wheels",
+  "candidate": "New authored CC96 and Tristar bodies, same wheels and driving settings",
+  "target_60fps_met": false,
+  "runs": {
+    "baseline": {
+      "elf_sha256": "2e31d21834906c1d40a10e81ca928c6f8c8ff6208ab778a9cf74918c3a87fa0a",
+      "fps": {
+        "garage-day": {
+          "median": 29.97,
+          "min": 29.969,
+          "max": 29.971,
+          "n": 8
+        },
+        "garage-night": {
+          "median": 29.969,
+          "min": 29.002,
+          "max": 29.972,
+          "n": 8
+        },
+        "outer-day": {
+          "median": 59.94,
+          "min": 57.944,
+          "max": 59.944,
+          "n": 8
+        },
+        "outer-night": {
+          "median": 59.94,
+          "min": 59.94,
+          "max": 59.942,
+          "n": 8
+        }
+      }
+    },
+    "candidate": {
+      "elf_sha256": "0df96633b7ec92b7dd04a1a69168c7a06b3c6500e4ef7b8b6780b893bf046116",
+      "fps": {
+        "garage-day": {
+          "median": 29.97,
+          "min": 29.968,
+          "max": 29.973,
+          "n": 8
+        },
+        "garage-night": {
+          "median": 29.97,
+          "min": 29.969,
+          "max": 29.972,
+          "n": 8
+        },
+        "outer-day": {
+          "median": 59.94,
+          "min": 59.937,
+          "max": 59.946,
+          "n": 8
+        },
+        "outer-night": {
+          "median": 59.94,
+          "min": 53.946,
+          "max": 59.941,
+          "n": 8
+        }
+      }
+    },
+    "profile": {
+      "elf_sha256": "c422643d806a9010987f93f26201d9750594db8d6574b4303d9f83a888a36266"
+    }
+  }
+}

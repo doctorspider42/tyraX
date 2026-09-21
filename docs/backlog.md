@@ -238,6 +238,15 @@ nobody sees".
 
 ### The vehicle BODIES: 0.757x is on the table and cannot be taken yet
 
+An additional authored CC96 source is now available for a separate importer
+experiment: [CC96 strip study](../examples/vehicle-playground/res/models/cc96-strip-study/README.md).
+Its main body accepts the existing full-attribute stripifier (11,058 list
+vertices → 4,212 strip vertices, unchanged triangles/normals/UVs). It is not
+active in the scene and has not passed through the vehicle importer or console
+renderer. The next step is body-strip import with lamp-order preservation and
+lighting/reflection/shadow/LOD checks; the historical measurements below refer
+to the older assets and do not price this new source.
+
 `vehbake` now calls `meshstrip` for the WHEEL. It cannot for the BODY, and the
 refusal is correct rather than a gap: the body is lit, so its key is the full
 one, and on the full key 2 242 of its 2 280 corners are unique.

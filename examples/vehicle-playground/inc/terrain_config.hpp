@@ -155,14 +155,14 @@ constexpr bool ENV_PROBE_REFLECTED = false;
 
 // Debug-profile HUD (Project > Preferences > Build). All forced false in a
 // release-profile build, which folds the overlay + instrumentation away.
-constexpr bool DEBUG_SHOW_FPS = false;
-constexpr bool DEBUG_SHOW_MEM = false;
+constexpr bool DEBUG_SHOW_FPS = true;
+constexpr bool DEBUG_SHOW_MEM = true;
 // Per-phase EE-time breakdown (scene / usable-highlight / particles / whole
 // frame), averaged over ~1s. The COP0-timer reads that feed it are guarded
 // by this constexpr, so a build with it false pays nothing (see drawDebugHud
 // / renderScene). This is the profiling harness used to diagnose the
 // usable-highlight cost, wired in as a shippable debug option.
-constexpr bool DEBUG_SHOW_PROFILER = false;
+constexpr bool DEBUG_SHOW_PROFILER = true;
 // Draw Area objects (type 17, docs/areas.md) as wireframe boxes in the game.
 // They have no geometry in a shipping build by design, which is precisely why
 // a zone that will not unload or a catch area that misses a prop is hard to

@@ -77,6 +77,10 @@ overflow reduce the requested frames. Disarm affects the next boot.
 - Scene phases and object IDs reuse the render-cost labels, but do not insert
   that tool's GS barriers. Do not request a serialized render-cost capture,
   screenshot or VU memory capture during hardware sampling.
+- `Roads` is the per-frame cull/submission of road and junction bags that were
+  generated once at scene load. `Procedural` excludes those reserved road
+  chunks and covers only procedural volumes and prefab geometry. Generation is
+  therefore not recurring, but submitting visible ready bags still is.
 - VIF1_DMA_wait measures EE waiting for DMA consumption, not VU1 arithmetic.
   VIF1 snapshots show VPS and VEW at observed boundaries only. GIF_STATE shows
   active path and FIFO occupancy at those instants; it is not GS utilization.

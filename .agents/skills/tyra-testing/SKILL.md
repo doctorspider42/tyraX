@@ -2952,6 +2952,12 @@ the same SIZE, so a mis-timed copy looks exactly like a successful one.
 Terrain additionally needs a terrain MATERIAL to strip at all -
 `TERRAINSTRIP ... strips 0` in `bin/log.txt` is that case and not a failure.
 
+The render-cost row `Roads` is ready road/junction cull and submission, not
+generation; roads are built once at scene load. `Procedural` explicitly skips
+owner `-3` road chunks and now means only procedural volumes/prefabs. Old CSVs
+from before 1.117.6 reported both together as `Procedural`, so do not compare
+those labels directly without summing the new rows.
+
 **Do not use `--build --run` for this.** It kills every running PCSX2, and with
 parallel worktree sessions that is somebody else's game. Launch
 `pcsx2-qt.exe -elf <project>\bin\vehicle-playground.elf` yourself and talk to

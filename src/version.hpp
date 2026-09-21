@@ -16,6 +16,16 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.117.6: ROAD EFFECTS LAND ON THE SURFACE THAT IS ACTUALLY DRAWN.
+// Blob shadows, point-light pools, flashlight floor pools and projected-shadow
+// patches now sample the baked road triangles as well as terrain, including
+// junction fans and sloped/laterally tessellated asphalt. Shaped blob quads use
+// the flattened full object basis, so a pitched/rolled vehicle keeps its true
+// heading past the Euler 90-degree fold. The render-cost profiler reports road
+// cull/submission as Roads and reserves Procedural for volumes/prefabs. Motor
+// District's canonical example now contains the one-vehicle optimization map
+// and names the CC96 strip-study asset directly. Project format stays 59. PATCH.
+//
 // 1.117.4: SHARED VERTICES REACH VEHICLE BODY TRIANGLE STRIPS.
 // vehbake now tries the full position+normal+UV strip weld on every non-lamp
 // body part; legacy flat-shaded bodies keep their lists, while the indexed CC96
@@ -4847,7 +4857,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 117
-#define TYRAX_VERSION_PATCH 5
+#define TYRAX_VERSION_PATCH 6
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

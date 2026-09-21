@@ -62,65 +62,9 @@ sign.save(TEX / 'district-sign.png')
 material('district-sign', 'district-sign.png')
 
 
-class Mesh:
-    """Join authored Kenney modules without adding material draw calls."""
-    def __init__(self):
-        self.lines = ['# Kitbash of Kenney Retro Urban Kit, CC0',
-                      'mtllib district-buildings.mtl']
-        self.count = [0, 0, 0]
-        self.materials = set()
-
-    def add(self, name, pos, scale):
-        offsets = self.count.copy()
-        for line in (URBAN / (name + '.obj')).read_text().splitlines():
-            fields = line.split()
-            if not fields:
-                continue
-            kind = fields[0]
-            if kind == 'v':
-                v = [float(x) * s + t for x, s, t in
-                     zip(fields[1:4], scale, pos)]
-                self.lines.append('v ' + ' '.join(f'{x:.6f}' for x in v))
-                self.count[0] += 1
-            elif kind == 'vt':
-                self.lines.append(line)
-                self.count[1] += 1
-            elif kind == 'vn':
-                n = [float(x) / s for x, s in zip(fields[1:4], scale)]
-                length = math.sqrt(sum(x*x for x in n)) or 1
-                self.lines.append('vn ' + ' '.join(f'{x/length:.6f}' for x in n))
-                self.count[2] += 1
-            elif kind == 'usemtl':
-                self.materials.add(fields[1])
-                self.lines.append(line)
-            elif kind == 'f':
-                corners = []
-                for field in fields[1:]:
-                    corners.append('/'.join(str(int(x) + offsets[i]) if x else ''
-                                            for i, x in enumerate(field.split('/'))))
-                self.lines.append('f ' + ' '.join(corners))
-
-    def save(self, name):
-        write(URBAN / (name + '.obj'), '\n'.join(self.lines) + '\n')
-
-
-materials = {}
-for name in ('wall-a-window', 'wall-a-garage', 'wall-a-roof'):
-    text = (URBAN / (name + '.mtl')).read_text()
-    for block in text.split('newmtl ')[1:]:
-        materials[block.splitlines()[0]] = 'newmtl ' + block
-write(URBAN / 'district-buildings.mtl', '\n'.join(materials.values()))
-for name, floors, nx, nz in [('workshop', 1, 3, 2), ('loft', 3, 2, 2),
-                              ('tower', 5, 2, 2)]:
-    mesh = Mesh()
-    for x in range(nx):
-        for z in range(nz):
-            for y in range(floors):
-                mesh.add('wall-a-garage' if name == 'workshop' else 'wall-a-window',
-                         ((x-(nx-1)/2)*4, y*3.2, (z-(nz-1)/2)*4), (4, 3.2, 4))
-            mesh.add('wall-a-roof', ((x-(nx-1)/2)*4, floors*3.2,
-                                   (z-(nz-1)/2)*4), (4, 2, 4))
-    mesh.save('district-' + name)
+# Asset-only generator is shared with the lean-building workflow.
+import runpy
+runpy.run_path(str(ROOT / 'authoring/build-lean-buildings.py'), run_name='__main__')
 
 
 # The city floor stays flat; the outer east course has gentle, continuous
@@ -261,11 +205,12 @@ add('Tristar Racer - test drive', 'vehicle', (-8,.31,-22), shadowMode=2,
     vehicle={'def':'Tristar Racer','driveable':True})
 
 for v in p['vehicles']:
-    # Close-up PS2 budgets, inspected in the running game. Rally is already tiny.
+    # Keep the better original bodies with efficient wheels. The 546/570-tri
+    # remodeling trial did not improve garage FPS and remains experimental.
     if v['name'] == 'CC96':
-        v.update(bodyTris=1200, wheelTris=480)
+        v.update(model='res/models/cc96-efficient.glb', bodyTris=3938, wheelTris=76)
     elif v['name'] == 'Tristar Racer':
-        v.update(model='res/models/tristar-lean.glb', bodyTris=1200, wheelTris=700)
+        v.update(model='res/models/tristar-efficient.glb', bodyTris=1200, wheelTris=76)
     v['bodyReflMap'] = ''  # actual sky + opted-in scene geometry
     v['bodyShine'] = .45 if v['name']=='CC96' else .35
     v['farDistance'] = 48

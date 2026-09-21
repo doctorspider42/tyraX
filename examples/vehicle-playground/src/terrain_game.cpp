@@ -2774,7 +2774,7 @@ void TerrainGame::loop() {
   // data.rotation, and a spinner that is ALSO a body must see the tumble's
   // value rather than fight it.
   if (!menuActive) updateSpinners();
-  if (!menuActive) { updateVehicles(g_frameScale * (1.0F / 50.0F)); updateVehicleSmoke(g_frameScale * (1.0F / 50.0F)); updateVehicleSkids(g_frameScale * (1.0F / 50.0F)); }
+  if (!menuActive) { { Tyra::HardwareTrace::Scope trace("Vehicles_update"); updateVehicles(g_frameScale * (1.0F / 50.0F)); } { Tyra::HardwareTrace::Scope trace("Vehicle_smoke_update"); updateVehicleSmoke(g_frameScale * (1.0F / 50.0F)); } { Tyra::HardwareTrace::Scope trace("Vehicle_skids_update"); updateVehicleSkids(g_frameScale * (1.0F / 50.0F)); } }
   else muteVehicleEngines();
 
   // Portal surfaces: carry the player / physics objects that crossed a
@@ -10110,12 +10110,12 @@ void TerrainGame::buildPoolPatch(LightPool& b, float cx, float cz, float r,
       const float x1 = cx + ((float)(ix + 1) / kCells - 0.5F) * 2.0F * r;
       const float z0 = cz + ((float)iz / kCells - 0.5F) * 2.0F * r;
       const float z1 = cz + ((float)(iz + 1) / kCells - 0.5F) * 2.0F * r;
-      b.verts[v + 0] = Vec4(x0, terrainHeightAt(x0, z0) + lift, z0, 1.0F);
-      b.verts[v + 1] = Vec4(x1, terrainHeightAt(x1, z0) + lift, z0, 1.0F);
-      b.verts[v + 2] = Vec4(x1, terrainHeightAt(x1, z1) + lift, z1, 1.0F);
+      b.verts[v + 0] = Vec4(x0, groundSurfaceAt(x0, z0) + lift, z0, 1.0F);
+      b.verts[v + 1] = Vec4(x1, groundSurfaceAt(x1, z0) + lift, z0, 1.0F);
+      b.verts[v + 2] = Vec4(x1, groundSurfaceAt(x1, z1) + lift, z1, 1.0F);
       b.verts[v + 3] = b.verts[v + 0];
       b.verts[v + 4] = b.verts[v + 2];
-      b.verts[v + 5] = Vec4(x0, terrainHeightAt(x0, z1) + lift, z1, 1.0F);
+      b.verts[v + 5] = Vec4(x0, groundSurfaceAt(x0, z1) + lift, z1, 1.0F);
       v += 6;
     }
   }
@@ -11083,7 +11083,7 @@ void TerrainGame::updateAndRenderLightPools() {
       // (renderProjShadows pays for that lesson in full). Terrain relief IS
       // followed - it is smooth, and following it keeps the pool grounded.
       const float baseY = projSurfaceAt(gx, gz);
-      const bool onGeometry = baseY > terrainHeightAt(gx, gz) + 0.01F;
+      const bool onGeometry = baseY > groundSurfaceAt(gx, gz) + 0.01F;
 
       // --- and the FLOOR patch, whether or not there was a wall -------------
       // Nothing to stand on where the beam lands (no terrain, no receiver) is
@@ -11314,7 +11314,7 @@ void TerrainGame::updateAndRenderLightPools() {
           for (int ic = 0; ic <= nC; ++ic) {
             const float c =
                 ((float)ic / nC * 2.0F - 1.0F) * rowHalfWidth(a);
-            sub[ia][ic] = terrainHeightAt(px0 + ax * a + cx2 * c,
+            sub[ia][ic] = groundSurfaceAt(px0 + ax * a + cx2 * c,
                                           pz0 + az * a + cz2 * c);
           }
         }
@@ -11824,7 +11824,15 @@ void TerrainGame::renderShadowDecals() {
   }
 }
 
+static const char* objectBlobTextureFor(int scene, int object, float* sx, float* sz) {
+  *sx = 0.0F; *sz = 0.0F;
+  return nullptr;
+}
+
+
 void TerrainGame::setupBlobShadows() {
+  for (BlobShadow& b : blobShadows)
+    if (!b.texPath.empty()) releaseTexture(b.texPath);
   blobShadows.clear();
   if (!BLOB_SHADOWS_USED) return;
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
@@ -11847,6 +11855,16 @@ void TerrainGame::setupBlobShadows() {
     blobShadows.emplace_back();
     BlobShadow& b = blobShadows.back();
     b.objIndex = i;
+    const char* shapedMask = objectBlobTextureFor(currentScene, i,
+                                                   &b.shapeX, &b.shapeZ);
+    if (!shapedMask || !shapedMask[0])
+      shapedMask = vehicleBlobTextureFor(i);
+    if (shapedMask && shapedMask[0]) {
+      b.texPath = shapedMask;
+      b.texture = acquireTexture(b.texPath);
+      b.shaped = b.texture != nullptr;
+    }
+    if (!b.texture) b.texture = blobShadowTex;
     b.mat.identity();
     b.verts.assign(6, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
     b.sts.clear();
@@ -11871,7 +11889,7 @@ void TerrainGame::setupBlobShadows() {
     b.colorBag = std::make_unique<StaPipColorBag>();
     b.colorBag->single = &b.color;
     b.texBag = std::make_unique<StaPipTextureBag>();
-    b.texBag->texture = blobShadowTex;
+    b.texBag->texture = b.texture;
     b.sts.bind(b.texBag);
     b.bag = std::make_unique<StaPipBag>();
     b.bag->info = b.info.get();
@@ -11892,16 +11910,30 @@ void TerrainGame::setupBlobShadows() {
 // samples conform it to slopes), fade with the caster's height above the
 // ground, alpha-blend (the glow texture's alpha is the soft edge).
 void TerrainGame::updateAndRenderBlobShadows() {
-  if (blobShadows.empty() || !blobShadowTex) return;
+  if (blobShadows.empty()) return;
   for (BlobShadow& b : blobShadows) {
+    if (!b.texture) continue;
     if (b.objIndex >= (int)runtimeObjects.size()) continue;
     const RuntimeObject& ro = runtimeObjects[b.objIndex];
     if (!ro.active || !ro.visible) continue;
     const SceneObjectData& d = ro.data;
+    // A shadow never outlives the caster's authored draw distance. Rejecting
+    // here also avoids the model-bound lookup and five terrain samples below.
+    if (beyondDrawDistance(d, cameraPosition)) continue;
     float cx = d.position[0], cz = d.position[2];
     float halfY = d.scale[1] * 0.5F;
     float r = d.scale[0] > d.scale[2] ? d.scale[0] : d.scale[2];
     r = r * 0.75F + 0.2F;
+    float shapeHx = r, shapeHz = r;
+    if (b.shaped && b.shapeX > 0.0F && b.shapeZ > 0.0F) {
+      shapeHx = 0.525F * b.shapeX * fabsf(d.scale[0]) + 0.06F;
+      shapeHz = 0.525F * b.shapeZ * fabsf(d.scale[2]) + 0.06F;
+    } else if (b.shaped) {
+      // Hand-picked masks do not carry bake metadata. Primitive dimensions
+      // are still better than forcing every rectangular object into a square.
+      shapeHx = 0.525F * fabsf(d.scale[0]) + 0.06F;
+      shapeHz = 0.525F * fabsf(d.scale[2]) + 0.06F;
+    }
     // A model is not a unit cube. Vehicles make the mismatch especially
     // obvious: their instance scale is usually 1..1.5 while the body is four
     // units long, which produced a tiny blob between the axles. Use the loaded
@@ -11921,12 +11953,34 @@ void TerrainGame::updateAndRenderBlobShadows() {
       const float hx = 0.5F * (gm.mx[0] - gm.mn[0]) * sx;
       const float hz = 0.5F * (gm.mx[2] - gm.mn[2]) * sz;
       r = sqrtf(hx * hx + hz * hz) * 0.9F + 0.12F;
+      if (b.shapeX <= 0.0F || b.shapeZ <= 0.0F) {
+        shapeHx = hx * 1.05F + 0.06F;
+        shapeHz = hz * 1.05F + 0.06F;
+      }
       halfY = -gm.mn[1] * sy;
+    }
+    // Precise package culling used to reject an off-screen blob only after we
+    // had rebuilt its six vertices and sampled terrain five times. Cull the
+    // complete possible footprint first. The deliberately fat vertical range
+    // tolerates uneven terrain; a false positive merely takes the old path,
+    // while a false negative would make a shadow pop at the screen edge.
+    {
+      float extent = shapeHx > shapeHz ? shapeHx : shapeHz;
+      if (r > extent) extent = r;
+      const float yExtent = extent + halfY + 4.0F;
+      const Tyra::Vec4 mn(cx - extent, d.position[1] - yExtent, cz - extent,
+                          1.0F);
+      const Tyra::Vec4 mx(cx + extent, d.position[1] + yExtent, cz + extent,
+                          1.0F);
+      if (Tyra::CoreBBox::frustumCheckAABB(
+              engine->renderer.core.renderer3D.frustumPlanes.getAll(), mn,
+              mx) == Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
+        continue;
     }
     // Object base: the player entity sits at its feet, everything else is
     // centered (base = center - halfY).
     if (b.objIndex == PLAYER_INDEX) halfY = 0.0F;
-    const float ground = terrainHeightAt(cx, cz);
+    const float ground = groundSurfaceAt(cx, cz);
     const float h = (d.position[1] - halfY) - ground;
     float fade = 1.0F - h * (1.0F / 3.0F);
     // NOT the day/night handover fade (daynight::g_shadowFade), which the
@@ -11937,12 +11991,34 @@ void TerrainGame::updateAndRenderBlobShadows() {
     if (fade <= 0.02F) continue;
     if (fade > 1.0F) fade = 1.0F;
     const float lift = 0.06F;
-    b.verts[0] = Vec4(cx - r, terrainHeightAt(cx - r, cz + r) + lift, cz + r, 1.0F);
-    b.verts[1] = Vec4(cx + r, terrainHeightAt(cx + r, cz + r) + lift, cz + r, 1.0F);
-    b.verts[2] = Vec4(cx + r, terrainHeightAt(cx + r, cz - r) + lift, cz - r, 1.0F);
-    b.verts[3] = b.verts[0];
-    b.verts[4] = b.verts[2];
-    b.verts[5] = Vec4(cx - r, terrainHeightAt(cx - r, cz - r) + lift, cz - r, 1.0F);
+    if (b.shaped) {
+      // Flatten the object's real forward basis instead of reading Euler Y.
+      // Vehicle pitch/roll are decomposed back into XYZ Euler angles and that
+      // representation folds headings past 90 degrees into the other axes;
+      // using rotation[1] alone therefore made the mask appear fixed or snap.
+      const V3 forward = rotated({0.0F, 0.0F, 1.0F}, d.rotation);
+      const float fl = sqrtf(forward.x * forward.x + forward.z * forward.z);
+      const float sy = fl > 0.0001F ? forward.x / fl : 0.0F;
+      const float cy = fl > 0.0001F ? forward.z / fl : 1.0F;
+      auto corner = [&](float lx, float lz) {
+        const float x = cx + lx * cy + lz * sy;
+        const float z = cz - lx * sy + lz * cy;
+        return Vec4(x, groundSurfaceAt(x, z) + lift, z, 1.0F);
+      };
+      b.verts[0] = corner(-shapeHx, shapeHz);
+      b.verts[1] = corner( shapeHx, shapeHz);
+      b.verts[2] = corner( shapeHx,-shapeHz);
+      b.verts[3] = b.verts[0];
+      b.verts[4] = b.verts[2];
+      b.verts[5] = corner(-shapeHx,-shapeHz);
+    } else {
+      b.verts[0] = Vec4(cx - r, groundSurfaceAt(cx - r, cz + r) + lift, cz + r, 1.0F);
+      b.verts[1] = Vec4(cx + r, groundSurfaceAt(cx + r, cz + r) + lift, cz + r, 1.0F);
+      b.verts[2] = Vec4(cx + r, groundSurfaceAt(cx + r, cz - r) + lift, cz - r, 1.0F);
+      b.verts[3] = b.verts[0];
+      b.verts[4] = b.verts[2];
+      b.verts[5] = Vec4(cx - r, groundSurfaceAt(cx - r, cz - r) + lift, cz - r, 1.0F);
+    }
     b.color.a = 60.0F * fade;
     b.bag->bboxVersion = ++g_bboxStamp;
     stapip.core.render(b.bag.get());
@@ -12487,7 +12563,7 @@ void TerrainGame::setDynLightSkip(int obj, int slot) {
 }
 
 float TerrainGame::projSurfaceAt(float x, float z) {
-  float best = terrainHeightAt(x, z);
+  float best = groundSurfaceAt(x, z);
   for (const ProjRecv& r : g_projRecv) {
     if (r.top <= best) continue;
     if (x < r.minX || x > r.maxX || z < r.minZ || z > r.maxZ) continue;
@@ -13447,9 +13523,9 @@ void TerrainGame::renderProjShadows() {
     // surface answer is the void, and a patch built down there is geometry a
     // million units from the scene. A caster over a hole simply casts nothing.
     if (baseY <= TERRAIN_VOID_Y * 0.5F) continue;
-    const bool onGeometry = baseY > terrainHeightAt(gx, gz) + 0.01F;
+    const bool onGeometry = baseY > groundSurfaceAt(gx, gz) + 0.01F;
     auto patchY = [&](float px, float pz) {
-      return onGeometry ? baseY : terrainHeightAt(px, pz);
+      return onGeometry ? baseY : groundSurfaceAt(px, pz);
     };
 
     // ONE emitter for both orders. The list and the strip must put bit-for-bit
@@ -15745,6 +15821,12 @@ void TerrainGame::buildStaticBatchList() {
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
     const SceneObjectData& d = SCENE_OBJECTS[i];
     if (!d.batchStatic) continue;
+    // Vehicles, endless scrollers and any future owner of the matrix fast
+    // path move after scene load. Baking one into world-space static geometry
+    // makes the solo renderer skip it forever; a multi-part model whose parts
+    // share a texture could even form a "batch" with itself. setupVehicles()
+    // and other runtime owners set this request before this list is built.
+    if (runtimeObjects[i].wantsMatrixPath) continue;
     // Materials of always-resident objects are loaded by now; a reflective
     // one draws a second additive env pass per bag - keep those objects on
     // the solo path, which already handles the env bag.
@@ -17186,6 +17268,30 @@ void TerrainGame::updateVehicles(float dt) {
     if (v.lightsOn < 0) v.lightsOn = s.headlights ? 1 : 0;
     v.brakeOn = inBrake > 0.01F ? 1 : 0;
 
+    // A settled parked car is static scenery until somebody enters or hits
+    // it. Running its four ground probes, the full collider gather and the
+    // suspension solver every frame was particularly wasteful in traffic
+    // scenes: the five-car playground paid almost the same physics bill for
+    // three display cars as for its two moving rivals. Enter/exit and the
+    // proximity prompt stay above this gate, while the car-vs-car pass below
+    // wakes a parked body by assigning motion before the next frame. Let an
+    // exiting car run once more while an audio channel is live so its loops
+    // are silenced before it sleeps.
+    const bool canSleep =
+        vi != vehicleDriver_ && v.wpCount <= 0 && v.grounded &&
+        v.speed > -0.001F && v.speed < 0.001F &&
+        v.lateral > -0.001F && v.lateral < 0.001F &&
+        v.engineCh < 0 && v.engineChHigh < 0 && v.screechCh < 0;
+    if (canSleep) {
+      if (v.sleepFrames < 25) ++v.sleepFrames;
+    } else {
+      v.sleepFrames = 0;
+    }
+    if (v.sleepFrames >= 25) {
+      Tyra::HardwareTrace::Scope trace("Vehicle_sleep");
+      continue;
+    }
+
     // Steering, with the lock shrinking toward top speed: without the taper
     // a full-lock flick at speed spins the car on the spot, and a d-pad is
     // always full deflection.
@@ -18417,6 +18523,16 @@ int TerrainGame::vehiclePaintFor(int objIdx) {
   return 0;
 }
 
+const char* TerrainGame::vehicleBlobTextureFor(int objIdx) const {
+  for (int i = 0; i < VEHICLE_COUNT; ++i) {
+    const VehicleInstData& inst = VEHICLES[i];
+    if (inst.scene != currentScene || inst.object != objIdx || inst.def < 0)
+      continue;
+    return VEHICLE_DEFS[inst.def].shadowTexture;
+  }
+  return nullptr;
+}
+
 // The pause menu's mute. Forgetting the channel (engineCh = -1) is what makes
 // closing the menu RESTART the loop through the ordinary enter path instead of
 // resuming a voice whose volume something else may have touched meanwhile; the
@@ -19022,7 +19138,15 @@ void TerrainGame::buildRoads(int scene) {
   // between them (it is also the A/B knob - flip it and rebuild, one engine
   // and one editor, only the vertex ORDER moves).
   const unsigned int stripRun = 75u;
-  const bool useStrips = minPackageSize() >= stripRun;
+  // The physical-GS smear that originally parked this at 0 came from unbounded
+  // road V coordinates, not from strip topology. Each chunk now rebases V by a
+  // whole repeat before either emitter sees it; hardware A/B keeps lane marks
+  // intact while the strip removes hundreds of packages from a district.
+  // Keep 0 as the triangle-list control arm for future renderer work.
+#ifndef TYRA_STRIP_ROADS
+#define TYRA_STRIP_ROADS 1
+#endif
+  const bool useStrips = TYRA_STRIP_ROADS && minPackageSize() >= stripRun;
   const Tyra::Color grey(128.0F, 128.0F, 128.0F, 128.0F);
   bool any = false;
   for (int ri = 0; ri < ROAD_COUNT; ++ri) {
@@ -19064,6 +19188,7 @@ void TerrainGame::buildRoads(int scene) {
     };
     ProcChunk* c = nullptr;
     int stationsInChunk = 0;
+    float chunkVBase = 0.0F;
     // Strip run state, per chunk. TWIN NOTICE: roadgen.cpp's
     // tessellateStrips - the same packer, vertex for vertex.
     size_t runStart = 0;
@@ -19260,6 +19385,11 @@ void TerrainGame::buildRoads(int scene) {
             c->owner = -3;
             c->roadTex = tex;
             c->stripRun = useStrips ? (int)stripRun : 0;
+            // Texture repeat is invariant under an integer V offset. Keep the
+            // value local to this bag: long roads otherwise feed ever-growing
+            // ST coordinates into the physical GS/VU path, where the lost
+            // fractional precision can smear one texel over the whole road.
+            chunkVBase = floorf(lv0);
             stationsInChunk = 0;
             runStart = 0;
             alongOpen = false;
@@ -19273,7 +19403,7 @@ void TerrainGame::buildRoads(int scene) {
           };
           auto sAt = [&](int j, bool newRow) {
             return Tyra::Vec4((float)j / (float)crossSteps,
-                              newRow ? v : lv0, 1.0F, 0.0F);
+                              (newRow ? v : lv0) - chunkVBase, 1.0F, 0.0F);
           };
           if (!useStrips) {
             for (size_t ci = 0; ci + 1 < cuts.size(); ++ci) {
@@ -19288,10 +19418,10 @@ void TerrainGame::buildRoads(int scene) {
                                  nz[(size_t)j2], 1.0F);
               const Tyra::Vec4 D(nx[(size_t)j], ny[(size_t)j],
                                  nz[(size_t)j], 1.0F);
-              const Tyra::Vec4 sA(u0, lv0, 1.0F, 0.0F);
-              const Tyra::Vec4 sB(u1, lv0, 1.0F, 0.0F);
-              const Tyra::Vec4 sC(u1, v, 1.0F, 0.0F);
-              const Tyra::Vec4 sD(u0, v, 1.0F, 0.0F);
+              const Tyra::Vec4 sA(u0, lv0 - chunkVBase, 1.0F, 0.0F);
+              const Tyra::Vec4 sB(u1, lv0 - chunkVBase, 1.0F, 0.0F);
+              const Tyra::Vec4 sC(u1, v - chunkVBase, 1.0F, 0.0F);
+              const Tyra::Vec4 sD(u0, v - chunkVBase, 1.0F, 0.0F);
               c->vertices.push_back(A); c->sts.push_back(sA); c->colors.push_back(grey);
               c->vertices.push_back(B); c->sts.push_back(sB); c->colors.push_back(grey);
               c->vertices.push_back(C); c->sts.push_back(sC); c->colors.push_back(grey);
@@ -19426,7 +19556,21 @@ void TerrainGame::buildRoads(int scene) {
 void TerrainGame::renderProcChunks() {
   if (procChunks.empty()) return;
   for (ProcChunk& c : procChunks) {
+    // Roads have their own phase and profiler row. Keeping them here as well
+    // used to make "Procedural" mean "mostly asphalt" and would double-draw
+    // them now that the main view calls renderRoadChunks explicitly.
+    if (c.owner == -3) continue;
     if (!c.bag || c.bag->count == 0) continue;
+    // StaPip has its own precise clipper, but entering it for every generated
+    // road/prefab chunk still pays the bag setup and classification cost. The
+    // chunks already own world-space bounds, so reject wholly invisible ones
+    // here and leave only intersecting chunks to the pipeline's safe clipper.
+    const Tyra::Vec4 mn(c.aabbMin[0], c.aabbMin[1], c.aabbMin[2], 1.0F);
+    const Tyra::Vec4 mx(c.aabbMax[0], c.aabbMax[1], c.aabbMax[2], 1.0F);
+    if (Tyra::CoreBBox::frustumCheckAABB(
+            engine->renderer.core.renderer3D.frustumPlanes.getAll(), mn, mx) ==
+        Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
+      continue;
     // Per-chunk draw distance: the cheapest LOD there is, and the reason
     // chunk size is a real authoring decision rather than a detail.
     if (c.drawDist > 0.0F) {
@@ -19438,6 +19582,79 @@ void TerrainGame::renderProcChunks() {
     if (splitBandActive && outsideSplitBand(c.aabbMin, c.aabbMax)) continue;
     stapip.core.render(c.bag.get());
   }
+}
+
+void TerrainGame::renderRoadChunks() {
+  // Main and reflection views need the asphalt without paying for every
+  // procedural volume and prefab in the scene. Roads own the reserved -3
+  // producer id, which also gives the profiler an honest standalone phase.
+  for (ProcChunk& c : procChunks) {
+    if (c.owner != -3 || !c.bag || c.bag->count == 0) continue;
+    const Tyra::Vec4 mn(c.aabbMin[0], c.aabbMin[1], c.aabbMin[2], 1.0F);
+    const Tyra::Vec4 mx(c.aabbMax[0], c.aabbMax[1], c.aabbMax[2], 1.0F);
+    if (Tyra::CoreBBox::frustumCheckAABB(
+            engine->renderer.core.renderer3D.frustumPlanes.getAll(), mn, mx) ==
+        Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
+      continue;
+    if (c.drawDist > 0.0F) {
+      const float dx = c.centre[0] - cameraPosition.x;
+      const float dy = c.centre[1] - cameraPosition.y;
+      const float dz = c.centre[2] - cameraPosition.z;
+      if (dx * dx + dy * dy + dz * dz > c.drawDist * c.drawDist) continue;
+    }
+    if (splitBandActive && outsideSplitBand(c.aabbMin, c.aabbMax)) continue;
+    stapip.core.render(c.bag.get());
+  }
+}
+
+// Height of the baked road triangle under a decal sample. This deliberately
+// reads the already-generated chunks instead of evaluating the authoring
+// spline again: junction fans, lateral terrain tessellation and strip/list A/B
+// builds then all answer from the exact surface the GS receives. The AABB
+// reject makes the common off-road query 68 cheap comparisons; only the one or
+// two chunks under the sample pay triangle tests.
+float TerrainGame::roadSurfaceAt(float x, float z) const {
+  float best = -1.0e30F;
+  auto testTriangle = [&](const Vec4& a, const Vec4& b, const Vec4& c) {
+    const float den = (b.z - c.z) * (a.x - c.x) +
+                      (c.x - b.x) * (a.z - c.z);
+    if (fabsf(den) < 0.000001F) return;
+    const float wa = ((b.z - c.z) * (x - c.x) +
+                      (c.x - b.x) * (z - c.z)) / den;
+    const float wb = ((c.z - a.z) * (x - c.x) +
+                      (a.x - c.x) * (z - c.z)) / den;
+    const float wc = 1.0F - wa - wb;
+    // A hair of tolerance keeps adjacent triangles from exposing a numerical
+    // crack to a six-vertex light/shadow patch on their shared edge.
+    if (wa < -0.0001F || wb < -0.0001F || wc < -0.0001F) return;
+    const float y = wa * a.y + wb * b.y + wc * c.y;
+    if (y > best) best = y;
+  };
+  for (const ProcChunk& c : procChunks) {
+    if (c.owner != -3 || c.vertices.size() < 3) continue;
+    if (x < c.aabbMin[0] || x > c.aabbMax[0] ||
+        z < c.aabbMin[2] || z > c.aabbMax[2])
+      continue;
+    const size_t count = c.vertices.size();
+    if (c.stripRun > 0) {
+      const size_t run = (size_t)c.stripRun;
+      for (size_t first = 0; first < count; first += run) {
+        const size_t end = first + run < count ? first + run : count;
+        for (size_t i = first + 2; i < end; ++i)
+          testTriangle(c.vertices[i - 2], c.vertices[i - 1], c.vertices[i]);
+      }
+    } else {
+      for (size_t i = 0; i + 2 < count; i += 3)
+        testTriangle(c.vertices[i], c.vertices[i + 1], c.vertices[i + 2]);
+    }
+  }
+  return best;
+}
+
+float TerrainGame::groundSurfaceAt(float x, float z) const {
+  const float terrain = terrainHeightAt(x, z);
+  const float road = roadSurfaceAt(x, z);
+  return road > terrain ? road : terrain;
 }
 
 // --- the block collision field ---------------------------------------------
@@ -20758,6 +20975,11 @@ void TerrainGame::renderScene() {
     stapip.core.render(skyDome.bag.get());
     renderSkyBodies(probeEye, envLook);
     skyDome.infoBag->zTestType = prevZTest;
+    // The world under the car matters more to paint than another distant prop.
+    // Draw only resident terrain and reserved road chunks here: no new
+    // geometry, pair search, or unrelated procedural/prefab bags.
+    renderTerrain();
+    renderRoadChunks();
     // "Show in reflections" objects render into the map too - base passes
     // only (no env pass inside the env pass), depth-tested against the
     // target's dedicated z-buffer so they occlude each other correctly.
@@ -20869,9 +21091,13 @@ void TerrainGame::renderScene() {
   // primitives (rebuilt first when a member changed). Opaque z-tested
   // geometry, so drawing before the solo objects is order-free.
   { const u32 ct=costStart(); renderStaticBatches(); costEnd("Static_batches",-1,ct); }
-  // Runtime-generated geometry (procedural volumes, prefab instances) - the
-  // same deal one step further: the game built these bags itself, so they need
-  // no per-object bookkeeping at all, only a distance test and a submit.
+  // Roads are generated once at scene load, but their ready bags still incur
+  // per-frame culling and submission. Price that work separately: otherwise a
+  // road-only scene misleadingly reports the whole cost as "Procedural".
+  { const u32 ct=costStart(); renderRoadChunks(); costEnd("Roads",-1,ct); }
+  // Other runtime-generated geometry (procedural volumes, prefab instances) -
+  // the same deal one step further: the game built these bags itself, so they
+  // need no per-object bookkeeping at all, only a distance test and a submit.
   { const u32 ct=costStart(); renderProcChunks(); costEnd("Procedural",-1,ct); }
   // Debug overlay: the collision boxes the walker and the camera boom test
   // (folds away entirely in a release build - DEBUG_SHOW_COLLISION).
@@ -20967,14 +21193,12 @@ void TerrainGame::renderScene() {
     // moves by itself), and keep alpha >= 1 - the GS alpha test is NOTEQUAL 0,
     // and a specular of zero would erase the reflection with it.
     //
-    // THIS LOOP IS WHY THE CONTENT STAMP EXISTS, and it is the one the
-    // adversarial verify arm caught twice. It rewrites every vertex colour of
-    // a visible mesh EVERY FRAME from the camera, so the baked VIF stream's
-    // inlined payload goes stale the moment the car or the camera moves - and
-    // nothing in the old key could see it, because `bboxVersion` is a
-    // statement about the bounding box and these are colours. It used to
-    // `const_cast` the bag's own `many` pointer, which bypassed the array
-    // altogether; going through the BagArray is what makes the stamp move.
+    // These colours are part of the baked VIF payload. Rewriting them for
+    // sub-pixel camera changes used to invalidate that payload every frame,
+    // making the paint overlay almost as expensive as the whole base car.
+    // Quantise the object-relative basis and keep the previous colours while
+    // it stays in the same bucket. The reflection coordinates still update
+    // continuously; only the broad Fresnel/specular modulation is stepped.
     const int paint = vehiclePaintFor(objectIndex);
     if (paint && part.envTexBag->coordinates && part.envColorBag->many) {
       part.envTexBag->textureFunction = 3;  // TEXTURE_FUNCTION_HIGHLIGHT2
@@ -20992,36 +21216,62 @@ void TerrainGame::renderScene() {
         hL.y /= hl;
         hL.z /= hl;
       }
-      // The tier the bags currently point at - applyGeoLod re-aims
-      // envColorBag at part.envColors (tier 0) or at a tier's own array, and
-      // `shownLod` is the field it keeps in step with that.
-      BagArray<Tyra::Color>& dstArr =
-          (part.shownLod == 0 || (int)part.lods.size() < part.shownLod)
-              ? part.envColors
-              : part.lods[part.shownLod - 1].envColors;
-      const Tyra::Vec4* nrm = part.envTexBag->coordinates;
-      u32 n = part.envBag->count;
-      if (n > (u32)dstArr.size()) n = (u32)dstArr.size();
-      // One span for the whole run: it stamps ONCE, where a per-element
-      // operator[] would stamp 1 100 times for the same answer.
-      auto dst = dstArr.span(0, n);
-      for (u32 k = 0; k < n; ++k) {
-        const float df = nrm[k].x * fwdL.x + nrm[k].y * fwdL.y + nrm[k].z * fwdL.z;
-        // 0.3 floor: pure fresnel dims the whole reflection (it is < 1
-        // almost everywhere) - the floor keeps the authored strength's
-        // overall level and spends the rest on the rim.
-        const float f = 0.30F + 0.70F * (1.0F - (df < 0.0F ? -df : df));
-        float sp = nrm[k].x * hL.x + nrm[k].y * hL.y + nrm[k].z * hL.z;
-        if (sp < 0.0F) sp = 0.0F;
-        sp *= sp;
-        sp *= sp;
-        sp *= sp;  // p = 8
-        float a = 1.0F + 220.0F * sp;
-        if (a > 255.0F) a = 255.0F;
-        dst[k].r = 128.0F * f;
-        dst[k].g = 128.0F * f;
-        dst[k].b = 128.0F * f;
-        dst[k].a = a;
+      auto paintKey = [](float v) -> short {
+        const float scaled = v * 128.0F;
+        int q = (int)(scaled + (scaled >= 0.0F ? 0.5F : -0.5F));
+        if (q < -32768) q = -32768;
+        if (q > 32767) q = 32767;
+        return (short)q;
+      };
+      const short key[6] = {paintKey(fwdL.x), paintKey(fwdL.y),
+                            paintKey(fwdL.z), paintKey(hL.x),
+                            paintKey(hL.y),   paintKey(hL.z)};
+      bool paintChanged = !part.envPaintValid ||
+                          part.envPaintLod != (signed char)part.shownLod;
+      // Four 1/128 steps are deliberate hysteresis. Camera suspension/bob can
+      // hover on either side of a rounded bucket while the apparent view is
+      // unchanged; waiting for a real angular move prevents alternating
+      // rebuild/replay frames at rest.
+      for (int k = 0; k < 6; ++k) {
+        int delta = (int)part.envPaintKey[k] - (int)key[k];
+        if (delta < 0) delta = -delta;
+        if (delta >= 4) paintChanged = true;
+      }
+      if (paintChanged) {
+        for (int k = 0; k < 6; ++k) part.envPaintKey[k] = key[k];
+        part.envPaintLod = (signed char)part.shownLod;
+        part.envPaintValid = true;
+        // The tier the bags currently point at - applyGeoLod re-aims
+        // envColorBag at part.envColors (tier 0) or at a tier's own array.
+        BagArray<Tyra::Color>& dstArr =
+            (part.shownLod == 0 || (int)part.lods.size() < part.shownLod)
+                ? part.envColors
+                : part.lods[part.shownLod - 1].envColors;
+        const Tyra::Vec4* nrm = part.envTexBag->coordinates;
+        u32 n = part.envBag->count;
+        if (n > (u32)dstArr.size()) n = (u32)dstArr.size();
+        // One span for the whole run: it stamps ONCE, where a per-element
+        // operator[] would stamp 1 100 times for the same answer.
+        auto dst = dstArr.span(0, n);
+        for (u32 k = 0; k < n; ++k) {
+          const float df = nrm[k].x * fwdL.x + nrm[k].y * fwdL.y +
+                           nrm[k].z * fwdL.z;
+          // 0.3 floor keeps the authored strength's overall level and spends
+          // the rest on the rim.
+          const float f = 0.30F + 0.70F *
+                                      (1.0F - (df < 0.0F ? -df : df));
+          float sp = nrm[k].x * hL.x + nrm[k].y * hL.y + nrm[k].z * hL.z;
+          if (sp < 0.0F) sp = 0.0F;
+          sp *= sp;
+          sp *= sp;
+          sp *= sp;  // p = 8
+          float a = 1.0F + 220.0F * sp;
+          if (a > 255.0F) a = 255.0F;
+          dst[k].r = 128.0F * f;
+          dst[k].g = 128.0F * f;
+          dst[k].b = 128.0F * f;
+          dst[k].a = a;
+        }
       }
     }
     stapip.core.render(part.envBag.get());
@@ -21973,6 +22223,8 @@ void TerrainGame::renderObjectProbe(int index) {
     renderSkyBodies(probeEye, probeLook);
     skyDome.infoBag->zTestType = prevZTest;
   }
+  renderTerrain();
+  renderRoadChunks();
   for (int ri = 0; ri < (int)runtimeObjects.size(); ++ri) {
     RuntimeObject& ro = runtimeObjects[ri];
     if (!ro.active || !ro.visible || !ro.data.reflected) continue;

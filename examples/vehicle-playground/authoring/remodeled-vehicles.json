@@ -1,0 +1,149 @@
+{
+  "scope": "Baked resource inventory, not runtime FPS. Body plus four wheels; excludes reflection and shadow replays.",
+  "vehicles": {
+    "CC96": {
+      "before": {
+        "body": {
+          "triangles": 3882,
+          "parts": 3,
+          "packages": 157,
+          "reflection_parts": 1,
+          "lod_triangles": [
+            2478,
+            2208
+          ]
+        },
+        "wheel": {
+          "triangles": 1156,
+          "parts": 1,
+          "packages": 26,
+          "reflection_parts": 0,
+          "lod_triangles": [
+            1156,
+            1156
+          ]
+        },
+        "near_packages": 261
+      },
+      "after": {
+        "body": {
+          "triangles": 546,
+          "parts": 2,
+          "packages": 23,
+          "reflection_parts": 1,
+          "lod_triangles": [
+            850,
+            850
+          ]
+        },
+        "wheel": {
+          "triangles": 76,
+          "parts": 1,
+          "packages": 2,
+          "reflection_parts": 0,
+          "lod_triangles": [
+            76,
+            76
+          ]
+        },
+        "near_packages": 31
+      }
+    },
+    "Rally 04": {
+      "before": {
+        "body": {
+          "triangles": 364,
+          "parts": 1,
+          "packages": 15,
+          "reflection_parts": 1,
+          "lod_triangles": [
+            476,
+            476
+          ]
+        },
+        "wheel": {
+          "triangles": 28,
+          "parts": 1,
+          "packages": 1,
+          "reflection_parts": 0,
+          "lod_triangles": [
+            28,
+            28
+          ]
+        },
+        "near_packages": 19
+      },
+      "after": {
+        "body": {
+          "triangles": 364,
+          "parts": 1,
+          "packages": 15,
+          "reflection_parts": 1,
+          "lod_triangles": [
+            476,
+            476
+          ]
+        },
+        "wheel": {
+          "triangles": 28,
+          "parts": 1,
+          "packages": 1,
+          "reflection_parts": 0,
+          "lod_triangles": [
+            28,
+            28
+          ]
+        },
+        "near_packages": 19
+      }
+    },
+    "Tristar Racer": {
+      "before": {
+        "body": {
+          "triangles": 789,
+          "parts": 2,
+          "packages": 32,
+          "reflection_parts": 2,
+          "lod_triangles": [
+            1345,
+            1345
+          ]
+        },
+        "wheel": {
+          "triangles": 139,
+          "parts": 1,
+          "packages": 4,
+          "reflection_parts": 0,
+          "lod_triangles": [
+            139,
+            139
+          ]
+        },
+        "near_packages": 48
+      },
+      "after": {
+        "body": {
+          "triangles": 570,
+          "parts": 2,
+          "packages": 24,
+          "reflection_parts": 1,
+          "lod_triangles": [
+            874,
+            874
+          ]
+        },
+        "wheel": {
+          "triangles": 76,
+          "parts": 1,
+          "packages": 2,
+          "reflection_parts": 0,
+          "lod_triangles": [
+            76,
+            76
+          ]
+        },
+        "near_packages": 32
+      }
+    }
+  }
+}

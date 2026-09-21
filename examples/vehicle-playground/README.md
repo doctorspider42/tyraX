@@ -6,7 +6,7 @@ TyraX, build and run, then press Square beside the gold coupe.
 
 ![Motor District in PCSX2](preview/district.png)
 
-Actual software-renderer captures: [Tristar Racer](preview/tristar.png), [coupe](preview/coupe.png) and
+Historical software-renderer captures (before the efficient-wheel variants): [Tristar Racer](preview/tristar.png), [coupe](preview/coupe.png) and
 [Rally 04](preview/rally.png). Night mode: [street](preview/night.png) and
 [pause-menu selection](preview/night-menu.png).
 
@@ -18,9 +18,9 @@ Actual software-renderer captures: [Tristar Racer](preview/tristar.png), [coupe]
   the older central/western crossings retain their deliberately larger drift
   aprons. Both road and junction surfaces are assigned through reusable `.mtl`
   assets; changing either material's `map_Kd` updates every road that uses it.
-- Fourteen workshop, loft and tower blocks assembled from Kenney's Retro Urban
-  Kit, with pavements, trees, benches, traffic signals, streetlights, dumpsters
-  and barriers. Static batching keeps a building on the solo path unless every
+- Fourteen workshop, loft and tower blocks using lean exterior shells with
+  baked Kenney Retro Urban Kit facades, with pavements, trees, benches, traffic
+  signals, streetlights, dumpsters and barriers. Static batching keeps a building on the solo path unless every
   material part can be batched, so walls cannot disappear while a roof or its
   windows survive. The garage sign and road/ground textures are original assets.
 - A garage apron and western yard for handbrake turns. Loose crates and pallets
@@ -37,9 +37,9 @@ These are arcade settings, not a real-world vehicle simulation.
 
 The Tristar Racer parks west of the coupe, opposite the Rally. It has a 32 m/s
 target speed, stronger grip and the same refillable nitrous controls. Its original prepared source
-body has 2276 triangles. The lean game variant bakes to 789 body triangles and
-139 per wheel (1345 total near geometry, versus the CC96's 2372). The original
-prepared GLB remains available; the game uses `tristar-lean.glb`. It uses a cheap
+body has 2276 triangles. The efficient game variant bakes to 789 body triangles and
+76 per wheel (1093 total near geometry). The original and earlier lean
+prepared GLBs remain available; the game uses `tristar-efficient.glb`. It uses a cheap
 blob shadow and a 48 m distance tier.
 
 The five-speed boxes use a 1.28 spread, 0.10 s shifts and reduced ratio torque.
@@ -86,7 +86,10 @@ those in the running game. The target retains the level camera basis from its
 own capture, so a skipped update cannot make reflected buildings swim when the
 driver turns the camera.
 
-The CC96 bake uses 1116 body triangles and 314 per wheel. Rally 04 has only
+The active CC96 preserves the 3882-triangle body and uses 76 triangles per wheel
+(4186 total), with addressable lamp ranges. The lower-detail remodeling trial
+below remains an experiment, not the scene's default.
+Rally 04 has only
 364 body triangles and 28 per wheel. Wheels share a submission within each vehicle definition; distinct models keep
 their own texture bindings.
 The GGBot source has disconnected wheel islands inside one mesh: preparation
@@ -105,15 +108,220 @@ The boot log reports `ROADS ... chunks ... vertices ...` for inspection.
 
 ## Reproduce and verify
 
+### Active CC96 strip study
+
+[CC96 strip study](res/models/cc96-strip-study/README.md) is the indexed model
+used by the scene's single driveable optimization-test car. It has an editable
+quad-body OBJ, a 256x256 atlas and inspection views. Its
+new 3,782-triangle body retains detailed panel grids and the existing efficient
+wheel anchors. The unchanged host stripifier reduces the main body's vertex
+stream from 11,058 to 4,212 with identical surface/normal/UV data. This is an
+offline result is also exercised by the vehicle importer: the main body bakes
+to 4,212 strip vertices in 57 packages, while ordered lamp ranges remain lists.
+The manifest names this asset directly instead of hiding it behind the old
+`cc96-efficient.glb` path, so the viewport and generated game resolve the same
+source. Rally and Tristar remain available definitions but are not placed in
+the canonical scene.
+
+### Remodeled body experiment (not adopted)
+
+The experimental assets are `res/models/cc96-remodeled.glb` and
+`res/models/tristar-remodeled.glb`. They are not active in the scene: the lower
+visual detail did not buy a garage FPS improvement, and does not meet the
+requested Burnout 3 quality direction. The active sources remain the
+`*-efficient.glb` variants below. These experimental bodies are newly authored
+station/patch meshes, not decimated originals:
+wheel arches are silhouette cuts with bevel strips, glazing has actual narrow
+frames, the coupe retains four round headlights, and the GT retains a rear wing.
+Panel gaps, handles, vents and grilles are drawn into a single opaque 256 × 256
+atlas per car. A fixed 16-colour palette prevents dithering on the windows;
+paint and glass still use the game's environment reflection pass. Each body
+uses two parts: paint/glass/details and addressable lamps. Tiny dark floor and
+wing-support surfaces intentionally share the paint pass to avoid another bag.
+The wheel pivots and driving settings are unchanged. Rally remains the existing
+364-triangle body with 28-triangle wheels: the trial replacement was more costly
+and was rejected.
+
+Reproduce from a baked original-source baseline with Python, NumPy and Pillow:
+
+```
+python authoring/remodel-vehicles.py BASELINE res/models
+python authoring/verify-remodeled-vehicles.py BASELINE CANDIDATE OUTPUT
+```
+
+The verifier checks actual imported triangle/package counts, two-part bodies,
+non-degenerate geometry, finite UVs/unit normals, unchanged wheel bounds and
+driving settings, a conservative original body envelope, and byte-identical
+Rally assets. Its paired host renders use the same camera and scale; they are
+not game screenshots. Body budgets stay above the authored triangle count, so
+the near model reaches the game without importer decimation.
+
+| Vehicle | Body triangles before → after | Body packages before → after | Whole car packages with the earlier efficient wheels → remodeled |
+|---|---:|---:|---:|
+| CC96 | 3882 → 546 | 157 → 23 | 165 → 31 |
+| Tristar | 789 → 570 | 32 → 24 | 40 → 32 |
+
+These are resource counts, not a prediction of FPS. Paired host views are in
+[the comparison](preview/remodeled-vehicles.png); real PS2 captures show the
+[coupe](preview/remodeled-cc96-ps2.png) and [GT](preview/remodeled-tristar-ps2.png).
+
+**The 60 FPS target is not yet met.** On physical PS2, Release, NTSC 512 × 448,
+vsync on, parked traffic and the four fixed benchmark cameras, both the old
+bodies with efficient wheels and the remodeled bodies measured median 29.97
+FPS at the garage in day/night, and 59.94 FPS on the outer road. Raw samples,
+ELF hashes and the exact measurement script are archived in
+[remodeled-bodies-2026-09-20](authoring/remodeled-bodies-2026-09-20/results.json).
+The separate instrumented candidate attributes roughly 2.77 ms to update,
+16.83 ms to submission and 0.97 ms to finish at the daytime garage. Their
+roughly 20.6 ms work sum misses the 16.68 ms NTSC budget; vsync then waits for
+the next field. Submission includes pipeline waits and is not a pure EE or
+GS timer. Profiling itself perturbs performance (the outer-night case crosses
+a vsync boundary), so ordinary uninstrumented FPS and diagnostic timings are
+recorded separately. These fixed views do not certify a moving race.
+
+[Burnout 3 GS capture observations](authoring/remodeled-bodies-2026-09-20/burnout-gs-findings.md)
+document the reference car's submitted geometry, indexed base texture and
+additional render-target texture pass. These observations explain why the
+low-detail experiment was rejected; they do not measure Burnout's EE/VU timing.
+
+### Active efficient-wheel variants
+
+The active source variants are `res/models/cc96-efficient.glb` and
+`res/models/tristar-efficient.glb`, with a 76-triangle wheel budget each.
+Those bodies intentionally keep their original appearance; only the five-spoke
+wheels visibly change. Reopen a project already loaded before an
+external asset edit; build again before running the updated game. Derived
+`.res-baked/vehicles` and `bin/vehicles` files are local build products, not
+the source assets.
+
+`cc96-efficient.glb` and `tristar-efficient.glb` preserve the freshly baked
+near-body geometry, smooth normals, glass, trim and lamp geometry of their
+source vehicles. Their wheels are new regular 20-sided shells with original
+five-spoke rim artwork, brake-disc and sidewall detail in an opaque texture.
+This removes small rim geometry while retaining tyre diameter, width and hub
+placement. A circular 20-sided tyre has at most 1.24% radial silhouette error;
+rim depth/parallax is the deliberate close-up tradeoff. Rally retains its
+already inexpensive 28-triangle wheels and its original assets unchanged.
+
+![Host comparison: original and efficient vehicles](preview/efficient-vehicles.png)
+
+This is a paired host render of the actual baked models with diffuse lighting,
+not a PS2 screenshot or a reproduction of the game's environment reflections.
+Burnout 3 is the requested visual direction, not a measured performance or
+image-quality equivalence claim.
+
+| Vehicle | Near triangles, body + four wheels | Packages, body + four wheels | Wheel packages each |
+|---|---:|---:|---:|
+| CC96 | 8506 → 4186 | 261 → 165 | 26 → 2 |
+| Tristar Racer | 1345 → 1093 | 48 → 40 | 4 → 2 |
+| Rally 04 | 476 → 476 | unchanged | unchanged |
+
+The baseline is the current authored coupe budget (`bodyTris: 3938`,
+`wheelTris: 1281`), not the older 1116/314 bake quoted in historical results.
+These are full tier-zero resource counts: 75-vertex triangle-list packages or
+the baked strip runs. Runtime wheel batching, frustum rejection, reflections
+and projected-shadow replays are excluded. The number of near material parts
+is unchanged; the saving is packages within the wheel parts. Detailed counts
+and checks are in [authoring/efficient-vehicles.json](authoring/efficient-vehicles.json).
+
+The coupe shares a 256 × 128, 4-bit body/wheel atlas (16 KiB texels plus CLUT),
+in addition to its small matte palette. This trades some texture memory for
+far less wheel geometry. Tristar's 128-pixel rim island fits in proved-unused
+space in its existing 256 × 256 atlas, without growing texture dimensions or
+changing sampled body texels. Original paint palette entries are retained;
+the project still applies its ordinary texture quantization. Four distinct
+wheel material slots in the GLB preserve node ownership during import; they
+bake into the existing single wheel material. Far tiers still contain wheels.
+
+To reproduce, copy the project to a scratch **baseline** directory, restore
+the vehicle model references there to `res/models/car1.fbx` and
+`res/models/tristar-lean.glb`, and retain the budgets above (Tristar:
+`bodyTris: 1200`, `wheelTris: 700`). Refresh that copy with the editor, then:
+
+```
+python authoring/prepare-efficient-vehicles.py BASELINE res/models
+```
+
+This only writes the two derived GLBs; it requires Python 3, NumPy and Pillow.
+It must read a baseline baked from the originals, not recursively process its
+own output. The original source/licence files remain bundled. After refreshing
+an isolated candidate project using the derived GLBs:
+
+```
+python authoring/verify-efficient-vehicles.py BASELINE CANDIDATE OUTPUT
+```
+
+The verifier checks body positions within 0.000001 unit, imported normals
+within 0.0001, original body/wheel bounds, reflection ownership, lamp corner
+order/colour, outward wheel faces, untouched driving settings, byte-identical
+Rally models and paired body renders (maximum two channel levels of rounding).
+Measured body render differences were zero for the coupe and at most one
+channel level for Tristar. Native PS2 build and `--vehicle-check` also pass.
+The candidate was also booted in PCSX2: actual GS self-captures show the
+[coupe](preview/efficient-cc96-ps2.png) and
+[Tristar](preview/efficient-tristar-ps2.png), including the new rims and the
+game's paint reflections. A 60-unit view checks that the distant car retains
+its wheels. A normal chase-camera drive checked entry, acceleration, steering
+and braking; a captured brake application shows the rear lamps lit. A parked
+night view also checked the headlamp toggle. Hardware frame-time/FPS comparison
+with Burnout 3 is not measured.
+
+### Lean buildings
+
+The three building models share one opaque 256 × 256 facade atlas and one
+material. Window frames, brickwork and garage-door details are baked from the
+bundled Kenney modules; the two pitched roof ridges remain geometry. Hidden
+internal walls and repeated floor caps are gone. Windows on the loft/tower
+side walls make the new shells readable from every street. Close-up window
+recess parallax is traded for the baked facade detail.
+
+![Original buildings above, lean shells below](preview/lean-buildings.png)
+
+This is an orthographic asset comparison, not an emulator screenshot. Bounds,
+origins and asset paths are unchanged, so placed objects keep their transforms
+and bounding-box collision dimensions. The surface meshes are intentionally
+different; triangle-level picking/collision follows the new shell.
+
+| Asset | Source triangles, before → after | Baked material parts | VU1 packages, before → after |
+|---|---:|---:|---:|
+| Workshop | 576 → 22 | 5 → 1 | 19 → 1 |
+| Loft | 1024 → 22 | 5 → 1 | 32 → 1 |
+| Tower | 1600 → 22 | 5 → 1 | 50 → 1 |
+
+Package counts are the full tier-zero `.tmdl` inventory: baked strip runs when
+present, otherwise 75-vertex triangle-list packages. They exclude frustum
+rejection, static batching and extra render passes; they are not per-frame
+counts or hardware FPS measurements. Each new `.tmdl` is 2,368 bytes, versus
+94,624 / 173,056 / 269,824 bytes respectively. The scene's texture bake can
+quantize the shared atlas according to project preferences.
+
+To regenerate **only these assets**, preserving hand-edited scene objects:
+
+```
+python authoring/build-lean-buildings.py
+```
+
+Requires Python 3, NumPy and Pillow. Inputs are the bundled original
+`wall-a-window`, `wall-a-garage`, `wall-a-roof` OBJ/MTL files and their textures.
+Rebuild the project afterward to regenerate `.tmdl` and the shipped texture.
+The full district generator below calls the same asset generator.
+
+Verified for this asset change: deterministic regeneration, finite UVs,
+nondegenerate outward-facing geometry, identical original AABBs, baked model
+part/package inspection and a successful native PS2 build in an isolated scene
+copy. The editor used for that bake/build was 1.114.1; no importer or runtime
+code changed. Both installed PCSX2 executables exited before creating a game
+log, so an in-game visual check and physical-console FPS check remain pending.
+
 The committed scene and assets are ready to build. To regenerate the district:
 
 ```
 python authoring/build-district.py
 ```
 
-Requires Python 3 and Pillow (including the sized default font API). It reads
+Requires Python 3, NumPy and Pillow (including the sized default font API). It reads
 only the bundled Kenney OBJ inputs, writes the deterministic terrain, textures,
-building kitbashes and scene objects, and replaces authored roads / the former
+lean building shells and scene objects, and replaces authored roads / the former
 pillar course. Keep hand-authored map changes separately before rerunning it.
 Afterward use `tyrax-editor --resave <project>` and `--refresh-gen <project>`.
 

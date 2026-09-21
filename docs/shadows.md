@@ -61,8 +61,11 @@ mask is normalised into a square texture.
 ![A box using its per-object baked blob silhouette in Properties](img/blob-shadow-shape.png)
 
 The console cost does not grow with mesh complexity: it still samples the mask
-on one yaw-aligned quad whose four corners follow the terrain. Re-bake after a
-model's silhouette changes. Picking a PNG manually is useful for an art-directed
+on one heading-aligned quad whose four corners follow the visible ground — the
+baked road/junction surface where present, otherwise terrain. Heading comes
+from the full runtime object basis, so vehicle pitch/roll and the XYZ Euler fold
+past 90 degrees cannot freeze or reverse the mask. Re-bake after a model's
+silhouette changes. Picking a PNG manually is useful for an art-directed
 shadow; because an arbitrary image has no geometry metadata, its quad size is
 inferred from the runtime model or primitive. Lights, cameras, markers and
 other objects without drawable triangles may pick a mask, but cannot generate
@@ -218,27 +221,22 @@ The torch's **wall copy** is still a triangle list, built per frame from
 arbitrary receiver geometry. Nothing above prices it, because no sunlit pose
 reaches it at all.
 
-### A caster standing on GEOMETRY can pay for a shadow nobody sees
+### Road and terrain are both receivers
 
-Found while trying to photograph the change above, and it is worth knowing
-before anyone reads a projected-shadow frame cost as money well spent. The
-receiver patch is depth-**tested** and never writes z, and it is placed on the
-surface `projSurfaceAt` reports, a little above it. When the caster stands on
-the TERRAIN that is the right surface. When it stands on **geometry** — a road,
-a platform, a bridge deck — the patch can land under that geometry, lose the
-depth test against it, and contribute nothing.
+Receiver patches are depth-tested and never write z. `groundSurfaceAt` first
+tests the already-built road chunks (including automatic junction fans) and
+falls back to the terrain; `projSurfaceAt` can then raise that result to the top
+of an ordinary platform or bridge receiver. Blob shadows, point-light pools,
+flashlight floor pools and projected silhouettes all share this base. Reading
+the baked triangles instead of re-evaluating the road spline is important: the
+answer includes the exact lateral terrain tessellation and list/strip geometry
+that is submitted to the GS.
 
-That is the state of the Motor District's garage pose today. Both casters are
-parked on a road; the slots are held (`PROJDBG` reports `fade 1 reach 1`), the
-silhouettes are rendered, the patches are submitted — and removing the caster
-submit **entirely** does not move one pixel of the shipped shot. 60 VU1 packages
-a frame, which the console prices at about 19.5 us each in garage day, are spent
-on a shadow that is not on screen.
-
-The practical consequence for anyone testing this feature: **a capture is not a
-gate until a known-bad arm has moved it.** Build one that removes the silhouette
-and check the picture changes; if it does not, the pose cannot see the shadow
-and an A/B taken from it means nothing, however many pixels match.
+The old Motor District garage pose exposed the bug: both casters stood on a
+road, while their patches were placed on terrain 0.12 units below it and failed
+the road depth test. When validating receiver work, still compare against a
+known-bad arm; a held shadow slot or submitted package is not proof that a pixel
+survived depth testing.
 
 ### The four slots change hands slowly
 
