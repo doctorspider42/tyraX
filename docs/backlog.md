@@ -29,63 +29,55 @@ VIF input, VU work and GS output, then remove repetition at the layer that owns
 it. The following is the shortlist after checking it against the renderer we
 actually ship, in priority order.
 
-### P1: Count the stream before changing it
+### P1: Count the stream before changing it — DONE 2026-09-22
 
-Extend opt-in telemetry from the existing `packetFlushes`, `chainQw`, waits and
-route counts to the missing structural counts, split by pass and pipeline:
-
-- VIF1/GIF DMA kicks and DMA tags by kind;
-- GIFtags, A+D writes and GS payload QW;
-- VIF `FLUSH`/`FLUSHE`, `MSCAL`/`MSCNT` and XGKICK counts.
-
-The acceptance artifact is one physical-console CSV for the four frozen Motor
-District poses, with the counters compiled completely out when disabled. This
-is the prerequisite for every item below: reducing a tag count is worthless if
-the frame merely moves the cost into VU work, PATH arbitration or padding.
+The opt-in static-pipeline walker now counts the exact DMA/VIF chain and derives
+GIFtags, A+D writes, GS payload and XGKICKs per render producer. The four-pose
+physical-console CSV and summarizer live in
+`examples/vehicle-playground/authoring/packet-structure-2026-09-22/`; every
+accepted row had `bad=0`, and the entire walker compiles out with frame
+profiling. Garage day/night submit 197/213 XGKICKs and 765/826 A+D state writes
+per frame. Use this instrument before attempting any item below.
 
 ### P2: Let VIF synthesize repeated vertex fields
 
-Prototype one offline-baked static textured-colour stream using `STCYCL` plus
-`STROW`/`STCOL` filling or multiple UNPACKs, so values shared by a run are not
-uploaded once per vertex. Start with a field that is genuinely constant over a
-package; do not complicate the dynamic or clip routes first. Measure all three
-effects separately: input QW, the resulting `getMaxVertCount` ceiling/package
-count, and physical-console `work`/VIF1 wait. The experiment fails if its VIF
-codes or VU unpacking cost erase the saved submissions, even when the byte count
-looks better.
+Prototype one **offline, per-package baked** static textured-colour stream using
+V2/V3 UNPACK plus `STCYCL`/`STROW`/`STCOL` where a field really is constant.
+The 2026-09-22 structure audit found that current arrays are Vec4, clip/dynamic
+paths require Vec4 interpolation, and tightly packed V2/V3 package starts need
+their own padding. A runtime repack is rejected: it moves work onto the already
+busy EE. Measure input QW, VU-memory/package count and physical `work`/VIF1 wait;
+the experiment fails if decoding or padding erases the saved traffic.
 
 ### P3: Price 128-byte alignment for long REF payloads
 
-The current correctness requirement is one QW, but long geometry and texture
-sources may benefit from 8-QW/128-byte starts. Add an allocator-only A/B for
-large REF payloads; do not pad small control packets. Hold rendered bytes,
-package counts and route decisions constant, then record RAM/padding overhead
-beside physical-console VIF1/GIF waits and `work`. This is attractive because it
-can improve bus behaviour without changing the packet language, but it remains
-a measurement, not an architecture assumption.
+**Rejected on physical hardware, 2026-09-22.** Aligning each `BagArray` base to
+128 bytes moved garage-day aligned REFs only from 102/666 (15.3%) to 124/666
+(18.6%), because a 75-vertex Vec4 package advances 1,200 bytes — 48 modulo 128.
+Garage-day work regressed about 0.18 ms, garage-night 0.09 ms and outer-road
+night 0.05 ms. The allocator arm was reverted. Do not repeat it unless P2 owns
+per-package stream layout and can align every slice rather than just its base.
 
 ### P4: State-diff packets, scoped to one ordered PATH1 pass
 
-First use the P1 counters to quantify repeated TEST/TEX0/TEX1/ALPHA/CLAMP writes
-between consecutive packages. If the repetition is material, prototype a tiny
-set of prebuilt transition variants or a shadow state **inside one ordered
-PATH1 pass only**. Invalidate it on every external GS writer, texture upload,
-post-effect and path switch; a global shadow state would be a loaded shotgun
-pointed at asynchronous PATH arbitration. Test the transition packet in the
-hardware-first harness before integrating it. PRE/PRIM is not part of this
-task: `packet2_utils_gs_add_prim_giftag` already emits PRIM through GIFtag PRE.
+P1 confirms a material target: the garage emits 765–826 A+D state writes and
+962–1,039 GIFtags per frame. Prototype a tiny set of transition variants or a
+shadow state **inside one ordered PATH1 pass only**, but only after the
+hardware-first harness above passes it. VU programs currently emit state and do
+not know MSCAL from MSCNT; clip counts already consume their packed flag bits,
+so this needs an explicit package flag/ABI variant and invalidation on every
+external GS writer, texture upload, post-effect and path switch. PRE/PRIM is not
+part of this task: `packet2_utils_gs_add_prim_giftag` already uses GIFtag PRE.
 
 ### P5: Feasibility study for a VU1 multi-object job
 
-For wholly visible, static objects sharing program, vertex layout and material,
-price a VU task that consumes several object records before returning to the
-EE. The study comes before code: budget record data, per-object matrices, VU
-data memory, resident microcode, XGKICKs and the culling granularity lost by a
-larger group. The current textured-colour package already uses 75 vertices
-against an 81-vertex VU-memory ceiling, so a useful design probably streams
-records through the existing double buffer rather than reserving a large table.
-The success metric is fewer submissions/MSCAL boundaries and lower hardware
-`work`, not merely fewer C++ calls.
+The 2026-09-22 feasibility pass says **not next**. A textured-colour package
+already uses 75 vertices against an 81-vertex VU-memory ceiling, leaving no
+useful resident object table. Streaming records through the existing double
+buffer would be a microcode/ABI rewrite and each output still needs XGKICK.
+Revisit only after P4 or P2, with an explicit record/matrix/microcode budget and
+a success metric of fewer submissions/MSCAL boundaries plus lower hardware
+`work`, not fewer C++ calls.
 
 ### Gated, not queued as standalone work
 

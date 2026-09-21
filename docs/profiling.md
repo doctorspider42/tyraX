@@ -8,6 +8,40 @@ next divisor (50 → 25 FPS), and it is nearly always the EE, not the GS, that
 ran out of time. Finding *which* EE phase overran is the whole game. This doc
 describes the built-in profiler and the deeper manual technique behind it.
 
+## Static packet structure profile
+
+`TYRA_FRAME_PROFILE=1` also enables an exact structural walk of every completed
+static-pipeline DMA/VIF chain. The generated game attributes the stream to sky,
+terrain, static batches, roads, procedural geometry, objects or effects and
+prints one `FTPKT` row per active producer every 50 frames. The row contains
+DMA tags and payload QW, 128-byte REF alignment, VIF command counts, derived
+GIFtags, A+D state writes, GS payload QW and XGKICKs. `bad=0` is the validity
+gate: a non-zero value means the closed decoder met an unknown or truncated
+command and the structural totals for that row must not be trusted.
+
+Capture a physical-console run without losing ps2link output, then summarize
+the four frozen benchmark poses:
+
+```powershell
+ps2client -h 192.168.100.150 execee host:bin/game.elf 2>&1 |
+  Tee-Object packet-console.log
+python examples/vehicle-playground/authoring/summarize-packet-profile.py `
+  packet-console.log -o packet-summary.csv
+```
+
+The logged values are totals over the 50-frame reporting window; the script
+converts them to per-frame medians and discards benchmark transition margins.
+The GIF/GS values are derived from the selected resident VU1 program and its
+package vertex count, while DMA and VIF values are read from the exact chain
+sent to VIF1. Whole-bag retained-stream replay is included. This is a structure
+instrument, not a timing optimization: it parses payload words on the EE, so
+compare timings only between equally instrumented builds. Both the parser and
+counters compile out when the profile is disabled.
+
+The 2026-09-22 physical-console capture and the rejected 128-byte allocator A/B
+are stored with the Motor District example under
+`authoring/packet-structure-2026-09-22/`.
+
 The worked example throughout is the usable-object highlight: it looked like a
 cheap effect but dropped the showcase to 25 FPS. The full write-up is in the
 retired `PROGRESS.md` (the usable-highlight rounds) — see [Backlog](backlog.md)

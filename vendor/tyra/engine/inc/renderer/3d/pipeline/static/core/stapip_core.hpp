@@ -108,6 +108,13 @@ class StaPipCore {
    * the accumulated interval and resets it.
    */
   void setTelemetryEnabled(const bool& enabled);
+  void setTelemetryProducer(const StaPipTelemetryProducer& producer) {
+#if TYRA_STAPIP_PACKET_PROFILE
+    if (telemetryEnabled) telemetry.producer = static_cast<u8>(producer);
+#else
+    (void)producer;
+#endif
+  }
   bool isTelemetryEnabled() const { return telemetryEnabled; }
   StaPipTelemetry takeTelemetry();
 

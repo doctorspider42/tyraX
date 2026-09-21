@@ -2221,6 +2221,17 @@ legacy compatibility mode. See docs/vu1-clipping.md.
   `cull=P/T clip=P/T guard=P/T out=... flush=... vuwait=...` once a second beside
   `FRAMETIME` (docs/profiling.md). Drain it EVERY frame — `takeTelemetry` clears
   as it reads, so a skipped frame is a lost frame.
+- **The static packet structure walker is the safe first step before changing
+  the packet language.** `TYRA_FRAME_PROFILE` enables
+  `TYRA_STAPIP_PACKET_PROFILE`, which walks the completed DMA/VIF chain in
+  `sendPacket` and prints per-producer `FTPKT` totals every 50 frames. A row is
+  admissible only with `bad=0`; GIF/GS totals are derived from the selected VU1
+  program and package count. Both counters and parser compile out by default.
+  The 2026-09-22 physical capture found 765–826 A+D writes and 197–213 XGKICKs
+  per garage frame. Aligning only each `BagArray` base to 128 bytes is a measured
+  dead end: the 1,200-byte package stride loses alignment again and hardware
+  work regressed 0.09–0.18 ms. Do not restore it without a package-owned packed
+  stream. See docs/profiling.md and the Motor District packet-structure evidence.
 - **`Info::getFps()` is NOT a clock you may add a constant to, and it was one
   for years.** It divided a hardcoded `15625.0` into a single frame's delta of
   **EE Timer 3**, which the kernel clocks from **H-BLNK** - i.e. it counts

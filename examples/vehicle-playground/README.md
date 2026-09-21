@@ -505,6 +505,14 @@ solo static models 44.8%, terrain 13.4%, the reflection probe 13.1%, roads
 8.1% — is in
 [the reflection-probe round's evidence](authoring/reflection-probe-2026-09-16/README.md).
 
+For the lower-level packet language, build with `TYRA_FRAME_PROFILE=1`, capture
+the physical ps2link output with `Tee-Object`, then run
+`python authoring/summarize-packet-profile.py packet-console.log -o summary.csv`.
+It converts the 50-frame `FTPKT` totals into per-frame medians by producer and
+pose. The accepted 2026-09-22 capture, including the rejected 128-byte REF
+alignment experiment, is in
+[`authoring/packet-structure-2026-09-22/`](authoring/packet-structure-2026-09-22/README.md).
+
 It also splits `proj_shadows` three ways — the caster's own bags, the receiver
 patch and the torch's wall copy — because "projected shadows are badly packed"
 turned out to be a statement about the CASTERS' models rather than about the

@@ -8,10 +8,60 @@
 
 #include <tamtypes.h>
 
+#include "debug/frame_profile.hpp"
 #include "./stapip_attrib.hpp"
 #include "./stapip_probes.hpp"
 
+#ifndef TYRA_STAPIP_PACKET_PROFILE
+#define TYRA_STAPIP_PACKET_PROFILE TYRA_FRAME_PROFILE
+#endif
+
 namespace Tyra {
+
+/**
+ * Structural cost of the finished VIF1/GIF stream. Unlike the timing fields
+ * below these are deterministic counts, so a noisy hardware run can still
+ * say which producer is paying for repeated command/state traffic.
+ */
+#if TYRA_STAPIP_PACKET_PROFILE
+struct StaPipPacketCounters {
+  u32 dmaTags[8] = {};
+  u32 chainQwords = 0;
+  u32 refPayloadQwords = 0;
+  u32 inlinePayloadQwords = 0;
+  u32 refsAligned128 = 0;
+  u32 refsUnaligned128 = 0;
+  u32 vifWords = 0;
+  u32 vifNops = 0;
+  u32 vifStcycl = 0;
+  u32 vifStrow = 0;
+  u32 vifStcol = 0;
+  u32 vifUnpack = 0;
+  u32 vifFlush = 0;
+  u32 vifFlushe = 0;
+  u32 vifFlusha = 0;
+  u32 vifMscal = 0;
+  u32 vifMscalf = 0;
+  u32 vifMscnt = 0;
+  u32 gifTags = 0;
+  u32 adWrites = 0;
+  u32 gsPayloadQwords = 0;
+  u32 xgkicks = 0;
+  u32 malformedChains = 0;
+};
+#endif
+
+enum StaPipTelemetryProducer {
+  StaPipProducerMixed = 0,
+  StaPipProducerSky,
+  StaPipProducerTerrain,
+  StaPipProducerStaticBatches,
+  StaPipProducerRoads,
+  StaPipProducerProcedural,
+  StaPipProducerObjects,
+  StaPipProducerEffects,
+  StaPipProducerCount
+};
 
 /**
  * Diagnostic counters accumulated until StaPipCore::takeTelemetry().
@@ -22,6 +72,12 @@ namespace Tyra {
  * backpressure may contribute to that wait.
  */
 struct StaPipTelemetry {
+#if TYRA_STAPIP_PACKET_PROFILE
+  /** Set by the generated game's render scopes; not itself an accumulated
+   * counter. A packet spanning scopes is charged to Mixed conservatively. */
+  u8 producer = StaPipProducerMixed;
+  StaPipPacketCounters packet[StaPipProducerCount];
+#endif
   /**
    * Modified by TyraX: WHAT THE TRIANGLE COUNTERS COUNT, and why they are not
    * a geometry-equality check across two builds.

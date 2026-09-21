@@ -16,6 +16,14 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.121.0: STATIC PACKET STRUCTURE PROFILER.
+// Opt-in frame profiling now walks each completed static-pipeline DMA/VIF chain
+// and attributes DMA tags, REF alignment, VIF commands, derived GIFtags, A+D
+// writes, GS payload and XGKICKs to the generated game's render producers.
+// The release build compiles the counters and parser out. A companion script
+// summarizes captured FTPKT logs for the four Motor District benchmark poses.
+// Project format stays 61. MINOR.
+//
 // 1.120.0: CONSERVATIVE SOFTWARE OCCLUSION CULLING.
 // An opt-in 48x42 CPU depth buffer rejects complete object, static-batch,
 // road and procedural bounds before StaPip. Build-time proxies are inward
@@ -4890,7 +4898,7 @@
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 120
+#define TYRAX_VERSION_MINOR 121
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

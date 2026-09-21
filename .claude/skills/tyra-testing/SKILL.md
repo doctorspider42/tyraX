@@ -3075,6 +3075,19 @@ directory already ending in `bin` must not receive another relative `bin/`.
 Also stop an emulator serving the same project before hardware captures: its
 fresh `livedbg.bin`/`frame.tga` can otherwise disguise a disconnected console.
 
+### Static packet structure capture
+
+For DMA/VIF/GIF structure rather than time, temporarily build both the engine
+and generated game with `TYRA_FRAME_PROFILE=1`. Pipe the physical ps2link
+session through PowerShell `Tee-Object`; otherwise the bounded benchmark can
+finish with no durable log. Run
+`examples/vehicle-playground/authoring/summarize-packet-profile.py LOG -o CSV`
+afterward. It rejects transition margins, divides each 50-frame `FTPKT` window
+to per-frame values and reports producer medians for all four poses. Accept only
+rows with `bad=0`, and restore the profile macro to zero before the final
+release build. The parser itself adds EE work, so compare time only between
+equally instrumented arms; structural counts remain exact.
+
 
 ## What is the frame MADE OF? The per-producer inventory
 

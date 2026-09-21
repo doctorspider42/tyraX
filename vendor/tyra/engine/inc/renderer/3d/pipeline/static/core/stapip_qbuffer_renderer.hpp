@@ -837,6 +837,11 @@ class StaPipQBufferRenderer {
   const RendererCoreSpotLight* bagLight = nullptr;
   // Modified by TyraX: opt-in routing/VU1 back-pressure telemetry.
   StaPipTelemetry* telemetry = nullptr;
+#if TYRA_STAPIP_PACKET_PROFILE
+  /** Producer owning the packet being assembled. Zero means either unknown or
+   * a packet that intentionally spans more than one producer scope. */
+  u8 packetTelemetryProducer = StaPipProducerMixed;
+#endif
 
 #if TYRA_STAPIP_RETAINED_COMMANDS
   // Modified by TyraX: retained command data (see StaPipRetainedCommands).

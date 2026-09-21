@@ -17,6 +17,7 @@
 
 #include <math.h>
 #include <string.h>
+#include <dma_tags.h>
 #include <algorithm>
 #include "debug/hardware_trace.hpp"
 #include "renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp"
@@ -71,6 +72,138 @@ constexpr u16 kSubmissionBatchSize = 4;
 constexpr u16 kQBufferCommandCapacity = 32;  // keep with buffersCount
 constexpr u16 kWorstBagPacketSize =
     4 * kQBufferCommandCapacity + kObjectDataPacketSize;
+
+#if TYRA_STAPIP_PACKET_PROFILE
+inline u8 telemetryProducer(const StaPipTelemetry* telemetry) {
+  return telemetry != nullptr && telemetry->producer < StaPipProducerCount
+             ? telemetry->producer
+             : static_cast<u8>(StaPipProducerMixed);
+}
+
+bool isTexturedProgram(const StaPipProgramName name) {
+  return name == StaPipCullTextureDirLights ||
+         name == StaPipAsIsTextureDirLights ||
+         name == StaPipCullTextureColor || name == StaPipAsIsTextureColor ||
+         name == StaPipClipTextureDirLights ||
+         name == StaPipClipTextureColor || name == StaPipCullTextureEnv ||
+         name == StaPipAsIsTextureEnv || name == StaPipClipTextureEnv ||
+         name == StaPipBillboardTexture;
+}
+
+void recordGsPacket(StaPipTelemetry* telemetry, StaPipVU1Program* program,
+                    const u32 inputVertices) {
+  if (telemetry == nullptr || program == nullptr) return;
+  StaPipPacketCounters& out = telemetry->packet[telemetryProducer(telemetry)];
+  const bool textured = isTexturedProgram(program->getName());
+  const u32 gsVertices = program->getGsVertexCount(inputVertices);
+  const u32 registers = program->getReglistCount();
+  // StoreTyraGifTags*Alpha emits three A+D state pairs for an untextured
+  // package and four for a textured one, followed by the primitive giftag.
+  out.gifTags += textured ? 5 : 4;
+  out.adWrites += textured ? 4 : 3;
+  out.gsPayloadQwords += (textured ? 9 : 7) +
+                         (gsVertices * registers + 1) / 2;
+  ++out.xgkicks;
+}
+
+struct VifCounterState {
+  u32 pending = 0;
+  bool malformed = false;
+};
+
+void countVifWord(StaPipPacketCounters& out, VifCounterState& state,
+                  const u32 word) {
+  ++out.vifWords;
+  if (state.pending != 0) {
+    --state.pending;
+    return;
+  }
+  const u32 cmd = (word >> 24) & 0xFFu;
+  const u32 num = (word >> 16) & 0xFFu;
+  if (cmd == 0x00) {
+    ++out.vifNops;
+    return;
+  }
+  if ((cmd & 0x60u) == 0x60u) {
+    const u32 vn = (cmd >> 2) & 3u;
+    const u32 vl = cmd & 3u;
+    const u32 count = num == 0 ? 256u : num;
+    state.pending = (count * (vn + 1u) * (32u >> vl) + 31u) / 32u;
+    ++out.vifUnpack;
+    return;
+  }
+  switch (cmd) {
+    case 0x01: ++out.vifStcycl; return;
+    case 0x05:  // STMOD
+    case 0x07:  // MARK
+      return;
+    case 0x10: ++out.vifFlushe; return;
+    case 0x11: ++out.vifFlush; return;
+    case 0x13: ++out.vifFlusha; return;
+    case 0x14: ++out.vifMscal; return;
+    case 0x15: ++out.vifMscalf; return;
+    case 0x17: ++out.vifMscnt; return;
+    case 0x20: state.pending = 1; return;  // STMASK
+    case 0x30: state.pending = 4; ++out.vifStrow; return;
+    case 0x31: state.pending = 4; ++out.vifStcol; return;
+    default: state.malformed = true; return;
+  }
+}
+
+/** Count the exact source chain handed to VIF1. The decoder deliberately
+ * understands the same closed VIF command set as StaPipVifHash: an unknown
+ * command latches malformed instead of letting every later payload word pose
+ * as a command. */
+void recordVifChain(StaPipTelemetry* telemetry, const u8 producer,
+                    const void* base, const u32 qwc) {
+  if (telemetry == nullptr || base == nullptr || qwc == 0) return;
+  StaPipPacketCounters& out = telemetry->packet[
+      producer < StaPipProducerCount ? producer : StaPipProducerMixed];
+  out.chainQwords += qwc;
+  const qword_t* src = reinterpret_cast<const qword_t*>(base);
+  VifCounterState state;
+  u32 i = 0;
+  while (i < qwc && !state.malformed) {
+    const dma_tag_t* tag = reinterpret_cast<const dma_tag_t*>(&src[i]);
+    const u32 tagQwc = static_cast<u32>(tag->QWC);
+    const u32 id = static_cast<u32>(tag->ID);
+    if (id < 8) ++out.dmaTags[id];
+    const u32* tte = reinterpret_cast<const u32*>(&src[i]) + 2;
+    countVifWord(out, state, tte[0]);
+    countVifWord(out, state, tte[1]);
+
+    const qword_t* payload = nullptr;
+    bool stop = false;
+    if (id == 1 || id == 7) {  // CNT / END
+      if (i + 1 + tagQwc > qwc) {
+        state.malformed = true;
+        break;
+      }
+      payload = &src[i + 1];
+      out.inlinePayloadQwords += tagQwc;
+      i += 1 + tagQwc;
+      stop = id == 7;
+    } else if (id == 0 || id == 3 || id == 4) {  // REFE / REF / REFS
+      const u32 addr = static_cast<u32>(tag->ADDR);
+      payload = reinterpret_cast<const qword_t*>(addr);
+      out.refPayloadQwords += tagQwc;
+      if ((addr & 127u) == 0) ++out.refsAligned128;
+      else ++out.refsUnaligned128;
+      ++i;
+      stop = id == 0;
+    } else {
+      state.malformed = true;  // NEXT/CALL/RET are not emitted here.
+      break;
+    }
+    for (u32 q = 0; q < tagQwc && !state.malformed; ++q) {
+      const u32* words = reinterpret_cast<const u32*>(&payload[q]);
+      for (u32 w = 0; w < 4; ++w) countVifWord(out, state, words[w]);
+    }
+    if (stop) break;
+  }
+  if (state.malformed || state.pending != 0) ++out.malformedChains;
+}
+#endif
 
 // Modified by TyraX: append quadwords that were already built as part of a DMA
 // chain.
@@ -855,7 +988,17 @@ void StaPipQBufferRenderer::sendObjectData(
   // The other packet was completed before sendPacket flipped back to this
   // context, so it is safe to reuse without adding a preparation-side wait.
   auto* objectDataPacket = packets[context];
-  if (!objectDataPending) packet2_reset(objectDataPacket, false);
+  if (!objectDataPending) {
+    packet2_reset(objectDataPacket, false);
+#if TYRA_STAPIP_PACKET_PROFILE
+    packetTelemetryProducer = telemetryProducer(telemetry);
+  } else if (packetTelemetryProducer != telemetryProducer(telemetry)) {
+    // Submission batching may deliberately keep one VIF chain open across
+    // producer scopes. Do not lie by charging that whole chain to whichever
+    // scope happened to flush it.
+    packetTelemetryProducer = StaPipProducerMixed;
+#endif
+  }
   // Modified by TyraX: everything in this chain lands at an ABSOLUTE VU1
   // address (MVP 0..3, OPTIONS 8, CLIP_CONSTS 20, ALPHA 21, the clip planes at
   // 944..955) and the microprograms read those inside their loops. The DMA
@@ -1909,6 +2052,18 @@ bool StaPipQBufferRenderer::replayWholeBakedBag() {
   auto* program =
       static_cast<StaPipVU1Program*>(const_cast<void*>(entry->program));
   lastProgramName = program->getName();
+#if TYRA_STAPIP_PACKET_PROFILE
+  // Whole-bag replay bypasses addBuffersDataToPacket(), so derive the same GS
+  // structure here. This loop exists only in profiling builds; the retained
+  // stream remains a single REF in production.
+  for (u32 offset = 0; offset < entry->count;
+       offset += entry->maxVertCount) {
+    const u32 remaining = entry->count - offset;
+    recordGsPacket(telemetry, program,
+                   remaining < entry->maxVertCount ? remaining
+                                                   : entry->maxVertCount);
+  }
+#endif
 
   baked.countHit();
   objectDataPending = true;
@@ -2078,6 +2233,11 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
     // counted where it is packetised rather than where it was classified -
     // the number the EE's per-package bill scales with. See StaPipTelemetry.
     if (telemetry) telemetry->verticesSubmitted += buffers[i]->size;
+#if TYRA_STAPIP_PACKET_PROFILE
+    if (telemetry) {
+      recordGsPacket(telemetry, program, buffers[i]->size);
+    }
+#endif
 
 #if TYRA_STAPIP_BAKED_STREAM
     // Modified by TyraX: the baked VIF stream. A run of consecutive packages
@@ -2103,6 +2263,12 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
                buffers[next]->any() &&
                buffers[next]->bakeIndex == static_cast<int>(nextIdx)) {
           if (telemetry) telemetry->verticesSubmitted += buffers[next]->size;
+#if TYRA_STAPIP_PACKET_PROFILE
+          if (telemetry) {
+            recordGsPacket(telemetry, dBufferPrograms[next],
+                           buffers[next]->size);
+          }
+#endif
           runQw += bakedEntry->sizes[nextIdx];
           ++next;
           ++nextIdx;
@@ -2348,6 +2514,11 @@ void StaPipQBufferRenderer::sendPacket() {
   // of the ~120 a frame and its buffers truncate silently.
   // docs/baked-stream-acceptance-gate.md.
   vifHash.foldChain(currentPacket->base, packet2_get_qw_count(currentPacket));
+#endif
+
+#if TYRA_STAPIP_PACKET_PROFILE
+  recordVifChain(telemetry, packetTelemetryProducer, currentPacket->base,
+                 packet2_get_qw_count(currentPacket));
 #endif
 
   // dma_wait_fast(); // This have no impact on performance

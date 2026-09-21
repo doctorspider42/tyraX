@@ -6049,6 +6049,36 @@ u32 tFlush = 0, tVuWait = 0;
 // comparing two builds of one view.
 u32 tStrip = 0, tStripExp = 0;
 u64 tVerts = 0;
+#if TYRA_STAPIP_PACKET_PROFILE
+Tyra::StaPipPacketCounters tPacket[Tyra::StaPipProducerCount];
+
+void addPacketCounters(Tyra::StaPipPacketCounters& dst,
+                       const Tyra::StaPipPacketCounters& src) {
+  for (int i = 0; i < 8; ++i) dst.dmaTags[i] += src.dmaTags[i];
+  dst.chainQwords += src.chainQwords;
+  dst.refPayloadQwords += src.refPayloadQwords;
+  dst.inlinePayloadQwords += src.inlinePayloadQwords;
+  dst.refsAligned128 += src.refsAligned128;
+  dst.refsUnaligned128 += src.refsUnaligned128;
+  dst.vifWords += src.vifWords;
+  dst.vifNops += src.vifNops;
+  dst.vifStcycl += src.vifStcycl;
+  dst.vifStrow += src.vifStrow;
+  dst.vifStcol += src.vifStcol;
+  dst.vifUnpack += src.vifUnpack;
+  dst.vifFlush += src.vifFlush;
+  dst.vifFlushe += src.vifFlushe;
+  dst.vifFlusha += src.vifFlusha;
+  dst.vifMscal += src.vifMscal;
+  dst.vifMscalf += src.vifMscalf;
+  dst.vifMscnt += src.vifMscnt;
+  dst.gifTags += src.gifTags;
+  dst.adWrites += src.adWrites;
+  dst.gsPayloadQwords += src.gsPayloadQwords;
+  dst.xgkicks += src.xgkicks;
+  dst.malformedChains += src.malformedChains;
+}
+#endif
 
 // u64, because a u32 SUM OVERFLOWS. 50 frames x 300 ms is 4.4e9 ticks against
 // a 4.29e9 ceiling, so on a scene slow enough to be worth profiling the mean
@@ -6133,6 +6163,10 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
     tStrip += t.packagesStrip;
     tStripExp += t.packagesStripExpanded;
     tVerts += t.verticesSubmitted;
+#if TYRA_STAPIP_PACKET_PROFILE
+    for (int p = 0; p < Tyra::StaPipProducerCount; ++p)
+      addPacketCounters(tPacket[p], t.packet[p]);
+#endif
   }
   if (rawN < kRaw) raw[rawN++] = FP::tFrameWork;
   if (rawN == 1) rawFirst = frame;
@@ -6158,7 +6192,7 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
   const float mean = ms(sumW, kWindow);
   const float dr = ms(sumD, kWindow);
 
-  char line[320];
+  char line[512];
   snprintf(line, sizeof(line),
            "FRAMETIME n=%d f=%lu work=%.2f/%.2f/%.2f submit=%.2f drain=%.2f "
            "blss=%.2f/%.2f/%.2f comp=%.2f/%.2f over20=%d cam=%.4f",
@@ -6221,6 +6255,41 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
     tFlush = tVuWait = 0;
     tStrip = tStripExp = 0;
     tVerts = 0;
+#if TYRA_STAPIP_PACKET_PROFILE
+    static const char* const producerNames[Tyra::StaPipProducerCount] = {
+        "mixed", "sky", "terrain", "static", "roads", "procedural",
+        "objects", "effects"};
+    for (int p = 0; p < Tyra::StaPipProducerCount; ++p) {
+      Tyra::StaPipPacketCounters& q = tPacket[p];
+      if (q.chainQwords == 0 && q.xgkicks == 0) continue;
+      const u32 refs = q.dmaTags[0] + q.dmaTags[3] + q.dmaTags[4];
+      snprintf(
+          line, sizeof(line),
+          "FTPKT f=%lu p=%s kick=%lu gif=%lu ad=%lu gqw=%lu tag=%lu "
+          "ref=%lu cnt=%lu end=%lu rq=%lu iq=%lu a128=%lu/%lu "
+          "vifw=%lu nop=%lu unpack=%lu cyc=%lu row=%lu col=%lu "
+          "flush=%lu/%lu/%lu msc=%lu/%lu/%lu bad=%lu",
+          (unsigned long)(frame - kWindow), producerNames[p],
+          (unsigned long)q.xgkicks, (unsigned long)q.gifTags,
+          (unsigned long)q.adWrites, (unsigned long)q.gsPayloadQwords,
+          (unsigned long)(q.dmaTags[0] + q.dmaTags[1] + q.dmaTags[2] +
+                          q.dmaTags[3] + q.dmaTags[4] + q.dmaTags[5] +
+                          q.dmaTags[6] + q.dmaTags[7]),
+          (unsigned long)refs, (unsigned long)q.dmaTags[1],
+          (unsigned long)q.dmaTags[7], (unsigned long)q.refPayloadQwords,
+          (unsigned long)q.inlinePayloadQwords,
+          (unsigned long)q.refsAligned128,
+          (unsigned long)q.refsUnaligned128, (unsigned long)q.vifWords,
+          (unsigned long)q.vifNops, (unsigned long)q.vifUnpack,
+          (unsigned long)q.vifStcycl, (unsigned long)q.vifStrow,
+          (unsigned long)q.vifStcol, (unsigned long)q.vifFlush,
+          (unsigned long)q.vifFlushe, (unsigned long)q.vifFlusha,
+          (unsigned long)q.vifMscal, (unsigned long)q.vifMscalf,
+          (unsigned long)q.vifMscnt, (unsigned long)q.malformedChains);
+      TYRA_LOG(line);
+      q = Tyra::StaPipPacketCounters{};
+    }
+#endif
   }
   sBeg = sEnd = sCmp = sCmpEe = 0;
   sPrx = sAcc = sRep = sFea = sNet = sPkt = 0;
@@ -20571,6 +20640,9 @@ bool TerrainGame::occlusionHiddenObject(int index){
 }
 
 void TerrainGame::renderStaticBatches() {
+#if TYRA_FRAME_PROFILE
+  stapip.core.setTelemetryProducer(Tyra::StaPipProducerStaticBatches);
+#endif
   for (StaticBatch& b : staticBatches) {
     bool stale = b.dirty;
     for (size_t k = 0; k < b.members.size(); ++k) {
@@ -20985,6 +21057,9 @@ void TerrainGame::procFinishChunks() {
 {{VEHICLE_IMPL}}
 {{ROADS_IMPL}}
 void TerrainGame::renderProcChunks() {
+#if TYRA_FRAME_PROFILE
+  stapip.core.setTelemetryProducer(Tyra::StaPipProducerProcedural);
+#endif
   if (procChunks.empty()) return;
   for (ProcChunk& c : procChunks) {
     // Roads have their own phase and profiler row. Keeping them here as well
@@ -21017,6 +21092,9 @@ void TerrainGame::renderProcChunks() {
 }
 
 void TerrainGame::renderRoadChunks() {
+#if TYRA_FRAME_PROFILE
+  stapip.core.setTelemetryProducer(Tyra::StaPipProducerRoads);
+#endif
   // Main and reflection views need the asphalt without paying for every
   // procedural volume and prefab in the scene. Roads own the reserved -3
   // producer id, which also gives the profiler an honest standalone phase.
@@ -22489,6 +22567,9 @@ void TerrainGame::renderScene() {
   { const u32 ct=costStart(); renderPortalView(); costEnd("Portal",-1,ct); }
 
   const u32 costSkyStart=costStart();
+#if TYRA_FRAME_PROFILE
+  stapip.core.setTelemetryProducer(Tyra::StaPipProducerSky);
+#endif
   if (skyDome.bag) {
     // Follow the camera: park the dome's centre on the eye so however big the
     // map is, the horizon and zenith always wrap around the player. Only the
@@ -22718,6 +22799,9 @@ void TerrainGame::renderScene() {
   const bool hlActive = HIGHLIGHT_USABLE;
   const bool hlOverlay = HIGHLIGHT_OVERLAY;
   const u32 costObjectsStart=costStart();
+#if TYRA_FRAME_PROFILE
+  stapip.core.setTelemetryProducer(Tyra::StaPipProducerObjects);
+#endif
   // Owned object streams remain alive until the next VIF1 synchronization.
   stapip.core.beginSubmissionBatch();
   int impostorSwitchBudget = 4;
@@ -22901,6 +22985,9 @@ void TerrainGame::renderScene() {
   stapip.core.endSubmissionBatch();
   costEnd("Objects",-1,costObjectsStart);
 {{VEHICLE_RENDER}}
+#if TYRA_FRAME_PROFILE
+  stapip.core.setTelemetryProducer(Tyra::StaPipProducerEffects);
+#endif
   // Animated models: advance playback, then skin + draw the in-view ones
   // through the same static pipeline (see updateAndRenderAnimObjects)
   { const u32 ct=costStart(); updateAndRenderAnimObjects(); costEnd("Animation",-1,ct); }
@@ -26395,6 +26482,9 @@ bool TerrainGame::objectOutsideSplitBand(int i) const {
 }
 
 void TerrainGame::renderTerrain() {
+#if TYRA_FRAME_PROFILE
+  stapip.core.setTelemetryProducer(Tyra::StaPipProducerTerrain);
+#endif
   for (TerrainChunk& ch : terrainChunks) {
     if (ch.cx < 0 || !ch.bag || ch.bag->count == 0) continue;
     if (portalExitPlaneOn) {

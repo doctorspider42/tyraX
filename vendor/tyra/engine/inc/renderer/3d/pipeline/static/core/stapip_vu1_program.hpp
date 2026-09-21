@@ -27,6 +27,10 @@ class StaPipVU1Program : public VU1Program {
   u32& getReglist();
 
   const StaPipProgramName& getName() const;
+  u8 getReglistCount() const { return reglistCount; }
+  u32 getGsVertexCount(const u32& inputCount) const {
+    return gsVertexCount(inputCount);
+  }
 
   // Modified by TyraX: virtual - the billboard programs have their own
   // input/output qword budget (6 GS verts per input center).
