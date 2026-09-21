@@ -465,9 +465,12 @@ nothing when idle:
   `bodyOverhang`) stays the fallback, and a model authored before this
   existed changes nothing.
 - **Headlights** (`headlights` on the definition, off by default): an
-  additive beam trapezoid painted on the terrain ahead of the nose, bright
-  at the bumper and gone at the far end (gouraud does the falloff) — the
-  scene lights' ground-pool trick. Sells a night map; subtle by day.
+  additive beam painted on the ground ahead of the nose, bright at the bumper
+  and gone at the far end (gouraud does the falloff) — the scene lights'
+  ground-pool trick. Its 3x3 trapezoid grid samples the baked road/junction
+  surface as well as terrain, so a raised street crossing the middle no longer
+  depth-tests the beam away. The 54 Gouraud vertices still fit one VU1 package.
+  Sells a night map; subtle by day.
 
 Backfire and headlights share ONE additive submit (the glow bag). Both new
 bags ride `PipelineInfoBagFrustumCulling_Precise` with full clip checks —

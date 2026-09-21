@@ -1692,10 +1692,10 @@ class TerrainGame : public Tyra::Game {
   void setupLightPools();            // per scene load
   void updateAndRenderLightPools();  // per frame, before the shadows
   void buildPoolPatch(LightPool& b, float cx, float cz, float r, float lift);
-  // Blob shadows (BLOB_SHADOWS): a soft dark terrain-conforming quad under
+  // Blob shadows (BLOB_SHADOWS): a soft dark terrain-conforming grid under
   // each moving object (third-person avatar, animated models, physics
   // objects), fading out as the object rises. Per-caster arrays - the DMA
-  // may still be reading a submitted quad, so casters never share buffers.
+  // may still be reading a submitted patch, so casters never share buffers.
   struct BlobShadow {
     int objIndex = -1;
     bool shaped = false;

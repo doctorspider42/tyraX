@@ -9,7 +9,7 @@ LIGHT rather than an object ("Spot-light shadow volumes"):
 | What it is | one soft dark quad that follows the ground under the object | the object rendered a second time (64×64, from the sun) and projected under itself | the shadow traced once on your machine and projected onto whatever is under it |
 | Shape | a baked/picked top-down mask per object; round fallback when none is assigned | the real silhouette, animation included | the real silhouette, with a real penumbra |
 | Moves | yes | yes | **no** — it is baked |
-| Cost | one quad | a second render per frame, **four casters at a time** (the nearest to the camera win) | one submit per atlas page, whatever the shadow count |
+| Cost | one 18-triangle / one-package patch | a second render per frame, **four casters at a time** (the nearest to the camera win) | one submit per atlas page, whatever the shadow count |
 | Good for | crowds, small props, anything you want grounded | hero objects | static scenery, and anything standing on a textured floor or against a wall |
 
 They are not the same thing as **"Cast shadow"** further down that panel, which
@@ -60,9 +60,12 @@ mask is normalised into a square texture.
 
 ![A box using its per-object baked blob silhouette in Properties](img/blob-shadow-shape.png)
 
-The console cost does not grow with mesh complexity: it still samples the mask
-on one heading-aligned quad whose four corners follow the visible ground — the
-baked road/junction surface where present, otherwise terrain. Heading comes
+The console cost does not grow with mesh complexity: it samples the mask on a
+compact 3x3 heading-aligned receiver grid (54 vertices, one textured VU1
+package) that follows the visible ground — the baked road/junction surface
+where present, otherwise terrain. The interior samples matter at road edges:
+four outside corners can all sit on terrain while asphalt crosses the middle of
+the footprint. Heading comes
 from the full runtime object basis, so vehicle pitch/roll and the XYZ Euler fold
 past 90 degrees cannot freeze or reverse the mask. Re-bake after a model's
 silhouette changes. Picking a PNG manually is useful for an art-directed
@@ -237,6 +240,11 @@ road, while their patches were placed on terrain 0.12 units below it and failed
 the road depth test. When validating receiver work, still compare against a
 known-bad arm; a held shadow slot or submitted package is not proof that a pixel
 survived depth testing.
+
+Sampling the correct height function is necessary but not sufficient for a
+moving decal. Blob shadows therefore use a 3x3 grid rather than one quad: a
+road can cross the footprint without touching any of its four outer corners.
+The 54 textured vertices remain below the 75-vertex package ceiling.
 
 ### The four slots change hands slowly
 

@@ -16,6 +16,13 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.117.7: MOVING ROAD EFFECTS SAMPLE INSIDE THEIR FOOTPRINT.
+// Vehicle headlight beams and runtime blob shadows use compact 3x3 receiver
+// grids instead of one quad. Interior samples see a raised road even when the
+// four outside corners remain on terrain, preventing asphalt from depth-testing
+// the middle of the beam or shadow away. Both grids remain one VU1 package.
+// Project format stays 59. PATCH.
+//
 // 1.117.6: ROAD EFFECTS LAND ON THE SURFACE THAT IS ACTUALLY DRAWN.
 // Blob shadows, point-light pools, flashlight floor pools and projected-shadow
 // patches now sample the baked road triangles as well as terrain, including
@@ -4857,7 +4864,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 117
-#define TYRAX_VERSION_PATCH 6
+#define TYRAX_VERSION_PATCH 7
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

@@ -775,6 +775,13 @@ polling, cheaper reusable bounds/preparation, and road submission/LOD; test each
 independently before deciding on a renderer rewrite. No engine optimization is
 implemented by this profiling pass.
 
+The vehicle's headlight receiver and blob shadow now use compact 3x3 grids.
+Both query the generated road/junction triangles at interior points, fixing the
+physical-console case where the raised asphalt crossed a single large quad but
+none of its four corners. Each effect remains within one VU1 package (54
+vertices), so the fix adds triangles inside the existing submit rather than an
+extra draw call.
+
 [Hardware summary](authoring/frame-cost-2026-09-14/hardware-summary.json) and
 [raw evidence](authoring/frame-cost-2026-09-14/) retain the measured frames.
 
@@ -801,6 +808,23 @@ The subsequent generic bounds-cache experiment is recorded in the
 [engine work plan](../../docs/motor-district-performance-plan.md#next-universal-experiment-indexed-bounds-cache-2026-09-14).
 It uses the lean geometry and unchanged devkit cadence; do not merge its
 results into the original model-reduction A/B above.
+
+### Moving-view follow-up (2026-09-21)
+
+A 32-frame physical-PAL hardware trace was captured while rotating the view
+from the one-vehicle example. The captured expensive view held total frame time
+at about 40 ms: Scene was 22.3–23.1 ms, with Roads at 8.2–8.6 ms, Terrain at
+6.6–6.9 ms and Objects at 4.3–4.5 ms. Vehicle update itself was about 0.02 ms
+in this right-stick-only arm. Bounds were 2.5–3.0 ms and total static-pipeline
+dispatch 14.2–15.2 ms.
+
+This rules out vehicle simulation as the source of the reported moving-only
+drop. It does **not** yet prove that camera motion itself costs the whole gap:
+the camera ended in a materially more expensive view, and the Remote Pad used
+to make the capture adds periodic `host:` polling. The trace shows two real
+targets — view-dependent road/terrain submission and roughly 2.5–3.0 ms of
+moving-view bounds work — but a fixed-pose motion/idle replay is still required
+before attributing a number to cache invalidation alone.
 
 The hardware capture can also be inspected in **Debugger > Hardware timeline**
 (1.92+), including frame selection and zoom. Detailed dispatch evidence and the

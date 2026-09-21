@@ -2504,10 +2504,10 @@ class TerrainGame : public Tyra::Game {
   void setupLightPools();            // per scene load
   void updateAndRenderLightPools();  // per frame, before the shadows
   void buildPoolPatch(LightPool& b, float cx, float cz, float r, float lift);
-  // Blob shadows (BLOB_SHADOWS): a soft dark terrain-conforming quad under
+  // Blob shadows (BLOB_SHADOWS): a soft dark terrain-conforming grid under
   // each moving object (third-person avatar, animated models, physics
   // objects), fading out as the object rises. Per-caster arrays - the DMA
-  // may still be reading a submitted quad, so casters never share buffers.
+  // may still be reading a submitted patch, so casters never share buffers.
   struct BlobShadow {
     int objIndex = -1;
     bool shaped = false;
@@ -4139,10 +4139,10 @@ class TerrainGame : public Tyra::Game {
   void setupLightPools();            // per scene load
   void updateAndRenderLightPools();  // per frame, before the shadows
   void buildPoolPatch(LightPool& b, float cx, float cz, float r, float lift);
-  // Blob shadows (BLOB_SHADOWS): a soft dark terrain-conforming quad under
+  // Blob shadows (BLOB_SHADOWS): a soft dark terrain-conforming grid under
   // each moving object (third-person avatar, animated models, physics
   // objects), fading out as the object rises. Per-caster arrays - the DMA
-  // may still be reading a submitted quad, so casters never share buffers.
+  // may still be reading a submitted patch, so casters never share buffers.
   struct BlobShadow {
     int objIndex = -1;
     bool shaped = false;
@@ -16082,14 +16082,31 @@ void TerrainGame::setupBlobShadows() {
     }
     if (!b.texture) b.texture = blobShadowTex;
     b.mat.identity();
-    b.verts.assign(6, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
-    b.sts.clear();
-    b.sts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
-    b.sts.push_back(Vec4(1.0F, 1.0F, 1.0F, 0.0F));
-    b.sts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
-    b.sts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
-    b.sts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
-    b.sts.push_back(Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+    // Three cells per side keep the textured list below the 75-vertex VU1
+    // package limit (54 vertices), while giving road edges samples inside the
+    // footprint. A single six-vertex quad only sampled its four outer corners:
+    // park half on a raised road and all four could still land on terrain, so
+    // the asphalt depth-tested the entire middle of the shadow away.
+    constexpr int kCells = 3;
+    b.verts.assign(kCells * kCells * 6,
+                   Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+    b.sts.resize(b.verts.size());
+    int sv = 0;
+    for (int iz = 0; iz < kCells; ++iz) {
+      for (int ix = 0; ix < kCells; ++ix) {
+        const float u0 = (float)ix / kCells, u1 = (float)(ix + 1) / kCells;
+        // The old quad maps +local-Z to texture v=1.
+        const float v0 = 1.0F - (float)iz / kCells;
+        const float v1 = 1.0F - (float)(iz + 1) / kCells;
+        b.sts[sv + 0] = Vec4(u0, v0, 1.0F, 0.0F);
+        b.sts[sv + 1] = Vec4(u1, v0, 1.0F, 0.0F);
+        b.sts[sv + 2] = Vec4(u1, v1, 1.0F, 0.0F);
+        b.sts[sv + 3] = b.sts[sv + 0];
+        b.sts[sv + 4] = b.sts[sv + 2];
+        b.sts[sv + 5] = Vec4(u0, v1, 1.0F, 0.0F);
+        sv += 6;
+      }
+    }
     b.color = Color(0.0F, 0.0F, 0.0F, 60.0F);
     b.info = std::make_unique<StaPipInfoBag>();
     b.info->model = &b.mat;
@@ -16112,7 +16129,7 @@ void TerrainGame::setupBlobShadows() {
     b.bag->color = b.colorBag.get();
     b.bag->texture = b.texBag.get();
     b.verts.bind(b.bag);
-    b.bag->count = 6;
+    b.bag->count = (u32)b.verts.size();
   }
   // See setupLightBeams: the bags point INTO the vector elements, so they are
   // rebound once the vector has stopped reallocating under them.
@@ -16122,8 +16139,9 @@ void TerrainGame::setupBlobShadows() {
   }
 }
 
-// Per frame: drop each caster's quad onto the terrain under it (4 height
-// samples conform it to slopes), fade with the caster's height above the
+// Per frame: drop each caster's compact grid onto the ground under it (16
+// shared sample positions conform it to slopes and road edges), fade with the
+// caster's height above the
 // ground, alpha-blend (the glow texture's alpha is the soft edge).
 void TerrainGame::updateAndRenderBlobShadows() {
   if (blobShadows.empty()) return;
@@ -16207,6 +16225,11 @@ void TerrainGame::updateAndRenderBlobShadows() {
     if (fade <= 0.02F) continue;
     if (fade > 1.0F) fade = 1.0F;
     const float lift = 0.06F;
+    // The receiver is always a small 3x3 grid. Besides following ordinary
+    // terrain relief, the inner samples make the 0.12-unit road step visible
+    // to the patch instead of asking four distant corners to describe it.
+    constexpr int kCells = 3;
+    float sy = 0.0F, cy = 1.0F;
     if (b.shaped) {
       // Flatten the object's real forward basis instead of reading Euler Y.
       // Vehicle pitch/roll are decomposed back into XYZ Euler angles and that
@@ -16214,26 +16237,31 @@ void TerrainGame::updateAndRenderBlobShadows() {
       // using rotation[1] alone therefore made the mask appear fixed or snap.
       const V3 forward = rotated({0.0F, 0.0F, 1.0F}, d.rotation);
       const float fl = sqrtf(forward.x * forward.x + forward.z * forward.z);
-      const float sy = fl > 0.0001F ? forward.x / fl : 0.0F;
-      const float cy = fl > 0.0001F ? forward.z / fl : 1.0F;
-      auto corner = [&](float lx, float lz) {
-        const float x = cx + lx * cy + lz * sy;
-        const float z = cz - lx * sy + lz * cy;
-        return Vec4(x, groundSurfaceAt(x, z) + lift, z, 1.0F);
-      };
-      b.verts[0] = corner(-shapeHx, shapeHz);
-      b.verts[1] = corner( shapeHx, shapeHz);
-      b.verts[2] = corner( shapeHx,-shapeHz);
-      b.verts[3] = b.verts[0];
-      b.verts[4] = b.verts[2];
-      b.verts[5] = corner(-shapeHx,-shapeHz);
-    } else {
-      b.verts[0] = Vec4(cx - r, groundSurfaceAt(cx - r, cz + r) + lift, cz + r, 1.0F);
-      b.verts[1] = Vec4(cx + r, groundSurfaceAt(cx + r, cz + r) + lift, cz + r, 1.0F);
-      b.verts[2] = Vec4(cx + r, groundSurfaceAt(cx + r, cz - r) + lift, cz - r, 1.0F);
-      b.verts[3] = b.verts[0];
-      b.verts[4] = b.verts[2];
-      b.verts[5] = Vec4(cx - r, groundSurfaceAt(cx - r, cz - r) + lift, cz - r, 1.0F);
+      sy = fl > 0.0001F ? forward.x / fl : 0.0F;
+      cy = fl > 0.0001F ? forward.z / fl : 1.0F;
+    }
+    const float hx = b.shaped ? shapeHx : r;
+    const float hz = b.shaped ? shapeHz : r;
+    auto receiver = [&](float lx, float lz) {
+      const float x = cx + lx * cy + lz * sy;
+      const float z = cz - lx * sy + lz * cy;
+      return Vec4(x, groundSurfaceAt(x, z) + lift, z, 1.0F);
+    };
+    int bv = 0;
+    for (int iz = 0; iz < kCells; ++iz) {
+      const float z0 = hz - 2.0F * hz * (float)iz / kCells;
+      const float z1 = hz - 2.0F * hz * (float)(iz + 1) / kCells;
+      for (int ix = 0; ix < kCells; ++ix) {
+        const float x0 = -hx + 2.0F * hx * (float)ix / kCells;
+        const float x1 = -hx + 2.0F * hx * (float)(ix + 1) / kCells;
+        b.verts[bv + 0] = receiver(x0, z0);
+        b.verts[bv + 1] = receiver(x1, z0);
+        b.verts[bv + 2] = receiver(x1, z1);
+        b.verts[bv + 3] = b.verts[bv + 0];
+        b.verts[bv + 4] = b.verts[bv + 2];
+        b.verts[bv + 5] = receiver(x0, z1);
+        bv += 6;
+      }
     }
     b.color.a = 60.0F * fade;
     b.bag->bboxVersion = ++g_bboxStamp;
@@ -34044,7 +34072,7 @@ void TerrainGame::renderVehicleGlow() {
         for (int ci = nRear; ci < (int)cols.size(); ++ci) cols[(size_t)ci] = fc;
       }
     }
-    if (v.lightsOn > 0) {
+    if (v.lightsOn > 0 && glowCount_ + 9 <= kVehGlowMax) {
       // The beam starts at the measured front lamps when the model marked
       // them, else just past the bumper.
       const float nose = s.lampFront[3] > 0.0F
@@ -34057,19 +34085,45 @@ void TerrainGame::renderVehicleGlow() {
       const float nw = 0.55F * s.track * SC, fw = 1.1F * s.track * SC;
       const float rxn = cy * nw, rzn = -sy * nw;
       const float rxf = cy * fw, rzf = -sy * fw;
-      auto g = glowVerts_.span(glowCount_ * 6, 6);
-      auto c = glowCols_.span(glowCount_ * 6, 6);
-      const float e = 0.06F;
-      g[0].set(nx - rxn, terrainHeightAt(nx - rxn, nz - rzn) + e, nz - rzn, 1.0F);
-      g[1].set(nx + rxn, terrainHeightAt(nx + rxn, nz + rzn) + e, nz + rzn, 1.0F);
-      g[2].set(fx2 + rxf, terrainHeightAt(fx2 + rxf, fz2 + rzf) + e, fz2 + rzf, 1.0F);
-      g[3] = g[0];
-      g[4] = g[2];
-      g[5].set(fx2 - rxf, terrainHeightAt(fx2 - rxf, fz2 - rzf) + e, fz2 - rzf, 1.0F);
-      const Tyra::Color nearC(210.0F, 200.0F, 140.0F, 64.0F);
-      const Tyra::Color farC(210.0F, 200.0F, 140.0F, 0.0F);
-      c[0] = nearC; c[1] = nearC; c[2] = farC; c[3] = nearC; c[4] = farC; c[5] = farC;
-      ++glowCount_;
+      // A single trapezoid only knew the terrain at its four outside corners.
+      // When it crossed a road, all four could stay beside the asphalt and the
+      // whole beam was consequently drawn 0.12 units underneath it. A 3x3
+      // grid is still 54 vertices (one Gouraud VU1 package), but samples the
+      // exact baked road/junction surface inside the beam as well.
+      constexpr int kCells = 3;
+      const float e = 0.065F;
+      auto point = [&](float t, float side) {
+        const float bx = nx + (fx2 - nx) * t;
+        const float bz = nz + (fz2 - nz) * t;
+        const float rx = rxn + (rxf - rxn) * t;
+        const float rz = rzn + (rzf - rzn) * t;
+        const float x = bx + rx * side;
+        const float z = bz + rz * side;
+        return Vec4(x, groundSurfaceAt(x, z) + e, z, 1.0F);
+      };
+      auto beamColor = [&](float t) {
+        return Tyra::Color(210.0F, 200.0F, 140.0F, 64.0F * (1.0F - t));
+      };
+      constexpr int tri[6] = {0, 1, 2, 0, 2, 3};
+      for (int iz = 0; iz < kCells; ++iz) {
+        const float t0 = (float)iz / kCells;
+        const float t1 = (float)(iz + 1) / kCells;
+        for (int ix = 0; ix < kCells; ++ix) {
+          const float s0 = -1.0F + 2.0F * (float)ix / kCells;
+          const float s1 = -1.0F + 2.0F * (float)(ix + 1) / kCells;
+          const Vec4 p[4] = {point(t0, s0), point(t0, s1),
+                             point(t1, s1), point(t1, s0)};
+          const Tyra::Color pc[4] = {beamColor(t0), beamColor(t0),
+                                     beamColor(t1), beamColor(t1)};
+          auto g = glowVerts_.span(glowCount_ * 6, 6);
+          auto c = glowCols_.span(glowCount_ * 6, 6);
+          for (int j = 0; j < 6; ++j) {
+            g[j] = p[tri[j]];
+            c[j] = pc[tri[j]];
+          }
+          ++glowCount_;
+        }
+      }
     }
     // Tail lamps: two small red quads on the rear face. Dim while the
     // lights are on, FLARED while braking - and braking lights them even
