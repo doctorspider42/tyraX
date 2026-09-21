@@ -4,6 +4,23 @@ This is only unfinished work that still has a clear payoff and a testable end.
 Finished investigations belong in commit history; reusable facts belong in the
 relevant guide or developer skill.
 
+## Hardware-first GIF packet harness (only before another compaction attempt)
+
+The 2026-09-21 `cull_tc` spike combined four PACKED A+D state writes under one
+giftag. It saved 3 quadwords and 3 VU instructions per textured-colour package
+and rendered correctly in PCSX2, but stalled the physical console on the first
+gameplay frame. The production change was reverted; the measurements and GIF
+selector limits are recorded in
+[vu1-and-dma-cache-cost.md](vu1-and-dma-cache-cost.md#gif-state-tag-compaction-spike-2026-09-21-rejected).
+
+Do not repeat that renderer-wide experiment. If packet compaction is revisited,
+first build a minimal console harness that submits one candidate packet and
+waits for FINISH, then sweep exactly one encoding variable at a time. REGLIST
+is not a route for TEST/TEX1/ALPHA because they are not four-bit REGLIST
+selectors. Its remaining plausible target is regular RGBAQ/XYZF2 vertex output,
+which first needs an explicit native-64-bit VU packing design and an instruction
+budget proving that packing costs less than it saves.
+
 ## Motor District follow-up after the integrated frozen-camera pass
 
 ### What else was `FlushCache` writing back? (2026-09-16, BLOCKING S1)

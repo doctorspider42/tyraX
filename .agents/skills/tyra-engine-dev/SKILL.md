@@ -1492,6 +1492,16 @@ Rules the same evening paid for:
   NLOOP. Symptom: the game hangs on the loading screen (spinning in
   `draw_wait_finish()` / a FINISH handshake that never arrives), no assert,
   clean log. Count the qwords after every PACK_GIFTAG edit.
+- **Do not treat REGLIST as a generic replacement for PACKED A+D state.** Its
+  register selectors are four bits wide; TEST, TEX1 and ALPHA are not directly
+  selectable (TEX0 is). A 2026-09-21 `cull_tc` spike instead combined four
+  unchanged A+D payloads behind one four-loop PACKED tag, shrinking the header
+  from 9 to 6 QW and the VU program from 345 to 342 instructions. PCSX2 rendered
+  it correctly, but physical hardware stalled on the first gameplay frame and
+  never completed the benchmark, so the change was reverted. Any retry starts
+  with a minimal hardware-first FINISH harness; emulator acceptance is not
+  evidence here. Also resize the static `packet2_t` when adding uploads: two
+  CNT/data pairs plus END need 5 QW, not the original 3.
 - **ps2sdk's `ATEST_KEEP_*` constants name what is PRESERVED, not what is
   written** (`ps2sdk/ee/include/draw_tests.h`): `ATEST_KEEP_ZBUFFER` = 1 =
   GS FB_ONLY (colour written, z untouched), `ATEST_KEEP_FRAMEBUFFER` = 2 =

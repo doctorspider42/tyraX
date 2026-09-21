@@ -423,3 +423,43 @@ vertex, and this page's own probe says what that would and would not buy**: the
 16-bytes-per-vertex arm moved VIF1 wait by 0.067 ms, so a smaller per-vertex
 footprint pays by fitting more vertices per package, never by moving fewer
 bytes.
+
+## GIF state-tag compaction spike (2026-09-21, rejected)
+
+The four state writes at the head of `cull_tc` looked like an easy packet win:
+TEST, TEX1, TEX0 and ALPHA were each emitted as a one-loop PACKED A+D tag plus
+one A+D payload qword. The safe-looking prototype kept the four payload qwords
+unchanged but put them behind one four-loop PACKED A+D tag. That reduced this
+header from **9 to 6 quadwords** (−3 QW / −48 bytes per textured-colour
+package) and reduced the VU program from **345 to 342 instructions**.
+
+It is not shippable. The generated and handwritten VU programs matched, the
+native game built, PCSX2 booted and rendered the four benchmark poses correctly,
+but the physical console stopped making progress on the first live gameplay
+frame and never produced a benchmark CSV after more than four minutes. The
+control build completed normally on the same console:
+
+| pose | control median FPS |
+| --- | ---: |
+| garage day | 25.00 |
+| garage night | 16.67 |
+| outer-road day | 49.04 |
+| outer-road night | 25.00 |
+
+The prototype was fully reverted. **PCSX2 accepting a GIF packet is not evidence
+that the real GIF path accepts it.** Any retry must start as a minimal
+hardware-first packet harness, not as another whole-renderer arm.
+
+The more aggressive REGLIST version is invalid for this state block for a
+separate, architectural reason: a REGLIST selector is four bits wide and can
+name PRIM, RGBAQ, ST, UV, XYZF2, XYZ2, TEX0, CLAMP, FOG, XYZF3, XYZ3, A+D or
+NOP. TEST, TEX1 and ALPHA are not directly selectable. A future REGLIST study
+therefore belongs on regular vertex output such as RGBAQ/XYZF2, and needs a
+real native-64-bit VU packing design; it cannot be applied mechanically to
+arbitrary A+D state writes.
+
+One implementation trap also surfaced before the hardware result: adding a
+second static upload changed the static DMA packet from one CNT/data pair to
+two, so its capacity had to grow from 3 to 5 quadwords including END. An
+undersized `packet2_t` can corrupt the chain before the GIF semantics are even
+under test.
