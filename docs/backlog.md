@@ -21,6 +21,94 @@ selectors. Its remaining plausible target is regular RGBAQ/XYZF2 vertex output,
 which first needs an explicit native-64-bit VU packing design and an instruction
 budget proving that packing costs less than it saves.
 
+## Packet-reduction article: filtered follow-ups (2026-09-21)
+
+The article's useful idea is not "make one enormous packet". It is to measure
+the command stream as a program: separate EE construction, DMA control flow,
+VIF input, VU work and GS output, then remove repetition at the layer that owns
+it. The following is the shortlist after checking it against the renderer we
+actually ship, in priority order.
+
+### P1: Count the stream before changing it
+
+Extend opt-in telemetry from the existing `packetFlushes`, `chainQw`, waits and
+route counts to the missing structural counts, split by pass and pipeline:
+
+- VIF1/GIF DMA kicks and DMA tags by kind;
+- GIFtags, A+D writes and GS payload QW;
+- VIF `FLUSH`/`FLUSHE`, `MSCAL`/`MSCNT` and XGKICK counts.
+
+The acceptance artifact is one physical-console CSV for the four frozen Motor
+District poses, with the counters compiled completely out when disabled. This
+is the prerequisite for every item below: reducing a tag count is worthless if
+the frame merely moves the cost into VU work, PATH arbitration or padding.
+
+### P2: Let VIF synthesize repeated vertex fields
+
+Prototype one offline-baked static textured-colour stream using `STCYCL` plus
+`STROW`/`STCOL` filling or multiple UNPACKs, so values shared by a run are not
+uploaded once per vertex. Start with a field that is genuinely constant over a
+package; do not complicate the dynamic or clip routes first. Measure all three
+effects separately: input QW, the resulting `getMaxVertCount` ceiling/package
+count, and physical-console `work`/VIF1 wait. The experiment fails if its VIF
+codes or VU unpacking cost erase the saved submissions, even when the byte count
+looks better.
+
+### P3: Price 128-byte alignment for long REF payloads
+
+The current correctness requirement is one QW, but long geometry and texture
+sources may benefit from 8-QW/128-byte starts. Add an allocator-only A/B for
+large REF payloads; do not pad small control packets. Hold rendered bytes,
+package counts and route decisions constant, then record RAM/padding overhead
+beside physical-console VIF1/GIF waits and `work`. This is attractive because it
+can improve bus behaviour without changing the packet language, but it remains
+a measurement, not an architecture assumption.
+
+### P4: State-diff packets, scoped to one ordered PATH1 pass
+
+First use the P1 counters to quantify repeated TEST/TEX0/TEX1/ALPHA/CLAMP writes
+between consecutive packages. If the repetition is material, prototype a tiny
+set of prebuilt transition variants or a shadow state **inside one ordered
+PATH1 pass only**. Invalidate it on every external GS writer, texture upload,
+post-effect and path switch; a global shadow state would be a loaded shotgun
+pointed at asynchronous PATH arbitration. Test the transition packet in the
+hardware-first harness before integrating it. PRE/PRIM is not part of this
+task: `packet2_utils_gs_add_prim_giftag` already emits PRIM through GIFtag PRE.
+
+### P5: Feasibility study for a VU1 multi-object job
+
+For wholly visible, static objects sharing program, vertex layout and material,
+price a VU task that consumes several object records before returning to the
+EE. The study comes before code: budget record data, per-object matrices, VU
+data memory, resident microcode, XGKICKs and the culling granularity lost by a
+larger group. The current textured-colour package already uses 75 vertices
+against an 81-vertex VU-memory ceiling, so a useful design probably streams
+records through the existing double buffer rather than reserving a large table.
+The success metric is fewer submissions/MSCAL boundaries and lower hardware
+`work`, not merely fewer C++ calls.
+
+### Gated, not queued as standalone work
+
+- **PATH3 intermittent texture streaming** is interesting only when P1 shows a
+  real PATH3 dependency. The measured garage GIF wait is about **0.017 ms**, so
+  it is currently noise, not the dragon guarding 60 fps.
+- **MFIFO** is justified only if traces show the EE producer repeatedly waiting
+  for a DMA channel and enough independent work exists to overlap it. A large
+  VIF1 wait alone is not that evidence; it can mean the consumer is the limit.
+- **Scratchpad staging** is already covered by S1 in
+  [ee-submission-rearchitecture.md](ee-submission-rearchitecture.md). Do not
+  create a duplicate project before the corrupt no-flush arm identifies every
+  EE-written buffer and the required ordering barrier.
+
+Do not re-add the article's already-done or already-refuted suggestions as new
+tasks: primitive state already rides GIFtag PRE; VU1 clip programs already patch
+variable NLOOP and emit through XGKICK; strips and degenerate joins have measured
+coverage; retained static commands and bounded submission batching already own
+the safe part of packet preinstantiation; uncached packets were +7.55 ms and
+UCAB is unsafe with the stock patching builder; arbitrary CALL/RET/REF flyweights
+violate the current retained-command lifetime/TTE contract; and the REGLIST
+state shortcut is rejected immediately above.
+
 ## Motor District follow-up after the integrated frozen-camera pass
 
 ### What else was `FlushCache` writing back? (2026-09-16, BLOCKING S1)
