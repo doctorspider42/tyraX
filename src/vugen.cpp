@@ -2066,12 +2066,13 @@ void emitStageConstants(Vu& b, Program& prog, StagePlan& plan, bool hasStages,
 
 /** What every family reads out of the double buffer it was just handed. */
 struct BufferHeader {
-    IVal buffer{}, vertexData{}, vertexCount{};
+    IVal buffer{}, vertexData{}, vertexCount{}, stateFlag{};
     Val scale{}, primTag{};
 };
 
 BufferHeader emitBufferHeader(Vu& b, Program& prog,
-                              bool packedClipCount = false) {
+                              bool packedClipCount = false,
+                              bool packedStateFlag = false) {
     BufferHeader h;
     h.buffer = b.inamed("buffer");
     b.xtop(h.buffer);
@@ -2083,7 +2084,16 @@ BufferHeader emitBufferHeader(Vu& b, Program& prog,
     b.iaddiuInto(h.vertexData, h.buffer, kVertDataAddr);
     prog.code.back().comment = "VU1_STAPIP_VERT_DATA_ADDR";
     h.vertexCount = b.inamed("vertexCount");
-    ilwInto(prog, h.vertexCount, h.buffer, 0, 3);
+    if (packedStateFlag) {
+        h.stateFlag = b.inamed("stateFlag");
+        ilwInto(prog, h.stateFlag, h.buffer, 0, 3);
+        const IVal countMask = b.inamed("countMask");
+        b.iaddiuInto(countMask, b.izero(), kBufferCountMask);
+        b.iandInto(h.vertexCount, h.stateFlag, countMask);
+        prog.code.back().comment = "strip the packed material-state flag";
+    } else {
+        ilwInto(prog, h.vertexCount, h.buffer, 0, 3);
+    }
     if (packedClipCount) {
         const IVal countMask = b.inamed("countMask");
         b.iaddiuInto(countMask, b.izero(), kBufferCountMask);
@@ -2152,7 +2162,12 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     // --- per-buffer ---------------------------------------------------------
     const Lbl begin = b.label("begin");
     b.bind(begin);
-    const BufferHeader hdr = emitBufferHeader(b, prog);
+    const bool stateReuse =
+        d.programEnum == "StaPipAsIsTextureColor" ||
+        d.programEnum == "StaPipAsIsTextureDirLights" ||
+        d.programEnum == "StaPipCullTextureColor" ||
+        d.programEnum == "StaPipCullTextureDirLights";
+    const BufferHeader hdr = emitBufferHeader(b, prog, false, stateReuse);
     const IVal buffer = hdr.buffer;
     const IVal vertexData = hdr.vertexData;
     const IVal vertexCount = hdr.vertexCount;
@@ -2187,7 +2202,19 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     }
 
     // --- the GIF tag block --------------------------------------------------
-    emitTagBlock(b, prog, d, k, hdr.primTag, destAddress);
+    if (stateReuse) {
+        const Lbl reuse = b.label("reuseMaterialState");
+        const Lbl ready = b.label("materialStateReady");
+        b.branchIfGez(hdr.stateFlag, reuse);
+        emitTagBlock(b, prog, d, k, hdr.primTag, destAddress);
+        b.branch(ready);
+        b.bind(reuse);
+        b.sq(hdr.primTag, destAddress, 0);
+        b.iaddiuInto(destAddress, destAddress, 1);
+        b.bind(ready);
+    } else {
+        emitTagBlock(b, prog, d, k, hdr.primTag, destAddress);
+    }
 
     // --- the vertex loop ----------------------------------------------------
     //

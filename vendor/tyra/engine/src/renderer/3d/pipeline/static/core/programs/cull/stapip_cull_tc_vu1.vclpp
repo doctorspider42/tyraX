@@ -55,7 +55,14 @@ begin:
     LoadTyraBufferTags{ scale, primTag, buffer }
 
     iaddiu  vertexData,         buffer,         VU1_STAPIP_VERT_DATA_ADDR
-    ilw.w   vertexCount,        0(buffer)
+    ; Modified by TyraX: bit 15 asks this package to establish material state.
+    ; Consecutive packages in one bag reuse the GS registers and emit only
+    ; their primitive tag. Keeping every tag one-loop avoids the physical-GS
+    ; hang seen with the superficially cheaper multi-loop A+D experiment.
+    ilw.w   stateFlag,          0(buffer)
+    iadd    vertexCount,        stateFlag,      vi00
+    iaddiu  countMask,          vi00,            VU1_STAPIP_COUNT_MASK
+    iand    vertexCount,        vertexCount,     countMask
     iadd    stqData,            vertexData,     vertexCount
     iadd    colorData,          stqData,        vertexCount
     iblez   singleColorEnabled, setDestAddrMultiColor
@@ -66,12 +73,18 @@ setDestAddrMultiColor:
 setDestAddr:
     iaddiu  destAddress,        kickAddress,    0
 
+    ibgez   stateFlag,          reuseMaterialState
     ; Modified by TyraX: loaded here, not above `begin:` - see the note there.
     LoadTyraStaticData{ gifSetTag }
     LoadTyraTagsTexture{ lodGifTag, testsTag, texBufferClutGifTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR, VU1_CLUT_ADDR }
     ; Modified by TyraX: per-mesh GS blend equation, in-band
     LoadTyraAlphaTag{ alphaGifTag, VU1_ALPHA_ADDR }
     StoreTyraGifTagsTextureAlpha{ gifSetTag, lodGifTag, texBufferClutGifTag, alphaGifTag, primTag, testsTag, destAddress }
+    b       materialStateReady
+reuseMaterialState:
+    sq      primTag,            0(destAddress)
+    iaddiu  destAddress,        destAddress,     1
+materialStateReady:
 
     ;--- Loop
     iadd vertexCounter, buffer, vertexCount

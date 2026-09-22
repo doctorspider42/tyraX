@@ -58,16 +58,25 @@ Garage-day work regressed about 0.18 ms, garage-night 0.09 ms and outer-road
 night 0.05 ms. The allocator arm was reverted. Do not repeat it unless P2 owns
 per-package stream layout and can align every slice rather than just its base.
 
-### P4: State-diff packets, scoped to one ordered PATH1 pass
+### P4: State-diff packets, scoped to one ordered PATH1 pass — DONE 2026-09-22
 
-P1 confirms a material target: the garage emits 765–826 A+D state writes and
-962–1,039 GIFtags per frame. Prototype a tiny set of transition variants or a
-shadow state **inside one ordered PATH1 pass only**, but only after the
-hardware-first harness above passes it. VU programs currently emit state and do
-not know MSCAL from MSCNT; clip counts already consume their packed flag bits,
-so this needs an explicit package flag/ABI variant and invalidation on every
-external GS writer, texture upload, post-effect and path switch. PRE/PRIM is not
-part of this task: `packet2_utils_gs_add_prim_giftag` already uses GIFtag PRE.
+Cull/as-is textured-colour and textured-directional packages now establish
+TEST/TEX1/TEX0/ALPHA on package zero of a material bag and emit only the
+one-loop primitive tag on its later packages. Bit 15 of the non-clip count word
+is the explicit VU ABI flag; clip packets remain unchanged because their six
+high bits belong to the plane mask. `clearLastProgramName()` at every bag is
+the conservative invalidation boundary, so no texture upload, external GS
+writer or material transition can leak into a reuse decision.
+
+The physical PAL console completed the automated day/night/outer-road cycle
+with `bad=0`. In stable garage windows it reused state 233 times/frame by day
+and 248 times/frame by night, removing respectively 932/992 GIFtags, 932/992
+A+D writes and 1,864/1,984 GS payload quadwords per frame. The real frame-time
+gain is deliberately reported as small: about 0.04 ms in garage day, 0.20 ms
+in garage night and 0.12 ms in the outer-road view against the immediately
+preceding profiled build. This is useful structural cleanup, not the missing
+60-FPS lever. The tempting four-loop packed A+D encoding remains rejected; the
+accepted path keeps every GIFtag one-loop.
 
 ### P5: Feasibility study for a VU1 multi-object job
 

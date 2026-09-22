@@ -29,7 +29,9 @@ begin:
     lq.xyz     scale, 0(buffer)  ; LoadTyraBufferTags
     lq         primTag, 1(buffer)
     iaddiu     vertexData, buffer, 2  ; VU1_STAPIP_VERT_DATA_ADDR
-    ilw.w      vertexCount, 0(buffer)
+    ilw.w      stateFlag, 0(buffer)
+    iaddiu     countMask, vi00, 1023
+    iand       vertexCount, stateFlag, countMask  ; strip the packed material-state flag
     iadd       stqData, vertexData, vertexCount
     iadd       colorData, stqData, vertexCount
     iblez      singleColorEnabled, setDestAddrMultiColor
@@ -39,6 +41,7 @@ setDestAddrMultiColor:
     iadd       kickAddress, colorData, vertexCount
 setDestAddr:
     iaddiu     destAddress, kickAddress, 0
+    ibgez      stateFlag, reuseMaterialState
     sq         gifSetTag, 0(destAddress)  ; GIF tag block
     sq         testsTag, 1(destAddress)
     sq         gifSetTag, 2(destAddress)
@@ -49,6 +52,11 @@ setDestAddr:
     sq         alphaGifTag, 7(destAddress)
     sq         primTag, 8(destAddress)
     iaddiu     destAddress, destAddress, 9
+    b          materialStateReady
+reuseMaterialState:
+    sq         primTag, 0(destAddress)
+    iaddiu     destAddress, destAddress, 1
+materialStateReady:
     iadd       vertexCounter, buffer, vertexCount
 vertexLoop:
     iblez      singleColorEnabled, multiColor

@@ -21,6 +21,13 @@ bool isClipProgram(const StaPipProgramName name) {
          name == StaPipClipTextureColor || name == StaPipClipTextureEnv;
 }
 
+bool supportsGsStateReuse(const StaPipProgramName name) {
+  return name == StaPipCullTextureColor ||
+         name == StaPipCullTextureDirLights ||
+         name == StaPipAsIsTextureColor ||
+         name == StaPipAsIsTextureDirLights;
+}
+
 u8 reverseSixBits(const u8 value) {
   // This runs once per clip qbuffer on the EE hot path. Keep it branchless so
   // an older GCC does not preserve a six-iteration helper loop.
@@ -56,14 +63,16 @@ u32& StaPipVU1Program::getReglist() { return reglist; }
 
 void StaPipVU1Program::addBufferDataToPacket(packet2_t* packet,
                                              StaPipQBuffer* buffer,
-                                             prim_t* prim) {
-  addStandardBufferDataToPacket(packet, buffer, prim);
+                                             prim_t* prim,
+                                             const bool& emitState) {
+  addStandardBufferDataToPacket(packet, buffer, prim, emitState);
   addProgramQBufferDataToPacket(packet, buffer);
 }
 
 void StaPipVU1Program::addStandardBufferDataToPacket(packet2_t* packet,
                                                      StaPipQBuffer* buffer,
-                                                     prim_t* prim) {
+                                                     prim_t* prim,
+                                                     const bool& emitState) {
   // Modified by TyraX: a billboard bag carries a texture bag purely for the
   // per-particle params channel - only a real image enables mapping.
   if (buffer->bag->texture && buffer->bag->texture->texture)
@@ -84,6 +93,8 @@ void StaPipVU1Program::addStandardBufferDataToPacket(packet2_t* packet,
     // constant lives in exactly one place now.
     packet2_add_float(packet, RendererCoreDepth::scale);  // scale
     u32 packedCount = buffer->size;
+    if (supportsGsStateReuse(name) && emitState)
+      packedCount |= VU1_STAPIP_EMIT_STATE_FLAG;
     if (isClipProgram(name)) {
       TYRA_ASSERT(buffer->size <= VU1_STAPIP_COUNT_MASK,
                   "Clip vertex count does not fit packed VU1 header");

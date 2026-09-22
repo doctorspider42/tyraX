@@ -37,11 +37,14 @@ begin:
     lq.xyz     scale, 0(buffer)  ; LoadTyraBufferTags
     lq         primTag, 1(buffer)
     iaddiu     vertexData, buffer, 2  ; VU1_STAPIP_VERT_DATA_ADDR
-    ilw.w      vertexCount, 0(buffer)
+    ilw.w      stateFlag, 0(buffer)
+    iaddiu     countMask, vi00, 1023
+    iand       vertexCount, stateFlag, countMask  ; strip the packed material-state flag
     iadd       stqData, vertexData, vertexCount
     iadd       normalData, stqData, vertexCount
     iadd       kickAddress, normalData, vertexCount
     iadd       destAddress, normalData, vertexCount
+    ibgez      stateFlag, reuseMaterialState
     sq         gifSetTag, 0(destAddress)  ; GIF tag block
     sq         testsTag, 1(destAddress)
     sq         gifSetTag, 2(destAddress)
@@ -52,6 +55,11 @@ begin:
     sq         alphaGifTag, 7(destAddress)
     sq         primTag, 8(destAddress)
     iaddiu     destAddress, destAddress, 9
+    b          materialStateReady
+reuseMaterialState:
+    sq         primTag, 0(destAddress)
+    iaddiu     destAddress, destAddress, 1
+materialStateReady:
     iadd       vertexCounter, buffer, vertexCount
 vertexLoop:
     lq         vertex1, 0(vertexData)  ; W carries the clip-space distance (fog)

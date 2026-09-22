@@ -512,6 +512,11 @@ It converts the 50-frame `FTPKT` totals into per-frame medians by producer and
 pose. The accepted 2026-09-22 capture, including the rejected 128-byte REF
 alignment experiment, is in
 [`authoring/packet-structure-2026-09-22/`](authoring/packet-structure-2026-09-22/README.md).
+The later intra-bag GS-state pass is visible in the same rows as `reuse`: on a
+physical PAL console the stable garage view reused 233 package headers/frame by
+day and 248 by night. That removed 1,864/1,984 GS payload QW per frame, but only
+about 0.04/0.20 ms respectively; it is a real packet reduction, not a route to
+60 FPS by itself.
 
 It also splits `proj_shadows` three ways — the caster's own bags, the receiver
 patch and the torch's wall copy — because "projected shadows are badly packed"

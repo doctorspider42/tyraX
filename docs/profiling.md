@@ -18,6 +18,10 @@ DMA tags and payload QW, 128-byte REF alignment, VIF command counts, derived
 GIFtags, A+D state writes, GS payload QW and XGKICKs. `bad=0` is the validity
 gate: a non-zero value means the closed decoder met an unknown or truncated
 command and the structural totals for that row must not be trusted.
+`reuse` counts packages that inherited TEST/TEX1/TEX0/ALPHA from package zero
+of the same material bag. It is a 50-frame total like the other fields. The
+derived `gif`, `ad` and `gqw` values already include that saving; do not subtract
+`reuse` from them a second time.
 
 Capture a physical-console run without losing ps2link output, then summarize
 the four frozen benchmark poses:

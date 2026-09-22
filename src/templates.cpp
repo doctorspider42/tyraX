@@ -6076,6 +6076,7 @@ void addPacketCounters(Tyra::StaPipPacketCounters& dst,
   dst.adWrites += src.adWrites;
   dst.gsPayloadQwords += src.gsPayloadQwords;
   dst.xgkicks += src.xgkicks;
+  dst.gsStateReuses += src.gsStateReuses;
   dst.malformedChains += src.malformedChains;
 }
 #endif
@@ -6265,13 +6266,14 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
       const u32 refs = q.dmaTags[0] + q.dmaTags[3] + q.dmaTags[4];
       snprintf(
           line, sizeof(line),
-          "FTPKT f=%lu p=%s kick=%lu gif=%lu ad=%lu gqw=%lu tag=%lu "
+          "FTPKT f=%lu p=%s kick=%lu gif=%lu ad=%lu gqw=%lu reuse=%lu tag=%lu "
           "ref=%lu cnt=%lu end=%lu rq=%lu iq=%lu a128=%lu/%lu "
           "vifw=%lu nop=%lu unpack=%lu cyc=%lu row=%lu col=%lu "
           "flush=%lu/%lu/%lu msc=%lu/%lu/%lu bad=%lu",
           (unsigned long)(frame - kWindow), producerNames[p],
           (unsigned long)q.xgkicks, (unsigned long)q.gifTags,
           (unsigned long)q.adWrites, (unsigned long)q.gsPayloadQwords,
+          (unsigned long)q.gsStateReuses,
           (unsigned long)(q.dmaTags[0] + q.dmaTags[1] + q.dmaTags[2] +
                           q.dmaTags[3] + q.dmaTags[4] + q.dmaTags[5] +
                           q.dmaTags[6] + q.dmaTags[7]),

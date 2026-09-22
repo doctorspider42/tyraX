@@ -16,6 +16,14 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.122.0: INTRA-BAG GS STATE REUSE.
+// Consecutive cull/as-is textured colour and directional-light packages now
+// emit TEST/TEX1/TEX0/ALPHA once per material bag, then retain one-loop GIFtags
+// and send only PRIM plus vertices. A packed VU header flag keeps the choice
+// explicit without changing clip packets. Physical-PS2 profiling reports the
+// reuse count per producer and verified bad=0 with a small 0.04-0.20 ms gain.
+// Project format stays 61. MINOR.
+//
 // 1.121.0: STATIC PACKET STRUCTURE PROFILER.
 // Opt-in frame profiling now walks each completed static-pipeline DMA/VIF chain
 // and attributes DMA tags, REF alignment, VIF commands, derived GIFtags, A+D
@@ -4898,7 +4906,7 @@
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 121
+#define TYRAX_VERSION_MINOR 122
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

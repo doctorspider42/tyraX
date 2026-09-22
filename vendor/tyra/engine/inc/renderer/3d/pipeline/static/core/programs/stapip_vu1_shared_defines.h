@@ -87,6 +87,11 @@
 // Cull/as_is/billboard buffers keep the original raw count ABI.
 #define VU1_STAPIP_COUNT_MASK 0x03FF
 #define VU1_STAPIP_CLIP_MASK_SHIFT 10
+// TyraX: supported non-clip textured programs use the otherwise-unused sign
+// bit to tell VU1 whether this package must emit the per-material GS state.
+// The count itself remains in bits 0-9; clip programs keep all six high bits
+// for their plane mask.
+#define VU1_STAPIP_EMIT_STATE_FLAG 0x8000
 
 // Modified by TyraX: VU1 clipping scratch at the top of VU1 data memory
 // (1024 qwords total). The double buffer is capped at VU1_STAPIP_DBUFFER_END

@@ -91,18 +91,25 @@ bool isTexturedProgram(const StaPipProgramName name) {
 }
 
 void recordGsPacket(StaPipTelemetry* telemetry, StaPipVU1Program* program,
-                    const u32 inputVertices) {
+                    const u32 inputVertices, const bool emitState) {
   if (telemetry == nullptr || program == nullptr) return;
   StaPipPacketCounters& out = telemetry->packet[telemetryProducer(telemetry)];
   const bool textured = isTexturedProgram(program->getName());
+  const bool stateReuse =
+      (program->getName() == StaPipCullTextureColor ||
+       program->getName() == StaPipCullTextureDirLights ||
+       program->getName() == StaPipAsIsTextureColor ||
+       program->getName() == StaPipAsIsTextureDirLights) &&
+      !emitState;
   const u32 gsVertices = program->getGsVertexCount(inputVertices);
   const u32 registers = program->getReglistCount();
   // StoreTyraGifTags*Alpha emits three A+D state pairs for an untextured
   // package and four for a textured one, followed by the primitive giftag.
-  out.gifTags += textured ? 5 : 4;
-  out.adWrites += textured ? 4 : 3;
-  out.gsPayloadQwords += (textured ? 9 : 7) +
+  out.gifTags += stateReuse ? 1 : (textured ? 5 : 4);
+  out.adWrites += stateReuse ? 0 : (textured ? 4 : 3);
+  out.gsPayloadQwords += (stateReuse ? 1 : (textured ? 9 : 7)) +
                          (gsVertices * registers + 1) / 2;
+  if (stateReuse) ++out.gsStateReuses;
   ++out.xgkicks;
 }
 
@@ -2056,12 +2063,15 @@ bool StaPipQBufferRenderer::replayWholeBakedBag() {
   // Whole-bag replay bypasses addBuffersDataToPacket(), so derive the same GS
   // structure here. This loop exists only in profiling builds; the retained
   // stream remains a single REF in production.
+  bool emitState = true;
   for (u32 offset = 0; offset < entry->count;
        offset += entry->maxVertCount) {
     const u32 remaining = entry->count - offset;
     recordGsPacket(telemetry, program,
                    remaining < entry->maxVertCount ? remaining
-                                                   : entry->maxVertCount);
+                                                   : entry->maxVertCount,
+                   emitState);
+    emitState = false;
   }
 #endif
 
@@ -2228,6 +2238,7 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
     if (!buffers[i]->any()) continue;
 
     auto* program = dBufferPrograms[i];
+    const bool emitState = lastProgramName != program->getName();
 
     // Modified by TyraX: every vertex that actually reaches a VU1 buffer,
     // counted where it is packetised rather than where it was classified -
@@ -2235,7 +2246,7 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
     if (telemetry) telemetry->verticesSubmitted += buffers[i]->size;
 #if TYRA_STAPIP_PACKET_PROFILE
     if (telemetry) {
-      recordGsPacket(telemetry, program, buffers[i]->size);
+      recordGsPacket(telemetry, program, buffers[i]->size, emitState);
     }
 #endif
 
@@ -2266,7 +2277,7 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
 #if TYRA_STAPIP_PACKET_PROFILE
           if (telemetry) {
             recordGsPacket(telemetry, dBufferPrograms[next],
-                           buffers[next]->size);
+                           buffers[next]->size, false);
           }
 #endif
           runQw += bakedEntry->sizes[nextIdx];
@@ -2314,7 +2325,8 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
       retained.countHit();
     } else {
       const u32 blockStart = packet2_get_qw_count(currentPacket);
-      program->addBufferDataToPacket(currentPacket, buffers[i], prim);
+      program->addBufferDataToPacket(currentPacket, buffers[i], prim,
+                                     emitState);
       retained.countBuild();
       if (retainable) {
         const u32 blockQw = packet2_get_qw_count(currentPacket) - blockStart;
@@ -2334,7 +2346,8 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
       }
     }
 #else
-    program->addBufferDataToPacket(currentPacket, buffers[i], prim);
+    program->addBufferDataToPacket(currentPacket, buffers[i], prim,
+                                   emitState);
 #endif
 
     Verbose("Send ", program->getStringName(), "[", i, "]: ", buffers[i]->size);

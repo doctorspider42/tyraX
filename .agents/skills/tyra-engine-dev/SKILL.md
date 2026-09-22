@@ -1502,6 +1502,14 @@ Rules the same evening paid for:
   with a minimal hardware-first FINISH harness; emulator acceptance is not
   evidence here. Also resize the static `packet2_t` when adding uploads: two
   CNT/data pairs plus END need 5 QW, not the original 3.
+- **Reuse complete GS state; do not compact its tag syntax.** The accepted
+  hardware path keeps all state GIFtags one-loop, emits TEST/TEX1/TEX0/ALPHA on
+  package zero of a material bag, and lets later cull/as-is TC/TD packages emit
+  only PRIM. Bit 15 of their non-clip count word carries the explicit choice;
+  clip programs cannot use it because bits 10..15 are the active-plane mask.
+  Reset the decision at every bag/material boundary. The physical garage saved
+  1,864-1,984 GS QW/frame but only 0.04-0.20 ms, so this is safe cleanup rather
+  than evidence that GS state writes were the frame bottleneck.
 - **ps2sdk's `ATEST_KEEP_*` constants name what is PRESERVED, not what is
   written** (`ps2sdk/ee/include/draw_tests.h`): `ATEST_KEEP_ZBUFFER` = 1 =
   GS FB_ONLY (colour written, z untouched), `ATEST_KEEP_FRAMEBUFFER` = 2 =

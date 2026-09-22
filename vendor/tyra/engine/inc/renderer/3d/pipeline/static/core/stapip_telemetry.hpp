@@ -47,6 +47,8 @@ struct StaPipPacketCounters {
   u32 adWrites = 0;
   u32 gsPayloadQwords = 0;
   u32 xgkicks = 0;
+  /** Supported non-clip textured packages that reused their bag's GS state. */
+  u32 gsStateReuses = 0;
   u32 malformedChains = 0;
 };
 #endif

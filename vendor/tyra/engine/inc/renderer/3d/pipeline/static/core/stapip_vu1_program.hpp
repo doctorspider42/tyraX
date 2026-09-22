@@ -38,7 +38,7 @@ class StaPipVU1Program : public VU1Program {
                               const u16& vu1DBufferSize) const;
 
   void addBufferDataToPacket(packet2_t* packet, StaPipQBuffer* buffer,
-                             prim_t* prim);
+                             prim_t* prim, const bool& emitState);
 
  protected:
   StaPipProgramName name;
@@ -55,7 +55,7 @@ class StaPipVU1Program : public VU1Program {
 
  private:
   void addStandardBufferDataToPacket(packet2_t* packet, StaPipQBuffer* buffer,
-                                     prim_t* prim);
+                                     prim_t* prim, const bool& emitState);
 };
 
 }  // namespace Tyra

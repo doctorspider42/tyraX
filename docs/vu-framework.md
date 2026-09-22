@@ -321,9 +321,13 @@ Clip packets use a private extension of the standard buffer header. The vertex
 count remains in bits 0..9; bits 10..15 carry the six-plane mask in VU dispatch
 order. The mask is computed from the actual MVP/clip-margin half-spaces in
 object space, not from the view-frustum culling planes, and ORed when source
-packages merge into a qbuffer. Non-clip programs retain the unmodified count
-word. A zero mask is defensively encoded as all six planes, so manually built
-clip qbuffers fail safe instead of silently bypassing clipping.
+packages merge into a qbuffer. Non-clip programs retain bits 10..14. Supported
+cull/as-is textured programs use bit 15 as an explicit "emit material GS
+state" flag: package zero writes TEST/TEX1/TEX0/ALPHA and later packages in the
+same bag keep that state and emit only their primitive tag. Clip programs
+cannot share this flag because their plane mask owns all six high bits. A zero
+clip mask is defensively encoded as all six planes, so manually built clip
+qbuffers fail safe instead of silently bypassing clipping.
 
 ## Commands
 
