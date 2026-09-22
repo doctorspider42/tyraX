@@ -77,14 +77,30 @@ a projected silhouette; AI cars use cheaper blob shadows.
 
 All three definitions use the dynamic `@sky` paint map, rather than the former
 `nfs-streaks.png`. Seven nearby building blocks have **Show in reflections**
-enabled: their geometry is rendered into the live 128 × 128 environment target
-along with the sky. Other scenery stays out of this extra pass. This is the
-shared PS2 sphere-map approximation, refreshed every other frame; it is not
-ray tracing, a cubemap or an accurate mirror of everything around the car.
+and **Reflection box proxy** enabled: one 12-triangle, one-material bounds box
+per building is rendered into the live 128 × 128 environment target along with
+the sky. Their complete geometry remains in the main view, collision and
+picking; other scenery stays out of this extra pass. This is the shared PS2
+sphere-map approximation, refreshed at most every other frame; it is not ray
+tracing, a cubemap or an accurate mirror of everything around the car.
 The editor's sky-only approximation cannot prove scenery reflections: inspect
 those in the running game. The target retains the level camera basis from its
 own capture, so a skipped update cannot make reflected buildings swim when the
-driver turns the camera.
+driver turns the camera. This fixture uses a four-pixel reflection reuse budget.
+The published motion oracle for that budget reuses 84.2% of cadence beats while
+driving straight and 80% at a 20-degree-per-second turn, but still re-captures
+every beat at 90 degrees per second.
+
+Against the existing garage-night inventory, the seven boxes reduce a full
+probe refresh from **10,704 to 375 triangles**, **196 to 47 packages** and
+**48 to 20 bags**. Those are exact generated-workload counts: 84 building-box
+triangles plus 132 from the eleven night-window/trim boxes and 159 from the sky.
+The native PS2 build and PCSX2 boot/capture pass. A fresh physical-console time
+sample is still owed: the test session lost its resident IOP before the new ELF
+reached the scene, so the older **17.662 ms** refresh sample must not be compared
+with emulator milliseconds.
+
+![Motor District with reflection-only building proxies active](../../docs/img/motor-district-reflection-proxy.png)
 
 The active CC96 preserves the 3882-triangle body and uses 76 triangles per wheel
 (4186 total), with addressable lamp ranges. The lower-detail remodeling trial

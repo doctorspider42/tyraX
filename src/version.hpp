@@ -16,6 +16,19 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.122.3: MOTOR DISTRICT REFLECTION PROXIES.
+// The seven reflected workshop/loft/tower models in vehicle-playground now
+// feed the shared 128px environment target through their existing one-bag,
+// 12-triangle box proxies, while the main view, collision and picking retain
+// the complete models. The fixture's reflection reuse budget rises from one
+// to four target pixels; the published motion oracle permits 84.2% reuse on a
+// straight run and 80% at 20 deg/s, while a 90 deg/s turn still forces every
+// cadence capture. Generated project structure reduces the garage-night probe
+// from 10,704 to 375 triangles and from 196 to 47 packages per refresh. Native
+// PS2 build and PCSX2 boot/capture pass; the physical-console millisecond A/B
+// remains pending after its resident IOP was lost during the test session.
+// Project format stays 61. PATCH.
+//
 // 1.122.2: STABLE ROADS + CACHED NIGHT LIGHTS + COPY FRAME IMAGE.
 // Road chunks no longer use the coarse whole-AABB frustum or software-occlusion
 // pre-tests, eliminating false-hidden gaps while StaPip clips them precisely.
@@ -4922,7 +4935,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 122
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 3
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

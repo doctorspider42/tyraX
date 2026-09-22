@@ -46,7 +46,7 @@
     "terrainDetail": 80,
     "terrainViewDistance": 150,
     "terrainLodDistance": 0,
-    "reflectionReuseBudget": 1,
+    "reflectionReuseBudget": 4,
     "skyColor": [0.58, 0.64, 0.66],
     "skyTopColor": [0.12, 0.28, 0.42],
     "skyDome": true,

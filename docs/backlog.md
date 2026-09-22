@@ -906,8 +906,15 @@ What is now settled, and what is left:
   tiers AND a second resident bag set per reflected part, because swapping the
   live bag's tier twice a frame bumps `bboxVersion` and throws away the bbox
   and retained-command caches. **What is left open is the hardware
-  millisecond**: the counts are PCSX2's and the conversion runs through the
-  road round's 4.14 ms per capture.
+  millisecond.** The Motor District example now takes the already-shipped
+  reflection-only box-proxy path for all seven reflected building models and a
+  four-pixel reuse budget. Generated workload for a garage-night refresh falls
+  from **10 704 to 375 triangles**, **196 to 47 packages** and **48 to 20 bags**
+  without changing main-view geometry, collision or picking. Native PS2 build
+  and PCSX2 boot/capture pass, but the physical-console A/B remains open because
+  that test boot lost the resident IOP before entering the scene. Reboot the
+  console, launch through `--run-ps2` (or a verified absolute `ps2link.run`
+  marker), and price a forced-refresh turn plus steady driving.
 - **A coarser LOD for the reflection probe is priced and not taken.** It is the
   only option that removes triangles unconditionally - up to ~70% of 10 413 a
   hit - and it needs three things this round did not build: a bake gate that
