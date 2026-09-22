@@ -282,8 +282,13 @@ void StaPipQBuffer::fillByStripExpand(const StaPipBagPackage& pkg,
   u32 out = 0;
   for (u32 t = 0; t < triCount; t++) {
     const u32 base = firstTri + t;
+    // A triangle strip flips its effective winding on every primitive. Once
+    // expanded to PRIM_TRIANGLE, odd triangles must carry that flip explicitly.
+    // Otherwise the clipper receives an inside-out polygon and can grow it
+    // into a giant textured wedge at the near plane.
     for (u32 k = 0; k < 3; k++, out++) {
-      const u32 src = base + k;
+      const u32 local = ((base & 1U) && k < 2U) ? 1U - k : k;
+      const u32 src = base + local;
       vertices[out] = pkg.vertices[src];
       if (wantSts) sts[out] = pkg.sts[src];
       if (wantColors) colors[out] = pkg.colors[src];

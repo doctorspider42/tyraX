@@ -607,6 +607,11 @@ class TerrainGame : public Tyra::Game {
   void rebuildStaticBatch(StaticBatch& b);
   void renderStaticBatches();
 
+  void buildOcclusionBuffer();
+  bool occlusionHiddenObject(int index);
+  bool occlusionHiddenAabb(const float* mn, const float* mx);
+  bool occlusionObjectIsOccluder(int index) const;
+
   // --- Runtime procedural + prefab geometry (docs/procedural-runtime.md,
   // docs/prefabs.md) --------------------------------------------------------
   // Both features end in the same place: a set of world-space vertex bags the

@@ -29,6 +29,7 @@
 #include "texture_data.gen.hpp"
 #include "decal_data.gen.hpp"  // baked projected-decal meshes (host-computed)
 #include "shadow_data.gen.hpp"  // baked shadow decals (docs/shadows.md)
+#include "occlusion_data.gen.hpp"  // conservative runtime visibility proxies
 #include "ao_data.gen.hpp"      // ambient-occlusion occluder tables (host-baked)
 #include "daynight.gen.hpp"     // day/night cycle keys (docs/day-night-cycle.md)
 #include "probe_data.gen.hpp"  // baked GI light probes (host-baked, L1 SH)
@@ -1741,6 +1742,37 @@ u32 tFlush = 0, tVuWait = 0;
 // comparing two builds of one view.
 u32 tStrip = 0, tStripExp = 0;
 u64 tVerts = 0;
+#if TYRA_STAPIP_PACKET_PROFILE
+Tyra::StaPipPacketCounters tPacket[Tyra::StaPipProducerCount];
+
+void addPacketCounters(Tyra::StaPipPacketCounters& dst,
+                       const Tyra::StaPipPacketCounters& src) {
+  for (int i = 0; i < 8; ++i) dst.dmaTags[i] += src.dmaTags[i];
+  dst.chainQwords += src.chainQwords;
+  dst.refPayloadQwords += src.refPayloadQwords;
+  dst.inlinePayloadQwords += src.inlinePayloadQwords;
+  dst.refsAligned128 += src.refsAligned128;
+  dst.refsUnaligned128 += src.refsUnaligned128;
+  dst.vifWords += src.vifWords;
+  dst.vifNops += src.vifNops;
+  dst.vifStcycl += src.vifStcycl;
+  dst.vifStrow += src.vifStrow;
+  dst.vifStcol += src.vifStcol;
+  dst.vifUnpack += src.vifUnpack;
+  dst.vifFlush += src.vifFlush;
+  dst.vifFlushe += src.vifFlushe;
+  dst.vifFlusha += src.vifFlusha;
+  dst.vifMscal += src.vifMscal;
+  dst.vifMscalf += src.vifMscalf;
+  dst.vifMscnt += src.vifMscnt;
+  dst.gifTags += src.gifTags;
+  dst.adWrites += src.adWrites;
+  dst.gsPayloadQwords += src.gsPayloadQwords;
+  dst.xgkicks += src.xgkicks;
+  dst.gsStateReuses += src.gsStateReuses;
+  dst.malformedChains += src.malformedChains;
+}
+#endif
 
 // u64, because a u32 SUM OVERFLOWS. 50 frames x 300 ms is 4.4e9 ticks against
 // a 4.29e9 ceiling, so on a scene slow enough to be worth profiling the mean
@@ -1825,6 +1857,10 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
     tStrip += t.packagesStrip;
     tStripExp += t.packagesStripExpanded;
     tVerts += t.verticesSubmitted;
+#if TYRA_STAPIP_PACKET_PROFILE
+    for (int p = 0; p < Tyra::StaPipProducerCount; ++p)
+      addPacketCounters(tPacket[p], t.packet[p]);
+#endif
   }
   if (rawN < kRaw) raw[rawN++] = FP::tFrameWork;
   if (rawN == 1) rawFirst = frame;
@@ -1850,7 +1886,7 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
   const float mean = ms(sumW, kWindow);
   const float dr = ms(sumD, kWindow);
 
-  char line[320];
+  char line[512];
   snprintf(line, sizeof(line),
            "FRAMETIME n=%d f=%lu work=%.2f/%.2f/%.2f submit=%.2f drain=%.2f "
            "blss=%.2f/%.2f/%.2f comp=%.2f/%.2f over20=%d cam=%.4f",
@@ -1913,6 +1949,42 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
     tFlush = tVuWait = 0;
     tStrip = tStripExp = 0;
     tVerts = 0;
+#if TYRA_STAPIP_PACKET_PROFILE
+    static const char* const producerNames[Tyra::StaPipProducerCount] = {
+        "mixed", "sky", "terrain", "static", "roads", "procedural",
+        "objects", "effects"};
+    for (int p = 0; p < Tyra::StaPipProducerCount; ++p) {
+      Tyra::StaPipPacketCounters& q = tPacket[p];
+      if (q.chainQwords == 0 && q.xgkicks == 0) continue;
+      const u32 refs = q.dmaTags[0] + q.dmaTags[3] + q.dmaTags[4];
+      snprintf(
+          line, sizeof(line),
+          "FTPKT f=%lu p=%s kick=%lu gif=%lu ad=%lu gqw=%lu reuse=%lu tag=%lu "
+          "ref=%lu cnt=%lu end=%lu rq=%lu iq=%lu a128=%lu/%lu "
+          "vifw=%lu nop=%lu unpack=%lu cyc=%lu row=%lu col=%lu "
+          "flush=%lu/%lu/%lu msc=%lu/%lu/%lu bad=%lu",
+          (unsigned long)(frame - kWindow), producerNames[p],
+          (unsigned long)q.xgkicks, (unsigned long)q.gifTags,
+          (unsigned long)q.adWrites, (unsigned long)q.gsPayloadQwords,
+          (unsigned long)q.gsStateReuses,
+          (unsigned long)(q.dmaTags[0] + q.dmaTags[1] + q.dmaTags[2] +
+                          q.dmaTags[3] + q.dmaTags[4] + q.dmaTags[5] +
+                          q.dmaTags[6] + q.dmaTags[7]),
+          (unsigned long)refs, (unsigned long)q.dmaTags[1],
+          (unsigned long)q.dmaTags[7], (unsigned long)q.refPayloadQwords,
+          (unsigned long)q.inlinePayloadQwords,
+          (unsigned long)q.refsAligned128,
+          (unsigned long)q.refsUnaligned128, (unsigned long)q.vifWords,
+          (unsigned long)q.vifNops, (unsigned long)q.vifUnpack,
+          (unsigned long)q.vifStcycl, (unsigned long)q.vifStrow,
+          (unsigned long)q.vifStcol, (unsigned long)q.vifFlush,
+          (unsigned long)q.vifFlushe, (unsigned long)q.vifFlusha,
+          (unsigned long)q.vifMscal, (unsigned long)q.vifMscalf,
+          (unsigned long)q.vifMscnt, (unsigned long)q.malformedChains);
+      TYRA_LOG(line);
+      q = Tyra::StaPipPacketCounters{};
+    }
+#endif
   }
   sBeg = sEnd = sCmp = sCmpEe = 0;
   sPrx = sAcc = sRep = sFea = sNet = sPkt = 0;
@@ -16202,7 +16274,155 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
 // - a visibility/residency flip vs the shown snapshot (hide/show can skip
 //   the dirty flag) only rebuilds the batch in place - the member may well
 //   reappear, and hides are events, not per-frame animation.
+// Conservative software occlusion. 48x42 is deliberately tiny: its job is to
+// reject whole bags before the expensive pipeline, not reproduce the GS. A
+// one-cell erosion and expanded target rectangles make uncertainty visible
+// rather than deleting geometry.
+namespace {
+constexpr int OCC_W=48, OCC_H=42;
+float g_occDepth[OCC_W*OCC_H];
+unsigned char g_occCover[OCC_W*OCC_H], g_occEroded[OCC_W*OCC_H];
+M4x4 g_occVp;
+float g_occSx=1.0F,g_occSy=1.0F;
+int g_occTested=0,g_occHidden=0,g_occProxies=0;
+bool occProject(const V3& p,float& x,float& y,float& w){
+  const Vec4 c=g_occVp*Vec4(p.x,p.y,p.z,1.0F); w=c.w;
+  if(w<=0.15F)return false;
+  x=(0.5F+c.x/w*g_occSx*0.5F)*OCC_W;
+  y=(0.5F+c.y/w*g_occSy*0.5F)*OCC_H;
+  return true;
+}
+float occEdge(float ax,float ay,float bx,float by,float px,float py){
+  return (bx-ax)*(py-ay)-(by-ay)*(px-ax);
+}
+struct OccPt{float x,y;};
+bool occBox(const V3* v){
+  OccPt p[8]; float farW=0.0F;
+  for(int i=0;i<8;++i){float w;if(!occProject(v[i],p[i].x,p[i].y,w))return false;
+    if(w>farW)farW=w;}
+  // Eight points, so insertion sort is cheaper and smaller than pulling a
+  // general sorter into the generated ELF.
+  for(int i=1;i<8;++i){OccPt q=p[i];int j=i;
+    while(j>0&&(p[j-1].x>q.x||(p[j-1].x==q.x&&p[j-1].y>q.y))){p[j]=p[j-1];--j;}p[j]=q;}
+  OccPt h[16];int n=0;
+  auto cross=[](const OccPt&a,const OccPt&b,const OccPt&c){
+    return (b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);};
+  for(int i=0;i<8;++i){while(n>=2&&cross(h[n-2],h[n-1],p[i])<=0.0F)--n;h[n++]=p[i];}
+  const int lower=n;
+  for(int i=6;i>=0;--i){while(n>lower&&cross(h[n-2],h[n-1],p[i])<=0.0F)--n;h[n++]=p[i];}
+  if(n<4)return false;
+  --n; // last point repeats the first
+  float fx0=h[0].x,fx1=h[0].x,fy0=h[0].y,fy1=h[0].y;
+  for(int i=1;i<n;++i){fx0=std::min(fx0,h[i].x);fx1=std::max(fx1,h[i].x);
+    fy0=std::min(fy0,h[i].y);fy1=std::max(fy1,h[i].y);}
+  int x0=(int)floorf(fx0),x1=(int)ceilf(fx1),y0=(int)floorf(fy0),y1=(int)ceilf(fy1);
+  if(x0<0)x0=0;
+  if(y0<0)y0=0;
+  if(x1>=OCC_W)x1=OCC_W-1;
+  if(y1>=OCC_H)y1=OCC_H-1;
+  // Erosion below cannot leave a useful cell for a thinner projection.
+  if(x1-x0<2||y1-y0<2)return false;
+  for(int Y=y0;Y<=y1;++Y)for(int X=x0;X<=x1;++X){
+    const float px=X+0.5F,py=Y+0.5F;bool in=true;
+    for(int e=0;e<n;++e)if(occEdge(h[e].x,h[e].y,h[(e+1)%n].x,h[(e+1)%n].y,px,py)<0.0F){in=false;break;}
+    if(in){const int i=Y*OCC_W+X;g_occCover[i]=1;if(farW<g_occDepth[i])g_occDepth[i]=farW;}
+  }
+  return true;
+}
+}
+
+bool TerrainGame::occlusionObjectIsOccluder(int index) const {
+  return occlusionIsOccluder(currentScene,index);
+}
+
+void TerrainGame::buildOcclusionBuffer(){
+  static int reportBeat=0;
+  if(DEBUG_SHOW_PROFILER && OCCLUSION_CULLING && ++reportBeat>=120){
+    TYRA_LOG("OCC proxies=",g_occProxies," hidden=",g_occHidden,"/",g_occTested);
+    reportBeat=0;
+  }
+  g_occTested=g_occHidden=g_occProxies=0;
+  if(!OCCLUSION_CULLING)return;
+  for(int i=0;i<OCC_W*OCC_H;++i)g_occDepth[i]=1e30F,g_occCover[i]=0;
+  g_occVp=engine->renderer.core.renderer3D.getViewProj();
+  const auto& scr=engine->renderer.core.getSettings();
+  g_occSx=4096.0F/scr.getRasterWidthF();
+  g_occSy=4096.0F/scr.getRasterHeightF();
+  for(int ri=0;ri<OCCLUSION_OBJECT_COUNT;++ri){
+    const OcclusionProxyObject& r=OCCLUSION_OBJECTS[ri];
+    if(r.scene!=currentScene||r.object<0||r.object>=(int)runtimeObjects.size())continue;
+    const RuntimeObject& o=runtimeObjects[r.object];
+    if(!o.active||!o.visible)continue;
+    // boxRotate evaluates Euler trig, so derive the scaled basis once per
+    // object instead of once for every one of every proxy box's corners.
+    const V3 ax=boxRotate({o.data.scale[0],0.0F,0.0F},o.data);
+    const V3 ay=boxRotate({0.0F,o.data.scale[1],0.0F},o.data);
+    const V3 az=boxRotate({0.0F,0.0F,o.data.scale[2]},o.data);
+    for(int bi=0;bi<r.count;++bi){
+      const OcclusionProxyBox& b=OCCLUSION_BOXES[r.first+bi]; V3 v[8];
+      for(int k=0;k<8;++k){
+        const float x=k&1?b.mx[0]:b.mn[0],y=k&2?b.mx[1]:b.mn[1],z=k&4?b.mx[2]:b.mn[2];
+        v[k]={o.data.position[0]+ax.x*x+ay.x*y+az.x*z,
+              o.data.position[1]+ax.y*x+ay.y*y+az.y*z,
+              o.data.position[2]+ax.z*x+ay.z*y+az.z*z};
+      }
+      if(occBox(v))++g_occProxies; // near-plane/tiny boxes are rejected inside
+    }
+  }
+  // Erode coverage by one cell. Depth keeps the farthest proxy surface in a
+  // covered cell; target tests add another world-depth bias below.
+  for(int y=0;y<OCC_H;++y)for(int x=0;x<OCC_W;++x){
+    bool on=g_occCover[y*OCC_W+x]!=0;
+    for(int yy=y-1;yy<=y+1&&on;++yy)for(int xx=x-1;xx<=x+1;++xx)
+      if(xx<0||yy<0||xx>=OCC_W||yy>=OCC_H||!g_occCover[yy*OCC_W+xx]){on=false;break;}
+    g_occEroded[y*OCC_W+x]=on?1:0;
+  }
+}
+
+bool TerrainGame::occlusionHiddenAabb(const float* mn,const float* mx){
+  if(!OCCLUSION_CULLING)return false;
+  ++g_occTested;
+  // Most candidates in an open view cannot possibly be fully covered. Test
+  // their centre before paying for eight corner transforms and a rectangle.
+  V3 mid{(mn[0]+mx[0])*0.5F,(mn[1]+mx[1])*0.5F,(mn[2]+mx[2])*0.5F};
+  float midX,midY,midW;
+  if(!occProject(mid,midX,midY,midW))return false;
+  const int midXi=(int)floorf(midX),midYi=(int)floorf(midY);
+  if(midXi<0||midYi<0||midXi>=OCC_W||midYi>=OCC_H||
+     !g_occEroded[midYi*OCC_W+midXi])return false;
+  float x0=1e30F,y0=1e30F,x1=-1e30F,y1=-1e30F,nearW=1e30F;
+  for(int k=0;k<8;++k){V3 p{k&1?mx[0]:mn[0],k&2?mx[1]:mn[1],k&4?mx[2]:mn[2]};
+    float x,y,w;if(!occProject(p,x,y,w))return false;
+    x0=std::min(x0,x);x1=std::max(x1,x);y0=std::min(y0,y);y1=std::max(y1,y);nearW=std::min(nearW,w);
+  }
+  int X0=(int)floorf(x0)-1,Y0=(int)floorf(y0)-1,X1=(int)ceilf(x1)+1,Y1=(int)ceilf(y1)+1;
+  if(X0<0||Y0<0||X1>=OCC_W||Y1>=OCC_H)return false;
+  for(int y=Y0;y<=Y1;++y)for(int x=X0;x<=X1;++x){const int i=y*OCC_W+x;
+    if(!g_occEroded[i]||g_occDepth[i]+0.35F>=nearW)return false;}
+  ++g_occHidden;return true;
+}
+
+bool TerrainGame::occlusionHiddenObject(int index){
+  if(!occlusionCanCull(currentScene,index)||occlusionObjectIsOccluder(index))return false;
+  if(index<0||index>=(int)runtimeObjects.size())return false;
+  const RuntimeObject& o=runtimeObjects[index]; const CollisionBox b=objectCollisionBox(o);
+  const V3 ax=boxRotate({1.0F,0.0F,0.0F},o.data),
+           ay=boxRotate({0.0F,1.0F,0.0F},o.data),
+           az=boxRotate({0.0F,0.0F,1.0F},o.data);
+  float mn[3]={1e30F,1e30F,1e30F},mx[3]={-1e30F,-1e30F,-1e30F};
+  for(int k=0;k<8;++k){const float x=b.center[0]+(k&1?b.half[0]:-b.half[0]),
+    y=b.center[1]+(k&2?b.half[1]:-b.half[1]),z=b.center[2]+(k&4?b.half[2]:-b.half[2]);
+    const float p[3]={o.data.position[0]+ax.x*x+ay.x*y+az.x*z,
+      o.data.position[1]+ax.y*x+ay.y*y+az.y*z,
+      o.data.position[2]+ax.z*x+ay.z*y+az.z*z};
+    for(int a=0;a<3;++a){mn[a]=std::min(mn[a],p[a]);mx[a]=std::max(mx[a],p[a]);}}
+  return occlusionHiddenAabb(mn,mx);
+}
+
 void TerrainGame::renderStaticBatches() {
+#if TYRA_FRAME_PROFILE
+  stapip.core.setTelemetryProducer(Tyra::StaPipProducerStaticBatches);
+#endif
   for (StaticBatch& b : staticBatches) {
     bool stale = b.dirty;
     for (size_t k = 0; k < b.members.size(); ++k) {
@@ -16246,6 +16466,10 @@ void TerrainGame::renderStaticBatches() {
     }
     // Split halves: same band early-out the terrain chunks use.
     if (splitBandActive && outsideSplitBand(b.aabbMin, b.aabbMax)) continue;
+    bool ownsOccluder = false;
+    for (const StaticBatchMember& m : b.members)
+      if (occlusionObjectIsOccluder(m.object)) { ownsOccluder = true; break; }
+    if (!ownsOccluder && occlusionHiddenAabb(b.aabbMin, b.aabbMax)) continue;
     stapip.core.render(b.bag.get());
   }
 }
@@ -16851,28 +17075,32 @@ void TerrainGame::renderVehicleGlow() {
         return Tyra::Color(235.0F * fade, 225.0F * fade,
                            175.0F * fade, 128.0F);
       };
+      // A 3x3 cell grid has only 4x4 unique corners. groundSurfaceAt is not a
+      // cheap heightfield lookup: on asphalt it also searches road/junction
+      // chunks and their triangles. The old cell loop sampled shared corners
+      // 36 times; cache the lattice and do the exact same work 16 times.
+      Vec4 gridP[kCells + 1][kCells + 1];
+      Tyra::Vec4 gridUv[kCells + 1][kCells + 1];
+      Tyra::Color gridCol[kCells + 1][kCells + 1];
+      for (int iz = 0; iz <= kCells; ++iz) {
+        const float t = (float)iz / kCells;
+        for (int ix = 0; ix <= kCells; ++ix) {
+          const float side = -1.0F + 2.0F * (float)ix / kCells;
+          gridP[iz][ix] = point(t, side);
+          gridUv[iz][ix] = Vec4(0.18F + 0.64F * (side + 1.0F) * 0.5F,
+                                0.18F + 0.64F * t, 1.0F, 0.0F);
+          gridCol[iz][ix] = beamColor(t);
+        }
+      }
       constexpr int tri[6] = {0, 1, 2, 0, 2, 3};
       for (int iz = 0; iz < kCells; ++iz) {
-        const float t0 = (float)iz / kCells;
-        const float t1 = (float)(iz + 1) / kCells;
         for (int ix = 0; ix < kCells; ++ix) {
-          const float s0 = -1.0F + 2.0F * (float)ix / kCells;
-          const float s1 = -1.0F + 2.0F * (float)(ix + 1) / kCells;
-          const Vec4 p[4] = {point(t0, s0), point(t0, s1),
-                             point(t1, s1), point(t1, s0)};
-          const Tyra::Color pc[4] = {beamColor(t0), beamColor(t0),
-                                     beamColor(t1), beamColor(t1)};
-          // Crop into the gobo's useful soft disc. Mapping the full image made
-          // a pin-prick in the middle of a seven-metre trapezoid because most
-          // of the texture is deliberately black padding for the flashlight's
-          // perspective projection.
-          const float u0 = 0.18F + 0.64F * (s0 + 1.0F) * 0.5F;
-          const float u1 = 0.18F + 0.64F * (s1 + 1.0F) * 0.5F;
-          const float v0 = 0.18F + 0.64F * t0;
-          const float v1 = 0.18F + 0.64F * t1;
-          const Tyra::Vec4 uv[4] = {
-              Vec4(u0, v0, 1.0F, 0.0F), Vec4(u1, v0, 1.0F, 0.0F),
-              Vec4(u1, v1, 1.0F, 0.0F), Vec4(u0, v1, 1.0F, 0.0F)};
+          const Vec4 p[4] = {gridP[iz][ix], gridP[iz][ix + 1],
+                             gridP[iz + 1][ix + 1], gridP[iz + 1][ix]};
+          const Tyra::Vec4 uv[4] = {gridUv[iz][ix], gridUv[iz][ix + 1],
+                                    gridUv[iz + 1][ix + 1], gridUv[iz + 1][ix]};
+          const Tyra::Color pc[4] = {gridCol[iz][ix], gridCol[iz][ix + 1],
+                                     gridCol[iz + 1][ix + 1], gridCol[iz + 1][ix]};
           auto g = headlightVerts_.span(headlightCount_ * 6, 6);
           auto st = headlightSts_.span(headlightCount_ * 6, 6);
           auto c = headlightCols_.span(headlightCount_ * 6, 6);
@@ -19682,6 +19910,9 @@ void TerrainGame::buildRoads(int scene) {
 }
 
 void TerrainGame::renderProcChunks() {
+#if TYRA_FRAME_PROFILE
+  stapip.core.setTelemetryProducer(Tyra::StaPipProducerProcedural);
+#endif
   if (procChunks.empty()) return;
   for (ProcChunk& c : procChunks) {
     // Roads have their own phase and profiler row. Keeping them here as well
@@ -19708,11 +19939,15 @@ void TerrainGame::renderProcChunks() {
       if (dx * dx + dy * dy + dz * dz > c.drawDist * c.drawDist) continue;
     }
     if (splitBandActive && outsideSplitBand(c.aabbMin, c.aabbMax)) continue;
+    if (occlusionHiddenAabb(c.aabbMin, c.aabbMax)) continue;
     stapip.core.render(c.bag.get());
   }
 }
 
 void TerrainGame::renderRoadChunks() {
+#if TYRA_FRAME_PROFILE
+  stapip.core.setTelemetryProducer(Tyra::StaPipProducerRoads);
+#endif
   // Main and reflection views need the asphalt without paying for every
   // procedural volume and prefab in the scene. Roads own the reserved -3
   // producer id, which also gives the profiler an honest standalone phase.
@@ -19731,6 +19966,7 @@ void TerrainGame::renderRoadChunks() {
       if (dx * dx + dy * dy + dz * dz > c.drawDist * c.drawDist) continue;
     }
     if (splitBandActive && outsideSplitBand(c.aabbMin, c.aabbMax)) continue;
+    if (occlusionHiddenAabb(c.aabbMin, c.aabbMax)) continue;
     stapip.core.render(c.bag.get());
   }
 }
@@ -21184,6 +21420,9 @@ void TerrainGame::renderScene() {
   { const u32 ct=costStart(); renderPortalView(); costEnd("Portal",-1,ct); }
 
   const u32 costSkyStart=costStart();
+#if TYRA_FRAME_PROFILE
+  stapip.core.setTelemetryProducer(Tyra::StaPipProducerSky);
+#endif
   if (skyDome.bag) {
     // Follow the camera: park the dome's centre on the eye so however big the
     // map is, the horizon and zenith always wrap around the player. Only the
@@ -21215,6 +21454,7 @@ void TerrainGame::renderScene() {
   }
   renderTerrain();
   costEnd("Terrain",-1,costTerrainStart);
+  { const u32 ct=costStart(); buildOcclusionBuffer(); costEnd("Occlusion",-1,ct); }
   // Static batches: one submit per material x cell group of the non-moving
   // primitives (rebuilt first when a member changed). Opaque z-tested
   // geometry, so drawing before the solo objects is order-free.
@@ -21412,6 +21652,9 @@ void TerrainGame::renderScene() {
   const bool hlActive = HIGHLIGHT_USABLE;
   const bool hlOverlay = HIGHLIGHT_OVERLAY;
   const u32 costObjectsStart=costStart();
+#if TYRA_FRAME_PROFILE
+  stapip.core.setTelemetryProducer(Tyra::StaPipProducerObjects);
+#endif
   // Owned object streams remain alive until the next VIF1 synchronization.
   stapip.core.beginSubmissionBatch();
   int impostorSwitchBudget = 4;
@@ -21475,6 +21718,7 @@ void TerrainGame::renderScene() {
     // off-screen case one six-plane AABB test. A VU program that moves geometry
     // can escape the baked box, so it deliberately stays on the old path.
     if (coarseObjectOutside(i)) continue;
+    if (occlusionHiddenObject(i)) continue;
     // Six vertices, no allocation/rebuild: the selected capture and facing
     // update in place. Texture coordinates come from the loaded (atlas-remapped)
     // model, so the normal asset bake remains authoritative.
@@ -21595,6 +21839,9 @@ void TerrainGame::renderScene() {
   costEnd("Objects",-1,costObjectsStart);
   { const u32 ct=costStart(); renderVehicleWheels(); costEnd("Wheels",-1,ct); }
 
+#if TYRA_FRAME_PROFILE
+  stapip.core.setTelemetryProducer(Tyra::StaPipProducerEffects);
+#endif
   // Animated models: advance playback, then skin + draw the in-view ones
   // through the same static pipeline (see updateAndRenderAnimObjects)
   { const u32 ct=costStart(); updateAndRenderAnimObjects(); costEnd("Animation",-1,ct); }
@@ -21692,7 +21939,7 @@ void TerrainGame::renderScene() {
     if (ps.bag && ps.bag->count > 0) stapip.core.render(ps.bag.get());
   renderVehicleSkids();
   renderVehicleSmoke();
-  renderVehicleGlow();
+  { const u32 ct=costStart(); renderVehicleGlow(); costEnd("Vehicle_lights",-1,ct); }
 
   if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
   costEnd("Particles",-1,costParticleStart);
@@ -25092,6 +25339,9 @@ bool TerrainGame::objectOutsideSplitBand(int i) const {
 }
 
 void TerrainGame::renderTerrain() {
+#if TYRA_FRAME_PROFILE
+  stapip.core.setTelemetryProducer(Tyra::StaPipProducerTerrain);
+#endif
   for (TerrainChunk& ch : terrainChunks) {
     if (ch.cx < 0 || !ch.bag || ch.bag->count == 0) continue;
     if (portalExitPlaneOn) {

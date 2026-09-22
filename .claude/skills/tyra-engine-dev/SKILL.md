@@ -2776,6 +2776,9 @@ Five things any edit here must keep.
   `fillByCopyMax`/`fillByCopy1By2` would fuse two of them into one buffer.
 - **A package that genuinely crosses a clip plane is expanded to a LIST on the
   EE** (`StaPipQBuffer::fillByStripExpand`, into the double-buffered copy pool)
+  and odd primitives MUST swap their first two vertices to preserve the strip's
+  alternating winding. Without that swap the clipper receives inside-out odd
+  triangles and near-plane geometry grows into giant textured wedges.
   and clipped exactly as before - `clip_*` and the EE clipper are both
   per-triangle over a list, and neither was touched. Chunked at the same
   triangle budget a list subpackage carries. At the garage-day pose this fired

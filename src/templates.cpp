@@ -34469,28 +34469,32 @@ void TerrainGame::renderVehicleGlow() {
         return Tyra::Color(235.0F * fade, 225.0F * fade,
                            175.0F * fade, 128.0F);
       };
+      // A 3x3 cell grid has only 4x4 unique corners. groundSurfaceAt is not a
+      // cheap heightfield lookup: on asphalt it also searches road/junction
+      // chunks and their triangles. The old cell loop sampled shared corners
+      // 36 times; cache the lattice and do the exact same work 16 times.
+      Vec4 gridP[kCells + 1][kCells + 1];
+      Tyra::Vec4 gridUv[kCells + 1][kCells + 1];
+      Tyra::Color gridCol[kCells + 1][kCells + 1];
+      for (int iz = 0; iz <= kCells; ++iz) {
+        const float t = (float)iz / kCells;
+        for (int ix = 0; ix <= kCells; ++ix) {
+          const float side = -1.0F + 2.0F * (float)ix / kCells;
+          gridP[iz][ix] = point(t, side);
+          gridUv[iz][ix] = Vec4(0.18F + 0.64F * (side + 1.0F) * 0.5F,
+                                0.18F + 0.64F * t, 1.0F, 0.0F);
+          gridCol[iz][ix] = beamColor(t);
+        }
+      }
       constexpr int tri[6] = {0, 1, 2, 0, 2, 3};
       for (int iz = 0; iz < kCells; ++iz) {
-        const float t0 = (float)iz / kCells;
-        const float t1 = (float)(iz + 1) / kCells;
         for (int ix = 0; ix < kCells; ++ix) {
-          const float s0 = -1.0F + 2.0F * (float)ix / kCells;
-          const float s1 = -1.0F + 2.0F * (float)(ix + 1) / kCells;
-          const Vec4 p[4] = {point(t0, s0), point(t0, s1),
-                             point(t1, s1), point(t1, s0)};
-          const Tyra::Color pc[4] = {beamColor(t0), beamColor(t0),
-                                     beamColor(t1), beamColor(t1)};
-          // Crop into the gobo's useful soft disc. Mapping the full image made
-          // a pin-prick in the middle of a seven-metre trapezoid because most
-          // of the texture is deliberately black padding for the flashlight's
-          // perspective projection.
-          const float u0 = 0.18F + 0.64F * (s0 + 1.0F) * 0.5F;
-          const float u1 = 0.18F + 0.64F * (s1 + 1.0F) * 0.5F;
-          const float v0 = 0.18F + 0.64F * t0;
-          const float v1 = 0.18F + 0.64F * t1;
-          const Tyra::Vec4 uv[4] = {
-              Vec4(u0, v0, 1.0F, 0.0F), Vec4(u1, v0, 1.0F, 0.0F),
-              Vec4(u1, v1, 1.0F, 0.0F), Vec4(u0, v1, 1.0F, 0.0F)};
+          const Vec4 p[4] = {gridP[iz][ix], gridP[iz][ix + 1],
+                             gridP[iz + 1][ix + 1], gridP[iz + 1][ix]};
+          const Tyra::Vec4 uv[4] = {gridUv[iz][ix], gridUv[iz][ix + 1],
+                                    gridUv[iz + 1][ix + 1], gridUv[iz + 1][ix]};
+          const Tyra::Color pc[4] = {gridCol[iz][ix], gridCol[iz][ix + 1],
+                                     gridCol[iz + 1][ix + 1], gridCol[iz + 1][ix]};
           auto g = headlightVerts_.span(headlightCount_ * 6, 6);
           auto st = headlightSts_.span(headlightCount_ * 6, 6);
           auto c = headlightCols_.span(headlightCount_ * 6, 6);
@@ -37425,7 +37429,8 @@ static std::string vehicleSmokeRenderCall(const Project& p) {
     // Skids under the smoke (both translucent; marks lie on the ground),
     // the glow last - light adds on top of everything.
     return "  renderVehicleSkids();\n  renderVehicleSmoke();\n"
-           "  renderVehicleGlow();\n";
+           "  { const u32 ct=costStart(); renderVehicleGlow(); "
+           "costEnd(\"Vehicle_lights\",-1,ct); }\n";
 }
 
 static std::string blssInclude(const Project& p) {

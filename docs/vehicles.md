@@ -469,7 +469,14 @@ nothing when idle:
   warm Gouraud tint fades toward the far edge while the texture supplies the
   hot centre and soft penumbra, so it reads like illumination instead of a
   translucent yellow trapezoid. The 3x3 grid samples baked road/junction
-  triangles as well as terrain; 54 vertices still fit one VU1 package.
+  triangles as well as terrain; 54 vertices still fit one VU1 package. The 3x3
+  cells share a cached 4x4 corner lattice: this matters because each height
+  query also searches baked road/junction triangles, and the naive per-cell
+  loop repeated 20 of the 36 queries. Render-cost captures report the result
+  separately as `Vehicle_lights` instead of hiding it inside `Particles`.
+  On the physical-PS2 vehicle-playground capture used for this change, four
+  consecutive cached-lattice samples measured 1.17-1.21 ms, versus 2.48-2.51
+  ms for the uncached control at the same parked start view.
 - Headlights have their **own textured submit**. Tail lamps and backfire remain
   in the untextured glow bag, so the gobo cannot stamp itself onto either.
   Rendering is capped at eight vehicle pools per frame; traffic beyond that

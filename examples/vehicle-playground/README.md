@@ -815,6 +815,13 @@ none of its four corners. Each effect remains within one VU1 package (54
 vertices), so the fix adds triangles inside the existing submit rather than an
 extra draw call.
 
+The bounded headlight receiver now computes its shared 4x4 corner lattice once
+instead of asking the road/junction surface query 36 times for nine cells. The
+54 submitted vertices and picture stay unchanged. Render-cost captures expose
+the work as `Vehicle_lights`; it is still included in the HUD's `PART` total.
+On physical PS2 at the parked start view, four consecutive captures measured
+1.17-1.21 ms after this change, down from 2.48-2.51 ms for the uncached control.
+
 The headlight grid is now a dedicated textured projector using the flashlight
 gobo, with warm Gouraud falloff and an eight-vehicle receiver cap. The player's
 camera flashlight is suspended while driving, so it no longer lights the boot

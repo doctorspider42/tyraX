@@ -16,6 +16,13 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.122.1: STRIP CLIP WINDING + CHEAPER VEHICLE HEADLIGHTS.
+// Strip-to-list expansion now preserves odd-triangle winding, preventing giant
+// textured wedges when stripped geometry crosses a clip plane. Bounded vehicle
+// headlights cache their 4x4 receiver lattice instead of repeating expensive
+// road-surface queries per cell, and render-cost captures expose their own
+// Vehicle_lights row. Project format stays 61. PATCH.
+//
 // 1.122.0: INTRA-BAG GS STATE REUSE.
 // Consecutive cull/as-is textured colour and directional-light packages now
 // emit TEST/TEX1/TEX0/ALPHA once per material bag, then retain one-loop GIFtags
@@ -4907,7 +4914,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 122
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

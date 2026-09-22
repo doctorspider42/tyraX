@@ -601,6 +601,15 @@ into a list on the EE** and clipped exactly as before. The expansion goes into
 the qbuffer copy pool - the one whose double-buffered lifetime the DMA already
 relies on - in chunks carrying the same triangle budget a list subpackage does,
 and the buffer it produces emits `PRIM_TRIANGLE`, so one bag can mix the two.
+The list expansion preserves the strip's alternating winding: odd primitives
+swap their first two vertices. Omitting that swap turns every other clipped
+triangle inside-out; near-plane walls then produce large textured wedges even
+though the same run is correct while wholly inside the guard band.
+
+![Physical PS2 after the strip clip-winding fix](img/strip-clip-winding-ps2.png)
+
+The physical-console capture above sweeps the formerly affected roadside
+geometry through the view without the near-plane wedge.
 
 It is rarer than it sounds, because the guard band sends most screen-straddling
 packages down the cull path whole ([vu1-clipping.md](vu1-clipping.md)). At the

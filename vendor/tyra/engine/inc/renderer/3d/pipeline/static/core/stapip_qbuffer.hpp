@@ -74,7 +74,8 @@ class StaPipQBuffer {
    * The clip programs and the EE clipper both loop by whole triangles over a
    * triangle list, so a stripped package that genuinely crosses a clip plane
    * cannot be handed to either as it stands. It is expanded here instead -
-   * triangle i of the strip is (v[i], v[i+1], v[i+2]) - and the result is an
+   * even triangle i is (v[i], v[i+1], v[i+2]) and an odd one swaps its first
+   * two vertices to preserve the strip's alternating winding. The result is an
    * ordinary list qbuffer that every existing route already handles. The
    * buffer's own `stripped` flag is cleared, which is what makes the GIF tag
    * this buffer produces say PRIM_TRIANGLE, so one bag may mix the two.
