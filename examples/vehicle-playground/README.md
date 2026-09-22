@@ -1026,3 +1026,46 @@ why a capture hash is a picture check and never a fixture check.**
 
 See [the plan and what the probes changed in it](../../docs/ee-submission-rearchitecture.md)
 and [the raw arms, patches, captures and reproduction recipe](authoring/ee-probes-2026-09-16/README.md).
+
+## The road height query (2026-09-22)
+
+A render-cost capture on the physical console showed `Blob_shadows` at
+**12.2 ms of a 44.7 ms night frame** — for a scene that registers exactly ONE
+blob shadow, a 54-vertex quad under the player's car (`PROBE blob shadows
+registered: 1`). The cost was not the quad. Bisected on hardware at a frozen
+day vantage six units behind the car:
+
+| arm | `Blob_shadows` |
+|---|---:|
+| as shipped | 1.148 ms |
+| submission removed, all EE work kept | 0.980 ms |
+| `roadSurfaceAt` returning "no road" | 0.237 ms |
+| the walk kept, the barycentric test replaced by a compare | 0.730 ms |
+
+So the submission was 0.17 ms and the **road height lookup was 0.91 ms**, split
+roughly in half between walking the vertices and the arithmetic. The same
+mechanism was under `Vehicle_lights` (1.436 → 0.347) and `Particles`
+(1.453 → 0.365), because each of those builds its own 4x4 receiver lattice.
+
+The fix is a uniform XZ grid over the road triangles (docs/roads.md, "Road
+height queries"): `Blob_shadows` 1.148 → **0.383 ms**, `Vehicle_lights` 1.436 →
+**0.524**, `Particles` 1.453 → **0.542**, whole render 18.708 → **17.341 ms**.
+
+Three things this round is worth remembering for:
+
+- **Every earlier result in this hunt was fiction, and nothing said so.** The
+  probes were `return;` statements edited into the example's generated
+  `src/terrain_game.cpp`, and `--build` regenerates that file before compiling
+  — so three "arms" were built, deployed and measured, and all three were the
+  same code. They agreed to 0.05 ms on every row, which read as a stable
+  measurement rather than as the bug it was. Patch AFTER `--refresh-gen` and
+  compile with `tools/toolchain/native-build.ps1` directly.
+- **A reboot changes the scene, not just the camera.** Day/night here is a save
+  value toggled from the pause menu, and it survives nothing: the first probe
+  arm came back at 15.5 ms against a 44.7 ms reference and looked like a
+  triumph. It was daylight. Drive the toggle with `--pad` and read
+  `Light_pools` to confirm which one you are in.
+- **The example's authored player start is the reproducible fixture.** Freezing
+  it (`walkSpeed`/`lookSpeed` 0) at a chosen vantage makes every boot render the
+  same frame, which is what made a 0.9 ms effect readable at all. Restore the
+  object afterwards — it is a committed example.

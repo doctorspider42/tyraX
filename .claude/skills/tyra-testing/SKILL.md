@@ -2895,6 +2895,24 @@ equality: it would reject texture-identical output and tempt the hardware fix
 back out. A stationary physical-console capture is still the acceptance gate;
 PCSX2 did not reproduce the stretched-one-texel failure.
 
+**Road HEIGHT queries have their own gate, and it is an in-game one** (1.123,
+docs/roads.md). `roadSurfaceAt` is sampled 17 times per blob shadow, per light
+pool and per glow patch, and it is answered from a uniform XZ grid built once
+after the roads are. The grid must be a NO-OP, so the check is
+`TYRA_ROAD_INDEX_VERIFY` in the generated `terrain_game.cpp` - default 0
+(it costs more than the work it checks, so it never ships and never goes into a
+measurement). Flip it to 1 AFTER `--refresh-gen`, build with `native-build`
+directly, drive, and read `ROADINDEXVERIFY checked N bad M` out of the game's
+log; `ROADINDEX cells NxN entries M` at scene load says the grid was built at
+all. Measured on the district: 140 000 queries, 0 mismatches, day and night.
+
+Two traps, both of which make a green run worthless. **An off-road query agrees
+trivially** - both sides answer "no road" - so a run that never walks onto
+asphalt proves nothing; the deliberately broken control arm stayed green for
+40 000 queries for exactly that reason, and only went red once the walk crossed
+a street. And **falsify it before believing it**: shifting the query one cell in
+x must make it report a first mismatch, with the point that produced it.
+
 **The static-batch grouping has the same shape of oracle, and for the same
 reason.** `TerrainGame::buildStaticBatchList` is generated code that runs on
 the EE; `src/staticbatch.cpp` is its host twin (what *Tools > Static Batches*,

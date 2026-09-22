@@ -394,3 +394,68 @@ own ground, with the renderer's own diagonal — and are the fixtures that stand
 for the Motor District. The straight one merges to 0.306x, the curve to 0.795x,
 and `crown with equal shoulders` and `saddle` still measure 1.000x, which is
 the point: the shapes the reduction must not touch are still dense.
+
+## Road height queries, and the grid that pays for them (1.123)
+
+`roadSurfaceAt(x, z)` answers "how high is the asphalt here", and everything
+that has to sit ON the road calls it through `groundSurfaceAt`: the blob
+shadow's receiver patch, the dynamic lights' ground pools, the vehicle glow
+gobo, the projected-shadow receivers and the vehicle contact. Each of those
+builds a **4x4 receiver lattice**, so one of them is 17 queries per frame.
+
+Until 2026-09-22 a query walked **every triangle of every road chunk whose XZ
+box contains the point**, running the full barycentric test — two divides —
+on each. Road chunks overlap and one chunk is ~400 vertices, so on the Motor
+District that was about **2 100 triangles per query**. Measured on a physical
+PS2 at a parked vantage six units behind the player's car, with the render-cost
+capture (`--profile-frame`):
+
+| phase | as shipped | road lookup removed entirely |
+|---|---:|---:|
+| `Blob_shadows` (ONE 54-vertex quad) | 1.148 ms | 0.237 ms |
+| `Vehicle_lights` | 1.436 ms | 0.347 ms |
+| `Particles` | 1.453 ms | 0.365 ms |
+
+A third arm that kept the walk but replaced the barycentric test with a
+three-load compare read 0.730 ms on `Blob_shadows`, which splits the bill
+roughly in half: **walking the vertices** and **the arithmetic**. That is why a
+per-strip-run bounding box does nothing (measured: 1.148 → 1.262 ms, i.e.
+worse) — the runs are long and the point is genuinely inside them.
+
+What works is a **uniform XZ grid**, built once by `buildRoadHeightIndex()`
+after the roads are: ~4-unit cells over the road bounding box, capped at
+128x128, each cell holding the triangles whose box touches it, as a counting
+sort into a prefix-offset array plus `chunk << 22 | last vertex` entries. A
+query is then one cell lookup and a handful of triangles, each still guarded by
+a cheap XZ reject before the divides. `ROADINDEX cells NxN entries M` in the
+game's log is the acceptance line — the district builds 66x66 cells and 47 558
+entries, about 208 KB of EE RAM.
+
+| phase | before | after | floor (no road lookup at all) |
+|---|---:|---:|---:|
+| `Blob_shadows` | 1.148 ms | **0.383 ms** | 0.237 ms |
+| `Vehicle_lights` | 1.436 ms | **0.524 ms** | 0.347 ms |
+| `Particles` | 1.453 ms | **0.542 ms** | 0.365 ms |
+| whole `Total` | 18.708 ms | **17.341 ms** | 16.797 ms |
+
+It captures ~84% of what is available, and the same mechanism was worth far
+more at the night vantage this hunt started from, where `Blob_shadows` alone
+read 12.2 ms of a 44.7 ms frame.
+
+**The acceptance gate is `TYRA_ROAD_INDEX_VERIFY`** in the generated
+`terrain_game.cpp`, default 0 — it costs far more than the work it checks, so
+it never ships and never goes into a measurement. Set it to 1, rebuild the game
+and drive: every query is answered twice, once through the grid and once by
+`roadSurfaceScan`, the pre-grid walk kept verbatim as an oracle and deliberately
+NOT refactored to share code with the fast path. `ROADINDEXVERIFY checked N bad
+M` is the tally. Measured on the district, day and night, walking the map:
+**140 000 queries, 0 mismatches**. And the gate was falsified before it was
+believed — shifting the query one cell in x made it report its first mismatch
+within a minute of switching to night, naming the point.
+
+Two things worth knowing if you touch this. An off-road query agrees trivially
+(both sides answer "no road"), so a run that never drives onto asphalt proves
+nothing — the falsification arm stayed green for 40 000 queries for exactly
+that reason. And the index keys chunks by their index in `procChunks`, so it is
+rebuilt whenever that list changes size as well as when `buildRoads` marks it
+dirty.

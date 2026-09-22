@@ -16,6 +16,19 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.123.0: ROAD HEIGHT GRID.
+// roadSurfaceAt walked every triangle of every road chunk whose XZ box held
+// the point - about 2,100 triangles per query on the Motor District - and the
+// blob shadow, the light pools, the vehicle glow and the projected-shadow
+// receivers each sample a 4x4 lattice, so one parked car paid 0.91 ms for its
+// shadow alone. The road triangles are now bucketed into a uniform ~4-unit XZ
+// grid built once after buildRoads, and a query tests one cell. Physical PS2,
+// parked day vantage: Blob_shadows 1.148 -> 0.383 ms, Vehicle_lights 1.436 ->
+// 0.524, Particles 1.453 -> 0.542, whole render 18.708 -> 17.341. The grid
+// must be a no-op, and TYRA_ROAD_INDEX_VERIFY (default 0) answers every query
+// both ways to say so: 140,000 queries, 0 mismatches, day and night, with the
+// gate falsified first. Project format stays 61. MINOR.
+//
 // 1.122.3: MOTOR DISTRICT REFLECTION PROXIES.
 // The seven reflected workshop/loft/tower models in vehicle-playground now
 // feed the shared 128px environment target through their existing one-bag,
@@ -4934,8 +4947,8 @@
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 122
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_MINOR 123
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

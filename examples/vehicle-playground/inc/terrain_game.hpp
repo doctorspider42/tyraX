@@ -712,6 +712,19 @@ class TerrainGame : public Tyra::Game {
   void renderProcChunks();
   void renderRoadChunks();
   float roadSurfaceAt(float x, float z) const;
+  void buildRoadHeightIndex() const;
+  // The pre-grid exhaustive walk, defined only under TYRA_ROAD_INDEX_VERIFY
+  // (see roadSurfaceAt) - it is the oracle that gate compares against.
+  float roadSurfaceScan(float x, float z) const;
+  // roadSurfaceAt's uniform XZ grid over the road triangles: prefix offsets
+  // per cell, and entries packing (chunk << 22 | last vertex of a triangle).
+  // Built once after the roads are, and again if the chunk list changes.
+  mutable std::vector<unsigned int> roadIdxStart;
+  mutable std::vector<unsigned int> roadIdxItems;
+  mutable std::size_t roadIdxChunks = 0;
+  mutable float roadIdxMinX = 0.0F, roadIdxMinZ = 0.0F, roadIdxInv = 0.0F;
+  mutable int roadIdxN = 0;
+  mutable bool roadIdxDirty = true;
   float groundSurfaceAt(float x, float z) const;
   GeoPart skyDome;
   // Re-centered on the camera every frame (renderScene) so a large map can

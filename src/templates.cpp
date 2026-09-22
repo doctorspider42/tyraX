@@ -1738,6 +1738,19 @@ class TerrainGame : public Tyra::Game {
   void renderProcChunks();
   void renderRoadChunks();
   float roadSurfaceAt(float x, float z) const;
+  void buildRoadHeightIndex() const;
+  // The pre-grid exhaustive walk, defined only under TYRA_ROAD_INDEX_VERIFY
+  // (see roadSurfaceAt) - it is the oracle that gate compares against.
+  float roadSurfaceScan(float x, float z) const;
+  // roadSurfaceAt's uniform XZ grid over the road triangles: prefix offsets
+  // per cell, and entries packing (chunk << 22 | last vertex of a triangle).
+  // Built once after the roads are, and again if the chunk list changes.
+  mutable std::vector<unsigned int> roadIdxStart;
+  mutable std::vector<unsigned int> roadIdxItems;
+  mutable std::size_t roadIdxChunks = 0;
+  mutable float roadIdxMinX = 0.0F, roadIdxMinZ = 0.0F, roadIdxInv = 0.0F;
+  mutable int roadIdxN = 0;
+  mutable bool roadIdxDirty = true;
   float groundSurfaceAt(float x, float z) const;
   GeoPart skyDome;
   // Re-centered on the camera every frame (renderScene) so a large map can
@@ -3383,6 +3396,19 @@ class TerrainGame : public Tyra::Game {
   void renderProcChunks();
   void renderRoadChunks();
   float roadSurfaceAt(float x, float z) const;
+  void buildRoadHeightIndex() const;
+  // The pre-grid exhaustive walk, defined only under TYRA_ROAD_INDEX_VERIFY
+  // (see roadSurfaceAt) - it is the oracle that gate compares against.
+  float roadSurfaceScan(float x, float z) const;
+  // roadSurfaceAt's uniform XZ grid over the road triangles: prefix offsets
+  // per cell, and entries packing (chunk << 22 | last vertex of a triangle).
+  // Built once after the roads are, and again if the chunk list changes.
+  mutable std::vector<unsigned int> roadIdxStart;
+  mutable std::vector<unsigned int> roadIdxItems;
+  mutable std::size_t roadIdxChunks = 0;
+  mutable float roadIdxMinX = 0.0F, roadIdxMinZ = 0.0F, roadIdxInv = 0.0F;
+  mutable int roadIdxN = 0;
+  mutable bool roadIdxDirty = true;
   float groundSurfaceAt(float x, float z) const;
   GeoPart skyDome;
   // Re-centered on the camera every frame (renderScene) so a large map can
@@ -16381,19 +16407,29 @@ void TerrainGame::updateAndRenderBlobShadows() {
       const float z = cz - lx * sy + lz * cy;
       return Vec4(x, groundSurfaceAt(x, z) + lift, z, 1.0F);
     };
+    // A 3x3 cell patch has only 4x4 unique corners. groundSurfaceAt also
+    // searches road/junction chunks and their triangles, so rebuilding the
+    // same shared corner once per adjacent cell made a blob parked at a busy
+    // crossing pay 36 surface queries. Cache the lattice: the submitted 54
+    // vertices and their order stay byte-for-byte identical, while the patch
+    // now pays exactly 16 queries (plus the centre sample used for fading).
+    Vec4 grid[kCells + 1][kCells + 1];
+    for (int iz = 0; iz <= kCells; ++iz) {
+      const float lz = hz - 2.0F * hz * (float)iz / kCells;
+      for (int ix = 0; ix <= kCells; ++ix) {
+        const float lx = -hx + 2.0F * hx * (float)ix / kCells;
+        grid[iz][ix] = receiver(lx, lz);
+      }
+    }
     int bv = 0;
     for (int iz = 0; iz < kCells; ++iz) {
-      const float z0 = hz - 2.0F * hz * (float)iz / kCells;
-      const float z1 = hz - 2.0F * hz * (float)(iz + 1) / kCells;
       for (int ix = 0; ix < kCells; ++ix) {
-        const float x0 = -hx + 2.0F * hx * (float)ix / kCells;
-        const float x1 = -hx + 2.0F * hx * (float)(ix + 1) / kCells;
-        b.verts[bv + 0] = receiver(x0, z0);
-        b.verts[bv + 1] = receiver(x1, z0);
-        b.verts[bv + 2] = receiver(x1, z1);
+        b.verts[bv + 0] = grid[iz][ix];
+        b.verts[bv + 1] = grid[iz][ix + 1];
+        b.verts[bv + 2] = grid[iz + 1][ix + 1];
         b.verts[bv + 3] = b.verts[bv + 0];
         b.verts[bv + 4] = b.verts[bv + 2];
-        b.verts[bv + 5] = receiver(x0, z1);
+        b.verts[bv + 5] = grid[iz + 1][ix];
         bv += 6;
       }
     }
@@ -21164,7 +21200,22 @@ void TerrainGame::renderRoadChunks() {
 // builds then all answer from the exact surface the GS receives. The AABB
 // reject makes the common off-road query 68 cheap comparisons; only the one or
 // two chunks under the sample pay triangle tests.
-float TerrainGame::roadSurfaceAt(float x, float z) const {
+// Acceptance gate for the road-height grid below (docs/roads.md). Default 0:
+// the check costs far more than the work it checks, so it never ships and
+// never goes into a measurement. Set it to 1, rebuild the game and drive the
+// map - every query is then answered twice, once through the grid and once by
+// the exhaustive walk the grid replaced, and the two must agree exactly. The
+// running tally is logged as ROADINDEXVERIFY, and a disagreement names the
+// point that produced it.
+#ifndef TYRA_ROAD_INDEX_VERIFY
+#define TYRA_ROAD_INDEX_VERIFY 0
+#endif
+
+#if TYRA_ROAD_INDEX_VERIFY
+// The pre-2026-09-22 implementation, kept verbatim as the oracle. Deliberately
+// NOT refactored to share code with the fast path: independent code catches
+// more, and a shared helper would only prove the helper agrees with itself.
+float TerrainGame::roadSurfaceScan(float x, float z) const {
   float best = -1.0e30F;
   auto testTriangle = [&](const Vec4& a, const Vec4& b, const Vec4& c) {
     const float den = (b.z - c.z) * (a.x - c.x) +
@@ -21175,8 +21226,6 @@ float TerrainGame::roadSurfaceAt(float x, float z) const {
     const float wb = ((c.z - a.z) * (x - c.x) +
                       (a.x - c.x) * (z - c.z)) / den;
     const float wc = 1.0F - wa - wb;
-    // A hair of tolerance keeps adjacent triangles from exposing a numerical
-    // crack to a six-vertex light/shadow patch on their shared edge.
     if (wa < -0.0001F || wb < -0.0001F || wc < -0.0001F) return;
     const float y = wa * a.y + wb * b.y + wc * c.y;
     if (y > best) best = y;
@@ -21201,7 +21250,173 @@ float TerrainGame::roadSurfaceAt(float x, float z) const {
   }
   return best;
 }
+#endif
 
+// Road height under a world point, and the frame's most expensive function
+// until 2026-09-22. It is sampled 17 times per blob shadow, per light pool and
+// per glow patch - each of those builds a 4x4 receiver lattice - and it used to
+// walk EVERY triangle of every road chunk whose box contains the point. On the
+// Motor District (physical PS2) that was about 2 100 triangles per query: one
+// parked car paid 0.91 ms for its shadow alone at an ordinary road pose, and a
+// junction where several chunks overlap costs far more. Bisected on hardware,
+// roughly half of that was walking the vertices and half the barycentric test.
+//
+// A chunk box is not selective enough - road chunks overlap and one chunk is
+// ~400 vertices - so the triangles are bucketed into a uniform XZ grid once,
+// after the roads are built. A query then tests the handful in one cell.
+void TerrainGame::buildRoadHeightIndex() const {
+  roadIdxDirty = false;
+  roadIdxChunks = procChunks.size();
+  roadIdxStart.clear();
+  roadIdxItems.clear();
+  roadIdxN = 0;
+  float mnx = 1.0e30F, mxx = -1.0e30F, mnz = 1.0e30F, mxz = -1.0e30F;
+  bool any = false;
+  for (const ProcChunk& c : procChunks) {
+    if (c.owner != -3 || c.vertices.size() < 3) continue;
+    any = true;
+    if (c.aabbMin[0] < mnx) mnx = c.aabbMin[0];
+    if (c.aabbMax[0] > mxx) mxx = c.aabbMax[0];
+    if (c.aabbMin[2] < mnz) mnz = c.aabbMin[2];
+    if (c.aabbMax[2] > mxz) mxz = c.aabbMax[2];
+  }
+  if (!any) return;  // no roads: the query answers -1e30 with no work at all
+  float span = (mxx - mnx) > (mxz - mnz) ? (mxx - mnx) : (mxz - mnz);
+  if (span < 1.0F) span = 1.0F;
+  int n = (int)(span / 4.0F) + 1;  // ~4-unit cells, the district's own grain
+  if (n > 128) n = 128;            // and a hard ceiling on what this may cost
+  const float cell = span / (float)n;
+  roadIdxN = n;
+  roadIdxMinX = mnx;
+  roadIdxMinZ = mnz;
+  roadIdxInv = 1.0F / cell;
+  roadIdxStart.assign((size_t)n * (size_t)n + 1, 0U);
+  // Counting sort: pass 0 counts each cell, pass 1 fills it. Both passes walk
+  // the triangles exactly the way roadSurfaceAt used to, so every triangle
+  // that was reachable before is reachable now.
+  std::vector<unsigned int> cursor;
+  for (int pass = 0; pass < 2; ++pass) {
+    unsigned int ci = 0;
+    for (const ProcChunk& c : procChunks) {
+      const unsigned int chunk = ci++;
+      if (c.owner != -3 || c.vertices.size() < 3) continue;
+      if (chunk >= 1024U) continue;  // the entry packs 10 bits of chunk index
+      const size_t count = c.vertices.size();
+      if (count >= (size_t)(1U << 22)) continue;  // ...and 22 of vertex index
+      const size_t run = c.stripRun > 0 ? (size_t)c.stripRun : count;
+      const size_t step = c.stripRun > 0 ? (size_t)1 : (size_t)3;
+      for (size_t first = 0; first < count; first += run) {
+        const size_t end = first + run < count ? first + run : count;
+        for (size_t i = first + 2; i < end; i += step) {
+          const Vec4& a = c.vertices[i - 2];
+          const Vec4& b = c.vertices[i - 1];
+          const Vec4& d = c.vertices[i];
+          float x0 = a.x < b.x ? a.x : b.x;
+          if (d.x < x0) x0 = d.x;
+          float x1 = a.x > b.x ? a.x : b.x;
+          if (d.x > x1) x1 = d.x;
+          float z0 = a.z < b.z ? a.z : b.z;
+          if (d.z < z0) z0 = d.z;
+          float z1 = a.z > b.z ? a.z : b.z;
+          if (d.z > z1) z1 = d.z;
+          int ix0 = (int)((x0 - mnx) * roadIdxInv);
+          int ix1 = (int)((x1 - mnx) * roadIdxInv);
+          int iz0 = (int)((z0 - mnz) * roadIdxInv);
+          int iz1 = (int)((z1 - mnz) * roadIdxInv);
+          if (ix0 < 0) ix0 = 0;
+          if (iz0 < 0) iz0 = 0;
+          if (ix1 > n - 1) ix1 = n - 1;
+          if (iz1 > n - 1) iz1 = n - 1;
+          if (ix1 < ix0 || iz1 < iz0) continue;
+          const unsigned int entry = (chunk << 22) | (unsigned int)i;
+          for (int iz = iz0; iz <= iz1; ++iz)
+            for (int ix = ix0; ix <= ix1; ++ix) {
+              const size_t k = (size_t)iz * (size_t)n + (size_t)ix;
+              if (pass == 0)
+                ++roadIdxStart[k + 1];
+              else
+                roadIdxItems[cursor[k]++] = entry;
+            }
+        }
+      }
+    }
+    if (pass == 0) {
+      for (size_t k = 1; k < roadIdxStart.size(); ++k)
+        roadIdxStart[k] += roadIdxStart[k - 1];
+      roadIdxItems.assign((size_t)roadIdxStart.back(), 0U);
+      cursor.assign(roadIdxStart.begin(), roadIdxStart.end() - 1);
+    }
+  }
+  TYRA_LOG("ROADINDEX cells ", roadIdxN, "x", roadIdxN, " entries ",
+           (int)roadIdxItems.size());
+}
+
+float TerrainGame::roadSurfaceAt(float x, float z) const {
+  float best = -1.0e30F;
+  auto testTriangle = [&](const Vec4& a, const Vec4& b, const Vec4& c) {
+    // Cheap XZ reject before the arithmetic: a cell holds every triangle whose
+    // box touches it, and most of those do not span this exact point.
+    float lo = a.x < b.x ? a.x : b.x;
+    if (c.x < lo) lo = c.x;
+    if (x < lo) return;
+    float hi = a.x > b.x ? a.x : b.x;
+    if (c.x > hi) hi = c.x;
+    if (x > hi) return;
+    lo = a.z < b.z ? a.z : b.z;
+    if (c.z < lo) lo = c.z;
+    if (z < lo) return;
+    hi = a.z > b.z ? a.z : b.z;
+    if (c.z > hi) hi = c.z;
+    if (z > hi) return;
+    const float den = (b.z - c.z) * (a.x - c.x) +
+                      (c.x - b.x) * (a.z - c.z);
+    if (fabsf(den) < 0.000001F) return;
+    const float wa = ((b.z - c.z) * (x - c.x) +
+                      (c.x - b.x) * (z - c.z)) / den;
+    const float wb = ((c.z - a.z) * (x - c.x) +
+                      (a.x - c.x) * (z - c.z)) / den;
+    const float wc = 1.0F - wa - wb;
+    // A hair of tolerance keeps adjacent triangles from exposing a numerical
+    // crack to a six-vertex light/shadow patch on their shared edge.
+    if (wa < -0.0001F || wb < -0.0001F || wc < -0.0001F) return;
+    const float y = wa * a.y + wb * b.y + wc * c.y;
+    if (y > best) best = y;
+  };
+  if (roadIdxDirty || roadIdxChunks != procChunks.size())
+    buildRoadHeightIndex();
+  if (roadIdxN <= 0) return best;
+  if (x < roadIdxMinX || z < roadIdxMinZ) return best;
+  const int ix = (int)((x - roadIdxMinX) * roadIdxInv);
+  const int iz = (int)((z - roadIdxMinZ) * roadIdxInv);
+  if (ix < 0 || iz < 0 || ix >= roadIdxN || iz >= roadIdxN) return best;
+  const size_t k = (size_t)iz * (size_t)roadIdxN + (size_t)ix;
+  for (unsigned int e = roadIdxStart[k]; e < roadIdxStart[k + 1]; ++e) {
+    const unsigned int item = roadIdxItems[e];
+    const ProcChunk& c = procChunks[(size_t)(item >> 22)];
+    const size_t i = (size_t)(item & 0x3FFFFFU);
+    testTriangle(c.vertices[i - 2], c.vertices[i - 1], c.vertices[i]);
+  }
+#if TYRA_ROAD_INDEX_VERIFY
+  {
+    static unsigned int checked = 0, bad = 0;
+    static float worst = 0.0F;
+    const float ref = roadSurfaceScan(x, z);
+    const float d = ref > best ? ref - best : best - ref;
+    ++checked;
+    if (d > 0.0005F) {
+      if (d > worst) worst = d;
+      if (++bad == 1)
+        TYRA_LOG("ROADINDEXVERIFY first mismatch at x10 ", (int)(x * 10.0F),
+                 " z10 ", (int)(z * 10.0F), " grid x1000 ", (int)(best * 1000.0F),
+                 " scan x1000 ", (int)(ref * 1000.0F));
+    }
+    if (checked % 20000U == 0U)
+      TYRA_LOG("ROADINDEXVERIFY checked ", (int)checked, " bad ", (int)bad,
+               " worst x1000 ", (int)(worst * 1000.0F));
+  }
+#endif
+  return best;
+}
 float TerrainGame::groundSurfaceAt(float x, float z) const {
   const float terrain = terrainHeightAt(x, z);
   const float road = roadSurfaceAt(x, z);
