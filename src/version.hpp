@@ -16,6 +16,19 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.123.2: THE RELEASE AUDIT CATCHES A MEASUREMENT BUILD.
+// --audit-release proved a release ELF carried no devkit code and said nothing
+// about an opt-in profiling macro left switched on - a different failure and a
+// worse one to miss, because the game looks and runs normally and the only
+// symptom is host writes inside a sampling window. It now scans .rodata for
+// the tags those macros own (FTCLIP, FTPKT, STAPIPRET, STAPIPMISS, STAPIPBAKE,
+// VRAMRES, VRAMEVICT, ROADINDEXVERIFY, WHEELBAKE) and reports each as
+// "measurement build". Each tag exists only while its macro is 1, so a hit is
+// proof. Falsified both ways on examples/vehicle-playground: the ordinary
+// build reports five devkit strings and no measurement finding,
+// TYRA_WHEEL_REBUILD_REPORT=1 adds WHEELBAKE, TYRA_FRAME_PROFILE=1 adds FTCLIP
+// and FTPKT. Project format stays 61. PATCH.
+//
 // 1.123.1: LAZY TEXTURE-WRAP BRACKET.
 // A bag whose texture is not REPEAT used to cost two unconditional PATH1
 // drains - one to program GS_REG_CLAMP, one to put REPEAT back - so a run of
@@ -4961,7 +4974,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 123
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

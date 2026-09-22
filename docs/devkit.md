@@ -88,6 +88,25 @@ strings sit in `.rodata`. Harmless on a retail console, which has nowhere to
 send the EE console, and not an audit failure since none of it is devkit code —
 but do not write "compiles out" about a `TYRA_*` macro without checking.
 
+**It also catches a MEASUREMENT build (1.123.2).** That is a different failure
+from a devkit leak and a worse one to miss: an opt-in profiling macro somebody
+turned on for one A/B and did not turn back off. Nothing about the ELF looks
+unusual, the game runs, and the only symptom is host writes inside a sampling
+window - which is how a VRAM census once shipped live at about 1 ms a frame and
+1,016 host: lines per 1,440-frame run, and was briefly mis-attributed to the
+change being measured beside it. The audit scans `.rodata` for the log tags
+those macros own - `FTCLIP` and `FTPKT` (`TYRA_FRAME_PROFILE`), `STAPIPRET`,
+`STAPIPMISS`, `STAPIPBAKE`, `VRAMRES` and `VRAMEVICT` (the census),
+`ROADINDEXVERIFY` and `WHEELBAKE` (the generated game's own gates) - and
+reports each as `measurement build - .rodata`. Each tag exists only while its
+macro is 1, so a hit is proof rather than a hint.
+
+Verified both ways on `examples/vehicle-playground`: the ordinary build reports
+five devkit strings and no measurement finding; the same project built with
+`TYRA_WHEEL_REBUILD_REPORT=1` adds `WHEELBAKE`, and with `TYRA_FRAME_PROFILE=1`
+adds `FTCLIP` and `FTPKT`. Falsify it that way whenever the tag list changes -
+a detector nobody has seen fire is not a detector.
+
 ## Tools
 
 | Tool | What it does |

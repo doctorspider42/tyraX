@@ -588,12 +588,25 @@ estimates of what a fix would save.
    shares travel and the milliseconds do not; the hardware gap is 25% of
    submission where the emulator's is 38%, and the difference is expected to sit
    in the pipeline brackets rather than in the terms named above.
-6. **Two release-build log lines that should not exist**, found while reading:
-   `VRAMSTAT` every 120 frames and `STAPIPRET` every 300 both survive into a
-   release ELF, because the census `#endif` closes above the summary line and
-   because `!defined(NDEBUG)` is always true in a game build. Small (fifteen and
-   five host writes per 1 440-frame run), same class as the census that cost
-   1 ms a frame, and `--audit-release` catches neither.
+6. ~~**Two release-build log lines that should not exist**~~ **DONE
+   2026-09-22, in two halves, and the entry was half stale when it was read.**
+   The TIMED lines were already gated by the time this was picked up:
+   `STAPIPRET` behind `TYRA_STAPIP_RETAINED_REPORT` and the 120-frame
+   `VRAMSTAT` summary behind `TYRA_VRAM_PERIODIC_STAT`, both default 0. What
+   is left of `VRAMSTAT` in a release build is the EVENT line, which prints
+   only on a frame that actually evicted - the district reports zero
+   evictions in all four poses - and an eviction is a real condition worth a
+   line, so it stays.
+   The half that was genuinely missing is the detection, and that is now
+   built: `--audit-release` scans `.rodata` for the tags the opt-in
+   measurement macros own (`FTCLIP`, `FTPKT`, `STAPIPRET`, `STAPIPMISS`,
+   `STAPIPBAKE`, `VRAMRES`, `VRAMEVICT`, `ROADINDEXVERIFY`, `WHEELBAKE`) and
+   reports them as `measurement build - .rodata` (docs/devkit.md). Falsified
+   both ways on examples/vehicle-playground: the ordinary build reports five
+   devkit strings and no measurement finding, `TYRA_WHEEL_REBUILD_REPORT=1`
+   adds `WHEELBAKE` and `TYRA_FRAME_PROFILE=1` adds `FTCLIP` and `FTPKT`.
+   **Add the tag when you add a gate** - a macro whose log line is not in that
+   list still ships silently.
 
 ### ~~The baked stream needs a caller contract for NON-POSITION data~~ DONE
 

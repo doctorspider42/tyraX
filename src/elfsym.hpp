@@ -87,7 +87,11 @@ struct Audit {
 /** Scans a built ELF for anything the debugging layers would have left behind.
  * Looks for the generated runtimes' symbols (livedbg / livelogic / LiveLink /
  * LiveLogic / LiveDebug), their file names in the string data, and the
- * interpreter's static tables. A release ELF must come back clean. */
+ * interpreter's static tables. It also flags a MEASUREMENT build - an opt-in
+ * profiling macro (TYRA_FRAME_PROFILE, the VRAM census, the retained-command
+ * or baked-stream reports, a verify gate) left switched on, which a reader
+ * cannot tell from a game by looking at it. A release ELF must come back
+ * clean. */
 Audit auditRelease(const std::string& elfPath);
 
 // ------------------------------------------------------------ symbolization ---

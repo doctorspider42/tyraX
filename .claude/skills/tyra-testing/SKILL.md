@@ -1793,6 +1793,16 @@ later one until the write finishes.   `livedbg.cmd` before booting a fixture** -
   build also runs it and logs the verdict. **Negative-test it too** - run it
   against a DEBUG ELF and confirm it fails and names the findings, otherwise a
   broken check reads exactly like a clean build (entry 193).
+  **It also flags a MEASUREMENT build** (1.123.2) - an opt-in profiling macro
+  left switched on, which is the mistake every recipe on this page ends by
+  warning about. It scans `.rodata` for the tags those macros own (`FTCLIP`,
+  `FTPKT`, `STAPIPRET`, `STAPIPMISS`, `STAPIPBAKE`, `VRAMRES`, `VRAMEVICT`,
+  `ROADINDEXVERIFY`, `WHEELBAKE`) and prints them as `measurement build -
+  .rodata`. Negative-test THIS half too, and it is cheap: build the same
+  project with `TYRA_WHEEL_REBUILD_REPORT=1` (generated game, no engine
+  rebuild) or `TYRA_FRAME_PROFILE=1` (engine) and the finding must appear and
+  then disappear again. **Add the tag when you add a gate** - a macro whose
+  log line is not in that list ships silently.
 - **Live Logic patches without the GUI**: `livelogic.cpp` has no GUI
   dependency, so a ~100-line host harness (link it against the editor's
   `build/CMakeFiles/tyrax-editor.dir/src/*.obj` minus `app`/`viewport`/
