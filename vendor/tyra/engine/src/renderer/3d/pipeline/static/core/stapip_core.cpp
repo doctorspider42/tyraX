@@ -714,12 +714,28 @@ void StaPipCore::render(StaPipBag* bag) {
   // factor). Only the render targets ask - camera feeds and the raytraced
   // mirror, whose edge rows must not bilinear-wrap into the opposite side -
   // so an ordinary mesh pays one pointer comparison.
-  const bool clampedBag =
-      bag->texture && bag->texture->texture &&
-      bag->texture->texture->getWrapSettings()->horizontal != WRAP_REPEAT;
-  if (clampedBag) {
+  //
+  // Modified by TyraX (2026-09-22): the bracket is LAZY on both sides. It used
+  // to drain twice per clamped bag unconditionally - set, draw, restore - and
+  // on the Motor District's night frame that pair was measured at 1.730 ms,
+  // because the lamps' pools and the projected shadows all sample clamped
+  // render targets and arrive in runs. A run of bags asking for the SAME wrap
+  // now costs one drain in total, and the restore is deferred to whoever next
+  // needs REPEAT. Three places close that contract, and they are the whole
+  // safety argument: the next bag that does not want this wrap (below),
+  // Renderer2D's first sprite (which already drains PATH1 once a frame), and
+  // RendererCore::endFrame before the post-fx blits - which is also before
+  // RendererCoreAlphaMask, the one subsystem that documents its reliance on
+  // the REPEAT contract.
+  const texwrap_t& wantedWrap =
+      (bag->texture && bag->texture->texture &&
+       bag->texture->texture->getWrapSettings()->horizontal != WRAP_REPEAT)
+          ? *bag->texture->texture->getWrapSettings()
+          : RendererCoreGS::repeatWrap();
+  if (!RendererCoreGS::wrapEquals(wantedWrap,
+                                  rendererCore->gs.currentTextureWrap())) {
     rendererCore->sync.align3D();
-    rendererCore->gs.setTextureWrap(*bag->texture->texture->getWrapSettings());
+    rendererCore->gs.setTextureWrap(wantedWrap);
   }
   TYRA_ATTRIB_ADD(prepTextureTicks, attribTextureStart);
 
@@ -1112,10 +1128,9 @@ void StaPipCore::render(StaPipBag* bag) {
   const u32 dispatchEnd = telemetryEnabled ? readCoreTelemetryTicks() : 0;
   if (telemetryEnabled) telemetry.dispatchTicks += dispatchEnd - dispatchStart;
 
-  if (clampedBag) {  // Modified by TyraX: restore the frame's REPEAT contract
-    rendererCore->sync.align3D();
-    rendererCore->gs.setTextureWrap(RendererCoreGS::repeatWrap());
-  }
+  // Modified by TyraX: no restore here - see the wanted-wrap comment above.
+  // The REPEAT contract is closed by the next bag that wants it, by the 2D
+  // path's once-a-frame drain, or by RendererCore::endFrame.
 
   Verbose("Render finished");
   // Added by TyraX: one read closes both the tail and the whole function, so

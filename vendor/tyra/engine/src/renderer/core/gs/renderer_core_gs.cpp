@@ -617,6 +617,7 @@ const texwrap_t& RendererCoreGS::repeatWrap() {
 }
 
 void RendererCoreGS::setTextureWrap(const texwrap_t& wrap) {
+  currentWrap = wrap;  // Modified by TyraX: see currentTextureWrap()
   packet2_reset(wrapPacket, false);
   qword_t* q = wrapPacket->base;
   PACK_GIFTAG(q, GIF_SET_TAG(1, 1, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);

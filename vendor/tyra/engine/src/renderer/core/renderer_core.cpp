@@ -399,6 +399,16 @@ void RendererCore::endFrame() {
   // that - e.g. the pure-2D loading screen - there is nothing on PATH1 to
   // drain and the draw-finish handshake would spin forever waiting for a
   // FINISH that VU1 can't deliver yet.
+  // Modified by TyraX: close the 3D pass's texture-wrap contract before
+  // anything composites. StaPipCore no longer restores REPEAT per clamped bag
+  // (see StaPipCore::render), and RendererCoreAlphaMask documents its reliance
+  // on that contract, so the last clamped bag of a frame is undone here. The
+  // drain is guarded the same way every barrier in this function is: before
+  // VU1 is up there is nothing on PATH1 and the handshake would spin forever.
+  if (!gs.textureWrapIsRepeat()) {
+    if (path1.isVU1Configured()) sync.align3D();
+    gs.setTextureWrap(RendererCoreGS::repeatWrap());
+  }
   { HardwareTrace::Scope trace("PostFx"); applyPostFx(); }
 #if TYRA_FRAME_PROFILE
   // THE FAIRNESS FENCE (inc/debug/frame_profile.hpp, tDrain). One guarded

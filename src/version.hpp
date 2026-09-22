@@ -16,6 +16,19 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.123.1: LAZY TEXTURE-WRAP BRACKET.
+// A bag whose texture is not REPEAT used to cost two unconditional PATH1
+// drains - one to program GS_REG_CLAMP, one to put REPEAT back - so a run of
+// bags sampling the same clamped render target paid two barriers each. The
+// bracket is lazy on both sides now: the write and its drain are skipped when
+// the wrap already is what the bag wants, and the restore is deferred to the
+// next bag that needs REPEAT, to Renderer2D's first sprite (already drained
+// once a frame) or to RendererCore::endFrame before the post-fx blits.
+// Physical PS2, frozen Motor District night vantage: Light_pools 1.605 ->
+// 1.342 ms, six samples per arm with no overlap; whole render 20.900 ->
+// 20.819, inside that row's noise. The backlog priced this at 1.730 ms from
+// PCSX2 and the console pays a sixth of it. Project format stays 61. PATCH.
+//
 // 1.123.0: ROAD HEIGHT GRID.
 // roadSurfaceAt walked every triangle of every road chunk whose XZ box held
 // the point - about 2,100 triangles per query on the Motor District - and the
@@ -4948,7 +4961,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 123
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

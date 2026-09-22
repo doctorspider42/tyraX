@@ -566,12 +566,21 @@ estimates of what a fix would save.
      runs 1.44 probes per lookup, the expiry scan is 0.011 ms and NOTHING
      allocates (0 fresh entries in every pose). What cost 0.618 ms was 10.5
      forced `recalculate()` calls, which item 1 has now removed.
-3. **The clamped-wrap double drain, 1.730 ms of garage night** (0.299 in the
-   day). A bag whose texture is not REPEAT costs `sync.align3D()` twice — once
-   to set the wrap and once to restore it — and the night scene has more of them
-   because the lamps' pools and projected shadows sample clamped targets. The
-   engine comment is right that an ordinary mesh pays one pointer comparison;
-   it is the clamped bags that serialise the pipeline, twice each.
+3. ~~**The clamped-wrap double drain, 1.730 ms of garage night** (0.299 in the
+   day).~~ **DONE 2026-09-22, and the console pays a sixth of what PCSX2
+   promised.** The bracket is lazy on both sides now (docs/texture-feeds.md):
+   the register write and its drain are skipped when the wrap already is what
+   the bag wants, and the restore is deferred to the next bag that needs
+   REPEAT, to `Renderer2D`'s first sprite (which already drains once a frame)
+   or to `RendererCore::endFrame` before the post-fx blits. A RUN of bags
+   sampling one clamped target therefore costs one barrier instead of two per
+   bag. Measured on a physical PS2 at a frozen night vantage on the Motor
+   District: `Light_pools` **1.605 -> 1.342 ms**, six samples per arm with no
+   overlap between the ranges (1.590-1.628 against 1.306-1.375); whole render
+   20.900 -> 20.819, inside that row's own noise. Day and night captures are
+   visually clean. **The entry's own number was a PCSX2 one and did not
+   travel** - which is the standing rule about that emulator, restated by a
+   change that was implemented exactly as the entry described it.
 4. **The shared reflection probe is the whole of renderScene's head**, 0.820 ms
    on a 2-frame cadence, i.e. ~1.64 on the frames it runs. Everything else in
    that head — split band, sky retint, env basis, camera feed — is 0.001.

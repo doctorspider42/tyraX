@@ -1308,10 +1308,22 @@ Rules the same evening paid for:
   out from a photograph of soft ground texture - both failure modes look like
   "the ground is smeared".
 - **A texture that needs clamping in 3D gets it per bag, and it costs a PATH1
-  drain.** `StaPipCore::render` brackets any bag whose texture asked for
-  something other than `WRAP_REPEAT` with `sync.align3D()` +
-  `RendererCoreGS::setTextureWrap`, and restores REPEAT after
-  `flushBuffers()` - the same drain-write-restore shape `additiveBlendFix`
+  drain - a LAZY one since 1.123.1.** `StaPipCore::render` programs the wrap a
+  bag wants only when it differs from what `RendererCoreGS::currentTextureWrap`
+  last sent, and it no longer restores REPEAT per bag, so a RUN of bags
+  sampling one clamped render target costs a single barrier instead of two
+  each (physical PS2, Motor District night: `Light_pools` 1.605 -> 1.342 ms).
+  **The REPEAT contract is then closed in exactly three places, and anything
+  new that draws after the 3D pass must be added to that list**: the next bag
+  wanting a different wrap, `Renderer2D`'s first sprite (inside the existing
+  once-a-frame `drained3DFor2D` barrier, so it is free), and
+  `RendererCore::endFrame` immediately before `applyPostFx` - which is also
+  before `RendererCoreAlphaMask`, the one subsystem whose comments say it
+  relies on the contract. The cached value is legal only because the other
+  writers of `GS_REG_CLAMP` (post-fx, warp, BLSS, the alpha mask, the frame
+  profiler) all run after the last 3D bag of a frame and `Path3::clearScreen`
+  re-asserts REPEAT before the next one.
+  It was the same drain-write-restore shape `additiveBlendFix`
   used before the blend equation moved in-band. Only the render targets ask
   (the camera feeds and the raytraced mirror, whose edge rows must not
   bilinear-wrap into the opposite side), so an ordinary mesh pays one pointer

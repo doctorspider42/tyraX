@@ -37,6 +37,12 @@ void Renderer2D::render(const Sprite& sprite) {
   // spin forever on a FINISH that VU1 cannot deliver).
   if (!core->drained3DFor2D) {
     if (core->getPath1()->isVU1Configured()) core->sync.align3D();
+    // Modified by TyraX: and close the 3D pass's texture-wrap contract while
+    // the drain is already paid for. StaPipCore leaves a clamped bag's wrap
+    // programmed rather than restoring it per bag (see StaPipCore::render);
+    // a sprite drawn after one would otherwise inherit that clamp.
+    if (!core->gs.textureWrapIsRepeat())
+      core->gs.setTextureWrap(RendererCoreGS::repeatWrap());
     core->drained3DFor2D = true;
   }
 

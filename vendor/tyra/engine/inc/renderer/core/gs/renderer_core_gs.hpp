@@ -213,6 +213,26 @@ class RendererCoreGS {
   static const texwrap_t& repeatWrap();
 
   /**
+   * Modified by TyraX: what setTextureWrap last programmed, so a caller can
+   * skip the write AND the PATH1 drain that has to bracket it. The two sites
+   * that write GS_REG_CLAMP without going through here - Path3::clearScreen at
+   * the top of every frame, and the post-fx / warp / BLSS / alpha-mask blits
+   * that bracket their own - both leave it REPEAT or run after the last 3D bag
+   * of the frame, which is what makes this cache legal. See
+   * StaPipCore::render.
+   */
+  const texwrap_t& currentTextureWrap() const { return currentWrap; }
+  bool textureWrapIsRepeat() const {
+    return currentWrap.horizontal == WRAP_REPEAT &&
+           currentWrap.vertical == WRAP_REPEAT;
+  }
+  static bool wrapEquals(const texwrap_t& a, const texwrap_t& b) {
+    return a.horizontal == b.horizontal && a.vertical == b.vertical &&
+           a.minu == b.minu && a.maxu == b.maxu && a.minv == b.minv &&
+           a.maxv == b.maxv;
+  }
+
+  /**
    * The DISPLAY buffer currently being drawn to (TyraX fork, for post fx).
    *
    * This is the double-buffered display target and nothing else - it is NOT
@@ -307,6 +327,9 @@ class RendererCoreGS {
   // Modified by TyraX: preallocated CLAMP-register packet (setTextureWrap
   // brackets every clamped bag - two calls per such mesh per frame).
   packet2_t* wrapPacket;
+  // Modified by TyraX: what that packet last sent. REPEAT at the top of every
+  // frame by Path3::clearScreen's contract, which is where this starts too.
+  texwrap_t currentWrap = {WRAP_REPEAT, WRAP_REPEAT, 0, 0, 0, 0};
   u8 context;
   u8 currentField;
 
