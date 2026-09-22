@@ -460,6 +460,7 @@ void App::dbgReadFrameShot() {
     glUploadTexRgba(w, h, rgba.data());
     dbgShotW_ = w;
     dbgShotH_ = h;
+    dbgShotPixels_ = rgba;
     dbgShotError_.clear();
 
     // KEEP THE PICTURE. bin/frame.tga is a CHANNEL, not an album: one file,
@@ -2577,6 +2578,22 @@ void App::drawDebuggerWindow() {
                         "the saved PNG is gone - capture again to write one.";
                 }
             }
+            ImGui::SameLine();
+            if (ImGui::Button("Copy image")) {
+                if (platform::copyImageToClipboard(
+                        dbgShotPixels_.data(), dbgShotW_, dbgShotH_,
+                        dbgShotFile_)) {
+                    dbgShotError_.clear();
+                    statusMessage_ = "Frame image copied to the clipboard";
+                } else {
+                    dbgShotError_ =
+                        "could not put the frame image on the clipboard.";
+                }
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Copies the actual bitmap, ready to paste into chat or an "
+                    "image editor.");
         }
 
         if (!dbgShotError_.empty()) {

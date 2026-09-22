@@ -209,13 +209,18 @@ the fault has **never been reproduced** are in
 
 ## The game's own screenshot
 
+![Debugger Screen capture with the Copy image action](img/debugger-copy-image.png)
+
 In **Debugger > Screen**, press **Capture frame**. The game reads its last
 finished frame straight out of GS VRAM, writes `bin/frame.tga` over the same
 `host:` channel every other devkit file uses, and the panel shows it.
 
 Every capture is then **kept as a PNG in the project's `screenshots/` folder**,
-named by the clock (`frame-20260817-164501.png`), and **Show file** reveals that
-copy. `bin/frame.tga` is a *channel*, not an album — one file, overwritten by
+named by the clock (`frame-20260817-164501.png`). **Show file** reveals that
+copy, while **Copy image** puts the decoded bitmap itself on the desktop
+clipboard, ready to paste into chat or an image editor. On Linux this uses
+`wl-copy` or `xclip`; the button reports failure when neither is installed.
+`bin/frame.tga` is a *channel*, not an album — one file, overwritten by
 the next capture and deleted at every launch — so the PNG is the one that lasts:
 it sits outside `bin/`, survives a *Clean*, opens in anything, and is
 git-ignored. Delete the ones you do not want; nothing reads them.

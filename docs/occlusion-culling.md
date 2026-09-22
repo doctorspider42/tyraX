@@ -1,7 +1,7 @@
 # Conservative occlusion culling
 
-TyraX can reject whole objects, static batches, procedural chunks and road
-chunks that are completely hidden behind solid scene geometry. Enable it in
+TyraX can reject whole objects, static batches and procedural chunks that are
+completely hidden behind solid scene geometry. Enable it in
 **Project > Preferences > Rendering > Conservative occlusion culling**. It is
 off by default: the result depends on the map's layout, while every enabled
 project pays a small EE cost to build the visibility buffer each camera pass.
@@ -40,6 +40,14 @@ visible, which also prevents self-occlusion and keeps mixed static batches safe.
 Candidates whose projected centre is not covered stop before the eight-corner
 test, keeping the common open-view failure path cheap. A static occluder's
 rotated basis is also evaluated once per object rather than once per box corner.
+
+Road chunks deliberately skip this software-occlusion test. They are long,
+shallow receiver surfaces: a coarse projected rectangle can have its centre
+behind a building while a nearer arm of the same road remains visible. They
+also skip the generated runtime's coarse whole-chunk AABB frustum pre-test and
+enter StaPip's precise clipper instead. Authored distance and split-screen-band
+culling still apply; excluding the two unsafe coarse tests prevents whole
+asphalt sections from popping out.
 
 With the in-game profiler enabled, the runtime reports a line like:
 

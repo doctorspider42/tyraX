@@ -220,6 +220,14 @@ thirds, and a stripped package is never sub-split, so the two patches fell from
 **9 packages to 2**. The pixels are byte-identical; a patch is a grid, which is
 the shape a strip is best at.
 
+Authored scene-light floor pools cache their terrain/road-conforming 5x5 corner
+lattice until the light's position or radius changes. The original 4x4 patch
+queried the same shared corners once per adjoining triangle — 96 surface queries
+per light, every frame — although its geometry was static. The cache reduces a
+rebuild to 25 queries and ordinary frames to none; a conservative radius-based
+frustum test also skips off-screen pool submission. Dynamic object lighting is
+independent and remains active even when the receiver patch is outside the view.
+
 The torch's **wall copy** is still a triangle list, built per frame from
 arbitrary receiver geometry. Nothing above prices it, because no sunlit pose
 reaches it at all.

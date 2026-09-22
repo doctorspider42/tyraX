@@ -1643,6 +1643,11 @@ class TerrainGame : public Tyra::Game {
     int objIndex = -1;
     BagArray<Tyra::Vec4> verts, sts;
     Tyra::Color color;
+    // Scene-light receiver geometry is static until the authored light moves.
+    // Remember the patch key so the expensive road/terrain height queries do
+    // not run again merely because its brightness flickered.
+    bool patchValid = false;
+    float patchCx = 0.0F, patchCz = 0.0F, patchR = 0.0F, patchLift = 0.0F;
     // The flashlight's SECOND patch, for the wall its beam is touching. Both
     // are drawn every frame and the depth buffer decides where each shows,
     // because a beam sweeping from the floor up a wall really does light both
@@ -1707,7 +1712,7 @@ class TerrainGame : public Tyra::Game {
   // from the terrain's vertex grid (docs/flashlight.md).
   void setupLightPools();            // per scene load
   void updateAndRenderLightPools();  // per frame, before the shadows
-  void buildPoolPatch(LightPool& b, float cx, float cz, float r, float lift);
+  bool buildPoolPatch(LightPool& b, float cx, float cz, float r, float lift);
   // Blob shadows (BLOB_SHADOWS): a soft dark terrain-conforming grid under
   // each moving object (third-person avatar, animated models, physics
   // objects), fading out as the object rises. Per-caster arrays - the DMA

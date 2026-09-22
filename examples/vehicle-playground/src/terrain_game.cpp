@@ -10172,25 +10172,38 @@ void TerrainGame::setupLightPools() {
 // Per frame: drop each dynamic light's pool onto the terrain under it
 // (terrain-conforming corners), tint by the light color and breathe with
 // its level (flicker / Set Light / hidden) through the additive FIX.
-void TerrainGame::buildPoolPatch(LightPool& b, float cx, float cz, float r,
+bool TerrainGame::buildPoolPatch(LightPool& b, float cx, float cz, float r,
                                  float lift) {
+  if (b.patchValid && b.patchCx == cx && b.patchCz == cz && b.patchR == r &&
+      b.patchLift == lift)
+    return false;
+  b.patchValid = true;
+  b.patchCx = cx;
+  b.patchCz = cz;
+  b.patchR = r;
+  b.patchLift = lift;
   constexpr int kCells = 4;
+  Vec4 grid[kCells + 1][kCells + 1];
+  for (int iz = 0; iz <= kCells; ++iz) {
+    const float z = cz + ((float)iz / kCells - 0.5F) * 2.0F * r;
+    for (int ix = 0; ix <= kCells; ++ix) {
+      const float x = cx + ((float)ix / kCells - 0.5F) * 2.0F * r;
+      grid[iz][ix] = Vec4(x, groundSurfaceAt(x, z) + lift, z, 1.0F);
+    }
+  }
   int v = 0;
   for (int iz = 0; iz < kCells; ++iz) {
     for (int ix = 0; ix < kCells; ++ix) {
-      const float x0 = cx + ((float)ix / kCells - 0.5F) * 2.0F * r;
-      const float x1 = cx + ((float)(ix + 1) / kCells - 0.5F) * 2.0F * r;
-      const float z0 = cz + ((float)iz / kCells - 0.5F) * 2.0F * r;
-      const float z1 = cz + ((float)(iz + 1) / kCells - 0.5F) * 2.0F * r;
-      b.verts[v + 0] = Vec4(x0, groundSurfaceAt(x0, z0) + lift, z0, 1.0F);
-      b.verts[v + 1] = Vec4(x1, groundSurfaceAt(x1, z0) + lift, z0, 1.0F);
-      b.verts[v + 2] = Vec4(x1, groundSurfaceAt(x1, z1) + lift, z1, 1.0F);
+      b.verts[v + 0] = grid[iz][ix];
+      b.verts[v + 1] = grid[iz][ix + 1];
+      b.verts[v + 2] = grid[iz + 1][ix + 1];
       b.verts[v + 3] = b.verts[v + 0];
       b.verts[v + 4] = b.verts[v + 2];
-      b.verts[v + 5] = Vec4(x0, groundSurfaceAt(x0, z1) + lift, z1, 1.0F);
+      b.verts[v + 5] = grid[iz + 1][ix];
       v += 6;
     }
   }
+  return true;
 }
 
 void TerrainGame::updateAndRenderLightPools() {
@@ -11528,6 +11541,22 @@ void TerrainGame::updateAndRenderLightPools() {
       }
     const float k = d.lightBright * level;
     if (k <= 0.01F) continue;
+    // A downward spot can land up to one radius away and its receiver can
+    // extend by another radius. Reject that conservative cube before the
+    // ground march, patch update and submit; the light still participates in
+    // object lighting through g_dynLights.
+    const float poolReach = d.lightRadius * 2.0F;
+    const Vec4 poolMin(d.position[0] - poolReach,
+                       d.position[1] - poolReach,
+                       d.position[2] - poolReach, 1.0F);
+    const Vec4 poolMax(d.position[0] + poolReach,
+                       d.position[1] + poolReach,
+                       d.position[2] + poolReach, 1.0F);
+    if (CoreBBox::frustumCheckAABB(
+            rc.renderer3D.frustumPlanes.getAll(), poolMin, poolMax) ==
+        CoreBBoxFrustum::OUTSIDE_FRUSTUM)
+      continue;
+    bool patchChanged = false;
     // Does THIS light's pool draw through a shadow mask this frame? Set every
     // frame, like the torch's: the flag would outlive the mask otherwise.
     bool spotVol = false;
@@ -11551,7 +11580,8 @@ void TerrainGame::updateAndRenderLightPools() {
       const float tanS = tanf(d.lightSpotAngle * 3.14159265F / 180.0F);
       float rr = tanS * hit * 1.5F + 0.4F;
       if (rr > d.lightRadius) rr = d.lightRadius;
-      buildPoolPatch(b, lx + sd.x * hit, lz + sd.z * hit, rr, 0.04F);
+      patchChanged =
+          buildPoolPatch(b, lx + sd.x * hit, lz + sd.z * hit, rr, 0.04F);
       // Beam basis (the torch's degenerate-case trick, sd for the camera).
       float srx, sry, srz;
       if (sd.y > 0.995F || sd.y < -0.995F) {
@@ -11608,8 +11638,10 @@ void TerrainGame::updateAndRenderLightPools() {
                                  lightAt, d.lightRadius);
       }
     } else {
-      buildPoolPatch(b, d.position[0], d.position[2], d.lightRadius * 0.9F,
-                     0.04F);  // under the shadows' 0.05/0.06
+      patchChanged =
+          buildPoolPatch(b, d.position[0], d.position[2],
+                         d.lightRadius * 0.9F,
+                         0.04F);  // under the shadows' 0.05/0.06
     }
     b.color.set(128.0F * d.color[0], 128.0F * d.color[1], 128.0F * d.color[2],
                 128.0F);
@@ -11617,7 +11649,7 @@ void TerrainGame::updateAndRenderLightPools() {
     b.info->additiveBlendFix =
         fix > 255.0F ? 255 : (fix < 1.0F ? 1 : (u8)fix);
     b.info->dateLit = spotVol;
-    b.bag->bboxVersion = ++g_bboxStamp;
+    if (patchChanged) b.bag->bboxVersion = ++g_bboxStamp;
     stapip.core.render(b.bag.get());
     // --- the carving spot's RECEIVER pass ----------------------------------
     // The torch's wall pass on a scene lamp (docs/shadows.md): the solids
@@ -19953,12 +19985,6 @@ void TerrainGame::renderRoadChunks() {
   // producer id, which also gives the profiler an honest standalone phase.
   for (ProcChunk& c : procChunks) {
     if (c.owner != -3 || !c.bag || c.bag->count == 0) continue;
-    const Tyra::Vec4 mn(c.aabbMin[0], c.aabbMin[1], c.aabbMin[2], 1.0F);
-    const Tyra::Vec4 mx(c.aabbMax[0], c.aabbMax[1], c.aabbMax[2], 1.0F);
-    if (Tyra::CoreBBox::frustumCheckAABB(
-            engine->renderer.core.renderer3D.frustumPlanes.getAll(), mn, mx) ==
-        Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
-      continue;
     if (c.drawDist > 0.0F) {
       const float dx = c.centre[0] - cameraPosition.x;
       const float dy = c.centre[1] - cameraPosition.y;
@@ -19966,7 +19992,9 @@ void TerrainGame::renderRoadChunks() {
       if (dx * dx + dy * dy + dz * dz > c.drawDist * c.drawDist) continue;
     }
     if (splitBandActive && outsideSplitBand(c.aabbMin, c.aabbMax)) continue;
-    if (occlusionHiddenAabb(c.aabbMin, c.aabbMax)) continue;
+    // Roads are long, shallow receiver surfaces. Coarse whole-AABB frustum and
+    // software-depth tests have both produced false-hidden asphalt gaps. Leave
+    // their exact clipping to StaPip; distance and split-screen bands remain.
     stapip.core.render(c.bag.get());
   }
 }

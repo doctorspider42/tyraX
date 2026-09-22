@@ -3618,6 +3618,7 @@ private:
     size_t dbgShotPartial_ = 0;     // size of the last short read - see below
     bool dbgShotWaiting_ = false;   // asked for one, none arrived yet
     std::string dbgShotFile_;       // the PNG this capture was kept as
+    std::vector<unsigned char> dbgShotPixels_;  // RGBA, for Copy image
     std::string dbgShotError_;
     void dbgReadFrameShot();
     void dbgReadVuCapture();

@@ -16,6 +16,14 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.122.2: STABLE ROADS + CACHED NIGHT LIGHTS + COPY FRAME IMAGE.
+// Road chunks no longer use the coarse whole-AABB frustum or software-occlusion
+// pre-tests, eliminating false-hidden gaps while StaPip clips them precisely.
+// Static authored light pools cache their road/terrain patch
+// and reject off-screen receivers; physical-PS2 samples fell from 17.740 ms to
+// 2.538-2.835 ms for Light_pools. Debugger > Screen can copy the decoded bitmap
+// directly to the desktop clipboard. Project format stays 61. PATCH.
+//
 // 1.122.1: STRIP CLIP WINDING + CHEAPER VEHICLE HEADLIGHTS.
 // Strip-to-list expansion now preserves odd-triangle winding, preventing giant
 // textured wedges when stripped geometry crosses a clip plane. Bounded vehicle
@@ -4914,7 +4922,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 122
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

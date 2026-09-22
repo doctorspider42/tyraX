@@ -108,10 +108,26 @@ The boot log reports `ROADS ... chunks ... vertices ...` for inspection.
 
 The editor also offers opt-in conservative occlusion culling for district-style
 layouts. It generates inset solid proxies during code generation and tests
-objects, road chunks and procedural chunks against a 48x42 CPU visibility
+objects and procedural chunks against a 48x42 CPU visibility
 buffer. It remains disabled in this fixture until a physical-console camera
 sweep proves a net win; an open road can expose the fixed buffer cost without
 hiding enough work. See [the occlusion-culling guide](../../docs/occlusion-culling.md).
+Road chunks intentionally bypass both software occlusion and the generated
+whole-AABB frustum pre-test: their long shallow bounds produced false hidden
+results and visible gaps. StaPip still clips the geometry precisely, while
+authored distance and split-screen-band tests remain.
+
+The eight authored night-light receiver pools now cache their static road/terrain
+lattices. At the same physical-console pose, the synchronized `Light_pools` row
+fell from **17.740 ms** to **2.540–2.877 ms** (about 84%), while ordinary total
+samples in the final road-safe build measured **25.292–25.458 ms**. The road
+phase was **4.473–4.616 ms** with every road chunk entering StaPip instead of
+risking a false whole-chunk rejection. A separate 43.850 ms sample included a
+scheduled 17.662 ms shared reflection-probe refresh and is not attributed to the
+lamps. Captured night frames and a three-angle road sweep kept the expected
+light pools, beams and complete road surface.
+The checked-in generated entry point also now matches this fixture's authored
+interlaced display setting instead of retaining a stale progressive-mode line.
 
 The current fixture now exercises the road's authored longitudinal spacing.
 Foundry link, Market cross street, Skyline avenue, Garage boulevard and West

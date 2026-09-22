@@ -237,6 +237,13 @@ void openUrl(const std::string& url);
 // is a file. Best-effort: silently does nothing when no file manager answers.
 void revealInFileManager(const std::string& path);
 
+// Put an RGBA image on the native clipboard so it pastes as pixels, not as a
+// file path. `pngPath` is the already-saved equivalent used by Linux clipboard
+// helpers; Windows publishes a CF_DIBV5 directly from `rgba`. Returns false
+// when the platform clipboard is busy or no image-capable helper is installed.
+bool copyImageToClipboard(const unsigned char* rgba, int width, int height,
+                          const std::string& pngPath);
+
 // Open a project folder (and optionally jump to one file) in VS Code. Returns
 // "" on success, or a message naming what went wrong.
 std::string openInVSCode(const std::string& projectDir, const std::string& absFile);
