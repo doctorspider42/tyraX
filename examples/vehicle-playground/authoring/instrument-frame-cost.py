@@ -303,8 +303,11 @@ static void resetPhases() {''')
 
     # renderTerrain() at renderScene's own indentation - the two deeper calls
     # (the mirror and portal passes) are indented four spaces and must not be
-    # matched, so the anchor carries its newline and exactly two spaces.
-    needle = '\n  renderTerrain();'
+    # matched, so the anchor carries its newline and exactly two spaces. Since
+    # 1.125.0 the shared reflection probe's pass ALSO calls it at two spaces, so
+    # the anchor now includes the Terrain bracket's closing line that only
+    # renderScene's call is followed by.
+    needle = '\n  renderTerrain();\n  costEnd("Terrain",-1,costTerrainStart);'
     assert tail.count(needle) == 1, needle
     tail = tail.replace(
         needle, '\n  const unsigned dmT_rsTerrainDraw=districtMeasure::ticks();'

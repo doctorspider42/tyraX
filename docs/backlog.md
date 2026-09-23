@@ -119,6 +119,23 @@ state shortcut is rejected immediately above.
 The queue (docs/ee-submission-rearchitecture.md, "The VIF1 submission queue")
 recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
 
+- **The 2D/HUD region: 2.6-2.8 ms in EVERY pose.** Physical PS2, attribution
+  arm on 9baae609, `dmHud`: 2.778 / 2.680 / 2.726 / 2.593 ms. The garage
+  frame's other buckets for scale: `prepare` 2.17, `vif_wait` 2.13,
+  `rsObjects` 2.53. The region opens with `Renderer2D`'s once-a-frame
+  `sync.align3D()` before the first sprite. With the VIF1 queue that is the EE
+  waiting for VU1 and the GS to finish the WHOLE 3D frame (up to three queued
+  chains plus their fill). After it, every sprite goes out as its own PATH3
+  send with a texture bind.
+  The reference title's last VIF1 chain is exactly its HUD, as one `DIRECT`
+  (docs/emulator-captures.md): in order after the 3D, and nothing waits.
+  Candidate: build the frame's 2D as GIF packets inside a VIF1 `DIRECT` chain
+  submitted through `Vif1Queue`, so PATH1 ordering replaces the drain. Split
+  first, with one more bracket around the `align3D` alone, how much of the
+  2.7 ms is that wait and how much is the per-sprite sends (the debug HUD text
+  is ~100 glyph sprites). Failure test: texture uploads for 2D sprites would
+  also have to ride the chain (PATH2), or the drain comes back as a GIF wait.
+
 - **One chain for the whole scene, built in the scratchpad.** A PCSX2 capture
   of Burnout 3, whose frame rate we would like to approach, shows its entire 3D
   scene reaching VIF1 as a single ~4 000-tag chain.
