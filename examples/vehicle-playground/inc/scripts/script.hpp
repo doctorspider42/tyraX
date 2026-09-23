@@ -79,6 +79,11 @@ inline bool physAsleep(const RuntimeObject& o) {
   return o.restFrames >= PHYS_ASLEEP;
 }
 
+// ScriptContext::vehicleRequest's two sentinels. An object index is >= 0, so
+// neither can collide with a real request.
+constexpr int VEHICLE_REQUEST_NONE = -1;
+constexpr int VEHICLE_REQUEST_EXIT = -2;
+
 /** Everything a script can see and touch each frame. */
 struct ScriptContext {
   Tyra::Engine* engine = nullptr;  // pad, renderer, audio, ...
@@ -134,6 +139,12 @@ struct ScriptContext {
   bool teleport = false;
   Tyra::Vec4 teleportPos;
   float teleportYaw = 0.0F;
+
+  // The Enter Vehicle / Exit Vehicle flow nodes (docs/vehicles.md): the
+  // object index of the vehicle to seat the player in, or one of the two
+  // sentinels. The game's vehicle update carries it out and clears it; a
+  // project without vehicles never reads it.
+  int vehicleRequest = VEHICLE_REQUEST_NONE;
 
   // Index of the usable object the player pressed BTN_USE on this frame
   // (-1 = none). Drives the flow graph "On Used" trigger.

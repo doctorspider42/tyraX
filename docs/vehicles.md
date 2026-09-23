@@ -858,6 +858,25 @@ precisely for pads that cannot chord. The throttle role reads the DualShock
 crawl to flat out, and any digital source (a keyboard, an emulator without
 pressure mapping) reads as a clean 1.
 
+### From a flow graph
+
+Two Player-category flow nodes drive the same seat without a button:
+
+| Node | What it does |
+|---|---|
+| **Enter Vehicle** (object) | seats the player in that Vehicle object at once - from anywhere, with no USE press and without asking the Driveable flag. Already driving another car: out of that one at its door first. Empty object = the graph's own object |
+| **Exit Vehicle** | puts the player out at the driver's door, the same formula the USE button uses. On foot it does nothing |
+
+They exist to set test cases up: `On Start -> Enter Vehicle` on the car
+itself starts the scene behind the wheel, so a driving scenario needs no
+walk-up and no Remote Pad press before it can be measured or replayed. A
+graph cannot call the game, so each node leaves a request in
+`ScriptContext::vehicleRequest` (the object index, or `VEHICLE_REQUEST_EXIT`)
+and `updateVehicles` carries it out before the frame's input, logging
+`VEH enter <n> from a flow graph`. A USE press in that same frame is
+swallowed, so it cannot throw the player straight back out. Neither node is
+supported by Live Logic - add one and rebuild.
+
 ### The three cameras
 
 `vehCamMode_`, cycled with Triangle and kept across cars:

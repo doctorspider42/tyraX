@@ -17471,6 +17471,48 @@ void TerrainGame::updateVehicles(float dt) {
   // player teleported from one car straight into the next.
   int useHandled = 0;
   vehiclePrompt_ = 0;
+  // Out at the driver's door - the offset is in the car's own frame and scale,
+  // so it follows the car around. One formula for USE and for Exit Vehicle.
+  auto exitAtDoor = [&](int vi) {
+    const VehicleRt& v = vehicles_[vi];
+    const VehicleDefData& s = VEHICLE_DEFS[v.def];
+    const float SC = v.scale;
+    const float ec = cosf(v.yaw * kDeg), es = sinf(v.yaw * kDeg);
+    players[0].x = v.pos[0] + (s.exitOffset[0] * ec + s.exitOffset[2] * es) * SC;
+    players[0].z = v.pos[2] + (-s.exitOffset[0] * es + s.exitOffset[2] * ec) * SC;
+    players[0].y = v.pos[1] + s.exitOffset[1] * SC;
+    players[0].velY = 0.0F;
+    vehicleDriver_ = -1;
+    TYRA_LOG("VEH exit at ", (int)players[0].x, " ", (int)players[0].z);
+  };
+  // The Enter Vehicle / Exit Vehicle flow nodes (docs/vehicles.md, "From a
+  // flow graph"). A graph cannot call the game, so the node leaves a request
+  // in the context and it is carried out here, before this frame's input -
+  // an On Start that seats the player drives from the first frame. Entering
+  // ignores the distance and the Driveable flag on purpose: the nodes exist
+  // to set a test case up, and a scripted seat is the author's decision.
+  if (scriptCtx.vehicleRequest != VEHICLE_REQUEST_NONE && PLAYER_INDEX >= 0) {
+    const int req = scriptCtx.vehicleRequest;
+    scriptCtx.vehicleRequest = VEHICLE_REQUEST_NONE;
+    if (req == VEHICLE_REQUEST_EXIT) {
+      if (vehicleDriver_ >= 0) exitAtDoor(vehicleDriver_);
+    } else {
+      int target = -1;
+      for (int vi = 0; vi < vehicleCount_; ++vi)
+        if (vehicles_[vi].active && vehicles_[vi].def >= 0 &&
+            vehicles_[vi].object == req)
+          target = vi;
+      if (target < 0) {
+        TYRA_LOG("VEH enter (flow): object ", req, " is not a vehicle here");
+      } else if (target != vehicleDriver_) {
+        if (vehicleDriver_ >= 0) exitAtDoor(vehicleDriver_);
+        vehicleDriver_ = target;
+        vehCamYaw_ = vehicles_[target].yaw;
+        useHandled = 1;  // the same frame's USE press must not throw you out
+        TYRA_LOG("VEH enter ", target, " from a flow graph");
+      }
+    }
+  }
   for (int vi = 0; vi < vehicleCount_; ++vi) {
     VehicleRt& v = vehicles_[vi];
     if (!v.active || v.def < 0) continue;
@@ -17503,16 +17545,8 @@ void TerrainGame::updateVehicles(float dt) {
                  " drb ", v.driveable, " sc10 ", (int)(SC * 10.0F));
       }
       if (vi == vehicleDriver_) {
-        // Out, at the driver's door - the offset is in the car's own frame
-        // and scale, so it follows the car around.
-        const float ec = cosf(v.yaw * kDeg), es = sinf(v.yaw * kDeg);
-        players[0].x = v.pos[0] + (s.exitOffset[0] * ec + s.exitOffset[2] * es) * SC;
-        players[0].z = v.pos[2] + (-s.exitOffset[0] * es + s.exitOffset[2] * ec) * SC;
-        players[0].y = v.pos[1] + s.exitOffset[1] * SC;
-        players[0].velY = 0.0F;
-        vehicleDriver_ = -1;
+        exitAtDoor(vi);
         useHandled = 1;
-        TYRA_LOG("VEH exit at ", (int)players[0].x, " ", (int)players[0].z);
       } else if (vehicleDriver_ < 0 && v.driveable) {
         const float ddx = players[0].x - v.pos[0];
         const float ddz = players[0].z - v.pos[2];

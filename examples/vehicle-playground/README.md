@@ -73,6 +73,11 @@ The coupe retains its engine/rev crossfade, tyre squeal, gear-shift sound,
 brake lamps, suspension and projected silhouette. The parked Rally also uses
 a projected silhouette; AI cars use cheaper blob shadows.
 
+To start a test case already driving, give `vehicle-1` a flow graph
+`On Start -> Enter Vehicle` (object left empty = the car itself); the shipped
+project does not, so the district still opens on foot. See docs/vehicles.md,
+"From a flow graph".
+
 ## Reflections and cost
 
 All three definitions use the dynamic `@sky` paint map, rather than the former

@@ -16,6 +16,14 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.124.0: ENTER VEHICLE / EXIT VEHICLE FLOW NODES.
+// A graph can seat the player in a vehicle (and put them out at the driver's
+// door) without a USE press, so a driving test case starts behind the wheel:
+// On Start -> Enter Vehicle. The node leaves ScriptContext::vehicleRequest
+// and updateVehicles carries it out; the USE exit and the node share one
+// door formula. PCSX2: seated on frame one, drove to 24.7 u/s, USE got out.
+// MINOR.
+//
 // 1.123.11: THE RENDER-COST CAPTURE SPLITS OUT THE OBJECTS PHASE.
 // --profile-frame / Measure render cost now also reports the pipeline counters
 // of the Objects phase alone (Objects_*_included, package and flush counts,
@@ -5078,8 +5086,8 @@
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 123
-#define TYRAX_VERSION_PATCH 11
+#define TYRAX_VERSION_MINOR 124
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
