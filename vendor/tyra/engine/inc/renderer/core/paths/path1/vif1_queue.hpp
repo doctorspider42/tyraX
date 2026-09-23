@@ -34,6 +34,17 @@
 #ifndef TYRA_VIF1_QUEUE_ISR
 #define TYRA_VIF1_QUEUE_ISR 0
 #endif
+/** 1 = the data cache is written back once when a chain STARTS, and only if
+ * that chain was submitted after the last write-back - which then covers every
+ * chain queued behind it; 0 = the caller writes it back before every submit,
+ * as dma_channel_send_packet2 does. A chain only has to see memory as it was
+ * when the DMAC begins reading it, and nothing may write a submitted chain or
+ * its referenced data afterwards anyway, so a write-back that happens after the
+ * last write and before the start is sufficient. Physical PS2, Motor District:
+ * work -0.47 / -0.51 / -0.26 / -0.28 ms against the eager write-back. */
+#ifndef TYRA_VIF1_QUEUE_LAZY_FLUSH
+#define TYRA_VIF1_QUEUE_LAZY_FLUSH 1
+#endif
 
 namespace Tyra {
 
@@ -71,9 +82,10 @@ class Vif1Queue {
   static void init();
 
   /**
-   * Queues a finished chain for VIF1. The caller has already written back the
-   * data cache for everything the chain reads (FlushCache, as the stock send
-   * does). Returns the chain's sequence number for waitFor().
+   * Queues a finished chain for VIF1. Without TYRA_VIF1_QUEUE_LAZY_FLUSH the
+   * caller has already written back the data cache for everything the chain
+   * reads (FlushCache, as the stock send does); with it, the queue does that
+   * itself before the chain starts. Returns the sequence number for waitFor().
    */
   static u32 submit(const void* chain);
 
@@ -90,7 +102,7 @@ class Vif1Queue {
   static void onComplete();
 
  private:
-  static void start(u32 chain);
+  static void start(u32 chain, u32 sequence);
 };
 
 }  // namespace Tyra

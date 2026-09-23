@@ -320,6 +320,9 @@ class RendererCoreGS {
   framebuffer_t frameBuffers[kMaxFrameBuffers];
   unsigned int bufferCount = 2;
   packet2_t* flipPacket;
+  /** Modified by TyraX: the Hybrid colour depth's present blit (32-bit draw
+   * buffer -> dithered 16-bit display buffer), built per flip. */
+  packet2_t* hybridPacket = nullptr;
   packet2_t* zTestPacket;
   // Modified by TyraX: preallocated ALPHA-register packet (setAlpha
   // runs per reflective mesh per frame - no per-call heap churn).
@@ -395,6 +398,10 @@ class RendererCoreGS {
   // at frameBuffers[target] and, in InterlacedField, re-bias XYOFFSET for the
   // field that frame will be scanned in. Shared by both flip paths.
   void emitDrawTargetSwitch(u8 target);
+  /** Hybrid colour depth: copy frameBuffers[0] (PSMCT32) into
+   * frameBuffers[1] (PSMCT16) with DTHE armed, then restore the raster state
+   * the frame's drawing expects. See ColorDepth::Hybrid. */
+  void emitHybridPresent();
   // Install / tear down the INTC vblank handler that latches DISPFB. Only
   // used with three buffers; with two, RendererCore's graph_wait_vsync is the
   // whole story and no handler is installed.

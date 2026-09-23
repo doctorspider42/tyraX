@@ -174,6 +174,7 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
     // question, since 16-bit colour makes a third buffer cost what two used
     // to. Keep in step with RendererCoreGS::allocateVramBuffers.
     const bool halfDepth = s.colorDepth == "16bit";
+    const bool hybrid = s.colorDepth == "hybrid";
     const int bufferWords = pageUp(halfDepth ? (w * h + 1) / 2 : w * h);
 
     // THE UPSCALER IS A PER-SCENE SETTING, so `s.blssEnabled` is the project
@@ -229,6 +230,19 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
                   (2 * bufferWords + zWords + lowWords + countWords) -
                   bufferWords;
     f.fits = f.leftWords >= kNeed;
+    // Hybrid: one 32-bit draw buffer plus ONE 16-bit display buffer and never a
+    // third (RendererSettings::getFrameBufferCount). leftWords + bufferWords is
+    // still "what the permanent region leaves", the number textureHeapEstimate
+    // reads. Keep in step with RendererCoreGS::allocateVramBuffers.
+    if (hybrid) {
+        const int displayWords = pageUp((w * h + 1) / 2);
+        f.bufferWords = displayWords;
+        f.leftWords = kVramWords -
+                      (bufferWords + displayWords + zWords + lowWords +
+                       countWords) -
+                      displayWords;
+        f.fits = false;
+    }
     f.mode = d.key;
     return f;
 }
@@ -1632,8 +1646,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << (p.settings.palFullHeight ? "    \"palFullHeight\": true,\n" : "")
          // Written only when set away from the default, so an existing
          // project's manifest does not gain two keys just by being resaved.
-         << (p.settings.colorDepth == "16bit"
-                 ? "    \"colorDepth\": \"16bit\",\n"
+         << (p.settings.colorDepth != "32bit"
+                 ? "    \"colorDepth\": \"" + p.settings.colorDepth + "\",\n"
                  : "")
          << (p.settings.dither ? "" : "    \"dither\": false,\n")
          << (p.settings.tripleBuffering ? "    \"tripleBuffering\": true,\n" : "")
@@ -2853,6 +2867,9 @@ static void writeVehiclesSection(std::ostream& json, const Project& p) {
         if (v.headlights) json << ", \"headlights\": true";
         if (v.farDistance != 40.0f)
             json << ", \"farDistance\": " << fmtFloat(v.farDistance);
+        if (!v.fastWheel.empty())
+            json << ", \"fastWheel\": \"" << jsonEscape(v.fastWheel)
+                 << "\", \"fastWheelTris\": " << v.fastWheelTriBudget;
         if (v.lampRear[3] > 0.0f)
             json << ", \"lampRear\": [" << fmtFloat(v.lampRear[0]) << ", "
                  << fmtFloat(v.lampRear[1]) << ", " << fmtFloat(v.lampRear[2])
@@ -2933,6 +2950,9 @@ static void readVehiclesSection(const json::Value& root, Project& out) {
             v.headlights = x->boolOr(false);
         if (const json::Value* x = e.find("farDistance"))
             v.farDistance = (float)x->numberOr(v.farDistance);
+        if (const json::Value* x = e.find("fastWheel")) v.fastWheel = x->stringOr("");
+        if (const json::Value* x = e.find("fastWheelTris"))
+            v.fastWheelTriBudget = (int)x->numberOr(120);
         if (const json::Value* x = e.find("lampRear"))
             if (x->type == json::Value::Type::Array && x->arr.size() == 4)
                 for (int k = 0; k < 4; ++k)
@@ -5631,8 +5651,10 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         // Framebuffer colour depth + GS dithering (docs/gs-vram.md). Absent
         // in every project written before they existed, and the defaults are
         // exactly what those projects already did.
-        if (const auto* v = s->find("colorDepth"))
-            st.colorDepth = v->stringOr("32bit") == "16bit" ? "16bit" : "32bit";
+        if (const auto* v = s->find("colorDepth")) {
+            const std::string d = v->stringOr("32bit");
+            st.colorDepth = (d == "16bit" || d == "hybrid") ? d : "32bit";
+        }
         if (const auto* v = s->find("dither")) st.dither = v->boolOr(true);
         if (const auto* v = s->find("tripleBuffering"))
             st.tripleBuffering = v->boolOr(false);

@@ -751,6 +751,28 @@ Three things the queue could not be built without. Each was found the hard way.
   off. What it would add over the shipped form is only the gap between one
   chain's end and the EE's next visit.
 
+**Round two, same day: one write-back for several chains, and a deeper queue
+refuted.** A chain only has to see memory as it was when the DMAC starts reading
+it, so `TYRA_VIF1_QUEUE_LAZY_FLUSH` (on) moves the `FlushCache(0)` from every
+submit into `Vif1Queue::start`. It runs only when the chain being started was
+submitted after the last write-back, and that one write-back then covers every
+chain queued behind it. Physical PS2, same fixture, base booted twice (floor
+**0.003 ms**), delta against the depth-4 queue above:
+
+| arm | garage day | garage night | outer day | outer night |
+| --- | ---: | ---: | ---: | ---: |
+| lazy flush | **-0.471** | **-0.507** | **-0.259** | **-0.277** |
+| depth 8 | +0.375 | +0.187 | +0.326 | +0.407 |
+| depth 8 + lazy flush | -0.113 | -0.188 | +0.249 | +0.202 |
+
+With the lazy flush the `dma` bracket falls 0.13-0.35 ms and `vif_wait` gives
+back 0.13-0.31 ms of it. VU1 is now behind more often, which is the expected
+direction. Garage night's `total_ms` goes 20.33 -> 20.21, the pose sitting on
+the rung. **Depth 8 is worse**, and the whole cost is in `prepare`
+(+0.26..+0.50 ms): twice the packet buffers and copy-pool sides means twice the
+memory the EE touches per frame, i.e. D-cache and TLB pressure, not DMA. Four
+stays.
+
 Every other VIF1 user now calls `Vif1Queue::drain()` before touching the
 channel. That includes the generated game's projected-shadow `projClamp`
 barrier, which is template code, so a committed example's `terrain_game.cpp` is

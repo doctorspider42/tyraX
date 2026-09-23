@@ -2000,7 +2000,12 @@ void RendererCoreBlss::composite() {
   // unaffected), which is a quality loss and not a wrong picture. Said once,
   // because it is a property of the configuration and not of the frame.
   const int targetVram = static_cast<int>(gs->getCurrentFrameBuffer()->address);
-  const bool histIsTarget = histVram == targetVram;
+  // Modified by TyraX: in the Hybrid colour depth the "previous frame" is the
+  // 16-bit DISPLAY buffer (what the frame capture photographs), not a 32-bit
+  // history this pass could sample in the frame's format - so it has no
+  // history at all, which is the same honest degradation as the case below.
+  const bool histIsTarget =
+      histVram == targetVram || settings->isHybridOutput();
   if (histIsTarget && !histAliasWarned) {
     histAliasWarned = true;
     TYRA_WARN(

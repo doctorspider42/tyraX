@@ -1155,6 +1155,17 @@ struct VehicleDef {
     // pre-tier rule). Baked into the body row's meshLod at codegen.
     float farDistance = 40.0f;
 
+    // The FAST wheel (docs/vehicles.md, "A fast wheel"): a second wheel model
+    // the game swaps all four wheels to while they spin faster than
+    // drive.fastWheelSpeed. "" = none; "@auto" = the ordinary wheel again at
+    // fastWheelTriBudget triangles (a lower-resolution copy); anything else
+    // names a mesh NODE of modelPath - an artist's motion-blurred wheel - which
+    // the import then leaves out of the body and of the wheel detection. It
+    // bakes into the same palette as the rest of the car, so the four wheels
+    // stay one submit.
+    std::string fastWheel;
+    int fastWheelTriBudget = 120;
+
     // Lamp clusters, measured off the model's own MATERIALS by the import
     // (names saying head/tail/brake/lamp/light - docs/vehicles.md, "The
     // visual pack"): {sideways |x| offset, y, z, half-size}, canonical frame.
@@ -1238,7 +1249,8 @@ inline bool operator==(const VehicleDef& a, const VehicleDef& b) {
         a.lampFront[2] != b.lampFront[2] || a.lampFront[3] != b.lampFront[3] ||
         a.lampPart != b.lampPart || a.lampRearVerts != b.lampRearVerts ||
         a.hudFont != b.hudFont || a.hudSpeedScale != b.hudSpeedScale ||
-        a.farDistance != b.farDistance)
+        a.farDistance != b.farDistance || a.fastWheel != b.fastWheel ||
+        a.fastWheelTriBudget != b.fastWheelTriBudget)
         return false;
     for (int i = 0; i < 3; ++i)
         if (a.exitOffset[i] != b.exitOffset[i]) return false;
@@ -1453,7 +1465,12 @@ struct ProjectSettings {
     // exists to break up. The z buffer FOLLOWS it (PSMZ16 over a PSMCT16
     // frame - the GS needs the pair to share page geometry), so depth
     // precision drops with it: keep the near plane up.
-    std::string colorDepth = "32bit";  // "32bit" | "16bit"
+    // "hybrid": the scene draws into ONE 32-bit buffer over a 32-bit z and one
+    // dithered blit per frame copies it into ONE 16-bit display buffer - full
+    // precision blending with half a buffer back (ColorDepth::Hybrid in the
+    // engine; no motion blur, no upscaler temporal pass, no frame
+    // extrapolation, no triple buffering in that mode).
+    std::string colorDepth = "32bit";  // "32bit" | "16bit" | "hybrid"
 
     // GS ordered dithering (the DTHE + DIMX registers). The GS only dithers
     // when it writes a 16-bit destination, so this does nothing at "32bit"

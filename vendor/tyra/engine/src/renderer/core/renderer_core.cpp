@@ -477,6 +477,10 @@ bool RendererCore::presentWarpFrame(const WarpCamera& from,
   // Nothing to warp before the first flip - the "previous" buffer is still
   // whatever the GS powered up with.
   if (!hasPresentedFrame) return false;
+  // Modified by TyraX: the Hybrid colour depth keeps no previous 32-bit frame
+  // to warp (see ColorDepth::Hybrid), so it presents no synthetic frames; the
+  // caller reads `false` and simply waits for the next rendered one.
+  if (settings.isHybridOutput()) return false;
 
   Threading::switchThread();
   warp.draw(from, to);

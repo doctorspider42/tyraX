@@ -89,6 +89,24 @@ same measurement pose (docs/vehicles.md, "From a flow graph"). Delete that
 graph to start on foot. The right-stick deadzone is 0.3 because the test pad
 drifts; the car's glance camera reads it (it did not before 1.124.2).
 
+## Hybrid colour and fast wheels
+
+The project renders in the **hybrid** colour depth: every frame draws into one
+32-bit buffer over a 32-bit z, and one dithered blit per frame shows it through
+one 16-bit display buffer. That gives 512 KB of GS memory back at this
+512x512 PAL mode without 16-bit banding in the blends (docs/gs-vram.md,
+"Hybrid"). On a physical PS2 it measured neutral on the EE: `work`
+-0.02 / -0.02 / +0.01 / -0.01 ms over the four benchmark poses.
+
+**CC96** and **Rally 04** carry a **fast wheel** (`"@auto"`, 45 rad/s;
+docs/vehicles.md, "A fast wheel"). Above that spin rate all four wheels swap to
+a lower-resolution copy, and the `VEH` telemetry line ends in `fw 1`. Drive it
+with
+`tyrax-editor --pad <project> "hold r2; wait 7; release all"`; R2 is this
+project's throttle. CC96's 76-triangle wheel cannot get smaller (material
+seams), so on that car the swap is the mechanism with no saving. Rally 04's
+300-triangle wheel is baked down to 60.
+
 ## Reflections and cost
 
 All three definitions use the dynamic `@sky` paint map, rather than the former

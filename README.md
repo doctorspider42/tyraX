@@ -235,7 +235,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   spline roads with per-road longitudinal detail and automatically generated,
   separately surfaced intersections,
   projected onto the terrain in both the editor and game, plus imported,
-  budgeted cars with wheel suspension, gears, drifting and AI drivers. Try the
+  budgeted cars with wheel suspension, gears, drifting, AI drivers and a
+  "fast wheel" model that swaps in above a spin rate. Try the
   [Motor District](examples/vehicle-playground) city course, strip-ready
   atlas-authored vehicle bodies and live paint reflections
   of the sky, terrain, roads and selected scenery.
@@ -280,7 +281,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [projected-shadow receiver patch](docs/shadows.md) take one too.
 - **[GS VRAM residency](docs/gs-vram.md)** — the frame buffers can be **16-bit**
   (with the GS's ordered dithering to keep skies from banding), which roughly
-  doubles the texture budget; a texture is charged the GS blocks it really
+  doubles the texture budget, or **hybrid** (draw 32-bit, show a dithered 16-bit
+  copy: half a buffer back, no banding in the blends); a texture is charged the GS blocks it really
   spans instead of a flat pad; and the env-map and camera-feed render targets
   are reserved only for the projects that read them.
 - **[VU1 clipping and the guard band](docs/vu1-clipping.md)** — geometry that

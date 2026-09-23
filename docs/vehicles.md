@@ -1269,6 +1269,76 @@ wheel texture one texel is a whole colour index. See
 the GS" — and note that the projected-shadow patch, which only re-ORDERS whole
 triangles, IS byte-identical.
 
+## A fast wheel
+
+A definition can carry a **second wheel model**, and the game swaps all four
+wheels of a car to it while they spin faster than a threshold. That is the old
+arcade trick for selling speed: a motion-blurred wheel reads as speed in a way a
+sharp one turning at 60 Hz never does. It also lets the wheel get cheaper
+exactly when nobody can count its spokes.
+
+**Authoring.**
+
+- *Vehicle Editor > Model > Fast wheel* has three settings:
+  - **None**.
+  - **Lower-resolution copy**, stored as `"@auto"`: the ordinary wheel again,
+    decimated to *Fast wheel triangles*.
+  - **Mesh node of the model**: the name of a node in the car's own file, i.e.
+    an artist's blurred wheel.
+- A named node is kept out of the body and out of the wheel detection. It gets
+  `vertexCount` 0 in the detector's copy of the node list, which is how
+  detectWheels ignores empties, so no index moves.
+- The swap speed is a drive tunable, *Driving > Fast wheel above*
+  (`fastWheelSpeed`, radians per second). It reaches the game through
+  `specFields` like every other tunable. The wheel swaps back below 80% of it,
+  so a car cruising at the threshold does not flicker.
+- Format v63 adds `"fastWheel"` and `"fastWheelTris"` on the definition and
+  `"fastWheelSpeed"` in `drive`, all written only when set.
+
+**What keeps it one submit.**
+
+- The fast wheel bakes into the **same palette merge** as the body and the
+  ordinary wheel, so the wheel batch keeps one texture.
+- A fast node whose material samples a different image is **dropped with a
+  note**, because the four wheels of a definition are one bag with one texture.
+- It goes through the same `kNoNormal` strip weld. The batch strips only when
+  both models strip at the same run.
+- The per-wheel block is sized for the LARGER of the two models, padded like a
+  run tail, so a swap never changes `vertsPerCar`. Changing it would reset every
+  slot of the batch.
+- What does change per car is the array its vertices and STs are baked from.
+  `WheelSlot::stGeo` rewrites a slot's STs only when its model changes, and the
+  existing `srcVerts` term of the skip signature forces the vertex rebuild.
+
+**Where it lives.**
+
+- The model table gains one slot per fast wheel, **after** every (body, wheel)
+  pair, so no definition's existing slots move.
+- `VehicleDefData::fastWheelModel` is -1 without one.
+- `VehicleRt::fastWheels` is set in `updateVehicles` from
+  `|wheelSpeed| / (wheelRadius * scale)`, so a burnout (wheel speed above ground
+  speed) swaps too.
+
+**Verified** in PCSX2 on `examples/vehicle-playground` (CC96, `@auto`, 45 rad/s)
+by driving with `--pad "hold r2; ..."` and reading the `VEH` telemetry, which
+now ends in `fw 0|1`:
+
+- `fw 0` at 4.0 u/s;
+- `fw 1` from 10.3 u/s, when wheel speed passes 45 rad/s on the 0.232 wheel;
+- `fw 1` through top speed and down to 6.8 u/s against the wall;
+- `fw 0` at rest.
+
+A GS dump taken at 28.9 u/s with `fw 1` renders the frame intact at 50 FPS.
+
+**Two things it does not do.**
+
+- **A lower-resolution copy cannot go below what the wheel's material seams
+  allow.** CC96's 76-triangle wheel comes back from a 32-triangle budget the
+  same size, because meshlod locks seams. Rally 04's 300-triangle wheel is
+  where `@auto` pays. A blurred look needs the artist's node.
+- **The editor viewport and the host sim draw the ordinary wheel only.** The
+  viewport's four wheels do not spin, so there is no speed to swap on.
+
 ## Verifying a drive without eyes
 
 **`tyrax-editor --vehicle-check`** runs the drive model's property tests -

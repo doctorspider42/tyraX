@@ -38,9 +38,10 @@ float r_geom(float measured, float fallback) {
 
 std::string bakeKey(const VehicleDef& v) {
     char buf[80];
-    std::snprintf(buf, sizeof(buf), "|%d|%d|%d|%.3f|", v.bodyTriBudget,
-                  v.wheelTriBudget, v.mergeUntextured ? 1 : 0, v.bodyShine);
-    return v.modelPath + buf + v.bodyReflMap;
+    std::snprintf(buf, sizeof(buf), "|%d|%d|%d|%.3f|%d|", v.bodyTriBudget,
+                  v.wheelTriBudget, v.mergeUntextured ? 1 : 0, v.bodyShine,
+                  v.fastWheelTriBudget);
+    return v.modelPath + buf + v.bodyReflMap + "|" + v.fastWheel;
 }
 
 // Unique "Car 1", "Car 2", ... - a definition is referenced BY NAME, so two
@@ -96,6 +97,8 @@ void App::vehicleRefreshBake(int index, bool force) {
     opt.mergeUntextured = v.mergeUntextured;
     opt.bodyShine = v.bodyShine;
     opt.bodyReflMap = vehbake::binReflPath(v.bodyReflMap);
+    opt.fastWheel = v.fastWheel;
+    opt.fastWheelTriBudget = v.fastWheelTriBudget;
     // The palette is baked into the merged part's texture field, so the name
     // here has to be the path the game will actually open. Everything the bake
     // produces is a derived artifact and lives under .res-baked/ with the
@@ -128,6 +131,8 @@ void App::vehicleRefreshBake(int index, bool force) {
     };
     put("veh-" + v.id + "-body.tmdl", tmdl::write(c.result.body));
     put("veh-" + v.id + "-wheel.tmdl", tmdl::write(c.result.wheel));
+    if (!v.fastWheel.empty())
+        put("veh-" + v.id + "-wheelfast.tmdl", tmdl::write(c.result.fastWheel));
     if (!c.result.palettePng.empty())
         put("veh-" + v.id + "-palette.png",
             std::string((const char*)c.result.palettePng.data(),
@@ -793,6 +798,44 @@ void App::drawVehicleWindow() {
                 ImGui::SliderInt("Body triangles", &v.bodyTriBudget, 100, 6000);
                 ImGui::SetNextItemWidth(scaled(200));
                 ImGui::SliderInt("Wheel triangles", &v.wheelTriBudget, 40, 3000);
+                // The fast wheel (docs/vehicles.md, "A fast wheel"). The swap
+                // speed is a drive tunable (Driving > Fast wheel above), so it
+                // saves and reaches the game through specFields like the rest.
+                {
+                    int mode = v.fastWheel.empty()       ? 0
+                               : v.fastWheel == "@auto" ? 1
+                                                         : 2;
+                    const char* modes[] = {"None", "Lower-resolution copy",
+                                           "Mesh node of the model"};
+                    ImGui::SetNextItemWidth(scaled(200));
+                    if (ImGui::Combo("Fast wheel", &mode, modes, 3)) {
+                        if (mode == 0) v.fastWheel.clear();
+                        else if (mode == 1) v.fastWheel = "@auto";
+                        else if (v.fastWheel.empty() || v.fastWheel == "@auto")
+                            v.fastWheel = "wheel_blur";
+                    }
+                    prefHelp(
+                        "A second wheel model all four wheels swap to while they spin\n"
+                        "faster than Driving > Fast wheel above: a motion-blurred wheel\n"
+                        "sells speed, and a fast wheel can be far cheaper because\n"
+                        "nobody can count its spokes. 'Lower-resolution copy' is the\n"
+                        "ordinary wheel again at the triangle budget below; 'Mesh node'\n"
+                        "names a node in this model (an artist's blurred wheel), which\n"
+                        "is then kept out of the body and out of the wheel detection.\n"
+                        "Either way it shares the car's palette, so it costs no extra\n"
+                        "submit. Needs a Fast wheel above speed to ever show.");
+                    if (mode == 2) {
+                        char nodeBuf[128];
+                        std::snprintf(nodeBuf, sizeof(nodeBuf), "%s", v.fastWheel.c_str());
+                        ImGui::SetNextItemWidth(scaled(200));
+                        if (ImGui::InputText("Fast wheel node", nodeBuf, sizeof(nodeBuf)))
+                            v.fastWheel = nodeBuf[0] ? std::string(nodeBuf) : std::string("@auto");
+                    }
+                    if (mode != 0) {
+                        ImGui::SetNextItemWidth(scaled(200));
+                        ImGui::SliderInt("Fast wheel triangles", &v.fastWheelTriBudget, 12, 3000);
+                    }
+                }
                 ImGui::Checkbox("Merge untextured materials", &v.mergeUntextured);
                 prefHelp(
                     "Collapses every untextured material into one part, with the\n"

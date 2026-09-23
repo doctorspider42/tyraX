@@ -476,6 +476,10 @@ std::vector<SpecField> specFields(DriveSpec& s) {
          "Top-speed multiplier while boosting."},
         {"nosRefill", &s.nosRefill, 0.0f, 1.0f, "Nitrous refill",
          "Tank fractions recovered per second while the button is not held."},
+        {"fastWheelSpeed", &s.fastWheelSpeed, 0.0f, 200.0f, "Fast wheel above",
+         "Wheel spin, radians per second, above which all four wheels swap to "
+         "the fast wheel model (Model tab) - and back below 80% of it. 0 keeps "
+         "one wheel model. 50 rad/s is about 16 units/s on a 0.32 wheel."},
     };
 }
 

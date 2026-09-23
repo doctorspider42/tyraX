@@ -716,7 +716,17 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
     }
 
     const std::vector<vehiclesim::MeshNode> nodes = meshNodes(sk);
-    out.detection = vehiclesim::detectWheels(nodes);
+    // A named fast-wheel node takes no part in the detection: with no
+    // vertices it is neither body nor wheel (detectWheels only reasons about
+    // geometry), and the indices stay the ones collect() is handed below.
+    int fastNode = -1;
+    if (!opt.fastWheel.empty() && opt.fastWheel != "@auto") {
+        for (int i = 0; i < (int)nodes.size(); ++i)
+            if (nodes[i].name == opt.fastWheel && nodes[i].vertexCount > 0) fastNode = i;
+    }
+    std::vector<vehiclesim::MeshNode> detNodes = nodes;
+    if (fastNode >= 0) detNodes[(size_t)fastNode].vertexCount = 0;
+    out.detection = vehiclesim::detectWheels(detNodes);
     out.notes = out.detection.notes;
 
     const std::vector<M4> g = globals(sk);
@@ -761,12 +771,34 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
         const std::vector<int> one{w.node};
         collect(sk, g, canon, one, hub, opt.mergeUntextured, paletteTex, imagePaths, mg, out.wheel,
                 out.srcParts, out.srcTris);
+
+        // THE FAST WHEEL, into the SAME merge `mg` so it samples the same
+        // palette texture as the ordinary one: the wheel batch is one bag per
+        // definition with one texture, and a car swaps all four wheels at once.
+        // "@auto" is the ordinary wheel again, taken before any decimation so
+        // its own budget decides its resolution.
+        if (opt.fastWheel == "@auto") {
+            out.fastWheel = out.wheel;
+        } else if (fastNode >= 0) {
+            const vehiclesim::MeshNode& fn = nodes[(size_t)fastNode];
+            const float centre[3] = {fn.centre(0), fn.centre(1), fn.centre(2)};
+            float fhub[3];
+            canon.point(centre, fhub);
+            int ignoredParts = 0, ignoredTris = 0;
+            collect(sk, g, canon, std::vector<int>{fastNode}, fhub, opt.mergeUntextured,
+                    paletteTex, imagePaths, mg, out.fastWheel, ignoredParts, ignoredTris);
+        } else if (!opt.fastWheel.empty()) {
+            out.notes.push_back("Fast wheel: no mesh node named \"" + opt.fastWheel +
+                                "\" in the model - the car keeps one wheel model.");
+        }
     }
 
     if (!mg.colours.empty()) {
         out.paletteSize = paletteWidth((int)mg.colours.size());
         resolvePaletteUvs(out.body, out.paletteSize, paletteTex);
         resolvePaletteUvs(out.wheel, out.paletteSize, paletteTex);
+        if (opt.fastWheel != "@auto")  // "@auto" copied already-resolved UVs
+            resolvePaletteUvs(out.fastWheel, out.paletteSize, paletteTex);
         out.palettePng = encodePng(paletteImage(mg, out.paletteSize), out.paletteSize);
         char buf[180];
         std::snprintf(buf, sizeof(buf),
@@ -819,6 +851,17 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
                            (int)((long long)opt.bodyTriBudget * triCount(p.verts) /
                                  bodyBefore));
     for (tmdl::Part& p : out.wheel.parts) decimateTo(p.verts, opt.wheelTriBudget);
+    for (tmdl::Part& p : out.fastWheel.parts) decimateTo(p.verts, opt.fastWheelTriBudget);
+    // The wheel batch draws parts[0] of either model through ONE texture, so a
+    // fast wheel that would sample a different image cannot share the bag.
+    if (!out.fastWheel.parts.empty() && !out.wheel.parts.empty() &&
+        out.fastWheel.parts[0].texture != out.wheel.parts[0].texture) {
+        out.notes.push_back("Fast wheel: its material samples a different texture "
+                            "than the wheel's, and the four wheels are one submit "
+                            "with one texture - dropped. Give it the wheel's "
+                            "material (or an untextured one).");
+        out.fastWheel = tmdl::Model{};
+    }
 
     // THE FAR TIERS (docs/vehicles.md, "Distant vehicles"): the body's paint
     // part gets the two ordinary distance tiers, and each of them carries
@@ -894,6 +937,7 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
 
     computeBounds(out.body);
     computeBounds(out.wheel);
+    if (!out.fastWheel.parts.empty()) computeBounds(out.fastWheel);
 
     // VEHICLE TRIANGLE STRIPS (docs/vehicles.md, "Strip-ready bodies" and
     // "The wheel batch is a strip"; docs/model-pipeline.md, "Triangle strips").
@@ -973,14 +1017,17 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
     // The tiers above are already built from `verts` and are untouched, which
     // matters: a far tier carries the wheels INTO the lit body part, so it
     // must keep the list's real normals.
-    for (tmdl::Part& p : out.wheel.parts) {
-        p.stripVerts.clear();
-        p.stripAo.clear();
-        p.stripRun = 0;
-        if (meshstrip::build(p.verts, p.ao, meshstrip::kRun, p.stripVerts,
-                             p.stripAo, meshstrip::Weld::kNoNormal))
-            p.stripRun = meshstrip::kRun;
-    }
+    // The fast wheel goes through the SAME weld: it is drawn by the same
+    // unlit, flat-coloured bag, and the batch only strips when both models do.
+    for (tmdl::Model* wm : {&out.wheel, &out.fastWheel})
+        for (tmdl::Part& p : wm->parts) {
+            p.stripVerts.clear();
+            p.stripAo.clear();
+            p.stripRun = 0;
+            if (meshstrip::build(p.verts, p.ao, meshstrip::kRun, p.stripVerts,
+                                 p.stripAo, meshstrip::Weld::kNoNormal))
+                p.stripRun = meshstrip::kRun;
+        }
     for (size_t k = 0; k < out.body.parts.size(); ++k)
         if (out.body.parts[k].name == "lamps") {
             out.lampPart = (int)k;
@@ -990,6 +1037,7 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
     out.wheelParts = (int)out.wheel.parts.size();
     out.bodyTris = modelTris(out.body);
     out.wheelTris = modelTris(out.wheel);
+    out.fastWheelTris = modelTris(out.fastWheel);
 
     {
         char buf[220];
@@ -1120,6 +1168,7 @@ BakedPaths pathsFor(const VehicleDef& v) {
     b.wheel = stem + "-wheel.tmdl";
     b.palette = stem + "-palette.png";
     b.shadow = stem + "-shadow.png";
+    if (!v.fastWheel.empty()) b.fastWheel = stem + "-wheelfast.tmdl";
     return b;
 }
 
@@ -1241,6 +1290,8 @@ std::string bakeProject(Project& p,
         opt.bodyShine = v.bodyShine;
         opt.bodyReflMap = binReflPath(v.bodyReflMap);
         opt.paletteTexture = bp.palette;
+        opt.fastWheel = v.fastWheel;
+        opt.fastWheelTriBudget = v.fastWheelTriBudget;
         Result r;
         std::string err;
         if (!build(p.filePath(v.modelPath), opt, r, err)) {
@@ -1252,6 +1303,10 @@ std::string bakeProject(Project& p,
         }
         put(bp.body, tmdl::write(r.body));
         put(bp.wheel, tmdl::write(r.wheel));
+        // Written even when empty: codegen names the path from the definition
+        // alone (pathsFor), and a missing .tmdl is a load failure, whereas an
+        // empty model is a wheel the game simply never swaps to.
+        if (!bp.fastWheel.empty()) put(bp.fastWheel, tmdl::write(r.fastWheel));
         if (!r.palettePng.empty())
             put(bp.palette, std::string((const char*)r.palettePng.data(),
                                         r.palettePng.size()));

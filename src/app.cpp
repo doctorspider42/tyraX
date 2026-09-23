@@ -3007,7 +3007,9 @@ void App::drawViewportWindow() {
             bool quant = false, dith = false;
             switch (viewportGsColor_) {
                 case 0:
-                    quant = project_.settings.colorDepth == "16bit";
+                    // Hybrid's OUTPUT is a dithered 16-bit buffer, so that
+                    // is what the viewport shows for it.
+                    quant = project_.settings.colorDepth != "32bit";
                     dith = project_.settings.dither;
                     break;
                 case 2: quant = true; break;
@@ -15212,10 +15214,14 @@ void App::drawPreferencesWindow() {
     // this is the biggest single lever on how much VRAM textures get - and
     // on whether the third display buffer below fits at all.
     {
-        int depth = prefSettings_.colorDepth == "16bit" ? 1 : 0;
-        const char* depthNames[] = {"32-bit colour", "16-bit colour"};
-        if (ImGui::Combo("Colour depth", &depth, depthNames, 2))
-            prefSettings_.colorDepth = depth == 1 ? "16bit" : "32bit";
+        int depth = prefSettings_.colorDepth == "16bit"    ? 1
+                    : prefSettings_.colorDepth == "hybrid" ? 2
+                                                           : 0;
+        const char* depthNames[] = {"32-bit colour", "16-bit colour",
+                                    "Hybrid (draw 32-bit, show 16-bit)"};
+        if (ImGui::Combo("Colour depth", &depth, depthNames, 3))
+            prefSettings_.colorDepth =
+                depth == 1 ? "16bit" : depth == 2 ? "hybrid" : "32bit";
         prefHelp(
             "Pixel format of the frame buffers. 32-bit is the stock 8-8-8-8\n"
             "buffer. 16-bit (5-5-5-1) HALVES what the frame buffers cost in\n"
@@ -15227,8 +15233,15 @@ void App::drawPreferencesWindow() {
             "gradients - skies, fog, bloom - band unless Dithering is on.\n"
             "The z buffer follows it (a 16-bit z over a 16-bit frame - the\n"
             "GS needs the pair to share page geometry), so depth precision\n"
-            "drops with it: keep the near plane up. See docs/gs-vram.md.");
-        ImGui::BeginDisabled(prefSettings_.colorDepth != "16bit");
+            "drops with it: keep the near plane up.\n"
+            "Hybrid draws the whole frame in ONE 32-bit buffer over a 32-bit\n"
+            "z (full-precision blending and depth), then one dithered copy per\n"
+            "frame puts it in ONE 16-bit buffer the TV shows: half a frame\n"
+            "buffer back for textures without 16-bit banding in the blends.\n"
+            "In Hybrid there is no previous frame to sample, so motion blur,\n"
+            "the upscaler's temporal pass, frame extrapolation and triple\n"
+            "buffering are off. See docs/gs-vram.md.");
+        ImGui::BeginDisabled(prefSettings_.colorDepth == "32bit");
         ImGui::Indent(scaled(16));
         ImGui::Checkbox("Dithering", &prefSettings_.dither);
         prefHelp(

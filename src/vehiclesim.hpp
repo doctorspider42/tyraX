@@ -190,6 +190,13 @@ struct DriveSpec {
     // as a multiplier on the built-in response. 0 is a kart on rails, 1 the
     // default, 2 an American sofa. Presentation only.
     float leanAmount = 1.0f;
+
+    // The "fast" wheel model (docs/vehicles.md, "A fast wheel"): above this
+    // wheel spin rate, in radians per second, all four wheels swap to the
+    // definition's second wheel model, and back below 80% of it. 0 = the
+    // definition has one wheel model, which is every definition written
+    // before this existed.
+    float fastWheelSpeed = 0.0f;
 };
 
 // One tunable of a DriveSpec, with everything a serializer or a widget needs.

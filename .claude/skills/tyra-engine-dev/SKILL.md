@@ -1716,6 +1716,20 @@ Rules the same evening paid for:
   can hide the resulting physical-hardware checker. Use
   `RendererSettings::isDitherActive()` at every DTHE restore site, including
   alpha-mask brackets; `getDither()` is only the authored preference.
+- **`ColorDepth::Hybrid`: draw 32, show 16** (1.126.0, docs/gs-vram.md
+  "Hybrid"). `frameBuffers[0]` is the only draw buffer (PSMCT32 over a 32-bit
+  z) and `frameBuffers[1]` the only display buffer (PSMCT16). `flipBuffers`
+  never rotates: `emitHybridPresent` blits 0 -> 1 with DTHE armed for the copy
+  only, and restores through `emitRasterRestore`. Keep three things:
+  - **no `draw_finish` in that blit**, because an unwaited FINISH makes the next
+    barrier return at once;
+  - **anything that reads VRAM between frames must `sync.align2D()` first**,
+    because the flip does not wait for the copy. The frame capture hung on it;
+  - **`hasRealFrame()` stays false**, so motion blur, BLSS temporal and the warp
+    have no 32-bit previous frame and stay off.
+  `getFrameBufferPsm()` is the DRAW format (32) and `isDitherActive()` is false.
+  Code that wants the display format asks `isHybridOutput()`. Physical PS2:
+  EE-neutral (`work` within 0.02 ms), the frame intact.
 - **The framebuffer PSM is a setting, not a constant** (TyraX fork,
   docs/gs-vram.md). `RendererSettings::getFrameBufferPsm()` returns PSMCT32 or
   PSMCT16 per the project's colour depth, and **everything that writes a
@@ -2435,6 +2449,14 @@ must keep:
   rewrites. It costs +0.23 ms of `prepare` at night. The copy pools are covered
   by the per-context sides and baked arenas by their two-frame graveyard. A new
   REF target needs the same answer.
+- **The write-back is lazy** (`TYRA_VIF1_QUEUE_LAZY_FLUSH`, on, -0.26..-0.51 ms):
+  `Vif1Queue::start` calls `FlushCache(0)` only for a chain submitted after the
+  last write-back, which then covers everything queued behind it. So nothing
+  may write a SUBMITTED chain or anything it references, which was already the
+  rule. `start` must never run in an interrupt (FlushCache is a syscall), and a
+  static_assert ties the two flags together. **Depth 8 measured worse than 4**
+  (+0.19..+0.41 ms, all in `prepare`: more buffers and pool sides are more
+  memory the EE touches), so do not deepen it without a new reason.
 - **Do NOT start chains from a DMAC interrupt on this engine**
   (`TYRA_VIF1_QUEUE_ISR`, default 0). PCSX2 ran it clean. A physical PS2 under
   ps2link took an EE exception twice, both times at the instruction right after

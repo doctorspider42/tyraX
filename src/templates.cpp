@@ -159,7 +159,27 @@ static std::vector<std::string> vehicleModelBinPaths(const Project& p) {
         out.push_back(bp.body);
         out.push_back(bp.wheel);
     }
+    // The FAST wheels (docs/vehicles.md, "A fast wheel") go after every
+    // (body, wheel) pair rather than into it, so a definition gaining one moves
+    // no other definition's slots - vehicleBodyModel's "+= 2" stays true.
+    for (const VehicleDef& v : p.vehicles) {
+        if (v.modelPath.empty() || v.id.empty() || v.fastWheel.empty()) continue;
+        out.push_back(vehbake::pathsFor(v).fastWheel);
+    }
     return out;
+}
+
+// Index of `defName`'s FAST wheel in the model table, or -1 when it has none.
+static int vehicleFastWheelModel(const Project& p, const std::string& defName) {
+    int slot = (int)collectModelKeys(p).size();
+    for (const VehicleDef& v : p.vehicles)
+        if (!v.modelPath.empty() && !v.id.empty()) slot += 2;
+    for (const VehicleDef& v : p.vehicles) {
+        if (v.modelPath.empty() || v.id.empty() || v.fastWheel.empty()) continue;
+        if (v.name == defName) return slot;
+        ++slot;
+    }
+    return -1;
 }
 
 // Index of `defName`'s BODY in the model table (its wheel is that plus one),
@@ -32155,6 +32175,10 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                "  // Driver readout: a FONTS slot (-1 = no HUD) and what a world\n"
                "  // unit per second should READ as on it.\n"
                "  int hudFont; float hudSpeedScale;\n"
+               "  // The FAST wheel model (docs/vehicles.md, \"A fast wheel\"): a\n"
+               "  // MODEL_PATHS slot all four wheels swap to above\n"
+               "  // fastWheelSpeed rad/s, -1 = this definition has one wheel.\n"
+               "  int fastWheelModel;\n"
                "};\n"
                "struct VehicleInstData { int scene; int object; int def; int driveable;\n"
                "                         int wpFirst; int wpCount; };\n";
@@ -32167,7 +32191,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             for (size_t i = 0; i < fields.size(); ++i) out << ", 0.0F";
             out << ", 0.0F, 0.0F, 0.0F, {0.0F, 0.0F, 0.0F}, -1, 1.0F, 1.0F, 0,"
                    " -1, -1, -1, 80, 80, 0, {0.0F, 0.0F, 0.0F, 0.0F},"
-                   " {0.0F, 0.0F, 0.0F, 0.0F}, -1, -1, -1, 1.0F}\n";
+                   " {0.0F, 0.0F, 0.0F, 0.0F}, -1, -1, -1, 1.0F, -1}\n";
         } else {
             for (const VehicleDef* v : defs) {
                 const int base = vehicleBodyModel(p, v->name);
@@ -32233,6 +32257,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << floatLit(v->lampFront[3]) << "}"
                     << ", " << v->lampPart << ", " << v->lampRearVerts
                     << ", " << hudFont << ", " << floatLit(v->hudSpeedScale)
+                    << ", " << (v->drive.fastWheelSpeed > 0.0f
+                                    ? vehicleFastWheelModel(p, v->name)
+                                    : -1)
                     << "},  // " << escapeCString(v->name) << "\n";
             }
         }
@@ -35016,6 +35043,10 @@ static std::string vehicleMembers(const Project& p) {
     // take it too or a scaled car grows a body around wheels that stayed put.
     float scale = 1.0F;
     float wheelSpin = 0.0F;                       // degrees, shared by all four
+    // Drawing the FAST wheel model (docs/vehicles.md, "A fast wheel"). Set
+    // above fastWheelSpeed rad/s and cleared below 80% of it, so a car
+    // cruising at the threshold does not flicker between the two.
+    bool fastWheels = false;
     float compress[4] = {0.5F, 0.5F, 0.5F, 0.5F}; // 0..1, visual only
     // The powertrain (docs/vehicles.md). Derived from the speed the model
     // already produces - the gear and the engine speed feed nothing back
@@ -35118,6 +35149,10 @@ static std::string vehicleMembers(const Project& p) {
     // The one input that is genuinely PER wheel: its own sampled ground.
     float wy[4] = {0, 0, 0, 0};
     const void* srcVerts = nullptr;  // the part, i.e. an LOD/model swap
+    // The array this slot's STs were last written from. A car swapping to its
+    // fast wheel (or a slot handed to a car on the other model) needs its STs
+    // rewritten; nothing else ever does, so this is checked, not refilled.
+    const void* stGeo = nullptr;
     int vehicle = -1;                // which car owns this slot
     int valid = 0;
   };
@@ -35768,6 +35803,8 @@ void TerrainGame::setupVehicles(int scene) {
     // references it - the lazy per-object load would never touch it.
     if (v.def >= 0 && VEHICLE_DEFS[v.def].wheelModel >= 0)
       loadModelAsset(VEHICLE_DEFS[v.def].wheelModel);
+    if (v.def >= 0 && VEHICLE_DEFS[v.def].fastWheelModel >= 0)
+      loadModelAsset(VEHICLE_DEFS[v.def].fastWheelModel);
   }
 }
 
@@ -36893,6 +36930,14 @@ void TerrainGame::updateVehicles(float dt) {
     }
     v.wheelSpin = fmodf(v.wheelSpin, 360.0F);
     if (v.wheelSpin < 0.0F) v.wheelSpin += 360.0F;
+    if (s.fastWheelModel >= 0 && s.fastWheelSpeed > 0.0F) {
+      const float rr = s.wheelRadius * SC > 0.001F ? s.wheelRadius * SC : 0.001F;
+      const float rate = fabsf(v.wheelSpeed) / rr;  // rad/s
+      if (rate > s.fastWheelSpeed) v.fastWheels = true;
+      else if (rate < 0.8F * s.fastWheelSpeed) v.fastWheels = false;
+    } else {
+      v.fastWheels = false;
+    }
 
     // Weight transfer - the arcade body language, the host twin's formula
     // exactly (vehiclesim::step): squat under power, dive under braking (and
@@ -37075,7 +37120,10 @@ void TerrainGame::updateVehicles(float dt) {
                  v.enginePitchReg, " lean10 ", (int)(v.leanRoll * 10.0F),
                  " mtx ",
                  (int)(v.object >= 0 ? runtimeObjects[v.object].onMatrixPath
-                                     : 0));
+                                     : 0),
+                 // Which wheel model the car draws (docs/vehicles.md, "A fast
+                 // wheel"): 1 = the fast one. The swap's own test enabler.
+                 " fw ", v.fastWheels ? 1 : 0);
       }
     }
   }
@@ -37576,10 +37624,8 @@ void TerrainGame::renderVehicleWheels() {
   // it at all. `changed` stays false only if every byte of the buffer is the
   // byte it held last frame.
   const GameModelPart* src = nullptr;
-  // The array the four wheels are baked FROM, and the run it is chopped into.
-  // See the strip block below; `srcRun` 0 means this batch is a triangle list.
-  const std::vector<float>* srcGeo = nullptr;
-  unsigned int srcReal = 0;
+  // The run the wheels are chopped into. See the strip block below; `srcRun`
+  // 0 means this batch is a triangle list.
   unsigned int srcRun = 0;
   int slot = 0;
   bool changed = false;
@@ -37597,8 +37643,20 @@ void TerrainGame::renderVehicleWheels() {
     const int wm = s.wheelModel;
     if (wm < 0 || wm >= (int)gameModels.size() || gameModels[wm].parts.empty())
       continue;
-    const GameModelPart& part = gameModels[wm].parts[0];
-    if (part.verts.size() < 24) continue;
+    const GameModelPart& part0 = gameModels[wm].parts[0];  // the ordinary wheel
+    if (part0.verts.size() < 24) continue;
+    // THE FAST WHEEL (docs/vehicles.md, "A fast wheel"): all four wheels of a
+    // car swap to the definition's second model while v.fastWheels is set
+    // (updateVehicles, with hysteresis). It shares the palette texture, so the
+    // batch stays one bag; what differs per car is only which array its
+    // vertices and STs are baked from.
+    const int fm = s.fastWheelModel;
+    const GameModelPart* fastPart =
+        (fm >= 0 && fm < (int)gameModels.size() && !gameModels[fm].parts.empty() &&
+         gameModels[fm].parts[0].verts.size() >= 24)
+            ? &gameModels[fm].parts[0]
+            : nullptr;
+    const GameModelPart& part = (v.fastWheels && fastPart) ? *fastPart : part0;
     // THE FAR TIER (docs/vehicles.md): once the body shows a distance tier,
     // that tier carries the four wheels baked in at their rest anchors, so
     // the wheel bag must not draw a second set - a distant car is the body's
@@ -37619,12 +37677,17 @@ void TerrainGame::renderVehicleWheels() {
     // permitted suspension position fit it. A false positive only takes the
     // old path; a false negative would visibly pop a tyre.
     if (batch.localRadius < 0.0F) {
+      // Over BOTH models: a car may swap mid-view, and the rig's box must hold
+      // whichever wheel it draws.
       batch.localRadius = 0.0F;
-      for (size_t q = 0; q + 2 < part.verts.size(); q += 8) {
-        const float r = sqrtf(part.verts[q] * part.verts[q] +
-                              part.verts[q + 1] * part.verts[q + 1] +
-                              part.verts[q + 2] * part.verts[q + 2]);
-        if (r > batch.localRadius) batch.localRadius = r;
+      for (const GameModelPart* rp : {&part0, fastPart}) {
+        if (!rp) continue;
+        for (size_t q = 0; q + 2 < rp->verts.size(); q += 8) {
+          const float r = sqrtf(rp->verts[q] * rp->verts[q] +
+                                rp->verts[q + 1] * rp->verts[q + 1] +
+                                rp->verts[q + 2] * rp->verts[q + 2]);
+          if (r > batch.localRadius) batch.localRadius = r;
+        }
       }
     }
     const float SC = v.scale;
@@ -37665,15 +37728,31 @@ void TerrainGame::renderVehicleWheels() {
     // repeats the strip's last vertex; the transform is per vertex, so a
     // repeat stays a repeat and the GS rasterises the degenerate triangle to
     // nothing. It costs 30 vertices of 750 on the district's largest wheel.
-    const bool useStrip = TYRA_STRIP_WHEELS && part.stripRun != 0 &&
-                          !part.stripVerts.empty() &&
-                          part.stripRun <= minPackageSize();
+    // One bag is one primitive type and one package size, so the batch
+    // strips only when BOTH wheel models carry a strip of the same run; and
+    // the per-wheel block is sized for the LARGER of the two, so a swap
+    // never changes vertsPerCar (which would reset every slot of the batch).
+    // The shorter model is padded exactly like a run tail: its last vertex
+    // again, a degenerate triangle the GS rasterises to nothing.
+    const auto stripOk = [&](const GameModelPart& pp) {
+      return TYRA_STRIP_WHEELS && pp.stripRun != 0 && !pp.stripVerts.empty() &&
+             pp.stripRun <= minPackageSize();
+    };
+    const bool useStrip =
+        stripOk(part0) &&
+        (!fastPart || (stripOk(*fastPart) && fastPart->stripRun == part0.stripRun));
     const std::vector<float>& geo = useStrip ? part.stripVerts : part.verts;
-    const u32 run = useStrip ? part.stripRun : 0u;
+    const u32 run = useStrip ? part0.stripRun : 0u;
     const u32 real = (u32)(geo.size() / 8);  // vertices that carry geometry
-    const u32 nv = run ? ((real + run - 1) / run) * run : real;
-    srcGeo = &geo;
-    srcReal = real;
+    const auto blockOf = [&](const GameModelPart& pp) {
+      const u32 n = (u32)((useStrip ? pp.stripVerts : pp.verts).size() / 8);
+      return run ? ((n + run - 1) / run) * run : n;
+    };
+    u32 nv = blockOf(part0);
+    if (fastPart) {
+      const u32 fnv = blockOf(*fastPart);
+      if (fnv > nv) nv = fnv;
+    }
     srcRun = run;
     const u32 vpc = nv * 4;
     // Every car in this batch reads the same definition, so this can only
@@ -37693,6 +37772,26 @@ void TerrainGame::renderVehicleWheels() {
     if ((int)batch.slots.size() <= slot)
       batch.slots.resize((size_t)slot + 1);
     WheelSlot& sl = batch.slots[(size_t)slot];
+    // This slot's STs and colours, written from THIS car's model - once, and
+    // again only when the slot's model changes (a fast-wheel swap, or the slot
+    // passing to a car on the other model).
+    if (sl.stGeo != (const void*)geo.data()) {
+      if (batch.sts.size() < base + vpc) batch.sts.resize(base + vpc);
+      if (batch.cols.size() < base + vpc)
+        batch.cols.resize(base + vpc, Tyra::Color(128.0F, 128.0F, 128.0F, 128.0F));
+      for (int w = 0; w < 4; ++w)
+        for (u32 i = 0; i < nv; ++i) {
+          // Padding again: a repeated vertex needs its ST repeated with it.
+          const float* q = &geo[(size_t)(i < real ? i : real - 1) * 8];
+          const size_t at = base + (size_t)w * (size_t)nv + i;
+          batch.sts[at] = Tyra::Vec4(q[6], q[7], 1.0F, 0.0F);
+          // Flat mid grey: the wheel's colour comes from its palette TEXEL,
+          // and 128 is the modulate identity the textured path expects.
+          batch.cols[at] = Tyra::Color(128.0F, 128.0F, 128.0F, 128.0F);
+        }
+      sl.stGeo = geo.data();
+      changed = true;
+    }
     // THE SIGNATURE: every input the vertices below are a function of, held
     // as raw floats and compared exactly - no hash, because a collision here
     // is a wheel frozen one frame behind its car. The definition's own
@@ -37894,21 +37993,12 @@ void TerrainGame::renderVehicleWheels() {
     changed = true;
   }
   if ((int)batch.slots.size() > cars) batch.slots.resize((size_t)cars);
-  while (batch.staticCars < cars) {
-    for (int w = 0; w < 4; ++w)
-      for (u32 i = 0; i < vertsPerCar / 4; ++i) {
-        // Padding again: a repeated vertex needs its ST repeated with it, or
-        // the degenerate triangle would sample somewhere else - harmless while
-        // it has no area, but the two arrays must stay the same length.
-        const float* q =
-            &(*srcGeo)[(size_t)(i < srcReal ? i : srcReal - 1) * 8];
-        // Flat mid grey: the wheel's colour comes from its palette TEXEL,
-        // and 128 is the modulate identity the textured path expects.
-        batch.cols.push_back(Tyra::Color(128.0F, 128.0F, 128.0F, 128.0F));
-        batch.sts.push_back(Tyra::Vec4(q[6], q[7], 1.0F, 0.0F));
-      }
-    ++batch.staticCars;
-  }
+  // The per-slot fill above wrote every live slot's STs and colours; trim the
+  // arrays to the slots in use so all three stay the vertex array's length.
+  if (batch.sts.size() != total) batch.sts.resize(total);
+  if (batch.cols.size() != total)
+    batch.cols.resize(total, Tyra::Color(128.0F, 128.0F, 128.0F, 128.0F));
+  batch.staticCars = cars;
   if (!wheelBag_) {
     wheelColorBag_ = std::make_unique<Tyra::StaPipColorBag>();
     wheelBag_ = std::make_unique<Tyra::StaPipBag>();
@@ -38852,7 +38942,9 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
                    st.palFullHeight ? "true" : "false");
     s = replaceAll(s, "{{WIDESCREEN}}", st.widescreen ? "true" : "false");
     s = replaceAll(s, "{{COLOR_DEPTH}}",
-                   st.colorDepth == "16bit" ? "Bits16" : "Bits32");
+                   st.colorDepth == "16bit"    ? "Bits16"
+                   : st.colorDepth == "hybrid" ? "Hybrid"
+                                               : "Bits32");
     s = replaceAll(s, "{{DITHER}}", st.dither ? "true" : "false");
     s = replaceAll(s, "{{ENV_MAP_TARGET}}",
                    projectNeedsEnvMap(p) ? "true" : "false");
@@ -46832,6 +46924,12 @@ void writeFrameCapture(ScriptContext& ctx) {
   static unsigned int lineIn[1024] __attribute__((aligned(16)));
   static unsigned int lineOut[1024];
   unsigned int refused = 0;
+  // The Hybrid colour depth's present blit (ColorDepth::Hybrid) is a PATH3
+  // packet the flip sends WITHOUT waiting, so between frames the GS can still
+  // be copying - and the reverse-FIFO download below then hangs on it (it did,
+  // in PCSX2, every time). A PATH3 FINISH round trip proves the GS idle. In
+  // the other modes the flip already waited, and this returns at once.
+  ctx.engine->renderer.core.sync.align2D();
   for (unsigned int y = 0; y < h; ++y) {
     // Bottom row first, so the TGA needs no flip on either side.
     if (!ps2_screenshot(lineIn, fb->address / 64, 0, (h - 1U) - y, w, 1,

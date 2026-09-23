@@ -2615,7 +2615,9 @@ void StaPipQBufferRenderer::sendPacket() {
 #elif TYRA_VIF1_QUEUE
     // The same write-back dma_channel_send_packet2 performs, then the chain
     // goes to the queue instead of straight to the channel.
+#if !TYRA_VIF1_QUEUE_LAZY_FLUSH
     FlushCache(0);
+#endif
     packetSequence[context] = Vif1Queue::submit(currentPacket->base);
 #else
     dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1, true);

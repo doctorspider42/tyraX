@@ -174,6 +174,64 @@ same DIMX matrix — see [ps2-viewport.md](ps2-viewport.md).
 > to 0..3 and the dither comes out one-sided. `renderer_core_gs.cpp` packs the
 > qword by hand.
 
+## Hybrid: draw 32-bit, show 16-bit
+
+`colorDepth: "hybrid"` (*Preferences > Colour depth > Hybrid*, engine
+`ColorDepth::Hybrid`) splits the two frame buffers by job:
+
+- The scene, post fx and 2D draw into **one PSMCT32 buffer over a 32-bit z**,
+  so blending and depth are full precision.
+- After the vsync, **one blit** copies that buffer, with `DTHE` armed, into
+  **one PSMCT16 buffer**, and that buffer is what `DISPFB` scans.
+
+The copy is what the TV shows, so the GS can start the next frame in the 32-bit
+buffer at once. That is the same overlap two display buffers give, for a 32-bit
+buffer plus half of one: **512 KB back at 512x512, 448 KB at 512x448**.
+
+The layout, as the boot line prints it on `examples/vehicle-playground`
+(Pal576i):
+`GS buffers: frame 512x512 x2, z 512x512 at 393216` means the z buffer starts
+right after 262 144 words of PSMCT32 plus 131 072 of PSMCT16.
+
+**What the blit is, as a GS dump shows it** (`pcsx2-capture.py gs --passes`,
+docs/emulator-captures.md):
+
+- the whole scene lands in `FBP=0 CT32` with `DTHE=0`;
+- then 16 sprites, 32 pixels wide (one texture page each), sample it as `CT32`
+  and write `FBP=4096 CT16` with `DTHE=1`;
+- `DISPFB` shows the `CT16` buffer.
+
+It is `RendererCoreGS::emitHybridPresent`.
+
+The rules it keeps:
+
+- **DTHE is armed for the copy only.** The GS dithers a 16-bit destination, and
+  dithering a PSMCT32 one is unspecified on real hardware, so everything drawn
+  into the draw buffer runs with `isDitherActive()` false. The DIMX matrix is
+  the hand-packed one above.
+- **No `draw_finish` in the blit.** `draw_wait_finish` consumes the FINISH bit,
+  so a FINISH nobody waits for would make the next barrier return at once. The
+  flip therefore does not wait for the copy, which is why the frame capture
+  (`writeFrameCapture`) now starts with `sync.align2D()`. Without it, the
+  reverse-FIFO download met a GS still copying and hung, every time, in PCSX2.
+- **The state comes back through `emitRasterRestore`**, the one shared restore,
+  and `DTHE` is written back to 0 after it. `CLAMP` is left for
+  `Path3::clearScreen`, which re-asserts REPEAT before any 3D draws.
+- **There is no previous 32-bit frame.** `hasRealFrame()` stays false, so
+  motion blur stays off. BLSS refuses the history and drops its temporal pass.
+  `presentWarpFrame` presents no synthetic frames, and
+  `getFrameBufferCount()` never asks for a third buffer. The frame capture
+  photographs the 32-bit draw buffer (the finished frame, before the next
+  clear), because pointing it at the 16-bit display buffer froze PCSX2 in
+  `ps2_screenshot`.
+
+**Verified** in PCSX2's software renderer: the self-captured frame of a hybrid
+build and of the same fixture at 32-bit are identical outside the one band that
+also differs between two captures of the 32-bit build. The HUD reads
+`VRAM 3.15/4 MB` at the garage pose. The host twin is
+`project::tripleBufferingFit`'s hybrid branch, which is what
+`textureHeapEstimate` reads.
+
 ## Optional render targets
 
 Two 128×128 targets, each with its own z buffer, cost 128 KB apiece — a

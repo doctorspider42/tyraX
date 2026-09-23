@@ -126,9 +126,9 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   SPR and moved to RAM by DMA. DMA-written RAM needs no D-cache write-back, which
   is the missing answer to "What else was `FlushCache` writing back?" below. The
   EE writes about 16 qw per object into that chain, and every mesh chunk is a
-  single 16-byte `CALL` into a prebaked block. Our ~56-70 sends a frame
-  still pay `FlushCache(0)` each (the `dma` bracket, 0.56-0.97 ms after the
-  queue). Numbers and method: docs/emulator-captures.md. Failure test: the
+  single 16-byte `CALL` into a prebaked block. Our ~32-74 sends a frame now
+  share their write-backs (the lazy flush, `dma` 0.16-0.40 ms), but each is
+  still its own chain start and EE bookkeeping. Numbers and method: docs/emulator-captures.md. Failure test: the
   per-frame chain buffer is larger than the frame's REF lifetime allows (the
   copy pools and baked arenas would have to live a whole frame).
 - **The per-bag `prepare` bracket (2.0-3.0 ms).** `sendObjectData` rebuilds

@@ -78,6 +78,13 @@ struct Options {
     // sky gradient, whose reflection is nearly invisible by construction:
     // a gradient has no features to see MOVE.
     std::string bodyReflMap;
+
+    // The FAST wheel (docs/vehicles.md, "A fast wheel"): "" = none, "@auto" =
+    // the ordinary wheel again decimated to fastWheelTriBudget, anything else
+    // = the name of a mesh node in the model (an artist's blurred wheel), which
+    // is then left out of the body and of the wheel detection.
+    std::string fastWheel;
+    int fastWheelTriBudget = 120;
 };
 
 // A project-relative reflection-map path ("res/textures/x.png") as the
@@ -90,6 +97,9 @@ std::string binReflPath(const std::string& resRel);
 struct Result {
     tmdl::Model body;
     tmdl::Model wheel;  // ONE wheel, hub at the origin, ready to be placed
+    // The fast wheel, same frame and same palette as `wheel`; no parts when the
+    // definition has none (or the named node did not exist - see notes).
+    tmdl::Model fastWheel;
 
     // The generated colour palette, or empty when nothing needed merging.
     // Written next to the baked models as an ordinary PNG so texbake, the
@@ -122,6 +132,7 @@ struct Result {
     int srcParts = 0, srcTris = 0;
     int bodyParts = 0, bodyTris = 0;
     int wheelParts = 0, wheelTris = 0;
+    int fastWheelTris = 0;
 
     // Lamp clusters measured off lamp-named materials, canonical frame:
     // {|x| offset, y, z, half-size}; size 0 = none found (fallback).
@@ -183,6 +194,8 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
 // hands the compiler no fresh mtimes.
 struct BakedPaths {
     std::string body, wheel, palette, shadow;  // bin-relative
+    // The fast wheel's .tmdl, "" when the definition has no fast wheel.
+    std::string fastWheel;
 };
 
 // Bin-relative paths for one definition. Pure string arithmetic, so codegen can

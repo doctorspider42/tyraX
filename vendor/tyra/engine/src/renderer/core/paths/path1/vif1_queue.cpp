@@ -28,12 +28,15 @@ constexpr u32 kChainChcr = 0x1C5;
 // off, consumed by the interrupt handler - so every field is volatile and no
 // lock is needed beyond DIntr/EIntr on the submitting side.
 volatile u32 ring[Vif1Queue::kDepth];
+volatile u32 ringSeq[Vif1Queue::kDepth];  // sequence number of each entry
 volatile u32 head = 0;  // next ring entry the handler starts
 volatile u32 tail = 0;  // next free ring entry
 volatile bool running = false;  // a chain OF OURS owns the channel
 volatile u32 submitted = 0;
 volatile u32 completed = 0;
 s32 handlerId = -1;
+// The newest sequence number the last data-cache write-back covered.
+u32 flushedUpTo = 0;
 
 }  // namespace
 
@@ -66,7 +69,18 @@ void Vif1Queue::init() {
   EIntr();
 }
 
-void Vif1Queue::start(u32 chain) {
+void Vif1Queue::start(u32 chain, u32 sequence) {
+#if TYRA_VIF1_QUEUE_LAZY_FLUSH
+  static_assert(!TYRA_VIF1_QUEUE_ISR,
+                "lazy flush writes back from start(), which must not run in an "
+                "interrupt (FlushCache is a syscall)");
+  if (static_cast<s32>(flushedUpTo - sequence) < 0) {
+    FlushCache(0);
+    flushedUpTo = submitted;  // everything submitted so far is now in RAM
+  }
+#else
+  (void)sequence;
+#endif
   *kDStat = 1U << 1;  // clear the channel's completion status (write-1-clears)
   *kQwc = 0;
   *kMadr = 0;
@@ -85,8 +99,9 @@ void Vif1Queue::onComplete() {
   completed = completed + 1;
   if (head != tail) {
     const u32 next = ring[head % kDepth];
+    const u32 nextSeq = ringSeq[head % kDepth];
     head = head + 1;
-    start(next);
+    start(next, nextSeq);
   } else {
     running = false;
   }
@@ -127,9 +142,10 @@ u32 Vif1Queue::submit(const void* chain) {
   submitted = sequence;
   if (!running) {
     running = true;
-    start(addr);
+    start(addr, sequence);
   } else {
     ring[tail % kDepth] = addr;
+    ringSeq[tail % kDepth] = sequence;
     tail = tail + 1;
   }
 #if TYRA_VIF1_QUEUE_ISR

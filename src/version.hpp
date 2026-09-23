@@ -16,6 +16,19 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.126.0: HYBRID COLOUR DEPTH, AND ONE CACHE WRITE-BACK FOR SEVERAL PACKETS.
+// Preferences > Colour depth > Hybrid (format v63): the frame draws into one
+// 32-bit buffer over a 32-bit z and one dithered blit per frame copies it into
+// one 16-bit display buffer - half a buffer of VRAM back (512 KB at 512x512)
+// without 16-bit banding in the blends. vehicle-playground now uses it. The
+// VIF1 queue writes the data cache back only when it starts a chain submitted
+// since the last write-back: work -0.47 / -0.51 / -0.26 / -0.28 ms on a PS2.
+// The frame capture waits for the GS first (the hybrid blit is not waited on).
+// And a vehicle definition can carry a FAST wheel model (Vehicle Editor >
+// Model > Fast wheel; Driving > Fast wheel above) that all four wheels swap to
+// above a spin rate - a lower-resolution copy or an artist's node, one submit
+// either way. vehicle-playground's CC96 and Rally 04 use it. MINOR.
+//
 // 1.125.3: THE EE STOPS WAITING FOR VU1 BEFORE EVERY STATIC PACKET.
 // The static pipeline keeps up to four packets in flight on VIF1 (Vif1Queue)
 // instead of waiting for each transfer before building the next. Each packet
@@ -5153,8 +5166,8 @@
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 125
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_MINOR 126
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -5547,7 +5560,13 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // ProjectSettings::reflectionGroundRadius. Written only when non-zero, so a
 // project that never sets it resaves byte for byte; missing reads as 0 - every
 // resident chunk, what the probe always drew. Additive; no migration step.
-inline constexpr int kFormatVersion = 62;
+// v63: settings.colorDepth may be "hybrid" (a 32-bit draw buffer shown through
+// one dithered 16-bit display buffer). An older editor reads any unknown value
+// as "32bit" and would silently resave it that way, which is why this is a
+// bump. The same version adds a vehicle definition's "fastWheel" +
+// "fastWheelTris" and drive.fastWheelSpeed (docs/vehicles.md, "A fast wheel"),
+// all written only when set. Additive; no migration step.
+inline constexpr int kFormatVersion = 63;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects
