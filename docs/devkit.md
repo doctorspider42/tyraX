@@ -65,6 +65,37 @@ successive snapshot frame ids differed by exactly 50 on both. Physical PS2
 halt/one-step/resume succeeded (step and resume about 0.15 s), and frame capture
 worked. This is functional validation, not a measured performance improvement.
 
+## What the devkit costs at runtime
+
+The devkit is free in a RELEASE build - that is what the audit proves. In a
+debug build it is not, and over ps2link it is not small. Measured on a physical
+PS2 on `examples/vehicle-playground`, 2026-09-23, parked vantage, day:
+
+| | frame period | frames missing the 20 ms field |
+|---|---:|---:|
+| debug build, Remote Pad + Live Debugger on | 26.3 ms | 15 of 50 |
+| the same build with both compiled out | **20.4 ms** | **0-1 of 50** |
+
+Over ps2link every `host:` open is a network round trip, and the game makes
+them from `loop()` before it starts rendering: Remote Pad reads
+`livepad.bin` every 4th frame, the Live Debugger polls its command file and
+writes its snapshot every 25th. A frame that was a millisecond inside its field
+is pushed over it by any of them and waits a second field. Under PCSX2 the same
+reads are host syscalls and cost almost nothing, which is why this never shows
+in the emulator.
+
+The HUD's `MEM` readout is the other one. It measures free RAM by allocating
+every free block until `malloc` fails, every two seconds, and that costs 30-75
+ms depending on how fragmented the heap is - a visible hitch every two seconds
+in any debug build that shows it.
+
+So: **a frame rate read off a debug build over ps2link describes the devkit as
+much as the game.** For a number that means something, turn Remote Pad, Live
+Debugger and the MEM readout off for the run (tyra-testing, "A debug build over
+ps2link is NOT the player's frame"), and turn them back on when you need the
+tools. Keep Remote Pad off whenever a physical pad is in use anyway - it is the
+most frequent of the polls.
+
 ## Release builds stay clean
 
 Devkit code is generated only for the debug profile. A release build removes

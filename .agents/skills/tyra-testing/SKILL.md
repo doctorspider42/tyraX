@@ -3115,6 +3115,67 @@ directory already ending in `bin` must not receive another relative `bin/`.
 Also stop an emulator serving the same project before hardware captures: its
 fresh `livedbg.bin`/`frame.tga` can otherwise disguise a disconnected console.
 
+### A debug build over ps2link is NOT the player's frame (2026-09-23)
+
+Read this before quoting ANY frame time or FPS off a console. Three separate
+debug-only costs sat inside every Motor District measurement for two days, and
+each one looked like a property of the scene. All three were measured on a
+physical PS2 with `TYRA_FRAME_PROFILE 2` (below) at a parked vantage.
+
+| devkit cost | cadence over ps2link | what it did to the frame |
+|---|---|---|
+| **Remote Pad** polls `host:livepad.bin` | every 4th frame (every frame in PCSX2) | a network round trip in `loop()` ahead of `beginFrame()` |
+| **Live Debugger** polls `livedbg.cmd` / writes the snapshot | every 25th frame (6th in PCSX2) | the same, rarer |
+| **HUD `MEM` readout** (`showMemory`) | every 2 s of game time | `getAvailableRAM()` malloc-probes the heap until it fails: **+31 ms** on one pose, **+75 ms** on a fragmented one |
+| **`TYRA_FRAME_PROFILE 1`** | every frame | the packet walker + pipeline telemetry: HUD SCENE 13.21 -> 17.70 ms |
+
+The first two together: the day frame read **26.3 ms with 15 of 50 frames
+missing their field; with Remote Pad and Live Debugger compiled out it read
+20.4 ms and 0-1 of 50** - the shipped scene already held 50 FPS. 14.5-16.5
+network round trips per 50 frames against 14-16 measured misses. The MEM probe
+is the regular **hitch every two seconds** a debug build shows (one 94 ms
+frame per 50 at 25 FPS); it is gone the moment `showMemory` is off, 8 periodic
+spikes against 0 in a paired emulator run.
+
+**The clean console measurement, in order:**
+
+1. In the project's `.tyra`: `remotePad`, `liveDebug`, `liveLink`,
+   `liveLogic`, `timeMachine`, `inputRecorder` and **`showMemory`** false.
+   (No Remote Pad also means no scripted day/night toggle - plan the poses.)
+2. `TYRA_FRAME_PROFILE 2` in `vendor/tyra/engine/inc/debug/frame_profile.hpp`
+   - FRAMETIME alone, transparent. Level 1 is for WHAT a frame is made of, and
+   only its deltas are quotable.
+3. `--refresh-gen`, then `tools/toolchain/native-build.ps1` directly.
+4. Deploy with a bare `execee` straight after a power cycle (next section),
+   and read `FRAMETIME` off the ps2client stdout. `pre + work + stall` must
+   come to `period`; `miss` high with `over20` low means the cost is OUTSIDE
+   the render (`work` starts at `beginFrame()`).
+5. **Transparency check:** capture the same pose once uninstrumented; its HUD
+   SCENE must match the instrumented run's. 13.21 vs 13.04 is a pass.
+6. `FTRAW` gives every frame's `work`. A periodic spike is a TIMER - check the
+   gaps: exactly equal gaps are frame-counted, gaps alternating 50/51 or 99/101
+   are seconds converted through `g_frameDt` (`everyFrames(s)`), which is how
+   the MEM probe was found in one read.
+
+**Resetting a console that is running a debug build wedges it.** From the
+evening of 2026-09-22 most `reset` + `execee` cycles of a debug build came back
+with `freepad: DMA Busy ID = ... ret = 0` repeating (or an entirely empty
+ps2client log) and `livedbg.bin` stuck at frame 1, and only a physical power
+cycle cleared it; a devkit-off build came back clean from two consecutive
+resets. The prime suspect is the reset landing while the devkit's `host:` I/O
+is in flight. The polling code is months old, so WHY it became frequent is not
+known - do not write a root cause. What works: straight after a power cycle
+ps2link is idle, so send a **bare `execee`** - a probe-`reset` followed by a
+launch-`reset` failed twice in a row. Budget one clean boot per power cycle for
+a debug build, and measure on a devkit-off build, which both resets cleanly and
+is the frame the player gets.
+
+**`--build --run` (PCSX2) deletes `bin/ps2link.run`.** Re-create it before the
+next console deploy (`printf 'ps2link' > <project>/bin/ps2link.run`), and keep
+the `execee` inside the script that checks it - a guard that only `exit`s is
+bypassed by the next command in a `;` chain, which is how a launch without the
+marker reset the IOP mid-load and cost a power cycle.
+
 ### Static packet structure capture
 
 For DMA/VIF/GIF structure rather than time, temporarily build both the engine

@@ -16,6 +16,15 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.123.9: WHAT THE DEVKIT COSTS, WRITTEN DOWN.
+// docs/devkit.md and the tyra-testing skill record the three debug-only
+// costs that sat inside two days of console measurements: Remote Pad's and
+// Live Debugger's host: polls over ps2link (day frame 26.3 ms / 15 of 50
+// misses with them, 20.4 ms / 0-1 without), and the HUD MEM readout, whose
+// malloc-probe of the heap every two seconds is a 30-75 ms hitch (8 periodic
+// spikes against 0 in a paired emulator run). Plus the clean-measurement
+// recipe and the console-reset procedure. Docs only. PATCH.
+//
 // 1.123.8: A FRAME-TIMING RIG THAT TIMES THE FRAME THE PLAYER GETS.
 // TYRA_FRAME_PROFILE 2 is FRAMETIME alone: no static-pipeline telemetry and
 // no packet-structure walker, which at level 1 parses every DMA tag and VIF
@@ -5051,7 +5060,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 123
-#define TYRAX_VERSION_PATCH 8
+#define TYRAX_VERSION_PATCH 9
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
