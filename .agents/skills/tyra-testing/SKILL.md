@@ -3158,7 +3158,20 @@ spikes against 0 in a paired emulator run.
    are seconds converted through `g_frameDt` (`everyFrames(s)`), which is how
    the MEM probe was found in one read.
 
-**Resetting a console that is running a debug build wedges it.** From the
+**TWO different console failures look alike - tell them apart first.**
+
+- **Empty ps2client log, not even `loadelf:`** - a RACE, not a wedge. ps2link
+  reboots the IOP on `reset` and is deaf until it is back; an `execee` sent
+  into that window is a lost UDP packet and ps2client then waits for ever.
+  This began on 2026-09-23 the moment a deploy script sent `execee` straight
+  after `reset` (before, the two were separate commands seconds apart). Kill
+  the client and send `execee` again WITHOUT another reset - it boots. The
+  deploy recipe: `reset`, wait ~8 s, `execee`, and on an empty log after ~20 s
+  kill and re-send the `execee`.
+- **`freepad: DMA Busy ... ret = 0` repeating** - a real IOP wedge on the next
+  boot, and only a power cycle clears it. That is the one below.
+
+**Resetting a console that is running a debug build can wedge it.** From the
 evening of 2026-09-22 most `reset` + `execee` cycles of a debug build came back
 with `freepad: DMA Busy ID = ... ret = 0` repeating (or an entirely empty
 ps2client log) and `livedbg.bin` stuck at frame 1, and only a physical power
