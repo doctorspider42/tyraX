@@ -3211,6 +3211,27 @@ rows with `bad=0`, and restore the profile macro to zero before the final
 release build. The parser itself adds EE work, so compare time only between
 equally instrumented arms; structural counts remain exact.
 
+### PCSX2 savestates and GS dumps, unattended (docs/emulator-captures.md)
+
+`scripts/pcsx2-capture.py run <elf> --stage --states 3 --gsdump` starts a
+**private** PCSX2 (`-datapath` under `%TEMP%\tyra-editor-test\pcsx2-capture-<slot>`,
+its own ini with PINE on), takes savestates over PINE and one single-frame GS
+dump, writes `report.txt` and stops only the PID it started. `gs <dump>` /
+`state <p2s>` analyse hand-taken captures of any title. Needs
+`pip install zstandard numpy`.
+
+- **No focus, no global input.** The GS dump is PCSX2's own hotkey, rebound to
+  F12 in the private ini and delivered by `PostMessage` to that PID's window,
+  which is inside the rule in "never inject global input". Windows only; Linux
+  skips the dump step.
+- **One `--slot` per parallel run.** The user's global `PCSX2.ini` is never
+  touched.
+- **A savestate lands at VSync, so VIF1 is always idle.** For a TyraX game it
+  shows at most the last ping-pong packet. Use the VU1 packet tap
+  (`arm-vucap.py`) for our own chains; the savestate analyser is for games that
+  build one frame chain.
+- **GS pixel counts are scissored coverage, not fill.** Compare with them; do
+  not price the GS with them.
 
 ## What is the frame MADE OF? The per-producer inventory
 
