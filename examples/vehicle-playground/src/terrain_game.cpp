@@ -21345,6 +21345,89 @@ void TerrainGame::renderScene() {
     if (costRows.size() < 4088) costRows.push_back({object,label,profTicks()-start});
   };
   const bool costOldTelemetry = stapip.core.isTelemetryEnabled();
+  // The render-cost capture's telemetry, split at the Objects phase so the
+  // per-object bill can be read on its own (docs/profiling.md, "Where a
+  // solo object's time goes"). takeTelemetry() clears as it reads, so a
+  // take before and after the loop is an EXCLUSIVE split; the frame total
+  // is the sum of the three takes, which keeps every *_included row's
+  // meaning exactly what it was.
+  struct CostTel {
+    u32 dmaSubmitTicks = 0;
+    u32 packetBuildTicks = 0;
+    u32 boundsTicks = 0;
+    u32 prepareTicks = 0;
+    u32 dispatchTicks = 0;
+    u32 vu1WaitTicks = 0;
+    u32 programSetWaitTicks = 0;
+    u32 packagesCull = 0;
+    u32 packagesClip = 0;
+    u32 packagesGuardBand = 0;
+    u32 packetFlushes = 0;
+#if TYRA_STAPIP_ATTRIB
+    u32 renderTicks = 0;
+    u32 headTicks = 0;
+    u32 tailTicks = 0;
+    u32 prepPackagerTicks = 0;
+    u32 prepTextureTicks = 0;
+    u32 prepProgramTicks = 0;
+    u32 prepLightTicks = 0;
+    u32 prepBlssTicks = 0;
+    u32 prepObjectDataTicks = 0;
+    u32 gifWaitTicks = 0;
+    u32 bdSizeTicks = 0;
+    u32 bdProgTicks = 0;
+    u32 bdSizeCalcTicks = 0;
+    u32 bdXformTicks = 0;
+    u32 bdCacheTicks = 0;
+    u32 bdPlanesTicks = 0;
+    u32 bdMainTicks = 0;
+    u32 dsRetainTicks = 0;
+    u32 dsDirectTicks = 0;
+    u32 dsCreateTicks = 0;
+    u32 dsClassifyTicks = 0;
+    u32 dsRenderTicks = 0;
+    u32 dsFlushTicks = 0;
+#endif
+  };
+  CostTel costTelTotal, costTelObj;
+  auto addTel = [](CostTel& d, const Tyra::StaPipTelemetry& t) {
+    d.dmaSubmitTicks += t.dmaSubmitTicks;
+    d.packetBuildTicks += t.packetBuildTicks;
+    d.boundsTicks += t.boundsTicks;
+    d.prepareTicks += t.prepareTicks;
+    d.dispatchTicks += t.dispatchTicks;
+    d.vu1WaitTicks += t.vu1WaitTicks;
+    d.programSetWaitTicks += t.programSetWaitTicks;
+    d.packagesCull += t.packagesCull;
+    d.packagesClip += t.packagesClip;
+    d.packagesGuardBand += t.packagesGuardBand;
+    d.packetFlushes += t.packetFlushes;
+#if TYRA_STAPIP_ATTRIB
+    d.renderTicks += t.attrib.renderTicks;
+    d.headTicks += t.attrib.headTicks;
+    d.tailTicks += t.attrib.tailTicks;
+    d.prepPackagerTicks += t.attrib.prepPackagerTicks;
+    d.prepTextureTicks += t.attrib.prepTextureTicks;
+    d.prepProgramTicks += t.attrib.prepProgramTicks;
+    d.prepLightTicks += t.attrib.prepLightTicks;
+    d.prepBlssTicks += t.attrib.prepBlssTicks;
+    d.prepObjectDataTicks += t.attrib.prepObjectDataTicks;
+    d.gifWaitTicks += t.attrib.gifWaitTicks;
+    d.bdSizeTicks += t.attrib.bdSizeTicks;
+    d.bdProgTicks += t.attrib.bdProgTicks;
+    d.bdSizeCalcTicks += t.attrib.bdSizeCalcTicks;
+    d.bdXformTicks += t.attrib.bdXformTicks;
+    d.bdCacheTicks += t.attrib.bdCacheTicks;
+    d.bdPlanesTicks += t.attrib.bdPlanesTicks;
+    d.bdMainTicks += t.attrib.bdMainTicks;
+    d.dsRetainTicks += t.attrib.dsRetainTicks;
+    d.dsDirectTicks += t.attrib.dsDirectTicks;
+    d.dsCreateTicks += t.attrib.dsCreateTicks;
+    d.dsClassifyTicks += t.attrib.dsClassifyTicks;
+    d.dsRenderTicks += t.attrib.dsRenderTicks;
+    d.dsFlushTicks += t.attrib.dsFlushTicks;
+#endif
+  };
   if (costSeq) stapip.core.setTelemetryEnabled(true);
   const u32 costTotalStart = costStart();
   const u32 profScene0 = DEBUG_SHOW_PROFILER ? profTicks() : 0;
@@ -21920,6 +22003,7 @@ void TerrainGame::renderScene() {
   int hlCount = 0;
   const bool hlActive = HIGHLIGHT_USABLE;
   const bool hlOverlay = HIGHLIGHT_OVERLAY;
+  if (costSeq) addTel(costTelTotal, stapip.core.takeTelemetry());
   const u32 costObjectsStart=costStart();
 #if TYRA_FRAME_PROFILE
   stapip.core.setTelemetryProducer(Tyra::StaPipProducerObjects);
@@ -22106,6 +22190,11 @@ void TerrainGame::renderScene() {
   }
   stapip.core.endSubmissionBatch();
   costEnd("Objects",-1,costObjectsStart);
+  if (costSeq) {
+    const auto objTel = stapip.core.takeTelemetry();
+    addTel(costTelObj, objTel);
+    addTel(costTelTotal, objTel);
+  }
   { const u32 ct=costStart(); renderVehicleWheels(); costEnd("Wheels",-1,ct); }
 
 #if TYRA_FRAME_PROFILE
@@ -22215,8 +22304,9 @@ void TerrainGame::renderScene() {
   if (costSeq) {
     engine->renderer.core.sync.align3D();
     const float totalMs=(profTicks()-costTotalStart)/294912.0F;
-    const auto pipeCost=stapip.core.takeTelemetry();
-    stapip.core.setTelemetryEnabled(costOldTelemetry);
+    const auto pipeCostTail=stapip.core.takeTelemetry();
+    addTel(costTelTotal, pipeCostTail);
+    const CostTel& pipeCost=costTelTotal;
     costRows.push_back({-1,"DMA_submit_included",pipeCost.dmaSubmitTicks});
     costRows.push_back({-1,"Packet_build_included",pipeCost.packetBuildTicks});
     costRows.push_back({-1,"Bounds_included",pipeCost.boundsTicks});
@@ -22224,6 +22314,45 @@ void TerrainGame::renderScene() {
     costRows.push_back({-1,"Dispatch_included",pipeCost.dispatchTicks});
     costRows.push_back({-1,"VU1_wait_included",pipeCost.vu1WaitTicks});
     costRows.push_back({-1,"Program_swap_wait_included",pipeCost.programSetWaitTicks});
+    // The Objects phase alone. Counts ride the same ms column scaled by one
+    // millisecond's worth of ticks, so they print as whole numbers.
+    {
+      const CostTel& o=costTelObj;
+      costRows.push_back({-1,"Objects_bounds_included",o.boundsTicks});
+      costRows.push_back({-1,"Objects_prepare_included",o.prepareTicks});
+      costRows.push_back({-1,"Objects_dispatch_included",o.dispatchTicks});
+      costRows.push_back({-1,"Objects_DMA_submit_included",o.dmaSubmitTicks});
+      costRows.push_back({-1,"Objects_packet_build_included",o.packetBuildTicks});
+      costRows.push_back({-1,"Objects_VU1_wait_included",o.vu1WaitTicks});
+      costRows.push_back({-1,"Objects_packages_count",(o.packagesCull+o.packagesClip+o.packagesGuardBand)*294912U});
+      costRows.push_back({-1,"Objects_flushes_count",o.packetFlushes*294912U});
+#if TYRA_STAPIP_ATTRIB
+      costRows.push_back({-1,"Objects_attrib_render",o.renderTicks});
+      costRows.push_back({-1,"Objects_attrib_head",o.headTicks});
+      costRows.push_back({-1,"Objects_attrib_tail",o.tailTicks});
+      costRows.push_back({-1,"Objects_attrib_prepPackager",o.prepPackagerTicks});
+      costRows.push_back({-1,"Objects_attrib_prepTexture",o.prepTextureTicks});
+      costRows.push_back({-1,"Objects_attrib_prepProgram",o.prepProgramTicks});
+      costRows.push_back({-1,"Objects_attrib_prepLight",o.prepLightTicks});
+      costRows.push_back({-1,"Objects_attrib_prepBlss",o.prepBlssTicks});
+      costRows.push_back({-1,"Objects_attrib_prepObjectData",o.prepObjectDataTicks});
+      costRows.push_back({-1,"Objects_attrib_gifWait",o.gifWaitTicks});
+      costRows.push_back({-1,"Objects_attrib_bdSize",o.bdSizeTicks});
+      costRows.push_back({-1,"Objects_attrib_bdProg",o.bdProgTicks});
+      costRows.push_back({-1,"Objects_attrib_bdSizeCalc",o.bdSizeCalcTicks});
+      costRows.push_back({-1,"Objects_attrib_bdXform",o.bdXformTicks});
+      costRows.push_back({-1,"Objects_attrib_bdCache",o.bdCacheTicks});
+      costRows.push_back({-1,"Objects_attrib_bdPlanes",o.bdPlanesTicks});
+      costRows.push_back({-1,"Objects_attrib_bdMain",o.bdMainTicks});
+      costRows.push_back({-1,"Objects_attrib_dsRetain",o.dsRetainTicks});
+      costRows.push_back({-1,"Objects_attrib_dsDirect",o.dsDirectTicks});
+      costRows.push_back({-1,"Objects_attrib_dsCreate",o.dsCreateTicks});
+      costRows.push_back({-1,"Objects_attrib_dsClassify",o.dsClassifyTicks});
+      costRows.push_back({-1,"Objects_attrib_dsRender",o.dsRenderTicks});
+      costRows.push_back({-1,"Objects_attrib_dsFlush",o.dsFlushTicks});
+#endif
+    }
+    stapip.core.setTelemetryEnabled(costOldTelemetry);
     // Finish footer last; the host rejects partial transfers and old sequences.
     FILE* f=fopen(FileUtils::fromCwd("rendercost.txt").c_str(),"wb");
     if (f) {

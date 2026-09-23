@@ -2069,3 +2069,37 @@ debug build ended with `freepad: DMA Busy` on the next boot and needed a power
 cycle; the devkit-off build came back clean from two consecutive resets. The
 polling code itself is months old, so this is evidence about the mechanism,
 not an explanation of why it became frequent - see the session notes.
+
+### Where a solo object's time goes (2026-09-23)
+
+The capture also splits the pipeline telemetry at the Objects phase:
+`takeTelemetry()` clears as it reads, so one take before the object loop and
+one after it give an exclusive Objects-only bill, and the frame-wide
+`*_included` rows are the sum of all three takes, unchanged in meaning. The
+extra rows are `Objects_bounds/prepare/dispatch/DMA_submit/packet_build/
+VU1_wait_included`, and two counts printed in the ms column as whole numbers:
+`Objects_packages_count` and `Objects_flushes_count`. With
+`TYRA_STAPIP_ATTRIB 1` (engine `stapip_attrib.hpp`) every attribution counter
+follows as `Objects_attrib_<name>`.
+
+Motor District, authored start pose, physical PS2, 77 objects tested, 46 bags
+drawn in 53 packages and 13 packet flushes:
+
+| | ms | per drawn bag |
+|---|---:|---:|
+| Objects phase (serialized by the capture) | 4.745 | |
+| - the capture's own drains (~0.015 ms per row) | ~1.16 | |
+| **inside `stapip.core.render()`** | **1.793** | **39 us** |
+| of which bounds (package sizing, transform cache, bbox, frustum) | 0.813 | 17.7 us |
+| of which dispatch | 0.462 | 10.0 us |
+| of which prepare (object header 0.217) | 0.411 | 8.9 us |
+| of which DMA submit | 0.245 | 5.3 us |
+| **game-side per-object code, outside `render()`** | **~1.8** | ~23 us per tested object |
+
+Texture bind, light selection and program choice together are ~3 us per bag -
+not where the time is. **Half of the object bill is the generated game's own
+per-object loop** (batch membership, matrix path, draw distance, coarse and
+occlusion rejects, impostors, split band), as large as the whole engine side;
+that is the next place to cut. The `bdSize` attribution counter (7 us per bag
+for three assignments) is mostly the cost of the nested COP0 reads around it -
+dense attribution inflates short code, so do not optimize off it.

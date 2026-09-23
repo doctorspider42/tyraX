@@ -16,6 +16,14 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.123.11: THE RENDER-COST CAPTURE SPLITS OUT THE OBJECTS PHASE.
+// --profile-frame / Measure render cost now also reports the pipeline counters
+// of the Objects phase alone (Objects_*_included, package and flush counts,
+// Objects_attrib_* under TYRA_STAPIP_ATTRIB). On a physical PS2 it showed that
+// half of the per-object bill is the generated game's own loop, not render()
+// (docs/profiling.md, "Where a solo object's time goes"). Capture-only; the
+// ordinary frame is unchanged. PATCH.
+//
 // 1.123.10: THE HUD'S MEM READOUT STOPS HITCHING.
 // Info::getFreeRAMSize measured free RAM by allocating the largest free block,
 // then the next, until malloc failed - a cost that grows with heap
@@ -5071,7 +5079,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 123
-#define TYRAX_VERSION_PATCH 10
+#define TYRAX_VERSION_PATCH 11
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
