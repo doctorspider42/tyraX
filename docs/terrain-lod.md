@@ -183,3 +183,21 @@ the full-asset gate). Terrain and road geometry is generated and therefore
 correct in them, but the SHARE of the frame each producer holds is not - the
 models are missing from the denominator. The per-frame counts quoted above come
 from the real example, with its real assets, and those are the ones to quote.
+
+### The hardware number (2026-09-23)
+
+Physical PS2, the same parked street vantage, six `--profile-frame` samples per
+arm, paired against the stored baseline. This arm carries the terrain LOD AND
+the two frustum rejects of 1.123.5/6, so the two ground rows are their joint
+result:
+
+| phase | day before | day after | night before | night after |
+|---|---:|---:|---:|---:|
+| `Terrain` | 2.909 | **2.650** | 2.916 | **2.675** |
+| `Roads` | 3.407 | **3.182** | 3.458 | **3.294** |
+| renderScene `Total` | 17.341 | **16.938** | 20.819 | **19.908** |
+
+That is -0.40 ms of a day frame and -0.91 ms of a night one. The street vantage
+is the WEAK case for the LOD by construction - the garage poses cut 40% of the
+frame's triangles against this one's 18.5% - so read it as a floor.
+

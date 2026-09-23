@@ -16,6 +16,17 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.123.7: THE HARDWARE NUMBERS THE LAST FOUR ENTRIES OWED.
+// Physical PS2, parked street vantage, six --profile-frame samples per arm,
+// paired against the baselines stored before the run. Day renderScene total
+// 17.341 -> 16.938 ms, night 20.819 -> 19.908. Attributed by row: Terrain
+// 2.909 -> 2.650 and Roads 3.407 -> 3.182 (detail distance + the two frustum
+// rejects, 1.123.4/5/6), and at night Light_beams 1.240 -> 0.852, which is the
+// cone-shaft cache of 1.123.3 - the one change whose ceiling I had called
+// small, and it turned out to be 31% of its own row. Nothing else touches
+// beams. The street vantage is the WEAK case for the terrain LOD, so -0.40 /
+// -0.91 ms is a floor rather than the headline. Docs only. PATCH.
+//
 // 1.123.6: TERRAIN CHUNKS GET THE SAME FRUSTUM REJECT.
 // renderTerrain handed every RESIDENT chunk to StaPip to be classified package
 // by package, and residency only means "inside the streaming ring" - it says
@@ -5026,7 +5037,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 123
-#define TYRAX_VERSION_PATCH 6
+#define TYRAX_VERSION_PATCH 7
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

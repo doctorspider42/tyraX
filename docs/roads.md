@@ -495,3 +495,13 @@ arms byte-identical within themselves. The two night poses are not readable -
 their own repeats disagree, because the district's lamps flicker and its stars
 twinkle (tyra-testing, "The district's NIGHT poses are not frozen"). Read that
 as the fixture's property, not as a result.
+
+### The hardware number (2026-09-23)
+
+Physical PS2, parked street vantage, six samples per arm, paired against the
+stored baseline. `Roads` 3.407 -> 3.182 ms by day and 3.458 -> 3.294 by night;
+`Terrain` 2.909 -> 2.650 and 2.916 -> 2.675 over the same pair, since the
+terrain reject (1.123.6) and the detail distance landed in the same arm. The
+emulator had promised -47% of the rejected-package count and the console pays
+about 0.2 ms a frame for it here.
+
