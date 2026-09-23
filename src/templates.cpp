@@ -17690,8 +17690,10 @@ void TerrainGame::renderProjShadows() {
       // pipeline by REFERENCE: the previous part's DMA may still be reading it
       // when the next part overwrites it (assign() may even reallocate under
       // the transfer). Only the shadow-slot brackets fence this; between two
-      // parts of one caster nothing does, so wait for the readers first.
-      dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+      // parts of one caster nothing does, so wait for the readers first -
+      // ALL of them: with the engine's VIF1 queue a plain channel wait can
+      // return while chains are still queued (vif1_queue.hpp).
+      Tyra::Vif1Queue::drain();
       projClamp.assign(bag->vertices, bag->vertices + bag->count);
       for (Vec4& v : projClamp)
         if (v.y < gy0) v.y = gy0;

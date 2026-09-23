@@ -9,6 +9,8 @@
 */
 
 #include "math/math.hpp"
+#include "renderer/core/paths/path1/vif1_queue.hpp"
+#include <kernel.h>  // Modified by TyraX: FlushCache for the VIF1 queue
 
 // Modified by TyraX: PipelineZTest_TestOnly branch in sendObjectData;
 // per-mesh object-space spot light (flashlight) upload for the color VU1
@@ -759,7 +761,7 @@ void StaPipQBufferRenderer::allocateOnUse() {
   // Modified by TyraX: 48 -> 52 - the billboard basis unpack (2 qwords
   // + headers).
   // Four inline lighting qwords replace the former REF payload.
-  packets = new packet2_t*[2];
+  packets = new packet2_t*[kPacketCount];
 #if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
   // Probe B (stapip_probes.hpp). 1 = P2_TYPE_UNCACHED, 2 = UNCACHED_ACCL.
   // packet2_create asserts qwords % 4 == 0 for either uncached type, so say so
@@ -770,7 +772,7 @@ void StaPipQBufferRenderer::allocateOnUse() {
   const enum Packet2Type probeType = TYRA_STAPIP_PROBE_UNCACHED_CHAIN == 2
                                          ? P2_TYPE_UNCACHED_ACCL
                                          : P2_TYPE_UNCACHED;
-  for (u16 i = 0; i < 2; i++)
+  for (u16 i = 0; i < kPacketCount; i++)
     packets[i] = packet2_create(packetSize, probeType, P2_MODE_CHAIN, true);
   probePacketUsesPool = false;
   // VERIFY THE ALLOCATION TOOK EFFECT BEFORE TRUSTING A SINGLE NUMBER FROM
@@ -778,7 +780,7 @@ void StaPipQBufferRenderer::allocateOnUse() {
   // measure "no flush needed" while the DMA read stale cache lines - the
   // failure mode is intermittent wrong geometry, not a crash. The segment is
   // the top nibble of the base pointer: 0x3 accelerated, 0x2 uncached.
-  for (u16 i = 0; i < 2; i++) {
+  for (u16 i = 0; i < kPacketCount; i++) {
     TYRA_ASSERT(packets[i] != nullptr, "Probe B: packet2_create refused an "
                 "uncached packet. Check packetSize % 4.");
     const u32 seg = reinterpret_cast<u32>(packets[i]->base) >> 28;
@@ -789,7 +791,7 @@ void StaPipQBufferRenderer::allocateOnUse() {
              " (1=uncached, 2=uncached-accelerated arm)");
   }
 #else
-  for (u16 i = 0; i < 2; i++)
+  for (u16 i = 0; i < kPacketCount; i++)
     packets[i] =
         packet2_create(packetSize, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
 #endif
@@ -810,7 +812,7 @@ void StaPipQBufferRenderer::allocateOnUse() {
 
 void StaPipQBufferRenderer::deallocateOnUse() {
   beforeTextureMutation();
-  dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+  Vif1Queue::drain();
   rendererCore->texture.clearMutationBarrier(this);
   submissionBatchScope = false;
   submissionBatchCandidate = false;
@@ -830,7 +832,7 @@ void StaPipQBufferRenderer::deallocateOnUse() {
   baked.clear();
 #endif
   packet2_free(staticDataPacket);
-  for (u16 i = 0; i < 2; i++) packet2_free(packets[i]);
+  for (u16 i = 0; i < kPacketCount; i++) packet2_free(packets[i]);
   delete[] packets;
 
   for (u16 i = 0; i < buffersCount; i++) delete buffers[i];
@@ -863,6 +865,9 @@ void StaPipQBufferRenderer::init(RendererCore* t_core, prim_t* t_prim,
 #endif
 
   dma_channel_initialize(DMA_CHANNEL_VIF1, nullptr, 0);
+#if TYRA_VIF1_QUEUE
+  Vif1Queue::init();  // Modified by TyraX: see vif1_queue.hpp
+#endif
 
   setProgramsCache();
 
@@ -1015,6 +1020,12 @@ void StaPipQBufferRenderer::addClipChain(packet2_t* objectDataPacket) const {
   packet2_utils_vu_close_unpack(objectDataPacket);
 }
 
+// Modified by TyraX: with the VIF1 queue a chain runs well after it was
+// built, so a REF to the renderer's MVP / light / single-colour storage would
+// read whatever the NEXT bag wrote there. Copy them into the packet instead -
+// the same inline form bounded submission batching already uses.
+constexpr bool kInlineUniforms = TYRA_VIF1_QUEUE != 0;
+
 void StaPipQBufferRenderer::sendObjectData(
     StaPipBag* bag, M4x4* mvp, RendererCoreTextureBuffers* texBuffers) {
   // Modified by TyraX: build uniforms at the head of the same packet that the
@@ -1053,7 +1064,7 @@ void StaPipQBufferRenderer::sendObjectData(
   packet2_vif_flushe(objectDataPacket, 0);
   packet2_vif_nop(objectDataPacket, 0);
   packet2_chain_close_tag(objectDataPacket);
-  if (submissionBatchCandidate) {
+  if (submissionBatchCandidate || kInlineUniforms) {
     packet2_utils_vu_open_unpack(objectDataPacket, VU1_MVP_MATRIX_ADDR, false);
     const float* mvpData = reinterpret_cast<const float*>(mvp->data);
     for (u32 i = 0; i < 16; ++i)
@@ -1065,7 +1076,7 @@ void StaPipQBufferRenderer::sendObjectData(
   }
 
   if (bag->lighting) {
-    if (submissionBatchCandidate) {
+    if (submissionBatchCandidate || kInlineUniforms) {
       packet2_utils_vu_open_unpack(objectDataPacket, VU1_LIGHTS_MATRIX_ADDR,
                                    false);
       const float* lightMatrix =
@@ -1199,7 +1210,7 @@ void StaPipQBufferRenderer::sendObjectData(
 
   if (singleColorEnabled) {  // Color is placed in 4th slot of
                             // VU1_LIGHTS_MATRIX_ADDR
-    if (submissionBatchCandidate) {
+    if (submissionBatchCandidate || kInlineUniforms) {
       packet2_utils_vu_open_unpack(objectDataPacket, VU1_SINGLE_COLOR_ADDR,
                                    false);
       for (u32 i = 0; i < 4; ++i)
@@ -1384,7 +1395,7 @@ void StaPipQBufferRenderer::sendStaticData() const {
   packet2_utils_vu_add_end_tag(staticDataPacket);
   { HardwareTrace::Scope trace("VIF1_DMA_wait");
     HardwareTrace::state("VIF1_WAIT_START");
-    dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+    Vif1Queue::drain();
     HardwareTrace::state("VIF1_WAIT_END"); }
   dma_channel_send_packet2(staticDataPacket, DMA_CHANNEL_VIF1, true);
 }
@@ -1597,12 +1608,12 @@ void StaPipQBufferRenderer::setVU1Clipping(const bool& enabled) {
 void StaPipQBufferRenderer::uploadPrograms() {
   { HardwareTrace::Scope trace("VIF1_DMA_wait");
     HardwareTrace::state("VIF1_WAIT_START");
-    dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+    Vif1Queue::drain();
     HardwareTrace::state("VIF1_WAIT_END"); }
   dma_channel_send_packet2(programsPacket, DMA_CHANNEL_VIF1, true);
   { HardwareTrace::Scope trace("VIF1_DMA_wait");
     HardwareTrace::state("VIF1_WAIT_START");
-    dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+    Vif1Queue::drain();
     HardwareTrace::state("VIF1_WAIT_END"); }
   billboardSetActive = false;  // Modified by TyraX: main set is resident now
 }
@@ -1619,14 +1630,14 @@ void StaPipQBufferRenderer::ensureProgramSet(const bool& billboard) {
 
   { HardwareTrace::Scope trace("VIF1_DMA_wait");
     HardwareTrace::state("VIF1_WAIT_START");
-    dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+    Vif1Queue::drain();
     HardwareTrace::state("VIF1_WAIT_END"); }
   dma_channel_send_packet2(
       billboard ? billboardProgramsPacket : programsPacket, DMA_CHANNEL_VIF1,
       true);
   { HardwareTrace::Scope trace("VIF1_DMA_wait");
     HardwareTrace::state("VIF1_WAIT_START");
-    dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+    Vif1Queue::drain();
     HardwareTrace::state("VIF1_WAIT_END"); }
   if (telemetry != nullptr) {
     ++telemetry->programSetSwaps;
@@ -2519,15 +2530,23 @@ void StaPipQBufferRenderer::sendPacket() {
   TYRA_ASSERT(packet2_get_qw_count(currentPacket) <= packetSize,
               "Packet is too big. Internal error");
 
+#if TYRA_VIF1_QUEUE
+  // Modified by TyraX: no wait for the previous chain here - it may still be
+  // running, and the next one may be queued behind it (vif1_queue.hpp). The
+  // wait that protects buffer reuse happens after the context flip below, for
+  // the one buffer about to be rewritten.
+  if (telemetry != nullptr) ++telemetry->packetFlushes;
+#else
   const u32 waitStart = telemetry != nullptr ? readTelemetryTicks() : 0;
   { HardwareTrace::Scope trace("VIF1_DMA_wait");
     HardwareTrace::state("VIF1_WAIT_START");
-    dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+    Vif1Queue::drain();
     HardwareTrace::state("VIF1_WAIT_END"); }
   if (telemetry != nullptr) {
     ++telemetry->packetFlushes;
     telemetry->vu1WaitTicks += readTelemetryTicks() - waitStart;
   }
+#endif
   // Added by TyraX: this wait was inside no bracket at all, so it was
   // indistinguishable from `dispatch`'s package creation and classification.
   // Opt-in only - see stapip_attrib.hpp.
@@ -2593,6 +2612,11 @@ void StaPipQBufferRenderer::sendPacket() {
 #endif
     dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1, probeFlush);
     probePacketUsesPool = false;
+#elif TYRA_VIF1_QUEUE
+    // The same write-back dma_channel_send_packet2 performs, then the chain
+    // goes to the queue instead of straight to the channel.
+    FlushCache(0);
+    packetSequence[context] = Vif1Queue::submit(currentPacket->base);
 #else
     dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1, true);
 #endif
@@ -2610,7 +2634,7 @@ void StaPipQBufferRenderer::sendPacket() {
   if (g_vuMemHook) {
     { HardwareTrace::Scope trace("VIF1_DMA_wait");
     HardwareTrace::state("VIF1_WAIT_START");
-    dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+    Vif1Queue::drain();
     HardwareTrace::state("VIF1_WAIT_END"); }
     // VIF1_STAT: VPS (bits 0-1) = VIF status, VEW (bit 2) = waiting for VU1.
     volatile u32* const vif1Stat = (volatile u32*)0x10003c00;
@@ -2621,7 +2645,25 @@ void StaPipQBufferRenderer::sendPacket() {
 
   // Switch packet, so we can proceed during DMA transfer - and switch the
   // slots' copy pools with it, they are referenced by the packet just sent.
+#if TYRA_VIF1_QUEUE
+  // Modified by TyraX: rotate through kPacketCount buffers. The buffer (and the
+  // copy-pool side that goes with it) is rewritten from here on, so wait for
+  // the chain that last read it - usually long finished, since kPacketCount - 1
+  // newer chains were queued behind it. This is the queue's only EE wait, and
+  // it is what vu1WaitTicks reports in this arm.
+  context = static_cast<u8>((context + 1) % kPacketCount);
+  {
+    const u32 waitStart = telemetry != nullptr ? readTelemetryTicks() : 0;
+    HardwareTrace::Scope trace("VIF1_DMA_wait");
+    HardwareTrace::state("VIF1_WAIT_START");
+    Vif1Queue::waitFor(packetSequence[context]);
+    HardwareTrace::state("VIF1_WAIT_END");
+    if (telemetry != nullptr)
+      telemetry->vu1WaitTicks += readTelemetryTicks() - waitStart;
+  }
+#else
   context = !context;
+#endif
   StaPipQBuffer::flipPoolSide();
 }
 

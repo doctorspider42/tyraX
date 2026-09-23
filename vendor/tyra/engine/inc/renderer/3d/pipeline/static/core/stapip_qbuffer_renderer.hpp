@@ -11,6 +11,7 @@
 #pragma once
 
 #include <dma.h>
+#include "renderer/core/paths/path1/vif1_queue.hpp"
 #include <packet2_utils.h>
 #include <memory>
 #include <vector>
@@ -817,6 +818,12 @@ class StaPipQBufferRenderer {
   bool billboardSetActive = false;
 
   packet2_t** packets;
+  /** Modified by TyraX: how many packet buffers rotate. 2 is the stock
+   * ping-pong; with TYRA_VIF1_QUEUE it is Vif1Queue::kDepth, and
+   * packetSequence records which queued chain last used each buffer so that
+   * buffer is only rewritten once VIF1 has finished reading it. */
+  static constexpr u8 kPacketCount = TYRA_VIF1_QUEUE ? Vif1Queue::kDepth : 2;
+  u32 packetSequence[kPacketCount] = {};
   StaPipVU1Program** dBufferPrograms;
   StaPipQBuffer** buffers;
   packet2_t* staticDataPacket;

@@ -96,6 +96,10 @@ a success metric of fewer submissions/MSCAL boundaries plus lower hardware
 - **MFIFO** is justified only if traces show the EE producer repeatedly waiting
   for a DMA channel and enough independent work exists to overlap it. A large
   VIF1 wait alone is not that evidence; it can mean the consumer is the limit.
+  **The software form of this now ships** (`Vif1Queue`, 1.125.3,
+  docs/ee-submission-rearchitecture.md, "The VIF1 submission queue"). Four
+  packets in flight measured -0.50..-0.72 ms of hardware `work`. So the EE was
+  waiting, and some of that wait was recoverable.
 - **Scratchpad staging** is already covered by S1 in
   [ee-submission-rearchitecture.md](ee-submission-rearchitecture.md). Do not
   create a duplicate project before the corrupt no-flush arm identifies every
@@ -109,6 +113,34 @@ the safe part of packet preinstantiation; uncached packets were +7.55 ms and
 UCAB is unsafe with the stock patching builder; arbitrary CALL/RET/REF flyweights
 violate the current retained-command lifetime/TTE contract; and the REGLIST
 state shortcut is rejected immediately above.
+
+## VIF1 submission queue: what is left (2026-09-23)
+
+The queue (docs/ee-submission-rearchitecture.md, "The VIF1 submission queue")
+recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
+
+- **One chain for the whole scene, built in the scratchpad.** A PCSX2 capture
+  of Burnout 3, whose frame rate we would like to approach, shows its entire 3D
+  scene reaching VIF1 as a single ~4 000-tag chain.
+  `fromSPR`'s MADR ends where that chain's buffer ends, so the chain is built in
+  SPR and moved to RAM by DMA. DMA-written RAM needs no D-cache write-back, which
+  is the missing answer to "What else was `FlushCache` writing back?" below. The
+  EE writes about 16 qw per object into that chain, and every mesh chunk is a
+  single 16-byte `CALL` into a prebaked block. Our ~56-70 sends a frame
+  still pay `FlushCache(0)` each (the `dma` bracket, 0.56-0.97 ms after the
+  queue). Numbers and method: docs/emulator-captures.md. Failure test: the
+  per-frame chain buffer is larger than the frame's REF lifetime allows (the
+  copy pools and baked arenas would have to live a whole frame).
+- **The per-bag `prepare` bracket (2.0-3.0 ms).** `sendObjectData` rebuilds
+  every uniform float by float for every bag. A retained per-bag uniform block
+  patched only where the MVP or the light changed would also remove the +0.23 ms
+  the queue's inline copies added at night. Failure test: a re-shade or
+  camera-dependent term that the key cannot see, which is the same class as the
+  baked stream's content-version work.
+- **The DMAC-interrupt variant** (`TYRA_VIF1_QUEUE_ISR 1`) crashes a real PS2
+  and is off. Only worth reopening with the kernel's DMAC handler chain
+  inspected on hardware, under ps2link, since PCSX2 ran it clean. It would only
+  close the gap between one chain's end and the EE's next submit or wait.
 
 ## ~~Guard-band bags take the slow package route~~ DONE 1.124.2 (2026-09-23)
 

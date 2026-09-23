@@ -2403,6 +2403,49 @@ four-pose gate: submission saved 0.95/1.14/0.37/0.34 ms. This is not evidence
 of a whole-game FPS jump. See the report for the 240-eviction/12-switch stress
 test and the full-asset image checks.
 
+### The VIF1 submission queue (1.125.3)
+
+`Vif1Queue` (`renderer/core/paths/path1/vif1_queue.{hpp,cpp}`,
+`TYRA_VIF1_QUEUE`, on by default) lets StaPip keep up to four packets in flight
+instead of waiting for the previous transfer before every send. Each packet is
+still its own complete chain ending in END, and the EE starts the next one at
+its next submit or wait. Physical PS2: `work` -0.50..-0.72 ms in the four
+Motor District poses (docs/ee-submission-rearchitecture.md). Four rules any edit
+must keep:
+
+- **Every VIF1 user calls `Vif1Queue::drain()` before touching the channel**,
+  and no longer calls `dma_channel_wait(DMA_CHANNEL_VIF1, 0)`. A plain channel
+  wait can return between two queued chains and then start a chain under the
+  queue. Every engine site and the generated game's `projClamp` barrier were
+  converted, and a new sender must be too. In the 0 arm `drain()` IS the old
+  wait, so code is written once.
+- **"The other buffer" is gone, so stop writing `side ^ 1`, `sides 0 and 1`
+  or `!context`.** Packet buffers and qbuffer copy-pool sides now number
+  `kPacketCount` / `kPoolSides`. The one place that still said "0 or 1"
+  (`deallocateDynamicData`'s pooled test) freed arrays the pool still owned,
+  and the retained cache that reused that heap then fed VIF1 vertex floats as
+  tags (`Unknown VifCmd 3f` in PCSX2). A chain validator walked in `sendPacket`
+  (every CNT/REF payload against the UNPACK/DIRECT size its VIFcodes consume)
+  found it in one boot. Build that validator again before debugging a VIF1
+  error by reading code.
+- **Anything a chain REFs must stay unchanged until that chain has run, which
+  is now up to three packets later.** That is why `sendObjectData` copies the
+  MVP, the light matrix and directions, and the single colour inline in queue
+  mode (`kInlineUniforms`) instead of REF'ing renderer storage the next bag
+  rewrites. It costs +0.23 ms of `prepare` at night. The copy pools are covered
+  by the per-context sides and baked arenas by their two-frame graveyard. A new
+  REF target needs the same answer.
+- **Do NOT start chains from a DMAC interrupt on this engine**
+  (`TYRA_VIF1_QUEUE_ISR`, default 0). PCSX2 ran it clean. A physical PS2 under
+  ps2link took an EE exception twice, both times at the instruction right after
+  `EIntr()`. First, `ExitHandler()` (`ei` inside the handler) let a nested
+  interrupt corrupt the interrupted thread's `s0`. Then, without it, it was an
+  instruction fetch at address 0 with `Status.EXL` set, i.e. inside the
+  kernel's interrupt dispatch. **Read an EE exception taken with EXL set as "in
+  an interrupt"**: EPC is not updated while EXL is set, so it names the
+  interrupted main-thread instruction, not the fault. `symbolize EPC` then
+  points at innocent code.
+
 ### What a VU1 cycle and a DMA cache flush actually cost (2026-09-15)
 
 Two physical-PS2 experiments, both reverted, priced the next two candidate

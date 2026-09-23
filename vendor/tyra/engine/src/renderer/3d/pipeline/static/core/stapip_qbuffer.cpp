@@ -15,6 +15,7 @@
 #include <iomanip>
 
 #include "debug/hardware_trace.hpp"
+#include "renderer/core/paths/path1/vif1_queue.hpp"
 
 namespace Tyra {
 
@@ -42,7 +43,12 @@ constexpr int kMaxPools = 32;
 // on a real PS2: without it the last small bag of a run (a lamp's corona) came
 // out as a sliver to the screen corner in 4-19 of 30 frames, with an EE-side
 // wait per bag it cost 4 FPS; this costs nothing (docs/vu1-clipping.md).
-QBufferPool pools[2][kMaxPools];
+// Modified by TyraX: one side per packet buffer. With the VIF1 queue
+// (vif1_queue.hpp) up to kDepth packets are in flight, so the side being
+// written must be the one belonging to the packet buffer the renderer is about
+// to reuse - the renderer waits for THAT packet's chain before flipping here.
+constexpr int kPoolSides = TYRA_VIF1_QUEUE ? static_cast<int>(Vif1Queue::kDepth) : 2;
+QBufferPool pools[kPoolSides][kMaxPools];
 int g_poolSide = 0;
 
 QBufferPool* poolFor(const void* owner, int side) {
@@ -88,7 +94,7 @@ StaPipQBuffer::StaPipQBuffer() {
 
 StaPipQBuffer::~StaPipQBuffer() { deallocateDynamicData(); }
 
-void StaPipQBuffer::flipPoolSide() { g_poolSide ^= 1; }
+void StaPipQBuffer::flipPoolSide() { g_poolSide = (g_poolSide + 1) % kPoolSides; }
 
 // Modified by TyraX: is this address inside one of the copy pools?
 //
@@ -103,7 +109,7 @@ void StaPipQBuffer::flipPoolSide() { g_poolSide ^= 1; }
 bool StaPipQBuffer::isPoolAddress(const void* addr) {
   if (addr == nullptr) return false;
   const u8* a = static_cast<const u8*>(addr);
-  for (int side = 0; side < 2; ++side) {
+  for (int side = 0; side < kPoolSides; ++side) {
     for (int i = 0; i < kMaxPools; ++i) {
       const QBufferPool& p = pools[side][i];
       if (p.capacity == 0) continue;
@@ -312,12 +318,20 @@ void StaPipQBuffer::deallocateDynamicData() {
   if (!_isDynamicallyAllocated) return;
 
   // Pooled arrays are kept for reuse - only true heap fallbacks are freed.
-  // The arrays may belong to either side: the side has usually flipped since
-  // this slot was filled.
-  const QBufferPool* poolA = poolFor(this, 0);
-  const QBufferPool* poolB = poolFor(this, 1);
-  const bool pooled = (poolA && vertices == poolA->vertices) ||
-                      (poolB && vertices == poolB->vertices);
+  // The arrays may belong to ANY side: the side has usually moved on since
+  // this slot was filled. Modified by TyraX: this used to test sides 0 and 1
+  // only, which was the whole pool while there were two sides. With the VIF1
+  // queue's four, a slot filled from side 2 or 3 read as "not pooled", its
+  // arrays were delete[]d while the pool still owned them, and the next copy
+  // into that pool landed in whatever the heap had handed out since - the
+  // retained command cache, on the Motor District, so VIF1 met vertex floats
+  // where DMA tags belonged ("Unknown VifCmd 3f"). Every loop over sides runs
+  // to kPoolSides; there is no "the other side" any more.
+  bool pooled = false;
+  for (int side = 0; side < kPoolSides && !pooled; ++side) {
+    const QBufferPool* pool = poolFor(this, side);
+    pooled = pool && vertices == pool->vertices;
+  }
 
   if (!pooled) {
     delete[] vertices;

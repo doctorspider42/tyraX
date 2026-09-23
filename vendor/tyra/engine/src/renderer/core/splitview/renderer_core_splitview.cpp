@@ -6,9 +6,13 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Added by TyraX: split-screen viewports (two-player games).
+# Modified by TyraX: VIF1 waits go through Vif1Queue::drain(), so a chain
+# queued by the static pipeline is finished before this code takes the channel
+# (renderer/core/paths/path1/vif1_queue.hpp).
 */
 
 #include <dma.h>
+#include "renderer/core/paths/path1/vif1_queue.hpp"
 #include <draw.h>
 #include <gif_tags.h>
 #include <gs_gp.h>
@@ -105,7 +109,7 @@ void RendererCoreSplitView::begin(const int& half) {
   // 3D, or pre-split geometry): the in-stream FLUSH makes the VIF wait, not
   // the EE. The channel wait below only covers the DMA queue - by the time
   // the next half's first mesh is packaged, it has drained.
-  dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+  Vif1Queue::drain();
   dma_channel_send_packet2(beginPackets[half], DMA_CHANNEL_VIF1, true);
 }
 

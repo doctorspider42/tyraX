@@ -691,6 +691,72 @@ Two numbers from that round worth carrying into every later estimate:
   and why making `prepare` scale with something other than the bag count would
   unblock more than itself.
 
+## The VIF1 submission queue - MEASURED on hardware, 2026-09-23
+
+`VIF1 wait` was the one bucket in this page's first table in which the EE
+executes nothing (5.70 ms in garage day, in the round that measured it), and no
+earlier round went after it: `StaPipQBufferRenderer::sendPacket` sent from two
+packet buffers and waited for the previous transfer before every send. The EE
+therefore ran in lock-step with VU1. **`Vif1Queue`**
+(`renderer/core/paths/path1/vif1_queue.{hpp,cpp}`, `TYRA_VIF1_QUEUE`, on by
+default) lets up to four packets be in flight. Each packet remains its own
+complete chain ending in its own END tag, and the EE starts the next queued one
+whenever it submits or waits and finds the channel idle. Nothing joins chains
+with `NEXT`; that was tried and froze a console, see the engine skill.
+
+Physical PS2, `--profile quiet-debug` Motor District fixture, the timing
+instrument, control booted twice (floor **0.019 ms** of `work`), four parked
+poses:
+
+| pose | control `work` | queue | delta | `dma` bracket | `vif_wait` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| garage day | 14.761 | 14.043 | **-0.718** | -0.413 | -0.262 |
+| garage night | 18.003 | 17.372 | **-0.631** | -0.528 | -0.144 |
+| outer day | 11.014 | 10.463 | **-0.552** | -0.253 | -0.393 |
+| outer night | 12.555 | 12.055 | **-0.500** | -0.279 | -0.358 |
+
+Triangles and packet flushes are identical to the digit in every pose.
+`total_ms` stays at 19.96 in all eight rows: this branch's fixture already sits
+on the 20 ms rung, so the saving is headroom inside it, not a new rung. The
+night poses pay **+0.23 ms of `prepare`** for one of the changes the queue
+forced (the inline uniforms below); the net is still -0.63 / -0.50.
+
+The picture is equivalent in PCSX2's software renderer. Every differing pixel
+between the arms lies in one band (y 61-147) that also differs between two
+captures of the SAME control ELF, and the rest of the frame is byte-identical.
+
+Three things the queue could not be built without. Each was found the hard way.
+
+- **Every loop over "the copy-pool sides" had to lose its 2.**
+  `StaPipQBuffer::deallocateDynamicData` asked only sides 0 and 1 whether a
+  slot's arrays were pooled. With four sides, a slot filled from side 2 or 3 was
+  `delete[]`d while the pool still owned it, and the next copy landed in whatever
+  the heap had handed out since. On this fixture that was the retained command
+  cache, so VIF1 met vertex floats where DMA tags belonged (PCSX2:
+  `Unknown VifCmd 3f`). A chain validator walked in `sendPacket` found it: the
+  control's 6-quadword retained block (CNT header plus three REFs) had become
+  six vertices.
+- **Uniforms go inline.** For a non-batched bag, `sendObjectData` REF'd the
+  MVP, the light matrix and directions, and the single colour. That was safe
+  only while the chain was read before the next bag rewrote that storage. With a
+  queue it is not, so they are copied into the packet exactly as bounded batching
+  already did. That copy is the +0.23 ms of `prepare` at night.
+- **The interrupt-driven variant crashes a real PS2.** Starting the next chain
+  from a DMAC VIF1 completion handler (`TYRA_VIF1_QUEUE_ISR 1`) ran clean in
+  PCSX2 and took an EE exception on the console twice, both times at the first
+  instruction after `EIntr()`. The first time it had `ExitHandler()` (`ei`
+  inside the handler, which let a nested interrupt corrupt the interrupted
+  thread's `s0`). The second time, without it, it was an instruction fetch at
+  address 0 with `Status.EXL` set, i.e. inside the kernel's interrupt path. It is
+  off. What it would add over the shipped form is only the gap between one
+  chain's end and the EE's next visit.
+
+Every other VIF1 user now calls `Vif1Queue::drain()` before touching the
+channel. That includes the generated game's projected-shadow `projClamp`
+barrier, which is template code, so a committed example's `terrain_game.cpp` is
+current only after its next build regenerates it. A plain `dma_channel_wait`
+can return between two queued chains.
+
 ## Order of work
 
 1. ~~Probe A and Probe B.~~ **DONE, on hardware, 2026-09-16.** S3 does not ship;

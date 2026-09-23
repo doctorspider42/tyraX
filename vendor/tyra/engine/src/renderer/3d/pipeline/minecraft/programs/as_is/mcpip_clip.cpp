@@ -6,9 +6,13 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: VIF1 waits go through Vif1Queue::drain(), so a chain
+# queued by the static pipeline is finished before this code takes the channel
+# (renderer/core/paths/path1/vif1_queue.hpp).
 */
 
 #include "renderer/3d/pipeline/minecraft/programs/as_is/mcpip_clip.hpp"
+#include "renderer/core/paths/path1/vif1_queue.hpp"
 
 namespace Tyra {
 
@@ -154,7 +158,7 @@ void McpipClip::setDBufferSize() {
 }
 
 void McpipClip::sendVU1StaticData() {
-  dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+  Vif1Queue::drain();
   dma_channel_send_packet2(staticPacket, DMA_CHANNEL_VIF1, true);
 }
 

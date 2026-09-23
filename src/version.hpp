@@ -16,6 +16,14 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.125.3: THE EE STOPS WAITING FOR VU1 BEFORE EVERY STATIC PACKET.
+// The static pipeline keeps up to four packets in flight on VIF1 (Vif1Queue)
+// instead of waiting for each transfer before building the next. Each packet
+// is still its own chain; the EE starts the next one when it finds the channel
+// idle. Physical PS2, Motor District: work -0.72 / -0.63 / -0.55 / -0.50 ms,
+// triangles and flushes identical. Every VIF1 user drains the queue first,
+// the generated projected-shadow barrier included. PATCH.
+//
 // 1.125.2: A CAR, A BODY AND AN OCCLUDER COST LESS PER OBJECT IN THE SCENE.
 // The vehicle contact gather reads one compact collider list built per frame
 // instead of walking every object per car (4 AI cars: veh 2.28 -> 1.09 ms);
@@ -5146,7 +5154,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 125
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 3
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
