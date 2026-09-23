@@ -1075,6 +1075,42 @@ unaffected. Make the generated assembly object's ABI mode explicitly match the
 EE build rather than suppressing the linker warning. Verify a clean link and a
 native boot that exercises audio, pad input, host filesystem and USB input.
 
+### Static batching is a net LOSS on the Motor District, by every count (2026-09-23)
+
+Measured in PCSX2 on `examples/vehicle-playground` with one knob - the
+project's `staticBatching` flag - at a parked street vantage, day and night,
+counts identical across every 50-frame window in both scenes:
+
+| per 50 frames | batching ON | OFF | delta |
+|---|---:|---:|---|
+| cull triangles | 1 066 450 | 1 036 750 | **-29 700** |
+| submitted vertices | 24 090 | 23 496 | **-594** |
+| packet flushes | 2 950 | 2 700 | **-250 (-8.5%)** |
+| packages rejected | 28 850 | 27 350 | -1 500 |
+
+The night scene gives the SAME deltas to the unit (-29 700 / -594 / -250).
+That is the shape the skill calls a verdict: worse on every axis at once.
+
+It also draws MORE than the unbatched reference. 1 066 pixels differ below the
+HUD, 980 of them brighter in the batched arm, all inside a 47-row band at the
+horizon - distant props the unbatched scene culls. The mechanism is inherent:
+a batch's draw-distance test runs once against the MERGED box, so a batch with
+members spread up to 78 units drags a far member into view behind a near one.
+Draw distance is already part of the group key, so this is not a key bug.
+
+**What is NOT measured, and why this is not a decision yet.** Batching's whole
+benefit is fewer BAGS - 58 members into 42 batches here - and FTCLIP counts no
+bags. Per-bag EE overhead is exactly the term PCSX2 cannot price. On hardware
+`Static_batches` was 2.02 ms against `Objects` 7.41 at the same vantage, and
+turning batching off moves those objects into the second row. So the console
+has to settle it: build both arms, read `Static_batches` + `Objects` + `Total`
+from `--profile-frame`, and remember the emulator says the GS and VU1 side is
+already losing.
+
+If it turns out to be a loss there too, the fix is not necessarily "turn it
+off": `--batch-report` shows 21 of the 42 batches (49 of the 58 members) save
+ZERO VU1 packages, so refusing a batch that saves no packages would keep the
+wins and drop the losses. That refusal is untested.
 ## Visual showcase directions
 
 See [Rendering directions](rendering-directions.md) for the assessed roadmap:
