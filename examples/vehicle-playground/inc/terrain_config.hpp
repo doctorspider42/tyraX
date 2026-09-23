@@ -60,7 +60,7 @@ constexpr float LOOK_SPEED = 1.0F;    // multiplier
 // (worn pads rest off-center); motion rescales smoothly above it.
 // Per stick: left drives movement, right drives the camera.
 constexpr float ANALOG_DEADZONE_L = 0.2F;
-constexpr float ANALOG_DEADZONE_R = 0.2F;
+constexpr float ANALOG_DEADZONE_R = 0.3F;
 // Stick response curve applied after the deadzone (Preferences > Input):
 // 0 = Linear, 1 = Exponential (pow, finer near center), 2 = S-Curve.
 // STICK_EXP_* tunes curves 1/2 (>=1). These seed the runtime g_stickCurve*/

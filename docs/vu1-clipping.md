@@ -150,6 +150,36 @@ this pipeline is per package (a DMA chain, a kick, a copy), not per triangle, an
 the extra triangles land off-screen where the scissor discards them during
 rasterisation.
 
+### Whole bags inside the guard band (1.124.2)
+
+The same question asked one level up. A bag whose whole box is
+`PARTIALLY_IN_FRUSTUM` used to take the per-package route even when every
+package of it was going to come out "inside the view" or "guard-band only" -
+i.e. cull whole, by pointer - or "off-screen, drop". `StaPipCore::render` now
+tests the bag's MAIN box against the same eight planes first; an all-clear
+promotes the bag to `IN_FRUSTUM` and it takes the direct route (whole-bag baked
+replay included) instead of the packager, per-package classification and
+qbuffer fills. `TYRA_STAPIP_GUARD_BAND_BAGS` (top of stapip_core.cpp, default 1)
+switches it; telemetry counts the promoted bags as `bagsGuardBandDirect`, and
+their packages as `cull`, not `guard`.
+
+The trade is the package-level one again, one level up: packages wholly off
+screen but inside the band are no longer dropped on the EE - VU1 transforms
+them and the scissor discards them. Physical PS2, Motor District, the car
+parked at the 25 FPS spot (0, -74), same view in both arms:
+
+| | per-package route | whole bag direct |
+|---|---:|---:|
+| bags promoted | 0 | 36 (5 objects, the rest road/terrain chunks) |
+| packages | 429 | 479 |
+| capture: dispatch / packet build | 8.144 / 0.701 | 7.496 / 0.408 |
+| capture: VU1 wait | 2.202 | 3.144 |
+| **FRAMETIME `work`, ordinary frame** | **20.02** | **19.19** |
+
+The serialized capture shows the VU1 wait eating most of the EE saving; the
+ordinary frame does not, because there VU1 works while the EE builds the next
+bag. Quote the FRAMETIME row. The two frames differ only in the HUD digits.
+
 ## What it measured
 
 Fixture: `examples/large-terrain` (2048×2048 terrain, 1181 scattered props, the

@@ -22580,6 +22580,7 @@ void TerrainGame::renderScene() {
     u32 packagesClip = 0;
     u32 packagesGuardBand = 0;
     u32 packetFlushes = 0;
+    u32 bagsGuardBandDirect = 0;
 #if TYRA_STAPIP_ATTRIB
     u32 renderTicks = 0;
     u32 headTicks = 0;
@@ -22619,6 +22620,7 @@ void TerrainGame::renderScene() {
     d.packagesClip += t.packagesClip;
     d.packagesGuardBand += t.packagesGuardBand;
     d.packetFlushes += t.packetFlushes;
+    d.bagsGuardBandDirect += t.bagsGuardBandDirect;
 #if TYRA_STAPIP_ATTRIB
     d.renderTicks += t.attrib.renderTicks;
     d.headTicks += t.attrib.headTicks;
@@ -23457,6 +23459,7 @@ void TerrainGame::renderScene() {
       costRows.push_back({i,"Obj_clip_count",t.packagesClip*294912U});
       costRows.push_back({i,"Obj_guard_count",t.packagesGuardBand*294912U});
       costRows.push_back({i,"Obj_flush_count",t.packetFlushes*294912U});
+      costRows.push_back({i,"Obj_guard_band_bags_count",t.bagsGuardBandDirect*294912U});
       costRows.push_back({i,"Obj_outside_count",t.packagesOutside*294912U});
       costRows.push_back({i,"Obj_vertices_count",t.verticesSubmitted*294912U});
 #if TYRA_STAPIP_ATTRIB
@@ -23623,6 +23626,9 @@ void TerrainGame::renderScene() {
     costRows.push_back({-1,"Dispatch_included",pipeCost.dispatchTicks});
     costRows.push_back({-1,"VU1_wait_included",pipeCost.vu1WaitTicks});
     costRows.push_back({-1,"Program_swap_wait_included",pipeCost.programSetWaitTicks});
+    costRows.push_back({-1,"Guard_band_bags_count",pipeCost.bagsGuardBandDirect*294912U});
+    costRows.push_back({-1,"Packages_count",(pipeCost.packagesCull+pipeCost.packagesClip)*294912U});
+    // packagesGuardBand is a SUBSET of packagesCull, so it is never added in.
     // The Objects phase alone. Counts ride the same ms column scaled by one
     // millisecond's worth of ticks, so they print as whole numbers.
     {
@@ -23633,8 +23639,9 @@ void TerrainGame::renderScene() {
       costRows.push_back({-1,"Objects_DMA_submit_included",o.dmaSubmitTicks});
       costRows.push_back({-1,"Objects_packet_build_included",o.packetBuildTicks});
       costRows.push_back({-1,"Objects_VU1_wait_included",o.vu1WaitTicks});
-      costRows.push_back({-1,"Objects_packages_count",(o.packagesCull+o.packagesClip+o.packagesGuardBand)*294912U});
+      costRows.push_back({-1,"Objects_packages_count",(o.packagesCull+o.packagesClip)*294912U});
       costRows.push_back({-1,"Objects_flushes_count",o.packetFlushes*294912U});
+      costRows.push_back({-1,"Objects_guard_band_bags_count",o.bagsGuardBandDirect*294912U});
 #if TYRA_STAPIP_ATTRIB
       costRows.push_back({-1,"Objects_attrib_render",o.renderTicks});
       costRows.push_back({-1,"Objects_attrib_head",o.headTicks});
@@ -36472,10 +36479,16 @@ void TerrainGame::updateVehicles(float dt) {
       // left); Y up looks down on the car, Y down sinks toward the bumper.
       // The car stays the look-at, so the glance never loses it.
       {
+        // The project's right-stick deadzone (Preferences > Input, or the
+        // menu's Deadzone option), not a constant of its own: a pad whose
+        // stick rests a little off centre held the chase camera at a fixed
+        // angle for a whole boot, and the walker already honoured the
+        // setting while the driver did not. Rescaled from the edge like
+        // every other stick read, so there is no step at the threshold.
         const auto& rj = engine->pad.getRightJoyPad();
-        const float rx = ((float)rj.h - 128.0F) / 128.0F;
-        const float ry = ((float)rj.v - 128.0F) / 128.0F;
-        if (rx > 0.15F || rx < -0.15F)
+        const float rx = stickAxis(rj.h, g_deadzoneR, 0, 1.0F);
+        const float ry = stickAxis(rj.v, g_deadzoneR, 0, 1.0F);
+        if (rx != 0.0F)
           vehCamOrbit_ -= rx * 180.0F * dt;
         else {
           // Spring home fast enough to feel snappy and slow enough to read
@@ -36487,7 +36500,7 @@ void TerrainGame::updateVehicles(float dt) {
         }
         if (vehCamOrbit_ > 60.0F) vehCamOrbit_ = 60.0F;
         if (vehCamOrbit_ < -60.0F) vehCamOrbit_ = -60.0F;
-        if (ry > 0.15F || ry < -0.15F) {
+        if (ry != 0.0F) {
           vehCamLift_ -= ry * 2.2F * dt;
           if (vehCamLift_ > 1.0F) vehCamLift_ = 1.0F;
           if (vehCamLift_ < -0.55F) vehCamLift_ = -0.55F;

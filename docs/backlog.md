@@ -110,7 +110,12 @@ UCAB is unsafe with the stock patching builder; arbitrary CALL/RET/REF flyweight
 violate the current retained-command lifetime/TTE contract; and the REGLIST
 state shortcut is rejected immediately above.
 
-## Guard-band bags take the slow package route (2026-09-23)
+## ~~Guard-band bags take the slow package route~~ DONE 1.124.2 (2026-09-23)
+
+Whole bags inside the guard band now take the direct route: -0.83 ms of `work`
+at the 25 FPS spot (docs/vu1-clipping.md, "Whole bags inside the guard band").
+The original entry:
+
 
 A bag that is not wholly inside the view but whose out-of-view packages stay
 inside the guard band is dispatched through the generic `renderPkgs` route

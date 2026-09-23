@@ -27,6 +27,14 @@
 #define Verbose(...) ((void)0)
 #endif
 
+// Modified by TyraX: whole-bag guard-band routing (docs/vu1-clipping.md,
+// "Whole bags inside the guard band"). 1 = a bag whose box crosses the screen
+// edge but no VU1 clip plane takes the direct route; 0 = the per-package
+// route it took before. Kept switchable for the A/B only.
+#ifndef TYRA_STAPIP_GUARD_BAND_BAGS
+#define TYRA_STAPIP_GUARD_BAND_BAGS 1
+#endif
+
 namespace Tyra {
 
 // Modified by TyraX: diagnostic COP0 reads are entirely opt-in.
@@ -626,7 +634,7 @@ void StaPipCore::render(StaPipBag* bag) {
   packager.setRenderBBox(bbox);
   // Modified by TyraX: a wholly visible bag needs no per-package tests.
   // That route submits every package directly; its classifications are unused.
-  const bool classifyPackages = frustumCull && frustumCheck == PARTIALLY_IN_FRUSTUM;
+  bool classifyPackages = frustumCull && frustumCheck == PARTIALLY_IN_FRUSTUM;
   packager.setObjectSpacePlanes(classifyPackages ? objectSpacePlanes : nullptr);
 
   M4x4 mvp;
@@ -656,6 +664,31 @@ void StaPipCore::render(StaPipBag* bag) {
     transformCachePlanesValid = true;
   }
 
+#if TYRA_STAPIP_GUARD_BAND_BAGS
+  // Modified by TyraX: a bag that only straddles the SCREEN edge. Its box
+  // crosses the view frustum, but if it is inside all eight VU1 planes (the
+  // guard band plus the exact near/far pair) then no package of it can need
+  // cutting: the per-package route would only sort each one into "cull whole"
+  // (inside the view or guard-band-only) or "drop" (off-screen). Taking the
+  // direct route instead costs one box test here and saves the packager, the
+  // per-package classification and the qbuffer fills - ~20 us a package
+  // against ~2 on a physical PS2 - and the whole-bag baked replay becomes
+  // possible. The price is that the off-screen packages are no longer dropped
+  // on the EE: VU1 transforms them and the GS scissor discards their pixels,
+  // which the guard band guarantees stay inside the raster window.
+  if (classifyPackages && qbufferRenderer.isVU1ClippingEnabled() &&
+      bag->info->fullClipChecks && bag->billboard == nullptr) {
+    computeClipObjectSpacePlanes(mvp);
+    const CoreBBox* mainBox = bbox->getMainBBox();
+    if (CoreBBox::activePlaneMaskAABB(clipObjectSpacePlanes, (*mainBox)[0],
+                                      (*mainBox)[7], 8) == 0) {
+      frustumCheck = IN_FRUSTUM;
+      classifyPackages = false;
+      packager.setObjectSpacePlanes(nullptr);
+      if (telemetryEnabled) ++telemetry.bagsGuardBandDirect;
+    }
+  }
+#endif
   if (classifyPackages && qbufferRenderer.isVU1ClippingEnabled()) {
     computeClipObjectSpacePlanes(mvp);
     packager.setClipObjectSpacePlanes(clipObjectSpacePlanes);

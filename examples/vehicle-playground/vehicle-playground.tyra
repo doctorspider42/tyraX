@@ -1,7 +1,7 @@
 {
   "name": "vehicle-playground",
-  "formatVersion": 59,
-  "editorVersion": "1.117.6",
+  "formatVersion": 61,
+  "editorVersion": "1.124.1",
   "template": "fpp",
   "projectId": "99089f551e395d01",
   "settings": {
@@ -38,6 +38,7 @@
     "animSourceFps": 24,
     "animPlayFps": 24,
     "staticBatching": true,
+    "occlusionCulling": false,
     "envProbeReflected": false,
     "navCellSize": 1,
     "navMaxSlope": 40,
@@ -56,7 +57,7 @@
     "lookSpeed": 1,
     "sprintMultiplier": 1.8,
     "stickDeadzoneL": 0.2,
-    "stickDeadzoneR": 0.2,
+    "stickDeadzoneR": 0.3,
     "stickCurveL": 0,
     "stickCurveR": 0,
     "stickExpL": 2,
@@ -265,10 +266,10 @@
     { "id": "ggbotrally0001", "name": "Rally 04", "notes": "Car 04 by GGBotNet (CC0); wheels separated and scaled by TyraX", "model": "res/models/ggbot-rally.glb", "bodyTris": 1800, "wheelTris": 300, "bodyShine": 0.35, "cam": [6.5, 2.2, 12], "exit": [-1.4, 0, 0], "hud": true, "hudFont": "", "hudSpeedScale": 3.6, "engineSound": "res/sfx/engine-loop.wav", "enginePitch": [0.75, 2.4], "engineVolume": 70, "engineHighSound": "res/sfx/engine-high-loop.wav", "screechSound": "res/sfx/screech-loop.wav", "screechVolume": 80, "shiftSound": "res/sfx/gear-shift.wav", "shiftVolume": 80, "farDistance": 48, "drive": {"wheelBase": 2.733, "track": 1.562, "bodyOverhang": 0.3, "wheelRadius": 0.341, "topSpeed": 26, "reverseTopSpeed": 6, "accel": 10, "brakeDecel": 18, "engineBraking": 3, "drag": 0.0016, "maxSteerDeg": 34, "highSpeedSteerDeg": 11, "steerRateDeg": 220, "steerReturnDeg": 300, "grip": 22, "handbrakeGrip": 5, "gravity": 24, "rideHeight": 0.341, "suspensionTravel": 0.26, "suspensionRate": 8, "maxSlopeCos": 0.5, "mass": 12, "leanAmount": 0.35, "gears": 5, "gearSpread": 1.28, "idleRpm": 800, "redlineRpm": 7200, "shiftUpFrac": 0.95, "shiftDownFrac": 0.48, "shiftTime": 0.1, "gearTorque": 0.35, "nosCapacity": 4, "nosBoost": 0.8, "nosTopSpeed": 1.18, "nosRefill": 0.12 } },
     { "id": "tristarplay01", "name": "Tristar Racer", "notes": "designersoup Low Poly Car Starter Pack; see THIRD-PARTY-NOTICES.txt", "model": "res/models/tristar-efficient.glb", "bodyTris": 1200, "wheelTris": 76, "bodyShine": 0.35, "cam": [6.5, 2.2, 12], "exit": [-1.4, 0, 0], "hud": true, "hudFont": "", "hudSpeedScale": 3.6, "engineSound": "res/sfx/engine-loop.wav", "enginePitch": [0.75, 2.4], "engineVolume": 70, "engineHighSound": "res/sfx/engine-high-loop.wav", "screechSound": "res/sfx/screech-loop.wav", "screechVolume": 80, "shiftSound": "res/sfx/gear-shift.wav", "shiftVolume": 80, "farDistance": 48, "drive": {"wheelBase": 2.354, "track": 1.555, "bodyOverhang": 0.3, "wheelRadius": 0.31, "topSpeed": 32, "reverseTopSpeed": 6, "accel": 12, "brakeDecel": 18, "engineBraking": 3, "drag": 0.0016, "maxSteerDeg": 34, "highSpeedSteerDeg": 12, "steerRateDeg": 220, "steerReturnDeg": 300, "grip": 29, "handbrakeGrip": 6, "gravity": 24, "rideHeight": 0.31, "suspensionTravel": 0.18, "suspensionRate": 8, "maxSlopeCos": 0.5, "mass": 12, "leanAmount": 0.25, "gears": 5, "gearSpread": 1.28, "idleRpm": 800, "redlineRpm": 7200, "shiftUpFrac": 0.95, "shiftDownFrac": 0.48, "shiftTime": 0.1, "gearTorque": 0.35, "nosCapacity": 4, "nosBoost": 0.8, "nosTopSpeed": 1.18, "nosRefill": 0.18 } }
   ],
-  "editor": { "selectedObject": 132, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "showFog": true, "cam": [5.98005, 0.14, 29.8542, 0, 0.5, 0], "breakpoints": [] },
+  "editor": { "selectedObject": 132, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "showFog": true, "cam": [4.74004, 0.18, 105.705, 0, 0.5, 0], "breakpoints": [] },
   "activeLayout": 0,
   "layouts": [
-    { "name": "Default", "recipe": 0, "open": ["debugger"], "ini": "[Window][Project]\nPos=0,23\nSize=444,994\nCollapsed=0\nDockId=0x00000001,0\nLastUsed=20260921\n\n[Window][Properties]\nPos=1274,23\nSize=646,994\nCollapsed=0\nDockId=0x00000004,0\nLastUsed=20260921\n\n[Window][Debugger]\nPos=1274,23\nSize=646,994\nCollapsed=0\nDockId=0x00000004,1\nLastUsed=20260921\n\n[Window][Output]\nPos=446,779\nSize=826,238\nCollapsed=0\nDockId=0x00000006,0\nLastUsed=20260921\n\n[Window][Debug]\nPos=446,779\nSize=826,238\nCollapsed=0\nDockId=0x00000006,1\nLastUsed=20260921\n\n[Window][Flow Graph]\nPos=446,23\nSize=826,754\nCollapsed=0\nDockId=0x00000005,1\nLastUsed=20260921\n\n[Window][Viewport]\nPos=446,23\nSize=826,754\nCollapsed=0\nDockId=0x00000005,0\nLastUsed=20260921\n\n[Window][WindowOverViewport_11111111]\nPos=0,23\nSize=1920,994\nCollapsed=0\nLastUsed=20260921\n\n[Window][Debug##Default]\nPos=60,60\nSize=400,400\nCollapsed=0\nLastUsed=20260921\n\n[Window][##MainMenuBar]\nPos=0,0\nSize=1920,23\nCollapsed=0\nLastUsed=20260921\n\n[Window][Vehicle Editor]\nPos=53,254\nSize=760,560\nCollapsed=0\nLastUsed=20260920\n\n[Window][Scene Preferences]\nPos=680,61\nSize=560,894\nCollapsed=0\nLastUsed=20260920\n\n[Window][Project Preferences]\nPos=926,119\nSize=720,860\nCollapsed=0\nLastUsed=20260920\n\n[Table][0x8E37EF50,3]\nLastUsed=20260920\n\n[Docking][Data]\nDockSpace       ID=0x08BD597D Window=0x1BBC0F80 Pos=0,23 Size=1920,994 Split=X\n  DockNode      ID=0x00000001 Parent=0x08BD597D SizeRef=444,915 Selected=0x9C21DE82\n  DockNode      ID=0x00000002 Parent=0x08BD597D SizeRef=1407,915 Split=X\n    DockNode    ID=0x00000003 Parent=0x00000002 SizeRef=826,915 Split=Y\n      DockNode  ID=0x00000005 Parent=0x00000003 SizeRef=1039,675 CentralNode=1 Selected=0xC450F867\n      DockNode  ID=0x00000006 Parent=0x00000003 SizeRef=1039,238 Selected=0x6BCC3585\n    DockNode    ID=0x00000004 Parent=0x00000002 SizeRef=646,915 Selected=0x8C72BEA8\n\n" },
+    { "name": "Default", "recipe": 0, "open": ["debugger"], "ini": "[Window][Project]\nPos=0,23\nSize=444,994\nCollapsed=0\nDockId=0x00000001,0\nLastUsed=20260923\n\n[Window][Properties]\nPos=1274,23\nSize=646,994\nCollapsed=0\nDockId=0x00000004,0\nLastUsed=20260923\n\n[Window][Debugger]\nPos=1274,23\nSize=646,994\nCollapsed=0\nDockId=0x00000004,1\nLastUsed=20260923\n\n[Window][Output]\nPos=446,779\nSize=826,238\nCollapsed=0\nDockId=0x00000006,0\nLastUsed=20260923\n\n[Window][Debug]\nPos=446,779\nSize=826,238\nCollapsed=0\nDockId=0x00000006,1\nLastUsed=20260923\n\n[Window][Flow Graph]\nPos=446,23\nSize=826,754\nCollapsed=0\nDockId=0x00000005,1\nLastUsed=20260923\n\n[Window][Viewport]\nPos=446,23\nSize=826,754\nCollapsed=0\nDockId=0x00000005,0\nLastUsed=20260923\n\n[Window][WindowOverViewport_11111111]\nPos=0,23\nSize=1920,994\nCollapsed=0\nLastUsed=20260923\n\n[Window][Debug##Default]\nPos=60,60\nSize=400,400\nCollapsed=0\nLastUsed=20260923\n\n[Window][##MainMenuBar]\nPos=0,0\nSize=1920,23\nCollapsed=0\nLastUsed=20260923\n\n[Window][Vehicle Editor]\nPos=53,254\nSize=760,560\nCollapsed=0\nLastUsed=20260920\n\n[Window][Scene Preferences]\nPos=680,61\nSize=560,894\nCollapsed=0\nLastUsed=20260920\n\n[Window][Project Preferences]\nPos=926,119\nSize=720,860\nCollapsed=0\nLastUsed=20260920\n\n[Table][0x8E37EF50,3]\nLastUsed=20260920\n\n[Docking][Data]\nDockSpace       ID=0x08BD597D Window=0x1BBC0F80 Pos=0,23 Size=1920,994 Split=X\n  DockNode      ID=0x00000001 Parent=0x08BD597D SizeRef=444,915 Selected=0x9C21DE82\n  DockNode      ID=0x00000002 Parent=0x08BD597D SizeRef=1407,915 Split=X\n    DockNode    ID=0x00000003 Parent=0x00000002 SizeRef=826,915 Split=Y\n      DockNode  ID=0x00000005 Parent=0x00000003 SizeRef=1039,675 CentralNode=1 Selected=0xE96C8334\n      DockNode  ID=0x00000006 Parent=0x00000003 SizeRef=1039,238 Selected=0x6BCC3585\n    DockNode    ID=0x00000004 Parent=0x00000002 SizeRef=646,915 Selected=0x8C72BEA8\n\n" },
     { "name": "Director", "recipe": 1, "open": ["cutscene"], "ini": "" },
     { "name": "Material Designer", "recipe": 2, "open": ["material"], "ini": "" },
     { "name": "Debugger", "recipe": 3, "open": ["debugger"], "ini": "" },

@@ -2146,8 +2146,8 @@ predicts the frame. Two things stood out in it:
   have rejected them for ~2 us was reserved for models of three or more parts.
 - Bags with guard-band packages take the generic package route
   (`Obj_ds_render` + `Obj_ds_flush`, ~0.07 ms an object) where a fully visible
-  bag takes the direct one (~0.012 ms). Three objects, ~0.3 ms; not touched
-  yet. The GIF wait inside `sendPacket` measured 0 - no texture re-uploads
+  bag takes the direct one (~0.012 ms). Fixed in 1.124.2 - docs/vu1-clipping.md,
+  "Whole bags inside the guard band". The GIF wait inside `sendPacket` measured 0 - no texture re-uploads
   (no VRAMSTAT eviction line either).
 
 **The coarse box for every object (1.124.1)**, same pose, the one change
@@ -2164,3 +2164,17 @@ between the two ELFs:
 Everything drawn is identical to the vertex and the frame lost 0.40 ms (2.9%).
 Both arms were stable to +-0.03 ms over six 50-frame windows; a rerun of the
 "after" build by mistake read 13.79, which is the repeatability.
+
+### An A/B needs the SAME view - check `Loop_past_coarse_count` (2026-09-23)
+
+The first guard-band A/B compared a capture that saw 40 objects past the coarse
+test with one that saw 61, from the same car at the same spot: the pad's right
+stick rested slightly off centre on one boot, and the car's glance camera read
+it through a hardcoded 0.15 threshold instead of the project deadzone (fixed in
+1.124.2 - it now uses `stickAxis` with `g_deadzoneR`, and Motor District's
+right deadzone is 0.3). The difference looked like a regression of +2.7 ms in
+Objects. **Before comparing two arms, compare `Loop_past_draw_count` and
+`Loop_past_coarse_count`; if they differ the arms are not looking at the same
+thing.** Also: `Objects_packages_count` summed guard into cull until 1.124.2
+(`packagesGuardBand` is a subset of `packagesCull`), so the "53 packages" of
+the start-pose table above were 42.

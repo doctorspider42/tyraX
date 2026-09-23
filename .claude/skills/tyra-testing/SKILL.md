@@ -3171,6 +3171,12 @@ spikes against 0 in a paired emulator run.
 - **`freepad: DMA Busy ... ret = 0` repeating** - a real IOP wedge on the next
   boot, and only a power cycle clears it. That is the one below.
 
+**Two arms must be looking at the same thing.** A pad whose stick rests off
+centre moves the view on one boot and not the next (the car's glance camera
+did exactly that until 1.124.2 and faked a +2.7 ms regression). Compare
+`Loop_past_draw_count` / `Loop_past_coarse_count` in the two captures before
+comparing any millisecond, and take a `--capture-frame` of each arm.
+
 **Resetting a console that is running a debug build can wedge it.** From the
 evening of 2026-09-22 most `reset` + `execee` cycles of a debug build came back
 with `freepad: DMA Busy ID = ... ret = 0` repeating (or an entirely empty

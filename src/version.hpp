@@ -16,6 +16,18 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.124.2: WHOLE BAGS INSIDE THE GUARD BAND TAKE THE DIRECT ROUTE.
+// A bag that only straddles the screen edge - its box inside all eight VU1
+// planes - used to go through the packager and per-package classification
+// only for every package to come out "cull whole" or "drop". It is promoted
+// to IN_FRUSTUM instead (TYRA_STAPIP_GUARD_BAND_BAGS). Physical PS2, Motor
+// District 25 FPS spot: 36 bags promoted, ordinary-frame work 20.02 -> 19.19
+// ms, the picture identical below the HUD. Also: the car's glance camera
+// reads the project's right deadzone instead of its own 0.15 (a drifting pad
+// held it turned for a whole boot, which spoiled the first A/B), Motor
+// District's right deadzone is 0.3, and the capture's package counts stop
+// adding the guard subset into cull. PATCH.
+//
 // 1.124.1: EVERY OBJECT GETS THE COARSE FRUSTUM BOX.
 // The whole-object AABB reject was reserved for models of three or more
 // parts ("a one-part primitive has nothing to amortize"). On a physical PS2
@@ -5099,7 +5111,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 124
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

@@ -140,6 +140,12 @@ struct StaPipTelemetry {
    */
   u32 packagesGuardBand = 0;
   u32 trianglesGuardBand = 0;
+  /**
+   * Modified by TyraX: WHOLE BAGS that left the view but not the guard band
+   * and were therefore sent down the direct route (TYRA_STAPIP_GUARD_BAND_BAGS
+   * in stapip_core.cpp). Their packages count as `cull`, not `guard`.
+   */
+  u32 bagsGuardBandDirect = 0;
 
   /**
    * Modified by TyraX: triangle-strip routing (StaPipBag::stripped).

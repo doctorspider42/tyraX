@@ -892,6 +892,10 @@ supported by Live Logic - add one and rebuild.
 The **right stick glances around the rig** — X walks around the car up to
 **±60°**, Y lifts or sinks the boom — and both offsets **spring back to zero
 on release**: the stick is a glance at a rival or an apex, never a re-aim.
+It honours the project's **right-stick deadzone** (Preferences > Input, or a
+menu's Deadzone option) with the same edge rescale as every other stick read;
+until 1.124.2 it had its own 0.15, and a pad resting slightly off centre held
+the chase camera turned for a whole boot.
 The cap is a frame-rate decision as much as a feel one: the first cut allowed
 a full orbit, and swinging the view broadside puts the whole map in the
 frustum at once (terrain fill plus every prop), which is exactly where

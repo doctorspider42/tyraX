@@ -73,10 +73,12 @@ The coupe retains its engine/rev crossfade, tyre squeal, gear-shift sound,
 brake lamps, suspension and projected silhouette. The parked Rally also uses
 a projected silhouette; AI cars use cheaper blob shadows.
 
-To start a test case already driving, give `vehicle-1` a flow graph
-`On Start -> Enter Vehicle` (object left empty = the car itself); the shipped
-project does not, so the district still opens on foot. See docs/vehicles.md,
-"From a flow graph".
+The district opens **behind the wheel**: `vehicle-1` (the CC96) is parked at
+(0, -74) - the spot that held 25 FPS on a physical PS2 in September 2026 - and
+its flow graph runs `On Start -> Enter Vehicle`, so every boot starts at the
+same measurement pose (docs/vehicles.md, "From a flow graph"). Delete that
+graph to start on foot. The right-stick deadzone is 0.3 because the test pad
+drifts; the car's glance camera reads it (it did not before 1.124.2).
 
 ## Reflections and cost
 
