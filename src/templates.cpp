@@ -21227,9 +21227,27 @@ void TerrainGame::renderRoadChunks() {
       if (dx * dx + dy * dy + dz * dz > c.drawDist * c.drawDist) continue;
     }
     if (splitBandActive && outsideSplitBand(c.aabbMin, c.aabbMax)) continue;
-    // Roads are long, shallow receiver surfaces. Coarse whole-AABB frustum and
-    // software-depth tests have both produced false-hidden asphalt gaps. Leave
-    // their exact clipping to StaPip; distance and split-screen bands remain.
+    // Roads are long, shallow receiver surfaces, and BOTH coarse rejects were
+    // removed together in 1.122.2 after false-hidden asphalt gaps. Only one of
+    // them could have caused those: the SOFTWARE-DEPTH test is approximate by
+    // construction and stays out. The frustum test is not - it is
+    // CoreBBox::frustumCheckAABB against the chunk's own exact world box, the
+    // identical call renderProcChunks makes on every other generated chunk and
+    // renderVehicleWheels on every rig, at the same point in the frame and off
+    // the same planes, neither of which has ever dropped anything visible. A
+    // conservative box test cannot hide geometry the box contains, and
+    // procFinishChunks builds that box from these very vertices.
+    //
+    // It is worth restoring because roads had no coarse reject at all: every
+    // chunk of the district's 54 was handed to StaPip on every frame to be
+    // classified package by package, 256 rejected against 50 drawn (PCSX2
+    // per-producer inventory, garage day).
+    const Tyra::Vec4 mn(c.aabbMin[0], c.aabbMin[1], c.aabbMin[2], 1.0F);
+    const Tyra::Vec4 mx(c.aabbMax[0], c.aabbMax[1], c.aabbMax[2], 1.0F);
+    if (Tyra::CoreBBox::frustumCheckAABB(
+            engine->renderer.core.renderer3D.frustumPlanes.getAll(), mn, mx) ==
+        Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
+      continue;
     stapip.core.render(c.bag.get());
   }
 }

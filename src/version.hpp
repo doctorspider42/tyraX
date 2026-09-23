@@ -16,6 +16,19 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.123.5: ROADS GET THEIR COARSE FRUSTUM REJECT BACK.
+// 1.122.2 removed two coarse rejects from renderRoadChunks in one commit after
+// false-hidden asphalt gaps, and only one of them can produce a false
+// negative. The software-depth test is approximate and stays out; the frustum
+// one is CoreBBox::frustumCheckAABB against the chunk's own exact world box -
+// the identical call renderProcChunks and renderVehicleWheels already make at
+// the same point in the frame off the same planes. Without it all 54 district
+// chunks were classified package by package every frame. PCSX2, parked street
+// vantage: packages rejected 24850 -> 13200 per 50 frames (-47%) with cull,
+// clip, guard, verts and flush identical to the digit; 0 pixels differ on both
+// DAY benchmark poses, both arms byte-identical within themselves. The night
+// poses are not readable - their own repeats disagree. Format stays 61. PATCH.
+//
 // 1.123.4: THE MOTOR DISTRICT TURNS ON TERRAIN DETAIL DISTANCE.
 // examples/vehicle-playground shipped with terrainLodDistance 0 while its
 // terrain was the frame's largest geometry producer. 70 is the largest band
@@ -5001,7 +5014,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 123
-#define TYRAX_VERSION_PATCH 4
+#define TYRAX_VERSION_PATCH 5
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

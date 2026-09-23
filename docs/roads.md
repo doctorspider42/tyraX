@@ -459,3 +459,39 @@ nothing — the falsification arm stayed green for 40 000 queries for exactly
 that reason. And the index keys chunks by their index in `procChunks`, so it is
 rebuilt whenever that list changes size as well as when `buildRoads` marks it
 dirty.
+
+## The coarse frustum reject comes back, without the occlusion one (1.123.5)
+
+1.122.2 removed TWO coarse rejects from `renderRoadChunks` in one commit after
+false-hidden asphalt gaps: the whole-AABB frustum test and the software-depth
+one. Only one of them can produce a false negative. The software-depth test is
+approximate by construction and stays out. The frustum test is
+`CoreBBox::frustumCheckAABB` against the chunk's own exact world box - the
+identical call `renderProcChunks` makes on every other generated chunk and
+`renderVehicleWheels` on every rig, at the same point in the frame and off the
+same planes, neither of which has ever dropped anything visible. A conservative
+box test cannot hide geometry its box contains, and `procFinishChunks` builds
+that box from the very vertices the chunk draws.
+
+Without it roads had no coarse reject at all: all 54 chunks went to StaPip on
+every frame to be classified package by package. Measured in PCSX2 at a parked
+street vantage (counts are exact there, milliseconds are not), one knob:
+
+| per 50 frames | without | with | delta |
+|---|---:|---:|---|
+| `out` (packages rejected) | 24 850 | **13 200** | **-47%** |
+| `cull` | 15 100 / 913 350 | 15 100 / 913 350 | identical |
+| `clip` | 950 / 28 900 | 950 / 28 900 | identical |
+| `guard` | 3 500 / 123 900 | 3 500 / 123 900 | identical |
+| `verts`, `flush` | 21 171, 3 000 | 21 171, 3 000 | identical |
+
+Everything drawn is identical to the digit and half the classification work is
+gone, which is the signature of a correct conservative cull: had the box test
+dropped anything visible, `cull` would have fallen with it.
+
+Pictures, from two `benchmark-district.py` fixtures one knob apart, two
+captures per pose per arm: **0 pixels differ on both DAY poses**, with both
+arms byte-identical within themselves. The two night poses are not readable -
+their own repeats disagree, because the district's lamps flicker and its stars
+twinkle (tyra-testing, "The district's NIGHT poses are not frozen"). Read that
+as the fixture's property, not as a result.
