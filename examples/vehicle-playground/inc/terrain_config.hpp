@@ -26,7 +26,7 @@ constexpr float TERRAIN_VIEW_DISTANCE = 150.0F;
 // stitched to the neighbouring tile's stride, so the drop in detail costs no
 // crack. 0 = every tile at full detail. Gameplay reads TERRAIN_HEIGHTS and is
 // never affected.
-constexpr float TERRAIN_LOD_DISTANCE = 0.0F;
+constexpr float TERRAIN_LOD_DISTANCE = 70.0F;
 
 // The flashlight's shadow technique (Preferences > Rendering,
 // docs/flashlight.md "The shadow"). 0 = silhouette slots (mesh-accurate

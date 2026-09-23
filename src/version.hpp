@@ -16,6 +16,20 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.123.4: THE MOTOR DISTRICT TURNS ON TERRAIN DETAIL DISTANCE.
+// examples/vehicle-playground shipped with terrainLodDistance 0 while its
+// terrain was the frame's largest geometry producer. 70 is the largest band
+// arrangement its own quality oracles accept: the every-4th-sample band rises
+// 0.3807 units above the dense surface against the road's 0.12 lift and would
+// bury the asphalt, and it starts at 2.2x the distance, so 70 keeps it past
+// the 150-unit terrain view distance for ever. The every-2nd band rises
+// 0.0175 and subtends 1.3 pixels. PCSX2 counts on the example, parked street
+// vantage, day: triangles -18.5%, VU1 packages -13.3%, submitted vertices
+// -12.1%. Two fixtures differing in that constant alone, three byte-identical
+// captures each, differ in 1743 pixels of 180224 (0.97%) in one horizon band.
+// The inventory tool's stale anchors were repaired in the same commit.
+// Project format stays 61. PATCH.
+//
 // 1.123.3: CACHE THE LIGHT CONE'S SHAFT.
 // Every visible cone lamp rebuilt its 24-vertex shaft and 24 colours from
 // scratch every frame - 16 cosf/sinf calls apiece - although the geometry is a
@@ -4987,7 +5001,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 123
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_PATCH 4
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

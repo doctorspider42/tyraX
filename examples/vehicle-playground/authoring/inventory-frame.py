@@ -340,8 +340,17 @@ block = tail[lo:hi]
 needle = '    skyDome.infoBag->zTestType = prevZTest;'
 assert block.count(needle) == 1, needle
 block = block.replace(needle, needle + '\n' + close('env_probe_sky').rstrip('\n'), 1)
-needle = '''      for (GeoPart& part : objectGeometry[ri].parts)
-        if (part.bag) ++districtInv::bags, stapip.core.render(part.bag.get());'''
+# The probe's submit is an if/else since the reflection BOX PROXIES landed
+# (1.111.0, docs/reflective-materials.md): an object with `reflectionProxy`
+# takes renderReflectionProxy() and never enters the part loop. The drain has
+# to go after the WHOLE if/else, not after the loop - anchored on the loop
+# alone, a proxied object's telemetry leaks into whatever drains next, which
+# is the one thing this instrument exists not to do.
+needle = '''      if (ro.data.reflectionProxy)
+        renderReflectionProxy(ri);
+      else
+        for (GeoPart& part : objectGeometry[ri].parts)
+          if (part.bag) ++districtInv::bags, stapip.core.render(part.bag.get());'''
 assert block.count(needle) == 1, 'probe object loop shape changed'
 block = block.replace(needle, needle + '''
       { const Tyra::StaPipTelemetry dmI = stapip.core.takeTelemetry();
@@ -416,16 +425,26 @@ tail = tail.replace(closer, closer + '''
                            runtimeObjects[i].data.model, dmI);
     districtInv::add(%d, dmI); }''' % IDX['object_submit'], 1)
 
-# Roads are procedural chunks with owner == -3 (docs/roads.md); everything else
-# renderProcChunks draws is a volume or a prefab instance. Splitting them needs
-# the drain INSIDE the chunk loop, because the two kinds interleave.
+# Roads USED to be procedural chunks discriminated by owner == -3 inside
+# renderProcChunks, and this tool split them with a ternary in one drain.
+# They have had their own renderRoadChunks() since 1.117.6 - the testing
+# skill puts it as "Procedural explicitly skips owner -3 road chunks and now
+# means only procedural volumes/prefabs" - so the two functions end with the
+# SAME submit line and the old single-match anchor found two of them. One
+# drain per function now, each hard-wired to its own slot.
 needle = '    ++districtInv::bags, stapip.core.render(c.bag.get());\n  }\n}'
-assert tail.count(needle) == 1, 'renderProcChunks shape changed'
-tail = tail.replace(needle, '''    ++districtInv::bags, stapip.core.render(c.bag.get());
-    { const Tyra::StaPipTelemetry dmI = stapip.core.takeTelemetry();
-      districtInv::add(c.owner == -3 ? %du : %du, dmI); }
-  }
-}''' % (IDX['roads'], IDX['proc_other']), 1)
+assert tail.count(needle) == 2, 'chunk renderer shape changed'
+def _chunk_drain(slot):
+    return ('    ++districtInv::bags, stapip.core.render(c.bag.get());\n'
+            '    { const Tyra::StaPipTelemetry dmI = stapip.core.takeTelemetry();\n'
+            '      districtInv::add(%du, dmI); }\n'
+            '  }\n}') % slot
+_pr = tail.index('void TerrainGame::renderProcChunks()')
+_rd = tail.index('void TerrainGame::renderRoadChunks()')
+_sites = sorted([(_pr, IDX['proc_other']), (_rd, IDX['roads'])], reverse=True)
+for _where, _slot in _sites:  # later site first, so the earlier index holds
+    _at = tail.index(needle, _where)
+    tail = tail[:_at] + _chunk_drain(_slot) + tail[_at + len(needle):]
 
 path.write_text(s[:start] + helper + loop + tail, encoding='utf-8')
 print('Instrumented for inventory:', path)

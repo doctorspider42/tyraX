@@ -130,3 +130,56 @@ compute both tables for any project; neither needs a console or an emulator.
 - [The flashlight](flashlight.md) — why a finer grid is *not* how you get a
   better-looking torch.
 - [Profiling](profiling.md) — how to measure whether any of this helped.
+
+## The Motor District turns it on (1.123.4)
+
+`examples/vehicle-playground` shipped with `terrainLodDistance` at 0 — the
+feature off — while its terrain was the frame's largest geometry producer. It
+is 70 now, and the value is not a guess: it is the largest band arrangement the
+district's own quality oracles accept.
+
+**Why 70 and not more or less.** Two bands exist: every 2nd sample out to 2.2x
+the distance, every 4th beyond. Run against the district's real heightfield and
+its seven roads' own sample positions
+(`authoring/road-lod-2026-09-16/terrain-lod-burial.py`):
+
+| band | worst rise above the dense surface | road lift | verdict |
+|---|---:|---:|---|
+| every 2nd sample | 0.0175 units | 0.12 | safe |
+| every 4th sample | **0.3807 units** | 0.12 | **buries the asphalt** |
+
+So the every-4th band must never engage. It starts at 2.2 x the distance, and
+the terrain view distance is 150, so any distance at or above 68.2 keeps it
+permanently out of range. 70 does, with room. `terrain-lod-step.py` prices what
+is left: the every-2nd band's worst vertical disagreement is 0.2363 units and
+at 70 units it subtends **1.3 pixels**.
+
+**What it is worth**, measured in PCSX2 on the example itself (counts are exact
+there; milliseconds are not) at a parked street vantage, day, one knob:
+
+| | LOD off | LOD 70 | delta |
+|---|---:|---:|---:|
+| triangles / frame | 1 308 100 | 1 066 150 | **-18.5%** |
+| VU1 packages / frame | 22 550 | 19 550 | **-13.3%** |
+| submitted vertices / frame | 24 090 | 21 171 | **-12.1%** |
+| packet flushes | 2 950 | 3 000 | +1.7% |
+
+The garage poses gain much more and the outer-road poses almost nothing — on
+the outer road the camera sits near the map edge and the visible ground is
+inside the full-detail radius anyway. A per-producer inventory of the four
+benchmark poses put terrain at 5 416 triangles a frame before and 1 780 after,
+a **67% cut of the terrain itself**.
+
+**The picture**, from two `benchmark-district.py` fixtures differing in that
+constant alone, three captures each, both arms byte-identical within themselves:
+**1 743 pixels of 180 224 (0.97%)** differ, all of them in a 32-row band at the
+horizon, mean absolute difference 0.9 of 255. That is the far ground's
+silhouette settling by about a pixel, which is what the step oracle predicted.
+
+**A caveat about the inventory percentages.** Those fixtures build from the
+example's committed sources without a texture bake, so they render the district
+with placeholder boxes instead of its models (docs/performance-hardware-recheck.md,
+the full-asset gate). Terrain and road geometry is generated and therefore
+correct in them, but the SHARE of the frame each producer holds is not - the
+models are missing from the denominator. The per-frame counts quoted above come
+from the real example, with its real assets, and those are the ones to quote.
