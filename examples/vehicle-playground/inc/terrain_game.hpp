@@ -1642,6 +1642,18 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> coronaColorBag, coneColorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> coronaTexBag;
     std::unique_ptr<Tyra::StaPipBag> coronaBag, coneBag;
+    // The cone shaft is a pure function of the lamp's position and radius -
+    // both static for an authored lamp - and its two colours of the lamp
+    // colour. Only the flicker's additiveBlendFix moves. Remember that key so
+    // 24 vertices, 24 colours and 16 transcendental calls per visible cone per
+    // frame do not run again merely because the brightness breathed, and so
+    // the bag's bboxVersion stops being stamped on a shaft that did not move
+    // (a stamp costs the retained-command block a rebuild - STAPIPMISS). The
+    // LightPool below caches its receiver patch for the same reason (1.122.2).
+    bool coneValid = false;
+    float coneKeyX = 0.0F, coneKeyY = 0.0F, coneKeyZ = 0.0F;
+    float coneKeyRadius = 0.0F;
+    float coneKeyR = 0.0F, coneKeyG = 0.0F, coneKeyB = 0.0F;
   };
   std::vector<LightBeam> lightBeams;
   Tyra::Texture* beamCoronaTex = nullptr;

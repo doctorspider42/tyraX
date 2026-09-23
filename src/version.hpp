@@ -16,6 +16,19 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.123.3: CACHE THE LIGHT CONE'S SHAFT.
+// Every visible cone lamp rebuilt its 24-vertex shaft and 24 colours from
+// scratch every frame - 16 cosf/sinf calls apiece - although the geometry is a
+// pure function of the lamp's position and radius and the colours of its
+// colour, all static for an authored lamp. Only the flicker's
+// additiveBlendFix moves. The shaft is now rebuilt on a (position, radius,
+// colour) key, the same shape LightPool has cached its receiver patch with
+// since 1.122.2, and the bag's bboxVersion is stamped only when the shaft
+// really moved instead of every frame (a stamp costs the retained-command
+// block a rebuild). Geometry is bit-identical. The console millisecond is
+// owed: the hardware rig was unavailable when this landed, and the change is
+// EE work, which PCSX2 cannot price. Project format stays 61. PATCH.
+//
 // 1.123.2: THE RELEASE AUDIT CATCHES A MEASUREMENT BUILD.
 // --audit-release proved a release ELF carried no devkit code and said nothing
 // about an opt-in profiling macro left switched on - a different failure and a
@@ -4974,7 +4987,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 123
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 3
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

@@ -13891,28 +13891,44 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
 
     if (b.kind == 2 && b.coneBag &&
         (!adaptiveReduced || beamDistance <= d.lightRadius * 8.0F)) {
-      const float len = d.lightRadius * 0.7F;
-      const float rad = d.lightRadius * 0.3F;
-      const Color apex(128.0F * d.color[0], 128.0F * d.color[1],
-                       128.0F * d.color[2], 128.0F);
-      const Color rim(0.0F, 0.0F, 0.0F, 128.0F);
-      for (int s = 0; s < 8; ++s) {
-        const float a0 = (float)s * (3.14159265F / 4.0F);
-        const float a1 = (float)(s + 1) * (3.14159265F / 4.0F);
-        b.coneVerts[s * 3 + 0] = Vec4(cx, cy, cz, 1.0F);
-        b.coneVerts[s * 3 + 1] =
-            Vec4(cx + cosf(a0) * rad, cy - len, cz + sinf(a0) * rad, 1.0F);
-        b.coneVerts[s * 3 + 2] =
-            Vec4(cx + cosf(a1) * rad, cy - len, cz + sinf(a1) * rad, 1.0F);
-        b.coneColors[s * 3 + 0] = apex;
-        b.coneColors[s * 3 + 1] = rim;
-        b.coneColors[s * 3 + 2] = rim;
+      // Rebuilt only when the lamp itself moved, resized or was retinted -
+      // see LightBeam::coneValid. A flickering lamp re-submits the SAME shaft.
+      if (!b.coneValid || b.coneKeyX != cx || b.coneKeyY != cy ||
+          b.coneKeyZ != cz || b.coneKeyRadius != d.lightRadius ||
+          b.coneKeyR != d.color[0] || b.coneKeyG != d.color[1] ||
+          b.coneKeyB != d.color[2]) {
+        const float len = d.lightRadius * 0.7F;
+        const float rad = d.lightRadius * 0.3F;
+        const Color apex(128.0F * d.color[0], 128.0F * d.color[1],
+                         128.0F * d.color[2], 128.0F);
+        const Color rim(0.0F, 0.0F, 0.0F, 128.0F);
+        for (int s = 0; s < 8; ++s) {
+          const float a0 = (float)s * (3.14159265F / 4.0F);
+          const float a1 = (float)(s + 1) * (3.14159265F / 4.0F);
+          b.coneVerts[s * 3 + 0] = Vec4(cx, cy, cz, 1.0F);
+          b.coneVerts[s * 3 + 1] =
+              Vec4(cx + cosf(a0) * rad, cy - len, cz + sinf(a0) * rad, 1.0F);
+          b.coneVerts[s * 3 + 2] =
+              Vec4(cx + cosf(a1) * rad, cy - len, cz + sinf(a1) * rad, 1.0F);
+          b.coneColors[s * 3 + 0] = apex;
+          b.coneColors[s * 3 + 1] = rim;
+          b.coneColors[s * 3 + 2] = rim;
+        }
+        // Only a shaft that really moved needs the bag's block rebuilt.
+        b.coneBag->bboxVersion = ++g_bboxStamp;
+        b.coneValid = true;
+        b.coneKeyX = cx;
+        b.coneKeyY = cy;
+        b.coneKeyZ = cz;
+        b.coneKeyRadius = d.lightRadius;
+        b.coneKeyR = d.color[0];
+        b.coneKeyG = d.color[1];
+        b.coneKeyB = d.color[2];
       }
       // The shaft is dimmer than the corona (it covers far more pixels).
       float cfix = 52.0F * (k > 1.0F ? 1.0F : k);
       b.coneInfo->additiveBlendFix =
           cfix > 255.0F ? 255 : (cfix < 1.0F ? 1 : (u8)cfix);
-      b.coneBag->bboxVersion = ++g_bboxStamp;
       stapip.core.render(b.coneBag.get());
     }
   }
