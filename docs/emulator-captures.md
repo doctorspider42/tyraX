@@ -5,7 +5,7 @@ private PCSX2 instance, takes PCSX2 savestates and a single-frame GS dump of a
 running game, and turns them into a text report. It needs no window focus and
 sends no global input. It also reads captures that someone took by hand, and it
 works on any PS2 title, not only on games this editor generates. That is how the
-Burnout 3 reference numbers at the end of this page were measured.
+reference numbers at the end of this page were measured.
 
 Use it to answer questions a frame profiler cannot:
 
@@ -120,11 +120,13 @@ tag chains that end in `END`. For each chain it reports:
 - **The ELF path must be short.** PS2 `loadelf` truncates long `host:` paths and
   jumps to PC 0, which is why `--stage` exists.
 
-## Reference: Burnout 3 (SLES-52584), captured 2026-09-20 and 2026-09-23
+## Reference: a commercial 60 Hz PS2 racing title, captured 2026-09-20 and 2026-09-23
 
-These are measured numbers from one race scene, recorded as a yardstick for
-[ee-submission-rearchitecture.md](ee-submission-rearchitecture.md). They are not
-a design.
+These are measured numbers from one race scene of a shipped game that holds
+60 Hz, recorded as a frame-rate yardstick for
+[ee-submission-rearchitecture.md](ee-submission-rearchitecture.md). They describe
+what reaches the hardware, not how that game is written, and they are not a
+design to copy.
 
 **What reaches the GS, per frame:**
 
@@ -149,7 +151,7 @@ a design.
   that buffer ends. DMA-written RAM needs no data-cache write-back. A few small chains
   (HUD, 2D) follow it.
 - **745–969 `CALL`s into 600–760 prebaked blocks.** Each block begins with its
-  own `RET` tag and carries RenderWare-style `UNPACK`s: V4-32 position, V2-16
+  own `RET` tag and carries `UNPACK`s: V4-32 position, V2-16
   UV, V3-8 and V4-8, about 68 vertices per chunk, `STCYCL` 3/1 with `TOPS`
   double buffering and `ITOP` = vertex count. That is **1.3–1.75 MB of static
   data a frame the EE never touches**, against 169–195 KB it writes itself.
@@ -161,4 +163,4 @@ a design.
 For comparison, a TyraX frame in the same tool (vehicle-playground, its boot
 view, PCSX2, 2026-09-23): ~1.1 Mpx of coverage and ~30 k primitives per
 VSync, all CT32 with no dithering and no uploads. The GS load is about a quarter
-of Burnout's.
+of the reference title's.

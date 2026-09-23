@@ -307,7 +307,8 @@ Developer design docs (internals, not user guides):
 - [Emulator captures](emulator-captures.md) — unattended PCSX2 savestates and
   GS dumps from a private emulator instance (no focus, no global input), the
   analysers that read them (GS buffer formats, dithering, fill per target, DMA
-  chains left in EE RAM), and Burnout 3's measured frame shape as a yardstick.
+  chains left in EE RAM), and a 60 Hz commercial title's measured frame shape
+  as a yardstick.
 - [The VU framework](vu-framework.md) — describe a microprogram in C++,
   generate both sides, run it in the host simulator with no PS2.
 - [Authoring VU programs](vu-authoring.md) — composing VU1 programs and VU0
