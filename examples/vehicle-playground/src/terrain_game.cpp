@@ -25630,6 +25630,22 @@ void TerrainGame::renderTerrain() {
     // Split halves: skip chunks entirely above/below the visible band before
     // the engine's (full-height) frustum classify sees them.
     if (splitBandActive && outsideSplitBand(ch.aabbMin, ch.aabbMax)) continue;
+    // ...and the same conservative whole-box reject the road chunks got back
+    // in 1.123.5 and every other generated chunk has always had. A resident
+    // terrain chunk is inside the streaming ring, which says nothing about
+    // whether it is BEHIND the camera: without this every one of them was
+    // handed to StaPip to be classified package by package. The box is the
+    // one outsideSplitBand already trusts, built with the chunk's real minY
+    // and maxY, so a chunk the camera is standing on contains the eye and
+    // comes back INTERSECTS rather than OUTSIDE.
+    {
+      const Tyra::Vec4 tmn(ch.aabbMin[0], ch.aabbMin[1], ch.aabbMin[2], 1.0F);
+      const Tyra::Vec4 tmx(ch.aabbMax[0], ch.aabbMax[1], ch.aabbMax[2], 1.0F);
+      if (Tyra::CoreBBox::frustumCheckAABB(
+              engine->renderer.core.renderer3D.frustumPlanes.getAll(), tmn,
+              tmx) == Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
+        continue;
+    }
     stapip.core.render(ch.bag.get());
     // Painted layers: alpha-blend over the base pass right away (same
     // geometry = equal depth passes the GS >= z-test; keeping base + layers

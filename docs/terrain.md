@@ -118,3 +118,33 @@ acceptance line, and `strips 0` there is this case rather than a failure.
   Build the floor, or a Box with collision, wherever the player can reach.
 - The terrain **size** is not a terrain setting only — it is the world
   bounds, so it still matters with the ground removed.
+
+## Resident is not visible: the chunk's own frustum reject (1.123.6)
+
+`renderTerrain` handed every RESIDENT chunk to StaPip to be classified package
+by package. Residency is the streaming ring's verdict - "within the view
+distance" - and says nothing about whether a chunk is behind the camera, so on
+the Motor District (25 chunks, 8 packages each) most of that classification was
+work done to be thrown away.
+
+The chunk now takes the same conservative whole-box reject every other
+generated chunk has always had (`renderProcChunks`, `renderVehicleWheels`, and
+the road chunks again since 1.123.5): `CoreBBox::frustumCheckAABB` against the
+box `outsideSplitBand` already trusts, built with the chunk's real `minY` and
+`maxY`. A chunk the camera stands on contains the eye, so it comes back
+INTERSECTS rather than OUTSIDE and is never dropped underfoot.
+
+Measured in PCSX2 at a parked street vantage (counts are exact there,
+milliseconds are not), one knob, per 50 frames:
+
+| | before | after |
+|---|---:|---:|
+| `out` (packages rejected) | 13 200 | **10 500** |
+| `cull` / `clip` / `guard` | 15 100 / 950 / 3 500 | identical |
+| `verts` / `flush` | 21 171 / 3 000 | identical |
+
+Taken together with the road half, the district went from 24 850 to 10 500
+rejected packages per 50 frames - **-58%** - with everything drawn identical to
+the digit. Pictures: 0 pixels differ on both DAY benchmark poses, both arms
+byte-identical within themselves. The night poses cannot be read; their own
+repeats disagree (lamp flicker, star twinkle).

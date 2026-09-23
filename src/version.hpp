@@ -16,6 +16,18 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.123.6: TERRAIN CHUNKS GET THE SAME FRUSTUM REJECT.
+// renderTerrain handed every RESIDENT chunk to StaPip to be classified package
+// by package, and residency only means "inside the streaming ring" - it says
+// nothing about being behind the camera. The chunk now takes the same
+// conservative whole-box reject every other generated chunk has, against the
+// box outsideSplitBand already trusts (real minY/maxY, so a chunk underfoot
+// contains the eye and comes back INTERSECTS). PCSX2, parked street vantage:
+// packages rejected 13200 -> 10500 per 50 frames, and 24850 -> 10500 (-58%)
+// counting the road half of 1.123.5, with cull, clip, guard, verts and flush
+// identical to the digit and 0 pixels differing on both DAY benchmark poses.
+// Project format stays 61. PATCH.
+//
 // 1.123.5: ROADS GET THEIR COARSE FRUSTUM REJECT BACK.
 // 1.122.2 removed two coarse rejects from renderRoadChunks in one commit after
 // false-hidden asphalt gaps, and only one of them can produce a false
@@ -5014,7 +5026,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 123
-#define TYRAX_VERSION_PATCH 5
+#define TYRAX_VERSION_PATCH 6
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
