@@ -253,6 +253,36 @@ MODULATE + constant-FIX look this page describes. The engine hook it rides is
 `StaPipTextureBag::textureFunction` - per-bag TFX, safe on a shared texture
 because TEX0 is re-emitted per bag.
 
+The paint colours are a pure function of the normal, so the pass evaluates
+each DISTINCT normal once and scatters (1.125.0): the CC96 body's 4212 env
+vertices carry 2106 distinct normals. The map is built once per normal array
+and logged as `VEHPAINT normals N distinct M`.
+
+## The ground in the probe (1.125.0)
+
+The shared probe paints the resident terrain and road chunks into its target,
+so the car's paint shows the world under it. A turning camera moves the aim
+past the reuse budget on every beat, and the probe then captures every second
+frame - and the whole resident ring cost **10-15 ms of each capturing frame**
+on a physical PS2 (Motor District, car parked at the 25 FPS spot, camera swept
+at ~180 deg/s with the right stick). It was the frame drop on every turn.
+
+*Preferences > Rendering > Reflection ground radius* keeps only the chunks
+whose box lies within that distance of the eye. In a 128-pixel target with a
+110 deg field of view a chunk a hundred units away is a few pixels at the
+horizon. FRAMETIME `work`, ordinary frame, same sweep:
+
+| ground in the probe | mean | worst window |
+|---|---:|---:|
+| every resident chunk (0, the default) | 25.6 ms | 36.4 ms |
+| 40 units | 21.8 | 27.6 |
+| **20 units** (Motor District) | **21.2** | **25.2** |
+| none at all (measured for reference only) | 20.2 | 23.8 |
+
+At 20 the paint loses only the faint grass streaks near its horizon line.
+Objects with *Show in reflections* are not affected by the radius. 0 keeps the
+old behaviour, and a project without the key loads as 0 (format v62).
+
 ## The reuse budget (1.106.0)
 
 The cadence above halves the probe's cost and stops there. What it cannot do is

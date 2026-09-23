@@ -15709,6 +15709,23 @@ void App::drawPreferencesWindow() {
         "at all while nothing moves, where the skipped capture would have\n"
         "produced the same image. 1.0 is one pixel of 128. 0 = off.");
 
+    ImGui::DragFloat("Reflection ground radius",
+                     &prefSettings_.reflectionGroundRadius, 1.0f, 0.0f, 1000.0f,
+                     prefSettings_.reflectionGroundRadius > 0.0f
+                         ? "%.0f units"
+                         : "all resident ground");
+    if (prefSettings_.reflectionGroundRadius < 0.0f)
+        prefSettings_.reflectionGroundRadius = 0.0f;
+    prefHelp(
+        "How far from the camera the shared reflection probe redraws the\n"
+        "terrain and the roads. The probe paints the ground into its\n"
+        "128x128 target on every capture, and a turning camera captures\n"
+        "every second frame - on a physical PS2 the whole resident ground\n"
+        "cost 10-15 ms of each capturing frame. Far chunks are a few pixels\n"
+        "at the probe's horizon, so a radius of a few dozen units keeps the\n"
+        "ground under the car in the paint and drops the rest.\n"
+        "0 = every resident chunk (the old behaviour).");
+
     ImGui::Checkbox("Static object batching", &prefSettings_.staticBatching);
     prefHelp(
         "Merges non-moving primitives and compact imported-model parts\n"

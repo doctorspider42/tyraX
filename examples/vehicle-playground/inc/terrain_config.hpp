@@ -131,6 +131,10 @@ constexpr float MESH_LOD_DISTANCE = 0.0F;
 // capture at all while nothing that feeds the capture has moved. 0 = capture
 // on every cadence beat, i.e. exactly the pre-1.106 behaviour.
 constexpr float REFLECTION_REUSE_BUDGET = 4.0F;
+// How far from the eye the shared probe redraws terrain and road chunks
+// (Preferences > Rendering, docs/reflective-materials.md "The ground in the
+// probe"). 0 = every resident chunk.
+constexpr float REFLECTION_GROUND_RADIUS = 20.0F;
 // The probe's own raster, in pixels across, and its horizontal field of view
 // in degrees - the two numbers that turn an angle into a pixel count. They
 // must match the pushEnvView call in renderScene; both are compile-time facts

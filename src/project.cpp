@@ -1715,6 +1715,10 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << fmtFloat(p.settings.terrainLodDistance) << ",\n"
          << "    \"reflectionReuseBudget\": "
          << fmtFloat(p.settings.reflectionReuseBudget) << ",\n"
+         << (p.settings.reflectionGroundRadius > 0.0f
+                 ? "    \"reflectionGroundRadius\": " +
+                       fmtFloat(p.settings.reflectionGroundRadius) + ",\n"
+                 : std::string())
          << (p.settings.flashShadowVolumes
                  ? "    \"flashShadowVolumes\": true,\n"
                  : "")
@@ -5766,6 +5770,10 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.reflectionReuseBudget = (float)v->numberOr(1.0);
             if (st.reflectionReuseBudget < 0.0f)
                 st.reflectionReuseBudget = 0.0f;
+        }
+        if (const auto* v = s->find("reflectionGroundRadius")) {
+            st.reflectionGroundRadius = (float)v->numberOr(0.0);
+            if (st.reflectionGroundRadius < 0.0f) st.reflectionGroundRadius = 0.0f;
         }
         if (const auto* v = s->find("flashShadowVolumes"))
             st.flashShadowVolumes = v->boolOr(false);

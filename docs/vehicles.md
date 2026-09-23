@@ -642,6 +642,13 @@ the runtime plays it at up to 2.4x its encoded rate.
 
 ### A shiny body
 
+**Turning the camera costs paint work** (1.125.0): the colours follow the
+object-relative view, so every turning frame re-evaluates them - once per
+distinct normal (2106 on the CC96) - and the baked VIF cache stops baking the
+pass until it settles (docs/baked-vif-stream.md, "A bag that changes every
+frame is not baked"). Together with the probe's ground radius
+(docs/reflective-materials.md) this is what the camera-turn frame drop was.
+
 *Vehicle Editor > Model > Body shine* plus *Reflection map.* The paint gets a
 reflection pass baked into the body's `.tmdl` parts — fields the format already
 carried. What it mirrors is authored: a **static sphere map** (a `res/` image),

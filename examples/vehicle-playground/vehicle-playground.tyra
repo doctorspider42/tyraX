@@ -1,6 +1,6 @@
 {
   "name": "vehicle-playground",
-  "formatVersion": 61,
+  "formatVersion": 62,
   "editorVersion": "1.124.1",
   "template": "fpp",
   "projectId": "99089f551e395d01",
@@ -48,6 +48,7 @@
     "terrainViewDistance": 150,
     "terrainLodDistance": 70,
     "reflectionReuseBudget": 4,
+    "reflectionGroundRadius": 20,
     "skyColor": [0.58, 0.64, 0.66],
     "skyTopColor": [0.12, 0.28, 0.42],
     "skyDome": true,

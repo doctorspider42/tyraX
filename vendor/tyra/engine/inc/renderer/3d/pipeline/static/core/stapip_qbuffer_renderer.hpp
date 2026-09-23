@@ -350,6 +350,15 @@ struct StaPipBakedEntry {
    * resets the entry rather than leaving a hole in the arena. */
   u16 built;
   u8 complete;
+  /** Modified by TyraX: churn damping (StaPipBakedStreams::kChurnGapFrames).
+   * The frame this entry last had to be rebuilt because its payload moved;
+   * while `churning` it is not baked at all, and `seen*` / `settled` watch
+   * for the payload to stop moving. */
+  u32 lastRebuildFrame = 0;
+  u32 seenBBoxVersion = 0;
+  u32 seenContentVersion = 0;
+  u8 churning = 0;
+  u8 settled = 0;
 
   /** Quadword offset and length of each package's block inside `data`. */
   std::unique_ptr<u32[]> offsets;
@@ -384,6 +393,19 @@ class StaPipBakedStreams {
   static const u32 kMaxBlockQw = 1024;
   static const int kLifetimeFrames = 50 * 5;
   static const int kMaxEvictionsPerFrame = 8;
+  /**
+   * Modified by TyraX: a bag whose payload has to be rebuilt on two frames
+   * within kChurnGapFrames stops being baked and takes the retained route
+   * instead, whose REF chain reads its arrays fresh at DMA time, until the
+   * payload has held still for kSettleFrames - then it bakes once and replays
+   * as before. Baking inlines the payload, so a bag rewritten every frame paid
+   * the whole build PLUS the copy every frame and never replayed once: the
+   * vehicle paint pass while the camera orbits the car, 0.85 -> 5.0 ms of EE
+   * on a physical PS2. A stable bag never enters this state.
+   */
+  static const u32 kChurnGapFrames = 2;
+  static const u32 kSettleFrames = 3;
+  u32 takeChurnSkips() { const u32 v = churnSkips; churnSkips = 0; return v; }
 
   StaPipBakedStreams();
 
@@ -505,6 +527,8 @@ class StaPipBakedStreams {
   int indexBuckets[kBucketCount];
   u32 usedQwords = 0;
   u32 hits = 0, builds = 0;
+  u32 frameNow = 1;
+  u32 churnSkips = 0;
   int evictionsThisFrame = 0;
   u32 misses[MissReasonCount] = {0};
   u32 loudCount = 0, loudPackages = 0, loudReason = MissReasonCount;

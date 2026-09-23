@@ -284,6 +284,13 @@ class TerrainGame : public Tyra::Game {
     short envPaintKey[6] = {};
     signed char envPaintLod = -1;
     bool envPaintValid = false;
+    // The paint pass evaluates each DISTINCT normal once (see renderEnvPass):
+    // paintMap[k] is vertex k's slot in paintNormals, built from the array
+    // the env bag reads, and rebuilt whenever that array or its size changes.
+    std::vector<unsigned short> paintMap;
+    std::vector<Tyra::Vec4> paintNormals;
+    const void* paintMapSrc = nullptr;
+    u32 paintMapCount = 0;
     // The additive twin of the pass above: same atlas, same STs, WHITE vertex
     // colors, so it sees the baked emissive light in the texture's RGB.
     BagArray<Tyra::Color> emisCols;

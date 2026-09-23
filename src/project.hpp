@@ -1743,6 +1743,14 @@ struct ProjectSettings {
     // and moon, a reflected object moving, appearing or vanishing, a scene
     // load - invalidates outright and is not traded against the budget.
     float reflectionReuseBudget = 1.0f;  // target pixels, 0 = always capture
+    // Shared reflection probe: how far from the eye the terrain and road
+    // chunks it redraws may be (docs/reflective-materials.md, "The ground in
+    // the probe"). The probe renders the resident ground into its 128-pixel
+    // target on every capture, and a turning camera captures every second
+    // frame: on a physical PS2 that was 10-15 ms of the frame that captured.
+    // Distant chunks are a few pixels at the horizon there. 0 = every
+    // resident chunk, which is what the probe always did.
+    float reflectionGroundRadius = 0.0f;  // world units, 0 = no limit
     // The flashlight's shadow technique (docs/flashlight.md, "The shadow").
     // false = silhouette slots: the caster's mesh silhouette from the torch,
     // sampled on a ground patch and painted on the wall behind - mesh-accurate
@@ -2211,6 +2219,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.terrainViewDistance == b.terrainViewDistance &&
            a.terrainLodDistance == b.terrainLodDistance &&
            a.reflectionReuseBudget == b.reflectionReuseBudget &&
+           a.reflectionGroundRadius == b.reflectionGroundRadius &&
            a.flashShadowVolumes == b.flashShadowVolumes &&
            a.shadowVolumesDebug == b.shadowVolumesDebug &&
            a.spotShadowVolumes == b.spotShadowVolumes &&

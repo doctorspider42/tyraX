@@ -126,6 +126,18 @@ bool g_mbFlushNext = true;
 // sticks behave exactly as the Preferences deadzone.
 float g_deadzoneL = 0.2F;
 float g_deadzoneR = 0.2F;
+// Set only while the shared reflection probe renders (REFLECTION_GROUND_RADIUS):
+// renderTerrain and renderRoadChunks then skip every chunk whose box lies
+// farther than this from the eye. 0 = no limit, which every other caller gets.
+float g_groundDrawRadius = 0.0F;
+// Squared distance from a point to an axis-aligned box - 0 inside it.
+static inline float groundBoxDist2(const float mn[3], const float mx[3],
+                                   float px, float py, float pz) {
+  const float dx = px < mn[0] ? mn[0] - px : (px > mx[0] ? px - mx[0] : 0.0F);
+  const float dy = py < mn[1] ? mn[1] - py : (py > mx[1] ? py - mx[1] : 0.0F);
+  const float dz = pz < mn[2] ? mn[2] - pz : (pz > mx[2] ? pz - mx[2] : 0.0F);
+  return dx * dx + dy * dy + dz * dz;
+}
 
 // Analog stick response curves (Preferences > Input; the Set Stick Curve flow
 // node and a menu "Aim curve" option block change them live). g_stickCurve*:
@@ -20084,6 +20096,10 @@ void TerrainGame::renderRoadChunks() {
       if (dx * dx + dy * dy + dz * dz > c.drawDist * c.drawDist) continue;
     }
     if (splitBandActive && outsideSplitBand(c.aabbMin, c.aabbMax)) continue;
+    if (g_groundDrawRadius > 0.0F &&
+        groundBoxDist2(c.aabbMin, c.aabbMax, cameraPosition.x, cameraPosition.y,
+                       cameraPosition.z) > g_groundDrawRadius * g_groundDrawRadius)
+      continue;
     // Roads are long, shallow receiver surfaces, and BOTH coarse rejects were
     // removed together in 1.122.2 after false-hidden asphalt gaps. Only one of
     // them could have caused those: the SOFTWARE-DEPTH test is approximate by
@@ -21743,9 +21759,15 @@ void TerrainGame::renderScene() {
     skyDome.infoBag->zTestType = prevZTest;
     // The world under the car matters more to paint than another distant prop.
     // Draw only resident terrain and reserved road chunks here: no new
-    // geometry, pair search, or unrelated procedural/prefab bags.
+    // geometry, pair search, or unrelated procedural/prefab bags - and, with
+    // REFLECTION_GROUND_RADIUS, only the part near the eye. The whole ring cost
+    // 10-15 ms of every capturing frame on a physical PS2 while the camera
+    // turned (a turn captures every second frame), and a chunk 100 units away
+    // is a few pixels at the horizon of this 128-pixel target.
+    g_groundDrawRadius = REFLECTION_GROUND_RADIUS;
     renderTerrain();
     renderRoadChunks();
+    g_groundDrawRadius = 0.0F;
     // "Show in reflections" objects render into the map too - base passes
     // only (no env pass inside the env pass), depth-tested against the
     // target's dedicated z-buffer so they occlude each other correctly.
@@ -22023,24 +22045,79 @@ void TerrainGame::renderScene() {
         // One span for the whole run: it stamps ONCE, where a per-element
         // operator[] would stamp 1 100 times for the same answer.
         auto dst = dstArr.span(0, n);
-        for (u32 k = 0; k < n; ++k) {
-          const float df = nrm[k].x * fwdL.x + nrm[k].y * fwdL.y +
-                           nrm[k].z * fwdL.z;
+        // Each DISTINCT normal once, then a scatter. A body is a triangle
+        // list, so one normal sits on many vertices, and the colour is a pure
+        // function of the normal - equal bits in, equal colour out, so the
+        // result is identical to the per-vertex loop it replaces. The loop
+        // ran ~1.4 ms of EE on the CC96 every frame the camera turned
+        // (physical PS2, 2026-09-23). The map is built once per normal array.
+        if (part.paintMapSrc != nrm || part.paintMapCount != n) {
+          part.paintMapSrc = nrm;
+          part.paintMapCount = n;
+          part.paintNormals.clear();
+          part.paintMap.assign(n, 0);
+          u32 cap = 64;
+          while (cap < n * 2U) cap <<= 1;
+          std::vector<int> table(cap, -1);
+          bool overflow = false;
+          for (u32 k = 0; k < n && !overflow; ++k) {
+            u32 bits[3];
+            memcpy(bits, &nrm[k], sizeof(bits));
+            u32 h = (bits[0] * 0x9E3779B1U) ^ (bits[1] * 0x85EBCA6BU) ^
+                    (bits[2] * 0xC2B2AE35U);
+            for (u32 slot = h & (cap - 1);; slot = (slot + 1) & (cap - 1)) {
+              const int e = table[slot];
+              if (e < 0) {
+                if (part.paintNormals.size() >= 65535U) { overflow = true; break; }
+                table[slot] = (int)part.paintNormals.size();
+                part.paintMap[k] = (unsigned short)part.paintNormals.size();
+                part.paintNormals.push_back(nrm[k]);
+                break;
+              }
+              u32 other[3];
+              memcpy(other, &part.paintNormals[(size_t)e], sizeof(other));
+              if (other[0] == bits[0] && other[1] == bits[1] &&
+                  other[2] == bits[2]) {
+                part.paintMap[k] = (unsigned short)e;
+                break;
+              }
+            }
+          }
+          if (overflow) {  // too many to index in 16 bits: one slot per vertex
+            part.paintNormals.assign(nrm, nrm + n);
+            part.paintMap.clear();
+          }
+          TYRA_LOG("VEHPAINT normals ", (int)n, " distinct ",
+                   (int)part.paintNormals.size());
+        }
+        static std::vector<Tyra::Color> paintColors;
+        const u32 un = (u32)part.paintNormals.size();
+        paintColors.resize(un);
+        const Tyra::Vec4* un4 = part.paintNormals.data();
+        for (u32 k = 0; k < un; ++k) {
+          const float df = un4[k].x * fwdL.x + un4[k].y * fwdL.y +
+                           un4[k].z * fwdL.z;
           // 0.3 floor keeps the authored strength's overall level and spends
           // the rest on the rim.
           const float f = 0.30F + 0.70F *
                                       (1.0F - (df < 0.0F ? -df : df));
-          float sp = nrm[k].x * hL.x + nrm[k].y * hL.y + nrm[k].z * hL.z;
+          float sp = un4[k].x * hL.x + un4[k].y * hL.y + un4[k].z * hL.z;
           if (sp < 0.0F) sp = 0.0F;
           sp *= sp;
           sp *= sp;
           sp *= sp;  // p = 8
           float a = 1.0F + 220.0F * sp;
           if (a > 255.0F) a = 255.0F;
-          dst[k].r = 128.0F * f;
-          dst[k].g = 128.0F * f;
-          dst[k].b = 128.0F * f;
-          dst[k].a = a;
+          paintColors[k].r = 128.0F * f;
+          paintColors[k].g = 128.0F * f;
+          paintColors[k].b = 128.0F * f;
+          paintColors[k].a = a;
+        }
+        if (part.paintMap.empty()) {
+          for (u32 k = 0; k < n; ++k) dst[k] = paintColors[k];
+        } else {
+          const unsigned short* map = part.paintMap.data();
+          for (u32 k = 0; k < n; ++k) dst[k] = paintColors[map[k]];
         }
       }
     }
@@ -25945,6 +26022,11 @@ void TerrainGame::renderTerrain() {
     // Split halves: skip chunks entirely above/below the visible band before
     // the engine's (full-height) frustum classify sees them.
     if (splitBandActive && outsideSplitBand(ch.aabbMin, ch.aabbMax)) continue;
+    if (g_groundDrawRadius > 0.0F &&
+        groundBoxDist2(ch.aabbMin, ch.aabbMax, cameraPosition.x,
+                       cameraPosition.y, cameraPosition.z) >
+            g_groundDrawRadius * g_groundDrawRadius)
+      continue;
     // ...and the same conservative whole-box reject the road chunks got back
     // in 1.123.5 and every other generated chunk has always had. A resident
     // terrain chunk is inside the streaming ring, which says nothing about

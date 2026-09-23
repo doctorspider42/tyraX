@@ -487,6 +487,7 @@ void StaPipBakedStreams::retire(StaPipBakedEntry& item) {
 
 void StaPipBakedStreams::onFrameEnd() {
   evictionsThisFrame = 0;
+  ++frameNow;
   graveyardWrite ^= 1;
   graveyard[graveyardWrite].clear();  // evicted two frames ago - now freed
 
@@ -615,6 +616,34 @@ StaPipBakedEntry* StaPipBakedStreams::acquire(const StaPipBakedEntry& key) {
       }
       item.framesLeftToDestroy = kLifetimeFrames;
       if (keyMatches(item, key)) return &item;
+      // Churn damping (see kChurnHoldFrames). Only a PAYLOAD move counts -
+      // the two stamps - so a second pass, a re-pinned package size or a
+      // program swap keep the behaviour they had.
+      {
+        const bool payloadMoved = item.bboxVersion != key.bboxVersion ||
+                                  item.contentVersion != key.contentVersion;
+        if (item.churning) {
+          if (key.bboxVersion == item.seenBBoxVersion &&
+              key.contentVersion == item.seenContentVersion) {
+            if (++item.settled >= kSettleFrames) item.churning = 0;
+          } else {
+            item.seenBBoxVersion = key.bboxVersion;
+            item.seenContentVersion = key.contentVersion;
+            item.settled = 0;
+          }
+        } else if (payloadMoved && item.complete &&
+                   frameNow - item.lastRebuildFrame <= kChurnGapFrames) {
+          item.churning = 1;
+          item.seenBBoxVersion = key.bboxVersion;
+          item.seenContentVersion = key.contentVersion;
+          item.settled = 0;
+        }
+        if (item.churning) {
+          ++churnSkips;
+          return nullptr;  // not baked this frame; the retained route draws it
+        }
+        if (payloadMoved) item.lastRebuildFrame = frameNow;
+      }
       // Something the stream encodes moved. Throw the arena away and
       // rebuild; the entry (and therefore any pointer the caller is holding)
       // survives, because storage owns pointers rather than values.

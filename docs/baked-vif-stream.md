@@ -396,7 +396,26 @@ Not all of them: see the churn below.
 Raw windows, both arms, and everything else this page measures:
 [`examples/vehicle-playground/authoring/baked-vif-stream-2026-09-16`](../examples/vehicle-playground/authoring/baked-vif-stream-2026-09-16/README.md).
 
-## The memory, which is the cost this design has and the retained one does not
+## A bag that changes every frame is not baked (1.125.0)
+
+Baking inlines the payload, so a bag whose content moves on every frame pays
+the whole build plus the copy every frame and never replays once. The vehicle
+paint pass was that bag whenever the camera turned: its colours follow the
+view, the content stamp moved each frame, and the env pass went from 0.85 to
+5.0 ms of EE on a physical PS2.
+
+`StaPipBakedStreams::acquire` now damps it. A complete entry whose payload
+(`bboxVersion` or `contentVersion`) has to be rebuilt on two frames within
+`kChurnGapFrames` enters a *churning* state: `acquire` returns null, so the bag
+takes the retained route - whose REF chain reads the arrays fresh at DMA time,
+the reason that cache never needed the content stamp - until the payload has
+held still for `kSettleFrames`, and then it bakes once and replays as before.
+A stable bag never enters the state; a second pass, a re-pinned package size
+or a program swap are not payload moves and keep their old behaviour. With it
+the paint pass costs 2.4-2.5 ms while the camera turns, on EVERY turning
+frame - an earlier cut that retried the bake after a fixed hold put a 5.1 ms
+frame back every 30.
+
 
 Inlining the payload stores every vertex **twice**: once in the bag's arrays,
 which nothing can free, and once in the baked block.

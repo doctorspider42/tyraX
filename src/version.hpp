@@ -16,6 +16,18 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.125.0: A TURNING CAMERA STOPS COSTING A THIRD OF THE FRAME.
+// Three things fired every frame the view turned. The shared reflection probe
+// recaptures every second frame in a turn and redrew the whole resident
+// terrain and road ring into its 128-pixel target: 10-15 ms of each capturing
+// frame on a physical PS2. Preferences > Rendering > Reflection ground radius
+// (format v62) keeps only the chunks near the eye. The vehicle paint pass
+// rewrote its colours every frame and the baked VIF cache rebuilt the whole
+// env payload for it, 0.85 -> 5.0 ms: the cache now stops baking a bag whose
+// payload moves on consecutive frames and lets the retained route draw it
+// until it settles, and the paint evaluates each distinct normal once
+// (4212 -> 2106 on the CC96). MINOR.
+//
 // 1.124.3: TERRAIN UVS ARE CHUNK-RELATIVE.
 // World-space tiling put the far side of a big map at thousands of texels,
 // where the GS's reduced STQ precision smeared the ground into streaks that
@@ -5117,8 +5129,8 @@
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 124
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_MINOR 125
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -5507,7 +5519,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // SceneObject::occluderExclude and occlusionCull. Missing keeps the feature
 // off project-wide, allows receiving and lets safe geometry be considered if
 // the project is later enabled. All keys are additive; no migration step.
-inline constexpr int kFormatVersion = 61;
+// v62 (docs/reflective-materials.md, "The ground in the probe"):
+// ProjectSettings::reflectionGroundRadius. Written only when non-zero, so a
+// project that never sets it resaves byte for byte; missing reads as 0 - every
+// resident chunk, what the probe always drew. Additive; no migration step.
+inline constexpr int kFormatVersion = 62;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects
