@@ -913,6 +913,19 @@ class TerrainGame : public Tyra::Game {
   };
   VehicleRt vehicles_[VEHICLE_COUNT > 0 ? VEHICLE_COUNT : 1];
   int vehicleCount_ = 0;
+  // The frame's contact candidates for every car (buildVehicleColliders).
+  // kind 0 = a collision box (world centre, top/bottom, half extents, yaw),
+  // 1 = a mesh collider, 2 = a physics body (centre + rough radius).
+  struct VehColEntry {
+    int oi = -1;
+    int kind = 0;
+    float wx = 0.0F, wz = 0.0F, top = 0.0F, bottom = 0.0F;
+    float hx = 0.0F, hz = 0.0F, cy = 1.0F, sy = 0.0F, rs = 0.0F;
+  };
+  std::vector<VehColEntry> vehColliders_;
+  std::vector<unsigned char> vehColIsVeh_;
+  unsigned int vehColGen_ = ~0u;
+  void buildVehicleColliders();
   int vehicleDriver_ = -1;  // which vehicle the player is in, -1 = on foot
   float vehCamYaw_ = 0.0F;  // chase-cam yaw - follows the car with lag
   // Right-stick look-around, degrees AROUND the boom yaw and a height bias.

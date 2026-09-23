@@ -10,6 +10,15 @@ Historical software-renderer captures (before the efficient-wheel variants): [Tr
 [Rally 04](preview/rally.png). Night mode: [street](preview/night.png) and
 [pause-menu selection](preview/night-menu.png).
 
+## Two scenes
+
+`main` is the district described below and the measurement reference.
+`dense` is the same district with **107 more buildings** lining the streets
+(towers, lofts and workshops, placed by a script clear of every road and
+prop, 240 objects in all), for occlusion and city-density work. The game
+starts in `main`; set the project's start scene to 1 to boot `dense`. The two
+scenes keep separate object copies, so editing one does not touch the other.
+
 ## The district
 
 - Seven spline roads: a wide perimeter loop, Garage Boulevard, two cross-city

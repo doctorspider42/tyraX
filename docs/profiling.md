@@ -2204,3 +2204,16 @@ District 25 FPS spot, car parked at (0, -74), physical PS2:
 **The spot holds 50 FPS in the player's build.** What a debug build shows there
 is the devkit: Remote Pad and the Live Debugger polling the host over ps2link
 put ~1.7 ms into `pre` and ~0.7 ms into `work`. The headroom left is ~0.7 ms.
+
+### More FRAMETIME companions: FTOCC, FTPHYS, FTVEH (1.125.2)
+
+Printed with `FTUPD` when `TYRA_FRAME_PROFILE` is on, all window means in ms:
+
+- `FTOCC` - the occlusion buffer: `clear`, `hull` (corner projection and hull),
+  `raster`, `erode`, `test`, plus `builds`/`tests`/`boxes` per frame,
+  `recompute` (occluder corner caches rebuilt) and `proj`/`objfrustum`.
+- `FTPHYS` - `updateObjectPhysics` alone and the awake bodies per frame. It
+  found 0.51 ms spent with zero awake bodies in the dense scene: both passes
+  walked every object to find the six with physics set, pass 2 once per body.
+  They now walk an index list of the bodies (0.51 -> 0.013 ms).
+- `FTVEH` - the per-car update by stage (docs/vehicles.md, "What a car costs").

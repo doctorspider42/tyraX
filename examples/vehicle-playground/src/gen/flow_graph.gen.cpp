@@ -120,6 +120,40 @@ class FlowGraphScript_0_132 : public Script {
   bool started = false;
 };
 
+// Scene "dense": graph of "vehicle-1" (object 132)
+class FlowGraphScript_1_132 : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    if (ctx.scene != 1) return;
+    // Live Debugger: nothing in this graph advances while the game is
+    // stopped at a breakpoint (the loop's own pause covers the rest).
+    if (livedbg::halted()) return;
+    if (ctx.sceneGeneration != generation) {
+      // scene was (re)loaded - back to the initial state
+      generation = ctx.sceneGeneration;
+      frame = 0;
+      started = false;
+    }
+    frame++;
+    if (livedbg::forced(2)) {  // Live Debugger: fired from the editor
+      livedbg::hit(2);
+      livedbg::hit(3);
+      ctx.vehicleRequest = 132;
+    }
+    if (!started) {
+      started = true;
+      livedbg::hit(2);
+      livedbg::hit(3);
+      ctx.vehicleRequest = 132;
+    }
+  }
+
+ private:
+  unsigned int generation = 0;
+  int frame = 0;
+  bool started = false;
+};
+
 // Live Debugger watch table (docs/live-debugger.md): the flow variables
 // in one shared order - ints, then bools, then positions.
 int flowDbgVarCount() { return 0; }
@@ -131,3 +165,4 @@ void flowDbgReadVar(int index, float* out3) {
 }  // namespace Vehicle_playground
 
 TYRA_SCRIPT(Vehicle_playground::FlowGraphScript_0_132);
+TYRA_SCRIPT(Vehicle_playground::FlowGraphScript_1_132);

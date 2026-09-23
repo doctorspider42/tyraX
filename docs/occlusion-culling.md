@@ -60,6 +60,27 @@ draw units rejected from those considered. Compare the same camera pose with
 the project setting off. A street with long uninterrupted walls is a strong
 case; an open field can only add the visibility-buffer cost.
 
+## What it costs, and why a city of buildings does not win yet (1.125.2)
+
+Measured on a physical PS2 (Motor District, devkit off, `FTOCC` with
+`TYRA_FRAME_PROFILE`):
+
+| scene | proxies drawn | hidden / tested | `work` off -> on |
+|---|---:|---:|---:|
+| `main` (14 buildings) | 10 | 0 / 71 | 18.26 -> 19.29 ms |
+| `dense` (121 buildings) | 44 | 0 / 71 | 19.49 -> 21.97 ms |
+
+1.125.2 made the buffer cheaper - one span per row instead of every edge per
+cell, occluder corners and candidate boxes cached, whole occluders outside the
+view skipped - which took the `main` cost from +1.58 to +1.03 ms. It still
+hides nothing in either scene, for three structural reasons worth fixing
+before judging the feature on a city:
+
+- an occluder is never itself culled, so buildings cannot hide buildings;
+- a static batch that contains an occluder is never tested, and the dense
+  scene's buildings are batched;
+- terrain and road chunks are never tested, and they are the largest phases.
+
 ## Limits
 
 - Occlusion is recomputed for every camera pass. Reflection probes, split view

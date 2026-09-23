@@ -1723,6 +1723,13 @@ u32 work[kWindow], drain[kWindow];
 // The update half of `pre`, lap by lap (FTUPD): the FPP loop's UPD_LAP marks,
 // summed over the window. Bare COUNT reads, so level 2 stays transparent.
 u64 updLap[10] = {};
+u64 physOnly = 0; u32 physAwake = 0;
+// Per-vehicle update, stage by stage (FTVEH), summed over every vehicle.
+u64 vehLap[7] = {};
+// The occlusion buffer, lap by lap (FTOCC): clear, corner projection + hull,
+// span raster, erosion, and the per-candidate tests; plus call counts.
+u64 occLap[7] = {};
+u32 occBuilds = 0, occTests = 0, occRecomputes = 0, occBoxes = 0;
 // The rest of the frame (FrameProfile::tPre / tStall / tPeriod).
 u32 pre[kWindow], stall[kWindow], period[kWindow];
 u64 sBeg = 0, sEnd = 0, sCmp = 0, sCmpEe = 0;
@@ -1931,6 +1938,32 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
            (unsigned long)(frame - kWindow), (double)ms(updLap[0], kWindow), (double)ms(updLap[1], kWindow), (double)ms(updLap[2], kWindow), (double)ms(updLap[3], kWindow), (double)ms(updLap[4], kWindow), (double)ms(updLap[5], kWindow), (double)ms(updLap[6], kWindow), (double)ms(updLap[7], kWindow), (double)ms(updLap[8], kWindow), (double)ms(updLap[9], kWindow));
   TYRA_LOG(line);
   for (int k = 0; k < 10; ++k) updLap[k] = 0;
+  snprintf(line, sizeof(line), "FTPHYS f=%lu physics=%.3f awake=%.2f",
+           (unsigned long)(frame - kWindow), (double)ms(physOnly, kWindow),
+           (double)physAwake / kWindow);
+  TYRA_LOG(line);
+  physOnly = 0; physAwake = 0;
+  snprintf(line, sizeof(line),
+           "FTVEH f=%lu input=%.3f gather=%.3f rig=%.3f walls=%.3f bodies=%.3f "
+           "smoke=%.3f sound=%.3f",
+           (unsigned long)(frame - kWindow), (double)ms(vehLap[0], kWindow),
+           (double)ms(vehLap[1], kWindow), (double)ms(vehLap[2], kWindow),
+           (double)ms(vehLap[3], kWindow), (double)ms(vehLap[4], kWindow),
+           (double)ms(vehLap[5], kWindow), (double)ms(vehLap[6], kWindow));
+  TYRA_LOG(line);
+  for (int k = 0; k < 7; ++k) vehLap[k] = 0;
+  snprintf(line, sizeof(line),
+           "FTOCC f=%lu clear=%.3f hull=%.3f raster=%.3f erode=%.3f test=%.3f "
+           "builds=%.1f tests=%.1f recompute=%.1f boxes=%.1f proj=%.3f objfrustum=%.3f",
+           (unsigned long)(frame - kWindow), (double)ms(occLap[0], kWindow),
+           (double)ms(occLap[1], kWindow), (double)ms(occLap[2], kWindow),
+           (double)ms(occLap[3], kWindow), (double)ms(occLap[4], kWindow),
+           (double)occBuilds / kWindow, (double)occTests / kWindow,
+           (double)occRecomputes / kWindow, (double)occBoxes / kWindow,
+           (double)ms(occLap[5], kWindow), (double)ms(occLap[6], kWindow));
+  TYRA_LOG(line);
+  for (int k = 0; k < 7; ++k) occLap[k] = 0;
+  occBuilds = occTests = occRecomputes = occBoxes = 0;
   // The attribution line. `proxy` is charged inside StaPipCore (scene
   // SUBMISSION, not the composite); the other four split the composite's EE
   // half at its four phases, so reproj+feat+net+pkt reconstructs comp's EE
@@ -2895,7 +2928,13 @@ void TerrainGame::loop() {
     }
   }
 
+#if TYRA_FRAME_PROFILE
+  { const u32 phT = Tyra::FrameProfile::ticks();
+    if (!menuActive) updateObjectPhysics();
+    ftrig::physOnly += Tyra::FrameProfile::ticks() - phT; }
+#else
   if (!menuActive) updateObjectPhysics();
+#endif
   // Scripted rotation, right after the physics integration: both write
   // data.rotation, and a spinner that is ALSO a body must see the tumble's
   // value rather than fight it.
@@ -16425,8 +16464,20 @@ float occEdge(float ax,float ay,float bx,float by,float px,float py){
 struct OccPt{float x,y;};
 bool occBox(const V3* v){
   OccPt p[8]; float farW=0.0F;
+  float px0=1e30F,px1=-1e30F,py0=1e30F,py1=-1e30F;
+#if TYRA_FRAME_PROFILE
+  struct OccProjLap{u32 t0;~OccProjLap(){ftrig::occLap[5]+=Tyra::FrameProfile::ticks()-t0;}} occProjLap{Tyra::FrameProfile::ticks()};
+#endif
   for(int i=0;i<8;++i){float w;if(!occProject(v[i],p[i].x,p[i].y,w))return false;
-    if(w>farW)farW=w;}
+    if(w>farW)farW=w;
+    px0=std::min(px0,p[i].x);px1=std::max(px1,p[i].x);
+    py0=std::min(py0,p[i].y);py1=std::max(py1,p[i].y);}
+  // The same rejects the rectangle below applies, taken BEFORE the sort and
+  // the hull: a box off the buffer, or too thin to survive the erosion, can
+  // never write a useful cell.
+  if(px1<0.0F||py1<0.0F||px0>(float)OCC_W||py0>(float)OCC_H)return false;
+  if(std::min(px1,(float)(OCC_W-1))-std::max(px0,0.0F)<1.0F||
+     std::min(py1,(float)(OCC_H-1))-std::max(py0,0.0F)<1.0F)return false;
   // Eight points, so insertion sort is cheaper and smaller than pulling a
   // general sorter into the generated ELF.
   for(int i=1;i<8;++i){OccPt q=p[i];int j=i;
@@ -16449,10 +16500,31 @@ bool occBox(const V3* v){
   if(y1>=OCC_H)y1=OCC_H-1;
   // Erosion below cannot leave a useful cell for a thinner projection.
   if(x1-x0<2||y1-y0<2)return false;
-  for(int Y=y0;Y<=y1;++Y)for(int X=x0;X<=x1;++X){
-    const float px=X+0.5F,py=Y+0.5F;bool in=true;
-    for(int e=0;e<n;++e)if(occEdge(h[e].x,h[e].y,h[(e+1)%n].x,h[(e+1)%n].y,px,py)<0.0F){in=false;break;}
-    if(in){const int i=Y*OCC_W+X;g_occCover[i]=1;if(farW<g_occDepth[i])g_occDepth[i]=farW;}
+#if TYRA_FRAME_PROFILE
+  const u32 occR0=Tyra::FrameProfile::ticks();
+  struct OccRasterLap{u32 t0;~OccRasterLap(){ftrig::occLap[2]+=Tyra::FrameProfile::ticks()-t0;}} occRasterLap{occR0};
+#endif
+  // One span per row: the hull is convex, so the cells whose centre is inside
+  // it on row Y form one run, bounded by where the row's centre line meets the
+  // hull. Each edge that spans the line yields one x; a cell is inside exactly
+  // when its centre lies between the smallest and largest of them - the same
+  // cells the per-cell all-edges test accepted, edge-on included, at a cost
+  // that follows the rows instead of rows x columns x edges (that was 1.0 ms
+  // of a physical-PS2 frame for ten proxies).
+  for(int Y=y0;Y<=y1;++Y){
+    const float py=Y+0.5F;float sx0=1e30F,sx1=-1e30F;
+    for(int e=0;e<n;++e){const OccPt&a=h[e],&b=h[(e+1)%n];
+      if((a.y>py)==(b.y>py)){
+        if(a.y==py){sx0=std::min(sx0,a.x);sx1=std::max(sx1,a.x);}
+        continue;}
+      const float t=(py-a.y)/(b.y-a.y);const float x=a.x+(b.x-a.x)*t;
+      sx0=std::min(sx0,x);sx1=std::max(sx1,x);}
+    if(sx0>sx1)continue;
+    int X0=(int)ceilf(sx0-0.5F),X1=(int)floorf(sx1-0.5F);
+    if(X0<x0)X0=x0;
+    if(X1>x1)X1=x1;
+    for(int X=X0;X<=X1;++X){const int i=Y*OCC_W+X;g_occCover[i]=1;
+      if(farW<g_occDepth[i])g_occDepth[i]=farW;}
   }
   return true;
 }
@@ -16470,32 +16542,96 @@ void TerrainGame::buildOcclusionBuffer(){
   }
   g_occTested=g_occHidden=g_occProxies=0;
   if(!OCCLUSION_CULLING)return;
+#if TYRA_FRAME_PROFILE
+  u32 occT=Tyra::FrameProfile::ticks();
+  ++ftrig::occBuilds;
+#endif
   for(int i=0;i<OCC_W*OCC_H;++i)g_occDepth[i]=1e30F,g_occCover[i]=0;
+#if TYRA_FRAME_PROFILE
+  {const u32 n=Tyra::FrameProfile::ticks();ftrig::occLap[0]+=n-occT;occT=n;}
+#endif
   g_occVp=engine->renderer.core.renderer3D.getViewProj();
   const auto& scr=engine->renderer.core.getSettings();
   g_occSx=4096.0F/scr.getRasterWidthF();
   g_occSy=4096.0F/scr.getRasterHeightF();
+  // Every proxy box's eight world corners, cached. boxRotate evaluates Euler
+  // trig and the EE has none in hardware: three rotations per occluder per
+  // frame were most of what the buffer cost on a physical PS2. Occluders are
+  // static by construction (codegen refuses anything that moves), and the key
+  // below catches the ones a script or Live Link moves anyway.
+  struct OccCornerCache{float key[10];float mn[3],mx[3];bool valid;};
+  static std::vector<OccCornerCache> objKeys;
+  static std::vector<V3> corners;  // 8 per box, OCCLUSION_BOXES order
+  static unsigned int cornerGen=~0u;
+  if(cornerGen!=sceneGeneration||objKeys.size()!=(size_t)OCCLUSION_OBJECT_COUNT){
+    objKeys.assign((size_t)OCCLUSION_OBJECT_COUNT,OccCornerCache{});
+    int boxes=0;
+    for(int ri=0;ri<OCCLUSION_OBJECT_COUNT;++ri)
+      boxes=std::max(boxes,OCCLUSION_OBJECTS[ri].first+OCCLUSION_OBJECTS[ri].count);
+    corners.assign((size_t)boxes*8,V3{0.0F,0.0F,0.0F});
+    cornerGen=sceneGeneration;
+  }
   for(int ri=0;ri<OCCLUSION_OBJECT_COUNT;++ri){
     const OcclusionProxyObject& r=OCCLUSION_OBJECTS[ri];
     if(r.scene!=currentScene||r.object<0||r.object>=(int)runtimeObjects.size())continue;
     const RuntimeObject& o=runtimeObjects[r.object];
     if(!o.active||!o.visible)continue;
-    // boxRotate evaluates Euler trig, so derive the scaled basis once per
-    // object instead of once for every one of every proxy box's corners.
-    const V3 ax=boxRotate({o.data.scale[0],0.0F,0.0F},o.data);
-    const V3 ay=boxRotate({0.0F,o.data.scale[1],0.0F},o.data);
-    const V3 az=boxRotate({0.0F,0.0F,o.data.scale[2]},o.data);
-    for(int bi=0;bi<r.count;++bi){
-      const OcclusionProxyBox& b=OCCLUSION_BOXES[r.first+bi]; V3 v[8];
-      for(int k=0;k<8;++k){
-        const float x=k&1?b.mx[0]:b.mn[0],y=k&2?b.mx[1]:b.mn[1],z=k&4?b.mx[2]:b.mn[2];
-        v[k]={o.data.position[0]+ax.x*x+ay.x*y+az.x*z,
-              o.data.position[1]+ax.y*x+ay.y*y+az.y*z,
-              o.data.position[2]+ax.z*x+ay.z*y+az.z*z};
+    const float key[10]={o.data.position[0],o.data.position[1],o.data.position[2],
+      o.data.rotation[0],o.data.rotation[1],o.data.rotation[2],
+      o.data.scale[0],o.data.scale[1],o.data.scale[2],o.data.modelYaw};
+    OccCornerCache& ck=objKeys[(size_t)ri];
+    bool same=ck.valid;
+    for(int k=0;k<10&&same;++k)same=ck.key[k]==key[k];
+    if(!same){
+#if TYRA_FRAME_PROFILE
+      ++ftrig::occRecomputes;
+#endif
+      const V3 ax=boxRotate({o.data.scale[0],0.0F,0.0F},o.data);
+      const V3 ay=boxRotate({0.0F,o.data.scale[1],0.0F},o.data);
+      const V3 az=boxRotate({0.0F,0.0F,o.data.scale[2]},o.data);
+      for(int bi=0;bi<r.count;++bi){
+        const OcclusionProxyBox& b=OCCLUSION_BOXES[r.first+bi];
+        V3* v=&corners[(size_t)(r.first+bi)*8];
+        for(int k=0;k<8;++k){
+          const float x=k&1?b.mx[0]:b.mn[0],y=k&2?b.mx[1]:b.mn[1],z=k&4?b.mx[2]:b.mn[2];
+          v[k]={o.data.position[0]+ax.x*x+ay.x*y+az.x*z,
+                o.data.position[1]+ax.y*x+ay.y*y+az.y*z,
+                o.data.position[2]+ax.z*x+ay.z*y+az.z*z};
+        }
       }
-      if(occBox(v))++g_occProxies; // near-plane/tiny boxes are rejected inside
+      for(int a=0;a<3;++a){ck.mn[a]=1e30F;ck.mx[a]=-1e30F;}
+      for(int k=0;k<r.count*8;++k){const V3& c=corners[(size_t)r.first*8+k];
+        ck.mn[0]=std::min(ck.mn[0],c.x);ck.mx[0]=std::max(ck.mx[0],c.x);
+        ck.mn[1]=std::min(ck.mn[1],c.y);ck.mx[1]=std::max(ck.mx[1],c.y);
+        ck.mn[2]=std::min(ck.mn[2],c.z);ck.mx[2]=std::max(ck.mx[2],c.z);}
+      for(int k=0;k<10;++k)ck.key[k]=key[k];
+      ck.valid=true;
     }
+    // A whole occluder outside the view writes nothing: one six-plane box test
+    // instead of eight projections per proxy box. In a city most of them are
+    // behind or beside the camera at any moment.
+    {
+#if TYRA_FRAME_PROFILE
+      struct OccObjLap{u32 t0;~OccObjLap(){ftrig::occLap[6]+=Tyra::FrameProfile::ticks()-t0;}} occObjLap{Tyra::FrameProfile::ticks()};
+#endif
+      const Tyra::Vec4 omn(ck.mn[0],ck.mn[1],ck.mn[2],1.0F),omx(ck.mx[0],ck.mx[1],ck.mx[2],1.0F);
+      if(Tyra::CoreBBox::frustumCheckAABB(
+             engine->renderer.core.renderer3D.frustumPlanes.getAll(),omn,omx)==
+         Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)continue;
+    }
+#if TYRA_FRAME_PROFILE
+    ftrig::occBoxes+=(u32)r.count;
+#endif
+    for(int bi=0;bi<r.count;++bi)
+      if(occBox(&corners[(size_t)(r.first+bi)*8]))++g_occProxies;  // near/tiny rejected inside
   }
+#if TYRA_FRAME_PROFILE
+  {const u32 n=Tyra::FrameProfile::ticks();
+   // hull = everything since the clear minus the raster time occBox charged.
+   static u64 rasterSeen=0;
+   const u64 rasterNow=ftrig::occLap[2]-rasterSeen; rasterSeen=ftrig::occLap[2];
+   ftrig::occLap[1]+=(n-occT)-(u32)rasterNow; occT=n;}
+#endif
   // Erode coverage by one cell. Depth keeps the farthest proxy surface in a
   // covered cell; target tests add another world-depth bias below.
   for(int y=0;y<OCC_H;++y)for(int x=0;x<OCC_W;++x){
@@ -16504,11 +16640,18 @@ void TerrainGame::buildOcclusionBuffer(){
       if(xx<0||yy<0||xx>=OCC_W||yy>=OCC_H||!g_occCover[yy*OCC_W+xx]){on=false;break;}
     g_occEroded[y*OCC_W+x]=on?1:0;
   }
+#if TYRA_FRAME_PROFILE
+  ftrig::occLap[3]+=Tyra::FrameProfile::ticks()-occT;
+#endif
 }
 
 bool TerrainGame::occlusionHiddenAabb(const float* mn,const float* mx){
   if(!OCCLUSION_CULLING)return false;
   ++g_occTested;
+#if TYRA_FRAME_PROFILE
+  ++ftrig::occTests;
+  struct OccTestLap{u32 t0;~OccTestLap(){ftrig::occLap[4]+=Tyra::FrameProfile::ticks()-t0;}} occTestLap{Tyra::FrameProfile::ticks()};
+#endif
   // Most candidates in an open view cannot possibly be fully covered. Test
   // their centre before paying for eight corner transforms and a rectangle.
   V3 mid{(mn[0]+mx[0])*0.5F,(mn[1]+mx[1])*0.5F,(mn[2]+mx[2])*0.5F};
@@ -16532,7 +16675,24 @@ bool TerrainGame::occlusionHiddenAabb(const float* mn,const float* mx){
 bool TerrainGame::occlusionHiddenObject(int index){
   if(!occlusionCanCull(currentScene,index)||occlusionObjectIsOccluder(index))return false;
   if(index<0||index>=(int)runtimeObjects.size())return false;
-  const RuntimeObject& o=runtimeObjects[index]; const CollisionBox b=objectCollisionBox(o);
+  const RuntimeObject& o=runtimeObjects[index];
+  // The world AABB below is three Euler rotations and eight corners - most of
+  // the ~13 us a test cost on a physical PS2 - and for everything that does
+  // not move it is the same box every frame. Cached per object, keyed on the
+  // exact inputs, so anything that moves, turns or rescales recomputes.
+  struct OccAabbCache{float key[10];float mn[3],mx[3];bool valid;};
+  static std::vector<OccAabbCache> cache;
+  static unsigned int cacheGen=~0u;
+  if(cacheGen!=sceneGeneration||cache.size()!=runtimeObjects.size()){
+    cache.assign(runtimeObjects.size(),OccAabbCache{});cacheGen=sceneGeneration;}
+  OccAabbCache& ce=cache[(size_t)index];
+  const float key[10]={o.data.position[0],o.data.position[1],o.data.position[2],
+    o.data.rotation[0],o.data.rotation[1],o.data.rotation[2],
+    o.data.scale[0],o.data.scale[1],o.data.scale[2],o.data.modelYaw};
+  bool same=ce.valid&&!o.dirty;
+  for(int k=0;k<10&&same;++k)same=ce.key[k]==key[k];
+  if(same)return occlusionHiddenAabb(ce.mn,ce.mx);
+  const CollisionBox b=objectCollisionBox(o);
   const V3 ax=boxRotate({1.0F,0.0F,0.0F},o.data),
            ay=boxRotate({0.0F,1.0F,0.0F},o.data),
            az=boxRotate({0.0F,0.0F,1.0F},o.data);
@@ -16543,6 +16703,9 @@ bool TerrainGame::occlusionHiddenObject(int index){
       o.data.position[1]+ax.y*x+ay.y*y+az.y*z,
       o.data.position[2]+ax.z*x+ay.z*y+az.z*z};
     for(int a=0;a<3;++a){mn[a]=std::min(mn[a],p[a]);mx[a]=std::max(mx[a],p[a]);}}
+  for(int k=0;k<10;++k)ce.key[k]=key[k];
+  for(int a=0;a<3;++a){ce.mn[a]=mn[a];ce.mx[a]=mx[a];}
+  ce.valid=true;
   return occlusionHiddenAabb(mn,mx);
 }
 
@@ -17513,6 +17676,95 @@ static void vehBodyRotation(float pitch, float yaw, float roll, float out[3]) {
   out[2] = (c > 1e-5F ? atan2f(sr, cy * cr) : 0.0F) * rad;
 }
 
+// Every vehicle's contact gather reads this list (docs/vehicles.md, "What a
+// car costs"). It used to be a walk over every scene object PER CAR, reading a
+// handful of fields out of RuntimeObjects far larger than a cache line and
+// rotating each collision box - 0.33 ms a car on a physical PS2, most of the
+// per-car update. Now one walk per frame fills a compact array in object
+// order with everything the per-car tests read; the box geometry is cached
+// per object and keyed on its shape and transform, so a static city costs a
+// key compare per building.
+void TerrainGame::buildVehicleColliders() {
+  // Per-object box geometry, keyed on shape and transform (see below).
+  struct VehColCache {
+    float key[11] = {};
+    CollisionBox cb;
+    V3 cW = {0.0F, 0.0F, 0.0F};
+    float cy = 1.0F, sy = 0.0F;
+    bool valid = false;
+  };
+  static std::vector<VehColCache> vehColCache_;
+  vehColliders_.clear();
+  if (vehColIsVeh_.size() != runtimeObjects.size() || vehColGen_ != sceneGeneration) {
+    vehColIsVeh_.assign(runtimeObjects.size(), 0);
+    vehColCache_.assign(runtimeObjects.size(), VehColCache{});
+    vehColGen_ = sceneGeneration;
+  }
+  for (size_t k = 0; k < vehColIsVeh_.size(); ++k) vehColIsVeh_[k] = 0;
+  // Another VEHICLE is not a wall: car-vs-car is the momentum pass after the
+  // gather - both cars move, neither dead-stops. Inactive vehicles stay walls,
+  // as they always were.
+  for (int vk = 0; vk < vehicleCount_; ++vk)
+    if (vehicles_[vk].active && vehicles_[vk].object >= 0 &&
+        vehicles_[vk].object < (int)vehColIsVeh_.size())
+      vehColIsVeh_[(size_t)vehicles_[vk].object] = 1;
+  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+    if (vehColIsVeh_[(size_t)oi]) continue;
+    const RuntimeObject& o = runtimeObjects[oi];
+    if (!o.active || !o.visible || !objectCollides(o.data)) continue;
+    VehColEntry e;
+    e.oi = oi;
+    if (o.data.physics && physObstacle(o.data)) {
+      e.kind = 2;
+      e.wx = o.data.position[0];
+      e.wz = o.data.position[2];
+      e.rs = 0.5F * (o.data.scale[0] + o.data.scale[2]);
+      vehColliders_.push_back(e);
+      continue;
+    }
+    const GameModel* gm = nullptr;
+    if (o.data.type == 5 && o.data.model >= 0 &&
+        o.data.model < (int)gameModels.size())
+      gm = &gameModels[o.data.model];
+    if (o.data.collision == 1 && gm && !gm->collider.empty()) {
+      // Mesh mode: rare and expensive - the car remembers the object and
+      // pays the resolver only near it.
+      e.kind = 1;
+      e.wx = o.data.position[0];
+      e.wz = o.data.position[2];
+      e.rs = 0.5F * (o.data.scale[0] + o.data.scale[2]);
+      vehColliders_.push_back(e);
+      continue;
+    }
+    VehColCache& vc = vehColCache_[(size_t)oi];
+    const float vkey[11] = {o.data.rotation[0], o.data.rotation[1], o.data.rotation[2],
+                            o.data.scale[0], o.data.scale[1], o.data.scale[2],
+                            o.data.modelYaw, (float)o.data.model, (float)o.data.type,
+                            (float)o.data.collision, o.dirty ? 1.0F : 0.0F};
+    bool same = vc.valid;
+    for (int k = 0; k < 11 && same; ++k) same = vc.key[k] == vkey[k];
+    if (!same) {
+      vc.cb = objectCollisionBox(o);
+      vc.cW = boxRotate({vc.cb.center[0], vc.cb.center[1], vc.cb.center[2]}, o.data);
+      const float yr = (o.data.rotation[1] + vc.cb.yaw) * PI / 180.0F;
+      vc.cy = cosf(yr);
+      vc.sy = sinf(yr);
+      for (int k = 0; k < 11; ++k) vc.key[k] = vkey[k];
+      vc.valid = true;
+    }
+    e.kind = 0;
+    e.top = o.data.position[1] + vc.cW.y + vc.cb.half[1];
+    e.bottom = o.data.position[1] + vc.cW.y - vc.cb.half[1];
+    e.wx = o.data.position[0] + vc.cW.x;
+    e.wz = o.data.position[2] + vc.cW.z;
+    e.hx = vc.cb.half[0];
+    e.hz = vc.cb.half[2];
+    e.cy = vc.cy;
+    e.sy = vc.sy;
+    vehColliders_.push_back(e);
+  }
+}
+
 void TerrainGame::updateVehicles(float dt) {
   if (dt <= 0.0F) return;
   if (dt > 0.05F) dt = 0.05F;
@@ -17564,9 +17816,16 @@ void TerrainGame::updateVehicles(float dt) {
       }
     }
   }
+  buildVehicleColliders();
   for (int vi = 0; vi < vehicleCount_; ++vi) {
     VehicleRt& v = vehicles_[vi];
     if (!v.active || v.def < 0) continue;
+#if TYRA_FRAME_PROFILE
+    u32 vehT = Tyra::FrameProfile::ticks();
+#define VEH_LAP(k) do { const u32 vn_ = Tyra::FrameProfile::ticks(); ftrig::vehLap[k] += vn_ - vehT; vehT = vn_; } while (0)
+#else
+#define VEH_LAP(k) ((void)0)
+#endif
     const VehicleDefData& s = VEHICLE_DEFS[v.def];
     const float SC = v.scale;  // the instance scale (see VehicleRt::scale)
     // For the weight-transfer lean below: the speed the frame STARTED with,
@@ -17811,6 +18070,7 @@ void TerrainGame::updateVehicles(float dt) {
     if (v.steerAngle > lock) v.steerAngle = lock;
     if (v.steerAngle < -lock) v.steerAngle = -lock;
 
+    VEH_LAP(0);
     // Ground: four height samples under the wheel anchors. They give the
     // ride height, the pitch and the roll from one query each.
     const float hx = 0.5F * s.track * SC, hz = 0.5F * s.wheelBase * SC;
@@ -17844,67 +18104,46 @@ void TerrainGame::updateVehicles(float dt) {
     {
       const float spd = v.speed < 0.0F ? -v.speed : v.speed;
       const float reach = hx + hz + 1.5F + spd * dt;
-      for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
-        if (oi == v.object || oi == carryIndex) continue;  // never itself
-        // Another VEHICLE is not a wall: car-vs-car is the momentum pass
-        // after this loop - both cars move, neither dead-stops. A wall
-        // answer here was "nieklimatyczne jeb i oba stoja w miejscu".
-        {
-          bool otherVeh = false;
-          for (int vk = 0; vk < vehicleCount_ && !otherVeh; ++vk)
-            otherVeh = vehicles_[vk].active && vehicles_[vk].object == oi;
-          if (otherVeh) continue;
-        }
-        const RuntimeObject& o = runtimeObjects[oi];
-        if (!o.active || !o.visible || !objectCollides(o.data)) continue;
-        if (o.data.physics && physObstacle(o.data)) {
-          const float dx = o.data.position[0] - v.pos[0];
-          const float dz = o.data.position[2] - v.pos[2];
-          const float r = reach + 0.5F * (o.data.scale[0] + o.data.scale[2]) + 1.0F;
+      // The frame's collider list (built once before the vehicle loop, see
+      // buildVehicleColliders): every car reads the same compact array instead
+      // of re-walking the scene - same entries, same order, same tests.
+      for (const VehColEntry& e : vehColliders_) {
+        const int oi = e.oi;
+        if (oi == carryIndex) continue;
+        if (e.kind == 2) {
+          const float dx = e.wx - v.pos[0];
+          const float dz = e.wz - v.pos[2];
+          const float r = reach + e.rs + 1.0F;
           if (dx * dx + dz * dz < r * r && pushN < 8) pushIdx[pushN++] = oi;
           continue;
         }
-        const GameModel* gm = nullptr;
-        if (o.data.type == 5 && o.data.model >= 0 &&
-            o.data.model < (int)gameModels.size())
-          gm = &gameModels[o.data.model];
-        if (o.data.collision == 1 && gm && !gm->collider.empty()) {
-          // Mesh mode: rare and expensive - remember the object, pay the
-          // resolver only near it (the wheels ride its ground, the wall
-          // samples ask it to refuse).
-          const float dx = o.data.position[0] - v.pos[0];
-          const float dz = o.data.position[2] - v.pos[2];
-          const float r = reach + 0.5F * (o.data.scale[0] + o.data.scale[2]) +
-                          2.0F;
+        if (e.kind == 1) {
+          const float dx = e.wx - v.pos[0];
+          const float dz = e.wz - v.pos[2];
+          const float r = reach + e.rs + 2.0F;
           if (dx * dx + dz * dz < r * r && nearMeshN < 4)
             nearMesh[nearMeshN++] = oi;
           continue;
         }
-        const CollisionBox cb = objectCollisionBox(o);
-        const V3 cW = boxRotate({cb.center[0], cb.center[1], cb.center[2]},
-                                o.data);
-        const float top = o.data.position[1] + cW.y + cb.half[1];
-        const float bottom = o.data.position[1] + cW.y - cb.half[1];
-        const float wx = o.data.position[0] + cW.x;
-        const float wz = o.data.position[2] + cW.z;
+        const float top = e.top;
+        const float bottom = e.bottom;
+        const float wx = e.wx;
+        const float wz = e.wz;
         const float ddx = wx - v.pos[0], ddz = wz - v.pos[2];
-        const float yawR = (o.data.rotation[1] + cb.yaw) * PI / 180.0F;
         if (top <= feet0 + 0.5F && top > feet0 - 3.0F) {
           // A floor: the REAL footprint, no walker-radius inflation - a
           // wheel rides the platform, it does not hover off its edge.
-          const float rr = reach + cb.half[0] + cb.half[2];
+          const float rr = reach + e.hx + e.hz;
           if (ddx * ddx + ddz * ddz < rr * rr && floorBoxN < 8)
-            floorBox[floorBoxN++] = {wx,          wz,          cb.half[0],
-                                     cb.half[2],  cosf(yawR),  sinf(yawR),
-                                     top};
+            floorBox[floorBoxN++] = {wx, wz, e.hx, e.hz, e.cy, e.sy, top};
           continue;
         }
         if (top <= feet0 + 0.5F || bottom >= feet0 + 0.9F) continue;
-        const float bhx = cb.half[0] + 0.35F;  // the walker's playerRadius
-        const float bhz = cb.half[2] + 0.35F;
+        const float bhx = e.hx + 0.35F;  // the walker's playerRadius
+        const float bhz = e.hz + 0.35F;
         const float rr = reach + bhx + bhz;
         if (ddx * ddx + ddz * ddz >= rr * rr || wallBoxN >= 12) continue;
-        wallBox[wallBoxN++] = {wx, wz, bhx, bhz, cosf(yawR), sinf(yawR)};
+        wallBox[wallBoxN++] = {wx, wz, bhx, bhz, e.cy, e.sy};
       }
       // Generated geometry (prefabs, procedural volumes): already
       // axis-aligned conservative boxes, same vertical rules.
@@ -17937,8 +18176,19 @@ void TerrainGame::updateVehicles(float dt) {
     // therefore sampling two different pieces of ground.
     float contactRot[3];
     vehBodyRotation(v.pitch, v.yaw, v.roll, contactRot);
+    // rotated() is linear, so its three basis images ARE the rotation: three
+    // Euler evaluations per car instead of one per probe (ten), and the EE
+    // has no trig in hardware.
+    const V3 crX = rotated({1.0F, 0.0F, 0.0F}, contactRot);
+    const V3 crY = rotated({0.0F, 1.0F, 0.0F}, contactRot);
+    const V3 crZ = rotated({0.0F, 0.0F, 1.0F}, contactRot);
+    auto contactRotate = [&](const V3& q) -> V3 {
+      return {crX.x * q.x + crY.x * q.y + crZ.x * q.z,
+              crX.y * q.x + crY.y * q.y + crZ.y * q.z,
+              crX.z * q.x + crY.z * q.y + crZ.z * q.z};
+    };
     for (int w = 0; w < 4; ++w) {
-      const V3 hard = rotated({lx[w], 0.0F, lz[w]}, contactRot);
+      const V3 hard = contactRotate({lx[w], 0.0F, lz[w]});
       const float wx = v.pos[0] + hard.x;
       const float wz = v.pos[2] + hard.z;
       gy[w] = terrainHeightAt(wx, wz);
@@ -17986,8 +18236,8 @@ void TerrainGame::updateVehicles(float dt) {
       const float px[6] = {0.0F, -chx, chx, 0.0F, -chx, chx};
       const float pz[6] = {chz, chz, chz, -chz, -chz, -chz};
       for (int k = 0; k < 6; ++k) {
-        const V3 off = rotated(
-            {px[k], -0.65F * s.rideHeight * SC, pz[k]}, contactRot);
+        const V3 off = contactRotate(
+            {px[k], -0.65F * s.rideHeight * SC, pz[k]});
         const float floor = terrainHeightAt(v.pos[0] + off.x,
                                             v.pos[2] + off.z);
         if (floor <= TERRAIN_VOID_Y * 0.5F) continue;
@@ -17995,6 +18245,7 @@ void TerrainGame::updateVehicles(float dt) {
         if (need > bodyFloorY) bodyFloorY = need;
       }
     }
+    VEH_LAP(1);
     // THE SPRUNG RIG - the host twin's exact arrangement (vehiclesim.cpp,
     // "THE SPRUNG RIG" - change one, change both). The body used to SNAP to
     // the plane while a rate-limited attitude hung mid-swing over every
@@ -18228,6 +18479,7 @@ void TerrainGame::updateVehicles(float dt) {
     v.pos[0] += (v.speed * s2 + v.lateral * c2) * dt;
     v.pos[2] += (v.speed * c2 - v.lateral * s2) * dt;
 
+    VEH_LAP(2);
     // Walls. EIGHT sample points through the walker's own resolver, not the
     // centre (a centre test lets a car put half its width through a wall
     // before anything notices) and not corners alone (four corners let
@@ -18356,6 +18608,7 @@ void TerrainGame::updateVehicles(float dt) {
         }
       }
     }
+    VEH_LAP(3);
     // PHYSICS BODIES: momentum, not a wall (docs/vehicles.md). Every body
     // the gather set aside whose footprint (a disc of its wider half-extent)
     // reaches the car's body rectangle takes a velocity kick along the
@@ -18480,6 +18733,7 @@ void TerrainGame::updateVehicles(float dt) {
                         0.0F, 1.0F);
     }
 
+    VEH_LAP(4);
     // Tyre smoke: the slip number feeds a puff rate at the REAR anchors -
     // burnouts, handbrake slides and wall grinds all smoke, because they all
     // ARE slip. The pool is a ring; a spawn overwrites the oldest puff.
@@ -18578,11 +18832,14 @@ void TerrainGame::updateVehicles(float dt) {
         o.dirty = true;
     }
 
+    VEH_LAP(5);
     // The engine note. Called for EVERY vehicle, not only the driven one, so
     // that leaving a car is what silences it - a `continue` above here would
     // leave the loop running for ever on the channel.
     updateVehicleEngineSound(v, s, vi == vehicleDriver_ ? 1 : 0);
 
+    VEH_LAP(6);
+#undef VEH_LAP
     // Driving: the camera. The walker is GATED while driving (the check at
     // the top of updatePlayerWalker), so this is the ONLY writer - "the camera
     // goes wherever it likes" was two writers fighting, the walker's look
@@ -20754,15 +21011,37 @@ void TerrainGame::updateObjectPhysics() {
   const float gravityPerFrame = GRAVITY * g_frameDt * g_frameDt;
   const float microBounce2 = gravityPerFrame * gravityPerFrame * 6.25F;
   const int count = (int)runtimeObjects.size();
+  // The bodies, as indices. Both passes used to walk every object in the
+  // scene to find the few with data.physics set - and pass 2 did it once PER
+  // body - reading two fields out of a RuntimeObject far larger than a cache
+  // line each time. On a physical PS2 that was 0.51 ms of a frame with zero
+  // awake bodies in the dense Motor District scene. data.physics is fixed per
+  // object, so the list only changes when the scene or its object count does
+  // (spawns append).
+  static std::vector<int> physBodies;
+  static unsigned int physBodiesGen = ~0u;
+  static int physBodiesCount = -1;
+  if (physBodiesGen != sceneGeneration || physBodiesCount != count) {
+    physBodies.clear();
+    for (int i = 0; i < count; ++i)
+      if (runtimeObjects[i].data.physics) physBodies.push_back(i);
+    physBodiesGen = sceneGeneration;
+    physBodiesCount = count;
+  }
+  const int bodyCount = (int)physBodies.size();
 
   // Pass 1: integrate each awake body against the world (terrain, bounds,
   // static solids - sleeping bodies included, they are static this frame).
-  for (int i = 0; i < count; ++i) {
+  for (int bi = 0; bi < bodyCount; ++bi) {
+    const int i = physBodies[(size_t)bi];
     RuntimeObject& o = runtimeObjects[i];
     // Carried/thrown objects are driven by updateCarriedObject this frame.
     if (i == carryIndex || i == thrownIndex) continue;
     if (!o.active || !o.data.physics) continue;
     if (physAsleep(o)) continue;  // asleep
+#if TYRA_FRAME_PROFILE
+    ++ftrig::physAwake;
+#endif
 
     const GameModel* gm = nullptr;
     const SkelModel* anim = nullptr;
@@ -20943,6 +21222,66 @@ void TerrainGame::updateObjectPhysics() {
       // contacts (resting stacks) keep the wall treatment, so settled
       // stacks stay cheap and stable.
       if (sSleeping && vel.innerProduct(vel) > PHYS_WAKE_SPEED2) continue;
+      // Broad phase. Everything below starts with physExtents and ends in a
+      // per-shape resolver, and it ran for every obstacle in the scene against
+      // every awake body - in a built-up map most of them buildings a street
+      // away. A sphere around the obstacle's origin that contains its whole
+      // extent at any rotation (|offset| + |half extents|), cached per object
+      // and keyed on everything physExtents reads, rejects them with one
+      // distance test. Padded by the body's own bound and this frame's motion,
+      // so nothing that can touch is skipped.
+      {
+        struct PhysBound { float key[12]; float r; bool valid; };
+        static std::vector<PhysBound> bounds;
+        static unsigned int boundsGen = ~0u;
+        if (boundsGen != sceneGeneration || bounds.size() != runtimeObjects.size()) {
+          bounds.assign(runtimeObjects.size(), PhysBound{});
+          boundsGen = sceneGeneration;
+        }
+        PhysBound& pb = bounds[(size_t)j];
+        const float bkey[12] = {s.data.rotation[0], s.data.rotation[1], s.data.rotation[2],
+                                s.data.scale[0], s.data.scale[1], s.data.scale[2],
+                                s.data.modelYaw, (float)s.data.model,
+                                (float)s.data.animModel, (float)s.data.type,
+                                (float)s.data.collision, s.dirty ? 1.0F : 0.0F};
+        bool same = pb.valid;
+        for (int k = 0; k < 12 && same; ++k) same = pb.key[k] == bkey[k];
+        if (!same) {
+          const GameModel* bgm = nullptr;
+          const SkelModel* banim = nullptr;
+          if (s.data.type == 5) {
+            if (s.data.model >= 0 && s.data.model < (int)gameModels.size())
+              bgm = &gameModels[s.data.model];
+            if (s.data.animModel >= 0 && s.data.animModel < (int)gameAnimModels.size())
+              banim = gameAnimModels[s.data.animModel].src.get();
+          }
+          float bo[3], be[3];
+          physExtents(s.data, bgm, banim, bo, be);
+          pb.r = sqrtf(bo[0] * bo[0] + bo[1] * bo[1] + bo[2] * bo[2]) +
+                 sqrtf(be[0] * be[0] + be[1] * be[1] + be[2] * be[2]);
+          if (s.data.collision == 1 && bgm && !bgm->collider.empty()) {
+            // A mesh collider is bounded by its own AABB, scaled.
+            const float* mn = bgm->collider.aabbMin();
+            const float* mx = bgm->collider.aabbMax();
+            float m = 0.0F;
+            for (int a = 0; a < 3; ++a) {
+              const float e = fabsf(mn[a]) > fabsf(mx[a]) ? fabsf(mn[a]) : fabsf(mx[a]);
+              m += e * e * s.data.scale[a] * s.data.scale[a];
+            }
+            const float mr = sqrtf(m);
+            if (mr > pb.r) pb.r = mr;
+          }
+          for (int k = 0; k < 12; ++k) pb.key[k] = bkey[k];
+          pb.valid = true;
+        }
+        const float bx = s.data.position[0] - (pos.x + cOff[0]);
+        const float by = s.data.position[1] - (pos.y + cOff[1]);
+        const float bz = s.data.position[2] - (pos.z + cOff[2]);
+        const float bodyR = sqrtf(ext[0] * ext[0] + ext[1] * ext[1] + ext[2] * ext[2]) +
+                            sqrtf(vel.innerProduct(vel)) + 1.0F;
+        const float lim = pb.r + bodyR;
+        if (bx * bx + by * by + bz * bz > lim * lim) continue;
+      }
       const GameModel* sgm = nullptr;
       const SkelModel* sanim = nullptr;
       if (s.data.type == 5) {
@@ -21273,11 +21612,13 @@ void TerrainGame::updateObjectPhysics() {
   // circle + Y interval) resolved along the axis of least penetration,
   // impulses split by mass; hitting a sleeping body wakes it. Pairs where
   // both sleep are skipped, so settled stacks stay free.
-  for (int i = 0; i < count; ++i) {
+  for (int ai = 0; ai < bodyCount; ++ai) {
+    const int i = physBodies[(size_t)ai];
     RuntimeObject& a = runtimeObjects[i];
     if (i == carryIndex || i == thrownIndex) continue;  // driven by the carry
     if (!a.active || !a.data.physics || !physObstacle(a.data)) continue;
-    for (int j = i + 1; j < count; ++j) {
+    for (int bj = ai + 1; bj < bodyCount; ++bj) {
+      const int j = physBodies[(size_t)bj];
       RuntimeObject& b = runtimeObjects[j];
       if (j == carryIndex || j == thrownIndex) continue;
       if (!b.active || !b.data.physics || !physObstacle(b.data)) continue;

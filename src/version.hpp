@@ -16,6 +16,15 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.125.2: A CAR, A BODY AND AN OCCLUDER COST LESS PER OBJECT IN THE SCENE.
+// The vehicle contact gather reads one compact collider list built per frame
+// instead of walking every object per car (4 AI cars: veh 2.28 -> 1.09 ms);
+// the physics passes walk an index list of the bodies (0.51 -> 0.013 ms with
+// none awake in the dense scene); the occlusion buffer rasterises one span per
+// row, caches occluder corners and candidate boxes and skips occluders outside
+// the view. New FTOCC / FTPHYS / FTVEH lines under TYRA_FRAME_PROFILE. Motor
+// District gains a `dense` scene with 107 more buildings. PATCH.
+//
 // 1.125.1: THE UPDATE HALF OF PRE, TIMED (FTUPD).
 // With TYRA_FRAME_PROFILE on, the FPP loop laps its update into ten sections
 // and prints FTUPD beside FRAMETIME. First reading: at Motor District's old
@@ -5137,7 +5146,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 125
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

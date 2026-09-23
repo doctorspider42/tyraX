@@ -751,6 +751,31 @@ no physics. An exiting vehicle also stays awake until its looping audio channels
 have been silenced. Physical-console traces expose the aggregate as
 `Vehicles_update` and each skipped instance as `Vehicle_sleep`.
 
+### What a car costs (1.125.2)
+
+Measured on a physical PS2, Motor District `main` scene, player car parked at
+the spawn, AI cars on the `circuit-` route (FRAMETIME level 2, devkit off,
+twelve 50-frame windows while they lap):
+
+| AI cars | `veh` (all cars) | `pre` | `work` |
+|---:|---:|---:|---:|
+| 0 | 0.41 ms | 0.68 | 18.36 |
+| 2 (before) | 1.25 | 1.59 | 19.23 |
+| 4 (before) | 2.28 | 2.78 | 19.95 |
+| **4 (1.125.2)** | **1.09** | **1.55** | 20.05 |
+
+Each car cost ~0.47 ms of update, and 0.33 of it was the contact gather: every
+car walked every scene object, reading a few fields out of RuntimeObjects far
+larger than a cache line and rotating each collision box with Euler trig. The
+gather now reads one compact list built once per frame
+(`buildVehicleColliders`: same entries, same object order, box geometry cached
+per object and keyed on its shape and transform), and the ten ground probes
+share one rotation matrix instead of ten Euler evaluations. `FTVEH`
+(`TYRA_FRAME_PROFILE`) splits the per-car update into input, gather, rig,
+walls, bodies, smoke and sound: for five cars it reads gather 0.26, rig 0.17,
+smoke 0.12 and everything else under 0.1 ms. A car in view also costs ~0.4 ms
+of `work` (body, wheels, paint within 35 units).
+
 ### AI drivers
 
 `vehiclesim::step` **never reads a pad**. Its input is a `DriveInput` — throttle,
