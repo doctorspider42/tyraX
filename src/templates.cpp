@@ -19852,8 +19852,14 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   // alongside geometry (never per frame), then renderScene can reject a fully
   // off-screen model before submitting every part to StaPip. LOD tiers only
   // remove vertices, so the tier-0 box remains conservative for them too.
+  // Every object gets one, a single box included: StaPip's own classification
+  // of an off-screen bag costs ~17 us on a physical PS2 (bounds, program,
+  // transform cache) against ~1 us for this test, and it is paid again for
+  // each companion bag - lightmap, emission, env pass. Motor District start
+  // pose: 64 of the 77 objects that reached render() drew nothing, 0.43 ms of
+  // bounds (docs/profiling.md, "The game side of the object loop").
   g.coarseBoxValid = false;
-  if (g.parts.size() >= 3) {
+  if (!g.parts.empty()) {
     Vec4 coarseMin(1e30F, 1e30F, 1e30F, 1.0F);
     Vec4 coarseMax(-1e30F, -1e30F, -1e30F, 1.0F);
     for (const GeoPart& part : g.parts)
@@ -19922,7 +19928,9 @@ void TerrainGame::renderReflectionProxy(int index) {
 bool TerrainGame::coarseObjectOutside(int index) const {
   if (index < 0 || index >= (int)objectGeometry.size()) return false;
   const ObjectGeometry& g = objectGeometry[index];
-  if (g.parts.size() < 3 || !g.coarseBoxValid || vuscript::movesGeometry())
+  // An impostor billboard rewrites its six vertices every frame to face the
+  // camera, so a box baked at rebuild time does not bound it.
+  if (!g.coarseBoxValid || g.impostor || vuscript::movesGeometry())
     return false;
   Plane localPlanes[6];
   const Plane* planes =
@@ -23220,11 +23228,29 @@ void TerrainGame::renderScene() {
   // Owned object streams remain alive until the next VIF1 synchronization.
   stapip.core.beginSubmissionBatch();
   int impostorSwitchBudget = 4;
+  // The game side of the object loop, lap by lap, for the render-cost capture
+  // only (docs/profiling.md, "The game side of the object loop"). A lap is a
+  // bare COUNT read - no drain - so the sections add up to the loop and sit
+  // inside the Objects row. `lp` is false outside a capture, and every lap is
+  // then one predictable branch.
+  const bool lp = costSeq != 0;
+  u32 lpT = 0;
+  u32 lpImpostor = 0, lpGeometry = 0, lpDraw = 0, lpCoarse = 0, lpOcclusion = 0,
+      lpBillboard = 0, lpLod = 0, lpPre = 0, lpPost = 0;
+  u32 lpNTested = 0, lpNRebuild = 0, lpNMatrix = 0, lpNPastDraw = 0,
+      lpNPastCoarse = 0, lpNPastOcclusion = 0, lpNDrawn = 0;
+  auto lap = [&](u32& acc) {
+    if (!lp) return;
+    const u32 t = profTicks();
+    acc += t - lpT;
+    lpT = t;
+  };
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (!runtimeObjects[i].active) continue;  // streamed out with its layer
     // Batched members render via renderStaticBatches above; their dirty flag
     // is consumed by the batch rebuild, never by the solo path.
     if (i < (int)objectBatchOf.size() && objectBatchOf[i] != -1) continue;
+    if (lp) { lpT = profTicks(); ++lpNTested; }
     // Something that moves EVERY frame asked for the matrix path (an endless
     // scroller's clones - see RuntimeObject::wantsMatrixPath). One local-space
     // bake buys it a whole belt's worth of per-frame motion at the price of a
@@ -23263,24 +23289,41 @@ void TerrainGame::renderScene() {
         runtimeObjects[i].dirty = true;
       }
     }
+    lap(lpImpostor);
     if (runtimeObjects[i].wantsMatrixPath && !objectGeometry[i].matrixMode &&
-        physFastPathEligible(i))
+        physFastPathEligible(i)) {
       rebuildObjectGeometry(i, true);
-    else if (runtimeObjects[i].dirty)
+      if (lp) ++lpNRebuild;
+    } else if (runtimeObjects[i].dirty) {
       rebuildObjectGeometry(i);
+      if (lp) ++lpNRebuild;
+    }
     // Fast-path bodies: this matrix refresh is their whole per-frame render
     // cost - it also folds in pass-2 separations and player pushes applied
     // after the physics integration wrote the matrix.
-    if (objectGeometry[i].matrixMode) updateObjMat(i);
-    if (!runtimeObjects[i].visible) continue;
-    if (beyondDrawDistance(runtimeObjects[i].data, cameraPosition)) continue;
+    if (objectGeometry[i].matrixMode) {
+      updateObjMat(i);
+      if (lp) ++lpNMatrix;
+    }
+    lap(lpGeometry);
+    const bool lpFar = !runtimeObjects[i].visible ||
+                       beyondDrawDistance(runtimeObjects[i].data, cameraPosition);
+    lap(lpDraw);
+    if (lpFar) continue;
+    if (lp) ++lpNPastDraw;
     // A model with several materials otherwise enters StaPip once per part
     // just to discover that every package is outside. The merged box preserves
     // part-level culling for visible/edge cases while making the common fully
     // off-screen case one six-plane AABB test. A VU program that moves geometry
     // can escape the baked box, so it deliberately stays on the old path.
-    if (coarseObjectOutside(i)) continue;
-    if (occlusionHiddenObject(i)) continue;
+    const bool lpOutside = coarseObjectOutside(i);
+    lap(lpCoarse);
+    if (lpOutside) continue;
+    if (lp) ++lpNPastCoarse;
+    const bool lpHidden = occlusionHiddenObject(i);
+    lap(lpOcclusion);
+    if (lpHidden) continue;
+    if (lp) ++lpNPastOcclusion;
     // Six vertices, no allocation/rebuild: the selected capture and facing
     // update in place. Texture coordinates come from the loaded (atlas-remapped)
     // model, so the normal asset bake remains authoritative.
@@ -23310,7 +23353,9 @@ void TerrainGame::renderScene() {
       }
     }
     // Split halves: whole objects above/below the visible band skip here.
-    if (splitBandActive && objectOutsideSplitBand(i)) continue;
+    const bool lpBand = splitBandActive && objectOutsideSplitBand(i);
+    lap(lpBillboard);
+    if (lpBand) continue;
     // Static mesh LOD: hard thresholds at the distance and twice it, like the
     // animated path. The tier picked here is in effect for every OTHER view
     // this frame too (mirrors, portals, camera feeds, probes re-submit these
@@ -23332,6 +23377,7 @@ void TerrainGame::renderScene() {
       for (int pi = 0; pi < (int)objectGeometry[i].parts.size(); ++pi)
         applyGeoLod(i, pi, tier);
     }
+    lap(lpLod);
     // mirrors draw after the scene (copies first, then the blended glass -
     // see renderMirrors); drawing the quad here would z-write the plane and
     // reject the reflected geometry behind it. Portals blend their tinted
@@ -23370,10 +23416,16 @@ void TerrainGame::renderScene() {
     // share whatever the batch was built with (docs/vu-authoring.md).
     if (vuprog::ENABLED)
       vuprog::setParams(stapip.core, runtimeObjects[i].data.vuParams);
+    lap(lpPre);
+    if (lp) ++lpNDrawn;
     const u32 costObjectStart=costStart();
+    u32 lpMain = 0, lpCompanion = 0;
     for (GeoPart& part : objectGeometry[i].parts)
       if (part.bag) {
+        const u32 lpA = lp ? profTicks() : 0;
         stapip.core.render(part.bag.get());
+        const u32 lpB = lp ? profTicks() : 0;
+        lpMain += lpB - lpA;
         // Scene lightmap: occlusion multiplies first, then the baked emissive
         // light adds on top of the darkened surface - the same order the
         // vertex path uses (AO scales the directional term, lights add over
@@ -23382,10 +23434,41 @@ void TerrainGame::renderScene() {
         if (part.emisBag && optionalMaterialDetail(i))
           stapip.core.render(part.emisBag.get());
         renderEnvPass(i, objectGeometry[i], part);
+        if (lp) lpCompanion += profTicks() - lpB;
       }
     if (costSeq) stapip.core.endSubmissionBatch();
     costEnd("Object",i,costObjectStart);
+    // 3600: the Obj_* detail gives way first, so a big scene keeps its
+    // Object rows and every phase after them under the 4088-row cap.
+    if (lp && costRows.size() < 3600) {
+      // One object's own pipeline bill. Taken per object, so it must also
+      // reach the Objects and frame totals it would have been part of.
+      const auto t = stapip.core.takeTelemetry();
+      addTel(costTelObj, t);
+      addTel(costTelTotal, t);
+      costRows.push_back({i,"Obj_main_ee",lpMain});
+      costRows.push_back({i,"Obj_companion_ee",lpCompanion});
+      costRows.push_back({i,"Obj_bounds",t.boundsTicks});
+      costRows.push_back({i,"Obj_prepare",t.prepareTicks});
+      costRows.push_back({i,"Obj_dispatch",t.dispatchTicks});
+      costRows.push_back({i,"Obj_DMA_submit",t.dmaSubmitTicks});
+      costRows.push_back({i,"Obj_VU1_wait",t.vu1WaitTicks});
+      costRows.push_back({i,"Obj_cull_count",t.packagesCull*294912U});
+      costRows.push_back({i,"Obj_clip_count",t.packagesClip*294912U});
+      costRows.push_back({i,"Obj_guard_count",t.packagesGuardBand*294912U});
+      costRows.push_back({i,"Obj_flush_count",t.packetFlushes*294912U});
+      costRows.push_back({i,"Obj_outside_count",t.packagesOutside*294912U});
+      costRows.push_back({i,"Obj_vertices_count",t.verticesSubmitted*294912U});
+#if TYRA_STAPIP_ATTRIB
+      costRows.push_back({i,"Obj_gif_wait",t.attrib.gifWaitTicks});
+      costRows.push_back({i,"Obj_prep_texture",t.attrib.prepTextureTicks});
+      costRows.push_back({i,"Obj_ds_flush",t.attrib.dsFlushTicks});
+      costRows.push_back({i,"Obj_ds_render",t.attrib.dsRenderTicks});
+      costRows.push_back({i,"Obj_render_total",t.attrib.renderTicks});
+#endif
+    }
     if (costSeq) stapip.core.beginSubmissionBatch();
+    if (lp) lpT = profTicks();
     // Back to zero the moment this object's bags are out. The numbers are
     // RENDERER STATE, not a property of the bag, so everything drawn after an
     // object - the terrain, the sky dome, a static batch, the next object -
@@ -23396,9 +23479,30 @@ void TerrainGame::renderScene() {
       const float none[4] = {0.0F, 0.0F, 0.0F, 0.0F};
       vuprog::setParams(stapip.core, none);
     }
+    lap(lpPost);
   }
   stapip.core.endSubmissionBatch();
   costEnd("Objects",-1,costObjectsStart);
+  if (lp) {
+    // Laps are EE time only and sit inside the Objects row; counts ride the
+    // ms column scaled by one millisecond of ticks, like Objects_*_count.
+    costRows.push_back({-1,"Loop_impostor_included",lpImpostor});
+    costRows.push_back({-1,"Loop_geometry_included",lpGeometry});
+    costRows.push_back({-1,"Loop_draw_distance_included",lpDraw});
+    costRows.push_back({-1,"Loop_coarse_cull_included",lpCoarse});
+    costRows.push_back({-1,"Loop_occlusion_included",lpOcclusion});
+    costRows.push_back({-1,"Loop_billboard_band_included",lpBillboard});
+    costRows.push_back({-1,"Loop_mesh_lod_included",lpLod});
+    costRows.push_back({-1,"Loop_pre_render_included",lpPre});
+    costRows.push_back({-1,"Loop_post_render_included",lpPost});
+    costRows.push_back({-1,"Loop_tested_count",lpNTested*294912U});
+    costRows.push_back({-1,"Loop_rebuild_count",lpNRebuild*294912U});
+    costRows.push_back({-1,"Loop_matrix_count",lpNMatrix*294912U});
+    costRows.push_back({-1,"Loop_past_draw_count",lpNPastDraw*294912U});
+    costRows.push_back({-1,"Loop_past_coarse_count",lpNPastCoarse*294912U});
+    costRows.push_back({-1,"Loop_past_occlusion_count",lpNPastOcclusion*294912U});
+    costRows.push_back({-1,"Loop_drawn_count",lpNDrawn*294912U});
+  }
   if (costSeq) {
     const auto objTel = stapip.core.takeTelemetry();
     addTel(costTelObj, objTel);

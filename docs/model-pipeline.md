@@ -71,8 +71,8 @@ draw batches.
 
 ## Whole-model frustum rejection
 
-A static model with at least three material parts gets one conservative AABB
-over all of its baked vertices. The generated game tests that box before it
+Every static object with geometry - a one-part box included - gets one
+conservative AABB over all of its baked vertices. The generated game tests that box before it
 submits the individual parts in the main view and in portal through-views. A
 fully off-screen district therefore costs one six-plane AABB classification,
 not one pipeline entry and a set of package-bound tests per material. Objects
@@ -83,6 +83,17 @@ The box is rebuilt only when the object's geometry is rebuilt. It remains
 conservative across mesh-LOD tiers, which only remove vertices, and follows the
 matrix fast path in object space. A custom VU program that moves geometry skips
 this early rejection because its displaced vertices may leave the baked box.
+An impostor billboard skips it too: it rewrites its six vertices every frame
+to face the camera.
+
+Until 1.124.1 only models with three or more parts had the box, on the theory
+that a one-part object had nothing to amortize. A physical PS2 said otherwise:
+StaPip spends ~17 us classifying one off-screen bag (bounds, program choice,
+transform cache) and does it again for each companion bag, while this test
+costs ~2 us. At the Motor District start pose 64 of the 77 objects that
+reached the pipeline drew nothing; the box for everything took the player's
+frame from 14.20 to 13.80 ms with the drawn packages and vertices identical
+(docs/profiling.md, "The game side of the object loop").
 
 Consecutive material bags that point at the same model matrix also reuse their
 MVP and object-space frustum planes within the frame. The cache key includes the

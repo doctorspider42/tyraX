@@ -3439,6 +3439,8 @@ private:
     livedbg::Symbols dbgSyms_;      // src/gen/livedbg.sym (as generated)
     livedbg::Snapshot dbgSnap_;  // newest snapshot the game wrote
     livedbg::RenderCost dbgRenderCost_, dbgRenderBaseline_;
+    // Show the Obj_* rows (one object's own pipeline bill, docs/profiling.md).
+    bool dbgRenderCostDetail_ = false;
     uint32_t dbgRenderCostSeq_ = 0;
     bool dbgRenderCostWaiting_ = false;
     double dbgRenderCostPoll_ = 0;

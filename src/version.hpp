@@ -16,6 +16,18 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.124.1: EVERY OBJECT GETS THE COARSE FRUSTUM BOX.
+// The whole-object AABB reject was reserved for models of three or more
+// parts ("a one-part primitive has nothing to amortize"). On a physical PS2
+// StaPip spends ~17 us classifying one off-screen bag - and again for each
+// companion bag - against ~2 us for the box test. Motor District start pose:
+// 64 of 77 objects entering the pipeline drew nothing; with the box for all,
+// off-screen packages 216 -> 0, drawn cull/guard/vertices identical, the
+// ordinary frame's work 14.20 -> 13.80 ms. Impostors are excluded (a billboard
+// rewrites its vertices every frame). The render-cost capture also laps the
+// game side of the object loop and bills each object (Loop_* / Obj_* rows,
+// Obj_ shown behind "Per-object pipeline detail"). PATCH.
+//
 // 1.124.0: ENTER VEHICLE / EXIT VEHICLE FLOW NODES.
 // A graph can seat the player in a vehicle (and put them out at the driver's
 // door) without a USE press, so a driving test case starts behind the wheel:
@@ -5087,7 +5099,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 124
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

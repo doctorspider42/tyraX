@@ -2094,12 +2094,73 @@ drawn in 53 packages and 13 packet flushes:
 | of which dispatch | 0.462 | 10.0 us |
 | of which prepare (object header 0.217) | 0.411 | 8.9 us |
 | of which DMA submit | 0.245 | 5.3 us |
-| **game-side per-object code, outside `render()`** | **~1.8** | ~23 us per tested object |
+| ~~game-side per-object code, outside `render()`~~ | ~~~1.8~~ | **wrong - see below** |
 
 Texture bind, light selection and program choice together are ~3 us per bag -
-not where the time is. **Half of the object bill is the generated game's own
-per-object loop** (batch membership, matrix path, draw distance, coarse and
-occlusion rejects, impostors, split band), as large as the whole engine side;
-that is the next place to cut. The `bdSize` attribution counter (7 us per bag
+not where the time is. **The ~1.8 ms "game-side" row was a subtraction, and it
+was wrong.** Timed directly (next section) the game's own loop is 0.36 ms; the
+rest sat inside the `Object` rows, which hold more than `render()`'s counters
+do - the companion passes, the flush and, above all, the GS drawing the object,
+because each row ends in a drain. Never attribute a remainder: time the thing.
+The `bdSize` attribution counter (7 us per bag
 for three assignments) is mostly the cost of the nested COP0 reads around it -
 dense attribution inflates short code, so do not optimize off it.
+
+### The game side of the object loop (2026-09-23)
+
+The capture now laps the solo-object loop itself - bare COUNT reads, no
+drains, so the laps add up to the loop - as `Loop_*_included` rows, with
+`Loop_*_count` rows saying how many objects reached each stage. Each object
+that reaches the pipeline also gets its own bill: `Obj_main_ee` and
+`Obj_companion_ee` (EE time of the base bag and of its lightmap/emission/env
+bags), `Obj_bounds/prepare/dispatch/DMA_submit/VU1_wait`, and package counts
+`Obj_cull/guard/clip/outside/vertices/flush_count`; under `TYRA_STAPIP_ATTRIB`
+also `Obj_gif_wait`, `Obj_prep_texture`, `Obj_ds_render`, `Obj_ds_flush` and
+`Obj_render_total`. The editor hides the `Obj_` rows unless *Per-object
+pipeline detail* is ticked; they give way first when a big scene nears the
+row cap.
+
+Motor District start pose, physical PS2, three captures, medians:
+
+| loop stage | ms | objects past it |
+|---|---:|---:|
+| impostor decision | 0.086 | 92 tested |
+| geometry (rebuild / matrix refresh) | 0.055 | 0 rebuilds, 4 matrix |
+| draw distance | 0.029 | 86 |
+| coarse box | 0.079 | 77 |
+| occlusion | 0.005 | 77 |
+| billboard / split band | 0.014 | |
+| mesh LOD | 0.084 | |
+| rest before `render()` | 0.003 | 77 entered the pipeline |
+| **the whole game side** | **0.36** | |
+
+**Read an `Object` row as EE plus GS.** It ends in a drain, so it includes the
+GS rasterising that object: the 44 x 36 m asphalt apron under the camera is the
+dearest row at 0.36 ms with 0.18 ms of EE. The ordinary frame is EE-bound here
+(`drain` 0.02 ms) and the GS overlaps, so `Obj_main_ee` is the column that
+predicts the frame. Two things stood out in it:
+
+- **64 of the 77 objects that entered the pipeline drew nothing** - every
+  package outside - for 0.55 ms of EE, 0.43 of it bounds: ~17 us per
+  off-screen bag, paid again for each companion bag. The coarse box that could
+  have rejected them for ~2 us was reserved for models of three or more parts.
+- Bags with guard-band packages take the generic package route
+  (`Obj_ds_render` + `Obj_ds_flush`, ~0.07 ms an object) where a fully visible
+  bag takes the direct one (~0.012 ms). Three objects, ~0.3 ms; not touched
+  yet. The GIF wait inside `sendPacket` measured 0 - no texture re-uploads
+  (no VRAMSTAT eviction line either).
+
+**The coarse box for every object (1.124.1)**, same pose, the one change
+between the two ELFs:
+
+| | before | after |
+|---|---:|---:|
+| `Obj_outside_count` (packages classified off-screen) | 216 | **0** |
+| `Obj_cull` / `Obj_guard` / `Obj_vertices` | 42 / 11 / 1932 | 42 / 11 / 1932 |
+| Objects bounds, capture | 0.673 | 0.245 |
+| game-side coarse lap | 0.056 | 0.182 |
+| **FRAMETIME `work`, level 2, ordinary frame** | **14.20** | **13.80** |
+
+Everything drawn is identical to the vertex and the frame lost 0.40 ms (2.9%).
+Both arms were stable to +-0.03 ms over six 50-frame windows; a rerun of the
+"after" build by mistake read 13.79, which is the repeatability.

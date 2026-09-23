@@ -110,6 +110,19 @@ UCAB is unsafe with the stock patching builder; arbitrary CALL/RET/REF flyweight
 violate the current retained-command lifetime/TTE contract; and the REGLIST
 state shortcut is rejected immediately above.
 
+## Guard-band bags take the slow package route (2026-09-23)
+
+A bag that is not wholly inside the view but whose out-of-view packages stay
+inside the guard band is dispatched through the generic `renderPkgs` route
+(`Obj_ds_render` + `Obj_ds_flush` ~0.07 ms an object on a physical PS2), while a
+wholly visible bag takes the direct whole-IN submission (~0.012 ms). Those
+packages are culled whole and by pointer either way - no clipper runs - so the
+route difference looks like overhead, not work. At the Motor District start pose
+three objects pay it for ~0.3 ms of EE (apron, loft block, wall). Find what the
+direct route requires that a guard-band-only bag lacks, and whether an
+"every package is IN or guard-band" bag can take it. Measure with the
+`Obj_*` capture rows (docs/profiling.md, "The game side of the object loop").
+
 ## Motor District follow-up after the integrated frozen-camera pass
 
 ### What else was `FlushCache` writing back? (2026-09-16, BLOCKING S1)

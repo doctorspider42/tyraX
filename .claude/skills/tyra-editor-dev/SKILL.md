@@ -577,10 +577,17 @@ the normal object path draws it.
 
 Large and LOD-switched static models instead rely on
 `ObjectGeometry::coarseBox`: `coarseObjectOutside()` rejects the whole model
-before its parts enter StaPip in the main and portal views. Keep the threshold
-at three parts, preserve precise per-part/package culling for intersecting
-models, transform frustum planes for matrix-mode local vertices, and bypass the
-reject when a VU script moves geometry beyond the baked box.
+before its parts enter StaPip in the main and portal views. EVERY object with
+geometry gets the box since 1.124.1 - the old three-part threshold ("a one-part
+primitive has nothing to amortize") was an emulator-era guess, and a physical
+PS2 refuted it: StaPip classifies an off-screen bag in ~17 us against ~2 us for
+this test, and pays it again per companion bag (lightmap, emission, env). Do
+not put the threshold back without a console A/B (docs/profiling.md, "The game
+side of the object loop"). Preserve precise per-part/package culling for
+intersecting models, transform frustum planes for matrix-mode local vertices,
+skip impostors (a billboard rewrites its vertices every frame, so a baked box
+does not bound it), and bypass the reject when a VU script moves geometry
+beyond the baked box.
 
 **`dirty` is a re-bake, so per-frame motion must not go through a graph.**
 Setting `RuntimeObject::dirty` makes `renderScene` rebuild that object's whole
