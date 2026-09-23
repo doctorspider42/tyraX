@@ -219,6 +219,7 @@ Audit auditRelease(const std::string& elfPath) {
         "VRAMRES",          // TYRA_VRAM_CENSUS
         "VRAMEVICT",        // TYRA_VRAM_CENSUS
         "ROADINDEXVERIFY",  // TYRA_ROAD_INDEX_VERIFY, generated game
+        "MEMVERIFY",        // TYRA_MEM_VERIFY, engine info/info.hpp
         "WHEELBAKE"};       // TYRA_WHEEL_REBUILD_REPORT, generated game
     for (const char* sectionName : {".rodata", ".data", ".sdata"}) {
         const Section* s = img.section(sectionName);

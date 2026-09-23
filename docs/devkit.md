@@ -84,10 +84,15 @@ is pushed over it by any of them and waits a second field. Under PCSX2 the same
 reads are host syscalls and cost almost nothing, which is why this never shows
 in the emulator.
 
-The HUD's `MEM` readout is the other one. It measures free RAM by allocating
-every free block until `malloc` fails, every two seconds, and that costs 30-75
-ms depending on how fragmented the heap is - a visible hitch every two seconds
-in any debug build that shows it.
+The HUD's `MEM` readout WAS the other one, until 1.123.10. It measured free
+RAM by allocating every free block until `malloc` fails, every two seconds, and
+that cost 30-75 ms depending on how fragmented the heap was - a visible hitch
+every two seconds in any debug build that showed it. It now reads the
+allocator's books instead (`mallinfo().fordblks` plus the space between
+`sbrk(0)` and `EndOfHeap()`), agrees with the old probe to within 544-1806
+bytes of ~19 MB, and the periodic spike is gone: 8 against 0 in paired
+emulator runs with the readout on. `TYRA_MEM_VERIFY` in
+`engine/inc/info/info.hpp` takes every reading both ways, as the gate.
 
 So: **a frame rate read off a debug build over ps2link describes the devkit as
 much as the game.** For a number that means something, turn Remote Pad, Live

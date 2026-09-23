@@ -6485,8 +6485,9 @@ void drawDebugHud(Engine* engine, const Vec4& camPos, const Vec4& camAt) {
     y += 20.0F;
   }
   if (DEBUG_SHOW_MEM) {
-    // getAvailableRAM() probes the heap with mallocs - too expensive to run
-    // every frame, so the readout refreshes every ~2 seconds. Shown as
+    // getAvailableRAM() reads the allocator's books (engine info.cpp) - it
+    // used to malloc-probe the heap, a 30-75 ms hitch every time this ran.
+    // The ~2 second refresh stays so the digits are readable. Shown as
     // used/total: the EE has 32 MB, so MEM 6.1/32 MB = 6.1 MB in use.
     if (memRefresh-- <= 0) {
       memFreeMB = engine->info.getAvailableRAM();

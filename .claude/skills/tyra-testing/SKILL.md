@@ -3126,7 +3126,7 @@ physical PS2 with `TYRA_FRAME_PROFILE 2` (below) at a parked vantage.
 |---|---|---|
 | **Remote Pad** polls `host:livepad.bin` | every 4th frame (every frame in PCSX2) | a network round trip in `loop()` ahead of `beginFrame()` |
 | **Live Debugger** polls `livedbg.cmd` / writes the snapshot | every 25th frame (6th in PCSX2) | the same, rarer |
-| **HUD `MEM` readout** (`showMemory`) | every 2 s of game time | `getAvailableRAM()` malloc-probes the heap until it fails: **+31 ms** on one pose, **+75 ms** on a fragmented one |
+| **HUD `MEM` readout** (`showMemory`) - FIXED in 1.123.10 | every 2 s of game time | `getAvailableRAM()` malloc-probed the heap until it failed: **+31 ms** on one pose, **+75 ms** on a fragmented one. It now reads `mallinfo()` + `EndOfHeap() - sbrk(0)`; a build older than 1.123.10 still has the hitch |
 | **`TYRA_FRAME_PROFILE 1`** | every frame | the packet walker + pipeline telemetry: HUD SCENE 13.21 -> 17.70 ms |
 
 The first two together: the day frame read **26.3 ms with 15 of 50 frames
@@ -3140,7 +3140,8 @@ spikes against 0 in a paired emulator run.
 **The clean console measurement, in order:**
 
 1. In the project's `.tyra`: `remotePad`, `liveDebug`, `liveLink`,
-   `liveLogic`, `timeMachine`, `inputRecorder` and **`showMemory`** false.
+   `liveLogic`, `timeMachine` and `inputRecorder` false (and `showMemory` too
+   on an engine older than 1.123.10).
    (No Remote Pad also means no scripted day/night toggle - plan the poses.)
 2. `TYRA_FRAME_PROFILE 2` in `vendor/tyra/engine/inc/debug/frame_profile.hpp`
    - FRAMETIME alone, transparent. Level 1 is for WHAT a frame is made of, and

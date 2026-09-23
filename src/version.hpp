@@ -16,6 +16,17 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.123.10: THE HUD'S MEM READOUT STOPS HITCHING.
+// Info::getFreeRAMSize measured free RAM by allocating the largest free block,
+// then the next, until malloc failed - a cost that grows with heap
+// fragmentation. The debug HUD asks every two seconds, and on a physical PS2
+// that was one 30-75 ms frame every two seconds. It now reads the allocator's
+// books: mallinfo().fordblks plus EndOfHeap() - sbrk(0). Agrees with the old
+// probe to 544-1806 bytes of ~19 MB across 13 readings (TYRA_MEM_VERIFY, the
+// old probe kept as the oracle); periodic spikes with the readout on, paired
+// emulator runs: 8 before, 0 after. The Live Debugger's on-request RAM
+// measurement uses the same call and gets cheaper too. PATCH.
+//
 // 1.123.9: WHAT THE DEVKIT COSTS, WRITTEN DOWN.
 // docs/devkit.md and the tyra-testing skill record the three debug-only
 // costs that sat inside two days of console measurements: Remote Pad's and
@@ -5060,7 +5071,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 123
-#define TYRAX_VERSION_PATCH 9
+#define TYRAX_VERSION_PATCH 10
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
