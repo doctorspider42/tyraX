@@ -506,8 +506,21 @@ that there is a second, finer instrument in the engine —
 
 ```c
 #define TYRA_FRAME_PROFILE 1        // the counters + the FRAMETIME line
+#define TYRA_FRAME_PROFILE 2        // ... or FRAMETIME ALONE (see below)
 #define TYRA_FRAME_PROFILE_CALIB 1  // ... and the destructive GS fill sweep
 ```
+
+**Level 2 is the one that times the frame a player gets.** Level 1 switches on
+the static pipeline's telemetry (`FTCLIP`) and the packet-structure walker
+(`FTPKT`), and the walker parses every DMA tag and VIF code of every packet
+sent, every frame. That is not transparent: on a physical PS2 at a parked Motor
+District vantage the HUD's SCENE row read **13.21 ms uninstrumented, 17.70 ms at
+level 1 and 13.04 ms at level 2**, and in PCSX2 `work` read 20.54 ms at level 1
+against 8.12 ms at level 2 - most of what level 1 "measured" was itself. So
+level 1 answers what a frame is MADE of and deltas between two level-1 arms stay
+valid; an absolute `work` must come off level 2. The check that a level-2 run
+really is transparent is free and belongs in every report: its HUD SCENE must
+match an uninstrumented boot of the same pose.
 
 Both default to **0**, and at 0 neither `libtyra.a` nor the generated game
 carries a single instruction of any of it — the whole file is inside the
@@ -644,9 +657,24 @@ FRAMETIME n=50 f=1200 work=17.42/16.98/21.30 submit=11.20 drain=2.11 blss=3.02/0
 - `work` — mean / median / p95 milliseconds. `submit` = `work − drain`.
 - `blss` — mean `begin` / `end` / `composite`; `comp` — the composite split into
   EE (inference + packet build) / GS (raster). All zero when BLSS is off.
-- `over20` — frames in the window past the 20 ms PAL budget.
+- `over20` — frames in the window whose WORK is past the 20 ms PAL budget.
 - `cam` — camera heading, the independent confirmation that frame `f` of run A
   really was looking where frame `f` of run B was.
+- `pre` / `stall` / `period` / `miss` (appended 2026-09-23, after `cam` so
+  every older prefix is unchanged) — the rest of the frame. `work` starts at
+  `beginFrame()`, and a game does a lot before it calls that: `pre` is the
+  previous present's end to `beginFrame()` (the engine's pad/info update and
+  every line of `loop()` ahead of the render), `stall` is the present itself
+  (vsync wait + flip), `period` is present-to-present, and `miss` counts frames
+  whose period took a second field. **`pre + work + stall` must come to
+  `period`** - on the console it closes to ~0.2 ms, which is the rig checking
+  itself. Not meaningful with frame extrapolation on.
+
+  Why they exist: with only `work`, a day frame read **17.4 ms with 0 of 50
+  frames over budget while the HUD said 38.5 FPS** - three frames in ten still
+  missing their field, in a term nothing timed. `miss` against `over20` is the
+  discriminator: `over20` high means the render is too slow, `miss` high with
+  `over20` low means something OUTSIDE the render is.
 
 A second line comes off the same window — the static pipeline's ROUTING, which
 is what usually explains a `work` figure that moved without any BLSS number
@@ -2009,3 +2037,35 @@ inspection found no missing geometry. These are PCSX2 comparisons, not GS
 claims. A physical-console run was attempted, but that console remained in a
 `freepad: DMA Busy` shutdown state and its ps2link file channel did not recover
 after the remote reset, so no hardware number was accepted from that session.
+
+### What the whole frame looked like, 2026-09-23
+
+Motor District, parked street vantage, physical PS2, level 2, six windows per
+row. The devkit-off arm is the same ELF with Remote Pad and Live Debugger
+compiled out.
+
+| | `pre` | `work` | `stall` | `period` | `miss` |
+|---|---:|---:|---:|---:|---:|
+| day, debug profile | 1.6 | 17.8 | 6.8 | 26.3 | 15/50 |
+| day, devkit off | **0.9** | 17.0 | 2.6 | **20.4** | **0-1/50** |
+| night, debug profile | 3.4 | 21.2 | 15.7 | 40.4 | 50/50 |
+
+**The day frame of the shipped scene already holds 50 FPS here.** Every one of
+the debug build's day misses was the devkit's `host:` polling over ps2link:
+Remote Pad reads `livepad.bin` every 4th frame there (12.5 per 50) and Live
+Debugger polls every 25th (2-4 per 50), both inside `loop()` ahead of
+`beginFrame()` - 14.5 to 16.5 network round trips per 50 frames against 14-16
+measured misses. Take a frame-rate claim off a debug build over ps2link and it
+is a claim about the devkit.
+
+The night frame is not the devkit: its render alone is 21.2 ms, over the field
+before anything else runs, so every frame waits a second field. It needs about
+4.6 ms of `pre + work` to lock 50, and `pre` itself doubles at night (1.6 to
+3.4 ms) - a night-only term in the update, unexplored.
+
+**The same devkit polling is the prime suspect for the console wedging on a
+software reset.** From 2026-09-22 evening most `reset` + `execee` cycles of a
+debug build ended with `freepad: DMA Busy` on the next boot and needed a power
+cycle; the devkit-off build came back clean from two consecutive resets. The
+polling code itself is months old, so this is evidence about the mechanism,
+not an explanation of why it became frequent - see the session notes.

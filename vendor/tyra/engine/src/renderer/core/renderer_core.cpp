@@ -24,6 +24,9 @@ namespace FrameProfile {
 // COP0 Count at the top of this frame's beginFrame(). Not published in the
 // header: nothing outside endFrame() has any business reading a half-frame.
 static u32 frameStart = 0;
+// The previous present's end (tPre, tPeriod). 0 until the first present, which
+// is what keeps the first frame's tPre from reading "since power-on".
+static u32 prevPresentEnd = 0;
 }  // namespace FrameProfile
 #endif
 
@@ -310,6 +313,10 @@ const RendererCoreSpotLight* RendererCore::pickDynLight(
 void RendererCore::beginFrame() {
 #if TYRA_FRAME_PROFILE
   FrameProfile::frameStart = FrameProfile::ticks();
+  FrameProfile::tPre = FrameProfile::prevPresentEnd != 0
+                           ? FrameProfile::frameStart -
+                                 FrameProfile::prevPresentEnd
+                           : 0;
 #endif
   beginFrameStamp();
   renderer3D.update();
@@ -323,6 +330,10 @@ void RendererCore::beginFrame() {
 void RendererCore::beginFrame(const CameraInfo3D& cameraInfo) {
 #if TYRA_FRAME_PROFILE
   FrameProfile::frameStart = FrameProfile::ticks();
+  FrameProfile::tPre = FrameProfile::prevPresentEnd != 0
+                           ? FrameProfile::frameStart -
+                                 FrameProfile::prevPresentEnd
+                           : 0;
 #endif
   beginFrameStamp();
   renderer3D.update(cameraInfo);
@@ -449,6 +460,13 @@ void RendererCore::endFrame() {
     gs.flipBuffers(isFrameLimitOn);
     __asm__ volatile("mfc0 %0, $9" : "=r"(t1));
     stallAccum += t1 - t0;
+#if TYRA_FRAME_PROFILE
+    FrameProfile::tStall = t1 - t0;
+    FrameProfile::tPeriod = FrameProfile::prevPresentEnd != 0
+                                ? t1 - FrameProfile::prevPresentEnd
+                                : 0;
+    FrameProfile::prevPresentEnd = t1;
+#endif
   }
   hasPresentedFrame = true;  // Modified by TyraX: the warp has a source now
 }

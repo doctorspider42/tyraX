@@ -16,6 +16,20 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.123.8: A FRAME-TIMING RIG THAT TIMES THE FRAME THE PLAYER GETS.
+// TYRA_FRAME_PROFILE 2 is FRAMETIME alone: no static-pipeline telemetry and
+// no packet-structure walker, which at level 1 parses every DMA tag and VIF
+// code of every packet every frame. Physical PS2, parked Motor District
+// vantage: HUD SCENE 13.21 ms uninstrumented, 17.70 at level 1, 13.04 at
+// level 2. And FRAMETIME gains pre/stall/period/miss - the previous present to
+// beginFrame(), the present itself, present-to-present, and frames that took a
+// second field - because `work` starts at beginFrame() and cannot see a game's
+// update. pre + work + stall closes to the measured period within ~0.2 ms.
+// First result: the district's day frame holds 50 FPS once Remote Pad and
+// Live Debugger are compiled out (period 20.4 ms, 0-1 misses per 50, against
+// 26.3 ms / 15 of 50 with them polling host: over ps2link). Level 1 is
+// unchanged. Project format stays 61. PATCH.
+//
 // 1.123.7: THE HARDWARE NUMBERS THE LAST FOUR ENTRIES OWED.
 // Physical PS2, parked street vantage, six --profile-frame samples per arm,
 // paired against the baselines stored before the run. Day renderScene total
@@ -5037,7 +5051,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 123
-#define TYRAX_VERSION_PATCH 7
+#define TYRAX_VERSION_PATCH 8
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

@@ -1708,6 +1708,8 @@ constexpr float kTicksPerMs = 294912.0F;
 constexpr u32 kBudget20ms = 5898240U;  // 20 ms of COP0 Count = the PAL budget
 
 u32 work[kWindow], drain[kWindow];
+// The rest of the frame (FrameProfile::tPre / tStall / tPeriod).
+u32 pre[kWindow], stall[kWindow], period[kWindow];
 u64 sBeg = 0, sEnd = 0, sCmp = 0, sCmpEe = 0;
 // The split of the two big EE terms. The first hardware A/B read the
 // composite's EE half off ONE counter and got "~3.9 ms of scene submission"
@@ -1818,6 +1820,9 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
   const int i = n;
   work[i] = FP::tFrameWork;
   drain[i] = FP::tDrain;
+  pre[i] = FP::tPre;
+  stall[i] = FP::tStall;
+  period[i] = FP::tPeriod;
   if (pValid) {
     sBeg += pBeg;
     sEnd += pEnd;
@@ -1869,13 +1874,20 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
   n = 0;
 
   u32 sorted[kWindow];
-  u64 sumW = 0, sumD = 0;
-  int over = 0;
+  u64 sumW = 0, sumD = 0, sumPre = 0, sumStall = 0, sumPer = 0;
+  int over = 0, miss = 0;
   for (int k = 0; k < kWindow; k++) {
     sorted[k] = work[k];
     sumW += work[k];
     sumD += drain[k];
+    sumPre += pre[k];
+    sumStall += stall[k];
+    sumPer += period[k];
     if (work[k] > kBudget20ms) over++;
+    // A MISSED field: the frame took two (or more). Judged at 25 ms rather
+    // than 20 so a frame that made its field with some flip jitter still
+    // counts as made - the periods are quantised to 20/40/60, not continuous.
+    if (period[k] > kBudget20ms + kBudget20ms / 4) miss++;
   }
   sortU32(sorted, kWindow);
 
@@ -1889,13 +1901,16 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
   char line[512];
   snprintf(line, sizeof(line),
            "FRAMETIME n=%d f=%lu work=%.2f/%.2f/%.2f submit=%.2f drain=%.2f "
-           "blss=%.2f/%.2f/%.2f comp=%.2f/%.2f over20=%d cam=%.4f",
+           "blss=%.2f/%.2f/%.2f comp=%.2f/%.2f over20=%d cam=%.4f "
+           "pre=%.2f stall=%.2f period=%.2f miss=%d",
            kWindow, (unsigned long)(frame - kWindow), (double)mean,
            (double)ms(sorted[kWindow / 2], 1),
            (double)ms(sorted[(kWindow * 95) / 100], 1), (double)(mean - dr),
            (double)dr, (double)ms(sBeg, kWindow), (double)ms(sEnd, kWindow),
            (double)ms(sCmp, kWindow), (double)ms(sCmpEe, kWindow),
-           (double)ms(sCmp - sCmpEe, kWindow), over, (double)cam);
+           (double)ms(sCmp - sCmpEe, kWindow), over, (double)cam,
+           (double)ms(sumPre, kWindow), (double)ms(sumStall, kWindow),
+           (double)ms(sumPer, kWindow), miss);
   TYRA_LOG(line);
   // The attribution line. `proxy` is charged inside StaPipCore (scene
   // SUBMISSION, not the composite); the other four split the composite's EE
@@ -2471,10 +2486,12 @@ void TerrainGame::init() {
   // Hidden "clipping": "vu1" mode: frustum-crossing packages are clipped by
   // the VU1 clip programs instead of the EE clipper (must follow setRenderer).
   stapip.core.setVU1Clipping(CLIP_VU1);
-#if TYRA_FRAME_PROFILE
+#if TYRA_FRAME_PROFILE == 1
   // The frame-timing rig's FTCLIP line - the static pipeline's routing
   // counters (docs/vu1-clipping.md). Opt-in because the counters cost COP0
-  // reads; nothing outside this #if enables them.
+  // reads; nothing outside this #if enables them. LEVEL 1 ONLY: level 2
+  // times the frame the player gets, and it cannot do that with the
+  // pipeline's telemetry switched on (debug/frame_profile.hpp).
   ftrig::core = &stapip.core;
   stapip.core.setTelemetryEnabled(true);
 #endif

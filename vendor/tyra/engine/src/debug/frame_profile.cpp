@@ -37,6 +37,9 @@ u32 tBlssFeat = 0;
 u32 tBlssNet = 0;
 u32 tBlssPacket = 0;
 u32 tExcluded = 0;
+u32 tPre = 0;
+u32 tStall = 0;
+u32 tPeriod = 0;
 
 namespace {
 

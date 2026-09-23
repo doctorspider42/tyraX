@@ -1469,6 +1469,18 @@ Notes:
   debug build polls `livepad.bin` through HostFs every frame); and **run the
   page's GS fill calibration before quoting any PCSX2 number about GS cost** —
   measured, PCSX2 under-reports fill by **76x**.
+  **For an ABSOLUTE frame time use `TYRA_FRAME_PROFILE 2`, not 1** (1.123.8).
+  Level 1 carries the packet-structure walker and the pipeline telemetry and is
+  not transparent - HUD SCENE 13.21 ms uninstrumented, 17.70 at level 1, 13.04
+  at level 2 on the same console pose. Prove transparency in every report by
+  matching SCENE against an uninstrumented boot. And read `pre`/`stall`/
+  `period`/`miss` as well as `work`: `work` starts at `beginFrame()`, so a
+  frame can miss its field with `over20=0`. **Over ps2link, a debug build's
+  `miss` is mostly the devkit**: Remote Pad polls `host:` every 4th frame there
+  and Live Debugger every 25th, and compiling both out took the Motor District
+  day frame from 15/50 misses to 0-1/50 (docs/profiling.md). The same builds
+  are also the ones whose software reset wedged the console (`freepad: DMA
+  Busy`), while the devkit-off build survived two resets in a row.
 - **Testing whether a picture is STILL needs a period-2 test, not a diff** — and
   **three** instruments in a row got this wrong before it stuck, so the full
   rules live in docs/profiling.md, "The stability gate". The short form, each

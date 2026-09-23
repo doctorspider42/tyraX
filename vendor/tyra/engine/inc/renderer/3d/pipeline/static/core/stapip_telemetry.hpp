@@ -13,7 +13,9 @@
 #include "./stapip_probes.hpp"
 
 #ifndef TYRA_STAPIP_PACKET_PROFILE
-#define TYRA_STAPIP_PACKET_PROFILE TYRA_FRAME_PROFILE
+// Level 1 of TYRA_FRAME_PROFILE only - level 2 is the transparent timing
+// mode and this walker is the reason level 1 is not (debug/frame_profile.hpp).
+#define TYRA_STAPIP_PACKET_PROFILE (TYRA_FRAME_PROFILE == 1)
 #endif
 
 namespace Tyra {
