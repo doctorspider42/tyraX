@@ -26358,6 +26358,17 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   // distant chunk asks for sixteen times the memory it fills.
   const int quadsX = (gx1 - gx0 + lod - 1) / lod;
   const int quadsZ = (gz1 - gz0 + lod - 1) / lod;
+  // UVs relative to the chunk, by a whole number of repeats. The tiling is
+  // world-space (u = x * tile), so far from the map centre the coordinates
+  // grow into the thousands of texels, and the GS's reduced-precision STQ
+  // then smears the ground into streaks along the view that swim as the
+  // camera moves - measured on a physical PS2 at x = 128 (u = 64 repeats).
+  // A whole-repeat shift is invisible under WRAP_REPEAT, so each chunk keeps
+  // its coordinates within half a chunk of zero and seams still line up.
+  const float chunkMidX = startX + (gx0 + gx1) * 0.5F * stepX;
+  const float chunkMidZ = startZ + (gz0 + gz1) * 0.5F * stepZ;
+  const float uvOffU = floorf(chunkMidX * TERRAIN_TILE_U + 0.5F);
+  const float uvOffV = floorf(chunkMidZ * TERRAIN_TILE_V + 0.5F);
   // Triangle strips (see the emitter below). The reserve has to follow the
   // representation too: a stripped chunk is a THIRD of the list's vertices,
   // and reserving the list size for it would hand back the RAM the change was
@@ -26468,7 +26479,8 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
           Color(baseA[0] * s.x, baseA[1] * s.y, baseA[2] * s.z, 128.0F));
       if (textured)
         ch.sts.push_back(
-            Vec4(wx * TERRAIN_TILE_U, wz * TERRAIN_TILE_V, 1.0F, 0.0F));
+            Vec4(wx * TERRAIN_TILE_U - uvOffU, wz * TERRAIN_TILE_V - uvOffV,
+                 1.0F, 0.0F));
       if (terrainMapLit) ch.emisCols.push_back(ec);
       for (int a = 0; a < activeN; ++a) {
         TerrainChunk::LayerPass& lp = ch.layerPasses[a];
@@ -26479,8 +26491,11 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
         const float w = splatAt(ix, iz, l);
         lp.colors.push_back(Color(tint[0] * lk * s.x, tint[1] * lk * s.y,
                                   tint[2] * lk * s.z, w * 128.0F));
-        lp.sts.push_back(Vec4(wx * TERRAIN_LAYER_TILE_US[g_activeScene][l],
-                              wz * TERRAIN_LAYER_TILE_VS[g_activeScene][l],
+        // The same whole-repeat rebase, at this layer's own tiling.
+        const float ltu = TERRAIN_LAYER_TILE_US[g_activeScene][l];
+        const float ltv = TERRAIN_LAYER_TILE_VS[g_activeScene][l];
+        lp.sts.push_back(Vec4(wx * ltu - floorf(chunkMidX * ltu + 0.5F),
+                              wz * ltv - floorf(chunkMidZ * ltv + 0.5F),
                               1.0F, 0.0F));
       }
     };
@@ -26547,8 +26562,8 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
           return Color(base[0] * s.x, base[1] * s.y, base[2] * s.z, 128.0F);
         };
         auto st = [&](float wx, float wz) {
-          ch.sts.push_back(
-              Vec4(wx * TERRAIN_TILE_U, wz * TERRAIN_TILE_V, 1.0F, 0.0F));
+          ch.sts.push_back(Vec4(wx * TERRAIN_TILE_U - uvOffU,
+                                wz * TERRAIN_TILE_V - uvOffV, 1.0F, 0.0F));
         };
 
         ch.vertices.push_back(Vec4(x0, h00, z0, 1.0F));
@@ -26611,8 +26626,10 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
           lp.colors.push_back(lcol(s10, w10));
           lp.colors.push_back(lcol(s11, w11));
           lp.colors.push_back(lcol(s01, w01));
+          const float lOffU = floorf(chunkMidX * ltu + 0.5F);
+          const float lOffV = floorf(chunkMidZ * ltv + 0.5F);
           auto lst = [&](float wx, float wz) {
-            lp.sts.push_back(Vec4(wx * ltu, wz * ltv, 1.0F, 0.0F));
+            lp.sts.push_back(Vec4(wx * ltu - lOffU, wz * ltv - lOffV, 1.0F, 0.0F));
           };
           lst(x0, z0);
           lst(x1, z0);

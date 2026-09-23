@@ -148,3 +148,22 @@ rejected packages per 50 frames - **-58%** - with everything drawn identical to
 the digit. Pictures: 0 pixels differ on both DAY benchmark poses, both arms
 byte-identical within themselves. The night poses cannot be read; their own
 repeats disagree (lamp flicker, star twinkle).
+
+## Texture coordinates are chunk-relative (1.124.3)
+
+The ground texture tiles in world space - `u = x * tile`, from the material's
+`map_Kd -s` - so the far side of a big map asks for thousands of texels: Motor
+District at x = 128 with `-s 0.5` and a 64-texel texture is 64 repeats, ~4100
+texels from zero. The GS keeps STQ at reduced precision, and at that range it
+smeared the grass into streaks along the view that swam as the camera moved -
+the "PS1 texture wobble" seen on a physical PS2 on the eastern crests, and
+invisible near the map centre where the numbers are small.
+
+Every chunk now subtracts a whole number of repeats taken at its own centre,
+for the base texture and for each painted layer at that layer's tiling, so no
+coordinate is more than half a chunk from zero. Under `WRAP_REPEAT` a whole
+repeat is invisible and chunk seams still meet. Roads already did the same for
+their arc-length V (`chunkVBase` in `buildRoads`); a new generator that tiles
+in world space needs it too.
+
+![Same spot on a physical PS2: world-space UVs (left), chunk-relative (right)](img/terrain-uv-rebase.png)
