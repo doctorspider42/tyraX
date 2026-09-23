@@ -2178,3 +2178,29 @@ Objects. **Before comparing two arms, compare `Loop_past_draw_count` and
 thing.** Also: `Objects_packages_count` summed guard into cull until 1.124.2
 (`packagesGuardBand` is a subset of `packagesCull`), so the "53 packages" of
 the start-pose table above were 42.
+
+### The update half of `pre` - FTUPD (2026-09-23)
+
+With `TYRA_FRAME_PROFILE` on, the FPP game loop laps its update and prints an
+`FTUPD` line after every `FRAMETIME` line - the window's mean ms per section:
+`in` (input, the devkit's ticks, menus, the Live Debugger), `player` (player
+update and use target), `scripts`, `stream` (layer streaming), `phys` (object
+physics and spinners), `veh` (every vehicle, AI drivers included), `portal`
+(portals and the carried object), `part`, `sound` (emitters and reverb) and
+`rest`. Bare COUNT reads, so level 2 stays transparent; `pre` is these plus the
+gap after the previous present.
+
+Its first reading answered "where is the missing millisecond" at the Motor
+District 25 FPS spot, car parked at (0, -74), physical PS2:
+
+| | debug build, devkit on | devkit off |
+|---|---:|---:|
+| `in` | 1.63-2.39 | **0.011** |
+| `phys` / `veh` / everything else | 0.30 / 0.54 / 0.13 | 0.30 / 0.51 / 0.12 |
+| `pre` | 2.65-3.43 | **1.01** |
+| `work` | 18.98 | **18.26** |
+| `period`, missed fields | 34-36 ms, 35-38 of 50 | **20.4 ms, 1-2 of 50** |
+
+**The spot holds 50 FPS in the player's build.** What a debug build shows there
+is the devkit: Remote Pad and the Live Debugger polling the host over ps2link
+put ~1.7 ms into `pre` and ~0.7 ms into `work`. The headroom left is ~0.7 ms.

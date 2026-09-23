@@ -3150,7 +3150,9 @@ spikes against 0 in a paired emulator run.
 4. Deploy with a bare `execee` straight after a power cycle (next section),
    and read `FRAMETIME` off the ps2client stdout. `pre + work + stall` must
    come to `period`; `miss` high with `over20` low means the cost is OUTSIDE
-   the render (`work` starts at `beginFrame()`).
+   the render (`work` starts at `beginFrame()`). `FTUPD`, printed beside it,
+   splits the update half of `pre` into ten sections - `in` large means the
+   devkit's host polling, not the game.
 5. **Transparency check:** capture the same pose once uninstrumented; its HUD
    SCENE must match the instrumented run's. 13.21 vs 13.04 is a pass.
 6. `FTRAW` gives every frame's `work`. A periodic spike is a TIMER - check the

@@ -6105,6 +6105,9 @@ constexpr float kTicksPerMs = 294912.0F;
 constexpr u32 kBudget20ms = 5898240U;  // 20 ms of COP0 Count = the PAL budget
 
 u32 work[kWindow], drain[kWindow];
+// The update half of `pre`, lap by lap (FTUPD): the FPP loop's UPD_LAP marks,
+// summed over the window. Bare COUNT reads, so level 2 stays transparent.
+u64 updLap[10] = {};
 // The rest of the frame (FrameProfile::tPre / tStall / tPeriod).
 u32 pre[kWindow], stall[kWindow], period[kWindow];
 u64 sBeg = 0, sEnd = 0, sCmp = 0, sCmpEe = 0;
@@ -6309,6 +6312,10 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
            (double)ms(sumPre, kWindow), (double)ms(sumStall, kWindow),
            (double)ms(sumPer, kWindow), miss);
   TYRA_LOG(line);
+  snprintf(line, sizeof(line), "FTUPD f=%lu in=%.3f player=%.3f scripts=%.3f stream=%.3f phys=%.3f veh=%.3f portal=%.3f part=%.3f sound=%.3f rest=%.3f",
+           (unsigned long)(frame - kWindow), (double)ms(updLap[0], kWindow), (double)ms(updLap[1], kWindow), (double)ms(updLap[2], kWindow), (double)ms(updLap[3], kWindow), (double)ms(updLap[4], kWindow), (double)ms(updLap[5], kWindow), (double)ms(updLap[6], kWindow), (double)ms(updLap[7], kWindow), (double)ms(updLap[8], kWindow), (double)ms(updLap[9], kWindow));
+  TYRA_LOG(line);
+  for (int k = 0; k < 10; ++k) updLap[k] = 0;
   // The attribution line. `proxy` is charged inside StaPipCore (scene
   // SUBMISSION, not the composite); the other four split the composite's EE
   // half at its four phases, so reproj+feat+net+pkt reconstructs comp's EE
@@ -27433,6 +27440,19 @@ void TerrainGame::init() {
 
 void TerrainGame::loop() {
   const u32 traceUpdateStart = Tyra::HardwareTrace::active ? Tyra::HardwareTrace::ticks() : 0;
+#if TYRA_FRAME_PROFILE
+  // FTUPD (docs/profiling.md, "The update half of pre"): lap i adds the time
+  // since the previous mark to ftrig::updLap[i].
+  u32 updT = Tyra::FrameProfile::ticks();
+#define UPD_LAP(i)                                          \
+  do {                                                      \
+    const u32 updNow = Tyra::FrameProfile::ticks();         \
+    ftrig::updLap[i] += updNow - updT;                      \
+    updT = updNow;                                          \
+  } while (0)
+#else
+#define UPD_LAP(i) ((void)0)
+#endif
   updateFrameClock();  // real dt: frame drops slow the picture, not the game
 #ifdef TYRAX_KBD_MOUSE
   // USB keyboard/mouse (controls.hpp): fold onto the pad before anything
@@ -27565,10 +27585,12 @@ void TerrainGame::loop() {
   if (MULTIPLAYER_MODE != 0 && P2_JOIN_ON_START && !menuOwnsPad &&
       !playerTwoActive && pad2.getClicked().Start)
     setPlayerTwoActive(true);
+  UPD_LAP(0);
   if (!menuOwnsPad) {
     if (!updatePlayerEntity()) updatePlayer();
     updateUseTarget();
   }
+  UPD_LAP(1);
 
   scriptCtx.playerPosition = cameraPosition;
   scriptCtx.playerVelY = players[0].velY;
@@ -27595,6 +27617,7 @@ void TerrainGame::loop() {
   if (!menuActive || scriptCtx.menuEvent >= 0)
     for (Script* script : getScripts()) script->update(scriptCtx);
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
+  UPD_LAP(2);
 
   // Scene switch requested by the flow graph / scripts. The built-in FPP
   // player respawns at the new scene's spawn point.
@@ -27648,6 +27671,7 @@ void TerrainGame::loop() {
   // Streaming layers: Load/Unload Layer requests, one asset load per frame,
   // trickle activation of freshly resident layers.
   updateLayerStreaming();
+  UPD_LAP(3);
 
   // Flow graph / script teleport request: move the Player entity when the
   // scene has one, the built-in FPP player otherwise. Teleports P1; an
@@ -27686,7 +27710,9 @@ void TerrainGame::loop() {
   // data.rotation, and a spinner that is ALSO a body must see the tumble's
   // value rather than fight it.
   if (!menuActive) updateSpinners();
+  UPD_LAP(4);
 {{VEHICLE_UPDATE}}
+  UPD_LAP(5);
   // Portal surfaces: carry the player / physics objects that crossed a
   // linked portal through to its target. After the physics step so object
   // crossings see this frame's motion; on a player hop the camera is
@@ -27707,9 +27733,12 @@ void TerrainGame::loop() {
   // otherwise it holds one frame at the departure side and blinks as it
   // crosses (owner).
   if (!menuOwnsPad) updateCarriedObject();
+  UPD_LAP(6);
   updateParticles();
+  UPD_LAP(7);
   updateSoundEmitters();
   updateReverb();
+  UPD_LAP(8);
 
   // Camera flashlight (Player object > Flashlight). The Set Flashlight flow
   // node drives the master (scriptCtx.flashlight: 0 off / 1 on / -1 = leave);
@@ -27916,6 +27945,8 @@ void TerrainGame::loop() {
     if (vuprog::ENABLED) vuprog::setTime(stapip.core, g_vuClock);
     if (vuscript::COUNT > 0) stapip.core.setVuTime(g_vuClock);
   }
+  UPD_LAP(9);
+#undef UPD_LAP
   if (Tyra::HardwareTrace::active) Tyra::HardwareTrace::record("Update", traceUpdateStart, Tyra::HardwareTrace::ticks());
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {

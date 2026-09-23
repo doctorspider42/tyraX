@@ -16,6 +16,13 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.125.1: THE UPDATE HALF OF PRE, TIMED (FTUPD).
+// With TYRA_FRAME_PROFILE on, the FPP loop laps its update into ten sections
+// and prints FTUPD beside FRAMETIME. First reading: at Motor District's old
+// 25 FPS spot the devkit's host polling was 1.6-2.4 ms of pre; with it off the
+// frame is pre 1.01 + work 18.26 ms and holds 50 FPS (1-2 misses per 50).
+// Measurement-only; the ordinary build is unchanged. PATCH.
+//
 // 1.125.0: A TURNING CAMERA STOPS COSTING A THIRD OF THE FRAME.
 // Three things fired every frame the view turned. The shared reflection probe
 // recaptures every second frame in a turn and redrew the whole resident
@@ -5130,7 +5137,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 125
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
