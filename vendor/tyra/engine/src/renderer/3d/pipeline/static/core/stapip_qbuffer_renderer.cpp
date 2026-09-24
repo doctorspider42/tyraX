@@ -230,6 +230,86 @@ inline void appendChainQwords(packet2_t* packet, const qword_t* src,
   memcpy(packet->next, src, qwCount * 16);
   packet2_advance_next(packet, qwCount * 16);
 }
+
+// Modified by TyraX: the object-data fast path (sendObjectData).
+//
+// Measured on a physical PS2 (Motor District garage day, 75 bags a frame):
+// sendObjectData cost ~14 us a bag, and most of it was not the data. A
+// section holding ONE qword - the FLUSHE tag, the ALPHA unpack - took ~1.4 us,
+// because every packet2 open/close runs the DMA-tag bitfield writes, a
+// back-patched VIFcode and a handful of asserts, and every packet2_add_float
+// reloads packet->next through memory. Cache misses on the packet lines were
+// ~20% (16 qwords: 1.0 us into cold lines, 0.17 us into hot ones).
+//
+// So each uniform block is now its header qword plus whole-qword copies. The
+// header - CNT tag, STCYCL, UNPACK V4_32 - is produced ONCE per (address,
+// length) by packet2 itself into a scratch packet and remembered, which makes
+// the fast path's bytes identical to the old path's by construction; the
+// VIF-hash gate (docs/baked-stream-acceptance-gate.md) compared the two.
+struct UnpackHeader {
+  u32 key;  // VU address << 8 | qwords; 0 = unused
+  qword_t header;
+};
+constexpr int kUnpackHeaders = 32;
+UnpackHeader g_unpackHeaders[kUnpackHeaders];
+qword_t g_flusheHeader;
+bool g_flusheHeaderReady = false;
+
+packet2_t* headerScratch() {
+  static packet2_t* scratch =
+      packet2_create(32, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
+  packet2_reset(scratch, false);
+  return scratch;
+}
+
+const qword_t& unpackHeader(u32 addr, u32 qwords) {
+  const u32 key = (addr << 8) | qwords;
+  for (int i = 0; i < kUnpackHeaders; ++i) {
+    if (g_unpackHeaders[i].key == key) return g_unpackHeaders[i].header;
+    if (g_unpackHeaders[i].key == 0) {
+      packet2_t* s = headerScratch();
+      packet2_utils_vu_open_unpack(s, addr, false);
+      for (u32 q = 0; q < qwords; ++q) packet2_add_2x_s64(s, 0, 0);
+      packet2_utils_vu_close_unpack(s);
+      g_unpackHeaders[i].header = s->base[0];
+      g_unpackHeaders[i].key = key;
+      return g_unpackHeaders[i].header;
+    }
+  }
+  TYRA_ASSERT(false, "Object-data unpack header cache is full: raise "
+                     "kUnpackHeaders");
+  return g_unpackHeaders[0].header;
+}
+
+// The object data's leading CNT tag: FLUSHE + NOP, no payload.
+const qword_t& flusheHeader() {
+  if (!g_flusheHeaderReady) {
+    packet2_t* s = headerScratch();
+    packet2_chain_open_cnt(s, 0, 0, 0);
+    packet2_vif_flushe(s, 0);
+    packet2_vif_nop(s, 0);
+    packet2_chain_close_tag(s);
+    g_flusheHeader = s->base[0];
+    g_flusheHeaderReady = true;
+  }
+  return g_flusheHeader;
+}
+
+inline void emitQword(packet2_t* packet, const qword_t& q) {
+  *packet->next = q;
+  packet->next += 1;
+}
+
+// One uniform unpack to the absolute VU1 region: header + `qwords` copied
+// whole from `src` (16-byte aligned).
+inline void emitUnpack(packet2_t* packet, u32 addr, const void* src,
+                       u32 qwords) {
+  qword_t* q = packet->next;
+  q[0] = unpackHeader(addr, qwords);
+  const qword_t* s = static_cast<const qword_t*>(src);
+  for (u32 i = 0; i < qwords; ++i) q[1 + i] = s[i];
+  packet->next = q + 1 + qwords;
+}
 }  // namespace
 
 #if TYRA_STAPIP_RETAINED_COMMANDS
@@ -1061,10 +1141,7 @@ void StaPipQBufferRenderer::sendObjectData(
   // cannot show this; a real PS2 does (docs/vu1-clipping.md). FLUSHE = wait
   // for the end of the microprogram; the halves the GIF may still be reading
   // are not touched by this chain, so no PATH1 drain is needed here.
-  packet2_chain_open_cnt(objectDataPacket, 0, 0, 0);
-  packet2_vif_flushe(objectDataPacket, 0);
-  packet2_vif_nop(objectDataPacket, 0);
-  packet2_chain_close_tag(objectDataPacket);
+  emitQword(objectDataPacket, flusheHeader());  // Modified by TyraX: fast path
 
   // Modified by TyraX: the bag's texture wrap, in the chain (setBagWrap).
   // FLUSH rather than the FLUSHE above: the previous bag's last XGKICK may
@@ -1093,11 +1170,7 @@ void StaPipQBufferRenderer::sendObjectData(
     bagWrap = nullptr;
   }
   if (submissionBatchCandidate || kInlineUniforms) {
-    packet2_utils_vu_open_unpack(objectDataPacket, VU1_MVP_MATRIX_ADDR, false);
-    const float* mvpData = reinterpret_cast<const float*>(mvp->data);
-    for (u32 i = 0; i < 16; ++i)
-      packet2_add_float(objectDataPacket, mvpData[i]);
-    packet2_utils_vu_close_unpack(objectDataPacket);
+    emitUnpack(objectDataPacket, VU1_MVP_MATRIX_ADDR, mvp->data, 4);
   } else {
     packet2_utils_vu_add_unpack_data(objectDataPacket, VU1_MVP_MATRIX_ADDR,
                                      mvp->data, 4, false);
@@ -1105,24 +1178,10 @@ void StaPipQBufferRenderer::sendObjectData(
 
   if (bag->lighting) {
     if (submissionBatchCandidate || kInlineUniforms) {
-      packet2_utils_vu_open_unpack(objectDataPacket, VU1_LIGHTS_MATRIX_ADDR,
-                                   false);
-      const float* lightMatrix =
-          reinterpret_cast<const float*>(bag->lighting->lightMatrix->data);
-      for (u32 i = 0; i < 12; ++i)
-        packet2_add_float(objectDataPacket, lightMatrix[i]);
-      packet2_utils_vu_close_unpack(objectDataPacket);
-
-      packet2_utils_vu_open_unpack(objectDataPacket, VU1_LIGHTS_DIRS_ADDR,
-                                   false);
-      const Vec4* directions = bag->lighting->dirLights->getLightDirections();
-      for (u32 i = 0; i < 3; ++i) {
-        packet2_add_float(objectDataPacket, directions[i].x);
-        packet2_add_float(objectDataPacket, directions[i].y);
-        packet2_add_float(objectDataPacket, directions[i].z);
-        packet2_add_float(objectDataPacket, directions[i].w);
-      }
-      packet2_utils_vu_close_unpack(objectDataPacket);
+      emitUnpack(objectDataPacket, VU1_LIGHTS_MATRIX_ADDR,
+                 bag->lighting->lightMatrix->data, 3);
+      emitUnpack(objectDataPacket, VU1_LIGHTS_DIRS_ADDR,
+                 bag->lighting->dirLights->getLightDirections(), 3);
     } else {
       packet2_utils_vu_add_unpack_data(objectDataPacket,
                                        VU1_LIGHTS_MATRIX_ADDR,
@@ -1134,15 +1193,11 @@ void StaPipQBufferRenderer::sendObjectData(
     // add_unpack_data emits a DMA REF, not a copy. The mode-adjusted
     // colors must live in the packet, never in a temporary stack array.
     const Vec4* colors = bag->lighting->dirLights->getLightColors();
-    packet2_utils_vu_open_unpack(objectDataPacket, VU1_LIGHTS_COLORS_ADDR, false);
-    for (int i = 0; i < 4; ++i) {
-      packet2_add_float(objectDataPacket, colors[i].x);
-      packet2_add_float(objectDataPacket, colors[i].y);
-      packet2_add_float(objectDataPacket, colors[i].z);
-      packet2_add_float(objectDataPacket, i == 3
-          ? (bag->lighting->dirLights->signedSH ? -1.0F : 0.0F) : colors[i].w);
+    {
+      alignas(16) Vec4 c[4] = {colors[0], colors[1], colors[2], colors[3]};
+      c[3].w = bag->lighting->dirLights->signedSH ? -1.0F : 0.0F;
+      emitUnpack(objectDataPacket, VU1_LIGHTS_COLORS_ADDR, c, 4);
     }
-    packet2_utils_vu_close_unpack(objectDataPacket);
   }
 
   // Modified by TyraX: dynamic light for the color programs - the per-bag
@@ -1166,39 +1221,28 @@ void StaPipQBufferRenderer::sendObjectData(
     clipper.setSpot(meshSpot);
     spotActive = meshSpot.enabled;
 
-    packet2_utils_vu_open_unpack(objectDataPacket, VU1_LIGHTS_DIRS_ADDR, false);
     {
-      packet2_add_float(objectDataPacket, meshSpot.position.x);
-      packet2_add_float(objectDataPacket, meshSpot.position.y);
-      packet2_add_float(objectDataPacket, meshSpot.position.z);
-      packet2_add_float(objectDataPacket, meshSpot.invRange2);
-      packet2_add_float(objectDataPacket, meshSpot.direction.x);
-      packet2_add_float(objectDataPacket, meshSpot.direction.y);
-      packet2_add_float(objectDataPacket, meshSpot.direction.z);
-      packet2_add_float(objectDataPacket, meshSpot.cosCut2);
-      packet2_add_float(objectDataPacket, meshSpot.enabled ? meshSpot.color[0]
-                                                           : 0.0F);
-      packet2_add_float(objectDataPacket, meshSpot.enabled ? meshSpot.color[1]
-                                                           : 0.0F);
-      packet2_add_float(objectDataPacket, meshSpot.enabled ? meshSpot.color[2]
-                                                           : 0.0F);
-      packet2_add_float(objectDataPacket, meshSpot.invSoft);
+      alignas(16) const float s[12] = {
+          meshSpot.position.x,  meshSpot.position.y,  meshSpot.position.z,
+          meshSpot.invRange2,   meshSpot.direction.x, meshSpot.direction.y,
+          meshSpot.direction.z, meshSpot.cosCut2,
+          meshSpot.enabled ? meshSpot.color[0] : 0.0F,
+          meshSpot.enabled ? meshSpot.color[1] : 0.0F,
+          meshSpot.enabled ? meshSpot.color[2] : 0.0F,
+          meshSpot.invSoft};
+      emitUnpack(objectDataPacket, VU1_LIGHTS_DIRS_ADDR, s, 3);
     }
-    packet2_utils_vu_close_unpack(objectDataPacket);
 
     // Modified by TyraX: the two quadwords a project's own microprogram reads
     // (docs/vu-authoring.md). Inside the `if (!bag->lighting)` on purpose -
     // they occupy the directional-lights COLOUR block, which a lit bag needs.
     if (vuCustomEnabled) {
-      packet2_utils_vu_open_unpack(objectDataPacket, VU1_CUSTOM_PARAMS_ADDR,
-                                   false);
       {
-        for (u32 i = 0; i < 4; i++)
-          packet2_add_float(objectDataPacket, vuParams[i]);
-        for (u32 i = 0; i < 4; i++)
-          packet2_add_float(objectDataPacket, vuTime[i]);
+        alignas(16) const float c[8] = {vuParams[0], vuParams[1], vuParams[2],
+                                        vuParams[3], vuTime[0],   vuTime[1],
+                                        vuTime[2],   vuTime[3]};
+        emitUnpack(objectDataPacket, VU1_CUSTOM_PARAMS_ADDR, c, 2);
       }
-      packet2_utils_vu_close_unpack(objectDataPacket);
     }
   }
 
@@ -1239,11 +1283,8 @@ void StaPipQBufferRenderer::sendObjectData(
   if (singleColorEnabled) {  // Color is placed in 4th slot of
                             // VU1_LIGHTS_MATRIX_ADDR
     if (submissionBatchCandidate || kInlineUniforms) {
-      packet2_utils_vu_open_unpack(objectDataPacket, VU1_SINGLE_COLOR_ADDR,
-                                   false);
-      for (u32 i = 0; i < 4; ++i)
-        packet2_add_float(objectDataPacket, bag->color->single->rgba[i]);
-      packet2_utils_vu_close_unpack(objectDataPacket);
+      emitUnpack(objectDataPacket, VU1_SINGLE_COLOR_ADDR,
+                 bag->color->single->rgba, 1);
     } else {
       Packet2TyraUtils::addUnpackData(objectDataPacket, VU1_SINGLE_COLOR_ADDR,
                                       bag->color->single->rgba, 1, false);
@@ -1336,19 +1377,14 @@ void StaPipQBufferRenderer::sendObjectData(
   // this basis and re-rendering the same bag draws the same centers for
   // another view (e.g. a portal's virtual camera).
   if (bag->billboard != nullptr) {
-    packet2_utils_vu_open_unpack(objectDataPacket, VU1_BILLBOARD_BASIS_ADDR,
-                                 false);
     {
-      packet2_add_float(objectDataPacket, bag->billboard->right.x);
-      packet2_add_float(objectDataPacket, bag->billboard->right.y);
-      packet2_add_float(objectDataPacket, bag->billboard->right.z);
-      packet2_add_float(objectDataPacket, 0.0F);
-      packet2_add_float(objectDataPacket, bag->billboard->up.x);
-      packet2_add_float(objectDataPacket, bag->billboard->up.y);
-      packet2_add_float(objectDataPacket, bag->billboard->up.z);
-      packet2_add_float(objectDataPacket, 0.0F);
+      alignas(16) const float bb[8] = {
+          bag->billboard->right.x, bag->billboard->right.y,
+          bag->billboard->right.z, 0.0F,
+          bag->billboard->up.x,    bag->billboard->up.y,
+          bag->billboard->up.z,    0.0F};
+      emitUnpack(objectDataPacket, VU1_BILLBOARD_BASIS_ADDR, bb, 2);
     }
-    packet2_utils_vu_close_unpack(objectDataPacket);
   }
 
   // Modified by TyraX: env (matcap) camera basis for the TCE programs.
@@ -1358,22 +1394,12 @@ void StaPipQBufferRenderer::sendObjectData(
   if (bag->texture != nullptr && bag->texture->coordinatesAreNormals) {
     const Vec4& r = bag->texture->envRight;
     const Vec4& u = bag->texture->envUp;
-    packet2_utils_vu_open_unpack(objectDataPacket, VU1_ENV_BASIS_ADDR, false);
     {
-      packet2_add_float(objectDataPacket, r.x * 0.5F);
-      packet2_add_float(objectDataPacket, u.x * -0.5F);
-      packet2_add_float(objectDataPacket, 0.0F);
-      packet2_add_float(objectDataPacket, 0.0F);
-      packet2_add_float(objectDataPacket, r.y * 0.5F);
-      packet2_add_float(objectDataPacket, u.y * -0.5F);
-      packet2_add_float(objectDataPacket, 0.0F);
-      packet2_add_float(objectDataPacket, 0.0F);
-      packet2_add_float(objectDataPacket, r.z * 0.5F);
-      packet2_add_float(objectDataPacket, u.z * -0.5F);
-      packet2_add_float(objectDataPacket, 1.0F);
-      packet2_add_float(objectDataPacket, 0.5F);
+      alignas(16) const float e[12] = {r.x * 0.5F, u.x * -0.5F, 0.0F, 0.0F,
+                                       r.y * 0.5F, u.y * -0.5F, 0.0F, 0.0F,
+                                       r.z * 0.5F, u.z * -0.5F, 1.0F, 0.5F};
+      emitUnpack(objectDataPacket, VU1_ENV_BASIS_ADDR, e, 3);
     }
-    packet2_utils_vu_close_unpack(objectDataPacket);
   }
 
   // Modified by TyraX: per-mesh GS blend equation, emitted in-band with the
@@ -1385,13 +1411,12 @@ void StaPipQBufferRenderer::sendObjectData(
     const u8 sub = bag->info->subtractiveBlendFix;
     // Subtractive wins over additive when both are set: (0 - Cs)*FIX + Cd,
     // clamped at 0 - the shadow volumes' count-down pass.
-    packet2_utils_vu_open_unpack(objectDataPacket, VU1_ALPHA_ADDR, false);
-    packet2_add_2x_s64(objectDataPacket,
-                       sub != 0   ? GS_SET_ALPHA(2, 0, 2, 1, sub)
-                       : fix != 0 ? GS_SET_ALPHA(0, 2, 2, 1, fix)
-                                  : GS_SET_ALPHA(0, 1, 0, 1, 0),
-                       GS_REG_ALPHA);
-    packet2_utils_vu_close_unpack(objectDataPacket);
+    qword_t a;
+    a.dw[0] = sub != 0   ? GS_SET_ALPHA(2, 0, 2, 1, sub)
+              : fix != 0 ? GS_SET_ALPHA(0, 2, 2, 1, fix)
+                         : GS_SET_ALPHA(0, 1, 0, 1, 0);
+    a.dw[1] = GS_REG_ALPHA;
+    emitUnpack(objectDataPacket, VU1_ALPHA_ADDR, &a, 1);
   }
 
   // Do not terminate the DMA chain here: addBuffersDataToPacket appends the

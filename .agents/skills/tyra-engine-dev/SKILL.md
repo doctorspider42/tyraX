@@ -2504,6 +2504,17 @@ must keep:
   treatment. Symptom and bisection recipe: docs/roads.md, "Holes in the road".
 - **`popEnvView` restores the frustum planes its push saved**; it no longer
   rebuilds them from the caller's camera (the shadow pass passed no `up`).
+- **Object data is written by a fast path, not by packet2 calls**
+  (1.127.2, `emitUnpack` in stapip_qbuffer_renderer.cpp). Per packet2
+  open/close the cost was ~1.4 us a bag, the data itself little. Headers are
+  produced once by packet2 into a scratch packet and cached per (VU address,
+  length), so the bytes stay packet2's. Change a uniform block's address or
+  length and a new header is made by itself; change packet2's layout
+  conventions and the VIF-hash gate (docs/baked-stream-acceptance-gate.md) is
+  how you prove identity. The cache holds 32 headers and asserts when full.
+- **Code layout between two builds moves `bounds`/`prepare` by up to ~0.17 ms
+  on the console.** The repeatability floor (two boots of one ELF) does not
+  cover it. Read a change's delta in the brackets it touches.
 - **Do NOT start chains from a DMAC interrupt on this engine**
   (`TYRA_VIF1_QUEUE_ISR`, default 0). PCSX2 ran it clean. A physical PS2 under
   ps2link took an EE exception twice, both times at the instruction right after

@@ -16,6 +16,11 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.127.2: PER-BAG UNIFORMS WITHOUT PACKET2'S PER-CALL COST.
+// sendObjectData writes each uniform block as a cached header qword plus
+// whole-qword copies instead of packet2 open/add/close calls - the same bytes
+// (VIF-hash gate, 24/24 frames), prepare -0.06..-0.17 ms on a PS2. PATCH.
+//
 // 1.127.1: NO MORE HOLES IN THE ROADS.
 // A retained command block replayed its header's "resend the GS state" flag
 // from wherever it was captured; right after a clip-routed LIST a strip road
@@ -5204,7 +5209,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 127
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

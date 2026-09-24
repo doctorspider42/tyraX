@@ -154,8 +154,11 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   Still true from the capture: the reference title builds that chain in SPR
   and moves it to RAM by DMA (no write-back), and its per-object cost is about
   16 qwords plus a `CALL` into a prebaked block.
-- **The per-bag `prepare` bracket (2.0-3.0 ms).** `sendObjectData` rebuilds
-  every uniform float by float for every bag. A retained per-bag uniform block
+- **The per-bag `prepare` bracket (2.0-3.0 ms).** Partly done in 1.127.2:
+  uniform blocks are a cached header plus whole-qword copies (docs/
+  ee-submission-rearchitecture.md, "Round three"). Left: the options block
+  (texture, CLUT, LOD, TEST, about 3 us a bag) still goes through packet2, and
+  `sendObjectData` still rebuilds every uniform for every bag. A retained per-bag uniform block
   patched only where the MVP or the light changed would also remove the +0.23 ms
   the queue's inline copies added at night. Failure test: a re-shade or
   camera-dependent term that the key cannot see, which is the same class as the

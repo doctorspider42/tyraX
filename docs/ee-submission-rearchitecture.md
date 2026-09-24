@@ -1091,6 +1091,50 @@ at all, so their +-0.05 is code layout between two builds, not this change.
 PCSX2 night captures (poses 1 and 3) differ from the control only in the
 debug HUD's frame-time digits.
 
+### Round three: object data without packet2's per-call cost - MEASURED, 2026-09-24
+
+`spObjData` (`sendObjectData`, the per-bag uniforms) cost 1.17 ms for 75 bags
+in garage day: ~14 us a bag for ~40-60 qwords. A section split on the console
+(temporary tick marks) found that the data was not the cost. The FLUSHE tag
+section, one qword, took ~1.5 us a bag, and so did the one-qword ALPHA unpack.
+Each packet2 open/close does the DMA-tag bitfield writes, a back-patched
+VIFcode and a handful of asserts, and every `packet2_add_float` reloads
+`packet->next` through memory.
+
+**Cache misses were measured and are the smaller half.** 16 qwords into cold
+packet lines took 1.0 us; into a hot static buffer, 0.17 us. That is ~60
+cycles a line, about 20% of the bag's cost. `pref` 1 KB ahead of the packet
+cursor won nothing and cost 60 us a frame: the EE keeps one miss outstanding,
+so prefetch only moves the stall.
+
+**The fix (1.127.2).** Each uniform block is now its header qword plus
+whole-qword copies. That covers FLUSHE, MVP, the light matrix, directions and
+colours, the spot quads, custom VU params, single colour, billboard and env
+bases, and ALPHA. The header (CNT tag, STCYCL, UNPACK V4_32) for each (VU
+address, length) is produced ONCE by packet2 itself into a scratch packet and
+remembered, so the bytes are packet2's by construction. The VIF-hash gate
+confirmed it: 24 of 24 frames with identical VIFcode, uniform-payload, pool,
+`chainQw` and word hashes against the previous HEAD. The options block
+(texture, CLUT, LOD, TEST) and the retained clip block keep their old path.
+
+Physical PS2, same timing fixture, control booted twice (floor 0.006 ms),
+candidate booted twice:
+
+| pose | `work` | `prepare` | `bounds` (untouched) |
+| --- | ---: | ---: | ---: |
+| garage day | -0.22 / -0.24 | -0.13 | +0.16 |
+| garage night | -0.30 / -0.31 | -0.17 | |
+| outer day | -0.32 / -0.32 | -0.06 | +0.04 |
+| outer night | -0.35 / -0.36 | -0.08 | |
+
+**Read the per-bracket numbers against the layout noise, not against the
+floor.** Two builds differing only in code the fixture never runs have moved
+`bounds` and `prepare` by up to ~0.17 ms on this console (docs/roads.md,
+"Holes in the road"). The repeatability floor is between two boots of ONE
+ELF, and it says nothing about that. This round's saving that can be pinned
+on the change is `prepare`'s 0.06-0.17 ms. The rest of `work`'s drop is in
+brackets the change does not touch.
+
 ## Order of work
 
 1. ~~Probe A and Probe B.~~ **DONE, on hardware, 2026-09-16.** S3 does not ship;
