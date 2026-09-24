@@ -300,6 +300,37 @@ inline void emitQword(packet2_t* packet, const qword_t& q) {
   packet->next += 1;
 }
 
+// A DMA REF to `qwords` of VIF stream at `data` (16-byte aligned, stable
+// until every chain naming it has run). Its VIFcodes are two NOPs, so the
+// stream VIF1 sees is exactly the referenced data.
+inline void emitRef(packet2_t* packet, const void* data, u32 qwords) {
+  qword_t* q = packet->next;
+  q->dw[0] = static_cast<u64>(qwords & 0xFFFFU) | (static_cast<u64>(3) << 28) |
+             (static_cast<u64>(reinterpret_cast<u32>(data) & 0x0FFFFFFFU)
+              << 32);
+  q->dw[1] = 0;
+  packet->next = q + 1;
+}
+
+// A chain fragment of CNT tags + inline data, rewritten as the VIF stream it
+// delivers: each tag's DMA half becomes two VIF NOPs, its VIFcodes and data
+// stay. Returns the quadwords written (the same count), 0 if it is not a
+// plain CNT run.
+u32 chainToVifStream(const qword_t* src, u32 qw, qword_t* dst) {
+  u32 i = 0;
+  while (i < qw) {
+    const u64 tag = src[i].dw[0];
+    const u32 id = static_cast<u32>((tag >> 28) & 7U);
+    const u32 n = static_cast<u32>(tag & 0xFFFFU);
+    if (id != 1 || i + 1 + n > qw) return 0;  // only CNT, fully inside
+    dst[i].dw[0] = 0;
+    dst[i].dw[1] = src[i].dw[1];
+    for (u32 k = 1; k <= n; ++k) dst[i + k] = src[i + k];
+    i += 1 + n;
+  }
+  return qw;
+}
+
 // One uniform unpack to the absolute VU1 region: header + `qwords` copied
 // whole from `src` (16-byte aligned).
 inline void emitUnpack(packet2_t* packet, u32 addr, const void* src,
@@ -903,6 +934,7 @@ void StaPipQBufferRenderer::deallocateOnUse() {
   retainedCurrent = nullptr;
   retained.clear();
   clipBlockQw = 0;
+  clipBlockVifQw = 0;
 #endif
 #if TYRA_STAPIP_BAKED_STREAM
   // Same reasoning, and one more: a baked block is named by DMA REF tags, so
@@ -941,7 +973,8 @@ void StaPipQBufferRenderer::init(RendererCore* t_core, prim_t* t_prim,
       t_core->getSettings().getNear() - (-PlanesClipAlgorithm::clipMargin);
   clipFarZ = -t_core->getSettings().getFar();
 #if TYRA_STAPIP_RETAINED_COMMANDS
-  clipBlockQw = 0;  // Modified by TyraX: its inputs were just written.
+  clipBlockQw = 0;
+  clipBlockVifQw = 0;  // Modified by TyraX: its inputs were just written.
 #endif
 
   dma_channel_initialize(DMA_CHANNEL_VIF1, nullptr, 0);
@@ -1259,7 +1292,11 @@ void StaPipQBufferRenderer::sendObjectData(
     // replayed with a memcpy afterwards. 52 float stores per bag became one
     // copy. init() and setVU1Clipping() are the only places those inputs can
     // move and both drop the capture.
-    if (clipBlockQw != 0) {
+    if (clipBlockVifQw != 0) {
+      // Modified by TyraX: one REF to the shared VIF-stream copy instead of
+      // fifteen quadwords per bag (193 us of a 75-bag frame on a PS2).
+      emitRef(objectDataPacket, clipBlockVif, clipBlockVifQw);
+    } else if (clipBlockQw != 0) {
       appendChainQwords(objectDataPacket, clipBlock, clipBlockQw);
     } else {
       const u32 clipStart = packet2_get_qw_count(objectDataPacket);
@@ -1271,6 +1308,11 @@ void StaPipQBufferRenderer::sendObjectData(
                    clipStart * 16,
                qw * 16);
         clipBlockQw = static_cast<u16>(qw);
+        // The REF copy: rewritten only here, after every chain that could
+        // still read the old one has run.
+        Vif1Queue::drain();
+        clipBlockVifQw = static_cast<u16>(
+            chainToVifStream(clipBlock, clipBlockQw, clipBlockVif));
       }
     }
 #else
@@ -1655,6 +1697,7 @@ void StaPipQBufferRenderer::setVU1Clipping(const bool& enabled) {
   // Modified by TyraX: the clip chain is either present or absent per mode,
   // and every bag's cull program changes with it.
   clipBlockQw = 0;
+  clipBlockVifQw = 0;
   retained.clear();
 #endif
 #if TYRA_STAPIP_BAKED_STREAM

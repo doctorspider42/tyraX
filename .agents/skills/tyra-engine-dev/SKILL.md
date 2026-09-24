@@ -2745,7 +2745,12 @@ here must keep.
   fifteen quadwords - 52 float stores **per mesh** - depend only on the
   renderer's near/far pair and the guard band, so they are captured once.
   `init()` and `setVU1Clipping()` are the only places those inputs move and both
-  drop the capture.
+  drop the capture. Since 1.127.5 the capture is ALSO kept as a plain VIF
+  stream (`clipBlockVif`: its CNT tags' DMA halves zeroed into VIF NOPs) and
+  every bag REFs that one copy instead of copying it. It is rewritten only
+  after `Vif1Queue::drain()`, because chains still in flight REF it - any new
+  shared REF'd block must obey the same rule (docs/ee-submission-rearchitecture.md,
+  "Round five").
 
 Counts: `StaPipCore::takeRetainedCommandHits/Builds/getRetainedCommandBytes`,
 and a debug engine logs `STAPIPRET` every 300 frames (which makes a debug build

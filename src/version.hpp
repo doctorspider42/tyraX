@@ -16,6 +16,11 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.127.5: THE SHARED CLIP BLOCK IS REFERENCED, NOT COPIED.
+// Every bag used to copy the same 15-qword VU1 clip block into its packet; it
+// now REFs one VIF-stream copy (identical VU1 input, VIF-hash gate). One-ELF
+// A/B on a PS2: work -0.03..-0.13 ms. PATCH.
+//
 // 1.127.4: ONE SUBMISSION FOR EVERY LIGHT BEAM.
 // Generated game: the visible coronas are one bag and the cone shafts another,
 // per view, with the lamp brightness in the vertex colours instead of each
@@ -5220,7 +5225,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 127
-#define TYRAX_VERSION_PATCH 4
+#define TYRAX_VERSION_PATCH 5
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

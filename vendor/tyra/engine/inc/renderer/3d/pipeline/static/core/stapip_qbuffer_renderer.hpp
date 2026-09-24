@@ -911,6 +911,12 @@ class StaPipQBufferRenderer {
    */
   qword_t clipBlock[16] __attribute__((aligned(16)));
   u16 clipBlockQw = 0;
+  // Modified by TyraX: the same block as a plain VIF stream (its CNT tags'
+  // DMA halves turned into VIF NOPs), so every bag REFs this one copy instead
+  // of copying fifteen quadwords into its packet. Rebuilt with clipBlock;
+  // rewritten only after a VIF1 drain, because in-flight chains REF it.
+  qword_t clipBlockVif[16] __attribute__((aligned(64)));
+  u16 clipBlockVifQw = 0;
 #endif
 
   /** See takeChainQwords(). Accumulated in sendPacket, reset on read. */

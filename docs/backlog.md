@@ -158,7 +158,9 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   uniform blocks, and since 1.127.3 the options block, are a cached header
   plus whole-qword copies (docs/ee-submission-rearchitecture.md, "Round
   three"). Left: `sendObjectData` still rebuilds every uniform for every bag,
-  and the retained clip block and the in-chain wrap write still use packet2. A retained per-bag uniform block
+  and the in-chain wrap write still uses packet2. The clip block is REF'd from
+  one shared copy since 1.127.5 (-0.03..-0.13 ms, "Round five"); in the garage
+  part of that saving went into `vif_wait`. A retained per-bag uniform block
   patched only where the MVP or the light changed would also remove the +0.23 ms
   the queue's inline copies added at night. Failure test: a re-shade or
   camera-dependent term that the key cannot see, which is the same class as the

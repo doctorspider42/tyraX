@@ -1197,6 +1197,39 @@ floor, two boots of one ELF, cannot see that. For game-side changes:
 - compare the boots. The recipe lives in the tyra-vq rig as
   `beam_toggle.py` / `beamT-series.sh`.
 
+### Round five: the shared clip block by REF - MEASURED, 2026-09-25
+
+A fresh attribution put `sendObjectData` at ~12 us a bag even after round
+three. A second section split showed that sections doing no work at all cost
+~1 us a bag: comparing the wrap, resetting the packet. That is data-cache
+misses on scattered per-bag state (bag, info, texture, lights, GS), because
+the EE's 8 KB D-cache is flushed by the rest of the frame. Writing packet
+lines is the other half (16 cold qwords: 1.0 us). So what is left is not
+arithmetic. Only NOT building, and NOT writing, the block helps.
+
+The first piece is the 15-qword VU1 clip block (near/far constants and the
+six guard-band planes), identical for every bag and copied into every
+packet: 193 us of garage day's 75 bags. It is now kept once more as a plain
+VIF stream, with its CNT tags' DMA halves turned into VIF NOPs, and each bag
+REFs that one copy (`emitRef`, `chainToVifStream`). The copy is rewritten
+only after a `Vif1Queue::drain()`, because chains in flight REF it.
+
+VIF-hash gate: `ctrl` and `uni` identical in 24/24 frames (the decoder drops
+NOPs, so the added ones do not count). Physical PS2, **one ELF toggled at
+boot**, drift <= 0.009 ms:
+
+| pose | `work` | `prepare` | `vif_wait` |
+| --- | ---: | ---: | ---: |
+| garage day | -0.08 / -0.09 | -0.11 | +0.05 |
+| garage night | -0.13 / -0.13 | -0.13 | +0.05 |
+| outer day | -0.04 / -0.03 | -0.05 | +0.01 |
+| outer night | -0.04 / -0.03 | -0.06 | +0.03 |
+
+**`vif_wait` rising is the finding worth keeping.** In the garage, part of
+every EE saving now turns into the EE waiting in a full queue for VU1. EE-side
+savings there are worth less than they measure in `prepare` until the queue
+or the submission order changes.
+
 ## Order of work
 
 1. ~~Probe A and Probe B.~~ **DONE, on hardware, 2026-09-16.** S3 does not ship;
