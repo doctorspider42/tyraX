@@ -6,6 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: the batching test asks isResident() (hinted lookup).
 */
 
 #include "math/math.hpp"
@@ -710,11 +711,8 @@ void StaPipCore::render(StaPipBag* bag) {
   bool residentTexture = true;
   bool repeatTexture = true;
   if (cheapBatchCandidate && hasTexture) {
-    residentTexture =
-        bag->texture->texture->vramResident != nullptr ||
-        rendererCore->texture
-                .getAllocatedBuffersByTextureId(bag->texture->texture->id)
-                .id != 0;
+    // Modified by TyraX: one hinted compare instead of a resident-list scan.
+    residentTexture = rendererCore->texture.isResident(bag->texture->texture);
     repeatTexture =
         bag->texture->texture->getWrapSettings()->horizontal == WRAP_REPEAT &&
         bag->texture->texture->getWrapSettings()->vertical == WRAP_REPEAT;
@@ -756,7 +754,7 @@ void StaPipCore::render(StaPipBag* bag) {
   // now costs one drain in total, and the restore is deferred to whoever next
   // needs REPEAT. Three places close that contract, and they are the whole
   // safety argument: the next bag that does not want this wrap (below),
-  // Renderer2D's first sprite (which already drains PATH1 once a frame), and
+  // Renderer2D's first sprite (its VIF1 chain restores REPEAT in its head), and
   // RendererCore::endFrame before the post-fx blits - which is also before
   // RendererCoreAlphaMask, the one subsystem that documents its reliance on
   // the REPEAT contract.
@@ -765,11 +763,12 @@ void StaPipCore::render(StaPipBag* bag) {
        bag->texture->texture->getWrapSettings()->horizontal != WRAP_REPEAT)
           ? *bag->texture->texture->getWrapSettings()
           : RendererCoreGS::repeatWrap();
-  if (!RendererCoreGS::wrapEquals(wantedWrap,
-                                  rendererCore->gs.currentTextureWrap())) {
-    rendererCore->sync.align3D();
-    rendererCore->gs.setTextureWrap(wantedWrap);
-  }
+  // Modified by TyraX (2026-09-24): and no drain at all. The switch rides the
+  // bag's own chain (StaPipQBufferRenderer::setBagWrap), so a clamped run no
+  // longer makes the EE wait for the whole 3D frame so far - 0.4 ms a switch
+  // on a physical PS2. Every bag names its wrap; sendObjectData writes it
+  // only when it differs from the one in force.
+  qbufferRenderer.setBagWrap(&wantedWrap);
   TYRA_ATTRIB_ADD(prepTextureTicks, attribTextureStart);
 
   TYRA_ATTRIB_MARK(attribProgramStart);

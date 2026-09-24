@@ -66,6 +66,12 @@ class Texture {
    * zero-initialised cache entry never matches. */
   static u32 linkGeneration;
 
+  /** Modified by TyraX: where this texture's entry sat in
+   * RendererCoreTexture's resident list the last time it was looked up - a
+   * HINT, checked against the entry's id before it is trusted, so a list that
+   * moved since only costs the scan it replaced. */
+  mutable u32 residentHint = 0;
+
   inline const int& getWidth() const { return core->width; }
 
   inline const int& getHeight() const { return core->height; }

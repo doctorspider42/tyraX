@@ -996,6 +996,52 @@ The split with the cache on: lookup 0.02 ms, whole 2D pass 0.60-0.63 ms.
 the walk had been evicting the data cache under them. PCSX2 captures of poses
 0 and 2 are byte-identical to the control whenever the FPS text matches.
 
+### Round two: the per-bag texture work - MEASURED, 2026-09-24
+
+`spTex` (the texture part of StaPip's `prepare`) was 0.45 ms in the day poses
+and 1.50 ms in garage night. It held two unrelated costs.
+
+**Two resident-list scans per textured bag.** The batching test
+(`getAllocatedBuffersByTextureId`) and `useTexture` each walked the whole
+resident list for the bag's texture. `Texture::residentHint` now remembers the
+entry's index and is trusted only when that entry still carries the texture's
+id. Allocation ids are unique in the list, so a hit IS the scan's answer.
+`RendererCoreTexture::isResident` replaces the batching test's scan. Physical
+PS2, against the lookup-cache arm (floor 0.005 ms): work -0.09 / -0.09 /
+-0.03 / -0.05 ms.
+
+**The EE waiting at a wrap switch.** A probe inside the lazy CLAMP bracket put
+**3 switches and 1.28 ms of `align3D` a frame** in garage night (lamp pools
+and projected shadows sample clamped render targets), 1 switch and 0.23 ms in
+outer night, and nothing in the day poses. Each switch made the EE wait for
+the whole 3D frame so far. The write now rides the bag's own chain, like the
+HUD's. `StaPipCore` names every bag's wrap (`setBagWrap`), and
+`sendObjectData` emits `FLUSH` (VU1 done and PATH1 idle, so the previous bag's
+last primitives are drawn with the old wrap) plus `DIRECT` A+D `CLAMP_1` ahead
+of the bag's uniforms, when the wrap differs from the one in force. The GS
+wrap cache moves when the packet carrying the write is submitted. A packet
+thrown away unsent (a wholly culled bag) takes its write with it, so the cache
+never claims a wrap the GS will not get. Every PATH3 consumer that relies on
+the wrap already drains first (alpha mask, shadow map, env map, BLSS, post
+fx), so a write still queued lands before them.
+
+Physical PS2, against the resident-hint arm (floor 0.001 ms), two boots each:
+
+| pose | control `work` | in-chain wrap | delta | `vif_wait` |
+| --- | ---: | ---: | ---: | ---: |
+| garage day | 12.902 | 12.847 / 12.858 | -0.05 / -0.04 | +0.10 |
+| garage night | 17.417 | 17.136 / 17.121 | **-0.28 / -0.30** | +0.75 |
+| outer day | 8.737 | 8.788 / 8.782 | +0.05 / +0.05 | 0.00 |
+| outer night | 10.220 | 10.126 / 10.123 | **-0.09 / -0.10** | 0.00 |
+
+Garage night got back 0.3 of the 1.28 ms. The rest became `vif_wait`: without
+the drain the EE runs ahead into a full queue and waits there for VU1 instead.
+That wait is the GPU-bound stretch of that pose, and it is only an EE loss
+because nothing else is queued for the EE to do. The day poses have no switch
+at all, so their +-0.05 is code layout between two builds, not this change.
+PCSX2 night captures (poses 1 and 3) differ from the control only in the
+debug HUD's frame-time digits.
+
 ## Order of work
 
 1. ~~Probe A and Probe B.~~ **DONE, on hardware, 2026-09-16.** S3 does not ship;

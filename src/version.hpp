@@ -16,6 +16,14 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.126.3: A TEXTURE WRAP SWITCH NO LONGER STOPS THE EE.
+// A bag that samples a clamped render target (lamp pools, projected shadows)
+// writes CLAMP_1 into its own VIF1 chain (FLUSH + DIRECT) instead of the EE
+// draining the whole 3D frame first - 1.28 ms of waiting in Motor District's
+// garage night, work -0.29 ms there and -0.10 in outer night. And a textured
+// bag finds its resident VRAM entry through a checked index hint instead of
+// two list scans: work -0.03..-0.09 ms. PATCH.
+//
 // 1.126.2: A SPRITE STOPS SEARCHING THE WHOLE TEXTURE REPOSITORY.
 // getBySpriteId walked every texture's link list for every sprite drawn - 0.97
 // ms of an 85-sprite HUD on a PS2, because the repository also holds every
@@ -5181,7 +5189,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 126
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 3
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

@@ -135,6 +135,13 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   1.126.2 then cached the sprite texture lookup (-0.81..-1.07 ms); the 2D
   pass is 0.60-0.63 ms now, 0.45 of it building each sprite's ~16 qw of GIF
   data through libdraw calls, which is item (2)'s target.
+- **Garage night's queue wait (+0.75 ms of `vif_wait` since 1.126.3).** With
+  the wrap switches out of the EE, the pose runs into a full queue and waits
+  for VU1 there. The GPU-only frame (7.73 ms) is well under the EE's, so
+  that wait is an ordering problem: a GPU-heavy run of bags (the lamp pools)
+  arriving while the EE has nothing else queued. Try interleaving cheap-GPU,
+  EE-heavy bags with it, or deferring the pool run, before a deeper queue
+  (depth 8 measured worse).
 
 - **One chain for the whole scene / a frame-pipelined engine - PARKED
   2026-09-24.** Measured first: VU1 + GS alone need 5.96 / 7.73 / 3.94 / 4.22

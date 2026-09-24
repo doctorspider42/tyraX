@@ -135,11 +135,13 @@ RendererCoreTextureBuffers RendererCoreTexture::useTexture(
   // wraps after ~9 hours of continuous play at a few thousand binds a frame;
   // the worst that costs is a couple of mis-chosen victims in one frame.)
   useSeq++;
-  for (u32 i = 0; i < currentAllocations.size(); i++) {
-    if (currentAllocations[i].id != t_tex->id) continue;
-    currentAllocations[i].lastUsedSeq = useSeq;
-    stats.hits++;
-    return currentAllocations[i];
+  {
+    const s32 i = findAllocation(t_tex);
+    if (i >= 0) {
+      currentAllocations[i].lastUsedSeq = useSeq;
+      stats.hits++;
+      return currentAllocations[i];
+    }
   }
 
   // Modified by TyraX: evict the coldest allocations until this one fits,
@@ -366,6 +368,28 @@ RendererCoreTextureBuffers RendererCoreTexture::updateTextureInfo(
   beforeMutation();
   path3->sendTexture(t_tex, allocated);
   return allocated;
+}
+
+// Modified by TyraX: a textured bag asks for its texture's entry twice per
+// draw (StaPipCore's batching test, then useTexture), and each question used
+// to scan the whole resident list. Allocation ids are unique in the list, so
+// a hint that still names an entry with this id IS the scan's answer.
+s32 RendererCoreTexture::findAllocation(const Texture* t_tex) {
+  const u32 hint = t_tex->residentHint;
+  const u32 n = static_cast<u32>(currentAllocations.size());
+  if (hint < n && currentAllocations[hint].id == t_tex->id)
+    return static_cast<s32>(hint);
+  for (u32 i = 0; i < n; i++) {
+    if (currentAllocations[i].id == t_tex->id) {
+      t_tex->residentHint = i;
+      return static_cast<s32>(i);
+    }
+  }
+  return -1;
+}
+
+bool RendererCoreTexture::isResident(const Texture* t_tex) {
+  return t_tex->vramResident != nullptr || findAllocation(t_tex) >= 0;
 }
 
 RendererCoreTextureBuffers RendererCoreTexture::getAllocatedBuffersByTextureId(

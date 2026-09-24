@@ -1037,6 +1037,7 @@ void StaPipQBufferRenderer::sendObjectData(
   auto* objectDataPacket = packets[context];
   if (!objectDataPending) {
     packet2_reset(objectDataPacket, false);
+    packetWrapSet = false;  // a fresh packet carries no wrap write yet
 #if TYRA_STAPIP_PACKET_PROFILE
     packetTelemetryProducer = telemetryProducer(telemetry);
   } else if (packetTelemetryProducer != telemetryProducer(telemetry)) {
@@ -1064,6 +1065,33 @@ void StaPipQBufferRenderer::sendObjectData(
   packet2_vif_flushe(objectDataPacket, 0);
   packet2_vif_nop(objectDataPacket, 0);
   packet2_chain_close_tag(objectDataPacket);
+
+  // Modified by TyraX: the bag's texture wrap, in the chain (setBagWrap).
+  // FLUSH rather than the FLUSHE above: the previous bag's last XGKICK may
+  // still be on PATH1, and CLAMP_1 must reach the GS after those primitives,
+  // not between them. DIRECT then hands the A+D pair to the GIF over PATH2.
+  if (bagWrap != nullptr) {
+    const texwrap_t& inForce =
+        packetWrapSet ? packetWrap : rendererCore->gs.currentTextureWrap();
+    if (!RendererCoreGS::wrapEquals(*bagWrap, inForce)) {
+      packet2_chain_open_cnt(objectDataPacket, 0, 0, 0);
+      packet2_vif_flush(objectDataPacket, 0);
+      packet2_vif_open_direct(objectDataPacket, 0);
+      packet2_add_2x_s64(objectDataPacket,
+                         GIF_SET_TAG(1, 1, 0, 0, GIF_FLG_PACKED, 1),
+                         GIF_REG_AD);
+      packet2_add_2x_s64(
+          objectDataPacket,
+          GS_SET_CLAMP(bagWrap->horizontal, bagWrap->vertical, bagWrap->minu,
+                       bagWrap->maxu, bagWrap->minv, bagWrap->maxv),
+          GS_REG_CLAMP_1);
+      packet2_vif_close_direct_auto(objectDataPacket);
+      packet2_chain_close_tag(objectDataPacket);
+      packetWrap = *bagWrap;
+      packetWrapSet = true;
+    }
+    bagWrap = nullptr;
+  }
   if (submissionBatchCandidate || kInlineUniforms) {
     packet2_utils_vu_open_unpack(objectDataPacket, VU1_MVP_MATRIX_ADDR, false);
     const float* mvpData = reinterpret_cast<const float*>(mvp->data);
@@ -2484,6 +2512,7 @@ void StaPipQBufferRenderer::flushPendingPacket() {
   if (!objectDataPending) return;
   if (submissionBatchBags == 0) {
     packet2_reset(packets[context], false);
+    packetWrapSet = false;  // Modified by TyraX: its wrap write goes too
     objectDataPending = false;
     submissionPacketHasTexture = false;
     return;
@@ -2622,6 +2651,11 @@ void StaPipQBufferRenderer::sendPacket() {
 #else
     dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1, true);
 #endif
+  }
+  // Modified by TyraX: the packet's wrap write is on its way (setBagWrap).
+  if (packetWrapSet) {
+    rendererCore->gs.noteTextureWrap(packetWrap);
+    packetWrapSet = false;
   }
   if (submissionPacketHasTexture)
     submissionTextureReadersOutstanding = true;

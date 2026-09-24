@@ -6,6 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: isResident()/findAllocation() - hinted resident lookup.
 */
 
 #pragma once
@@ -112,6 +113,11 @@ class RendererCoreTexture {
    * texture has no GS allocation. */
   RendererCoreTextureBuffers getAllocatedBuffersByTextureId(const u32& id);
 
+  /** Modified by TyraX: is this texture in VRAM right now (a resident
+   * allocation, or a VRAM-resident render target)? Uses the texture's
+   * residentHint, so a per-bag question costs one compare, not a scan. */
+  bool isResident(const Texture* t_tex);
+
   /** Modified by TyraX: VRAM residency counters (see the struct). */
   RendererCoreVRamStats stats;
 
@@ -148,6 +154,9 @@ class RendererCoreTexture {
   void makeRoomFor(const Texture* t_tex);
 
   void registerAllocation(const RendererCoreTextureBuffers& t_buffers);
+  // Modified by TyraX: index of t_tex's resident entry, or -1. Tries
+  // t_tex->residentHint first and refreshes it after a scan.
+  s32 findAllocation(const Texture* t_tex);
   void unregisterAllocation(const u32& textureId);
 
   RendererCoreGS* gs;

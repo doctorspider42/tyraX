@@ -555,6 +555,20 @@ class StaPipQBufferRenderer {
   void sendObjectData(StaPipBag* bag, M4x4* mvp,
                       RendererCoreTextureBuffers* texBuffers);
 
+  /**
+   * Modified by TyraX: the texture wrap (GS CLAMP_1) the next bag draws with.
+   * StaPipCore sets it for every bag before sendObjectData, which writes the
+   * register INTO THE CHAIN when it differs from the wrap in force: FLUSH (VU1
+   * done, PATH1 idle), then DIRECT A+D CLAMP_1, ahead of the bag's uniforms.
+   * That replaces a sync.align3D() + PATH3 write per switch - the EE waiting
+   * for the whole 3D frame so far, 0.4 ms a switch on a physical PS2 (1.28 ms
+   * in Motor District's garage night). The GS wrap cache
+   * (RendererCoreGS::currentTextureWrap) is updated when the packet carrying
+   * the write is SUBMITTED, so a packet thrown away unsent takes its write
+   * with it and the cache never claims a wrap the GS will not get.
+   */
+  void setBagWrap(const texwrap_t* wrap) { bagWrap = wrap; }
+
   // Modified by TyraX: the dynamic light this bag renders with (picked per
   // bag by StaPipCore::render from the flashlight + scene lights). Null =
   // fall back to the global flashlight state.
@@ -830,6 +844,10 @@ class StaPipQBufferRenderer {
   // Modified by TyraX: uniforms already occupy the current geometry packet;
   // append the first buffer flush instead of resetting that packet.
   bool objectDataPending = false;
+  // Modified by TyraX: see setBagWrap().
+  const texwrap_t* bagWrap = nullptr;  // wanted by the bag being prepared
+  texwrap_t packetWrap = {};           // written by the unsent packet
+  bool packetWrapSet = false;
   bool submissionBatchScope = false;
   bool submissionBatchCandidate = false;
   u8 submissionBatchBags = 0;

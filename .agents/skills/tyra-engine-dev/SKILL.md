@@ -2482,6 +2482,18 @@ must keep:
   is public, and a direct `push_back` would leave the cache answering from the
   old links. The uncached walk (every texture x its links, per sprite) was
   0.97 ms of an 85-sprite HUD on a PS2.
+- **A bag's texture wrap is written in its own chain, never by draining**
+  (`StaPipQBufferRenderer::setBagWrap`, 1.126.3): `FLUSH` plus `DIRECT` A+D
+  `CLAMP_1` ahead of the bag's uniforms. The GS wrap cache
+  (`currentTextureWrap`) follows when the packet is SUBMITTED, not when it is
+  built, because an unsent packet (a culled bag) is thrown away with its write.
+  Anything drawing over PATH3 that relies on the wrap must `align3D()` first,
+  as every current consumer does. A queued write then lands before it. The old
+  lazy drain cost the EE 1.28 ms in Motor District's garage night.
+- **`Texture::residentHint`** remembers where the texture's entry sits in the
+  resident list; `RendererCoreTexture::findAllocation`/`isResident` trust it
+  only after checking the entry's id. Any new resident-list lookup should go
+  through them, not through a fresh scan.
 - **Do NOT start chains from a DMAC interrupt on this engine**
   (`TYRA_VIF1_QUEUE_ISR`, default 0). PCSX2 ran it clean. A physical PS2 under
   ps2link took an EE exception twice, both times at the instruction right after
