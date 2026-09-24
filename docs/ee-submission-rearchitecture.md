@@ -1135,6 +1135,18 @@ ELF, and it says nothing about that. This round's saving that can be pinned
 on the change is `prepare`'s 0.06-0.17 ms. The rest of `work`'s drop is in
 brackets the change does not touch.
 
+**The options block followed (1.127.3):** TEX1, TEST and TEX0 are the same
+`GS_SET_*` words built as qwords, one cached header plus a copy. The VIF-hash
+gate was 24/24 identical again. On the PS2, against 1.127.2, two boots each:
+`work` -0.08 / -0.09 / -0.09 / -0.09 ms (garage day, garage night, outer day,
+outer night), `prepare` -0.03 in the garage and `bounds` flat, so the layout
+did not move this time.
+
+**The geometry side was NOT redone, on purpose.** Retained command blocks
+already replay a package's commands as a memcpy (packet construction is 0.21
+ms of the garage-day frame), so the per-buffer packet2 cost that this round
+removed from the uniforms was taken out of the geometry path earlier.
+
 ## Order of work
 
 1. ~~Probe A and Probe B.~~ **DONE, on hardware, 2026-09-16.** S3 does not ship;

@@ -1291,15 +1291,17 @@ void StaPipQBufferRenderer::sendObjectData(
     }
   }
 
-  packet2_utils_vu_open_unpack(objectDataPacket, VU1_OPTIONS_ADDR, false);
+  // Modified by TyraX: the options block through the fast path too (see
+  // emitUnpack) - built as whole qwords, the same GS_SET_* words packet2's
+  // helpers would have written, then one cached header + copy.
   {
+    alignas(16) qword_t opt[4];
+    u32 optQw = 0;
     const u32 sharedClipVariant =
         bag->lighting != nullptr ||
                 (bag->texture != nullptr && bag->texture->coordinatesAreNormals)
             ? 1
             : 0;
-    packet2_add_u32(objectDataPacket,
-                    singleColorEnabled);   // Single color enabled.
     // Static-pipeline-only use of the old dynpip lerp lane: C/D and TC/TCE
     // share one clip image per ABI-compatible pair. Other programs ignore it.
     //
@@ -1311,49 +1313,55 @@ void StaPipQBufferRenderer::sendObjectData(
     // lighting bag or matcap coordinates, and neither of those classes has
     // the spot macro at all - so the variant wins when both are true.
     const s32 variantLane = sharedClipVariant ? 1 : (spotActive ? -1 : 0);
-    packet2_add_u32(objectDataPacket, static_cast<u32>(variantLane));
-    // Modified by TyraX: GS hardware fog params (see RendererCoreFog)
-    packet2_add_float(objectDataPacket, rendererCore->fog.scale);
-    packet2_add_float(objectDataPacket, rendererCore->fog.offset);
-
-    packet2_utils_gs_add_lod(objectDataPacket, lod);
+    {
+      qword_t& q = opt[optQw++];
+      q.sw[0] = singleColorEnabled;  // Single color enabled.
+      q.sw[1] = static_cast<u32>(variantLane);
+      // Modified by TyraX: GS hardware fog params (see RendererCoreFog)
+      float fogScale = rendererCore->fog.scale;
+      float fogOffset = rendererCore->fog.offset;
+      memcpy(&q.sw[2], &fogScale, 4);
+      memcpy(&q.sw[3], &fogOffset, 4);
+    }
+    {
+      qword_t& q = opt[optQw++];
+      q.dw[0] = GS_SET_TEX1(lod->calculation, lod->max_level, lod->mag_filter,
+                            lod->min_filter, lod->mipmap_select, lod->l,
+                            (int)(lod->k * 16.0F));
+      q.dw[1] = GS_REG_TEX1;
+    }
 
     // Modified by TyraX: the destination-alpha gate (PipelineInfoBag::
     // dateLit) rides the same in-band TEST qword every mesh already emits -
     // DATE = 1 draws this bag's pixels only where the framebuffer alpha's
     // MSB is 0, which is how the flashlight's shadow volumes mask its light.
     const int date = bag->info->dateLit ? 1 : 0;
-    if (bag->info->zTestType == PipelineZTest_AllPass) {
-      packet2_add_2x_s64(
-          objectDataPacket,
-          GS_SET_TEST(0, 0, 0, 0, date, 0, 0, ZTEST_METHOD_ALLPASS),
-          GS_REG_TEST);
-    } else if (bag->info->zTestType == PipelineZTest_TestOnly) {
-      // Depth-tested, no z write: alpha test fails every pixel and AFAIL
-      // keeps the z buffer (GS FB_ONLY - color still written). The ZBUF
-      // register (and thus the VU1 options layout) stays untouched.
-      packet2_add_2x_s64(
-          objectDataPacket,
-          GS_SET_TEST(DRAW_ENABLE, ATEST_METHOD_ALLFAIL, 0x00,
-                      ATEST_KEEP_ZBUFFER, date, DRAW_DISABLE,
-                      DRAW_ENABLE, rendererCore->gs.zBuffer.method),
-          GS_REG_TEST);
-    } else {
-      // Cutout alpha: texels with alpha 0 fail the test and must write
-      // NOTHING. Upstream passed ATEST_KEEP_FRAMEBUFFER, whose ps2sdk name
-      // reads backwards - it is AFAIL=ZB_ONLY (2), "keep the framebuffer,
-      // update z". So every transparent texel stamped the z buffer while
-      // drawing no colour, and the invisible part of an alpha-cutout card
-      // (foliage, decals, grates) occluded whatever was drawn behind it
-      // later. ATEST_KEEP_ALL (0) leaves both buffers alone, which is what a
-      // cutout means. Opaque geometry carries alpha 0x80 and never fails the
-      // test, so nothing else changes.
-      packet2_add_2x_s64(
-          objectDataPacket,
-          GS_SET_TEST(DRAW_ENABLE, ATEST_METHOD_NOTEQUAL, 0x00, ATEST_KEEP_ALL,
-                      date, DRAW_DISABLE, DRAW_ENABLE,
-                      rendererCore->gs.zBuffer.method),
-          GS_REG_TEST);
+    {
+      qword_t& q = opt[optQw++];
+      if (bag->info->zTestType == PipelineZTest_AllPass) {
+        q.dw[0] = GS_SET_TEST(0, 0, 0, 0, date, 0, 0, ZTEST_METHOD_ALLPASS);
+      } else if (bag->info->zTestType == PipelineZTest_TestOnly) {
+        // Depth-tested, no z write: alpha test fails every pixel and AFAIL
+        // keeps the z buffer (GS FB_ONLY - color still written). The ZBUF
+        // register (and thus the VU1 options layout) stays untouched.
+        q.dw[0] = GS_SET_TEST(DRAW_ENABLE, ATEST_METHOD_ALLFAIL, 0x00,
+                              ATEST_KEEP_ZBUFFER, date, DRAW_DISABLE,
+                              DRAW_ENABLE, rendererCore->gs.zBuffer.method);
+      } else {
+        // Cutout alpha: texels with alpha 0 fail the test and must write
+        // NOTHING. Upstream passed ATEST_KEEP_FRAMEBUFFER, whose ps2sdk name
+        // reads backwards - it is AFAIL=ZB_ONLY (2), "keep the framebuffer,
+        // update z". So every transparent texel stamped the z buffer while
+        // drawing no colour, and the invisible part of an alpha-cutout card
+        // (foliage, decals, grates) occluded whatever was drawn behind it
+        // later. ATEST_KEEP_ALL (0) leaves both buffers alone, which is what a
+        // cutout means. Opaque geometry carries alpha 0x80 and never fails the
+        // test, so nothing else changes.
+        q.dw[0] = GS_SET_TEST(DRAW_ENABLE, ATEST_METHOD_NOTEQUAL, 0x00,
+                              ATEST_KEEP_ALL, date, DRAW_DISABLE, DRAW_ENABLE,
+                              rendererCore->gs.zBuffer.method);
+      }
+      q.dw[1] = GS_REG_TEST;
     }
 
     if (texBuffers != nullptr) {
@@ -1365,11 +1373,18 @@ void StaPipQBufferRenderer::sendObjectData(
       // gives every bag its own TFX - the next bag on the same texture
       // overwrites it again, which is exactly why the mutation is safe.
       texBuffers->core->info.function = bag->texture->textureFunction;
-      packet2_utils_gs_add_texbuff_clut(objectDataPacket, texBuffers->core,
-                                        &rendererCore->texture.clut);
+      const texbuffer_t* tb = texBuffers->core;
+      const clutbuffer_t* cl = &rendererCore->texture.clut;
+      qword_t& q = opt[optQw++];
+      q.dw[0] = GS_SET_TEX0(tb->address >> 6, tb->width >> 6, tb->psm,
+                            tb->info.width, tb->info.height,
+                            tb->info.components, tb->info.function,
+                            cl->address >> 6, cl->psm, cl->storage_mode,
+                            cl->start, cl->load_method);
+      q.dw[1] = GS_REG_TEX0;
     }
+    emitUnpack(objectDataPacket, VU1_OPTIONS_ADDR, opt, optQw);
   }
-  packet2_utils_vu_close_unpack(objectDataPacket);
 
   // Modified by TyraX: particle billboard camera basis (right, up - world
   // space). Reuses the lights-matrix area like the env basis; billboard

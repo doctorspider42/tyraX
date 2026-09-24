@@ -16,6 +16,10 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.127.3: THE OPTIONS BLOCK TAKES THE FAST PATH TOO.
+// TEX1/TEST/TEX0 as whole qwords behind the cached header - identical bytes
+// (VIF-hash gate), work -0.08..-0.09 ms on a PS2. PATCH.
+//
 // 1.127.2: PER-BAG UNIFORMS WITHOUT PACKET2'S PER-CALL COST.
 // sendObjectData writes each uniform block as a cached header qword plus
 // whole-qword copies instead of packet2 open/add/close calls - the same bytes
@@ -5209,7 +5213,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 127
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 3
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
