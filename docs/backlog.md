@@ -144,6 +144,16 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   Still true from the capture: the reference title builds that chain in SPR
   and moves it to RAM by DMA (no write-back), and its per-object cost is about
   16 qwords plus a `CALL` into a prebaked block.
+- **The per-bag `prepare` bracket (2.0-3.0 ms).** `sendObjectData` rebuilds
+  every uniform float by float for every bag. A retained per-bag uniform block
+  patched only where the MVP or the light changed would also remove the +0.23 ms
+  the queue's inline copies added at night. Failure test: a re-shade or
+  camera-dependent term that the key cannot see, which is the same class as the
+  baked stream's content-version work.
+- **The DMAC-interrupt variant** (`TYRA_VIF1_QUEUE_ISR 1`) crashes a real PS2
+  and is off. Only worth reopening with the kernel's DMAC handler chain
+  inspected on hardware, under ps2link, since PCSX2 ran it clean. It would only
+  close the gap between one chain's end and the EE's next submit or wait.
 
 ## ~~Guard-band bags take the slow package route~~ DONE 1.124.2 (2026-09-23)
 
