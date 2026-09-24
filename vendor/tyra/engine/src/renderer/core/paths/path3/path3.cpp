@@ -8,9 +8,11 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 # Modified by TyraX: clearScreen() no longer emits a FINISH giftag, and it
 # re-asserts the GS texture wrap mode for the frame (see clearScreen).
+# Modified by TyraX: GIF-channel sends pass path3Fence() first.
 */
 
 #include <gif_tags.h>
+#include "renderer/core/paths/path3/path3_fence.hpp"
 #include <gs_gp.h>
 #include "renderer/core/paths/path3/path3.hpp"
 
@@ -42,6 +44,7 @@ void Path3::init(RendererSettings* t_settings) {
 
 void Path3::sendDrawFinishTag() {
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(drawFinishPacket, DMA_CHANNEL_GIF, true);
 }
 
@@ -101,6 +104,7 @@ void Path3::clearScreen(zbuffer_t* z, const Color& color) {
   }
   packet2_chain_close_tag(clearScreenPacket);
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(clearScreenPacket, DMA_CHANNEL_GIF, true);
 }
 
@@ -133,6 +137,7 @@ void Path3::sendTexture(const Texture* texture,
 
   packet2_update(texturePacket, draw_texture_flush(texturePacket->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(texturePacket, DMA_CHANNEL_GIF, true);
 }
 

@@ -779,6 +779,60 @@ barrier, which is template code, so a committed example's `terrain_game.cpp` is
 current only after its next build regenerates it. A plain `dma_channel_wait`
 can return between two queued chains.
 
+## The HUD on VIF1 - MEASURED on hardware, 2026-09-24
+
+The attribution arm put the 2D region at 2.6-2.8 ms in every pose. It opened
+with `Renderer2D`'s once-a-frame `sync.align3D()`: with the VIF1 queue that is
+the EE waiting for VU1 and the GS to finish the WHOLE 3D frame before the first
+sprite. After it, every sprite was its own PATH3 send. The commercial 60 Hz
+reference (docs/emulator-captures.md) ends its VIF1 traffic with the HUD as one
+`DIRECT` block instead: in order after the 3D, and nothing waits for it.
+
+**`TYRA_2D_VIF1_DIRECT`** (`renderer_core_2d.hpp`, on) does the same once VU1
+is up. `RendererCore2D` still builds each sprite's GIF packet exactly as
+before, but appends it to a VIF1 chain as a CNT tag carrying `NOP` +
+`DIRECT(qwc)`, and the chain goes to `Vif1Queue` behind the 3D chains. The
+chain opens with `FLUSHA`, so VIF1 itself holds the sprites until the VU1
+program before them has ended and PATH1/2/3 are idle. That is the ordering the
+drain bought: a sprite stamps z = max across its rect, so a late scene
+triangle behind it would z-fail. `FLUSHA` rather than `FLUSH` also covers a
+texture upload a sprite needed. The CLAMP-to-REPEAT restore the drain also
+did now rides the chain's head. The 0 arm is the stock path, unchanged.
+
+Two rules came with it, because sprites are now undrawn for a while after
+`Renderer2D::render` returns:
+
+- **Every GIF-channel (PATH3) send calls `path3Fence()` first**
+  (`renderer/core/paths/path3/path3_fence.hpp`). While a 2D chain is pending
+  it submits the chain, waits for it in the queue, then waits for VIF1's FIFO
+  to empty. Without that, a texture upload could overwrite a texture a queued
+  sprite still samples, a CLAMP or ALPHA write would change their state, and a
+  capture or flip would see the frame without them. When nothing is pending it
+  is one load and a branch. `RendererCore::endFrame` fences first thing: with
+  no DMAC interrupt nothing starts a queued chain during the vsync wait.
+- **An open chain is submitted by whoever touches VIF1 next.**
+  `Vif1Queue::setOpenChainCloser` makes the next `submit()` or `drain()`
+  submit it first, so 3D drawn after 2D in the same frame still lands after it.
+
+Physical PS2, `--profile quiet-debug` Motor District timing fixture (hybrid
+colour depth), control booted twice (floor **0.016 ms** of `work`), candidate
+booted twice:
+
+| pose | control `work` | HUD on VIF1 (boot 1 / 2) | delta |
+| --- | ---: | ---: | ---: |
+| garage day | 14.492 | 14.039 / 14.042 | **-0.45** |
+| garage night | 18.686 | 18.321 / 18.285 | **-0.37 / -0.40** |
+| outer day | 10.254 | 9.770 / 9.755 | **-0.48 / -0.50** |
+| outer night | 11.745 | 11.261 / 11.254 | **-0.48 / -0.49** |
+
+`submit` falls 0.42-0.67 ms and `finish` rises 0.06-0.18 ms. The wait did not
+vanish, it moved to the `endFrame` fence, after the EE has built the whole 2D
+pass while the GS was still drawing the 3D. Triangles and flushes are identical
+(garage night twinkles). `total_ms` stays on the 20 ms rung, so this is
+headroom, not a new rung. PCSX2 captures of poses 0 and 2 differ from the
+control only inside the debug text block, by as many pixels as two captures of
+the control differ from each other.
+
 ## Order of work
 
 1. ~~Probe A and Probe B.~~ **DONE, on hardware, 2026-09-16.** S3 does not ship;

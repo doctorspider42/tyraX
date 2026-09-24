@@ -12,9 +12,11 @@
 # arithmetic - truncating shifts, 8-bit clamps, the two-triangle interpolation
 # of the Gouraud grid - so a divergence does not make the net inaccurate, it
 # makes it optimise the wrong objective. Section numbers below cite that page.
+# Modified by TyraX: GIF-channel sends pass path3Fence() first.
 */
 
 #include <dma.h>
+#include "renderer/core/paths/path3/path3_fence.hpp"
 #include <draw.h>
 #include <gif_tags.h>
 #include <graph.h>
@@ -1515,6 +1517,7 @@ void RendererCoreBlss::beginScene(const Color& clearColor) {
   packet2_update(beginPacket, q);
   packet2_update(beginPacket, draw_finish(beginPacket->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(beginPacket, DMA_CHANNEL_GIF, true);
   draw_wait_finish();
 #if TYRA_FRAME_PROFILE
@@ -1558,6 +1561,7 @@ void RendererCoreBlss::endScene() {
   packet2_update(endPacket, q);
   packet2_update(endPacket, draw_finish(endPacket->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(endPacket, DMA_CHANNEL_GIF, true);
   draw_wait_finish();
 #if TYRA_FRAME_PROFILE
@@ -1941,6 +1945,7 @@ void RendererCoreBlss::composite() {
     FrameProfile::tBlssPacket = FrameProfile::ticks() - fpP0;
     FrameProfile::tBlssCompositeEe = FrameProfile::ticks() - fpT0;
 #endif
+    path3Fence();  // Modified by TyraX: path3_fence.hpp
     dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
     draw_wait_finish();
 #if TYRA_FRAME_PROFILE
@@ -2091,6 +2096,7 @@ void RendererCoreBlss::composite() {
   // again on the EE has not saved anything.
   FrameProfile::tBlssCompositeEe = FrameProfile::ticks() - fpT0;
 #endif
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
   draw_wait_finish();
 #if TYRA_FRAME_PROFILE

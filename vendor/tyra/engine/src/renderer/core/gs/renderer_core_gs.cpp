@@ -6,9 +6,11 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: GIF-channel sends pass path3Fence() first.
 */
 
 #include <dma.h>
+#include "renderer/core/paths/path3/path3_fence.hpp"
 #include <tamtypes.h>
 #include <draw.h>
 #include <graph.h>
@@ -598,6 +600,7 @@ void RendererCoreGS::setFogColor(const u8& r, const u8& g, const u8& b) {
   q++;
   packet2_update(packet2, q);
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(packet2, DMA_CHANNEL_GIF, true);
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
   packet2_free(packet2);
@@ -612,6 +615,7 @@ void RendererCoreGS::setAlpha(const u64& alpha) {
   q++;
   packet2_update(alphaPacket, q);
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(alphaPacket, DMA_CHANNEL_GIF, true);
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
 }
@@ -637,6 +641,7 @@ void RendererCoreGS::setTextureWrap(const texwrap_t& wrap) {
   q++;
   packet2_update(wrapPacket, q);
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(wrapPacket, DMA_CHANNEL_GIF, true);
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
 }
@@ -647,6 +652,7 @@ void RendererCoreGS::enableZTests() {
                  draw_enable_tests(zTestPacket->base, 0, &zBuffer));
   packet2_update(zTestPacket, draw_finish(zTestPacket->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(zTestPacket, DMA_CHANNEL_GIF, true);
 }
 
@@ -711,6 +717,7 @@ void RendererCoreGS::initDrawingEnvironment() {
                               screenCenter -
                                   (settings->getRenderHeightF() / 2.0F)));
   packet2_update(packet2, draw_finish(packet2->next));
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(packet2, DMA_CHANNEL_GIF, true);
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
   packet2_free(packet2);
@@ -914,6 +921,7 @@ void RendererCoreGS::emitHybridPresent() {
   q++;
   packet2_update(hybridPacket, q);
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(hybridPacket, DMA_CHANNEL_GIF, true);
 }
 
@@ -942,6 +950,7 @@ void RendererCoreGS::emitDrawTargetSwitch(u8 target) {
 
   packet2_update(flipPacket, draw_finish(flipPacket->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(flipPacket, DMA_CHANNEL_GIF, true);
   draw_wait_finish();
 }

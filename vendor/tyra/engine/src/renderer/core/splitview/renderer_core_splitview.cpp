@@ -9,9 +9,11 @@
 # Modified by TyraX: VIF1 waits go through Vif1Queue::drain(), so a chain
 # queued by the static pipeline is finished before this code takes the channel
 # (renderer/core/paths/path1/vif1_queue.hpp).
+# Modified by TyraX: GIF-channel sends pass path3Fence() first.
 */
 
 #include <dma.h>
+#include "renderer/core/paths/path3/path3_fence.hpp"
 #include "renderer/core/paths/path1/vif1_queue.hpp"
 #include <draw.h>
 #include <gif_tags.h>
@@ -136,6 +138,7 @@ void RendererCoreSplitView::end() {
                                          2048.0F - (h / 2.0F)));
   packet2_update(endPacket, draw_finish(endPacket->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(endPacket, DMA_CHANNEL_GIF, true);
   draw_wait_finish();
 }

@@ -13,6 +13,7 @@
 #include <math.h>
 #include "debug/hardware_trace.hpp"
 #include "renderer/core/renderer_core.hpp"
+#include "renderer/core/paths/path3/path3_fence.hpp"
 #include "thread/threading.hpp"
 #include "debug/debug.hpp"
 #include "debug/frame_profile.hpp"
@@ -399,6 +400,13 @@ void RendererCore::beginFrameStamp() {
 void RendererCore::endFrame() {
   HardwareTrace::Scope traceEnd("EndFrame");
   Threading::switchThread();
+  // Modified by TyraX (TYRA_2D_VIF1_DIRECT): the frame's sprites may still be
+  // queued on VIF1 behind the 3D, and with no interrupt nothing starts a
+  // queued chain while the EE sits in the vsync wait below - so the frame is
+  // not finished until they have gone out. This is where the wait the stock
+  // path paid before its first sprite (sync.align3D) now lands, after the EE
+  // has built the whole 2D pass alongside the GS.
+  path3Fence();
   // The dynamic pipeline kicks the scene on PATH1/VU1 asynchronously (double
   // buffered - sendPacket() returns while the DMA is still draining). PostFx
   // composites over the framebuffer via PATH3 and writes no z, so any scene

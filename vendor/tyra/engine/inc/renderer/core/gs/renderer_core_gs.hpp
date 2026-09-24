@@ -222,6 +222,9 @@ class RendererCoreGS {
    * StaPipCore::render.
    */
   const texwrap_t& currentTextureWrap() const { return currentWrap; }
+  /** Modified by TyraX: a CLAMP write that went out another way (the 2D VIF1
+   * chain carries its own REPEAT restore) - updates the cache, sends nothing. */
+  void noteTextureWrap(const texwrap_t& wrap) { currentWrap = wrap; }
   bool textureWrapIsRepeat() const {
     return currentWrap.horizontal == WRAP_REPEAT &&
            currentWrap.vertical == WRAP_REPEAT;

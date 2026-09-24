@@ -98,6 +98,15 @@ class Vif1Queue {
   /** True while a chain submitted here is still owned by the DMAC. */
   static bool busy();
 
+  /**
+   * A chain that is still being BUILT and has to reach VIF1 before anything
+   * else does - the 2D sprite chain (RendererCore2D, TYRA_2D_VIF1_DIRECT). Set
+   * while such a chain is open; the next submit() or drain() by anyone calls
+   * it (once - it is cleared first) so the open chain is submitted ahead of
+   * whatever follows it. nullptr = nothing open.
+   */
+  static void setOpenChainCloser(void (*closer)());
+
   /** Interrupt context - public only so the C handler can reach it. */
   static void onComplete();
 

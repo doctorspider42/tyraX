@@ -6,9 +6,11 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Added by TyraX: the frame-timing rig - see inc/debug/frame_profile.hpp.
+# Modified by TyraX: GIF-channel sends pass path3Fence() first.
 */
 
 #include "debug/frame_profile.hpp"
+#include "renderer/core/paths/path3/path3_fence.hpp"
 
 #if TYRA_FRAME_PROFILE
 
@@ -140,6 +142,7 @@ u32 gsFillProbe(RendererCoreGS* gs, RendererCoreSync* sync, Path1* path1,
     packet2_update(probePacket, q);
     packet2_update(probePacket, draw_finish(probePacket->next));
     dma_channel_wait(DMA_CHANNEL_GIF, 0);
+    path3Fence();  // Modified by TyraX: path3_fence.hpp
     dma_channel_send_packet2(probePacket, DMA_CHANNEL_GIF, true);
     // One handshake PER SPRITE: the point is to measure the raster, not to
     // find out how deep the GS queue is.

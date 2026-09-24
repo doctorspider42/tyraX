@@ -2457,6 +2457,17 @@ must keep:
   static_assert ties the two flags together. **Depth 8 measured worse than 4**
   (+0.19..+0.41 ms, all in `prepare`: more buffers and pool sides are more
   memory the EE touches), so do not deepen it without a new reason.
+- **2D sprites ride VIF1 too** (`TYRA_2D_VIF1_DIRECT`, on, 1.126.1): once
+  VU1 is up `RendererCore2D` appends each sprite's GIF packet to a VIF1 chain as
+  `NOP` + `DIRECT`, opened by `FLUSHA`, and submits it through the queue instead
+  of draining PATH1 and sending over PATH3 (work -0.37..-0.50 ms on a PS2). So
+  **every GIF-channel send calls `path3Fence()` first**
+  (`paths/path3/path3_fence.hpp`); it is free when no 2D is pending. A new PATH3
+  sender that skips it can overtake queued sprites: an upload overwrites a
+  texture they sample, or a CLAMP/ALPHA write changes their state. An OPEN 2D
+  chain is submitted by the next `Vif1Queue::submit()`/`drain()` from anyone
+  (`setOpenChainCloser`), and `endFrame` fences before the vsync wait, because
+  with no interrupt nothing starts a queued chain while the EE sleeps there.
 - **Do NOT start chains from a DMAC interrupt on this engine**
   (`TYRA_VIF1_QUEUE_ISR`, default 0). PCSX2 ran it clean. A physical PS2 under
   ps2link took an EE exception twice, both times at the instruction right after

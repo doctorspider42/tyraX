@@ -8,9 +8,11 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 # Modified by TyraX: frame extrapolation (docs/frame-extrapolation.md) - the
 # whole file is a TyraX addition.
+# Modified by TyraX: GIF-channel sends pass path3Fence() first.
 */
 
 #include <dma.h>
+#include "renderer/core/paths/path3/path3_fence.hpp"
 #include <draw.h>
 #include <gs_gp.h>
 #include <gs_psm.h>
@@ -390,6 +392,7 @@ void RendererCoreWarp::draw(const WarpCamera& from, const WarpCamera& to) {
 
   packet2_update(packet, q);
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
 }

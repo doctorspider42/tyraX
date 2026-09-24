@@ -7,7 +7,8 @@
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 # Modified by TyraX: render() no longer emits a FINISH giftag; sprites
-# squeeze into the half-height buffer in the InterlacedField mode.
+# squeeze into the half-height buffer in the InterlacedField mode; sprites
+# can ride a VIF1 DIRECT chain instead of PATH3 (TYRA_2D_VIF1_DIRECT).
 */
 
 #include "renderer/core/2d/renderer_core_2d.hpp"
@@ -15,8 +16,62 @@
 #include <draw.h>
 #include <gif_tags.h>
 #include <gs_gp.h>
+#include <kernel.h>
+#include <malloc.h>
+#include <cstring>
+#include "renderer/core/paths/path1/vif1_queue.hpp"
+#include "renderer/core/paths/path3/path3_fence.hpp"
 
 namespace Tyra {
+
+// Modified by TyraX: the VIF1 DIRECT chain (TYRA_2D_VIF1_DIRECT).
+//
+// Each sprite's GIF packet is exactly the one the PATH3 path sends; here it
+// is wrapped in a CNT DMA tag whose VIFcodes are NOP + DIRECT(qwc), so VIF1
+// hands it to the GIF over PATH2. The chain opens with FLUSHA: VIF1 holds the
+// sprites until the VU1 program before them has ended and PATH1/2/3 are idle -
+// which is the ordering the stock path buys with sync.align3D() (a sprite
+// stamps z = max across its rect, so a late scene triangle behind it would
+// z-fail), plus any texture upload a sprite needs having landed. The chain is
+// queued behind the 3D chains in Vif1Queue, so nothing on the EE waits for it.
+bool path3FencePending = false;
+
+namespace {
+
+RendererCore2D* chainOwner = nullptr;
+volatile u32* const kVif1Stat = reinterpret_cast<volatile u32*>(0x10003C00);
+constexpr u32 kVif1Busy = 0x1F000003;  // FQC (FIFO qwords) | VPS (VIF state)
+constexpr u32 kDmaCnt = 1U << 28;
+constexpr u32 kDmaEnd = 7U << 28;
+constexpr u32 kVifFlushA = 0x13U << 24;
+constexpr u32 kVifDirect = 0x50U << 24;
+
+void writeTag(qword_t* q, u32 id, u32 qwc, u32 vif0, u32 vif1) {
+  q->sw[0] = id | qwc;
+  q->sw[1] = 0;
+  q->sw[2] = vif0;  // executed first
+  q->sw[3] = vif1;
+}
+
+// DIRECT(2): CLAMP_1 back to REPEAT. Returns the qword after it.
+qword_t* writeRepeatClamp(qword_t* q) {
+  writeTag(q, kDmaCnt, 2, 0, kVifDirect | 2);
+  q++;
+  PACK_GIFTAG(q, GIF_SET_TAG(1, 1, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  q++;
+  PACK_GIFTAG(q, GS_SET_CLAMP(WRAP_REPEAT, WRAP_REPEAT, 0, 0, 0, 0),
+              GS_REG_CLAMP_1);
+  return q + 1;
+}
+
+}  // namespace
+
+void path3FenceFlush() {
+  if (chainOwner != nullptr)
+    chainOwner->fence();
+  else
+    path3FencePending = false;
+}
 
 RendererCore2D::RendererCore2D() {
   context = 0;
@@ -24,6 +79,8 @@ RendererCore2D::RendererCore2D() {
   packets[1] = packet2_create(16, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
   rects[0] = new texrect_t;
   rects[1] = new texrect_t;
+  chains[0] = static_cast<qword_t*>(memalign(64, kChainQw * sizeof(qword_t)));
+  chains[1] = static_cast<qword_t*>(memalign(64, kChainQw * sizeof(qword_t)));
 
   setPrim();
   setLod();
@@ -34,6 +91,9 @@ RendererCore2D::~RendererCore2D() {
   packet2_free(packets[1]);
   delete rects[0];
   delete rects[1];
+  free(chains[0]);
+  free(chains[1]);
+  if (chainOwner == this) chainOwner = nullptr;
 }
 
 const float RendererCore2D::GS_DRAW_AREA = 4096.0F;
@@ -74,7 +134,8 @@ void RendererCore2D::init(RendererSettings* t_settings,
 
 void RendererCore2D::render(const Sprite& sprite,
                             const RendererCoreTextureBuffers& texBuffers,
-                            Texture* texture) {
+                            Texture* texture, bool viaChain,
+                            bool restoreRepeat) {
   auto* rect = rects[context];
   float sizeX, sizeY;
 
@@ -211,10 +272,80 @@ void RendererCore2D::render(const Sprite& sprite,
     packet2_update(packet, q);
   }
 
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
-  dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
+  if (viaChain) {
+    appendToChain(packet->base, static_cast<u32>(packet->next - packet->base),
+                  restoreRepeat);
+  } else {
+    path3Fence();
+    dma_channel_wait(DMA_CHANNEL_GIF, 0);
+    dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
+  }
 
   context = !context;
+}
+
+void RendererCore2D::appendToChain(const qword_t* data, u32 qwc,
+                                   bool restoreRepeat) {
+  // 1 tag + data, the 3-qword CLAMP block, and the END tag must all fit.
+  if (chainOpen && chainQw + 1 + qwc + 3 + 1 > kChainQw) closeChain();
+  const bool opened = !chainOpen;
+  if (opened) openChain(restoreRepeat);
+  qword_t* q = chains[chainSide] + chainQw;
+  if (restoreRepeat && !opened) {
+    // Defensive: a chain still open when the frame's first sprite arrives
+    // (endFrame always fences, so nothing in the engine leaves one).
+    q = writeRepeatClamp(q);
+    chainQw += 3;
+  }
+  writeTag(q, kDmaCnt, qwc, 0, kVifDirect | qwc);
+  std::memcpy(q + 1, data, qwc * sizeof(qword_t));
+  chainQw += 1 + qwc;
+}
+
+void RendererCore2D::openChain(bool restoreRepeat) {
+  // The side's previous chain may still be on the channel.
+  Vif1Queue::waitFor(chainSeq[chainSide]);
+  qword_t* q = chains[chainSide];
+  writeTag(q, kDmaCnt, 0, kVifFlushA, 0);
+  q++;
+  chainQw = 1;
+  if (restoreRepeat) {
+    writeRepeatClamp(q);
+    chainQw += 3;
+  }
+  chainOpen = true;
+  chainOwner = this;
+  // Whoever submits to VIF1 next submits this chain first (order), and every
+  // PATH3 sender waits for it (path3_fence.hpp).
+  Vif1Queue::setOpenChainCloser(&RendererCore2D::closeOpenChain);
+  path3FencePending = true;
+}
+
+void RendererCore2D::closeChain() {
+  writeTag(chains[chainSide] + chainQw, kDmaEnd, 0, 0, 0);
+  chainOpen = false;
+  Vif1Queue::setOpenChainCloser(nullptr);
+#if !TYRA_VIF1_QUEUE_LAZY_FLUSH
+  FlushCache(0);
+#endif
+  lastSeq = Vif1Queue::submit(chains[chainSide]);
+  chainSeq[chainSide] = lastSeq;
+  chainSide ^= 1;
+}
+
+void RendererCore2D::closeOpenChain() {
+  if (chainOwner != nullptr && chainOwner->chainOpen) chainOwner->closeChain();
+}
+
+void RendererCore2D::fence() {
+  if (chainOpen) closeChain();
+  Vif1Queue::waitFor(lastSeq);
+  // The DMAC being done is not the GIF having it: up to a FIFO of the last
+  // sprite can still sit in VIF1, and a PATH3 packet sent now could win the
+  // GIF between two of its packets.
+  while (*kVif1Stat & kVif1Busy) {
+  }
+  path3FencePending = false;
 }
 
 void RendererCore2D::setTextureMappingType(

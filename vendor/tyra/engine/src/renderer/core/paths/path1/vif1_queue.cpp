@@ -37,6 +37,15 @@ volatile u32 completed = 0;
 s32 handlerId = -1;
 // The newest sequence number the last data-cache write-back covered.
 u32 flushedUpTo = 0;
+void (*openChainCloser)() = nullptr;  // see setOpenChainCloser()
+
+// Submits a chain still being built by someone else, ahead of the caller's.
+void closeOpenChain() {
+  if (openChainCloser == nullptr) return;
+  auto closer = openChainCloser;
+  openChainCloser = nullptr;  // the closer submits, and must not recurse
+  closer();
+}
 
 }  // namespace
 
@@ -124,6 +133,7 @@ static void advanceIfIdle() {
 }
 
 u32 Vif1Queue::submit(const void* chain) {
+  closeOpenChain();
   const u32 addr = reinterpret_cast<u32>(chain);
   advanceIfIdle();  // also what starts the queue when the interrupt does not
   // Back-pressure: never hold more than kDepth chains. The static pipeline has
@@ -160,10 +170,15 @@ void Vif1Queue::waitFor(u32 sequence) {
 }
 
 void Vif1Queue::drain() {
+  closeOpenChain();
   while (running) advanceIfIdle();
   dma_channel_wait(DMA_CHANNEL_VIF1, 0);
 }
 
 bool Vif1Queue::busy() { return running; }
+
+void Vif1Queue::setOpenChainCloser(void (*closer)()) {
+  openChainCloser = closer;
+}
 
 }  // namespace Tyra

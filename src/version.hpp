@@ -16,6 +16,14 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.126.1: THE HUD RIDES VIF1 BEHIND THE 3D INSTEAD OF WAITING FOR IT.
+// Once VU1 is up, 2D sprites are appended as DIRECT (PATH2) data to a VIF1
+// chain that queues behind the 3D chains and opens with FLUSHA, instead of
+// the EE draining PATH1 before the first sprite and sending each one over
+// PATH3 (TYRA_2D_VIF1_DIRECT). Every GIF-channel send fences on it first.
+// Physical PS2, Motor District: work -0.45 / -0.37 / -0.48 / -0.48 ms,
+// picture unchanged. PATCH.
+//
 // 1.126.0: HYBRID COLOUR DEPTH, AND ONE CACHE WRITE-BACK FOR SEVERAL PACKETS.
 // Preferences > Colour depth > Hybrid (format v63): the frame draws into one
 // 32-bit buffer over a 32-bit z and one dithered blit per frame copies it into
@@ -5167,7 +5175,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 126
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
