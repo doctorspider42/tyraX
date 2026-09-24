@@ -947,6 +947,55 @@ first-person game feels risk 2 more when aiming. Game-side ray casts, physics
 and AI are EE work and do not change. What gets harder is this editor's API:
 scripts, debug draw, custom post fx and VU programs assume immediate mode.
 
+**What happens to user-authored code.** What decides it is whether the code
+RECORDS commands, CHANGES data the GPU reads later, or READS a GPU result.
+Most of it survives with its API intact:
+
+- **VU programs** (`vu::Program`, docs/vu-authoring.md) do not change. A body
+  is a pure function of the vertex and the object's `c.params`/`c.time`. In a
+  frame chain it is just another `MSCAL` address beside the bag, and its
+  parameters go into the per-object uniform block the EE builds anyway, with
+  their values taken at build time. `activeAtBoot` / `vuscript::activate`,
+  `shellPass` (one more chain entry) and `movesGeometry` behave as now. A
+  program-set swap becomes an `MPG` upload in the chain instead of today's
+  drain, which is a gain.
+- **VU0 kernels** do not change. `run()` blocks on the EE and sits outside
+  the GPU pipeline; a result meant for rendering goes into the frame arena
+  before submission like any other data.
+- **Custom screen effects** (`.screenfx`, docs/custom-screen-effects.md) can
+  keep the exact API. An effect already appends GS primitives to a buffer (`q`,
+  `fx.blit`, `fx.flatQuad`), i.e. it records. The same code would append to the
+  frame chain as `DIRECT` data, as the HUD does since 1.126.1. It names only
+  VRAM addresses and bakes its parameters into the qwords, so running a frame
+  later is correct.
+- **Object scripts and custom flow nodes** (docs/object-scripts.md,
+  docs/custom-flow-nodes.md) keep their game logic: pad, objects, teleport,
+  saves, menus and audio are EE work. Per-object fields such as
+  `self->data.color` are gathered into uniforms at build time and are fine.
+  What breaks is **editing vertex arrays in place**. The GPU reads them a frame
+  later, so the replacement is a copy-on-write handle (for example
+  `mesh.writeVertices()` returning a fresh frame-arena buffer, swapped in at the
+  next submission): the same function, one line different. `BagArray`'s const
+  `data()` and `contentVersion` are already half of that model.
+- **Reading a GPU result in the same frame** (captures, VRAM reads, EE
+  decisions from what the GS drew) gets one of two answers: the result a frame
+  later, or an explicit pipeline sync that costs that frame's win.
+- **A compatibility mode**, so nothing old stops working. Immediate-mode calls
+  (raw `ctx.engine->renderer` use, debug draw, the old mesh API) sync the
+  pipeline and run as before. The frame profiler names the script and the
+  milliseconds that sync cost, so old code runs on day one, slower, and the
+  author can see what to port.
+- **Detection instead of documentation.** In a debug build the engine
+  checksums each buffer at submission and checks it again before the arena
+  side is reused. A mismatch is a write after submit, logged with the buffer's
+  owner. The console cannot write-protect it, but every debug run can catch
+  it.
+
+Net: VU programs, VU0 kernels and screen effects stay as they are. Script
+logic stays. Geometry-editing scripts need a small port. Same-frame GPU reads
+become asynchronous or pay for a sync. Raw renderer access keeps working
+through the compatibility mode at a visible cost.
+
 **If it is ever done, in this order**, each step measurable on its own:
 1. A frame arena for packets and copy pools, with chains still submitted as
    now. This removes the buffer-reuse `vif_wait`.
