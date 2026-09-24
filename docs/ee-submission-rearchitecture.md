@@ -953,6 +953,49 @@ scripts, debug draw, custom post fx and VU programs assume immediate mode.
 2. PATH3 mutations into the chain (as the HUD already is) or out of the frame.
 3. The N / N-1 pipeline.
 
+## The EE's own work, round one: the sprite texture lookup - MEASURED, 2026-09-24
+
+The GPU-only measurement above moved the focus to the EE's computation. A fresh
+attribution arm on HEAD (after the HUD moved to VIF1) still put `dmHud` at
+1.79-1.86 ms, and none of that was waiting any more. A temporary split inside
+`Renderer2D::render` (85 sprites a frame, physical PS2) named it:
+
+| part of a sprite draw | ms per frame |
+| --- | ---: |
+| `TextureRepository::getBySpriteId` | **0.97** |
+| building the GIF packet and appending it to the chain | 0.53 |
+| `useTexture` | 0.14 |
+| `note2dRect` | 0.05 |
+| total | 1.73 |
+
+`getBySpriteId` means "the first texture whose link list contains this id",
+found by walking every texture in the repository and each one's link vector.
+Motor District's repository also holds every scene material, so each sprite
+paid about 11 us for that walk.
+
+**Fix (1.126.2):** `TextureRepository::findLinked` puts a direct-mapped
+256-entry cache in front of the walk, shared by `getBySpriteId` and
+`getByMeshMaterialId`. An entry is valid for one `Texture::linkGeneration`.
+Every `addLink`/`removeLink*`, texture destruction, repository add/remove and
+`getAll()` (which hands the list out for editing) bumps that counter, so the
+cached answer is always the one the walk would give. The generation stayed at
+70 for the whole run: links are made at load time, not per frame.
+
+Physical PS2, same timing fixture, control booted twice (floor **0.010 ms**),
+candidate booted twice:
+
+| pose | control `work` | cache (boot 1 / 2) | delta |
+| --- | ---: | ---: | ---: |
+| garage day | 14.025 | 12.976 / 12.958 | **-1.05 / -1.07** |
+| garage night | 18.318 | 17.505 / 17.512 | **-0.81** |
+| outer day | 9.744 | 8.795 / 8.770 | **-0.95 / -0.97** |
+| outer night | 11.240 | 10.296 / 10.271 | **-0.94 / -0.97** |
+
+The split with the cache on: lookup 0.02 ms, whole 2D pass 0.60-0.63 ms.
+`useTexture` and `note2dRect` also got cheaper (0.14 to 0.12, 0.05 to 0.03):
+the walk had been evicting the data cache under them. PCSX2 captures of poses
+0 and 2 are byte-identical to the control whenever the FPS text matches.
+
 ## Order of work
 
 1. ~~Probe A and Probe B.~~ **DONE, on hardware, 2026-09-16.** S3 does not ship;

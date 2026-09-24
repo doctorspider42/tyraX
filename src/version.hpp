@@ -16,6 +16,12 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.126.2: A SPRITE STOPS SEARCHING THE WHOLE TEXTURE REPOSITORY.
+// getBySpriteId walked every texture's link list for every sprite drawn - 0.97
+// ms of an 85-sprite HUD on a PS2, because the repository also holds every
+// scene material. A generation-checked id -> texture cache returns the same
+// answer: work -1.05 / -0.81 / -0.95 / -0.94 ms in Motor District. PATCH.
+//
 // 1.126.1: THE HUD RIDES VIF1 BEHIND THE 3D INSTEAD OF WAITING FOR IT.
 // Once VU1 is up, 2D sprites are appended as DIRECT (PATH2) data to a VIF1
 // chain that queues behind the 3D chains and opens with FLUSHA, instead of
@@ -5175,7 +5181,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 126
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

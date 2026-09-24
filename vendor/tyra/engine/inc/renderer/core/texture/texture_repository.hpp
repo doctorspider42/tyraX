@@ -6,6 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: cached id -> texture lookup (findLinked).
 */
 
 #pragma once
@@ -38,7 +39,12 @@ class TextureRepository {
             RendererCoreTexture* coreTexture = nullptr);
 
   /** Returns all repository textures. */
-  std::vector<Texture*>* getAll() { return &textures; }
+  // Modified by TyraX: the caller may reorder or edit the list through the
+  // pointer, so handing it out drops the lookup cache (see findLinked).
+  std::vector<Texture*>* getAll() {
+    ++Texture::linkGeneration;
+    return &textures;
+  }
 
   u32 getTexturesCount() const { return static_cast<u32>(textures.size()); }
 
@@ -129,6 +135,22 @@ class TextureRepository {
   void removeByIndex(const u32& t_index);
 
   std::vector<Texture*> textures;
+
+  // Modified by TyraX: getBySpriteId / getByMeshMaterialId both mean "the
+  // FIRST texture whose links contain this id", found by walking every
+  // texture's link list. A sprite does that once per draw: on a physical PS2
+  // it was 0.97 ms of a 1.73 ms, 85-sprite HUD in Motor District, whose
+  // repository also holds every scene material. A direct-mapped cache of that
+  // answer, valid for one Texture::linkGeneration, returns the same texture
+  // the walk would - the walk runs again after any link or list change.
+  struct LinkCacheEntry {
+    u32 id;
+    u32 generation;
+    Texture* texture;
+  };
+  static constexpr u32 kLinkCacheBits = 8;
+  mutable LinkCacheEntry linkCache[1U << kLinkCacheBits] = {};
+  Texture* findLinked(const u32& t_id) const;
   std::vector<RendererCoreTextureBuffers>* textureBuffers;
   RendererCoreTexture* coreTexture = nullptr;  // Modified by TyraX
   TextureLoaderSelector texLoaderSelector;

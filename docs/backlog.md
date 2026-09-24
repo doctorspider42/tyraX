@@ -132,6 +132,9 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   cheaper chains, not a shorter EE wait; (3) the rest of the old 2.7 ms is
   the `endFrame` fence, i.e. the EE waiting for VU1/GS to finish the frame -
   only a lighter 3D frame, or work the EE could do before it, shrinks it.
+  1.126.2 then cached the sprite texture lookup (-0.81..-1.07 ms); the 2D
+  pass is 0.60-0.63 ms now, 0.45 of it building each sprite's ~16 qw of GIF
+  data through libdraw calls, which is item (2)'s target.
 
 - **One chain for the whole scene / a frame-pipelined engine - PARKED
   2026-09-24.** Measured first: VU1 + GS alone need 5.96 / 7.73 / 3.94 / 4.22

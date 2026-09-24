@@ -2475,6 +2475,13 @@ must keep:
   threw `std::bad_alloc` on a console. Its `work` is meaningless (the frame is
   serialised on purpose). It measured the GPU at ~40% of the EE's time
   (docs/ee-submission-rearchitecture.md, "The GPU-only frame").
+- **`TextureRepository` answers id -> texture from a cache**
+  (`findLinked`, 1.126.2): 256 direct-mapped entries, valid for one
+  `Texture::linkGeneration`. Every link and list change bumps that counter, so
+  **change `Texture::links` only through `addLink`/`removeLink*`**. The vector
+  is public, and a direct `push_back` would leave the cache answering from the
+  old links. The uncached walk (every texture x its links, per sprite) was
+  0.97 ms of an 85-sprite HUD on a PS2.
 - **Do NOT start chains from a DMAC interrupt on this engine**
   (`TYRA_VIF1_QUEUE_ISR`, default 0). PCSX2 ran it clean. A physical PS2 under
   ps2link took an EE exception twice, both times at the instruction right after
