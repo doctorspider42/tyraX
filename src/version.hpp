@@ -16,6 +16,13 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.127.0: A CONSOLE SESSION LEAVES A LOG ON DISK.
+// Run on PS2 writes the console's output to <project>/logs/ps2-<stamp>.log as
+// well as the Output panel, flushed per line, so a crash or an unwatched run
+// still leaves a record. Bounded by Edit > Preferences > Real PS2: the last N
+// lines per file (default 20 000, 0 = off) and the last K sessions (default
+// 10). logs/ is git-ignored. MINOR.
+//
 // 1.126.3: A TEXTURE WRAP SWITCH NO LONGER STOPS THE EE.
 // A bag that samples a clamped render target (lamp pools, projected shadows)
 // writes CLAMP_1 into its own VIF1 chain (FLUSH + DIRECT) instead of the EE
@@ -5188,8 +5195,8 @@
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 126
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_MINOR 127
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

@@ -1,4 +1,5 @@
 #include "runner.hpp"
+#include "sessionlog.hpp"
 
 #include "devsession.hpp"
 #include "isoexport.hpp"
@@ -1082,17 +1083,31 @@ bool Runner::deployToPs2(const Project& p) {
     }
     ps2Lines_ = 0;
 
+    // The session log (sessionlog.hpp): the same lines, on disk, bounded, so a
+    // crash - of the game or of this editor - or an unwatched run still leaves
+    // a record in <project>/logs/. Owned by the pump thread's lambda, so it
+    // closes when the session's output ends, not when the next deploy starts.
+    auto sessionLog = std::make_shared<sessionlog::File>();
+    if (sessionLog->open((fs::path(p.dir) / "logs").string(), "ps2",
+                         p.consoleLogLines, p.consoleLogFiles)) {
+        sessionLog->write("[editor] Run on PS2: " + p.name + " -> " + p.ps2LinkIp +
+                          " (" + cmd + ")");
+        appendLine("[editor] Console log: " + sessionLog->path());
+    }
+
     // Pump ps2client's output - including the console's printf/TYRA log
     // arriving over UDP 18194 - into the Output panel for the session's
     // lifetime. Reads block until the process dies and the pipe breaks. The
     // thread holds its own shared_ptr so the Process cannot be destroyed out
     // from under a blocked read by killPs2Client().
-    ps2Pump_ = std::thread([this, proc] {
+    ps2Pump_ = std::thread([this, proc, sessionLog] {
         std::string line;
         while (proc->readLine(line)) {
             appendLine("[ps2] " + line);
+            sessionLog->write(line);
             ps2Lines_++;
         }
+        sessionLog->write("[editor] ps2client exited - end of session.");
     });
 
     // ps2link commands are UDP fire-and-forget: against a dead IP both reset

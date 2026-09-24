@@ -8347,6 +8347,16 @@ std::string refreshGenerated(const Project& p) {
                     "at and to throw away.\nscreenshots/\n";
                 grew = true;
             }
+            // The console session logs (docs/ps2link-setup.md, "The session
+            // log"): one file per Run on PS2, written by this machine only.
+            if (text.find("logs/") == std::string::npos) {
+                if (!text.empty() && text.back() != '\n') text += '\n';
+                text +=
+                    "\n# The console session logs Run on PS2 writes "
+                    "(docs/ps2link-setup.md, \"The\n# session log\"). A record "
+                    "of this machine's runs, bounded by Preferences.\nlogs/\n";
+                grew = true;
+            }
             // And the input recorder's working files (docs/input-replay.md).
             // bin/.gitignore already covers the whole directory, so this is
             // the readable list and the fallback for a project that took bin/

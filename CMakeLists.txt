@@ -328,6 +328,7 @@ add_executable(tyrax-editor
     src/wavconvert.cpp
     src/wire.cpp
     src/runner.cpp
+    src/sessionlog.cpp
     vendor/imguizmo/src/ImGuizmo.cpp
     vendor/imnodes/imnodes.cpp
     vendor/ufbx/ufbx.c

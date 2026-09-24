@@ -386,6 +386,28 @@ every texture, every model and every devkit channel file is read from your PC
 over the network while the game runs. Its output — including the console's
 `printf`/`TYRA_LOG` — is pumped into the *Output* panel as `[ps2]` lines.
 
+### The session log
+
+The Output panel is memory. Close the editor, lose it to a crash, or just not
+look, and what the game said is gone. So every session also writes the same
+lines to **`<project>/logs/ps2-<date>-<time>-<ms>.log`**. The first line names
+the project, the IP and the command, the last one says the session ended, and
+the path is printed in the Output panel as `[editor] Console log: ...`.
+
+- **Crash-safe.** Each line is flushed as it arrives, so the file is current up
+  to the last line the console sent, whoever dies first.
+- **Bounded, in lines, not time.** A file keeps the last *Console log lines*
+  lines (Edit > Preferences > Real PS2, default 20 000). It is rewritten down to
+  that many each time it reaches twice as many, so the END of a session, which
+  is what a crash leaves, is always there. 0 turns the file off.
+- **Bounded, in files.** At most *Console logs kept* sessions (default 10) stay
+  in `logs/`; starting a session deletes the oldest beyond that.
+- **Not project data.** Both limits live in `editor.ini`, like the console's IP.
+  `logs/` is git-ignored, and the next build adds the rule to an older
+  project's `.gitignore`.
+
+The headless `--run-ps2` path writes the same file with the default limits.
+
 > **Keep the editor open while the game runs.** Closing it kills `ps2client`,
 > and the game loses `host:` mid-session: the devkit files freeze exactly where
 > they were while the console happily keeps running. The cure is a redeploy, not

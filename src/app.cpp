@@ -205,6 +205,12 @@ struct EditorConfig {
     // both belong here rather than in any .tyra.
     bool updateCheck = true;
     std::string updateSkipVersion;
+    // The console session log (sessionlog.hpp, docs/ps2link-setup.md): lines
+    // kept per session file (0 = do not write one) and session files kept in a
+    // project's logs/. How much disk this machine spends on it is a property of
+    // the machine.
+    int consoleLogLines = 20000;
+    int consoleLogFiles = 10;
     // Project folders opened most recently, most-recent first (the welcome
     // screen's list). Machine-global like everything else here: which projects
     // this PC has seen is a property of the PC, not of any one project.
@@ -313,6 +319,10 @@ static EditorConfig loadEditorConfig() {
         else if (match("chatAllowBuild", v)) cfg.chatAllowBuild = toI(v, 0) != 0;
         else if (match("updateCheck", v)) cfg.updateCheck = toI(v, 1) != 0;
         else if (match("updateSkipVersion", v)) cfg.updateSkipVersion = v;
+        else if (match("consoleLogLines", v))
+            cfg.consoleLogLines = std::max(0, toI(v, cfg.consoleLogLines));
+        else if (match("consoleLogFiles", v))
+            cfg.consoleLogFiles = std::max(1, toI(v, cfg.consoleLogFiles));
         // One line per entry, written in list order (most recent first).
         else if (match("recentProject", v)) {
             if (!v.empty() && cfg.recentProjects.size() < kMaxRecentProjects)
@@ -391,6 +401,8 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "chatAllowEdits=" << (cfg.chatAllowEdits ? 1 : 0) << "\n"
       << "chatAllowBuild=" << (cfg.chatAllowBuild ? 1 : 0) << "\n"
       << "updateCheck=" << (cfg.updateCheck ? 1 : 0) << "\n"
+      << "consoleLogLines=" << cfg.consoleLogLines << "\n"
+      << "consoleLogFiles=" << cfg.consoleLogFiles << "\n"
       << "updateSkipVersion=" << cfg.updateSkipVersion << "\n";
     for (const std::string& dir : cfg.recentProjects) f << "recentProject=" << dir << "\n";
 }
@@ -649,6 +661,8 @@ int App::run(const std::string& initialProjectDir) {
         chatAllowEdits_ = cfg.chatAllowEdits;
         chatAllowBuild_ = cfg.chatAllowBuild;
         globalUpdateCheck_ = cfg.updateCheck;
+        globalConsoleLogLines_ = cfg.consoleLogLines;
+        globalConsoleLogFiles_ = cfg.consoleLogFiles;
         globalUpdateSkip_ = cfg.updateSkipVersion;
         // Probe the recent projects once, here: the welcome screen draws this
         // list every frame and must not scan the disk to do it.
@@ -1176,6 +1190,7 @@ void App::saveGlobalConfig() {
                       logOut_.mask, logDbg_.mask, logOut_.selectText,
                       logDbg_.selectText, chatAllowEdits_, chatAllowBuild_,
                       giGpuBake_, globalUpdateCheck_, globalUpdateSkip_,
+                      globalConsoleLogLines_, globalConsoleLogFiles_,
                       std::move(recent)});
 }
 
@@ -1285,6 +1300,8 @@ void App::drawMenuBar() {
                 snprintf(prefEmulatorPath_, sizeof(prefEmulatorPath_), "%s",
                          globalEmulatorPath_.c_str());
                 snprintf(prefPs2Ip_, sizeof(prefPs2Ip_), "%s", globalPs2Ip_.c_str());
+                prefConsoleLogLines_ = globalConsoleLogLines_;
+                prefConsoleLogFiles_ = globalConsoleLogFiles_;
                 snprintf(prefToolchainImage_, sizeof(prefToolchainImage_), "%s",
                          globalToolchainImage_.c_str());
                 prefBuildBackend_ = globalBuildBackend_ == "docker" ? 1 : 0;
@@ -7215,6 +7232,8 @@ void App::attachProject() {
     project_.ps2LinkIp = globalPs2Ip_;
     project_.toolchainImage = globalToolchainImage_;
     project_.buildBackend = globalBuildBackend_;
+    project_.consoleLogLines = globalConsoleLogLines_;
+    project_.consoleLogFiles = globalConsoleLogFiles_;
 
     flowGraphObject_ = -1;
     flowPositionsApplied_ = false;
@@ -16427,6 +16446,18 @@ void App::drawEditorPreferencesModal() {
         "IP of a PS2 on the LAN running PS2LINK.ELF. Enables Build > Build &&\n"
         "Run on PS2 (F6): the game boots on the console over ethernet with its\n"
         "assets served from this PC - no ISO, no SMB. Leave empty to disable.");
+    ImGui::InputInt("Console log lines", &prefConsoleLogLines_, 1000, 10000);
+    if (prefConsoleLogLines_ < 0) prefConsoleLogLines_ = 0;
+    prefHelp(
+        "Every Run on PS2 session also writes the console's log to\n"
+        "<project>/logs/ps2-<date>-<time>.log, flushed line by line, so a crash\n"
+        "or an unwatched run still leaves a record. A file keeps the last this\n"
+        "many lines (it holds up to twice that before trimming). 0 = no file.");
+    ImGui::InputInt("Console logs kept", &prefConsoleLogFiles_, 1, 5);
+    if (prefConsoleLogFiles_ < 1) prefConsoleLogFiles_ = 1;
+    prefHelp(
+        "How many session files stay in a project's logs/ folder. Starting a\n"
+        "session deletes the oldest ones beyond this.");
 
     ImGui::SeparatorText("Build toolchain");
     const char* backendLabels[] = {"Native (PS2DEV + OpenVCL)", "Docker fallback"};
@@ -16585,6 +16616,8 @@ void App::drawEditorPreferencesModal() {
     if (ImGui::Button("Save", ImVec2(scaled(120), 0))) {
         globalEmulatorPath_ = prefEmulatorPath_;
         globalPs2Ip_ = prefPs2Ip_;
+        globalConsoleLogLines_ = prefConsoleLogLines_;
+        globalConsoleLogFiles_ = prefConsoleLogFiles_;
         globalToolchainImage_ = prefToolchainImage_;
         globalBuildBackend_ = prefBuildBackend_ == 1 ? "docker" : "native";
         globalDefaultProjectsDir_ = prefDefaultProjectsDir_;
@@ -16598,6 +16631,8 @@ void App::drawEditorPreferencesModal() {
         if (hasProject_) {
             project_.emulatorPath = globalEmulatorPath_;
             project_.ps2LinkIp = globalPs2Ip_;
+            project_.consoleLogLines = globalConsoleLogLines_;
+            project_.consoleLogFiles = globalConsoleLogFiles_;
             // The Runner reads the image off the project too, so an already-open
             // one has to be told now - otherwise the change only takes effect the
             // next time the project is opened.

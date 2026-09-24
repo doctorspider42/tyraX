@@ -1615,6 +1615,12 @@ private:
     // Both are machine-global: which build is installed on this PC is not a
     // property of any project.
     bool globalUpdateCheck_ = true;
+    // The console session log (sessionlog.hpp): EditorConfig::consoleLogLines /
+    // consoleLogFiles, and their Preferences working copies.
+    int globalConsoleLogLines_ = 20000;
+    int globalConsoleLogFiles_ = 10;
+    int prefConsoleLogLines_ = 20000;
+    int prefConsoleLogFiles_ = 10;
     std::string globalUpdateSkip_;
     // ONE worker for both jobs (the check and the download), because they are
     // never both wanted and the UI is a single modal. Everything below it is

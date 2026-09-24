@@ -3977,6 +3977,11 @@ struct Project {
     // headless --build path (main.cpp) also sets ps2LinkIp here directly.
     std::string emulatorPath;  // PCSX2 exe; empty = auto-detect under Program Files
     std::string ps2LinkIp;     // ps2link IP for "Run on PS2"; empty = disabled
+    // The console session log (sessionlog.hpp): lines kept per file (0 = no
+    // file) and session files kept in <project>/logs/. Machine-global like the
+    // IP above, copied in from editor.ini the same way.
+    int consoleLogLines = 20000;
+    int consoleLogFiles = 10;
     // Docker image the game compiles in. Empty = say nothing and let the
     // generated compose file's `${TYRAX_IMAGE:-h4570/tyra}` resolve from the
     // project's own .env, which is how this worked before the setting existed.

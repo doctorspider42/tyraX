@@ -30140,6 +30140,9 @@ src/gen/livelogic.built
 # (docs/devkit.md). Yours to look at and to throw away - delete a few and the
 # folder is tidy again; nothing in the build reads them.
 screenshots/
+# The console session logs Run on PS2 writes (docs/ps2link-setup.md, "The
+# session log"). A record of this machine's runs, bounded by Preferences.
+logs/
 )";
 
 static const char* TPL_DIR_KEEP = "*\n!.gitignore\n";
