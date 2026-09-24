@@ -45,6 +45,20 @@
 #ifndef TYRA_VIF1_QUEUE_LAZY_FLUSH
 #define TYRA_VIF1_QUEUE_LAZY_FLUSH 1
 #endif
+/** MEASUREMENT PROBE, never on in anything shipped. 1 = submit() only QUEUES:
+ * no chain starts until the EE first waits (waitFor/drain), which in a frame
+ * that needs no mid-frame barrier is RendererCore::endFrame. The frame's whole
+ * VIF1 load then runs back to back with the EE idle, and endFrame times it to
+ * the GS FINISH: the VU1+GS cost of the frame alone - what would be left of it
+ * if the EE never made the GPU wait (a pipelined, one-chain frame). Needs
+ * TYRA_VIF1_QUEUE_DEPTH above the frame's chain count - 80 for Motor District
+ * (76 chains at most); 128 threw std::bad_alloc on a console, the packet
+ * buffers and copy-pool sides scale with it. It serialises the frame on
+ * purpose: its `work` is not a timing. docs/ee-submission-rearchitecture.md,
+ * "The GPU-only frame". */
+#ifndef TYRA_VIF1_QUEUE_HOLD
+#define TYRA_VIF1_QUEUE_HOLD 0
+#endif
 
 namespace Tyra {
 
@@ -106,6 +120,27 @@ class Vif1Queue {
    * whatever follows it. nullptr = nothing open.
    */
   static void setOpenChainCloser(void (*closer)());
+
+#if TYRA_VIF1_QUEUE_HOLD
+  /** The probe's per-frame record. A frame that needs a barrier mid-frame
+   * (a VU1 program-set swap, a texture upload) releases more than once; each
+   * release opens a SEGMENT that closes when the wait that released it has
+   * seen the queue go idle, and holdBusyTicks sums the closed ones. endFrame
+   * adds the last segment up to the GS FINISH, then reads and resets all of
+   * it. A mid-frame segment ends at the last DMA, so the GS tail behind it is
+   * not counted: an undercount of up to one primitive batch per barrier. */
+  static u32 holdReleases;
+  static u32 holdChains;
+  static u32 holdBusyTicks;
+  static u32 holdSegStart;
+  static u32 holdLastClose;
+  static bool holdSegOpen;
+
+ private:
+  static void releaseHeld();
+
+ public:
+#endif
 
   /** Interrupt context - public only so the C handler can reach it. */
   static void onComplete();

@@ -2468,6 +2468,13 @@ must keep:
   chain is submitted by the next `Vif1Queue::submit()`/`drain()` from anyone
   (`setOpenChainCloser`), and `endFrame` fences before the vsync wait, because
   with no interrupt nothing starts a queued chain while the EE sleeps there.
+- **`TYRA_VIF1_QUEUE_HOLD` is a measurement probe, never a mode** (0): the
+  queue only collects chains until the EE first waits, and `endFrame` logs the
+  frame's VU1+GS time alone (`GPUHOLD us`). Run it with
+  `TYRA_VIF1_QUEUE_DEPTH 80`. At 128 the extra packet buffers and pool sides
+  threw `std::bad_alloc` on a console. Its `work` is meaningless (the frame is
+  serialised on purpose). It measured the GPU at ~40% of the EE's time
+  (docs/ee-submission-rearchitecture.md, "The GPU-only frame").
 - **Do NOT start chains from a DMAC interrupt on this engine**
   (`TYRA_VIF1_QUEUE_ISR`, default 0). PCSX2 ran it clean. A physical PS2 under
   ps2link took an EE exception twice, both times at the instruction right after

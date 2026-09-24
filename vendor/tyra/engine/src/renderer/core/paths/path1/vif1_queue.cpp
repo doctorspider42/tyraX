@@ -40,6 +40,10 @@ u32 flushedUpTo = 0;
 void (*openChainCloser)() = nullptr;  // see setOpenChainCloser()
 
 // Submits a chain still being built by someone else, ahead of the caller's.
+#if TYRA_VIF1_QUEUE_HOLD
+bool holding = false;  // chains queued, none started (the probe)
+#endif
+
 void closeOpenChain() {
   if (openChainCloser == nullptr) return;
   auto closer = openChainCloser;
@@ -98,6 +102,9 @@ void Vif1Queue::start(u32 chain, u32 sequence) {
 }
 
 void Vif1Queue::onComplete() {
+#if TYRA_VIF1_QUEUE_HOLD
+  if (holding) return;  // nothing started yet (the probe)
+#endif
   // Only ever act on a completion of OUR chain. Two ways a foreign one gets
   // here: a caller that drained and then sent its own chain directly, and a
   // completion interrupt that was still pending when submit() started a chain
@@ -132,8 +139,68 @@ static void advanceIfIdle() {
 #endif
 }
 
+#if TYRA_VIF1_QUEUE_HOLD
+u32 Vif1Queue::holdReleases = 0;
+u32 Vif1Queue::holdChains = 0;
+u32 Vif1Queue::holdBusyTicks = 0;
+u32 Vif1Queue::holdSegStart = 0;
+u32 Vif1Queue::holdLastClose = 0;
+bool Vif1Queue::holdSegOpen = false;
+
+static u32 holdNow() {
+  u32 now;
+  __asm__ volatile("mfc0 %0, $9" : "=r"(now));
+  return now;
+}
+
+// Closes the open segment once nothing of ours is left on the channel.
+static void closeSegmentIfIdle() {
+  if (!Vif1Queue::holdSegOpen || running) return;
+  const u32 now = holdNow();
+  Vif1Queue::holdBusyTicks += now - Vif1Queue::holdSegStart;
+  Vif1Queue::holdLastClose = now;
+  Vif1Queue::holdSegOpen = false;
+}
+
+// Starts the held chains: the first one goes to the channel, the rest follow
+// through the normal advance.
+void Vif1Queue::releaseHeld() {
+  if (!holding) return;
+  holding = false;
+  holdSegStart = holdNow();
+  holdSegOpen = true;
+  holdReleases = holdReleases + 1;
+  const u32 next = ring[head % kDepth];
+  const u32 nextSeq = ringSeq[head % kDepth];
+  head = head + 1;
+  start(next, nextSeq);
+}
+#endif
+
 u32 Vif1Queue::submit(const void* chain) {
   closeOpenChain();
+#if TYRA_VIF1_QUEUE_HOLD
+  {
+    static_assert(!TYRA_VIF1_QUEUE_ISR, "the hold probe runs without the ISR");
+    const u32 addr = reinterpret_cast<u32>(chain);
+    if (tail - head >= kDepth) releaseHeld();  // too many: measurement void
+    while (tail - head >= kDepth) advanceIfIdle();
+    const u32 sequence = submitted + 1;
+    submitted = sequence;
+    ++holdChains;
+    if (!running) {
+      // Nothing of ours on the channel: hold instead of starting. A caller
+      // outside the queue may still own it - wait that out, as below.
+      dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+      running = true;
+      holding = true;
+    }
+    ring[tail % kDepth] = addr;
+    ringSeq[tail % kDepth] = sequence;
+    tail = tail + 1;
+    return sequence;
+  }
+#endif
   const u32 addr = reinterpret_cast<u32>(chain);
   advanceIfIdle();  // also what starts the queue when the interrupt does not
   // Back-pressure: never hold more than kDepth chains. The static pipeline has
@@ -165,13 +232,26 @@ u32 Vif1Queue::submit(const void* chain) {
 }
 
 void Vif1Queue::waitFor(u32 sequence) {
+#if TYRA_VIF1_QUEUE_HOLD
+  if (static_cast<s32>(completed - sequence) < 0) releaseHeld();
+#endif
   // Wrap-safe comparison: sequence numbers are u32 and a long session wraps.
   while (static_cast<s32>(completed - sequence) < 0) advanceIfIdle();
+#if TYRA_VIF1_QUEUE_HOLD
+  advanceIfIdle();  // notice an idle channel, so the segment can close
+  closeSegmentIfIdle();
+#endif
 }
 
 void Vif1Queue::drain() {
   closeOpenChain();
+#if TYRA_VIF1_QUEUE_HOLD
+  releaseHeld();
+#endif
   while (running) advanceIfIdle();
+#if TYRA_VIF1_QUEUE_HOLD
+  closeSegmentIfIdle();
+#endif
   dma_channel_wait(DMA_CHANNEL_VIF1, 0);
 }
 

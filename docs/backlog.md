@@ -133,28 +133,17 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   the `endFrame` fence, i.e. the EE waiting for VU1/GS to finish the frame -
   only a lighter 3D frame, or work the EE could do before it, shrinks it.
 
-- **One chain for the whole scene, built in the scratchpad.** A PCSX2 capture
-  of Burnout 3, whose frame rate we would like to approach, shows its entire 3D
-  scene reaching VIF1 as a single ~4 000-tag chain.
-  `fromSPR`'s MADR ends where that chain's buffer ends, so the chain is built in
-  SPR and moved to RAM by DMA. DMA-written RAM needs no D-cache write-back, which
-  is the missing answer to "What else was `FlushCache` writing back?" below. The
-  EE writes about 16 qw per object into that chain, and every mesh chunk is a
-  single 16-byte `CALL` into a prebaked block. Our ~32-74 sends a frame now
-  share their write-backs (the lazy flush, `dma` 0.16-0.40 ms), but each is
-  still its own chain start and EE bookkeeping. Numbers and method: docs/emulator-captures.md. Failure test: the
-  per-frame chain buffer is larger than the frame's REF lifetime allows (the
-  copy pools and baked arenas would have to live a whole frame).
-- **The per-bag `prepare` bracket (2.0-3.0 ms).** `sendObjectData` rebuilds
-  every uniform float by float for every bag. A retained per-bag uniform block
-  patched only where the MVP or the light changed would also remove the +0.23 ms
-  the queue's inline copies added at night. Failure test: a re-shade or
-  camera-dependent term that the key cannot see, which is the same class as the
-  baked stream's content-version work.
-- **The DMAC-interrupt variant** (`TYRA_VIF1_QUEUE_ISR 1`) crashes a real PS2
-  and is off. Only worth reopening with the kernel's DMAC handler chain
-  inspected on hardware, under ps2link, since PCSX2 ran it clean. It would only
-  close the gap between one chain's end and the EE's next submit or wait.
+- **One chain for the whole scene / a frame-pipelined engine - PARKED
+  2026-09-24.** Measured first: VU1 + GS alone need 5.96 / 7.73 / 3.94 / 4.22
+  ms for the four Motor District poses, against 10-18 ms of EE `work`
+  (docs/ee-submission-rearchitecture.md, "The GPU-only frame"). The frame is
+  EE-bound about two to one. A pipeline would win only the EE's waiting
+  (about 2.5-3.5 ms in the garage), not its work, so the EE's own computation
+  comes first. The design, what it would require, its risks and a staged order
+  are written down in "A frame-pipelined engine (TyraX2)" on the same page.
+  Still true from the capture: the reference title builds that chain in SPR
+  and moves it to RAM by DMA (no write-back), and its per-object cost is about
+  16 qwords plus a `CALL` into a prebaked block.
 
 ## ~~Guard-band bags take the slow package route~~ DONE 1.124.2 (2026-09-23)
 

@@ -833,6 +833,126 @@ headroom, not a new rung. PCSX2 captures of poses 0 and 2 differ from the
 control only inside the debug text block, by as many pixels as two captures of
 the control differ from each other.
 
+## The GPU-only frame - MEASURED on hardware, 2026-09-24
+
+How long do VU1 and the GS need for a frame when nothing makes them wait for
+the EE? That number caps what any EE/GPU overlap can win, including a
+frame-pipelined engine (next section).
+
+**The probe:** `TYRA_VIF1_QUEUE_HOLD` (`vif1_queue.hpp`, 0 by default, never
+shipped) makes `Vif1Queue::submit` only queue. No chain starts until the EE
+first waits, which in a frame without a mid-frame barrier is the `endFrame`
+fence, so the frame's whole VIF1 load runs back to back with the EE idle.
+`endFrame` then times it to the GS FINISH and logs a 30-frame mean
+(`GPUHOLD us ...`).
+
+- A frame with a barrier in the middle (VU1 program-set swap, texture upload)
+  releases more than once. Each release opens a segment that closes when the
+  wait that released it sees the queue idle; `align3D` adds its GS tail to
+  FINISH. The segments are summed.
+- The probe needs `TYRA_VIF1_QUEUE_DEPTH` above the frame's chain count.
+  **80, not 128**: 128 packet buffers and copy-pool sides threw
+  `std::bad_alloc` on the physical PS2 when the fixture entered outer night.
+- It serialises the frame on purpose, so the arm's `work` means nothing.
+
+Physical PS2, `--profile quiet-debug` Motor District timing fixture (hybrid
+colour depth, HEAD 5dc4220a plus the probe), two boots agreeing to 5 us. The EE
+column is the HUD-on-VIF1 arm of the round above:
+
+| pose | GPU only (VU1 + GS) | chains | releases | EE `work` | GPU / EE |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| garage day | **5.96 ms** | 57 | 1 | 14.04 | 42% |
+| garage night | **7.73 ms** | 75 | 4 | 18.30 | 42% |
+| outer day | **3.94 ms** | 33 | 1 | 9.76 | 40% |
+| outer night | **4.22 ms** | 37 | 2 | 11.26 | 37% |
+
+What it does NOT count:
+- GS work sent over PATH3 outside the held chains: the clear, the hybrid
+  blit, post fx, and whatever a light pass draws over PATH3 between barriers.
+- The GS tail behind a mid-frame segment that no `align3D` closed.
+
+Both omissions can only make the GPU column bigger, so the night rows are
+floors. Garage day also has a late stretch of 8.2 ms blocks (60-63 chains, 2
+releases) once the recording window is over; the median ignores it.
+
+**The frame is EE-bound about two to one.** The GPU needs 4-8 ms and the EE
+10-18. A perfect overlap - one chain, frame N built while the GPU draws N-1 -
+therefore removes only the EE's waiting (`vif_wait` 0.8-2.4 ms plus the
+`endFrame` fence), not its work: roughly 2.5-3.5 ms in the garage, less
+outside. The larger prize is the EE's own computation (`prepare`, `bounds`,
+`dispatch`, the game's object loop). The reference title's "one chain" matters
+less than what it implies there: about 16 qwords of uniforms per object plus a
+`CALL` into a prebaked block, i.e. almost no EE work per draw.
+
+## A frame-pipelined engine ("TyraX2") - considered 2026-09-24, not now
+
+The reference title builds its whole 3D frame as one chain while the GPU draws
+the previous one. Building one chain is easy. Making it pay is not.
+
+**What one chain requires of this engine:**
+- **Everything a chain REFs lives until the DMA reads it.** With the queue that
+  is about three packets; with a pipelined frame it is two frames. Uniforms
+  (MVP, lights, colour) are rewritten per bag, the qbuffer copy pools rotate
+  with the packets, and arrays are rewritten in place (`contentVersion`,
+  `BagArray`). All of it needs frame-lifetime storage. Going from 2 to 4 packet
+  buffers already exposed one such bug (the pool-side test).
+- **VU1 must not wait for the build.** Building the whole frame and then sending
+  it serialises EE and GPU, which is worse than today. Extending a running chain
+  (END rewritten to NEXT) froze a console before. So a pipeline is the only
+  form that pays.
+- **Mid-frame PATH3 has to join the chain or leave the frame:**
+  - texture uploads between bags (`beforeTextureMutation`);
+  - CLAMP/ALPHA writes;
+  - env map, shadow map, alpha mask and BLSS redirects;
+  - mid-frame post fx;
+  - dynpip and mcpip's direct sends.
+
+  Tyra is immediate-mode, so this is an architecture change, not a function.
+- **Build it where the reference does:** in the scratchpad, moved to RAM by
+  DMA, which needs no `FlushCache`. A bigger per-frame buffer in cached RAM
+  pays in `prepare`, as depth 8 did.
+- **A chain validator from day one.** One bad tag in a 4 000-tag chain is a
+  silent freeze.
+
+**Risks that stay even if it is implemented well:**
+1. The prize is bounded by the table above: max(EE, GPU) with the EE on top
+   does not move the EE.
+2. +1 frame of input latency: +16-20 ms at 50/60 Hz, +33-40 at 25/30 Hz.
+   Sampling the pad as late as possible reduces it, not to zero.
+3. VRAM: a texture must stay resident until the GPU has drawn the frame BEFORE
+   the one that evicts it, and uploads must ride the chain in order. With 4 MB
+   and paging that means less room or more uploads.
+4. A new class of silent bug: data changed after it was submitted. Every user
+   script, custom node, custom VU program or post fx that edits an array after
+   `render()` gets console-only garbage. It has to be impossible by
+   construction (const views, generation counters, debug-build checks), not
+   documented.
+5. Anything that reads a GPU result in the same frame (captures, VRAM reads)
+   drains the pipeline and loses that frame's win.
+6. A worst-case frame must not overflow a fixed chain or data arena without a
+   fallback. Streaming, the spawn pool and particles vary it. Memory per frame
+   doubles.
+7. PCSX2 emulates no data cache, so the write-back and SPR-to-RAM half is only
+   testable on a console, and faults show up a frame after their cause.
+8. Every pipeline has to move: StaPip's program families, dynpip, mcpip,
+   splitview, BLSS, the alpha mask, shadow volumes and the frame warp. Two
+   engines have to be maintained until then.
+
+**Universality.** This is how commercial PS2 engines of every genre worked,
+open world and first-person included. A racing game is its easiest case: a
+known track and a known set of objects. An open world adds streaming unloads
+that must wait two frames (the baked arenas' graveyard, generalised), more VRAM
+paging (risk 3), and a chain size that swings with the scene (risk 6). A
+first-person game feels risk 2 more when aiming. Game-side ray casts, physics
+and AI are EE work and do not change. What gets harder is this editor's API:
+scripts, debug draw, custom post fx and VU programs assume immediate mode.
+
+**If it is ever done, in this order**, each step measurable on its own:
+1. A frame arena for packets and copy pools, with chains still submitted as
+   now. This removes the buffer-reuse `vif_wait`.
+2. PATH3 mutations into the chain (as the HUD already is) or out of the frame.
+3. The N / N-1 pipeline.
+
 ## Order of work
 
 1. ~~Probe A and Probe B.~~ **DONE, on hardware, 2026-09-16.** S3 does not ship;

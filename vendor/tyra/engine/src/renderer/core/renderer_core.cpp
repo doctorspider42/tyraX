@@ -14,6 +14,7 @@
 #include "debug/hardware_trace.hpp"
 #include "renderer/core/renderer_core.hpp"
 #include "renderer/core/paths/path3/path3_fence.hpp"
+#include "renderer/core/paths/path1/vif1_queue.hpp"
 #include "thread/threading.hpp"
 #include "debug/debug.hpp"
 #include "debug/frame_profile.hpp"
@@ -407,6 +408,52 @@ void RendererCore::endFrame() {
   // path paid before its first sprite (sync.align3D) now lands, after the EE
   // has built the whole 2D pass alongside the GS.
   path3Fence();
+#if TYRA_VIF1_QUEUE_HOLD
+  // The GPU-only frame probe (vif1_queue.hpp). The frame's VIF1 work ran in
+  // segments with the EE waiting - normally ONE, released by the fence just
+  // above - and this FINISH ends the last of them. busy = the closed segments
+  // + the tail from where the EE last saw work finish (or the fence returned)
+  // to FINISH. Logged as a 30-frame mean in microseconds.
+  if (path1.isVU1Configured()) {
+    u32 tFence;
+    __asm__ volatile("mfc0 %0, $9" : "=r"(tFence));
+    sync.align3D();
+    u32 t1;
+    __asm__ volatile("mfc0 %0, $9" : "=r"(t1));
+    static u32 frames = 0, measured = 0, chains = 0, releases = 0;
+    static float sumUs = 0.0F, maxUs = 0.0F;
+    if (Vif1Queue::holdReleases > 0) {
+      u32 busy = Vif1Queue::holdBusyTicks;
+      if (Vif1Queue::holdSegOpen) {
+        busy += t1 - Vif1Queue::holdSegStart;
+      } else {
+        const u32 from =
+            static_cast<s32>(Vif1Queue::holdLastClose - tFence) > 0
+                ? Vif1Queue::holdLastClose
+                : tFence;
+        busy += t1 - from;
+      }
+      const float us = busy / 294.912F;
+      sumUs += us;
+      if (us > maxUs) maxUs = us;
+      ++measured;
+    }
+    chains += Vif1Queue::holdChains;
+    releases += Vif1Queue::holdReleases;
+    Vif1Queue::holdReleases = 0;
+    Vif1Queue::holdChains = 0;
+    Vif1Queue::holdBusyTicks = 0;
+    Vif1Queue::holdSegOpen = false;
+    if (++frames == 30) {
+      TYRA_LOG("GPUHOLD us ", measured ? static_cast<int>(sumUs / measured) : -1,
+               " max ", static_cast<int>(maxUs), " frames ", measured,
+               "/30 chains ", chains / 30, " releases/frame x10 ",
+               releases / 3);
+      frames = measured = chains = releases = 0;
+      sumUs = maxUs = 0.0F;
+    }
+  }
+#endif
   // The dynamic pipeline kicks the scene on PATH1/VU1 asynchronously (double
   // buffered - sendPacket() returns while the DMA is still draining). PostFx
   // composites over the framebuffer via PATH3 and writes no z, so any scene
