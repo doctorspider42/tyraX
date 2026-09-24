@@ -1147,6 +1147,56 @@ already replay a package's commands as a memcpy (packet construction is 0.21
 ms of the garage-day frame), so the per-buffer packet2 cost that this round
 removed from the uniforms was taken out of the geometry path earlier.
 
+### Round four: one submission for every light beam - MEASURED, 2026-09-25
+
+Splitting `rsLightFx` on the console (garage night, 2.1 ms after the in-chain
+wrap) gave light pools 1.24 ms, beams 0.86 ms, and projected and blob shadows
+around 0.01 ms. A beam was two StaPip submissions, a 6-vertex corona and a
+24-vertex cone, and each paid the whole per-bag path for a quad.
+
+**The change (generated game, 1.127.4).** Every visible corona goes into one
+bag and every cone into another, per call of `updateAndRenderLightBeams`. The
+per-lamp brightness that rode each bag's additive FIX now scales the vertex
+colours, and the batch draws at FIX 128: Cs*k*128/128 + Cd is the same light.
+Each call in a frame (the main view, every portal view) gets its own slot,
+because the first call's chain REFs its arrays and the next may not refill them
+before VIF1 has read them. `loop()` restarts the slots each frame, and
+`endFrame` has drained VIF1 by then.
+
+**The first version was worse outdoors.** One bag for every lamp has one box.
+With lamps behind the camera inside it, the bag is always partial, and those
+lamps' packages went to the clip route instead of dropping out on their own
+box. So a lamp now joins the batch only if a sphere around it (0.8 R, which
+covers the corona's pull toward the camera and the shaft) is inside the
+current view's frustum planes. That test is EE-side, 6 dot products a lamp.
+
+**Measured with ONE ELF, the path chosen at boot by a host file.** The
+earlier two-ELF A/B of the same change read +0.37 ms in garage day, where the
+change draws nothing: that was code layout. Physical PS2, `work`, legacy path
+booted twice (drift 0.003 ms), batch path booted twice:
+
+| pose | batch, no cull | batch + frustum test |
+| --- | ---: | ---: |
+| garage day | +0.006 / +0.002 | +0.006 / +0.002 |
+| garage night | -0.15 / -0.14 | **-0.27 / -0.26** |
+| outer day | +0.05 / +0.04 | +0.009 / +0.008 |
+| outer night | +0.20 / +0.20 | **-0.21 / -0.20** |
+
+PCSX2 night captures show the same coronas, shafts and pools. Night frames
+flicker, so the comparison is by eye and by self-noise, not byte for byte.
+
+### How to A/B a change to GAME code: one ELF, toggled at boot
+
+A two-ELF comparison of generated-game code moves more than the change. Code
+layout between two builds of the whole game moved `work` by ~0.4 ms here
+(and ~0.17 ms in single engine brackets, "Round three"). The repeatability
+floor, two boots of one ELF, cannot see that. For game-side changes:
+- keep the old function beside the new one in a copy of the fixture;
+- read a flag once at scene load from a `bin/` file (`fopen` over `host:`);
+- boot the same ELF with and without the file, and log which path ran;
+- compare the boots. The recipe lives in the tyra-vq rig as
+  `beam_toggle.py` / `beamT-series.sh`.
+
 ## Order of work
 
 1. ~~Probe A and Probe B.~~ **DONE, on hardware, 2026-09-16.** S3 does not ship;

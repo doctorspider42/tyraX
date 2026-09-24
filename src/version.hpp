@@ -16,6 +16,13 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.127.4: ONE SUBMISSION FOR EVERY LIGHT BEAM.
+// Generated game: the visible coronas are one bag and the cone shafts another,
+// per view, with the lamp brightness in the vertex colours instead of each
+// bag's FIX, and offscreen lamps left out by an EE frustum test. Physical PS2,
+// one ELF toggled at boot: work -0.26 (garage night) / -0.20 (outer night),
+// day poses unchanged. Regenerate a project to pick it up. PATCH.
+//
 // 1.127.3: THE OPTIONS BLOCK TAKES THE FAST PATH TOO.
 // TEX1/TEST/TEX0 as whole qwords behind the cached header - identical bytes
 // (VIF-hash gate), work -0.08..-0.09 ms on a PS2. PATCH.
@@ -5213,7 +5220,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 127
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_PATCH 4
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

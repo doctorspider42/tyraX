@@ -2515,6 +2515,14 @@ must keep:
 - **Code layout between two builds moves `bounds`/`prepare` by up to ~0.17 ms
   on the console.** The repeatability floor (two boots of one ELF) does not
   cover it. Read a change's delta in the brackets it touches.
+- **A/B a game-code change with ONE ELF toggled at boot**, not two builds.
+  Code layout moved `work` by ~0.4 ms between two builds of the generated game
+  (docs/ee-submission-rearchitecture.md, "How to A/B a change to GAME code").
+- **Light beams are two batched submissions per view** (1.127.4, generated
+  game): coronas in one bag, cones in another, brightness in the vertex
+  colours at FIX 128, one slot per call per frame (the chain REFs the arrays),
+  and an EE frustum test per lamp so offscreen lamps do not turn the batch's
+  packages into clip work.
 - **Do NOT start chains from a DMAC interrupt on this engine**
   (`TYRA_VIF1_QUEUE_ISR`, default 0). PCSX2 ran it clean. A physical PS2 under
   ps2link took an EE exception twice, both times at the instruction right after

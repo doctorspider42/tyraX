@@ -2491,6 +2491,32 @@ class TerrainGame : public Tyra::Game {
     float coneKeyR = 0.0F, coneKeyG = 0.0F, coneKeyB = 0.0F;
   };
   std::vector<LightBeam> lightBeams;
+  // ONE bag for every visible corona and one for every cone shaft, rebuilt
+  // per call (docs/ee-submission-rearchitecture.md, "Round four"). A beam used
+  // to be two StaPip submissions
+  // of 6 and 24 vertices, each paying the whole per-bag path - bounds,
+  // uniforms, dispatch - for a quad: 0.86 ms of Motor District's garage night
+  // on a physical PS2. The per-lamp brightness that rode each bag's additive
+  // FIX is folded into the vertex colours instead (additive, so
+  // Cs*k*128/128 + Cd is the same light), and a batch draws at FIX 128.
+  //
+  // One batch PER CALL IN A FRAME (the main view, then every portal view):
+  // the chain the first call submits REFs its arrays, so a second call may
+  // not refill them before VIF1 has read them. The previous frame's slots are
+  // safe to reuse - RendererCore::endFrame waits for the whole VIF1 queue.
+  // Held by pointer so the addresses the bags point at never move.
+  struct BeamBatch {
+    Tyra::M4x4 mat;
+    BagArray<Tyra::Vec4> coronaVerts, coronaSts, coneVerts;
+    BagArray<Tyra::Color> coronaColors, coneColors;
+    std::unique_ptr<Tyra::StaPipInfoBag> coronaInfo, coneInfo;
+    std::unique_ptr<Tyra::StaPipColorBag> coronaColorBag, coneColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> coronaTexBag;
+    std::unique_ptr<Tyra::StaPipBag> coronaBag, coneBag;
+  };
+  std::vector<std::unique_ptr<BeamBatch>> beamBatches;
+  int beamBatchCall = 0;  // reset by loop() every frame
+  BeamBatch& beamBatchForCall();
   Tyra::Texture* beamCoronaTex = nullptr;
   void setupLightBeams();            // per scene load
   void updateAndRenderLightBeams(const Tyra::Vec4* viewEye = nullptr,
@@ -4168,6 +4194,32 @@ class TerrainGame : public Tyra::Game {
     float coneKeyR = 0.0F, coneKeyG = 0.0F, coneKeyB = 0.0F;
   };
   std::vector<LightBeam> lightBeams;
+  // ONE bag for every visible corona and one for every cone shaft, rebuilt
+  // per call (docs/ee-submission-rearchitecture.md, "Round four"). A beam used
+  // to be two StaPip submissions
+  // of 6 and 24 vertices, each paying the whole per-bag path - bounds,
+  // uniforms, dispatch - for a quad: 0.86 ms of Motor District's garage night
+  // on a physical PS2. The per-lamp brightness that rode each bag's additive
+  // FIX is folded into the vertex colours instead (additive, so
+  // Cs*k*128/128 + Cd is the same light), and a batch draws at FIX 128.
+  //
+  // One batch PER CALL IN A FRAME (the main view, then every portal view):
+  // the chain the first call submits REFs its arrays, so a second call may
+  // not refill them before VIF1 has read them. The previous frame's slots are
+  // safe to reuse - RendererCore::endFrame waits for the whole VIF1 queue.
+  // Held by pointer so the addresses the bags point at never move.
+  struct BeamBatch {
+    Tyra::M4x4 mat;
+    BagArray<Tyra::Vec4> coronaVerts, coronaSts, coneVerts;
+    BagArray<Tyra::Color> coronaColors, coneColors;
+    std::unique_ptr<Tyra::StaPipInfoBag> coronaInfo, coneInfo;
+    std::unique_ptr<Tyra::StaPipColorBag> coronaColorBag, coneColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> coronaTexBag;
+    std::unique_ptr<Tyra::StaPipBag> coronaBag, coneBag;
+  };
+  std::vector<std::unique_ptr<BeamBatch>> beamBatches;
+  int beamBatchCall = 0;  // reset by loop() every frame
+  BeamBatch& beamBatchForCall();
   Tyra::Texture* beamCoronaTex = nullptr;
   void setupLightBeams();            // per scene load
   void updateAndRenderLightBeams(const Tyra::Vec4* viewEye = nullptr,
@@ -7050,6 +7102,7 @@ void TerrainGame::init() {
 void TerrainGame::loop() {
   const u32 traceUpdateStart = Tyra::HardwareTrace::active ? Tyra::HardwareTrace::ticks() : 0;
   updateFrameClock();  // real dt: frame drops slow the picture, not the game
+  beamBatchCall = 0;  // the light-beam batch slots start over (see BeamBatch)
 #ifdef TYRAX_KBD_MOUSE
   // USB keyboard/mouse (controls.hpp): fold onto the pad before anything
   // reads input this frame. No-op when the drivers are not loaded.
@@ -13560,6 +13613,57 @@ void TerrainGame::setupLightBeams() {
     b.coronaColorBag->single = &b.coronaColor;
     if (b.coneInfo) b.coneInfo->model = &b.mat;
   }
+  // A new scene can have a different beam count: the batch slots are sized
+  // for it on first use. Scene loads happen between frames, with VIF1 idle.
+  beamBatches.clear();
+  beamBatchCall = 0;
+}
+
+// The batch slot for this call of updateAndRenderLightBeams (see BeamBatch).
+// Same states as the per-beam bags it replaces - TestOnly z, full clip
+// checks, additive - with the FIX pinned at 128 because the brightness now
+// lives in the vertex colours. Capacity for every beam at once, so a call's
+// push_backs never move the arrays between the bind and the submit.
+TerrainGame::BeamBatch& TerrainGame::beamBatchForCall() {
+  if (beamBatchCall >= (int)beamBatches.size()) {
+    beamBatches.push_back(std::make_unique<BeamBatch>());
+    BeamBatch& s = *beamBatches.back();
+    s.mat.identity();
+    size_t cones = 0;
+    for (const LightBeam& lb : lightBeams)
+      if (lb.kind == 2) ++cones;
+    s.coronaVerts.reserve(lightBeams.size() * 6);
+    s.coronaSts.reserve(lightBeams.size() * 6);
+    s.coronaColors.reserve(lightBeams.size() * 6);
+    s.coneVerts.reserve(cones * 24);
+    s.coneColors.reserve(cones * 24);
+    s.coronaInfo = std::make_unique<StaPipInfoBag>();
+    s.coronaInfo->model = &s.mat;
+    s.coronaInfo->shadingType = TyraShadingGouraud;
+    s.coronaInfo->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    s.coronaInfo->zTestType = PipelineZTest_TestOnly;  // occluded, no z write
+    s.coronaInfo->fullClipChecks = true;  // near-camera quads: clip, not drop
+    s.coronaInfo->additiveBlendFix = 128;
+    s.coronaColorBag = std::make_unique<StaPipColorBag>();
+    s.coronaTexBag = std::make_unique<StaPipTextureBag>();
+    s.coronaTexBag->texture = beamCoronaTex;
+    s.coronaBag = std::make_unique<StaPipBag>();
+    s.coronaBag->info = s.coronaInfo.get();
+    s.coronaBag->color = s.coronaColorBag.get();
+    s.coronaBag->texture = s.coronaTexBag.get();
+    s.coneInfo = std::make_unique<StaPipInfoBag>();
+    s.coneInfo->model = &s.mat;
+    s.coneInfo->shadingType = TyraShadingGouraud;
+    s.coneInfo->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    s.coneInfo->zTestType = PipelineZTest_TestOnly;
+    s.coneInfo->fullClipChecks = true;  // walk-through shafts: clip, not drop
+    s.coneInfo->additiveBlendFix = 128;
+    s.coneColorBag = std::make_unique<StaPipColorBag>();
+    s.coneBag = std::make_unique<StaPipBag>();
+    s.coneBag->info = s.coneInfo.get();
+    s.coneBag->color = s.coneColorBag.get();
+  }
+  return *beamBatches[beamBatchCall++];
 }
 
 // An ORIENTED box the flashlight's beam can land on - see projCollectBoxes,
@@ -18199,6 +18303,14 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
   const float ux = ry * fz - rz * fy, uy = rz * fx - rx * fz,
               uz = rx * fy - ry * fx;  // cross(right, fwd)
 
+  // This call's batches (see BeamBatch): filled below, one submit each.
+  BeamBatch& bb = beamBatchForCall();
+  bb.coronaVerts.clear();
+  bb.coronaSts.clear();
+  bb.coronaColors.clear();
+  bb.coneVerts.clear();
+  bb.coneColors.clear();
+
   for (LightBeam& b : lightBeams) {
     if (b.objIndex >= (int)runtimeObjects.size()) continue;
     const RuntimeObject& ro = runtimeObjects[b.objIndex];
@@ -18264,6 +18376,23 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
     // can only alter one sample. Cull it before touching its six vertices.
     if (beamDistance > 0.0001F && chalf * 512.0F / beamDistance < 0.75F)
       continue;
+    // Only lamps whose corona or shaft can be in view join the batch. One
+    // bag for all of them has one box, and an offscreen lamp inside it made
+    // its packages clip instead of dropping out on its own box: outer night
+    // measured +0.20 ms before this test and -0.20 after (physical PS2, one
+    // ELF toggled at boot). The sphere covers the corona's pull toward the
+    // camera (<= 0.25 R) and the shaft (0.7 R down, 0.3 R wide).
+    {
+      const Tyra::Plane* fp =
+          engine->renderer.core.renderer3D.frustumPlanes.getAll();
+      const float sr = d.lightRadius * 0.8F + chalf;
+      bool out = false;
+      for (int pi = 0; pi < 6 && !out; ++pi)
+        if (fp[pi].distance + fp[pi].normal.x * cx + fp[pi].normal.y * cy +
+                fp[pi].normal.z * cz < -sr)
+          out = true;
+      if (out) continue;
+    }
     const Vec4 corners[4] = {
         Vec4(pcx + (-rx - ux) * chalf, pcy + (-ry - uy) * chalf,
              pcz + (-rz - uz) * chalf, 1.0F),
@@ -18279,14 +18408,17 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
     b.coronaVerts[3] = corners[0];
     b.coronaVerts[4] = corners[2];
     b.coronaVerts[5] = corners[3];
-    // Tint by the light color; brightness rides the additive FIX.
-    b.coronaColor.set(128.0F * d.color[0], 128.0F * d.color[1],
-                      128.0F * d.color[2], 128.0F);
-    float fix = 128.0F * (k > 1.0F ? 1.0F : k);
-    b.coronaInfo->additiveBlendFix =
-        fix > 255.0F ? 255 : (fix < 1.0F ? 1 : (u8)fix);
-    b.coronaBag->bboxVersion = ++g_bboxStamp;
-    stapip.core.render(b.coronaBag.get());
+    // Tint by the light color, scaled by the brightness: the batch draws at
+    // FIX 128, so what used to be this corona's FIX (128 * k) is the colour.
+    const float kk = k > 1.0F ? 1.0F : k;
+    const Color cc(128.0F * d.color[0] * kk, 128.0F * d.color[1] * kk,
+                   128.0F * d.color[2] * kk, 128.0F);
+    const LightBeam& cb = b;  // read-only: no content stamp on the sources
+    for (int v = 0; v < 6; ++v) {
+      bb.coronaVerts.push_back(cb.coronaVerts[v]);
+      bb.coronaSts.push_back(cb.coronaSts[v]);
+      bb.coronaColors.push_back(cc);
+    }
 
     if (b.kind == 2 && b.coneBag &&
         (!adaptiveReduced || beamDistance <= d.lightRadius * 8.0F)) {
@@ -18324,12 +18456,32 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
         b.coneKeyG = d.color[1];
         b.coneKeyB = d.color[2];
       }
-      // The shaft is dimmer than the corona (it covers far more pixels).
-      float cfix = 52.0F * (k > 1.0F ? 1.0F : k);
-      b.coneInfo->additiveBlendFix =
-          cfix > 255.0F ? 255 : (cfix < 1.0F ? 1 : (u8)cfix);
-      stapip.core.render(b.coneBag.get());
+      // The shaft is dimmer than the corona (it covers far more pixels): its
+      // old FIX of 52 * k becomes a colour scale of 52 * k / 128 at FIX 128.
+      const float cs = 52.0F * kk / 128.0F;
+      for (int v = 0; v < 24; ++v) {
+        const Color& src = cb.coneColors[v];
+        bb.coneVerts.push_back(cb.coneVerts[v]);
+        bb.coneColors.push_back(
+            Color(src.r * cs, src.g * cs, src.b * cs, src.a));
+      }
     }
+  }
+
+  // One submission per batch. Additive and z-tested without z writes, so
+  // the order inside a batch, and between the two, draws the same light.
+  if (!bb.coronaVerts.empty()) {
+    bb.coronaVerts.bind(bb.coronaBag);
+    bb.coronaSts.bind(bb.coronaTexBag);
+    bb.coronaColors.bind(bb.coronaColorBag);
+    bb.coronaBag->bboxVersion = ++g_bboxStamp;
+    stapip.core.render(bb.coronaBag.get());
+  }
+  if (!bb.coneVerts.empty()) {
+    bb.coneVerts.bind(bb.coneBag);
+    bb.coneColors.bind(bb.coneColorBag);
+    bb.coneBag->bboxVersion = ++g_bboxStamp;
+    stapip.core.render(bb.coneBag.get());
   }
 }
 
@@ -27703,6 +27855,7 @@ void TerrainGame::init() {
 
 void TerrainGame::loop() {
   const u32 traceUpdateStart = Tyra::HardwareTrace::active ? Tyra::HardwareTrace::ticks() : 0;
+  beamBatchCall = 0;  // the light-beam batch slots start over (see BeamBatch)
 #if TYRA_FRAME_PROFILE
   // FTUPD (docs/profiling.md, "The update half of pre"): lap i adds the time
   // since the previous mark to ftrig::updLap[i].
