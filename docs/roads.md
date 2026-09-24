@@ -505,3 +505,61 @@ terrain reject (1.123.6) and the detail distance landed in the same arm. The
 emulator had promised -47% of the rejected-package count and the console pays
 about 0.2 ms a frame for it here.
 
+
+## Holes in the road (1.127.1)
+
+**The symptom.** In some places, and only from some angles, part of a road
+(or a junction) was missing. The terrain or a static object showed through,
+with ragged edges and thin slivers of asphalt and lane markings left behind.
+It was stable while the camera stood still, and it looked like z-fighting.
+It was not.
+
+**The cause.** Retained command blocks (`TYRA_STAPIP_RETAINED_COMMANDS`,
+docs/ee-submission-rearchitecture.md) replay a package's geometry commands
+from a cache. Each block starts with the buffer header, and that header's
+packed vertex count carries `VU1_STAPIP_EMIT_STATE_FLAG`: "send the GS state
+(primitive included) again". That flag is set only when the buffer's VU1
+program differs from the previous buffer's, so it depends on where the block
+lands, not on the block itself. A stripped road bag mixes two programs in one
+flush:
+- wholly visible packages go to the strip CULL program;
+- partially visible packages are expanded into a triangle LIST for the CLIP
+  program.
+
+A strip block captured mid-run (flag clear) and replayed right after an
+expanded list therefore told VU1 to keep the list's GS state, and the strip
+was drawn as a triangle list. The fix re-flags every replayed header for its
+actual position (`StaPipVU1Program::emitsStateFlag`, `kPackedCountWord`), and
+the capture asserts in debug builds that the word really is the packed count.
+
+**How it was found**, because every obvious suspect was wrong. Keep this recipe:
+1. Reproduce by POSE, not by driving: `capture-console.ps1` /
+   `pic-pcsx2.ps1` in the tyra-vq rig hold a benchmark pose with the car
+   parked at the reported `VEH pos` (object rotation Y = the logged yaw), and
+   `--capture-frame` takes the picture. It reproduced in PCSX2 too, which
+   ruled out cache and DMA races.
+2. Strip the scene: no terrain, then no static batches. With neither, the
+   holes showed SKY, so road triangles were missing rather than covered.
+3. Lift ×3 and 2 m triangles changed nothing, which ruled out depth.
+4. `TYRA_STAPIP_PROBE_ACCEPT_ALL` and `TYRA_STRIP_ROADS 0` both fixed it. A
+   probe then found no visible package rejected anywhere, so "fixes it" meant
+   "changes the submission sequence", not culling.
+5. Flag bisection: `TYRA_STAPIP_RETAINED_COMMANDS 0` fixed it, while baked
+   streams and guard-band bags off did not.
+
+Traps met on the way:
+- A clip-space test of "on screen" must use |x| <= w * W / projectionScale,
+  not |x| <= w (Tyra's projection does not produce NDC). The first probe got
+  this wrong and named a plane that was innocent.
+- The same day's physical-PS2 A/B also showed that code layout between two
+  builds can move `bounds` and `prepare` by ~0.17 ms with no change in them.
+  This fix measured +0.18 ms in garage day, all of it in those two untouched
+  brackets, with `dispatch` and `packet` flat and `vif_wait` -0.09.
+- `popEnvView` rebuilt the frustum planes from the caller's camera. The
+  projected-shadow pass passes no `up`, and a chase camera rolls with the car.
+  That was fixed in the same round (the planes are now saved and restored) but
+  it was NOT this bug.
+
+Verified: PCSX2 and physical-PS2 captures of the reported pose (107, -67, yaw
+65) with the full scene and with terrain and static batches off. Before, the
+holes are there; after, the road and junction are whole.

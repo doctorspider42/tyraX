@@ -2390,6 +2390,26 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
                         &entry->data[static_cast<u32>(retainIdx) *
                                      StaPipRetainedCommands::kMaxBlockQw],
                         entry->blockQw);
+      // Modified by TyraX: re-flag the replayed header for THIS position in
+      // the packet. Its packed count carries VU1_STAPIP_EMIT_STATE_FLAG -
+      // "(re)send the GS state" - which is set only when the buffer's program
+      // differs from the previous buffer's, so it is a property of where the
+      // block lands, not of the block. Replaying a block captured mid-run
+      // (flag clear) right after a different program - a stripped bag's
+      // partially visible package goes to the clip program as an expanded
+      // LIST - told VU1 to keep the GS state that list left behind, and the
+      // next STRIP was drawn as a triangle list: road packages full of holes
+      // and slivers, stable per camera, in PCSX2 and on hardware alike
+      // (docs/roads.md, "Holes in the road").
+      {
+        u32* packed =
+            reinterpret_cast<u32*>(currentPacket->next - entry->blockQw) +
+            StaPipVU1Program::kPackedCountWord;
+        if (program->emitsStateFlag(emitState))
+          *packed |= VU1_STAPIP_EMIT_STATE_FLAG;
+        else
+          *packed &= ~static_cast<u32>(VU1_STAPIP_EMIT_STATE_FLAG);
+      }
       retained.countHit();
     } else {
       const u32 blockStart = packet2_get_qw_count(currentPacket);
@@ -2409,6 +2429,13 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
                  reinterpret_cast<const u8*>(currentPacket->base) +
                      blockStart * 16,
                  blockQw * 16);
+          TYRA_ASSERT(
+              (reinterpret_cast<const u32*>(currentPacket->base +
+                                            blockStart)[StaPipVU1Program::
+                                                            kPackedCountWord] &
+               VU1_STAPIP_COUNT_MASK) == buffers[i]->size,
+              "Retained block header moved: the replay re-flags the packed "
+              "count at StaPipVU1Program::kPackedCountWord");
           entry->ready[retainIdx] = 1;
         }
       }

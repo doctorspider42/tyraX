@@ -16,6 +16,14 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.127.1: NO MORE HOLES IN THE ROADS.
+// A retained command block replayed its header's "resend the GS state" flag
+// from wherever it was captured; right after a clip-routed LIST a strip road
+// package was drawn as a list - holes and slivers, per camera. Replays now
+// re-flag the header for their position. And popEnvView restores the frustum
+// planes it saved instead of rebuilding them from a camera without `up`.
+// PATCH.
+//
 // 1.127.0: A CONSOLE SESSION LEAVES A LOG ON DISK.
 // Run on PS2 writes the console's output to <project>/logs/ps2-<stamp>.log as
 // well as the Output panel, flushed per line, so a crash or an unwatched run
@@ -5196,7 +5204,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 127
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

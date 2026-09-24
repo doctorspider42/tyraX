@@ -2494,6 +2494,16 @@ must keep:
   resident list; `RendererCoreTexture::findAllocation`/`isResident` trust it
   only after checking the entry's id. Any new resident-list lookup should go
   through them, not through a fresh scan.
+- **A retained block must not carry anything that depends on its POSITION in
+  the packet** (1.127.1). The buffer header's `VU1_STAPIP_EMIT_STATE_FLAG`
+  ("send the GS state again", set only when the program changed) does, so the
+  replay re-flags it (`StaPipVU1Program::emitsStateFlag`, `kPackedCountWord`).
+  Replaying a strip block captured mid-run right after an expanded clip LIST
+  drew the strip as a triangle list: holes in roads, per camera, in PCSX2
+  too. A new header word that depends on the previous buffer needs the same
+  treatment. Symptom and bisection recipe: docs/roads.md, "Holes in the road".
+- **`popEnvView` restores the frustum planes its push saved**; it no longer
+  rebuilds them from the caller's camera (the shadow pass passed no `up`).
 - **Do NOT start chains from a DMAC interrupt on this engine**
   (`TYRA_VIF1_QUEUE_ISR`, default 0). PCSX2 ran it clean. A physical PS2 under
   ps2link took an EE exception twice, both times at the instruction right after

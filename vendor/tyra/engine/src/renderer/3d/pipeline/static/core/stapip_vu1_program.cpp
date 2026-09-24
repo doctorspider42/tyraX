@@ -6,6 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: emitsStateFlag()/kPackedCountWord for retained replays.
 */
 
 #include "renderer/3d/pipeline/static/core/stapip_vu1_program.hpp"
@@ -67,6 +68,10 @@ void StaPipVU1Program::addBufferDataToPacket(packet2_t* packet,
                                              const bool& emitState) {
   addStandardBufferDataToPacket(packet, buffer, prim, emitState);
   addProgramQBufferDataToPacket(packet, buffer);
+}
+
+bool StaPipVU1Program::emitsStateFlag(const bool& emitState) const {
+  return supportsGsStateReuse(name) && emitState;
 }
 
 void StaPipVU1Program::addStandardBufferDataToPacket(packet2_t* packet,

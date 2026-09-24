@@ -6,6 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: emitsStateFlag()/kPackedCountWord for retained replays.
 */
 
 #pragma once
@@ -39,6 +40,16 @@ class StaPipVU1Program : public VU1Program {
 
   void addBufferDataToPacket(packet2_t* packet, StaPipQBuffer* buffer,
                              prim_t* prim, const bool& emitState);
+
+  /** Modified by TyraX: does a buffer header built with this emitState carry
+   * VU1_STAPIP_EMIT_STATE_FLAG? The rule addStandardBufferDataToPacket
+   * applies, exposed so a retained block can be re-flagged on replay. */
+  bool emitsStateFlag(const bool& emitState) const;
+
+  /** Modified by TyraX: where that flag lives in the block
+   * addBufferDataToPacket writes - qword 1 (after the unpack's CNT tag), word
+   * 3: the packed vertex count. */
+  static constexpr u32 kPackedCountWord = 4 + 3;
 
  protected:
   StaPipProgramName name;

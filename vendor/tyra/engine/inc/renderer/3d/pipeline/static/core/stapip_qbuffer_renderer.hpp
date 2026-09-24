@@ -191,7 +191,9 @@ struct StaPipRetainedEntry {
   u16 blockQw;
   /** packages * kMaxBlockQw quadwords; each package's block at its own slot. */
   std::unique_ptr<qword_t[]> data;
-  /** One byte per package: has that block been captured yet? */
+  /** One byte per package: has that block been captured yet? (Modified by
+   * TyraX: the block's emit-state flag is rewritten on every replay - see the
+   * replay site in addBuffersDataToPacket.) */
   std::unique_ptr<u8[]> ready;
 
   int framesLeftToDestroy;
