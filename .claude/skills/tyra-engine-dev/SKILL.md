@@ -2751,6 +2751,12 @@ here must keep.
   after `Vif1Queue::drain()`, because chains still in flight REF it - any new
   shared REF'd block must obey the same rule (docs/ee-submission-rearchitecture.md,
   "Round five").
+- **2D sprites in the VIF1 chain cache GS state** (`TYRA_2D_CHAIN_FAST`,
+  `RendererCore2D::renderIntoChain`): a sprite writes XYOFFSET/TEX1/ALPHA/
+  TEX0 only when they differ from what the open chain last set, and
+  `closeChain` restores the 3D XYOFFSET. Anything new that writes those GS
+  registers mid-frame must close the chain first (path3Fence does) or the
+  next sprite inherits the wrong state.
 - **`RendererCore::getStallTotal()`** is a never-reset running total of the
   renderer's stall time (vsync / display buffer) beside `takeStallTicks()`,
   which resets. The frame-extrapolation gate and the profiling rig both take

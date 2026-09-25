@@ -32,6 +32,14 @@
 #define TYRA_2D_VIF1_DIRECT 1
 #endif
 
+// Modified by TyraX: sprites in the VIF1 chain skip the GS state a sprite
+// before them in the same chain already set (XYOFFSET, TEX1, ALPHA, TEX0)
+// and are written straight into the chain - see renderIntoChain. 0 = every
+// sprite carries its whole PATH3 packet, the 1.126.1 behaviour.
+#ifndef TYRA_2D_CHAIN_FAST
+#define TYRA_2D_CHAIN_FAST 1
+#endif
+
 namespace Tyra {
 
 class RendererCore2D {
@@ -83,6 +91,20 @@ class RendererCore2D {
 
   // Modified by TyraX: the VIF1 DIRECT chain (TYRA_2D_VIF1_DIRECT).
   void appendToChain(const qword_t* data, u32 qwc, bool restoreRepeat);
+  void renderIntoChain(const Sprite& sprite,
+                       const RendererCoreTextureBuffers& texBuffers,
+                       texrect_t* rect, bool restoreRepeat);
+  // The GS state the open chain last set, for renderIntoChain. Compared as
+  // raw bytes, so it is zero-filled before every fill (padding included).
+  struct ChainState {
+    u32 tbAddress, tbWidth, tbPsm, tbInfoW, tbInfoH, tbComponents, tbFunction;
+    u32 clutAddress, clutPsm, clutStorage, clutStart, clutLoad;
+    u32 additive, magFilter, minFilter;
+    float originY;
+  };
+  ChainState chainState;
+  bool chainStateValid = false;  // the open chain has set chainState
+  bool chainXyo2D = false;  // the open chain moved XYOFFSET to the 2D origin
   void openChain(bool restoreRepeat);
   void closeChain();
   static void closeOpenChain();

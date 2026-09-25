@@ -16,6 +16,12 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.128.1: HUD SPRITES SKIP THE STATE THE CHAIN ALREADY HOLDS.
+// Sprites in the VIF1 DIRECT chain no longer each carry a whole PATH3 packet:
+// XYOFFSET/TEX1/ALPHA/TEX0 are written only when they change, the rectangle
+// goes straight into the chain (TYRA_2D_CHAIN_FAST). PS2: work -0.06..-0.08 ms.
+// PATCH.
+//
 // 1.128.0: INTERLEAVED PASSES.
 // Preferences > Rendering > Interleave batches and roads with objects
 // (Auto / Always / Off, format v64): the generated game feeds the static
@@ -5239,7 +5245,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 128
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

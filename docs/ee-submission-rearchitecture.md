@@ -833,6 +833,30 @@ headroom, not a new rung. PCSX2 captures of poses 0 and 2 differ from the
 control only inside the debug text block, by as many pixels as two captures of
 the control differ from each other.
 
+### Round two: sprites without their PATH3 packets - MEASURED, 2026-09-25
+
+A probe in `Renderer2D::render` put the Motor District HUD at **83 sprites
+a frame and 0.64 ms** of EE in the attribution build. 0.42 ms of that went
+into building each sprite's 14-qword GIF packet with packet2 and copying it
+into the chain, and most of those qwords were state that every glyph set
+again: the 2D XYOFFSET and the restore after it, TEX1, ALPHA, and the TEX0
+of the one font texture.
+
+`TYRA_2D_CHAIN_FAST` (on) builds the state block only when it differs from
+what the open chain last set. It uses the same packet2 calls as the PATH3
+path, so the bytes are the same. `draw_rect_textured` writes the rectangle
+straight into the chain, and XYOFFSET goes back to the 3D origin once, when
+the chain closes. Nothing else can write those registers while a chain is
+open: every PATH3 sender, texture uploads included, closes it first
+through `path3Fence`, and a new chain assumes no state.
+
+Physical PS2, one ELF toggled at boot: `work` **-0.06..-0.08 ms in all four
+poses**, two boots agreeing to 0.01. PCSX2 captures: outer day is
+byte-identical, HUD included, and garage day differs only in the HUD's own
+millisecond counter. The same probe with the fast path on: 0.35 ms for 83
+sprites. About 2.8 us a sprite remains, which is `draw_rect_textured`'s
+float-to-fixed work and stores to cold chain lines.
+
 ## The GPU-only frame - MEASURED on hardware, 2026-09-24
 
 How long do VU1 and the GS need for a frame when nothing makes them wait for
