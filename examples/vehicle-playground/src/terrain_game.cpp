@@ -2774,6 +2774,10 @@ void TerrainGame::loop() {
   // being presented, so you can still look at what you stopped. All of this
   // compiles to nothing when the debugger is off.
   livedbg::tickFromLoop(scriptCtx);
+  // The renderer's two 0.5 ms frame sleeps only while the editor's Live
+  // Debugger is attached (RendererCore::setFrameYield): -1.05 ms a frame
+  // everywhere else, measured on a PS2.
+  engine->renderer.core.setFrameYield(livedbg::attached());
   const bool dbgHalted = livedbg::halted();
   const bool menuActive = saveMenuActive || gameMenuPausing || dbgHalted;
   // An open menu owns the pad even when it doesn't pause the world (overlay

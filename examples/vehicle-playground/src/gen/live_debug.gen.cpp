@@ -1075,6 +1075,7 @@ void hit(int key) {
 }
 
 bool halted() { return haltedFrame; }
+bool attached() { return editorAttached; }
 
 bool forced(int key) {
   for (int i = 0; i < forcedCount; ++i)
