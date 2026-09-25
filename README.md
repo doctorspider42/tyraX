@@ -209,6 +209,9 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [sphere-mapped chrome](docs/reflective-materials.md), Mirror objects,
   [VU0-raytraced mirrors](docs/raytraced-reflections.md),
   [live texture feeds](docs/texture-feeds.md) and [portals with visible lamp effects](docs/portals.md).
+- **Particles** — a [particle library](docs/particles.md): effects made once,
+  used by emitters and vehicle tyre smoke, with additive fire and generated
+  smoke / flame / glow textures.
 - **Screen** — sky, fog, bloom, film grain, [motion blur](docs/motion-blur.md)
   and your own [`.screenfx` effects](docs/custom-screen-effects.md), plus
   [TV safe areas](docs/safe-areas.md) to frame against.
@@ -364,6 +367,7 @@ wait for their polish pass.
 | [night-walk](examples/night-walk) | A dark backlot and a torch that projects, lands on real walls, and carves shadows — every flashlight feature in one yard |
 | [cutscene-demo](examples/cutscene-demo) | 14 seconds of dolly, hard cut, shake, FOV ramp and cinema bars. Skippable, of course |
 | [nav-ai](examples/nav-ai) | A guard that patrols, spots you, and chases you around the wall instead of into it. The rabbit just runs |
+| [particle-lab](examples/particle-lab) | A campfire, its smoke, a chimney reusing the same smoke, torch sparks and magic motes - all from the particle library with generated textures |
 | [physics-playground](examples/physics-playground) | 28 hyperactive bodies rain onto a terraced slope. Doubles as the physics benchmark |
 | [object-spawning](examples/object-spawning) | GTA-style traffic conjured and dismissed by two flow-graph nodes |
 | [portals](examples/portals) | A cube falls through a portal pair forever. You get to walk through instead |

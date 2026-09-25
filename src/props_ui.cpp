@@ -1954,8 +1954,35 @@ void App::drawPropertiesWindow() {
 
     if (o.type == PrimitiveType::Emitter) {
         ImGui::SeparatorText("Particle emitter");
+        // The particle library (docs/particles.md): a linked emitter wears the
+        // effect's look, copied in by project::applyParticleEffects on commit.
+        const ParticleEffect* linked = project::findParticleEffect(project_, o.particleEffect);
+        if (ImGui::BeginCombo("Library", o.particleEffect.empty()
+                                             ? "(own settings)"
+                                             : o.particleEffect.c_str())) {
+            if (ImGui::Selectable("(own settings)##fxnone", o.particleEffect.empty())) {
+                o.particleEffect.clear();
+                committed = true;
+            }
+            for (size_t k = 0; k < project_.particleEffects.size(); ++k) {
+                const ParticleEffect& fx = project_.particleEffects[k];
+                const std::string label = fx.name + "##fx" + std::to_string(k);
+                if (ImGui::Selectable(label.c_str(), fx.name == o.particleEffect)) {
+                    o.particleEffect = fx.name;
+                    committed = true;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Edit...##fxedit")) openParticleEditor(o.particleEffect);
+        if (!o.particleEffect.empty() && !linked)
+            ImGui::TextColored(theme::semantics().warn, "No effect named \"%s\".",
+                               o.particleEffect.c_str());
+        if (linked) ImGui::BeginDisabled();
         const char* kinds[] = {"Fire", "Smoke", "Fog", "Sparks", "Rain", "Custom"};
         if (ImGui::Combo("Effect", &o.emitterKind, kinds, 6)) committed = true;
+        if (ImGui::Checkbox("Additive (glows)", &o.emitterAdditive)) committed = true;
         if (ImGui::DragInt("Density (count)", &o.emitterCount, 1.0f, 1, 256)) {}
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::DragFloat("Particle size", &o.emitterSize, 0.02f, 0.05f, 8.0f, "%.2f");
@@ -2003,6 +2030,7 @@ void App::drawPropertiesWindow() {
                 "Rotation to aim (90 deg X = a horizontal pipe leak).\n"
                 "Negative gravity rises (steam); low weight = air drag.");
         }
+        if (linked) ImGui::EndDisabled();
         if (ImGui::Checkbox("Enabled", &o.emitterEnabled)) committed = true;
         if (ImGui::Checkbox("Follow player", &o.emitterFollowPlayer)) committed = true;
         if (o.emitterFollowPlayer)

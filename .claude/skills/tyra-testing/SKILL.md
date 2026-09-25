@@ -2675,6 +2675,20 @@ throwaway "new release" tarball of the same harness, call
 files, that a file the new release does NOT contain survived (the overlay is
 deliberate) and that the binary was relaunched.
 
+## Verifying the particle library (docs/particles.md)
+
+`--bake-particles <projectDir>` re-bakes every effect's generated texture,
+re-syncs the linked emitters and regenerates - run it twice and `md5sum` the
+PNGs (the second run must change nothing), then grep `inc/scene_data.hpp` for a
+linked emitter's row (its values are the EFFECT's, its last column is
+`emitAdditive`) and `inc/model_data.gen.hpp` for `MATERIAL_PATHS` and
+`VEHICLE_SMOKE_MATERIAL`. The textures themselves are a harness away:
+`particletex.cpp` links alone with `-I vendor/stb` and a TU defining
+`STB_IMAGE_WRITE_IMPLEMENTATION`. Composite each over a DARK and a LIGHT
+background before judging it - a premultiplied flame looks right on one and a
+smoke puff's edge only shows on the other. On the console, `examples/particle-lab`
+is the fixture: `--build --run` then `--capture-frame`.
+
 ## Choosing the right depth
 
 | Change | Minimum honest verification |

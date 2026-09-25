@@ -55,6 +55,9 @@ their ownership and acceptance checks.
   console rasterizes it, field rendering included.
 - [TV safe areas](safe-areas.md) — viewport guides for what a real television
   will not crop, plus the one case where PAL shows more than NTSC.
+- [Particle library](particles.md) — particle effects defined once in the Particle
+  Editor and linked from emitters and vehicle tyre smoke, additive fire and
+  sparks, and procedural smoke / flame / glow textures.
 - [Collision boxes](collision-boxes.md) — what actually stops the player, why
   it's nowhere near the object's centre, and how to see it.
 - [Prefabs](prefabs.md) — reusable object groups (flow graphs included),

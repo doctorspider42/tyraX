@@ -4933,9 +4933,13 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.124.0 - Particle library (Tools > Particle Editor, docs/particles.md):
+// effects defined once and linked from emitters and from a vehicle's tyre
+// smoke, additive blending for fire and sparks, and procedural smoke / flame /
+// glow textures generated in the editor (src/particletex.cpp).
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 122
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_MINOR 124
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -5324,7 +5328,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // SceneObject::occluderExclude and occlusionCull. Missing keeps the feature
 // off project-wide, allows receiving and lets safe geometry be considered if
 // the project is later enabled. All keys are additive; no migration step.
-inline constexpr int kFormatVersion = 61;
+// v62 (docs/particles.md): the particle library - the "particleEffects"
+// section, an emitter's "effect" link and "additive" flag, and a vehicle's
+// "smokeEffect". All written only when set, so an older project resaves byte
+// for byte; additive, no migration step.
+inline constexpr int kFormatVersion = 62;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

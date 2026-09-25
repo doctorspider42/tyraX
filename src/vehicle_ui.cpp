@@ -702,6 +702,31 @@ void App::drawVehicleWindow() {
                 "Two additive beam pools painted on the terrain ahead of the\n"
                 "nose - the scene lights' ground-pool trick. Reads as light,\n"
                 "so it sells a NIGHT map; on a bright day map it is subtle.");
+            {
+                // Tyre smoke from the particle library (docs/particles.md).
+                ImGui::SetNextItemWidth(scaled(220));
+                if (ImGui::BeginCombo("Tyre smoke", v.smokeEffect.empty()
+                                                        ? "(built-in grey)"
+                                                        : v.smokeEffect.c_str())) {
+                    if (ImGui::Selectable("(built-in grey)##vehsmoke", v.smokeEffect.empty()))
+                        v.smokeEffect.clear();
+                    for (size_t k = 0; k < project_.particleEffects.size(); ++k) {
+                        const ParticleEffect& fx = project_.particleEffects[k];
+                        const std::string l = fx.name + "##vehsmoke" + std::to_string(k);
+                        if (ImGui::Selectable(l.c_str(), v.smokeEffect == fx.name))
+                            v.smokeEffect = fx.name;
+                    }
+                    ImGui::EndCombo();
+                }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Edit...##vehsmokeedit"))
+                    openParticleEditor(v.smokeEffect);
+                prefHelp(
+                    "Colour, opacity, size and life come from the effect; when\n"
+                    "and where puffs spawn stays the tyre slip's. All cars share\n"
+                    "one smoke pool: its texture and blend are the first\n"
+                    "definition's that names a textured effect.");
+            }
             ImGui::Separator();
             loopPicker("High-rev loop", "vehsndhigh", v.engineHighSound,
                        "A second engine loop the base one CROSSFADES with as\n"

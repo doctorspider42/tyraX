@@ -235,6 +235,7 @@ add_executable(tyrax-editor
     src/hud_ui.cpp
     src/mateditor_ui.cpp
     src/prefab_ui.cpp
+    src/particle_ui.cpp
     src/atlas_ui.cpp
     src/batch_ui.cpp
     src/procui.cpp
@@ -286,6 +287,7 @@ add_executable(tyrax-editor
     src/pngquant.cpp
     src/prefab.cpp
     src/primmesh.cpp
+    src/particletex.cpp
     src/procgraph.cpp
     src/procgen.cpp
     src/procbake.cpp

@@ -14,6 +14,7 @@
 #include <thread>
 #include <vector>
 
+#include "particletex.hpp"
 #include "aichat.hpp"
 #include "aigen.hpp"
 #include "aisupport.hpp"
@@ -1320,6 +1321,58 @@ static int bakeGiFromCli(int argc, char** argv) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
+    return 0;
+}
+
+// tyrax-editor --bake-particles <projectDir>
+//
+// The headless twin of the Particle Editor's texture generation
+// (docs/particles.md): every library effect with a procedural recipe is
+// re-baked into res/materials/particles, its material path and full-colour
+// pin are set, linked emitters are re-synced, and the project is saved and
+// regenerated. Unchanged recipes write nothing (byte-compared), so a second
+// run is the check that the bake is deterministic.
+static int bakeParticlesFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr, "usage: tyrax-editor --bake-particles <projectDir>\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (refuseUnmigrated(p)) return 1;
+    int baked = 0;
+    for (ParticleEffect& fx : p.particleEffects) {
+        if (fx.texGen.kind == 0) {
+            std::printf("particles: %s - material %s (not generated)\n", fx.name.c_str(),
+                        fx.materialPath.empty() ? "(none)" : fx.materialPath.c_str());
+            continue;
+        }
+        std::string err;
+        const std::string mtl = particletex::writeAssets(p.dir, fx.name, fx.texGen, &err);
+        if (mtl.empty()) {
+            std::fprintf(stderr, "error: %s: %s\n", fx.name.c_str(), err.c_str());
+            return 1;
+        }
+        fx.materialPath = mtl;
+        p.textureQuality[mtl] = "none";
+        std::printf("particles: %s - %dx%d -> %s\n", fx.name.c_str(), fx.texGen.size,
+                    fx.texGen.size, mtl.c_str());
+        ++baked;
+    }
+    project::applyParticleEffects(p);
+    if (std::string err = project::save(p); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (std::string err = project::refreshGenerated(p); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    std::printf("particles: %d texture(s) baked, %zu effect(s)\n", baked,
+                p.particleEffects.size());
     return 0;
 }
 
@@ -4477,6 +4530,8 @@ int main(int argc, char** argv) {
         return bakeGiFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-shadows") == 0)
         return bakeShadowsFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--bake-particles") == 0)
+        return bakeParticlesFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--gi-gpu-check") == 0)
         return giGpuCheckFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-model-ao") == 0)

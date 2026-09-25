@@ -643,6 +643,17 @@ struct SceneObject {
     float emitterOpacity = 0.6f;
     bool emitterDieOnGround = false;  // particle dies when it hits the terrain
                                       // (water soaking in instead of clipping)
+    // Additive blending (docs/particles.md): the particles ADD light instead
+    // of covering what is behind them - fire, sparks, magic. Depth-tested,
+    // never writes depth. Off = ordinary alpha-over (smoke, dust, fog).
+    bool emitterAdditive = false;
+    // Particle library link (docs/particles.md): the NAME of a
+    // Project::particleEffects entry, "" = the emitter's own settings. While
+    // linked, project::applyParticleEffects copies the effect's look and
+    // physics into the emitter fields above on every commit and on load, so
+    // everything downstream (codegen, the viewport preview, Live Link) keeps
+    // reading ordinary emitter fields.
+    std::string particleEffect;
 
     // Sound emitter parameters (used when type == SoundEmitter)
     std::string soundPath;      // one of Project::sounds ("res/sfx/x.wav")
@@ -1101,6 +1112,60 @@ inline bool operator!=(const VehicleWheel& a, const VehicleWheel& b) { return !(
 // else's format or carry C++, and this is neither. Being a Section buys the
 // collaboration wire, the AI Assistant's get_section/set_section and the
 // sectionJson edit guard with no code of its own.
+// A procedural particle texture recipe (docs/particles.md): the editor bakes
+// it into res/materials/particles/<effect>.png + a one-line .mtl, which the
+// effect then uses like any other material. kind 0 = none (the effect names a
+// material of its own), 1 smoke puff, 2 flame, 3 glow/spark.
+struct ParticleTexGen {
+    int kind = 0;
+    int size = 64;           // texels per side, 32 / 64 / 128
+    int seed = 1;
+    float softness = 0.6f;   // edge falloff 0..1 (0 = hard disc)
+    float detail = 0.5f;     // noise contrast 0..1
+    float scale = 1.0f;      // noise feature size multiplier
+    float turbulence = 0.5f; // flame: how far the tongues lick sideways
+    float heat = 0.5f;       // flame: white core size / glow: core size
+    float color[3] = {1.0f, 1.0f, 1.0f};  // smoke / glow tint baked in
+    bool operator==(const ParticleTexGen& o) const {
+        return kind == o.kind && size == o.size && seed == o.seed &&
+               softness == o.softness && detail == o.detail && scale == o.scale &&
+               turbulence == o.turbulence && heat == o.heat &&
+               color[0] == o.color[0] && color[1] == o.color[1] &&
+               color[2] == o.color[2];
+    }
+    bool operator!=(const ParticleTexGen& o) const { return !(*this == o); }
+};
+
+// One entry of the project's particle library (Tools > Particle Editor,
+// docs/particles.md). Emitters and vehicle tyre smoke reference an effect by
+// NAME; the fields mirror SceneObject's emitter* fields one for one, and
+// project::applyParticleEffects is the ONE place that copies them across.
+struct ParticleEffect {
+    std::string id;    // stable identity (collaboration merge key)
+    std::string name;  // what references use
+    int kind = 1;      // emitterKind semantics: 0 fire .. 4 rain, 5 custom
+    int count = 24;
+    float size = 0.5f;
+    float color[3] = {1.0f, 1.0f, 1.0f};
+    float speed = 3.0f, spread = 20.0f, gravity = 9.8f, weight = 1.0f;
+    float life = 1.5f, grow = 1.0f, opacity = 0.6f;
+    bool dieOnGround = false;
+    bool additive = false;
+    std::string materialPath;  // texture (.mtl, first material's map_Kd)
+    ParticleTexGen texGen;     // how materialPath's texture was generated
+    bool operator==(const ParticleEffect& o) const {
+        return id == o.id && name == o.name && kind == o.kind &&
+               count == o.count && size == o.size && color[0] == o.color[0] &&
+               color[1] == o.color[1] && color[2] == o.color[2] &&
+               speed == o.speed && spread == o.spread && gravity == o.gravity &&
+               weight == o.weight && life == o.life && grow == o.grow &&
+               opacity == o.opacity && dieOnGround == o.dieOnGround &&
+               additive == o.additive && materialPath == o.materialPath &&
+               texGen == o.texGen;
+    }
+    bool operator!=(const ParticleEffect& o) const { return !(*this == o); }
+};
+
 struct VehicleDef {
     // Stable, opaque identity - the collaboration merge key, like Prefab::id.
     // Every REFERENCE to a vehicle is by name.
@@ -1213,6 +1278,11 @@ struct VehicleDef {
     // question, not one this code can answer. 3.6 turns metres per second into
     // km/h, which is the common case.
     float hudSpeedScale = 3.6f;
+    // Tyre smoke look (docs/particles.md): the NAME of a particle-library
+    // effect, "" = the built-in grey puffs. The effect's colour, opacity,
+    // size, growth, life and texture drive the puffs; the SPAWNING stays the
+    // sim's (slip decides when, the rear wheels decide where).
+    std::string smokeEffect;
 
     bool valid() const { return !name.empty(); }
 };
@@ -1231,7 +1301,7 @@ inline bool operator==(const VehicleDef& a, const VehicleDef& b) {
         a.engineHighSound != b.engineHighSound ||
         a.screechSound != b.screechSound || a.shiftSound != b.shiftSound ||
         a.screechVolume != b.screechVolume || a.shiftVolume != b.shiftVolume ||
-        a.headlights != b.headlights ||
+        a.headlights != b.headlights || a.smokeEffect != b.smokeEffect ||
         a.lampRear[0] != b.lampRear[0] || a.lampRear[1] != b.lampRear[1] ||
         a.lampRear[2] != b.lampRear[2] || a.lampRear[3] != b.lampRear[3] ||
         a.lampFront[0] != b.lampFront[0] || a.lampFront[1] != b.lampFront[1] ||
@@ -1344,6 +1414,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.emitterWeight == b.emitterWeight && a.emitterLife == b.emitterLife &&
            a.emitterGrow == b.emitterGrow && a.emitterOpacity == b.emitterOpacity &&
            a.emitterDieOnGround == b.emitterDieOnGround &&
+           a.emitterAdditive == b.emitterAdditive &&
+           a.particleEffect == b.particleEffect &&
            a.soundPath == b.soundPath && a.soundAuto == b.soundAuto &&
            a.soundRange == b.soundRange && a.soundInterval == b.soundInterval &&
            a.soundOnPlayer == b.soundOnPlayer && a.soundReverb == b.soundReverb &&
@@ -3867,6 +3939,8 @@ struct Project {
     // scene is available in all of them) and persisted through save(), but not
     // part of undo/redo. Members carry transforms LOCAL to the prefab origin.
     std::vector<Prefab> prefabs;
+    // The particle library (Tools > Particle Editor, docs/particles.md).
+    std::vector<ParticleEffect> particleEffects;
 
     // Vehicle definitions (Tools > Vehicle Editor, docs/vehicles.md). Defined
     // once, placed as often as you like: a Vehicle scene object names one of
@@ -4138,6 +4212,19 @@ void ensureProjectId(Project& p);
 // by it instead of by position (docs/world-facts.md "Saving").
 void ensureFactIds(Project& p);
 
+// The particle library (docs/particles.md). findParticleEffect answers by
+// name (nullptr = none / stale). applyParticleEffects copies every linked
+// effect into the emitters that name it (scenes + prefab members) - called by
+// load() and by App::commitChange, so a linked emitter's own fields are
+// always the effect's; returns true when anything changed. particlePreset is
+// the starting point "New effect" offers for each emitterKind.
+const ParticleEffect* findParticleEffect(const Project& p, const std::string& name);
+bool applyParticleEffects(Project& p);
+void applyParticleEffect(const ParticleEffect& fx, SceneObject& o);
+ParticleEffect particlePreset(int kind);
+// Retargets every emitter and vehicle that names `from` to `to` ("" = unlink).
+void renameParticleEffectRefs(Project& p, const std::string& from, const std::string& to);
+
 // Where one fact is used. `graphs` names owning objects as "scene / object",
 // the rest name the query, rule or scenario. The single answer to "what
 // breaks if I change this" - read by the Facts window's Used by list and by
@@ -4301,6 +4388,7 @@ enum class Section {
     Facts,           // "facts", "factQueries", "factRules", "factScenarios"
     BlssShots,       // "blssShots" (the neural upscaler's training-shot plan)
     Atlas,           // "atlasControl" (per-texture atlas keep-out / group)
+    Particles,       // "particleEffects" (the particle library)
     Count            // not a section - the enum size, see kSectionCount below
 };
 // KEEP THIS EQUAL TO THE ENUM SIZE. save() loops sections by index, so a count
@@ -4312,7 +4400,7 @@ enum class Section {
 // static_assert below is the fix that outlives the comment: Section::Count is
 // maintained by the compiler, so the next section to arrive cannot repeat this.
 enum : int { kSectionCount = (int)Section::Count };
-static_assert(kSectionCount == 24,
+static_assert(kSectionCount == 25,
               "A section was added or removed - check that everything which "
               "loops sections by index (save(), the collaboration shadow) "
               "still means what it says, then update this number.");

@@ -348,7 +348,34 @@ static std::vector<std::string> collectMaterialPaths(const Project& p) {
         for (const SceneObject& o : sc.objects) scan(o);
     for (const Prefab& pf : p.prefabs)
         for (const SceneObject& o : pf.objects) scan(o);
+    // A vehicle's tyre-smoke texture (docs/particles.md), appended after every
+    // object's so a project that names none keeps its material indices.
+    for (const VehicleDef& v : p.vehicles)
+        if (const ParticleEffect* fx = project::findParticleEffect(p, v.smokeEffect)) {
+            if (fx->materialPath.empty()) continue;
+            bool seen = false;
+            for (const auto& e : paths) seen |= (e == fx->materialPath);
+            if (!seen) paths.push_back(fx->materialPath);
+        }
     return paths;
+}
+
+static int materialPathIndex(const Project& p, const std::string& path) {
+    if (path.empty()) return -1;
+    const auto paths = collectMaterialPaths(p);
+    for (size_t i = 0; i < paths.size(); ++i)
+        if (paths[i] == path) return (int)i;
+    return -1;
+}
+
+// The tyre-smoke pool is ONE bag, so it has one texture and one blend mode:
+// those of the first vehicle definition whose smoke effect names a texture.
+// Colour, opacity, size and life stay per definition (per puff).
+static const ParticleEffect* vehicleSmokePoolEffect(const Project& p) {
+    for (const VehicleDef& v : p.vehicles)
+        if (const ParticleEffect* fx = project::findParticleEffect(p, v.smokeEffect))
+            if (!fx->materialPath.empty()) return fx;
+    return nullptr;
 }
 
 static int materialIndexOf(const Project& p, const SceneObject& o) {
@@ -8563,6 +8590,8 @@ void TerrainGame::applyLayerResidency() {
         animNeed[d.animModel] = 1;
     }
   }
+  if (VEHICLE_SMOKE_MATERIAL >= 0 && VEHICLE_SMOKE_MATERIAL < (int)materialNeed.size())
+    materialNeed[VEHICLE_SMOKE_MATERIAL] = 1;  // no object names it
   if (TERRAIN_TEXTURE >= 0 && TERRAIN_TEXTURE < (int)texNeed.size())
     texNeed[TERRAIN_TEXTURE] = 1;
   // Painted terrain layers keep their tiled textures resident with the scene.
@@ -10551,6 +10580,12 @@ void TerrainGame::buildParticles() {
     if (mi >= 0 && mi < (int)gameMaterials.size() && gameMaterials[mi].texture)
       ps.texBag->texture = gameMaterials[mi].texture;
     ps.bag->texture = ps.texBag.get();
+    // Depth-tested but never writing depth - the tyre smoke's rule: a
+    // translucent puff that wrote Z carved a soft-edged texture's whole quad
+    // out of every puff drawn after it (docs/particles.md). Additive emitters
+    // (fire, sparks) add light on top: Cs * FIX + Cd.
+    ps.infoBag->zTestType = PipelineZTest_TestOnly;
+    if (runtimeObjects[i].data.emitAdditive) ps.infoBag->additiveBlendFix = 128;
     particles.push_back(std::move(ps));
   }
 }
@@ -10748,6 +10783,13 @@ void TerrainGame::updateParticles() {
       }
       if (sizeUp > 0.0F) m11 = sizeUp;  // rain: thin width, streak height
       ps.params[i] = Vec4(m00, m01, m10, m11);
+      // Additive (docs/particles.md): the GS adds Cs * FIX and never reads
+      // alpha, so the fade has to ride the colour - keep in sync with the
+      // viewport preview (drawEmitterPreviews).
+      if (d.emitAdditive) {
+        const float k = alpha * (1.0F / 128.0F);
+        cr *= k, cg *= k, cb *= k;
+      }
       ps.cols[i] = Color(cr, cg, cb, alpha);
     }
     ps.bag->count = (u32)drawN;
@@ -29472,7 +29514,8 @@ static void writeObjectDataRow(std::ostringstream& out, const Project& p,
         << floatLit(o.vuParams[3]) << "}, " << impostorIndexOf(p, o) << ", "
         << floatLit(o.impostorDistance) << ", "
         << (o.impostorBillboard ? "true" : "false") << ", "
-        << o.impostorViews << "},";
+        << o.impostorViews << ", "
+        << (o.type == PrimitiveType::Emitter && o.emitterAdditive ? 1 : 0) << "},";
     if (!o.name.empty()) out << "  // " << o.name;
     out << "\n";
 }
@@ -30714,6 +30757,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  float impostorDistance = 0.0F; // disabled at zero\n"
            "  bool impostorBillboard = false; // ordered view parts\n"
            "  int impostorViews = 8; // 4, 8 or 16 baked captures\n"
+           "  int emitAdditive = 0; // emitters: 1 = additive blending (fire)\n"
            "};\n"
            "\n"
            // Areas (type 17) live here, in the always-regenerated data header,
@@ -31448,6 +31492,42 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                       << wpCount << "}";
                 ++instCount;
             }
+        // Tyre-smoke look per definition (docs/particles.md): colour, peak
+        // alpha, start/end size, life and rise multipliers. A definition
+        // with no smoke effect reproduces the built-in grey puffs exactly.
+        std::vector<const VehicleDef*> defs;  // VEHICLE_DEFS order
+        for (const VehicleDef& v : p.vehicles)
+            if (!v.modelPath.empty() && !v.id.empty()) defs.push_back(&v);
+        out << "struct VehicleSmokeLook { float r, g, b, alpha, size0, size1, life, rise; };\n"
+            << "constexpr VehicleSmokeLook VEHICLE_SMOKE_LOOKS["
+            << (defs.empty() ? 1 : defs.size()) << "] = {\n";
+        if (defs.empty()) out << "    {150.0F, 150.0F, 152.0F, 88.0F, 0.30F, 1.25F, 1.0F, 1.0F}\n";
+        for (const VehicleDef* v : defs) {
+            const ParticleEffect* fx = project::findParticleEffect(p, v->smokeEffect);
+            float r = 150.0f, g = 150.0f, b = 152.0f, a = 88.0f, s0 = 0.30f, s1 = 1.25f,
+                  life = 1.0f, rise = 1.0f;
+            // In a TEXTURED pool (another definition named a textured effect)
+            // the built-in grey is re-expressed as a modulate factor, so it
+            // keeps its tone over the texture's ~0.85 mean instead of
+            // brightening by 150/128.
+            if (!fx && vehicleSmokePoolEffect(p)) r = g = 88.0f, b = 89.0f;
+            if (fx) {
+                // textured puffs MODULATE (128 = 1x); untextured ones are the
+                // vertex colour itself
+                const float scale = vehicleSmokePoolEffect(p) ? 128.0f : 255.0f;
+                r = fx->color[0] * scale, g = fx->color[1] * scale, b = fx->color[2] * scale;
+                a = fx->opacity * 128.0f;
+                s0 = fx->size * 0.6f;
+                s1 = s0 * (fx->kind == 5 ? std::max(1.0f, fx->grow) : 2.4f);
+                life = fx->life / 1.5f;
+                if (fx->kind == 5 && fx->gravity < 0.0f)
+                    rise = std::min(3.0f, std::max(0.3f, -fx->gravity));
+            }
+            out << "    {" << floatLit(r) << ", " << floatLit(g) << ", " << floatLit(b) << ", "
+                << floatLit(a) << ", " << floatLit(s0) << ", " << floatLit(s1) << ", "
+                << floatLit(life) << ", " << floatLit(rise) << "},  // " << v->name << "\n";
+        }
+        out << "};\n";
         out << "constexpr int VEHICLE_COUNT = " << instCount << ";\n"
             << "constexpr VehicleInstData VEHICLES[" << (instCount ? instCount : 1)
             << "] = {\n"
@@ -34196,6 +34276,9 @@ static std::string vehicleMembers(const Project& p) {
   Tyra::Vec4 smokeVel_[kVehSmokeMax];
   float smokeLife_[kVehSmokeMax] = {};
   float smokeMaxLife_[kVehSmokeMax] = {};
+  // Which VEHICLE_SMOKE_LOOKS row a puff wears (its car's definition), so two
+  // cars with different smoke effects share the pool without mixing looks.
+  unsigned char smokeLook_[kVehSmokeMax] = {};
   BagArray<Tyra::Vec4> smokeParams_;
   BagArray<Tyra::Color> smokeCols_;
   int smokeNext_ = 0;
@@ -34283,14 +34366,18 @@ void TerrainGame::updateVehicleSmoke(float dt) {
     smokePos_[i].y += smokeVel_[i].y * dt;
     smokePos_[i].z += smokeVel_[i].z * dt;
     const float t = smokeLife_[i] > 0.0F ? smokeLife_[i] / smokeMaxLife_[i] : 0.0F;
-    const float size = (0.30F + (1.0F - t) * 0.95F);
+    const VehicleSmokeLook& look = VEHICLE_SMOKE_LOOKS[smokeLook_[i]];
+    const float size = look.size0 + (1.0F - t) * (look.size1 - look.size0);
     const float age = smokeMaxLife_[i] - smokeLife_[i];
     const float ang = (float)i * 2.4F + (i & 1 ? 1.1F : -1.1F) * age;
     const float ca = cosf(ang), sa = sinf(ang);
     smokeParams_[i].set(ca * size, sa * size, -sa * size, ca * size);
-    // Grey-white, fading out: standard alpha-over blending, per-puff alpha.
-    const float a = 88.0F * t * t;
-    smokeCols_[i] = Tyra::Color(150.0F, 150.0F, 152.0F, a);
+    // The definition's smoke look (docs/particles.md; the built-in grey-white
+    // by default), fading out. Additive pools carry the fade in the colour -
+    // the GS never reads alpha there.
+    const float a = look.alpha * t * t;
+    const float k = VEHICLE_SMOKE_ADDITIVE ? a * (1.0F / 128.0F) : 1.0F;
+    smokeCols_[i] = Tyra::Color(look.r * k, look.g * k, look.b * k, a);
     ++smokeAlive_;
   }
 }
@@ -34314,6 +34401,7 @@ void TerrainGame::renderVehicleSmoke() {
     smokeColorBag_ = std::make_unique<StaPipColorBag>();
     smokeCols_.bind(smokeColorBag_);
     smokeBillboardBag_ = std::make_unique<StaPipBillboardBag>();
+    if (VEHICLE_SMOKE_ADDITIVE) smokeInfoBag_->additiveBlendFix = 128;
     smokeTexBag_ = std::make_unique<StaPipTextureBag>();
     smokeTexBag_->texture = nullptr;  // untextured puffs; the weights channel
     smokeParams_.bind(smokeTexBag_);
@@ -34336,6 +34424,12 @@ void TerrainGame::renderVehicleSmoke() {
   smokeBillboardBag_->right = Vec4(rx, 0.0F, rz, 0.0F);
   smokeBillboardBag_->up =
       Vec4(-rz * fwd.y, rz * fwd.x - rx * fwd.z, rx * fwd.y, 0.0F);
+  // A library smoke effect's texture (docs/particles.md), looked up per frame
+  // because the residency pass may load it after the bag was built.
+  smokeTexBag_->texture =
+      (VEHICLE_SMOKE_MATERIAL >= 0 && VEHICLE_SMOKE_MATERIAL < (int)gameMaterials.size())
+          ? gameMaterials[VEHICLE_SMOKE_MATERIAL].texture
+          : nullptr;
   smokeBag_->count = (u32)kVehSmokeMax;
   smokeBag_->bboxVersion = ++g_bboxStamp;  // centres move every frame
   stapip.core.render(smokeBag_.get());
@@ -35779,10 +35873,12 @@ void TerrainGame::updateVehicles(float dt) {
                          v.wheelY[side ? 3 : 2] + 0.12F * SC,
                          v.pos[2] - lx2 * sy2 - hz2 * cy2, 1.0F);
         // Drift: up, a little backwards along travel, and outward.
+        const VehicleSmokeLook& look = VEHICLE_SMOKE_LOOKS[v.def];
+        smokeLook_[k] = (unsigned char)v.def;
         smokeVel_[k].set(-sy2 * v.speed * 0.06F + lx2 * 0.4F,
-                         0.9F + 0.5F * v.slip,
+                         (0.9F + 0.5F * v.slip) * look.rise,
                          -cy2 * v.speed * 0.06F, 0.0F);
-        smokeMaxLife_[k] = 0.55F + 0.45F * v.slip;
+        smokeMaxLife_[k] = (0.55F + 0.45F * v.slip) * look.life;
         smokeLife_[k] = smokeMaxLife_[k];
       }
     } else {
@@ -48284,6 +48380,15 @@ static std::string modelDataHeader(const Project& p) {
     // texbake compute the same deterministic plan, so the constant matches
     // what the bake actually shipped. "" = atlasing off / nothing qualified.
     out << "};\n\n"
+        << "// The tyre-smoke pool's texture (MATERIAL_PATHS slot, -1 = untextured)\n"
+           "// and blend (docs/particles.md) - always emitted, the residency pass\n"
+           "// keeps the slot loaded.\n"
+        << "constexpr int VEHICLE_SMOKE_MATERIAL = "
+        << (vehicleSmokePoolEffect(p) ? materialPathIndex(p, vehicleSmokePoolEffect(p)->materialPath) : -1)
+        << ";\n"
+        << "constexpr bool VEHICLE_SMOKE_ADDITIVE = "
+        << (vehicleSmokePoolEffect(p) && vehicleSmokePoolEffect(p)->additive ? "true" : "false")
+        << ";\n"
         << "// texture atlas summary, logged at scene boot (\"\" = no atlas)\n"
         << "constexpr const char* TEXTURE_ATLAS_INFO = \""
         << texatlas::info(texatlas::plan(p)) << "\";\n";

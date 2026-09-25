@@ -780,6 +780,16 @@ private:
     // a procedural graph, or by the Spawn Prefab node at runtime. Lives in
     // prefab_ui.cpp (the assetbrowser.cpp precedent).
     void drawPrefabsWindow();
+    // Tools > Particle Editor (docs/particles.md): the project's particle
+    // library - effects defined once, linked from emitters and from a
+    // vehicle's tyre smoke, with procedural smoke / flame / glow textures.
+    // Lives in particle_ui.cpp (the prefab_ui.cpp precedent).
+    void drawParticleEditorWindow();
+    // Opens the window with `effect` selected ("" = keep the selection).
+    void openParticleEditor(const std::string& effect);
+    // Regenerates the effect's procedural texture into res/ and points its
+    // material at it; returns false with a message in particleStatus_.
+    bool particleBakeTexture(ParticleEffect& fx);
 
     // Tools > Vehicle Editor (docs/vehicles.md): define a car once - model,
     // wheels, driving - and place it in as many scenes as you like. Lives in
@@ -1862,6 +1872,20 @@ private:
     // Prefabs (Tools > Prefabs). Project-wide, so the window is a plain list
     // with an index - nothing about it is per scene.
     bool showPrefabs_ = false;
+    bool showParticles_ = false;
+    int particleSel_ = -1;             // selected library entry
+    std::string particleStatus_;       // last bake / rename message
+    unsigned int particleTexId_ = 0;   // GL preview of the procedural texture
+    ParticleTexGen particleTexFor_;    // recipe particleTexId_ shows
+    bool particleTexValid_ = false;
+    std::string particleRenameFrom_;   // name while the Name field is edited
+    // The window's animated 2D preview: a handful of billboards simulated with
+    // the effect's own knobs (an approximation - the viewport shows the exact
+    // per-kind formulas on a placed emitter).
+    struct ParticlePreviewDot { float x, y, vx, vy, life, maxLife, spin; };
+    std::vector<ParticlePreviewDot> particlePreview_;
+    unsigned particlePreviewRng_ = 1u;
+    float particlePreviewAcc_ = 0.0f;
     bool showVehicles_ = false;
     int vehicleSel_ = -1;  // selected definition in the Vehicle Editor
     // Cached import bakes, one per definition, keyed by what the bake depends

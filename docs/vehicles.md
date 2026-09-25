@@ -557,7 +557,8 @@ and wall grinds all smoke — because they all *are* slip, and one number feedin
 both the smoke and the telemetry is what keeps them from ever disagreeing. The
 puffs are camera-facing billboards in **one submit** (the particle system's
 exact shape: VU1 expands centre + 2×2 basis weights into a quad, the EE never
-touches a corner), untextured grey with per-puff alpha over standard blending,
+touches a corner), untextured grey with per-puff alpha over standard blending (or a
+[particle-library](particles.md) effect's colour, size, life and texture),
 swirling and swelling as they fade — the fog puff's own recipe. The submit
 rides at the frame's translucent tail with the emitters' particles and never
 writes Z (the engine's `PipelineZTest_TestOnly`): drawn before the car with

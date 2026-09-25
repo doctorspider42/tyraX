@@ -977,6 +977,7 @@ void App::drawUI() {
     drawTreeGeneratorWindow();
     drawProceduralWindow();
     drawPrefabsWindow();
+    drawParticleEditorWindow();
     vehicleTick();
     vehicleDriveTick();
     drawVehicleWindow();
@@ -1741,6 +1742,10 @@ void App::drawMenuBar() {
                     "render it into res/audio as a looping background track.");
             if (ImGui::MenuItem("Font Manager...")) showFontManager_ = true;
             if (ImGui::MenuItem("Material Editor...")) showMaterialEditor_ = true;
+            if (ImGui::MenuItem("Particle Editor...")) showParticles_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The particle library: effects defined once, used by\n"
+                                  "emitters and vehicle tyre smoke.");
             if (ImGui::MenuItem("Texture Atlas...")) {
                 showTextureAtlas_ = true;
                 atlasPlanDirty_ = true;
@@ -5267,6 +5272,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "tree") return &showTreeGenerator_;
     if (key == "proc") return &showProcedural_;
     if (key == "prefabs") return &showPrefabs_;
+    if (key == "particles") return &showParticles_;
     if (key == "vehicles") return &showVehicles_;
     if (key == "facts") return &showWorldFacts_;
     if (key == "vu") return &showVuPrograms_;
@@ -5309,7 +5315,9 @@ static const char* const kLayoutWindowKeys[] = {
     // other optional window has.
     "projectprefs",
     // Tools > Vehicle Editor (docs/vehicles.md).
-    "vehicles"};
+    "vehicles",
+    // Tools > Particle Editor (docs/particles.md).
+    "particles"};
 
 // The same keys, for the AI Assistant's open_window tool (chat_ui.cpp). Defined
 // here rather than there because kLayoutWindowKeys is private to this TU, and
@@ -5687,6 +5695,9 @@ void App::commitChange() {
     // Same contract for a freshly added fact: its id is what a player's save
     // file is keyed by, so it must exist before the fact can be persisted.
     project::ensureFactIds(project_);
+    // A linked emitter wears its library effect (docs/particles.md): copy the
+    // effect in before the snapshot, so undo and the session see the result.
+    project::applyParticleEffects(project_);
     ++modelEditSerial_;  // let the session diff pick up this edit (see sessionTick)
     // The undo snapshot only carries the SCENES, so push() returns false for an
     // edit to any project-wide collection - menus, the Input Map, gradings,

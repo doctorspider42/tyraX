@@ -1454,6 +1454,18 @@ with many awake bodies inside a large mesh is the case to time first.
 
 ## Medium
 
+### Particle library: what 1.124 leaves out (docs/particles.md, "Limits")
+
+(1) **Flipbook textures** - an effect with N frames in one atlas, the frame
+picked from the particle's age (the billboard program's fixed corner UVs are
+the blocker: the frame offset needs a per-particle UV channel or a program
+variant); (2) **one smoke texture per car** instead of one per pool (a bag per
+distinct texture, the pool split by definition); (3) the editor's 2D preview
+approximates the preset motions - a shared host function for the per-kind
+formulas would let the viewport, the window and the generated game read one
+answer (the scrollsim twin arrangement); (4) a hardware check of additive
+emitters' GS cost - every measurement so far is PCSX2's.
+
 ### Pixel-exact viewport picking (an ID buffer)
 
 Picking is a CPU ray test (`Viewport::pickAll`, viewport.cpp): `pickBounds`

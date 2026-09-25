@@ -392,6 +392,11 @@ void App::rebuildAssetUsage() {
     // A vehicle definition's model is a real reference for the same reason a
     // prefab member's is: it ships because the definition names it, whether or
     // not any scene has an instance placed today.
+    // A particle-library effect's texture ships because an emitter or a car's
+    // smoke names the effect (docs/particles.md) - count it as the library's.
+    for (const ParticleEffect& fx : project_.particleEffects)
+        if (!fx.materialPath.empty())
+            note(fx.materialPath, 2, "particle effect \"" + fx.name + "\"");
     for (const VehicleDef& v : project_.vehicles) {
         if (!v.modelPath.empty())
             note(v.modelPath, 0, "vehicle \"" + v.name + "\" (model)");
@@ -689,6 +694,7 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
 
     // A vehicle definition names the one .glb/.fbx its body and wheels are
     // baked out of, and the WAV its engine note loops (docs/vehicles.md).
+    for (ParticleEffect& fx : project_.particleEffects) swap(fx.materialPath);
     for (VehicleDef& v : project_.vehicles) {
         swap(v.modelPath);
         swap(v.engineSound);

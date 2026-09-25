@@ -8259,6 +8259,9 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
             const float v1[3] = {X + Rx - Ux, Y + Ry - Uy, Z + Rz - Uz};
             const float v2[3] = {X + Rx + Ux, Y + Ry + Uy, Z + Rz + Uz};
             const float v3[3] = {X - Rx + Ux, Y - Ry + Uy, Z - Rz + Uz};
+            // Additive (docs/particles.md): the console never reads alpha
+            // there, so the fade rides the colour - the game's twin.
+            if (o.emitterAdditive) cr *= alpha, cg *= alpha, cb *= alpha;
             auto vert = [&](const float* v, float tu, float tv) {
                 buf.insert(buf.end(),
                            {v[0], v[1], v[2], cr, cg, cb, alpha, tu, tv});
@@ -8279,7 +8282,9 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
         const uint32_t tex = mat ? mat->tex : 0;
         glUniform1i(uPartUseTex_, tex ? 1 : 0);
         if (tex) glBindTexture(GL_TEXTURE_2D, tex);
+        if (o.emitterAdditive) glBlendFunc(GL_ONE, GL_ONE);
         glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(buf.size() / 9));
+        if (o.emitterAdditive) glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     }
 
     glDepthMask(GL_TRUE);
