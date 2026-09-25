@@ -1230,6 +1230,65 @@ every EE saving now turns into the EE waiting in a full queue for VU1. EE-side
 savings there are worth less than they measure in `prepare` until the queue
 or the submission order changes.
 
+### Where the EE waits, pass by pass - MEASURED, 2026-09-25
+
+Is it worth making any EE work cheaper? An EE saving counts in full only
+where the EE is not about to wait for VU1 anyway. So the probe below measures
+WHERE `vif_wait` happens. `Vif1Queue::waitFor`, `drain` and the back-pressure
+loop in `submit` add their spin ticks to one global counter, whoever the
+caller is. The fixture's render-pass brackets each sum how much it grew. Rig:
+`waitsplit_probe.py`, `attr5-series.sh` in the working notes.
+
+Physical PS2, the attribution fixture (hybrid colour depth), ms per frame:
+
+| pass | garage day | garage night | outer day | outer night |
+| --- | ---: | ---: | ---: | ---: |
+| roads | **0.89** | **0.90** | **0.66** | **0.64** |
+| static batches | 0.66 | 0.70 | 0.17 | 0.15 |
+| terrain | 0.43 | 0.63 | 0.01 | 0.16 |
+| `endFrame` | 0.21 | 0.19 | 0.17 | 0.09 |
+| objects | 0.00 | 0.01 | 0.01 | 0.01 |
+| **the whole frame** | 2.19 | 2.43 | 1.02 | 1.04 |
+
+**The GPU-heavy passes and the EE-heavy one run one after another.**
+Terrain, batches and roads are EE-cheap and GPU-heavy: whole-bag baked
+replays, one REF each. The EE fills the four-chain queue and then waits.
+Objects are the opposite (2.3 ms of EE in the garage, next to no wait), so
+EE savings in the object loop count in full, including `prepare`. This also
+explains why round five's `vif_wait` rose: those saved microseconds reached
+the next GPU-heavy stretch sooner.
+
+**Interleaving them, prototyped.** The terrain, batch and road bags of the
+main pass are deferred into a list and fed into the object loop, spread evenly
+over the drawn objects and flushed after it. Game code only, one ELF toggled
+at boot (`drip_probe.py`). `work`, two control boots:
+
+| arm | garage day | garage night | outer day | outer night |
+| --- | ---: | ---: | ---: | ---: |
+| inside the object submission batch | **-0.29 / -0.32** | **-0.35 / -0.41** | +0.40 / +0.33 | +0.22 / +0.23 |
+| batch closed around every drip | +0.25 | +0.22 | +0.31 | +0.14 |
+
+- It works where the table above says it should: in the garage, `vif_wait`
+  falls 0.19-0.31 ms and `dispatch` 0.8-0.9 ms.
+- It costs `prepare` +0.42..+0.49 ms in every pose, and in the outer poses
+  more than it saves. There, terrain is EE-heavy too (1.97 ms of EE and
+  0.01 ms of wait), so deferring it only moves EE work around.
+- Closing the object batch around each drip costs more than it saves.
+- Where the +0.42 ms of `prepare` goes is NOT measured.
+
+**Not shipped.** The next arm to run defers only the roads and batches, and
+prices the `prepare` increase with the attribution build. Order is also a
+correctness question: an alpha-blended object drawn before the terrain behind
+it blends with the sky instead, so a shipped version must flush the deferred
+list before the first object that may be translucent.
+
+**A hazard found on the way.** An adaptive variant asked the queue how many
+chains were pending (a probe-only `Vif1Queue::pending()` that advances the
+queue, called from the object loop inside an open submission batch). It hung
+the physical PS2 on its first boot: the IOP spammed `freepad: DMA Busy`, and
+`ps2client reset` could not recover it. The cause was not isolated. Game code
+must not drive the queue.
+
 ## Order of work
 
 1. ~~Probe A and Probe B.~~ **DONE, on hardware, 2026-09-16.** S3 does not ship;
