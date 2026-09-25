@@ -308,6 +308,20 @@ None of this is a reason to mark everything. Four is still four, and the
 casters you did not want are still the ones the camera happens to be near — it
 just no longer blinks while it decides.
 
+### Blob cost
+
+A blob is 18 triangles: a 3x3 patch that follows the ground, sampled at a
+cached 4x4 lattice. On a physical PS2 a parked car's blob still measured
+**0.35 ms of `work` by day and 0.12 at night** (Motor District orbit rig,
+median of 240 frames, two boots; removing the Ravager's blob only). Since
+1.134.1 a caster whose position, rotation and scale have not changed keeps
+its patch: the same vertices, the same content stamp and no `bboxVersion`
+bump, so its bag replays its baked stream, and the 16 ground queries are
+skipped. That bought only **0.02..0.09 ms**, so rebuilding the patch was not
+what the blob costs. The rest is still unexplained: a separate bag and a
+separate texture per car, TestOnly z, precise culling and clipping. Open in
+docs/backlog.md.
+
 ## Baked (decal)
 
 The other three shadows on this page are computed while the game runs, and

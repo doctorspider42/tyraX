@@ -2742,6 +2742,13 @@ class TerrainGame : public Tyra::Game {
     BagArray<Tyra::Vec4> verts, sts;
     Tyra::Color color;
     Tyra::M4x4 mat;
+    // The caster's transform the patch was last built for (position,
+    // rotation, scale). A caster that has not moved keeps its patch, its
+    // content stamp and its bboxVersion, so the bag stays baked - see
+    // updateAndRenderBlobShadows. `keyHidden`: that build faded to nothing.
+    float key[9] = {};
+    bool keyValid = false, keyHidden = false;
+    Tyra::Vec4 cullMin, cullMax;  // the footprint box that build was culled by
     std::unique_ptr<Tyra::StaPipInfoBag> info;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
@@ -4528,6 +4535,13 @@ class TerrainGame : public Tyra::Game {
     BagArray<Tyra::Vec4> verts, sts;
     Tyra::Color color;
     Tyra::M4x4 mat;
+    // The caster's transform the patch was last built for (position,
+    // rotation, scale). A caster that has not moved keeps its patch, its
+    // content stamp and its bboxVersion, so the bag stays baked - see
+    // updateAndRenderBlobShadows. `keyHidden`: that build faded to nothing.
+    float key[9] = {};
+    bool keyValid = false, keyHidden = false;
+    Tyra::Vec4 cullMin, cullMax;  // the footprint box that build was culled by
     std::unique_ptr<Tyra::StaPipInfoBag> info;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
@@ -16876,6 +16890,26 @@ void TerrainGame::updateAndRenderBlobShadows() {
     // A shadow never outlives the caster's authored draw distance. Rejecting
     // here also avoids the model-bound lookup and five terrain samples below.
     if (beyondDrawDistance(d, cameraPosition)) continue;
+    // A caster that has not moved since its patch was built keeps it: same
+    // 54 vertices, same stamp, no bboxVersion bump - so the bag replays its
+    // baked stream instead of being re-staged, and the 16 ground queries
+    // (each one searches the road and junction triangles) are skipped. On a
+    // physical PS2 a parked car's blob cost 0.31-0.33 ms a frame by day
+    // before this (docs/shadows.md, "Blob cost"). The ground under a still
+    // caster does not change: terrain and roads are static at run time.
+    const float key[9] = {d.position[0], d.position[1], d.position[2],
+                          d.rotation[0], d.rotation[1], d.rotation[2],
+                          d.scale[0],    d.scale[1],    d.scale[2]};
+    if (b.keyValid && memcmp(key, b.key, sizeof(key)) == 0) {
+      if (b.keyHidden) continue;
+      // The frustum test below still has to run: the camera moves.
+      if (Tyra::CoreBBox::frustumCheckAABB(
+              engine->renderer.core.renderer3D.frustumPlanes.getAll(),
+              b.cullMin, b.cullMax) == Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
+        continue;
+      stapip.core.render(b.bag.get());
+      continue;
+    }
     float cx = d.position[0], cz = d.position[2];
     float halfY = d.scale[1] * 0.5F;
     float r = d.scale[0] > d.scale[2] ? d.scale[0] : d.scale[2];
@@ -16928,6 +16962,8 @@ void TerrainGame::updateAndRenderBlobShadows() {
                           1.0F);
       const Tyra::Vec4 mx(cx + extent, d.position[1] + yExtent, cz + extent,
                           1.0F);
+      b.cullMin = mn;
+      b.cullMax = mx;
       if (Tyra::CoreBBox::frustumCheckAABB(
               engine->renderer.core.renderer3D.frustumPlanes.getAll(), mn,
               mx) == Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
@@ -16944,7 +16980,10 @@ void TerrainGame::updateAndRenderBlobShadows() {
     // direction, so it has nothing to hide when the light swaps bodies - and
     // fading it anyway left every object unmoored for the hour around twilight,
     // on top of the low-sun window the silhouettes were already dark for.
-    if (fade <= 0.02F) continue;
+    memcpy(b.key, key, sizeof(key));
+    b.keyValid = true;
+    b.keyHidden = fade <= 0.02F;
+    if (b.keyHidden) continue;
     if (fade > 1.0F) fade = 1.0F;
     const float lift = 0.06F;
     // The receiver is always a small 3x3 grid. Besides following ordinary
@@ -37115,8 +37154,24 @@ void TerrainGame::renderVehicleGlow() {
         const int nRear = s.lampRearVerts < (int)cols.size()
                               ? s.lampRearVerts
                               : (int)cols.size();
-        for (int ci = 0; ci < nRear; ++ci) cols[(size_t)ci] = rc;
-        for (int ci = nRear; ci < (int)cols.size(); ++ci) cols[(size_t)ci] = fc;
+        // Only on a CHANGE. Every write through the array moves its content
+        // stamp, and a moved stamp re-stages the lamp bag instead of replaying
+        // its baked stream - which this loop used to force every frame, for a
+        // colour that changes when a lamp switches. A parked car's lamps and
+        // headlight pool together cost 0.14-0.20 ms a frame on a physical PS2
+        // (docs/vehicles.md, "The matte car, taken apart"). Read through the
+        // const accessor: it does not stamp.
+        const auto& ccols = cols;
+        auto same = [](const Tyra::Color& a, const Tyra::Color& b) {
+          return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
+        };
+        const bool rearOk = nRear <= 0 || same(ccols[0], rc);
+        const bool frontOk =
+            nRear >= (int)cols.size() || same(ccols[(size_t)nRear], fc);
+        if (!rearOk || !frontOk) {
+          for (int ci = 0; ci < nRear; ++ci) cols[(size_t)ci] = rc;
+          for (int ci = nRear; ci < (int)cols.size(); ++ci) cols[(size_t)ci] = fc;
+        }
       }
     }
     if (v.lightsOn > 0 && flashGoboTex &&

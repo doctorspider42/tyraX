@@ -260,6 +260,11 @@ leaves these, dearest first:
   "Where the shine's cost is, and one dead end"). What is left on the EE side:
   a hysteresis step that grows with the distance to the car, or rebuilding at
   most one car's colours a frame, round-robin. Both are unmeasured.
+- **Per-car small parts cost more than their triangles** (docs/shadows.md,
+  "Blob cost"): the blob is 0.35 ms by day for 18 triangles, and the lamps and
+  lights 0.25 ms. Caching the blob patch and the lamp colours bought
+  0.02-0.09 ms and ~0.07 ms. Next: find the fixed cost (a bag each, a texture
+  each, precise clip), for example one shared blob bag for every car.
 - **Stale entries:** the two "vehicle BODIES are still triangle lists" entries
   further down predate 1.117.4, which strips the body parts (the Ravager's
   paint part is 5490 list vertices -> 2649 strip vertices, 0.483x).

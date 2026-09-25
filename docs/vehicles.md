@@ -945,6 +945,12 @@ camera, `work` saved:
   triangles lighter here, not a different class of mesh.
 - everything that is not the body or the shine - wheels, blob, lamps and
   headlights, the object's fixed cost - is ~0.67..0.70.
+- **The small parts are not small.** The blob (18 triangles) costs 0.35 ms by
+  day and 0.12 at night. The lamps, headlight pool and glow cost 0.24..0.26 ms.
+  These are medians over 240 frames, two boots each. Since 1.134.1 the lamp
+  part is re-coloured only when a lamp actually switches; it used to be
+  rewritten every frame, which moved its content stamp and forced the bag to
+  re-stage. That saved ~0.07 ms by day. See docs/shadows.md, "Blob cost".
 - **It is not pixel fill.** With the camera orbiting at 18 units instead of 9
   (a quarter of the pixels), the car without its shine costs 1.43..1.46 ms,
   against ~1.5 at 9 units. A close car is expensive for its vertices,
