@@ -915,6 +915,14 @@ arms on the same fixture, two rounds each:
 - **The paint colours cost the EE 0.38-0.44 ms a car**, but only while the
   view turns (the distinct-normal loop plus the colour scatter). Parked, they
   cost nothing, because the hysteresis keeps them.
+  Split on the same fixture (both cars, camera orbiting, two rounds): no
+  rebuilds at all saves 0.76..0.83 ms; rebuilding the colours WITHOUT moving
+  the content stamp (a measurement hack - the stale payload keeps drawing)
+  saves 0.34..0.37. So about half is the loop and the scatter (~0.42 ms) and
+  half is re-staging the env bags whose baked payload the new colours
+  invalidated (~0.35 ms: `prepare` -0.16, `dispatch` -0.19..-0.22). At the
+  4/128 hysteresis step and 0.8 deg/frame a car rebuilds every ~2.3 frames,
+  so one rebuild of both cars is ~0.9 ms.
 - **Computing them on VU1 instead is SLOWER. Tried and reverted.** The env
   programs (cull_tce, the shared clip TC image, as_is_tce) computed the fresnel
   and specular from the normal they already hold, and the EE only uploaded two
