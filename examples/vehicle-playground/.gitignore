@@ -56,3 +56,7 @@ bin/replay.st
 # The baked shadow-decal cache (docs/shadows.md). An explicit bake, like the
 # GI cache above it: no build produces it, so the project ships it.
 !/.res-baked/shadow/
+
+# The console session logs Run on PS2 writes (docs/ps2link-setup.md, "The
+# session log"). A record of this machine's runs, bounded by Preferences.
+logs/

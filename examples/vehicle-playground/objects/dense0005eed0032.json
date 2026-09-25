@@ -1,1 +1,1 @@
-{"id": "dense0005eed0032", "name": "Dense Loft 51", "type": "model", "position": [-15.34, 0.0, 85.24], "rotation": [0, -0.8, 0], "scale": [1.0, 1.0, 1.0], "color": [1, 1, 1], "physics": false, "drawDistance": 145, "castShadow": false, "model": "res/models/urban/district-loft.obj"}
+{ "id": "dense0005eed0032", "name": "Dense Loft 51", "type": "model", "position": [-15.34, 0, 85.24], "rotation": [0, -0.8, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "drawDistance": 145, "castShadow": false, "model": "res/models/urban/district-loft.obj" }

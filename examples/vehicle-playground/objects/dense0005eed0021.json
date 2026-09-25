@@ -1,1 +1,1 @@
-{"id": "dense0005eed0021", "name": "Dense Tower 34", "type": "model", "position": [137.28, 3.453, 52.9], "rotation": [0, -99.2, 0], "scale": [1.5, 1.5, 1.5], "color": [1, 1, 1], "physics": false, "drawDistance": 145, "castShadow": false, "model": "res/models/urban/district-tower.obj"}
+{ "id": "dense0005eed0021", "name": "Dense Tower 34", "type": "model", "position": [137.28, 3.453, 52.9], "rotation": [0, -99.2, 0], "scale": [1.5, 1.5, 1.5], "color": [1, 1, 1], "physics": false, "drawDistance": 145, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

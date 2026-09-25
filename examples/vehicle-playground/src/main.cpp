@@ -66,7 +66,7 @@ int main(int argc, char** argv) {
   // GS's ordered dithering. 16bpp halves what the two frame buffers cost in
   // GS memory and hands it to the texture heap; the dither is what keeps the
   // 5-bit channels from banding. See docs/gs-vram.md.
-  options.colorDepth = Tyra::ColorDepth::Bits32;
+  options.colorDepth = Tyra::ColorDepth::Hybrid;
   options.dither = true;
   // Optional GS render targets, 128 KB each, reserved only when this project
   // has something that reads them: a reflective "@sky" material for the env

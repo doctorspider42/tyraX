@@ -2663,6 +2663,7 @@ void TerrainGame::init() {
 
 void TerrainGame::loop() {
   const u32 traceUpdateStart = Tyra::HardwareTrace::active ? Tyra::HardwareTrace::ticks() : 0;
+  beamBatchCall = 0;  // the light-beam batch slots start over (see BeamBatch)
 #if TYRA_FRAME_PROFILE
   // FTUPD (docs/profiling.md, "The update half of pre"): lap i adds the time
   // since the previous mark to ftrig::updLap[i].
@@ -9259,6 +9260,57 @@ void TerrainGame::setupLightBeams() {
     b.coronaColorBag->single = &b.coronaColor;
     if (b.coneInfo) b.coneInfo->model = &b.mat;
   }
+  // A new scene can have a different beam count: the batch slots are sized
+  // for it on first use. Scene loads happen between frames, with VIF1 idle.
+  beamBatches.clear();
+  beamBatchCall = 0;
+}
+
+// The batch slot for this call of updateAndRenderLightBeams (see BeamBatch).
+// Same states as the per-beam bags it replaces - TestOnly z, full clip
+// checks, additive - with the FIX pinned at 128 because the brightness now
+// lives in the vertex colours. Capacity for every beam at once, so a call's
+// push_backs never move the arrays between the bind and the submit.
+TerrainGame::BeamBatch& TerrainGame::beamBatchForCall() {
+  if (beamBatchCall >= (int)beamBatches.size()) {
+    beamBatches.push_back(std::make_unique<BeamBatch>());
+    BeamBatch& s = *beamBatches.back();
+    s.mat.identity();
+    size_t cones = 0;
+    for (const LightBeam& lb : lightBeams)
+      if (lb.kind == 2) ++cones;
+    s.coronaVerts.reserve(lightBeams.size() * 6);
+    s.coronaSts.reserve(lightBeams.size() * 6);
+    s.coronaColors.reserve(lightBeams.size() * 6);
+    s.coneVerts.reserve(cones * 24);
+    s.coneColors.reserve(cones * 24);
+    s.coronaInfo = std::make_unique<StaPipInfoBag>();
+    s.coronaInfo->model = &s.mat;
+    s.coronaInfo->shadingType = TyraShadingGouraud;
+    s.coronaInfo->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    s.coronaInfo->zTestType = PipelineZTest_TestOnly;  // occluded, no z write
+    s.coronaInfo->fullClipChecks = true;  // near-camera quads: clip, not drop
+    s.coronaInfo->additiveBlendFix = 128;
+    s.coronaColorBag = std::make_unique<StaPipColorBag>();
+    s.coronaTexBag = std::make_unique<StaPipTextureBag>();
+    s.coronaTexBag->texture = beamCoronaTex;
+    s.coronaBag = std::make_unique<StaPipBag>();
+    s.coronaBag->info = s.coronaInfo.get();
+    s.coronaBag->color = s.coronaColorBag.get();
+    s.coronaBag->texture = s.coronaTexBag.get();
+    s.coneInfo = std::make_unique<StaPipInfoBag>();
+    s.coneInfo->model = &s.mat;
+    s.coneInfo->shadingType = TyraShadingGouraud;
+    s.coneInfo->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    s.coneInfo->zTestType = PipelineZTest_TestOnly;
+    s.coneInfo->fullClipChecks = true;  // walk-through shafts: clip, not drop
+    s.coneInfo->additiveBlendFix = 128;
+    s.coneColorBag = std::make_unique<StaPipColorBag>();
+    s.coneBag = std::make_unique<StaPipBag>();
+    s.coneBag->info = s.coneInfo.get();
+    s.coneBag->color = s.coneColorBag.get();
+  }
+  return *beamBatches[beamBatchCall++];
 }
 
 // An ORIENTED box the flashlight's beam can land on - see projCollectBoxes,
@@ -13413,8 +13465,10 @@ void TerrainGame::renderProjShadows() {
       // pipeline by REFERENCE: the previous part's DMA may still be reading it
       // when the next part overwrites it (assign() may even reallocate under
       // the transfer). Only the shadow-slot brackets fence this; between two
-      // parts of one caster nothing does, so wait for the readers first.
-      dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+      // parts of one caster nothing does, so wait for the readers first -
+      // ALL of them: with the engine's VIF1 queue a plain channel wait can
+      // return while chains are still queued (vif1_queue.hpp).
+      Tyra::Vif1Queue::drain();
       projClamp.assign(bag->vertices, bag->vertices + bag->count);
       for (Vec4& v : projClamp)
         if (v.y < gy0) v.y = gy0;
@@ -13900,6 +13954,14 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
   const float ux = ry * fz - rz * fy, uy = rz * fx - rx * fz,
               uz = rx * fy - ry * fx;  // cross(right, fwd)
 
+  // This call's batches (see BeamBatch): filled below, one submit each.
+  BeamBatch& bb = beamBatchForCall();
+  bb.coronaVerts.clear();
+  bb.coronaSts.clear();
+  bb.coronaColors.clear();
+  bb.coneVerts.clear();
+  bb.coneColors.clear();
+
   for (LightBeam& b : lightBeams) {
     if (b.objIndex >= (int)runtimeObjects.size()) continue;
     const RuntimeObject& ro = runtimeObjects[b.objIndex];
@@ -13965,6 +14027,23 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
     // can only alter one sample. Cull it before touching its six vertices.
     if (beamDistance > 0.0001F && chalf * 512.0F / beamDistance < 0.75F)
       continue;
+    // Only lamps whose corona or shaft can be in view join the batch. One
+    // bag for all of them has one box, and an offscreen lamp inside it made
+    // its packages clip instead of dropping out on its own box: outer night
+    // measured +0.20 ms before this test and -0.20 after (physical PS2, one
+    // ELF toggled at boot). The sphere covers the corona's pull toward the
+    // camera (<= 0.25 R) and the shaft (0.7 R down, 0.3 R wide).
+    {
+      const Tyra::Plane* fp =
+          engine->renderer.core.renderer3D.frustumPlanes.getAll();
+      const float sr = d.lightRadius * 0.8F + chalf;
+      bool out = false;
+      for (int pi = 0; pi < 6 && !out; ++pi)
+        if (fp[pi].distance + fp[pi].normal.x * cx + fp[pi].normal.y * cy +
+                fp[pi].normal.z * cz < -sr)
+          out = true;
+      if (out) continue;
+    }
     const Vec4 corners[4] = {
         Vec4(pcx + (-rx - ux) * chalf, pcy + (-ry - uy) * chalf,
              pcz + (-rz - uz) * chalf, 1.0F),
@@ -13980,14 +14059,17 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
     b.coronaVerts[3] = corners[0];
     b.coronaVerts[4] = corners[2];
     b.coronaVerts[5] = corners[3];
-    // Tint by the light color; brightness rides the additive FIX.
-    b.coronaColor.set(128.0F * d.color[0], 128.0F * d.color[1],
-                      128.0F * d.color[2], 128.0F);
-    float fix = 128.0F * (k > 1.0F ? 1.0F : k);
-    b.coronaInfo->additiveBlendFix =
-        fix > 255.0F ? 255 : (fix < 1.0F ? 1 : (u8)fix);
-    b.coronaBag->bboxVersion = ++g_bboxStamp;
-    stapip.core.render(b.coronaBag.get());
+    // Tint by the light color, scaled by the brightness: the batch draws at
+    // FIX 128, so what used to be this corona's FIX (128 * k) is the colour.
+    const float kk = k > 1.0F ? 1.0F : k;
+    const Color cc(128.0F * d.color[0] * kk, 128.0F * d.color[1] * kk,
+                   128.0F * d.color[2] * kk, 128.0F);
+    const LightBeam& cb = b;  // read-only: no content stamp on the sources
+    for (int v = 0; v < 6; ++v) {
+      bb.coronaVerts.push_back(cb.coronaVerts[v]);
+      bb.coronaSts.push_back(cb.coronaSts[v]);
+      bb.coronaColors.push_back(cc);
+    }
 
     if (b.kind == 2 && b.coneBag &&
         (!adaptiveReduced || beamDistance <= d.lightRadius * 8.0F)) {
@@ -14025,12 +14107,32 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
         b.coneKeyG = d.color[1];
         b.coneKeyB = d.color[2];
       }
-      // The shaft is dimmer than the corona (it covers far more pixels).
-      float cfix = 52.0F * (k > 1.0F ? 1.0F : k);
-      b.coneInfo->additiveBlendFix =
-          cfix > 255.0F ? 255 : (cfix < 1.0F ? 1 : (u8)cfix);
-      stapip.core.render(b.coneBag.get());
+      // The shaft is dimmer than the corona (it covers far more pixels): its
+      // old FIX of 52 * k becomes a colour scale of 52 * k / 128 at FIX 128.
+      const float cs = 52.0F * kk / 128.0F;
+      for (int v = 0; v < 24; ++v) {
+        const Color& src = cb.coneColors[v];
+        bb.coneVerts.push_back(cb.coneVerts[v]);
+        bb.coneColors.push_back(
+            Color(src.r * cs, src.g * cs, src.b * cs, src.a));
+      }
     }
+  }
+
+  // One submission per batch. Additive and z-tested without z writes, so
+  // the order inside a batch, and between the two, draws the same light.
+  if (!bb.coronaVerts.empty()) {
+    bb.coronaVerts.bind(bb.coronaBag);
+    bb.coronaSts.bind(bb.coronaTexBag);
+    bb.coronaColors.bind(bb.coronaColorBag);
+    bb.coronaBag->bboxVersion = ++g_bboxStamp;
+    stapip.core.render(bb.coronaBag.get());
+  }
+  if (!bb.coneVerts.empty()) {
+    bb.coneVerts.bind(bb.coneBag);
+    bb.coneColors.bind(bb.coneColorBag);
+    bb.coneBag->bboxVersion = ++g_bboxStamp;
+    stapip.core.render(bb.coneBag.get());
   }
 }
 
@@ -16756,11 +16858,23 @@ void TerrainGame::renderStaticBatches() {
     }
     // Split halves: same band early-out the terrain chunks use.
     if (splitBandActive && outsideSplitBand(b.aabbMin, b.aabbMax)) continue;
+    // The batch is world space (identity model) and aabbMin/Max is exactly
+    // its vertex box, so this is the test StaPip's own main-bbox check would
+    // make, with the same planes and the same verdict - without entering
+    // render() for it. The road chunks do the same.
+    {
+      const Tyra::Vec4 mn(b.aabbMin[0], b.aabbMin[1], b.aabbMin[2], 1.0F);
+      const Tyra::Vec4 mx(b.aabbMax[0], b.aabbMax[1], b.aabbMax[2], 1.0F);
+      if (Tyra::CoreBBox::frustumCheckAABB(
+              engine->renderer.core.renderer3D.frustumPlanes.getAll(), mn, mx) ==
+          Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
+        continue;
+    }
     bool ownsOccluder = false;
     for (const StaticBatchMember& m : b.members)
       if (occlusionObjectIsOccluder(m.object)) { ownsOccluder = true; break; }
     if (!ownsOccluder && occlusionHiddenAabb(b.aabbMin, b.aabbMax)) continue;
-    stapip.core.render(b.bag.get());
+    submitHeavy(b.bag.get());
   }
 }
 
@@ -17656,6 +17770,8 @@ void TerrainGame::setupVehicles(int scene) {
     // references it - the lazy per-object load would never touch it.
     if (v.def >= 0 && VEHICLE_DEFS[v.def].wheelModel >= 0)
       loadModelAsset(VEHICLE_DEFS[v.def].wheelModel);
+    if (v.def >= 0 && VEHICLE_DEFS[v.def].fastWheelModel >= 0)
+      loadModelAsset(VEHICLE_DEFS[v.def].fastWheelModel);
   }
 }
 
@@ -18781,6 +18897,14 @@ void TerrainGame::updateVehicles(float dt) {
     }
     v.wheelSpin = fmodf(v.wheelSpin, 360.0F);
     if (v.wheelSpin < 0.0F) v.wheelSpin += 360.0F;
+    if (s.fastWheelModel >= 0 && s.fastWheelSpeed > 0.0F) {
+      const float rr = s.wheelRadius * SC > 0.001F ? s.wheelRadius * SC : 0.001F;
+      const float rate = fabsf(v.wheelSpeed) / rr;  // rad/s
+      if (rate > s.fastWheelSpeed) v.fastWheels = true;
+      else if (rate < 0.8F * s.fastWheelSpeed) v.fastWheels = false;
+    } else {
+      v.fastWheels = false;
+    }
 
     // Weight transfer - the arcade body language, the host twin's formula
     // exactly (vehiclesim::step): squat under power, dive under braking (and
@@ -18963,7 +19087,10 @@ void TerrainGame::updateVehicles(float dt) {
                  v.enginePitchReg, " lean10 ", (int)(v.leanRoll * 10.0F),
                  " mtx ",
                  (int)(v.object >= 0 ? runtimeObjects[v.object].onMatrixPath
-                                     : 0));
+                                     : 0),
+                 // Which wheel model the car draws (docs/vehicles.md, "A fast
+                 // wheel"): 1 = the fast one. The swap's own test enabler.
+                 " fw ", v.fastWheels ? 1 : 0);
       }
     }
   }
@@ -19464,10 +19591,8 @@ void TerrainGame::renderVehicleWheels() {
   // it at all. `changed` stays false only if every byte of the buffer is the
   // byte it held last frame.
   const GameModelPart* src = nullptr;
-  // The array the four wheels are baked FROM, and the run it is chopped into.
-  // See the strip block below; `srcRun` 0 means this batch is a triangle list.
-  const std::vector<float>* srcGeo = nullptr;
-  unsigned int srcReal = 0;
+  // The run the wheels are chopped into. See the strip block below; `srcRun`
+  // 0 means this batch is a triangle list.
   unsigned int srcRun = 0;
   int slot = 0;
   bool changed = false;
@@ -19485,8 +19610,20 @@ void TerrainGame::renderVehicleWheels() {
     const int wm = s.wheelModel;
     if (wm < 0 || wm >= (int)gameModels.size() || gameModels[wm].parts.empty())
       continue;
-    const GameModelPart& part = gameModels[wm].parts[0];
-    if (part.verts.size() < 24) continue;
+    const GameModelPart& part0 = gameModels[wm].parts[0];  // the ordinary wheel
+    if (part0.verts.size() < 24) continue;
+    // THE FAST WHEEL (docs/vehicles.md, "A fast wheel"): all four wheels of a
+    // car swap to the definition's second model while v.fastWheels is set
+    // (updateVehicles, with hysteresis). It shares the palette texture, so the
+    // batch stays one bag; what differs per car is only which array its
+    // vertices and STs are baked from.
+    const int fm = s.fastWheelModel;
+    const GameModelPart* fastPart =
+        (fm >= 0 && fm < (int)gameModels.size() && !gameModels[fm].parts.empty() &&
+         gameModels[fm].parts[0].verts.size() >= 24)
+            ? &gameModels[fm].parts[0]
+            : nullptr;
+    const GameModelPart& part = (v.fastWheels && fastPart) ? *fastPart : part0;
     // THE FAR TIER (docs/vehicles.md): once the body shows a distance tier,
     // that tier carries the four wheels baked in at their rest anchors, so
     // the wheel bag must not draw a second set - a distant car is the body's
@@ -19507,12 +19644,17 @@ void TerrainGame::renderVehicleWheels() {
     // permitted suspension position fit it. A false positive only takes the
     // old path; a false negative would visibly pop a tyre.
     if (batch.localRadius < 0.0F) {
+      // Over BOTH models: a car may swap mid-view, and the rig's box must hold
+      // whichever wheel it draws.
       batch.localRadius = 0.0F;
-      for (size_t q = 0; q + 2 < part.verts.size(); q += 8) {
-        const float r = sqrtf(part.verts[q] * part.verts[q] +
-                              part.verts[q + 1] * part.verts[q + 1] +
-                              part.verts[q + 2] * part.verts[q + 2]);
-        if (r > batch.localRadius) batch.localRadius = r;
+      for (const GameModelPart* rp : {&part0, fastPart}) {
+        if (!rp) continue;
+        for (size_t q = 0; q + 2 < rp->verts.size(); q += 8) {
+          const float r = sqrtf(rp->verts[q] * rp->verts[q] +
+                                rp->verts[q + 1] * rp->verts[q + 1] +
+                                rp->verts[q + 2] * rp->verts[q + 2]);
+          if (r > batch.localRadius) batch.localRadius = r;
+        }
       }
     }
     const float SC = v.scale;
@@ -19553,15 +19695,31 @@ void TerrainGame::renderVehicleWheels() {
     // repeats the strip's last vertex; the transform is per vertex, so a
     // repeat stays a repeat and the GS rasterises the degenerate triangle to
     // nothing. It costs 30 vertices of 750 on the district's largest wheel.
-    const bool useStrip = TYRA_STRIP_WHEELS && part.stripRun != 0 &&
-                          !part.stripVerts.empty() &&
-                          part.stripRun <= minPackageSize();
+    // One bag is one primitive type and one package size, so the batch
+    // strips only when BOTH wheel models carry a strip of the same run; and
+    // the per-wheel block is sized for the LARGER of the two, so a swap
+    // never changes vertsPerCar (which would reset every slot of the batch).
+    // The shorter model is padded exactly like a run tail: its last vertex
+    // again, a degenerate triangle the GS rasterises to nothing.
+    const auto stripOk = [&](const GameModelPart& pp) {
+      return TYRA_STRIP_WHEELS && pp.stripRun != 0 && !pp.stripVerts.empty() &&
+             pp.stripRun <= minPackageSize();
+    };
+    const bool useStrip =
+        stripOk(part0) &&
+        (!fastPart || (stripOk(*fastPart) && fastPart->stripRun == part0.stripRun));
     const std::vector<float>& geo = useStrip ? part.stripVerts : part.verts;
-    const u32 run = useStrip ? part.stripRun : 0u;
+    const u32 run = useStrip ? part0.stripRun : 0u;
     const u32 real = (u32)(geo.size() / 8);  // vertices that carry geometry
-    const u32 nv = run ? ((real + run - 1) / run) * run : real;
-    srcGeo = &geo;
-    srcReal = real;
+    const auto blockOf = [&](const GameModelPart& pp) {
+      const u32 n = (u32)((useStrip ? pp.stripVerts : pp.verts).size() / 8);
+      return run ? ((n + run - 1) / run) * run : n;
+    };
+    u32 nv = blockOf(part0);
+    if (fastPart) {
+      const u32 fnv = blockOf(*fastPart);
+      if (fnv > nv) nv = fnv;
+    }
     srcRun = run;
     const u32 vpc = nv * 4;
     // Every car in this batch reads the same definition, so this can only
@@ -19581,6 +19739,26 @@ void TerrainGame::renderVehicleWheels() {
     if ((int)batch.slots.size() <= slot)
       batch.slots.resize((size_t)slot + 1);
     WheelSlot& sl = batch.slots[(size_t)slot];
+    // This slot's STs and colours, written from THIS car's model - once, and
+    // again only when the slot's model changes (a fast-wheel swap, or the slot
+    // passing to a car on the other model).
+    if (sl.stGeo != (const void*)geo.data()) {
+      if (batch.sts.size() < base + vpc) batch.sts.resize(base + vpc);
+      if (batch.cols.size() < base + vpc)
+        batch.cols.resize(base + vpc, Tyra::Color(128.0F, 128.0F, 128.0F, 128.0F));
+      for (int w = 0; w < 4; ++w)
+        for (u32 i = 0; i < nv; ++i) {
+          // Padding again: a repeated vertex needs its ST repeated with it.
+          const float* q = &geo[(size_t)(i < real ? i : real - 1) * 8];
+          const size_t at = base + (size_t)w * (size_t)nv + i;
+          batch.sts[at] = Tyra::Vec4(q[6], q[7], 1.0F, 0.0F);
+          // Flat mid grey: the wheel's colour comes from its palette TEXEL,
+          // and 128 is the modulate identity the textured path expects.
+          batch.cols[at] = Tyra::Color(128.0F, 128.0F, 128.0F, 128.0F);
+        }
+      sl.stGeo = geo.data();
+      changed = true;
+    }
     // THE SIGNATURE: every input the vertices below are a function of, held
     // as raw floats and compared exactly - no hash, because a collision here
     // is a wheel frozen one frame behind its car. The definition's own
@@ -19782,21 +19960,12 @@ void TerrainGame::renderVehicleWheels() {
     changed = true;
   }
   if ((int)batch.slots.size() > cars) batch.slots.resize((size_t)cars);
-  while (batch.staticCars < cars) {
-    for (int w = 0; w < 4; ++w)
-      for (u32 i = 0; i < vertsPerCar / 4; ++i) {
-        // Padding again: a repeated vertex needs its ST repeated with it, or
-        // the degenerate triangle would sample somewhere else - harmless while
-        // it has no area, but the two arrays must stay the same length.
-        const float* q =
-            &(*srcGeo)[(size_t)(i < srcReal ? i : srcReal - 1) * 8];
-        // Flat mid grey: the wheel's colour comes from its palette TEXEL,
-        // and 128 is the modulate identity the textured path expects.
-        batch.cols.push_back(Tyra::Color(128.0F, 128.0F, 128.0F, 128.0F));
-        batch.sts.push_back(Tyra::Vec4(q[6], q[7], 1.0F, 0.0F));
-      }
-    ++batch.staticCars;
-  }
+  // The per-slot fill above wrote every live slot's STs and colours; trim the
+  // arrays to the slots in use so all three stay the vertex array's length.
+  if (batch.sts.size() != total) batch.sts.resize(total);
+  if (batch.cols.size() != total)
+    batch.cols.resize(total, Tyra::Color(128.0F, 128.0F, 128.0F, 128.0F));
+  batch.staticCars = cars;
   if (!wheelBag_) {
     wheelColorBag_ = std::make_unique<Tyra::StaPipColorBag>();
     wheelBag_ = std::make_unique<Tyra::StaPipBag>();
@@ -20409,8 +20578,204 @@ void TerrainGame::renderRoadChunks() {
             engine->renderer.core.renderer3D.frustumPlanes.getAll(), mn, mx) ==
         Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
       continue;
-    stapip.core.render(c.bag.get());
+    submitHeavy(c.bag.get());
   }
+}
+
+// ---------------------------------------------------------------------------
+// Interleaved passes (docs/interleaved-passes.md, INTERLEAVE_PASSES)
+// ---------------------------------------------------------------------------
+// Measured on a physical PS2 (Motor District, garage): the EE waits for VU1
+// in the static batch and road passes (0.66 + 0.89 ms a frame) and not at
+// all in the object loop, which does 2.3 ms of EE work for little GPU work.
+// Feeding the batch and road bags into the object loop overlaps the two.
+// Terrain stays where it is: it is EE-heavy outdoors, and deferring it cost
+// more than it saved there.
+
+void TerrainGame::submitHeavy(Tyra::StaPipBag* bag) {
+  if (heavyCollect)
+    heavyBags.push_back(bag);
+  else
+    stapip.core.render(bag);
+}
+
+// Feeds the deferred bags back: a share of them per drawn object, spread so
+// the last one goes out around the previous frame's last drawn object, or
+// all of them. Called inside the object loop's submission batch - measured,
+// closing the batch around each feed costs more than the feed saves.
+void TerrainGame::dripHeavy(bool all) {
+  if (!all) ++heavyDrawn;  // every drawn object, also after the blend flush
+  const size_t total = heavyBags.size();
+  if (heavyNext >= total) return;
+  size_t want = total - heavyNext;
+  if (!all) {
+    const size_t objs = heavyPrevDrawn > 0 ? (size_t)heavyPrevDrawn : 1;
+    const size_t even = (total + objs - 1) / objs;
+    if (even < want) want = even;
+  }
+  for (size_t k = 0; k < want; ++k) stapip.core.render(heavyBags[heavyNext++]);
+}
+
+// Decides this frame's order. Off and always are constants; auto probes 8
+// pairs of frames, one in each order, and keeps the order that won most of
+// them for ilHoldFrames. The two frames of a pair see nearly the same view,
+// and counting pair wins instead of summing times means one slow frame (a
+// scene load, a texture upload burst) decides one pair, not the verdict.
+//
+// What is timed is the WHOLE loop, from here to here one frame later, minus
+// the renderer's stall. Timing only the passes that move was tried first
+// and missed the cost: measured on a PS2 in open ground, interleaving costs
+// nothing inside them and +0.19 ms later, at endFrame, where the GS tail
+// that the object loop used to hide is now waited for.
+bool TerrainGame::interleaveBegin() {
+  heavyBags.clear();
+  heavyNext = 0;
+  heavyDrawn = 0;
+  if (INTERLEAVE_PASSES == 0 || splitPassActive) return false;
+  if (INTERLEAVE_PASSES == 2) return true;
+  const u32 now = profTicks();
+  const u32 stall = engine->renderer.core.getStallTotal();
+  if (ilHaveMark) {
+    const u32 period = now - ilMark;
+    const u32 stalled = stall - ilStallMark;
+    ilAccount(period > stalled ? period - stalled : 0);
+  }
+  ilHaveMark = true;
+  ilMark = now;
+  ilStallMark = stall;
+  ilMarkActive = ilProbing ? (ilFrame & 1) == 0 : ilChoice;
+  return ilMarkActive;
+}
+
+// Called once per frame for the frame that just ended, with its work.
+void TerrainGame::ilAccount(u32 work) {
+  constexpr int kProbeFrames = 16;  // 8 pairs
+  // Short on purpose: a hold that outlives the view it was measured in
+  // (measured: 250 frames carried the garage's verdict into open ground)
+  // costs more than the probe frames do.
+  constexpr int ilHoldFrames = 100;
+  ++ilFrame;
+  if (!ilProbing) {
+    if (ilFrame >= ilHoldFrames) {
+      ilProbing = true;
+      ilFrame = 0;
+      ilWins = 0;
+      ilSumOn = ilSumOff = 0;
+    }
+    return;
+  }
+  if (ilMarkActive) {
+    ilPairOn = work;
+    ilSumOn += work;
+  } else {
+    // The pair's second frame: interleaving wins it only by a clear 1%,
+    // because the plain order is the one every other measurement of this
+    // engine was taken in.
+    if ((double)ilPairOn * 1.01 < (double)work) ++ilWins;
+    ilSumOff += work;
+  }
+  if (ilFrame < kProbeFrames) return;
+  const bool on = ilWins * 2 > kProbeFrames / 2;
+  if (on != ilChoice || DEBUG_SHOW_PROFILER)
+    TYRA_LOG("INTERLEAVE auto on=",
+             (int)(ilSumOn / (kProbeFrames / 2) / 295), "us off=",
+             (int)(ilSumOff / (kProbeFrames / 2) / 295), "us -> ",
+             on ? "interleaved" : "plain", " wins=", ilWins, "/",
+             kProbeFrames / 2, " heavy=", ilLastHeavy,
+             " drawn=", heavyPrevDrawn, " blendAt=", ilLastBlendAt);
+  ilChoice = on;
+  ilProbing = false;
+  ilFrame = 0;
+}
+
+void TerrainGame::interleaveEnd() {
+  if (heavyActive) {
+    heavyPrevDrawn = heavyDrawn > 0 ? heavyDrawn : 1;
+    ilLastBlendAt = heavyBlendAt;
+    ilLastHeavy = (int)heavyBags.size();
+  }
+}
+
+// Can a texel of this texture blend with what is already in the
+// framebuffer? Judged once per texture from the pixels the game uploads:
+// any alpha under 0x7F (the loader maps a PNG tRNS 255 to 127 and a 32-bit
+// alpha 255 to 128) counts, cutouts included - their bilinear edges blend.
+static bool textureMayBlend(const Tyra::Texture* t) {
+  if (t == nullptr || t->core == nullptr || t->core->data == nullptr)
+    return false;  // render targets: their bags' own alpha says it
+  static std::map<u32, bool> cache;
+  auto it = cache.find(t->id);
+  if (it != cache.end()) return it->second;
+  const Tyra::TextureData* c = t->core;
+  bool blend = false;
+  const u32 n = (u32)c->width * (u32)c->height;
+  if (c->components == TEXTURE_COMPONENTS_RGBA) {
+    if (c->bpp == Tyra::bpp32) {
+      for (u32 i = 0; i < n && !blend; ++i) blend = c->data[i * 4 + 3] < 0x7F;
+    } else if ((c->bpp == Tyra::bpp8 || c->bpp == Tyra::bpp4) &&
+               t->clut != nullptr && t->clut->data != nullptr) {
+      bool used[256] = {};
+      if (c->bpp == Tyra::bpp8) {
+        for (u32 i = 0; i < n; ++i) used[c->data[i]] = true;
+      } else {
+        for (u32 i = 0; i < (n + 1) / 2; ++i) {
+          used[c->data[i] & 0x0F] = true;
+          used[c->data[i] >> 4] = true;
+        }
+      }
+      const u32 entries = c->bpp == Tyra::bpp8 ? 256 : 16;
+      for (u32 l = 0; l < entries && !blend; ++l) {
+        if (!used[l]) continue;
+        // The 8-bit CLUT is stored in the GS's CSM1 order (png_loader's
+        // "rotate clut"): entries 8-15 and 16-23 of every 32 swap places.
+        u32 at = l;
+        if (entries == 256) {
+          if ((l & 0x18) == 0x08) at = l + 8;
+          else if ((l & 0x18) == 0x10) at = l - 8;
+        }
+        blend = t->clut->data[at * 4 + 3] < 0x7F;
+      }
+    }
+  }
+  cache[t->id] = blend;
+  return blend;
+}
+
+// Must this object draw only after the deferred bags? Yes if any part can
+// blend with the framebuffer - vertex or material alpha, a translucent or
+// cutout texture, a blend equation - or does not write z. Everything else
+// is opaque and z-tested, so its order against the batches and roads does
+// not change a pixel. Judged per geometry build (the key below); the single
+// colour's alpha is re-read every call because scripts fade it in place.
+bool TerrainGame::objectMayBlend(int index) {
+  ObjectGeometry& g = objectGeometry[index];
+  u32 key = (u32)g.parts.size();
+  for (const GeoPart& part : g.parts) {
+    const Tyra::StaPipBag* bag = part.bag.get();
+    if (!bag) continue;
+    key = key * 31U + reinterpret_cast<u32>(bag->vertices) + (u32)bag->count;
+    if (bag->color && bag->color->contentVersion)
+      key = key * 31U + *bag->color->contentVersion;
+    if (bag->color && bag->color->single && bag->color->single->a < 127.5F)
+      return true;
+  }
+  if (g.blendState >= 0 && g.blendKey == key) return g.blendState != 0;
+  bool blend = false;
+  for (const GeoPart& part : g.parts) {
+    const Tyra::StaPipBag* bag = part.bag.get();
+    if (!bag || blend) continue;
+    const Tyra::PipelineInfoBag* info = bag->info;
+    if (info && (info->additiveBlendFix != 0 || info->subtractiveBlendFix != 0 ||
+                 info->zTestType != Tyra::PipelineZTest_Standard))
+      blend = true;
+    if (!blend && bag->color && bag->color->many)
+      for (u32 v = 0; v < (u32)bag->count && !blend; ++v)
+        blend = bag->color->many[v].a < 127.5F;
+    if (!blend && bag->texture) blend = textureMayBlend(bag->texture->texture);
+  }
+  g.blendKey = key;
+  g.blendState = blend ? 1 : 0;
+  return blend;
 }
 
 // Height of the baked road triangle under a decal sample. This deliberately
@@ -22254,11 +22619,17 @@ void TerrainGame::renderScene() {
   // Static batches: one submit per material x cell group of the non-moving
   // primitives (rebuilt first when a member changed). Opaque z-tested
   // geometry, so drawing before the solo objects is order-free.
+  // Interleaved passes (INTERLEAVE_PASSES): between this line and the roads
+  // the batch and road bags are collected instead of submitted.
+  heavyActive = interleaveBegin();
+  heavyCollect = heavyActive;
+  heavyBlendAt = -1;
   { const u32 ct=costStart(); renderStaticBatches(); costEnd("Static_batches",-1,ct); }
   // Roads are generated once at scene load, but their ready bags still incur
   // per-frame culling and submission. Price that work separately: otherwise a
   // road-only scene misleadingly reports the whole cost as "Procedural".
   { const u32 ct=costStart(); renderRoadChunks(); costEnd("Roads",-1,ct); }
+  heavyCollect = false;  // any later batch/road submission draws at once
   // Other runtime-generated geometry (procedural volumes, prefab instances) -
   // the same deal one step further: the game built these bags itself, so they
   // need no per-object bookkeeping at all, only a distance test and a submit.
@@ -22676,6 +23047,19 @@ void TerrainGame::renderScene() {
       hlListD2[hlCount++] = ddx * ddx + ddy * ddy + ddz * ddz;
       if (!hlOverlay) continue;  // rim: defer body; overlay: draw it now
     }
+    // Interleaved passes: a share of the deferred batch and road bags goes
+    // out in front of each drawn object, and all of them in front of the
+    // first one that may blend - it must find what is behind it already in
+    // the framebuffer. Before the probe block, which draws roads of its own.
+    if (heavyActive) {
+      if (objectMayBlend(i)) {
+        if (heavyBlendAt < 0 && heavyNext < heavyBags.size())
+          heavyBlendAt = heavyDrawn;
+        dripHeavy(true);
+      } else {
+        dripHeavy(false);
+      }
+    }
     // Reflected-probe mode: re-render the shared env map for THIS object
     // right before it draws (begin() drains PATH1 first, so the previous
     // object already sampled its own map). Not inside split halves - the
@@ -22765,6 +23149,8 @@ void TerrainGame::renderScene() {
     lap(lpPost);
   }
   stapip.core.endSubmissionBatch();
+  if (heavyActive) dripHeavy(true);
+  if (INTERLEAVE_PASSES != 0) interleaveEnd();
   costEnd("Objects",-1,costObjectsStart);
   if (lp) {
     // Laps are EE time only and sit inside the Objects row; counts ride the

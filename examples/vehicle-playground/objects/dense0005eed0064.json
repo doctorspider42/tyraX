@@ -1,1 +1,1 @@
-{"id": "dense0005eed0064", "name": "Dense Workshop 101", "type": "model", "position": [52.66, 0.0, -70.94], "rotation": [0, 6.1, 0], "scale": [1.0, 1.0, 1.0], "color": [1, 1, 1], "physics": false, "drawDistance": 145, "castShadow": false, "model": "res/models/urban/district-workshop.obj"}
+{ "id": "dense0005eed0064", "name": "Dense Workshop 101", "type": "model", "position": [52.66, 0, -70.94], "rotation": [0, 6.1, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "drawDistance": 145, "castShadow": false, "model": "res/models/urban/district-workshop.obj" }

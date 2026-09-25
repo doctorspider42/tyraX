@@ -151,6 +151,14 @@ constexpr float REFLECTION_PROBE_FOV_DEG = 110.0F;
 // its former batches. false = every object submits its own bag.
 constexpr bool STATIC_BATCHING = true;
 
+// Interleaved passes (Preferences > Rendering, docs/interleaved-passes.md):
+// the static batch and road bags are EE-cheap and GPU-heavy, the object loop
+// the opposite, and drawn one after the other the EE waits for VU1 in the
+// first and VU1 idles in the second. Interleaving feeds the batch and road
+// bags into the object loop instead. 0 = off, 1 = auto (the game times both
+// orders every few seconds and keeps the faster), 2 = always.
+constexpr int INTERLEAVE_PASSES = 1;
+
 // Dynamic reflection probe aim (Preferences > Rendering): false = the
 // classic GT3 level-forward aim; true = a camera ray is intersected with
 // the dynamic-reflective objects and the probe renders from the hit point
