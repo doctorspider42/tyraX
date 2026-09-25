@@ -224,8 +224,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - **[Object scripts](docs/object-scripts.md)** — Unity-style C++ components in
   `src/scripts/`, a directory the editor never touches.
 - **Player and physics** — FPP / third-person / noclip player entities with
-  [walk, run and sprint speeds](docs/player-speeds.md), rigid
-  bodies, [collision boxes and invisible walls](docs/collision-boxes.md), pickable and usable
+  [walk, run and sprint speeds](docs/player-speeds.md),
+  [rigid bodies that collide as their mesh's convex hull](docs/physics.md), [collision boxes and invisible walls](docs/collision-boxes.md), pickable and usable
   objects, and [two-player shared or split screen](docs/multiplayer.md).
 - **World state** — [areas](docs/areas.md),
   [streaming layers](docs/streaming-layers.md),
@@ -369,7 +369,7 @@ wait for their polish pass.
 | [night-walk](examples/night-walk) | A dark backlot and a torch that projects, lands on real walls, and carves shadows — every flashlight feature in one yard |
 | [cutscene-demo](examples/cutscene-demo) | 14 seconds of dolly, hard cut, shake, FOV ramp and cinema bars. Skippable, of course |
 | [nav-ai](examples/nav-ai) | A guard that patrols, spots you, and chases you around the wall instead of into it. The rabbit just runs |
-| [physics-playground](examples/physics-playground) | 28 hyperactive bodies rain onto a terraced slope. Doubles as the physics benchmark |
+| [physics-playground](examples/physics-playground) | 28 hyperactive bodies and imported furniture (stools, barriers, chairs, a table) rain onto a terraced slope. Doubles as the physics benchmark |
 | [object-spawning](examples/object-spawning) | GTA-style traffic conjured and dismissed by two flow-graph nodes |
 | [portals](examples/portals) | A cube falls through a portal pair forever. You get to walk through instead |
 | [mirror-room](examples/mirror-room) | The classic PS2 mirror trick, shown from backstage — your reflection included |

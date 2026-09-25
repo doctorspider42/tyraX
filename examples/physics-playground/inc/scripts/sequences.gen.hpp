@@ -17,6 +17,17 @@ void renderOverlay(Tyra::Engine* engine, const ScriptContext& ctx);
 // flow trigger edge-detects, and what tells a flow-graph camera or
 // letterbox that a cutscene currently owns those.
 bool playing();
+// True while a cutscene that declares itself SKIPPABLE is playing.
+// The game loop's cue to take the "menu" action away from the
+// pause menu for the duration - without that a project with a pause
+// menu could never skip a cutscene, because the menu opened, the
+// frame paused the scripts and the press never reached the director
+// (docs/cutscenes.md).
+bool skippable();
+// The active cutscene's skip mode: 0 = end it on the press, 1 = ask
+// first through the project's skip-confirmation menu (SKIP_MENU in
+// menu_data.gen.hpp). Meaningless unless skippable() is true.
+int skipMode();
 // Letterbox mask style for the Set Letterbox Bars flow node, used
 // by renderOverlay when NO sequence is active (0 none, 1 cinema
 // 2.39:1, 2 wide 16:9, 3 pillarbox, 4 frame). The style, not its

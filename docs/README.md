@@ -55,6 +55,9 @@ their ownership and acceptance checks.
   console rasterizes it, field rendering included.
 - [TV safe areas](safe-areas.md) — viewport guides for what a real television
   will not crop, plus the one case where PAL shows more than NTSC.
+- [Rigid-body physics](physics.md) — physics bodies as real rigid bodies: a baked
+  convex hull per mesh, contact points, impulses with friction and restitution,
+  and what it costs on the EE.
 - [Collision boxes](collision-boxes.md) — what actually stops the player, why
   it's nowhere near the object's centre, and how to see it.
 - [Prefabs](prefabs.md) — reusable object groups (flow graphs included),

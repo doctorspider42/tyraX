@@ -5261,6 +5261,17 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.131.0 - Merge of the rigid-body physics branch (below, shipped there as
+// 1.123.0) into vehicles; the solver keeps this branch's cached list of
+// physics objects (0.51 ms on a PS2 with nothing awake). MINOR.
+// 1.123.0 - Physics bodies are real rigid bodies (docs/physics.md): a convex
+// hull + solid inertia baked per model (src/physhull.cpp, PHYS_HULLS in
+// model_data.gen.hpp), quaternion orientation, corner contacts against
+// terrain / rotated collision boxes / collision meshes / other hulls, and
+// sequential impulses with Coulomb friction and a split impulse. Player and
+// car shoves land at a point and can tip a body over. Measured in PCSX2 on
+// examples/physics-playground: the same ~0.9-1.0 ms/frame as the old solver
+// with ~30 bodies awake, 0.07 ms settled against 0.33. No format change.
 // 1.130.0 - See-through vehicle glass: a definition's Glass opacity below 1
 // splits glass-named materials into a "glass" body part the game draws at the
 // translucent tail with a vertex alpha (one extra submit), so a modelled
@@ -5268,7 +5279,7 @@
 // (the per-asset textureQuality override), which the vehicle bake now obeys.
 // New example body: the Ravager (authoring/make-ravager.py, run in Blender).
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 130
+#define TYRAX_VERSION_MINOR 131
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
