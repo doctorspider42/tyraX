@@ -201,7 +201,12 @@ Two things were tried and made it worse:
 - **One chunk per pass of the audio thread** capped the feed at 66 KB/s
   against the song's 88 KB/s.
 
-Neither shipped. For a clean listen during development, test from a disc
+Neither shipped. Nor did a third attempt, on the ps2link side. Its `host:`
+file server thread runs at IOP priority 10, far above audsrv's playback
+thread at 39, and moving it to 40 changed nothing: 9-15 low-ring warnings
+per 5 s, the same as before. The time goes to the TCP/IP stack's own
+threads (ps2ip, smap, netman), which are prebuilt IRX modules with their
+own priorities. For a clean listen during development, test from a disc
 image, or keep the PC quiet while the game runs.
 
 ## When something is not heard

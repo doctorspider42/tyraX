@@ -154,6 +154,26 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   Still true from the capture: the reference title builds that chain in SPR
   and moves it to RAM by DMA (no write-back), and its per-object cost is about
   16 qwords plus a `CALL` into a prebaked block.
+- **The 0.5 ms sleeps in `RendererCore::beginFrame`/`endFrame` - MEASURED,
+  NOT SHIPPED (2026-09-25).** `Threading::switchThread()` is
+  `nanosleep(500 us)`, called twice a frame, a leftover from upstream. Since
+  2026-07-11 the game runs at priority 0x40, below the audio threads (0x5,
+  0x6) and ps2link's command thread (20). Removing both sleeps measured
+  **-1.03..-1.07 ms of `work` in all four Motor District poses** on a
+  physical PS2, two boots agreeing to 0.03. But it hangs the console (IOP
+  alive, `freepad: DMA Busy`, SIF stuck, ps2link reset useless) about a
+  minute into `showcase` when the Live Debugger is attached and music
+  streams over ps2link:
+  - new engine, `livedbg.cmd` present: hang, 2 of 2 runs;
+  - new engine, no `livedbg.cmd`: 10 min clean;
+  - old engine, `livedbg.cmd` present: 150 s clean.
+
+  The attached debugger writes `livedbg.bin` from the main thread while the
+  streamer reads the song. The fio client is locked
+  (`_fio_io_sema`), and no EE thread sits below the game, so the mechanism
+  is NOT found. The patch is in the working notes
+  (`C:/tyra-vq/nosleep.patch`). Worth the hunt: it is the largest single
+  EE saving measured this round.
 - ~~**Interleave the GPU-heavy passes with the object loop**~~ **SHIPPED
   1.128.0** as Preferences > Rendering > Interleave batches and roads with
   objects (Auto / Always / Off, docs/interleaved-passes.md): Auto measured
