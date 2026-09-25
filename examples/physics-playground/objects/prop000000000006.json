@@ -1,0 +1,1 @@
+{ "id": "prop000000000006", "name": "chair-2", "type": "model", "position": [0, 10, 1.5], "rotation": [20, 40, 60], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": true, "physMass": 0.7, "physBounce": 0.2, "physFriction": 0.6, "physTumble": true, "physSleep": 3, "model": "res/models/chair.obj" }

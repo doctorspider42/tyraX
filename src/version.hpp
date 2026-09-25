@@ -4933,9 +4933,17 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.123.0 - Physics bodies are real rigid bodies (docs/physics.md): a convex
+// hull + solid inertia baked per model (src/physhull.cpp, PHYS_HULLS in
+// model_data.gen.hpp), quaternion orientation, corner contacts against
+// terrain / rotated collision boxes / collision meshes / other hulls, and
+// sequential impulses with Coulomb friction and a split impulse. Player and
+// car shoves land at a point and can tip a body over. Measured in PCSX2 on
+// examples/physics-playground: the same ~0.9-1.0 ms/frame as the old solver
+// with ~30 bodies awake, 0.07 ms settled against 0.33. No format change.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 122
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_MINOR 123
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

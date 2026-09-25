@@ -48,6 +48,10 @@ class CollisionMesh {
    */
   bool raycast(const Vec4& origin, const Vec4& dir, float maxDist,
                float* outDist) const;
+  /** Same, plus the hit triangle's unit normal (mesh-local, as built - its
+   * facing is whatever the winding gave it, so orient it against the ray). */
+  bool raycast(const Vec4& origin, const Vec4& dir, float maxDist,
+               float* outDist, float* outNormal) const;
 
   /**
    * Pushes a sphere out of every triangle steeper than maxNormalY

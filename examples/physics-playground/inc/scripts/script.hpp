@@ -25,7 +25,9 @@ struct RuntimeObject {
   // asleep and skips simulation entirely.
   float velocityY = 0.0F;  // vertical velocity (kept first: legacy scripts)
   float velocityX = 0.0F, velocityZ = 0.0F;
-  float spin[3] = {0.0F, 0.0F, 0.0F};  // angular velocity, degrees/frame
+  // Angular velocity about the WORLD axes, degrees/frame. The rigid-body
+  // sim keeps its own copy and re-reads this one whenever a script changed it.
+  float spin[3] = {0.0F, 0.0F, 0.0F};
   // Scripted continuous rotation (the Spin Object flow node), degrees per
   // SECOND - authored units, so it is frame-rate independent and readable.
   // Integrated by TerrainGame::updateSpinners(), which also puts the object on
@@ -33,9 +35,9 @@ struct RuntimeObject {
   // refresh per frame instead of a world-space vertex re-bake. Independent of
   // `spin` above: physics owns that one, this one survives sleep and settle.
   float spinRate[3] = {0.0F, 0.0F, 0.0F};
-  // Settle-flatten targets, latched once per settle so the chosen face
-  // never flips mid-ease. 1e9 = unlatched; [1] additionally means "yaw
-  // stays" when the roll lands on an even 90deg step.
+  // Unused since bodies became real rigid bodies (they settle onto a face by
+  // themselves). Kept so scripts and the time machine's capture layout that
+  // name it still compile and line up.
   float flatTgt[3] = {1e9F, 1e9F, 1e9F};
   short restFrames = 0;                // sleep counter; write 0 to wake
   bool dirty = true;
@@ -142,6 +144,16 @@ struct ScriptContext {
   // Write to show/hide all HUD images (the USE prompt is unaffected).
   bool hudVisible = true;
 
+  // Set by the sequence player while a "Hide HUD" cutscene is active, and
+  // cleared when it ends (docs/cutscenes.md). It is a SECOND flag rather than a
+  // write to hudVisible on purpose: the Set HUD Visible node owns that one, and
+  // a cutscene restoring it to true on release would switch a HUD back on that
+  // the game had deliberately hidden. It covers more than hudVisible does -
+  // the whole HUD stack, the live bars, the baked texts, the USE prompt and the
+  // USE interaction itself - and deliberately NOT runtime text (Display Text),
+  // which is where subtitles live.
+  bool hudSuppressed = false;
+
   // On-screen texts (HUD_TEXTS order, hud_data.gen.hpp). Write 1 into
   // textRequest[i] to show a text, 0 to hide it (-1 = leave). When showing,
   // textDuration[i] > 0 auto-hides after that many seconds, 0 = the text
@@ -149,6 +161,25 @@ struct ScriptContext {
   signed char* textRequest = nullptr;
   float* textDuration = nullptr;
   int textCount = 0;
+
+  // Animated HUD (docs/hud-animation.md). Elements are indexed HUD images,
+  // then texts, then bars (HUD_ELEM_TEXT0 / HUD_ELEM_BAR0 in hud_data.gen.hpp).
+  // hudElemRequest[e]: -1 = leave, 0 = hide, 1 = show, 2 = toggle - through
+  // the element's own transition; images and bars only (a text goes through
+  // textRequest above, which accepts 2 = toggle too). hudElemEffect[e] > 0
+  // starts a one-shot (1 flash, 2 bounce, 3 shake) lasting hudElemEffectSec[e]
+  // seconds, on any element. The game applies and resets both every frame.
+  signed char* hudElemRequest = nullptr;
+  signed char* hudElemEffect = nullptr;
+  float* hudElemEffectSec = nullptr;
+  int hudElemCount = 0;
+  // Bars (HUD_BARS order): hudBarSet[b] 1 = ease the fill to hudBarValue[b],
+  // 2 = jump there, -1 = leave. A bar bound to a save value reads THAT value
+  // every frame (the Set HUD Bar node writes it as well), so hudBarValue only
+  // drives an unbound bar.
+  float* hudBarValue = nullptr;
+  signed char* hudBarSet = nullptr;
+  int hudBarCount = 0;
 
   // Dynamic point lights (Set Light flow node), indexed by scene-object
   // index like `objects`. lightRequest[i]: -1 = leave, 0 = off, 1 = on.
@@ -203,13 +234,17 @@ struct ScriptContext {
   float shakeAmp = -1.0F;
   float shakeSec = 0.0F;
 
-  // Runtime graphics switches (Set Fog / Set Bloom / Set Grain / Set Particles
-  // / Set Lens Flare / Set God Rays flow nodes). fog / particles: -1 = leave,
-  // 0 = off, 1 = on. bloom / grain / flare / godRays: -1 = leave, else a
-  // 0..128 fixed-point amount. The game applies and resets.
+  // Runtime graphics switches (Set Fog / Set Bloom / Set Grain / Set Motion
+  // Blur / Set Particles / Set Lens Flare / Set God Rays flow nodes). fog /
+  // particles: -1 = leave, 0 = off, 1 = on. bloom / grain / motionBlur /
+  // flare / godRays: -1 = leave, else a 0..128 fixed-point amount. The game
+  // applies and resets.
   int fog = -1;
   int bloom = -1;
   int grain = -1;
+  // Motion blur (Set Motion Blur flow node): -1 = leave, else a 0..128 weight
+  // for the previous frame (0 = off). The game applies and resets it.
+  int motionBlur = -1;
   int particles = -1;
   int flare = -1;
   int godRays = -1;

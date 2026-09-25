@@ -1,0 +1,1 @@
+{ "id": "prop000000000003", "name": "barrier-1", "type": "model", "position": [-1, 4, 6], "rotation": [0, 30, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": true, "physMass": 1.5, "physBounce": 0.2, "physFriction": 0.6, "physTumble": true, "physSleep": 3, "model": "res/models/barrier.obj" }

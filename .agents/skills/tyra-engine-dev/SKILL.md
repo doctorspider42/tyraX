@@ -385,7 +385,9 @@ VRAM address - see docs/live-link.md; NOTE the engine always constructs the
 clut `TextureData`, a non-paletted texture just has `clut->data == nullptr` -
 test data presence, not the object pointer),
 `physics/CollisionMesh` (XZ-grid
-triangle collider) + `Ray::intersectTriangle`, a guard in `debug.cpp` so
+triangle collider; `raycast(..., outNormal)` also returns the hit triangle's
+mesh-local normal, which the rigid-body solver's per-corner contacts need -
+docs/physics.md) + `Ray::intersectTriangle`, a guard in `debug.cpp` so
 TYRA_LOG never opens `cdrom0:LOG.TXT` for write (that wedged every ISO boot),
 `renderer/models/unique_id.hpp` (`generateUniqueId()`) replacing upstream's
 `rand() % 1000000` object ids (see the pitfall below), **USB keyboard/mouse

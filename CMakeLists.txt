@@ -286,6 +286,7 @@ add_executable(tyrax-editor
     src/pngquant.cpp
     src/prefab.cpp
     src/primmesh.cpp
+    src/physhull.cpp
     src/procgraph.cpp
     src/procgen.cpp
     src/procbake.cpp

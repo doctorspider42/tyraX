@@ -947,17 +947,17 @@ void App::drawPropertiesWindow() {
             committed |= ImGui::IsItemDeactivatedAfterEdit();
             ImGui::DragFloat("Friction", &o.physFriction, 0.01f, 0.0f, 1.0f, "%.2f");
             committed |= ImGui::IsItemDeactivatedAfterEdit();
-            if (ImGui::Checkbox("Tumble (impacts add spin)", &o.physTumble))
+            if (ImGui::Checkbox("Tumble (can rotate)", &o.physTumble))
                 committed = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Off = the body slides but never turns.");
             ImGui::DragFloat("Sleep after (s)", &o.physSleep, 0.1f, 0.1f, 60.0f,
                              "%.1f");
             committed |= ImGui::IsItemDeactivatedAfterEdit();
-            ImGui::TextDisabled(
-                "Falls, bounces off slopes and objects, slides with friction\n"
-                "and can be shoved by the player / Apply Impulse nodes.\n"
-                "Mass is relative - it matters only against other bodies.\n"
-                "Sleep after: seconds of near-rest before the body freezes\n"
-                "(a sleeping body costs nothing until something wakes it).");
+            ImGui::TextDisabled("Collides as its convex hull.");
+            prefHelp("A rigid body: it tips, rolls and rests on the corners of\n"
+                     "its shape's convex hull (docs/physics.md). Mass is relative.\n"
+                     "A sleeping body costs nothing until something wakes it.");
             ImGui::Unindent();
         }
         if (o.type == PrimitiveType::SavePoint) {

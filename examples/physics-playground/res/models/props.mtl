@@ -1,0 +1,15 @@
+newmtl wood
+Kd 0.620 0.400 0.220
+
+newmtl darkwood
+Kd 0.360 0.220 0.120
+
+newmtl metal
+Kd 0.550 0.580 0.620
+
+newmtl paint
+Kd 0.850 0.220 0.120
+
+newmtl stripe
+Kd 0.950 0.950 0.900
+

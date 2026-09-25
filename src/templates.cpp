@@ -38,6 +38,8 @@
 #include "navmesh.hpp"
 #include "objparser.hpp"
 #include "occlusionbake.hpp"
+#include "physhull.hpp"
+#include "primmesh.hpp"
 #include "platform.hpp"
 #include "prefab.hpp"
 #include "procrt.hpp"
@@ -1851,6 +1853,42 @@ class TerrainGame : public Tyra::Game {
   static void physExtents(const SceneObjectData& d, const GameModel* gm,
                           const Tyra::SkelModel* anim, float* cOff, float* ext);
   static bool physObstacle(const SceneObjectData& d);
+  // Rigid-body state kept beside RuntimeObject (docs/physics.md): the
+  // orientation as a quaternion, the angular velocity, and the body's shape
+  // prepared for its scale - the convex hull's corners and face planes
+  // relative to the centre of mass, and its inverse inertia tensor. Only
+  // physics objects get one (physSlotOf maps an object to it), and the sim
+  // re-derives it whenever something else wrote the object's transform,
+  // spin or shape (a script, a portal hop, Live Link, a rewind).
+  struct PhysBody {
+    float q[4] = {1.0F, 0.0F, 0.0F, 0.0F};  // w x y z
+    float w[3] = {0.0F, 0.0F, 0.0F};         // world, radians/frame
+    float comL[3] = {0.0F, 0.0F, 0.0F};      // origin -> centre of mass, object frame
+    float invI[6] = {0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F};  // xx yy zz xy xz yz
+    float invMass = 1.0F;
+    float radius = 0.5F;  // bounding sphere about the centre of mass
+    float lastPos[3] = {0.0F, 0.0F, 0.0F};
+    float lastRot[3] = {0.0F, 0.0F, 0.0F};
+    float lastSpin[3] = {0.0F, 0.0F, 0.0F};
+    float sigScale[3] = {0.0F, 0.0F, 0.0F};
+    float sigMass = 0.0F;
+    int sigShape = -1;
+    short verts = 0, planes = 0;  // 0 verts = a sphere
+    bool valid = false, tumble = true;
+    float lv[24 * 3];   // PHYS_MAX_HULL_VERTS corners, centre-of-mass frame
+    float lp[44 * 4];   // PHYS_MAX_HULL_PLANES faces n.x <= d, same frame
+  };
+  std::vector<PhysBody> physBodies;
+  std::vector<short> physSlotOf;
+  int physBodiesScene = -1;
+  int physBodyFor(int index);  // slot in physBodies, synced with the object
+  void physBuildShape(int index, PhysBody& b);
+  // A shove that has a point of application: dv is the velocity change at
+  // the centre of mass (the old linear push, unchanged), and the same impulse
+  // applied at `point` adds the spin a real push there would - which is what
+  // tips a stool over instead of sliding it like a puck.
+  void physPushAt(int index, float px, float py, float pz, float dvx,
+                  float dvy, float dvz);
   void renderScene();
   void updateAdaptiveResolution();
   int adaptiveScene = -1;
@@ -3496,6 +3534,42 @@ class TerrainGame : public Tyra::Game {
   static void physExtents(const SceneObjectData& d, const GameModel* gm,
                           const Tyra::SkelModel* anim, float* cOff, float* ext);
   static bool physObstacle(const SceneObjectData& d);
+  // Rigid-body state kept beside RuntimeObject (docs/physics.md): the
+  // orientation as a quaternion, the angular velocity, and the body's shape
+  // prepared for its scale - the convex hull's corners and face planes
+  // relative to the centre of mass, and its inverse inertia tensor. Only
+  // physics objects get one (physSlotOf maps an object to it), and the sim
+  // re-derives it whenever something else wrote the object's transform,
+  // spin or shape (a script, a portal hop, Live Link, a rewind).
+  struct PhysBody {
+    float q[4] = {1.0F, 0.0F, 0.0F, 0.0F};  // w x y z
+    float w[3] = {0.0F, 0.0F, 0.0F};         // world, radians/frame
+    float comL[3] = {0.0F, 0.0F, 0.0F};      // origin -> centre of mass, object frame
+    float invI[6] = {0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F};  // xx yy zz xy xz yz
+    float invMass = 1.0F;
+    float radius = 0.5F;  // bounding sphere about the centre of mass
+    float lastPos[3] = {0.0F, 0.0F, 0.0F};
+    float lastRot[3] = {0.0F, 0.0F, 0.0F};
+    float lastSpin[3] = {0.0F, 0.0F, 0.0F};
+    float sigScale[3] = {0.0F, 0.0F, 0.0F};
+    float sigMass = 0.0F;
+    int sigShape = -1;
+    short verts = 0, planes = 0;  // 0 verts = a sphere
+    bool valid = false, tumble = true;
+    float lv[24 * 3];   // PHYS_MAX_HULL_VERTS corners, centre-of-mass frame
+    float lp[44 * 4];   // PHYS_MAX_HULL_PLANES faces n.x <= d, same frame
+  };
+  std::vector<PhysBody> physBodies;
+  std::vector<short> physSlotOf;
+  int physBodiesScene = -1;
+  int physBodyFor(int index);  // slot in physBodies, synced with the object
+  void physBuildShape(int index, PhysBody& b);
+  // A shove that has a point of application: dv is the velocity change at
+  // the centre of mass (the old linear push, unchanged), and the same impulse
+  // applied at `point` adds the spin a real push there would - which is what
+  // tips a stool over instead of sliding it like a puck.
+  void physPushAt(int index, float px, float py, float pz, float dvx,
+                  float dvy, float dvz);
   void renderScene();
   void updateAdaptiveResolution();
   int adaptiveScene = -1;
@@ -19978,26 +20052,15 @@ void TerrainGame::applyGeoLod(int index, int pi, int lod) {
   g.hullProxyVerts.clear();
 }
 
-// --- object physics: rigid-body-lite ---------------------------------------
-// Every data.physics object is a body: full 3D velocity, restitution bounces
-// off the terrain (real slope normals from the heightfield), friction that
-// turns falls into slides and slides into stops, ground contact converting
-// slide into tumble, momentum exchange between bodies and AABB contacts
-// against static solids. Near-rest bodies fall asleep (restFrames) and cost
-// one branch per frame until something wakes them, so a settled scene pays
-// nothing. The vector work runs on VU0: Tyra::Vec4's operators, innerProduct,
-// cross and normalize are VU0 macro-mode assembly.
+// --- object physics ---------------------------------------------------------
+// Every data.physics object is a rigid body (see "rigid bodies" below for the
+// solver). Near-rest bodies fall asleep (restFrames) and cost one branch per
+// frame until something wakes them, so a settled scene pays nothing.
 constexpr float PHYS_REST_SPEED2 = 0.00025F;  // (units/frame)^2 = "not moving"
-constexpr float PHYS_REST_SPIN = 0.75F;       // deg/frame = "not spinning"
-// A mover this fast treats a SLEEPING body as a body, not a wall: pass 1
-// skips the static resolution so the impulse pass sees the overlap, wakes
-// the sleeper and trades momentum (~2.5 u/s at 50 fps; rest is ~0.8 u/s).
+// A mover this fast into a SLEEPING body wakes it (~2.5 u/s at 50 fps; rest
+// is ~0.8 u/s); slower contacts keep treating the sleeper as immovable, so
+// settled stacks stay cheap and stable.
 constexpr float PHYS_WAKE_SPEED2 = 0.0025F;
-constexpr float PHYS_FLATTEN_STEP = 3.0F;     // settle-flatten, deg/frame
-// Settle-flatten engages while the tumble is still dying (well above the
-// rest-spin gate) so the lay-down continues the motion instead of starting
-// after a visible dead stop.
-constexpr float PHYS_FLATTEN_SPIN = 2.5F;     // deg/frame
 constexpr float PHYS_MAX_SPEED = 3.0F;        // units/frame velocity clamp
 constexpr float PHYS_PUSH = 0.55F;            // player shove gain (scaled 1/mass)
 
@@ -21572,471 +21635,1190 @@ void TerrainGame::updateSpinners() {
   }
 }
 
+// --- rigid bodies ------------------------------------------------------------
+// The body is a real rigid body now (docs/physics.md): a centre of mass, an
+// orientation quaternion, linear AND angular velocity and an inertia tensor
+// from the solid convex hull the build baked for its mesh (PHYS_HULLS). A
+// frame predicts the pose, collects CONTACT POINTS against that prediction -
+// hull corners in the terrain, in static boxes and in collision meshes, box
+// corners in the hull, hull against hull - and resolves them all together
+// with sequential impulses: restitution, Coulomb friction, and a split
+// impulse for the penetration so pushing out never adds bounce. A stool
+// stands on its four feet and tips over its edge; a railing falls flat along
+// its length; a ball rolls because friction at its contact turns it.
+//
+// Budget: every body carries at most PHYS_MAX_HULL_VERTS corners, and each
+// source of contact is reduced to the four points that span it, so the
+// solver never sees more than a few contacts per touching pair however
+// detailed the mesh was. Sleeping bodies still cost one branch; a sleeping
+// body only turns into a (static) contact partner when an awake one comes
+// within its bounding sphere.
+namespace {
+
+static_assert(PHYS_MAX_HULL_VERTS <= 24 && PHYS_MAX_HULL_PLANES <= 44,
+              "PhysBody::lv / lp are sized for physhull::kMaxVerts / kMaxPlanes");
+
+struct RbV {
+  float x, y, z;
+};
+inline RbV rbV(float x, float y, float z) {
+  RbV r;
+  r.x = x, r.y = y, r.z = z;
+  return r;
+}
+inline RbV rbAdd(RbV a, RbV b) { return rbV(a.x + b.x, a.y + b.y, a.z + b.z); }
+inline RbV rbSub(RbV a, RbV b) { return rbV(a.x - b.x, a.y - b.y, a.z - b.z); }
+inline RbV rbMul(RbV a, float s) { return rbV(a.x * s, a.y * s, a.z * s); }
+inline float rbDot(RbV a, RbV b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+inline RbV rbCross(RbV a, RbV b) {
+  return rbV(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z,
+             a.x * b.y - a.y * b.x);
+}
+// 3x3 row-major
+inline RbV rbMat(const float* m, RbV v) {
+  return rbV(m[0] * v.x + m[1] * v.y + m[2] * v.z,
+             m[3] * v.x + m[4] * v.y + m[5] * v.z,
+             m[6] * v.x + m[7] * v.y + m[8] * v.z);
+}
+inline RbV rbMatT(const float* m, RbV v) {
+  return rbV(m[0] * v.x + m[3] * v.y + m[6] * v.z,
+             m[1] * v.x + m[4] * v.y + m[7] * v.z,
+             m[2] * v.x + m[5] * v.y + m[8] * v.z);
+}
+
+void rbQuatNormalize(float* q) {
+  const float l2 = q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3];
+  const float inv = l2 > 1e-12F ? 1.0F / sqrtf(l2) : 0.0F;
+  if (inv == 0.0F) {
+    q[0] = 1.0F, q[1] = q[2] = q[3] = 0.0F;
+    return;
+  }
+  for (int k = 0; k < 4; ++k) q[k] *= inv;
+}
+
+void rbQuatToMat(const float* q, float* m) {
+  const float w = q[0], x = q[1], y = q[2], z = q[3];
+  m[0] = 1.0F - 2.0F * (y * y + z * z);
+  m[1] = 2.0F * (x * y - w * z);
+  m[2] = 2.0F * (x * z + w * y);
+  m[3] = 2.0F * (x * y + w * z);
+  m[4] = 1.0F - 2.0F * (x * x + z * z);
+  m[5] = 2.0F * (y * z - w * x);
+  m[6] = 2.0F * (x * z - w * y);
+  m[7] = 2.0F * (y * z + w * x);
+  m[8] = 1.0F - 2.0F * (x * x + y * y);
+}
+
+void rbMatToQuat(const float* m, float* q) {
+  const float tr = m[0] + m[4] + m[8];
+  if (tr > 0.0F) {
+    const float s = sqrtf(tr + 1.0F) * 2.0F;
+    q[0] = 0.25F * s;
+    q[1] = (m[7] - m[5]) / s;
+    q[2] = (m[2] - m[6]) / s;
+    q[3] = (m[3] - m[1]) / s;
+  } else if (m[0] > m[4] && m[0] > m[8]) {
+    const float s = sqrtf(1.0F + m[0] - m[4] - m[8]) * 2.0F;
+    q[0] = (m[7] - m[5]) / s;
+    q[1] = 0.25F * s;
+    q[2] = (m[1] + m[3]) / s;
+    q[3] = (m[2] + m[6]) / s;
+  } else if (m[4] > m[8]) {
+    const float s = sqrtf(1.0F + m[4] - m[0] - m[8]) * 2.0F;
+    q[0] = (m[2] - m[6]) / s;
+    q[1] = (m[1] + m[3]) / s;
+    q[2] = 0.25F * s;
+    q[3] = (m[5] + m[7]) / s;
+  } else {
+    const float s = sqrtf(1.0F + m[8] - m[0] - m[4]) * 2.0F;
+    q[0] = (m[3] - m[1]) / s;
+    q[1] = (m[2] + m[6]) / s;
+    q[2] = (m[5] + m[7]) / s;
+    q[3] = 0.25F * s;
+  }
+  rbQuatNormalize(q);
+}
+
+// The object's Euler angles are Rz * Ry * Rx (rotated()); the matrix comes
+// from the very same rotatedBy() the vertex bake uses, so a body the sim has
+// just picked up cannot turn by a rounding step.
+void rbEulerToMat(const float* rotDeg, float* m) {
+  const RotTrig t = rotTrigOf(rotDeg);
+  const V3 bx = rotatedBy({1.0F, 0.0F, 0.0F}, t);
+  const V3 by = rotatedBy({0.0F, 1.0F, 0.0F}, t);
+  const V3 bz = rotatedBy({0.0F, 0.0F, 1.0F}, t);
+  m[0] = bx.x, m[3] = bx.y, m[6] = bx.z;
+  m[1] = by.x, m[4] = by.y, m[7] = by.z;
+  m[2] = bz.x, m[5] = bz.y, m[8] = bz.z;
+}
+
+void rbMatToEuler(const float* m, float* rotDeg) {
+  float sb = -m[6];
+  if (sb > 1.0F) sb = 1.0F;
+  if (sb < -1.0F) sb = -1.0F;
+  const float b = asinf(sb);
+  float a, c;
+  if (sb < 0.9999F && sb > -0.9999F) {
+    a = atan2f(m[7], m[8]);
+    c = atan2f(m[3], m[0]);
+  } else {  // gimbal lock: fold the roll into X
+    a = atan2f(-m[5], m[4]);
+    c = 0.0F;
+  }
+  rotDeg[0] = a * (180.0F / PI);
+  rotDeg[1] = b * (180.0F / PI);
+  rotDeg[2] = c * (180.0F / PI);
+}
+
+// q += 0.5 * (0, w) * q, renormalized - w is radians/frame in world space.
+void rbIntegrate(float* q, RbV w) {
+  const float qw = q[0], qx = q[1], qy = q[2], qz = q[3];
+  q[0] += 0.5F * (-w.x * qx - w.y * qy - w.z * qz);
+  q[1] += 0.5F * (w.x * qw + w.y * qz - w.z * qy);
+  q[2] += 0.5F * (w.y * qw + w.z * qx - w.x * qz);
+  q[3] += 0.5F * (w.z * qw + w.x * qy - w.y * qx);
+  rbQuatNormalize(q);
+}
+
+// World inverse inertia R * Ib^-1 * R^T from the body-frame symmetric one.
+void rbWorldInvI(const float* R, const float* s, float* out) {
+  const float ib[9] = {s[0], s[3], s[4], s[3], s[1], s[5], s[4], s[5], s[2]};
+  float t[9];
+  for (int r = 0; r < 3; ++r)
+    for (int c = 0; c < 3; ++c)
+      t[r * 3 + c] = R[r * 3] * ib[c] + R[r * 3 + 1] * ib[3 + c] +
+                     R[r * 3 + 2] * ib[6 + c];
+  for (int r = 0; r < 3; ++r)
+    for (int c = 0; c < 3; ++c)
+      out[r * 3 + c] = t[r * 3] * R[c * 3] + t[r * 3 + 1] * R[c * 3 + 1] +
+                       t[r * 3 + 2] * R[c * 3 + 2];
+}
+
+struct RbStep {
+  int obj;
+  int slot;
+  bool asleep;     // a sleeping body taking part as an immovable partner
+  bool grounded;   // something below carried it this frame
+  bool sphere;
+  float sphereR;
+  float invMass;
+  float bounce, friction;
+  RbV x0, x1;      // centre of mass: start of frame, predicted
+  float q0[4];
+  float R0[9], R1[9];
+  float invIw[9];
+  RbV v, w;        // velocities being solved
+  RbV vp, wp;      // split-impulse pseudo velocities (position only)
+  int nv;
+  RbV wv0[PHYS_MAX_HULL_VERTS];  // hull corners at the start pose
+  RbV wv[PHYS_MAX_HULL_VERTS];   // ... and at the predicted pose
+};
+
+struct RbContact {
+  short a, b;     // RbStep indices; b = -1 is the world
+  RbV n;          // pushes a away from b
+  RbV p;          // world point
+  float depth;
+  float vnPred;   // normal velocity at creation (predicted motion)
+  float bounceTarget;
+  float mu;
+  float kn;
+  float jn, jp;
+  RbV ft;         // accumulated friction impulse
+  RbV ra, rb;
+};
+
+struct RbCand {
+  RbV n, p;
+  float depth;
+};
+
+// Up to four points that span a contact patch: the deepest, the one
+// farthest from it, the one farthest from that segment, then the one that
+// adds the most area. A crate face flat on the ground keeps its four
+// corners; a ring of cylinder rim points keeps a stable quadrilateral.
+int rbReduce(const RbCand* in, int n, RbCand* out) {
+  if (n <= 4) {
+    for (int i = 0; i < n; ++i) out[i] = in[i];
+    return n;
+  }
+  int pick[4] = {0, -1, -1, -1};
+  for (int i = 1; i < n; ++i)
+    if (in[i].depth > in[pick[0]].depth) pick[0] = i;
+  float best = -1.0F;
+  for (int i = 0; i < n; ++i) {
+    const RbV d = rbSub(in[i].p, in[pick[0]].p);
+    const float l = rbDot(d, d);
+    if (l > best) best = l, pick[1] = i;
+  }
+  best = -1.0F;
+  const RbV ab = rbSub(in[pick[1]].p, in[pick[0]].p);
+  for (int i = 0; i < n; ++i) {
+    const RbV c = rbCross(ab, rbSub(in[i].p, in[pick[0]].p));
+    const float l = rbDot(c, c);
+    if (l > best) best = l, pick[2] = i;
+  }
+  best = -1.0F;
+  for (int i = 0; i < n; ++i) {
+    if (i == pick[0] || i == pick[1] || i == pick[2]) continue;
+    float area = 0.0F;
+    for (int e = 0; e < 3; ++e) {
+      const RbV a = rbSub(in[pick[e]].p, in[i].p);
+      const RbV b = rbSub(in[pick[(e + 1) % 3]].p, in[i].p);
+      const RbV c = rbCross(a, b);
+      area += rbDot(c, c);
+    }
+    if (area > best) best = area, pick[3] = i;
+  }
+  int m = 0;
+  for (int k = 0; k < 4; ++k) {
+    if (pick[k] < 0) continue;
+    bool dup = false;
+    for (int e = 0; e < k; ++e) dup = dup || pick[e] == pick[k];
+    if (!dup) out[m++] = in[pick[k]];
+  }
+  return m;
+}
+
+// The deepest face of a convex body (planes in its own centre-of-mass
+// frame) that point `l` is inside; -1 when outside any of them.
+int rbInsideHull(const float* lp, int np, RbV l, float* depth) {
+  int best = -1;
+  float bd = 1e30F;
+  for (int k = 0; k < np; ++k) {
+    const float* pl = lp + k * 4;
+    const float d = pl[3] - (pl[0] * l.x + pl[1] * l.y + pl[2] * l.z);
+    if (d <= 0.0F) return -1;
+    if (d < bd) bd = d, best = k;
+  }
+  *depth = bd;
+  return best;
+}
+
+constexpr int PHYS_ITERATIONS = 6;        // velocity passes per frame
+constexpr int PHYS_POS_ITERATIONS = 3;    // split-impulse passes
+constexpr int PHYS_MAX_CONTACTS = 384;
+constexpr float PHYS_SLOP = 0.005F;       // units of allowed overlap
+constexpr float PHYS_BAUMGARTE = 0.5F;    // fraction of overlap fixed per frame
+constexpr float PHYS_MAX_SPIN = 0.6F;     // radians/frame clamp
+constexpr float PHYS_REST_W2 = 0.00017F;  // (radians/frame)^2 = "not spinning"
+
+}  // namespace
+
+void TerrainGame::physBuildShape(int index, PhysBody& b) {
+  const RuntimeObject& o = runtimeObjects[index];
+  const SceneObjectData& d = o.data;
+  const float mass = d.physMass < 0.05F ? 0.05F : d.physMass;
+  b.invMass = 1.0F / mass;
+  b.tumble = d.physTumble != 0;
+  for (int k = 0; k < 3; ++k) b.sigScale[k] = d.scale[k];
+  b.sigMass = d.physMass;
+  b.sigShape = d.type * 4096 + (d.model + 1) * 16 + (d.animModel + 1) +
+               (d.physTumble ? 0x40000000 : 0);
+  b.valid = true;
+  b.verts = b.planes = 0;
+  for (int k = 0; k < 6; ++k) b.invI[k] = 0.0F;
+
+  if (d.type == 1) {  // sphere: analytic, rotation-invariant
+    float s = fabsf(d.scale[0]);
+    if (fabsf(d.scale[1]) > s) s = fabsf(d.scale[1]);
+    if (fabsf(d.scale[2]) > s) s = fabsf(d.scale[2]);
+    const float r = 0.5F * (s > 0.0002F ? s : 0.0002F);
+    b.radius = r;
+    b.comL[0] = b.comL[1] = b.comL[2] = 0.0F;
+    if (b.tumble) {
+      const float inv = 1.0F / (0.4F * mass * r * r);
+      b.invI[0] = b.invI[1] = b.invI[2] = inv;
+    }
+    return;
+  }
+
+  // Everything else is a hull: the model's own, a unit primitive's, or the
+  // unit box stretched over a mesh AABB when no hull was baked (an animated
+  // model, a model the build could not read).
+  int hull = -1;
+  float S[3] = {d.scale[0], d.scale[1], d.scale[2]};
+  float off[3] = {0.0F, 0.0F, 0.0F};
+  if (d.type == 5) {
+    const float* mn = nullptr;
+    const float* mx = nullptr;
+    if (d.model >= 0 && d.model < (int)gameModels.size()) {
+      if (d.model < MODEL_COUNT) hull = MODEL_PHYS_HULL[d.model];
+      mn = gameModels[d.model].mn, mx = gameModels[d.model].mx;
+    } else if (d.animModel >= 0 && d.animModel < (int)gameAnimModels.size()) {
+      const SkelModel* anim = gameAnimModels[d.animModel].src.get();
+      if (anim) mn = anim->min, mx = anim->max;
+    }
+    if (hull < 0 && mn && mx) {
+      hull = PHYS_PRIM_HULL[0];
+      for (int k = 0; k < 3; ++k) {
+        off[k] = 0.5F * (mn[k] + mx[k]) * d.scale[k];
+        S[k] = (mx[k] - mn[k]) * d.scale[k];
+      }
+    }
+  } else if (d.type == 2) {
+    hull = PHYS_PRIM_HULL[1];
+  } else if (d.type == 3) {
+    hull = PHYS_PRIM_HULL[2];
+  } else if (d.type == 12) {
+    hull = PHYS_PRIM_HULL[3];
+  } else {
+    hull = PHYS_PRIM_HULL[0];
+  }
+  for (int k = 0; k < 3; ++k)
+    if (fabsf(S[k]) < 0.002F) S[k] = S[k] < 0.0F ? -0.002F : 0.002F;
+  if (hull < 0 || hull >= PHYS_HULL_COUNT) {
+    // No tables at all (cannot happen in a project with physics - they are
+    // emitted whenever one object has it): fall back to a bounding sphere.
+    b.radius = 0.5F * fabsf(S[0]);
+    b.comL[0] = b.comL[1] = b.comL[2] = 0.0F;
+    if (b.tumble) {
+      const float inv = 1.0F / (0.4F * mass * b.radius * b.radius);
+      b.invI[0] = b.invI[1] = b.invI[2] = inv;
+    }
+    return;
+  }
+
+  const PhysHullData& H = PHYS_HULLS[hull];
+  for (int k = 0; k < 3; ++k) b.comL[k] = off[k] + S[k] * H.com[k];
+  // Inertia under a per-axis scale S: the covariance scales as S C S and the
+  // volume as det(S), which cancel against the density m / V - so only the
+  // unit hull's covariance per unit volume is needed.
+  const float invV = H.volume > 1e-12F ? 1.0F / H.volume : 0.0F;
+  const float xx = S[0] * S[0] * H.cov[0] * invV;
+  const float yy = S[1] * S[1] * H.cov[1] * invV;
+  const float zz = S[2] * S[2] * H.cov[2] * invV;
+  const float xy = S[0] * S[1] * H.cov[3] * invV;
+  const float xz = S[0] * S[2] * H.cov[4] * invV;
+  const float yz = S[1] * S[2] * H.cov[5] * invV;
+  if (b.tumble) {
+    const float a = mass * (yy + zz), bb = mass * (xx + zz),
+                c = mass * (xx + yy);
+    const float dd = -mass * xy, e = -mass * xz, f = -mass * yz;
+    const float det = a * (bb * c - f * f) - dd * (dd * c - f * e) +
+                      e * (dd * f - bb * e);
+    if (det > 1e-20F) {
+      const float inv = 1.0F / det;
+      b.invI[0] = (bb * c - f * f) * inv;
+      b.invI[1] = (a * c - e * e) * inv;
+      b.invI[2] = (a * bb - dd * dd) * inv;
+      b.invI[3] = (e * f - dd * c) * inv;
+      b.invI[4] = (dd * f - bb * e) * inv;
+      b.invI[5] = (dd * e - a * f) * inv;
+    }
+  }
+  b.verts = H.verts;
+  b.planes = H.planes;
+  float r2 = 0.0F;
+  for (int k = 0; k < H.verts; ++k) {
+    const float* v = PHYS_HULL_VERTS + (H.vert0 + k) * 3;
+    float* l = b.lv + k * 3;
+    for (int a = 0; a < 3; ++a) l[a] = off[a] + S[a] * v[a] - b.comL[a];
+    const float d2 = l[0] * l[0] + l[1] * l[1] + l[2] * l[2];
+    if (d2 > r2) r2 = d2;
+  }
+  b.radius = sqrtf(r2);
+  for (int k = 0; k < H.planes; ++k) {
+    const float* pl = PHYS_HULL_PLANES + (H.plane0 + k) * 4;
+    const float ns[3] = {pl[0] / S[0], pl[1] / S[1], pl[2] / S[2]};
+    const float L = sqrtf(ns[0] * ns[0] + ns[1] * ns[1] + ns[2] * ns[2]);
+    float* out = b.lp + k * 4;
+    const float il = L > 1e-12F ? 1.0F / L : 0.0F;
+    for (int a = 0; a < 3; ++a) out[a] = ns[a] * il;
+    out[3] = (pl[3] + ns[0] * off[0] + ns[1] * off[1] + ns[2] * off[2]) * il -
+             (out[0] * b.comL[0] + out[1] * b.comL[1] + out[2] * b.comL[2]);
+  }
+}
+
+int TerrainGame::physBodyFor(int index) {
+  if (physBodiesScene != currentScene) {
+    physBodies.clear();
+    physSlotOf.clear();
+    physBodiesScene = currentScene;
+  }
+  if (physSlotOf.size() < runtimeObjects.size())
+    physSlotOf.resize(runtimeObjects.size(), -1);
+  if (physSlotOf[index] < 0) {
+    physSlotOf[index] = (short)physBodies.size();
+    physBodies.emplace_back();
+  }
+  PhysBody& b = physBodies[physSlotOf[index]];
+  RuntimeObject& o = runtimeObjects[index];
+  const SceneObjectData& d = o.data;
+  const int shape = d.type * 4096 + (d.model + 1) * 16 + (d.animModel + 1) +
+                    (d.physTumble ? 0x40000000 : 0);
+  bool rebuilt = false;
+  if (!b.valid || b.sigShape != shape || b.sigMass != d.physMass ||
+      b.sigScale[0] != d.scale[0] || b.sigScale[1] != d.scale[1] ||
+      b.sigScale[2] != d.scale[2]) {
+    physBuildShape(index, b);
+    rebuilt = true;
+  }
+  // Somebody else moved or turned it since the sim last wrote it (a carry, a
+  // portal hop, a script, Live Link, the time machine): the Euler angles are
+  // the truth again. `spin` is the script-visible mirror of the angular
+  // velocity in degrees/frame, so a Stop Motion that zeroed it stops the spin.
+  const bool moved = rebuilt || b.lastPos[0] != d.position[0] ||
+                     b.lastPos[1] != d.position[1] ||
+                     b.lastPos[2] != d.position[2] ||
+                     b.lastRot[0] != d.rotation[0] ||
+                     b.lastRot[1] != d.rotation[1] ||
+                     b.lastRot[2] != d.rotation[2];
+  if (moved) {
+    float m[9];
+    rbEulerToMat(d.rotation, m);
+    rbMatToQuat(m, b.q);
+    for (int k = 0; k < 3; ++k) {
+      b.lastPos[k] = d.position[k];
+      b.lastRot[k] = d.rotation[k];
+    }
+  }
+  if (moved || b.lastSpin[0] != o.spin[0] || b.lastSpin[1] != o.spin[1] ||
+      b.lastSpin[2] != o.spin[2]) {
+    for (int k = 0; k < 3; ++k) {
+      b.w[k] = o.spin[k] * (PI / 180.0F);
+      b.lastSpin[k] = o.spin[k];
+    }
+  }
+  return physSlotOf[index];
+}
+
+void TerrainGame::physPushAt(int index, float px, float py, float pz,
+                             float dvx, float dvy, float dvz) {
+  RuntimeObject& o = runtimeObjects[index];
+  o.velocityX += dvx;
+  o.velocityY += dvy;
+  o.velocityZ += dvz;
+  o.restFrames = 0;
+  const int slot = physBodyFor(index);
+  PhysBody& b = physBodies[slot];
+  if (!b.tumble || b.invMass <= 0.0F) return;
+  float R[9];
+  rbQuatToMat(b.q, R);
+  const RbV com = rbAdd(rbV(o.data.position[0], o.data.position[1],
+                            o.data.position[2]),
+                        rbMat(R, rbV(b.comL[0], b.comL[1], b.comL[2])));
+  const RbV r = rbSub(rbV(px, py, pz), com);
+  const RbV J = rbMul(rbV(dvx, dvy, dvz), 1.0F / b.invMass);
+  float Iw[9];
+  rbWorldInvI(R, b.invI, Iw);
+  const RbV dw = rbMat(Iw, rbCross(r, J));
+  for (int k = 0; k < 3; ++k) {
+    float& w = b.w[k];
+    w += k == 0 ? dw.x : (k == 1 ? dw.y : dw.z);
+    if (w > PHYS_MAX_SPIN) w = PHYS_MAX_SPIN;
+    if (w < -PHYS_MAX_SPIN) w = -PHYS_MAX_SPIN;
+    o.spin[k] = w * (180.0F / PI);
+    b.lastSpin[k] = o.spin[k];
+  }
+}
+
 void TerrainGame::updateObjectPhysics() {
   // GRAVITY is units/s^2; velocities are per-frame displacements.
   const float gravityPerFrame = GRAVITY * g_frameDt * g_frameDt;
-  const float microBounce2 = gravityPerFrame * gravityPerFrame * 6.25F;
+  // Below this approach speed a contact is resting and does not bounce -
+  // otherwise gravity's own frame of fall would buzz a crate on the floor.
+  const float bounceThreshold = 3.0F * gravityPerFrame + 0.004F;
   const int count = (int)runtimeObjects.size();
+  const float wakeSpeed = sqrtf(PHYS_WAKE_SPEED2);
 
-  // Pass 1: integrate each awake body against the world (terrain, bounds,
-  // static solids - sleeping bodies included, they are static this frame).
+  static std::vector<RbStep> steps;
+  static std::vector<RbContact> contacts;
+  static std::vector<short> stepOf;
+  static std::vector<int> bodies;   // every physics object this frame
+  static std::vector<int> statics;  // candidate static obstacles
+  static std::vector<float> staticR;
+  steps.clear();
+  contacts.clear();
+  bodies.clear();
+
+  // --- 1. awake bodies: sync, integrate forces, predict the pose ------------
   for (int i = 0; i < count; ++i) {
     RuntimeObject& o = runtimeObjects[i];
     // Carried/thrown objects are driven by updateCarriedObject this frame.
     if (i == carryIndex || i == thrownIndex) continue;
     if (!o.active || !o.data.physics) continue;
-    if (physAsleep(o)) continue;  // asleep
-
-    const GameModel* gm = nullptr;
-    const SkelModel* anim = nullptr;
-    if (o.data.type == 5) {
-      if (o.data.model >= 0 && o.data.model < (int)gameModels.size())
-        gm = &gameModels[o.data.model];
-      if (o.data.animModel >= 0 &&
-          o.data.animModel < (int)gameAnimModels.size())
-        anim = gameAnimModels[o.data.animModel].src.get();
+    bodies.push_back(i);
+  }
+  if (bodies.empty()) return;
+  bool anyAwake = false;
+  for (int i : bodies)
+    if (!physAsleep(runtimeObjects[i])) {
+      anyAwake = true;
+      break;
     }
-    float cOff[3], ext[3];
-    physExtents(o.data, gm, anim, cOff, ext);
-    // Tumbled bodies contact the world through their ROTATED bound: the
-    // support extent of the OBB along each world axis (sum of |basis
-    // column| * half extent) and the rotated center offset. The plain
-    // axis-aligned ext let a rolled box sink corner-deep into the terrain
-    // as if it were a sphere of its half-height. Spheres skip this - they
-    // are rotation-invariant and their box corners would overestimate the
-    // radius. (Yaw-only rotation leaves the vertical extent unchanged, so
-    // authored yaw blocks rest exactly as before.)
-    if (o.data.type != 1 &&
-        (o.data.rotation[0] != 0.0F || o.data.rotation[1] != 0.0F ||
-         o.data.rotation[2] != 0.0F)) {
-      const V3 bx = rotated({1.0F, 0.0F, 0.0F}, o.data.rotation);
-      const V3 by = rotated({0.0F, 1.0F, 0.0F}, o.data.rotation);
-      const V3 bz = rotated({0.0F, 0.0F, 1.0F}, o.data.rotation);
-      const V3 rc = rotated({cOff[0], cOff[1], cOff[2]}, o.data.rotation);
-      const float lx = ext[0], ly = ext[1], lz = ext[2];
-      ext[0] = fabsf(bx.x) * lx + fabsf(by.x) * ly + fabsf(bz.x) * lz;
-      ext[1] = fabsf(bx.y) * lx + fabsf(by.y) * ly + fabsf(bz.y) * lz;
-      ext[2] = fabsf(bx.z) * lx + fabsf(by.z) * ly + fabsf(bz.z) * lz;
-      cOff[0] = rc.x, cOff[1] = rc.y, cOff[2] = rc.z;
+  if (!anyAwake) return;  // a settled scene pays one pass over its bodies
+  // physBodies may grow while slots are handed out - take every slot now,
+  // before any reference into the vector is held.
+  physBodies.reserve(physBodies.size() + bodies.size());
+  for (int i : bodies) physBodyFor(i);
+  stepOf.assign(count, -1);
+
+  auto makeStep = [&](int i, bool asleep) -> int {
+    RuntimeObject& o = runtimeObjects[i];
+    const int slot = physSlotOf[i];
+    const PhysBody& b = physBodies[slot];
+    RbStep s;
+    s.obj = i;
+    s.slot = slot;
+    s.asleep = asleep;
+    s.grounded = false;
+    s.sphere = b.verts == 0;
+    s.sphereR = b.radius;
+    s.invMass = asleep ? 0.0F : b.invMass;
+    s.bounce = o.data.physBounce;
+    s.friction = o.data.physFriction;
+    for (int k = 0; k < 4; ++k) s.q0[k] = b.q[k];
+    rbQuatToMat(s.q0, s.R0);
+    const RbV pos = rbV(o.data.position[0], o.data.position[1],
+                        o.data.position[2]);
+    s.x0 = rbAdd(pos, rbMat(s.R0, rbV(b.comL[0], b.comL[1], b.comL[2])));
+    s.vp = s.wp = rbV(0.0F, 0.0F, 0.0F);
+    if (asleep) {
+      s.v = s.w = rbV(0.0F, 0.0F, 0.0F);
+      s.x1 = s.x0;
+      for (int k = 0; k < 9; ++k) s.R1[k] = s.R0[k], s.invIw[k] = 0.0F;
+    } else {
+      RbV v = rbV(o.velocityX, o.velocityY - gravityPerFrame, o.velocityZ);
+      // Terminal fall velocity, 30 u/s real time (owner-tuned: 50 read as a
+      // strobing blur in a door-sized infinite-fall loop, 15 as too floaty).
+      const float termFall = 30.0F * g_frameDt;
+      if (v.y < -termFall) v.y = -termFall;
+      const float sp2 = rbDot(v, v);
+      if (sp2 > PHYS_MAX_SPEED * PHYS_MAX_SPEED)
+        v = rbMul(v, PHYS_MAX_SPEED / sqrtf(sp2));
+      // A body that does not tumble never turns, whatever spin it was given.
+      RbV w = b.tumble ? rbV(b.w[0], b.w[1], b.w[2]) : rbV(0.0F, 0.0F, 0.0F);
+      const float w2 = rbDot(w, w);
+      if (w2 > PHYS_MAX_SPIN * PHYS_MAX_SPIN)
+        w = rbMul(w, PHYS_MAX_SPIN / sqrtf(w2));
+      s.v = v;
+      s.w = w;
+      s.x1 = rbAdd(s.x0, v);
+      float q1[4] = {s.q0[0], s.q0[1], s.q0[2], s.q0[3]};
+      rbIntegrate(q1, w);
+      rbQuatToMat(q1, s.R1);
+      rbWorldInvI(s.R1, b.invI, s.invIw);
     }
-    const float radius = ext[0] > ext[2] ? ext[0] : ext[2];
-    const float bounce = o.data.physBounce;
+    s.nv = b.verts;
+    for (int k = 0; k < b.verts; ++k) {
+      const RbV l = rbV(b.lv[k * 3], b.lv[k * 3 + 1], b.lv[k * 3 + 2]);
+      s.wv0[k] = rbAdd(s.x0, rbMat(s.R0, l));
+      s.wv[k] = asleep ? s.wv0[k] : rbAdd(s.x1, rbMat(s.R1, l));
+    }
+    steps.push_back(s);
+    stepOf[i] = (short)(steps.size() - 1);
+    return (int)steps.size() - 1;
+  };
+  steps.reserve(bodies.size());
+  for (int i : bodies)
+    if (!physAsleep(runtimeObjects[i])) makeStep(i, false);
+  const int awakeCount = (int)steps.size();
 
-    Vec4 vel(o.velocityX, o.velocityY, o.velocityZ, 0.0F);
-    vel.y -= gravityPerFrame;
-    // Terminal fall velocity, 30 u/s real time (owner-tuned: 50 read as a
-    // strobing blur in a door-sized infinite-fall loop, 15 as too floaty;
-    // PHYS_MAX_SPEED alone would allow 150).
-    const float termFall = 30.0F * g_frameDt;
-    if (vel.y < -termFall) vel.y = -termFall;
-    const float clampSp2 = vel.innerProduct(vel);
-    if (clampSp2 > PHYS_MAX_SPEED * PHYS_MAX_SPEED)
-      vel *= PHYS_MAX_SPEED / sqrtf(clampSp2);
-    Vec4 pos(o.data.position[0], o.data.position[1], o.data.position[2], 1.0F);
-    const Vec4 prevPos = pos;
-    pos += vel;
+  // Candidate static obstacles, once per frame for every body: a centre and
+  // a reject radius from the collision box, no trigonometry.
+  statics.clear();
+  staticR.clear();
+  for (int j = 0; j < count; ++j) {
+    const RuntimeObject& s = runtimeObjects[j];
+    if (!s.active || s.data.physics || !physObstacle(s.data)) continue;
+    const CollisionBox cb = objectCollisionBox(s);
+    const float c2 = cb.center[0] * cb.center[0] + cb.center[1] * cb.center[1] +
+                     cb.center[2] * cb.center[2];
+    const float h2 = cb.half[0] * cb.half[0] + cb.half[1] * cb.half[1] +
+                     cb.half[2] * cb.half[2];
+    statics.push_back(j);
+    staticR.push_back(sqrtf(c2) + sqrtf(h2));
+  }
 
-    bool grounded = false;
-    Vec4 slideTan(0.0F, 0.0F, 0.0F, 0.0F);
+  RbCand cand[48];
+  RbCand red[4];
+  auto emit = [&](int a, int b, const RbCand* cs, int n) {
+    const int m = rbReduce(cs, n, red);
+    for (int k = 0; k < m; ++k) {
+      if ((int)contacts.size() >= PHYS_MAX_CONTACTS) return;
+      RbContact c;
+      c.a = (short)a;
+      c.b = (short)b;
+      c.n = red[k].n;
+      c.p = red[k].p;
+      c.depth = red[k].depth;
+      contacts.push_back(c);
+    }
+  };
 
-    // Terrain contact. The response uses the real slope normal (central
-    // differences on the heightfield) so bodies kick sideways off hills and
-    // slide/roll downhill instead of stopping dead inside the slope.
-    const float bottomY = pos.y + cOff[1] - ext[1];
-    float groundY = terrainHeightAt(pos.x, pos.z);
-    // Floor-portal swallowing: a body over a linked, object-teleporting floor
-    // portal ignores the terrain (see portalSwallowZone) - otherwise it rests
-    // on the ground before its center can reach the plane of a portal lying on
-    // (or near) the terrain, and never falls in.
-    for (int pi = 0; PORTAL_COUNT > 0 && pi < PORTAL_COUNT; ++pi) {
-      const PortalData& p = PORTALS[pi];
-      if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
-      if (!portalCanCross(p, i)) continue;
-      if (p.object >= count || p.target >= count) continue;
-      RuntimeObject& m = runtimeObjects[p.object];
-      if (!m.active || !m.visible || !runtimeObjects[p.target].active) continue;
-      if (&o == &m || &o == &runtimeObjects[p.target]) continue;
-      // Swept, not point-sampled: a terminal-velocity faller crosses the
-      // whole approach zone between two frames and the endpoint test would
-      // let the terrain clamp stop it dead over the portal (a post-#97
-      // hitch - the old portal fall code was capped at 1 u/frame and could
-      // not tunnel).
-      if (portalSwallowSwept(m, 0.5F * m.data.scale[0] + 0.25F,
-                             0.5F * m.data.scale[1] + 0.25F, prevPos, pos)) {
-        groundY = -1e30F;
-        break;
+  // --- 2. contacts against the world ----------------------------------------
+  for (int si = 0; si < awakeCount; ++si) {
+    RbStep& S = steps[si];
+    RuntimeObject& o = runtimeObjects[S.obj];
+    const PhysBody& B = physBodies[S.slot];
+    const RbV x1 = S.x1;
+
+    // Terrain. Floor-portal swallowing: a body over a linked, object-
+    // teleporting floor portal ignores the terrain (see portalSwallowZone),
+    // swept rather than point-sampled so a terminal-velocity faller cannot
+    // step over the approach zone and land on the ground above the portal.
+    bool swallowed = false;
+    {
+      const Vec4 a4(S.x0.x, S.x0.y, S.x0.z, 1.0F), b4(x1.x, x1.y, x1.z, 1.0F);
+      for (int pi = 0; PORTAL_COUNT > 0 && pi < PORTAL_COUNT; ++pi) {
+        const PortalData& p = PORTALS[pi];
+        if (p.scene != currentScene || p.object < 0 || p.target < 0) continue;
+        if (!portalCanCross(p, S.obj)) continue;
+        if (p.object >= count || p.target >= count) continue;
+        RuntimeObject& m = runtimeObjects[p.object];
+        if (!m.active || !m.visible || !runtimeObjects[p.target].active) continue;
+        if (&o == &m || &o == &runtimeObjects[p.target]) continue;
+        if (portalSwallowSwept(m, 0.5F * m.data.scale[0] + 0.25F,
+                               0.5F * m.data.scale[1] + 0.25F, a4, b4)) {
+          swallowed = true;
+          break;
+        }
       }
     }
-    if (bottomY <= groundY) {
-      pos.y += groundY - bottomY;
-      const float hs = radius > 0.35F ? radius : 0.35F;
-      Vec4 nrm(terrainHeightAt(pos.x - hs, pos.z) -
-                   terrainHeightAt(pos.x + hs, pos.z),
-               2.0F * hs,
-               terrainHeightAt(pos.x, pos.z - hs) -
-                   terrainHeightAt(pos.x, pos.z + hs),
-               0.0F);
-      nrm.normalize();
-      const float vn = vel.innerProduct(nrm);
-      if (vn < 0.0F) {
-        const Vec4 vNorm = nrm * vn;
-        Vec4 vTan = vel - vNorm;
-        vTan *= 1.0F - o.data.physFriction * 0.18F;
-        Vec4 vBounce = vNorm * -bounce;
-        // kill micro-bounces so bodies settle instead of buzzing forever
-        if (vBounce.innerProduct(vBounce) < microBounce2)
-          vBounce = Vec4(0.0F, 0.0F, 0.0F, 0.0F);
-        slideTan = vTan;
-        vel = vTan + vBounce;
+    const float hC = terrainHeightAt(x1.x, x1.z);
+    if (!swallowed && x1.y - B.radius < hC + B.radius + 0.1F) {
+      const float hs = 0.35F;
+      RbV nT = rbV(terrainHeightAt(x1.x - hs, x1.z) - terrainHeightAt(x1.x + hs, x1.z),
+                   2.0F * hs,
+                   terrainHeightAt(x1.x, x1.z - hs) - terrainHeightAt(x1.x, x1.z + hs));
+      nT = rbMul(nT, 1.0F / sqrtf(rbDot(nT, nT)));
+      int n = 0;
+      if (S.sphere) {
+        const RbV bottom = rbSub(x1, rbMul(nT, S.sphereR));
+        const float h = terrainHeightAt(bottom.x, bottom.z);
+        if (bottom.y < h) {
+          cand[n].n = nT;
+          cand[n].p = bottom;
+          cand[n].depth = (h - bottom.y) * nT.y;
+          ++n;
+        }
+      } else {
+        for (int k = 0; k < S.nv && n < 48; ++k) {
+          const RbV p = S.wv[k];
+          const float h = terrainHeightAt(p.x, p.z);
+          if (p.y >= h) continue;
+          cand[n].n = nT;
+          cand[n].p = p;
+          cand[n].depth = (h - p.y) * nT.y;
+          ++n;
+        }
       }
-      grounded = true;
+      if (n) emit(si, -1, cand, n);
     }
+
+    // Aiming into a linked opening this frame: solids the opening is cut
+    // into stop blocking this body (the walkers' doorway rule, shared through
+    // portalDoorwayOpens). The segment is padded by the body's extent, since
+    // the contacts stop its centre ~r short of a wall at the plane.
+    float aimPlane[4] = {0, 0, 0, 0};
+    float aimPoint[3] = {0, 0, 0};
+    bool aimOn = false;
+    if (PORTAL_COUNT > 0) {
+      const float a3[3] = {S.x0.x, S.x0.y, S.x0.z};
+      const RbV mv = rbSub(x1, S.x0);
+      const float mvLen = sqrtf(rbDot(mv, mv));
+      const float pad = mvLen > 1e-6F ? 1.0F + (B.radius + 0.1F) / mvLen : 1.0F;
+      const float b3[3] = {S.x0.x + mv.x * pad, S.x0.y + mv.y * pad,
+                           S.x0.z + mv.z * pad};
+      const int aim = portalCarryAim(a3, b3, S.obj);
+      if (aim >= 0) {
+        const RuntimeObject& pm = runtimeObjects[PORTALS[aim].object];
+        const V3 pn = rotated({0.0F, 0.0F, 1.0F}, pm.data.rotation);
+        aimPlane[0] = pn.x, aimPlane[1] = pn.y, aimPlane[2] = pn.z;
+        aimPlane[3] = pn.x * pm.data.position[0] + pn.y * pm.data.position[1] +
+                      pn.z * pm.data.position[2];
+        for (int k = 0; k < 3; ++k) aimPoint[k] = portalAimPoint[k];
+        aimOn = true;
+      }
+    }
+
+    const float reach = B.radius + sqrtf(rbDot(S.v, S.v)) + 0.05F;
+    for (size_t st = 0; st < statics.size(); ++st) {
+      const int j = statics[st];
+      if (j == S.obj) continue;
+      RuntimeObject& s = runtimeObjects[j];
+      const float dx = s.data.position[0] - x1.x, dy = s.data.position[1] - x1.y,
+                  dz = s.data.position[2] - x1.z;
+      const float rr = staticR[st] + reach;
+      if (dx * dx + dy * dy + dz * dz > rr * rr) continue;
+      const GameModel* sgm = nullptr;
+      if (s.data.type == 5 && s.data.model >= 0 &&
+          s.data.model < (int)gameModels.size())
+        sgm = &gameModels[s.data.model];
+      int n = 0;
+
+      // --- a collision-mesh model: its TRIANGLES, not its box -------------
+      // A merged building's box encloses its own rooms, so a body inside it
+      // (thrown through a portal into a cellar, rolled in through a door)
+      // must meet the floors and walls, not be ejected from the box. Every
+      // hull corner casts its own path this frame - from where it was, a
+      // skin behind, to where it is predicted - so a fast corner cannot cross
+      // a thin floor between two frames and a stool finds all four feet.
+      if (s.data.collision == 1 && sgm && !sgm->collider.empty()) {
+        float Rs[9];
+        rbEulerToMat(s.data.rotation, Rs);
+        float sc[3];
+        for (int k = 0; k < 3; ++k)
+          sc[k] = fabsf(s.data.scale[k]) > 0.0001F ? s.data.scale[k] : 0.0001F;
+        const RbV sp = rbV(s.data.position[0], s.data.position[1],
+                           s.data.position[2]);
+        auto toLocal = [&](RbV w) {
+          const RbV l = rbMatT(Rs, rbSub(w, sp));
+          return rbV(l.x / sc[0], l.y / sc[1], l.z / sc[2]);
+        };
+        auto dirLocal = [&](RbV w) {
+          const RbV l = rbMatT(Rs, w);
+          return rbV(l.x / sc[0], l.y / sc[1], l.z / sc[2]);
+        };
+        const float* mn = sgm->collider.aabbMin();
+        const float* mx = sgm->collider.aabbMax();
+        const int nPts = S.sphere ? 1 : S.nv;
+        for (int k = 0; k < nPts && n < 48; ++k) {
+          RbV p0, p1;
+          if (S.sphere) {  // the lowest point of the ball, along gravity
+            p0 = rbSub(S.x0, rbV(0.0F, S.sphereR, 0.0F));
+            p1 = rbSub(x1, rbV(0.0F, S.sphereR, 0.0F));
+          } else {
+            p0 = S.wv0[k];
+            p1 = S.wv[k];
+          }
+          const RbV seg = rbSub(p1, p0);
+          const float L = sqrtf(rbDot(seg, seg));
+          const RbV dir = L > 1e-5F ? rbMul(seg, 1.0F / L) : rbV(0.0F, -1.0F, 0.0F);
+          const float skin = 0.05F;
+          const RbV org = rbSub(p0, rbMul(dir, skin));
+          const RbV ol = toLocal(org);
+          RbV dl = dirLocal(rbMul(dir, L + skin));
+          const float ll = sqrtf(rbDot(dl, dl));
+          if (ll < 1e-7F) continue;
+          const RbV el = rbAdd(ol, dl);
+          if ((ol.x < mn[0] && el.x < mn[0]) || (ol.x > mx[0] && el.x > mx[0]) ||
+              (ol.y < mn[1] && el.y < mn[1]) || (ol.y > mx[1] && el.y > mx[1]) ||
+              (ol.z < mn[2] && el.z < mn[2]) || (ol.z > mx[2] && el.z > mx[2]))
+            continue;
+          dl = rbMul(dl, 1.0F / ll);
+          float t, nl[3];
+          if (!sgm->collider.raycast(Vec4(ol.x, ol.y, ol.z, 1.0F),
+                                     Vec4(dl.x, dl.y, dl.z, 0.0F), ll, &t, nl))
+            continue;
+          const RbV hitL = rbAdd(ol, rbMul(dl, t));
+          const RbV hitW = rbAdd(sp, rbMat(Rs, rbV(hitL.x * sc[0], hitL.y * sc[1],
+                                                   hitL.z * sc[2])));
+          RbV nw = rbMat(Rs, rbV(nl[0] / sc[0], nl[1] / sc[1], nl[2] / sc[2]));
+          nw = rbMul(nw, 1.0F / sqrtf(rbDot(nw, nw)));
+          if (rbDot(nw, dir) > 0.0F) nw = rbMul(nw, -1.0F);
+          const float depth = rbDot(rbSub(hitW, p1), nw);
+          if (depth <= 0.0F) continue;
+          cand[n].n = nw;
+          cand[n].p = p1;
+          cand[n].depth = depth;
+          ++n;
+        }
+        if (S.sphere && n < 48) {
+          // The ball's sides: its sphere out of steep faces, side-aware.
+          const RbV up = dirLocal(rbV(0.0F, 1.0F, 0.0F));
+          const float ul = sqrtf(rbDot(up, up));
+          const RbV lc = toLocal(x1), lp0 = toLocal(S.x0);
+          Vec4 center(lc.x, lc.y, lc.z, 1.0F);
+          const Vec4 prevLocal(lp0.x, lp0.y, lp0.z, 1.0F);
+          const float sAvg = (sc[0] + sc[2]) * 0.5F;
+          if (sgm->collider.resolveSphere(&center, S.sphereR / sAvg, 0.7F,
+                                          Vec4(up.x / ul, up.y / ul, up.z / ul, 0.0F),
+                                          &prevLocal)) {
+            const RbV w = rbAdd(sp, rbMat(Rs, rbV(center.x * sc[0], center.y * sc[1],
+                                                  center.z * sc[2])));
+            const RbV push = rbSub(w, x1);
+            const float pl = sqrtf(rbDot(push, push));
+            if (pl > 1e-6F) {
+              cand[n].n = rbMul(push, 1.0F / pl);
+              cand[n].p = rbSub(x1, rbMul(cand[n].n, S.sphereR));
+              cand[n].depth = pl;
+              ++n;
+            }
+          }
+        }
+        if (n) emit(si, -1, cand, n);
+        continue;
+      }
+
+      // --- a box collider: the object's collision box, rotation included ---
+      // The walkers' doorway rule: a WALL portal opens the geometry's walls
+      // only (its floor keeps carrying the body), a FLOOR portal opens it all.
+      const bool doorway = aimOn && portalDoorwayOpens(s, aimPlane, aimPoint);
+      if (doorway && fabsf(aimPlane[1]) >= 0.5F) continue;
+      const CollisionBox cb = objectCollisionBox(s);
+      const V3 ax = boxRotate({1.0F, 0.0F, 0.0F}, s.data);
+      const V3 ay = boxRotate({0.0F, 1.0F, 0.0F}, s.data);
+      const V3 az = boxRotate({0.0F, 0.0F, 1.0F}, s.data);
+      const float Bm[9] = {ax.x, ay.x, az.x, ax.y, ay.y, az.y, ax.z, ay.z, az.z};
+      const RbV bc = rbAdd(rbV(s.data.position[0], s.data.position[1],
+                               s.data.position[2]),
+                           rbMat(Bm, rbV(cb.center[0], cb.center[1], cb.center[2])));
+      const float h[3] = {cb.half[0], cb.half[1], cb.half[2]};
+      if (S.sphere) {
+        const RbV l = rbMatT(Bm, rbSub(x1, bc));
+        const float lc[3] = {l.x, l.y, l.z};
+        float cl[3];
+        bool inside = true;
+        for (int k = 0; k < 3; ++k) {
+          cl[k] = lc[k] < -h[k] ? -h[k] : (lc[k] > h[k] ? h[k] : lc[k]);
+          if (cl[k] != lc[k]) inside = false;
+        }
+        RbV nL;
+        float depth;
+        if (!inside) {
+          const RbV dv = rbV(lc[0] - cl[0], lc[1] - cl[1], lc[2] - cl[2]);
+          const float dl = sqrtf(rbDot(dv, dv));
+          if (dl >= S.sphereR) continue;
+          nL = rbMul(dv, 1.0F / dl);
+          depth = S.sphereR - dl;
+        } else {
+          int ak = 0;
+          float pen = 1e30F;
+          for (int k = 0; k < 3; ++k) {
+            const float pk = h[k] - fabsf(lc[k]);
+            if (pk < pen) pen = pk, ak = k;
+          }
+          float nv3[3] = {0.0F, 0.0F, 0.0F};
+          nv3[ak] = lc[ak] < 0.0F ? -1.0F : 1.0F;
+          nL = rbV(nv3[0], nv3[1], nv3[2]);
+          depth = pen + S.sphereR;
+        }
+        cand[0].n = rbMat(Bm, nL);
+        cand[0].p = rbSub(x1, rbMul(cand[0].n, S.sphereR));
+        cand[0].depth = depth;
+        n = 1;
+      } else {
+        // Hull corners inside the box, pushed out through the face they
+        // came in by (side-aware - a thin wall must not eject a fast corner
+        // out of its far side), else the nearest face.
+        for (int k = 0; k < S.nv && n < 48; ++k) {
+          const RbV l = rbMatT(Bm, rbSub(S.wv[k], bc));
+          const float lc[3] = {l.x, l.y, l.z};
+          if (fabsf(lc[0]) >= h[0] || fabsf(lc[1]) >= h[1] || fabsf(lc[2]) >= h[2])
+            continue;
+          const RbV l0 = rbMatT(Bm, rbSub(S.wv0[k], bc));
+          const float lc0[3] = {l0.x, l0.y, l0.z};
+          int ak = -1;
+          float out = 0.0F;
+          for (int a = 0; a < 3; ++a) {
+            const float e = fabsf(lc0[a]) - h[a];
+            if (e > out) out = e, ak = a;
+          }
+          float sgn, depth;
+          if (ak >= 0) {
+            sgn = lc0[ak] < 0.0F ? -1.0F : 1.0F;
+            depth = h[ak] - sgn * lc[ak];
+          } else {
+            float pen = 1e30F;
+            for (int a = 0; a < 3; ++a) {
+              const float pk = h[a] - fabsf(lc[a]);
+              if (pk < pen) pen = pk, ak = a;
+            }
+            sgn = lc[ak] < 0.0F ? -1.0F : 1.0F;
+            depth = pen;
+          }
+          float nv3[3] = {0.0F, 0.0F, 0.0F};
+          nv3[ak] = sgn;
+          cand[n].n = rbMat(Bm, rbV(nv3[0], nv3[1], nv3[2]));
+          cand[n].p = S.wv[k];
+          cand[n].depth = depth;
+          ++n;
+        }
+        // Box corners inside the hull: a body lying across a narrow beam or
+        // a kerb edge rests on the edge, which no hull corner touches.
+        for (int c = 0; c < 8 && n < 48; ++c) {
+          const RbV cl = rbV((c & 1) ? h[0] : -h[0], (c & 2) ? h[1] : -h[1],
+                             (c & 4) ? h[2] : -h[2]);
+          const RbV cw = rbAdd(bc, rbMat(Bm, cl));
+          const RbV rel = rbSub(cw, x1);
+          if (rbDot(rel, rel) > B.radius * B.radius) continue;
+          const RbV lc = rbMatT(S.R1, rel);
+          float depth;
+          const int f = rbInsideHull(B.lp, B.planes, lc, &depth);
+          if (f < 0) continue;
+          const float* pl = B.lp + f * 4;
+          cand[n].n = rbMul(rbMat(S.R1, rbV(pl[0], pl[1], pl[2])), -1.0F);
+          cand[n].p = cw;
+          cand[n].depth = depth;
+          ++n;
+        }
+      }
+      if (doorway) {  // through a wall portal only the floor answers
+        int m = 0;
+        for (int k = 0; k < n; ++k)
+          if (cand[k].n.y > 0.7F) cand[m++] = cand[k];
+        n = m;
+      }
+      if (n) emit(si, -1, cand, n);
+    }
+  }
+
+  // --- 3. contacts between bodies -------------------------------------------
+  // A sleeping partner is immovable this frame; a hit hard enough wakes it
+  // for the next one, and so does its support sliding out from under it.
+  for (int si = 0; si < awakeCount; ++si) {
+    const int i = steps[si].obj;
+    if (!physObstacle(runtimeObjects[i].data)) continue;
+    for (int j : bodies) {
+      if (j == i) continue;
+      RuntimeObject& ob = runtimeObjects[j];
+      if (!physObstacle(ob.data)) continue;
+      // Asleep = has no step of its own this frame (a sleeper woken earlier
+      // in this loop is still immovable until the next frame).
+      const bool jAsleep = stepOf[j] < 0 || steps[stepOf[j]].asleep;
+      if (!jAsleep && j < i) continue;  // an awake pair is visited once
+      const PhysBody& Bj = physBodies[physSlotOf[j]];
+      const RbStep& A0 = steps[si];
+      const RbV pj = stepOf[j] >= 0
+                         ? steps[stepOf[j]].x1
+                         : rbV(ob.data.position[0], ob.data.position[1],
+                               ob.data.position[2]);
+      // bounding-sphere reject before a sleeper is expanded into a step
+      const float rr = physBodies[A0.slot].radius + Bj.radius +
+                       sqrtf(rbDot(A0.v, A0.v)) +
+                       sqrtf(Bj.comL[0] * Bj.comL[0] + Bj.comL[1] * Bj.comL[1] +
+                             Bj.comL[2] * Bj.comL[2]);
+      const RbV dd = rbSub(pj, A0.x1);
+      if (rbDot(dd, dd) > rr * rr) continue;
+      int sj = stepOf[j];
+      if (sj < 0) sj = makeStep(j, true);
+      const RbStep& A = steps[si];
+      const RbStep& Bs = steps[sj];
+      const PhysBody& Ba = physBodies[A.slot];
+      const RbV d = rbSub(A.x1, Bs.x1);
+      const float d2 = rbDot(d, d);
+      const float rs = Ba.radius + Bj.radius;
+      if (d2 > rs * rs) continue;
+      int n = 0;
+      if (A.sphere && Bs.sphere) {
+        const float dl = sqrtf(d2 > 1e-10F ? d2 : 1e-10F);
+        const float pen = A.sphereR + Bs.sphereR - dl;
+        if (pen > 0.0F) {
+          cand[0].n = d2 > 1e-10F ? rbMul(d, 1.0F / dl) : rbV(0.0F, 1.0F, 0.0F);
+          cand[0].p = rbSub(A.x1, rbMul(cand[0].n, A.sphereR));
+          cand[0].depth = pen;
+          n = 1;
+        }
+      } else if (A.sphere || Bs.sphere) {
+        // sphere against hull: the face of largest separation decides
+        const RbStep& Hs = A.sphere ? Bs : A;
+        const RbStep& Ss = A.sphere ? A : Bs;
+        const PhysBody& Hb = physBodies[Hs.slot];
+        const RbV lc = rbMatT(Hs.R1, rbSub(Ss.x1, Hs.x1));
+        int best = -1;
+        float sep = -1e30F;
+        for (int k = 0; k < Hb.planes; ++k) {
+          const float* pl = Hb.lp + k * 4;
+          const float s = pl[0] * lc.x + pl[1] * lc.y + pl[2] * lc.z - pl[3];
+          if (s > sep) sep = s, best = k;
+        }
+        if (best >= 0 && sep < Ss.sphereR) {
+          const float* pl = Hb.lp + best * 4;
+          RbV nw = rbMat(Hs.R1, rbV(pl[0], pl[1], pl[2]));  // hull -> sphere
+          cand[0].p = rbSub(Ss.x1, rbMul(nw, Ss.sphereR));
+          cand[0].depth = Ss.sphereR - sep;
+          cand[0].n = A.sphere ? nw : rbMul(nw, -1.0F);
+          n = 1;
+        }
+      } else {
+        // hull against hull: each one's corners inside the other
+        for (int k = 0; k < A.nv && n < 48; ++k) {
+          const RbV rel = rbSub(A.wv[k], Bs.x1);
+          if (rbDot(rel, rel) > Bj.radius * Bj.radius) continue;
+          float depth;
+          const int f = rbInsideHull(Bj.lp, Bj.planes, rbMatT(Bs.R1, rel), &depth);
+          if (f < 0) continue;
+          const float* pl = Bj.lp + f * 4;
+          cand[n].n = rbMat(Bs.R1, rbV(pl[0], pl[1], pl[2]));
+          cand[n].p = A.wv[k];
+          cand[n].depth = depth;
+          ++n;
+        }
+        for (int k = 0; k < Bs.nv && n < 48; ++k) {
+          const RbV rel = rbSub(Bs.wv[k], A.x1);
+          if (rbDot(rel, rel) > Ba.radius * Ba.radius) continue;
+          float depth;
+          const int f = rbInsideHull(Ba.lp, Ba.planes, rbMatT(A.R1, rel), &depth);
+          if (f < 0) continue;
+          const float* pl = Ba.lp + f * 4;
+          cand[n].n = rbMul(rbMat(A.R1, rbV(pl[0], pl[1], pl[2])), -1.0F);
+          cand[n].p = Bs.wv[k];
+          cand[n].depth = depth;
+          ++n;
+        }
+      }
+      if (!n) continue;
+      if (Bs.asleep) {
+        // Wake the sleeper on a real hit, or when it rides on this body and
+        // this body is moving out from under it.
+        bool wake = false;
+        for (int k = 0; k < n && !wake; ++k) {
+          const RbV ra = rbSub(cand[k].p, A.x1);
+          const float vn = rbDot(rbAdd(A.v, rbCross(A.w, ra)), cand[k].n);
+          if (-vn > wakeSpeed) wake = true;
+          if (cand[k].n.y < -0.5F && A.v.x * A.v.x + A.v.z * A.v.z > PHYS_REST_SPEED2)
+            wake = true;
+        }
+        if (wake) ob.restFrames = 0;
+      }
+      emit(si, sj, cand, n);
+    }
+  }
+
+  // --- 4. sequential impulses -------------------------------------------------
+  const int nc = (int)contacts.size();
+  for (int k = 0; k < nc; ++k) {
+    RbContact& c = contacts[k];
+    RbStep& A = steps[c.a];
+    c.ra = rbSub(c.p, A.x1);
+    RbV vrel = rbAdd(A.v, rbCross(A.w, c.ra));
+    const RbV ca = rbCross(c.ra, c.n);
+    float kn = A.invMass + rbDot(rbCross(rbMat(A.invIw, ca), c.ra), c.n);
+    float e = A.bounce, f = A.friction;
+    if (c.b >= 0) {
+      RbStep& Bs = steps[c.b];
+      c.rb = rbSub(c.p, Bs.x1);
+      vrel = rbSub(vrel, rbAdd(Bs.v, rbCross(Bs.w, c.rb)));
+      const RbV cb = rbCross(c.rb, c.n);
+      kn += Bs.invMass + rbDot(rbCross(rbMat(Bs.invIw, cb), c.rb), c.n);
+      if (Bs.bounce > e) e = Bs.bounce;
+      f = 0.5F * (f + Bs.friction);
+    } else {
+      c.rb = rbV(0.0F, 0.0F, 0.0F);
+    }
+    c.kn = kn > 1e-9F ? kn : 1e-9F;
+    c.vnPred = rbDot(vrel, c.n);
+    c.bounceTarget = -c.vnPred > bounceThreshold ? -e * c.vnPred : 0.0F;
+    // Coulomb friction coefficient from the authored 0..1 "Friction".
+    c.mu = 0.05F + 0.95F * f;
+    c.jn = c.jp = 0.0F;
+    c.ft = rbV(0.0F, 0.0F, 0.0F);
+    if (c.n.y > 0.5F) A.grounded = true;
+    if (c.b >= 0 && c.n.y < -0.5F) steps[c.b].grounded = true;
+  }
+  auto applyImpulse = [&](RbContact& c, RbV P) {
+    RbStep& A = steps[c.a];
+    A.v = rbAdd(A.v, rbMul(P, A.invMass));
+    A.w = rbAdd(A.w, rbMat(A.invIw, rbCross(c.ra, P)));
+    if (c.b >= 0) {
+      RbStep& Bs = steps[c.b];
+      Bs.v = rbSub(Bs.v, rbMul(P, Bs.invMass));
+      Bs.w = rbSub(Bs.w, rbMat(Bs.invIw, rbCross(c.rb, P)));
+    }
+  };
+  auto relVel = [&](const RbContact& c) {
+    const RbStep& A = steps[c.a];
+    RbV v = rbAdd(A.v, rbCross(A.w, c.ra));
+    if (c.b >= 0) {
+      const RbStep& Bs = steps[c.b];
+      v = rbSub(v, rbAdd(Bs.v, rbCross(Bs.w, c.rb)));
+    }
+    return v;
+  };
+  for (int it = 0; it < PHYS_ITERATIONS; ++it)
+    for (int k = 0; k < nc; ++k) {
+      RbContact& c = contacts[k];
+      RbV vrel = relVel(c);
+      const float vn = rbDot(vrel, c.n);
+      float nj = c.jn + (c.bounceTarget - vn) / c.kn;
+      if (nj < 0.0F) nj = 0.0F;
+      const float dj = nj - c.jn;
+      c.jn = nj;
+      if (dj != 0.0F) applyImpulse(c, rbMul(c.n, dj));
+      // friction, against whatever tangential slip is left
+      vrel = relVel(c);
+      const RbV vt = rbSub(vrel, rbMul(c.n, rbDot(vrel, c.n)));
+      const float vtl2 = rbDot(vt, vt);
+      if (vtl2 < 1e-14F) continue;
+      const float vtl = sqrtf(vtl2);
+      const RbV t = rbMul(vt, 1.0F / vtl);
+      const RbStep& A = steps[c.a];
+      float kt = A.invMass +
+                 rbDot(rbCross(rbMat(A.invIw, rbCross(c.ra, t)), c.ra), t);
+      if (c.b >= 0) {
+        const RbStep& Bs = steps[c.b];
+        kt += Bs.invMass +
+              rbDot(rbCross(rbMat(Bs.invIw, rbCross(c.rb, t)), c.rb), t);
+      }
+      if (kt < 1e-9F) continue;
+      RbV nf = rbAdd(c.ft, rbMul(t, -vtl / kt));
+      const float lim = c.mu * c.jn;
+      const float nfl2 = rbDot(nf, nf);
+      if (nfl2 > lim * lim) nf = rbMul(nf, lim / sqrtf(nfl2));
+      applyImpulse(c, rbSub(nf, c.ft));
+      c.ft = nf;
+    }
+  // Split impulse: the overlap still left after the velocity solve is
+  // removed through pseudo velocities that move the body and are then
+  // forgotten, so pushing a body out of the ground never launches it.
+  for (int it = 0; it < PHYS_POS_ITERATIONS; ++it)
+    for (int k = 0; k < nc; ++k) {
+      RbContact& c = contacts[k];
+      RbStep& A = steps[c.a];
+      const float vnNow = rbDot(relVel(c), c.n);
+      const float remaining = c.depth - (vnNow - c.vnPred);
+      const float target =
+          remaining > PHYS_SLOP ? PHYS_BAUMGARTE * (remaining - PHYS_SLOP) : 0.0F;
+      RbV vp = rbAdd(A.vp, rbCross(A.wp, c.ra));
+      if (c.b >= 0) {
+        const RbStep& Bs = steps[c.b];
+        vp = rbSub(vp, rbAdd(Bs.vp, rbCross(Bs.wp, c.rb)));
+      }
+      float nj = c.jp + (target - rbDot(vp, c.n)) / c.kn;
+      if (nj < 0.0F) nj = 0.0F;
+      const float dj = nj - c.jp;
+      c.jp = nj;
+      if (dj == 0.0F) continue;
+      const RbV P = rbMul(c.n, dj);
+      A.vp = rbAdd(A.vp, rbMul(P, A.invMass));
+      A.wp = rbAdd(A.wp, rbMat(A.invIw, rbCross(c.ra, P)));
+      if (c.b >= 0) {
+        RbStep& Bs = steps[c.b];
+        Bs.vp = rbSub(Bs.vp, rbMul(P, Bs.invMass));
+        Bs.wp = rbSub(Bs.wp, rbMat(Bs.invIw, rbCross(c.rb, P)));
+      }
+    }
+
+  // --- 5. integrate and write back ------------------------------------------
+  for (int si = 0; si < awakeCount; ++si) {
+    RbStep& S = steps[si];
+    RuntimeObject& o = runtimeObjects[S.obj];
+    PhysBody& B = physBodies[S.slot];
+    RbV v = S.v, w = S.w;
+    // Rolling resistance: a ball on the ground loses its spin slowly (a
+    // perfectly rigid ball on a perfectly rigid floor would roll forever),
+    // and a light air drag keeps a spinning body from spinning for ever.
+    if (S.grounded && S.sphere) w = rbMul(w, 1.0F - (0.004F + 0.03F * S.friction));
+    w = rbMul(w, 0.998F);
+    RbV x = rbAdd(rbAdd(S.x0, v), S.vp);
+    float q[4] = {S.q0[0], S.q0[1], S.q0[2], S.q0[3]};
+    rbIntegrate(q, rbAdd(w, S.wp));
 
     // Terrain edges are walls: reflect instead of clamping dead.
     const float wallX = TERRAIN_WIDTH * 0.5F - 0.5F;
     const float wallZ = TERRAIN_DEPTH * 0.5F - 0.5F;
-    if (pos.x > wallX) {
-      pos.x = wallX;
-      if (vel.x > 0.0F) vel.x = -vel.x * bounce;
-    } else if (pos.x < -wallX) {
-      pos.x = -wallX;
-      if (vel.x < 0.0F) vel.x = -vel.x * bounce;
+    if (x.x > wallX) {
+      x.x = wallX;
+      if (v.x > 0.0F) v.x = -v.x * S.bounce;
+    } else if (x.x < -wallX) {
+      x.x = -wallX;
+      if (v.x < 0.0F) v.x = -v.x * S.bounce;
     }
-    if (pos.z > wallZ) {
-      pos.z = wallZ;
-      if (vel.z > 0.0F) vel.z = -vel.z * bounce;
-    } else if (pos.z < -wallZ) {
-      pos.z = -wallZ;
-      if (vel.z < 0.0F) vel.z = -vel.z * bounce;
-    }
-
-    // Static solids (and sleeping bodies): AABB vs AABB, resolved along the
-    // axis of least penetration. Crates rest on platforms, balls bounce off
-    // walls. Awake-vs-awake pairs are handled by the impulse pass below.
-    const float movedX = pos.x - prevPos.x, movedZ = pos.z - prevPos.z;
-    const bool movedXZ =
-        movedX * movedX + movedZ * movedZ > 1e-10F;
-    // Aiming into a linked opening this frame: solids fully behind that
-    // portal's plane open up for this body (the walkers' doorway rule) -
-    // without it the mounting wall bounces the body back ~r short of the
-    // crossing plane and updatePortals never sees the pierce.
-    float aimPlane[4] = {0, 0, 0, 0};
-    float aimPoint[3] = {0, 0, 0};  // where the segment pierces the opening
-    bool aimOn = false;
-    if (PORTAL_COUNT > 0) {
-      const float a3[3] = {prevPos.x, prevPos.y, prevPos.z};
-      // Segment end padded by the body's extent: the AABB resolution stops
-      // the CENTER ~r short of a wall at the plane, so an unpadded center
-      // segment never pierces and the doorway never opens.
-      Vec4 mv = pos - prevPos;
-      const float mvLen = sqrtf(mv.innerProduct(mv));
-      float bodyR = ext[0];
-      if (ext[1] > bodyR) bodyR = ext[1];
-      if (ext[2] > bodyR) bodyR = ext[2];
-      const float pad = mvLen > 1e-6F ? 1.0F + (bodyR + 0.1F) / mvLen : 1.0F;
-      const float b3[3] = {prevPos.x + mv.x * pad, prevPos.y + mv.y * pad,
-                           prevPos.z + mv.z * pad};
-      const int aim = portalCarryAim(a3, b3, i);
-      if (aim >= 0) {
-        const RuntimeObject& pm = runtimeObjects[PORTALS[aim].object];
-        const V3 pn = rotated({0.0F, 0.0F, 1.0F}, pm.data.rotation);
-        aimPlane[0] = pn.x;
-        aimPlane[1] = pn.y;
-        aimPlane[2] = pn.z;
-        aimPlane[3] = pn.x * pm.data.position[0] +
-                      pn.y * pm.data.position[1] +
-                      pn.z * pm.data.position[2];
-        aimPoint[0] = portalAimPoint[0];
-        aimPoint[1] = portalAimPoint[1];
-        aimPoint[2] = portalAimPoint[2];
-        aimOn = true;
-      }
-    }
-    for (int j = 0; j < count; ++j) {
-      if (j == i) continue;
-      RuntimeObject& s = runtimeObjects[j];
-      if (!s.active || !physObstacle(s.data)) continue;
-      const bool sSleeping = s.data.physics && physAsleep(s);
-      if (s.data.physics && !sSleeping) continue;  // impulse pass handles it
-      // A meaningful hit treats a sleeping body as a body, not a wall: this
-      // static resolution would separate the pair, and the impulse pass -
-      // the one that wakes the sleeper and trades momentum - would never
-      // see the overlap (a thrown crate bounced off a sleeping one without
-      // waking it). Skip it and let pass 2 handle the hit; near-rest
-      // contacts (resting stacks) keep the wall treatment, so settled
-      // stacks stay cheap and stable.
-      if (sSleeping && vel.innerProduct(vel) > PHYS_WAKE_SPEED2) continue;
-      const GameModel* sgm = nullptr;
-      const SkelModel* sanim = nullptr;
-      if (s.data.type == 5) {
-        if (s.data.model >= 0 && s.data.model < (int)gameModels.size())
-          sgm = &gameModels[s.data.model];
-        if (s.data.animModel >= 0 &&
-            s.data.animModel < (int)gameAnimModels.size())
-          sanim = gameAnimModels[s.data.animModel].src.get();
-      }
-      float sOff[3], sExt[3];
-      physExtents(s.data, sgm, sanim, sOff, sExt);
-
-      // --- a collision-mesh model: its TRIANGLES, not its box ---------------
-      // A merged building is one object whose box encloses its own rooms, so
-      // a body INSIDE it - thrown through a portal into a cellar, rolled in
-      // through a door - reads as penetrating the box and is ejected along
-      // the shortest axis: straight through the floor and out of the world.
-      // So a model authored with mesh collision collides with rigid bodies
-      // the way it does with the walker (the same CollisionMesh, in the
-      // model's local space): a downward ray finds the floor, steep faces
-      // push the body's sphere out. Its real doorways are then real openings,
-      // and the portal doorway rule below is only for box colliders.
-      if (s.data.collision == 1 && sgm && !sgm->collider.empty()) {
-        const float sx = s.data.scale[0] > 0.0001F ? s.data.scale[0] : 0.0001F;
-        const float sy = s.data.scale[1] > 0.0001F ? s.data.scale[1] : 0.0001F;
-        const float sz = s.data.scale[2] > 0.0001F ? s.data.scale[2] : 0.0001F;
-        auto toLocal = [&](float wx, float wy, float wz) {
-          V3 p = {wx - s.data.position[0], wy - s.data.position[1],
-                  wz - s.data.position[2]};
-          p = invRotated(p, s.data.rotation);
-          return V3{p.x / sx, p.y / sy, p.z / sz};
-        };
-        auto toWorld = [&](const V3& l) {
-          V3 p = {l.x * sx, l.y * sy, l.z * sz};
-          p = rotated(p, s.data.rotation);
-          return V3{p.x + s.data.position[0], p.y + s.data.position[1],
-                    p.z + s.data.position[2]};
-        };
-        const float br = radius > ext[1] ? radius : ext[1];
-        // Cheap reject against the mesh's own bounds, padded by the body:
-        // the grid query only visits nearby triangles, but most bodies are
-        // nowhere near most buildings.
-        {
-          const V3 lc = toLocal(pos.x + cOff[0], pos.y + cOff[1], pos.z + cOff[2]);
-          const float sMin = sx < sy ? (sx < sz ? sx : sz) : (sy < sz ? sy : sz);
-          const float padL = br / sMin + 0.5F;
-          const float* mn = sgm->collider.aabbMin();
-          const float* mx = sgm->collider.aabbMax();
-          if (lc.x < mn[0] - padL || lc.x > mx[0] + padL ||
-              lc.y < mn[1] - padL || lc.y > mx[1] + padL ||
-              lc.z < mn[2] - padL || lc.z > mx[2] + padL)
-            continue;
-        }
-        // Floor: a vertical ray at the NEW x/z from where the underside WAS
-        // to where it is now, so a fast faller cannot tunnel through a thin
-        // floor between two frames. Only while descending or resting - a
-        // rising body has no floor contact, and a vertical ray never reads a
-        // wall as a step (a step is a steep face, i.e. a wall to a ball).
-        const float botPrev = prevPos.y + cOff[1] - ext[1];
-        const float botNow = pos.y + cOff[1] - ext[1];
-        if (botNow < botPrev + 0.001F) {
-          const V3 ro = toLocal(pos.x + cOff[0], botPrev + 0.02F, pos.z + cOff[2]);
-          const V3 rq = toLocal(pos.x + cOff[0], botNow - 0.02F, pos.z + cOff[2]);
-          V3 rd = {rq.x - ro.x, rq.y - ro.y, rq.z - ro.z};
-          const float rl = sqrtf(rd.x * rd.x + rd.y * rd.y + rd.z * rd.z);
-          if (rl > 0.0001F) {
-            rd.x /= rl, rd.y /= rl, rd.z /= rl;
-            float t;
-            if (sgm->collider.raycast(Vec4(ro.x, ro.y, ro.z, 1.0F),
-                                      Vec4(rd.x, rd.y, rd.z, 0.0F), rl, &t)) {
-              const V3 hit =
-                  toWorld({ro.x + rd.x * t, ro.y + rd.y * t, ro.z + rd.z * t});
-              const float lift = hit.y - botNow;
-              if (lift > 0.0F) {
-                pos.y += lift;
-                if (vel.y < 0.0F) {
-                  vel.y = -vel.y * bounce;
-                  if (vel.y * vel.y < microBounce2) vel.y = 0.0F;
-                }
-                grounded = true;
-                slideTan = Vec4(vel.x, 0.0F, vel.z, 0.0F);
-                vel.x *= 1.0F - o.data.physFriction * 0.18F;
-                vel.z *= 1.0F - o.data.physFriction * 0.18F;
-              }
-            }
-          }
-        }
-        // Walls: the body's sphere out of steep faces, side-aware (ejected to
-        // the side it came from, like the walker), the velocity reflected
-        // along the push with the body's own bounce.
-        {
-          const float sAvg = (sx + sz) * 0.5F;
-          const V3 upL = invRotated({0.0F, 1.0F, 0.0F}, s.data.rotation);
-          const V3 lc = toLocal(pos.x + cOff[0], pos.y + cOff[1], pos.z + cOff[2]);
-          const V3 lp = toLocal(prevPos.x + cOff[0], prevPos.y + cOff[1],
-                                prevPos.z + cOff[2]);
-          Vec4 center(lc.x, lc.y, lc.z, 1.0F);
-          const Vec4 prevLocal(lp.x, lp.y, lp.z, 1.0F);
-          if (sgm->collider.resolveSphere(&center, br / sAvg, 0.7F,
-                                          Vec4(upL.x, upL.y, upL.z, 0.0F),
-                                          &prevLocal)) {
-            const V3 w = toWorld({center.x, center.y, center.z});
-            const Vec4 push(w.x - (pos.x + cOff[0]), w.y - (pos.y + cOff[1]),
-                            w.z - (pos.z + cOff[2]), 0.0F);
-            const float pl2 = push.innerProduct(push);
-            if (pl2 > 1e-10F) {
-              pos += push;
-              const Vec4 n = push * (1.0F / sqrtf(pl2));
-              const float vn = vel.innerProduct(n);
-              if (vn < 0.0F) vel = vel - n * (vn * (1.0F + bounce));
-            }
-          }
-        }
-        continue;
-      }
-
-      // The walkers' doorway rule, unchanged and unduplicated: the geometry
-      // the aimed opening is cut into must not resolve this body away from
-      // the crossing plane. A WALL portal opens its walls only - the floor
-      // under the opening keeps carrying the body (see collidePlayer); a
-      // FLOOR portal opens everything, falling through it is the crossing.
-      const bool doorway = aimOn && portalDoorwayOpens(s, aimPlane, aimPoint);
-      if (doorway && fabsf(aimPlane[1]) >= 0.5F) continue;
-
-      const float dx = (s.data.position[0] + sOff[0]) - (pos.x + cOff[0]);
-      const float px = sExt[0] + ext[0] - (dx < 0.0F ? -dx : dx);
-      if (px <= 0.0F) {
-        // A sleeping body riding on this one loses its support when we slide
-        // out from under it - wake it so it falls (checked while separated
-        // in X; the Z branch below never runs for those).
-        if (sSleeping && movedXZ) {
-          const float sb = s.data.position[1] + sOff[1] - sExt[1];
-          const float myTop = prevPos.y + cOff[1] + ext[1];
-          if (sb > myTop - 0.1F && sb < myTop + 0.1F &&
-              px > -(radius + 0.2F)) {
-            s.restFrames = 0;
-            s.dirty = true;
-          }
-        }
-        continue;
-      }
-      const float dy = (s.data.position[1] + sOff[1]) - (pos.y + cOff[1]);
-      const float py = sExt[1] + ext[1] - (dy < 0.0F ? -dy : dy);
-      if (py <= 0.0F) continue;
-      const float dz = (s.data.position[2] + sOff[2]) - (pos.z + cOff[2]);
-      const float pz = sExt[2] + ext[2] - (dz < 0.0F ? -dz : dz);
-      if (pz <= 0.0F) continue;
-
-      if (sSleeping && movedXZ) {
-        // still overlapping in XZ but sliding: keep the rider awake too
-        const float sb = s.data.position[1] + sOff[1] - sExt[1];
-        const float myTop = pos.y + cOff[1] + ext[1];
-        if (sb > myTop - 0.1F && sb < myTop + 0.1F) s.restFrames = 0;
-      }
-
-      // Through a wall portal's doorway only the floor answers: landing on
-      // the opened geometry's top stays, its sides and underside do not.
-      if (doorway && !(py <= px && py <= pz && dy < 0.0F)) continue;
-
-      if (py <= px && py <= pz) {
-        const float dir = dy > 0.0F ? -1.0F : 1.0F;  // push away from s
-        pos.y += dir * py;
-        if (vel.y * dir < 0.0F) {
-          vel.y = -vel.y * bounce;
-          if (vel.y * vel.y < microBounce2) vel.y = 0.0F;
-          if (dir > 0.0F) {  // landed on top of s
-            grounded = true;
-            slideTan = Vec4(vel.x, 0.0F, vel.z, 0.0F);
-            vel.x *= 1.0F - o.data.physFriction * 0.18F;
-            vel.z *= 1.0F - o.data.physFriction * 0.18F;
-          }
-        }
-      } else if (px <= pz) {
-        const float dir = dx > 0.0F ? -1.0F : 1.0F;
-        pos.x += dir * px;
-        if (vel.x * dir < 0.0F) vel.x = -vel.x * bounce;
-      } else {
-        const float dir = dz > 0.0F ? -1.0F : 1.0F;
-        pos.z += dir * pz;
-        if (vel.z * dir < 0.0F) vel.z = -vel.z * bounce;
-      }
+    if (x.z > wallZ) {
+      x.z = wallZ;
+      if (v.z > 0.0F) v.z = -v.z * S.bounce;
+    } else if (x.z < -wallZ) {
+      x.z = -wallZ;
+      if (v.z < 0.0F) v.z = -v.z * S.bounce;
     }
 
-    // Tumble: rolling without slipping (w = v / r) about the horizontal axis
-    // perpendicular to the slide direction; friction bleeds it off with the
-    // slide itself. Euler-added per axis - visually right, era-appropriate.
-    // A latched settle-flatten owns the rotation: re-deriving spin from the
-    // residual slide here would fight the ease (overshoot-and-return).
-    if (o.data.physTumble && o.flatTgt[0] > 720.0F) {
-      if (grounded) {
-        const float ts2 = slideTan.innerProduct(slideTan);
-        if (ts2 > 1e-8F) {
-          const float ts = sqrtf(ts2);
-          const float r = radius > 0.05F ? radius : 0.05F;
-          const float degPerFrame = ts / r * 57.29578F;
-          o.spin[0] = -slideTan.z / ts * degPerFrame;
-          o.spin[2] = slideTan.x / ts * degPerFrame;
-        } else {
-          o.spin[0] *= 0.8F;
-          o.spin[1] *= 0.8F;
-          o.spin[2] *= 0.8F;
-        }
-      } else {
-        for (int a = 0; a < 3; ++a) o.spin[a] *= 0.995F;  // air drag
-      }
-    }
-
-    // Rest bookkeeping: near-still on the ground long enough -> sleep.
-    const float speed2 = vel.innerProduct(vel);
-    const float spinMag =
-        fabsf(o.spin[0]) + fabsf(o.spin[1]) + fabsf(o.spin[2]);
-
-    // Settle-flatten: a near-rest tumbled body eases onto a flat face
-    // instead of sleeping on an edge or corner - pitch/roll walk to a 90deg
-    // step (the crate visibly tips onto its face; the rotated support
-    // extent above lowers it with the tilt). It engages while the tumble is
-    // still dying (spin under PHYS_FLATTEN_SPIN, well above the rest gate)
-    // and picks each target ONCE with a momentum lookahead - a crate still
-    // tipping forward finishes its fall onto the NEXT face instead of being
-    // yanked back to the nearest one - then takes the residual spin over so
-    // the two drivers never fight. The latched targets keep the choice
-    // stable while the spin decays. Euler-order trap: rotated() composes
-    // Rz*Ry*Rx, and with the roll on an ODD step the pose is only flat when
-    // the yaw sits on a step too - so the yaw joins the easing exactly then
-    // (a settling crate twisting slightly reads as natural). Spheres skip
-    // it: their orientation is invisible and easing would visibly roll the
-    // baked shading for nothing. Sleep waits for the easing to finish
-    // (flattening resets the countdown).
-    bool flattening = false, flatMoved = false;
-    if (o.data.physTumble && o.data.type != 1 && grounded &&
-        speed2 < PHYS_REST_SPEED2 * 4.0F && spinMag < PHYS_FLATTEN_SPIN) {
-      if (o.flatTgt[0] > 720.0F) {  // unlatched - pick the faces once
-        auto pick = [&](int axis) {
-          // ~20 frames of the dying spin decide whether the tip carries
-          // over the balance point onto the next face
-          return roundf((o.data.rotation[axis] + o.spin[axis] * 20.0F) /
-                        90.0F) *
-                 90.0F;
-        };
-        o.flatTgt[0] = pick(0);
-        o.flatTgt[2] = pick(2);
-        // roll on an ODD 90 step: the yaw must land on a step too
-        o.flatTgt[1] = fabsf(fmodf(o.flatTgt[2], 180.0F)) > 45.0F
-                           ? roundf(o.data.rotation[1] / 90.0F) * 90.0F
-                           : 1e9F;
-        o.spin[0] = o.spin[2] = 0.0F;  // the ease drives from here
-      }
-      auto ease = [&](int axis) {
-        const float target = o.flatTgt[axis];
-        if (target > 720.0F) return;  // yaw not eased this settle
-        float d = target - o.data.rotation[axis];
-        if (fabsf(d) < 0.001F) return;
-        if (d > PHYS_FLATTEN_STEP) {
-          d = PHYS_FLATTEN_STEP;
-          flattening = true;
-        } else if (d < -PHYS_FLATTEN_STEP) {
-          d = -PHYS_FLATTEN_STEP;
-          flattening = true;
-        }
-        o.data.rotation[axis] += d;
-        flatMoved = true;
-      };
-      ease(0);
-      ease(2);
-      ease(1);
-    } else {
-      o.flatTgt[0] = o.flatTgt[1] = o.flatTgt[2] = 1e9F;  // re-pick next settle
-    }
-
-    if (grounded && speed2 < PHYS_REST_SPEED2 && spinMag < PHYS_REST_SPIN &&
-        !flattening) {
+    // Rest bookkeeping: near-still on something long enough -> sleep.
+    const float speed2 = rbDot(v, v);
+    const float spin2 = rbDot(w, w);
+    bool sleepNow = false;
+    if (S.grounded && speed2 < PHYS_REST_SPEED2 && spin2 < PHYS_REST_W2) {
       // Countdown length is per-object (Properties > Physics > Sleep after,
       // seconds); everyFrames tracks the measured frame time so the wait is
       // wall-clock true with vsync off too. On completion the counter pins
@@ -22045,155 +22827,58 @@ void TerrainGame::updateObjectPhysics() {
       if (o.restFrames < sleepAt) ++o.restFrames;
       if (o.restFrames >= sleepAt) {
         o.restFrames = PHYS_ASLEEP;
-        vel = Vec4(0.0F, 0.0F, 0.0F, 0.0F);
-        o.spin[0] = o.spin[1] = o.spin[2] = 0.0F;
-        // Fast-path bodies stay on objMat while asleep - NO settle rebuild.
-        // The old world re-bake refreshed the shading for the rest pose, and
-        // that discrete jump from the wake-pose shading that rode the tumble
-        // read as "the rotation snapped back" the instant a thrown body
-        // froze (on a sphere the shade gradient is the only orientation
-        // cue). Nothing needs the world-space arrays at rest: every
-        // fast-path consumer (mirrors, env pass, split band, use targeting,
-        // collision) reads objMat or o.data, and the two vertex-array
-        // consumers (usable highlight, matcap normals) are excluded from
-        // the fast path by physFastPathEligible. Trade-off: a resting body
-        // keeps the shading baked at wake - the same shading it showed all
-        // flight. A retint / Live Link edit still re-bakes via dirty.
+        sleepNow = true;
+        // Fast-path bodies stay on objMat while asleep - no settle rebuild,
+        // so the shading that rode the tumble does not snap on the freeze.
       }
     } else {
       o.restFrames = 0;
     }
+    if (sleepNow) {
+      v = w = rbV(0.0F, 0.0F, 0.0F);
+      // Keep the pose where the solver left it.
+    }
 
-    // Write back; rebuild geometry only when the transform actually changed.
+    float R[9];
+    rbQuatToMat(q, R);
+    const RbV pos = rbSub(x, rbMat(R, rbV(B.comL[0], B.comL[1], B.comL[2])));
+    float rot[3];
+    rbMatToEuler(R, rot);
     const float dPos = fabsf(pos.x - o.data.position[0]) +
                        fabsf(pos.y - o.data.position[1]) +
                        fabsf(pos.z - o.data.position[2]);
+    const float dRot = fabsf(rot[0] - o.data.rotation[0]) +
+                       fabsf(rot[1] - o.data.rotation[1]) +
+                       fabsf(rot[2] - o.data.rotation[2]);
+    const bool turned = B.tumble && dRot > 1e-4F;
     o.data.position[0] = pos.x;
     o.data.position[1] = pos.y;
     o.data.position[2] = pos.z;
-    o.velocityX = vel.x;
-    o.velocityY = vel.y;
-    o.velocityZ = vel.z;
-    if (spinMag > 0.001F) {
-      for (int a = 0; a < 3; ++a) {
-        o.data.rotation[a] += o.spin[a];
-        if (o.data.rotation[a] > 360.0F) o.data.rotation[a] -= 720.0F;
-        if (o.data.rotation[a] < -360.0F) o.data.rotation[a] += 720.0F;
-      }
+    // A body that does not tumble keeps its authored Euler angles exactly
+    // (no conversion round trip for a quaternion that never moved).
+    if (turned)
+      for (int k = 0; k < 3; ++k) o.data.rotation[k] = rot[k];
+    o.velocityX = v.x;
+    o.velocityY = v.y;
+    o.velocityZ = v.z;
+    for (int k = 0; k < 4; ++k) B.q[k] = q[k];
+    B.w[0] = w.x, B.w[1] = w.y, B.w[2] = w.z;
+    o.spin[0] = w.x * (180.0F / PI);
+    o.spin[1] = w.y * (180.0F / PI);
+    o.spin[2] = w.z * (180.0F / PI);
+    for (int k = 0; k < 3; ++k) {
+      B.lastPos[k] = o.data.position[k];
+      B.lastRot[k] = o.data.rotation[k];
+      B.lastSpin[k] = o.spin[k];
     }
-    if (dPos > 1e-5F || spinMag > 0.001F || flatMoved) {
+    if (dPos > 1e-5F || turned) {
       // Moving: eligible bodies get ONE local-space bake and ride objMat
       // from then on (refreshed in renderScene - no EE re-bake per frame);
       // the rest fall back to the legacy world-space rebuild.
-      ObjectGeometry& g = objectGeometry[i];
-      if (!g.matrixMode && !o.dirty && physFastPathEligible(i))
-        rebuildObjectGeometry(i, true);
+      ObjectGeometry& g = objectGeometry[S.obj];
+      if (!g.matrixMode && !o.dirty && physFastPathEligible(S.obj))
+        rebuildObjectGeometry(S.obj, true);
       if (!g.matrixMode) o.dirty = true;
-    }
-  }
-
-  // Pass 2: momentum exchange between bodies. Upright-cylinder contacts (XZ
-  // circle + Y interval) resolved along the axis of least penetration,
-  // impulses split by mass; hitting a sleeping body wakes it. Pairs where
-  // both sleep are skipped, so settled stacks stay free.
-  for (int i = 0; i < count; ++i) {
-    RuntimeObject& a = runtimeObjects[i];
-    if (i == carryIndex || i == thrownIndex) continue;  // driven by the carry
-    if (!a.active || !a.data.physics || !physObstacle(a.data)) continue;
-    for (int j = i + 1; j < count; ++j) {
-      RuntimeObject& b = runtimeObjects[j];
-      if (j == carryIndex || j == thrownIndex) continue;
-      if (!b.active || !b.data.physics || !physObstacle(b.data)) continue;
-      if (physAsleep(a) && physAsleep(b)) continue;
-
-      float aOff[3], aExt[3], bOff[3], bExt[3];
-      const GameModel* gm = nullptr;
-      const SkelModel* anim = nullptr;
-      if (a.data.type == 5) {
-        if (a.data.model >= 0 && a.data.model < (int)gameModels.size())
-          gm = &gameModels[a.data.model];
-        if (a.data.animModel >= 0 &&
-            a.data.animModel < (int)gameAnimModels.size())
-          anim = gameAnimModels[a.data.animModel].src.get();
-      }
-      physExtents(a.data, gm, anim, aOff, aExt);
-      gm = nullptr;
-      anim = nullptr;
-      if (b.data.type == 5) {
-        if (b.data.model >= 0 && b.data.model < (int)gameModels.size())
-          gm = &gameModels[b.data.model];
-        if (b.data.animModel >= 0 &&
-            b.data.animModel < (int)gameAnimModels.size())
-          anim = gameAnimModels[b.data.animModel].src.get();
-      }
-      physExtents(b.data, gm, anim, bOff, bExt);
-
-      const float dy = (b.data.position[1] + bOff[1]) -
-                       (a.data.position[1] + aOff[1]);
-      const float ph = aExt[1] + bExt[1] - (dy < 0.0F ? -dy : dy);
-      if (ph <= 0.0F) continue;
-      const float rA = aExt[0] > aExt[2] ? aExt[0] : aExt[2];
-      const float rB = bExt[0] > bExt[2] ? bExt[0] : bExt[2];
-      float dx = b.data.position[0] - a.data.position[0];
-      float dz = b.data.position[2] - a.data.position[2];
-      const float d2 = dx * dx + dz * dz;
-      const float rSum = rA + rB;
-      if (d2 >= rSum * rSum) continue;
-
-      const float invMa = 1.0F / (a.data.physMass < 0.05F ? 0.05F : a.data.physMass);
-      const float invMb = 1.0F / (b.data.physMass < 0.05F ? 0.05F : b.data.physMass);
-      const float invSum = invMa + invMb;
-      const float e = a.data.physBounce > b.data.physBounce ? a.data.physBounce
-                                                            : b.data.physBounce;
-      const float dist = sqrtf(d2 > 1e-8F ? d2 : 1e-8F);
-      const float pr = rSum - dist;
-
-      float nx, ny, nz;  // contact normal, a -> b
-      float pen;
-      if (ph < pr) {  // vertical contact (landing on / popping out from under)
-        nx = 0.0F;
-        ny = dy >= 0.0F ? 1.0F : -1.0F;
-        nz = 0.0F;
-        pen = ph;
-      } else {  // side contact
-        if (d2 > 1e-8F) {
-          nx = dx / dist;
-          nz = dz / dist;
-        } else {  // dead center overlap: split along X deterministically
-          nx = 1.0F;
-          nz = 0.0F;
-        }
-        ny = 0.0F;
-        pen = pr;
-      }
-
-      // separate the pair, then trade momentum along the normal
-      const float sepA = pen * (invMa / invSum), sepB = pen * (invMb / invSum);
-      a.data.position[0] -= nx * sepA;
-      a.data.position[1] -= ny * sepA;
-      a.data.position[2] -= nz * sepA;
-      b.data.position[0] += nx * sepB;
-      b.data.position[1] += ny * sepB;
-      b.data.position[2] += nz * sepB;
-
-      const float relN = (b.velocityX - a.velocityX) * nx +
-                         (b.velocityY - a.velocityY) * ny +
-                         (b.velocityZ - a.velocityZ) * nz;
-      if (relN < 0.0F) {  // approaching
-        const float jImp = -(1.0F + e) * relN / invSum;
-        a.velocityX -= nx * jImp * invMa;
-        a.velocityY -= ny * jImp * invMa;
-        a.velocityZ -= nz * jImp * invMa;
-        b.velocityX += nx * jImp * invMb;
-        b.velocityY += ny * jImp * invMb;
-        b.velocityZ += nz * jImp * invMb;
-      }
-      a.restFrames = 0;
-      b.restFrames = 0;
-      // Fast-path bodies pick the separation up through objMat next render;
-      // forcing dirty would throw away their local bake every contact frame.
-      if (!objectGeometry[i].matrixMode) a.dirty = true;
-      if (!objectGeometry[j].matrixMode) b.dirty = true;
     }
   }
 }
@@ -22237,9 +22922,15 @@ void TerrainGame::pushPhysicsBodies(float prevX, float prevZ, float nextX,
     const float inv = 1.0F / sqrtf(d2 > 1e-8F ? d2 : 1e-8F);
     const float mass = o.data.physMass < 0.05F ? 0.05F : o.data.physMass;
     const float push = sqrtf(m2) * PHYS_PUSH / mass;
-    o.velocityX += dx * inv * push;
-    o.velocityZ += dz * inv * push;
-    o.restFrames = 0;  // velocity-only change: the physics pass moves it
+    // Applied where the player meets it - the near side, at hip height (or
+    // the body's own top if it is lower): a tall stool leans and falls over,
+    // a low crate slides. The physics pass moves it.
+    float hitY = feetY + eyeHeight * 0.55F;
+    if (hitY > top - 0.05F) hitY = top - 0.05F;
+    if (hitY < bottom) hitY = bottom;
+    physPushAt(i, o.data.position[0] + cOff[0] - dx * inv * radius, hitY,
+               o.data.position[2] + cOff[2] - dz * inv * radius,
+               dx * inv * push, 0.0F, dz * inv * push);
   }
 }
 
@@ -28322,7 +29013,9 @@ struct RuntimeObject {
   // asleep and skips simulation entirely.
   float velocityY = 0.0F;  // vertical velocity (kept first: legacy scripts)
   float velocityX = 0.0F, velocityZ = 0.0F;
-  float spin[3] = {0.0F, 0.0F, 0.0F};  // angular velocity, degrees/frame
+  // Angular velocity about the WORLD axes, degrees/frame. The rigid-body
+  // sim keeps its own copy and re-reads this one whenever a script changed it.
+  float spin[3] = {0.0F, 0.0F, 0.0F};
   // Scripted continuous rotation (the Spin Object flow node), degrees per
   // SECOND - authored units, so it is frame-rate independent and readable.
   // Integrated by TerrainGame::updateSpinners(), which also puts the object on
@@ -28330,9 +29023,9 @@ struct RuntimeObject {
   // refresh per frame instead of a world-space vertex re-bake. Independent of
   // `spin` above: physics owns that one, this one survives sleep and settle.
   float spinRate[3] = {0.0F, 0.0F, 0.0F};
-  // Settle-flatten targets, latched once per settle so the chosen face
-  // never flips mid-ease. 1e9 = unlatched; [1] additionally means "yaw
-  // stays" when the roll lands on an even 90deg step.
+  // Unused since bodies became real rigid bodies (they settle onto a face by
+  // themselves). Kept so scripts and the time machine's capture layout that
+  // name it still compile and line up.
   float flatTgt[3] = {1e9F, 1e9F, 1e9F};
   short restFrames = 0;                // sleep counter; write 0 to wake
   bool dirty = true;
@@ -35693,12 +36386,18 @@ void TerrainGame::updateVehicles(float dt) {
         // a light one all of it.
         const float take = mass > 1.0F ? 1.0F / mass : 1.0F;
         const float dv = (want - along) * take;
-        o.velocityX += pxd * dv;
-        o.velocityZ += pzd * dv;
-        // The hop that makes it tumble - once, on the fresh contact.
-        if (mvL > 0.05F && along < 0.25F * want && o.velocityY < 0.02F)
-          o.velocityY += 0.025F + 0.15F * mvL;
-        o.restFrames = 0;
+        // At bumper height on the side the car meets: the impulse itself
+        // tips the body over (a rigid body turns about its centre of mass),
+        // plus the small hop that lifts it off the ground on the fresh hit.
+        const float hop = (mvL > 0.05F && along < 0.25F * want && o.velocityY < 0.02F)
+                              ? 0.025F + 0.15F * mvL
+                              : 0.0F;
+        float bumpY = feet + 0.45F * SC;
+        if (bumpY > top - 0.05F) bumpY = top - 0.05F;
+        if (bumpY < bottom) bumpY = bottom;
+        physPushAt(pushIdx[pk], o.data.position[0] + cOff[0] - pxd * r, bumpY,
+                   o.data.position[2] + cOff[2] - pzd * r, pxd * dv, hop,
+                   pzd * dv);
         // The car pays the momentum it handed over: body mass over its own.
         const float scrub = dv * mass / ((s.mass > 0.1F ? s.mass : 0.1F) * (mvL > 1e-5F ? mvL : 1.0F));
         v.speed *= 1.0F - vehClamp(scrub, 0.0F, 0.5F);
@@ -48170,6 +48869,111 @@ static std::string liveTexScript(const Project& p) {
 // build bakes from the .obj (docs/model-pipeline.md), read by the engine's
 // TmdlLoader; the ASCII .obj path (LeanObjLoader) remains as the fallback for
 // a path that is not a .tmdl.
+// Rigid-body hulls (docs/physics.md): one convex hull + solid mass
+// properties per static model some physics object uses, plus the four unit
+// primitives. Baked here rather than on the EE because the reduction to
+// support points and the mass integral are a whole-mesh pass - a scene load
+// would pay it for every model, every boot. Emitted even when empty, because
+// the game template reads the tables unconditionally.
+static std::string physHullBlock(const Project& p,
+                                 const std::vector<std::pair<std::string, std::string>>& keys,
+                                 size_t vehicleSlots) {
+    std::vector<bool> used(keys.size(), false);
+    bool anyPhysics = false;
+    auto visit = [&](const SceneObject& o) {
+        if (!o.physics) return;
+        anyPhysics = true;
+        if (o.type != PrimitiveType::Model || o.modelPath.empty() ||
+            isAnimatedModelPath(o.modelPath))
+            return;
+        for (size_t m = 0; m < keys.size(); ++m)
+            if (keys[m].first == o.modelPath && keys[m].second == o.materialPath)
+                used[m] = true;
+    };
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects) visit(o);
+    for (const Prefab& pf : p.prefabs)
+        for (const SceneObject& o : pf.objects) visit(o);
+
+    std::vector<physhull::Hull> hulls;
+    std::vector<int> modelHull(keys.size() + vehicleSlots, -1);
+    int primHull[4] = {-1, -1, -1, -1};  // box, cylinder, cone, plane
+    if (anyPhysics) {
+        const std::vector<float> prims[4] = {
+            primmesh::unitBox(1), primmesh::unitCylinder(12, false),
+            primmesh::unitCone(16), primmesh::unitPlane()};
+        for (int k = 0; k < 4; ++k) {
+            physhull::Hull h = physhull::build(physhull::positionsOf(prims[k]));
+            if (!h.ok) continue;
+            primHull[k] = (int)hulls.size();
+            hulls.push_back(std::move(h));
+        }
+        for (size_t m = 0; m < keys.size(); ++m) {
+            if (!used[m]) continue;
+            objparser::Model model;
+            if (!objparser::load(p.filePath(keys[m].first), model)) continue;
+            std::vector<float> pts;
+            for (const objparser::Submesh& sm : model.submeshes) {
+                const std::vector<float> sp = physhull::positionsOf(sm.verts);
+                pts.insert(pts.end(), sp.begin(), sp.end());
+            }
+            physhull::Hull h = physhull::build(pts);
+            if (!h.ok) continue;  // the game falls back to the mesh box
+            modelHull[m] = (int)hulls.size();
+            hulls.push_back(std::move(h));
+        }
+    }
+
+    std::ostringstream out;
+    out << "// Rigid-body shapes (docs/physics.md): convex hulls in mesh-local\n"
+           "// units with their solid mass properties at unit density - volume,\n"
+           "// centre of mass and the second moment about it (xx yy zz xy xz yz).\n"
+           "// The game scales them per object and derives the inertia tensor.\n"
+           "constexpr int PHYS_MAX_HULL_VERTS = " << physhull::kMaxVerts << ";\n"
+           "constexpr int PHYS_MAX_HULL_PLANES = " << physhull::kMaxPlanes << ";\n"
+           "struct PhysHullData {\n"
+           "  short verts, planes;  // counts\n"
+           "  int vert0, plane0;    // first entry in the tables below\n"
+           "  float volume, com[3], cov[6];\n"
+           "};\n"
+        << "constexpr int PHYS_HULL_COUNT = " << hulls.size() << ";\n"
+        << "inline const PhysHullData PHYS_HULLS[PHYS_HULL_COUNT > 0 ? PHYS_HULL_COUNT : 1] = {\n";
+    int v0 = 0, p0 = 0;
+    if (hulls.empty()) out << "    {0, 0, 0, 0, 0.0F, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F}},\n";
+    for (const physhull::Hull& h : hulls) {
+        const int nv = (int)h.verts.size() / 3, np = (int)h.planes.size() / 4;
+        out << "    {" << nv << ", " << np << ", " << v0 << ", " << p0 << ", "
+            << floatLit(h.volume) << ", {" << floatLit(h.com[0]) << ", "
+            << floatLit(h.com[1]) << ", " << floatLit(h.com[2]) << "}, {";
+        for (int k = 0; k < 6; ++k) out << (k ? ", " : "") << floatLit(h.cov[k]);
+        out << "}},\n";
+        v0 += nv, p0 += np;
+    }
+    out << "};\n"
+        << "inline const float PHYS_HULL_VERTS[" << (v0 > 0 ? v0 * 3 : 1) << "] = {";
+    if (!v0) out << "0.0F";
+    bool first = true;
+    for (const physhull::Hull& h : hulls)
+        for (float f : h.verts) out << (first ? "" : ", ") << floatLit(f), first = false;
+    out << "};\n"
+        << "inline const float PHYS_HULL_PLANES[" << (p0 > 0 ? p0 * 4 : 1) << "] = {";
+    if (!p0) out << "0.0F";
+    first = true;
+    for (const physhull::Hull& h : hulls)
+        for (float f : h.planes) out << (first ? "" : ", ") << floatLit(f), first = false;
+    out << "};\n"
+           "// PHYS_HULLS slot per MODEL_PATHS slot (-1 = collide as the mesh box)\n"
+           "inline const short MODEL_PHYS_HULL[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {";
+    if (modelHull.empty()) out << "-1";
+    for (size_t m = 0; m < modelHull.size(); ++m) out << (m ? ", " : "") << modelHull[m];
+    out << "};\n"
+           "// unit box, cylinder, cone, plane\n"
+           "inline const short PHYS_PRIM_HULL[4] = {"
+        << primHull[0] << ", " << primHull[1] << ", " << primHull[2] << ", "
+        << primHull[3] << "};\n";
+    return out.str();
+}
+
 static std::string modelDataHeader(const Project& p) {
     const std::string ns = sanitizeNamespace(p.name);
     const auto keys = collectModelKeys(p);
@@ -48287,6 +49091,7 @@ static std::string modelDataHeader(const Project& p) {
         << "// texture atlas summary, logged at scene boot (\"\" = no atlas)\n"
         << "constexpr const char* TEXTURE_ATLAS_INFO = \""
         << texatlas::info(texatlas::plan(p)) << "\";\n";
+    out << "\n" << physHullBlock(p, keys, vehPaths.size());
     out << "\n}  // namespace " << ns << "\n";
     return out.str();
 }
