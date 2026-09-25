@@ -98,6 +98,9 @@ their ownership and acceptance checks.
   shadows where geometry meets, and the knobs; plus **Model AO**, each `.obj`
   model's own self-occlusion baked automatically into the texture it already
   ships, for no extra VRAM.
+- [Interleaved passes](interleaved-passes.md) - the static batch and road
+  draws fed into the object loop so EE and VU1 work overlap; Auto / Always /
+  Off, the whole-loop auto tuner, the blend gate and the PS2 numbers.
 - [Conservative occlusion culling](occlusion-culling.md) — build-time inner
   proxy boxes, the runtime CPU visibility buffer, safety refusals and per-object
   opt-outs.

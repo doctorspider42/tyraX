@@ -145,7 +145,9 @@ merged box is exactly its vertex box, so the verdict is the one StaPip's own
 main-box check would give, with the same planes. It saves the head and
 `bounds` work of every batch off screen: 14 of garage day's 16 bags that
 StaPip used to reject itself were batches (PCSX2 counters, captures
-unchanged).
+unchanged). On a physical PS2 (one ELF, toggled at boot) `bounds` fell
+0.10 ms in all four Motor District poses, and `work` 0.07-0.09 ms in the
+garage and 0.03 ms outside.
 
 ## Excluding one object
 

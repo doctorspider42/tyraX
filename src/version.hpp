@@ -16,6 +16,15 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.128.0: INTERLEAVED PASSES.
+// Preferences > Rendering > Interleave batches and roads with objects
+// (Auto / Always / Off, format v64): the generated game feeds the static
+// batch and road bags into the object loop so EE and VU1 work overlap. Auto
+// times both orders over the whole loop and keeps the faster; a blend gate
+// flushes them before the first object that may blend. Physical PS2, one
+// ELF: work -0.48..-0.50 ms in the garage, +0.01..+0.04 outside (Always:
+// -0.56 / +0.08..+0.20). Engine: RendererCore::getStallTotal(). MINOR.
+//
 // 1.127.6: OFFSCREEN STATIC BATCHES NEVER ENTER STAPIP.
 // Generated game: renderStaticBatches frustum-tests each batch's world box
 // itself, as the road chunks already did. Same verdict StaPip reached, 14
@@ -5229,8 +5238,8 @@
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 127
-#define TYRAX_VERSION_PATCH 6
+#define TYRAX_VERSION_MINOR 128
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -5629,7 +5638,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // bump. The same version adds a vehicle definition's "fastWheel" +
 // "fastWheelTris" and drive.fastWheelSpeed (docs/vehicles.md, "A fast wheel"),
 // all written only when set. Additive; no migration step.
-inline constexpr int kFormatVersion = 63;
+// v64 (docs/interleaved-passes.md): settings.interleavePasses, "auto" /
+// "always" / "off". Written only when not "auto", so a project that never
+// sets it resaves byte for byte; missing reads as "auto". Additive; no
+// migration step.
+inline constexpr int kFormatVersion = 64;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

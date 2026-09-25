@@ -1010,6 +1010,14 @@ constexpr float REFLECTION_PROBE_FOV_DEG = 110.0F;
 // its former batches. false = every object submits its own bag.
 constexpr bool STATIC_BATCHING = {{STATIC_BATCHING}};
 
+// Interleaved passes (Preferences > Rendering, docs/interleaved-passes.md):
+// the static batch and road bags are EE-cheap and GPU-heavy, the object loop
+// the opposite, and drawn one after the other the EE waits for VU1 in the
+// first and VU1 idles in the second. Interleaving feeds the batch and road
+// bags into the object loop instead. 0 = off, 1 = auto (the game times both
+// orders every few seconds and keeps the faster), 2 = always.
+constexpr int INTERLEAVE_PASSES = {{INTERLEAVE_PASSES}};
+
 // Dynamic reflection probe aim (Preferences > Rendering): false = the
 // classic GT3 level-forward aim; true = a camera ray is intersected with
 // the dynamic-reflective objects and the probe renders from the hit point
@@ -1350,6 +1358,9 @@ class TerrainGame : public Tyra::Game {
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
+    // objectMayBlend's cache: -1 = not judged for `blendKey` yet.
+    u32 blendKey = 0;
+    signed char blendState = -1;
     // One conservative box over every material part. Multi-part objects use
     // it as a cheap reject before paying the pipeline's per-part/package
     // classification. World-space for the normal bake; local-space when the
@@ -1768,6 +1779,34 @@ class TerrainGame : public Tyra::Game {
   void procFinishChunks();
   void renderProcChunks();
   void renderRoadChunks();
+  // Interleaved passes (docs/interleaved-passes.md, INTERLEAVE_PASSES).
+  // While `heavyCollect` is set, the batch and road submissions of the main
+  // pass go into `heavyBags` instead of StaPip; the object loop feeds them
+  // back a few per drawn object, and flushes the rest before the first
+  // object that may blend and after the loop.
+  void submitHeavy(Tyra::StaPipBag* bag);
+  void dripHeavy(bool all);
+  bool interleaveBegin();
+  void interleaveEnd();
+  void ilAccount(u32 work);
+  bool objectMayBlend(int index);
+  std::vector<Tyra::StaPipBag*> heavyBags;
+  size_t heavyNext = 0;
+  bool heavyCollect = false;
+  bool heavyActive = false;
+  int heavyDrawn = 0, heavyPrevDrawn = 16;
+  int heavyBlendAt = -1;  // drawn-object index of this frame's blend flush
+  int ilLastBlendAt = -1;  // the same, for the last interleaved frame
+  // The auto tuner: 8 probe pairs (one frame in each order), then the order
+  // that won most pairs is held for 100 frames before probing again.
+  bool ilProbing = true, ilChoice = false;
+  int ilFrame = 0, ilWins = 0;
+  u32 ilPairOn = 0, ilSumOn = 0, ilSumOff = 0;
+  int ilLastHeavy = 0;
+  // Whole-loop work of the previous frame: COP0 period minus the renderer's
+  // stall (vsync / display buffer), taken from one interleaveBegin to the next.
+  bool ilHaveMark = false, ilMarkActive = false;
+  u32 ilMark = 0, ilStallMark = 0;
   float roadSurfaceAt(float x, float z) const;
   void buildRoadHeightIndex() const;
   // The pre-grid exhaustive walk, defined only under TYRA_ROAD_INDEX_VERIFY
@@ -3053,6 +3092,9 @@ class TerrainGame : public Tyra::Game {
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
+    // objectMayBlend's cache: -1 = not judged for `blendKey` yet.
+    u32 blendKey = 0;
+    signed char blendState = -1;
     // One conservative box over every material part. Multi-part objects use
     // it as a cheap reject before paying the pipeline's per-part/package
     // classification. World-space for the normal bake; local-space when the
@@ -3471,6 +3513,34 @@ class TerrainGame : public Tyra::Game {
   void procFinishChunks();
   void renderProcChunks();
   void renderRoadChunks();
+  // Interleaved passes (docs/interleaved-passes.md, INTERLEAVE_PASSES).
+  // While `heavyCollect` is set, the batch and road submissions of the main
+  // pass go into `heavyBags` instead of StaPip; the object loop feeds them
+  // back a few per drawn object, and flushes the rest before the first
+  // object that may blend and after the loop.
+  void submitHeavy(Tyra::StaPipBag* bag);
+  void dripHeavy(bool all);
+  bool interleaveBegin();
+  void interleaveEnd();
+  void ilAccount(u32 work);
+  bool objectMayBlend(int index);
+  std::vector<Tyra::StaPipBag*> heavyBags;
+  size_t heavyNext = 0;
+  bool heavyCollect = false;
+  bool heavyActive = false;
+  int heavyDrawn = 0, heavyPrevDrawn = 16;
+  int heavyBlendAt = -1;  // drawn-object index of this frame's blend flush
+  int ilLastBlendAt = -1;  // the same, for the last interleaved frame
+  // The auto tuner: 8 probe pairs (one frame in each order), then the order
+  // that won most pairs is held for 100 frames before probing again.
+  bool ilProbing = true, ilChoice = false;
+  int ilFrame = 0, ilWins = 0;
+  u32 ilPairOn = 0, ilSumOn = 0, ilSumOff = 0;
+  int ilLastHeavy = 0;
+  // Whole-loop work of the previous frame: COP0 period minus the renderer's
+  // stall (vsync / display buffer), taken from one interleaveBegin to the next.
+  bool ilHaveMark = false, ilMarkActive = false;
+  u32 ilMark = 0, ilStallMark = 0;
   float roadSurfaceAt(float x, float z) const;
   void buildRoadHeightIndex() const;
   // The pre-grid exhaustive walk, defined only under TYRA_ROAD_INDEX_VERIFY
@@ -21216,7 +21286,7 @@ void TerrainGame::renderStaticBatches() {
     for (const StaticBatchMember& m : b.members)
       if (occlusionObjectIsOccluder(m.object)) { ownsOccluder = true; break; }
     if (!ownsOccluder && occlusionHiddenAabb(b.aabbMin, b.aabbMax)) continue;
-    stapip.core.render(b.bag.get());
+    submitHeavy(b.bag.get());
   }
 }
 
@@ -21658,8 +21728,204 @@ void TerrainGame::renderRoadChunks() {
             engine->renderer.core.renderer3D.frustumPlanes.getAll(), mn, mx) ==
         Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
       continue;
-    stapip.core.render(c.bag.get());
+    submitHeavy(c.bag.get());
   }
+}
+
+// ---------------------------------------------------------------------------
+// Interleaved passes (docs/interleaved-passes.md, INTERLEAVE_PASSES)
+// ---------------------------------------------------------------------------
+// Measured on a physical PS2 (Motor District, garage): the EE waits for VU1
+// in the static batch and road passes (0.66 + 0.89 ms a frame) and not at
+// all in the object loop, which does 2.3 ms of EE work for little GPU work.
+// Feeding the batch and road bags into the object loop overlaps the two.
+// Terrain stays where it is: it is EE-heavy outdoors, and deferring it cost
+// more than it saved there.
+
+void TerrainGame::submitHeavy(Tyra::StaPipBag* bag) {
+  if (heavyCollect)
+    heavyBags.push_back(bag);
+  else
+    stapip.core.render(bag);
+}
+
+// Feeds the deferred bags back: a share of them per drawn object, spread so
+// the last one goes out around the previous frame's last drawn object, or
+// all of them. Called inside the object loop's submission batch - measured,
+// closing the batch around each feed costs more than the feed saves.
+void TerrainGame::dripHeavy(bool all) {
+  if (!all) ++heavyDrawn;  // every drawn object, also after the blend flush
+  const size_t total = heavyBags.size();
+  if (heavyNext >= total) return;
+  size_t want = total - heavyNext;
+  if (!all) {
+    const size_t objs = heavyPrevDrawn > 0 ? (size_t)heavyPrevDrawn : 1;
+    const size_t even = (total + objs - 1) / objs;
+    if (even < want) want = even;
+  }
+  for (size_t k = 0; k < want; ++k) stapip.core.render(heavyBags[heavyNext++]);
+}
+
+// Decides this frame's order. Off and always are constants; auto probes 8
+// pairs of frames, one in each order, and keeps the order that won most of
+// them for ilHoldFrames. The two frames of a pair see nearly the same view,
+// and counting pair wins instead of summing times means one slow frame (a
+// scene load, a texture upload burst) decides one pair, not the verdict.
+//
+// What is timed is the WHOLE loop, from here to here one frame later, minus
+// the renderer's stall. Timing only the passes that move was tried first
+// and missed the cost: measured on a PS2 in open ground, interleaving costs
+// nothing inside them and +0.19 ms later, at endFrame, where the GS tail
+// that the object loop used to hide is now waited for.
+bool TerrainGame::interleaveBegin() {
+  heavyBags.clear();
+  heavyNext = 0;
+  heavyDrawn = 0;
+  if (INTERLEAVE_PASSES == 0 || splitPassActive) return false;
+  if (INTERLEAVE_PASSES == 2) return true;
+  const u32 now = profTicks();
+  const u32 stall = engine->renderer.core.getStallTotal();
+  if (ilHaveMark) {
+    const u32 period = now - ilMark;
+    const u32 stalled = stall - ilStallMark;
+    ilAccount(period > stalled ? period - stalled : 0);
+  }
+  ilHaveMark = true;
+  ilMark = now;
+  ilStallMark = stall;
+  ilMarkActive = ilProbing ? (ilFrame & 1) == 0 : ilChoice;
+  return ilMarkActive;
+}
+
+// Called once per frame for the frame that just ended, with its work.
+void TerrainGame::ilAccount(u32 work) {
+  constexpr int kProbeFrames = 16;  // 8 pairs
+  // Short on purpose: a hold that outlives the view it was measured in
+  // (measured: 250 frames carried the garage's verdict into open ground)
+  // costs more than the probe frames do.
+  constexpr int ilHoldFrames = 100;
+  ++ilFrame;
+  if (!ilProbing) {
+    if (ilFrame >= ilHoldFrames) {
+      ilProbing = true;
+      ilFrame = 0;
+      ilWins = 0;
+      ilSumOn = ilSumOff = 0;
+    }
+    return;
+  }
+  if (ilMarkActive) {
+    ilPairOn = work;
+    ilSumOn += work;
+  } else {
+    // The pair's second frame: interleaving wins it only by a clear 1%,
+    // because the plain order is the one every other measurement of this
+    // engine was taken in.
+    if ((double)ilPairOn * 1.01 < (double)work) ++ilWins;
+    ilSumOff += work;
+  }
+  if (ilFrame < kProbeFrames) return;
+  const bool on = ilWins * 2 > kProbeFrames / 2;
+  if (on != ilChoice || DEBUG_SHOW_PROFILER)
+    TYRA_LOG("INTERLEAVE auto on=",
+             (int)(ilSumOn / (kProbeFrames / 2) / 295), "us off=",
+             (int)(ilSumOff / (kProbeFrames / 2) / 295), "us -> ",
+             on ? "interleaved" : "plain", " wins=", ilWins, "/",
+             kProbeFrames / 2, " heavy=", ilLastHeavy,
+             " drawn=", heavyPrevDrawn, " blendAt=", ilLastBlendAt);
+  ilChoice = on;
+  ilProbing = false;
+  ilFrame = 0;
+}
+
+void TerrainGame::interleaveEnd() {
+  if (heavyActive) {
+    heavyPrevDrawn = heavyDrawn > 0 ? heavyDrawn : 1;
+    ilLastBlendAt = heavyBlendAt;
+    ilLastHeavy = (int)heavyBags.size();
+  }
+}
+
+// Can a texel of this texture blend with what is already in the
+// framebuffer? Judged once per texture from the pixels the game uploads:
+// any alpha under 0x7F (the loader maps a PNG tRNS 255 to 127 and a 32-bit
+// alpha 255 to 128) counts, cutouts included - their bilinear edges blend.
+static bool textureMayBlend(const Tyra::Texture* t) {
+  if (t == nullptr || t->core == nullptr || t->core->data == nullptr)
+    return false;  // render targets: their bags' own alpha says it
+  static std::map<u32, bool> cache;
+  auto it = cache.find(t->id);
+  if (it != cache.end()) return it->second;
+  const Tyra::TextureData* c = t->core;
+  bool blend = false;
+  const u32 n = (u32)c->width * (u32)c->height;
+  if (c->components == TEXTURE_COMPONENTS_RGBA) {
+    if (c->bpp == Tyra::bpp32) {
+      for (u32 i = 0; i < n && !blend; ++i) blend = c->data[i * 4 + 3] < 0x7F;
+    } else if ((c->bpp == Tyra::bpp8 || c->bpp == Tyra::bpp4) &&
+               t->clut != nullptr && t->clut->data != nullptr) {
+      bool used[256] = {};
+      if (c->bpp == Tyra::bpp8) {
+        for (u32 i = 0; i < n; ++i) used[c->data[i]] = true;
+      } else {
+        for (u32 i = 0; i < (n + 1) / 2; ++i) {
+          used[c->data[i] & 0x0F] = true;
+          used[c->data[i] >> 4] = true;
+        }
+      }
+      const u32 entries = c->bpp == Tyra::bpp8 ? 256 : 16;
+      for (u32 l = 0; l < entries && !blend; ++l) {
+        if (!used[l]) continue;
+        // The 8-bit CLUT is stored in the GS's CSM1 order (png_loader's
+        // "rotate clut"): entries 8-15 and 16-23 of every 32 swap places.
+        u32 at = l;
+        if (entries == 256) {
+          if ((l & 0x18) == 0x08) at = l + 8;
+          else if ((l & 0x18) == 0x10) at = l - 8;
+        }
+        blend = t->clut->data[at * 4 + 3] < 0x7F;
+      }
+    }
+  }
+  cache[t->id] = blend;
+  return blend;
+}
+
+// Must this object draw only after the deferred bags? Yes if any part can
+// blend with the framebuffer - vertex or material alpha, a translucent or
+// cutout texture, a blend equation - or does not write z. Everything else
+// is opaque and z-tested, so its order against the batches and roads does
+// not change a pixel. Judged per geometry build (the key below); the single
+// colour's alpha is re-read every call because scripts fade it in place.
+bool TerrainGame::objectMayBlend(int index) {
+  ObjectGeometry& g = objectGeometry[index];
+  u32 key = (u32)g.parts.size();
+  for (const GeoPart& part : g.parts) {
+    const Tyra::StaPipBag* bag = part.bag.get();
+    if (!bag) continue;
+    key = key * 31U + reinterpret_cast<u32>(bag->vertices) + (u32)bag->count;
+    if (bag->color && bag->color->contentVersion)
+      key = key * 31U + *bag->color->contentVersion;
+    if (bag->color && bag->color->single && bag->color->single->a < 127.5F)
+      return true;
+  }
+  if (g.blendState >= 0 && g.blendKey == key) return g.blendState != 0;
+  bool blend = false;
+  for (const GeoPart& part : g.parts) {
+    const Tyra::StaPipBag* bag = part.bag.get();
+    if (!bag || blend) continue;
+    const Tyra::PipelineInfoBag* info = bag->info;
+    if (info && (info->additiveBlendFix != 0 || info->subtractiveBlendFix != 0 ||
+                 info->zTestType != Tyra::PipelineZTest_Standard))
+      blend = true;
+    if (!blend && bag->color && bag->color->many)
+      for (u32 v = 0; v < (u32)bag->count && !blend; ++v)
+        blend = bag->color->many[v].a < 127.5F;
+    if (!blend && bag->texture) blend = textureMayBlend(bag->texture->texture);
+  }
+  g.blendKey = key;
+  g.blendState = blend ? 1 : 0;
+  return blend;
 }
 
 // Height of the baked road triangle under a decal sample. This deliberately
@@ -23503,11 +23769,17 @@ void TerrainGame::renderScene() {
   // Static batches: one submit per material x cell group of the non-moving
   // primitives (rebuilt first when a member changed). Opaque z-tested
   // geometry, so drawing before the solo objects is order-free.
+  // Interleaved passes (INTERLEAVE_PASSES): between this line and the roads
+  // the batch and road bags are collected instead of submitted.
+  heavyActive = interleaveBegin();
+  heavyCollect = heavyActive;
+  heavyBlendAt = -1;
   { const u32 ct=costStart(); renderStaticBatches(); costEnd("Static_batches",-1,ct); }
   // Roads are generated once at scene load, but their ready bags still incur
   // per-frame culling and submission. Price that work separately: otherwise a
   // road-only scene misleadingly reports the whole cost as "Procedural".
   { const u32 ct=costStart(); renderRoadChunks(); costEnd("Roads",-1,ct); }
+  heavyCollect = false;  // any later batch/road submission draws at once
   // Other runtime-generated geometry (procedural volumes, prefab instances) -
   // the same deal one step further: the game built these bags itself, so they
   // need no per-object bookkeeping at all, only a distance test and a submit.
@@ -23925,6 +24197,19 @@ void TerrainGame::renderScene() {
       hlListD2[hlCount++] = ddx * ddx + ddy * ddy + ddz * ddz;
       if (!hlOverlay) continue;  // rim: defer body; overlay: draw it now
     }
+    // Interleaved passes: a share of the deferred batch and road bags goes
+    // out in front of each drawn object, and all of them in front of the
+    // first one that may blend - it must find what is behind it already in
+    // the framebuffer. Before the probe block, which draws roads of its own.
+    if (heavyActive) {
+      if (objectMayBlend(i)) {
+        if (heavyBlendAt < 0 && heavyNext < heavyBags.size())
+          heavyBlendAt = heavyDrawn;
+        dripHeavy(true);
+      } else {
+        dripHeavy(false);
+      }
+    }
     // Reflected-probe mode: re-render the shared env map for THIS object
     // right before it draws (begin() drains PATH1 first, so the previous
     // object already sampled its own map). Not inside split halves - the
@@ -24014,6 +24299,8 @@ void TerrainGame::renderScene() {
     lap(lpPost);
   }
   stapip.core.endSubmissionBatch();
+  if (heavyActive) dripHeavy(true);
+  if (INTERLEAVE_PASSES != 0) interleaveEnd();
   costEnd("Objects",-1,costObjectsStart);
   if (lp) {
     // Laps are EE time only and sit inside the Objects row; counts ride the
@@ -39095,6 +39382,10 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{ANIM_LOD_DISTANCE}}", floatLit(st.animLodDistance));
     s = replaceAll(s, "{{MESH_LOD_DISTANCE}}", floatLit(st.meshLodDistance));
     s = replaceAll(s, "{{STATIC_BATCHING}}", st.staticBatching ? "true" : "false");
+    s = replaceAll(s, "{{INTERLEAVE_PASSES}}",
+                   st.interleavePasses == "off"      ? "0"
+                   : st.interleavePasses == "always" ? "2"
+                                                     : "1");
     s = replaceAll(s, "{{ENV_PROBE_REFLECTED}}",
                    st.envProbeReflected ? "true" : "false");
     s = replaceAll(s, "{{VIDEO_MODE}}", st.videoSystem == "pal"    ? "PAL"

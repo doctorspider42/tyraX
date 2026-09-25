@@ -2751,6 +2751,11 @@ here must keep.
   after `Vif1Queue::drain()`, because chains still in flight REF it - any new
   shared REF'd block must obey the same rule (docs/ee-submission-rearchitecture.md,
   "Round five").
+- **`RendererCore::getStallTotal()`** is a never-reset running total of the
+  renderer's stall time (vsync / display buffer) beside `takeStallTicks()`,
+  which resets. The frame-extrapolation gate and the profiling rig both take
+  the resetting one, so a third reader (the interleaved-passes tuner,
+  docs/interleaved-passes.md) takes differences of the total instead.
 
 Counts: `StaPipCore::takeRetainedCommandHits/Builds/getRetainedCommandBytes`,
 and a debug engine logs `STAPIPRET` every 300 frames (which makes a debug build

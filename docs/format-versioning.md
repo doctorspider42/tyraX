@@ -200,6 +200,11 @@ Format 60 adds the optional per-road `roadSampleStep` field. It is purely
 additive: missing means the original 1 m longitudinal spacing, so no migration
 step is required.
 
+Format 64 adds `settings.interleavePasses` ("auto", "always", "off";
+[interleaved-passes.md](interleaved-passes.md)). It is written only when it
+is not "auto", so a project that never sets it resaves byte for byte, and a
+missing key reads as "auto". Additive; no migration step.
+
 Format 61 adds the project-wide `occlusionCulling` opt-in and the per-object
 `occluderExclude` / `occlusionCull` controls. Missing keeps occlusion disabled,
 allows the object to receive culling if the project is later enabled and lets

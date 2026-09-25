@@ -324,6 +324,15 @@ class RendererCore : public RendererCore2dBounds {
   }
 
   /**
+   * Modified by TyraX: the same stall time as a running total that nobody
+   * resets (it wraps with the COP0 count), for a second reader. The
+   * interleaved-passes tuner (docs/interleaved-passes.md) takes differences
+   * of it, so it can price a whole loop without stealing takeStallTicks()
+   * from the frame extrapolation gate or the profiling rig.
+   */
+  u32 getStallTotal() const { return stallTotal; }
+
+  /**
    * Modified by TyraX: the screen rectangle everything drawn through the 2D
    * path touched last frame, in display pixels; empty (x1 < x0) when nothing
    * did. The frame warp keeps this region UNWARPED, because the HUD is pixels
@@ -374,6 +383,7 @@ class RendererCore : public RendererCore2dBounds {
   bool hasPresentedFrame = false;
   // Modified by TyraX: see getLastFrameWorkTicks / get2dBounds.
   u32 stallAccum = 0;
+  u32 stallTotal = 0;
   int hud2dX0 = 1 << 20, hud2dY0 = 1 << 20, hud2dX1 = -1, hud2dY1 = -1;
   // Which post fx passes already ran this frame (RendererCorePostFx::Pass
   // bits) - endFrame composites the rest. postFxDrained: the PATH1 barrier

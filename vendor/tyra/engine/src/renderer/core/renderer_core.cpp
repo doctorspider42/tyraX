@@ -515,6 +515,7 @@ void RendererCore::endFrame() {
     gs.flipBuffers(isFrameLimitOn);
     __asm__ volatile("mfc0 %0, $9" : "=r"(t1));
     stallAccum += t1 - t0;
+    stallTotal += t1 - t0;
 #if TYRA_FRAME_PROFILE
     FrameProfile::tStall = t1 - t0;
     FrameProfile::tPeriod = FrameProfile::prevPresentEnd != 0
@@ -553,6 +554,7 @@ bool RendererCore::presentWarpFrame(const WarpCamera& from,
     gs.flipBuffers(isFrameLimitOn, /*synthetic=*/true);
     __asm__ volatile("mfc0 %0, $9" : "=r"(t1));
     stallAccum += t1 - t0;
+    stallTotal += t1 - t0;
   }
   return true;
 }

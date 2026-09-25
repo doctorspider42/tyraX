@@ -15767,6 +15767,26 @@ void App::drawPreferencesWindow() {
         "with physics, LODs, scripts, runtime references, save-state or a\n"
         "streaming layer stay individual.");
 
+    {
+        static const char* kInterleaveNames[] = {"Auto", "Always", "Off"};
+        static const char* kInterleaveKeys[] = {"auto", "always", "off"};
+        int il = 0;
+        for (int k = 0; k < 3; ++k)
+            if (prefSettings_.interleavePasses == kInterleaveKeys[k]) il = k;
+        if (ImGui::Combo("Interleave batches and roads with objects", &il,
+                         kInterleaveNames, 3))
+            prefSettings_.interleavePasses = kInterleaveKeys[il];
+    }
+    prefHelp(
+        "Feeds the static batch and road draws into the object loop instead\n"
+        "of drawing them first. Batches and roads are cheap for the EE and\n"
+        "heavy for VU1/GS, objects the opposite, so drawn one after the other\n"
+        "the EE waits in the first and VU1 idles in the second. Measured on a\n"
+        "PS2: -0.4 ms a frame in a dense garage, a small loss in open ground\n"
+        "with few objects. Auto: the game times both orders every few seconds\n"
+        "and keeps the faster. The first object that may blend (alpha,\n"
+        "cutouts, blend modes) always finds the batches and roads drawn.");
+
     ImGui::Checkbox("Conservative occlusion culling",
                     &prefSettings_.occlusionCulling);
     prefHelp(

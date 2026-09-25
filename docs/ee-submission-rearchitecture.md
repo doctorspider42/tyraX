@@ -1281,7 +1281,10 @@ at boot (`drip_probe.py`). `work`, two control boots:
   therefore D-cache (or I-cache) cost from alternating two working sets, and
   only a console arm can price it.
 
-**Not shipped.** The next arm to run defers only the roads and batches, and
+**Shipped since as [interleaved passes](interleaved-passes.md)** (1.128.0):
+roads and batches only, inside the object batch, behind a blend gate and an
+auto tuner. The rest of this paragraph is the state before that. **Not
+shipped.** The next arm to run defers only the roads and batches, and
 prices the `prepare` increase with the attribution build. Order is also a
 correctness question: an alpha-blended object drawn before the terrain behind
 it blends with the sky instead, so a shipped version must flush the deferred

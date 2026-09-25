@@ -154,8 +154,12 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   Still true from the capture: the reference title builds that chain in SPR
   and moves it to RAM by DMA (no write-back), and its per-object cost is about
   16 qwords plus a `CALL` into a prebaked block.
-- **Interleave the GPU-heavy passes with the object loop - PROTOTYPED
-  2026-09-25.** Terrain, batches and roads are where the EE waits (0.89 /
+- ~~**Interleave the GPU-heavy passes with the object loop**~~ **SHIPPED
+  1.128.0** as Preferences > Rendering > Interleave batches and roads with
+  objects (Auto / Always / Off, docs/interleaved-passes.md): Auto measured
+  -0.48..-0.50 ms of `work` in the garage and +0.01..+0.04 outside. Left
+  open: the +0.20 ms of `prepare` it costs (D-cache, two alternating working
+  sets). The prototype history: Terrain, batches and roads are where the EE waits (0.89 /
   0.66 / 0.43 ms of garage day's 2.19); objects wait 0. Deferring their bags
   into the object loop measured -0.29..-0.41 ms of `work` in the garage and
   +0.22..+0.40 outside, with an unexplained +0.42..+0.49 ms of `prepare` in
