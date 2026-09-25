@@ -27,12 +27,17 @@ inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1]
 };
 
 // .mtl libraries assigned to primitives (first material = surface)
-constexpr int MATERIAL_COUNT = 4;
+constexpr int MATERIAL_COUNT = 9;
 inline const char* MATERIAL_PATHS[MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 1] = {
     "materials/particles/campfire.mtl",
+    "materials/particles/campfire-f1.mtl",
+    "materials/particles/campfire-f2.mtl",
+    "materials/particles/campfire-f3.mtl",
     "materials/particles/wood-smoke.mtl",
     "materials/particles/torch-sparks.mtl",
     "materials/particles/magic-motes.mtl",
+    "materials/particles/embers.mtl",
+    "materials/particles/fire-glow.mtl",
 };
 
 // The tyre-smoke pool's texture (MATERIAL_PATHS slot, -1 = untextured)

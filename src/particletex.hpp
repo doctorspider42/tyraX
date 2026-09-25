@@ -15,8 +15,15 @@
 // the GS, so a flame whose edge lived only in alpha would draw as a square.
 namespace particletex {
 
-// RGBA8, g.size x g.size, row 0 at the top. Empty for kind 0.
-std::vector<unsigned char> generate(const ParticleTexGen& g);
+// RGBA8, g.size x g.size, row 0 at the top. Empty for kind 0. `frame` picks
+// one of g.frames flipbook frames: the noise travels through a SEAMLESS loop
+// (frame g.frames would equal frame 0), so the console can cycle them forever.
+std::vector<unsigned char> generate(const ParticleTexGen& g, int frame = 0);
+
+// Frame k's material next to frame 0's: "a/fire.mtl" -> "a/fire-f2.mtl"
+// (k = 0 returns the path unchanged). The ONE naming rule - the bake, codegen
+// and the viewport all derive frame paths through it.
+std::string framePath(const std::string& mtlPath, int k);
 
 // Folder the baked textures live in (project-relative).
 inline constexpr const char* kDir = "res/materials/particles";
@@ -24,9 +31,10 @@ inline constexpr const char* kDir = "res/materials/particles";
 // A file-name-safe form of an effect name ("Camp fire!" -> "camp-fire").
 std::string fileStem(const std::string& effectName);
 
-// Writes <kDir>/<stem>.png and a one-material <stem>.mtl pointing at it,
-// each only when its bytes changed. Returns the .mtl's project-relative path,
-// or "" with *err set.
+// Writes <kDir>/<stem>.png and a one-material <stem>.mtl pointing at it (plus
+// <stem>-f<k>.png/.mtl for every further flipbook frame), each only when its
+// bytes changed. Returns frame 0's .mtl project-relative path, or "" with
+// *err set.
 std::string writeAssets(const std::string& projectDir, const std::string& effectName,
                         const ParticleTexGen& g, std::string* err);
 

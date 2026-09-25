@@ -902,6 +902,9 @@ std::string objectJson(const SceneObject& o) {
         if (o.emitterAdditive) json += ", \"additive\": true";
         if (!o.particleEffect.empty())
             json += ", \"effect\": \"" + jsonEscape(o.particleEffect) + "\"";
+        if (o.emitterFrames > 1)
+            json += ", \"frames\": " + std::to_string(o.emitterFrames) +
+                    ", \"fps\": " + fmtFloat(o.emitterFps);
         json += " }";
     }
     if (o.type == PrimitiveType::SoundEmitter) {
@@ -2819,8 +2822,10 @@ static void writeParticlesSection(std::ostream& json, const Project& p) {
                  << ", \"detail\": " << fmtFloat(g.detail)
                  << ", \"scale\": " << fmtFloat(g.scale)
                  << ", \"turbulence\": " << fmtFloat(g.turbulence)
-                 << ", \"heat\": " << fmtFloat(g.heat) << ", \"color\": " << f3(g.color)
-                 << " }";
+                 << ", \"heat\": " << fmtFloat(g.heat) << ", \"color\": " << f3(g.color);
+            if (g.frames > 1)
+                json << ", \"frames\": " << g.frames << ", \"fps\": " << fmtFloat(g.fps);
+            json << " }";
         }
         json << " }";
     }
@@ -2875,6 +2880,9 @@ static void readParticlesSection(const json::Value& root, Project& out) {
             t.turbulence = num(*g, "turbulence", t.turbulence);
             t.heat = num(*g, "heat", t.heat);
             rd3(g->find("color"), t.color);
+            t.frames = (int)num(*g, "frames", 1);
+            if (t.frames != 2 && t.frames != 4 && t.frames != 8) t.frames = 1;
+            t.fps = std::min(60.0f, std::max(1.0f, num(*g, "fps", 12.0f)));
         }
         out.particleEffects.push_back(std::move(fx));
     }
@@ -3857,6 +3865,8 @@ void applyParticleEffect(const ParticleEffect& fx, SceneObject& o) {
     o.emitterDieOnGround = fx.dieOnGround;
     o.emitterAdditive = fx.additive;
     o.materialPath = fx.materialPath;
+    o.emitterFrames = fx.texGen.kind != 0 ? fx.texGen.frames : 1;
+    o.emitterFps = fx.texGen.fps;
 }
 
 bool applyParticleEffects(Project& p) {
@@ -3886,6 +3896,7 @@ ParticleEffect particlePreset(int kind) {
             fx.count = 32, fx.size = 0.6f, fx.additive = true;
             fx.color[0] = 1.0f, fx.color[1] = 0.85f, fx.color[2] = 0.6f;
             fx.texGen.kind = 2;
+            fx.texGen.frames = 4, fx.texGen.fps = 12.0f;
             break;
         case 1:  // smoke: slow grey puffs
             fx.name = "Smoke";
@@ -5505,6 +5516,10 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (const auto* v = em->find("additive"))
                 o.emitterAdditive = v->type == json::Value::Type::Bool && v->boolean;
             if (const auto* v = em->find("effect")) o.particleEffect = v->stringOr("");
+            if (const auto* v = em->find("frames")) o.emitterFrames = (int)v->numberOr(1);
+            if (o.emitterFrames != 2 && o.emitterFrames != 4 && o.emitterFrames != 8)
+                o.emitterFrames = 1;
+            if (const auto* v = em->find("fps")) o.emitterFps = (float)v->numberOr(12);
         }
         if (const auto* sn = jo.find("sound")) {
             if (const auto* v = sn->find("path")) o.soundPath = v->stringOr("");

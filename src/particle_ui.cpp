@@ -70,7 +70,8 @@ bool App::particleBakeTexture(ParticleEffect& fx) {
     fx.materialPath = mtl;
     // A soft alpha ramp does not survive the palettized (CLUT) bake - pin the
     // library's textures to full colour. 64x64 RGBA32 is 16 KB of GS VRAM.
-    project_.textureQuality[mtl] = "none";
+    for (int k = 0; k < std::max(1, fx.texGen.frames); ++k)
+        project_.textureQuality[particletex::framePath(mtl, k)] = "none";
     viewport_.invalidateAssets();  // the viewport caches textures by path
     particleStatus_ = "Wrote " + mtl;
     return true;
@@ -232,8 +233,21 @@ void App::drawParticleEditorWindow() {
                 g.size = sizeIdx == 0 ? 32 : (sizeIdx == 2 ? 128 : 64);
                 recipeCommitted = true;
             }
-            prefHelp("GS VRAM per texture: 4 / 16 / 64 KB (full colour -\n"
+            prefHelp("GS VRAM per frame: 4 / 16 / 64 KB (full colour -\n"
                      "a soft alpha ramp does not survive a palette).");
+            int frameIdx = g.frames >= 8 ? 3 : (g.frames >= 4 ? 2 : (g.frames >= 2 ? 1 : 0));
+            const char* frameNames[] = {"1 (still)", "2", "4", "8"};
+            if (ImGui::Combo("Frames", &frameIdx, frameNames, 4)) {
+                g.frames = 1 << frameIdx;
+                recipeCommitted = true;
+            }
+            prefHelp("A flipbook: the noise moves through a seamless loop and the\n"
+                     "console swaps the frames - one draw, only the texture changes.");
+            if (g.frames > 1) {
+                ImGui::SliderFloat("Frames / s", &g.fps, 1.0f, 30.0f, "%.0f");
+                recipeCommitted |= ImGui::IsItemDeactivatedAfterEdit();
+            }
+            ImGui::TextDisabled("GS VRAM: %d KB", g.size * g.size * 4 * std::max(1, g.frames) / 1024);
             auto knob = [&](const char* label, float* v, float lo, float hi) {
                 ImGui::SliderFloat(label, v, lo, hi, "%.2f");
                 recipeCommitted |= ImGui::IsItemDeactivatedAfterEdit();
@@ -259,16 +273,26 @@ void App::drawParticleEditorWindow() {
 
         // --- previews --------------------------------------------------------
         if (g.kind != 0 && (!particleTexValid_ || particleTexFor_ != g)) {
-            const std::vector<unsigned char> px = particletex::generate(g);
-            if (!px.empty()) {
-                if (!particleTexId_) glGenTextures(1, &particleTexId_);
-                glBindTexture(GL_TEXTURE_2D, particleTexId_);
-                glUploadTexRgba(g.size, g.size, px.data());
-                particleTexFor_ = g;
-                particleTexValid_ = true;
+            const int frames = std::max(1, g.frames);
+            while ((int)particleTexIds_.size() < frames) {
+                unsigned int id = 0;
+                glGenTextures(1, &id);
+                particleTexIds_.push_back(id);
             }
+            for (int k = 0; k < frames; ++k) {
+                const std::vector<unsigned char> px = particletex::generate(g, k);
+                glBindTexture(GL_TEXTURE_2D, particleTexIds_[(size_t)k]);
+                glUploadTexRgba(g.size, g.size, px.data());
+            }
+            particleTexFor_ = g;
+            particleTexValid_ = true;
         }
         const bool haveTex = g.kind != 0 && particleTexValid_;
+        // the frame the console would show now (same arithmetic as the game)
+        const int frameNow =
+            haveTex && g.frames > 1 ? (int)(ImGui::GetTime() * g.fps) % g.frames : 0;
+        const unsigned int particleTexId_ =
+            haveTex ? particleTexIds_[(size_t)frameNow] : 0u;
         const float box = scaled(180);
         ImDrawList* dl = ImGui::GetWindowDrawList();
         const ImU32 bg = IM_COL32(28, 32, 44, 255);
@@ -344,7 +368,10 @@ void App::drawParticleEditorWindow() {
                     ImVec4(fx.color[0], fx.color[1], fx.color[2], alpha));
                 if (haveTex) {
                     const float c = std::cos(d.spin), s = std::sin(d.spin);
+                    // odd slots mirrored, as on the console (not rain, not fog)
+                    const float mir = ((i & 1) && fx.kind != 4 && fx.kind != 2) ? -1.0f : 1.0f;
                     auto corner = [&](float u, float v) {
+                        u *= mir;
                         return ImVec2(cx + (u * c - v * s) * sz, cy + (u * s + v * c) * sz);
                     };
                     dl->AddImageQuad((ImTextureID)(intptr_t)particleTexId_, corner(-1, -1),

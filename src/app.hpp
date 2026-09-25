@@ -1875,7 +1875,7 @@ private:
     bool showParticles_ = false;
     int particleSel_ = -1;             // selected library entry
     std::string particleStatus_;       // last bake / rename message
-    unsigned int particleTexId_ = 0;   // GL preview of the procedural texture
+    std::vector<unsigned int> particleTexIds_;  // GL previews, one per flipbook frame
     ParticleTexGen particleTexFor_;    // recipe particleTexId_ shows
     bool particleTexValid_ = false;
     std::string particleRenameFrom_;   // name while the Name field is edited

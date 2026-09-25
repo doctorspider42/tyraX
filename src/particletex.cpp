@@ -94,9 +94,29 @@ bool writeIfChanged(const std::filesystem::path& path, const std::string& bytes)
 
 }  // namespace
 
-std::vector<unsigned char> generate(const ParticleTexGen& g) {
+// A noise field that loops: sampled at the offset t*P and at (t-1)*P and
+// cross-faded by t, so t = 0 and t = 1 give the same image.
+// Rescaled around 0.5 so the mid-loop frames (two fields averaged) keep the
+// contrast of frame 0 instead of going flat.
+template <class F>
+float looped(float t, float period, F f) {
+    const float v = (1.0f - t) * f(t * period) + t * f((t - 1.0f) * period);
+    const float k = std::sqrt((1.0f - t) * (1.0f - t) + t * t);
+    return 0.5f + (v - 0.5f) / k;
+}
+
+std::string framePath(const std::string& mtlPath, int k) {
+    if (k <= 0) return mtlPath;
+    const size_t dot = mtlPath.rfind(".mtl");
+    if (dot == std::string::npos) return mtlPath;
+    return mtlPath.substr(0, dot) + "-f" + std::to_string(k) + ".mtl";
+}
+
+std::vector<unsigned char> generate(const ParticleTexGen& g, int frame) {
     std::vector<unsigned char> px;
     if (g.kind < 1 || g.kind > 3) return px;
+    const int frames = g.frames > 1 ? g.frames : 1;
+    const float T = (float)(((frame % frames) + frames) % frames) / (float)frames;
     const int n = g.size == 32 || g.size == 128 ? g.size : 64;
     px.assign((size_t)n * n * 4, 0);
     const float soft = clamp01(g.softness), detail = clamp01(g.detail);
@@ -112,8 +132,13 @@ std::vector<unsigned char> generate(const ParticleTexGen& g) {
             if (g.kind == 1) {
                 // Smoke: a billowy puff - the radius itself is warped by the
                 // noise, so the silhouette is a cloud and not a disc.
-                const float nz = fbm(seed, (x + 3.1f) * 2.2f / sc, (y + 7.7f) * 2.2f / sc);
-                const float lobes = fbm(seed + 53, (x + 1.3f) * 1.3f / sc, (y - 4.2f) * 1.3f / sc);
+                // the billows roll upward through the loop
+                const float nz = looped(T, 1.6f, [&](float o) {
+                    return fbm(seed, (x + 3.1f) * 2.2f / sc, (y + 7.7f - o) * 2.2f / sc);
+                });
+                const float lobes = looped(T, 0.8f, [&](float o) {
+                    return fbm(seed + 53, (x + 1.3f) * 1.3f / sc, (y - 4.2f - o) * 1.3f / sc);
+                });
                 const float rad = std::sqrt(x * x + y * y) * 1.12f +
                                   (lobes - 0.5f) * 1.1f * detail + (nz - 0.5f) * 0.35f * detail;
                 const float inner = 0.9f - 0.8f * soft;
@@ -126,20 +151,33 @@ std::vector<unsigned char> generate(const ParticleTexGen& g) {
                 r = g.color[0] * shade, gg = g.color[1] * shade, b = g.color[2] * shade;
             } else if (g.kind == 2) {
                 // Flame: a teardrop base-down, its sides licked sideways by a
-                // noise field that scrolls upward, fading into tongues at the tip.
-                const float f = 0.5f + 0.5f * y;  // 0 bottom .. 1 top
-                const float nz = fbm(seed, (x + 5.0f) * 2.6f / sc, (f * 3.2f + 11.0f) / sc);
-                const float nz2 = fbm(seed + 97, (x - 2.0f) * 5.0f / sc, (f * 6.0f) / sc);
-                const float xs = x + (nz - 0.5f) * 1.1f * turb * (0.25f + f);
-                float w = 0.62f * std::pow(clamp01(1.0f - f), 0.55f);
-                w *= smoothstep(-0.02f, 0.22f, f) * 0.35f + 0.65f;  // rounded foot
+                // noise field that climbs through the loop, splitting into
+                // separate tongues near the tip; the whole flame breathes
+                // (its height pulses) so a flipbook reads as fire, not as a
+                // wobbling candle.
+                const float breath = 0.86f + 0.14f * std::sin(6.2831853f * T + 0.37f * (float)(seed % 17));
+                const float f = (0.5f + 0.5f * y) / breath;  // 0 bottom .. 1 top
+                const float nz = looped(T, 2.0f, [&](float o) {
+                    return fbm(seed, (x + 5.0f) * 2.4f / sc, (f * 3.0f + 11.0f - o) / sc);
+                });
+                const float nz2 = looped(T, 3.0f, [&](float o) {
+                    return fbm(seed + 97, (x - 2.0f) * 4.2f / sc, (f * 5.0f - o) / sc);
+                });
+                const float xs = x + (nz - 0.5f) * 1.7f * turb * (0.2f + f * 1.1f);
+                float w = 0.74f * std::pow(clamp01(1.0f - f), 0.6f);
+                w *= smoothstep(-0.02f, 0.22f, f) * 0.3f + 0.7f;  // rounded foot
                 const float d = w > 1e-4f ? std::fabs(xs) / w : 9.0f;
-                const float edge = 1.0f - smoothstep(0.55f - 0.45f * soft, 1.0f, d);
-                const float tongues = 1.0f - detail * 0.6f * smoothstep(0.35f, 1.0f, f) * (1.0f - nz2 * 1.4f);
+                const float edge = 1.0f - smoothstep(0.5f - 0.4f * soft, 1.0f, d);
+                // tongues: above mid height only where the second field is
+                // high enough - the flame breaks into licks instead of a cone
+                const float cut = 0.25f + 0.75f * f;
+                const float lick = smoothstep(cut - 0.35f, cut + 0.05f, nz2 * 1.25f);
+                const float tongues = 1.0f - detail * smoothstep(0.3f, 0.9f, f) * (1.0f - lick);
                 const float base = smoothstep(0.0f, 0.10f, f);  // no hard floor line
-                const float I = clamp01(edge * clamp01(tongues) * base);
+                const float I = clamp01(edge * clamp01(tongues) * base) *
+                                (1.0f - smoothstep(0.92f, 1.05f, f));
                 // temperature: hottest low in the middle
-                const float temp = clamp01(I * (1.15f - 0.75f * f) * (1.0f - 0.35f * d));
+                const float temp = clamp01(I * (1.02f - 0.75f * f) * (1.0f - 0.45f * d));
                 float c[3];
                 flameColor(temp, heat, c);
                 a = I;
@@ -147,7 +185,9 @@ std::vector<unsigned char> generate(const ParticleTexGen& g) {
             } else {
                 // Glow / spark: a hot core inside a soft halo.
                 const float rad = std::sqrt(x * x + y * y);
-                const float core = std::exp(-std::pow(rad / (0.08f + 0.22f * heat), 2.0f));
+                // the core breathes through the loop
+                const float pulse = 1.0f + 0.25f * std::sin(6.2831853f * T);
+                const float core = std::exp(-std::pow(rad / ((0.08f + 0.22f * heat) * pulse), 2.0f));
                 const float halo = std::exp(-rad * rad * (6.0f - 4.5f * soft)) * 0.55f;
                 const float v = clamp01((core + halo) * (1.0f - smoothstep(0.85f, 1.0f, rad)));
                 a = v;
@@ -185,32 +225,37 @@ std::string fileStem(const std::string& effectName) {
 std::string writeAssets(const std::string& projectDir, const std::string& effectName,
                         const ParticleTexGen& g, std::string* err) {
     namespace fs = std::filesystem;
-    const std::vector<unsigned char> px = generate(g);
-    if (px.empty()) {
+    if (g.kind < 1 || g.kind > 3) {
         if (err) *err = "no procedural texture kind selected";
         return "";
     }
-    const int n = (int)std::lround(std::sqrt((double)(px.size() / 4)));
     const std::string stem = fileStem(effectName);
     const fs::path dir = fs::path(projectDir) / kDir;
     std::error_code ec;
     fs::create_directories(dir, ec);
-    std::string png;
-    stbi_write_png_to_func(
-        [](void* ctx, void* data, int size) {
-            static_cast<std::string*>(ctx)->append(static_cast<const char*>(data), (size_t)size);
-        },
-        &png, n, n, 4, px.data(), n * 4);
-    if (png.empty() || !writeIfChanged(dir / (stem + ".png"), png)) {
-        if (err) *err = "cannot write " + (dir / (stem + ".png")).string();
-        return "";
-    }
-    const std::string mtl =
-        "# Generated by TyraX (Particle Editor) - regenerated from the effect's recipe\n"
-        "newmtl " + stem + "\nKd 1 1 1\nmap_Kd " + stem + ".png\n";
-    if (!writeIfChanged(dir / (stem + ".mtl"), mtl)) {
-        if (err) *err = "cannot write " + (dir / (stem + ".mtl")).string();
-        return "";
+    const int frames = g.frames > 1 ? g.frames : 1;
+    for (int k = 0; k < frames; ++k) {
+        const std::vector<unsigned char> px = generate(g, k);
+        const int n = (int)std::lround(std::sqrt((double)(px.size() / 4)));
+        const std::string fstem = k == 0 ? stem : stem + "-f" + std::to_string(k);
+        std::string png;
+        stbi_write_png_to_func(
+            [](void* ctx, void* data, int size) {
+                static_cast<std::string*>(ctx)->append(static_cast<const char*>(data),
+                                                       (size_t)size);
+            },
+            &png, n, n, 4, px.data(), n * 4);
+        if (png.empty() || !writeIfChanged(dir / (fstem + ".png"), png)) {
+            if (err) *err = "cannot write " + (dir / (fstem + ".png")).string();
+            return "";
+        }
+        const std::string mtl =
+            "# Generated by TyraX (Particle Editor) - regenerated from the effect's recipe\n"
+            "newmtl " + fstem + "\nKd 1 1 1\nmap_Kd " + fstem + ".png\n";
+        if (!writeIfChanged(dir / (fstem + ".mtl"), mtl)) {
+            if (err) *err = "cannot write " + (dir / (fstem + ".mtl")).string();
+            return "";
+        }
     }
     return std::string(kDir) + "/" + stem + ".mtl";
 }

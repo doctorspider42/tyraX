@@ -38,6 +38,7 @@
 #include "navmesh.hpp"
 #include "objparser.hpp"
 #include "occlusionbake.hpp"
+#include "particletex.hpp"
 #include "platform.hpp"
 #include "prefab.hpp"
 #include "procrt.hpp"
@@ -342,7 +343,13 @@ static std::vector<std::string> collectMaterialPaths(const Project& p) {
         if (o.type == PrimitiveType::Model || o.materialPath.empty()) return;
         bool seen = false;
         for (const auto& e : paths) seen |= (e == o.materialPath);
-        if (!seen) paths.push_back(o.materialPath);
+        if (seen) return;
+        paths.push_back(o.materialPath);
+        // A flipbook emitter's further frames follow frame 0 CONTIGUOUSLY -
+        // the runtime addresses frame k as material + k (docs/particles.md).
+        if (o.type == PrimitiveType::Emitter)
+            for (int k = 1; k < o.emitterFrames; ++k)
+                paths.push_back(particletex::framePath(o.materialPath, k));
     };
     for (const SceneData& sc : p.scenes)
         for (const SceneObject& o : sc.objects) scan(o);
@@ -376,6 +383,25 @@ static const ParticleEffect* vehicleSmokePoolEffect(const Project& p) {
         if (const ParticleEffect* fx = project::findParticleEffect(p, v.smokeEffect))
             if (!fx->materialPath.empty()) return fx;
     return nullptr;
+}
+
+// How many flipbook frames an emitter really ships: its frames only count when
+// they landed contiguously after frame 0 in MATERIAL_PATHS (collectMaterialPaths
+// arranges that; an odd project that names a frame material directly on
+// another object first gets a still texture instead of wrong frames).
+static int emitterFlipbookFrames(const Project& p, const SceneObject& o) {
+    if (o.type != PrimitiveType::Emitter || o.emitterFrames <= 1 || o.materialPath.empty())
+        return 1;
+    const auto paths = collectMaterialPaths(p);
+    int base = -1;
+    for (size_t i = 0; i < paths.size(); ++i)
+        if (paths[i] == o.materialPath) base = (int)i;
+    if (base < 0) return 1;
+    for (int k = 1; k < o.emitterFrames; ++k)
+        if (base + k >= (int)paths.size() ||
+            paths[(size_t)(base + k)] != particletex::framePath(o.materialPath, k))
+            return 1;
+    return o.emitterFrames;
 }
 
 static int materialIndexOf(const Project& p, const SceneObject& o) {
@@ -2246,6 +2272,7 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
     std::unique_ptr<Tyra::StaPipBillboardBag> billboardBag;
+    float animTime = 0.0F;  // flipbook clock (docs/particles.md)
   };
   std::vector<ParticleSystem> particles;
   void buildParticles();
@@ -3891,6 +3918,7 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
     std::unique_ptr<Tyra::StaPipBillboardBag> billboardBag;
+    float animTime = 0.0F;  // flipbook clock (docs/particles.md)
   };
   std::vector<ParticleSystem> particles;
   void buildParticles();
@@ -8543,8 +8571,9 @@ void TerrainGame::applyLayerResidency() {
     if (d.model >= 0 && d.model < (int)modelNeed.size()) modelNeed[d.model] = 1;
     if (d.impostorDistance > 0 && d.impostorModel >= 0 &&
         d.impostorModel < (int)modelNeed.size()) modelNeed[d.impostorModel] = 1;
-    if (d.material >= 0 && d.material < (int)materialNeed.size())
-      materialNeed[d.material] = 1;
+    for (int f = 0; f < (d.emitFrames > 1 ? d.emitFrames : 1); ++f)
+      if (d.material >= 0 && d.material + f < (int)materialNeed.size())
+        materialNeed[d.material + f] = 1;
     if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
       animNeed[d.animModel] = 1;
   }
@@ -8558,8 +8587,9 @@ void TerrainGame::applyLayerResidency() {
     if (d.model >= 0 && d.model < (int)modelNeed.size()) modelNeed[d.model] = 1;
     if (d.impostorDistance > 0 && d.impostorModel >= 0 &&
         d.impostorModel < (int)modelNeed.size()) modelNeed[d.impostorModel] = 1;
-    if (d.material >= 0 && d.material < (int)materialNeed.size())
-      materialNeed[d.material] = 1;
+    for (int f = 0; f < (d.emitFrames > 1 ? d.emitFrames : 1); ++f)
+      if (d.material >= 0 && d.material + f < (int)materialNeed.size())
+        materialNeed[d.material + f] = 1;
     if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
       animNeed[d.animModel] = 1;
   }
@@ -8584,8 +8614,9 @@ void TerrainGame::applyLayerResidency() {
       if (d.model >= 0 && d.model < (int)modelNeed.size()) modelNeed[d.model] = 1;
       if (d.impostorDistance > 0 && d.impostorModel >= 0 &&
           d.impostorModel < (int)modelNeed.size()) modelNeed[d.impostorModel] = 1;
-      if (d.material >= 0 && d.material < (int)materialNeed.size())
-        materialNeed[d.material] = 1;
+      for (int f = 0; f < (d.emitFrames > 1 ? d.emitFrames : 1); ++f)
+        if (d.material >= 0 && d.material + f < (int)materialNeed.size())
+          materialNeed[d.material + f] = 1;
       if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
         animNeed[d.animModel] = 1;
     }
@@ -10619,6 +10650,17 @@ void TerrainGame::updateParticles() {
     const int kind = d.emitKind;
     const int n = (int)ps.life.size();
 
+    // Flipbook (docs/particles.md): frames live at material .. material+N-1,
+    // and animating is swapping the ONE bag's texture pointer - no extra
+    // submit, no per-particle work.
+    if (d.emitFrames > 1 && d.material >= 0) {
+      ps.animTime += dt;
+      const int f = (int)(ps.animTime * d.emitFps) % d.emitFrames;
+      const int mi = d.material + f;
+      if (mi < (int)gameMaterials.size() && gameMaterials[mi].texture)
+        ps.texBag->texture = gameMaterials[mi].texture;
+    }
+
     // Per-emitter billboard basis for the VU1 expansion. Rain streaks hang
     // from world-up (vertical quads); everything else faces the camera
     // plane. A portal pass re-renders these bags with the VIRTUAL camera's
@@ -10782,6 +10824,18 @@ void TerrainGame::updateParticles() {
         m11 = ca * size;
       }
       if (sizeUp > 0.0F) m11 = sizeUp;  // rain: thin width, streak height
+      // The camera basis above is (screen-LEFT, screen-DOWN) - the world is
+      // viewed down +Z with +X on the left - so a quad built on it is turned
+      // 180 degrees and a texture shows upside down (a symmetric puff hid it
+      // for years; a flame did not). Negating the weights turns it back in
+      // EVERY pass, the portal and split views included, which rebuild the
+      // basis but never these. Rain hangs from world-up and is left alone.
+      // Every other particle is also mirrored on odd slots - free variety
+      // for one texture. Keep in sync with drawEmitterPreviews.
+      if (kind != 4) {
+        const float mir = (i & 1) && kind != 2 ? -1.0F : 1.0F;
+        m00 = -m00 * mir, m01 = -m01 * mir, m10 = -m10, m11 = -m11;
+      }
       ps.params[i] = Vec4(m00, m01, m10, m11);
       // Additive (docs/particles.md): the GS adds Cs * FIX and never reads
       // alpha, so the fade has to ride the colour - keep in sync with the
@@ -29515,7 +29569,8 @@ static void writeObjectDataRow(std::ostringstream& out, const Project& p,
         << floatLit(o.impostorDistance) << ", "
         << (o.impostorBillboard ? "true" : "false") << ", "
         << o.impostorViews << ", "
-        << (o.type == PrimitiveType::Emitter && o.emitterAdditive ? 1 : 0) << "},";
+        << (o.type == PrimitiveType::Emitter && o.emitterAdditive ? 1 : 0) << ", "
+        << emitterFlipbookFrames(p, o) << ", " << floatLit(o.emitterFps) << "},";
     if (!o.name.empty()) out << "  // " << o.name;
     out << "\n";
 }
@@ -30758,6 +30813,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  bool impostorBillboard = false; // ordered view parts\n"
            "  int impostorViews = 8; // 4, 8 or 16 baked captures\n"
            "  int emitAdditive = 0; // emitters: 1 = additive blending (fire)\n"
+           "  int emitFrames = 1;   // flipbook frames: MATERIAL_PATHS material..+N-1\n"
+           "  float emitFps = 0.0F; // flipbook frames per second\n"
            "};\n"
            "\n"
            // Areas (type 17) live here, in the always-regenerated data header,
@@ -34371,7 +34428,9 @@ void TerrainGame::updateVehicleSmoke(float dt) {
     const float age = smokeMaxLife_[i] - smokeLife_[i];
     const float ang = (float)i * 2.4F + (i & 1 ? 1.1F : -1.1F) * age;
     const float ca = cosf(ang), sa = sinf(ang);
-    smokeParams_[i].set(ca * size, sa * size, -sa * size, ca * size);
+    // Negated: the camera basis is screen-left / screen-down, so this turns a
+    // textured puff right way up (see updateParticles).
+    smokeParams_[i].set(-ca * size, -sa * size, sa * size, -ca * size);
     // The definition's smoke look (docs/particles.md; the built-in grey-white
     // by default), fading out. Additive pools carry the fade in the colour -
     // the GS never reads alpha there.

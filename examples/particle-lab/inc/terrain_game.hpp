@@ -1193,6 +1193,7 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
     std::unique_ptr<Tyra::StaPipBillboardBag> billboardBag;
+    float animTime = 0.0F;  // flipbook clock (docs/particles.md)
   };
   std::vector<ParticleSystem> particles;
   void buildParticles();

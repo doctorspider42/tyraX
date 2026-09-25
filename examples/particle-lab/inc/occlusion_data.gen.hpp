@@ -18,9 +18,9 @@ static const OcclusionProxyObject OCCLUSION_OBJECTS[] = {
   {0,9,3,1},
 };
 constexpr int OCCLUSION_OBJECT_COUNT = 4;
-static const int OCCLUSION_SCENE_OFFSETS[] = {0,10};
-static const unsigned char OCCLUSION_CAN_CULL[] = {1,1,1,1,1,1,1,1,1,1};
-static const unsigned char OCCLUSION_IS_OCCLUDER[] = {0,0,0,0,0,0,1,1,1,1};
+static const int OCCLUSION_SCENE_OFFSETS[] = {0,12};
+static const unsigned char OCCLUSION_CAN_CULL[] = {1,1,1,1,1,1,1,1,1,1,1,1};
+static const unsigned char OCCLUSION_IS_OCCLUDER[] = {0,0,0,0,0,0,1,1,1,1,0,0};
 inline int occlusionObjectIndex(int scene,int object){
   if(scene<0 || scene+1>=(int)(sizeof(OCCLUSION_SCENE_OFFSETS)/sizeof(int))) return -1;
   const int i=OCCLUSION_SCENE_OFFSETS[scene]+object;

@@ -1,3 +1,4 @@
+#include "particletex.hpp"
 #include "viewport.hpp"
 
 #include "fbxparser.hpp"
@@ -8091,6 +8092,10 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDepthMask(GL_FALSE);  // blend over the scene, never punch the z-buffer
+    // ...and never touch the target's ALPHA: the image is later drawn by ImGui
+    // WITH its alpha, so a translucent puff that lowered it let the dark
+    // window background through and smoke previewed nearly black.
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
     glBindVertexArray(particleVao_);
     glBindBuffer(GL_ARRAY_BUFFER, particleVbo_);
 
@@ -8250,10 +8255,19 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
                 buy = uy * ca;
                 buz = uz * ca - rz * sa;
             }
-            const float Rx = brx * size, Ry = bry * size, Rz = brz * size;
-            const float Ux = sizeUp > 0.0f ? 0.0f : bux * size;
-            const float Uy = sizeUp > 0.0f ? sizeUp : buy * size;
-            const float Uz = sizeUp > 0.0f ? 0.0f : buz * size;
+            // The basis is screen-left / screen-down (the game's own), so a
+            // non-rain quad is turned back 180 degrees - and odd slots are
+            // mirrored - exactly like updateParticles (keep in sync).
+            float sr = 1.0f, su = 1.0f;
+            if (kind != 4) {
+                const int pi = (int)(&p - ep.parts.data());
+                sr = ((pi & 1) && kind != 2) ? 1.0f : -1.0f;
+                su = -1.0f;
+            }
+            const float Rx = brx * size * sr, Ry = bry * size * sr, Rz = brz * size * sr;
+            const float Ux = sizeUp > 0.0f ? 0.0f : bux * size * su;
+            const float Uy = sizeUp > 0.0f ? sizeUp : buy * size * su;
+            const float Uz = sizeUp > 0.0f ? 0.0f : buz * size * su;
             const float X = p.pos[0], Y = p.pos[1], Z = p.pos[2];
             const float v0[3] = {X - Rx - Ux, Y - Ry - Uy, Z - Rz - Uz};
             const float v1[3] = {X + Rx - Ux, Y + Ry - Uy, Z + Rz - Uz};
@@ -8278,7 +8292,13 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
                      buf.data(), GL_DYNAMIC_DRAW);
         // texture: the material's map_Kd, tinted by the particle color (the
         // material Kd is ignored - same rule as the game)
-        const MaterialDraw* mat = materialDraw(o.materialPath);
+        // Flipbook: the game swaps frame textures at emitterFps - same frame
+        // arithmetic (docs/particles.md).
+        std::string matPath = o.materialPath;
+        if (o.emitterFrames > 1 && !matPath.empty())
+            matPath = particletex::framePath(
+                matPath, (int)(animClock_ * o.emitterFps) % o.emitterFrames);
+        const MaterialDraw* mat = materialDraw(matPath);
         const uint32_t tex = mat ? mat->tex : 0;
         glUniform1i(uPartUseTex_, tex ? 1 : 0);
         if (tex) glBindTexture(GL_TEXTURE_2D, tex);
@@ -8288,6 +8308,7 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
     }
 
     glDepthMask(GL_TRUE);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glDisable(GL_BLEND);
     glUseProgram(sceneProgActive_);
 }

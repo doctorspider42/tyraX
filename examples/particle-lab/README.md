@@ -1,7 +1,7 @@
 # particle-lab
 
 The particle library's reference scene ([docs/particles.md](../../docs/particles.md)):
-every particle in it comes from four effects made once in *Tools > Particle
+every particle in it comes from six effects made once in *Tools > Particle
 Editor*, each with a texture the editor generated.
 
 ![particle-lab on the PS2 renderer](../../docs/img/particles-lab.png)
@@ -10,7 +10,9 @@ Editor*, each with a texture the editor generated.
 
 | effect | used by | what it shows |
 |---|---|---|
-| **Campfire** | `campfire` | Fire motion, **additive**, a generated *Flame* texture (64x64) |
+| **Campfire** | `campfire` | Fire motion, **additive**, a generated *Flame* **flipbook** (4 frames of 64x64 at 10 fps) |
+| **Embers** | `campfire-embers` | tiny additive glows rising out of the fire and dying |
+| **Fire glow** | `campfire-glow` | a few big, faint additive halos that make the fire warm the air around it |
 | **Wood smoke** | `campfire-smoke`, `chimney-smoke` | one Custom effect (rising, growing, low opacity) used by TWO emitters - edit it once, both change |
 | **Torch sparks** | `torch-sparks` | Sparks motion, additive, a generated *Glow* texture (32x32) |
 | **Magic motes** | `magic-motes` | a slow buoyant Custom cloud, additive cyan glow |

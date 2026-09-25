@@ -4268,8 +4268,9 @@ void TerrainGame::applyLayerResidency() {
     if (d.model >= 0 && d.model < (int)modelNeed.size()) modelNeed[d.model] = 1;
     if (d.impostorDistance > 0 && d.impostorModel >= 0 &&
         d.impostorModel < (int)modelNeed.size()) modelNeed[d.impostorModel] = 1;
-    if (d.material >= 0 && d.material < (int)materialNeed.size())
-      materialNeed[d.material] = 1;
+    for (int f = 0; f < (d.emitFrames > 1 ? d.emitFrames : 1); ++f)
+      if (d.material >= 0 && d.material + f < (int)materialNeed.size())
+        materialNeed[d.material + f] = 1;
     if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
       animNeed[d.animModel] = 1;
   }
@@ -4283,8 +4284,9 @@ void TerrainGame::applyLayerResidency() {
     if (d.model >= 0 && d.model < (int)modelNeed.size()) modelNeed[d.model] = 1;
     if (d.impostorDistance > 0 && d.impostorModel >= 0 &&
         d.impostorModel < (int)modelNeed.size()) modelNeed[d.impostorModel] = 1;
-    if (d.material >= 0 && d.material < (int)materialNeed.size())
-      materialNeed[d.material] = 1;
+    for (int f = 0; f < (d.emitFrames > 1 ? d.emitFrames : 1); ++f)
+      if (d.material >= 0 && d.material + f < (int)materialNeed.size())
+        materialNeed[d.material + f] = 1;
     if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
       animNeed[d.animModel] = 1;
   }
@@ -4309,8 +4311,9 @@ void TerrainGame::applyLayerResidency() {
       if (d.model >= 0 && d.model < (int)modelNeed.size()) modelNeed[d.model] = 1;
       if (d.impostorDistance > 0 && d.impostorModel >= 0 &&
           d.impostorModel < (int)modelNeed.size()) modelNeed[d.impostorModel] = 1;
-      if (d.material >= 0 && d.material < (int)materialNeed.size())
-        materialNeed[d.material] = 1;
+      for (int f = 0; f < (d.emitFrames > 1 ? d.emitFrames : 1); ++f)
+        if (d.material >= 0 && d.material + f < (int)materialNeed.size())
+          materialNeed[d.material + f] = 1;
       if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
         animNeed[d.animModel] = 1;
     }
@@ -6344,6 +6347,17 @@ void TerrainGame::updateParticles() {
     const int kind = d.emitKind;
     const int n = (int)ps.life.size();
 
+    // Flipbook (docs/particles.md): frames live at material .. material+N-1,
+    // and animating is swapping the ONE bag's texture pointer - no extra
+    // submit, no per-particle work.
+    if (d.emitFrames > 1 && d.material >= 0) {
+      ps.animTime += dt;
+      const int f = (int)(ps.animTime * d.emitFps) % d.emitFrames;
+      const int mi = d.material + f;
+      if (mi < (int)gameMaterials.size() && gameMaterials[mi].texture)
+        ps.texBag->texture = gameMaterials[mi].texture;
+    }
+
     // Per-emitter billboard basis for the VU1 expansion. Rain streaks hang
     // from world-up (vertical quads); everything else faces the camera
     // plane. A portal pass re-renders these bags with the VIRTUAL camera's
@@ -6507,6 +6521,18 @@ void TerrainGame::updateParticles() {
         m11 = ca * size;
       }
       if (sizeUp > 0.0F) m11 = sizeUp;  // rain: thin width, streak height
+      // The camera basis above is (screen-LEFT, screen-DOWN) - the world is
+      // viewed down +Z with +X on the left - so a quad built on it is turned
+      // 180 degrees and a texture shows upside down (a symmetric puff hid it
+      // for years; a flame did not). Negating the weights turns it back in
+      // EVERY pass, the portal and split views included, which rebuild the
+      // basis but never these. Rain hangs from world-up and is left alone.
+      // Every other particle is also mirrored on odd slots - free variety
+      // for one texture. Keep in sync with drawEmitterPreviews.
+      if (kind != 4) {
+        const float mir = (i & 1) && kind != 2 ? -1.0F : 1.0F;
+        m00 = -m00 * mir, m01 = -m01 * mir, m10 = -m10, m11 = -m11;
+      }
       ps.params[i] = Vec4(m00, m01, m10, m11);
       // Additive (docs/particles.md): the GS adds Cs * FIX and never reads
       // alpha, so the fade has to ride the colour - keep in sync with the

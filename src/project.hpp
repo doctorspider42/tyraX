@@ -654,6 +654,11 @@ struct SceneObject {
     // everything downstream (codegen, the viewport preview, Live Link) keeps
     // reading ordinary emitter fields.
     std::string particleEffect;
+    // Flipbook (docs/particles.md): materialPath is frame 0 and frames 1..N-1
+    // are particletex::framePath(materialPath, k), swapped at emitterFps.
+    // Copied from the linked effect; 1 = a still texture.
+    int emitterFrames = 1;
+    float emitterFps = 12.0f;
 
     // Sound emitter parameters (used when type == SoundEmitter)
     std::string soundPath;      // one of Project::sounds ("res/sfx/x.wav")
@@ -1126,8 +1131,15 @@ struct ParticleTexGen {
     float turbulence = 0.5f; // flame: how far the tongues lick sideways
     float heat = 0.5f;       // flame: white core size / glow: core size
     float color[3] = {1.0f, 1.0f, 1.0f};  // smoke / glow tint baked in
+    // Flipbook (docs/particles.md): frames of the same recipe with the noise
+    // moving through a seamless loop, swapped at `fps` on the console - one
+    // bag, one submit, only the texture pointer changes. Each frame is its own
+    // texture in GS VRAM, so 4 x 64x64 RGBA32 = 64 KB.
+    int frames = 1;          // 1 / 2 / 4 / 8
+    float fps = 12.0f;
     bool operator==(const ParticleTexGen& o) const {
         return kind == o.kind && size == o.size && seed == o.seed &&
+               frames == o.frames && fps == o.fps &&
                softness == o.softness && detail == o.detail && scale == o.scale &&
                turbulence == o.turbulence && heat == o.heat &&
                color[0] == o.color[0] && color[1] == o.color[1] &&
@@ -1416,6 +1428,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.emitterDieOnGround == b.emitterDieOnGround &&
            a.emitterAdditive == b.emitterAdditive &&
            a.particleEffect == b.particleEffect &&
+           a.emitterFrames == b.emitterFrames && a.emitterFps == b.emitterFps &&
            a.soundPath == b.soundPath && a.soundAuto == b.soundAuto &&
            a.soundRange == b.soundRange && a.soundInterval == b.soundInterval &&
            a.soundOnPlayer == b.soundOnPlayer && a.soundReverb == b.soundReverb &&

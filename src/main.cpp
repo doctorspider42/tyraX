@@ -1357,9 +1357,10 @@ static int bakeParticlesFromCli(int argc, char** argv) {
             return 1;
         }
         fx.materialPath = mtl;
-        p.textureQuality[mtl] = "none";
-        std::printf("particles: %s - %dx%d -> %s\n", fx.name.c_str(), fx.texGen.size,
-                    fx.texGen.size, mtl.c_str());
+        for (int k = 0; k < std::max(1, fx.texGen.frames); ++k)
+            p.textureQuality[particletex::framePath(mtl, k)] = "none";
+        std::printf("particles: %s - %dx%d x %d frame(s) -> %s\n", fx.name.c_str(),
+                    fx.texGen.size, fx.texGen.size, std::max(1, fx.texGen.frames), mtl.c_str());
         ++baked;
     }
     project::applyParticleEffects(p);
