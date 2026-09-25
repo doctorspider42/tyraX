@@ -3,7 +3,7 @@
 
 namespace Vehicle_playground {
 
-constexpr int MODEL_COUNT = 19;
+constexpr int MODEL_COUNT = 22;
 inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "models/urban/district-workshop.tmdl",
     "models/urban/district-tower.tmdl",
@@ -18,16 +18,22 @@ inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "models/urban/pallet.tmdl",
     "vehicles/veh-cc96playground01-body.tmdl",
     "vehicles/veh-cc96playground01-wheel.tmdl",
+    "vehicles/veh-ravager000001-body.tmdl",
+    "vehicles/veh-ravager000001-wheel.tmdl",
     "vehicles/veh-ggbotrally0001-body.tmdl",
     "vehicles/veh-ggbotrally0001-wheel.tmdl",
     "vehicles/veh-tristarplay01-body.tmdl",
     "vehicles/veh-tristarplay01-wheel.tmdl",
     "vehicles/veh-cc96playground01-wheelfast.tmdl",
+    "vehicles/veh-ravager000001-wheelfast.tmdl",
     "vehicles/veh-ggbotrally0001-wheelfast.tmdl",
 };
 // per-model .mtl override, for the .obj fallback path only (a
 // .tmdl already carries the resolved override) - "" = none
 inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
+    "",
+    "",
+    "",
     "",
     "",
     "",
@@ -66,12 +72,14 @@ inline const char* MODEL_SOURCES[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "res/models/urban/pallet.obj",
     "res/models/cc96-strip-study/cc96-strip-study.glb",
     "res/models/cc96-strip-study/cc96-strip-study.glb",
+    "res/models/ravager.glb",
+    "res/models/ravager.glb",
     "res/models/ggbot-rally.glb",
     "res/models/ggbot-rally.glb",
     "res/models/tristar-efficient.glb",
     "res/models/tristar-efficient.glb",
 };
-constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false};
+constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false};
 
 constexpr int ANIM_MODEL_COUNT = 0;
 inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {

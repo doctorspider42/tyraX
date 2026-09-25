@@ -4,6 +4,17 @@ This is only unfinished work that still has a clear payoff and a testable end.
 Finished investigations belong in commit history; reusable facts belong in the
 relevant guide or developer skill.
 
+## 16-bit (PSMCT16) textures, and glass that also reflects
+
+The vehicle Texture depth offers 4 bit, 8 bit and full (32 bit). A 16-bit
+format needs a `bpp16` in `TextureBpp`, a 5551 conversion in the PNG loader,
+PSMCT16 block/page sizes in `Texture::getTextureSize` and the psm/bpp maps, plus
+a signal in the file (PNG has no 5551 mode). Price it against 8 bit on a console
+before building it: at 256x256 it is twice the heap. The see-through glass
+also drops the paint's env pass (docs/vehicles.md, "See-through glass").
+Drawing the env pass at the tail, after the pane, would bring the reflection
+back for one more submit. The editor viewport still draws the glass opaque.
+
 ## Hardware-first GIF packet harness (only before another compaction attempt)
 
 The 2026-09-21 `cull_tc` spike combined four PACKED A+D state writes under one

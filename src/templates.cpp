@@ -1237,6 +1237,9 @@ class TerrainGame : public Tyra::Game {
       Tyra::StaPipLightingBag lighting;
     };
     std::vector<std::unique_ptr<PortalClip>> portalClips;
+    // Drawn at the frame's translucent tail instead of the object pass (a
+    // vehicle's see-through glass - renderVehicleGlass sets it).
+    bool translucent = false;
     BagArray<Tyra::Vec4> vertices;
     BagArray<Tyra::Color> colors;
     BagArray<Tyra::Vec4> sts;  // texture coordinates
@@ -2971,6 +2974,9 @@ class TerrainGame : public Tyra::Game {
       Tyra::StaPipLightingBag lighting;
     };
     std::vector<std::unique_ptr<PortalClip>> portalClips;
+    // Drawn at the frame's translucent tail instead of the object pass (a
+    // vehicle's see-through glass - renderVehicleGlass sets it).
+    bool translucent = false;
     BagArray<Tyra::Vec4> vertices;
     BagArray<Tyra::Color> colors;
     BagArray<Tyra::Vec4> sts;  // texture coordinates
@@ -24241,7 +24247,7 @@ void TerrainGame::renderScene() {
     const u32 costObjectStart=costStart();
     u32 lpMain = 0, lpCompanion = 0;
     for (GeoPart& part : objectGeometry[i].parts)
-      if (part.bag) {
+      if (part.bag && !part.translucent) {
         const u32 lpA = lp ? profTicks() : 0;
         stapip.core.render(part.bag.get());
         const u32 lpB = lp ? profTicks() : 0;
@@ -32645,6 +32651,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                "  // Tyre effects: the .mtl (bin path) the skid ribbon and the smoke\n"
                "  // take their texture and Kd from; \"\" = the built-in ones.\n"
                "  const char* skidMtl; const char* smokeMtl;\n"
+               "  // See-through glass: the body part drawn at the translucent\n"
+               "  // tail (-1 = opaque glass) and its vertex alpha (128 = 1).\n"
+               "  int glassPart; float glassAlpha;\n"
                "};\n"
                "struct VehicleInstData { int scene; int object; int def; int driveable;\n"
                "                         int wpFirst; int wpCount; };\n";
@@ -32657,7 +32666,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             for (size_t i = 0; i < fields.size(); ++i) out << ", 0.0F";
             out << ", 0.0F, 0.0F, 0.0F, {0.0F, 0.0F, 0.0F}, -1, 1.0F, 1.0F, 0,"
                    " -1, -1, -1, 80, 80, 0, {0.0F, 0.0F, 0.0F, 0.0F},"
-                   " {0.0F, 0.0F, 0.0F, 0.0F}, -1, -1, -1, 1.0F, -1, \"\", \"\"}\n";
+                   " {0.0F, 0.0F, 0.0F, 0.0F}, -1, -1, -1, 1.0F, -1, \"\", \"\","
+                   " -1, 128.0F}\n";
         } else {
             for (const VehicleDef* v : defs) {
                 const int base = vehicleBodyModel(p, v->name);
@@ -32732,7 +32742,10 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << "\", \""
                     << escapeCString(v->smokeMaterial.empty() ? std::string()
                                                               : resToBin(v->smokeMaterial))
-                    << "\"},  // " << escapeCString(v->name) << "\n";
+                    << "\", "
+                    << (v->glassOpacity < 1.0f ? v->glassPart : -1) << ", "
+                    << floatLit(v->glassOpacity * 128.0f)
+                    << "},  // " << escapeCString(v->name) << "\n";
             }
         }
         out << "};\n";
@@ -35752,6 +35765,7 @@ static std::string vehicleMembers(const Project& p) {
   std::unique_ptr<Tyra::StaPipColorBag> headlightColorBag_;
   std::unique_ptr<Tyra::StaPipTextureBag> headlightTexBag_;
   void renderVehicleGlow();
+  void renderVehicleGlass();
   void updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s, int driving);
   void muteVehicleEngines();
   void renderVehicleHud();
@@ -38083,6 +38097,44 @@ void TerrainGame::updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s
   }
 }
 
+// SEE-THROUGH GLASS (docs/vehicles.md, "See-through glass"). A definition
+// with glassOpacity < 1 bakes its windows into a body part of their own, and
+// this draws that part at the frame's translucent tail - after every opaque
+// object, so whatever stands behind the car is already in the frame buffer
+// when the pane blends over it. Drawn inline in the object pass it would
+// write Z first, and everything submitted after the car (most of the city)
+// would be rejected behind the glass: the windows would show the sky through
+// a building. The object pass skips the part through GeoPart::translucent.
+// The alpha is written only when it differs, so a parked car's colour array
+// keeps its content stamp and its baked VIF block.
+void TerrainGame::renderVehicleGlass() {
+  for (int vi = 0; vi < vehicleCount_; ++vi) {
+    VehicleRt& v = vehicles_[vi];
+    if (!v.active || v.def < 0) continue;
+    const VehicleDefData& s = VEHICLE_DEFS[v.def];
+    if (s.glassPart < 0) continue;
+    if (v.object < 0 || v.object >= (int)objectGeometry.size() ||
+        v.object >= (int)runtimeObjects.size())
+      continue;
+    ObjectGeometry& og = objectGeometry[(size_t)v.object];
+    if (s.glassPart >= (int)og.parts.size()) continue;
+    GeoPart& part = og.parts[(size_t)s.glassPart];
+    if (!part.bag) continue;
+    part.translucent = true;
+    const RuntimeObject& ro = runtimeObjects[v.object];
+    if (!ro.active || !ro.visible) continue;
+    if (beyondDrawDistance(ro.data, cameraPosition)) continue;
+    if (!part.colorBag || !part.colorBag->many) continue;
+    const u32 n = (u32)part.colors.size();
+    if (n == 0) continue;
+    if (part.colors.data()[0].a != s.glassAlpha) {
+      auto dst = part.colors.span(0, n);
+      for (u32 k = 0; k < n; ++k) dst[k].a = s.glassAlpha;
+    }
+    stapip.core.render(part.bag.get());
+  }
+}
+
 // The paint pass's gate: only a VEHICLE's env bag gets the fresnel rim, the
 // white specular and the HIGHLIGHT2 texture function - a chrome sphere or a
 // mirror ball elsewhere in the scene keeps the exact reflection it always
@@ -39310,7 +39362,8 @@ static std::string vehicleSmokeRenderCall(const Project& p) {
     if (!projectHasVehicles(p)) return "";
     // Skids under the smoke (both translucent; marks lie on the ground),
     // the glow last - light adds on top of everything.
-    return "  renderVehicleSkids();\n  renderVehicleSmoke();\n"
+    return "  renderVehicleGlass();\n"
+           "  renderVehicleSkids();\n  renderVehicleSmoke();\n"
            "  { const u32 ct=costStart(); renderVehicleGlow(); "
            "costEnd(\"Vehicle_lights\",-1,ct); }\n";
 }

@@ -2515,6 +2515,15 @@ Mixed vehicle definitions keep separate runtime wheel batches so a palette car
 and a textured car never sample through the last vehicle's image. Verify both
 cars together at near range; far tiers carry their own baked wheels.
 
+See-through glass (docs/vehicles.md) is a THIRD special body part beside
+`lamps` and `merged-matte`: `glass`, split out of the palette merge only when
+`glassOpacity < 1`, placed after the lamps, never decimated/tiered/mirrored,
+and skipped as a wheel carrier. Any new per-part rule in vehbake (shine,
+decimation, tiers, carrier choice) must decide what it does with it. The
+runtime draws it at the translucent tail (`renderVehicleGlass`) and the object
+pass skips it via `GeoPart::translucent` - a new object-part render loop that
+should respect translucency owes the same test.
+
 The wheel `.tmdl` carries a TRIANGLE STRIP and the batch concatenates it
 (1.107.0, docs/vehicles.md "The wheel batch is a strip"). `vehbake` builds it -
 a vehicle model never goes through `bakeStaticModels`, which is where every

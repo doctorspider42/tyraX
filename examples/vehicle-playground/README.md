@@ -63,6 +63,27 @@ which is what the script built. The body is 2164 triangles in 2 parts
 the EE rebuilds per frame. That is 3 submits near and 1 past 40 units (the far
 tier, 1134 triangles, wheels in). It has no definition in the scene yet.
 
+The **Ravager** ([preview](preview/ravager.png)) is parked beside the gold
+coupe in the main scene (object `ravager-1`, press Square next to it). It is an
+original late-60s muscle coupe in the spirit of a '69 Charger, with a long hood,
+a coke-bottle hip, a tunnel rear window between flying-buttress sails, a vinyl
+roof, a bumblebee stripe, a full-width grille and Magnum-style wheels. It is
+modelled by `authoring/make-ravager.py`, which runs in Blender
+(`blender -b --factory-startup --python authoring/make-ravager.py -- --preview DIR`).
+The script lofts eleven character lines per side, paints a 256x256 atlas in
+world coordinates, bakes Cycles ambient occlusion into it and exports
+`res/models/ravager.glb`.
+
+It is the first car here with a minimal interior (tub, two buckets, bench, dash,
+wheel) and **see-through glass** (Glass opacity 0.45,
+[docs](../../docs/vehicles.md)). Its texture ships at **8 bits** through the
+model's Texture depth, while the rest of the project stays at 4. The body is
+1938 triangles in 3 parts (textured body, lamps, glass) and each wheel is 160,
+because the wheel is symmetric. The runtime draws all four wheels from one
+unmirrored mesh, so a dish on one face only would show the tyre's open back on
+the right-hand side. That is 4 submits per car. PCSX2 holds 50 FPS beside the
+coupe, with scene time 4 to 5 ms.
+
 The five-speed boxes use a 1.28 spread, 0.10 s shifts and reduced ratio torque.
 Body lean is 0.25 on the coupe/Tristar and 0.35 on the van. A 60 Hz flat-ground
 full-throttle comparison against the previous settings measured:

@@ -5261,8 +5261,14 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.130.0 - See-through vehicle glass: a definition's Glass opacity below 1
+// splits glass-named materials into a "glass" body part the game draws at the
+// translucent tail with a vertex alpha (one extra submit), so a modelled
+// interior shows. The Vehicle Editor also exposes the model's Texture depth
+// (the per-asset textureQuality override), which the vehicle bake now obeys.
+// New example body: the Ravager (authoring/make-ravager.py, run in Blender).
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 129
+#define TYRAX_VERSION_MINOR 130
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -5669,7 +5675,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v65 (docs/vehicles.md, "Skid marks and smoke"): VehicleDef::skidMaterial
 // and smokeMaterial, written only when set; missing = the built-in textures.
 // Additive; no migration step.
-inline constexpr int kFormatVersion = 65;
+// v66 (docs/vehicles.md, "See-through glass"): VehicleDef::glassOpacity
+// (written only below 1) and the bake-measured glassPart (written only when
+// >= 0). Missing = opaque glass merged into the palette, as before. Additive;
+// no migration step.
+inline constexpr int kFormatVersion = 66;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

@@ -85,6 +85,12 @@ struct Options {
     // is then left out of the body and of the wheel detection.
     std::string fastWheel;
     int fastWheelTriBudget = 120;
+
+    // Translucent glass (VehicleDef::glassOpacity < 1): untextured glass-named
+    // materials (glassMaterial) leave the merge into ONE part named "glass",
+    // placed after "lamps", never decimated, tiered or mirrored - the runtime
+    // draws it last with a vertex alpha. Off = byte-identical bake.
+    bool glassSplit = false;
 };
 
 // A project-relative reflection-map path ("res/textures/x.png") as the
@@ -148,6 +154,8 @@ struct Result {
     // fifth of its budget for a few dozen triangles.
     int lampPart = -1;
     int lampRearVerts = 0;
+    // The "glass" part (Options::glassSplit), -1 = none split out.
+    int glassPart = -1;
 
     // Triangles of the paint part's far tiers (body + four wheels each),
     // coarsest last - what a distant car costs, for the Cost tab. Empty when

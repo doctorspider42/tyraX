@@ -1181,6 +1181,14 @@ struct VehicleDef {
     // never authored (vehbake::adoptMeasured).
     int lampPart = -1;
     int lampRearVerts = 0;
+    // Translucent glass (docs/vehicles.md, "See-through glass"): below 1 the
+    // bake keeps glass-named untextured materials out of the palette merge as
+    // their own body part, and the runtime draws that part with this vertex
+    // alpha at the frame's translucent tail - so a modelled interior shows
+    // through. 1 (the default) is the old opaque merge, one submit fewer.
+    // glassPart is that part's index, MEASURED by the bake like lampPart.
+    float glassOpacity = 1.0f;
+    int glassPart = -1;
 
     // The engine note (docs/vehicles.md, "Engine sound"). A path into the
     // project's own sound list, NOT an index: an index would retarget itself
@@ -1256,6 +1264,7 @@ inline bool operator==(const VehicleDef& a, const VehicleDef& b) {
         a.lampFront[0] != b.lampFront[0] || a.lampFront[1] != b.lampFront[1] ||
         a.lampFront[2] != b.lampFront[2] || a.lampFront[3] != b.lampFront[3] ||
         a.lampPart != b.lampPart || a.lampRearVerts != b.lampRearVerts ||
+        a.glassOpacity != b.glassOpacity || a.glassPart != b.glassPart ||
         a.hudFont != b.hudFont || a.hudSpeedScale != b.hudSpeedScale ||
         a.farDistance != b.farDistance || a.fastWheel != b.fastWheel ||
         a.fastWheelTriBudget != b.fastWheelTriBudget)

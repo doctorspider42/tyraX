@@ -487,6 +487,38 @@ The player's camera flashlight is suspended while `vehicleDriver_ >= 0`, across
 its projected pool, per-vertex spot and projected-shadow paths. Its toggle state
 is preserved and resumes on exit. Vehicle headlights remain independent.
 
+### See-through glass
+
+A definition's **Glass opacity** (Vehicle Editor, `VehicleDef::glassOpacity`,
+default 1) makes the windows translucent so a modelled interior shows through,
+the Burnout 3 look. Below 1 the bake takes every untextured material whose name
+says `glass` / `window` / `windshield` / `szyb` (the words `shinyMaterial`
+already obeys) out of the palette merge into one body part named `glass`,
+placed after `lamps`. It keeps its palette cell, so its colour is still the
+palette's. The part is never decimated, tiered or mirrored, and its index is
+measured like the lamp part's (`glassPart`, `vehbake::adoptMeasured`).
+
+At run time `renderVehicleGlass` draws that part at the frame's **translucent
+tail**, just before the skid marks and the smoke, with its vertex alpha set to
+`glassOpacity * 128`. The object pass skips it through `GeoPart::translucent`.
+The tail is the whole point. Drawn inline, the pane would write Z before most
+of the city is submitted, everything behind the car would be depth-rejected,
+and the windows would show the sky through a building. The alpha is written only
+when it differs, so a parked car keeps its content stamp and its baked VIF
+block.
+
+It costs one extra submit per car, and the glass loses the paint's reflection
+pass: the env pass is drawn inline, and a reflection under a pane drawn later
+would be wrong. At 1 the bake and the generated game are byte-identical to
+before. The editor viewport still draws the glass opaque.
+
+A vehicle's embedded texture obeys the model's **Texture depth** too (the same
+Vehicle Editor tab, the per-asset `Project::textureQuality` override keyed by the
+model path) ahead of the project's own `textureQuant`. That is how a 4-bit
+district ships a 256-colour hero car. There is no 16-bit (PSMCT16) texture
+format in the engine yet. An 8-bit 256x256 costs half the heap of a 16-bit
+one, so it is the era-correct step up from 16 colours.
+
 ### The sound pack
 
 Past the base loop, three optional companions (all per definition, in the

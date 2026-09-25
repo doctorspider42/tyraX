@@ -19561,6 +19561,44 @@ void TerrainGame::updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s
   }
 }
 
+// SEE-THROUGH GLASS (docs/vehicles.md, "See-through glass"). A definition
+// with glassOpacity < 1 bakes its windows into a body part of their own, and
+// this draws that part at the frame's translucent tail - after every opaque
+// object, so whatever stands behind the car is already in the frame buffer
+// when the pane blends over it. Drawn inline in the object pass it would
+// write Z first, and everything submitted after the car (most of the city)
+// would be rejected behind the glass: the windows would show the sky through
+// a building. The object pass skips the part through GeoPart::translucent.
+// The alpha is written only when it differs, so a parked car's colour array
+// keeps its content stamp and its baked VIF block.
+void TerrainGame::renderVehicleGlass() {
+  for (int vi = 0; vi < vehicleCount_; ++vi) {
+    VehicleRt& v = vehicles_[vi];
+    if (!v.active || v.def < 0) continue;
+    const VehicleDefData& s = VEHICLE_DEFS[v.def];
+    if (s.glassPart < 0) continue;
+    if (v.object < 0 || v.object >= (int)objectGeometry.size() ||
+        v.object >= (int)runtimeObjects.size())
+      continue;
+    ObjectGeometry& og = objectGeometry[(size_t)v.object];
+    if (s.glassPart >= (int)og.parts.size()) continue;
+    GeoPart& part = og.parts[(size_t)s.glassPart];
+    if (!part.bag) continue;
+    part.translucent = true;
+    const RuntimeObject& ro = runtimeObjects[v.object];
+    if (!ro.active || !ro.visible) continue;
+    if (beyondDrawDistance(ro.data, cameraPosition)) continue;
+    if (!part.colorBag || !part.colorBag->many) continue;
+    const u32 n = (u32)part.colors.size();
+    if (n == 0) continue;
+    if (part.colors.data()[0].a != s.glassAlpha) {
+      auto dst = part.colors.span(0, n);
+      for (u32 k = 0; k < n; ++k) dst[k].a = s.glassAlpha;
+    }
+    stapip.core.render(part.bag.get());
+  }
+}
+
 // The paint pass's gate: only a VEHICLE's env bag gets the fresnel rim, the
 // white specular and the HIGHLIGHT2 texture function - a chrome sphere or a
 // mirror ball elsewhere in the scene keeps the exact reflection it always
@@ -23248,7 +23286,7 @@ void TerrainGame::renderScene() {
     const u32 costObjectStart=costStart();
     u32 lpMain = 0, lpCompanion = 0;
     for (GeoPart& part : objectGeometry[i].parts)
-      if (part.bag) {
+      if (part.bag && !part.translucent) {
         const u32 lpA = lp ? profTicks() : 0;
         stapip.core.render(part.bag.get());
         const u32 lpB = lp ? profTicks() : 0;
@@ -23438,6 +23476,7 @@ void TerrainGame::renderScene() {
   }
   for (ParticleSystem& ps : particles)
     if (ps.bag && ps.bag->count > 0) stapip.core.render(ps.bag.get());
+  renderVehicleGlass();
   renderVehicleSkids();
   renderVehicleSmoke();
   { const u32 ct=costStart(); renderVehicleGlow(); costEnd("Vehicle_lights",-1,ct); }

@@ -411,6 +411,17 @@ bool lampMaterial(const std::string& mat, bool* front) {
     return true;
 }
 
+// Is this a GLASS material? The same words shinyMaterial obeys - one
+// vocabulary, so a window that shines is the window that turns translucent.
+bool glassMaterial(const std::string& mat) {
+    std::string n;
+    for (char c : mat) n += (char)(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
+    return n.find("glass") != std::string::npos ||
+           n.find("window") != std::string::npos ||
+           n.find("windshield") != std::string::npos ||
+           n.find("szyb") != std::string::npos;
+}
+
 bool shinyMaterial(const glbparser::SkelPart& p) {
     std::string n;
     for (char c : p.material) n += (char)(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
@@ -447,8 +458,9 @@ void collect(const glbparser::Skel& sk, const std::vector<M4>& g, const M4& cano
              const std::string& paletteTex, const std::vector<std::string>& imagePaths,
              Merge& mg, tmdl::Model& out,
              int& srcParts, int& srcTris, bool shineSplit = false,
-             int* lampRearVertsOut = nullptr) {
+             int* lampRearVertsOut = nullptr, bool glassSplit = false) {
     std::vector<float> mergedVerts;
+    std::vector<float> glassVerts;
     std::vector<float> matteVerts;
     std::vector<float> lampRearVerts, lampFrontVerts;
     float lampRearKd[3] = {-1.0f, 0.0f, 0.0f};
@@ -488,7 +500,16 @@ void collect(const glbparser::Skel& sk, const std::vector<M4>& g, const M4& cano
         const bool lamp = merge && lampMaterial(p.material, &lampFront) &&
                           (!isTextured || lampTexture.empty() ||
                            lampTexture == imagePaths[(size_t)p.image]);
-        if (lamp) {
+        // Translucent glass: an untextured glass material keeps its palette
+        // cell (so its colour is still the palette's) but lands in a part of
+        // its own, which the runtime can give an alpha and draw last.
+        const bool glass = merge && glassSplit && !isTextured && !lamp &&
+                           glassMaterial(p.material);
+        if (glass) {
+            dst = &glassVerts;
+            u = (float)mg.cellFor(p.baseColor);
+            v = -1.0f;
+        } else if (lamp) {
             dst = lampFront ? &lampFrontVerts : &lampRearVerts;
             float* lkd = lampFront ? lampFrontKd : lampRearKd;
             if (lkd[0] < 0.0f)
@@ -588,6 +609,16 @@ void collect(const glbparser::Skel& sk, const std::vector<M4>& g, const M4& cano
         part.verts.swap(lampRearVerts);
         part.verts.insert(part.verts.end(), lampFrontVerts.begin(),
                           lampFrontVerts.end());
+        out.parts.push_back(std::move(part));
+    }
+    // Glass after the lamps: a fixed place the definition's glassPart can
+    // record, and the part the runtime skips in the object pass.
+    if (!glassVerts.empty()) {
+        tmdl::Part part;
+        part.name = "glass";
+        part.texture = paletteTex;
+        part.kd[0] = part.kd[1] = part.kd[2] = 1.0f;
+        part.verts.swap(glassVerts);
         out.parts.push_back(std::move(part));
     }
     for (auto& kv : textured) out.parts.push_back(std::move(kv.second));
@@ -759,7 +790,8 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
     int lampRearVerts = 0;
     collect(sk, g, canon, out.detection.bodyNodes, bodyOrigin, opt.mergeUntextured,
             paletteTex, imagePaths, mg, out.body, out.srcParts, out.srcTris,
-            /*shineSplit=*/opt.bodyShine > 0.001f, &lampRearVerts);
+            /*shineSplit=*/opt.bodyShine > 0.001f, &lampRearVerts,
+            opt.glassSplit);
 
     if (!out.detection.wheels.empty()) {
         // One wheel is baked, hub at the origin. Which one does not matter for
@@ -820,6 +852,10 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
         for (tmdl::Part& p : out.body.parts) {
             if (p.name == "merged-matte") continue;
             if (p.name == "lamps") continue;  // lights, not paint
+            // The env pass is drawn inline in the object loop, the translucent
+            // glass at the frame's tail - a reflection on it would land under
+            // a pane drawn later. Translucency wins.
+            if (p.name == "glass") continue;
             std::string n2;
             for (char c : p.name)
                 n2 += (char)(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
@@ -846,7 +882,7 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
     // the rear/front split is a corner index. It is a few dozen triangles.
     if (bodyBefore > 0)
         for (tmdl::Part& p : out.body.parts)
-            if (p.name != "lamps")
+            if (p.name != "lamps" && p.name != "glass")
                 decimateTo(p.verts,
                            (int)((long long)opt.bodyTriBudget * triCount(p.verts) /
                                  bodyBefore));
@@ -882,7 +918,9 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
         // a different image (or tint) merely to save a draw.
         tmdl::Part* carrier = nullptr;
         for (auto& bp : out.body.parts) {
-            if (bp.name == "lamps" || bp.name == "merged-matte") continue;
+            if (bp.name == "lamps" || bp.name == "merged-matte" ||
+                bp.name == "glass")
+                continue;
             bool compatible = !out.wheel.parts.empty();
             for (const auto& wp : out.wheel.parts) {
                 compatible = compatible && wp.texture == bp.texture;
@@ -908,7 +946,9 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
         const float ax[4] = {-hx, hx, -hx, hx};
         const float az[4] = {hz, hz, -hz, -hz};
         for (tmdl::Part& p : out.body.parts) {
-            if (p.name == "lamps") continue;
+            // The glass stays tier 0 like the lamps: the runtime finds it by
+            // index and writes its alpha into ONE colour array.
+            if (p.name == "lamps" || p.name == "glass") continue;
             std::vector<std::vector<float>> tiers = meshlod::generateTiers(p.verts);
             // A part too small for the policy still needs a tier when the
             // wheels have to ride on it - the paint part is the carrier.
@@ -1032,6 +1072,8 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
         if (out.body.parts[k].name == "lamps") {
             out.lampPart = (int)k;
             out.lampRearVerts = lampRearVerts;
+        } else if (out.body.parts[k].name == "glass") {
+            out.glassPart = (int)k;
         }
     out.bodyParts = (int)out.body.parts.size();
     out.wheelParts = (int)out.wheel.parts.size();
@@ -1169,7 +1211,10 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
 namespace {
 
 float fxHash(int x, int y, int seed) {
-    unsigned int h = (unsigned int)(x * 374761393 + y * 668265263 + seed * 2246822519u);
+    // Unsigned throughout: `x * 374761393` in int overflows (UB), and GCC -O3
+    // proved it for every caller's loop and compiled builtinSkidPng to a ud2.
+    unsigned int h = (unsigned int)x * 374761393u + (unsigned int)y * 668265263u +
+                     (unsigned int)seed * 2246822519u;
     h = (h ^ (h >> 13)) * 1274126177u;
     return (float)((h ^ (h >> 16)) & 0xFFFF) / 65535.0f;
 }
@@ -1296,6 +1341,8 @@ bool adoptMeasured(VehicleDef& v, const Result& r) {
         changed = true;
     v.lampPart = r.lampPart;
     v.lampRearVerts = r.lampRearVerts;
+    if (v.glassPart != r.glassPart) changed = true;
+    v.glassPart = r.glassPart;
     return changed;
 }
 
@@ -1404,6 +1451,7 @@ std::string bakeProject(Project& p,
         opt.paletteTexture = bp.palette;
         opt.fastWheel = v.fastWheel;
         opt.fastWheelTriBudget = v.fastWheelTriBudget;
+        opt.glassSplit = v.glassOpacity < 1.0f;
         Result r;
         std::string err;
         if (!build(p.filePath(v.modelPath), opt, r, err)) {
@@ -1431,11 +1479,19 @@ std::string bakeProject(Project& p,
         // quantized: it is a 64x8 ramp of the body colours the runtime
         // indexes into, and folding it to 16 entries would fold the colours
         // themselves.
+        // A per-asset quality override of the MODEL (Project::textureQuality,
+        // the Vehicle Editor's Texture depth) wins over the project default,
+        // the rule every other model texture already follows in texbake - so
+        // a 4-bit district can still ship a 256-colour hero car.
+        std::string quant = p.settings.textureQuant;
+        if (auto q = p.textureQuality.find(v.modelPath);
+            q != p.textureQuality.end() && !q->second.empty())
+            quant = q->second;
         for (const auto& texture : r.textures)
             put(texture.path,
                 quantizedTexture(std::string((const char*)texture.png.data(),
                                              texture.png.size()),
-                                 p.settings.textureQuant, v.name, log));
+                                 quant, v.name, log));
         adoptMeasured(v, r);
         if (log) {
             char buf[220];

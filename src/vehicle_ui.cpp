@@ -37,10 +37,10 @@ float r_geom(float measured, float fallback) {
 }
 
 std::string bakeKey(const VehicleDef& v) {
-    char buf[80];
-    std::snprintf(buf, sizeof(buf), "|%d|%d|%d|%.3f|%d|", v.bodyTriBudget,
+    char buf[96];
+    std::snprintf(buf, sizeof(buf), "|%d|%d|%d|%.3f|%d|%d|", v.bodyTriBudget,
                   v.wheelTriBudget, v.mergeUntextured ? 1 : 0, v.bodyShine,
-                  v.fastWheelTriBudget);
+                  v.fastWheelTriBudget, v.glassOpacity < 1.0f ? 1 : 0);
     return v.modelPath + buf + v.bodyReflMap + "|" + v.fastWheel;
 }
 
@@ -99,6 +99,7 @@ void App::vehicleRefreshBake(int index, bool force) {
     opt.bodyReflMap = vehbake::binReflPath(v.bodyReflMap);
     opt.fastWheel = v.fastWheel;
     opt.fastWheelTriBudget = v.fastWheelTriBudget;
+    opt.glassSplit = v.glassOpacity < 1.0f;
     // The palette is baked into the merged part's texture field, so the name
     // here has to be the path the game will actually open. Everything the bake
     // produces is a derived artifact and lives under .res-baked/ with the
@@ -897,6 +898,14 @@ void App::drawVehicleWindow() {
                         "but reads faint: a smooth gradient has no features\n"
                         "you can see move.");
                 }
+                ImGui::SetNextItemWidth(scaled(200));
+                ImGui::SliderFloat("Glass opacity", &v.glassOpacity, 0.05f, 1.0f, "%.2f");
+                prefHelp(
+                    "Below 1 the windows turn see-through: glass-named materials\n"
+                    "get their own part, drawn last. One extra submit.");
+                ImGui::TextUnformatted("Texture depth");
+                ImGui::SameLine();
+                drawAssetQualityCombo(v.modelPath);
                 if (ImGui::Button("Re-import now")) vehicleRefreshBake(vehicleSel_, true);
 
                 // How many of these are placed, and what that totals.

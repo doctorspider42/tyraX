@@ -2887,6 +2887,9 @@ static void writeVehiclesSection(std::ostream& json, const Project& p) {
         if (v.lampPart >= 0)
             json << ", \"lampPart\": " << v.lampPart
                  << ", \"lampRearVerts\": " << v.lampRearVerts;
+        if (v.glassOpacity < 1.0f)
+            json << ", \"glassOpacity\": " << fmtFloat(v.glassOpacity);
+        if (v.glassPart >= 0) json << ", \"glassPart\": " << v.glassPart;
         if (v.lampFront[3] > 0.0f)
             json << ", \"lampFront\": [" << fmtFloat(v.lampFront[0]) << ", "
                  << fmtFloat(v.lampFront[1]) << ", " << fmtFloat(v.lampFront[2])
@@ -2975,6 +2978,12 @@ static void readVehiclesSection(const json::Value& root, Project& out) {
             v.lampPart = (int)x->numberOr(-1.0);
         if (const json::Value* x = e.find("lampRearVerts"))
             v.lampRearVerts = (int)x->numberOr(0.0);
+        if (const json::Value* x = e.find("glassOpacity")) {
+            const float o = (float)x->numberOr(1.0);
+            v.glassOpacity = o < 0.05f ? 0.05f : (o > 1.0f ? 1.0f : o);
+        }
+        if (const json::Value* x = e.find("glassPart"))
+            v.glassPart = (int)x->numberOr(-1.0);
         if (const json::Value* x = e.find("lampFront"))
             if (x->type == json::Value::Type::Array && x->arr.size() == 4)
                 for (int k = 0; k < 4; ++k)

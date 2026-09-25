@@ -179,6 +179,9 @@ class TerrainGame : public Tyra::Game {
       Tyra::StaPipLightingBag lighting;
     };
     std::vector<std::unique_ptr<PortalClip>> portalClips;
+    // Drawn at the frame's translucent tail instead of the object pass (a
+    // vehicle's see-through glass - renderVehicleGlass sets it).
+    bool translucent = false;
     BagArray<Tyra::Vec4> vertices;
     BagArray<Tyra::Color> colors;
     BagArray<Tyra::Vec4> sts;  // texture coordinates
@@ -1115,6 +1118,7 @@ class TerrainGame : public Tyra::Game {
   std::unique_ptr<Tyra::StaPipColorBag> headlightColorBag_;
   std::unique_ptr<Tyra::StaPipTextureBag> headlightTexBag_;
   void renderVehicleGlow();
+  void renderVehicleGlass();
   void updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s, int driving);
   void muteVehicleEngines();
   void renderVehicleHud();
