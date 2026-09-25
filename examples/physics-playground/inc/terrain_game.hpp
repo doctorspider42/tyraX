@@ -179,6 +179,9 @@ class TerrainGame : public Tyra::Game {
       Tyra::StaPipLightingBag lighting;
     };
     std::vector<std::unique_ptr<PortalClip>> portalClips;
+    // Drawn at the frame's translucent tail instead of the object pass (a
+    // vehicle's see-through glass - renderVehicleGlass sets it).
+    bool translucent = false;
     BagArray<Tyra::Vec4> vertices;
     BagArray<Tyra::Color> colors;
     BagArray<Tyra::Vec4> sts;  // texture coordinates
@@ -284,6 +287,13 @@ class TerrainGame : public Tyra::Game {
     short envPaintKey[6] = {};
     signed char envPaintLod = -1;
     bool envPaintValid = false;
+    // The paint pass evaluates each DISTINCT normal once (see renderEnvPass):
+    // paintMap[k] is vertex k's slot in paintNormals, built from the array
+    // the env bag reads, and rebuilt whenever that array or its size changes.
+    std::vector<unsigned short> paintMap;
+    std::vector<Tyra::Vec4> paintNormals;
+    const void* paintMapSrc = nullptr;
+    u32 paintMapCount = 0;
     // The additive twin of the pass above: same atlas, same STs, WHITE vertex
     // colors, so it sees the baked emissive light in the texture's RGB.
     BagArray<Tyra::Color> emisCols;
@@ -293,6 +303,9 @@ class TerrainGame : public Tyra::Game {
   };
   struct ObjectGeometry {
     std::vector<GeoPart> parts;
+    // objectMayBlend's cache: -1 = not judged for `blendKey` yet.
+    u32 blendKey = 0;
+    signed char blendState = -1;
     // One conservative box over every material part. Multi-part objects use
     // it as a cheap reject before paying the pipeline's per-part/package
     // classification. World-space for the normal bake; local-space when the
@@ -711,7 +724,48 @@ class TerrainGame : public Tyra::Game {
   void procFinishChunks();
   void renderProcChunks();
   void renderRoadChunks();
+  // Interleaved passes (docs/interleaved-passes.md, INTERLEAVE_PASSES).
+  // While `heavyCollect` is set, the batch and road submissions of the main
+  // pass go into `heavyBags` instead of StaPip; the object loop feeds them
+  // back a few per drawn object, and flushes the rest before the first
+  // object that may blend and after the loop.
+  void submitHeavy(Tyra::StaPipBag* bag);
+  void dripHeavy(bool all);
+  bool interleaveBegin();
+  void interleaveEnd();
+  void ilAccount(u32 work);
+  bool objectMayBlend(int index);
+  std::vector<Tyra::StaPipBag*> heavyBags;
+  size_t heavyNext = 0;
+  bool heavyCollect = false;
+  bool heavyActive = false;
+  int heavyDrawn = 0, heavyPrevDrawn = 16;
+  int heavyBlendAt = -1;  // drawn-object index of this frame's blend flush
+  int ilLastBlendAt = -1;  // the same, for the last interleaved frame
+  // The auto tuner: 8 probe pairs (one frame in each order), then the order
+  // that won most pairs is held for 100 frames before probing again.
+  bool ilProbing = true, ilChoice = false;
+  int ilFrame = 0, ilWins = 0;
+  u32 ilPairOn = 0, ilSumOn = 0, ilSumOff = 0;
+  int ilLastHeavy = 0;
+  // Whole-loop work of the previous frame: COP0 period minus the renderer's
+  // stall (vsync / display buffer), taken from one interleaveBegin to the next.
+  bool ilHaveMark = false, ilMarkActive = false;
+  u32 ilMark = 0, ilStallMark = 0;
   float roadSurfaceAt(float x, float z) const;
+  void buildRoadHeightIndex() const;
+  // The pre-grid exhaustive walk, defined only under TYRA_ROAD_INDEX_VERIFY
+  // (see roadSurfaceAt) - it is the oracle that gate compares against.
+  float roadSurfaceScan(float x, float z) const;
+  // roadSurfaceAt's uniform XZ grid over the road triangles: prefix offsets
+  // per cell, and entries packing (chunk << 22 | last vertex of a triangle).
+  // Built once after the roads are, and again if the chunk list changes.
+  mutable std::vector<unsigned int> roadIdxStart;
+  mutable std::vector<unsigned int> roadIdxItems;
+  mutable std::size_t roadIdxChunks = 0;
+  mutable float roadIdxMinX = 0.0F, roadIdxMinZ = 0.0F, roadIdxInv = 0.0F;
+  mutable int roadIdxN = 0;
+  mutable bool roadIdxDirty = true;
   float groundSurfaceAt(float x, float z) const;
   GeoPart skyDome;
   // Re-centered on the camera every frame (renderScene) so a large map can
@@ -1443,8 +1497,46 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> coronaColorBag, coneColorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> coronaTexBag;
     std::unique_ptr<Tyra::StaPipBag> coronaBag, coneBag;
+    // The cone shaft is a pure function of the lamp's position and radius -
+    // both static for an authored lamp - and its two colours of the lamp
+    // colour. Only the flicker's additiveBlendFix moves. Remember that key so
+    // 24 vertices, 24 colours and 16 transcendental calls per visible cone per
+    // frame do not run again merely because the brightness breathed, and so
+    // the bag's bboxVersion stops being stamped on a shaft that did not move
+    // (a stamp costs the retained-command block a rebuild - STAPIPMISS). The
+    // LightPool below caches its receiver patch for the same reason (1.122.2).
+    bool coneValid = false;
+    float coneKeyX = 0.0F, coneKeyY = 0.0F, coneKeyZ = 0.0F;
+    float coneKeyRadius = 0.0F;
+    float coneKeyR = 0.0F, coneKeyG = 0.0F, coneKeyB = 0.0F;
   };
   std::vector<LightBeam> lightBeams;
+  // ONE bag for every visible corona and one for every cone shaft, rebuilt
+  // per call (docs/ee-submission-rearchitecture.md, "Round four"). A beam used
+  // to be two StaPip submissions
+  // of 6 and 24 vertices, each paying the whole per-bag path - bounds,
+  // uniforms, dispatch - for a quad: 0.86 ms of Motor District's garage night
+  // on a physical PS2. The per-lamp brightness that rode each bag's additive
+  // FIX is folded into the vertex colours instead (additive, so
+  // Cs*k*128/128 + Cd is the same light), and a batch draws at FIX 128.
+  //
+  // One batch PER CALL IN A FRAME (the main view, then every portal view):
+  // the chain the first call submits REFs its arrays, so a second call may
+  // not refill them before VIF1 has read them. The previous frame's slots are
+  // safe to reuse - RendererCore::endFrame waits for the whole VIF1 queue.
+  // Held by pointer so the addresses the bags point at never move.
+  struct BeamBatch {
+    Tyra::M4x4 mat;
+    BagArray<Tyra::Vec4> coronaVerts, coronaSts, coneVerts;
+    BagArray<Tyra::Color> coronaColors, coneColors;
+    std::unique_ptr<Tyra::StaPipInfoBag> coronaInfo, coneInfo;
+    std::unique_ptr<Tyra::StaPipColorBag> coronaColorBag, coneColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> coronaTexBag;
+    std::unique_ptr<Tyra::StaPipBag> coronaBag, coneBag;
+  };
+  std::vector<std::unique_ptr<BeamBatch>> beamBatches;
+  int beamBatchCall = 0;  // reset by loop() every frame
+  BeamBatch& beamBatchForCall();
   Tyra::Texture* beamCoronaTex = nullptr;
   void setupLightBeams();            // per scene load
   void updateAndRenderLightBeams(const Tyra::Vec4* viewEye = nullptr,

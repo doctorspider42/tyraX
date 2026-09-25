@@ -1144,6 +1144,42 @@ class TerrainGame : public Tyra::Game {
   static void physExtents(const SceneObjectData& d, const GameModel* gm,
                           const Tyra::SkelModel* anim, float* cOff, float* ext);
   static bool physObstacle(const SceneObjectData& d);
+  // Rigid-body state kept beside RuntimeObject (docs/physics.md): the
+  // orientation as a quaternion, the angular velocity, and the body's shape
+  // prepared for its scale - the convex hull's corners and face planes
+  // relative to the centre of mass, and its inverse inertia tensor. Only
+  // physics objects get one (physSlotOf maps an object to it), and the sim
+  // re-derives it whenever something else wrote the object's transform,
+  // spin or shape (a script, a portal hop, Live Link, a rewind).
+  struct PhysBody {
+    float q[4] = {1.0F, 0.0F, 0.0F, 0.0F};  // w x y z
+    float w[3] = {0.0F, 0.0F, 0.0F};         // world, radians/frame
+    float comL[3] = {0.0F, 0.0F, 0.0F};      // origin -> centre of mass, object frame
+    float invI[6] = {0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F};  // xx yy zz xy xz yz
+    float invMass = 1.0F;
+    float radius = 0.5F;  // bounding sphere about the centre of mass
+    float lastPos[3] = {0.0F, 0.0F, 0.0F};
+    float lastRot[3] = {0.0F, 0.0F, 0.0F};
+    float lastSpin[3] = {0.0F, 0.0F, 0.0F};
+    float sigScale[3] = {0.0F, 0.0F, 0.0F};
+    float sigMass = 0.0F;
+    int sigShape = -1;
+    short verts = 0, planes = 0;  // 0 verts = a sphere
+    bool valid = false, tumble = true;
+    float lv[24 * 3];   // PHYS_MAX_HULL_VERTS corners, centre-of-mass frame
+    float lp[44 * 4];   // PHYS_MAX_HULL_PLANES faces n.x <= d, same frame
+  };
+  std::vector<PhysBody> physBodies;
+  std::vector<short> physSlotOf;
+  int physBodiesScene = -1;
+  int physBodyFor(int index);  // slot in physBodies, synced with the object
+  void physBuildShape(int index, PhysBody& b);
+  // A shove that has a point of application: dv is the velocity change at
+  // the centre of mass (the old linear push, unchanged), and the same impulse
+  // applied at `point` adds the spin a real push there would - which is what
+  // tips a stool over instead of sliding it like a puck.
+  void physPushAt(int index, float px, float py, float pz, float dvx,
+                  float dvy, float dvz);
   void renderScene();
   void updateAdaptiveResolution();
   int adaptiveScene = -1;

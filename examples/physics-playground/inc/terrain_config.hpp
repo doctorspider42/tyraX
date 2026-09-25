@@ -131,6 +131,10 @@ constexpr float MESH_LOD_DISTANCE = 0.0F;
 // capture at all while nothing that feeds the capture has moved. 0 = capture
 // on every cadence beat, i.e. exactly the pre-1.106 behaviour.
 constexpr float REFLECTION_REUSE_BUDGET = 1.0F;
+// How far from the eye the shared probe redraws terrain and road chunks
+// (Preferences > Rendering, docs/reflective-materials.md "The ground in the
+// probe"). 0 = every resident chunk.
+constexpr float REFLECTION_GROUND_RADIUS = 0.0F;
 // The probe's own raster, in pixels across, and its horizontal field of view
 // in degrees - the two numbers that turn an angle into a pixel count. They
 // must match the pushEnvView call in renderScene; both are compile-time facts
@@ -146,6 +150,14 @@ constexpr float REFLECTION_PROBE_FOV_DEG = 110.0F;
 // (SceneObjectData::batchStatic); runtime edits demote that member and rebuild
 // its former batches. false = every object submits its own bag.
 constexpr bool STATIC_BATCHING = true;
+
+// Interleaved passes (Preferences > Rendering, docs/interleaved-passes.md):
+// the static batch and road bags are EE-cheap and GPU-heavy, the object loop
+// the opposite, and drawn one after the other the EE waits for VU1 in the
+// first and VU1 idles in the second. Interleaving feeds the batch and road
+// bags into the object loop instead. 0 = off, 1 = auto (the game times both
+// orders every few seconds and keeps the faster), 2 = always.
+constexpr int INTERLEAVE_PASSES = 1;
 
 // Dynamic reflection probe aim (Preferences > Rendering): false = the
 // classic GT3 level-forward aim; true = a camera ray is intersected with

@@ -25,7 +25,9 @@ struct RuntimeObject {
   // asleep and skips simulation entirely.
   float velocityY = 0.0F;  // vertical velocity (kept first: legacy scripts)
   float velocityX = 0.0F, velocityZ = 0.0F;
-  float spin[3] = {0.0F, 0.0F, 0.0F};  // angular velocity, degrees/frame
+  // Angular velocity about the WORLD axes, degrees/frame. The rigid-body
+  // sim keeps its own copy and re-reads this one whenever a script changed it.
+  float spin[3] = {0.0F, 0.0F, 0.0F};
   // Scripted continuous rotation (the Spin Object flow node), degrees per
   // SECOND - authored units, so it is frame-rate independent and readable.
   // Integrated by TerrainGame::updateSpinners(), which also puts the object on
@@ -33,9 +35,9 @@ struct RuntimeObject {
   // refresh per frame instead of a world-space vertex re-bake. Independent of
   // `spin` above: physics owns that one, this one survives sleep and settle.
   float spinRate[3] = {0.0F, 0.0F, 0.0F};
-  // Settle-flatten targets, latched once per settle so the chosen face
-  // never flips mid-ease. 1e9 = unlatched; [1] additionally means "yaw
-  // stays" when the roll lands on an even 90deg step.
+  // Unused since bodies became real rigid bodies (they settle onto a face by
+  // themselves). Kept so scripts and the time machine's capture layout that
+  // name it still compile and line up.
   float flatTgt[3] = {1e9F, 1e9F, 1e9F};
   short restFrames = 0;                // sleep counter; write 0 to wake
   bool dirty = true;

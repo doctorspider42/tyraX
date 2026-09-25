@@ -891,6 +891,12 @@ void writeFrameCapture(ScriptContext& ctx) {
   static unsigned int lineIn[1024] __attribute__((aligned(16)));
   static unsigned int lineOut[1024];
   unsigned int refused = 0;
+  // The Hybrid colour depth's present blit (ColorDepth::Hybrid) is a PATH3
+  // packet the flip sends WITHOUT waiting, so between frames the GS can still
+  // be copying - and the reverse-FIFO download below then hangs on it (it did,
+  // in PCSX2, every time). A PATH3 FINISH round trip proves the GS idle. In
+  // the other modes the flip already waited, and this returns at once.
+  ctx.engine->renderer.core.sync.align2D();
   for (unsigned int y = 0; y < h; ++y) {
     // Bottom row first, so the TGA needs no flip on either side.
     if (!ps2_screenshot(lineIn, fb->address / 64, 0, (h - 1U) - y, w, 1,
@@ -1069,6 +1075,7 @@ void hit(int key) {
 }
 
 bool halted() { return haltedFrame; }
+bool attached() { return editorAttached; }
 
 bool forced(int key) {
   for (int i = 0; i < forcedCount; ++i)
