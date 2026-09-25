@@ -61,7 +61,7 @@ const int OBJ_RING = 32;    // samples kept per watched object
 // Identity of the symbol table this ELF was built from (src/gen/livedbg.sym).
 // The editor compares it with the file on disk: a mismatch means the graphs
 // moved since this build, so node keys would point at the wrong nodes.
-const unsigned int HASH_LO = 1677728731U, HASH_HI = 4210331877U;
+const unsigned int HASH_LO = 2870518559U, HASH_HI = 1390647786U;
 
 // A project with no flow graph instruments no node, and a zero-length array is
 // not a C++ array - the runtime is still built for everything else it carries.

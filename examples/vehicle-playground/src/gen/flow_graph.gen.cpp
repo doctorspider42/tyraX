@@ -86,7 +86,7 @@ bool factProfileDirty() {
   return false;
 }
 
-// Scene "main": graph of "vehicle-1" (object 132)
+// Scene "main": graph of "ravager-1" (object 132)
 class FlowGraphScript_0_132 : public Script {
  public:
   void update(ScriptContext& ctx) override {
@@ -120,7 +120,7 @@ class FlowGraphScript_0_132 : public Script {
   bool started = false;
 };
 
-// Scene "dense": graph of "vehicle-1" (object 132)
+// Scene "dense": graph of "ravager-1" (object 132)
 class FlowGraphScript_1_132 : public Script {
  public:
   void update(ScriptContext& ctx) override {

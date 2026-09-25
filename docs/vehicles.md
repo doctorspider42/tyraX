@@ -1032,6 +1032,26 @@ in milliseconds on a physical PS2** — the orbit fixture of the shine budget
 above (a parked Ravager 9 units away, 2.1-2.6 ms) with `trafficDistance` below
 and above 9 is the A/B that prices it.
 
+The Motor District's two later cars, the **Pica Turbo** and the **Strix V12**
+(`make-pica.py` / `make-strix.py` + their `-far.py` twins), follow the same
+recipe with the shared plumbing factored out into
+`examples/vehicle-playground/authoring/carkit.py` (loft, atlas, wheel, AO bake,
+previews, and `far_main` for the far model). Their far tiers are 652 and 668
+triangles wheels in, against 2318 and 2548 near, and strip to 0.755x / 0.759x;
+the near paint parts strip to 0.499x / 0.492x. Two traps they added:
+
+- **Orient loft faces from the section, not from its centroid.** The Strix's
+  hood sits in a valley between fender humps, so the wall from the fender top
+  down to the hood edge faces inward AND up; a "from the section's middle"
+  reference flipped it, and it rendered black (the down-facing cell) with an
+  inverted normal. The half section runs keel -> crown counter-clockwise in
+  (y, z), so `(dz, -dy)` of the segment is outward for every wall.
+- **Keep a far-model face clearly inside one tile.** The far model projects each
+  face by its normal exactly as the full model does, so a surface near 45
+  degrees (the Pica's hatch glass) would flicker between the top and rear
+  tiles. The hatch is kept at 53 degrees and its window painted in the rear
+  tile only.
+
 ### What a car costs (1.125.2)
 
 Measured on a physical PS2, Motor District `main` scene, player car parked at

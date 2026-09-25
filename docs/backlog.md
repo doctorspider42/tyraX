@@ -251,7 +251,10 @@ leaves these, dearest first:
   (`make_mc_arm.py` in the working notes) with `trafficDistance` 5 vs 0 at the
   9-unit parked Ravager - the number that says whether 12 is the right default,
   and whether the CC96 wants an authored far model too (its decimated tier is
-  1574 triangles).
+  1574 triangles). The district now parks two more authored-far cars at the
+  spawn (Pica Turbo 652 / Strix V12 668 far-tier triangles, 4.5 units either
+  side of the driven Ravager), so the spawn pose itself is a second fixture for
+  that A/B; the CC96 is no longer placed.
 - **Wheels, 0.27-0.39 ms a car**: four 160-triangle wheels rebuilt on the EE
   every frame. The fast-wheel model and the rebake skip exist; a coarser wheel
   for cars that are not driven does not.
