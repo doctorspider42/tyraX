@@ -51,6 +51,18 @@ body has 2276 triangles. The efficient game variant bakes to 789 body triangles 
 prepared GLBs remain available; the game uses `tristar-efficient.glb`. It uses a cheap
 blob shadow and a 48 m distance tier.
 
+An unplaced sixth body ships beside them: the **Strata GT**
+(`res/models/strata-gt.glb`, [preview](preview/strata-gt.png)), a 90s coupe made
+for this project by `authoring/make-strata-gt.py` (deterministic, no source
+asset, no licence to track). It is built to the vehicle import's rules: the
+wheels are four identical nodes found by shape, the untextured materials merge
+into one palette part, and the lamp materials are named `headlights` / `rear
+lights`. The bake measures wheelbase 2.540, track 1.520 and radius 0.325,
+which is what the script built. The body is 2164 triangles in 2 parts
+(paint + lamps), and each wheel is 143 triangles, because the wheels are what
+the EE rebuilds per frame. That is 3 submits near and 1 past 40 units (the far
+tier, 1134 triangles, wheels in). It has no definition in the scene yet.
+
 The five-speed boxes use a 1.28 spread, 0.10 s shifts and reduced ratio torque.
 Body lean is 0.25 on the coupe/Tristar and 0.35 on the van. A 60 Hz flat-ground
 full-throttle comparison against the previous settings measured:
