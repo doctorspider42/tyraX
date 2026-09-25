@@ -16,6 +16,11 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.127.6: OFFSCREEN STATIC BATCHES NEVER ENTER STAPIP.
+// Generated game: renderStaticBatches frustum-tests each batch's world box
+// itself, as the road chunks already did. Same verdict StaPip reached, 14
+// render() calls a garage-day frame fewer. Regenerate to pick it up. PATCH.
+//
 // 1.127.5: THE SHARED CLIP BLOCK IS REFERENCED, NOT COPIED.
 // Every bag used to copy the same 15-qword VU1 clip block into its packet; it
 // now REFs one VIF-stream copy (identical VU1 input, VIF-hash gate). One-ELF
@@ -5225,7 +5230,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 127
-#define TYRAX_VERSION_PATCH 5
+#define TYRAX_VERSION_PATCH 6
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

@@ -139,6 +139,14 @@ The **member-centre spread** printed by `--batch-report` is over member
 A member can therefore outlive its own cut-off by up to that spread; it can
 never disappear early.
 
+Since 1.127.6 the frustum half of that test runs in the game, before the batch
+enters `StaPipCore::render`. The batch is world space (identity model) and its
+merged box is exactly its vertex box, so the verdict is the one StaPip's own
+main-box check would give, with the same planes. It saves the head and
+`bounds` work of every batch off screen: 14 of garage day's 16 bags that
+StaPip used to reject itself were batches (PCSX2 counters, captures
+unchanged).
+
 ## Excluding one object
 
 *Properties > Exclude from static batch*, or the checkbox in either of the

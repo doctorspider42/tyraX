@@ -21200,6 +21200,18 @@ void TerrainGame::renderStaticBatches() {
     }
     // Split halves: same band early-out the terrain chunks use.
     if (splitBandActive && outsideSplitBand(b.aabbMin, b.aabbMax)) continue;
+    // The batch is world space (identity model) and aabbMin/Max is exactly
+    // its vertex box, so this is the test StaPip's own main-bbox check would
+    // make, with the same planes and the same verdict - without entering
+    // render() for it. The road chunks do the same.
+    {
+      const Tyra::Vec4 mn(b.aabbMin[0], b.aabbMin[1], b.aabbMin[2], 1.0F);
+      const Tyra::Vec4 mx(b.aabbMax[0], b.aabbMax[1], b.aabbMax[2], 1.0F);
+      if (Tyra::CoreBBox::frustumCheckAABB(
+              engine->renderer.core.renderer3D.frustumPlanes.getAll(), mn, mx) ==
+          Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
+        continue;
+    }
     bool ownsOccluder = false;
     for (const StaticBatchMember& m : b.members)
       if (occlusionObjectIsOccluder(m.object)) { ownsOccluder = true; break; }
