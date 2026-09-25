@@ -1347,6 +1347,23 @@ the physical PS2 on its first boot: the IOP spammed `freepad: DMA Busy`, and
 `ps2client reset` could not recover it. The cause was not isolated. Game code
 must not drive the queue.
 
+**Partial strip packages, batched - NOT shipped (2026-09-25).** A route probe
+(`route_probe.py`: COP0 brackets around each branch of `renderStrippedPkgs`)
+put the outer poses' partial strip packages at 0.95 ms of expansion plus
+0.53-0.58 ms of clip submit, over ~130 clip buffers a frame carrying only ~500
+triangles (3.8 each). The garage pays ~0.25 + 0.25. That reads as per-buffer
+overhead, so consecutive partial packages of a bag were appended into one
+clip buffer (`beginStripExpand` / `appendStripExpand`, flushed before any cull
+package so VU1 still sees the triangles in the same order). One ELF toggled
+at boot, two rounds on the console, `work`: outer day -0.030 / -0.031, outer
+night -0.025 / -0.038, garage noise (+0.004..+0.016). About 3% of what the
+per-buffer reading predicted, so it was reverted. The probe was not re-run
+with the batching on, so which of the two explanations holds is open: either
+partial packages are rarely adjacent (the cull packages between them force a
+flush each time, and the buffer count barely falls), or the cost is per
+package or per triangle, not per buffer. The patch is `strip_batch.py` in the
+working notes; re-run the route probe on top of it before trying again.
+
 ## Order of work
 
 1. ~~Probe A and Probe B.~~ **DONE, on hardware, 2026-09-16.** S3 does not ship;
