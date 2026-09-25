@@ -189,6 +189,18 @@ but never the weights. Odd particle slots are also mirrored left-right (not
 rain, not fog, which spins), so one texture reads as two. The vehicle smoke,
 the viewport preview and the editor's 2D preview follow the same rule.
 
+**The basis is taken at RENDER time, from the camera the pass draws with.**
+The simulation (`updateParticles`) runs in the game loop BEFORE the cutscene
+camera override and the camera shake are applied, so the basis it built
+faced the player's camera: a cutscene saw its particles edge-on, and turning
+the right stick - the player's camera, still live underneath - swung them
+around. `renderScene` now re-aims every system right before it submits them
+(it used to do that only for the split screen's second half), which covers
+cutscenes, camera shake and split screen with one rule; the portal pass keeps
+its own. Checked in PCSX2 with a script holding `cameraOverride` on the
+campfire's side: before, thin vertical slivers that turned when the stick
+moved; after, the flame facing the shot and unchanged by the stick.
+
 Files are written only when their bytes change, so re-baking an unchanged
 recipe touches nothing. Headless: `tyrax-editor --bake-particles <projectDir>`
 re-bakes every effect with a recipe, re-syncs linked emitters, saves and

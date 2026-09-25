@@ -4943,6 +4943,8 @@
 // one), and emitters show as clickable screen-space badges instead of cones.
 // The Fire motion got buoyancy, a tapering column, a whole-flame sway and
 // flicker, an unfurl/fade-in and taller quads (game and viewport twins).
+// Particles face the camera a pass DRAWS with (cutscene override, shake,
+// split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 124
 #define TYRAX_VERSION_PATCH 0

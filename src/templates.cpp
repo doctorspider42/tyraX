@@ -23273,14 +23273,17 @@ void TerrainGame::renderScene() {
   }
   costEnd("Highlights_and_outlines",-1,costHighlightStart);
   const u32 costParticleStart=costStart();
-  // particles last - alpha blended over the scene. The second split half
-  // re-faces the quads at ITS camera first - billboards built during the
-  // simulation face player 1's view.
+  // particles last - alpha blended over the scene.
   const u32 profPart0 = DEBUG_SHOW_PROFILER ? profTicks() : 0;
-  // The split's second half re-aims the billboard basis at ITS camera
-  // before submitting - centers are view-independent, so two Vec4 writes
-  // per system replace any re-simulation (the portal through-view trick).
-  if (splitSecondPass && !particles.empty()) {
+  // Every pass re-aims the billboard basis at the camera it DRAWS with,
+  // right here: the simulation runs before the cutscene camera override and
+  // the camera shake are applied, so the basis it built faced the PLAYER's
+  // camera - a cutscene saw its particles edge-on, and turning the right
+  // stick (the player's camera, still live under the cutscene) swung them
+  // around. The split's second half is the same case with ITS camera.
+  // Centres are view-independent, so two Vec4 writes per system replace any
+  // re-simulation (the portal through-view trick).
+  if (!particles.empty()) {
     Vec4 fwd = cameraLookAt - cameraPosition;
     const float fl = sqrtf(fwd.x * fwd.x + fwd.y * fwd.y + fwd.z * fwd.z);
     if (fl > 0.0001F) fwd.x /= fl, fwd.y /= fl, fwd.z /= fl;
