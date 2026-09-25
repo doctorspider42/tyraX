@@ -16,6 +16,11 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.128.2: THE LOG SAYS WHEN STREAMED MUSIC IS STARVING.
+// A debug build warns (at most once per 5 s) when an audsrv refill finds the
+// ring over 70% empty - measured to be music streamed over ps2link, where
+// the IOP runs the network; from a disc it does not happen. PATCH.
+//
 // 1.128.1: HUD SPRITES SKIP THE STATE THE CHAIN ALREADY HOLDS.
 // Sprites in the VIF1 DIRECT chain no longer each carry a whole PATH3 packet:
 // XYOFFSET/TEX1/ALPHA/TEX0 are written only when they change, the rectangle
@@ -5245,7 +5250,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 128
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

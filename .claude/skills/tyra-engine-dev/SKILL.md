@@ -1938,6 +1938,14 @@ Rules the same evening paid for:
   `audsrv_wait_audio` - and remember the symptom shape: an audio-caused frame
   drop shows up in whatever code happens to call audsrv, not in the audio code,
   so the profiler blames the sound emitters for the music's lock.
+- **Streamed music over ps2link stutters, and it is the network, not the
+  engine** (docs/sound.md, "Music stutters over ps2link"): the song's host:
+  freads run TCP on the IOP beside audsrv, whose ring (10 feeds of 512
+  samples, ~107 ms, in INPUT bytes) then gets its refill late. With the song
+  in RAM the ring stays ~90% full. Do not "fix" it with smaller chunks -
+  more audsrv RPCs on a starved IOP played in slow motion - and
+  `audsrv_play_audio` TRUNCATES what does not fit. A debug build warns
+  "Music ring ran low" when a refill finds the ring over 70% empty.
 - **An EE buffer handed to a SIF DMA must be written back to main memory
   first** (`SifWriteBackDCache(ptr, size)`), and `audsrv_load_adpcm` did not do
   it. The EE's data cache is write-back, the DMA reads RAM, so a sample just
