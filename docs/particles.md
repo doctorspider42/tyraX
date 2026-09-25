@@ -34,6 +34,27 @@ and glows, baked from a recipe into ordinary PNG + `.mtl` assets.
 
 Renaming an effect retargets every emitter and vehicle that names it.
 
+## The fire motion
+
+The *Fire* motion (emitter kind 0) is built to read as flame rather than as
+rising sprites. Per particle: a centre-weighted spawn (the sum of two
+uniforms), a slow start, then **buoyancy** - the velocity grows upward by
+2.6 u/s every second - while the column **pulls in** on itself, so the
+tongues stretch and taper into a point. A particle unfurls in its first 15% of
+life, narrows toward the tip, fades IN instead of popping at the base, and is
+drawn 1.45x taller than wide. Per emitter, once a frame: the whole flame
+**sways** (two sines, the drift growing with height, as a real flame leans
+from its tip) and **flickers** (two sines multiplied, 0.6 .. 1.0 of the
+brightness). The editor viewport runs the same numbers.
+
+![The campfire close up on the PS2 renderer: tapered, leaning tongues with orange edges, a hot core and embers.](img/particles-fire.png)
+
+What the example layers add on top: a small hot **Core** (the flame texture,
+brighter and narrower), **Embers**, a faint **Glow**, and smoke that starts
+above the tips. Tint the main flame orange rather than yellow - additive
+layers saturate where they overlap, so the yellow comes by itself in the
+middle.
+
 ## Layers: one effect, several emitters
 
 An effect is not limited to one emitter's worth of particles. Its own fields

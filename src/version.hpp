@@ -4941,6 +4941,8 @@
 // pipeline existed (a round texture hid it) and now render upright. An effect
 // can hold several emitters (layers: flame + embers + glow + smoke placed as
 // one), and emitters show as clickable screen-space badges instead of cones.
+// The Fire motion got buoyancy, a tapering column, a whole-flame sway and
+// flicker, an unfurl/fade-in and taller quads (game and viewport twins).
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 124
 #define TYRAX_VERSION_PATCH 0

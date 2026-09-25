@@ -10,7 +10,7 @@ Editor*, each with a texture the editor generated.
 
 | effect | used by | what it shows |
 |---|---|---|
-| **Campfire** | `campfire` | ONE emitter, four **layers**: the flame (Fire motion, additive, a generated 4-frame *Flame* flipbook), rising **Embers**, a faint additive **Glow** and **Smoke** that reuses the Wood smoke texture |
+| **Campfire** | `campfire` | ONE emitter, five **layers**: the flame (Fire motion, additive, a generated 4-frame *Flame* flipbook), a hot **Core**, rising **Embers**, a faint additive **Glow** and **Smoke** that reuses the Wood smoke texture |
 | **Wood smoke** | `chimney-smoke` | a Custom effect (rising, growing, low opacity); its texture is shared with the campfire's smoke layer |
 | **Torch sparks** | `torch-sparks` | Sparks motion, additive, a generated *Glow* texture (32x32) |
 | **Magic motes** | `magic-motes` | a slow buoyant Custom cloud, additive cyan glow |

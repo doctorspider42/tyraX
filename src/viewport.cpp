@@ -8149,6 +8149,14 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
             et2 = cross(edir, et1);
         }
 
+        // Fire: the whole flame sways and flickers together - the game's
+        // updateParticles twin (keep in sync).
+        const float fT = (float)std::fmod(animClock_, 3600.0);
+        const float fireSwayX = kind == 0 ? 0.35f * std::sin(fT * 1.7f) + 0.15f * std::sin(fT * 4.3f) : 0.0f;
+        const float fireSwayZ = kind == 0 ? 0.25f * std::sin(fT * 1.3f + 1.0f) : 0.0f;
+        const float fireFlicker =
+            kind == 0 ? 0.8f + 0.2f * std::sin(fT * 13.7f) * std::sin(fT * 5.9f + 0.7f) : 1.0f;
+
         buf.clear();
         buf.reserve(ep.parts.size() * 6 * 9);
         for (PreviewParticle& p : ep.parts) {
@@ -8159,11 +8167,14 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
                 const float sx = bx + (r1 - 0.5f) * o.scale[0];
                 const float sz = bz + (r3 - 0.5f) * o.scale[2];
                 p.pos[0] = sx, p.pos[1] = by, p.pos[2] = sz;
-                if (kind == 0) {  // fire: rises and flickers
-                    p.vel[0] = (r1 - 0.5f) * 0.8f;
-                    p.vel[1] = 1.2f + r2 * 1.2f;
-                    p.vel[2] = (r3 - 0.5f) * 0.8f;
-                    p.maxLife = 0.5f + r2 * 0.6f;
+                if (kind == 0) {  // fire: centre-weighted base, buoyancy does the rest
+                    const float r4 = prand(ep.rng);
+                    p.pos[0] = bx + (r1 + r4 - 1.0f) * 0.5f * o.scale[0];
+                    p.pos[2] = bz + (r3 + r2 - 1.0f) * 0.5f * o.scale[2];
+                    p.vel[0] = (r1 - 0.5f) * 0.3f;
+                    p.vel[1] = 0.6f + r2 * 0.6f;
+                    p.vel[2] = (r3 - 0.5f) * 0.3f;
+                    p.maxLife = 0.55f + r2 * 0.5f;
                 } else if (kind == 1) {  // smoke: slow rise with drift
                     p.vel[0] = (r1 - 0.5f) * 0.5f;
                     p.vel[1] = 0.5f + r2 * 0.5f;
@@ -8202,6 +8213,14 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
                 p.life = p.maxLife * (0.05f + 0.95f * prand(ep.rng));  // stagger
             }
             if (kind == 3) p.vel[1] -= 6.0f * dt;
+            if (kind == 0) {  // buoyancy, the column pulling in, the sway
+                p.vel[1] += 2.6f * dt;
+                p.vel[0] += (bx - p.pos[0]) * 2.2f * dt;
+                p.vel[2] += (bz - p.pos[2]) * 2.2f * dt;
+                const float h = p.pos[1] - by;
+                p.pos[0] += fireSwayX * h * dt;
+                p.pos[2] += fireSwayZ * h * dt;
+            }
             if (kind == 5) {
                 // gravity + air drag ~ 1/weight (same terminal-velocity
                 // behavior as the game)
@@ -8230,8 +8249,11 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
             float alpha;
             float cr = o.color[0], cg = o.color[1], cb = o.color[2];
             if (kind == 0) {
-                size *= 0.5f + 0.8f * t;
-                alpha = 90.0f * t / 128.0f;
+                const float age = 1.0f - t;
+                const float unfurl = age < 0.15f ? 0.45f + age * (0.55f / 0.15f) : 1.0f;
+                size *= unfurl * (0.35f + 0.75f * t);
+                alpha = 96.0f * (age < 0.1f ? age * 10.0f : 1.0f) * (0.35f + 0.65f * t) *
+                        fireFlicker / 128.0f;
                 cg *= 0.35f + 0.65f * t;  // orange cools to red as it dies
                 cb *= 0.25f * t;
             } else if (kind == 1) {
@@ -8283,6 +8305,7 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
                 su = -1.0f;
             }
             const float Rx = brx * size * sr, Ry = bry * size * sr, Rz = brz * size * sr;
+            if (kind == 0) su *= 1.45f;  // flames are taller than wide (game twin)
             const float Ux = sizeUp > 0.0f ? 0.0f : bux * size * su;
             const float Uy = sizeUp > 0.0f ? sizeUp : buy * size * su;
             const float Uz = sizeUp > 0.0f ? 0.0f : buz * size * su;

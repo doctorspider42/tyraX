@@ -394,7 +394,7 @@ void App::drawParticleEditorWindow() {
             float speed = 1.2f, spread = 25.0f, grav = 0.0f, life = 1.5f, grow = 1.0f;
             float alphaPeak = 0.6f;
             switch (P.kind) {
-                case 0: speed = 2.0f, spread = 12.0f, grav = -1.0f, life = 0.9f, grow = 0.6f, alphaPeak = 0.7f; break;
+                case 0: speed = 0.9f, spread = 12.0f, grav = -2.6f, life = 0.8f, grow = 0.6f, alphaPeak = 0.75f; break;
                 case 1: speed = 0.9f, spread = 20.0f, grav = -0.3f, life = 2.6f, grow = 1.6f, alphaPeak = 0.35f; break;
                 case 2: speed = 0.2f, spread = 90.0f, grav = 0.0f, life = 4.0f, grow = 1.0f, alphaPeak = P.opacity * 0.47f; break;
                 case 3: speed = 4.0f, spread = 40.0f, grav = 9.8f, life = 0.7f, grow = 1.0f, alphaPeak = 0.86f; break;
@@ -428,6 +428,7 @@ void App::drawParticleEditorWindow() {
                 d.vy -= grav * dt;
                 const float drag = 1.0f - std::min(0.9f, dt * 0.6f / std::max(0.05f, P.weight));
                 if (P.kind == 5) d.vx *= drag, d.vy *= drag;
+                if (P.kind == 0) d.vx -= d.x * 2.2f * dt;  // the column pulls in
                 d.x += d.vx * dt;
                 d.y += d.vy * dt;
                 if (P.kind == 2) d.spin += ((i & 1) ? 0.3f : -0.3f) * dt;
@@ -446,8 +447,10 @@ void App::drawParticleEditorWindow() {
                     const float c = std::cos(d.spin), s = std::sin(d.spin);
                     // odd slots mirrored, as on the console (not rain, not fog)
                     const float mir = ((i & 1) && P.kind != 4 && P.kind != 2) ? -1.0f : 1.0f;
+                    const float tall = P.kind == 0 ? 1.45f : 1.0f;  // flames are taller
                     auto corner = [&](float u, float v) {
                         u *= mir;
+                        v *= tall;
                         return ImVec2(cx + (u * c - v * s) * sz, cy + (u * s + v * c) * sz);
                     };
                     dl->AddImageQuad((ImTextureID)(intptr_t)tex, corner(-1, -1),

@@ -6389,8 +6389,8 @@ void TerrainGame::updateParticles() {
     // Flipbook (docs/particles.md): frames live at material .. material+N-1,
     // and animating is swapping the ONE bag's texture pointer - no extra
     // submit, no per-particle work.
+    ps.animTime += dt;  // the flipbook's clock and the fire's sway/flicker
     if (d.emitFrames > 1 && d.material >= 0) {
-      ps.animTime += dt;
       const int f = (int)(ps.animTime * d.emitFps) % d.emitFrames;
       const int mi = d.material + f;
       if (mi < (int)gameMaterials.size() && gameMaterials[mi].texture)
@@ -6445,6 +6445,15 @@ void TerrainGame::updateParticles() {
              edir.x * et1.y - edir.y * et1.x};
     }
 
+    // Fire (docs/particles.md, "The fire motion"): the whole flame sways and
+    // flickers together - once per emitter per frame, not per particle. Keep
+    // in sync with drawEmitterPreviews.
+    const float fT = ps.animTime;
+    const float fireSwayX = kind == 0 ? 0.35F * sinf(fT * 1.7F) + 0.15F * sinf(fT * 4.3F) : 0.0F;
+    const float fireSwayZ = kind == 0 ? 0.25F * sinf(fT * 1.3F + 1.0F) : 0.0F;
+    const float fireFlicker =
+        kind == 0 ? 0.8F + 0.2F * sinf(fT * 13.7F) * sinf(fT * 5.9F + 0.7F) : 1.0F;
+
     for (int i = 0; i < n; ++i) {
       ps.life[i] -= dt;
       if (ps.life[i] <= 0.0F) {
@@ -6452,9 +6461,12 @@ void TerrainGame::updateParticles() {
         const float sx = bx + (r1 - 0.5F) * d.scale[0];
         const float sz = bz + (r3 - 0.5F) * d.scale[2];
         ps.pos[i] = Vec4(sx, by, sz, 1.0F);
-        if (kind == 0) {  // fire: rises and flickers
-          ps.vel[i] = Vec4((r1 - 0.5F) * 0.8F, 1.2F + r2 * 1.2F, (r3 - 0.5F) * 0.8F, 0.0F);
-          ps.maxLife[i] = 0.5F + r2 * 0.6F;
+        if (kind == 0) {  // fire: a centre-weighted base, slow start - buoyancy does the rest
+          const float r4 = prand(ps.rng);
+          ps.pos[i].x = bx + (r1 + r4 - 1.0F) * 0.5F * d.scale[0];
+          ps.pos[i].z = bz + (r3 + r2 - 1.0F) * 0.5F * d.scale[2];
+          ps.vel[i] = Vec4((r1 - 0.5F) * 0.3F, 0.6F + r2 * 0.6F, (r3 - 0.5F) * 0.3F, 0.0F);
+          ps.maxLife[i] = 0.55F + r2 * 0.5F;
         } else if (kind == 1) {  // smoke: slow rise with drift
           ps.vel[i] = Vec4((r1 - 0.5F) * 0.5F, 0.5F + r2 * 0.5F, (r3 - 0.5F) * 0.5F, 0.0F);
           ps.maxLife[i] = 2.0F + r2 * 1.5F;
@@ -6490,6 +6502,17 @@ void TerrainGame::updateParticles() {
         ps.life[i] = ps.maxLife[i] * (0.05F + 0.95F * prand(ps.rng));  // stagger
       }
       if (kind == 3) ps.vel[i].y -= 6.0F * dt;
+      if (kind == 0) {
+        // Hot gas ACCELERATES upward, and the column pulls in on itself, so
+        // the tongues stretch and taper into a point; the sway grows with
+        // height, as it does on a real flame.
+        ps.vel[i].y += 2.6F * dt;
+        ps.vel[i].x += (bx - ps.pos[i].x) * 2.2F * dt;
+        ps.vel[i].z += (bz - ps.pos[i].z) * 2.2F * dt;
+        const float h = ps.pos[i].y - by;
+        ps.pos[i].x += fireSwayX * h * dt;
+        ps.pos[i].z += fireSwayZ * h * dt;
+      }
       if (kind == 5) {
         // gravity + air drag ~ 1/weight: applied after the pull, so heavy
         // particles keep falling while light ones reach a slow terminal
@@ -6518,8 +6541,13 @@ void TerrainGame::updateParticles() {
       float alpha;
       float cr = d.color[0] * 128.0F, cg = d.color[1] * 128.0F, cb = d.color[2] * 128.0F;
       if (kind == 0) {
-        size *= 0.5F + 0.8F * t;
-        alpha = 90.0F * t;
+        // unfurls quickly at birth, then narrows toward the tip; fades IN
+        // (no pop at the base) and the whole fire flickers
+        const float age = 1.0F - t;
+        const float unfurl = age < 0.15F ? 0.45F + age * (0.55F / 0.15F) : 1.0F;
+        size *= unfurl * (0.35F + 0.75F * t);
+        alpha = 96.0F * (age < 0.1F ? age * 10.0F : 1.0F) * (0.35F + 0.65F * t) *
+                fireFlicker;
         cg *= 0.35F + 0.65F * t;  // orange cools to red as it dies
         cb *= 0.25F * t;
       } else if (kind == 1) {
@@ -6560,6 +6588,7 @@ void TerrainGame::updateParticles() {
         m11 = ca * size;
       }
       if (sizeUp > 0.0F) m11 = sizeUp;  // rain: thin width, streak height
+      if (kind == 0) m11 *= 1.45F;      // flames are taller than wide
       // The camera basis above is (screen-LEFT, screen-DOWN) - the world is
       // viewed down +Z with +X on the left - so a quad built on it is turned
       // 180 degrees and a texture shows upside down (a symmetric puff hid it
