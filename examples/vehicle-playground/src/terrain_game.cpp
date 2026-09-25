@@ -19605,6 +19605,60 @@ int TerrainGame::vehiclePaintFor(int objIdx) {
   return 0;
 }
 
+// The shine budget (docs/vehicles.md, "The shine budget"). On a physical PS2
+// the shine pass of a parked 1938-triangle car 9 units away costs 0.67-0.71 ms
+// of `work`, and 1.12-1.20 ms while the camera turns (its paint colours are
+// rebuilt as well): a third to a half of what the whole car costs. So only the
+// driven car and the nearest others up to the budget draw it; the rest stay
+// matte. A car already shining keeps its place until another one is 20%
+// nearer, so two cars at about the same distance do not trade it every frame.
+void TerrainGame::selectVehicleShine() {
+  if (VEHICLE_SHINE_BUDGET <= 0) {
+    for (int i = 0; i < vehicleCount_; ++i) vehicles_[i].shineOn = true;
+    return;
+  }
+  float rank[VEHICLE_COUNT > 0 ? VEHICLE_COUNT : 1];
+  for (int i = 0; i < vehicleCount_; ++i) {
+    const VehicleRt& v = vehicles_[i];
+    rank[i] = -1.0F;  // not a candidate
+    if (!v.active || v.object < 0 || v.object >= (int)runtimeObjects.size())
+      continue;
+    const float dx = runtimeObjects[v.object].data.position[0] - cameraPosition.x;
+    const float dz = runtimeObjects[v.object].data.position[2] - cameraPosition.z;
+    float d2 = dx * dx + dz * dz;
+    if (d2 > 35.0F * 35.0F) continue;  // the shine pass's own distance cut
+    if (v.shineOn) d2 *= 0.64F;        // 0.8 squared: the hysteresis
+    rank[i] = i == vehicleDriver_ ? 0.0F : d2 + 1.0F;
+  }
+  int picked = 0, mask = 0;
+  for (int i = 0; i < vehicleCount_; ++i) vehicles_[i].shineOn = false;
+  while (picked < VEHICLE_SHINE_BUDGET) {
+    int best = -1;
+    for (int i = 0; i < vehicleCount_; ++i)
+      if (rank[i] >= 0.0F && !vehicles_[i].shineOn &&
+          (best < 0 || rank[i] < rank[best]))
+        best = i;
+    if (best < 0) break;
+    vehicles_[best].shineOn = true;
+    if (best < 31) mask |= 1 << best;
+    ++picked;
+  }
+  // One line whenever the set changes: which cars shine, as a bit mask over
+  // the scene's vehicles - the acceptance check for this budget.
+  if (mask != vehicleShineLogged_) {
+    vehicleShineLogged_ = mask;
+    TYRA_LOG("VEHSHINE budget ", VEHICLE_SHINE_BUDGET, " mask ", mask,
+             " of ", vehicleCount_);
+  }
+}
+
+bool TerrainGame::vehicleShineOn(int objIdx) const {
+  for (int i = 0; i < vehicleCount_; ++i)
+    if (vehicles_[i].active && vehicles_[i].object == objIdx)
+      return vehicles_[i].shineOn;
+  return true;
+}
+
 const char* TerrainGame::vehicleBlobTextureFor(int objIdx) const {
   for (int i = 0; i < VEHICLE_COUNT; ++i) {
     const VehicleInstData& inst = VEHICLES[i];
@@ -23423,6 +23477,8 @@ void TerrainGame::renderScene() {
       const float vdz =
           runtimeObjects[objectIndex].data.position[2] - cameraPosition.z;
       if (vdx * vdx + vdz * vdz > 35.0F * 35.0F) return;
+      // Past the shine budget: the car stays matte this frame.
+      if (!vehicleShineOn(objectIndex)) return;
     }
     // TCE programs compute the matcap ST on VU1 - the EE only refreshes the
     // per-mesh camera basis here. Reflected-probe objects sample with THEIR
@@ -23622,6 +23678,7 @@ void TerrainGame::renderScene() {
   };
   // Once a frame, before anything is submitted: the clock every time-varying
   // script reads. One quadword, and only when the project has a script at all.
+  selectVehicleShine();
   int hlList[8];
   float hlListD2[8];
   int hlCount = 0;

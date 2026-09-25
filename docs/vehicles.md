@@ -838,6 +838,46 @@ no physics. An exiting vehicle also stays awake until its looping audio channels
 have been silenced. Physical-console traces expose the aggregate as
 `Vehicles_update` and each skipped instance as `Vehicle_sleep`.
 
+### The shine budget (1.132.0)
+
+*Preferences > Rendering > Shiny vehicles at once* (`settings.vehicleShineBudget`,
+format v67, default **2**, 0 = all) caps how many vehicles draw the body-shine
+pass in one view. The driven car always gets it first, then the nearest others
+inside the pass's 35-unit cut. The rest are drawn matte: the same body, no
+reflection and no fresnel/specular pass. A car already shining keeps its place
+until another one is **20% nearer** (the ranking compares squared distances,
+the incumbent's scaled by 0.64), so two cars at about the same distance do not
+trade the shine every frame. `VEHSHINE budget B mask M of N` is logged whenever
+the set changes (M is a bit mask over the scene's vehicles).
+
+**Why it exists: the shine is the dearest part of a second car.** The
+reflection itself is not per car. Every car samples the one shared capture
+(docs/reflective-materials.md), the way the era's racers did it: a single
+environment around the camera, not one per car. What each car pays for is its
+own additive pass over the paint part, plus the paint colours when the view
+turns. Measured on a physical PS2, Motor District: the camera orbits a parked
+CC96 (driven) and Ravager 9 units away at 0.8 deg/frame, or holds still. One
+ELF with the arm read at boot, two boots per arm, both rounds within 0.03 ms.
+`work` saved by removing the Ravager, or one part of it:
+
+| removed | camera orbiting | camera still | triangles a frame |
+| --- | ---: | ---: | ---: |
+| the whole Ravager | 2.41..2.58 ms | 2.13..2.29 ms | 6484 |
+| its shine pass | 1.12..1.20 | 0.67..0.71 | 2577 |
+| its wheels | 0.32..0.39 | 0.27..0.31 | 1168 |
+| its glass part | 0.05..0.11 | -0.04..0.11 | - |
+| paint colour rebuilds, both cars | 0.78..0.80 | 0.00 | - |
+
+The shine is a third of a parked car and half of one seen by a turning camera.
+Most of it is the GPU, not the EE: `vif_wait` falls 0.65..0.68 ms of the
+0.7 ms parked. The shipped budget, set to 1 on the same fixture, measured
+**-1.12..-1.15 ms orbiting and -0.75..-0.78 ms still**, the table's shine row.
+The default of 2 changes nothing with two cars; it starts saving at the third.
+
+Note the whole-car row. "What a car costs" below prices a car in view at
+~0.4 ms of `work`, which was a car further away. A 1938-triangle car at
+9 units is five times that, and most of it is VU1/GS time.
+
 ### What a car costs (1.125.2)
 
 Measured on a physical PS2, Motor District `main` scene, player car parked at

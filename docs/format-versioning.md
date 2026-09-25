@@ -200,6 +200,11 @@ Format 60 adds the optional per-road `roadSampleStep` field. It is purely
 additive: missing means the original 1 m longitudinal spacing, so no migration
 step is required.
 
+Format 67 adds `settings.vehicleShineBudget` (docs/vehicles.md, "The shine
+budget"), written only when it is not 2. Missing reads as 2, so an older
+project with three or more cars near the camera now draws two of them shiny;
+0 restores every car. Additive; no migration step.
+
 Format 65 adds a vehicle definition's optional `skidMaterial` and
 `smokeMaterial` (docs/vehicles.md, "Skid marks and smoke"), written only when
 set; missing means the built-in textures. Additive; no migration step.

@@ -5261,6 +5261,11 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.132.0 - The shine budget: Preferences > Rendering > "Shiny vehicles at
+// once" (settings.vehicleShineBudget, format v67, default 2, 0 = all) limits
+// the body-shine pass to the driven car and the nearest others. On a PS2 a
+// second car's shine measured 0.67-0.71 ms parked and 1.12-1.20 ms with the
+// camera turning, of the 2.1-2.6 ms the whole car costs. MINOR.
 // 1.131.0 - Merge of the rigid-body physics branch (below, shipped there as
 // 1.123.0) into vehicles; the solver keeps this branch's cached list of
 // physics objects (0.51 ms on a PS2 with nothing awake). MINOR.
@@ -5279,7 +5284,7 @@
 // (the per-asset textureQuality override), which the vehicle bake now obeys.
 // New example body: the Ravager (authoring/make-ravager.py, run in Blender).
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 131
+#define TYRAX_VERSION_MINOR 132
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -5690,7 +5695,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // (written only below 1) and the bake-measured glassPart (written only when
 // >= 0). Missing = opaque glass merged into the palette, as before. Additive;
 // no migration step.
-inline constexpr int kFormatVersion = 66;
+// v67 (docs/vehicles.md, "The shine budget"): settings.vehicleShineBudget,
+// written only when not 2; missing reads as 2. A project saved before it with
+// three or more cars inside 35 units of the camera now shows two of them shiny
+// (0 restores every car). Additive; no migration step.
+inline constexpr int kFormatVersion = 67;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

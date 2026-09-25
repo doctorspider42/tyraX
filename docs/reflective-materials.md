@@ -258,6 +258,11 @@ each DISTINCT normal once and scatters (1.125.0): the CC96 body's 4212 env
 vertices carry 2106 distinct normals. The map is built once per normal array
 and logged as `VEHPAINT normals N distinct M`.
 
+Only the driven car and the nearest others up to *Shiny vehicles at once*
+(default 2) draw this pass; the rest stay matte (docs/vehicles.md, "The shine
+budget"). A second car's pass measured 0.7 ms a frame parked and 1.2 ms while
+the camera turned, on a physical PS2.
+
 ## The ground in the probe (1.125.0)
 
 The shared probe paints the resident terrain and road chunks into its target,

@@ -159,6 +159,11 @@ constexpr bool STATIC_BATCHING = true;
 // orders every few seconds and keeps the faster), 2 = always.
 constexpr int INTERLEAVE_PASSES = 1;
 
+// Shiny vehicles at once (Preferences > Rendering, docs/vehicles.md, "The
+// shine budget"): how many vehicles draw the body-shine pass in one view, the
+// driven one first and then the nearest. 0 = every vehicle within 35 units.
+constexpr int VEHICLE_SHINE_BUDGET = 2;
+
 // Dynamic reflection probe aim (Preferences > Rendering): false = the
 // classic GT3 level-forward aim; true = a camera ray is intersected with
 // the dynamic-reflective objects and the probe renders from the hit point

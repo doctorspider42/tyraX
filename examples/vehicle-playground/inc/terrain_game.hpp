@@ -869,6 +869,8 @@ class TerrainGame : public Tyra::Game {
   // --- vehicles (docs/vehicles.md) ---
   struct VehicleRt {
     int object = -1;      // index into this scene's object table
+    // Drawn with the body-shine pass in this view (selectVehicleShine).
+    bool shineOn = true;
     int def = -1;         // VEHICLE_DEFS row
     int driveable = 0;
     int active = 0;
@@ -1124,6 +1126,11 @@ class TerrainGame : public Tyra::Game {
   void renderVehicleHud();
   // Is this runtime object a placed vehicle? The paint pass asks per part.
   int vehiclePaintFor(int objIdx);
+  // The shine budget (VEHICLE_SHINE_BUDGET): picks which vehicles draw the
+  // body-shine pass in this view, and answers per object.
+  void selectVehicleShine();
+  bool vehicleShineOn(int objIdx) const;
+  int vehicleShineLogged_ = -1;  // the last selection VEHSHINE printed
   const char* vehicleBlobTextureFor(int objIdx) const;
 
   // --- roads (docs/roads.md) ---

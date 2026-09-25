@@ -238,6 +238,23 @@ direct route requires that a guard-band-only bag lacks, and whether an
 "every package is IN or guard-band" bag can take it. Measure with the
 `Obj_*` capture rows (docs/profiling.md, "The game side of the object loop").
 
+## More than one car in view: what is left (2026-09-25)
+
+The shine budget shipped in 1.132.0 (docs/vehicles.md, "The shine budget").
+The same console breakdown of a second car (a parked Ravager 9 units away)
+leaves these, dearest first:
+- **The matte car still costs ~1.4 ms** (2.1-2.6 ms whole, minus the shine),
+  mostly VU1/GS: body 1938 triangles, blob, lamps. The Ravager bakes no far
+  tier (the CC96 does, past 48 units). A middle tier for cars that are not
+  driven, or a lower `farDistance` for traffic, is the next lever. Price it on
+  the orbit fixture (`make_mc_arm.py` in the working notes) before choosing.
+- **Wheels, 0.27-0.39 ms a car**: four 160-triangle wheels rebuilt on the EE
+  every frame. The fast-wheel model and the rebake skip exist; a coarser wheel
+  for cars that are not driven does not.
+- **Paint colour rebuilds, ~0.4 ms a shining car** while the camera turns.
+  The hysteresis step is a fixed 4/128 at every distance; scaling it with the
+  distance to the car would cut rebuilds for far shining cars. Unmeasured.
+
 ## Motor District follow-up after the integrated frozen-camera pass
 
 ### What else was `FlushCache` writing back? (2026-09-16, BLOCKING S1)

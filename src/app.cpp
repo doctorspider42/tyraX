@@ -15787,6 +15787,16 @@ void App::drawPreferencesWindow() {
         "and keeps the faster. The first object that may blend (alpha,\n"
         "cutouts, blend modes) always finds the batches and roads drawn.");
 
+    ImGui::SliderInt("Shiny vehicles at once", &prefSettings_.vehicleShineBudget,
+                     0, 8, prefSettings_.vehicleShineBudget == 0 ? "all" : "%d");
+    prefHelp(
+        "How many vehicles draw their body shine (the paint reflection and\n"
+        "highlight) in one view: the car being driven first, then the\n"
+        "nearest. The rest stay matte. Measured on a PS2: a second car's\n"
+        "shine costs 0.7 ms a frame parked and 1.2 ms while the camera\n"
+        "turns, a third to a half of the whole car. 0 = every vehicle\n"
+        "within 35 units, the look before this setting.");
+
     ImGui::Checkbox("Conservative occlusion culling",
                     &prefSettings_.occlusionCulling);
     prefHelp(

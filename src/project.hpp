@@ -1710,6 +1710,12 @@ struct ProjectSettings {
     // "off" = the plain order.
     std::string interleavePasses = "auto";
 
+    // The shine budget (docs/vehicles.md): how many vehicles draw the
+    // body-shine pass in one view - the driven one first, then the nearest.
+    // 0 = every vehicle within the pass's 35 units (the look before format
+    // v66).
+    int vehicleShineBudget = 2;
+
     // Build conservative inner proxies for opaque static objects and use a
     // tiny CPU depth buffer to reject fully hidden objects/chunks before they
     // enter StaPip. Off by default until measured on target hardware.
@@ -2193,7 +2199,7 @@ struct ProjectSettings {
     bool highlightOverlay = false;
 };
 
-static_assert(sizeof(ProjectSettings) == 808,
+static_assert(sizeof(ProjectSettings) == 816,
               "ProjectSettings changed size - a field was added or removed. "
               "Add it to operator== below as well, or its Preferences widget "
               "will silently do nothing; then update this number.");
@@ -2252,6 +2258,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.animPlayFps == b.animPlayFps &&
            a.staticBatching == b.staticBatching &&
            a.interleavePasses == b.interleavePasses &&
+           a.vehicleShineBudget == b.vehicleShineBudget &&
            a.occlusionCulling == b.occlusionCulling &&
            a.envProbeReflected == b.envProbeReflected &&
            a.navCellSize == b.navCellSize && a.navMaxSlope == b.navMaxSlope &&

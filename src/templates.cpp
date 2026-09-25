@@ -1020,6 +1020,11 @@ constexpr bool STATIC_BATCHING = {{STATIC_BATCHING}};
 // orders every few seconds and keeps the faster), 2 = always.
 constexpr int INTERLEAVE_PASSES = {{INTERLEAVE_PASSES}};
 
+// Shiny vehicles at once (Preferences > Rendering, docs/vehicles.md, "The
+// shine budget"): how many vehicles draw the body-shine pass in one view, the
+// driven one first and then the nearest. 0 = every vehicle within 35 units.
+constexpr int VEHICLE_SHINE_BUDGET = {{VEHICLE_SHINE_BUDGET}};
+
 // Dynamic reflection probe aim (Preferences > Rendering): false = the
 // classic GT3 level-forward aim; true = a camera ray is intersected with
 // the dynamic-reflective objects and the probe renders from the hit point
@@ -24452,6 +24457,8 @@ void TerrainGame::renderScene() {
       const float vdz =
           runtimeObjects[objectIndex].data.position[2] - cameraPosition.z;
       if (vdx * vdx + vdz * vdz > 35.0F * 35.0F) return;
+      // Past the shine budget: the car stays matte this frame.
+      if (!{{VEHICLE_SHINE_ON}}) return;
     }
     // TCE programs compute the matcap ST on VU1 - the EE only refreshes the
     // per-mesh camera basis here. Reflected-probe objects sample with THEIR
@@ -24651,6 +24658,7 @@ void TerrainGame::renderScene() {
   };
   // Once a frame, before anything is submitted: the clock every time-varying
   // script reads. One quadword, and only when the project has a script at all.
+  {{VEHICLE_SHINE_SELECT}}
   int hlList[8];
   float hlListD2[8];
   int hlCount = 0;
@@ -36141,6 +36149,8 @@ static std::string vehicleMembers(const Project& p) {
     return R"(  // --- vehicles (docs/vehicles.md) ---
   struct VehicleRt {
     int object = -1;      // index into this scene's object table
+    // Drawn with the body-shine pass in this view (selectVehicleShine).
+    bool shineOn = true;
     int def = -1;         // VEHICLE_DEFS row
     int driveable = 0;
     int active = 0;
@@ -36396,6 +36406,11 @@ static std::string vehicleMembers(const Project& p) {
   void renderVehicleHud();
   // Is this runtime object a placed vehicle? The paint pass asks per part.
   int vehiclePaintFor(int objIdx);
+  // The shine budget (VEHICLE_SHINE_BUDGET): picks which vehicles draw the
+  // body-shine pass in this view, and answers per object.
+  void selectVehicleShine();
+  bool vehicleShineOn(int objIdx) const;
+  int vehicleShineLogged_ = -1;  // the last selection VEHSHINE printed
   const char* vehicleBlobTextureFor(int objIdx) const;
 )";
 }
@@ -38777,6 +38792,60 @@ int TerrainGame::vehiclePaintFor(int objIdx) {
   return 0;
 }
 
+// The shine budget (docs/vehicles.md, "The shine budget"). On a physical PS2
+// the shine pass of a parked 1938-triangle car 9 units away costs 0.67-0.71 ms
+// of `work`, and 1.12-1.20 ms while the camera turns (its paint colours are
+// rebuilt as well): a third to a half of what the whole car costs. So only the
+// driven car and the nearest others up to the budget draw it; the rest stay
+// matte. A car already shining keeps its place until another one is 20%
+// nearer, so two cars at about the same distance do not trade it every frame.
+void TerrainGame::selectVehicleShine() {
+  if (VEHICLE_SHINE_BUDGET <= 0) {
+    for (int i = 0; i < vehicleCount_; ++i) vehicles_[i].shineOn = true;
+    return;
+  }
+  float rank[VEHICLE_COUNT > 0 ? VEHICLE_COUNT : 1];
+  for (int i = 0; i < vehicleCount_; ++i) {
+    const VehicleRt& v = vehicles_[i];
+    rank[i] = -1.0F;  // not a candidate
+    if (!v.active || v.object < 0 || v.object >= (int)runtimeObjects.size())
+      continue;
+    const float dx = runtimeObjects[v.object].data.position[0] - cameraPosition.x;
+    const float dz = runtimeObjects[v.object].data.position[2] - cameraPosition.z;
+    float d2 = dx * dx + dz * dz;
+    if (d2 > 35.0F * 35.0F) continue;  // the shine pass's own distance cut
+    if (v.shineOn) d2 *= 0.64F;        // 0.8 squared: the hysteresis
+    rank[i] = i == vehicleDriver_ ? 0.0F : d2 + 1.0F;
+  }
+  int picked = 0, mask = 0;
+  for (int i = 0; i < vehicleCount_; ++i) vehicles_[i].shineOn = false;
+  while (picked < VEHICLE_SHINE_BUDGET) {
+    int best = -1;
+    for (int i = 0; i < vehicleCount_; ++i)
+      if (rank[i] >= 0.0F && !vehicles_[i].shineOn &&
+          (best < 0 || rank[i] < rank[best]))
+        best = i;
+    if (best < 0) break;
+    vehicles_[best].shineOn = true;
+    if (best < 31) mask |= 1 << best;
+    ++picked;
+  }
+  // One line whenever the set changes: which cars shine, as a bit mask over
+  // the scene's vehicles - the acceptance check for this budget.
+  if (mask != vehicleShineLogged_) {
+    vehicleShineLogged_ = mask;
+    TYRA_LOG("VEHSHINE budget ", VEHICLE_SHINE_BUDGET, " mask ", mask,
+             " of ", vehicleCount_);
+  }
+}
+
+bool TerrainGame::vehicleShineOn(int objIdx) const {
+  for (int i = 0; i < vehicleCount_; ++i)
+    if (vehicles_[i].active && vehicles_[i].object == objIdx)
+      return vehicles_[i].shineOn;
+  return true;
+}
+
 const char* TerrainGame::vehicleBlobTextureFor(int objIdx) const {
   for (int i = 0; i < VEHICLE_COUNT; ++i) {
     const VehicleInstData& inst = VEHICLES[i];
@@ -40265,6 +40334,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
                    st.interleavePasses == "off"      ? "0"
                    : st.interleavePasses == "always" ? "2"
                                                      : "1");
+    s = replaceAll(s, "{{VEHICLE_SHINE_BUDGET}}",
+                   std::to_string(st.vehicleShineBudget));
     s = replaceAll(s, "{{ENV_PROBE_REFLECTED}}",
                    st.envProbeReflected ? "true" : "false");
     s = replaceAll(s, "{{VIDEO_MODE}}", st.videoSystem == "pal"    ? "PAL"
@@ -40348,6 +40419,11 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{VEHICLE_PAINT_FOR}}",
                    projectHasVehicles(p) ? "vehiclePaintFor(objectIndex)"
                                          : "0");
+    s = replaceAll(s, "{{VEHICLE_SHINE_ON}}",
+                   projectHasVehicles(p) ? "vehicleShineOn(objectIndex)"
+                                         : "true");
+    s = replaceAll(s, "{{VEHICLE_SHINE_SELECT}}",
+                   projectHasVehicles(p) ? "selectVehicleShine();" : "");
     s = replaceAll(s, "{{VEHICLE_BLOB_TEXTURE_FOR}}",
                    projectHasVehicles(p) ? "vehicleBlobTextureFor(i)"
                                          : "nullptr");

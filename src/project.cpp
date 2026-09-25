@@ -1718,6 +1718,11 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
                  ? "    \"interleavePasses\": \"" +
                        p.settings.interleavePasses + "\",\n"
                  : std::string())
+         // Also written only when not the default (format v66).
+         << (p.settings.vehicleShineBudget != 2
+                 ? "    \"vehicleShineBudget\": " +
+                       std::to_string(p.settings.vehicleShineBudget) + ",\n"
+                 : std::string())
          << "    \"occlusionCulling\": "
          << (p.settings.occlusionCulling ? "true" : "false") << ",\n"
          << "    \"envProbeReflected\": "
@@ -5776,6 +5781,11 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.interleavePasses = v->stringOr("auto");
             if (st.interleavePasses != "off" && st.interleavePasses != "always")
                 st.interleavePasses = "auto";
+        }
+        if (const auto* v = s->find("vehicleShineBudget")) {
+            st.vehicleShineBudget = (int)v->numberOr(2);
+            if (st.vehicleShineBudget < 0) st.vehicleShineBudget = 0;
+            if (st.vehicleShineBudget > 16) st.vehicleShineBudget = 16;
         }
         if (const auto* v = s->find("occlusionCulling"))
             st.occlusionCulling = v->boolOr(false);
