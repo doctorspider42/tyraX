@@ -200,6 +200,10 @@ Format 60 adds the optional per-road `roadSampleStep` field. It is purely
 additive: missing means the original 1 m longitudinal spacing, so no migration
 step is required.
 
+Format 65 adds a vehicle definition's optional `skidMaterial` and
+`smokeMaterial` (docs/vehicles.md, "Skid marks and smoke"), written only when
+set; missing means the built-in textures. Additive; no migration step.
+
 Format 64 adds `settings.interleavePasses` ("auto", "always", "off";
 [interleaved-passes.md](interleaved-passes.md)). It is written only when it
 is not "auto", so a project that never sets it resaves byte for byte, and a

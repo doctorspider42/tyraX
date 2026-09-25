@@ -913,6 +913,13 @@ class TerrainGame : public Tyra::Game {
     // Visual fx: distance owed to the next skid quad, the backfire flash
     // timer, and the last gear the flash heard.
     float skidAcc = 0.0F;
+    // The skid RIBBON (per rear wheel, 0 = left, 1 = right): the edge the
+    // last segment ended on - left x,y,z then right x,y,z - and the texture
+    // coordinate along the mark there. skidOn = 0 starts a fresh ribbon
+    // (the tyre just let go) instead of bridging the gap to the old one.
+    float skidEdge[2][6] = {};
+    float skidV[2] = {0.0F, 0.0F};
+    int skidOn[2] = {0, 0};
     float backfireT = 0.0F;
     int fxPrevGear = 0;
     // Lights: -1 = take the definition's default on first update, else the
@@ -1022,50 +1029,64 @@ class TerrainGame : public Tyra::Game {
   void updateVehicles(float dt);
   void renderVehicleWheels();
   int vehicleLod(int vi) const;  // the body's shown tier (telemetry)
-  // Tyre smoke (docs/vehicles.md): a small pool of camera-facing puffs fed
-  // by the sim's ONE slip number, so the smoke and the screech-worthy moment
-  // can never disagree. Its own billboard bag - the particle system's exact
-  // shape, VU1 expanding each centre + 2x2 basis weights into a quad.
+  // Tyre smoke and skid marks (docs/vehicles.md, "Skid marks and smoke"):
+  // ONE POOL PER VEHICLE DEFINITION, because each definition may name its
+  // own material (texture + Kd tint) and a bag carries one texture. A pool
+  // costs nothing until its first puff or mark - the bags are lazy and a
+  // pool with nothing alive is not submitted.
+  //   smoke - camera-facing puffs fed by the sim's ONE slip number, so the
+  //     smoke and the screech-worthy moment can never disagree; a billboard
+  //     bag, VU1 expanding centre + 2x2 weights into a quad.
+  //   skids - a continuous RIBBON per rear wheel: every new segment starts at
+  //     the edge the previous one ended on, so a curve is a smooth polyline
+  //     instead of rotated tiles; the texture runs along the travel. The
+  //     fade touches colours alone; bboxVersion bumps only on a spawn.
   enum { kVehSmokeMax = 48 };
-  // BagArray rather than a raw C array: the vehicle rings are
-  // bag-backing, so the same type - and the same content stamp - has to
-  // own them. A partial conversion would read as enforced and not be.
-  // They are sized during setupVehicles, before either per-frame updater can
-  // touch them. The bag itself stays lazy until the first visible puff.
-  BagArray<Tyra::Vec4> smokePos_;
-  Tyra::Vec4 smokeVel_[kVehSmokeMax];
-  float smokeLife_[kVehSmokeMax] = {};
-  float smokeMaxLife_[kVehSmokeMax] = {};
-  BagArray<Tyra::Vec4> smokeParams_;
-  BagArray<Tyra::Color> smokeCols_;
-  int smokeNext_ = 0;
-  int smokeAlive_ = 0;
-  std::unique_ptr<Tyra::StaPipBag> smokeBag_;
-  std::unique_ptr<Tyra::StaPipInfoBag> smokeInfoBag_;
-  std::unique_ptr<Tyra::StaPipColorBag> smokeColorBag_;
-  std::unique_ptr<Tyra::StaPipTextureBag> smokeTexBag_;
-  std::unique_ptr<Tyra::StaPipBillboardBag> smokeBillboardBag_;
+  enum { kVehSkidMax = 192 };  // ~2-3 s of a full drift per pool
+  struct VehFx {
+    // BagArray, not raw arrays: bag-backing storage carries the content
+    // stamp (docs/bag-content-version.md). Sized in setupVehicleFx, before
+    // either updater can touch them.
+    BagArray<Tyra::Vec4> smokePos;
+    BagArray<Tyra::Vec4> smokeParams;
+    BagArray<Tyra::Color> smokeCols;
+    Tyra::Vec4 smokeVel[kVehSmokeMax];
+    float smokeLife[kVehSmokeMax] = {};
+    float smokeMaxLife[kVehSmokeMax] = {};
+    int smokeNext = 0;
+    int smokeAlive = 0;
+    std::unique_ptr<Tyra::StaPipBag> smokeBag;
+    std::unique_ptr<Tyra::StaPipInfoBag> smokeInfoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> smokeColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> smokeTexBag;
+    std::unique_ptr<Tyra::StaPipBillboardBag> smokeBillboardBag;
+    BagArray<Tyra::Vec4> skidVerts;
+    BagArray<Tyra::Vec4> skidSts;
+    BagArray<Tyra::Color> skidCols;
+    float skidLife[kVehSkidMax] = {};
+    int skidNext = 0;
+    int skidAlive = 0;
+    int skidDirty = 0;
+    std::unique_ptr<Tyra::StaPipBag> skidBag;
+    std::unique_ptr<Tyra::StaPipInfoBag> skidInfoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> skidColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> skidTexBag;
+    // The look: texture (held through the texture cache under *TexPath) and
+    // the Kd tint, 0..255 on the vertex-colour scale.
+    Tyra::Texture* skidTex = nullptr;
+    Tyra::Texture* smokeTex = nullptr;
+    std::string skidTexPath, smokeTexPath;
+    float skidTint[3] = {6.0F, 6.0F, 6.0F};
+    float smokeTint[3] = {150.0F, 150.0F, 152.0F};
+  };
+  std::vector<std::unique_ptr<VehFx>> vehFx_;  // index = VEHICLE_DEFS slot
+  void setupVehicleFx();
+  void releaseVehicleFx();
+  VehFx* vehFxFor(int def) {
+    return def >= 0 && def < (int)vehFx_.size() ? vehFx_[def].get() : nullptr;
+  }
   void updateVehicleSmoke(float dt);
   void renderVehicleSmoke();
-  // SKID MARKS - slip's fifth consumer (smoke, screech, telemetry, drift HUD
-  // one day): a ring of terrain-flat dark quads under the slipping rear
-  // wheels, fading out over seconds. Plain triangles (the collision-overlay
-  // shape), one submit, skipped when empty. bboxVersion bumps only when a
-  // quad SPAWNS - the fade touches colors alone.
-  enum { kVehSkidMax = 96 };
-  // BagArray rather than a raw C array: the vehicle rings are
-  // bag-backing, so the same type - and the same content stamp - has to
-  // own them. A partial conversion would read as enforced and not be.
-  // They are sized once, where their bags are created.
-  BagArray<Tyra::Vec4> skidVerts_;
-  BagArray<Tyra::Color> skidCols_;
-  float skidLife_[kVehSkidMax] = {};
-  int skidNext_ = 0;
-  int skidAlive_ = 0;
-  int skidDirty_ = 0;
-  std::unique_ptr<Tyra::StaPipBag> skidBag_;
-  std::unique_ptr<Tyra::StaPipInfoBag> skidInfoBag_;
-  std::unique_ptr<Tyra::StaPipColorBag> skidColorBag_;
   void updateVehicleSkids(float dt);
   void renderVehicleSkids();
   // The GLOW bag - untextured tail-lamp and backfire quads. Headlights use a

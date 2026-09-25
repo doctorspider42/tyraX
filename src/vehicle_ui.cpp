@@ -757,6 +757,39 @@ void App::drawVehicleWindow() {
             ImGui::EndTabItem();
         }
 
+        // --- Effects -----------------------------------------------------------
+        // What the tyres leave behind (docs/vehicles.md, "Skid marks and
+        // smoke"). An .mtl supplies the texture and the Kd tint; none = the
+        // built-in tread and puff the vehicle bake generates.
+        if (ImGui::BeginTabItem("Effects")) {
+            auto mtlPicker = [&](const char* label, std::string& path,
+                                 const char* noneLabel) {
+                std::string current = path.empty() ? noneLabel : path;
+                if (current.rfind("res/", 0) == 0) current = current.substr(4);
+                ImGui::SetNextItemWidth(scaled(260));
+                if (ImGui::BeginCombo(label, current.c_str())) {
+                    if (ImGui::Selectable(noneLabel, path.empty())) path.clear();
+                    for (const std::string& rel : listMaterialAssets())
+                        if (ImGui::Selectable(rel.substr(4).c_str(), rel == path))
+                            path = rel;
+                    ImGui::EndCombo();
+                }
+            };
+            mtlPicker("Skid marks", v.skidMaterial, "<built-in tread>");
+            prefHelp(
+                "The material the tyre marks are drawn with: its texture runs\n"
+                "ALONG the mark (repeating every 1.5 units of travel, across\n"
+                "the full width), its Kd colour tints it. The texture's alpha\n"
+                "is the mark's shape. An atlased texture cannot repeat, so it\n"
+                "falls back to the built-in tread (the game log says so).");
+            mtlPicker("Tyre smoke", v.smokeMaterial, "<built-in puff>");
+            prefHelp(
+                "The material each smoke puff is a billboard of: texture\n"
+                "alpha is the puff's shape, Kd tints it (dust on dirt, white\n"
+                "smoke on tarmac). The puffs grow, turn and fade on their own.");
+            ImGui::EndTabItem();
+        }
+
         // --- Cost -------------------------------------------------------------
         // The number that decides whether a scene can afford this vehicle at
         // all. A PS2 submit is ~1 ms of fixed EE time whatever it holds, so

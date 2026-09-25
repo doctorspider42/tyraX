@@ -426,10 +426,10 @@ let go.
 Three fx surfaces past the smoke, all slip/shift/def-driven and all costing
 nothing when idle:
 
-- **Skid marks**: a ring of 96 terrain-flat dark quads under the slipping
-  rear wheels (slip's fifth consumer), distance-paced (one per half unit of
-  travel), fading over six seconds. Colors-only decay: `bboxVersion` bumps
-  only when a quad SPAWNS. One alpha-over submit, skipped when empty.
+- **Skid marks**: a textured ribbon under each slipping rear wheel (slip's
+  fifth consumer), fading over six seconds - see *Skid marks and smoke*
+  below. Colors-only decay: `bboxVersion` bumps only when a segment SPAWNS.
+  One alpha-over submit per definition, skipped when empty.
 - **Backfire**: an upshift pops a vertical additive quad at the exhaust for
   a tenth of a second — the shift sound's visual twin.
 - **Lamps can BE body mesh** — the one thing the engine asks of the model:
@@ -555,9 +555,10 @@ readout shows **88** with the gear beside it and **NOS 3** below.
 48-puff ring at a rate proportional to the slip, so burnouts, handbrake slides
 and wall grinds all smoke — because they all *are* slip, and one number feeding
 both the smoke and the telemetry is what keeps them from ever disagreeing. The
-puffs are camera-facing billboards in **one submit** (the particle system's
-exact shape: VU1 expands centre + 2×2 basis weights into a quad, the EE never
-touches a corner), untextured grey with per-puff alpha over standard blending,
+puffs are camera-facing billboards in **one submit** per definition (the
+particle system's exact shape: VU1 expands centre + 2×2 basis weights into a
+quad, the EE never touches a corner), textured and tinted per definition (see
+*Skid marks and smoke*), with per-puff alpha over standard blending,
 swirling and swelling as they fade — the fog puff's own recipe. The submit
 rides at the frame's translucent tail with the emitters' particles and never
 writes Z (the engine's `PipelineZTest_TestOnly`): drawn before the car with
@@ -575,6 +576,60 @@ geometry before it checks whether its bag exists. An empty `BagArray` returns
 a null data pointer, so either `operator[]` or `span()` followed by `Vec4::set`
 becomes a hardware-only TLB store miss (`BadAddr 0`) immediately after the
 loading screen. PCSX2 maps RAM at zero and therefore does not expose this bug.
+
+### Skid marks and smoke
+
+What the tyres leave behind has a look of its own since 1.129.0. **Vehicle
+Editor > Effects** names two materials (`.mtl`, `skidMaterial` /
+`smokeMaterial` on the definition, format v65):
+
+- **Skid marks**: the texture runs ALONG the mark, one repeat every 1.5
+  units of travel across the full width, and the texture's alpha is the
+  mark's shape. The material's Kd tints it.
+- **Tyre smoke**: the texture is each puff's billboard, and Kd tints it
+  (dust on dirt, white on tarmac).
+
+Leave either unset and the definition uses the built-in pair. The vehicle
+bake GENERATES them (`vehbake::builtinSkidPng` / `builtinSmokePng`, written
+to `vehicles/fx-skid.png` and `fx-smoke.png`), so there is no asset and no
+licence:
+- the tread is 32×64, with soft shoulders, two grooves, slanted sipes and
+  rubber grain;
+- the puff is 64×64, a soft disc whose rim fractal noise pushes in and out,
+  lighter on top. It is never quantized below 8-bit: at 16 colours its
+  alpha banded into hard rings.
+
+A definition-named texture that the atlas packed cannot repeat along the
+mark, so it falls back to the tread with a `TYRA_WARN`.
+
+![Built-in tread ribbon and smoke behind a cornering car (PCSX2)](img/vehicle-skids-smoke.png)
+
+**One pool per definition**, because a bag carries one texture: 48 puffs and
+192 mark segments each, the bags lazy, a pool with nothing alive not
+submitted. Textures come from the refcounted texture cache
+(`acquireTexture`), not from `loadMaterialAsset`. That residency belongs to
+the scene objects using a material, and the layer streamer would drop it
+from under a car.
+
+**The mark is a ribbon, not tiles.** It used to be a separate quad every half
+unit, each rotated to the car's heading at that instant, so a curve came out
+as a staircase with gaps. Now every segment starts on the edge the previous
+one ended on: consecutive segments share their seam, and a curve is a smooth
+polyline. Three things made the old marks disappear, all measured in PCSX2
+with a Remote Pad drift and a `SKIDDBG` log:
+1. **Speed.** Marks spawned only above 2 m/s of FORWARD speed, but a
+   handbrake slide carried 26 m/s sideways at 0.3 m/s forward. The test is
+   ground speed now.
+2. **Width.** The width was taken across the car. When the car moves
+   sideways every edge lay on one line and each segment had no area. It is
+   taken across the tyre's displacement since the previous edge now.
+3. **Height.** The marks sat at the wheel height, which samples the terrain
+   only, so on every road (0.12 above it) they were under the asphalt. Both
+   edges sit on `groundSurfaceAt` now.
+
+**The puffs rise and slow** (drag 1.6/s, a little buoyancy), fade in over
+their first tenth instead of popping, start small and billow out. They spawn
+0.26 units above the wheel so a new puff is not half buried in the road.
 
 ### Engine sound
 

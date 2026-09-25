@@ -202,6 +202,14 @@ struct BakedPaths {
 // name the files without running the bake.
 BakedPaths pathsFor(const VehicleDef& v);
 
+// The built-in tyre-effect textures (docs/vehicles.md, "Skid marks and
+// smoke"): bin-relative paths the game loads when a definition names no
+// material, and the generated PNGs the build writes there.
+extern const char* kSkidTexturePath;
+extern const char* kSmokeTexturePath;
+std::vector<unsigned char> builtinSkidPng();
+std::vector<unsigned char> builtinSmokePng();
+
 // What the bake hands BACK to a definition: the lamp measurements (the
 // glow clusters and the emissive part indices). Pure measurement with no
 // authored value to respect, so it is adopted UNCONDITIONALLY - by the

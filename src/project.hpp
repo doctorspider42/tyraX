@@ -1212,6 +1212,13 @@ struct VehicleDef {
     // Off by default - they read as light, so a day map opts in knowingly.
     bool headlights = false;
 
+    // Tyre effects (docs/vehicles.md, "Skid marks and smoke"): an .mtl
+    // (res/...) whose texture and Kd colour the skid ribbon / smoke puffs
+    // take. Empty = the built-in tread and puff textures the vehicle bake
+    // generates.
+    std::string skidMaterial;
+    std::string smokeMaterial;
+
     // The driver's readout (docs/vehicles.md, "The HUD"). Off by default, so a
     // vehicle authored before it existed still shows nothing.
     bool showHud = false;
@@ -1243,6 +1250,7 @@ inline bool operator==(const VehicleDef& a, const VehicleDef& b) {
         a.screechSound != b.screechSound || a.shiftSound != b.shiftSound ||
         a.screechVolume != b.screechVolume || a.shiftVolume != b.shiftVolume ||
         a.headlights != b.headlights ||
+        a.skidMaterial != b.skidMaterial || a.smokeMaterial != b.smokeMaterial ||
         a.lampRear[0] != b.lampRear[0] || a.lampRear[1] != b.lampRear[1] ||
         a.lampRear[2] != b.lampRear[2] || a.lampRear[3] != b.lampRear[3] ||
         a.lampFront[0] != b.lampFront[0] || a.lampFront[1] != b.lampFront[1] ||

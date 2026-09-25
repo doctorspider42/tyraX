@@ -16,6 +16,13 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.129.0: TEXTURED SKID MARKS AND SMOKE.
+// Vehicle Editor > Effects names a material for the skid marks and one for
+// the tyre smoke (format v65); unset = built-in tread and puff textures the
+// vehicle bake generates. The mark is a continuous ribbon now, and it shows
+// in handbrake slides and on roads, where the old one had no area or sat
+// under the asphalt. MINOR.
+//
 // 1.128.3: NO FRAME SLEEPS UNLESS THE LIVE DEBUGGER IS ATTACHED.
 // beginFrame/endFrame slept 0.5 ms each (Threading::switchThread) since
 // upstream; RendererCore::setFrameYield now gates them and the generated game
@@ -5255,8 +5262,8 @@
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 128
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_MINOR 129
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -5659,7 +5666,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // "always" / "off". Written only when not "auto", so a project that never
 // sets it resaves byte for byte; missing reads as "auto". Additive; no
 // migration step.
-inline constexpr int kFormatVersion = 64;
+// v65 (docs/vehicles.md, "Skid marks and smoke"): VehicleDef::skidMaterial
+// and smokeMaterial, written only when set; missing = the built-in textures.
+// Additive; no migration step.
+inline constexpr int kFormatVersion = 65;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

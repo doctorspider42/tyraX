@@ -17243,65 +17243,113 @@ void TerrainGame::procFinishChunks() {
 }
 
 
-// The smoke pool's integration + the quads' look. Swirl and grow are the fog
-// puff's own recipe (updateParticles kind 2) - a slowly rotating billboard,
-// alternating direction per puff, swelling as it fades.
-void TerrainGame::updateVehicleSmoke(float dt) {
-  smokeAlive_ = 0;
-  for (int i = 0; i < kVehSmokeMax; ++i) {
-    if (smokeLife_[i] <= 0.0F) {
-      smokeParams_[i].set(0.0F, 0.0F, 0.0F, 0.0F);  // degenerate quad
-      smokeCols_[i] = Tyra::Color(0.0F, 0.0F, 0.0F, 0.0F);
-      continue;
+// Tyre effects setup: one pool per definition, its texture and tint taken
+// from the definition's material (.mtl: map_Kd + Kd) or the built-in tread
+// and puff the vehicle bake generates (vehicles/fx-*.png). Textures go
+// through the refcounted texture cache - NOT loadMaterialAsset, whose
+// residency belongs to the scene objects that use a material and would be
+// dropped under a vehicle by the layer streamer.
+void TerrainGame::releaseVehicleFx() {
+  for (auto& fx : vehFx_) {
+    if (!fx) continue;
+    if (!fx->skidTexPath.empty()) releaseTexture(fx->skidTexPath);
+    if (!fx->smokeTexPath.empty()) releaseTexture(fx->smokeTexPath);
+  }
+  vehFx_.clear();
+}
+
+void TerrainGame::setupVehicleFx() {
+  releaseVehicleFx();
+  vehFx_.resize(VEHICLE_DEF_COUNT);
+  auto lookOf = [&](const char* mtl, const char* builtin, std::string& texPath,
+                    Tyra::Texture*& tex, float* tint, bool repeats) {
+    std::string path = builtin;
+    if (mtl && mtl[0]) {
+      const auto mats = LeanObjLoader::loadMtl(mtl);
+      if (!mats.empty()) {
+        const auto& m = mats.front();
+        for (int k = 0; k < 3; ++k) tint[k] = m.kd[k] * 128.0F;
+        std::string dir = mtl;
+        const size_t slash = dir.find_last_of('/');
+        dir = slash == std::string::npos ? "" : dir.substr(0, slash + 1);
+        const bool atlased = m.uvRect[0] != 0.0F || m.uvRect[1] != 0.0F ||
+                             m.uvRect[2] != 1.0F || m.uvRect[3] != 1.0F;
+        if (m.textureName.empty()) {
+          path.clear();  // an untextured material: plain tinted quads
+        } else if (atlased && repeats) {
+          TYRA_WARN("Vehicle skid material ", mtl,
+                    ": its texture is atlased and cannot repeat along the "
+                    "mark - using the built-in tread");
+        } else {
+          path = dir + m.textureName;
+        }
+      }
     }
-    smokeLife_[i] -= dt;
-    smokePos_[i].x += smokeVel_[i].x * dt;
-    smokePos_[i].y += smokeVel_[i].y * dt;
-    smokePos_[i].z += smokeVel_[i].z * dt;
-    const float t = smokeLife_[i] > 0.0F ? smokeLife_[i] / smokeMaxLife_[i] : 0.0F;
-    const float size = (0.30F + (1.0F - t) * 0.95F);
-    const float age = smokeMaxLife_[i] - smokeLife_[i];
-    const float ang = (float)i * 2.4F + (i & 1 ? 1.1F : -1.1F) * age;
-    const float ca = cosf(ang), sa = sinf(ang);
-    smokeParams_[i].set(ca * size, sa * size, -sa * size, ca * size);
-    // Grey-white, fading out: standard alpha-over blending, per-puff alpha.
-    const float a = 88.0F * t * t;
-    smokeCols_[i] = Tyra::Color(150.0F, 150.0F, 152.0F, a);
-    ++smokeAlive_;
+    texPath = path;
+    tex = path.empty() ? nullptr : acquireTexture(path);
+  };
+  for (int d = 0; d < VEHICLE_DEF_COUNT; ++d) {
+    vehFx_[d] = std::make_unique<VehFx>();
+    VehFx& fx = *vehFx_[d];
+    fx.smokePos.resize(kVehSmokeMax);
+    fx.smokeParams.resize(kVehSmokeMax);
+    fx.smokeCols.resize(kVehSmokeMax);
+    fx.skidVerts.resize(kVehSkidMax * 6);
+    fx.skidSts.resize(kVehSkidMax * 6);
+    fx.skidCols.resize(kVehSkidMax * 6);
+    lookOf(VEHICLE_DEFS[d].skidMtl, "vehicles/fx-skid.png", fx.skidTexPath,
+           fx.skidTex, fx.skidTint, true);
+    lookOf(VEHICLE_DEFS[d].smokeMtl, "vehicles/fx-smoke.png", fx.smokeTexPath,
+           fx.smokeTex, fx.smokeTint, false);
   }
 }
 
-// One submit for the whole pool, and only while anything is alive. The bag is
+// The smoke pools' integration + the quads' look. Swirl and grow are the fog
+// puff's own recipe (updateParticles kind 2) - a slowly rotating billboard,
+// alternating direction per puff, swelling as it fades.
+void TerrainGame::updateVehicleSmoke(float dt) {
+  for (auto& fxp : vehFx_) {
+    VehFx& fx = *fxp;
+    fx.smokeAlive = 0;
+    for (int i = 0; i < kVehSmokeMax; ++i) {
+      if (fx.smokeLife[i] <= 0.0F) {
+        fx.smokeParams[i].set(0.0F, 0.0F, 0.0F, 0.0F);  // degenerate quad
+        fx.smokeCols[i] = Tyra::Color(0.0F, 0.0F, 0.0F, 0.0F);
+        continue;
+      }
+      fx.smokeLife[i] -= dt;
+      // A puff rises and slows: the kick it was born with decays, a little
+      // buoyancy keeps it climbing.
+      const float drag = 1.0F - 1.6F * dt;
+      fx.smokeVel[i].x *= drag;
+      fx.smokeVel[i].z *= drag;
+      fx.smokeVel[i].y = fx.smokeVel[i].y * drag + 0.35F * dt;
+      fx.smokePos[i].x += fx.smokeVel[i].x * dt;
+      fx.smokePos[i].y += fx.smokeVel[i].y * dt;
+      fx.smokePos[i].z += fx.smokeVel[i].z * dt;
+      const float t = fx.smokeLife[i] > 0.0F ? fx.smokeLife[i] / fx.smokeMaxLife[i] : 0.0F;
+      // Textured puffs read smaller than a flat quad (the texture's alpha
+      // falls off before the corners): start small, billow out.
+      const float size = fx.smokeTex ? (0.22F + (1.0F - t) * 1.45F)
+                                     : (0.30F + (1.0F - t) * 0.95F);
+      const float age = fx.smokeMaxLife[i] - fx.smokeLife[i];
+      const float ang = (float)i * 2.4F + (i & 1 ? 1.1F : -1.1F) * age;
+      const float ca = cosf(ang), sa = sinf(ang);
+      fx.smokeParams[i].set(ca * size, sa * size, -sa * size, ca * size);
+      // Fade in over the first tenth (no pop at birth), out quadratically.
+      const float in = (1.0F - t) < 0.1F ? (1.0F - t) * 10.0F : 1.0F;
+      const float a = (fx.smokeTex ? 84.0F : 88.0F) * t * t * in;
+      fx.smokeCols[i] = Tyra::Color(fx.smokeTint[0], fx.smokeTint[1],
+                                    fx.smokeTint[2], a);
+      ++fx.smokeAlive;
+    }
+  }
+}
+
+// One submit per pool, and only while anything in it is alive. The bag is
 // the particle system's shape: VU1 expands centre + 2x2 weights into a
 // camera-facing quad, so the EE never touches a corner.
 void TerrainGame::renderVehicleSmoke() {
-  if (smokeAlive_ <= 0) return;
-  if (!smokeBag_) {
-    smokeInfoBag_ = std::make_unique<StaPipInfoBag>();
-    smokeInfoBag_->model = &model;
-    smokeInfoBag_->shadingType = TyraShadingGouraud;
-    // None is safe for BILLBOARD bags only: the VU1 program ADCs any quad
-    // whose corner leaves the raster window (the emitters' own note).
-    smokeInfoBag_->frustumCulling = PipelineInfoBagFrustumCulling_None;
-    smokeInfoBag_->fullClipChecks = false;
-    // Depth-tested but never writing Z (alpha-test all-fail + AFAIL=FB_ONLY):
-    // translucent smoke must not carve holes into anything drawn after it.
-    smokeInfoBag_->zTestType = PipelineZTest_TestOnly;
-    smokeColorBag_ = std::make_unique<StaPipColorBag>();
-    smokeCols_.bind(smokeColorBag_);
-    smokeBillboardBag_ = std::make_unique<StaPipBillboardBag>();
-    smokeTexBag_ = std::make_unique<StaPipTextureBag>();
-    smokeTexBag_->texture = nullptr;  // untextured puffs; the weights channel
-    smokeParams_.bind(smokeTexBag_);
-    smokeBag_ = std::make_unique<StaPipBag>();
-    smokeBag_->info = smokeInfoBag_.get();
-    smokeBag_->color = smokeColorBag_.get();
-    smokeBag_->lighting = nullptr;
-    smokeBag_->billboard = smokeBillboardBag_.get();
-    smokeBag_->texture = smokeTexBag_.get();
-    smokePos_.bind(smokeBag_);
-  }
-  // Camera-plane basis, the particle pass's own arithmetic.
   Vec4 fwd = cameraLookAt - cameraPosition;
   const float fl = sqrtf(fwd.x * fwd.x + fwd.y * fwd.y + fwd.z * fwd.z);
   if (fl > 0.0001F) fwd.x /= fl, fwd.y /= fl, fwd.z /= fl;
@@ -17309,99 +17357,208 @@ void TerrainGame::renderVehicleSmoke() {
   const float rl = sqrtf(rx * rx + rz * rz);
   if (rl > 0.0001F) rx /= rl, rz /= rl;
   else rx = 1.0F, rz = 0.0F;
-  smokeBillboardBag_->right = Vec4(rx, 0.0F, rz, 0.0F);
-  smokeBillboardBag_->up =
-      Vec4(-rz * fwd.y, rz * fwd.x - rx * fwd.z, rx * fwd.y, 0.0F);
-  smokeBag_->count = (u32)kVehSmokeMax;
-  smokeBag_->bboxVersion = ++g_bboxStamp;  // centres move every frame
-  stapip.core.render(smokeBag_.get());
+  for (auto& fxp : vehFx_) {
+    VehFx& fx = *fxp;
+    if (fx.smokeAlive <= 0) continue;
+    if (!fx.smokeBag) {
+      fx.smokeInfoBag = std::make_unique<StaPipInfoBag>();
+      fx.smokeInfoBag->model = &model;
+      fx.smokeInfoBag->shadingType = TyraShadingGouraud;
+      // None is safe for BILLBOARD bags only: the VU1 program ADCs any quad
+      // whose corner leaves the raster window (the emitters' own note).
+      fx.smokeInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_None;
+      fx.smokeInfoBag->fullClipChecks = false;
+      // Depth-tested but never writing Z (alpha-test all-fail + AFAIL=FB_ONLY):
+      // translucent smoke must not carve holes into anything drawn after it.
+      fx.smokeInfoBag->zTestType = PipelineZTest_TestOnly;
+      fx.smokeColorBag = std::make_unique<StaPipColorBag>();
+      fx.smokeCols.bind(fx.smokeColorBag);
+      fx.smokeBillboardBag = std::make_unique<StaPipBillboardBag>();
+      fx.smokeTexBag = std::make_unique<StaPipTextureBag>();
+      // The texture bag is mandatory for billboard bags - its coordinates
+      // channel carries the basis weights; the image is the puff's shape.
+      fx.smokeTexBag->texture = fx.smokeTex;
+      fx.smokeParams.bind(fx.smokeTexBag);
+      fx.smokeBag = std::make_unique<StaPipBag>();
+      fx.smokeBag->info = fx.smokeInfoBag.get();
+      fx.smokeBag->color = fx.smokeColorBag.get();
+      fx.smokeBag->lighting = nullptr;
+      fx.smokeBag->billboard = fx.smokeBillboardBag.get();
+      fx.smokeBag->texture = fx.smokeTexBag.get();
+      fx.smokePos.bind(fx.smokeBag);
+    }
+    // Camera-plane basis, the particle pass's own arithmetic.
+    fx.smokeBillboardBag->right = Vec4(rx, 0.0F, rz, 0.0F);
+    fx.smokeBillboardBag->up =
+        Vec4(-rz * fwd.y, rz * fwd.x - rx * fwd.z, rx * fwd.y, 0.0F);
+    fx.smokeBag->count = (u32)kVehSmokeMax;
+    fx.smokeBag->bboxVersion = ++g_bboxStamp;  // centres move every frame
+    stapip.core.render(fx.smokeBag.get());
+  }
 }
 
 // SKID MARKS. Decay is colors-only; geometry (and bboxVersion) changes only
-// when a quad spawns, so a fading track costs the GS blending and nothing
-// else. Spawning is DISTANCE-paced (a quad every half unit of travel), which
-// is what makes a long drift read as a continuous stripe at any speed.
+// when a segment spawns, so a fading track costs the GS blending and nothing
+// else. Spawning is DISTANCE-paced (a segment every 0.6 units of travel),
+// and each segment starts on the edge the previous one ended on, so a drift
+// is one continuous, smoothly curving ribbon at any speed.
 void TerrainGame::updateVehicleSkids(float dt) {
-  skidAlive_ = 0;
-  for (int i = 0; i < kVehSkidMax; ++i) {
-    if (skidLife_[i] <= 0.0F) continue;
-    skidLife_[i] -= dt;
-    const float t = skidLife_[i] > 0.0F ? skidLife_[i] / 6.0F : 0.0F;
-    const float a = 58.0F * t;
-    for (int k = 0; k < 6; ++k) skidCols_[i * 6 + k].a = a;
-    ++skidAlive_;
+  for (auto& fxp : vehFx_) {
+    VehFx& fx = *fxp;
+    fx.skidAlive = 0;
+    for (int i = 0; i < kVehSkidMax; ++i) {
+      if (fx.skidLife[i] <= 0.0F) continue;
+      fx.skidLife[i] -= dt;
+      const float t = fx.skidLife[i] > 0.0F ? fx.skidLife[i] / 6.0F : 0.0F;
+      // Textured marks are multiplied by the texture's own alpha (~0.6 on
+      // the tread), so they start stronger than the old flat quads did.
+      const float a = (fx.skidTex ? 100.0F : 58.0F) * t;
+      for (int k = 0; k < 6; ++k) fx.skidCols[i * 6 + k].a = a;
+      ++fx.skidAlive;
+    }
   }
+  constexpr float kStep = 0.6F;    // travel per ribbon segment
+  constexpr float kTile = 1.5F;    // travel per texture repeat
   for (int vi = 0; vi < vehicleCount_; ++vi) {
     VehicleRt& v = vehicles_[vi];
-    if (!v.active || v.def < 0 || !v.grounded || v.slip < 0.4F) {
-      if (v.active) v.skidAcc = 0.0F;
+    VehFx* fx = vehFxFor(v.def);
+    if (!v.active || v.def < 0 || !fx || !v.grounded || v.slip < 0.4F) {
+      if (v.active) {
+        v.skidAcc = 0.0F;
+        v.skidOn[0] = v.skidOn[1] = 0;  // the next mark is a new ribbon
+      }
       continue;
     }
     const VehicleDefData& s = VEHICLE_DEFS[v.def];
     const float SC = v.scale;
-    const float spd = v.speed < 0.0F ? -v.speed : v.speed;
-    if (spd < 2.0F) continue;
+    // GROUND speed, sideways included: a handbrake slide can carry 25 m/s
+    // sideways at almost no forward speed, and that is exactly the slide
+    // that must leave the longest mark (measured: forward 0.3 m/s, lateral
+    // 26 m/s, slip 1.0 - the forward-only test drew nothing).
+    const float spd = sqrtf(v.speed * v.speed + v.lateral * v.lateral);
+    if (spd < 2.0F) {
+      v.skidOn[0] = v.skidOn[1] = 0;
+      continue;
+    }
     v.skidAcc += spd * dt;
-    if (v.skidAcc < 0.5F) continue;
+    if (v.skidAcc < kStep && v.skidOn[0]) continue;
+    const float travelled = v.skidAcc;
     v.skidAcc = 0.0F;
     const float cy = cosf(v.yaw * 0.017453293F), sy = sinf(v.yaw * 0.017453293F);
     const float hx = 0.5F * s.track * SC, hz = 0.5F * s.wheelBase * SC;
-    const float hw = 0.10F * SC, hl = 0.32F * SC;
-    for (int w = 2; w < 4; ++w) {  // the rear pair - the driven wheels
-      const float lx = (w == 2 ? -hx : hx), lz = -hz;
+    const float hw = 0.11F * SC;  // half the mark's width
+    for (int w = 0; w < 2; ++w) {  // the rear pair - the driven wheels
+      const float lx = (w == 0 ? -hx : hx), lz = -hz;
       const float ax = v.pos[0] + lx * cy + lz * sy;
       const float az = v.pos[2] - lx * sy + lz * cy;
-      const float ay = v.wheelY[w] + 0.03F;
-      const float fx = sy * hl, fz = cy * hl;
-      const float rx = cy * hw, rz = -sy * hw;
-      const int q = skidNext_;
-      skidNext_ = (skidNext_ + 1) % kVehSkidMax;
-      skidLife_[q] = 6.0F;
-      auto qv = skidVerts_.span(q * 6, 6);
-      qv[0].set(ax - rx - fx, ay, az - rz - fz, 1.0F);
-      qv[1].set(ax + rx - fx, ay, az + rz - fz, 1.0F);
-      qv[2].set(ax + rx + fx, ay, az + rz + fz, 1.0F);
-      qv[3].set(ax - rx - fx, ay, az - rz - fz, 1.0F);
-      qv[4].set(ax + rx + fx, ay, az + rz + fz, 1.0F);
-      qv[5].set(ax - rx + fx, ay, az - rz + fz, 1.0F);
+      // The mark's width is ACROSS THE TYRE'S TRAVEL, not across the car:
+      // in a handbrake slide the car moves sideways - along its own right
+      // axis - and a width taken from the heading put every edge on one
+      // line, so the segments had no area and the marks vanished exactly in
+      // the biggest slides. The first edge of a ribbon has no travel yet
+      // and uses the heading; every later one the displacement of the
+      // contact point since the edge before it.
+      float rx = cy * hw, rz = -sy * hw;
+      if (v.skidOn[w]) {
+        const float* o0 = v.skidEdge[w];
+        const float dx = ax - 0.5F * (o0[0] + o0[3]);
+        const float dz = az - 0.5F * (o0[2] + o0[5]);
+        const float dl = sqrtf(dx * dx + dz * dz);
+        if (dl < 0.02F) continue;  // not moved yet: wait for the next step
+        // (dz, -dx) is the heading-side perpendicular when the car rolls
+        // straight ahead, so a ribbon's first segment does not twist.
+        rx = dz / dl * hw;
+        rz = -dx / dl * hw;
+      }
+      // Both edges sit on the drawn ground - terrain or road - so the mark
+      // hugs a camber instead of floating off one side of it (the old marks
+      // at wheelY sat under every road: the wheels sample the terrain).
+      float e[6] = {ax - rx, 0.0F, az - rz, ax + rx, 0.0F, az + rz};
+      e[1] = groundSurfaceAt(e[0], e[2]) + 0.03F;
+      e[4] = groundSurfaceAt(e[3], e[5]) + 0.03F;
+      if (!v.skidOn[w]) {
+        // A tyre that just let go: remember where, draw from the next step.
+        for (int k = 0; k < 6; ++k) v.skidEdge[w][k] = e[k];
+        v.skidV[w] = 0.0F;
+        v.skidOn[w] = 1;
+        continue;
+      }
+      const float* o = v.skidEdge[w];
+      const float v0 = v.skidV[w];
+      float v1 = v0 + travelled / kTile;
+      if (v1 > 64.0F) v1 -= 64.0F;  // keep ST small; the texture repeats
+      const float vv1 = v1 < v0 ? v1 + 64.0F : v1;
+      const int q = fx->skidNext;
+      fx->skidNext = (fx->skidNext + 1) % kVehSkidMax;
+      fx->skidLife[q] = 6.0F;
+      // Previous edge (o) -> this edge (e): two triangles, left/right
+      // matching, so consecutive segments share their seam exactly.
+      auto qv = fx->skidVerts.span(q * 6, 6);
+      auto qs = fx->skidSts.span(q * 6, 6);
+      qv[0].set(o[0], o[1], o[2], 1.0F);
+      qv[1].set(o[3], o[4], o[5], 1.0F);
+      qv[2].set(e[3], e[4], e[5], 1.0F);
+      qv[3].set(o[0], o[1], o[2], 1.0F);
+      qv[4].set(e[3], e[4], e[5], 1.0F);
+      qv[5].set(e[0], e[1], e[2], 1.0F);
+      qs[0].set(0.0F, v0, 1.0F, 0.0F);
+      qs[1].set(1.0F, v0, 1.0F, 0.0F);
+      qs[2].set(1.0F, vv1, 1.0F, 0.0F);
+      qs[3].set(0.0F, v0, 1.0F, 0.0F);
+      qs[4].set(1.0F, vv1, 1.0F, 0.0F);
+      qs[5].set(0.0F, vv1, 1.0F, 0.0F);
       for (int k = 0; k < 6; ++k)
-        skidCols_[q * 6 + k] = Tyra::Color(16.0F, 16.0F, 16.0F, 58.0F);
-      skidDirty_ = 1;
-      ++skidAlive_;
+        fx->skidCols[q * 6 + k] =
+            Tyra::Color(fx->skidTint[0], fx->skidTint[1], fx->skidTint[2],
+                        fx->skidTex ? 100.0F : 58.0F);
+      for (int k = 0; k < 6; ++k) v.skidEdge[w][k] = e[k];
+      v.skidV[w] = v1;
+      fx->skidDirty = 1;
+      ++fx->skidAlive;
     }
   }
 }
 
 void TerrainGame::renderVehicleSkids() {
-  if (skidAlive_ <= 0) return;
-  if (!skidBag_) {
-    skidInfoBag_ = std::make_unique<StaPipInfoBag>();
-    skidInfoBag_->model = &model;
-    skidInfoBag_->shadingType = TyraShadingGouraud;
-    // Full clip checks ON: these are plain world quads the camera drives
-    // straight over, and a near-plane crosser without them is the giant
-    // smeared polygon of engine legend.
-    skidInfoBag_->fullClipChecks = true;
-    // Precise culling is REQUIRED with full clip checks (the engine asserts
-    // on the None combination) - and it is also what we want: parked skid
-    // trails across the map cull away by bbox, spawn bumps bboxVersion.
-    skidInfoBag_->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
-    skidInfoBag_->zTestType = PipelineZTest_TestOnly;
-    skidColorBag_ = std::make_unique<StaPipColorBag>();
-    skidCols_.bind(skidColorBag_);
-    skidBag_ = std::make_unique<StaPipBag>();
-    skidBag_->info = skidInfoBag_.get();
-    skidBag_->color = skidColorBag_.get();
-    skidBag_->lighting = nullptr;
-    skidBag_->texture = nullptr;
-    skidVerts_.bind(skidBag_);
+  for (auto& fxp : vehFx_) {
+    VehFx& fx = *fxp;
+    if (fx.skidAlive <= 0) continue;
+    if (!fx.skidBag) {
+      fx.skidInfoBag = std::make_unique<StaPipInfoBag>();
+      fx.skidInfoBag->model = &model;
+      fx.skidInfoBag->shadingType = TyraShadingGouraud;
+      // Full clip checks ON: these are plain world quads the camera drives
+      // straight over, and a near-plane crosser without them is the giant
+      // smeared polygon of engine legend.
+      fx.skidInfoBag->fullClipChecks = true;
+      // Precise culling is REQUIRED with full clip checks (the engine asserts
+      // on the None combination) - and it is also what we want: parked skid
+      // trails across the map cull away by bbox, spawn bumps bboxVersion.
+      fx.skidInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+      fx.skidInfoBag->zTestType = PipelineZTest_TestOnly;
+      fx.skidColorBag = std::make_unique<StaPipColorBag>();
+      fx.skidCols.bind(fx.skidColorBag);
+      fx.skidBag = std::make_unique<StaPipBag>();
+      fx.skidBag->info = fx.skidInfoBag.get();
+      fx.skidBag->color = fx.skidColorBag.get();
+      fx.skidBag->lighting = nullptr;
+      if (fx.skidTex) {
+        fx.skidTexBag = std::make_unique<StaPipTextureBag>();
+        fx.skidTexBag->texture = fx.skidTex;
+        fx.skidSts.bind(fx.skidTexBag);
+        fx.skidBag->texture = fx.skidTexBag.get();
+      } else {
+        fx.skidBag->texture = nullptr;
+      }
+      fx.skidVerts.bind(fx.skidBag);
+    }
+    fx.skidBag->count = (u32)(kVehSkidMax * 6);
+    if (fx.skidDirty) {
+      fx.skidDirty = 0;
+      fx.skidBag->bboxVersion = ++g_bboxStamp;
+    }
+    stapip.core.render(fx.skidBag.get());
   }
-  skidBag_->count = (u32)(kVehSkidMax * 6);
-  if (skidDirty_) {
-    skidDirty_ = 0;
-    skidBag_->bboxVersion = ++g_bboxStamp;
-  }
-  stapip.core.render(skidBag_.get());
 }
 
 // Vehicle light effects, rebuilt every frame from the vehicles (they are tiny).
@@ -17724,11 +17881,7 @@ void TerrainGame::setupVehicles(int scene) {
   // guaranteed to exist: smoke clears dead slots, skids may spawn from the
   // first physics step, and glow builds lit lamps before checking glowBag_.
   // Size all backing arrays here so none can index/span an empty vector.
-  smokePos_.resize(kVehSmokeMax);
-  smokeParams_.resize(kVehSmokeMax);
-  smokeCols_.resize(kVehSmokeMax);
-  skidVerts_.resize(kVehSkidMax * 6);
-  skidCols_.resize(kVehSkidMax * 6);
+  setupVehicleFx();  // one smoke + skid pool per definition, textures held
   glowVerts_.resize(kVehGlowMax * 6);
   glowCols_.resize(kVehGlowMax * 6);
   headlightVerts_.resize(kVehHeadlightMax * 6);
@@ -18876,17 +19029,21 @@ void TerrainGame::updateVehicles(float dt) {
         v.smokeAcc -= 1.0F;
         const float lx2 = side ? hx2 : -hx2;
         side ^= 1;
-        const int k = smokeNext_;
-        smokeNext_ = (smokeNext_ + 1) % kVehSmokeMax;
-        smokePos_[k].set(v.pos[0] + lx2 * cy2 - hz2 * sy2,
-                         v.wheelY[side ? 3 : 2] + 0.12F * SC,
+        VehFx* fx = vehFxFor(v.def);
+        if (!fx) break;
+        const int k = fx->smokeNext;
+        fx->smokeNext = (fx->smokeNext + 1) % kVehSmokeMax;
+        fx->smokePos[k].set(v.pos[0] + lx2 * cy2 - hz2 * sy2,
+                         // high enough that a new puff's lower half is not
+                         // buried in the road it rolls off
+                         v.wheelY[side ? 3 : 2] + 0.26F * SC,
                          v.pos[2] - lx2 * sy2 - hz2 * cy2, 1.0F);
         // Drift: up, a little backwards along travel, and outward.
-        smokeVel_[k].set(-sy2 * v.speed * 0.06F + lx2 * 0.4F,
+        fx->smokeVel[k].set(-sy2 * v.speed * 0.06F + lx2 * 0.4F,
                          0.9F + 0.5F * v.slip,
                          -cy2 * v.speed * 0.06F, 0.0F);
-        smokeMaxLife_[k] = 0.55F + 0.45F * v.slip;
-        smokeLife_[k] = smokeMaxLife_[k];
+        fx->smokeMaxLife[k] = 0.55F + 0.45F * v.slip;
+        fx->smokeLife[k] = fx->smokeMaxLife[k];
       }
     } else {
       v.smokeAcc = 0.0F;

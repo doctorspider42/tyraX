@@ -2871,6 +2871,10 @@ static void writeVehiclesSection(std::ostream& json, const Project& p) {
             json << ", \"shiftSound\": \"" << jsonEscape(v.shiftSound)
                  << "\", \"shiftVolume\": " << fmtFloat(v.shiftVolume);
         if (v.headlights) json << ", \"headlights\": true";
+        if (!v.skidMaterial.empty())
+            json << ", \"skidMaterial\": \"" << jsonEscape(v.skidMaterial) << "\"";
+        if (!v.smokeMaterial.empty())
+            json << ", \"smokeMaterial\": \"" << jsonEscape(v.smokeMaterial) << "\"";
         if (v.farDistance != 40.0f)
             json << ", \"farDistance\": " << fmtFloat(v.farDistance);
         if (!v.fastWheel.empty())
@@ -2954,6 +2958,10 @@ static void readVehiclesSection(const json::Value& root, Project& out) {
             v.shiftVolume = (float)x->numberOr(80.0);
         if (const json::Value* x = e.find("headlights"))
             v.headlights = x->boolOr(false);
+        if (const json::Value* x = e.find("skidMaterial"))
+            v.skidMaterial = x->stringOr("");
+        if (const json::Value* x = e.find("smokeMaterial"))
+            v.smokeMaterial = x->stringOr("");
         if (const json::Value* x = e.find("farDistance"))
             v.farDistance = (float)x->numberOr(v.farDistance);
         if (const json::Value* x = e.find("fastWheel")) v.fastWheel = x->stringOr("");

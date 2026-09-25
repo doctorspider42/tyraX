@@ -1158,6 +1158,118 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
     return true;
 }
 
+
+// --- built-in tyre-effect textures ------------------------------------------
+// The skid ribbon's tread and the smoke puff a vehicle uses when its
+// definition names no material (docs/vehicles.md, "Skid marks and smoke").
+// Generated rather than shipped: no licence to track, and the look is a few
+// lines of arithmetic that can be tuned here. Both are WHITE, so the runtime's
+// vertex colour (rubber black, smoke grey) is the tint and the alpha is the
+// shape.
+namespace {
+
+float fxHash(int x, int y, int seed) {
+    unsigned int h = (unsigned int)(x * 374761393 + y * 668265263 + seed * 2246822519u);
+    h = (h ^ (h >> 13)) * 1274126177u;
+    return (float)((h ^ (h >> 16)) & 0xFFFF) / 65535.0f;
+}
+
+// Smooth value noise, tiling with period `per` so the puff has no seam.
+float fxValueNoise(float x, float y, int per, int seed) {
+    const int x0 = (int)std::floor(x), y0 = (int)std::floor(y);
+    const float fx = x - x0, fy = y - y0;
+    const float sx = fx * fx * (3.0f - 2.0f * fx), sy = fy * fy * (3.0f - 2.0f * fy);
+    auto at = [&](int ix, int iy) {
+        return fxHash(((ix % per) + per) % per, ((iy % per) + per) % per, seed);
+    };
+    const float a = at(x0, y0) + (at(x0 + 1, y0) - at(x0, y0)) * sx;
+    const float c = at(x0, y0 + 1) + (at(x0 + 1, y0 + 1) - at(x0, y0 + 1)) * sx;
+    return a + (c - a) * sy;
+}
+
+float fxSmooth(float e0, float e1, float x) {
+    float t = (x - e0) / (e1 - e0);
+    t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+    return t * t * (3.0f - 2.0f * t);
+}
+
+// 32 across the tyre x 64 along the mark; the runtime repeats it along the
+// ribbon every 1.5 units of travel.
+std::vector<unsigned char> skidTreadRGBA(int& w, int& h) {
+    w = 32;
+    h = 64;
+    std::vector<unsigned char> rgba((size_t)w * h * 4);
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) {
+            const float u = (x + 0.5f) / w;  // across, 0..1
+            const float v = (y + 0.5f) / h;  // along, 0..1 (repeats)
+            // soft shoulders: the rubber feathers out at both edges
+            float a = fxSmooth(0.0f, 0.16f, u) * fxSmooth(1.0f, 0.84f, u);
+            // two longitudinal grooves
+            const float g1 = std::fabs(u - 0.36f), g2 = std::fabs(u - 0.64f);
+            a *= 1.0f - 0.55f * (1.0f - fxSmooth(0.0f, 0.045f, g1 < g2 ? g1 : g2));
+            // slanted sipes across the shoulders, 8 per tile
+            const float sipe = std::fmod(v * 8.0f + (u < 0.5f ? u : 1.0f - u) * 1.6f, 1.0f);
+            const float shoulder = 1.0f - fxSmooth(0.22f, 0.34f, std::fabs(u - 0.5f) < 0.5f ? 0.5f - std::fabs(u - 0.5f) : 0.0f);
+            a *= 1.0f - 0.45f * shoulder * (1.0f - fxSmooth(0.0f, 0.18f, sipe < 0.5f ? sipe : 1.0f - sipe));
+            // rubber grain
+            a *= 0.80f + 0.20f * fxHash(x, y, 7);
+            const float lum = 0.86f + 0.14f * fxHash(x, y, 11);
+            unsigned char* o = &rgba[((size_t)y * w + x) * 4];
+            o[0] = o[1] = o[2] = (unsigned char)(lum * 255.0f + 0.5f);
+            o[3] = (unsigned char)(a * 255.0f + 0.5f);
+        }
+    return rgba;
+}
+
+// A 64x64 billow: a soft disc whose rim is pushed in and out by fractal
+// noise, lighter on top the way sunlit smoke is. Alpha reaches 0 a few texels
+// inside the border, so no bilinear tap ever reads the clamp edge.
+std::vector<unsigned char> smokePuffRGBA(int& w, int& h) {
+    w = h = 64;
+    std::vector<unsigned char> rgba((size_t)w * h * 4);
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) {
+            const float dx = (x + 0.5f) / w * 2.0f - 1.0f;
+            const float dy = (y + 0.5f) / h * 2.0f - 1.0f;
+            const float r = std::sqrt(dx * dx + dy * dy);
+            float n = 0.0f, amp = 0.5f, tot = 0.0f;
+            for (int o = 0; o < 4; ++o) {
+                const int per = 4 << o;
+                n += amp * fxValueNoise((x + 0.5f) / w * per, (y + 0.5f) / h * per, per, 31 + o);
+                tot += amp;
+                amp *= 0.5f;
+            }
+            n /= tot;  // 0..1
+            const float rim = 0.62f + 0.34f * n;  // billowy edge
+            float a = fxSmooth(rim, rim * 0.35f, r);
+            a *= 0.55f + 0.45f * n;               // wisps inside
+            a *= fxSmooth(0.97f, 0.86f, r);       // guaranteed clear border
+            const float lum = 0.78f + 0.22f * fxSmooth(0.9f, -0.9f, dy) * (0.8f + 0.2f * n);
+            unsigned char* o = &rgba[((size_t)y * w + x) * 4];
+            o[0] = o[1] = o[2] = (unsigned char)(lum * 255.0f + 0.5f);
+            o[3] = (unsigned char)(a * 255.0f + 0.5f);
+        }
+    return rgba;
+}
+
+}  // namespace
+
+const char* kSkidTexturePath = "vehicles/fx-skid.png";
+const char* kSmokeTexturePath = "vehicles/fx-smoke.png";
+
+std::vector<unsigned char> builtinSkidPng() {
+    int w = 0, h = 0;
+    const std::vector<unsigned char> rgba = skidTreadRGBA(w, h);
+    return encodePng(rgba, w, h);
+}
+
+std::vector<unsigned char> builtinSmokePng() {
+    int w = 0, h = 0;
+    const std::vector<unsigned char> rgba = smokePuffRGBA(w, h);
+    return encodePng(rgba, w, h);
+}
+
 // --- the build-path bake ----------------------------------------------------
 
 BakedPaths pathsFor(const VehicleDef& v) {
@@ -1369,6 +1481,24 @@ std::string bakeProject(Project& p,
                 log(buf);
             }
         }
+    }
+    // The built-in tyre-effect textures, once per project with vehicles -
+    // whichever definition names no material draws with these. Quantized
+    // like every shipped model texture (the project's texture depth).
+    if (!p.vehicles.empty()) {
+        const std::vector<unsigned char> skid = builtinSkidPng();
+        const std::vector<unsigned char> smoke = builtinSmokePng();
+        put(kSkidTexturePath,
+            quantizedTexture(std::string((const char*)skid.data(), skid.size()),
+                             p.settings.textureQuant, "tyre marks", log));
+        // The puff is ALL alpha gradient: 16 palette entries band its edge
+        // into hard rings (seen in PCSX2), so it never goes below 8-bit -
+        // 64x64 at 8-bit is 4 KB plus the CLUT.
+        const std::string smokeQuant =
+            p.settings.textureQuant == "4bit" ? std::string("8bit") : p.settings.textureQuant;
+        put(kSmokeTexturePath,
+            quantizedTexture(std::string((const char*)smoke.data(), smoke.size()),
+                             smokeQuant, "tyre smoke", log));
     }
     return firstError;
 }

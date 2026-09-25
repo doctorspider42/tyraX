@@ -723,14 +723,17 @@ struct VehicleDefData {
   // MODEL_PATHS slot all four wheels swap to above
   // fastWheelSpeed rad/s, -1 = this definition has one wheel.
   int fastWheelModel;
+  // Tyre effects: the .mtl (bin path) the skid ribbon and the smoke
+  // take their texture and Kd from; "" = the built-in ones.
+  const char* skidMtl; const char* smokeMtl;
 };
 struct VehicleInstData { int scene; int object; int def; int driveable;
                          int wpFirst; int wpCount; };
 constexpr int VEHICLE_DEF_COUNT = 3;
 constexpr VehicleDefData VEHICLE_DEFS[3] = {
-    {11, 12, "vehicles/veh-cc96playground01-shadow.png", 2.066F, 1.248F, 0.3F, 0.232F, 29.0F, 6.0F, 11.0F, 18.0F, 3.0F, 0.0016F, 34.0F, 14.0F, 220.0F, 300.0F, 26.0F, 6.0F, 24.0F, 0.232F, 0.18F, 8.0F, 0.5F, 12.0F, 0.25F, 5.0F, 1.28F, 800.0F, 7200.0F, 0.95F, 0.48F, 0.1F, 0.35F, 4.0F, 0.8F, 1.18F, 0.18F, 45.0F, 6.5F, 2.2F, 12.0F, {-1.4F, 0.0F, 0.0F}, 0, 0.75F, 2.4F, 70, 1, 2, 3, 80, 80, 1, {0.54F, 0.145F, -1.772F, 0.27F}, {0.535F, 0.16F, 1.71646F, 0.2675F}, 0, 144, 0, 3.6F, 17},  // CC96
-    {13, 14, "vehicles/veh-ggbotrally0001-shadow.png", 2.733F, 1.562F, 0.3F, 0.341F, 26.0F, 6.0F, 10.0F, 18.0F, 3.0F, 0.0016F, 34.0F, 11.0F, 220.0F, 300.0F, 22.0F, 5.0F, 24.0F, 0.341F, 0.26F, 8.0F, 0.5F, 12.0F, 0.35F, 5.0F, 1.28F, 800.0F, 7200.0F, 0.95F, 0.48F, 0.1F, 0.35F, 4.0F, 0.8F, 1.18F, 0.12F, 45.0F, 6.5F, 2.2F, 12.0F, {-1.4F, 0.0F, 0.0F}, 0, 0.75F, 2.4F, 70, 1, 2, 3, 80, 80, 0, {0.0F, 0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0, 0, 3.6F, 18},  // Rally 04
-    {15, 16, "vehicles/veh-tristarplay01-shadow.png", 2.354F, 1.555F, 0.3F, 0.31F, 32.0F, 6.0F, 12.0F, 18.0F, 3.0F, 0.0016F, 34.0F, 12.0F, 220.0F, 300.0F, 29.0F, 6.0F, 24.0F, 0.31F, 0.18F, 8.0F, 0.5F, 12.0F, 0.25F, 5.0F, 1.28F, 800.0F, 7200.0F, 0.95F, 0.48F, 0.1F, 0.35F, 4.0F, 0.8F, 1.18F, 0.18F, 0.0F, 6.5F, 2.2F, 12.0F, {-1.4F, 0.0F, 0.0F}, 0, 0.75F, 2.4F, 70, 1, 2, 3, 80, 80, 0, {0.0F, 0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0, 0, 3.6F, -1},  // Tristar Racer
+    {11, 12, "vehicles/veh-cc96playground01-shadow.png", 2.066F, 1.248F, 0.3F, 0.232F, 29.0F, 6.0F, 11.0F, 18.0F, 3.0F, 0.0016F, 34.0F, 14.0F, 220.0F, 300.0F, 26.0F, 6.0F, 24.0F, 0.232F, 0.18F, 8.0F, 0.5F, 12.0F, 0.25F, 5.0F, 1.28F, 800.0F, 7200.0F, 0.95F, 0.48F, 0.1F, 0.35F, 4.0F, 0.8F, 1.18F, 0.18F, 45.0F, 6.5F, 2.2F, 12.0F, {-1.4F, 0.0F, 0.0F}, 0, 0.75F, 2.4F, 70, 1, 2, 3, 80, 80, 1, {0.54F, 0.145F, -1.772F, 0.27F}, {0.535F, 0.16F, 1.71646F, 0.2675F}, 0, 144, 0, 3.6F, 17, "", ""},  // CC96
+    {13, 14, "vehicles/veh-ggbotrally0001-shadow.png", 2.733F, 1.562F, 0.3F, 0.341F, 26.0F, 6.0F, 10.0F, 18.0F, 3.0F, 0.0016F, 34.0F, 11.0F, 220.0F, 300.0F, 22.0F, 5.0F, 24.0F, 0.341F, 0.26F, 8.0F, 0.5F, 12.0F, 0.35F, 5.0F, 1.28F, 800.0F, 7200.0F, 0.95F, 0.48F, 0.1F, 0.35F, 4.0F, 0.8F, 1.18F, 0.12F, 45.0F, 6.5F, 2.2F, 12.0F, {-1.4F, 0.0F, 0.0F}, 0, 0.75F, 2.4F, 70, 1, 2, 3, 80, 80, 0, {0.0F, 0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0, 0, 3.6F, 18, "", ""},  // Rally 04
+    {15, 16, "vehicles/veh-tristarplay01-shadow.png", 2.354F, 1.555F, 0.3F, 0.31F, 32.0F, 6.0F, 12.0F, 18.0F, 3.0F, 0.0016F, 34.0F, 12.0F, 220.0F, 300.0F, 29.0F, 6.0F, 24.0F, 0.31F, 0.18F, 8.0F, 0.5F, 12.0F, 0.25F, 5.0F, 1.28F, 800.0F, 7200.0F, 0.95F, 0.48F, 0.1F, 0.35F, 4.0F, 0.8F, 1.18F, 0.18F, 0.0F, 6.5F, 2.2F, 12.0F, {-1.4F, 0.0F, 0.0F}, 0, 0.75F, 2.4F, 70, 1, 2, 3, 80, 80, 0, {0.0F, 0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0, 0, 3.6F, -1, "", ""},  // Tristar Racer
 };
 
 // Roads (docs/roads.md): points in, geometry at boot.
