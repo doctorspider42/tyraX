@@ -1274,7 +1274,12 @@ at boot (`drip_probe.py`). `work`, two control boots:
   more than it saves. There, terrain is EE-heavy too (1.97 ms of EE and
   0.01 ms of wait), so deferring it only moves EE work around.
 - Closing the object batch around each drip costs more than it saves.
-- Where the +0.42 ms of `prepare` goes is NOT measured.
+- The +0.42 ms of `prepare` is not extra instructions. The same arm under the
+  attribution build in PCSX2, which emulates no data cache, moves `prepare` by
+  +0.03 ms (`spTex`: the batch-candidate residency and wrap checks the deferred
+  bags now take) and `dsDirect` by -0.10 ms. On the console the rest is
+  therefore D-cache (or I-cache) cost from alternating two working sets, and
+  only a console arm can price it.
 
 **Not shipped.** The next arm to run defers only the roads and batches, and
 prices the `prepare` increase with the attribution build. Order is also a
