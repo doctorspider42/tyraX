@@ -622,6 +622,15 @@ public:
     // after an asset file changed on disk (e.g. the Material Editor saved a
     // .mtl) so the next frame re-reads it.
     void invalidateAssets();
+    // docs/particles.md: the extra layers of every linked emitter in the scene.
+    struct EmitterLayerPreview {
+        SceneObject look;  // the emitter wearing the layer
+        float offset[3] = {0, 0, 0};
+        float area[3] = {1, 1, 1};
+    };
+    void setEmitterLayers(std::map<int, std::vector<EmitterLayerPreview>> layers) {
+        emitterLayers_ = std::move(layers);
+    }
     // Re-bakes cached animated models IN THE BACKGROUND: entries are marked
     // stale and keep drawing their old bake until the fresh one lands. An
     // import change alters the CLIP LIST of a model, which is baked into the
@@ -1287,6 +1296,9 @@ private:
         std::vector<PreviewParticle> parts;
     };
     std::map<int, EmitterPreview> emitterPreviews_;
+    // A linked emitter's extra particle layers by object index (pushed by the
+    // app from project::emitterLayerObjects - the viewport has no Project).
+    std::map<int, std::vector<EmitterLayerPreview>> emitterLayers_;
     double particleClock_ = 0.0;  // last sim time (advances with animClock_)
     uint32_t particleProgram_ = 0;
     int uPartMvp_ = -1, uPartUseTex_ = -1;

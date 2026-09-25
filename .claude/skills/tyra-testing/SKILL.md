@@ -2722,6 +2722,27 @@ same example, same engine flags. Two traps from that round: `pkill -f
 <pattern>` matches the shell running the command itself and kills it (select
 PCSX2 by pid, reading `/proc/<pid>/cmdline` with `tr '\0' ' '`), and a second
 PCSX2 left running on the same ELF halves both frame rates.
+## Verifying the particle library (docs/particles.md)
+
+`--bake-particles <projectDir>` re-bakes every effect's generated texture,
+re-syncs the linked emitters and regenerates - run it twice and `md5sum` the
+PNGs (the second run must change nothing), then grep `inc/scene_data.hpp` for a
+linked emitter's row (its values are the EFFECT's, its last column is
+`emitAdditive`) and `inc/model_data.gen.hpp` for `MATERIAL_PATHS` and
+the `VEHICLE_SMOKE_LOOKS` row of a definition whose `smokeEffect` names the
+effect (`inc/scene_data.hpp`: `effect` 1, the frame `.mtl` paths;
+`examples/vehicle-playground`'s Rally 04 links "Rally dust", a two-frame
+flipbook). The textures themselves are a harness away:
+`particletex.cpp` links with `-I src -I vendor/stb`, a TU defining
+`STB_IMAGE_WRITE_IMPLEMENTATION` and a one-line stub of
+`project::particleLayerStem` (`bakeEffect` calls it). On Windows link it
+`-static`: from Git Bash the `/mingw64` runtime DLLs shadow scoop's and the
+harness exits 127 before `main`. The built-in tyre puff's recipe
+(`vehbake::builtinSmokeRecipe`) was picked this way, side by side with the
+hand-written puff it replaced. Composite each over a DARK and a LIGHT
+background before judging it - a premultiplied flame looks right on one and a
+smoke puff's edge only shows on the other. On the console, `examples/particle-lab`
+is the fixture: `--build --run` then `--capture-frame`.
 
 ## Choosing the right depth
 

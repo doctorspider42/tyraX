@@ -991,6 +991,7 @@ void App::drawUI() {
     drawTreeGeneratorWindow();
     drawProceduralWindow();
     drawPrefabsWindow();
+    drawParticleEditorWindow();
     vehicleTick();
     vehicleDriveTick();
     drawVehicleWindow();
@@ -1758,6 +1759,10 @@ void App::drawMenuBar() {
                     "render it into res/audio as a looping background track.");
             if (ImGui::MenuItem("Font Manager...")) showFontManager_ = true;
             if (ImGui::MenuItem("Material Editor...")) showMaterialEditor_ = true;
+            if (ImGui::MenuItem("Particle Editor...")) showParticles_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The particle library: effects defined once, used by\n"
+                                  "emitters and vehicle tyre smoke.");
             if (ImGui::MenuItem("Texture Atlas...")) {
                 showTextureAtlas_ = true;
                 atlasPlanDirty_ = true;
@@ -2904,6 +2909,34 @@ void App::drawViewportWindow() {
         // the scene preview retimes and trims exactly like the build bakes.
         viewport_.setAnimEdits(project_.animClipEdits,
                                animedit::projectTimeScale(project_.settings));
+        // A linked emitter's extra particle layers (docs/particles.md), rebuilt
+        // only when the model or the scene changes; the viewport places them
+        // on the live emitter every frame.
+        if (emitterLayersSerial_ != modelEditSerial_ ||
+            emitterLayersScene_ != project_.activeScene) {
+            std::map<int, std::vector<Viewport::EmitterLayerPreview>> m;
+            const auto& objs = project_.objects();
+            for (size_t i = 0; i < objs.size(); ++i) {
+                const ParticleEffect* fx =
+                    objs[i].type == PrimitiveType::Emitter
+                        ? project::findParticleEffect(project_, objs[i].particleEffect)
+                        : nullptr;
+                if (!fx || fx->layers.empty()) continue;
+                const std::vector<SceneObject> ls = project::emitterLayerObjects(project_, objs[i]);
+                for (size_t k = 0; k < ls.size(); ++k) {
+                    Viewport::EmitterLayerPreview L;
+                    L.look = ls[k];
+                    for (int a = 0; a < 3; ++a) {
+                        L.offset[a] = fx->layers[k].offset[a];
+                        L.area[a] = fx->layers[k].area[a];
+                    }
+                    m[(int)i].push_back(std::move(L));
+                }
+            }
+            viewport_.setEmitterLayers(std::move(m));
+            emitterLayersSerial_ = modelEditSerial_;
+            emitterLayersScene_ = project_.activeScene;
+        }
         // Clips borrowed from other model files, grouped per target model - the
         // preview merges them exactly as bakeAnimAssets does, so an imported
         // clip is visible in the editor and not only on the console. Built only
@@ -3165,7 +3198,7 @@ void App::drawViewportWindow() {
         // Editor notes (docs/comments.md): a message icon per comment, and the
         // text of the selected one. Under the axis gizmo and the transform
         // gizmo below, which both own their pixels.
-        drawCommentOverlay(imgPos, avail);
+        drawScreenIconOverlay(imgPos, avail);
 
         // --- Axis view gizmo (top-right corner) ---
         // Drawn before the input handling so its hover can veto the click that
@@ -3899,7 +3932,7 @@ void App::drawViewportWindow() {
             const float v = (io.MousePos.y - imgPos.y) / avail.y;
             viewport_.pickAll(u, v, project_.objects(), pickMenu_);
             // A comment's icon is hit in screen space and is not in that list.
-            for (const CommentIcon& ic : commentIcons(imgPos, avail)) {
+            for (const ScreenIcon& ic : screenIcons(imgPos, avail)) {
                 if (std::fabs(io.MousePos.x - ic.center.x) > ic.w * 0.5f) continue;
                 if (std::fabs(io.MousePos.y - ic.center.y) > ic.h * 0.5f) continue;
                 pickMenu_.insert(pickMenu_.begin(), ic.index);
@@ -4846,28 +4879,34 @@ void App::drawMeasureOverlay(ImVec2 imgPos, ImVec2 avail) {
                        measurePoints_ == 1 ? "  - click the second point" : "");
 }
 
-// --- Comments (docs/comments.md) -------------------------------------------
-// Where every visible note's icon sits on screen, farthest first. The overlay
-// draws this list and viewportPick walks it backwards, so the icon you can see
-// is the icon you click - there is no second answer to "where is that note".
-std::vector<App::CommentIcon> App::commentIcons(ImVec2 imgPos, ImVec2 avail) {
-    std::vector<CommentIcon> out;
+// --- Screen-space icons: comments and emitters --------------------------------
+// Where every visible note's and particle emitter's icon sits on screen,
+// farthest first (docs/comments.md, docs/particles.md). The overlay draws this
+// list and viewportPick walks it backwards, so the icon you can see is the
+// icon you click - there is no second answer to "where is that object".
+std::vector<App::ScreenIcon> App::screenIcons(ImVec2 imgPos, ImVec2 avail) {
+    std::vector<ScreenIcon> out;
     if (!hasProject_ || avail.x < 1.0f || avail.y < 1.0f) return out;
     const std::vector<SceneObject>& objs = project_.objects();
     for (size_t i = 0; i < objs.size(); ++i) {
         const SceneObject& o = objs[i];
-        if (o.type != PrimitiveType::Comment) continue;
+        const bool emitter = o.type == PrimitiveType::Emitter;
+        if (o.type != PrimitiveType::Comment && !emitter) continue;
         if (isObjectHiddenInEditor(o)) continue;  // hidden layer
         float u = 0.0f, v = 0.0f, depth = 0.0f;
         if (!viewport_.projectToImage(o.position, u, v, &depth)) continue;
-        CommentIcon ic;
+        ScreenIcon ic;
         ic.index = (int)i;
-        ic.w = scaled(30.0f);
+        ic.emitter = emitter;
+        ic.w = scaled(emitter ? 22.0f : 30.0f);
         ic.h = scaled(22.0f);
         ic.anchor = ImVec2(imgPos.x + u * avail.x, imgPos.y + v * avail.y);
         // The bubble floats above the anchor with its tail on the point, so
-        // the note never covers the spot it is pinned to.
-        ic.center = ImVec2(ic.anchor.x, ic.anchor.y - ic.h * 0.5f - scaled(8.0f));
+        // the note never covers the spot it is pinned to. An emitter's badge
+        // sits ON its point: that is where the particles come from, and a
+        // small round icon hides far less than the cone it replaced.
+        ic.center = emitter ? ic.anchor
+                            : ImVec2(ic.anchor.x, ic.anchor.y - ic.h * 0.5f - scaled(8.0f));
         ic.depth = depth;
         // One icon of slack around the image, so a note just off the edge is
         // neither drawn nor clickable.
@@ -4878,14 +4917,14 @@ std::vector<App::CommentIcon> App::commentIcons(ImVec2 imgPos, ImVec2 avail) {
         out.push_back(ic);
     }
     std::stable_sort(out.begin(), out.end(),
-                     [](const CommentIcon& a, const CommentIcon& b) {
+                     [](const ScreenIcon& a, const ScreenIcon& b) {
                          return a.depth > b.depth;  // far first: near draws over
                      });
     return out;
 }
 
-void App::drawCommentOverlay(ImVec2 imgPos, ImVec2 avail) {
-    const std::vector<CommentIcon> icons = commentIcons(imgPos, avail);
+void App::drawScreenIconOverlay(ImVec2 imgPos, ImVec2 avail) {
+    const std::vector<ScreenIcon> icons = screenIcons(imgPos, avail);
     if (icons.empty()) return;
     const std::vector<SceneObject>& objs = project_.objects();
     const theme::Semantics& sem = theme::semantics();
@@ -4898,11 +4937,63 @@ void App::drawCommentOverlay(ImVec2 imgPos, ImVec2 avail) {
     constexpr size_t kPreviewChars = 420;
     const ImVec2 mouse = ImGui::GetIO().MousePos;
 
-    for (const CommentIcon& ic : icons) {
+    for (const ScreenIcon& ic : icons) {
         const SceneObject& o = objs[(size_t)ic.index];
         const bool selected = isSelected(ic.index);
         const bool hovered = std::fabs(mouse.x - ic.center.x) <= ic.w * 0.5f &&
                              std::fabs(mouse.y - ic.center.y) <= ic.h * 0.5f;
+        if (ic.emitter) {
+            // A particle emitter: a dark round badge with a flame glyph, dimmed
+            // while the emitter starts disabled. Drawn, not an asset - the
+            // comment bubble's reason.
+            const float rad = ic.w * 0.5f;
+            const int a = o.emitterEnabled ? 255 : 120;
+            dl->AddCircleFilled(ic.center, rad, IM_COL32(24, 24, 30, selected || hovered ? 235 : 190));
+            dl->AddCircle(ic.center, rad,
+                          selected ? ImGui::GetColorU32(sem.accent)
+                                   : IM_COL32(255, 150, 60, hovered ? 255 : 170),
+                          0, scaled(selected ? 2.0f : 1.2f));
+            // flame: an outer orange teardrop and an inner yellow one
+            auto flame = [&](float s, ImU32 col) {
+                const ImVec2 c(ic.center.x, ic.center.y + scaled(2.5f) * s);
+                ImVec2 pts[9];
+                const float r = scaled(4.6f) * s, h = scaled(10.5f) * s;
+                pts[0] = ImVec2(c.x, c.y - h);                          // tip
+                pts[1] = ImVec2(c.x + r * 0.55f, c.y - h * 0.45f);
+                pts[2] = ImVec2(c.x + r, c.y - r * 0.2f);
+                pts[3] = ImVec2(c.x + r * 0.75f, c.y + r * 0.7f);
+                pts[4] = ImVec2(c.x, c.y + r);
+                pts[5] = ImVec2(c.x - r * 0.75f, c.y + r * 0.7f);
+                pts[6] = ImVec2(c.x - r, c.y - r * 0.2f);
+                pts[7] = ImVec2(c.x - r * 0.55f, c.y - h * 0.45f);
+                pts[8] = pts[0];
+                dl->AddConvexPolyFilled(pts, 8, col);
+            };
+            // Selected: the emission direction the cone used to show - the
+            // object's +Y through Rz*Ry*Rx, one unit long.
+            if (selected) {
+                const float d2r = 3.14159265f / 180.0f;
+                const float cx = std::cos(o.rotation[0] * d2r), sx = std::sin(o.rotation[0] * d2r);
+                const float cy = std::cos(o.rotation[1] * d2r), sy = std::sin(o.rotation[1] * d2r);
+                const float cz = std::cos(o.rotation[2] * d2r), sz = std::sin(o.rotation[2] * d2r);
+                float x = 0.0f, y = cx, z = sx;             // X
+                const float x2 = x * cy + z * sy; z = -x * sy + z * cy; x = x2;  // Y
+                const float x3 = x * cz - y * sz; y = x * sz + y * cz; x = x3;   // Z
+                const float tip[3] = {o.position[0] + x, o.position[1] + y, o.position[2] + z};
+                float tu = 0.0f, tv = 0.0f;
+                if (viewport_.projectToImage(tip, tu, tv, nullptr)) {
+                    const ImVec2 t(imgPos.x + tu * avail.x, imgPos.y + tv * avail.y);
+                    dl->AddLine(ic.center, t, ImGui::GetColorU32(sem.accent), scaled(2.0f));
+                    dl->AddCircleFilled(t, scaled(3.0f), ImGui::GetColorU32(sem.accent));
+                }
+            }
+            flame(1.0f, IM_COL32(255, 120, 30, a));
+            flame(0.55f, IM_COL32(255, 225, 90, a));
+            if (hovered && !selected)
+                dl->AddText(ImVec2(ic.center.x + rad + scaled(4.0f), ic.center.y - scaled(7.0f)),
+                            IM_COL32(230, 230, 236, 230), o.name.c_str());
+            continue;
+        }
         // The note's own colour tints the bubble - that is what turns a scene
         // full of notes into categories (a red one is a problem, a green one
         // is settled). Kept light enough for dark glyphs to read on it.
@@ -5286,6 +5377,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "tree") return &showTreeGenerator_;
     if (key == "proc") return &showProcedural_;
     if (key == "prefabs") return &showPrefabs_;
+    if (key == "particles") return &showParticles_;
     if (key == "vehicles") return &showVehicles_;
     if (key == "facts") return &showWorldFacts_;
     if (key == "vu") return &showVuPrograms_;
@@ -5328,7 +5420,9 @@ static const char* const kLayoutWindowKeys[] = {
     // other optional window has.
     "projectprefs",
     // Tools > Vehicle Editor (docs/vehicles.md).
-    "vehicles"};
+    "vehicles",
+    // Tools > Particle Editor (docs/particles.md).
+    "particles"};
 
 // The same keys, for the AI Assistant's open_window tool (chat_ui.cpp). Defined
 // here rather than there because kLayoutWindowKeys is private to this TU, and
@@ -5706,6 +5800,9 @@ void App::commitChange() {
     // Same contract for a freshly added fact: its id is what a player's save
     // file is keyed by, so it must exist before the fact can be persisted.
     project::ensureFactIds(project_);
+    // A linked emitter wears its library effect (docs/particles.md): copy the
+    // effect in before the snapshot, so undo and the session see the result.
+    project::applyParticleEffects(project_);
     ++modelEditSerial_;  // let the session diff pick up this edit (see sessionTick)
     // The undo snapshot only carries the SCENES, so push() returns false for an
     // edit to any project-wide collection - menus, the Input Map, gradings,
@@ -6751,13 +6848,13 @@ int App::viewportPick(float u, float v, ImVec2 mouse, ImVec2 imgPos, ImVec2 avai
     // A comment's icon wins over everything under it, and it is tested in
     // screen space: the icon is a fixed size whatever the distance, so the
     // small 3D box the note also carries stops being clickable long before
-    // the thing you can see does. Nearest first (commentIcons sorts far to
+    // the thing you can see does. Nearest first (screenIcons sorts far to
     // near for drawing, so the last one drawn is the first one hit) - the
     // note on top is the note you clicked.
     {
-        const std::vector<CommentIcon> icons = commentIcons(imgPos, avail);
+        const std::vector<ScreenIcon> icons = screenIcons(imgPos, avail);
         for (size_t k = icons.size(); k-- > 0;) {
-            const CommentIcon& ic = icons[k];
+            const ScreenIcon& ic = icons[k];
             if (std::fabs(mouse.x - ic.center.x) > ic.w * 0.5f) continue;
             if (std::fabs(mouse.y - ic.center.y) > ic.h * 0.5f) continue;
             pickCycle_.clear();  // an icon is one target, never a stack

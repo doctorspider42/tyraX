@@ -783,11 +783,88 @@ void App::drawVehicleWindow() {
                 "the full width), its Kd colour tints it. The texture's alpha\n"
                 "is the mark's shape. An atlased texture cannot repeat, so it\n"
                 "falls back to the built-in tread (the game log says so).");
-            mtlPicker("Tyre smoke", v.smokeMaterial, "<built-in puff>");
-            prefHelp(
-                "The material each smoke puff is a billboard of: texture\n"
-                "alpha is the puff's shape, Kd tints it (dust on dirt, white\n"
-                "smoke on tarmac). The puffs grow, turn and fade on their own.");
+            // Tyre smoke: the built-in puff, a particle-library effect
+            // (smokeEffect, which wins) or a plain material (smokeMaterial).
+            // One combo, so the two fields can never both look chosen.
+            {
+                const ParticleEffect* fxSel =
+                    project::findParticleEffect(project_, v.smokeEffect);
+                std::string current = "<built-in puff>";
+                if (fxSel) {
+                    current = "Library: " + fxSel->name;
+                } else if (!v.smokeEffect.empty()) {
+                    current = "Library: " + v.smokeEffect + " (missing)";
+                } else if (!v.smokeMaterial.empty()) {
+                    current = v.smokeMaterial.rfind("res/", 0) == 0
+                                  ? v.smokeMaterial.substr(4)
+                                  : v.smokeMaterial;
+                }
+                ImGui::SetNextItemWidth(scaled(260));
+                if (ImGui::BeginCombo("Tyre smoke", current.c_str())) {
+                    if (ImGui::Selectable("<built-in puff>##vehsmokenone",
+                                          v.smokeEffect.empty() && v.smokeMaterial.empty())) {
+                        v.smokeEffect.clear();
+                        v.smokeMaterial.clear();
+                    }
+                    if (!project_.particleEffects.empty())
+                        ImGui::SeparatorText("Particle library");
+                    for (size_t k = 0; k < project_.particleEffects.size(); ++k) {
+                        const ParticleEffect& e = project_.particleEffects[k];
+                        const std::string l = e.name + "##vehsmokefx" + std::to_string(k);
+                        if (ImGui::Selectable(l.c_str(), v.smokeEffect == e.name)) {
+                            v.smokeEffect = e.name;
+                            v.smokeMaterial.clear();
+                        }
+                    }
+                    const std::vector<std::string> mats = listMaterialAssets();
+                    if (!mats.empty()) ImGui::SeparatorText("Materials");
+                    for (const std::string& rel : mats) {
+                        const std::string l = rel.substr(4) + "##vehsmokemtl";
+                        if (ImGui::Selectable(l.c_str(),
+                                              v.smokeEffect.empty() && rel == v.smokeMaterial)) {
+                            v.smokeMaterial = rel;
+                            v.smokeEffect.clear();
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                prefHelp(
+                    "What each smoke puff looks like. A PARTICLE LIBRARY effect\n"
+                    "(Tools > Particle Editor) brings its texture - generated\n"
+                    "smoke, flame or glow, flipbook included - colour, opacity,\n"
+                    "start size, growth, life, rise and blend (additive for\n"
+                    "fire). A MATERIAL brings a texture whose alpha is the\n"
+                    "puff's shape and a Kd tint. When and where puffs spawn and\n"
+                    "how they drift stay the tyre slip's either way; an effect's\n"
+                    "extra layers are not drawn. Each definition is its own\n"
+                    "pool and one submit, whatever it picks.");
+                if (fxSel) {
+                    if (ImGui::SmallButton("Edit in Particle Editor##vehsmokeedit"))
+                        openParticleEditor(fxSel->name);
+                } else {
+                    // A library copy of the built-in puff: same texture
+                    // recipe, same sizes and life, ready to be tuned.
+                    if (ImGui::SmallButton("New library smoke##vehsmokenew")) {
+                        ParticleEffect fx = vehbake::tyreSmokeEffect();
+                        fx.id = project::newObjectId();
+                        const std::string base = fx.name;
+                        for (int k = 2; project::findParticleEffect(project_, fx.name); ++k)
+                            fx.name = base + " " + std::to_string(k);
+                        if (particleBakeTexture(fx)) {
+                            project_.particleEffects.push_back(fx);
+                            v.smokeEffect = fx.name;
+                            v.smokeMaterial.clear();
+                            openParticleEditor(fx.name);
+                        }
+                    }
+                    ImGui::SameLine();
+                    prefHelp(
+                        "Adds a \"Tyre smoke\" effect to the particle library that\n"
+                        "looks like the built-in puff (the same generated texture,\n"
+                        "sizes and life), links this car to it and opens the\n"
+                        "Particle Editor on it.");
+                }
+            }
             ImGui::EndTabItem();
         }
 

@@ -621,15 +621,30 @@ Editor > Effects** names two materials (`.mtl`, `skidMaterial` /
 - **Tyre smoke**: the texture is each puff's billboard, and Kd tints it
   (dust on dirt, white on tarmac).
 
+**Since 1.133.0 the same Tyre smoke combo also lists the
+[particle library](particles.md)** (`smokeEffect`, format v68): pick an effect
+and the puffs take its texture (generated smoke, flame or glow, flipbook
+included), colour, opacity, start and end size, life, rise and blend -
+additive for a fire-like exhaust burn. Spawning, placement and drift stay the
+tyre's. Picking an effect clears the material and the other way round.
+**New library smoke** creates a "Tyre smoke" effect that looks like the
+built-in puff, links the car to it and opens the Particle Editor on it. The
+mapping and the codegen table (`VEHICLE_SMOKE_LOOKS`) are in particles.md,
+"Vehicle tyre smoke". The cost does not move: still one pool and one billboard
+submit per definition, and a flipbook only swaps the bag's texture pointer.
+
 Leave either unset and the definition uses the built-in pair. The vehicle
 bake GENERATES them (`vehbake::builtinSkidPng` / `builtinSmokePng`, written
 to `vehicles/fx-skid.png` and `fx-smoke.png`), so there is no asset and no
 licence:
 - the tread is 32×64, with soft shoulders, two grooves, slanted sipes and
   rubber grain;
-- the puff is 64×64, a soft disc whose rim fractal noise pushes in and out,
-  lighter on top. It is never quantized below 8-bit: at 16 colours its
-  alpha banded into hard rings.
+- the puff is 64×64 and, since 1.133.0, the particle library's own smoke
+  texture (`particletex::generate` of `vehbake::builtinSmokeRecipe`, alpha
+  x0.91 to keep the coverage of the hand-written puff it replaced) - one
+  procedural smoke generator in the editor instead of two. It is a billowy
+  cloud, lighter on top, clear before the quad's edge. It is never quantized
+  below 8-bit: at 16 colours its alpha banded into hard rings.
 
 A definition-named texture that the atlas packed cannot repeat along the
 mark, so it falls back to the tread with a `TYRA_WARN`.
@@ -966,6 +981,12 @@ with no code of its own.
   editable, saveable, loadable and documented by appearing in that one list.
 - **Driver** — the camera rig while driving, and the exit offset (the driver's
   door).
+- **Effects** — what the tyres leave behind: the skid-mark material and the
+  tyre smoke, which is the built-in puff, a material or a
+  [particle-library](particles.md) effect (**New library smoke** makes one
+  from the built-in look). See *Skid marks and smoke*. The library entry that
+  button adds is project data outside this window's own undo stack: undoing
+  the link leaves the effect in the library.
 - **Cost** — the number that decides whether a scene can afford this vehicle:
   submits per vehicle, triangles, what the source was, the far tier's cost and
   distance, and what the placed instances would total if they were all on

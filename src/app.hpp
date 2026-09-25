@@ -780,6 +780,16 @@ private:
     // a procedural graph, or by the Spawn Prefab node at runtime. Lives in
     // prefab_ui.cpp (the assetbrowser.cpp precedent).
     void drawPrefabsWindow();
+    // Tools > Particle Editor (docs/particles.md): the project's particle
+    // library - effects defined once, linked from emitters and from a
+    // vehicle's tyre smoke, with procedural smoke / flame / glow textures.
+    // Lives in particle_ui.cpp (the prefab_ui.cpp precedent).
+    void drawParticleEditorWindow();
+    // Opens the window with `effect` selected ("" = keep the selection).
+    void openParticleEditor(const std::string& effect);
+    // Regenerates the effect's procedural texture into res/ and points its
+    // material at it; returns false with a message in particleStatus_.
+    bool particleBakeTexture(ParticleEffect& fx);
 
     // Tools > Vehicle Editor (docs/vehicles.md): define a car once - model,
     // wheels, driving - and place it in as many scenes as you like. Lives in
@@ -1794,18 +1804,19 @@ private:
     // over the finished image instead, which is why the icon is the same size
     // at any distance and never hides what the note is about.
     //
-    // ONE function computes where those icons are (commentIcons); the overlay
+    // ONE function computes where those icons are (screenIcons); the overlay
     // draws them and the picker hit-tests them, so what you see is exactly
     // what a click selects - the axis-gizmo arrangement.
-    struct CommentIcon {
+    struct ScreenIcon {
         int index = -1;      // into project_.objects()
         ImVec2 center{0, 0};  // screen-space centre of the bubble
         float w = 0.0f, h = 0.0f;
         ImVec2 anchor{0, 0};  // the object's own point, where the tail lands
         float depth = 0.0f;   // distance along the view axis, for ordering
+        bool emitter = false;  // a particle emitter's badge (docs/particles.md)
     };
-    std::vector<CommentIcon> commentIcons(ImVec2 imgPos, ImVec2 avail);
-    void drawCommentOverlay(ImVec2 imgPos, ImVec2 avail);
+    std::vector<ScreenIcon> screenIcons(ImVec2 imgPos, ImVec2 avail);
+    void drawScreenIconOverlay(ImVec2 imgPos, ImVec2 avail);
     // View > Comments. Machine-global (editor.ini), not project data: icons
     // always remain visible and clickable; this only chooses whether every
     // note's text is expanded or only the selected one's. Off by default.
@@ -1868,6 +1879,28 @@ private:
     // Prefabs (Tools > Prefabs). Project-wide, so the window is a plain list
     // with an index - nothing about it is per scene.
     bool showPrefabs_ = false;
+    bool showParticles_ = false;
+    // docs/particles.md: what viewport_.setEmitterLayers was last fed from.
+    uint64_t emitterLayersSerial_ = ~0ull;
+    int emitterLayersScene_ = -1;
+    int particleSel_ = -1;             // selected library entry
+    std::string particleStatus_;       // last bake / rename message
+    int particleLayerSel_ = 0;         // 0 = the effect's main layer
+    // GL previews of each layer's generated texture, one per flipbook frame.
+    struct ParticleTexCache {
+        ParticleTexGen recipe;
+        std::vector<unsigned int> ids;
+        bool valid = false;
+    };
+    std::vector<ParticleTexCache> particleTex_;
+    std::string particleRenameFrom_;   // name while the Name field is edited
+    // The window's animated 2D preview: a handful of billboards simulated with
+    // the effect's own knobs (an approximation - the viewport shows the exact
+    // per-kind formulas on a placed emitter).
+    struct ParticlePreviewDot { float x, y, vx, vy, life, maxLife, spin; };
+    std::vector<std::vector<ParticlePreviewDot>> particlePreview_;  // per layer
+    unsigned particlePreviewRng_ = 1u;
+    float particlePreviewAcc_ = 0.0f;
     bool showVehicles_ = false;
     int vehicleSel_ = -1;  // selected definition in the Vehicle Editor
     // Cached import bakes, one per definition, keyed by what the bake depends

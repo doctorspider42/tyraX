@@ -1,5 +1,7 @@
 #include "vehbake.hpp"
 
+#include "particletex.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -12,6 +14,7 @@
 #include "fbxparser.hpp"  // animimport::parseSkel - .glb and .fbx alike
 #include "meshlod.hpp"
 #include "meshstrip.hpp"
+#include "particletex.hpp"
 #include "pngquant.hpp"
 
 #include <stb_image.h>
@@ -1267,37 +1270,6 @@ std::vector<unsigned char> skidTreadRGBA(int& w, int& h) {
     return rgba;
 }
 
-// A 64x64 billow: a soft disc whose rim is pushed in and out by fractal
-// noise, lighter on top the way sunlit smoke is. Alpha reaches 0 a few texels
-// inside the border, so no bilinear tap ever reads the clamp edge.
-std::vector<unsigned char> smokePuffRGBA(int& w, int& h) {
-    w = h = 64;
-    std::vector<unsigned char> rgba((size_t)w * h * 4);
-    for (int y = 0; y < h; ++y)
-        for (int x = 0; x < w; ++x) {
-            const float dx = (x + 0.5f) / w * 2.0f - 1.0f;
-            const float dy = (y + 0.5f) / h * 2.0f - 1.0f;
-            const float r = std::sqrt(dx * dx + dy * dy);
-            float n = 0.0f, amp = 0.5f, tot = 0.0f;
-            for (int o = 0; o < 4; ++o) {
-                const int per = 4 << o;
-                n += amp * fxValueNoise((x + 0.5f) / w * per, (y + 0.5f) / h * per, per, 31 + o);
-                tot += amp;
-                amp *= 0.5f;
-            }
-            n /= tot;  // 0..1
-            const float rim = 0.62f + 0.34f * n;  // billowy edge
-            float a = fxSmooth(rim, rim * 0.35f, r);
-            a *= 0.55f + 0.45f * n;               // wisps inside
-            a *= fxSmooth(0.97f, 0.86f, r);       // guaranteed clear border
-            const float lum = 0.78f + 0.22f * fxSmooth(0.9f, -0.9f, dy) * (0.8f + 0.2f * n);
-            unsigned char* o = &rgba[((size_t)y * w + x) * 4];
-            o[0] = o[1] = o[2] = (unsigned char)(lum * 255.0f + 0.5f);
-            o[3] = (unsigned char)(a * 255.0f + 0.5f);
-        }
-    return rgba;
-}
-
 }  // namespace
 
 const char* kSkidTexturePath = "vehicles/fx-skid.png";
@@ -1309,10 +1281,64 @@ std::vector<unsigned char> builtinSkidPng() {
     return encodePng(rgba, w, h);
 }
 
+ParticleTexGen builtinSmokeRecipe() {
+    // Picked against the old puff side by side over a dark and a light
+    // ground (the particletex harness in tyra-testing): a soft billow, fine
+    // wisps, lighter on top. The generator reaches zero alpha before the
+    // quad's edge, so no bilinear tap reads the clamp border.
+    ParticleTexGen g;
+    g.kind = 1;
+    g.size = 64;
+    g.seed = 9;
+    g.softness = 0.85f;
+    g.detail = 0.4f;
+    g.scale = 0.9f;
+    return g;
+}
+
 std::vector<unsigned char> builtinSmokePng() {
-    int w = 0, h = 0;
-    const std::vector<unsigned char> rgba = smokePuffRGBA(w, h);
-    return encodePng(rgba, w, h);
+    std::vector<unsigned char> rgba = particletex::generate(builtinSmokeRecipe());
+    for (size_t i = 3; i < rgba.size(); i += 4)
+        rgba[i] = (unsigned char)std::lround(rgba[i] * kBuiltinSmokeDensity);
+    const int n = builtinSmokeRecipe().size;
+    return encodePng(rgba, n, n);
+}
+
+SmokeLook smokeLookOf(const ParticleEffect& fx) {
+    SmokeLook L{};
+    // textured puffs MODULATE (128 = 1x); untextured ones are the vertex
+    // colour itself
+    const float scale = fx.materialPath.empty() ? 255.0f : 128.0f;
+    for (int k = 0; k < 3; ++k) L.rgb[k] = fx.color[k] * scale;
+    L.alpha = fx.opacity * 128.0f;
+    L.size0 = fx.size * 0.6f;
+    L.size1 = L.size0 * (fx.kind == 5 ? std::max(1.0f, fx.grow) : 2.4f);
+    L.life = fx.life / 1.5f;
+    L.rise = 1.0f;
+    if (fx.kind == 5 && fx.gravity < 0.0f)
+        L.rise = std::min(3.0f, std::max(0.3f, -fx.gravity));
+    L.frames = fx.texGen.kind > 0 ? std::min(8, std::max(1, fx.texGen.frames)) : 1;
+    L.fps = fx.texGen.fps;
+    return L;
+}
+
+ParticleEffect tyreSmokeEffect() {
+    // Custom motion (kind 5), so grow and gravity are the effect's own and
+    // smokeLookOf maps them back onto the built-in numbers: size0 0.22,
+    // size1 1.67, life 1, rise 1, peak alpha 84 x the built-in density.
+    ParticleEffect fx;
+    fx.name = "Tyre smoke";
+    fx.kind = 5;
+    fx.count = 24;
+    fx.size = 0.22f / 0.6f;
+    fx.grow = 1.67f / 0.22f;
+    fx.life = 1.5f;
+    fx.gravity = -1.0f;
+    fx.speed = 1.0f, fx.spread = 30.0f, fx.weight = 0.5f;
+    fx.opacity = 84.0f / 128.0f * kBuiltinSmokeDensity;
+    fx.color[0] = fx.color[1] = fx.color[2] = 1.0f;
+    fx.texGen = builtinSmokeRecipe();
+    return fx;
 }
 
 // --- the build-path bake ----------------------------------------------------

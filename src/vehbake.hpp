@@ -218,6 +218,34 @@ extern const char* kSmokeTexturePath;
 std::vector<unsigned char> builtinSkidPng();
 std::vector<unsigned char> builtinSmokePng();
 
+// The built-in puff is the PARTICLE LIBRARY's smoke texture (particletex kind
+// 1) from this fixed recipe - one procedural smoke generator in the editor,
+// not two. builtinSmokePng() scales its alpha by kBuiltinSmokeDensity so the
+// puff keeps the coverage of the pre-1.133 hand-written one (mean alpha 0.18
+// against the recipe's 0.195).
+ParticleTexGen builtinSmokeRecipe();
+inline constexpr float kBuiltinSmokeDensity = 0.91f;
+
+// A particle-library effect as a vehicle's tyre smoke (docs/vehicles.md,
+// "Skid marks and smoke"): what VEHICLE_SMOKE_LOOKS carries per definition.
+// Only the look travels - colour (on the vertex-colour scale: 128 = 1x over a
+// texture, 255 = white untextured), peak alpha (128 = 1), start/end size,
+// life and rise multipliers on the slip-driven puff, and the flipbook; WHEN
+// and WHERE puffs spawn and how they drift stay the tyre's.
+struct SmokeLook {
+    float rgb[3];
+    float alpha, size0, size1, life, rise;
+    int frames;
+    float fps;
+};
+SmokeLook smokeLookOf(const ParticleEffect& fx);
+
+// "Tyre smoke": a library effect whose look reproduces the built-in puff
+// (the recipe above, the built-in sizes, life and opacity) - the starting
+// point the Vehicle Editor's "New library smoke" creates, so an author edits
+// the car's smoke in the Particle Editor instead of starting from Smoke.
+ParticleEffect tyreSmokeEffect();
+
 // What the bake hands BACK to a definition: the lamp measurements (the
 // glow clusters and the emissive part indices). Pure measurement with no
 // authored value to respect, so it is adopted UNCONDITIONALLY - by the
