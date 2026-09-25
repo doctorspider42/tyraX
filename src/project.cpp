@@ -2795,95 +2795,130 @@ static void readPrefabsSection(const json::Value& root, Project& out) {
 
 // The particle library (Tools > Particle Editor, docs/particles.md).
 // Conditional like the prefabs: a project with no effects writes nothing.
+static std::string particleF3(const float* c) {
+    return "[" + fmtFloat(c[0]) + ", " + fmtFloat(c[1]) + ", " + fmtFloat(c[2]) + "]";
+}
+
+// One layer's fields (the main layer's are the effect object's own).
+static void writeParticleLayer(std::ostream& json, const ParticleLayer& e, bool extra) {
+    if (extra)
+        json << "\"label\": \"" << jsonEscape(e.label) << "\", \"offset\": "
+             << particleF3(e.offset) << ", \"area\": " << particleF3(e.area) << ", ";
+    json << "\"kind\": " << e.kind << ", \"count\": " << e.count
+         << ", \"size\": " << fmtFloat(e.size) << ", \"color\": " << particleF3(e.color)
+         << ", \"speed\": " << fmtFloat(e.speed) << ", \"spread\": " << fmtFloat(e.spread)
+         << ", \"gravity\": " << fmtFloat(e.gravity) << ", \"weight\": " << fmtFloat(e.weight)
+         << ", \"life\": " << fmtFloat(e.life) << ", \"grow\": " << fmtFloat(e.grow)
+         << ", \"opacity\": " << fmtFloat(e.opacity)
+         << ", \"dieOnGround\": " << (e.dieOnGround ? "true" : "false")
+         << ", \"additive\": " << (e.additive ? "true" : "false");
+    if (!e.materialPath.empty())
+        json << ", \"material\": \"" << jsonEscape(e.materialPath) << "\"";
+    if (e.texGen.kind != 0) {
+        const ParticleTexGen& g = e.texGen;
+        json << ", \"texGen\": { \"kind\": " << g.kind << ", \"size\": " << g.size
+             << ", \"seed\": " << g.seed << ", \"softness\": " << fmtFloat(g.softness)
+             << ", \"detail\": " << fmtFloat(g.detail) << ", \"scale\": " << fmtFloat(g.scale)
+             << ", \"turbulence\": " << fmtFloat(g.turbulence)
+             << ", \"heat\": " << fmtFloat(g.heat) << ", \"color\": " << particleF3(g.color);
+        if (g.frames > 1)
+            json << ", \"frames\": " << g.frames << ", \"fps\": " << fmtFloat(g.fps);
+        json << " }";
+    }
+}
+
+// The particle library (Tools > Particle Editor, docs/particles.md).
+// Conditional like the prefabs: a project with no effects writes nothing.
 static void writeParticlesSection(std::ostream& json, const Project& p) {
     if (p.particleEffects.empty()) return;
-    auto f3 = [](const float* c) {
-        return "[" + fmtFloat(c[0]) + ", " + fmtFloat(c[1]) + ", " + fmtFloat(c[2]) + "]";
-    };
     json << "\"particleEffects\": [";
     for (size_t i = 0; i < p.particleEffects.size(); ++i) {
         const ParticleEffect& e = p.particleEffects[i];
         json << (i ? ",\n    " : "\n    ") << "{ \"id\": \"" << jsonEscape(e.id)
-             << "\", \"name\": \"" << jsonEscape(e.name) << "\", \"kind\": " << e.kind
-             << ", \"count\": " << e.count << ", \"size\": " << fmtFloat(e.size)
-             << ", \"color\": " << f3(e.color) << ", \"speed\": " << fmtFloat(e.speed)
-             << ", \"spread\": " << fmtFloat(e.spread)
-             << ", \"gravity\": " << fmtFloat(e.gravity)
-             << ", \"weight\": " << fmtFloat(e.weight) << ", \"life\": " << fmtFloat(e.life)
-             << ", \"grow\": " << fmtFloat(e.grow) << ", \"opacity\": " << fmtFloat(e.opacity)
-             << ", \"dieOnGround\": " << (e.dieOnGround ? "true" : "false")
-             << ", \"additive\": " << (e.additive ? "true" : "false");
-        if (!e.materialPath.empty())
-            json << ", \"material\": \"" << jsonEscape(e.materialPath) << "\"";
-        if (e.texGen.kind != 0) {
-            const ParticleTexGen& g = e.texGen;
-            json << ", \"texGen\": { \"kind\": " << g.kind << ", \"size\": " << g.size
-                 << ", \"seed\": " << g.seed << ", \"softness\": " << fmtFloat(g.softness)
-                 << ", \"detail\": " << fmtFloat(g.detail)
-                 << ", \"scale\": " << fmtFloat(g.scale)
-                 << ", \"turbulence\": " << fmtFloat(g.turbulence)
-                 << ", \"heat\": " << fmtFloat(g.heat) << ", \"color\": " << f3(g.color);
-            if (g.frames > 1)
-                json << ", \"frames\": " << g.frames << ", \"fps\": " << fmtFloat(g.fps);
-            json << " }";
+             << "\", \"name\": \"" << jsonEscape(e.name) << "\", ";
+        writeParticleLayer(json, e, false);
+        if (!e.layers.empty()) {
+            json << ", \"layers\": [";
+            for (size_t k = 0; k < e.layers.size(); ++k) {
+                json << (k ? ",\n      " : "\n      ") << "{ ";
+                writeParticleLayer(json, e.layers[k], true);
+                json << " }";
+            }
+            json << "\n    ]";
         }
         json << " }";
     }
     json << "\n  ]";
 }
 
-static void readParticlesSection(const json::Value& root, Project& out) {
-    out.particleEffects.clear();
-    const json::Value* arr = root.find("particleEffects");
-    if (!arr || arr->type != json::Value::Type::Array) return;
+static void readParticleLayer(const json::Value& e, ParticleLayer& fx) {
     auto rd3 = [](const json::Value* v, float* c) {
         if (!v || v->type != json::Value::Type::Array) return;
         for (size_t k = 0; k < 3 && k < v->arr.size(); ++k)
             c[k] = (float)v->arr[k].numberOr(c[k]);
     };
-    auto num = [](const json::Value& e, const char* key, float def) {
-        const json::Value* v = e.find(key);
+    auto num = [](const json::Value& o, const char* key, float def) {
+        const json::Value* v = o.find(key);
         return v ? (float)v->numberOr(def) : def;
     };
+    if (const json::Value* v = e.find("label")) fx.label = v->stringOr("");
+    rd3(e.find("offset"), fx.offset);
+    rd3(e.find("area"), fx.area);
+    fx.kind = (int)num(e, "kind", 1);
+    if (fx.kind < 0 || fx.kind > 5) fx.kind = 1;
+    fx.count = (int)num(e, "count", 24);
+    fx.count = fx.count < 1 ? 1 : (fx.count > 256 ? 256 : fx.count);
+    fx.size = num(e, "size", 0.5f);
+    rd3(e.find("color"), fx.color);
+    fx.speed = num(e, "speed", 3.0f);
+    fx.spread = num(e, "spread", 20.0f);
+    fx.gravity = num(e, "gravity", 9.8f);
+    fx.weight = std::max(0.05f, num(e, "weight", 1.0f));
+    fx.life = std::max(0.1f, num(e, "life", 1.5f));
+    fx.grow = num(e, "grow", 1.0f);
+    fx.opacity = std::min(1.0f, std::max(0.0f, num(e, "opacity", 0.6f)));
+    if (const json::Value* v = e.find("dieOnGround")) fx.dieOnGround = v->boolOr(false);
+    if (const json::Value* v = e.find("additive")) fx.additive = v->boolOr(false);
+    if (const json::Value* v = e.find("material")) fx.materialPath = v->stringOr("");
+    if (const json::Value* g = e.find("texGen")) {
+        ParticleTexGen& t = fx.texGen;
+        t.kind = (int)num(*g, "kind", 0);
+        if (t.kind < 0 || t.kind > 3) t.kind = 0;
+        t.size = (int)num(*g, "size", 64);
+        if (t.size != 32 && t.size != 64 && t.size != 128) t.size = 64;
+        t.seed = (int)num(*g, "seed", 1);
+        t.softness = num(*g, "softness", t.softness);
+        t.detail = num(*g, "detail", t.detail);
+        t.scale = num(*g, "scale", t.scale);
+        t.turbulence = num(*g, "turbulence", t.turbulence);
+        t.heat = num(*g, "heat", t.heat);
+        rd3(g->find("color"), t.color);
+        t.frames = (int)num(*g, "frames", 1);
+        if (t.frames != 2 && t.frames != 4 && t.frames != 8) t.frames = 1;
+        t.fps = std::min(60.0f, std::max(1.0f, num(*g, "fps", 12.0f)));
+    }
+}
+
+static void readParticlesSection(const json::Value& root, Project& out) {
+    out.particleEffects.clear();
+    const json::Value* arr = root.find("particleEffects");
+    if (!arr || arr->type != json::Value::Type::Array) return;
     for (const json::Value& e : arr->arr) {
         ParticleEffect fx;
         if (const json::Value* v = e.find("id")) fx.id = v->stringOr("");
         if (const json::Value* v = e.find("name")) fx.name = v->stringOr("");
         if (fx.name.empty()) continue;
         if (fx.id.empty()) fx.id = project::newObjectId();
-        fx.kind = (int)num(e, "kind", 1);
-        if (fx.kind < 0 || fx.kind > 5) fx.kind = 1;
-        fx.count = (int)num(e, "count", 24);
-        fx.count = fx.count < 1 ? 1 : (fx.count > 256 ? 256 : fx.count);
-        fx.size = num(e, "size", 0.5f);
-        rd3(e.find("color"), fx.color);
-        fx.speed = num(e, "speed", 3.0f);
-        fx.spread = num(e, "spread", 20.0f);
-        fx.gravity = num(e, "gravity", 9.8f);
-        fx.weight = std::max(0.05f, num(e, "weight", 1.0f));
-        fx.life = std::max(0.1f, num(e, "life", 1.5f));
-        fx.grow = num(e, "grow", 1.0f);
-        fx.opacity = std::min(1.0f, std::max(0.0f, num(e, "opacity", 0.6f)));
-        if (const json::Value* v = e.find("dieOnGround")) fx.dieOnGround = v->boolOr(false);
-        if (const json::Value* v = e.find("additive")) fx.additive = v->boolOr(false);
-        if (const json::Value* v = e.find("material")) fx.materialPath = v->stringOr("");
-        if (const json::Value* g = e.find("texGen")) {
-            ParticleTexGen& t = fx.texGen;
-            t.kind = (int)num(*g, "kind", 0);
-            if (t.kind < 0 || t.kind > 3) t.kind = 0;
-            t.size = (int)num(*g, "size", 64);
-            if (t.size != 32 && t.size != 64 && t.size != 128) t.size = 64;
-            t.seed = (int)num(*g, "seed", 1);
-            t.softness = num(*g, "softness", t.softness);
-            t.detail = num(*g, "detail", t.detail);
-            t.scale = num(*g, "scale", t.scale);
-            t.turbulence = num(*g, "turbulence", t.turbulence);
-            t.heat = num(*g, "heat", t.heat);
-            rd3(g->find("color"), t.color);
-            t.frames = (int)num(*g, "frames", 1);
-            if (t.frames != 2 && t.frames != 4 && t.frames != 8) t.frames = 1;
-            t.fps = std::min(60.0f, std::max(1.0f, num(*g, "fps", 12.0f)));
-        }
+        readParticleLayer(e, fx);
+        fx.label.clear();
+        for (int k = 0; k < 3; ++k) fx.offset[k] = 0.0f, fx.area[k] = 1.0f;
+        if (const json::Value* ls = e.find("layers"))
+            if (ls->type == json::Value::Type::Array)
+                for (const json::Value& le : ls->arr) {
+                    ParticleLayer L;
+                    readParticleLayer(le, L);
+                    fx.layers.push_back(std::move(L));
+                }
         out.particleEffects.push_back(std::move(fx));
     }
 }
@@ -3851,6 +3886,36 @@ const ParticleEffect* findParticleEffect(const Project& p, const std::string& na
 }
 
 void applyParticleEffect(const ParticleEffect& fx, SceneObject& o) {
+    applyParticleLayer(fx, o);
+}
+
+std::vector<SceneObject> emitterLayerObjects(const Project& p, const SceneObject& o) {
+    std::vector<SceneObject> out;
+    if (o.type != PrimitiveType::Emitter) return out;
+    const ParticleEffect* fx = findParticleEffect(p, o.particleEffect);
+    if (!fx) return out;
+    for (const ParticleLayer& L : fx->layers) {
+        SceneObject c = o;
+        c.id.clear();
+        c.particleEffect.clear();
+        c.name = o.name + "#" + (L.label.empty() ? std::string("layer") : L.label);
+        applyParticleLayer(L, c);
+        for (int k = 0; k < 3; ++k) {
+            c.position[k] = o.position[k] + L.offset[k];
+            c.scale[k] = o.scale[k] * L.area[k];
+        }
+        out.push_back(std::move(c));
+    }
+    return out;
+}
+
+std::string particleLayerStem(const ParticleEffect& fx, int layer) {
+    if (layer <= 0 || layer > (int)fx.layers.size()) return fx.name;
+    const std::string& l = fx.layers[(size_t)layer - 1].label;
+    return fx.name + " " + (l.empty() ? "layer " + std::to_string(layer) : l);
+}
+
+void applyParticleLayer(const ParticleLayer& fx, SceneObject& o) {
     o.emitterKind = fx.kind;
     o.emitterCount = fx.count;
     o.emitterSize = fx.size;

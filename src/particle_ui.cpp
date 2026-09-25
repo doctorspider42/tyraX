@@ -62,24 +62,19 @@ void App::openParticleEditor(const std::string& effect) {
 
 bool App::particleBakeTexture(ParticleEffect& fx) {
     std::string err;
-    const std::string mtl = particletex::writeAssets(project_.dir, fx.name, fx.texGen, &err);
-    if (mtl.empty()) {
+    const int n = particletex::bakeEffect(project_, fx, &err);
+    if (n < 0) {
         particleStatus_ = "Texture not written: " + err;
         return false;
     }
-    fx.materialPath = mtl;
-    // A soft alpha ramp does not survive the palettized (CLUT) bake - pin the
-    // library's textures to full colour. 64x64 RGBA32 is 16 KB of GS VRAM.
-    for (int k = 0; k < std::max(1, fx.texGen.frames); ++k)
-        project_.textureQuality[particletex::framePath(mtl, k)] = "none";
     viewport_.invalidateAssets();  // the viewport caches textures by path
-    particleStatus_ = "Wrote " + mtl;
+    particleStatus_ = n ? "Textures written to " + std::string(particletex::kDir) : "";
     return true;
 }
 
 void App::drawParticleEditorWindow() {
     if (!showParticles_) return;
-    ImGui::SetNextWindowSize(ImVec2(scaled(720), scaled(560)), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(760), scaled(600)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Particle Editor", &showParticles_)) {
         ImGui::End();
         return;
@@ -112,9 +107,10 @@ void App::drawParticleEditorWindow() {
                 ParticleEffect fx = project::particlePreset(k);
                 fx.id = project::newObjectId();
                 fx.name = uniqueName(project_, fx.name);
-                if (fx.texGen.kind != 0) particleBakeTexture(fx);
+                particleBakeTexture(fx);
                 lib.push_back(fx);
                 particleSel_ = (int)lib.size() - 1;
+                particleLayerSel_ = 0;
             }
         ImGui::EndPopup();
     }
@@ -124,17 +120,18 @@ void App::drawParticleEditorWindow() {
         ParticleEffect fx = lib[(size_t)particleSel_];
         fx.id = project::newObjectId();
         fx.name = uniqueName(project_, fx.name);
-        if (fx.texGen.kind != 0) particleBakeTexture(fx);
+        particleBakeTexture(fx);
         lib.push_back(fx);
         particleSel_ = (int)lib.size() - 1;
     }
     ImGui::SameLine();
     if (ImGui::Button("Delete") && particleSel_ >= 0) {
         // Linked emitters keep the look they last copied; vehicles fall back
-        // to the built-in smoke. The texture file stays - it is an asset.
+        // to the built-in smoke. The texture files stay - they are assets.
         project::renameParticleEffectRefs(project_, lib[(size_t)particleSel_].name, "");
         lib.erase(lib.begin() + particleSel_);
         particleSel_ = std::min(particleSel_, (int)lib.size() - 1);
+        particleLayerSel_ = 0;
         sceneEdit = true;
     }
     ImGui::SameLine();
@@ -161,9 +158,13 @@ void App::drawParticleEditorWindow() {
         const int n = usersOf(project_, lib[k].name, &veh);
         char label[256];
         std::snprintf(label, sizeof label, "%s##fxrow%zu", lib[k].name.c_str(), k);
-        if (ImGui::Selectable(label, particleSel_ == (int)k)) particleSel_ = (int)k;
-        if (n + veh > 0 && ImGui::IsItemHovered())
-            ImGui::SetTooltip("%d emitter(s), %d vehicle(s)", n, veh);
+        if (ImGui::Selectable(label, particleSel_ == (int)k)) {
+            if (particleSel_ != (int)k) particleLayerSel_ = 0;
+            particleSel_ = (int)k;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%d layer(s) - %d emitter(s), %d vehicle(s)",
+                              (int)lib[k].layers.size() + 1, n, veh);
     }
     ImGui::EndChild();
     ImGui::SameLine();
@@ -194,38 +195,90 @@ void App::drawParticleEditorWindow() {
         const int users = usersOf(project_, fx.name, &veh);
         ImGui::TextDisabled("Used by %d emitter(s), %d vehicle(s)", users, veh);
 
+        // --- layers: one effect, several emitters ----------------------------
+        ImGui::SeparatorText("Layers");
+        if (particleLayerSel_ > (int)fx.layers.size()) particleLayerSel_ = 0;
+        for (int li = 0; li <= (int)fx.layers.size(); ++li) {
+            const std::string lab =
+                (li == 0 ? std::string("Main")
+                         : (fx.layers[(size_t)li - 1].label.empty()
+                                ? "Layer " + std::to_string(li)
+                                : fx.layers[(size_t)li - 1].label)) +
+                "##fxlayer" + std::to_string(li);
+            if (li) ImGui::SameLine();
+            if (ImGui::RadioButton(lab.c_str(), particleLayerSel_ == li)) particleLayerSel_ = li;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("+ Layer")) ImGui::OpenPopup("##fxaddlayer");
+        prefHelp("Each layer is one more emitter of this effect around the\n"
+                 "placed one - a campfire is flame + embers + glow + smoke.\n"
+                 "Every layer is its own draw (one submit) on the console.");
+        if (ImGui::BeginPopup("##fxaddlayer")) {
+            for (int k = 0; k < 6; ++k)
+                if (ImGui::MenuItem(kKinds[k])) {
+                    const ParticleEffect preset = project::particlePreset(k);
+                    ParticleLayer L = preset;
+                    L.label = preset.name;
+                    fx.layers.push_back(L);
+                    particleLayerSel_ = (int)fx.layers.size();
+                    particleBakeTexture(fx);
+                }
+            ImGui::EndPopup();
+        }
+        ParticleLayer& L = particleLayerSel_ == 0
+                               ? static_cast<ParticleLayer&>(fx)
+                               : fx.layers[(size_t)particleLayerSel_ - 1];
+        if (particleLayerSel_ > 0) {
+            char lb[64];
+            std::snprintf(lb, sizeof lb, "%s", L.label.c_str());
+            if (ImGui::InputText("Layer name", lb, sizeof lb)) L.label = lb;
+            ImGui::DragFloat3("Offset", L.offset, 0.02f, -20.0f, 20.0f, "%.2f");
+            prefHelp("Where this layer sits relative to the emitter (world axes).");
+            ImGui::DragFloat3("Area", L.area, 0.02f, 0.0f, 10.0f, "%.2f x");
+            prefHelp("Spawn area as a multiple of the emitter's scale.");
+            if (ImGui::SmallButton("Remove layer")) {
+                fx.layers.erase(fx.layers.begin() + (particleLayerSel_ - 1));
+                particleLayerSel_ = 0;
+                ImGui::EndChild();
+                commitChange();
+                committedSection = project::sectionJson(project_, project::Section::Particles);
+                ImGui::End();
+                return;
+            }
+        }
+
         ImGui::SeparatorText("Behaviour");
-        ImGui::Combo("Motion", &fx.kind, kKinds, 6);
+        ImGui::Combo("Motion", &L.kind, kKinds, 6);
         prefHelp("Fire .. Rain are the built-in motions; Custom uses the\n"
                  "speed / spread / gravity knobs below.");
-        ImGui::DragInt("Count", &fx.count, 1.0f, 1, 256);
-        ImGui::DragFloat("Size", &fx.size, 0.02f, 0.05f, 8.0f, "%.2f");
-        ImGui::ColorEdit3("Tint", fx.color);
-        ImGui::Checkbox("Additive (glows)", &fx.additive);
+        ImGui::DragInt("Count", &L.count, 1.0f, 1, 256);
+        ImGui::DragFloat("Size", &L.size, 0.02f, 0.02f, 8.0f, "%.2f");
+        ImGui::ColorEdit3("Tint", L.color);
+        ImGui::Checkbox("Additive (glows)", &L.additive);
         prefHelp("Adds light instead of covering: fire, sparks, magic.\n"
                  "Leave off for smoke, dust and fog.");
-        if (fx.kind == 2 || fx.kind == 5)
-            ImGui::SliderFloat("Opacity", &fx.opacity, 0.0f, 1.0f, "%.2f");
-        if (fx.kind == 5) {
-            ImGui::DragFloat("Speed", &fx.speed, 0.05f, 0.0f, 50.0f, "%.2f u/s");
-            ImGui::DragFloat("Spread", &fx.spread, 0.5f, 0.0f, 90.0f, "%.0f deg");
-            ImGui::DragFloat("Gravity", &fx.gravity, 0.1f, -30.0f, 50.0f, "%.1f u/s2");
-            ImGui::DragFloat("Weight", &fx.weight, 0.02f, 0.05f, 10.0f, "%.2f");
-            ImGui::DragFloat("Lifetime", &fx.life, 0.05f, 0.1f, 10.0f, "%.2f s");
-            ImGui::DragFloat("Grow", &fx.grow, 0.02f, 0.1f, 4.0f, "%.2f x");
-            ImGui::Checkbox("Die on terrain", &fx.dieOnGround);
+        if (L.kind == 2 || L.kind == 5)
+            ImGui::SliderFloat("Opacity", &L.opacity, 0.0f, 1.0f, "%.2f");
+        if (L.kind == 5) {
+            ImGui::DragFloat("Speed", &L.speed, 0.05f, 0.0f, 50.0f, "%.2f u/s");
+            ImGui::DragFloat("Spread", &L.spread, 0.5f, 0.0f, 90.0f, "%.0f deg");
+            ImGui::DragFloat("Gravity", &L.gravity, 0.1f, -30.0f, 50.0f, "%.1f u/s2");
+            ImGui::DragFloat("Weight", &L.weight, 0.02f, 0.05f, 10.0f, "%.2f");
+            ImGui::DragFloat("Lifetime", &L.life, 0.05f, 0.1f, 10.0f, "%.2f s");
+            ImGui::DragFloat("Grow", &L.grow, 0.02f, 0.1f, 4.0f, "%.2f x");
+            ImGui::Checkbox("Die on terrain", &L.dieOnGround);
         }
 
         ImGui::SeparatorText("Texture");
-        ParticleTexGen& g = fx.texGen;
+        ParticleTexGen& g = L.texGen;
         const ParticleTexGen before = g;
         ImGui::Combo("Generate", &g.kind, kTexKinds, 4);
         bool recipeCommitted = g.kind != before.kind;
         if (g.kind == 0) {
             SceneObject tmp;
             tmp.type = PrimitiveType::Emitter;
-            tmp.materialPath = fx.materialPath;
-            if (drawMaterialCombo(tmp)) fx.materialPath = tmp.materialPath;
+            tmp.materialPath = L.materialPath;
+            if (drawMaterialCombo(tmp)) L.materialPath = tmp.materialPath;
         } else {
             int sizeIdx = g.size == 32 ? 0 : (g.size == 128 ? 2 : 1);
             const char* sizes[] = {"32 x 32", "64 x 64", "128 x 128"};
@@ -265,116 +318,139 @@ void App::drawParticleEditorWindow() {
             }
             if (ImGui::Button("Regenerate")) recipeCommitted = true;
             ImGui::SameLine();
-            ImGui::TextDisabled("%s", fx.materialPath.empty() ? "(not written yet)"
-                                                               : fx.materialPath.c_str());
+            ImGui::TextDisabled("%s", L.materialPath.empty() ? "(not written yet)"
+                                                              : L.materialPath.c_str());
         }
-        // Re-bake on RELEASE, not per frame of a drag: it writes two files.
+        // Re-bake on RELEASE, not per frame of a drag: it writes files.
         if (g.kind != 0 && recipeCommitted) particleBakeTexture(fx);
 
         // --- previews --------------------------------------------------------
-        if (g.kind != 0 && (!particleTexValid_ || particleTexFor_ != g)) {
-            const int frames = std::max(1, g.frames);
-            while ((int)particleTexIds_.size() < frames) {
+        const int layerCount = (int)fx.layers.size() + 1;
+        auto layerAt = [&](int li) -> const ParticleLayer& {
+            return li == 0 ? static_cast<const ParticleLayer&>(fx) : fx.layers[(size_t)li - 1];
+        };
+        if ((int)particleTex_.size() < layerCount) particleTex_.resize((size_t)layerCount);
+        for (int li = 0; li < layerCount; ++li) {
+            const ParticleTexGen& lg = layerAt(li).texGen;
+            ParticleTexCache& tc = particleTex_[(size_t)li];
+            if (lg.kind == 0) {
+                tc.valid = false;
+                continue;
+            }
+            if (tc.valid && tc.recipe == lg) continue;
+            const int frames = std::max(1, lg.frames);
+            while ((int)tc.ids.size() < frames) {
                 unsigned int id = 0;
                 glGenTextures(1, &id);
-                particleTexIds_.push_back(id);
+                tc.ids.push_back(id);
             }
             for (int k = 0; k < frames; ++k) {
-                const std::vector<unsigned char> px = particletex::generate(g, k);
-                glBindTexture(GL_TEXTURE_2D, particleTexIds_[(size_t)k]);
-                glUploadTexRgba(g.size, g.size, px.data());
+                const std::vector<unsigned char> px = particletex::generate(lg, k);
+                glBindTexture(GL_TEXTURE_2D, tc.ids[(size_t)k]);
+                glUploadTexRgba(lg.size, lg.size, px.data());
             }
-            particleTexFor_ = g;
-            particleTexValid_ = true;
+            tc.recipe = lg;
+            tc.valid = true;
         }
-        const bool haveTex = g.kind != 0 && particleTexValid_;
         // the frame the console would show now (same arithmetic as the game)
-        const int frameNow =
-            haveTex && g.frames > 1 ? (int)(ImGui::GetTime() * g.fps) % g.frames : 0;
-        const unsigned int particleTexId_ =
-            haveTex ? particleTexIds_[(size_t)frameNow] : 0u;
+        auto texNow = [&](int li) -> unsigned int {
+            const ParticleTexCache& tc = particleTex_[(size_t)li];
+            if (!tc.valid) return 0u;
+            const ParticleTexGen& lg = tc.recipe;
+            const int f = lg.frames > 1 ? (int)(ImGui::GetTime() * lg.fps) % lg.frames : 0;
+            return tc.ids[(size_t)f];
+        };
         const float box = scaled(180);
         ImDrawList* dl = ImGui::GetWindowDrawList();
         const ImU32 bg = IM_COL32(28, 32, 44, 255);
 
         ImGui::SeparatorText("Preview");
-        // the texture itself, on a dark card
+        // the selected layer's texture, on a dark card
         ImVec2 p0 = ImGui::GetCursorScreenPos();
         ImGui::InvisibleButton("##fxtex", ImVec2(box * 0.6f, box));
         dl->AddRectFilled(p0, ImVec2(p0.x + box * 0.6f, p0.y + box), bg, 4.0f);
-        if (haveTex)
-            dl->AddImage((ImTextureID)(intptr_t)particleTexId_,
+        if (const unsigned int t = texNow(particleLayerSel_))
+            dl->AddImage((ImTextureID)(intptr_t)t,
                          ImVec2(p0.x + 4, p0.y + box * 0.5f - box * 0.28f),
                          ImVec2(p0.x + box * 0.6f - 4, p0.y + box * 0.5f + box * 0.28f));
         ImGui::SameLine();
 
-        // an animated 2D approximation of the motion
+        // every layer together, animated - a 2D approximation of the motion
         ImVec2 q0 = ImGui::GetCursorScreenPos();
         const float w = ImGui::GetContentRegionAvail().x;
         ImGui::InvisibleButton("##fxanim", ImVec2(w > box ? w : box, box));
         const ImVec2 q1(q0.x + (w > box ? w : box), q0.y + box);
         dl->AddRectFilled(q0, q1, bg, 4.0f);
         dl->PushClipRect(q0, q1, true);
-        {
-            float dt = ImGui::GetIO().DeltaTime;
-            if (dt > 0.05f) dt = 0.05f;
+        if ((int)particlePreview_.size() != layerCount) particlePreview_.resize((size_t)layerCount);
+        float dt = ImGui::GetIO().DeltaTime;
+        if (dt > 0.05f) dt = 0.05f;
+        const float unit = box / 5.0f;  // screen px per world unit
+        for (int li = 0; li < layerCount; ++li) {
+            const ParticleLayer& P = layerAt(li);
+            std::vector<ParticlePreviewDot>& dots = particlePreview_[(size_t)li];
             // the knobs each motion actually uses (Custom's own; the presets'
             // approximated from the runtime's constants)
             float speed = 1.2f, spread = 25.0f, grav = 0.0f, life = 1.5f, grow = 1.0f;
             float alphaPeak = 0.6f;
-            switch (fx.kind) {
+            switch (P.kind) {
                 case 0: speed = 2.0f, spread = 12.0f, grav = -1.0f, life = 0.9f, grow = 0.6f, alphaPeak = 0.7f; break;
                 case 1: speed = 0.9f, spread = 20.0f, grav = -0.3f, life = 2.6f, grow = 1.6f, alphaPeak = 0.35f; break;
-                case 2: speed = 0.2f, spread = 90.0f, grav = 0.0f, life = 4.0f, grow = 1.0f, alphaPeak = fx.opacity * 0.47f; break;
+                case 2: speed = 0.2f, spread = 90.0f, grav = 0.0f, life = 4.0f, grow = 1.0f, alphaPeak = P.opacity * 0.47f; break;
                 case 3: speed = 4.0f, spread = 40.0f, grav = 9.8f, life = 0.7f, grow = 1.0f, alphaPeak = 0.86f; break;
                 case 4: speed = 6.0f, spread = 2.0f, grav = 9.8f, life = 1.0f, grow = 1.0f, alphaPeak = 0.55f; break;
-                default: speed = fx.speed, spread = fx.spread, grav = fx.gravity, life = fx.life, grow = fx.grow, alphaPeak = fx.opacity; break;
+                default: speed = P.speed, spread = P.spread, grav = P.gravity, life = P.life, grow = P.grow, alphaPeak = P.opacity; break;
             }
-            const int n = std::min(fx.count, 128);
-            if ((int)particlePreview_.size() != n) particlePreview_.assign((size_t)n, {0, 0, 0, 0, 0, 1, 0});
-            const float unit = box / 5.0f;  // screen px per world unit
-            const float ox = (q0.x + q1.x) * 0.5f;
-            const float oy = fx.kind == 4 ? q0.y + 6.0f : q1.y - box * 0.18f;
-            for (size_t i = 0; i < particlePreview_.size(); ++i) {
-                auto& d = particlePreview_[i];
+            const int n = std::min(P.count, 128);
+            if ((int)dots.size() != n) dots.assign((size_t)n, {0, 0, 0, 0, 0, 1, 0});
+            const float ox = (q0.x + q1.x) * 0.5f + (li ? P.offset[0] * unit : 0.0f);
+            const float oy = (P.kind == 4 ? q0.y + 6.0f : q1.y - box * 0.18f) -
+                             (li ? P.offset[1] * unit : 0.0f);
+            const float spawnW = 0.4f * (li ? std::max(0.1f, P.area[0]) : 1.0f);
+            const unsigned int tex = texNow(li);
+            const bool dimmed = particleLayerSel_ != li;
+            for (size_t i = 0; i < dots.size(); ++i) {
+                auto& d = dots[i];
                 if (d.life <= 0.0f) {
                     if (frand(particlePreviewRng_) > dt * n / life) continue;
                     const float a = (frand(particlePreviewRng_) * 2.0f - 1.0f) * spread * 0.01745f;
                     const float sp = speed * (0.8f + 0.4f * frand(particlePreviewRng_));
-                    const float down = fx.kind == 4 ? -1.0f : 1.0f;
-                    d.x = (frand(particlePreviewRng_) - 0.5f) * (fx.kind == 4 ? 4.0f : 0.4f);
+                    const float down = P.kind == 4 ? -1.0f : 1.0f;
+                    d.x = (frand(particlePreviewRng_) - 0.5f) * (P.kind == 4 ? 4.0f : spawnW);
                     d.y = 0.0f;
                     d.vx = std::sin(a) * sp;
                     d.vy = std::cos(a) * sp * down;
                     d.maxLife = d.life = life * (0.75f + 0.5f * frand(particlePreviewRng_));
                     // only fog puffs turn on the console (updateParticles)
-                    d.spin = fx.kind == 2 ? frand(particlePreviewRng_) * 6.28f : 0.0f;
+                    d.spin = P.kind == 2 ? frand(particlePreviewRng_) * 6.28f : 0.0f;
                 }
                 d.life -= dt;
                 d.vy -= grav * dt;
-                const float drag = 1.0f - std::min(0.9f, dt * 0.6f / std::max(0.05f, fx.weight));
-                if (fx.kind == 5) d.vx *= drag, d.vy *= drag;
+                const float drag = 1.0f - std::min(0.9f, dt * 0.6f / std::max(0.05f, P.weight));
+                if (P.kind == 5) d.vx *= drag, d.vy *= drag;
                 d.x += d.vx * dt;
                 d.y += d.vy * dt;
-                if (fx.kind == 2) d.spin += ((i & 1) ? 0.3f : -0.3f) * dt;
+                if (P.kind == 2) d.spin += ((i & 1) ? 0.3f : -0.3f) * dt;
                 if (d.life <= 0.0f) continue;
                 const float t = d.life / d.maxLife;  // 1 -> 0
-                const float sz = fx.size * unit * (1.0f + (grow - 1.0f) * (1.0f - t)) *
-                                 (fx.kind == 3 ? 0.35f : 1.0f);
-                const float alpha = alphaPeak * (fx.kind == 2 ? (t < 0.5f ? t * 2 : (1 - t) * 2)
-                                                              : std::min(1.0f, t * 1.5f));
+                const float sz = P.size * unit * (1.0f + (grow - 1.0f) * (1.0f - t)) *
+                                 (P.kind == 3 ? 0.35f : 1.0f);
+                float alpha = alphaPeak * (P.kind == 2 ? (t < 0.5f ? t * 2 : (1 - t) * 2)
+                                                       : std::min(1.0f, t * 1.5f));
+                // the other layers dim a little, so the one being edited reads
+                if (dimmed) alpha *= 0.75f;
                 const float cx = ox + d.x * unit, cy = oy - d.y * unit;
                 const ImU32 col = ImGui::ColorConvertFloat4ToU32(
-                    ImVec4(fx.color[0], fx.color[1], fx.color[2], alpha));
-                if (haveTex) {
+                    ImVec4(P.color[0], P.color[1], P.color[2], alpha));
+                if (tex) {
                     const float c = std::cos(d.spin), s = std::sin(d.spin);
                     // odd slots mirrored, as on the console (not rain, not fog)
-                    const float mir = ((i & 1) && fx.kind != 4 && fx.kind != 2) ? -1.0f : 1.0f;
+                    const float mir = ((i & 1) && P.kind != 4 && P.kind != 2) ? -1.0f : 1.0f;
                     auto corner = [&](float u, float v) {
                         u *= mir;
                         return ImVec2(cx + (u * c - v * s) * sz, cy + (u * s + v * c) * sz);
                     };
-                    dl->AddImageQuad((ImTextureID)(intptr_t)particleTexId_, corner(-1, -1),
+                    dl->AddImageQuad((ImTextureID)(intptr_t)tex, corner(-1, -1),
                                      corner(1, -1), corner(1, 1), corner(-1, 1), ImVec2(0, 0),
                                      ImVec2(1, 0), ImVec2(1, 1), ImVec2(0, 1), col);
                 } else {

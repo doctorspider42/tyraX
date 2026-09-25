@@ -1345,23 +1345,24 @@ static int bakeParticlesFromCli(int argc, char** argv) {
     if (refuseUnmigrated(p)) return 1;
     int baked = 0;
     for (ParticleEffect& fx : p.particleEffects) {
-        if (fx.texGen.kind == 0) {
-            std::printf("particles: %s - material %s (not generated)\n", fx.name.c_str(),
-                        fx.materialPath.empty() ? "(none)" : fx.materialPath.c_str());
-            continue;
-        }
         std::string err;
-        const std::string mtl = particletex::writeAssets(p.dir, fx.name, fx.texGen, &err);
-        if (mtl.empty()) {
+        const int n = particletex::bakeEffect(p, fx, &err);
+        if (n < 0) {
             std::fprintf(stderr, "error: %s: %s\n", fx.name.c_str(), err.c_str());
             return 1;
         }
-        fx.materialPath = mtl;
-        for (int k = 0; k < std::max(1, fx.texGen.frames); ++k)
-            p.textureQuality[particletex::framePath(mtl, k)] = "none";
-        std::printf("particles: %s - %dx%d x %d frame(s) -> %s\n", fx.name.c_str(),
-                    fx.texGen.size, fx.texGen.size, std::max(1, fx.texGen.frames), mtl.c_str());
-        ++baked;
+        for (int li = 0; li <= (int)fx.layers.size(); ++li) {
+            const ParticleLayer& L =
+                li == 0 ? static_cast<const ParticleLayer&>(fx) : fx.layers[(size_t)li - 1];
+            std::printf("particles: %s / %s - %s\n", fx.name.c_str(),
+                        li == 0 ? "Main" : L.label.c_str(),
+                        L.texGen.kind == 0
+                            ? (L.materialPath.empty() ? "no texture" : L.materialPath.c_str())
+                            : (std::to_string(L.texGen.size) + "x" + std::to_string(L.texGen.size) +
+                               " x " + std::to_string(std::max(1, L.texGen.frames)) +
+                               " frame(s) -> " + L.materialPath).c_str());
+        }
+        baked += n;
     }
     project::applyParticleEffects(p);
     if (std::string err = project::save(p); !err.empty()) {

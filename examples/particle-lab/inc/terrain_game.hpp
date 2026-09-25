@@ -1194,9 +1194,13 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
     std::unique_ptr<Tyra::StaPipBillboardBag> billboardBag;
     float animTime = 0.0F;  // flipbook clock (docs/particles.md)
+    // -1 = the emitter's own particles; >= 0 = an EMITTER_LAYERS row (an
+    // extra layer of the emitter's library effect).
+    int layer = -1;
   };
   std::vector<ParticleSystem> particles;
   void buildParticles();
+  void buildParticleSystem(int objectIndex, int layer);  // layer -1 = own
   void updateParticles();
 
   // Sound emitters (type 8): distance-attenuated one-shots on channels 16-23

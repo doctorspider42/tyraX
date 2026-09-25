@@ -1148,14 +1148,12 @@ struct ParticleTexGen {
     bool operator!=(const ParticleTexGen& o) const { return !(*this == o); }
 };
 
-// One entry of the project's particle library (Tools > Particle Editor,
-// docs/particles.md). Emitters and vehicle tyre smoke reference an effect by
-// NAME; the fields mirror SceneObject's emitter* fields one for one, and
-// project::applyParticleEffects is the ONE place that copies them across.
-struct ParticleEffect {
-    std::string id;    // stable identity (collaboration merge key)
-    std::string name;  // what references use
-    int kind = 1;      // emitterKind semantics: 0 fire .. 4 rain, 5 custom
+// One EMITTER's worth of a particle effect (docs/particles.md): motion, look
+// and texture. The fields mirror SceneObject's emitter* fields one for one,
+// and project::applyParticleLayer is the ONE place that copies them across.
+struct ParticleLayer {
+    std::string label;  // "Embers", "Glow" ... (extra layers; the main one is "Main")
+    int kind = 1;       // emitterKind semantics: 0 fire .. 4 rain, 5 custom
     int count = 24;
     float size = 0.5f;
     float color[3] = {1.0f, 1.0f, 1.0f};
@@ -1165,15 +1163,39 @@ struct ParticleEffect {
     bool additive = false;
     std::string materialPath;  // texture (.mtl, first material's map_Kd)
     ParticleTexGen texGen;     // how materialPath's texture was generated
-    bool operator==(const ParticleEffect& o) const {
-        return id == o.id && name == o.name && kind == o.kind &&
+    // Extra layers only: where the layer sits relative to its emitter (world
+    // axes) and its spawn area as a multiple of the emitter's scale. The main
+    // layer IS the emitter, so it has neither.
+    float offset[3] = {0.0f, 0.0f, 0.0f};
+    float area[3] = {1.0f, 1.0f, 1.0f};
+    bool operator==(const ParticleLayer& o) const {
+        return label == o.label && kind == o.kind &&
                count == o.count && size == o.size && color[0] == o.color[0] &&
                color[1] == o.color[1] && color[2] == o.color[2] &&
                speed == o.speed && spread == o.spread && gravity == o.gravity &&
                weight == o.weight && life == o.life && grow == o.grow &&
                opacity == o.opacity && dieOnGround == o.dieOnGround &&
                additive == o.additive && materialPath == o.materialPath &&
-               texGen == o.texGen;
+               texGen == o.texGen && offset[0] == o.offset[0] &&
+               offset[1] == o.offset[1] && offset[2] == o.offset[2] &&
+               area[0] == o.area[0] && area[1] == o.area[1] && area[2] == o.area[2];
+    }
+    bool operator!=(const ParticleLayer& o) const { return !(*this == o); }
+};
+
+// One entry of the project's particle library (Tools > Particle Editor,
+// docs/particles.md). Emitters and vehicle tyre smoke reference an effect by
+// NAME. The effect's own ParticleLayer fields are its MAIN layer - the one
+// copied into a linked emitter's own fields - and `layers` are the further
+// emitters it adds around that one (a campfire's flame + embers + glow +
+// smoke), which codegen bakes into EMITTER_LAYERS and the viewport previews.
+struct ParticleEffect : ParticleLayer {
+    std::string id;    // stable identity (collaboration merge key)
+    std::string name;  // what references use
+    std::vector<ParticleLayer> layers;
+    bool operator==(const ParticleEffect& o) const {
+        return id == o.id && name == o.name && layers == o.layers &&
+               ParticleLayer::operator==(o);
     }
     bool operator!=(const ParticleEffect& o) const { return !(*this == o); }
 };
@@ -4234,6 +4256,14 @@ void ensureFactIds(Project& p);
 const ParticleEffect* findParticleEffect(const Project& p, const std::string& name);
 bool applyParticleEffects(Project& p);
 void applyParticleEffect(const ParticleEffect& fx, SceneObject& o);
+void applyParticleLayer(const ParticleLayer& L, SceneObject& o);
+// The EXTRA layers of a linked emitter as ordinary emitter objects: a copy of
+// `o` wearing each layer, moved by its offset and its spawn area scaled. Empty
+// for an unlinked emitter or an effect with one layer. The ONE expansion
+// codegen (EMITTER_LAYERS) and the viewport preview read.
+std::vector<SceneObject> emitterLayerObjects(const Project& p, const SceneObject& o);
+// The file stem a layer's generated texture is baked under.
+std::string particleLayerStem(const ParticleEffect& fx, int layer);
 ParticleEffect particlePreset(int kind);
 // Retargets every emitter and vehicle that names `from` to `to` ("" = unlink).
 void renameParticleEffectRefs(Project& p, const std::string& from, const std::string& to);

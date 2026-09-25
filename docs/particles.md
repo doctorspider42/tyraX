@@ -34,6 +34,48 @@ and glows, baked from a recipe into ordinary PNG + `.mtl` assets.
 
 Renaming an effect retargets every emitter and vehicle that names it.
 
+## Layers: one effect, several emitters
+
+An effect is not limited to one emitter's worth of particles. Its own fields
+are its **Main** layer, and *+ Layer* adds more (from any motion preset), each
+with its own motion, look and texture, plus an **Offset** from the emitter
+(world axes) and an **Area** - its spawn area as a multiple of the emitter's
+scale. A campfire is one effect - flame, embers, glow and smoke - placed as
+ONE emitter; moving, hiding or disabling that emitter moves, hides or disables
+every layer.
+
+The main layer is copied into a linked emitter's own fields as before. The
+extra layers are expanded by `project::emitterLayerObjects` (a copy of the
+emitter wearing each layer), and that one expansion feeds both sides:
+
+- codegen writes one full `SceneObjectData` row per layer into
+  `EMITTER_LAYER_OBJECTS`, keyed by (scene, object) in `EMITTER_LAYERS` with the
+  offset and area, and appends the layers' materials to `MATERIAL_PATHS` after
+  every object's (so a project without layers keeps its indices). The runtime
+  builds one particle system per row beside the emitter's own and places it on
+  the LIVE emitter every frame; the residency pass keeps the layer textures
+  loaded;
+- the viewport previews the layers the same way, placed on the live emitter,
+  so a gizmo drag carries them before anything is committed.
+
+**Every layer is one more bag - one more submit on the console.** A four-layer
+campfire costs what four emitters cost, which is the honest price: the layers
+exist because a real fire IS several kinds of particle. Layers of an emitter
+spawned at runtime (a clone) or inside a prefab are not expanded yet.
+
+![The Particle Editor with the Campfire effect's Embers layer selected; in the viewport the emitters are flame badges.](img/particle-editor-layers.png)
+
+## Viewport icons
+
+An emitter is drawn in the viewport as a round flame **badge** on its point
+(the screen-space icon mechanism comments use, `App::screenIcons`), not as the
+solid cone it used to be - the cone covered the very effect it marked. The
+badge is always the same size, clicking it selects the emitter, a disabled
+emitter's badge is dimmed, and a selected emitter shows its emission direction
+as a line. The small 3D pick box that remains is only for the rubber band and
+the gizmo, and it is small on purpose, so an invisible marker never steals a
+click from what is behind it.
+
 ## Emitters: linking an effect
 
 *Properties > Particle emitter > Library* picks an effect (or *own settings*,
@@ -161,12 +203,15 @@ because no scene object names it.
 ## Format
 
 Format v62: the `"particleEffects"` section (`project::Section::Particles`,
-flipbook `"frames"`/`"fps"` inside a recipe), an emitter's `"effect"`,
+flipbook `"frames"`/`"fps"` inside a recipe, extra `"layers"` with their
+`"label"`, `"offset"` and `"area"`), an emitter's `"effect"`,
 `"additive"`, `"frames"` and `"fps"`, a vehicle's `"smokeEffect"`. All are
 written only when set, so a project that uses none resaves byte for byte.
 
 ## Limits
 
+- Layers are expanded for authored emitters only (not spawned clones or
+  prefab members), and vehicle tyre smoke uses an effect's main layer.
 - A flipbook's frames advance together for the whole emitter (one bag, one
   texture pointer); per-particle frame phase would need a UV channel the
   billboard program does not have.

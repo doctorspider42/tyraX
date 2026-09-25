@@ -2948,8 +2948,12 @@ void Viewport::pickBounds(const SceneObject& o, float mn[3], float mx[3]) {
         // Both of these draw a marker at a hardcoded size, so their hitbox is
         // that size too - the object's scale means something else entirely (an
         // emitter's is unused, a scroller's belt is described by its segments).
-        case PrimitiveType::Emitter:  // 0.7 cone
-            useCube(0.35f);
+        // An emitter is clicked by its screen-space badge (App::screenIcons);
+        // this small cube is only for the rubber band and the gizmo, and is
+        // small so an invisible marker never steals a click from what is
+        // behind it.
+        case PrimitiveType::Emitter:
+            useCube(0.2f);
             scaled = false;
             break;
         case PrimitiveType::Scroller:  // 0.3 origin sphere
@@ -2959,7 +2963,7 @@ void Viewport::pickBounds(const SceneObject& o, float mn[3], float mx[3]) {
         // A comment draws as a screen-space icon and has nothing in 3D, so its
         // hitbox is a small fixed cube on the anchor - enough for a rubber
         // band to catch and for the gizmo to have something to sit on. The
-        // ICON's own rect is what a click really tests (App::commentIcons),
+        // ICON's own rect is what a click really tests (App::screenIcons),
         // which is what keeps a distant note clickable.
         case PrimitiveType::Comment:
             useCube(0.2f);
@@ -6003,28 +6007,14 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             if (o.type == PrimitiveType::Scroller) continue;
             // Comments have no geometry in ANY view mode: the app draws them
             // as a screen-space message icon over the finished image
-            // (App::drawCommentOverlay), so a note never hides the thing it is
+            // (App::drawScreenIconOverlay), so a note never hides the thing it is
             // about and never changes size with the camera.
             if (o.type == PrimitiveType::Comment) continue;
-            // Emitters preview as live particles (drawn after the scene); in
-            // the scene pass they only get a small fixed-size cone marker so
-            // the gizmo has something to grab. Dimmed when disabled.
-            if (o.type == PrimitiveType::Emitter) {
-                // rotation aims the cone with the emission direction (custom)
-                const float d2r = kPi / 180.0f;
-                Mat4 marker = scaleM(0.7f, 0.7f, 0.7f);
-                marker = mul(rotX(o.rotation[0] * d2r), marker);
-                marker = mul(rotY(o.rotation[1] * d2r), marker);
-                marker = mul(rotZ(o.rotation[2] * d2r), marker);
-                marker = mul(
-                    translation(o.position[0], o.position[1], o.position[2]),
-                    marker);
-                const float dim = o.emitterEnabled ? 1.0f : 0.35f;
-                draw(cone_, GL_TRIANGLES, mul(viewProj, marker),
-                     o.color[0] * dim * tintScale, o.color[1] * dim * tintScale,
-                     o.color[2] * dim * tintScale);
-                continue;
-            }
+            // Emitters preview as live particles (drawn after the scene) and
+            // are marked by a screen-space badge (App::drawScreenIconOverlay)
+            // - the solid cone they used to get covered the very effect it
+            // marked. Nothing in the scene pass.
+            if (o.type == PrimitiveType::Emitter) continue;
             // Mirrors draw in their own pass after the scene (reflected
             // copies first, glass blended over them); portals blend their
             // surface after the scene too. The wire passes still outline
@@ -8059,11 +8049,16 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
 
     // Drop pools of removed / retyped / disabled emitters (indices shift on
     // delete; a mismatched pool also resets below via the kind/count check).
+    // A pool's key is object * 16 + slot: slot 0 is the emitter's own
+    // particles, 1.. its library effect's extra layers (setEmitterLayers).
     std::erase_if(emitterPreviews_, [&](const auto& kv) {
-        return kv.first >= (int)objects.size() ||
-               objects[(size_t)kv.first].type != PrimitiveType::Emitter ||
-               !objects[(size_t)kv.first].emitterEnabled ||
-               hiddenAt((size_t)kv.first);
+        const size_t oi = (size_t)(kv.first / 16);
+        const int slot = kv.first % 16;
+        return oi >= objects.size() ||
+               objects[oi].type != PrimitiveType::Emitter ||
+               !objects[oi].emitterEnabled || hiddenAt(oi) ||
+               (slot > 0 && (!emitterLayers_.count((int)oi) ||
+                             (size_t)slot > emitterLayers_.at((int)oi).size()));
     });
 
     bool any = false;
@@ -8099,18 +8094,41 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
     glBindVertexArray(particleVao_);
     glBindBuffer(GL_ARRAY_BUFFER, particleVbo_);
 
-    std::vector<float> buf;
+    // Every pool to simulate: each emitter, then its extra layers (copies of
+    // the emitter wearing the layer - project::emitterLayerObjects, the same
+    // expansion codegen bakes into EMITTER_LAYERS).
+    struct PoolRef { size_t oi; int slot; const SceneObject* obj; };
+    std::vector<PoolRef> pools;
     for (size_t oi = 0; oi < objects.size(); ++oi) {
-        const SceneObject& o = objects[oi];
-        if (o.type != PrimitiveType::Emitter || !o.emitterEnabled || hiddenAt(oi))
-            continue;
+        const SceneObject& e = objects[oi];
+        if (e.type != PrimitiveType::Emitter || !e.emitterEnabled || hiddenAt(oi)) continue;
+        pools.push_back({oi, 0, &e});
+        auto it = emitterLayers_.find((int)oi);
+        if (it == emitterLayers_.end()) continue;
+        for (size_t k = 0; k < it->second.size() && k < 15; ++k) {
+            // Placed by the LIVE emitter, so a gizmo drag carries the layers
+            // along before anything is committed.
+            EmitterLayerPreview& L = it->second[k];
+            for (int a = 0; a < 3; ++a) {
+                L.look.position[a] = e.position[a] + L.offset[a];
+                L.look.rotation[a] = e.rotation[a];
+                L.look.scale[a] = e.scale[a] * L.area[a];
+            }
+            pools.push_back({oi, (int)k + 1, &L.look});
+        }
+    }
+
+    std::vector<float> buf;
+    for (const PoolRef& pr : pools) {
+        const size_t oi = pr.oi;
+        const SceneObject& o = *pr.obj;
         const int count =
             o.emitterCount < 1 ? 1 : o.emitterCount > 256 ? 256 : o.emitterCount;
-        EmitterPreview& ep = emitterPreviews_[(int)oi];
+        EmitterPreview& ep = emitterPreviews_[(int)oi * 16 + pr.slot];
         if (ep.kind != o.emitterKind || ep.count != count) {
             ep.kind = o.emitterKind;
             ep.count = count;
-            ep.rng = 12345u + (unsigned)oi * 7919u;
+            ep.rng = 12345u + (unsigned)oi * 7919u + (unsigned)pr.slot * 104729u;
             ep.parts.assign((size_t)count, PreviewParticle{});
         }
         const int kind = o.emitterKind;

@@ -211,6 +211,23 @@ std::vector<unsigned char> generate(const ParticleTexGen& g, int frame) {
     return px;
 }
 
+int bakeEffect(Project& p, ParticleEffect& fx, std::string* err) {
+    int baked = 0;
+    for (int li = 0; li <= (int)fx.layers.size(); ++li) {
+        ParticleLayer& L = li == 0 ? static_cast<ParticleLayer&>(fx) : fx.layers[(size_t)li - 1];
+        if (L.texGen.kind == 0) continue;
+        const std::string mtl =
+            writeAssets(p.dir, project::particleLayerStem(fx, li), L.texGen, err);
+        if (mtl.empty()) return -1;
+        L.materialPath = mtl;
+        // A soft alpha ramp does not survive the palettized (CLUT) bake.
+        for (int k = 0; k < std::max(1, L.texGen.frames); ++k)
+            p.textureQuality[framePath(mtl, k)] = "none";
+        ++baked;
+    }
+    return baked;
+}
+
 std::string fileStem(const std::string& effectName) {
     std::string s;
     for (char c : effectName) {

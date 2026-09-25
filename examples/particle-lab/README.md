@@ -1,7 +1,7 @@
 # particle-lab
 
 The particle library's reference scene ([docs/particles.md](../../docs/particles.md)):
-every particle in it comes from six effects made once in *Tools > Particle
+every particle in it comes from four effects made once in *Tools > Particle
 Editor*, each with a texture the editor generated.
 
 ![particle-lab on the PS2 renderer](../../docs/img/particles-lab.png)
@@ -10,10 +10,8 @@ Editor*, each with a texture the editor generated.
 
 | effect | used by | what it shows |
 |---|---|---|
-| **Campfire** | `campfire` | Fire motion, **additive**, a generated *Flame* **flipbook** (4 frames of 64x64 at 10 fps) |
-| **Embers** | `campfire-embers` | tiny additive glows rising out of the fire and dying |
-| **Fire glow** | `campfire-glow` | a few big, faint additive halos that make the fire warm the air around it |
-| **Wood smoke** | `campfire-smoke`, `chimney-smoke` | one Custom effect (rising, growing, low opacity) used by TWO emitters - edit it once, both change |
+| **Campfire** | `campfire` | ONE emitter, four **layers**: the flame (Fire motion, additive, a generated 4-frame *Flame* flipbook), rising **Embers**, a faint additive **Glow** and **Smoke** that reuses the Wood smoke texture |
+| **Wood smoke** | `chimney-smoke` | a Custom effect (rising, growing, low opacity); its texture is shared with the campfire's smoke layer |
 | **Torch sparks** | `torch-sparks` | Sparks motion, additive, a generated *Glow* texture (32x32) |
 | **Magic motes** | `magic-motes` | a slow buoyant Custom cloud, additive cyan glow |
 
@@ -23,8 +21,10 @@ textures live in `res/materials/particles/`.
 
 ## Things to try
 
-- Open *Tools > Particle Editor*, pick **Wood smoke** and raise *Grow* - the
-  campfire's smoke and the chimney's both thicken.
+- Open *Tools > Particle Editor*, pick **Campfire** and click through its
+  layers (Main / Embers / Glow / Smoke); move the Smoke layer's *Offset* up.
+- Drag the `campfire` emitter (click its flame badge in the viewport): all four
+  layers travel with it.
 - Change **Campfire**'s *Generate* recipe (turbulence, heat, seed) and release
   the slider: the flame texture is re-baked and the viewport updates.
 - Untick *Additive* on Campfire to see why fire wants it.

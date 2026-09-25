@@ -36,8 +36,8 @@ inline const char* MATERIAL_PATHS[MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 1] = {
     "materials/particles/wood-smoke.mtl",
     "materials/particles/torch-sparks.mtl",
     "materials/particles/magic-motes.mtl",
-    "materials/particles/embers.mtl",
-    "materials/particles/fire-glow.mtl",
+    "materials/particles/campfire-embers.mtl",
+    "materials/particles/campfire-glow.mtl",
 };
 
 // The tyre-smoke pool's texture (MATERIAL_PATHS slot, -1 = untextured)

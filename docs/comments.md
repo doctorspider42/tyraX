@@ -21,6 +21,9 @@ geometry. Two things follow from that, and both are the point:
   depth buffer, and the bubble floats above its anchor with the tail on the
   exact point it is pinned to.
 
+Particle emitters use the same screen-space icons since 1.124.0 (a round
+flame badge - docs/particles.md), picked by the same code.
+
 The icons are always visible and clickable. **Selecting one shows its text**
 beside the icon and in Properties. In the viewport you get the note's name and
 its opening — enough to know which note this is without opening anything — and

@@ -4318,6 +4318,16 @@ void TerrainGame::applyLayerResidency() {
         animNeed[d.animModel] = 1;
     }
   }
+  // Extra particle layers name materials no scene row does (docs/particles.md).
+  for (int k = 0; k < EMITTER_LAYER_COUNT; ++k) {
+    if (EMITTER_LAYERS[k].scene != currentScene) continue;
+    const int eo = EMITTER_LAYERS[k].object;
+    if (eo < 0 || eo >= SCENE_OBJECT_COUNT || !layerOn(SCENE_OBJECTS[eo].layer)) continue;
+    const SceneObjectData& d = EMITTER_LAYER_OBJECTS[k];
+    for (int f = 0; f < (d.emitFrames > 1 ? d.emitFrames : 1); ++f)
+      if (d.material >= 0 && d.material + f < (int)materialNeed.size())
+        materialNeed[d.material + f] = 1;
+  }
   if (VEHICLE_SMOKE_MATERIAL >= 0 && VEHICLE_SMOKE_MATERIAL < (int)materialNeed.size())
     materialNeed[VEHICLE_SMOKE_MATERIAL] = 1;  // no object names it
   if (TERRAIN_TEXTURE >= 0 && TERRAIN_TEXTURE < (int)texNeed.size())
@@ -6266,10 +6276,25 @@ void TerrainGame::buildParticles() {
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (runtimeObjects[i].data.type != 7) continue;
     if (!runtimeObjects[i].active) continue;  // emitter streamed out - no pool
+    buildParticleSystem(i, -1);
+    // The library effect's extra layers (docs/particles.md): authored objects
+    // only - a spawned clone's index is not the one the table was keyed by.
+    if (i < SCENE_OBJECT_COUNT)
+      for (int k = 0; k < EMITTER_LAYER_COUNT; ++k)
+        if (EMITTER_LAYERS[k].scene == currentScene && EMITTER_LAYERS[k].object == i)
+          buildParticleSystem(i, k);
+  }
+}
+
+void TerrainGame::buildParticleSystem(int i, int layer) {
+  {
+    const SceneObjectData& src =
+        layer >= 0 ? EMITTER_LAYER_OBJECTS[layer] : runtimeObjects[i].data;
     ParticleSystem ps;
     ps.objectIndex = i;
-    ps.rng = 12345u + (unsigned int)i * 7919u;
-    int n = runtimeObjects[i].data.emitCount;  // data copy: spawn slots too
+    ps.layer = layer;
+    ps.rng = 12345u + (unsigned int)i * 7919u + (unsigned int)(layer + 1) * 104729u;
+    int n = src.emitCount;  // data copy: spawn slots too
     if (n < 1) n = 1;
     if (n > 256) n = 256;
     ps.pos.assign(n, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
@@ -6304,7 +6329,7 @@ void TerrainGame::buildParticles() {
     ps.texBag = std::make_unique<StaPipTextureBag>();
     ps.texBag->texture = nullptr;
     ps.params.bind(ps.texBag);
-    const int mi = runtimeObjects[i].data.material;  // data copy: spawn slots too
+    const int mi = src.material;  // data copy: spawn slots too
     if (mi >= 0 && mi < (int)gameMaterials.size() && gameMaterials[mi].texture)
       ps.texBag->texture = gameMaterials[mi].texture;
     ps.bag->texture = ps.texBag.get();
@@ -6313,7 +6338,7 @@ void TerrainGame::buildParticles() {
     // out of every puff drawn after it (docs/particles.md). Additive emitters
     // (fire, sparks) add light on top: Cs * FIX + Cd.
     ps.infoBag->zTestType = PipelineZTest_TestOnly;
-    if (runtimeObjects[i].data.emitAdditive) ps.infoBag->additiveBlendFix = 128;
+    if (src.emitAdditive) ps.infoBag->additiveBlendFix = 128;
     particles.push_back(std::move(ps));
   }
 }
@@ -6343,7 +6368,21 @@ void TerrainGame::updateParticles() {
       ps.bag->count = 0;  // Hide Object turns the emitter off
       continue;
     }
-    const SceneObjectData& d = o.data;
+    // An extra layer wears its EMITTER_LAYERS row, placed and turned by the
+    // live emitter (so moving or hiding the emitter moves or hides them all).
+    SceneObjectData layerData;
+    if (ps.layer >= 0) {
+      layerData = EMITTER_LAYER_OBJECTS[ps.layer];
+      const EmitterLayerData& L = EMITTER_LAYERS[ps.layer];
+      for (int a = 0; a < 3; ++a) {
+        layerData.position[a] = o.data.position[a] + L.offset[a];
+        layerData.rotation[a] = o.data.rotation[a];
+        layerData.scale[a] = o.data.scale[a] * L.area[a];
+      }
+      layerData.emitEnabled = o.data.emitEnabled;
+      layerData.emitFollow = o.data.emitFollow;
+    }
+    const SceneObjectData& d = ps.layer >= 0 ? layerData : o.data;
     const int kind = d.emitKind;
     const int n = (int)ps.life.size();
 
@@ -18912,7 +18951,8 @@ void TerrainGame::renderScene() {
     const float uz = rx * fwd.y;
     for (ParticleSystem& ps : particles) {
       if (!ps.bag || ps.bag->count == 0) continue;
-      const int kind = runtimeObjects[ps.objectIndex].data.emitKind;
+      const int kind = ps.layer >= 0 ? EMITTER_LAYER_OBJECTS[ps.layer].emitKind
+                                     : runtimeObjects[ps.objectIndex].data.emitKind;
       ps.billboardBag->right = Vec4(rx, 0.0F, rz, 0.0F);
       ps.billboardBag->up = kind == 4 ? Vec4(0.0F, 1.0F, 0.0F, 0.0F)
                                       : Vec4(ux, uy, uz, 0.0F);
@@ -20095,8 +20135,9 @@ bool TerrainGame::renderOnePortalView(int pi) {
         const Vec4 savedR = ps.billboardBag->right;
         const Vec4 savedU = ps.billboardBag->up;
         ps.billboardBag->right = pvRight;
-        ps.billboardBag->up = ro.data.emitKind == 4 ? Vec4(0.0F, 1.0F, 0.0F, 0.0F)
-                                                    : pvUp;
+        const int pkind = ps.layer >= 0 ? EMITTER_LAYER_OBJECTS[ps.layer].emitKind
+                                         : ro.data.emitKind;
+        ps.billboardBag->up = pkind == 4 ? Vec4(0.0F, 1.0F, 0.0F, 0.0F) : pvUp;
         stapip.core.render(ps.bag.get());
         ps.billboardBag->right = savedR;  // main pass draws these again later
         ps.billboardBag->up = savedU;

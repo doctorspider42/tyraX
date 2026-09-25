@@ -38,4 +38,10 @@ std::string fileStem(const std::string& effectName);
 std::string writeAssets(const std::string& projectDir, const std::string& effectName,
                         const ParticleTexGen& g, std::string* err);
 
+// Bakes every layer of `fx` that has a recipe (layer 0 = the effect's own
+// fields, then fx.layers) under project::particleLayerStem, points each
+// layer's materialPath at its frame 0 and pins every frame to full colour in
+// p.textureQuality. Returns the number of layers baked, -1 with *err set.
+int bakeEffect(Project& p, ParticleEffect& fx, std::string* err);
+
 }  // namespace particletex

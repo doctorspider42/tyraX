@@ -4938,7 +4938,9 @@
 // smoke, additive blending for fire and sparks, and procedural smoke / flame /
 // glow textures generated in the editor (src/particletex.cpp), with looping
 // flipbooks. Particle quads were turned 180 degrees since the billboard
-// pipeline existed (a round texture hid it) and now render upright.
+// pipeline existed (a round texture hid it) and now render upright. An effect
+// can hold several emitters (layers: flame + embers + glow + smoke placed as
+// one), and emitters show as clickable screen-space badges instead of cones.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 124
 #define TYRAX_VERSION_PATCH 0
@@ -5332,7 +5334,8 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // the project is later enabled. All keys are additive; no migration step.
 // v62 (docs/particles.md): the particle library - the "particleEffects"
 // section, an emitter's "effect" link and "additive" flag, and a vehicle's
-// "smokeEffect", and flipbook "frames"/"fps" on a recipe and an emitter. All
+// "smokeEffect", flipbook "frames"/"fps" on a recipe and an emitter, and an
+// effect's extra "layers" (label, offset, area + a layer's own fields). All
 // written only when set, so an older project resaves byte
 // for byte; additive, no migration step.
 inline constexpr int kFormatVersion = 62;

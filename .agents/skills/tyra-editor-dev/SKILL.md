@@ -652,9 +652,13 @@ precisely because a box that disagrees with its mesh is invisible otherwise.
 **Comments (`PrimitiveType::Comment`, docs/comments.md)** are the reference
 point for the other kind of new type: one that is NOT drawn as geometry at all.
 The viewport skips the type outright and the app draws a **screen-space icon**
-over the finished image instead (`App::commentIcons` / `drawCommentOverlay`,
-the `drawMeasureOverlay` shape over `Viewport::projectToImage`). Three things
-that arrangement needs, and each of them is the reusable half:
+over the finished image instead (`App::screenIcons` / `drawScreenIconOverlay`,
+the `drawMeasureOverlay` shape over `Viewport::projectToImage`). Particle
+emitters joined the same list (`ScreenIcon::emitter`, a round flame badge on the
+emitter's point) when their solid cone kept hiding the effect it marked - a new
+marker type that should be clicked rather than seen in 3D is one more branch in
+`screenIcons` and in the overlay, nothing else. Three things that arrangement
+needs, and each of them is the reusable half:
 
 - **ONE function computes where the icons are**, and both the overlay and the
   picker read it - the axis-gizmo arrangement. Two answers to "where is that
