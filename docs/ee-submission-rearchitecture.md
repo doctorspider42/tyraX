@@ -857,6 +857,32 @@ millisecond counter. The same probe with the fast path on: 0.35 ms for 83
 sprites. About 2.8 us a sprite remains, which is `draw_rect_textured`'s
 float-to-fixed work and stores to cold chain lines.
 
+### The frame sleeps - MEASURED, 2026-09-25
+
+Splitting `finish` on the console found `Threading::switchThread()` in
+`endFrame`, a literal `nanosleep(500 us)`, and the same call in both
+`beginFrame`s. It is an upstream habit from when the game thread could run at
+priority 0 and had to hand the audio threads the CPU. Since 2026-07-11 it runs
+at 0x40, below them (0x5, 0x6) and below ps2link's command thread (20), which
+preempt it on their own, so the sleeps were idle time: **1.03-1.07 ms of every
+frame**, in all four poses (two boots each, one ELF toggled at boot).
+
+Removing them outright hung the console (SIF stuck, `freepad: DMA Busy`)
+about a minute into `showcase` whenever the editor's Live Debugger was
+attached and music streamed over ps2link:
+- 2 of 2 runs without the sleep hung;
+- without the debugger: 10 min clean;
+- with the sleep: clean.
+The mechanism was not found. The fio client is locked, and no EE thread sits
+below the game's priority.
+
+So they are gated rather than gone: `RendererCore::setFrameYield(bool)`, off
+by default, and the generated game sets it from `livedbg::attached()` every
+frame. A release build carries no debugger and always gets the saving. Forcing
+the sleep back on in one ELF measured +1.03..+1.05 ms again, and the gated
+build ran 10 min clean with the debugger attached. **A profile taken with the
+Live Debugger attached therefore reads ~1 ms slower than the game is.**
+
 ## The GPU-only frame - MEASURED on hardware, 2026-09-24
 
 How long do VU1 and the GS need for a frame when nothing makes them wait for

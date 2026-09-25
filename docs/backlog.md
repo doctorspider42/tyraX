@@ -154,8 +154,13 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   Still true from the capture: the reference title builds that chain in SPR
   and moves it to RAM by DMA (no write-back), and its per-object cost is about
   16 qwords plus a `CALL` into a prebaked block.
-- **The 0.5 ms sleeps in `RendererCore::beginFrame`/`endFrame` - MEASURED,
-  NOT SHIPPED (2026-09-25).** `Threading::switchThread()` is
+- ~~**The 0.5 ms sleeps in `RendererCore::beginFrame`/`endFrame`**~~ **SHIPPED
+  1.128.3 behind a runtime gate** (`RendererCore::setFrameYield`, off; the
+  generated game turns it on only while the Live Debugger is attached):
+  forcing the old sleep back measured +1.03..+1.05 ms of `work` in all four
+  poses, and the gated build ran 10 min clean with the debugger attached and
+  music streaming. Still open: WHY the sleepless loop hangs with the debugger
+  attached - the history: `Threading::switchThread()` is
   `nanosleep(500 us)`, called twice a frame, a leftover from upstream. Since
   2026-07-11 the game runs at priority 0x40, below the audio threads (0x5,
   0x6) and ps2link's command thread (20). Removing both sleeps measured

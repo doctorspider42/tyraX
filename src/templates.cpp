@@ -7257,6 +7257,10 @@ void TerrainGame::loop() {
   // being presented, so you can still look at what you stopped. All of this
   // compiles to nothing when the debugger is off.
   livedbg::tickFromLoop(scriptCtx);
+  // The renderer's two 0.5 ms frame sleeps only while the editor's Live
+  // Debugger is attached (RendererCore::setFrameYield): -1.05 ms a frame
+  // everywhere else, measured on a PS2.
+  engine->renderer.core.setFrameYield(livedbg::attached());
   const bool dbgHalted = livedbg::halted();
   const bool menuActive = saveMenuActive || gameMenuPausing || dbgHalted;
   // An open menu owns the pad even when it doesn't pause the world (overlay
@@ -28265,6 +28269,10 @@ void TerrainGame::loop() {
   // being presented, so you can still look at what you stopped. All of this
   // compiles to nothing when the debugger is off.
   livedbg::tickFromLoop(scriptCtx);
+  // The renderer's two 0.5 ms frame sleeps only while the editor's Live
+  // Debugger is attached (RendererCore::setFrameYield): -1.05 ms a frame
+  // everywhere else, measured on a PS2.
+  engine->renderer.core.setFrameYield(livedbg::attached());
   const bool dbgHalted = livedbg::halted();
   const bool menuActive = saveMenuActive || gameMenuPausing || dbgHalted;
   // An open menu owns the pad even when it doesn't pause the world (overlay
@@ -46428,6 +46436,11 @@ unsigned int takeRenderCostRequest();
  */
 bool halted();
 
+/** True once the editor has attached (a valid livedbg.cmd was read). The
+ * game keeps the renderer's frame yield on while it is - see
+ * RendererCore::setFrameYield. */
+bool attached();
+
 /** True for the one frame in which the editor asked to force-fire this node
  * (Debugger > "Fire"), OR'd into the node's own trigger condition. */
 bool forced(int key);
@@ -46478,6 +46491,7 @@ namespace livedbg {
 inline void hit(int) {}
 inline unsigned int takeRenderCostRequest() { return 0; }
 inline bool halted() { return false; }
+inline bool attached() { return false; }
 inline bool forced(int) { return false; }
 inline void timer(int, int) {}
 inline void factWrite(int, float, int) {}
@@ -47567,6 +47581,7 @@ void hit(int key) {
 }
 
 bool halted() { return haltedFrame; }
+bool attached() { return editorAttached; }
 
 bool forced(int key) {
   for (int i = 0; i < forcedCount; ++i)

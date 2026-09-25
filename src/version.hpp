@@ -16,6 +16,12 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.128.3: NO FRAME SLEEPS UNLESS THE LIVE DEBUGGER IS ATTACHED.
+// beginFrame/endFrame slept 0.5 ms each (Threading::switchThread) since
+// upstream; RendererCore::setFrameYield now gates them and the generated game
+// keeps them only while livedbg is attached (a sleepless loop hung the console
+// there). PS2: work -1.03..-1.05 ms in every pose. PATCH.
+//
 // 1.128.2: THE LOG SAYS WHEN STREAMED MUSIC IS STARVING.
 // A debug build warns (at most once per 5 s) when an audsrv refill finds the
 // ring over 70% empty - measured to be music streamed over ps2link, where
@@ -5250,7 +5256,7 @@
 // object-ID hash rather than mutable scene row.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 128
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 3
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

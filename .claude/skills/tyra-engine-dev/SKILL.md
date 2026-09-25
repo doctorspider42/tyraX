@@ -2759,6 +2759,12 @@ here must keep.
   after `Vif1Queue::drain()`, because chains still in flight REF it - any new
   shared REF'd block must obey the same rule (docs/ee-submission-rearchitecture.md,
   "Round five").
+- **`beginFrame`/`endFrame` sleep 0.5 ms each only while
+  `RendererCore::setFrameYield(true)`** - the generated game sets it from
+  `livedbg::attached()`. Off it is -1.05 ms a frame; a sleepless loop with the
+  Live Debugger attached hung the console (SIF stuck) and nobody knows why yet
+  (docs/backlog.md). Anything else that talks to host: every frame may need the
+  same yield - test it attached, on hardware, for minutes.
 - **2D sprites in the VIF1 chain cache GS state** (`TYRA_2D_CHAIN_FAST`,
   `RendererCore2D::renderIntoChain`): a sprite writes XYOFFSET/TEX1/ALPHA/
   TEX0 only when they differ from what the open chain last set, and

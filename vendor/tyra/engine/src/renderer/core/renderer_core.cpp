@@ -325,7 +325,7 @@ void RendererCore::beginFrame() {
   drained3DFor2D = false;
   postFxAppliedMask = 0;
   postFxDrained = false;
-  Threading::switchThread();
+  if (frameYield) Threading::switchThread();  // Modified by TyraX: see setFrameYield
   path3.clearScreen(&gs.zBuffer, bgColor);
 }
 
@@ -342,7 +342,7 @@ void RendererCore::beginFrame(const CameraInfo3D& cameraInfo) {
   drained3DFor2D = false;
   postFxAppliedMask = 0;
   postFxDrained = false;
-  Threading::switchThread();
+  if (frameYield) Threading::switchThread();  // Modified by TyraX: see setFrameYield
   path3.clearScreen(&gs.zBuffer, bgColor);
 }
 
@@ -400,7 +400,7 @@ void RendererCore::beginFrameStamp() {
 
 void RendererCore::endFrame() {
   HardwareTrace::Scope traceEnd("EndFrame");
-  Threading::switchThread();
+  if (frameYield) Threading::switchThread();  // Modified by TyraX: see setFrameYield
   // Modified by TyraX (TYRA_2D_VIF1_DIRECT): the frame's sprites may still be
   // queued on VIF1 behind the 3D, and with no interrupt nothing starts a
   // queued chain while the EE sits in the vsync wait below - so the frame is
@@ -538,7 +538,7 @@ bool RendererCore::presentWarpFrame(const WarpCamera& from,
   // caller reads `false` and simply waits for the next rendered one.
   if (settings.isHybridOutput()) return false;
 
-  Threading::switchThread();
+  if (frameYield) Threading::switchThread();  // Modified by TyraX: see setFrameYield
   warp.draw(from, to);
   // Deliberately NO applyPostFx: bloom, grain and grading are already baked
   // into the source image, and running them again would compound them on every
