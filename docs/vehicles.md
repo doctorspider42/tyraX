@@ -936,6 +936,21 @@ arms on the same fixture, two rounds each:
   patch is `vu1-paint-attempt.patch` in the working notes. Even rewritten
   tighter (~13 ops a vertex), it cannot beat zero at rest.
 
+**The matte car, taken apart (2026-09-26).** Same fixture and method, still
+camera, `work` saved:
+- body parts hidden (shine goes with them): 1.48..1.56 ms. Minus the shine,
+  the body alone is ~0.80..0.85 ms for 2703 triangles.
+- body forced to the authored far tier at 9 units: 0.81..0.88, which is the
+  shine (the far tier drops it) plus only ~0.15. The tier is 655 counted
+  triangles lighter here, not a different class of mesh.
+- everything that is not the body or the shine - wheels, blob, lamps and
+  headlights, the object's fixed cost - is ~0.67..0.70.
+- **It is not pixel fill.** With the camera orbiting at 18 units instead of 9
+  (a quarter of the pixels), the car without its shine costs 1.43..1.46 ms,
+  against ~1.5 at 9 units. A close car is expensive for its vertices,
+  packages and bags, not for its screen area. Levers are geometry and fixed
+  per-bag work; a smaller or blurrier car on screen buys nothing by itself.
+
 Note the whole-car row. "What a car costs" below prices a car in view at
 ~0.4 ms of `work`, which was a car further away. A 1938-triangle car at
 9 units is five times that, and most of it is VU1/GS time.
