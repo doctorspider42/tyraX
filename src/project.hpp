@@ -1254,6 +1254,28 @@ struct VehicleDef {
     // pre-tier rule). Baked into the body row's meshLod at codegen.
     float farDistance = 40.0f;
 
+    // An AUTHORED far tier (docs/vehicles.md, "An authored far model"): a
+    // second .glb/.fbx built in the SAME space as modelPath - same origin,
+    // same scale, wheels in place - that replaces the decimated tiers above.
+    // Its textured materials must sample an image the body already uses
+    // (pixel-equal) and its untextured ones join the palette, so the swap
+    // costs no VRAM. The whole model, wheels included, becomes the far tier
+    // of the body part it samples, and the body parts it does not reach are
+    // hidden while it shows - except the lamps, which stay drawn and lit, so
+    // the far model leaves room for them. "" = the decimated tiers. An
+    // asset path, so it belongs in App::retargetAssetPath and
+    // App::rebuildAssetUsage.
+    std::string farModel;
+    // Cars NOBODY drives (parked, AI rivals) swap to the far tier from this
+    // distance instead of farDistance - a traffic tier. 0 = farDistance for
+    // every car.
+    float trafficDistance = 0.0f;
+    // Measured by the bake, never authored (vehbake::adoptMeasured): the body
+    // part that carries the far tier (-1 = the body has none) and a bit per
+    // body part the runtime hides while that tier shows.
+    int farPart = -1;
+    int farHideMask = 0;
+
     // The FAST wheel (docs/vehicles.md, "A fast wheel"): a second wheel model
     // the game swaps all four wheels to while they spin faster than
     // drive.fastWheelSpeed. "" = none; "@auto" = the ordinary wheel again at
@@ -1371,7 +1393,9 @@ inline bool operator==(const VehicleDef& a, const VehicleDef& b) {
         a.lampPart != b.lampPart || a.lampRearVerts != b.lampRearVerts ||
         a.glassOpacity != b.glassOpacity || a.glassPart != b.glassPart ||
         a.hudFont != b.hudFont || a.hudSpeedScale != b.hudSpeedScale ||
-        a.farDistance != b.farDistance || a.fastWheel != b.fastWheel ||
+        a.farDistance != b.farDistance || a.farModel != b.farModel ||
+        a.trafficDistance != b.trafficDistance || a.farPart != b.farPart ||
+        a.farHideMask != b.farHideMask || a.fastWheel != b.fastWheel ||
         a.fastWheelTriBudget != b.fastWheelTriBudget)
         return false;
     for (int i = 0; i < 3; ++i)

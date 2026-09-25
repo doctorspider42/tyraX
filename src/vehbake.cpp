@@ -725,6 +725,120 @@ int modelTris(const tmdl::Model& m) {
     return n;
 }
 
+// Decoded RGBA of a PNG, for the pixel-equality test below; empty = unreadable.
+std::vector<unsigned char> decodeRgba(const std::vector<unsigned char>& png, int& w,
+                                      int& h) {
+    int n = 0;
+    unsigned char* px = stbi_load_from_memory(png.data(), (int)png.size(), &w, &h, &n, 4);
+    if (!px) return {};
+    std::vector<unsigned char> out(px, px + (size_t)w * h * 4);
+    stbi_image_free(px);
+    return out;
+}
+
+// THE AUTHORED FAR MODEL (docs/vehicles.md, "An authored far model"). A
+// second file, authored in the SAME space as the full model, whose every
+// triangle - wheels included, at their rest spots - becomes the far tier of
+// the body part it samples. So it is collected with the FULL model's
+// canonical frame and origin (never its own detection: a far model is free to
+// merge its wheels into the body) and its images are matched to the body's by
+// PIXELS - an exporter re-encodes a PNG, so bytes would not do. A textured
+// material whose image the body does not use would need a second texture at
+// distance, which is VRAM the far tier exists to save: it is dropped with a
+// note. Untextured materials take palette cells in the SAME merge as the
+// body's, so they must be collected before the palette is sized.
+//
+// The lamps part is never hidden (build() explains), so a far model must leave
+// room for the full model's lamps where they are - recess the grille and tail
+// panel the way the full body does.
+//
+// Returns false (and leaves `farVerts` empty) when nothing usable came out;
+// on success `farVerts[k]` is body part k's far mesh, empty for the parts the
+// far model does not reach.
+bool collectFarModel(const std::string& path, const M4& canon, const float origin[3],
+                     const tmdl::Model& body,
+                     const std::vector<Result::Texture>& bodyTextures,
+                     const std::string& paletteTex, Merge& mg,
+                     std::vector<std::vector<float>>& farVerts,
+                     std::vector<std::string>& notes) {
+    farVerts.assign(body.parts.size(), {});
+    glbparser::Skel fsk;
+    std::string err;
+    if (!animimport::parseSkel(path, fsk, err)) {
+        notes.push_back("Far model: " + err + " - the decimated tiers stay.");
+        return false;
+    }
+    const auto eligible = [](const tmdl::Part& p) {
+        return p.name != "lamps" && p.name != "glass";
+    };
+    // Each far image -> the body texture path it is pixel-equal to ("" = none).
+    std::vector<std::string> farImagePaths(fsk.images.size());
+    for (size_t i = 0; i < fsk.images.size(); ++i) {
+        int fw = 0, fh = 0;
+        const std::vector<unsigned char> fpx = decodeRgba(fsk.images[i].png, fw, fh);
+        if (fpx.empty()) continue;
+        for (const Result::Texture& t : bodyTextures) {
+            int bw = 0, bh = 0;
+            if (decodeRgba(t.png, bw, bh) == fpx && bw == fw && bh == fh) {
+                farImagePaths[i] = t.path;
+                break;
+            }
+        }
+    }
+    std::vector<int> all;
+    const std::vector<vehiclesim::MeshNode> nodes = meshNodes(fsk);
+    for (int i = 0; i < (int)nodes.size(); ++i)
+        if (nodes[(size_t)i].vertexCount > 0) all.push_back(i);
+    tmdl::Model fm;
+    int srcParts = 0, srcTris = 0;
+    collect(fsk, globals(fsk), canon, all, origin, /*merge=*/true, paletteTex,
+            farImagePaths, mg, fm, srcParts, srcTris);
+    int dropped = 0;
+    for (tmdl::Part& fp : fm.parts) {
+        int target = -1;
+        for (size_t k = 0; k < body.parts.size() && target < 0; ++k)
+            if (eligible(body.parts[k]) && !fp.texture.empty() &&
+                body.parts[k].texture == fp.texture)
+                target = (int)k;
+        // "lamps" comes out of collect with the lamp image (or none); an
+        // untextured lamp colour is an ordinary palette colour here, because
+        // nothing brightens a far tier's lamps - the glow sprites still do.
+        if (target < 0 && fp.texture.empty() && fp.name == "lamps")
+            for (size_t k = 0; k < body.parts.size() && target < 0; ++k)
+                if (eligible(body.parts[k]) && body.parts[k].texture == paletteTex &&
+                    !paletteTex.empty())
+                    target = (int)k;
+        if (target < 0) {
+            dropped += triCount(fp.verts);
+            continue;
+        }
+        if (fp.name == "lamps" && fp.texture.empty()) {
+            // Its corners carry real (0,0) UVs, not palette placeholders:
+            // give them the lamp colour's cell like any untextured material.
+            float u = (float)mg.cellFor(fp.kd);
+            for (size_t c = 0; c + 7 < fp.verts.size(); c += 8)
+                fp.verts[c + 6] = u, fp.verts[c + 7] = -1.0f;
+        }
+        std::vector<float>& dst = farVerts[(size_t)target];
+        dst.insert(dst.end(), fp.verts.begin(), fp.verts.end());
+    }
+    if (dropped > 0) {
+        char buf[260];
+        std::snprintf(buf, sizeof(buf),
+                      "Far model: %d triangles sample an image the body does not "
+                      "use (or none the body has a part for) - dropped. Author "
+                      "them into the body's own texture or palette colours.",
+                      dropped);
+        notes.push_back(buf);
+    }
+    for (const std::vector<float>& v : farVerts)
+        if (!v.empty()) return true;
+    notes.push_back("Far model: nothing in it matched a body part - the decimated "
+                    "tiers stay.");
+    farVerts.clear();
+    return false;
+}
+
 }  // namespace
 
 bool build(const std::string& modelPath, const Options& opt, Result& out,
@@ -828,10 +942,27 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
         }
     }
 
+    // The authored far model, before the palette is sized: its untextured
+    // materials take cells in the same merge.
+    std::vector<std::vector<float>> farVerts;
+    const bool farAuthored =
+        !opt.farModel.empty() &&
+        collectFarModel(opt.farModel, canon, bodyOrigin, out.body, out.textures,
+                        paletteTex, mg, farVerts, out.notes);
+
     if (!mg.colours.empty()) {
         out.paletteSize = paletteWidth((int)mg.colours.size());
         resolvePaletteUvs(out.body, out.paletteSize, paletteTex);
         resolvePaletteUvs(out.wheel, out.paletteSize, paletteTex);
+        // Palette parts only: a real V of -1 is a valid atlas coordinate.
+        for (size_t k = 0; k < farVerts.size(); ++k)
+            for (size_t c = 0; c + 7 < farVerts[k].size(); c += 8) {
+                std::vector<float>& fv = farVerts[k];
+                if (out.body.parts[k].texture != paletteTex || fv[c + 7] != -1.0f)
+                    continue;
+                paletteUv((int)std::lround(fv[c + 6]), out.paletteSize, fv[c + 6],
+                          fv[c + 7]);
+            }
         if (opt.fastWheel != "@auto")  // "@auto" copied already-resolved UVs
             resolvePaletteUvs(out.fastWheel, out.paletteSize, paletteTex);
         out.palettePng = encodePng(paletteImage(mg, out.paletteSize), out.paletteSize);
@@ -915,7 +1046,31 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
     // reordered). Palette UVs are already resolved on both models by now,
     // and the wheel shares the body's palette, so its corners can simply be
     // appended.
-    {
+    //
+    // An AUTHORED far model (opt.farModel) replaces all of this: one tier per
+    // body part it reaches, wheels already inside, and every part it does
+    // not reach but the lamps goes into farHideMask for the runtime to hide.
+    if (farAuthored) {
+        int total = 0, best = 0;
+        for (size_t k = 0; k < out.body.parts.size(); ++k) {
+            tmdl::Part& p = out.body.parts[k];
+            p.lods.clear();
+            if (farVerts[k].empty()) {
+                // The LAMPS stay drawn at tier 0 (a few dozen triangles): they
+                // are fullbright and the runtime lights them - brake lights on
+                // a distant rival - which no lit paint can imitate (measured:
+                // painted lamps read near-black on the console's shading).
+                if (k < 31 && p.name != "lamps") out.farHideMask |= 1 << k;
+                continue;
+            }
+            const int t = triCount(farVerts[k]);
+            p.lods.push_back({std::move(farVerts[k]), {}});
+            total += t;
+            if (t > best) best = t, out.farPart = (int)k;
+        }
+        out.farTris.push_back(total);
+        out.farAuthored = true;
+    } else {
         // Palette cars and cars with a shared texture can both carry their
         // wheels in the body's distance tier. Never sample wheel UVs through
         // a different image (or tint) merely to save a draw.
@@ -972,11 +1127,20 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
                 }
                 p.lods.push_back({std::move(verts), {}});
             }
-            if (&p == carrier)
+            if (&p == carrier && !p.lods.empty()) {
                 for (const tmdl::Lod& l : p.lods)
                     out.farTris.push_back(triCount(l.verts));
+                out.farPart = (int)(&p - out.body.parts.data());
+            }
         }
     }
+
+    // What a distant car submits: every body part the far tier does not hide
+    // (the decimated tiers hide nothing - the lamps stay tier 0 and still
+    // draw). 0 = the body carries no far tier at all.
+    if (out.farPart >= 0)
+        for (size_t k = 0; k < out.body.parts.size(); ++k)
+            if (k >= 31 || !(out.farHideMask & (1 << k))) ++out.farSubmits;
 
     computeBounds(out.body);
     computeBounds(out.wheel);
@@ -1019,6 +1183,22 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
         } else {
             bodyStripVerts += p.verts.size() / 8;
         }
+        // An AUTHORED far tier keeps its authored smooth normals and shared
+        // atlas UVs, so it can strip on the full key like tier 0 does - a
+        // decimated tier cannot (its face normals are recomputed flat, every
+        // corner unique). The format carries a tier strip only beside a base
+        // strip (one run length per part), and applyGeoLod binds it with the
+        // bag's topology flag.
+        if (out.farAuthored && p.stripRun != 0)
+            for (tmdl::Lod& l : p.lods) {
+                l.stripVerts.clear();
+                l.stripAo.clear();
+                if (!meshstrip::build(l.verts, l.ao, meshstrip::kRun, l.stripVerts,
+                                      l.stripAo, meshstrip::Weld::kFull)) {
+                    l.stripVerts.clear();
+                    l.stripAo.clear();
+                }
+            }
     }
     if (bodyStripParts > 0) {
         char buf[220];
@@ -1369,6 +1549,9 @@ bool adoptMeasured(VehicleDef& v, const Result& r) {
     v.lampRearVerts = r.lampRearVerts;
     if (v.glassPart != r.glassPart) changed = true;
     v.glassPart = r.glassPart;
+    if (v.farPart != r.farPart || v.farHideMask != r.farHideMask) changed = true;
+    v.farPart = r.farPart;
+    v.farHideMask = r.farHideMask;
     return changed;
 }
 
@@ -1478,6 +1661,7 @@ std::string bakeProject(Project& p,
         opt.fastWheel = v.fastWheel;
         opt.fastWheelTriBudget = v.fastWheelTriBudget;
         opt.glassSplit = v.glassOpacity < 1.0f;
+        if (!v.farModel.empty()) opt.farModel = p.filePath(v.farModel);
         Result r;
         std::string err;
         if (!build(p.filePath(v.modelPath), opt, r, err)) {
@@ -1521,15 +1705,60 @@ std::string bakeProject(Project& p,
         adoptMeasured(v, r);
         if (log) {
             char buf[220];
-            if (!r.farTris.empty()) {
-                std::snprintf(buf, sizeof(buf),
-                              "[vehicle] %s: far tier %d tris (wheels in)%s%d, "
-                              "1 submit past %.0f units",
-                              v.name.c_str(), r.farTris[0],
-                              r.farTris.size() > 1 ? ", then " : "",
-                              r.farTris.size() > 1 ? r.farTris[1] : r.farTris[0],
-                              v.farDistance);
+            if (r.farPart >= 0) {
+                char traffic[64] = "";
+                if (v.trafficDistance > 0.0f)
+                    std::snprintf(traffic, sizeof(traffic),
+                                  " (%.0f for cars nobody drives)", v.trafficDistance);
+                if (r.farAuthored)
+                    std::snprintf(buf, sizeof(buf),
+                                  "[vehicle] %s: far model %s %d tris (wheels in), "
+                                  "%d submit(s) past %.0f units%s",
+                                  v.name.c_str(),
+                                  std::filesystem::path(v.farModel).filename().string().c_str(),
+                                  r.farTris[0], r.farSubmits, v.farDistance, traffic);
+                else
+                    std::snprintf(buf, sizeof(buf),
+                                  "[vehicle] %s: far tier %d tris (wheels in)%s%d, "
+                                  "%d submit(s) past %.0f units%s",
+                                  v.name.c_str(), r.farTris[0],
+                                  r.farTris.size() > 1 ? ", then " : "",
+                                  r.farTris.size() > 1 ? r.farTris[1] : r.farTris[0],
+                                  r.farSubmits, v.farDistance, traffic);
                 log(buf);
+            } else {
+                std::snprintf(buf, sizeof(buf),
+                              "[vehicle] %s: no far tier carries the wheels (their "
+                              "texture is not the body's), so the wheel bag draws at "
+                              "every distance - a far model fixes that",
+                              v.name.c_str());
+                log(buf);
+            }
+            for (const std::string& n : r.notes)
+                if (n.rfind("Far model:", 0) == 0) log("[vehicle] " + v.name + ": " + n);
+            // Triangle strips per body part: submitted vertices of the list
+            // against the strip (the far tier's too), the packing acceptance
+            // number (docs/vehicles.md, "Strip-ready bodies").
+            for (size_t k = 0; k < r.body.parts.size(); ++k) {
+                const tmdl::Part& bp = r.body.parts[k];
+                const size_t ln = bp.verts.size() / 8, sn = bp.stripVerts.size() / 8;
+                std::string line = "[vehicle] " + v.name + ": part " + std::to_string(k) +
+                                   " " + bp.name + " " + std::to_string(ln) + " list verts";
+                std::snprintf(buf, sizeof(buf), " -> %zu strip (%.3fx)", sn,
+                              ln ? (double)sn / (double)ln : 0.0);
+                line += bp.stripRun ? std::string(buf) : std::string(" (no strip)");
+                for (const tmdl::Lod& l : bp.lods) {
+                    const size_t tl = l.verts.size() / 8, ts = l.stripVerts.size() / 8;
+                    std::snprintf(buf, sizeof(buf), "; tier %zu list", tl);
+                    line += buf;
+                    if (ts) {
+                        std::snprintf(buf, sizeof(buf), " -> %zu strip (%.3fx)", ts,
+                                      (double)ts / (double)tl);
+                        line += buf;
+                    }
+                }
+                if (k < 31 && (r.farHideMask & (1 << k))) line += "; hidden far";
+                log(line);
             }
             if (r.lampPart >= 0) {
                 std::snprintf(buf, sizeof(buf),

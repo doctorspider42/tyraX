@@ -41,7 +41,7 @@ std::string bakeKey(const VehicleDef& v) {
     std::snprintf(buf, sizeof(buf), "|%d|%d|%d|%.3f|%d|%d|", v.bodyTriBudget,
                   v.wheelTriBudget, v.mergeUntextured ? 1 : 0, v.bodyShine,
                   v.fastWheelTriBudget, v.glassOpacity < 1.0f ? 1 : 0);
-    return v.modelPath + buf + v.bodyReflMap + "|" + v.fastWheel;
+    return v.modelPath + buf + v.bodyReflMap + "|" + v.fastWheel + "|" + v.farModel;
 }
 
 // Unique "Car 1", "Car 2", ... - a definition is referenced BY NAME, so two
@@ -100,6 +100,7 @@ void App::vehicleRefreshBake(int index, bool force) {
     opt.fastWheel = v.fastWheel;
     opt.fastWheelTriBudget = v.fastWheelTriBudget;
     opt.glassSplit = v.glassOpacity < 1.0f;
+    if (!v.farModel.empty()) opt.farModel = project_.filePath(v.farModel);
     // The palette is baked into the merged part's texture field, so the name
     // here has to be the path the game will actually open. Everything the bake
     // produces is a derived artifact and lives under .res-baked/ with the
@@ -883,27 +884,79 @@ void App::drawVehicleWindow() {
                 ImGui::Text("Triangles: body %d + 4 wheels %d = %d", r.bodyTris,
                             r.wheelTris * 4, r.bodyTris + r.wheelTris * 4);
                 ImGui::Text("Source was %d parts, %d triangles.", r.srcParts, r.srcTris);
-                // The far tier: the paint with the wheels baked in, ONE
-                // submit, past farDistance (twice it for the coarser one).
-                if (!r.farTris.empty()) {
-                    if (v.farDistance > 0.0f)
-                        ImGui::Text("Beyond %.0f units: 1 submit, %d triangles (wheels in);"
-                                    " beyond %.0f: %d.",
-                                    v.farDistance, r.farTris[0], v.farDistance * 2.0f,
-                                    r.farTris.size() > 1 ? r.farTris[1] : r.farTris[0]);
-                    else
+                // The far tier: the body with the wheels baked in past
+                // farDistance - an authored far model, or the decimated paint
+                // (twice the distance reaches its coarser tier).
+                if (r.farPart >= 0) {
+                    if (v.farDistance <= 0.0f && v.trafficDistance <= 0.0f)
                         ImGui::Text("Far tier off: every instance costs the full %d "
                                     "submits at any distance.", submits);
+                    else if (r.farAuthored)
+                        ImGui::Text("Beyond %.0f units (%.0f for parked / AI cars): far "
+                                    "model, %d submit(s), %d triangles (wheels in).",
+                                    v.farDistance,
+                                    v.trafficDistance > 0.0f ? v.trafficDistance
+                                                             : v.farDistance,
+                                    r.farSubmits, r.farTris[0]);
+                    else
+                        ImGui::Text("Beyond %.0f units: %d submit(s), %d triangles "
+                                    "(wheels in); beyond %.0f: %d.",
+                                    v.farDistance, r.farSubmits, r.farTris[0],
+                                    v.farDistance * 2.0f,
+                                    r.farTris.size() > 1 ? r.farTris[1] : r.farTris[0]);
                 } else {
-                    ImGui::TextDisabled("Body too small to tier - full cost at any distance.");
+                    ImGui::TextDisabled(
+                        "No far tier carries the wheels (their texture is not the\n"
+                        "body's, or the body is too small to tier): the wheel bag\n"
+                        "draws at every distance. A far model fixes that.");
+                }
+                for (const std::string& n : r.notes)
+                    if (n.rfind("Far model:", 0) == 0) {
+                        ImGui::PushStyleColor(ImGuiCol_Text, theme::semantics().danger);
+                        ImGui::TextWrapped("%s", n.c_str());
+                        ImGui::PopStyleColor();
+                    }
+                {
+                    const std::string cur =
+                        v.farModel.empty()
+                            ? "<decimated>"
+                            : std::filesystem::path(v.farModel).filename().string();
+                    ImGui::SetNextItemWidth(scaled(260));
+                    if (ImGui::BeginCombo("Far model", cur.c_str())) {
+                        if (ImGui::Selectable("<decimated>", v.farModel.empty()))
+                            v.farModel.clear();
+                        for (const std::string& m : listAnimatedModelFiles()) {
+                            const std::string rel = "res/models/" + m;
+                            if (rel == v.modelPath) continue;
+                            if (ImGui::Selectable(m.c_str(), rel == v.farModel))
+                                v.farModel = rel;
+                        }
+                        ImGui::EndCombo();
+                    }
+                    prefHelp(
+                        "An AUTHORED low-poly twin of the car for distance and\n"
+                        "traffic - built in the same space as the model (same\n"
+                        "origin and scale, wheels in place) and textured with the\n"
+                        "body's OWN image or plain colours, so the swap costs no\n"
+                        "VRAM. The whole file, wheels included, becomes the far\n"
+                        "tier and the glass part hides; the lamps stay lit.\n"
+                        "<decimated> = the automatic tiers.");
                 }
                 ImGui::SetNextItemWidth(scaled(200));
                 ImGui::DragFloat("Far tier from", &v.farDistance, 0.5f, 0.0f, 500.0f,
                                  "%.0f units");
                 prefHelp(
-                    "Camera distance past which the car draws as ONE submit:\n"
-                    "the decimated paint with the wheels baked in, the wheel\n"
-                    "bag silent. 0 = never.");
+                    "Camera distance past which the car swaps to its far tier\n"
+                    "(with a 10% hysteresis) and the wheel bag goes silent.\n"
+                    "0 = never, for the car the player drives.");
+                ImGui::SetNextItemWidth(scaled(200));
+                ImGui::DragFloat("Parked / AI cars from", &v.trafficDistance, 0.5f, 0.0f,
+                                 500.0f, v.trafficDistance > 0.0f ? "%.0f units" : "same");
+                prefHelp(
+                    "A traffic tier: cars NOBODY drives (parked, AI rivals)\n"
+                    "swap to the far tier from this distance instead. With an\n"
+                    "authored far model this can be close - a period racer's\n"
+                    "traffic LOD. 0 = the same distance as above.");
                 ImGui::Separator();
                 ImGui::SetNextItemWidth(scaled(200));
                 ImGui::SliderInt("Body triangles", &v.bodyTriBudget, 100, 6000);

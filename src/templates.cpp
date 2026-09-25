@@ -1279,6 +1279,10 @@ class TerrainGame : public Tyra::Game {
     // Drawn at the frame's translucent tail instead of the object pass (a
     // vehicle's see-through glass - renderVehicleGlass sets it).
     bool translucent = false;
+    // Not drawn at all while its object shows a far tier: the glass of a
+    // vehicle whose AUTHORED far model paints its windows into the texture
+    // (VehicleDefData::farHideMask, set by vehicleLodHide).
+    bool lodHidden = false;
     BagArray<Tyra::Vec4> vertices;
     BagArray<Tyra::Color> colors;
     BagArray<Tyra::Vec4> sts;  // texture coordinates
@@ -1497,6 +1501,10 @@ class TerrainGame : public Tyra::Game {
     // empty unless the project's mesh LOD distance is on. Shared by every
     // instance - each object bakes its own shaded copy on demand.
     std::vector<std::vector<float>> lodVerts;
+    // The strip twin of each tier (empty = draw that tier's list). Only an
+    // AUTHORED vehicle far tier has one (vehbake): a decimated tier's normals
+    // are recomputed per face, so none of its corners weld.
+    std::vector<std::vector<float>> lodStripVerts;
     // The TRIANGLE-STRIP twin of `verts`, baked into the .tmdl (version 4+,
     // docs/model-pipeline.md). Same 8-float layout, strip order, chopped into
     // independent runs of `stripRun` vertices - roughly a third of the
@@ -3057,6 +3065,10 @@ class TerrainGame : public Tyra::Game {
     // Drawn at the frame's translucent tail instead of the object pass (a
     // vehicle's see-through glass - renderVehicleGlass sets it).
     bool translucent = false;
+    // Not drawn at all while its object shows a far tier: the glass of a
+    // vehicle whose AUTHORED far model paints its windows into the texture
+    // (VehicleDefData::farHideMask, set by vehicleLodHide).
+    bool lodHidden = false;
     BagArray<Tyra::Vec4> vertices;
     BagArray<Tyra::Color> colors;
     BagArray<Tyra::Vec4> sts;  // texture coordinates
@@ -3275,6 +3287,10 @@ class TerrainGame : public Tyra::Game {
     // empty unless the project's mesh LOD distance is on. Shared by every
     // instance - each object bakes its own shaded copy on demand.
     std::vector<std::vector<float>> lodVerts;
+    // The strip twin of each tier (empty = draw that tier's list). Only an
+    // AUTHORED vehicle far tier has one (vehbake): a decimated tier's normals
+    // are recomputed per face, so none of its corners weld.
+    std::vector<std::vector<float>> lodStripVerts;
     // The TRIANGLE-STRIP twin of `verts`, baked into the .tmdl (version 4+,
     // docs/model-pipeline.md). Same 8-float layout, strip order, chopped into
     // independent runs of `stripRun` vertices - roughly a third of the
@@ -8740,6 +8756,8 @@ void TerrainGame::loadModelAsset(int i) {
     for (auto& lod : mat.lods) {
       part.lodVerts.push_back(std::vector<float>());
       part.lodVerts.back().swap(lod.vertices);
+      part.lodStripVerts.push_back(std::vector<float>());
+      if (part.stripRun != 0) part.lodStripVerts.back().swap(lod.stripVertices);
     }
     part.kd[0] = mat.kd[0];
     part.kd[1] = mat.kd[1];
@@ -18238,7 +18256,8 @@ void TerrainGame::renderProjShadows() {
     if (anim) {
       for (auto& ap : g.animParts) renderAtFloor(ap.bag.get());
     } else {
-      for (GeoPart& part : g.parts) renderAtFloor(casterBag(part));
+      for (GeoPart& part : g.parts)
+        if (!part.lodHidden) renderAtFloor(casterBag(part));
     }
     core.renderer3D.popEnvView(mainCam);
 
@@ -20553,10 +20572,18 @@ void TerrainGame::applyGeoLod(int index, int pi, int lod) {
   } else {
     if ((int)part.lods.size() < lod) part.lods.resize(lod);
     GeoPart::Lod& tier = part.lods[lod - 1];
+    // A tier's topology: the list, unless the bake left a strip twin (an
+    // authored vehicle far tier). The flag used to stay at tier 0's value,
+    // so a stripped body drew its tier LIST as a strip - spikes across the
+    // car the moment it swapped.
+    const bool tierStrip = lod - 1 < (int)src.lodStripVerts.size() &&
+                           !src.lodStripVerts[lod - 1].empty() &&
+                           part.stripRun != 0;
     if (tier.vertices.empty()) {
       // First time this far away: shade the decimated vertex list exactly the
       // way rebuildObjectGeometry shaded tier 0 (same pushVert, same staging).
-      const std::vector<float>& sv = src.lodVerts[lod - 1];
+      const std::vector<float>& sv =
+          tierStrip ? src.lodStripVerts[lod - 1] : src.lodVerts[lod - 1];
       g_aoAtlas = false;
       g_aoSts = nullptr;
       g_aoOff = true;  // imported models get no receive/self AO
@@ -20613,6 +20640,7 @@ void TerrainGame::applyGeoLod(int index, int pi, int lod) {
     tier.vertices.bind(part.bag);
     part.bag->count = static_cast<u32>(tier.vertices.size());
     part.bag->bboxVersion = tier.stamp;
+    part.bag->stripped = tierStrip;
     if (part.texBag) tier.sts.bind(part.texBag);
     if (part.envBag) {
       tier.envColors.bind(part.envColorBag);
@@ -20620,6 +20648,7 @@ void TerrainGame::applyGeoLod(int index, int pi, int lod) {
       tier.vertices.bind(part.envBag);
       part.envBag->count = part.bag->count;
       part.envBag->bboxVersion = tier.stamp;
+      part.envBag->stripped = tierStrip;
     }
   }
   part.shownLod = lod;
@@ -24471,7 +24500,7 @@ void TerrainGame::renderScene() {
         renderReflectionProxy(ri);
       else
         for (GeoPart& part : objectGeometry[ri].parts)
-          if (part.bag) stapip.core.render(part.bag.get());
+          if (part.bag && !part.lodHidden) stapip.core.render(part.bag.get());
     }
     core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
     core.envMap.end();
@@ -24967,8 +24996,10 @@ void TerrainGame::renderScene() {
         const float m2 = lodDist * lodDist;
         tier = d2 > m2 * 4.0F ? 2 : (d2 > m2 ? 1 : 0);
       }
+      {{VEHICLE_LOD_TIER}}
       for (int pi = 0; pi < (int)objectGeometry[i].parts.size(); ++pi)
         applyGeoLod(i, pi, tier);
+      {{VEHICLE_LOD_HIDE}}
     }
     lap(lpLod);
     // mirrors draw after the scene (copies first, then the blended glass -
@@ -25027,7 +25058,7 @@ void TerrainGame::renderScene() {
     const u32 costObjectStart=costStart();
     u32 lpMain = 0, lpCompanion = 0;
     for (GeoPart& part : objectGeometry[i].parts)
-      if (part.bag && !part.translucent) {
+      if (part.bag && !part.translucent && !part.lodHidden) {
         const u32 lpA = lp ? profTicks() : 0;
         stapip.core.render(part.bag.get());
         const u32 lpB = lp ? profTicks() : 0;
@@ -25179,7 +25210,7 @@ void TerrainGame::renderScene() {
       // scene, not highlight overhead.
       const u32 pb = DEBUG_SHOW_PROFILER ? profTicks() : 0;
       for (GeoPart& part : objectGeometry[i].parts)
-        if (part.bag) {
+        if (part.bag && !part.lodHidden) {
           stapip.core.render(part.bag.get());
           renderEnvPass(i, objectGeometry[i], part);
         }
@@ -25401,7 +25432,7 @@ void TerrainGame::renderMirrors() {
     // the glass quad itself, alpha-blended over the copies (its vertex
     // alpha carries the opacity - see rebuildObjectGeometry case 15)
     for (GeoPart& part : objectGeometry[mir.object].parts)
-      if (part.bag) stapip.core.render(part.bag.get());
+      if (part.bag && !part.lodHidden) stapip.core.render(part.bag.get());
   }
 }
 
@@ -25735,7 +25766,7 @@ void TerrainGame::renderRtMirror(const MirrorData& mir) {
   // The glass quad, textured with the traced reflection (drawn opaque
   // full-bright white - see rebuildObjectGeometry case 15).
   for (GeoPart& part : objectGeometry[mir.object].parts)
-    if (part.bag) stapip.core.render(part.bag.get());
+    if (part.bag && !part.lodHidden) stapip.core.render(part.bag.get());
 }
 
 // Camera texture feed (CCTV): render the scene's feed camera view into the
@@ -25807,7 +25838,7 @@ void TerrainGame::renderFeedObject(int index) {
   ObjectGeometry& og = objectGeometry[index];
   if (og.matrixMode) updateObjMat(index);
   for (GeoPart& part : og.parts)
-    if (part.bag) stapip.core.render(part.bag.get());
+    if (part.bag && !part.lodHidden) stapip.core.render(part.bag.get());
   if (og.animInfoBag && !og.animParts.empty())
     for (ObjectGeometry::AnimPart& ap : og.animParts)
       if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
@@ -25945,7 +25976,7 @@ void TerrainGame::renderObjectProbe(int index) {
       renderReflectionProxy(ri);
     else
       for (GeoPart& part : objectGeometry[ri].parts)
-        if (part.bag) stapip.core.render(part.bag.get());
+        if (part.bag && !part.lodHidden) stapip.core.render(part.bag.get());
   }
   core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   core.envMap.end();
@@ -26472,7 +26503,7 @@ bool TerrainGame::renderOnePortalView(int pi) {
     // list feeds each of its parts into StaPip.
     if (coarseObjectOutside(ti)) return;
     for (GeoPart& part : g.parts) {
-      if (!part.bag) continue;
+      if (!part.bag || part.lodHidden) continue;
       if (clipsExit) renderExitClipped(part);
       else stapip.core.render(part.bag.get());
     }
@@ -26576,7 +26607,7 @@ void TerrainGame::renderPortals() {
     if (!m.active || !m.visible) continue;
     if (beyondDrawDistance(m.data, cameraPosition)) continue;
     for (GeoPart& part : objectGeometry[p.object].parts)
-      if (part.bag) stapip.core.render(part.bag.get());
+      if (part.bag && !part.lodHidden) stapip.core.render(part.bag.get());
   }
 }
 
@@ -33481,6 +33512,13 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                "  // See-through glass: the body part drawn at the translucent\n"
                "  // tail (-1 = opaque glass) and its vertex alpha (128 = 1).\n"
                "  int glassPart; float glassAlpha;\n"
+               "  // The far tier (docs/vehicles.md): the body part carrying it\n"
+               "  // (-1 = none; its shown tier silences the wheel bag), the parts\n"
+               "  // hidden while it shows (bit per part), and the distances it\n"
+               "  // swaps at - the driven car's, and every other car's (0 = the\n"
+               "  // same).\n"
+               "  int farPart; int farHideMask; float farDistance;\n"
+               "  float trafficDistance;\n"
                "};\n"
                "struct VehicleInstData { int scene; int object; int def; int driveable;\n"
                "                         int wpFirst; int wpCount; };\n";
@@ -33494,7 +33532,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             out << ", 0.0F, 0.0F, 0.0F, {0.0F, 0.0F, 0.0F}, -1, 1.0F, 1.0F, 0,"
                    " -1, -1, -1, 80, 80, 0, {0.0F, 0.0F, 0.0F, 0.0F},"
                    " {0.0F, 0.0F, 0.0F, 0.0F}, -1, -1, -1, 1.0F, -1, \"\", \"\","
-                   " -1, 128.0F}\n";
+                   " -1, 128.0F, -1, 0, 0.0F, 0.0F}\n";
         } else {
             for (const VehicleDef* v : defs) {
                 const int base = vehicleBodyModel(p, v->name);
@@ -33571,7 +33609,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                                                               : resToBin(v->smokeMaterial))
                     << "\", "
                     << (v->glassOpacity < 1.0f ? v->glassPart : -1) << ", "
-                    << floatLit(v->glassOpacity * 128.0f)
+                    << floatLit(v->glassOpacity * 128.0f) << ", " << v->farPart
+                    << ", " << v->farHideMask << ", " << floatLit(v->farDistance)
+                    << ", " << floatLit(v->trafficDistance)
                     << "},  // " << escapeCString(v->name) << "\n";
             }
         }
@@ -36408,6 +36448,9 @@ static std::string vehicleMembers(const Project& p) {
     // above fastWheelSpeed rad/s and cleared below 80% of it, so a car
     // cruising at the threshold does not flicker between the two.
     bool fastWheels = false;
+    // The distance tier the body shows (0 full, 1/2 far - vehicleLodTier),
+    // kept so the swap has a hysteresis.
+    int farTier = 0;
     float compress[4] = {0.5F, 0.5F, 0.5F, 0.5F}; // 0..1, visual only
     // The powertrain (docs/vehicles.md). Derived from the speed the model
     // already produces - the gear and the engine speed feed nothing back
@@ -36661,6 +36704,10 @@ static std::string vehicleMembers(const Project& p) {
   void selectVehicleShine();
   bool vehicleShineOn(int objIdx) const;
   int vehicleShineLogged_ = -1;  // the last selection VEHSHINE printed
+  // The far tier's distance per vehicle body (hysteresis, traffic distance)
+  // and the parts it hides while it shows (docs/vehicles.md).
+  int vehicleLodTier(int objIdx, int tier);
+  void vehicleLodHide(int objIdx);
   const char* vehicleBlobTextureFor(int objIdx) const;
 )";
 }
@@ -39061,6 +39108,7 @@ void TerrainGame::renderVehicleGlass() {
     GeoPart& part = og.parts[(size_t)s.glassPart];
     if (!part.bag) continue;
     part.translucent = true;
+    if (part.lodHidden) continue;  // the far model paints its windows
     const RuntimeObject& ro = runtimeObjects[v.object];
     if (!ro.active || !ro.visible) continue;
     if (beyondDrawDistance(ro.data, cameraPosition)) continue;
@@ -39108,6 +39156,10 @@ void TerrainGame::selectVehicleShine() {
     const float dz = runtimeObjects[v.object].data.position[2] - cameraPosition.z;
     float d2 = dx * dx + dz * dz;
     if (d2 > 35.0F * 35.0F) continue;  // the shine pass's own distance cut
+    // A car on its far tier gives its place away: the tier is what a distant
+    // or parked car is FOR, and a shine over it (wheels and windows
+    // included, one part) would cost what the swap saved.
+    if (v.farTier > 0 && v.def >= 0 && VEHICLE_DEFS[v.def].farPart >= 0) continue;
     if (v.shineOn) d2 *= 0.64F;        // 0.8 squared: the hysteresis
     rank[i] = i == vehicleDriver_ ? 0.0F : d2 + 1.0F;
   }
@@ -39130,6 +39182,67 @@ void TerrainGame::selectVehicleShine() {
     vehicleShineLogged_ = mask;
     TYRA_LOG("VEHSHINE budget ", VEHICLE_SHINE_BUDGET, " mask ", mask,
              " of ", vehicleCount_);
+  }
+}
+
+// THE FAR TIER'S DISTANCE (docs/vehicles.md, "Distant vehicles" and "An
+// authored far model"). A vehicle body takes its tier from here rather than
+// from its row's meshLod, for two reasons. A HYSTERESIS: a tier is entered at
+// its distance and left only 10% nearer, so a parked car at the threshold does
+// not swap models every frame the chase camera breathes. And a TRAFFIC
+// distance: every car the player is not in (parked, AI) swaps at the
+// definition's trafficDistance when it has one - with an authored far model
+// that can be close, a period racer's traffic LOD. Anything that is not a
+// vehicle body keeps the tier it came with.
+int TerrainGame::vehicleLodTier(int objIdx, int tier) {
+  for (int vi = 0; vi < vehicleCount_; ++vi) {
+    VehicleRt& v = vehicles_[vi];
+    if (!v.active || v.object != objIdx || v.def < 0) continue;
+    const VehicleDefData& s = VEHICLE_DEFS[v.def];
+    float dist = s.farDistance;
+    if (vi != vehicleDriver_ && s.trafficDistance > 0.0F) dist = s.trafficDistance;
+    int t = 0;
+    if (dist > 0.0F) {
+      const float* p = runtimeObjects[objIdx].data.position;
+      const float dx = p[0] - cameraPosition.x;
+      const float dy = p[1] - cameraPosition.y;
+      const float dz = p[2] - cameraPosition.z;
+      const float d2 = dx * dx + dy * dy + dz * dz;
+      const float m2 = dist * dist;
+      // in at the distance, out at 0.9 of it (0.81 squared); twice for tier 2
+      if (d2 > (v.farTier >= 2 ? 3.24F : 4.0F) * m2)
+        t = 2;
+      else if (d2 > (v.farTier >= 1 ? 0.81F : 1.0F) * m2)
+        t = 1;
+    }
+    if (t != v.farTier) {
+      // One line per swap: the acceptance check that the tier really moves.
+      TYRA_LOG("VEHLOD car ", vi, " tier ", t, " swap at ", dist);
+      v.farTier = t;
+    }
+    return t;
+  }
+  return tier;
+}
+
+// While a vehicle's far tier shows, the body parts it hides (farHideMask:
+// the glass an AUTHORED far model paints into its texture; never the lamps,
+// which stay lit and drawn) are
+// skipped by every pass that draws object parts. Decided from the part that
+// CARRIES the tier, after applyGeoLod, so a tier that could not be shown
+// hides nothing.
+void TerrainGame::vehicleLodHide(int objIdx) {
+  for (int vi = 0; vi < vehicleCount_; ++vi) {
+    const VehicleRt& v = vehicles_[vi];
+    if (!v.active || v.object != objIdx || v.def < 0) continue;
+    const VehicleDefData& s = VEHICLE_DEFS[v.def];
+    if (s.farHideMask == 0) return;
+    ObjectGeometry& g = objectGeometry[(size_t)objIdx];
+    const bool far = s.farPart >= 0 && s.farPart < (int)g.parts.size() &&
+                     g.parts[(size_t)s.farPart].shownLod > 0;
+    for (int pi = 0; pi < (int)g.parts.size(); ++pi)
+      g.parts[(size_t)pi].lodHidden = far && pi < 31 && ((s.farHideMask >> pi) & 1);
+    return;
   }
 }
 
@@ -39245,7 +39358,8 @@ int TerrainGame::vehicleLod(int vi) const {
   const VehicleRt& v = vehicles_[vi];
   if (v.object < 0 || v.object >= (int)objectGeometry.size()) return 0;
   const ObjectGeometry& g = objectGeometry[(size_t)v.object];
-  return g.parts.empty() ? 0 : g.parts[0].shownLod;
+  const int fp = v.def >= 0 ? VEHICLE_DEFS[v.def].farPart : -1;
+  return fp >= 0 && fp < (int)g.parts.size() ? g.parts[(size_t)fp].shownLod : 0;
 }
 
 // WHEEL REBUILD ACCOUNTING. Off by default and off in a release game: the
@@ -39359,9 +39473,12 @@ void TerrainGame::renderVehicleWheels() {
     // one submit and nothing else. Beyond 70 units the bag stops regardless
     // (sub-pixel wheels for ~8k EE multiplies), the rule from before the
     // tiers existed, which a definition with farDistance 0 still gets.
-    if (v.object >= 0 && v.object < (int)objectGeometry.size() &&
-        !objectGeometry[(size_t)v.object].parts.empty() &&
-        objectGeometry[(size_t)v.object].parts[0].shownLod > 0)
+    // The CARRYING part decides (s.farPart, measured by the bake): parts[0]
+    // is the lamps on a car that has any, which never tier, so reading it
+    // drew a second set of wheels through every far tier.
+    if (s.farPart >= 0 && v.object >= 0 && v.object < (int)objectGeometry.size() &&
+        s.farPart < (int)objectGeometry[(size_t)v.object].parts.size() &&
+        objectGeometry[(size_t)v.object].parts[(size_t)s.farPart].shownLod > 0)
       continue;
     {
       const float ddx = v.pos[0] - cameraPosition.x;
@@ -40718,6 +40835,13 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
                                          : "true");
     s = replaceAll(s, "{{VEHICLE_SHINE_SELECT}}",
                    projectHasVehicles(p) ? "selectVehicleShine();" : "");
+    // A vehicle body's tier is the vehicle's own (hysteresis, and the traffic
+    // distance for cars nobody drives - vehicleLodTier), and its far tier
+    // may hide the glass part.
+    s = replaceAll(s, "{{VEHICLE_LOD_TIER}}",
+                   projectHasVehicles(p) ? "tier = vehicleLodTier(i, tier);" : "");
+    s = replaceAll(s, "{{VEHICLE_LOD_HIDE}}",
+                   projectHasVehicles(p) ? "vehicleLodHide(i);" : "");
     s = replaceAll(s, "{{VEHICLE_BLOB_TEXTURE_FOR}}",
                    projectHasVehicles(p) ? "vehicleBlobTextureFor(i)"
                                          : "nullptr");

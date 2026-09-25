@@ -400,6 +400,8 @@ void App::rebuildAssetUsage() {
     for (const VehicleDef& v : project_.vehicles) {
         if (!v.modelPath.empty())
             note(v.modelPath, 0, "vehicle \"" + v.name + "\" (model)");
+        if (!v.farModel.empty())
+            note(v.farModel, 0, "vehicle \"" + v.name + "\" (far model)");
         if (!v.engineSound.empty())
             note(v.engineSound, 2, "vehicle \"" + v.name + "\" (engine sound)");
         if (!v.engineHighSound.empty())
@@ -697,6 +699,7 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
     for (ParticleEffect& fx : project_.particleEffects) swap(fx.materialPath);
     for (VehicleDef& v : project_.vehicles) {
         swap(v.modelPath);
+        swap(v.farModel);
         swap(v.engineSound);
         swap(v.engineHighSound);
         swap(v.screechSound);

@@ -3022,6 +3022,12 @@ static void writeVehiclesSection(std::ostream& json, const Project& p) {
             json << ", \"smokeEffect\": \"" << jsonEscape(v.smokeEffect) << "\"";
         if (v.farDistance != 40.0f)
             json << ", \"farDistance\": " << fmtFloat(v.farDistance);
+        if (!v.farModel.empty())
+            json << ", \"farModel\": \"" << jsonEscape(v.farModel) << "\"";
+        if (v.trafficDistance != 0.0f)
+            json << ", \"trafficDistance\": " << fmtFloat(v.trafficDistance);
+        if (v.farPart >= 0)
+            json << ", \"farPart\": " << v.farPart << ", \"farHideMask\": " << v.farHideMask;
         if (!v.fastWheel.empty())
             json << ", \"fastWheel\": \"" << jsonEscape(v.fastWheel)
                  << "\", \"fastWheelTris\": " << v.fastWheelTriBudget;
@@ -3114,6 +3120,13 @@ static void readVehiclesSection(const json::Value& root, Project& out) {
             v.smokeEffect = x->stringOr("");
         if (const json::Value* x = e.find("farDistance"))
             v.farDistance = (float)x->numberOr(v.farDistance);
+        if (const json::Value* x = e.find("farModel")) v.farModel = x->stringOr("");
+        if (const json::Value* x = e.find("trafficDistance"))
+            v.trafficDistance = (float)x->numberOr(0.0);
+        if (const json::Value* x = e.find("farPart"))
+            v.farPart = (int)x->numberOr(-1.0);
+        if (const json::Value* x = e.find("farHideMask"))
+            v.farHideMask = (int)x->numberOr(0.0);
         if (const json::Value* x = e.find("fastWheel")) v.fastWheel = x->stringOr("");
         if (const json::Value* x = e.find("fastWheelTris"))
             v.fastWheelTriBudget = (int)x->numberOr(120);

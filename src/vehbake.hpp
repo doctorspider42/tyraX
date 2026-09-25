@@ -91,6 +91,11 @@ struct Options {
     // placed after "lamps", never decimated, tiered or mirrored - the runtime
     // draws it last with a vertex alpha. Off = byte-identical bake.
     bool glassSplit = false;
+
+    // An AUTHORED far tier (VehicleDef::farModel, docs/vehicles.md "An authored
+    // far model"): an absolute path to a second .glb/.fbx in the same space as
+    // the model, "" = the decimated tiers. See collectFarModel for its rules.
+    std::string farModel;
 };
 
 // A project-relative reflection-map path ("res/textures/x.png") as the
@@ -161,6 +166,16 @@ struct Result {
     // coarsest last - what a distant car costs, for the Cost tab. Empty when
     // the body was too small to tier.
     std::vector<int> farTris;
+    // The body part carrying the far tier (-1 = none): the part whose shown
+    // tier tells the runtime to stop the wheel bag. NOT parts[0] - that is
+    // usually the lamps, which never tier.
+    int farPart = -1;
+    // Body parts hidden while the far tier shows (bit per part; the authored
+    // far model's unreached glass - never the lamps), and what a distant car
+    // submits.
+    int farHideMask = 0;
+    int farSubmits = 0;
+    bool farAuthored = false;  // the tier came from Options::farModel
 
     std::vector<std::string> notes;
 };

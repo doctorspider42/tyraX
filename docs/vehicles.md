@@ -75,15 +75,32 @@ This is the static-batching trade-off run in the opposite direction — batching
 merges to avoid submits, and so does this; it just does it every frame for the
 members that moved.
 
-Distant vehicles drop to **one** submit by baking the wheels into the body
+Distant vehicles drop their wheel bag by baking the wheels into the body
 mesh: the paint part's two ordinary distance tiers each carry the four wheels
 at their rest anchors, hard-decimated, and past *Far tier from* (Cost tab,
-`farDistance`, default 40 units, baked into the body row's `meshLod`) the
-generic model LOD swaps the body to that tier while `renderVehicleWheels`
-stops submitting the wheel bag. The matte trim tiers itself and the lamps
-stay tier 0 (their corner ranges must not be reordered), and those parts are
-clamped to their own tier count by the runtime — so at distance the car is
-its paint with wheels in, one bag. What made this possible: matrix-path
+`farDistance`, default 40 units) the body swaps to that tier while
+`renderVehicleWheels` stops submitting the wheel bag. The matte trim tiers
+itself and the lamps stay tier 0 (their corner ranges must not be reordered),
+and those parts are clamped to their own tier count by the runtime — so at
+distance the car is its paint with wheels in, plus the lamps. The wheels can
+ride a tier only when they sample the paint's own texture (or both are palette
+cars); a car whose paint is an atlas and whose wheels are palette colours — the
+Ravager — gets no carrier, and the bake says so (`no far tier carries the
+wheels`). That is what [an authored far model](#an-authored-far-model-1134)
+is for. The tier is picked per car by `vehicleLodTier` (1.134.0), not by the
+row's `meshLod`: entered at the distance, left at 0.9 of it.
+
+**Two bugs this had until 1.134.0.** The wheel bag decided "the far tier is
+showing" from `parts[0]`, and on every car with lamps `parts[0]` IS the lamps,
+which never tier: every far tier drew a second set of wheels through its
+baked-in ones, and saved nothing. The bake now measures the carrying part
+(`farPart`, adopted like `lampPart`) and the bag reads that. And `applyGeoLod`
+left a stripped body's `StaPipBag::stripped` set when it bound a tier's LIST,
+so a strip-baked body (the CC96 since 1.117.4) drew its far tier as a strip.
+Both were found by reading the code, not by seeing them: neither shows in the
+editor, and at the default 48 units the car is a few pixels. Setting
+`farDistance` to 3 on a scratch copy puts the driven car on its far tier; that
+is the fixture the fixed build was checked on (one set of wheels, no spikes). What made this possible: matrix-path
 objects were excluded from LOD outright, because a tier was baked in WORLD
 space at first use and a mover would have carried a stale copy; a tier is now
 baked LOCAL for a `matrixMode` object (exactly as its tier 0 was at
@@ -915,6 +932,83 @@ Note the whole-car row. "What a car costs" below prices a car in view at
 ~0.4 ms of `work`, which was a car further away. A 1938-triangle car at
 9 units is five times that, and most of it is VU1/GS time.
 
+### An authored far model (1.134)
+
+A definition can name a second model, *Cost > Far model* (`farModel`), that
+**replaces** the decimated tiers: a hand-built low-poly twin of the car, the
+way a period racer shipped a traffic LOD, rather than a quadric collapse of the
+hero mesh. Next to it, *Parked / AI cars from* (`trafficDistance`) is a
+traffic tier: every car the player is not in swaps at that distance instead of
+`farDistance` (0 = the same distance). Both are format v69.
+
+The bake (`collectFarModel`, src/vehbake.cpp) takes EVERY triangle of the far
+file, wheels included, in the FULL model's canonical frame and origin — never
+its own wheel detection, so a far model may merge its wheels into the body —
+and makes it the one tier of the body part it samples. Its rules:
+
+- **Same space.** Same origin, same scale, wheels where the real wheels are.
+- **Same texture, no new VRAM.** A textured material must sample an image the
+  body already uses; images are matched by decoded PIXELS, because an exporter
+  re-encodes the PNG. Untextured materials take palette cells in the body's
+  own merge. Anything else is dropped with a `Far model:` note in the log and
+  on the Cost tab.
+- **The lamps stay.** Body parts the far model does not reach are hidden while
+  it shows (`farHideMask`, bit per part, via `GeoPart::lodHidden`, respected by
+  the object, highlight, probe, mirror, portal and shadow-caster passes and by
+  `renderVehicleGlass`) — except the `lamps` part, which is never hidden: it is
+  fullbright and carries the brake and head lights, and no lit paint can stand
+  in for it (below). So a far model leaves room for the real lamps: recess the
+  grille and tail panel as the full body does.
+- **Strips.** An authored tier keeps its authored normals and UVs, so it strips
+  on the full key like tier 0 (tmdl v4 already carried tier strips beside a
+  base strip); `applyGeoLod` binds the tier strip with `stripped = true`. A
+  decimated tier's normals are recomputed flat, so it never strips.
+- The tier shows past `farDistance` for the driven car and past
+  `trafficDistance` (when set) for every other car, with a 10% hysteresis
+  (`VehicleRt::farTier`); `VEHLOD car N tier T swap at D` is logged on every
+  swap, the no-eyes check. A car on its far tier gives up the body shine
+  (`selectVehicleShine`): the tier is one part, wheels and windows included,
+  and a shine over it would cost what the swap saved.
+
+The bake reports it as `far model ravager-far.glb 708 tris (wheels in), 2
+submit(s) past 48 units (12 for cars nobody drives)`, and every body part as
+`part K name L list verts -> S strip (x); tier ...; hidden far`.
+
+**The Ravager's** (`res/models/ravager-far.glb`, authored by
+`authoring/make-ravager-far.py`, run after `make-ravager.py`): 596 body
+triangles + four 28-triangle octagonal wheels = **708 triangles in 2 submits**
+(paint tier + lamps), against 1938 + 4 x 160 in 4 submits; the tier strips to
+0.77x. It samples the full model's `section()` on 18 stations and 8 of its 12
+character lines, and wears the full model's atlas byte for byte. That works
+because the atlas is painted in WORLD coordinates and projected per face:
+any surface lying where the car is picks up the right paint, crease light,
+shut lines, chrome and grille. The full model's script paints three things
+only the far model samples — the windows, into the texels the full model's own
+glass parts cover; lamp lenses under its lamp parts; a wheel face in the free
+eighth cell slot. Three traps, each found by looking:
+
+- With Closest filtering a face samples the texel just past its edge, so the
+  window paint first showed as 1-texel lines on the full car's roof edge. Every
+  far-only area keeps `KEEP_OUT` (3.5 cm, two texels) off edges the full
+  model's faces meet, and the lenses stay inside the lamp fan despite the
+  1.2 cm parallax of a three-quarter view. Checked by rendering the old and new
+  full model with the same cameras: pixel-identical in five of six views, 57
+  pixels (max 38/255) at a headlamp rim in the most oblique one.
+- Painted tail lamps read near-black on the console: they are lit paint on a
+  rear face, where the real ones are a fullbright part. Hence "the lamps stay".
+- The full wheels are drawn UNLIT (the wheel batch has no lighting), the far
+  model's ride in the lit body, so a true-normal dish came out grey on the
+  shaded side. The far wheel faces carry normals turned towards the sky.
+
+Verified in PCSX2 on a scratch copy (driven CC96, parked Ravager ~14 units
+ahead): the far tier and the full matte car agree to 1-2 levels of mean colour
+over the car, with lamps, glass and wheels reading the same.
+`examples/vehicle-playground/preview/ravager-far-ps2.png` is that pair and
+`ravager-far.png` the Blender contact sheet. **Not measured yet: what it saves
+in milliseconds on a physical PS2** — the orbit fixture of the shine budget
+above (a parked Ravager 9 units away, 2.1-2.6 ms) with `trafficDistance` below
+and above 9 is the A/B that prices it.
+
 ### What a car costs (1.125.2)
 
 Measured on a physical PS2, Motor District `main` scene, player car parked at
@@ -1011,8 +1105,9 @@ with no code of its own.
   the link leaves the effect in the library.
 - **Cost** — the number that decides whether a scene can afford this vehicle:
   submits per vehicle, triangles, what the source was, the far tier's cost and
-  distance, and what the placed instances would total if they were all on
-  screen. Measured on the reference
+  distance, the *Far model* picker and the *Parked / AI cars from* distance
+  (see "An authored far model"), and what the placed instances would total if
+  they were all on screen. Measured on the reference
   car: *submits 2 (~2.0 ms), body 1072 + 4 wheels 1664 = 2736 triangles, source
   was 18 parts and 5312 triangles.*
 

@@ -5261,6 +5261,17 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.134.0 - An AUTHORED far model per vehicle definition (Vehicle Editor >
+// Cost > Far model, format v69): a hand-built low-poly twin in the same space
+// and texture as the car replaces the decimated far tier - wheels baked in,
+// the glass hidden, one texture - and "Parked / AI cars from"
+// (trafficDistance) swaps every car the player is not in at its own distance.
+// The swap has a 10% hysteresis (vehicleLodTier) and a far car gives up the
+// shine. New example model: res/models/ravager-far.glb (708 triangles against
+// 1938 + 4 x 160, authoring/make-ravager-far.py). Fixes found on the way: the
+// wheel bag read parts[0] (the lamps, which never tier) to decide the far
+// tier was showing, so every far tier drew a second set of wheels; and a
+// stripped body kept its strip flag on a LIST tier. MINOR.
 // 1.133.0 - Merge of the particle-library branch (below, shipped there as
 // 1.124.0) into vehicles. Its format change is renumbered v62 -> v68 (v62..v67
 // were already this branch's). The vehicle tyre smoke keeps this branch's
@@ -5306,7 +5317,7 @@
 // Particles face the camera a pass DRAWS with (cutscene override, shake,
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 133
+#define TYRAX_VERSION_MINOR 134
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -5731,7 +5742,12 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // file that branch saved says 62..67 and holds these keys: every one is
 // read whatever the stamp says, so it loads; its next save stamps 68.
 // A smokeEffect wins over smokeMaterial when a definition has both.
-inline constexpr int kFormatVersion = 68;
+// v69 (docs/vehicles.md, "An authored far model"): VehicleDef::farModel
+// (written only when set), trafficDistance (only when not 0) and the
+// bake-measured farPart + farHideMask (only when farPart >= 0). Missing = the
+// decimated tiers at farDistance for every car, as before. Additive; no
+// migration step.
+inline constexpr int kFormatVersion = 69;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

@@ -182,6 +182,10 @@ class TerrainGame : public Tyra::Game {
     // Drawn at the frame's translucent tail instead of the object pass (a
     // vehicle's see-through glass - renderVehicleGlass sets it).
     bool translucent = false;
+    // Not drawn at all while its object shows a far tier: the glass of a
+    // vehicle whose AUTHORED far model paints its windows into the texture
+    // (VehicleDefData::farHideMask, set by vehicleLodHide).
+    bool lodHidden = false;
     BagArray<Tyra::Vec4> vertices;
     BagArray<Tyra::Color> colors;
     BagArray<Tyra::Vec4> sts;  // texture coordinates
@@ -400,6 +404,10 @@ class TerrainGame : public Tyra::Game {
     // empty unless the project's mesh LOD distance is on. Shared by every
     // instance - each object bakes its own shaded copy on demand.
     std::vector<std::vector<float>> lodVerts;
+    // The strip twin of each tier (empty = draw that tier's list). Only an
+    // AUTHORED vehicle far tier has one (vehbake): a decimated tier's normals
+    // are recomputed per face, so none of its corners weld.
+    std::vector<std::vector<float>> lodStripVerts;
     // The TRIANGLE-STRIP twin of `verts`, baked into the .tmdl (version 4+,
     // docs/model-pipeline.md). Same 8-float layout, strip order, chopped into
     // independent runs of `stripRun` vertices - roughly a third of the
@@ -887,6 +895,9 @@ class TerrainGame : public Tyra::Game {
     // above fastWheelSpeed rad/s and cleared below 80% of it, so a car
     // cruising at the threshold does not flicker between the two.
     bool fastWheels = false;
+    // The distance tier the body shows (0 full, 1/2 far - vehicleLodTier),
+    // kept so the swap has a hysteresis.
+    int farTier = 0;
     float compress[4] = {0.5F, 0.5F, 0.5F, 0.5F}; // 0..1, visual only
     // The powertrain (docs/vehicles.md). Derived from the speed the model
     // already produces - the gear and the engine speed feed nothing back
@@ -1140,6 +1151,10 @@ class TerrainGame : public Tyra::Game {
   void selectVehicleShine();
   bool vehicleShineOn(int objIdx) const;
   int vehicleShineLogged_ = -1;  // the last selection VEHSHINE printed
+  // The far tier's distance per vehicle body (hysteresis, traffic distance)
+  // and the parts it hides while it shows (docs/vehicles.md).
+  int vehicleLodTier(int objIdx, int tier);
+  void vehicleLodHide(int objIdx);
   const char* vehicleBlobTextureFor(int objIdx) const;
 
   // --- roads (docs/roads.md) ---

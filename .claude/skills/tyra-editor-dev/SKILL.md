@@ -2533,6 +2533,23 @@ this distinction. To diagnose a reflection, inspect the env target separately
 from the final car: populated target + unchanged car in a scenery hide/show
 comparison is a sampling problem, not proof that the capture failed.
 
+Vehicle FAR TIERS (docs/vehicles.md, "Distant vehicles" and "An authored far
+model", 1.134.0). The carrying part is MEASURED (`farPart`, adopted with the
+lamp indices) and the runtime asks that part for its shown tier - never
+`parts[0]`, which is the lamps on any car that has them and never tiers (that
+drew a second set of wheels through every far tier). `VehicleDef::farModel`
+names an authored low-poly twin; `collectFarModel` collects it in the FULL
+model's canonical frame and origin, matches its images to the body's by
+decoded pixels, and runs before the palette is sized so its untextured
+materials share the merge. Parts it does not reach go into `farHideMask`
+(`GeoPart::lodHidden`) except `lamps`. A new pass that draws object parts owes
+the `lodHidden` test, like `translucent`. A vehicle body's tier comes from
+`vehicleLodTier` (hysteresis, `trafficDistance` for every car but the
+driver's) through the `{{VEHICLE_LOD_TIER}}`/`{{VEHICLE_LOD_HIDE}}` hooks in
+the object LOD block, not from its row's `meshLod`. `applyGeoLod` sets
+`stripped` for EVERY tier it binds (a list tier on a stripped body used to
+inherit tier 0's flag) and binds `lodStripVerts` when the bake left one.
+
 Mixed vehicle definitions keep separate runtime wheel batches so a palette car
 and a textured car never sample through the last vehicle's image. Verify both
 cars together at near range; far tiers carry their own baked wheels.

@@ -29,6 +29,13 @@ the vehicle import's rules (docs/vehicles.md).
 The interior is deliberately minimal (tub, two buckets, bench, dash, wheel):
 it only matters once the glass is drawn translucent.
 
+The atlas also carries paint that only the LOW-POLY far model samples
+(make-ravager-far.py, which imports this file and wears this texture): the
+windows, in the texels this model's glass parts cover; lamp lenses under its
+lamp parts; a wheel face in the free eighth cell slot. Those areas keep
+KEEP_OUT off every edge this model's faces meet, and the AO is kept off them.
+Re-run make-ravager-far.py after this script.
+
 Units are metres, Blender axes: +X forward, +Y to the car's left, +Z up.
 Deterministic apart from the AO bake's sampling noise (blurred before use).
 """
@@ -416,6 +423,11 @@ TILE = {                     # name: (u0, v0, w, h) in pixels, v down; world ran
 }
 CELLS = ["black", "dark", "chrome", "int", "intdark", "seat", "paint"]
 CELL_RECT = {name: (192 + (i % 2) * 32, 160 + (i // 2) * 24, 32, 24) for i, name in enumerate(CELLS)}
+# The eighth cell slot: a painted wheel face for the LOW-POLY far model
+# (make-ravager-far.py), whose wheels are two octagons. This model never
+# samples it. Centre and radius in pixels.
+WHEEL_RECT = (224, 232, 32, 24)
+WHEEL_DISC = (240.0, 244.0, 11.5)
 
 # The colours, in 0..255. The texture is truecolour; the vehicle bake folds it
 # to the model's Texture depth (the Motor District ships it at 8 bits, 256
@@ -428,6 +440,9 @@ RED = (190, 22, 20)
 PLATE = (226, 206, 120)
 SEAT = (74, 68, 62)
 INT_C = (46, 43, 40)
+GLASS_C = (26, 33, 41)       # the "glass window" material's colour
+KEEP_OUT = 0.035             # m, two texels: see the far-model glass below
+LAMP_C = (234, 232, 214)
 VINYL = True
 
 
@@ -519,6 +534,25 @@ def paint_atlas():
     def view(name):
         (u0, v0, w, h) = TILE[name][0]
         return rgb[v0 * SS:(v0 + h) * SS, u0 * SS:(u0 + w) * SS]
+
+    def flat(name, mask):
+        """Keep the baked occlusion off these texels: paint only the far model
+        samples (this model covers them with its own glass and lamp parts),
+        which the AO bake never reaches and would leave at its floor."""
+        (u0, v0, w, h) = TILE[name][0]
+        t = aomask[v0 * SS:(v0 + h) * SS, u0 * SS:(u0 + w) * SS]
+        t[mask] = 0.0
+
+    def glass(name, mask, sky, streak):
+        """The far model's windows, painted where this model's glass parts
+        cover the tile: a dark tint with the sky's light towards the top and a
+        soft diagonal reflection streak. sky, streak: 0..1 per texel."""
+        c = np.asarray(GLASS_C, np.float32) * (0.85 + 1.25 * sky[..., None])
+        c = c + np.asarray((60, 66, 72), np.float32) * streak[..., None]
+        tv = view(name)
+        m = mask.astype(np.float32)[..., None]
+        tv[:] = tv * (1 - m) + np.clip(c, 0, 255) * m
+        flat(name, mask)
 
     def fill(name, mask, col, a=1.0):
         t = view(name)
@@ -617,6 +651,18 @@ def paint_atlas():
     # sill chrome under the side glass
     chrome("side", (X < XWB + 0.02) & (X > XQ - 0.02) & line(Z, bz + 0.03, 0.011),
            0.5 + (Z - (bz + 0.03)) / -0.022)
+    # the FAR model's side glass (make-ravager-far.py). This model's windows
+    # are a material of their own, so it never samples these texels. Every
+    # painted-for-the-far-model area stays KEEP_OUT metres inside the edges
+    # this model's own faces meet: with Closest filtering a face samples the
+    # texel just past its edge, and a 1-texel line of window showed on the
+    # roof edge until they did.
+    rz8 = np.vectorize(lambda x: rail(x)[1])(X)
+    win = (X > XQ + KEEP_OUT) & (X < XWB - KEEP_OUT) & (Z > bz + 0.05) & (Z < rz8)
+    streak = (np.exp(-((X - 0.9 * (Z - 1.1) + 0.30) / 0.07) ** 2)
+              + 0.6 * np.exp(-((X - 0.9 * (Z - 1.1) + 0.55) / 0.035) ** 2))
+    glass("side", win, smooth(bz + 0.04, rz8, Z), streak)
+    fill("side", win & (Z > rz8 - 0.012), (14, 16, 19))   # the top seal
 
     # ---- top: x, |y| ----
     X, Y = world_grid("top")
@@ -660,6 +706,14 @@ def paint_atlas():
     chrome("top", lk < 0.03, lk / 0.03)
     for (x0, x1) in ((-2.47, -2.37), (-2.345, -2.30)):
         fill("top", (X > x0) & (X < x1), BLACK)
+    # the FAR model's windscreen and tunnel rear window (never sampled here:
+    # this model's are glass parts)
+    y9 = np.vectorize(lambda x: section(x)[9][0])(X)
+    y10 = np.vectorize(lambda x: section(x)[10][0])(X)
+    ws = (X > XWT + KEEP_OUT) & (X < XWB - KEEP_OUT) & (Y < y9 - KEEP_OUT)
+    glass("top", ws, smooth(XWB, XWT, X), np.exp(-((X + 0.8 * Y - 0.42) / 0.06) ** 2))
+    rw = (X > XRW + KEEP_OUT) & (X < XRE - KEEP_OUT) & (Y < y10 - KEEP_OUT)
+    glass("top", rw, smooth(XRW, XRE, X), 0.7 * np.exp(-((X - 0.6 * Y + 1.22) / 0.05) ** 2))
 
     # ---- front: |y|, z ----
     Y, Z = world_grid("front")
@@ -677,6 +731,16 @@ def paint_atlas():
     chrome("front", em < 0.05, 0.2 + em / 0.05 * 0.6)                  # centre emblem
     fill("front", em < 0.03, RED)
     mul("front", grille & line(Y, 0.615, 0.007), 0.3)                  # lamp door split
+    # the FAR model's headlamps, under this model's lamp fans: a lens with a
+    # hot spot in a thin chrome bezel
+    for yc in (0.50, 0.73):
+        r = np.hypot(Y - yc, Z - 0.690)
+        # r 0.048: inside the lamp fan's 0.061 even with the 1.2 cm parallax
+        # of a three-quarter view
+        chrome("front", r < 0.048, 0.25 + (r / 0.048) * 0.5)
+        fill("front", r < 0.041, LAMP_C)
+        fill("front", np.hypot(Y - yc + 0.01, Z - 0.70) < 0.016, (255, 255, 250))
+        flat("front", r < 0.048)
     # valance: parking lamps in chrome, the plate, a dark lower lip
     chrome("front", box(Y, Z, 0.585, 0.795, 0.38, 0.44), (0.44 - Z) / 0.06)
     fill("front", box(Y, Z, 0.60, 0.78, 0.39, 0.43), AMBER)
@@ -691,6 +755,15 @@ def paint_atlas():
     Y, Z = world_grid("rear")
     chrome("rear", (Y < 0.865) & (Z > 0.695) & (Z < 0.885), (0.885 - Z) / 0.19)
     fill("rear", (Y < 0.845) & (Z > 0.715) & (Z < 0.865), (14, 14, 16))
+    # the FAR model's tail lamps, exactly under this model's lamp quads. The
+    # far model's lamps are ordinary lit paint while this model's are a
+    # fullbright part, so they are painted brighter than RED to read the same
+    # on the console (measured side by side in PCSX2)
+    for (y0, y1) in ((0.14, 0.44), (0.50, 0.80)):
+        lm = box(Y, Z, y0 + 0.022, y1 - 0.022, 0.735 + 0.02, 0.845 - 0.02)
+        fill("rear", lm, (250, 46, 38))
+        fill("rear", lm & (Z > 0.805), (255, 130, 110))
+        flat("rear", lm)
     chrome("rear", (Y < 0.10) & (Z > 0.765) & (Z < 0.815), (0.815 - Z) / 0.05)   # centre badge
     # the plate in a chrome frame, with its lamp above
     chrome("rear", box(Y, Z, 0.0, 0.18, 0.555, 0.67), (0.67 - Z) / 0.115)
@@ -714,6 +787,30 @@ def paint_atlas():
             rgb[sl] = prof[:, None, :]
         else:
             rgb[sl] = col
+    # the FAR model's wheel face: tyre sidewall, a chrome dish with five dark
+    # slots (the full wheel's pattern), a cap. Up in the image is up on the car.
+    x0, y0, w_, h = WHEEL_RECT
+    cx, cy, rr = WHEEL_DISC
+    sl = (slice(y0 * SS, (y0 + h) * SS), slice(x0 * SS, (x0 + w_) * SS))
+    py, px = np.mgrid[sl]
+    px = (px + 0.5) / SS
+    py = (py + 0.5) / SS
+    r = np.hypot(px - cx, py - cy) / rr
+    ang = np.arctan2(cy - py, px - cx)
+    reg = np.empty(r.shape + (3,), np.float32)
+    reg[:] = BLACK
+    side = (r > 0.62) & (r < 1.0)
+    reg[side] = np.asarray((24, 24, 27), np.float32) * (0.8 + 0.5 * smooth(1.0, 0.8, r[side]))[..., None]
+    dish = r <= 0.62
+    # brighter than the chrome ramp: the full wheel is drawn UNLIT (the wheel
+    # batch has no lighting), the far model's wheels are lit like the body
+    reg[dish] = 0.55 * chrome_ramp(0.5 - 0.5 * (cy - py[dish]) / (rr * 0.62)) + 0.45 * 250
+    slot = dish & (r > 0.24) & (r < 0.55) & (np.mod(ang / (2 * np.pi) * 5 + 0.1, 1.0) < 0.33)
+    reg[slot] = (14, 14, 16)
+    cap = r < 0.2
+    reg[cap] = chrome_ramp(0.2 + r[cap] * 2.0)
+    rgb[sl] = reg
+    aomask[sl] = 0.0
     return rgb, aomask
 
 
@@ -993,4 +1090,6 @@ def main():
     print("RAVAGER wrote", os.path.abspath(out))
 
 
-main()
+# make-ravager-far.py imports this file for its design data and atlas rules.
+if __name__ == "__main__":
+    main()

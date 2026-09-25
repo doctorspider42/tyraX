@@ -244,10 +244,14 @@ The shine budget shipped in 1.132.0 (docs/vehicles.md, "The shine budget").
 The same console breakdown of a second car (a parked Ravager 9 units away)
 leaves these, dearest first:
 - **The matte car still costs ~1.4 ms** (2.1-2.6 ms whole, minus the shine),
-  mostly VU1/GS: body 1938 triangles, blob, lamps. The Ravager bakes no far
-  tier (the CC96 does, past 48 units). A middle tier for cars that are not
-  driven, or a lower `farDistance` for traffic, is the next lever. Price it on
-  the orbit fixture (`make_mc_arm.py` in the working notes) before choosing.
+  mostly VU1/GS: body 1938 triangles, blob, lamps. BUILT in 1.134.0, NOT PRICED:
+  the Ravager now has an authored far model (708 triangles with wheels, 2
+  submits) that every car nobody drives shows from 12 units (docs/vehicles.md,
+  "An authored far model"). Owed: the orbit-fixture A/B on the physical PS2
+  (`make_mc_arm.py` in the working notes) with `trafficDistance` 5 vs 0 at the
+  9-unit parked Ravager - the number that says whether 12 is the right default,
+  and whether the CC96 wants an authored far model too (its decimated tier is
+  1574 triangles).
 - **Wheels, 0.27-0.39 ms a car**: four 160-triangle wheels rebuilt on the EE
   every frame. The fast-wheel model and the rebake skip exist; a coarser wheel
   for cars that are not driven does not.
@@ -398,6 +402,10 @@ two independent routes, so a per-class run would buy nothing. What is left:
   buys nothing.
 
 ### The vehicle BODIES are still triangle lists, and `meshstrip` is right to refuse them (2026-09-17)
+
+**Superseded:** bodies strip at bake since 1.117.4, and since 1.134.0 the bake
+logs it per part (`[vehicle] X: part K name L list verts -> S strip`): the
+Ravager's paint is 0.483x, the CC96's 0.381x. Kept for the measurements.
 
 The worst-packed-producer round attacked the two producers the frame inventory
 named — the wheel batch and the projected-shadow receiver patch — and took

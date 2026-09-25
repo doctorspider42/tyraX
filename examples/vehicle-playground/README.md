@@ -91,6 +91,20 @@ unmirrored mesh, so a dish on one face only would show the tyre's open back on
 the right-hand side. That is 4 submits per car. PCSX2 holds 50 FPS beside the
 coupe, with scene time 4 to 5 ms.
 
+Far away, and whenever nobody drives it from 12 units, the Ravager swaps to a
+**hand-built low-poly twin** ([contact sheet](preview/ravager-far.png), full on
+the left; [in PCSX2](preview/ravager-far-ps2.png), full matte car left, far
+model right): `res/models/ravager-far.glb`, 596 body triangles plus four
+28-triangle wheels = 708 triangles in 2 submits (the tier and the lamps),
+where the full car is 1938 + 4 x 160 in 4. `authoring/make-ravager-far.py`
+builds it in Blender from the full model's own loft (18 stations, 8 of its 12
+character lines) and wears the full model's atlas byte for byte, so it costs no
+VRAM; run it after `make-ravager.py`
+(`blender -b --factory-startup --python authoring/make-ravager-far.py -- --preview DIR`).
+The definition names it as *Far model* with *Parked / AI cars from* 12
+(docs/vehicles.md, "An authored far model"). What it saves on a physical PS2
+is not measured yet.
+
 The five-speed boxes use a 1.28 spread, 0.10 s shifts and reduced ratio torque.
 Body lean is 0.25 on the coupe/Tristar and 0.35 on the van. A 60 Hz flat-ground
 full-throttle comparison against the previous settings measured:

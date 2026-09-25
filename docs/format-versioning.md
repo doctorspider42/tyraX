@@ -200,6 +200,12 @@ Format 60 adds the optional per-road `roadSampleStep` field. It is purely
 additive: missing means the original 1 m longitudinal spacing, so no migration
 step is required.
 
+Format 69 adds a vehicle definition's optional `farModel`, `trafficDistance`
+and the bake-measured `farPart` / `farHideMask` (docs/vehicles.md, "An authored
+far model"), each written only away from its default. Missing means the
+decimated tiers at `farDistance` for every car, as before. Additive; no
+migration step.
+
 Format 68 is the particle library ([particles.md](particles.md), "Format"):
 the `"particleEffects"` section, an emitter's `"effect"`/`"additive"`/
 `"frames"`/`"fps"` and a vehicle's `"smokeEffect"`. The particle branch

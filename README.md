@@ -238,8 +238,9 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   spline roads with per-road longitudinal detail and automatically generated,
   separately surfaced intersections,
   projected onto the terrain in both the editor and game, plus imported,
-  budgeted cars with wheel suspension, gears, drifting, AI drivers and a
-  "fast wheel" model that swaps in above a spin rate. Try the
+  budgeted cars with wheel suspension, gears, drifting, AI drivers, a
+  "fast wheel" model that swaps in above a spin rate and an authored low-poly
+  far/traffic model per car. Try the
   [Motor District](examples/vehicle-playground) city course, strip-ready
   atlas-authored vehicle bodies and live paint reflections
   of the sky, terrain, roads and selected scenery.

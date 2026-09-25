@@ -453,6 +453,20 @@ mtime before trusting a run from there.
   colours on a GS capture then read EXACTLY the runtime's constants
   ((175,32,24) lit / (78,14,12) off / (255,45,35) braking), which is how the
   chain was verified.
+- **The far tier, without eyes** (1.134.0, docs/vehicles.md "An authored far
+  model"). The bake logs `far model X N tris (wheels in), S submit(s) past D
+  units (T for cars nobody drives)` or `no far tier carries the wheels`, plus a
+  line per body part: `part K name L list verts -> S strip (x); tier ...;
+  hidden far` - the strip ratio is the packing acceptance number. The game logs
+  `VEHLOD car N tier T swap at D` on every swap. To SEE a tier, set
+  `farDistance` 3 (the driven car) or `trafficDistance` 3 (every other car) on
+  a scratch copy and `--capture-frame`: the car is then on its far tier at
+  chase-camera range. Compare against the full car with the shine off
+  (`settings.vehicleShineBudget` 1 leaves only the driven car shiny) - a far
+  car gives up its shine, so a shiny full car reads brighter for that reason
+  alone. The chase camera in vehicle-playground does not orbit under
+  `--pad "stick r ..."` at boot; move the parked car into the view in the
+  copy's object JSON instead (forward is +z there).
 - Both `--build` and `--refresh-gen` also run the **procedural bake** first
   (`procbake::bakeAll` - docs/procedural-generation.md): stale Procedural
   volumes are baked into their chunk meshes and the project is saved, printing
