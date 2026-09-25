@@ -200,6 +200,19 @@ Format 60 adds the optional per-road `roadSampleStep` field. It is purely
 additive: missing means the original 1 m longitudinal spacing, so no migration
 step is required.
 
+Format 68 is the particle library ([particles.md](particles.md), "Format"):
+the `"particleEffects"` section, an emitter's `"effect"`/`"additive"`/
+`"frames"`/`"fps"` and a vehicle's `"smokeEffect"`. The particle branch
+shipped it as **v62**, a number the vehicles branch had already spent (v62..v67:
+reflection ground radius, hybrid colour depth, interleaved passes, skid/smoke
+materials, glass, shine budget), so the merge renumbered it to 68 rather than
+reuse a number that means two different things. No step is needed either way,
+because every key involved is additive and read regardless of the stamp: a file
+the particle branch saved as 62 opens here with its effects intact (and stamps
+68 on its next save), and a vehicles-branch file at 62..67 simply has no
+particle keys (rule 5 above: a
+format number is claimed at merge time, not at branch time).
+
 Format 67 adds `settings.vehicleShineBudget` (docs/vehicles.md, "The shine
 budget"), written only when it is not 2. Missing reads as 2, so an older
 project with three or more cars near the camera now draws two of them shiny;

@@ -5261,6 +5261,16 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.133.0 - Merge of the particle-library branch (below, shipped there as
+// 1.124.0) into vehicles. Its format change is renumbered v62 -> v68 (v62..v67
+// were already this branch's). The vehicle tyre smoke keeps this branch's
+// pool per definition, so the library's shared-pool compromise (one texture
+// and blend for every car, VEHICLE_SMOKE_MATERIAL) is gone: each definition's
+// smoke takes its look, texture, blend and flipbook from its own effect.
+// Vehicle Editor > Effects picks the smoke from the library or a material,
+// and the built-in puff (vehicles/fx-smoke.png) is now baked by the
+// library's smoke generator (particletex) from a fixed recipe - one
+// procedural smoke texture generator instead of two. MINOR.
 // 1.132.0 - The shine budget: Preferences > Rendering > "Shiny vehicles at
 // once" (settings.vehicleShineBudget, format v67, default 2, 0 = all) limits
 // the body-shine pass to the driven car and the nearest others. On a PS2 a
@@ -5283,8 +5293,20 @@
 // interior shows. The Vehicle Editor also exposes the model's Texture depth
 // (the per-asset textureQuality override), which the vehicle bake now obeys.
 // New example body: the Ravager (authoring/make-ravager.py, run in Blender).
+// 1.124.0 - Particle library (Tools > Particle Editor, docs/particles.md):
+// effects defined once and linked from emitters and from a vehicle's tyre
+// smoke, additive blending for fire and sparks, and procedural smoke / flame /
+// glow textures generated in the editor (src/particletex.cpp), with looping
+// flipbooks. Particle quads were turned 180 degrees since the billboard
+// pipeline existed (a round texture hid it) and now render upright. An effect
+// can hold several emitters (layers: flame + embers + glow + smoke placed as
+// one), and emitters show as clickable screen-space badges instead of cones.
+// The Fire motion got buoyancy, a tapering column, a whole-flame sway and
+// flicker, an unfurl/fade-in and taller quads (game and viewport twins).
+// Particles face the camera a pass DRAWS with (cutscene override, shake,
+// split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 132
+#define TYRAX_VERSION_MINOR 133
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -5699,7 +5721,17 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // written only when not 2; missing reads as 2. A project saved before it with
 // three or more cars inside 35 units of the camera now shows two of them shiny
 // (0 restores every car). Additive; no migration step.
-inline constexpr int kFormatVersion = 67;
+// v68 (docs/particles.md): the particle library - the "particleEffects"
+// section, an emitter's "effect" link and "additive" flag, and a vehicle's
+// "smokeEffect", flipbook "frames"/"fps" on a recipe and an emitter, and an
+// effect's extra "layers" (label, offset, area + a layer's own fields). All
+// written only when set, so an older project resaves byte for byte;
+// additive, no migration step. Shipped on the particle branch as v62 and
+// renumbered by the merge into vehicles (v62..v67 were taken there). A
+// file that branch saved says 62..67 and holds these keys: every one is
+// read whatever the stamp says, so it loads; its next save stamps 68.
+// A smokeEffect wins over smokeMaterial when a definition has both.
+inline constexpr int kFormatVersion = 68;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

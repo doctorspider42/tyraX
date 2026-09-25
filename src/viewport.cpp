@@ -1,3 +1,4 @@
+#include "particletex.hpp"
 #include "viewport.hpp"
 
 #include "fbxparser.hpp"
@@ -2947,8 +2948,12 @@ void Viewport::pickBounds(const SceneObject& o, float mn[3], float mx[3]) {
         // Both of these draw a marker at a hardcoded size, so their hitbox is
         // that size too - the object's scale means something else entirely (an
         // emitter's is unused, a scroller's belt is described by its segments).
-        case PrimitiveType::Emitter:  // 0.7 cone
-            useCube(0.35f);
+        // An emitter is clicked by its screen-space badge (App::screenIcons);
+        // this small cube is only for the rubber band and the gizmo, and is
+        // small so an invisible marker never steals a click from what is
+        // behind it.
+        case PrimitiveType::Emitter:
+            useCube(0.2f);
             scaled = false;
             break;
         case PrimitiveType::Scroller:  // 0.3 origin sphere
@@ -2958,7 +2963,7 @@ void Viewport::pickBounds(const SceneObject& o, float mn[3], float mx[3]) {
         // A comment draws as a screen-space icon and has nothing in 3D, so its
         // hitbox is a small fixed cube on the anchor - enough for a rubber
         // band to catch and for the gizmo to have something to sit on. The
-        // ICON's own rect is what a click really tests (App::commentIcons),
+        // ICON's own rect is what a click really tests (App::screenIcons),
         // which is what keeps a distant note clickable.
         case PrimitiveType::Comment:
             useCube(0.2f);
@@ -6002,28 +6007,14 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             if (o.type == PrimitiveType::Scroller) continue;
             // Comments have no geometry in ANY view mode: the app draws them
             // as a screen-space message icon over the finished image
-            // (App::drawCommentOverlay), so a note never hides the thing it is
+            // (App::drawScreenIconOverlay), so a note never hides the thing it is
             // about and never changes size with the camera.
             if (o.type == PrimitiveType::Comment) continue;
-            // Emitters preview as live particles (drawn after the scene); in
-            // the scene pass they only get a small fixed-size cone marker so
-            // the gizmo has something to grab. Dimmed when disabled.
-            if (o.type == PrimitiveType::Emitter) {
-                // rotation aims the cone with the emission direction (custom)
-                const float d2r = kPi / 180.0f;
-                Mat4 marker = scaleM(0.7f, 0.7f, 0.7f);
-                marker = mul(rotX(o.rotation[0] * d2r), marker);
-                marker = mul(rotY(o.rotation[1] * d2r), marker);
-                marker = mul(rotZ(o.rotation[2] * d2r), marker);
-                marker = mul(
-                    translation(o.position[0], o.position[1], o.position[2]),
-                    marker);
-                const float dim = o.emitterEnabled ? 1.0f : 0.35f;
-                draw(cone_, GL_TRIANGLES, mul(viewProj, marker),
-                     o.color[0] * dim * tintScale, o.color[1] * dim * tintScale,
-                     o.color[2] * dim * tintScale);
-                continue;
-            }
+            // Emitters preview as live particles (drawn after the scene) and
+            // are marked by a screen-space badge (App::drawScreenIconOverlay)
+            // - the solid cone they used to get covered the very effect it
+            // marked. Nothing in the scene pass.
+            if (o.type == PrimitiveType::Emitter) continue;
             // Mirrors draw in their own pass after the scene (reflected
             // copies first, glass blended over them); portals blend their
             // surface after the scene too. The wire passes still outline
@@ -8058,11 +8049,16 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
 
     // Drop pools of removed / retyped / disabled emitters (indices shift on
     // delete; a mismatched pool also resets below via the kind/count check).
+    // A pool's key is object * 16 + slot: slot 0 is the emitter's own
+    // particles, 1.. its library effect's extra layers (setEmitterLayers).
     std::erase_if(emitterPreviews_, [&](const auto& kv) {
-        return kv.first >= (int)objects.size() ||
-               objects[(size_t)kv.first].type != PrimitiveType::Emitter ||
-               !objects[(size_t)kv.first].emitterEnabled ||
-               hiddenAt((size_t)kv.first);
+        const size_t oi = (size_t)(kv.first / 16);
+        const int slot = kv.first % 16;
+        return oi >= objects.size() ||
+               objects[oi].type != PrimitiveType::Emitter ||
+               !objects[oi].emitterEnabled || hiddenAt(oi) ||
+               (slot > 0 && (!emitterLayers_.count((int)oi) ||
+                             (size_t)slot > emitterLayers_.at((int)oi).size()));
     });
 
     bool any = false;
@@ -8091,21 +8087,48 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDepthMask(GL_FALSE);  // blend over the scene, never punch the z-buffer
+    // ...and never touch the target's ALPHA: the image is later drawn by ImGui
+    // WITH its alpha, so a translucent puff that lowered it let the dark
+    // window background through and smoke previewed nearly black.
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
     glBindVertexArray(particleVao_);
     glBindBuffer(GL_ARRAY_BUFFER, particleVbo_);
 
-    std::vector<float> buf;
+    // Every pool to simulate: each emitter, then its extra layers (copies of
+    // the emitter wearing the layer - project::emitterLayerObjects, the same
+    // expansion codegen bakes into EMITTER_LAYERS).
+    struct PoolRef { size_t oi; int slot; const SceneObject* obj; };
+    std::vector<PoolRef> pools;
     for (size_t oi = 0; oi < objects.size(); ++oi) {
-        const SceneObject& o = objects[oi];
-        if (o.type != PrimitiveType::Emitter || !o.emitterEnabled || hiddenAt(oi))
-            continue;
+        const SceneObject& e = objects[oi];
+        if (e.type != PrimitiveType::Emitter || !e.emitterEnabled || hiddenAt(oi)) continue;
+        pools.push_back({oi, 0, &e});
+        auto it = emitterLayers_.find((int)oi);
+        if (it == emitterLayers_.end()) continue;
+        for (size_t k = 0; k < it->second.size() && k < 15; ++k) {
+            // Placed by the LIVE emitter, so a gizmo drag carries the layers
+            // along before anything is committed.
+            EmitterLayerPreview& L = it->second[k];
+            for (int a = 0; a < 3; ++a) {
+                L.look.position[a] = e.position[a] + L.offset[a];
+                L.look.rotation[a] = e.rotation[a];
+                L.look.scale[a] = e.scale[a] * L.area[a];
+            }
+            pools.push_back({oi, (int)k + 1, &L.look});
+        }
+    }
+
+    std::vector<float> buf;
+    for (const PoolRef& pr : pools) {
+        const size_t oi = pr.oi;
+        const SceneObject& o = *pr.obj;
         const int count =
             o.emitterCount < 1 ? 1 : o.emitterCount > 256 ? 256 : o.emitterCount;
-        EmitterPreview& ep = emitterPreviews_[(int)oi];
+        EmitterPreview& ep = emitterPreviews_[(int)oi * 16 + pr.slot];
         if (ep.kind != o.emitterKind || ep.count != count) {
             ep.kind = o.emitterKind;
             ep.count = count;
-            ep.rng = 12345u + (unsigned)oi * 7919u;
+            ep.rng = 12345u + (unsigned)oi * 7919u + (unsigned)pr.slot * 104729u;
             ep.parts.assign((size_t)count, PreviewParticle{});
         }
         const int kind = o.emitterKind;
@@ -8126,6 +8149,14 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
             et2 = cross(edir, et1);
         }
 
+        // Fire: the whole flame sways and flickers together - the game's
+        // updateParticles twin (keep in sync).
+        const float fT = (float)std::fmod(animClock_, 3600.0);
+        const float fireSwayX = kind == 0 ? 0.35f * std::sin(fT * 1.7f) + 0.15f * std::sin(fT * 4.3f) : 0.0f;
+        const float fireSwayZ = kind == 0 ? 0.25f * std::sin(fT * 1.3f + 1.0f) : 0.0f;
+        const float fireFlicker =
+            kind == 0 ? 0.8f + 0.2f * std::sin(fT * 13.7f) * std::sin(fT * 5.9f + 0.7f) : 1.0f;
+
         buf.clear();
         buf.reserve(ep.parts.size() * 6 * 9);
         for (PreviewParticle& p : ep.parts) {
@@ -8136,11 +8167,14 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
                 const float sx = bx + (r1 - 0.5f) * o.scale[0];
                 const float sz = bz + (r3 - 0.5f) * o.scale[2];
                 p.pos[0] = sx, p.pos[1] = by, p.pos[2] = sz;
-                if (kind == 0) {  // fire: rises and flickers
-                    p.vel[0] = (r1 - 0.5f) * 0.8f;
-                    p.vel[1] = 1.2f + r2 * 1.2f;
-                    p.vel[2] = (r3 - 0.5f) * 0.8f;
-                    p.maxLife = 0.5f + r2 * 0.6f;
+                if (kind == 0) {  // fire: centre-weighted base, buoyancy does the rest
+                    const float r4 = prand(ep.rng);
+                    p.pos[0] = bx + (r1 + r4 - 1.0f) * 0.5f * o.scale[0];
+                    p.pos[2] = bz + (r3 + r2 - 1.0f) * 0.5f * o.scale[2];
+                    p.vel[0] = (r1 - 0.5f) * 0.3f;
+                    p.vel[1] = 0.6f + r2 * 0.6f;
+                    p.vel[2] = (r3 - 0.5f) * 0.3f;
+                    p.maxLife = 0.55f + r2 * 0.5f;
                 } else if (kind == 1) {  // smoke: slow rise with drift
                     p.vel[0] = (r1 - 0.5f) * 0.5f;
                     p.vel[1] = 0.5f + r2 * 0.5f;
@@ -8179,6 +8213,14 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
                 p.life = p.maxLife * (0.05f + 0.95f * prand(ep.rng));  // stagger
             }
             if (kind == 3) p.vel[1] -= 6.0f * dt;
+            if (kind == 0) {  // buoyancy, the column pulling in, the sway
+                p.vel[1] += 2.6f * dt;
+                p.vel[0] += (bx - p.pos[0]) * 2.2f * dt;
+                p.vel[2] += (bz - p.pos[2]) * 2.2f * dt;
+                const float h = p.pos[1] - by;
+                p.pos[0] += fireSwayX * h * dt;
+                p.pos[2] += fireSwayZ * h * dt;
+            }
             if (kind == 5) {
                 // gravity + air drag ~ 1/weight (same terminal-velocity
                 // behavior as the game)
@@ -8207,8 +8249,11 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
             float alpha;
             float cr = o.color[0], cg = o.color[1], cb = o.color[2];
             if (kind == 0) {
-                size *= 0.5f + 0.8f * t;
-                alpha = 90.0f * t / 128.0f;
+                const float age = 1.0f - t;
+                const float unfurl = age < 0.15f ? 0.45f + age * (0.55f / 0.15f) : 1.0f;
+                size *= unfurl * (0.35f + 0.75f * t);
+                alpha = 96.0f * (age < 0.1f ? age * 10.0f : 1.0f) * (0.35f + 0.65f * t) *
+                        fireFlicker / 128.0f;
                 cg *= 0.35f + 0.65f * t;  // orange cools to red as it dies
                 cb *= 0.25f * t;
             } else if (kind == 1) {
@@ -8250,15 +8295,28 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
                 buy = uy * ca;
                 buz = uz * ca - rz * sa;
             }
-            const float Rx = brx * size, Ry = bry * size, Rz = brz * size;
-            const float Ux = sizeUp > 0.0f ? 0.0f : bux * size;
-            const float Uy = sizeUp > 0.0f ? sizeUp : buy * size;
-            const float Uz = sizeUp > 0.0f ? 0.0f : buz * size;
+            // The basis is screen-left / screen-down (the game's own), so a
+            // non-rain quad is turned back 180 degrees - and odd slots are
+            // mirrored - exactly like updateParticles (keep in sync).
+            float sr = 1.0f, su = 1.0f;
+            if (kind != 4) {
+                const int pi = (int)(&p - ep.parts.data());
+                sr = ((pi & 1) && kind != 2) ? 1.0f : -1.0f;
+                su = -1.0f;
+            }
+            const float Rx = brx * size * sr, Ry = bry * size * sr, Rz = brz * size * sr;
+            if (kind == 0) su *= 1.45f;  // flames are taller than wide (game twin)
+            const float Ux = sizeUp > 0.0f ? 0.0f : bux * size * su;
+            const float Uy = sizeUp > 0.0f ? sizeUp : buy * size * su;
+            const float Uz = sizeUp > 0.0f ? 0.0f : buz * size * su;
             const float X = p.pos[0], Y = p.pos[1], Z = p.pos[2];
             const float v0[3] = {X - Rx - Ux, Y - Ry - Uy, Z - Rz - Uz};
             const float v1[3] = {X + Rx - Ux, Y + Ry - Uy, Z + Rz - Uz};
             const float v2[3] = {X + Rx + Ux, Y + Ry + Uy, Z + Rz + Uz};
             const float v3[3] = {X - Rx + Ux, Y - Ry + Uy, Z - Rz + Uz};
+            // Additive (docs/particles.md): the console never reads alpha
+            // there, so the fade rides the colour - the game's twin.
+            if (o.emitterAdditive) cr *= alpha, cg *= alpha, cb *= alpha;
             auto vert = [&](const float* v, float tu, float tv) {
                 buf.insert(buf.end(),
                            {v[0], v[1], v[2], cr, cg, cb, alpha, tu, tv});
@@ -8275,14 +8333,23 @@ void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
                      buf.data(), GL_DYNAMIC_DRAW);
         // texture: the material's map_Kd, tinted by the particle color (the
         // material Kd is ignored - same rule as the game)
-        const MaterialDraw* mat = materialDraw(o.materialPath);
+        // Flipbook: the game swaps frame textures at emitterFps - same frame
+        // arithmetic (docs/particles.md).
+        std::string matPath = o.materialPath;
+        if (o.emitterFrames > 1 && !matPath.empty())
+            matPath = particletex::framePath(
+                matPath, (int)(animClock_ * o.emitterFps) % o.emitterFrames);
+        const MaterialDraw* mat = materialDraw(matPath);
         const uint32_t tex = mat ? mat->tex : 0;
         glUniform1i(uPartUseTex_, tex ? 1 : 0);
         if (tex) glBindTexture(GL_TEXTURE_2D, tex);
+        if (o.emitterAdditive) glBlendFunc(GL_ONE, GL_ONE);
         glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(buf.size() / 9));
+        if (o.emitterAdditive) glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     }
 
     glDepthMask(GL_TRUE);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glDisable(GL_BLEND);
     glUseProgram(sceneProgActive_);
 }

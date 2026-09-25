@@ -1677,6 +1677,32 @@ AABB box; (5) an **editor "simulate" preview** - `physhull` is host-only, the
 solver is not yet, and a host twin would need the oracle treatment the static
 batcher got (`verify-batch-twins.py`).
 
+### Particle library: what 1.124 / 1.133 leave out (docs/particles.md, "Limits")
+
+(1) **Per-particle flipbook phase** - an effect with N frames in one atlas, the
+frame picked from the particle's age (the billboard program's fixed corner UVs
+are the blocker: the frame offset needs a per-particle UV channel or a program
+variant; the shipped flipbook swaps the whole bag's texture); (2) ~~one smoke
+texture per car~~ DONE in the 1.133 merge - the vehicles branch's pool per
+definition gives every car its own effect texture and blend; (3) the editor's 2D preview
+approximates the preset motions - a shared host function for the per-kind
+formulas would let the viewport, the window and the generated game read one
+answer (the scrollsim twin arrangement); (4) a hardware check of additive
+emitters' GS cost - every measurement so far is PCSX2's.
+
+**The vehicle backfire as a library glow** (docs/vehicles.md, "Skid marks and
+smoke"). The upshift flash is two untextured orange quads in the glow bag it
+shares with the fallback tail lamps, and that bag is untextured on purpose -
+one submit for every car's lamps. A library glow (particletex kind 3) needs a
+TEXTURED bag, so the clean version is a small per-definition backfire bag
+(`VehFx`, lazy, submitted only in the ~0.1 s a backfire lives, additive like
+the effect) plus a `VehicleDef::backfireEffect` picker next to the tyre smoke -
+one more submit per popping car, which is why it waits for a PS2 measurement
+rather than landing blind. Giving the whole glow bag a glow texture instead
+would round the measured-lamp quads too. An effect's extra layers on the tyre
+smoke (a flame layer over the smoke, say) would be the same shape: a bag per
+layer per definition.
+
 ### Pixel-exact viewport picking (an ID buffer)
 
 Picking is a CPU ray test (`Viewport::pickAll`, viewport.cpp): `pickBounds`

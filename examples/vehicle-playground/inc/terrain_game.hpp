@@ -1083,6 +1083,15 @@ class TerrainGame : public Tyra::Game {
     std::string skidTexPath, smokeTexPath;
     float skidTint[3] = {6.0F, 6.0F, 6.0F};
     float smokeTint[3] = {150.0F, 150.0F, 152.0F};
+    // A particle-library smoke (VEHICLE_SMOKE_LOOKS[def].effect): its blend
+    // and its flipbook - frame 0 is smokeTex, the bag's texture pointer
+    // cycles through the rest at smokeFps (one bag, one submit either way).
+    bool smokeAdditive = false;
+    int smokeFrames = 1;
+    float smokeFps = 0.0F;
+    float smokeClock = 0.0F;
+    Tyra::Texture* smokeFrameTex[8] = {};
+    std::string smokeFramePath[8];
   };
   std::vector<std::unique_ptr<VehFx>> vehFx_;  // index = VEHICLE_DEFS slot
   void setupVehicleFx();
@@ -1555,9 +1564,14 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
     std::unique_ptr<Tyra::StaPipBillboardBag> billboardBag;
+    float animTime = 0.0F;  // flipbook clock (docs/particles.md)
+    // -1 = the emitter's own particles; >= 0 = an EMITTER_LAYERS row (an
+    // extra layer of the emitter's library effect).
+    int layer = -1;
   };
   std::vector<ParticleSystem> particles;
   void buildParticles();
+  void buildParticleSystem(int objectIndex, int layer);  // layer -1 = own
   void updateParticles();
 
   // Sound emitters (type 8): distance-attenuated one-shots on channels 16-23

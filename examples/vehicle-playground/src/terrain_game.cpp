@@ -4376,8 +4376,9 @@ void TerrainGame::applyLayerResidency() {
     if (d.model >= 0 && d.model < (int)modelNeed.size()) modelNeed[d.model] = 1;
     if (d.impostorDistance > 0 && d.impostorModel >= 0 &&
         d.impostorModel < (int)modelNeed.size()) modelNeed[d.impostorModel] = 1;
-    if (d.material >= 0 && d.material < (int)materialNeed.size())
-      materialNeed[d.material] = 1;
+    for (int f = 0; f < (d.emitFrames > 1 ? d.emitFrames : 1); ++f)
+      if (d.material >= 0 && d.material + f < (int)materialNeed.size())
+        materialNeed[d.material + f] = 1;
     if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
       animNeed[d.animModel] = 1;
   }
@@ -4391,8 +4392,9 @@ void TerrainGame::applyLayerResidency() {
     if (d.model >= 0 && d.model < (int)modelNeed.size()) modelNeed[d.model] = 1;
     if (d.impostorDistance > 0 && d.impostorModel >= 0 &&
         d.impostorModel < (int)modelNeed.size()) modelNeed[d.impostorModel] = 1;
-    if (d.material >= 0 && d.material < (int)materialNeed.size())
-      materialNeed[d.material] = 1;
+    for (int f = 0; f < (d.emitFrames > 1 ? d.emitFrames : 1); ++f)
+      if (d.material >= 0 && d.material + f < (int)materialNeed.size())
+        materialNeed[d.material + f] = 1;
     if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
       animNeed[d.animModel] = 1;
   }
@@ -4417,11 +4419,22 @@ void TerrainGame::applyLayerResidency() {
       if (d.model >= 0 && d.model < (int)modelNeed.size()) modelNeed[d.model] = 1;
       if (d.impostorDistance > 0 && d.impostorModel >= 0 &&
           d.impostorModel < (int)modelNeed.size()) modelNeed[d.impostorModel] = 1;
-      if (d.material >= 0 && d.material < (int)materialNeed.size())
-        materialNeed[d.material] = 1;
+      for (int f = 0; f < (d.emitFrames > 1 ? d.emitFrames : 1); ++f)
+        if (d.material >= 0 && d.material + f < (int)materialNeed.size())
+          materialNeed[d.material + f] = 1;
       if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
         animNeed[d.animModel] = 1;
     }
+  }
+  // Extra particle layers name materials no scene row does (docs/particles.md).
+  for (int k = 0; k < EMITTER_LAYER_COUNT; ++k) {
+    if (EMITTER_LAYERS[k].scene != currentScene) continue;
+    const int eo = EMITTER_LAYERS[k].object;
+    if (eo < 0 || eo >= SCENE_OBJECT_COUNT || !layerOn(SCENE_OBJECTS[eo].layer)) continue;
+    const SceneObjectData& d = EMITTER_LAYER_OBJECTS[k];
+    for (int f = 0; f < (d.emitFrames > 1 ? d.emitFrames : 1); ++f)
+      if (d.material >= 0 && d.material + f < (int)materialNeed.size())
+        materialNeed[d.material + f] = 1;
   }
   if (TERRAIN_TEXTURE >= 0 && TERRAIN_TEXTURE < (int)texNeed.size())
     texNeed[TERRAIN_TEXTURE] = 1;
@@ -6371,10 +6384,25 @@ void TerrainGame::buildParticles() {
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (runtimeObjects[i].data.type != 7) continue;
     if (!runtimeObjects[i].active) continue;  // emitter streamed out - no pool
+    buildParticleSystem(i, -1);
+    // The library effect's extra layers (docs/particles.md): authored objects
+    // only - a spawned clone's index is not the one the table was keyed by.
+    if (i < SCENE_OBJECT_COUNT)
+      for (int k = 0; k < EMITTER_LAYER_COUNT; ++k)
+        if (EMITTER_LAYERS[k].scene == currentScene && EMITTER_LAYERS[k].object == i)
+          buildParticleSystem(i, k);
+  }
+}
+
+void TerrainGame::buildParticleSystem(int i, int layer) {
+  {
+    const SceneObjectData& src =
+        layer >= 0 ? EMITTER_LAYER_OBJECTS[layer] : runtimeObjects[i].data;
     ParticleSystem ps;
     ps.objectIndex = i;
-    ps.rng = 12345u + (unsigned int)i * 7919u;
-    int n = runtimeObjects[i].data.emitCount;  // data copy: spawn slots too
+    ps.layer = layer;
+    ps.rng = 12345u + (unsigned int)i * 7919u + (unsigned int)(layer + 1) * 104729u;
+    int n = src.emitCount;  // data copy: spawn slots too
     if (n < 1) n = 1;
     if (n > 256) n = 256;
     ps.pos.assign(n, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
@@ -6409,10 +6437,16 @@ void TerrainGame::buildParticles() {
     ps.texBag = std::make_unique<StaPipTextureBag>();
     ps.texBag->texture = nullptr;
     ps.params.bind(ps.texBag);
-    const int mi = runtimeObjects[i].data.material;  // data copy: spawn slots too
+    const int mi = src.material;  // data copy: spawn slots too
     if (mi >= 0 && mi < (int)gameMaterials.size() && gameMaterials[mi].texture)
       ps.texBag->texture = gameMaterials[mi].texture;
     ps.bag->texture = ps.texBag.get();
+    // Depth-tested but never writing depth - the tyre smoke's rule: a
+    // translucent puff that wrote Z carved a soft-edged texture's whole quad
+    // out of every puff drawn after it (docs/particles.md). Additive emitters
+    // (fire, sparks) add light on top: Cs * FIX + Cd.
+    ps.infoBag->zTestType = PipelineZTest_TestOnly;
+    if (src.emitAdditive) ps.infoBag->additiveBlendFix = 128;
     particles.push_back(std::move(ps));
   }
 }
@@ -6442,9 +6476,34 @@ void TerrainGame::updateParticles() {
       ps.bag->count = 0;  // Hide Object turns the emitter off
       continue;
     }
-    const SceneObjectData& d = o.data;
+    // An extra layer wears its EMITTER_LAYERS row, placed and turned by the
+    // live emitter (so moving or hiding the emitter moves or hides them all).
+    SceneObjectData layerData;
+    if (ps.layer >= 0) {
+      layerData = EMITTER_LAYER_OBJECTS[ps.layer];
+      const EmitterLayerData& L = EMITTER_LAYERS[ps.layer];
+      for (int a = 0; a < 3; ++a) {
+        layerData.position[a] = o.data.position[a] + L.offset[a];
+        layerData.rotation[a] = o.data.rotation[a];
+        layerData.scale[a] = o.data.scale[a] * L.area[a];
+      }
+      layerData.emitEnabled = o.data.emitEnabled;
+      layerData.emitFollow = o.data.emitFollow;
+    }
+    const SceneObjectData& d = ps.layer >= 0 ? layerData : o.data;
     const int kind = d.emitKind;
     const int n = (int)ps.life.size();
+
+    // Flipbook (docs/particles.md): frames live at material .. material+N-1,
+    // and animating is swapping the ONE bag's texture pointer - no extra
+    // submit, no per-particle work.
+    ps.animTime += dt;  // the flipbook's clock and the fire's sway/flicker
+    if (d.emitFrames > 1 && d.material >= 0) {
+      const int f = (int)(ps.animTime * d.emitFps) % d.emitFrames;
+      const int mi = d.material + f;
+      if (mi < (int)gameMaterials.size() && gameMaterials[mi].texture)
+        ps.texBag->texture = gameMaterials[mi].texture;
+    }
 
     // Per-emitter billboard basis for the VU1 expansion. Rain streaks hang
     // from world-up (vertical quads); everything else faces the camera
@@ -6494,6 +6553,15 @@ void TerrainGame::updateParticles() {
              edir.x * et1.y - edir.y * et1.x};
     }
 
+    // Fire (docs/particles.md, "The fire motion"): the whole flame sways and
+    // flickers together - once per emitter per frame, not per particle. Keep
+    // in sync with drawEmitterPreviews.
+    const float fT = ps.animTime;
+    const float fireSwayX = kind == 0 ? 0.35F * sinf(fT * 1.7F) + 0.15F * sinf(fT * 4.3F) : 0.0F;
+    const float fireSwayZ = kind == 0 ? 0.25F * sinf(fT * 1.3F + 1.0F) : 0.0F;
+    const float fireFlicker =
+        kind == 0 ? 0.8F + 0.2F * sinf(fT * 13.7F) * sinf(fT * 5.9F + 0.7F) : 1.0F;
+
     for (int i = 0; i < n; ++i) {
       ps.life[i] -= dt;
       if (ps.life[i] <= 0.0F) {
@@ -6501,9 +6569,12 @@ void TerrainGame::updateParticles() {
         const float sx = bx + (r1 - 0.5F) * d.scale[0];
         const float sz = bz + (r3 - 0.5F) * d.scale[2];
         ps.pos[i] = Vec4(sx, by, sz, 1.0F);
-        if (kind == 0) {  // fire: rises and flickers
-          ps.vel[i] = Vec4((r1 - 0.5F) * 0.8F, 1.2F + r2 * 1.2F, (r3 - 0.5F) * 0.8F, 0.0F);
-          ps.maxLife[i] = 0.5F + r2 * 0.6F;
+        if (kind == 0) {  // fire: a centre-weighted base, slow start - buoyancy does the rest
+          const float r4 = prand(ps.rng);
+          ps.pos[i].x = bx + (r1 + r4 - 1.0F) * 0.5F * d.scale[0];
+          ps.pos[i].z = bz + (r3 + r2 - 1.0F) * 0.5F * d.scale[2];
+          ps.vel[i] = Vec4((r1 - 0.5F) * 0.3F, 0.6F + r2 * 0.6F, (r3 - 0.5F) * 0.3F, 0.0F);
+          ps.maxLife[i] = 0.55F + r2 * 0.5F;
         } else if (kind == 1) {  // smoke: slow rise with drift
           ps.vel[i] = Vec4((r1 - 0.5F) * 0.5F, 0.5F + r2 * 0.5F, (r3 - 0.5F) * 0.5F, 0.0F);
           ps.maxLife[i] = 2.0F + r2 * 1.5F;
@@ -6539,6 +6610,17 @@ void TerrainGame::updateParticles() {
         ps.life[i] = ps.maxLife[i] * (0.05F + 0.95F * prand(ps.rng));  // stagger
       }
       if (kind == 3) ps.vel[i].y -= 6.0F * dt;
+      if (kind == 0) {
+        // Hot gas ACCELERATES upward, and the column pulls in on itself, so
+        // the tongues stretch and taper into a point; the sway grows with
+        // height, as it does on a real flame.
+        ps.vel[i].y += 2.6F * dt;
+        ps.vel[i].x += (bx - ps.pos[i].x) * 2.2F * dt;
+        ps.vel[i].z += (bz - ps.pos[i].z) * 2.2F * dt;
+        const float h = ps.pos[i].y - by;
+        ps.pos[i].x += fireSwayX * h * dt;
+        ps.pos[i].z += fireSwayZ * h * dt;
+      }
       if (kind == 5) {
         // gravity + air drag ~ 1/weight: applied after the pull, so heavy
         // particles keep falling while light ones reach a slow terminal
@@ -6567,8 +6649,13 @@ void TerrainGame::updateParticles() {
       float alpha;
       float cr = d.color[0] * 128.0F, cg = d.color[1] * 128.0F, cb = d.color[2] * 128.0F;
       if (kind == 0) {
-        size *= 0.5F + 0.8F * t;
-        alpha = 90.0F * t;
+        // unfurls quickly at birth, then narrows toward the tip; fades IN
+        // (no pop at the base) and the whole fire flickers
+        const float age = 1.0F - t;
+        const float unfurl = age < 0.15F ? 0.45F + age * (0.55F / 0.15F) : 1.0F;
+        size *= unfurl * (0.35F + 0.75F * t);
+        alpha = 96.0F * (age < 0.1F ? age * 10.0F : 1.0F) * (0.35F + 0.65F * t) *
+                fireFlicker;
         cg *= 0.35F + 0.65F * t;  // orange cools to red as it dies
         cb *= 0.25F * t;
       } else if (kind == 1) {
@@ -6609,7 +6696,27 @@ void TerrainGame::updateParticles() {
         m11 = ca * size;
       }
       if (sizeUp > 0.0F) m11 = sizeUp;  // rain: thin width, streak height
+      if (kind == 0) m11 *= 1.45F;      // flames are taller than wide
+      // The camera basis above is (screen-LEFT, screen-DOWN) - the world is
+      // viewed down +Z with +X on the left - so a quad built on it is turned
+      // 180 degrees and a texture shows upside down (a symmetric puff hid it
+      // for years; a flame did not). Negating the weights turns it back in
+      // EVERY pass, the portal and split views included, which rebuild the
+      // basis but never these. Rain hangs from world-up and is left alone.
+      // Every other particle is also mirrored on odd slots - free variety
+      // for one texture. Keep in sync with drawEmitterPreviews.
+      if (kind != 4) {
+        const float mir = (i & 1) && kind != 2 ? -1.0F : 1.0F;
+        m00 = -m00 * mir, m01 = -m01 * mir, m10 = -m10, m11 = -m11;
+      }
       ps.params[i] = Vec4(m00, m01, m10, m11);
+      // Additive (docs/particles.md): the GS adds Cs * FIX and never reads
+      // alpha, so the fade has to ride the colour - keep in sync with the
+      // viewport preview (drawEmitterPreviews).
+      if (d.emitAdditive) {
+        const float k = alpha * (1.0F / 128.0F);
+        cr *= k, cg *= k, cb *= k;
+      }
       ps.cols[i] = Color(cr, cg, cb, alpha);
     }
     ps.bag->count = (u32)drawN;
@@ -17243,6 +17350,8 @@ void TerrainGame::releaseVehicleFx() {
     if (!fx) continue;
     if (!fx->skidTexPath.empty()) releaseTexture(fx->skidTexPath);
     if (!fx->smokeTexPath.empty()) releaseTexture(fx->smokeTexPath);
+    for (int k = 1; k < 8; ++k)
+      if (!fx->smokeFramePath[k].empty()) releaseTexture(fx->smokeFramePath[k]);
   }
   vehFx_.clear();
 }
@@ -17288,8 +17397,27 @@ void TerrainGame::setupVehicleFx() {
     fx.skidCols.resize(kVehSkidMax * 6);
     lookOf(VEHICLE_DEFS[d].skidMtl, "vehicles/fx-skid.png", fx.skidTexPath,
            fx.skidTex, fx.skidTint, true);
-    lookOf(VEHICLE_DEFS[d].smokeMtl, "vehicles/fx-smoke.png", fx.smokeTexPath,
-           fx.smokeTex, fx.smokeTint, false);
+    const VehicleSmokeLook& look = VEHICLE_SMOKE_LOOKS[d];
+    if (!look.effect) {
+      lookOf(VEHICLE_DEFS[d].smokeMtl, "vehicles/fx-smoke.png", fx.smokeTexPath,
+             fx.smokeTex, fx.smokeTint, false);
+      continue;
+    }
+    // A particle-library effect (docs/particles.md): its texture frames, its
+    // colour over the material's Kd, its blend. A frame that fails to load
+    // stops the flipbook at the frames before it.
+    float kd[3];
+    lookOf(look.mtl[0], "", fx.smokeTexPath, fx.smokeTex, kd, false);
+    fx.smokeTint[0] = look.r, fx.smokeTint[1] = look.g, fx.smokeTint[2] = look.b;
+    fx.smokeAdditive = look.additive != 0;
+    fx.smokeFrameTex[0] = fx.smokeTex;
+    fx.smokeFrames = 1;
+    for (int k = 1; fx.smokeTex && k < look.frames && k < 8; ++k) {
+      lookOf(look.mtl[k], "", fx.smokeFramePath[k], fx.smokeFrameTex[k], kd, false);
+      if (!fx.smokeFrameTex[k]) break;
+      fx.smokeFrames = k + 1;
+    }
+    fx.smokeFps = look.fps;
   }
 }
 
@@ -17297,9 +17425,15 @@ void TerrainGame::setupVehicleFx() {
 // puff's own recipe (updateParticles kind 2) - a slowly rotating billboard,
 // alternating direction per puff, swelling as it fades.
 void TerrainGame::updateVehicleSmoke(float dt) {
-  for (auto& fxp : vehFx_) {
-    VehFx& fx = *fxp;
+  for (int d = 0; d < (int)vehFx_.size(); ++d) {
+    VehFx& fx = *vehFx_[d];
+    const VehicleSmokeLook& look = VEHICLE_SMOKE_LOOKS[d];
     fx.smokeAlive = 0;
+    if (fx.smokeFrames > 1 && fx.smokeFps > 0.0F) {
+      fx.smokeClock += dt;
+      const float loop = (float)fx.smokeFrames / fx.smokeFps;
+      if (fx.smokeClock >= loop) fx.smokeClock -= loop;
+    }
     for (int i = 0; i < kVehSmokeMax; ++i) {
       if (fx.smokeLife[i] <= 0.0F) {
         fx.smokeParams[i].set(0.0F, 0.0F, 0.0F, 0.0F);  // degenerate quad
@@ -17318,18 +17452,26 @@ void TerrainGame::updateVehicleSmoke(float dt) {
       fx.smokePos[i].z += fx.smokeVel[i].z * dt;
       const float t = fx.smokeLife[i] > 0.0F ? fx.smokeLife[i] / fx.smokeMaxLife[i] : 0.0F;
       // Textured puffs read smaller than a flat quad (the texture's alpha
-      // falls off before the corners): start small, billow out.
-      const float size = fx.smokeTex ? (0.22F + (1.0F - t) * 1.45F)
-                                     : (0.30F + (1.0F - t) * 0.95F);
+      // falls off before the corners): start small, billow out. A library
+      // effect brings its own start and end size.
+      const float size = look.effect ? look.size0 + (1.0F - t) * (look.size1 - look.size0)
+                         : fx.smokeTex ? (0.22F + (1.0F - t) * 1.45F)
+                                       : (0.30F + (1.0F - t) * 0.95F);
       const float age = fx.smokeMaxLife[i] - fx.smokeLife[i];
       const float ang = (float)i * 2.4F + (i & 1 ? 1.1F : -1.1F) * age;
       const float ca = cosf(ang), sa = sinf(ang);
-      fx.smokeParams[i].set(ca * size, sa * size, -sa * size, ca * size);
+      // Negated: the camera basis is screen-left / screen-down, so this turns
+      // a textured puff right way up (the particle pass's rule).
+      fx.smokeParams[i].set(-ca * size, -sa * size, sa * size, -ca * size);
       // Fade in over the first tenth (no pop at birth), out quadratically.
       const float in = (1.0F - t) < 0.1F ? (1.0F - t) * 10.0F : 1.0F;
-      const float a = (fx.smokeTex ? 84.0F : 88.0F) * t * t * in;
-      fx.smokeCols[i] = Tyra::Color(fx.smokeTint[0], fx.smokeTint[1],
-                                    fx.smokeTint[2], a);
+      const float peak = look.effect ? look.alpha : (fx.smokeTex ? 84.0F : 88.0F);
+      const float a = peak * t * t * in;
+      // Additive pools carry the fade in the colour - the GS never reads
+      // alpha there.
+      const float kc = fx.smokeAdditive ? a * (1.0F / 128.0F) : 1.0F;
+      fx.smokeCols[i] = Tyra::Color(fx.smokeTint[0] * kc, fx.smokeTint[1] * kc,
+                                    fx.smokeTint[2] * kc, a);
       ++fx.smokeAlive;
     }
   }
@@ -17360,6 +17502,8 @@ void TerrainGame::renderVehicleSmoke() {
       // Depth-tested but never writing Z (alpha-test all-fail + AFAIL=FB_ONLY):
       // translucent smoke must not carve holes into anything drawn after it.
       fx.smokeInfoBag->zTestType = PipelineZTest_TestOnly;
+      // A library effect may be additive (fire, sparks): GS FIX 128.
+      if (fx.smokeAdditive) fx.smokeInfoBag->additiveBlendFix = 128;
       fx.smokeColorBag = std::make_unique<StaPipColorBag>();
       fx.smokeCols.bind(fx.smokeColorBag);
       fx.smokeBillboardBag = std::make_unique<StaPipBillboardBag>();
@@ -17380,6 +17524,10 @@ void TerrainGame::renderVehicleSmoke() {
     fx.smokeBillboardBag->right = Vec4(rx, 0.0F, rz, 0.0F);
     fx.smokeBillboardBag->up =
         Vec4(-rz * fwd.y, rz * fwd.x - rx * fwd.z, rx * fwd.y, 0.0F);
+    // A flipbook swaps the texture pointer only (docs/particles.md).
+    if (fx.smokeFrames > 1)
+      fx.smokeTexBag->texture =
+          fx.smokeFrameTex[(int)(fx.smokeClock * fx.smokeFps) % fx.smokeFrames];
     fx.smokeBag->count = (u32)kVehSmokeMax;
     fx.smokeBag->bboxVersion = ++g_bboxStamp;  // centres move every frame
     stapip.core.render(fx.smokeBag.get());
@@ -19034,10 +19182,13 @@ void TerrainGame::updateVehicles(float dt) {
                          v.wheelY[side ? 3 : 2] + 0.26F * SC,
                          v.pos[2] - lx2 * sy2 - hz2 * cy2, 1.0F);
         // Drift: up, a little backwards along travel, and outward.
+        // The definition's smoke look scales the rise and the life (1 = the
+        // built-in puff; a particle-library effect's own numbers otherwise).
+        const VehicleSmokeLook& look = VEHICLE_SMOKE_LOOKS[v.def];
         fx->smokeVel[k].set(-sy2 * v.speed * 0.06F + lx2 * 0.4F,
-                         0.9F + 0.5F * v.slip,
+                         (0.9F + 0.5F * v.slip) * look.rise,
                          -cy2 * v.speed * 0.06F, 0.0F);
-        fx->smokeMaxLife[k] = 0.55F + 0.45F * v.slip;
+        fx->smokeMaxLife[k] = (0.55F + 0.45F * v.slip) * look.life;
         fx->smokeLife[k] = fx->smokeMaxLife[k];
       }
     } else {
@@ -24060,14 +24211,17 @@ void TerrainGame::renderScene() {
   }
   costEnd("Highlights_and_outlines",-1,costHighlightStart);
   const u32 costParticleStart=costStart();
-  // particles last - alpha blended over the scene. The second split half
-  // re-faces the quads at ITS camera first - billboards built during the
-  // simulation face player 1's view.
+  // particles last - alpha blended over the scene.
   const u32 profPart0 = DEBUG_SHOW_PROFILER ? profTicks() : 0;
-  // The split's second half re-aims the billboard basis at ITS camera
-  // before submitting - centers are view-independent, so two Vec4 writes
-  // per system replace any re-simulation (the portal through-view trick).
-  if (splitSecondPass && !particles.empty()) {
+  // Every pass re-aims the billboard basis at the camera it DRAWS with,
+  // right here: the simulation runs before the cutscene camera override and
+  // the camera shake are applied, so the basis it built faced the PLAYER's
+  // camera - a cutscene saw its particles edge-on, and turning the right
+  // stick (the player's camera, still live under the cutscene) swung them
+  // around. The split's second half is the same case with ITS camera.
+  // Centres are view-independent, so two Vec4 writes per system replace any
+  // re-simulation (the portal through-view trick).
+  if (!particles.empty()) {
     Vec4 fwd = cameraLookAt - cameraPosition;
     const float fl = sqrtf(fwd.x * fwd.x + fwd.y * fwd.y + fwd.z * fwd.z);
     if (fl > 0.0001F) fwd.x /= fl, fwd.y /= fl, fwd.z /= fl;
@@ -24080,7 +24234,8 @@ void TerrainGame::renderScene() {
     const float uz = rx * fwd.y;
     for (ParticleSystem& ps : particles) {
       if (!ps.bag || ps.bag->count == 0) continue;
-      const int kind = runtimeObjects[ps.objectIndex].data.emitKind;
+      const int kind = ps.layer >= 0 ? EMITTER_LAYER_OBJECTS[ps.layer].emitKind
+                                     : runtimeObjects[ps.objectIndex].data.emitKind;
       ps.billboardBag->right = Vec4(rx, 0.0F, rz, 0.0F);
       ps.billboardBag->up = kind == 4 ? Vec4(0.0F, 1.0F, 0.0F, 0.0F)
                                       : Vec4(ux, uy, uz, 0.0F);
@@ -25311,8 +25466,9 @@ bool TerrainGame::renderOnePortalView(int pi) {
         const Vec4 savedR = ps.billboardBag->right;
         const Vec4 savedU = ps.billboardBag->up;
         ps.billboardBag->right = pvRight;
-        ps.billboardBag->up = ro.data.emitKind == 4 ? Vec4(0.0F, 1.0F, 0.0F, 0.0F)
-                                                    : pvUp;
+        const int pkind = ps.layer >= 0 ? EMITTER_LAYER_OBJECTS[ps.layer].emitKind
+                                         : ro.data.emitKind;
+        ps.billboardBag->up = pkind == 4 ? Vec4(0.0F, 1.0F, 0.0F, 0.0F) : pvUp;
         stapip.core.render(ps.bag.get());
         ps.billboardBag->right = savedR;  // main pass draws these again later
         ps.billboardBag->up = savedU;

@@ -44,6 +44,13 @@ speed and a four-second refillable tank. Rally 04 is a lighter, deliberately
 more slippery alternative with a longer wheelbase and more suspension travel.
 These are arcade settings, not a real-world vehicle simulation.
 
+Rally 04's tyre smoke comes from the project's **particle library**: *Vehicle
+Editor > Effects > Tyre smoke* names the "Rally dust" effect (*Tools >
+Particle Editor*), a sandy tint over the library's generated smoke texture
+with a two-frame flipbook, sized and timed like the built-in puff. The other
+cars keep the built-in puff. See
+[docs/particles.md](../../docs/particles.md), "Vehicle tyre smoke".
+
 The Tristar Racer parks west of the coupe, opposite the Rally. It has a 32 m/s
 target speed, stronger grip and the same refillable nitrous controls. Its original prepared source
 body has 2276 triangles. The efficient game variant bakes to 789 body triangles and
