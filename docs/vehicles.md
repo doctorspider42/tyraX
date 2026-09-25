@@ -874,6 +874,28 @@ Most of it is the GPU, not the EE: `vif_wait` falls 0.65..0.68 ms of the
 **-1.12..-1.15 ms orbiting and -0.75..-0.78 ms still**, the table's shine row.
 The default of 2 changes nothing with two cars; it starts saving at the third.
 
+**Where the shine's cost is, and one dead end (2026-09-25).** Two more
+arms on the same fixture, two rounds each:
+- **The colour stream is free.** Drawing the Ravager's shine with one single
+  colour instead of per-vertex colours (no colour upload, 90 vertices a VU1
+  package instead of 75) moved `work` by +0.00..+0.05 ms with the camera
+  still. The parked shine's 0.7 ms is VU1 time on positions and normals.
+- **The paint colours cost the EE 0.38-0.44 ms a car**, but only while the
+  view turns (the distinct-normal loop plus the colour scatter). Parked, they
+  cost nothing, because the hysteresis keeps them.
+- **Computing them on VU1 instead is SLOWER. Tried and reverted.** The env
+  programs (cull_tce, the shared clip TC image, as_is_tce) computed the fresnel
+  and specular from the normal they already hold, and the EE only uploaded two
+  vectors. `--vu-check` passed and the PCSX2 frame was identical, but on the
+  console `vif_wait` rose 0.45-0.77 ms: +0.63..+0.67 ms of `work` with the
+  camera still, and -0.09..-0.25 with it orbiting. The arithmetic says why:
+  about 20 cycles a vertex on VU1's single upper pipe, for every vertex of
+  every shining car on every frame (6861 vertices here, ~0.49 ms). The EE
+  loop does half as many (distinct normals) and only on frames where the view
+  turned. Micro memory would also have gone from 1884 to 2004 of 2042. The
+  patch is `vu1-paint-attempt.patch` in the working notes. Even rewritten
+  tighter (~13 ops a vertex), it cannot beat zero at rest.
+
 Note the whole-car row. "What a car costs" below prices a car in view at
 ~0.4 ms of `work`, which was a car further away. A 1938-triangle car at
 9 units is five times that, and most of it is VU1/GS time.

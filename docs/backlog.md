@@ -251,9 +251,14 @@ leaves these, dearest first:
 - **Wheels, 0.27-0.39 ms a car**: four 160-triangle wheels rebuilt on the EE
   every frame. The fast-wheel model and the rebake skip exist; a coarser wheel
   for cars that are not driven does not.
-- **Paint colour rebuilds, ~0.4 ms a shining car** while the camera turns.
-  The hysteresis step is a fixed 4/128 at every distance; scaling it with the
-  distance to the car would cut rebuilds for far shining cars. Unmeasured.
+- **Paint colour rebuilds, 0.38-0.44 ms a shining car** while the camera
+  turns (measured). Moving them to VU1 was tried and is SLOWER (docs/vehicles.md,
+  "Where the shine's cost is, and one dead end"). What is left on the EE side:
+  a hysteresis step that grows with the distance to the car, or rebuilding at
+  most one car's colours a frame, round-robin. Both are unmeasured.
+- **Stale entries:** the two "vehicle BODIES are still triangle lists" entries
+  further down predate 1.117.4, which strips the body parts (the Ravager's
+  paint part is 5490 list vertices -> 2649 strip vertices, 0.483x).
 
 ## Motor District follow-up after the integrated frozen-camera pass
 
