@@ -968,6 +968,7 @@ class TerrainGame : public Tyra::Game {
     int wpCount = 0;
     int wpCur = 0;
     int sleepFrames = 0;  // settled parked frames before static-physics sleep
+    int contactLogged = 0;  // VEHCONTACT stated for this sleep (telemetry)
   };
   VehicleRt vehicles_[VEHICLE_COUNT > 0 ? VEHICLE_COUNT : 1];
   int vehicleCount_ = 0;

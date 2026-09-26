@@ -150,7 +150,9 @@ at ±wheelBase/2 and ±track/2 around the *chassis origin*, so a body that kept
 the exporter's own pivot put every wheel wherever that pivot happened to be:
 the reference car's origin sat 0.25 behind the axle midpoint and all four
 wheels rode visibly forward of their arches. With the origin at hub height,
-`rideHeight = wheelRadius` puts the tyres exactly on the ground.
+`rideHeight = wheelRadius` puts the tyres exactly on the ground - on the
+ground the player SEES, which over a road is the road mesh, not the terrain
+under it (see "Wheels on the road surface").
 
 **What it cannot decide is which end is the nose.** If a node or material says
 `front`/`rear` that wins; otherwise the shorter body overhang past an axle is
@@ -212,7 +214,12 @@ silhouette lost **21% of its radius**; at 700 it loses 2%.
 from the source.** A collapse pulls a round silhouette inward, and a car whose
 physics rides on a 0.240 radius while a 0.190 wheel is drawn floats above the
 road with its wheels spinning at the wrong rate. The bake corrects the figure and
-says so in the panel whenever the shrink exceeds 5%.
+says so in the panel whenever the shrink exceeds 5%, and **every bake writes it
+back into the definition** (`vehbake::adoptMeasured`, since 1.134.1): the
+radius becomes the drawn wheel's, and the ride height moves by the same amount
+so the author's clearance survives. Before that the editor adopted it only
+while the definition still held the struct defaults, so a re-bake with another
+wheel model or budget never reached it - see "Wheels on the road surface".
 
 ## The drive model
 
@@ -689,7 +696,8 @@ with a Remote Pad drift and a `SKIDDBG` log:
    taken across the tyre's displacement since the previous edge now.
 3. **Height.** The marks sat at the wheel height, which samples the terrain
    only, so on every road (0.12 above it) they were under the asphalt. Both
-   edges sit on `groundSurfaceAt` now.
+   edges sit on `groundSurfaceAt` now - and since 1.134.1 so do the wheels
+   themselves ("Wheels on the road surface").
 
 **The puffs rise and slow** (drag 1.6/s, a little buoyancy), fade in over
 their first tenth instead of popping, start small and billow out. They spawn
@@ -1796,6 +1804,65 @@ objects were deleted, a new car inherited one of those rows: collision and
 driving still worked, but the script correctly hid the wrong object. The example
 now stores stable FNV-1a object-ID hashes and resolves them through
 `SCENE_OBJECT_ID_TABLES` when the scene loads.
+
+## Wheels on the road surface
+
+The wheels of every car in `examples/vehicle-playground` sank into the ground,
+parked ones at the spawn included. It was measured, not eyeballed: the game
+prints `VEHCONTACT car N def D parked|driven gap1000 g0 g1 g2 g3 roadlift1000
+l0 l1 l2 l3` - the lowest DRAWN vertex of each tyre (read back out of the
+wheel batch, i.e. what the GS receives) minus `groundSurfaceAt` under it, and
+how far that surface sits above the terrain, both in thousandths. A parked
+car states it once as it goes to sleep, the driven car every second. A car on
+its far tier draws no wheel batch and prints nothing; its wheels are baked
+into the body at the rest anchors, so they follow the body. Before the fix, in
+PCSX2:
+
+| Car | where | gap (mm) | road lift (mm) |
+|---|---|---|---|
+| Ravager (radius right) | road (the spawn) | -119 | 119 |
+| CC96 (radius 0.232, drawn 0.240) | road (the spawn) | -127 | 119 |
+| Ravager | bare terrain | 0 | 0 |
+| CC96 | bare terrain | -7 | 0 |
+
+Two causes, and they add:
+
+1. **The cars stood on the terrain, and the road is drawn above it.** A road is
+   its own mesh `roadgen::kLift` (0.12) over the heightfield, junctions 0.14,
+   and the spawn is on Garage boulevard. Both twins sampled only the terrain
+   under each hardpoint - `updateVehicles` called `terrainHeightAt`, and the
+   editor's test drive handed `vehiclesim::step` the viewport's
+   `terrainHeight` - so every tyre on every road was drawn 0.12 into the
+   asphalt, on every car alike. The skid marks had hit the same thing earlier
+   and moved to `groundSurfaceAt`; the car under them had not. Now the four
+   contacts and the six body-clearance probes read `groundSurfaceAt` (the max
+   of terrain and road), and the test drive reads the same max through
+   `roadgen::Surface`, a host sampler over the triangles the viewport draws
+   (the runtime's barycentric test and tolerance), built when a drive starts.
+2. **A definition's wheel radius had drifted from its drawn wheel.** Both twins
+   hold each hub one `wheelRadius` above its ground and the body `rideHeight`
+   above the plane, so a radius smaller than the baked wheel sinks the tyre by
+   the difference. The CC96 carried 0.232 against a 0.240 wheel after its model
+   was re-baked (the Tristar 0.31 against 0.303, floating 7 mm): the editor
+   adopted the measured radius only while the definition still held the struct
+   defaults, and the build merely logged `measured ... radius 0.240 - the
+   definition's Driving tab should match`. `vehbake::adoptMeasured` now takes
+   the drawn radius on every bake (rounded to 1 mm, GUI and `--build` alike)
+   and moves `rideHeight` by the same amount, keeping the author's clearance
+   (`rideHeight - wheelRadius`, zero for a car on its tyres) instead of the
+   absolute value. A car added later, or re-baked with another wheel budget,
+   gets the same treatment without anyone reading the log.
+
+After the fix every row above reads a gap of **0**, and a short reverse drive
+(`--pad "stick l 0 127"`, 1 s) holds 0..+2 on both surfaces - the +2 is a
+faceted tyre spun off its flat. Rally 04 and the Tristar are not placed in
+`main`; their bake-measured radii (0.341 = definition, 0.303 against 0.31) are
+the whole check for them, and cause 1 does not depend on the car. Ruled out on the way, by the same numbers: the
+suspension rest compression (zero at rest on flat ground; the upward clamp is
+6% of the radius), the wheel mesh origin (the bake centres the wheel on its hub;
+the Ravager on terrain reads exactly 0), instance scale (1 on every placed car)
+and the body-versus-wheel placement in `renderVehicleWheels` (the same hub
+arithmetic as the body's rest height).
 
 ## Not built yet
 

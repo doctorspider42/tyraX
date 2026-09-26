@@ -503,4 +503,85 @@ void splineAt(const std::vector<float>& pointsXZ, float t, float* x, float* z) {
     *z = p.z;
 }
 
+// --- the drawn surface, for host code standing on a road --------------------
+
+void Surface::add(const std::vector<Vertex>& triangles) {
+    const size_t n = triangles.size() - triangles.size() % 3;
+    tris_.insert(tris_.end(), triangles.begin(), triangles.begin() + (long)n);
+}
+
+void Surface::build() {
+    cellStart_.clear();
+    cellItems_.clear();
+    nx_ = nz_ = 0;
+    if (tris_.empty()) return;
+    float mnx = 1e30f, mnz = 1e30f, mxx = -1e30f, mxz = -1e30f;
+    for (const Vertex& v : tris_) {
+        mnx = std::min(mnx, v.x);
+        mnz = std::min(mnz, v.z);
+        mxx = std::max(mxx, v.x);
+        mxz = std::max(mxz, v.z);
+    }
+    // 4-unit cells: a road triangle is at most a few units across, so a cell
+    // holds a few dozen candidates and a probe tests only those.
+    const float cell = 4.0f;
+    minX_ = mnx;
+    minZ_ = mnz;
+    inv_ = 1.0f / cell;
+    nx_ = std::max(1, (int)((mxx - mnx) * inv_) + 1);
+    nz_ = std::max(1, (int)((mxz - mnz) * inv_) + 1);
+    const size_t cells = (size_t)nx_ * (size_t)nz_;
+    cellStart_.assign(cells + 1, 0u);
+    std::vector<unsigned> cursor;
+    for (int pass = 0; pass < 2; ++pass) {
+        for (size_t t = 0; t + 2 < tris_.size(); t += 3) {
+            const Vertex& a = tris_[t];
+            const Vertex& b = tris_[t + 1];
+            const Vertex& c = tris_[t + 2];
+            const int ix0 = (int)((std::min({a.x, b.x, c.x}) - minX_) * inv_);
+            const int ix1 = std::min(nx_ - 1, (int)((std::max({a.x, b.x, c.x}) - minX_) * inv_));
+            const int iz0 = (int)((std::min({a.z, b.z, c.z}) - minZ_) * inv_);
+            const int iz1 = std::min(nz_ - 1, (int)((std::max({a.z, b.z, c.z}) - minZ_) * inv_));
+            for (int iz = std::max(0, iz0); iz <= iz1; ++iz)
+                for (int ix = std::max(0, ix0); ix <= ix1; ++ix) {
+                    const size_t k = (size_t)iz * (size_t)nx_ + (size_t)ix;
+                    if (pass == 0)
+                        ++cellStart_[k + 1];
+                    else
+                        cellItems_[cursor[k]++] = (unsigned)t;
+                }
+        }
+        if (pass == 0) {
+            for (size_t k = 1; k < cellStart_.size(); ++k)
+                cellStart_[k] += cellStart_[k - 1];
+            cellItems_.assign(cellStart_.back(), 0u);
+            cursor.assign(cellStart_.begin(), cellStart_.end() - 1);
+        }
+    }
+}
+
+float Surface::at(float x, float z) const {
+    float best = kNone;
+    if (nx_ <= 0 || x < minX_ || z < minZ_) return best;
+    const int ix = (int)((x - minX_) * inv_);
+    const int iz = (int)((z - minZ_) * inv_);
+    if (ix >= nx_ || iz >= nz_) return best;
+    const size_t k = (size_t)iz * (size_t)nx_ + (size_t)ix;
+    for (unsigned e = cellStart_[k]; e < cellStart_[k + 1]; ++e) {
+        const Vertex& a = tris_[cellItems_[e]];
+        const Vertex& b = tris_[cellItems_[e] + 1];
+        const Vertex& c = tris_[cellItems_[e] + 2];
+        // The runtime's roadSurfaceAt arithmetic and tolerance, term for term.
+        const float den = (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z);
+        if (std::fabs(den) < 0.000001f) continue;
+        const float wa = ((b.z - c.z) * (x - c.x) + (c.x - b.x) * (z - c.z)) / den;
+        const float wb = ((c.z - a.z) * (x - c.x) + (a.x - c.x) * (z - c.z)) / den;
+        const float wc = 1.0f - wa - wb;
+        if (wa < -0.0001f || wb < -0.0001f || wc < -0.0001f) continue;
+        const float y = wa * a.y + wb * b.y + wc * c.y;
+        if (y > best) best = y;
+    }
+    return best;
+}
+
 }  // namespace roadgen

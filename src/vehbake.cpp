@@ -1552,6 +1552,27 @@ bool adoptMeasured(VehicleDef& v, const Result& r) {
     if (v.farPart != r.farPart || v.farHideMask != r.farHideMask) changed = true;
     v.farPart = r.farPart;
     v.farHideMask = r.farHideMask;
+    // THE WHEEL RADIUS IS THE DRAWN WHEEL'S (docs/vehicles.md, "Wheels on the
+    // road surface"). Both twins put a hub one wheelRadius above its ground
+    // and the body rideHeight above the plane, so a definition whose radius
+    // no longer matches the baked wheel draws the tyre that far into (or
+    // above) the ground - the CC96 carried 0.232 against a 0.240 wheel after
+    // its model was re-baked, 8 mm sunk on every surface. The GUI adopted the
+    // radius only while the definition still held the struct defaults, so a
+    // re-import or a new wheel budget never reached it. Now it follows every
+    // bake, and the ride height keeps the author's CLEARANCE (rideHeight -
+    // wheelRadius, 0 for a car sitting on its tyres) rather than its absolute
+    // value, so a deliberately lifted car stays lifted by the same amount.
+    if (r.spec.wheelRadius > 1e-4f) {
+        const auto mm = [](float f) { return std::round(f * 1000.0f) / 1000.0f; };
+        const float drawn = mm(r.spec.wheelRadius);
+        if (v.drive.wheelRadius != drawn) {
+            const float clearance = v.drive.rideHeight - v.drive.wheelRadius;
+            v.drive.wheelRadius = drawn;
+            v.drive.rideHeight = std::max(0.0f, mm(drawn + clearance));
+            changed = true;
+        }
+    }
     return changed;
 }
 

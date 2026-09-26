@@ -18655,7 +18655,13 @@ void TerrainGame::updateVehicles(float dt) {
       const V3 hard = contactRotate({lx[w], 0.0F, lz[w]});
       const float wx = v.pos[0] + hard.x;
       const float wz = v.pos[2] + hard.z;
-      gy[w] = terrainHeightAt(wx, wz);
+      // The SURFACE the player sees, not the heightfield under it: a road
+      // is its own mesh roadgen::kLift (0.12) above the terrain, and a car
+      // that sampled terrainHeightAt drew every tyre 0.12 into the asphalt -
+      // VEHCONTACT read -119 on both parked cars at the playground's spawn
+      // (docs/vehicles.md, "Wheels on the road surface"). The host twin's
+      // HeightFn answers the same max (vehicle_ui.cpp).
+      gy[w] = groundSurfaceAt(wx, wz);
       // The wheel RIDES an object floor when one is higher than the terrain
       // under it - a platform, a ramp prop, generated prefab geometry. This
       // is what lets a car drive ONTO things instead of nosing into their
@@ -18702,7 +18708,7 @@ void TerrainGame::updateVehicles(float dt) {
       for (int k = 0; k < 6; ++k) {
         const V3 off = contactRotate(
             {px[k], -0.65F * s.rideHeight * SC, pz[k]});
-        const float floor = terrainHeightAt(v.pos[0] + off.x,
+        const float floor = groundSurfaceAt(v.pos[0] + off.x,
                                             v.pos[2] + off.z);
         if (floor <= TERRAIN_VOID_Y * 0.5F) continue;
         const float need = floor - off.y + 0.03F;
@@ -20469,6 +20475,40 @@ void TerrainGame::renderVehicleWheels() {
       ++g_whVerifyCars;
     }
 #endif
+    // CONTACT TELEMETRY (docs/vehicles.md, "Wheels on the road surface"):
+    // the lowest DRAWN tyre vertex of each wheel against the surface actually
+    // rendered under it (groundSurfaceAt: the road mesh where there is one),
+    // in thousandths. Negative = the tyre is sunk into what the player sees.
+    // Read out of the slot, so it measures the vertices the GS receives, not
+    // the sim's idea of them. A parked car states it once as it goes to
+    // sleep, the driven car every second.
+    {
+      const bool parkedNow = v.sleepFrames >= 25;
+      static int contactTick = 0;
+      const bool drivenNow = vi == vehicleDriver_ && (++contactTick % 50) == 0;
+      if ((parkedNow && !v.contactLogged) || drivenNow) {
+        v.contactLogged = parkedNow ? 1 : 0;
+        int gap[4], lift[4];
+        for (int w = 0; w < 4; ++w) {
+          const Tyra::Vec4* wv = batch.verts.data() + base + (size_t)w * (size_t)nv;
+          float lo = 1e30F, sx = 0.0F, sz = 0.0F;
+          for (u32 i = 0; i < real; ++i) {
+            if (wv[i].y < lo) lo = wv[i].y;
+            sx += wv[i].x;
+            sz += wv[i].z;
+          }
+          const float cx = sx / (float)real, cz = sz / (float)real;
+          const float surf = groundSurfaceAt(cx, cz);
+          gap[w] = (int)((lo - surf) * 1000.0F);
+          lift[w] = (int)((surf - terrainHeightAt(cx, cz)) * 1000.0F);
+        }
+        TYRA_LOG("VEHCONTACT car ", vi, " def ", v.def, parkedNow ? " parked" : " driven",
+                 " gap1000 ", gap[0], " ", gap[1], " ", gap[2], " ", gap[3],
+                 " roadlift1000 ", lift[0], " ", lift[1], " ", lift[2], " ", lift[3]);
+      } else if (!parkedNow) {
+        v.contactLogged = 0;
+      }
+    }
     ++slot;
   }
   if (slot == 0 || !src) continue;

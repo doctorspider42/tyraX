@@ -178,4 +178,30 @@ void tessellateJunction(const Junction& junction, const HeightFn& height,
 // point handles): world XZ at parameter t in [0, 1] over the whole polyline.
 void splineAt(const std::vector<float>& pointsXZ, float t, float* x, float* z);
 
+// The DRAWN road surface under a world XZ, for host code that must stand on
+// it: the highest road or junction triangle containing the point. The host
+// twin of the generated TerrainGame::roadSurfaceAt (the same barycentric test
+// and tolerance over the same triangles; a uniform grid instead of the
+// runtime's prefix-offset one, which only changes how fast the answer comes).
+// The editor's vehicle test drive is the consumer: without it the host car
+// sat on the terrain 0.12 under every road, like the console one did
+// (docs/vehicles.md, "Wheels on the road surface").
+class Surface {
+public:
+    // A triangle LIST (three Vertex per triangle): tessellate() and
+    // tessellateJunction() output. Call build() once after the last add().
+    void add(const std::vector<Vertex>& triangles);
+    void build();
+    bool empty() const { return tris_.empty(); }
+    // kNone when no triangle covers (x, z).
+    float at(float x, float z) const;
+    static constexpr float kNone = -1.0e30f;
+
+private:
+    std::vector<Vertex> tris_;
+    std::vector<unsigned> cellStart_, cellItems_;
+    int nx_ = 0, nz_ = 0;
+    float minX_ = 0, minZ_ = 0, inv_ = 1;
+};
+
 }  // namespace roadgen
