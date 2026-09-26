@@ -1098,6 +1098,15 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .category = "Player",
          .desc = "Puts the player out at the driver's door, exactly as the USE "
                  "button does. Nothing happens on foot."},
+        {.key = "RepairVehicle", .title = "Repair Vehicle",
+         .category = "Player", .strKind = FlowParamKind::ObjectName,
+         .strTip = "The Vehicle object to repair. Empty, or anything that is "
+                   "not a vehicle = the car the player is driving (nothing "
+                   "happens on foot).",
+         .idIn = true,
+         .desc = "Puts a damaged vehicle right: dents out, smoke gone, full "
+                 "power back (docs/vehicles.md, \"Damage\"). A garage is an "
+                 "Area with On Enter -> Repair Vehicle."},
         // The hit object is a runtime reference (-1 = none) - actions fed it
         // are guarded like Spawn Object clones.
         {.key = "Raycast", .title = "Raycast", .category = "Player",

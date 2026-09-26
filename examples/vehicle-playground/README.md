@@ -194,6 +194,7 @@ the lower gears are longer rather than the whole car becoming faster.
 | Triangle | Chase / bumper / far camera |
 | Right stick / R3 | Look around / rear view |
 | D-pad up | Headlamps |
+| Select | Repair the car you are driving (the `Repair Vehicle` node on `ravager-1`) |
 
 The coupe retains its engine/rev crossfade, tyre squeal, gear-shift sound,
 brake lamps, suspension and projected silhouette. The parked Rally also uses
@@ -207,6 +208,22 @@ Delete that graph to start on foot. The Ravager took the CC96's place (and
 graph) in both scenes; measurements below that quote the CC96 as the player's
 car predate that swap. The right-stick deadzone is 0.3 because the test pad
 drifts; the car's glance camera reads it (it did not before 1.124.2).
+
+## Damage
+
+Every car here can be damaged (Damage strength 1 on every definition,
+docs/vehicles.md "Damage"). Drive straight ahead from the start into the arena
+wall: the log says `VEHDMG <car> hit dv10 ... dmg100 ...`, the front crumples,
+the headlamps go out and the HUD reads `DMG n`. A few more hits pass 50% and
+the bonnet smokes; Select repairs it. Parked cars dent too when rammed.
+
+A hard hit also tears the bonnet, boot or a door off and shatters the windows
+it reaches. The Ravager, Pica and Strix show an engine bay under the lost lid
+(the Strix's V12 is under its rear deck) and a dark cabin through a lost door;
+debris can be driven into and is deleted 60 units from the camera. The three
+bodies are rebuilt with `blender -b --factory-startup --python
+authoring/make-<car>.py` and then `make-<car>-far.py` (the far model wears the
+full model's atlas); Blender needs numpy (`python3-numpy` on a distro build).
 
 ## Hybrid colour and fast wheels
 

@@ -367,7 +367,7 @@ everything else a scene does.
   shorter than a unit and pay nothing.
 - **The stick is rescaled past its deadzone (1.135.3, the runtime; the
   test drive has no stick).** The steering's 0.12 and the stick throttle's
-  0.15 (the stick throttle is gone since 1.141.0 - the pedals below) used to be hard cuts that jumped straight to 12% and 15%. They now
+  0.15 (the stick throttle is gone since 1.142.0 - the pedals below) used to be hard cuts that jumped straight to 12% and 15%. They now
   rescale from zero. The steering also gets a gentle expo (65% linear + 35%
   cubic) for fine control around the centre, where a fast car lives. Full
   deflection and the digital buttons still give full lock.
@@ -1019,6 +1019,216 @@ and a vehicle's `.tmdl` lives under `.res-baked/vehicles/` — so the check asks
 `Project::vehicles` directly, or the engine boots with *"Env map target
 disabled"* and the paint silently stays matte.
 
+### Damage
+
+![Test hits on the CC96 in the Vehicle Editor's Damage tab](img/vehicle-damage-dents.png)
+
+A crash leaves a mark. Each definition has a **Damage** tab (*Tools > Vehicle
+Editor*) with six tunables - they are ordinary drive-spec fields, so they save,
+undo and reach the console through `vehiclesim::specFields` like the rest:
+
+| Field | What it does |
+|---|---|
+| Damage strength | 0 = the car cannot be hurt (the default for every definition saved before damage existed); a new definition starts at 1 |
+| Ignore hits below | speed change, units/s, a collision must cause before it dents - wall scrapes stay below it |
+| Deepest dent | no vertex ever moves further than this from where it was modelled |
+| Dent radius | how far one impact spreads over the body |
+| Wrecked power loss | share of acceleration and top speed gone at 100% damage (1 = a wreck does not drive) |
+| Smoke from damage | damage level from which the bonnet smokes; black once wrecked |
+
+**What a hit does.** The body's own vertices are pushed in where it was struck,
+with a per-vertex jitter so a panel buckles instead of pressing flat; the paint
+darkens with the dent's depth; a hard end-on hit smashes that end's lamps (dark,
+no headlight pool, no tail glow); the damage level rises, costing power; past the
+smoke threshold the engine smokes, and a burst of dust marks every hit. The HUD
+(when on) shows `DMG n` / `WRECKED`. The **Repair Vehicle** flow node puts it all
+right.
+
+**Detection needs no contact code.** The runtime remembers each car's world
+velocity at the start of the frame's collision stages and compares it with what
+the walls, the physics bodies and the car-vs-car pass left. That difference IS
+the hit - its size is the impact speed, its direction says which side was
+struck (the obstacle pushed the car along it). So every existing contact dents
+through one rule, a parked car hit by another car included, and a new kind of
+contact will too.
+
+**Against a wall, the hit is the approach speed along the wall's normal.** The
+wall response (1.135.x) redirects a car along the wall, bounces it and - once a
+corner is already inside - cuts its speed to a quarter, so the raw velocity
+change of a 2-degree scrape read as a 20 u/s crash. The damage therefore takes
+the pre-collision velocity's component INTO the wall at the contact: the host
+probes the solid test on both sides of the contact point for the normal, the
+runtime reads the face of the oriented collision box the contact is least
+deep behind (a mesh prop falls back to "away from the contact"). Measured with
+`--vehicle-check`'s fixtures: head-on 12.5, a 75-degree hit 5.7, a 2-degree
+scrape 0 (it used to be 17). Car-car and physics-body contacts keep the full
+velocity change.
+
+**The dent is a pure function of the rest pose.** `vehiclesim::applyDent`
+displaces each vertex from its *undamaged* position with a falloff that depends
+only on that position, and clamps the total offset to the deepest-dent limit. Two
+corners that share a position - a strip's welded seam, a list's shared corner -
+therefore always move together, and a dent can never tear the mesh open. The
+generated runtime's `vehicleDentApply` is its numeric twin (change one, change
+both); `--vehicle-check` holds the properties (strength 0 changes nothing, a
+head-on dents and a graze does not, a wrecked car is slower by the authored
+share, no vertex passes the limit, welded corners never split, a front hit leaves
+the rear alone).
+
+**What it costs, and why it is shaped this way.** Nothing runs per vertex per
+frame. The body is a matrix-path object, so its vertices are already in the
+car's LOCAL frame and a dent written into them stays put while VU1 moves the car.
+A hit rewrites the tier-0 vertices of the parts the dent reaches once (each part
+is rejected by its box first), bumps their stamps so the package boxes and the
+retained VU1 command blocks rebuild once, and the next frame is an ordinary
+frame. The per-frame bill is one velocity difference per car. Measured in PCSX2
+on the Motor District (`VEHDMG ... us N`): 1.2 ms for the Ravager's side, 2.3 ms
+for the CC96's front, in the frame of the hit only - 50 FPS held either side of
+it. The undamaged pose is copied lazily (16 bytes a vertex, only for a car that
+has been hit) and re-captured if anything rebuilds the geometry, which then gets
+every recorded dent (up to 12, merged beyond that) back.
+
+**Previewing it.** The Damage tab's *Hit front / rear / left / right* buttons
+dent a copy of the baked body at the chosen *Hit speed* with the same host
+functions, and every placed instance of that definition shows it in the viewport
+until *Repair*, a re-bake or the end of a test drive. A test drive into a wall
+dents the car the same way. None of it is an edit - nothing reaches the project.
+
+Telemetry, one line per dent: `VEHDMG <car> hit dv10 <impact x10> dmg100 <damage%>
+dents <n> total <n> moved <vertices> at <x10> <z10> lamps <bits> body10 <w>x<l>
+us <microseconds>`, and `VEHDMG <car> repaired`.
+
+**Limits.** Only tier 0 dents - a car on its far tier
+shows the undamaged decimated body (a few pixels by then). Panels and windows come off
+([below](#loose-panels-and-glass)); bumpers and wheels do not. The shading is frozen at the undented
+normals, so a dent reads through its shape and the scuff rather than through
+lighting. AI drivers keep driving a wreck at reduced power. See
+docs/backlog.md.
+
+### Loose panels and glass
+
+![The Ravager after test hits: bonnet, windscreen, left door and windows gone, engine bay and dark cabin showing](img/vehicle-damage-editor.png)
+
+![PCSX2: a head-on into the arena wall throws the bonnet over the roof with a spray of glass; it lands in front of the car](img/vehicle-damage-bonnet-ps2.png)
+
+The second half of damage: a hard enough hit **tears the bonnet, the boot or a
+door off** - it flies, tumbles and lands flat on the road - and **shatters the
+windows** it reaches, with a spray of shards. *Loose parts* on the Damage tab
+scales how easily (0 = dents only).
+
+**No model has to be authored for it.** The vehicle bake sorts every body
+triangle with `vehiclesim::classifyTriangle`: the flat top at the front fifth-
+and-a-bit is the bonnet, at the back the boot, the flank between the arches and
+under the window line a door, and a triangle whose material is glass (by name -
+split into its own part or merged into the palette, where its palette cell
+still identifies it) a windscreen, rear or side window by the way it faces. All
+six cars of the Motor District came out with a bonnet, a boot, two doors and
+their windows on the first try, and the Damage tab's test hits show them come
+off in the viewport (the readout names what was lost).
+
+**Each piece owns whole strip runs of its part.** The bake reorders a part's
+list so a piece is contiguous, strips every piece on its own (a group
+meshstrip refuses is encoded triangle by triangle with degenerate joins) and
+pads each to a whole run. The runtime removes a piece by collapsing its range
+onto one vertex - its triangles go to zero area and no neighbour's triangle
+shares a vertex with it - so a car costs **no extra submit** with its panels
+on or off. The price is the padding: the CC96 body goes from 4 212 to 4 803
+strip vertices (+14%, 57 -> 65 VU1 packages), which is why only a definition
+with damage on and *Loose parts* above 0 is split at all.
+
+**When does a piece come off?** `vehiclesim::pieceTakesHit`, twinned in
+`updateVehicleDamage`: the dent's sphere (x1.3, x1.8 for glass on the struck
+side) must reach the piece's box, and the hit must come from the piece's own
+side - a bonnet or windscreen from the front, a boot or rear window from
+behind, a door or side window from its flank. Glass breaks on any hit 5 u/s
+past the threshold; a panel soaks hits up and goes at 18 accumulated, or at
+once on a single hit 12 past the threshold (a head-on at top speed pops the
+bonnet).
+
+**Debris** is the removed piece's current (dented) triangles taken into world
+space, one of 8 slots shared by the scene (oldest recycled). A lid folds up and
+flips back over the car, a door falls away from its side; gravity, a few
+bounces off `groundSurfaceAt`, and once on the ground the piece turns its
+thinnest axis to the vertical so it comes to rest lying flat rather than on an
+edge. **It stays physical after that**: a car whose footprint reaches a piece
+kicks it out along the nearest side with the car's own velocity, up and
+spinning in proportion to the car's speed (so driving over debris scatters
+it), and a flying piece turns back off the frame's collision boxes (the same
+`buildVehicleColliders` list the cars read) and, at most twice a frame, off
+mesh props through the walker's resolver. All debris of one texture is ONE
+world-space bag, rebuilt only while something in it moves - a resting piece
+costs its share of that submit and a footprint test per car, nothing else -
+and **a piece more than 60 units from the camera is deleted** (`VEHDMG debris
+removed, out of range`), so a long race does not keep paying for the first
+lap's crash. The windows' shards ride the tyre-smoke pool.
+
+Telemetry: `VEHDMG <car> lost <kind> debris|shattered verts <n>` (kind is
+`vehiclesim::PieceKind`: 1 bonnet, 2 boot, 3/4 doors, 5 windscreen, 6 rear,
+7/8 side windows). Measured in PCSX2 on the Motor District: the Ravager into
+the arena wall at 22 u/s loses the windscreen and the bonnet in the hit (the
+bonnet flips over the roof and lands in front of the car), the Pica rammed in
+its right side loses its right windows and windscreen, and with *Loose parts*
+3 its right door; 48-50 FPS through it.
+
+**What the holes show.** The three Blender-built cars (Ravager, Pica, Strix -
+`authoring/carkit.py` and `make-ravager.py`) carry an **engine bay** under the
+lid the game can tear off: a floor at hub height wearing a 64x64 engine
+picture (block, valve covers in the car's accent colour, a chrome air cleaner,
+battery, hoses, the radiator on a front engine) and dark inner walls up to just
+under the skin. It is texture, not geometry - the picture took a quarter of the
+top tile's length resolution in the same 256x256 atlas, so it costs no VRAM and
+about 25 triangles. The Strix is mid-engined, so its V12 sits under the rear
+deck and its nose holds a dark luggage well. The cabins are darker than before
+and gained a centre console with a gear lever, a binnacle and door cards with
+an armrest - dark on purpose, because a dark cabin hides how little geometry it
+is. An imported car (CC96, Rally, Tristar) shows its own shell through the hole.
+
+**A shiny car keeps its cabin matte, for free.** The paint's reflection is a
+second pass over the same part, and it used to light the dark cabin and bay a
+pale sky-grey through every lost door and window. The bake now also moves a
+shiny textured part's MATTE triangles - those sampling a near-black texel - to
+the end of the part (after the pieces, a whole strip run of their own), and the
+runtime draws the reflection pass over the prefix only (`VEHICLE_ENV_LIMITS`,
+`applyVehicleEnvLimits`). The Ravager's reflection now covers 2 025 of its
+3 390 body vertices - less VU1 work, not more. A matte door card is never part
+of a door piece, so when a door skin comes off its dark inner panel stays and
+the hole reads dark. The editor viewport draws the same split
+(`viewportBody`).
+
+Limits: the far tier still shows every piece (a few pixels by then), a
+collapsed piece leaves an open hole into the body shell (the Blender-built cars
+show their modelled interior and engine bay through it), debris does not hit
+other debris or push the cars back, and a repair restores the pieces but leaves the debris on the road.
+
+### Lamp glow
+
+![Night in the Motor District: the brake lamps' halo, and the headlamps' seen from the front](img/vehicle-lamp-glow.png)
+
+A soft halo around the lamps - *Lamp glow* on the Vehicle Editor's **Effects**
+tab (0 = none, the value every definition written before it keeps; a new one
+starts at 1). It follows what the lamps are doing: the headlamps glow while the
+lights are on, the tail lamps dimly with the lights and brightly (and wider)
+under the brake, and a smashed lamp ([Damage](#damage)) has none. A halo fades
+as its lamp turns edge-on to the camera and past 40 units.
+
+**Shaped per lamp, not per texture.** The bake splits the lamp part into its
+separate lamps (triangles joined by shared corners) and records each one's box
+(`VehicleDef::lampGlows`, `VEHICLE_LAMP_GLOWS`), so a round headlamp gets a
+round halo and a tail-lamp bar a long one: the billboard is stretched to the
+lamp's width as the camera sees it and to its height. The picture itself is the
+one 64x64 corona the light beams and the stars already draw through, so there
+is no texture per car - which is also what keeps it to **one submit for every
+car on screen** (a bag carries one texture). A per-car texture would have
+bought nothing a few-pixel lamp could show on a PS2 and cost a submit and VRAM
+per car.
+
+The halos are camera-facing quads built on the EE each frame (6 vertices a
+lamp), pulled toward the camera so the body around the lamp cannot cut them in
+half, additive with the brightness in the vertex colours, depth-tested but not
+written. At most 40 a frame, the driver's car first; the cost shows as its own
+`Vehicle_lamp_glow` row in a render-cost capture. A car whose model marks no
+lamp materials gets no halo (its fallback tail-lamp quads are unchanged).
+
 ### Weight transfer
 
 The body squats under power, dives under braking and leans OUT of a corner —
@@ -1412,7 +1622,7 @@ stores the name, so it has to.
 | right stick | glance around the car (X, up to ±60°) and lift the boom (Y); springs back on release |
 | R3 | held: instant rear view — the look-back mirror |
 
-**The pedals are one rule** (`vehiclesim::pedals`, 1.141.0): the console's
+**The pedals are one rule** (`vehiclesim::pedals`, 1.142.0): the console's
 player controller is its twin, and the editor's test drive reads it with W as
 R2 and S as L2, so both feel alike. Both pedals held at a standstill hold the
 car still. AI drivers fill the drive input directly and are unaffected.
@@ -1433,12 +1643,13 @@ pressure mapping) reads as a clean 1.
 
 ### From a flow graph
 
-Two Player-category flow nodes drive the same seat without a button:
+Three Player-category flow nodes act on a vehicle without a button:
 
 | Node | What it does |
 |---|---|
 | **Enter Vehicle** (object) | seats the player in that Vehicle object at once - from anywhere, with no USE press and without asking the Driveable flag. Already driving another car: out of that one at its door first. Empty object = the graph's own object |
 | **Exit Vehicle** | puts the player out at the driver's door, the same formula the USE button uses. On foot it does nothing |
+| **Repair Vehicle** (object) | takes the dents, the smoke, the smashed lamps and the lost power away ([Damage](#damage)). An object that is not a vehicle - or none, on a garage Area's graph - means the car the player is driving |
 
 They exist to set test cases up: `On Start -> Enter Vehicle` on the car
 itself starts the scene behind the wheel, so a driving scenario needs no
@@ -2073,7 +2284,7 @@ Two causes, and they add:
    gets the same treatment without anyone reading the log.
 
 After the fix every row above reads a gap of **0**, and a short reverse drive
-(`--pad "stick l 0 127"`, 1 s - since 1.141.0 that is `hold l2` from a standstill) holds 0..+2 on both surfaces - the +2 is a
+(`--pad "stick l 0 127"`, 1 s - since 1.142.0 that is `hold l2` from a standstill) holds 0..+2 on both surfaces - the +2 is a
 faceted tyre spun off its flat. Rally 04 and the Tristar are not placed in
 `main`; their bake-measured radii (0.341 = definition, 0.303 against 0.31) are
 the whole check for them, and cause 1 does not depend on the car. Ruled out on the way, by the same numbers: the

@@ -826,6 +826,23 @@ private:
     // on the sliders, and a held key cannot do that.
     bool vehicleDriveHoldThrottle_ = false;
     float vehicleDriveSteer_ = 0.0f;
+    // Damage preview (docs/vehicles.md, "Damage"): a dented COPY of one
+    // definition's baked body, pushed to the viewport in place of the real
+    // one - by the Damage tab's test hits and by a test drive into a wall.
+    // Like the drive it is a way of looking, never an edit: nothing reaches
+    // the project, and a re-bake or Repair drops it.
+    std::string vehDmgPreviewId_;      // definition id, "" = no preview
+    tmdl::Model vehDmgPreviewBody_;
+    float vehDmgPreviewDamage_ = 0.0f;
+    int vehDmgPreviewSerial_ = 0;      // the drive's impactSerial last dented
+    float vehDmgTestSpeed_ = 18.0f;    // the Damage tab's test-hit speed
+    float vehDmgPreviewOver_ = 0.0f;   // the pending hit's speed past the threshold
+    std::vector<float> vehDmgPreviewHp_;  // per bake piece, the runtime's hp
+    std::vector<char> vehDmgPreviewGone_;
+    std::string vehDmgPreviewLost_;       // what came off, for the readout
+    // Dents one impact into the preview (starting it from the bake if none).
+    void vehicleDamagePreviewHit(const VehicleDef& v, const vehiclesim::Impact& im);
+    void vehicleDamagePreviewReset();
     // Renaming a definition retargets every instance in every scene. The
     // renameFont precedent: a reference stores the NAME, so it has to follow.
     void renameVehicleDef(int index, const std::string& newName);

@@ -205,6 +205,30 @@ struct DriveSpec {
     // definition has one wheel model, which is every definition written
     // before this existed.
     float fastWheelSpeed = 0.0f;
+
+    // Damage (docs/vehicles.md, "Damage"). `damage` is the switch AND the
+    // strength: 0 (the struct default) is a car that cannot be hurt, which is
+    // what every definition written before this existed keeps being. A new
+    // definition starts at 1. Everything geometric is in units at instance
+    // scale 1 and multiplied by the instance's scale, like the rest of the
+    // spec's geometry.
+    float damage = 0.0f;              // 0 = indestructible, 1 = default, 3 = tin can
+    float damageThreshold = 5.0f;     // impact speed change (u/s) that does nothing
+    float damageMaxDent = 0.35f;      // no vertex ever moves further than this
+    float damageRadius = 1.1f;        // how wide one dent reaches
+    float damagePerfLoss = 0.45f;     // fraction of accel/top speed lost when wrecked
+    float damageSmoke = 0.5f;         // damage level from which the engine smokes
+    // Loose panels and glass (docs/vehicles.md, "Loose panels and glass"): a
+    // multiplier on how easily the bonnet, boot and doors come off and the
+    // windows break. 0 = everything stays on (dents only).
+    float damageLoose = 1.0f;
+
+    // The halo around the lamps (docs/vehicles.md, "Lamp glow"): a soft
+    // additive corona billboard over every lamp the bake measured, shaped to
+    // that lamp. 0 (the struct default) = none, which is what every
+    // definition written before it keeps; a new definition starts at 1.
+    // Presentation only.
+    float lampGlow = 0.0f;
 };
 
 // One tunable of a DriveSpec, with everything a serializer or a widget needs.
@@ -319,6 +343,17 @@ struct DriveState {
     // that transient is large enough to hide any real suspension event a test
     // is looking for.
     float wheelCompress[4] = {0.5f, 0.5f, 0.5f, 0.5f};
+
+    // Damage, 0 = pristine .. 1 = wrecked (docs/vehicles.md, "Damage"). Only
+    // collisions raise it; nothing in the sim lowers it (a repair is a
+    // caller's decision).
+    float damage = 0.0f;
+    // The last collision strong enough to dent: its world-frame velocity
+    // change, and a counter that moves on every such hit so a caller can
+    // notice one without being told. step() does not dent anything itself -
+    // it has no geometry - it only says that and how hard.
+    float impactDv[2] = {0.0f, 0.0f};
+    int impactSerial = 0;
 };
 
 // Ground height under a world XZ. Returns a very low finite value where there
@@ -369,5 +404,100 @@ void wheelAnchors(const DriveSpec& spec, const DriveState& state, float out[4][3
 // Local pitch/roll followed by heading, expressed in the renderer's XYZ Euler
 // convention. A world-Z roll changes meaning when the vehicle turns.
 void bodyRotation(float pitch, float yaw, float roll, float out[3]);
+
+// ---------------------------------------------------------------------------
+// Damage (docs/vehicles.md, "Damage")
+// ---------------------------------------------------------------------------
+//
+// A collision is read off what it DID to the car - the world-frame velocity
+// change the wall, the crate or the other car imposed this frame - so every
+// kind of contact dents through one rule and no contact code needs to know
+// damage exists. The dent itself is a displacement of the body's own
+// vertices in the canonical LOCAL frame (the frame the matrix-path body is
+// baked in), and it is a pure function of each vertex's REST position: two
+// corners that share a position (a strip's welded seam, a list's shared
+// corner) always move together, so a dent can never tear the mesh open.
+//
+// These functions are the single source; the generated runtime carries a
+// numeric twin (vehDamage* in templates.cpp - change one, change both), and
+// the Vehicle Editor's damage preview calls these directly.
+
+struct Impact {
+    float point[3] = {0.0f, 0.0f, 0.0f};  // local frame, instance units
+    float dir[3] = {0.0f, 0.0f, 1.0f};    // unit, OUT of the body at the hit
+    float depth = 0.0f;                   // push at the dent's centre
+    float radius = 1.0f;
+};
+
+// Is a velocity change (world XZ, units/s) a hit worth denting for, and if so
+// where. bmin/bmax are the body's LOCAL AABB at instance scale. `damageAdd`
+// receives the increment to DriveState::damage. False below the threshold or
+// with damage switched off.
+bool impactFromDelta(const DriveSpec& s, float yawDeg, float dvx, float dvz,
+                     const float bmin[3], const float bmax[3], float scale,
+                     Impact& out, float* damageAdd);
+
+// The dent's per-vertex texture, 0..1, from a rest position alone.
+float dentHash(float x, float y, float z);
+
+// Applies one impact to `n` vertices. `rest` is the undamaged copy (the
+// position the falloff and the clamp are measured from), `pos` the array to
+// move - both strided in floats, xyz first. Never moves a vertex further than
+// maxDent from its rest position. `amount` (optional, n floats) receives each
+// vertex's displacement as a fraction of maxDent, which is what the scuff
+// darkening reads. Returns how many vertices moved.
+int applyDent(const Impact& im, float maxDent, const float* rest, int restStride,
+              float* pos, int posStride, int n, float* amount);
+
+// Multiplier on acceleration and top speed for a damage level.
+float damagePerformance(const DriveSpec& s, float damage);
+
+// ---------------------------------------------------------------------------
+// Loose panels and glass (docs/vehicles.md, "Loose panels and glass")
+// ---------------------------------------------------------------------------
+//
+// The bake sorts every body triangle into a PIECE - the fixed shell, or one of
+// the panels and windows below - by where it sits on the canonical body and
+// which way it faces (and whether its material is glass). No model has to be
+// authored for it. Each piece then owns a contiguous vertex range of its part
+// (whole strip runs, padded), so the runtime can remove it by collapsing that
+// range to a point: no extra submit while it is on, none when it is gone. A
+// panel that comes off flies as debris; a window shatters.
+
+enum PieceKind {
+    PieceBody = 0,
+    PieceHood,
+    PieceTrunk,
+    PieceDoorL,
+    PieceDoorR,
+    PieceWindscreen,
+    PieceRearWindow,
+    PieceWindowL,
+    PieceWindowR,
+    PieceKindCount
+};
+const char* pieceName(int kind);
+inline bool pieceIsGlass(int kind) { return kind >= PieceWindscreen; }
+
+// One piece of a baked body: `count` vertices from `first` of body part
+// `part`, in the array tier 0 draws (the strip when the part is stripped).
+struct Piece {
+    int part = -1, kind = 0, first = 0, count = 0;
+};
+inline bool operator==(const Piece& a, const Piece& b) {
+    return a.part == b.part && a.kind == b.kind && a.first == b.first && a.count == b.count;
+}
+
+// Which piece a triangle of the canonical body belongs to (bmin/bmax = the
+// body's AABB, x right / y up / z forward). `glass` = its material is glass.
+int classifyTriangle(const float a[3], const float b[3], const float c[3], bool glass,
+                     const float bmin[3], const float bmax[3]);
+
+// Does this hit take the piece off? A window breaks on one hard enough hit
+// that reaches it; a panel accumulates `hp` from the hits that reach it from
+// its own side and comes off past a threshold. pmin/pmax = the piece's AABB
+// in the same frame as the impact. `over` = impact speed past the threshold.
+bool pieceTakesHit(const DriveSpec& s, int kind, const Impact& im, float over,
+                   const float pmin[3], const float pmax[3], float& hp);
 
 }  // namespace vehiclesim

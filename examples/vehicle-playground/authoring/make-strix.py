@@ -178,12 +178,23 @@ COLOURS = {
 }
 
 
+# Mid-engined: the V12 lives under the rear deck (the boot lid the game can
+# tear off), the nose holds a dark luggage well (carkit.build_engine_bay).
+BAYS = [{"x0": -1.35, "x1": -2.10, "w": ARCH_INNER_Y - 0.05, "z": HUB_Z + 0.06,
+         "engine": True, "radiator": False},
+        {"x0": XWB - 0.03, "x1": XF - 0.25, "w": ARCH_INNER_Y - 0.05, "z": HUB_Z + 0.06,
+         "engine": False}]
+ENGINE_ACCENT = (175, 22, 20)
+
+
 def make_atlas():
+    # The cabin colours are dark on purpose: a lost door or window shows it.
     return K.Atlas(XR, XF, side_z=(0.10, 1.16), front_z=(0.12, 0.82), rear_z=(0.16, 1.16), half_w=1.0,
                    cells=["black", "dark", "chrome", "int", "intdark", "seat", "paint"],
                    ramps={"chrome": K.gunmetal_ramp},
-                   colours={"black": BLACK, "dark": (10, 10, 11), "int": (44, 40, 38),
-                            "intdark": (24, 23, 22), "seat": (120, 104, 82), "paint": PAINT})
+                   colours={"black": BLACK, "dark": (10, 10, 11), "int": (26, 24, 23),
+                            "intdark": (14, 13, 13), "seat": (70, 60, 48), "paint": PAINT},
+                   bay=BAYS[0])
 
 
 # --- trim, lamps, interior, wheel ----------------------------------------------

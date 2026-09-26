@@ -91,6 +91,9 @@ struct Options {
     // placed after "lamps", never decimated, tiered or mirrored - the runtime
     // draws it last with a vertex alpha. Off = byte-identical bake.
     bool glassSplit = false;
+    // Sort the body into loose pieces (docs/vehicles.md, "Loose panels and
+    // glass"). Costs strip padding, so only a car that can lose them asks.
+    bool loosePieces = false;
 
     // An AUTHORED far tier (VehicleDef::farModel, docs/vehicles.md "An authored
     // far model"): an absolute path to a second .glb/.fbx in the same space as
@@ -176,6 +179,19 @@ struct Result {
     int farHideMask = 0;
     int farSubmits = 0;
     bool farAuthored = false;  // the tier came from Options::farModel
+    // Loose panels and windows (docs/vehicles.md, "Loose panels and glass"),
+    // each a vertex range of a body part's tier-0 array.
+    std::vector<vehiclesim::Piece> pieces;
+    // The same pieces as ranges of each part's LIST (`verts`), which is what
+    // the editor viewport draws - host-only, the game never sees it.
+    std::vector<std::pair<int, int>> pieceLists;
+    // {part, vertices}: a shiny part's reflection pass covers only its first
+    // `vertices` (the matte suffix after them is the dark cabin and trim).
+    std::vector<std::pair<int, int>> envLimits;
+    std::vector<std::pair<int, int>> envLimitsList;  // the same, in `verts` (host-only)
+    // Every lamp of the lamp part: centre xyz, half extents xyz, front (1) or
+    // rear (0), canonical frame - what the lamp glow sizes each halo by.
+    std::vector<std::array<float, 7>> lampGlows;
 
     std::vector<std::string> notes;
 };
