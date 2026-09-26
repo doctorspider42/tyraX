@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -172,6 +173,11 @@ void App::vehicleRefreshBake(int index, bool force) {
         if (vehbake::adoptMeasured(v, c.result)) setDirty(true);
     }
 
+    // A fresh bake is a different body: any damage preview of it is stale.
+    if (vehDmgPreviewId_ == v.id) {
+        vehDmgPreviewId_.clear();
+        vehDmgPreviewDamage_ = 0.0f;
+    }
     // Hand the geometry to the viewport so a placed instance draws. The
     // viewport gets the IN-MEMORY bake rather than re-reading the files: one
     // bake, and no .tmdl reader on the host that would have to agree with it.
@@ -198,6 +204,54 @@ void App::vehicleTick() {
     }
 }
 
+void App::vehicleDamagePreviewHit(const VehicleDef& v, const vehiclesim::Impact& im) {
+    auto it = vehicleBakes_.find(v.id);
+    if (it == vehicleBakes_.end() || !it->second.ok) return;
+    const vehbake::Result& r = it->second.result;
+    if (vehDmgPreviewId_ != v.id) {
+        vehicleDamagePreviewReset();
+        vehDmgPreviewId_ = v.id;
+        vehDmgPreviewBody_ = r.body;
+    }
+    // Every array the viewport or the console could draw at tier 0 - the list
+    // and its strip twin - dents from its OWN rest copy, so both agree.
+    const float md = v.drive.damageMaxDent;
+    for (size_t pi = 0; pi < vehDmgPreviewBody_.parts.size() && pi < r.body.parts.size();
+         ++pi) {
+        tmdl::Part& dst = vehDmgPreviewBody_.parts[pi];
+        const tmdl::Part& src = r.body.parts[pi];
+        if (dst.verts.size() == src.verts.size())
+            vehiclesim::applyDent(im, md, src.verts.data(), 8, dst.verts.data(), 8,
+                                  (int)(src.verts.size() / 8), nullptr);
+        if (dst.stripVerts.size() == src.stripVerts.size())
+            vehiclesim::applyDent(im, md, src.stripVerts.data(), 8,
+                                  dst.stripVerts.data(), 8,
+                                  (int)(src.stripVerts.size() / 8), nullptr);
+    }
+    viewport_.setVehicleDraw(v.name, vehDmgPreviewBody_, r.wheel,
+                             ".res-baked/vehicles/veh-" + v.id + "-palette.png",
+                             v.drive.wheelBase, v.drive.track, v.drive.wheelRadius,
+                             v.drive.rideHeight, r.lampPart, r.lampRearVerts);
+}
+
+void App::vehicleDamagePreviewReset() {
+    if (vehDmgPreviewId_.empty()) return;
+    const std::string id = vehDmgPreviewId_;
+    vehDmgPreviewId_.clear();
+    vehDmgPreviewDamage_ = 0.0f;
+    vehDmgPreviewBody_ = tmdl::Model();
+    for (const VehicleDef& v : project_.vehicles) {
+        if (v.id != id) continue;
+        auto it = vehicleBakes_.find(v.id);
+        if (it == vehicleBakes_.end() || !it->second.ok) return;
+        const vehbake::Result& r = it->second.result;
+        viewport_.setVehicleDraw(v.name, r.body, r.wheel,
+                                 ".res-baked/vehicles/veh-" + v.id + "-palette.png",
+                                 v.drive.wheelBase, v.drive.track, v.drive.wheelRadius,
+                                 v.drive.rideHeight, r.lampPart, r.lampRearVerts);
+    }
+}
+
 void App::vehicleDriveStart(int objectIndex) {
     if (!hasProject_) return;
     std::vector<SceneObject>& objs = project_.objects();
@@ -213,6 +267,7 @@ void App::vehicleDriveStart(int objectIndex) {
     for (int a = 0; a < 3; ++a) vehicleDriveState_.pos[a] = o.position[a];
     vehicleDriveState_.yaw = o.rotation[1];
     vehicleDriveObj_ = objectIndex;
+    vehDmgPreviewSerial_ = 0;
 }
 
 void App::vehicleDriveStop() {
@@ -226,6 +281,8 @@ void App::vehicleDriveStop() {
         }
     }
     vehicleDriveObj_ = -1;
+    // The drive's dents go with it, like its position.
+    vehicleDamagePreviewReset();
 }
 
 // One step of the test drive. Deliberately NOT a commitChange path: the object
@@ -298,6 +355,25 @@ void App::vehicleDriveTick() {
                      vehicleDriveState_, solid,
                      o.scale[0] > 0.001f ? o.scale[0] : 1.0f);
 
+    // A hit that dented: show it on the car being driven (the preview copy),
+    // at the instance's scale the way the console's local vertices carry it.
+    if (vehicleDriveState_.impactSerial != vehDmgPreviewSerial_) {
+        vehDmgPreviewSerial_ = vehicleDriveState_.impactSerial;
+        auto bk = vehicleBakes_.find(def->id);
+        if (bk != vehicleBakes_.end() && bk->second.ok) {
+            const tmdl::Model& body = bk->second.result.body;
+            vehiclesim::Impact im;
+            // The preview body is unscaled, so the impact is too.
+            if (vehiclesim::impactFromDelta(def->drive, vehicleDriveState_.yaw,
+                                            vehicleDriveState_.impactDv[0],
+                                            vehicleDriveState_.impactDv[1], body.min,
+                                            body.max, 1.0f, im, nullptr)) {
+                vehicleDamagePreviewHit(*def, im);
+                vehDmgPreviewDamage_ = vehicleDriveState_.damage;
+            }
+        }
+    }
+
     for (int a = 0; a < 3; ++a) o.position[a] = vehicleDriveState_.pos[a];
     // Negated like the runtime's write: the sim's pitch is "positive = nose
     // up", a positive rotX is nose DOWN (see updateVehicles).
@@ -361,6 +437,9 @@ void App::drawVehicleWindow() {
         VehicleDef v;
         v.id = project::newObjectId();
         v.name = uniqueName(defs, "Car");
+        // A NEW car can be damaged; the struct default stays 0 so every
+        // definition saved before damage existed keeps driving as it did.
+        v.drive.damage = 1.0f;
         defs.push_back(std::move(v));
         vehicleSel_ = (int)defs.size() - 1;
     }
@@ -517,9 +596,72 @@ void App::drawVehicleWindow() {
             const std::vector<vehiclesim::SpecField> fields =
                 vehiclesim::specFields(v.drive);
             for (const vehiclesim::SpecField& f : fields) {
+                if (std::strncmp(f.key, "damage", 6) == 0) continue;  // Damage tab
                 ImGui::SetNextItemWidth(scaled(220));
                 ImGui::SliderFloat(f.label, f.value, f.min, f.max, "%.4g");
                 if (f.tip && f.tip[0]) prefHelp(f.tip);
+            }
+            ImGui::EndTabItem();
+        }
+
+        // --- Damage ---------------------------------------------------------
+        // The "damage*" spec fields plus test hits: the dent is computed by the
+        // same vehiclesim functions the console's twin mirrors, on a copy of
+        // the baked body, so what shows here is where the game will dent.
+        if (ImGui::BeginTabItem("Damage")) {
+            const std::vector<vehiclesim::SpecField> fields =
+                vehiclesim::specFields(v.drive);
+            for (const vehiclesim::SpecField& f : fields) {
+                if (std::strncmp(f.key, "damage", 6) != 0) continue;
+                ImGui::SetNextItemWidth(scaled(220));
+                ImGui::SliderFloat(f.label, f.value, f.min, f.max, "%.4g");
+                if (f.tip && f.tip[0]) prefHelp(f.tip);
+            }
+            ImGui::SeparatorText("Preview");
+            auto bk = vehicleBakes_.find(v.id);
+            const bool baked = bk != vehicleBakes_.end() && bk->second.ok;
+            if (v.drive.damage <= 0.0f) {
+                ImGui::TextDisabled("Damage strength 0: this car cannot be damaged.");
+            } else if (!baked) {
+                ImGui::TextDisabled("Import a model first.");
+            } else {
+                ImGui::SetNextItemWidth(scaled(220));
+                ImGui::SliderFloat("Hit speed", &vehDmgTestSpeed_, 0.0f, 40.0f, "%.1f u/s");
+                prefHelp("The speed change of the test hit - a head-on at this speed.");
+                const tmdl::Model& body = bk->second.result.body;
+                // Local hit directions: the velocity change points AWAY from
+                // what was hit, so a front hit is a push backwards.
+                const struct { const char* label; float dr, df; } hits[] = {
+                    {"Hit front", 0.0f, -1.0f}, {"Hit rear", 0.0f, 1.0f},
+                    {"Hit left", 1.0f, 0.0f},   {"Hit right", -1.0f, 0.0f}};
+                for (int h = 0; h < 4; ++h) {
+                    if (h) ImGui::SameLine();
+                    if (ImGui::Button(hits[h].label)) {
+                        // Yaw 0: local and world axes agree.
+                        vehiclesim::Impact im;
+                        float add = 0.0f;
+                        if (vehiclesim::impactFromDelta(
+                                v.drive, 0.0f, hits[h].dr * vehDmgTestSpeed_,
+                                hits[h].df * vehDmgTestSpeed_, body.min, body.max,
+                                1.0f, im, &add)) {
+                            vehicleDamagePreviewHit(v, im);
+                            vehDmgPreviewDamage_ =
+                                std::min(1.0f, vehDmgPreviewDamage_ + add);
+                        }
+                    }
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Repair")) vehicleDamagePreviewReset();
+                if (vehDmgPreviewId_ == v.id)
+                    ImGui::Text("Damage %.0f%%   power %.0f%%%s",
+                                vehDmgPreviewDamage_ * 100.0f,
+                                vehiclesim::damagePerformance(v.drive, vehDmgPreviewDamage_) *
+                                    100.0f,
+                                vehDmgPreviewDamage_ >= v.drive.damageSmoke
+                                    ? "   engine smokes" : "");
+                else
+                    ImGui::TextDisabled("Every placed %s shows the preview; the "
+                                        "project is not changed.", v.name.c_str());
             }
             ImGui::EndTabItem();
         }
@@ -560,6 +702,9 @@ void App::drawVehicleWindow() {
                             st.nosActive ? "  (boosting - E)" : "  (E to boost)");
                 ImGui::Text("Pitch %.1f  roll %.1f  %s", st.pitch, st.roll,
                             st.grounded ? "on the ground" : "airborne");
+                if (v.drive.damage > 0.0f)
+                    ImGui::Text("Damage %.0f%%  (hit a wall to dent it)",
+                                st.damage * 100.0f);
                 // Slip against speed is the number that says whether the grip
                 // setting is doing anything - a car that never slips is on
                 // rails whatever the slider says.

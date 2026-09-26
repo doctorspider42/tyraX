@@ -112,6 +112,16 @@ class FlowGraphScript_0_132 : public Script {
       livedbg::hit(1);
       ctx.vehicleRequest = 132;
     }
+    if (livedbg::forced(2)) {  // Live Debugger: fired from the editor
+      livedbg::hit(2);
+      livedbg::hit(3);
+      ctx.vehicleRepair = 132;
+    }
+    if (ctx.engine->pad.getClicked().Select) {
+      livedbg::hit(2);
+      livedbg::hit(3);
+      ctx.vehicleRepair = 132;
+    }
   }
 
  private:
@@ -135,15 +145,15 @@ class FlowGraphScript_1_132 : public Script {
       started = false;
     }
     frame++;
-    if (livedbg::forced(2)) {  // Live Debugger: fired from the editor
-      livedbg::hit(2);
-      livedbg::hit(3);
+    if (livedbg::forced(4)) {  // Live Debugger: fired from the editor
+      livedbg::hit(4);
+      livedbg::hit(5);
       ctx.vehicleRequest = 132;
     }
     if (!started) {
       started = true;
-      livedbg::hit(2);
-      livedbg::hit(3);
+      livedbg::hit(4);
+      livedbg::hit(5);
       ctx.vehicleRequest = 132;
     }
   }

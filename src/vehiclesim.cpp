@@ -480,6 +480,22 @@ std::vector<SpecField> specFields(DriveSpec& s) {
          "Wheel spin, radians per second, above which all four wheels swap to "
          "the fast wheel model (Model tab) - and back below 80% of it. 0 keeps "
          "one wheel model. 50 rad/s is about 16 units/s on a 0.32 wheel."},
+        // Damage. The Vehicle Editor shows every "damage*" key on its own tab.
+        {"damage", &s.damage, 0.0f, 4.0f, "Damage strength",
+         "How much a crash hurts: dent depth and damage per hit. 0 = the car "
+         "cannot be damaged."},
+        {"damageThreshold", &s.damageThreshold, 0.0f, 30.0f, "Ignore hits below",
+         "Speed change (units/s) a collision must cause before it dents. Wall "
+         "scrapes stay below it."},
+        {"damageMaxDent", &s.damageMaxDent, 0.02f, 1.5f, "Deepest dent",
+         "No vertex moves further than this from its original place."},
+        {"damageRadius", &s.damageRadius, 0.2f, 4.0f, "Dent radius",
+         "How far one impact spreads over the body."},
+        {"damagePerfLoss", &s.damagePerfLoss, 0.0f, 1.0f, "Wrecked power loss",
+         "Share of acceleration and top speed gone at full damage. 1 = a wreck "
+         "does not drive."},
+        {"damageSmoke", &s.damageSmoke, 0.0f, 1.0f, "Smoke from damage",
+         "Damage level at which the engine starts to smoke (black when wrecked)."},
     };
 }
 
@@ -557,6 +573,96 @@ void bodyRotation(float pitch, float yaw, float roll, float out[3]) {
                                     sy * sr * sp + cy * cp)
                           : -p) * kRad2Deg;
     out[2] = (c > 1e-5f ? std::atan2(sr, cy * cr) : 0.0f) * kRad2Deg;
+}
+
+// ---------------------------------------------------------------------------
+// Damage - the generated runtime's vehDamage* functions are this code's twin.
+// ---------------------------------------------------------------------------
+
+bool impactFromDelta(const DriveSpec& s, float yawDeg, float dvx, float dvz,
+                     const float bmin[3], const float bmax[3], float scale,
+                     Impact& out, float* damageAdd) {
+    if (s.damage <= 0.0f) return false;
+    const float dv = std::sqrt(dvx * dvx + dvz * dvz);
+    const float over = dv - std::max(s.damageThreshold, 0.0f);
+    if (over <= 0.0f || dv < 1e-4f) return false;
+    const float sc = scale > 0.001f ? scale : 1.0f;
+    // Into the car's frame: forward = (sin, cos), right = (cos, -sin).
+    const float c = std::cos(yawDeg * kDeg2Rad), sn = std::sin(yawDeg * kDeg2Rad);
+    const float dr = dvx * c - dvz * sn;
+    const float df = dvx * sn + dvz * c;
+    // The obstacle pushed the car ALONG dv, so it sits on the other side:
+    // the dent faces -dv.
+    const float nx = -dr / dv, nz = -df / dv;
+    const float cx = 0.5f * (bmin[0] + bmax[0]), cz = 0.5f * (bmin[2] + bmax[2]);
+    const float hx = std::max(0.5f * (bmax[0] - bmin[0]), 0.01f);
+    const float hz = std::max(0.5f * (bmax[2] - bmin[2]), 0.01f);
+    const float tx = std::fabs(nx) > 1e-4f ? hx / std::fabs(nx) : 1e9f;
+    const float tz = std::fabs(nz) > 1e-4f ? hz / std::fabs(nz) : 1e9f;
+    const float t = std::min(tx, tz);
+    out.point[0] = cx + nx * t;
+    // Bumper height: a car meets the world a little below its middle.
+    out.point[1] = bmin[1] + 0.4f * (bmax[1] - bmin[1]);
+    out.point[2] = cz + nz * t;
+    out.dir[0] = nx;
+    out.dir[1] = 0.0f;
+    out.dir[2] = nz;
+    const float k = std::min(over / 12.0f, 1.0f);
+    out.depth = std::min(s.damage * over * 0.025f, s.damageMaxDent) * sc;
+    out.radius = std::max(s.damageRadius, 0.05f) * sc * (0.65f + 0.35f * k);
+    if (damageAdd) *damageAdd = s.damage * over / 50.0f;
+    return true;
+}
+
+float dentHash(float x, float y, float z) {
+    // Quantised to a centimetre so welded corners - equal to the bit but
+    // arrived at through different arithmetic in some exporter - agree.
+    const int ix = (int)std::floor(x * 100.0f), iy = (int)std::floor(y * 100.0f),
+              iz = (int)std::floor(z * 100.0f);
+    unsigned int h = (unsigned int)ix * 73856093u ^ (unsigned int)iy * 19349663u ^
+                     (unsigned int)iz * 83492791u;
+    h ^= h >> 13;
+    h *= 0x5bd1e995u;
+    h ^= h >> 15;
+    return (float)(h & 0xFFFFu) / 65535.0f;
+}
+
+int applyDent(const Impact& im, float maxDent, const float* rest, int restStride,
+              float* pos, int posStride, int n, float* amount) {
+    const float r2 = im.radius * im.radius;
+    const float md = std::max(maxDent, 1e-4f);
+    int moved = 0;
+    for (int k = 0; k < n; ++k) {
+        const float* r = rest + (size_t)k * restStride;
+        float* p = pos + (size_t)k * posStride;
+        const float ex = r[0] - im.point[0], ey = r[1] - im.point[1],
+                    ez = r[2] - im.point[2];
+        const float d2 = ex * ex + ey * ey + ez * ez;
+        if (d2 >= r2) continue;
+        const float q = 1.0f - d2 / r2;
+        // Crumple, not a smooth press: each vertex takes its own share of the
+        // push (0.55..1.3), and a little of it goes DOWN, so a panel buckles.
+        const float j = 0.55f + 0.75f * dentHash(r[0], r[1], r[2]);
+        const float push = im.depth * q * q * j;
+        float ox = p[0] - r[0] - im.dir[0] * push;
+        float oy = p[1] - r[1] - 0.25f * push;
+        float oz = p[2] - r[2] - im.dir[2] * push;
+        const float ol = std::sqrt(ox * ox + oy * oy + oz * oz);
+        if (ol > md) {
+            const float f = md / ol;
+            ox *= f, oy *= f, oz *= f;
+        }
+        p[0] = r[0] + ox;
+        p[1] = r[1] + oy;
+        p[2] = r[2] + oz;
+        if (amount) amount[k] = std::min(ol / md, 1.0f);
+        ++moved;
+    }
+    return moved;
+}
+
+float damagePerformance(const DriveSpec& s, float damage) {
+    return 1.0f - clampf(s.damagePerfLoss, 0.0f, 1.0f) * clampf(damage, 0.0f, 1.0f);
 }
 
 void wheelAnchors(const DriveSpec& spec, const DriveState& state, float out[4][3]) {
@@ -868,9 +974,12 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
             state.nos = std::min(1.0f, state.nos + clampf(spec.nosRefill, 0.0f, 1.0f) * dt);
         }
     }
+    // A damaged car has less of both (docs/vehicles.md, "Damage").
+    const float perf = damagePerformance(spec, state.damage);
     const float accelMul = gearTorqueMul(spec, state.gear < 0 ? 0 : state.gear) *
-                           (state.nosActive ? 1.0f + std::max(spec.nosBoost, 0.0f) : 1.0f);
-    const float topMul = state.nosActive ? std::max(spec.nosTopSpeed, 1.0f) : 1.0f;
+                           (state.nosActive ? 1.0f + std::max(spec.nosBoost, 0.0f) : 1.0f) *
+                           perf;
+    const float topMul = (state.nosActive ? std::max(spec.nosTopSpeed, 1.0f) : 1.0f) * perf;
 
     // --- longitudinal -------------------------------------------------------
     if (state.grounded) {
@@ -1042,6 +1151,21 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
                     state.speed *= 0.25f;
                     state.lateral = 0.0f;
                 }
+            }
+        }
+        // Damage: what the wall did to the velocity is the hit (the runtime
+        // reads the same difference after walls, bodies and other cars).
+        if (spec.damage > 0.0f) {
+            const float nvx = state.speed * s + state.lateral * c;
+            const float nvz = state.speed * c - state.lateral * s;
+            const float dvx = nvx - vx, dvz = nvz - vz;
+            const float over = std::sqrt(dvx * dvx + dvz * dvz) -
+                               std::max(spec.damageThreshold, 0.0f);
+            if (over > 0.0f) {
+                state.damage = std::min(1.0f, state.damage + spec.damage * over / 50.0f);
+                state.impactDv[0] = dvx;
+                state.impactDv[1] = dvz;
+                ++state.impactSerial;
             }
         }
     }

@@ -875,6 +875,7 @@ class TerrainGame : public Tyra::Game {
   // matrix path so they cost no per-frame vertex re-bake.
   void updateSpinners();
   // --- vehicles (docs/vehicles.md) ---
+  enum { kVehDentMax = 12 };  // dents remembered per car (docs/vehicles.md)
   struct VehicleRt {
     int object = -1;      // index into this scene's object table
     // Drawn with the body-shine pass in this view (selectVehicleShine).
@@ -968,8 +969,43 @@ class TerrainGame : public Tyra::Game {
     int wpCount = 0;
     int wpCur = 0;
     int sleepFrames = 0;  // settled parked frames before static-physics sleep
+    // Damage (docs/vehicles.md, "Damage" - the twin of DriveState::damage and
+    // vehiclesim's impact rules). dmgPreV is the world velocity this frame's
+    // collisions STARTED from: what walls, bodies and other cars did to it
+    // is the hit, so no contact code needs to know damage exists.
+    float damage = 0.0F;         // 0 pristine .. 1 wrecked
+    float dmgPreV[2] = {0.0F, 0.0F};
+    float dmgCool = 0.0F;        // seconds before the next dent may land
+    float dmgSmokeAcc = 0.0F;    // fractional engine-smoke puffs owed
+    int dentCount = 0;           // dents recorded (merged once full)
+    // Smashed lamps: bit 0 the front, bit 1 the rear. A broken lamp is dark
+    // whatever the switch or the brake say, and throws no beam or glow.
+    int lampBroken = 0;
+    int dentTotal = 0;           // every hit that dented, for the telemetry
+    // point xyz, dir x z, depth, radius - local frame, instance units. Kept
+    // so a geometry rebuild (which bakes fresh, undamaged vertices) can put
+    // every dent back; a hit itself is applied to the vertices at once.
+    float dents[kVehDentMax][7] = {};
   };
   VehicleRt vehicles_[VEHICLE_COUNT > 0 ? VEHICLE_COUNT : 1];
+  // The undamaged pose each dented body is measured against (per vehicle
+  // slot): tier-0 positions and colours per part, captured from the matrix-
+  // path vertices the first time the car needs them, and the part stamp they
+  // belong to - a rebuild moves it and the capture is taken again.
+  struct VehDamageGeo {
+    std::vector<std::vector<float>> rest;   // xyz per vertex
+    std::vector<std::vector<u32>> restCol;  // packed RGBA8 per vertex
+    std::vector<u32> stamp;
+    std::vector<float> partBox;             // min xyz, max xyz per part
+    float bmin[3] = {0.0F, 0.0F, 0.0F};
+    float bmax[3] = {0.0F, 0.0F, 0.0F};
+    int ready = 0;
+  };
+  std::vector<VehDamageGeo> vehDamageGeo_;
+  bool vehicleDamageCapture(int vi);
+  int vehicleDentApply(int vi, const float* dent);
+  void updateVehicleDamage(float dt);
+  void repairVehicle(int vi);
   int vehicleCount_ = 0;
   // The frame's contact candidates for every car (buildVehicleColliders).
   // kind 0 = a collision box (world centre, top/bottom, half extents, yaw),
@@ -1069,6 +1105,9 @@ class TerrainGame : public Tyra::Game {
     Tyra::Vec4 smokeVel[kVehSmokeMax];
     float smokeLife[kVehSmokeMax] = {};
     float smokeMaxLife[kVehSmokeMax] = {};
+    // Per-puff brightness on the pool's tint: 1 = tyre smoke, below it the
+    // engine smoke of a damaged car (black once it is wrecked).
+    float smokeShade[kVehSmokeMax] = {};
     int smokeNext = 0;
     int smokeAlive = 0;
     std::unique_ptr<Tyra::StaPipBag> smokeBag;

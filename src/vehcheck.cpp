@@ -18,7 +18,9 @@
 // that, and docs/vehicles.md says which lines to read.
 
 #include <cmath>
+#include <algorithm>
 #include <cstdio>
+#include <vector>
 
 #include "vehiclesim.hpp"
 
@@ -481,6 +483,100 @@ void terrainStability() {
     verdict(upward < 0.01f, "body clearance cannot manufacture launch velocity");
 }
 
+// 10. Damage (docs/vehicles.md, "Damage"): the switch is honest (strength 0
+//     means nothing ever changes), a head-on dents and a glancing grind does
+//     not, a damaged car is slower, and the dent itself cannot tear the mesh
+//     or push a vertex past its limit.
+void damage() {
+    std::printf("-- damage --\n");
+    auto wall = [](float, float z, float) { return z > 10.0f; };
+    auto headOn = [&](float strength, float yaw) {
+        DriveSpec s;
+        s.damage = strength;
+        DriveState st;
+        st.pos[1] = s.rideHeight;
+        st.yaw = yaw;
+        DriveInput in;
+        in.throttle = 1.0f;
+        for (int i = 0; i < 600; ++i) step(s, in, 1.0f / 50.0f, flat, st, wall);
+        return st;
+    };
+    const DriveState off = headOn(0.0f, 0.0f);
+    verdict(off.damage == 0.0f && off.impactSerial == 0,
+            "damage 0: a crash changes nothing (every old definition)");
+    const DriveState hit = headOn(1.0f, 0.0f);
+    std::printf("  head-on: damage %.2f after %d hit(s)\n", hit.damage, hit.impactSerial);
+    verdict(hit.impactSerial >= 1 && hit.damage > 0.05f, "a head-on at speed dents");
+    const DriveState graze = headOn(1.0f, 60.0f);
+    std::printf("  glancing: damage %.3f after %d hit(s)\n", graze.damage,
+                graze.impactSerial);
+    verdict(graze.damage < hit.damage, "a glancing grind hurts less than a head-on");
+
+    // A wrecked car is slower on open ground by exactly the power loss.
+    {
+        DriveSpec s;
+        s.damage = 1.0f;
+        DriveState a, b;
+        a.pos[1] = b.pos[1] = s.rideHeight;
+        b.damage = 1.0f;
+        DriveInput in;
+        in.throttle = 1.0f;
+        for (int i = 0; i < 1500; ++i) {
+            step(s, in, 1.0f / 50.0f, flat, a);
+            step(s, in, 1.0f / 50.0f, flat, b);
+        }
+        std::printf("  top speed: pristine %.2f, wrecked %.2f\n", a.speed, b.speed);
+        verdict(b.speed < a.speed * (1.0f - 0.8f * s.damagePerfLoss),
+                "a wrecked car loses its authored share of performance");
+    }
+
+    // The dent: a front hit, applied three times over a grid of rest vertices
+    // in which every position appears TWICE (a welded seam).
+    {
+        DriveSpec s;
+        s.damage = 1.0f;
+        const float bmin[3] = {-0.9f, 0.0f, -2.0f}, bmax[3] = {0.9f, 1.2f, 2.0f};
+        Impact im;
+        float add = 0.0f;
+        const bool ok = impactFromDelta(s, 0.0f, 0.0f, -20.0f, bmin, bmax, 1.0f, im, &add);
+        verdict(ok && im.dir[2] > 0.99f && std::fabs(im.point[2] - 2.0f) < 1e-3f,
+                "a push backwards dents the FRONT of the body");
+        std::vector<float> rest, pos;
+        for (int iz = 0; iz <= 20; ++iz)
+            for (int iy = 0; iy <= 6; ++iy)
+                for (int ix = 0; ix <= 9; ++ix)
+                    for (int twin = 0; twin < 2; ++twin) {
+                        rest.push_back(-0.9f + 0.2f * ix);
+                        rest.push_back(0.2f * iy);
+                        rest.push_back(-2.0f + 0.2f * iz);
+                    }
+        pos = rest;
+        const int n = (int)rest.size() / 3;
+        int moved = 0;
+        for (int k = 0; k < 3; ++k)
+            moved = applyDent(im, s.damageMaxDent, rest.data(), 3, pos.data(), 3, n, nullptr);
+        float worst = 0.0f, split = 0.0f, rearMove = 0.0f;
+        for (int v = 0; v < n; ++v) {
+            float d2 = 0.0f;
+            for (int a = 0; a < 3; ++a) {
+                const float d = pos[v * 3 + a] - rest[v * 3 + a];
+                d2 += d * d;
+            }
+            worst = std::max(worst, std::sqrt(d2));
+            if (rest[v * 3 + 2] < 0.0f) rearMove = std::max(rearMove, std::sqrt(d2));
+            if (v & 1)
+                for (int a = 0; a < 3; ++a)
+                    split = std::max(split, std::fabs(pos[v * 3 + a] - pos[(v - 1) * 3 + a]));
+        }
+        std::printf("  dent: %d vertices moved, deepest %.3f (limit %.3f)\n", moved,
+                    worst, s.damageMaxDent);
+        verdict(moved > 0 && worst <= s.damageMaxDent + 1e-5f,
+                "no vertex moves past the deepest-dent limit");
+        verdict(split == 0.0f, "welded corners move together (the mesh cannot tear)");
+        verdict(rearMove == 0.0f, "a front hit leaves the rear untouched");
+    }
+}
+
 }  // namespace
 
 int run() {
@@ -494,6 +590,7 @@ int run() {
     roughRide();
     analyticWheelRig();
     terrainStability();
+    damage();
     if (failures) {
         std::printf("vehicle-check: %d FAILURE(S)\n", failures);
         return 1;

@@ -5316,8 +5316,17 @@
 // flicker, an unfurl/fade-in and taller quads (game and viewport twins).
 // Particles face the camera a pass DRAWS with (cutscene override, shake,
 // split half) - they used to face the player's camera during cutscenes.
+// 1.135.0 - Vehicle damage (docs/vehicles.md, "Damage"): a crash dents the
+// body's own vertices where it hit (matrix-path local frame, measured from a
+// rest copy so welded corners never tear), scuffs the paint, smashes the lamps
+// at a hard end-on hit, costs power, and smokes the engine past a threshold.
+// Six drive-spec tunables on a new Damage tab (with test hits previewed in the
+// viewport, and dents during a test drive), a Repair Vehicle flow node and a
+// DMG readout on the vehicle HUD. The per-frame cost is a velocity difference
+// per car; a hit rewrites one car's tier-0 vertices once (1.2-2.3 ms in
+// PCSX2, measured). MINOR.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 134
+#define TYRAX_VERSION_MINOR 135
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -5747,7 +5756,12 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // bake-measured farPart + farHideMask (only when farPart >= 0). Missing = the
 // decimated tiers at farDistance for every car, as before. Additive; no
 // migration step.
-inline constexpr int kFormatVersion = 69;
+// v70 (docs/vehicles.md, "Damage"): six drive-spec keys - damage,
+// damageThreshold, damageMaxDent, damageRadius, damagePerfLoss, damageSmoke -
+// written with the rest of the spec. Missing = damage 0, i.e. the car cannot
+// be hurt, which is exactly how every definition saved before drove. Additive;
+// no migration step.
+inline constexpr int kFormatVersion = 70;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

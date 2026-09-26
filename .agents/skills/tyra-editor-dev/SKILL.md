@@ -2386,6 +2386,27 @@ with GI, but the two own separate contexts (GI may bake on a worker). GPU captur
 uses a private function table, never overwrites gl_loader's viewport pointers,
 and allocates texture storage before filling it (AMD driver workaround).
 
+## Vehicle damage (1.135.0)
+
+docs/vehicles.md, "Damage". Three rules. (1) A hit is the velocity change the
+frame's collision stages imposed (`VehicleRt::dmgPreV` is taken at the loop top
+for sleepers and again right after the drive integrates); a new contact path
+dents for free as long as it runs before `updateVehicleDamage`, which is called
+after the car-vs-car pass - never write a speed change that is not a collision
+between those two points, or it reads as a crash. (2) `vehiclesim::
+impactFromDelta`/`dentHash`/`applyDent` are the host source and
+`vehDentHash`/`vehicleDentApply` in `vehicleImpl` the twin; the dent is a
+function of the REST position only (welded corners cannot split), and the
+rest copy lives in `VehDamageGeo`, re-captured whenever a part's `baseStamp`
+moves - so anything that rebuilds a vehicle body gets the dents re-applied, and
+anything else that bumps `baseStamp` without rebuilding would be captured as
+the undamaged pose. (3) Dents write the matrix-path LOCAL vertices through
+`BagArray::span` and must bump `baseStamp`/`bboxVersion` (the package boxes
+move); they skip the lamp and glass colours (renderVehicleGlow owns the lamp
+colours every frame - `lampBroken` is how damage speaks to it). The six
+"damage*" DriveSpec keys are shown on the Damage tab and skipped by the Driving
+tab by that prefix, so a new damage tunable must keep it.
+
 ## Vehicle bank and suspension invariants
 
 `vehiclesim::bodyRotation` and the generated `vehBodyRotation` are twins:

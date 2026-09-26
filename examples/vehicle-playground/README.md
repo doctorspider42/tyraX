@@ -131,6 +131,7 @@ the lower gears are longer rather than the whole car becoming faster.
 | Triangle | Chase / bumper / far camera |
 | Right stick / R3 | Look around / rear view |
 | D-pad up | CC96 headlamps |
+| Select | Repair the CC96 (its `Repair Vehicle` node) |
 
 The coupe retains its engine/rev crossfade, tyre squeal, gear-shift sound,
 brake lamps, suspension and projected silhouette. The parked Rally also uses
@@ -142,6 +143,15 @@ its flow graph runs `On Start -> Enter Vehicle`, so every boot starts at the
 same measurement pose (docs/vehicles.md, "From a flow graph"). Delete that
 graph to start on foot. The right-stick deadzone is 0.3 because the test pad
 drifts; the car's glance camera reads it (it did not before 1.124.2).
+
+## Damage
+
+Every car here can be damaged (Damage strength 1 on all four definitions,
+docs/vehicles.md "Damage"). Drive the CC96 straight ahead from the start into
+the arena wall: the log says `VEHDMG 0 hit dv10 ~210 dmg100 ~30`, the front
+crumples, the headlamps go out and the HUD reads `DMG 30`. A few more hits pass
+50% and the bonnet smokes; Select repairs it. The Ravager parked beside it
+dents too when rammed.
 
 ## Hybrid colour and fast wheels
 

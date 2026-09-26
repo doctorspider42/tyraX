@@ -843,6 +843,78 @@ and a vehicle's `.tmdl` lives under `.res-baked/vehicles/` — so the check asks
 `Project::vehicles` directly, or the engine boots with *"Env map target
 disabled"* and the paint silently stays matte.
 
+### Damage
+
+A crash leaves a mark. Each definition has a **Damage** tab (*Tools > Vehicle
+Editor*) with six tunables - they are ordinary drive-spec fields, so they save,
+undo and reach the console through `vehiclesim::specFields` like the rest:
+
+| Field | What it does |
+|---|---|
+| Damage strength | 0 = the car cannot be hurt (the default for every definition saved before damage existed); a new definition starts at 1 |
+| Ignore hits below | speed change, units/s, a collision must cause before it dents - wall scrapes stay below it |
+| Deepest dent | no vertex ever moves further than this from where it was modelled |
+| Dent radius | how far one impact spreads over the body |
+| Wrecked power loss | share of acceleration and top speed gone at 100% damage (1 = a wreck does not drive) |
+| Smoke from damage | damage level from which the bonnet smokes; black once wrecked |
+
+**What a hit does.** The body's own vertices are pushed in where it was struck,
+with a per-vertex jitter so a panel buckles instead of pressing flat; the paint
+darkens with the dent's depth; a hard end-on hit smashes that end's lamps (dark,
+no headlight pool, no tail glow); the damage level rises, costing power; past the
+smoke threshold the engine smokes, and a burst of dust marks every hit. The HUD
+(when on) shows `DMG n` / `WRECKED`. The **Repair Vehicle** flow node puts it all
+right.
+
+**Detection needs no contact code.** The runtime remembers each car's world
+velocity at the start of the frame's collision stages and compares it with what
+the walls, the physics bodies and the car-vs-car pass left. That difference IS
+the hit - its size is the impact speed, its direction says which side was
+struck (the obstacle pushed the car along it). So every existing contact dents
+through one rule, a parked car hit by another car included, and a new kind of
+contact will too.
+
+**The dent is a pure function of the rest pose.** `vehiclesim::applyDent`
+displaces each vertex from its *undamaged* position with a falloff that depends
+only on that position, and clamps the total offset to the deepest-dent limit. Two
+corners that share a position - a strip's welded seam, a list's shared corner -
+therefore always move together, and a dent can never tear the mesh open. The
+generated runtime's `vehicleDentApply` is its numeric twin (change one, change
+both); `--vehicle-check` holds the properties (strength 0 changes nothing, a
+head-on dents and a graze does not, a wrecked car is slower by the authored
+share, no vertex passes the limit, welded corners never split, a front hit leaves
+the rear alone).
+
+**What it costs, and why it is shaped this way.** Nothing runs per vertex per
+frame. The body is a matrix-path object, so its vertices are already in the
+car's LOCAL frame and a dent written into them stays put while VU1 moves the car.
+A hit rewrites the tier-0 vertices of the parts the dent reaches once (each part
+is rejected by its box first), bumps their stamps so the package boxes and the
+retained VU1 command blocks rebuild once, and the next frame is an ordinary
+frame. The per-frame bill is one velocity difference per car. Measured in PCSX2
+on the Motor District (`VEHDMG ... us N`): 1.2 ms for the Ravager's side, 2.3 ms
+for the CC96's front, in the frame of the hit only - 50 FPS held either side of
+it. The undamaged pose is copied lazily (16 bytes a vertex, only for a car that
+has been hit) and re-captured if anything rebuilds the geometry, which then gets
+every recorded dent (up to 12, merged beyond that) back.
+
+**Previewing it.** The Damage tab's *Hit front / rear / left / right* buttons
+dent a copy of the baked body at the chosen *Hit speed* with the same host
+functions, and every placed instance of that definition shows it in the viewport
+until *Repair*, a re-bake or the end of a test drive. A test drive into a wall
+dents the car the same way. None of it is an edit - nothing reaches the project.
+
+Telemetry, one line per dent: `VEHDMG <car> hit dv10 <impact x10> dmg100 <damage%>
+dents <n> total <n> moved <vertices> at <x10> <z10> lamps <bits> body10 <w>x<l>
+us <microseconds>`, and `VEHDMG <car> repaired`.
+
+**Limits of this first version.** Only tier 0 dents - a car on its far tier
+shows the undamaged decimated body (a few pixels by then). Nothing detaches
+(no bumper falling off, no wheel loss). The shading is frozen at the undented
+normals, so a dent reads through its shape and the scuff rather than through
+lighting. AI drivers keep driving a wreck at reduced power. See
+docs/backlog.md.
+
 ### Weight transfer
 
 The body squats under power, dives under braking and leans OUT of a corner —
@@ -1180,12 +1252,13 @@ pressure mapping) reads as a clean 1.
 
 ### From a flow graph
 
-Two Player-category flow nodes drive the same seat without a button:
+Three Player-category flow nodes act on a vehicle without a button:
 
 | Node | What it does |
 |---|---|
 | **Enter Vehicle** (object) | seats the player in that Vehicle object at once - from anywhere, with no USE press and without asking the Driveable flag. Already driving another car: out of that one at its door first. Empty object = the graph's own object |
 | **Exit Vehicle** | puts the player out at the driver's door, the same formula the USE button uses. On foot it does nothing |
+| **Repair Vehicle** (object) | takes the dents, the smoke, the smashed lamps and the lost power away ([Damage](#damage)). An object that is not a vehicle - or none, on a garage Area's graph - means the car the player is driving |
 
 They exist to set test cases up: `On Start -> Enter Vehicle` on the car
 itself starts the scene behind the wheel, so a driving scenario needs no

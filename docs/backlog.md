@@ -238,6 +238,31 @@ direct route requires that a guard-band-only bag lacks, and whether an
 "every package is IN or guard-band" bag can take it. Measure with the
 `Obj_*` capture rows (docs/profiling.md, "The game side of the object loop").
 
+## Vehicle damage: what the first version left out (2026-09-26)
+
+Damage shipped in 1.135.0 (docs/vehicles.md, "Damage"). Queued, roughly in
+order of what a player would notice first:
+
+- **Physical-PS2 price of a hit.** 1.2-2.3 ms per dent is a PCSX2 number, and
+  PCSX2 has no EE data cache; the rewrite reads a cold rest copy. Measure the
+  hit frame on a console (`VEHDMG ... us`) before spreading a dent over frames.
+- **Re-shade the dent.** Baked vertex colours keep the undented normals, so a
+  dent reads through shape and scuff only. A per-part flat re-shade of the moved
+  triangles at hit time is one-shot EE work in the same place.
+- **Dent the far tier too**, or fall back to tier 0 for a damaged car inside
+  twice its far distance - an obviously wrecked rival pops back to pristine on
+  its traffic tier.
+- **Loose parts.** A bumper or door that detaches into a physics body, a wheel
+  that wobbles (camber on the struck corner - the wheel batch already composes a
+  per-wheel transform).
+- **A crash sound**: a one-shot on the VehicleDef, volume from the impact speed,
+  like the shift blip.
+- **Flow-graph reads**: a Vehicle Damage number node and an On Vehicle Wrecked
+  trigger, so a race can end on a wreck. Live Logic cannot patch Repair Vehicle
+  yet.
+- **AI reaction**: a rival at 100% with power loss 1 sits dead on the racing
+  line; it should pull over or be removed.
+
 ## More than one car in view: what is left (2026-09-25)
 
 The shine budget shipped in 1.132.0 (docs/vehicles.md, "The shine budget").
