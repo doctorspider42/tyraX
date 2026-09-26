@@ -803,6 +803,20 @@ loading screen. PCSX2 maps RAM at zero and therefore does not expose this bug.
 
 ### Skid marks and smoke
 
+**The ring starts degenerate (1.141.1).** Each definition's skid ring is
+192 segments, 1152 vertices, and the bag submits all of it once any mark is
+alive. It used to be sized with `resize()`, and `Tyra::Vec4()` and
+`Tyra::Color()` leave their members uninitialised. So a slot never written
+held heap garbage: NaN, +-3.4e38, a random w. Such a slot was drawn as a
+black sliver from the top of the screen whenever AI traffic was skidding,
+in about 8 frames of 21-33 per boot in PCSX2.
+
+The garbage depends on the memory layout, so a build with one more log line
+could hide the sliver. That is why it looked tied to night and to particular
+builds. The ring is now filled with degenerate, transparent vertices, and
+the same fixture shows it in 0 of 38 frames. The smoke pool beside it zeroes
+every dead puff each frame, so it never had the problem.
+
 What the tyres leave behind has a look of its own since 1.129.0. **Vehicle
 Editor > Effects** names two materials (`.mtl`, `skidMaterial` /
 `smokeMaterial` on the definition, format v65):
@@ -2227,6 +2241,13 @@ objects were deleted, a new car inherited one of those rows: collision and
 driving still worked, but the script correctly hid the wrong object. The example
 now stores stable FNV-1a object-ID hashes and resolves them through
 `SCENE_OBJECT_ID_TABLES` when the scene loads.
+
+Until 1.141.1 none of those hashes matched. They must be
+`project::liveLinkIdHash`: FNV-1a 64 of the id PLUS its 0xFF terminator,
+which is the recipe the table is generated with. As a result the 11 night-only
+boxes (8 windows, 2 garage trims, the pink garage blade) also showed by day.
+Both scenes' dressing is now listed. In PCSX2 the log reads DAY, NIGHT, DAY,
+and the boxes hide again when day returns.
 
 ## Wheels on the road surface
 

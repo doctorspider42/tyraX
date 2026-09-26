@@ -5261,6 +5261,10 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.141.1 - The skid-mark ring starts degenerate: resize() left Vec4/Color
+// uninitialised and the whole ring is submitted, so unused slots drew as a
+// black sliver across the screen. Plus the Motor District night dressing
+// hashes (they never matched, so the night boxes showed by day). PATCH.
 // 1.141.0 - Lamp glow (docs/vehicles.md): a soft additive corona over every
 // lamp the vehicle bake measures (each lamp its own box, so a round headlamp
 // and a tail-lamp bar get their own halo), following the lamps' state -
@@ -5415,7 +5419,7 @@
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 141
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
