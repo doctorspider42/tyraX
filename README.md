@@ -242,7 +242,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   "fast wheel" model that swaps in above a spin rate and an authored low-poly
   far/traffic model per car, and [crash damage](docs/vehicles.md#damage) -
   dented bodies, smashed lamps and windows, bonnets and doors torn off,
-  engine smoke, lost power. Try the
+  engine smoke, lost power - and [speed feel](docs/vehicles.md#speed-feel)
+  (shake, blur and a wider view near top speed, a nitrous flame). Try the
   [Motor District](examples/vehicle-playground) city course, strip-ready
   atlas-authored vehicle bodies and live paint reflections
   of the sky, terrain, roads and selected scenery.
