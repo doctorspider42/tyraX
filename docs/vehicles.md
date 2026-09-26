@@ -239,6 +239,28 @@ everything else a scene does.
   difference *is* the sideways slip, and grip is the cap on how fast the tyres
   kill it. Low slides, high is on rails, and `handbrakeGrip` replaces it while
   the handbrake is held — that is the entire drift knob.
+- **The body yaws no faster than grip allows (1.135.0).** The bicycle model's
+  yaw rate is capped at `grip / |v|`: a lateral acceleration of `v x yaw rate`
+  may not exceed `grip`. The speed taper on the steering lock was not enough
+  on its own. At top speed full lock still asked for ~47 u/s^2 against a grip
+  of 26, so every d-pad or keyboard press rotated the body faster than its
+  path could follow, and the car spun instead of pushing wide.
+  - The scale is exactly 1 (`kYawGripScale` / `kVehYawGripScale`). Yaw
+    injects `v x rate x dt` of slip a step and grip removes `grip x dt`, so any
+    scale above 1 grows slip without bound: 1.15 measured 11 u/s after three
+    seconds.
+  - The handbrake keeps no cap; it is how a drift starts.
+  - `--vehicle-check` "handling": full lock at top speed now demands 26.0 u/s^2
+    with 0.00 u/s of slip.
+  - PCSX2, same Remote Pad script: at 30 u/s and full lock the old runtime
+    built 22.7 u/s of slip and turned 70 degrees in half a second; the new one
+    holds 0 slip and turns 7, 21, 16 degrees in successive half seconds.
+  - The same release also stops clamping the speed down to the cap under
+    throttle (a car above its top speed, e.g. when the nitrous ends, now
+    coasts down on drag instead of losing ~4 u/s in one frame).
+  - It also makes the ride spring one-sided above its rest height: it never
+    pulls the body down faster than gravity. Inside the grounded slack it used
+    to haul the car down at ~200 x the gap and glue it to every crest.
 - **Walls are eight sample points** — the four corners of the BODY rectangle
   (the wheelbase plus `bodyOverhang`, the bumpers' reach past the axles,
   measured off the baked body — the axle rectangle alone let the bonnet clip

@@ -481,6 +481,50 @@ void terrainStability() {
     verdict(upward < 0.01f, "body clearance cannot manufacture launch velocity");
 }
 
+
+// Handling: the body turns no faster than grip allows, and a car above its
+// top speed coasts down instead of being clamped in one frame.
+void handling() {
+    DriveSpec s;
+    auto flat = [](float, float) { return 0.0f; };
+    // Full lock at top speed, the digital-steering case. The body's yaw rate
+    // times its speed is the lateral acceleration it demands.
+    DriveState st;
+    st.pos[1] = s.rideHeight;
+    st.speed = s.topSpeed;
+    DriveInput in;
+    in.throttle = 1.0f;
+    in.steer = 1.0f;
+    float worstDemand = 0.0f, worstSlip = 0.0f;
+    float prevYaw = st.yaw;
+    for (int i = 0; i < 150; ++i) {
+        step(s, in, 1.0f / 50.0f, flat, st);
+        const float yawRate = (st.yaw - prevYaw) * (3.14159265f / 180.0f) * 50.0f;
+        prevYaw = st.yaw;
+        worstDemand = std::max(worstDemand, std::fabs(yawRate * st.speed));
+        worstSlip = std::max(worstSlip, std::fabs(st.lateral));
+    }
+    std::printf("  full lock at top speed: demand %.1f u/s^2 (grip %.1f), "
+                "worst slip %.2f u/s\n", worstDemand, s.grip, worstSlip);
+    verdict(worstDemand <= s.grip + 0.5f,
+            "full lock at speed asks no more of the tyres than the grip cap");
+    verdict(worstSlip < 1.0f, "full lock at speed pushes wide, it does not spin");
+
+    // Above the cap (nitrous just ended): one frame of throttle costs drag,
+    // not the whole excess.
+    st = {};
+    st.pos[1] = s.rideHeight;
+    st.speed = s.topSpeed * 1.2f;
+    in = {};
+    in.throttle = 1.0f;
+    const float before = st.speed;
+    step(s, in, 1.0f / 50.0f, flat, st);
+    std::printf("  above top speed, one throttle frame: %.2f -> %.2f u/s\n",
+                before, st.speed);
+    verdict(before - st.speed < 0.5f,
+            "a car above its top speed coasts down, it is not clamped");
+}
+
 }  // namespace
 
 int run() {
@@ -494,6 +538,7 @@ int run() {
     roughRide();
     analyticWheelRig();
     terrainStability();
+    handling();
     if (failures) {
         std::printf("vehicle-check: %d FAILURE(S)\n", failures);
         return 1;

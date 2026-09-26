@@ -18116,6 +18116,9 @@ static int vehGearCount(const VehicleDefData& s) {
   return n < 1 ? 1 : (n > 8 ? 8 : n);
 }
 
+// How far past the grip limit a car's body may yaw - the vehiclesim twin's
+// kYawGripScale; keep the two equal.
+static constexpr float kVehYawGripScale = 1.0F;
 static float vehClamp(float v, float lo, float hi) {
   return v < lo ? lo : (v > hi ? hi : v);
 }
@@ -18841,9 +18844,14 @@ void TerrainGame::updateVehicles(float dt) {
             0.5F * (gy[1] + gy[3] - gy[0] - gy[2]) * v.lateral /
                 (s.track * SC > 0.01F ? s.track * SC : 0.01F);
         // Implicit spring, stable throughout the accepted 0..50 ms step.
-        v.velY = (v.velY + dt * (wn * wn * (restY - v.pos[1]) +
-                   2.0F * zeta * wn * planeVel)) /
-                 (1.0F + 2.0F * zeta * wn * dt + wn * wn * dt * dt);
+        float nv = (v.velY + dt * (wn * wn * (restY - v.pos[1]) +
+                    2.0F * zeta * wn * planeVel)) /
+                   (1.0F + 2.0F * zeta * wn * dt + wn * wn * dt * dt);
+        // One-sided (vehiclesim twin): above rest the body falls no faster
+        // than gravity - the spring used to glue the car to every crest.
+        if (v.pos[1] > restY && nv < v.velY - s.gravity * dt)
+          nv = v.velY - s.gravity * dt;
+        v.velY = nv;
         v.pos[1] += v.velY * dt;
         const float sprungFloor = restY - s.suspensionTravel * SC;
         const float floorY = sprungFloor > bodyFloorY ? sprungFloor : bodyFloorY;
@@ -18988,8 +18996,13 @@ void TerrainGame::updateVehicles(float dt) {
         if (v.speed > 0.0F) { v.speed -= d; if (v.speed < 0.0F) v.speed = 0.0F; }
         else { v.speed += d; if (v.speed > 0.0F) v.speed = 0.0F; }
       } else if (inThrottle > 0.01F) {
-        v.speed += s.accel * accelMul * inThrottle * dt;
-        if (v.speed > s.topSpeed * topMul) v.speed = s.topSpeed * topMul;
+        // Above the cap the throttle only stops adding; drag takes the excess
+        // (vehiclesim twin: a clamp here dropped ~4 u/s in one frame).
+        const float cap = s.topSpeed * topMul;
+        if (v.speed < cap) {
+          v.speed += s.accel * accelMul * inThrottle * dt;
+          if (v.speed > cap) v.speed = cap;
+        }
       } else if (inThrottle < -0.01F) {
         v.speed += s.accel * inThrottle * dt;
         if (v.speed < -s.reverseTopSpeed) v.speed = -s.reverseTopSpeed;
@@ -19017,6 +19030,13 @@ void TerrainGame::updateVehicles(float dt) {
     if (v.grounded && absSp > 0.05F) {
       yawRateRad = (v.speed / (s.wheelBase * SC > 0.01F ? s.wheelBase * SC : 0.01F)) *
                    tanf(v.steerAngle * kDeg);
+      // Grip-limited yaw (vehiclesim twin): the body turns no faster than
+      // the path can bend, grip / |v|, times kVehYawGripScale. The handbrake
+      // keeps no cap - it is the way past the limit.
+      if (!inHand) {
+        const float cap = s.grip * kVehYawGripScale / (absSp > 1.0F ? absSp : 1.0F);
+        yawRateRad = vehClamp(yawRateRad, -cap, cap);
+      }
       dYaw = yawRateRad * dt * kRad;
       v.yaw += dYaw;
     }

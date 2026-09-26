@@ -6,6 +6,10 @@
 
 namespace vehiclesim {
 
+// How far past the grip limit the body may yaw (see the yaw step). Keep in
+// sync with kVehYawGripScale in the generated runtime (templates.cpp).
+constexpr float kYawGripScale = 1.0f;
+
 namespace {
 
 constexpr float kPi = 3.14159265358979f;
@@ -719,9 +723,15 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
                 0.5f * (gy[1] + gy[3] - gy[0] - gy[2]) * state.lateral /
                     std::max(spec.track, 0.01f);
             // Implicit spring: stable throughout the accepted 0..50 ms step.
-            state.velY = (state.velY + dt * (wn * wn * (restY - state.pos[1]) +
-                           2.0f * zeta * wn * planeVel)) /
-                         (1.0f + 2.0f * zeta * wn * dt + wn * wn * dt * dt);
+            float nv = (state.velY + dt * (wn * wn * (restY - state.pos[1]) +
+                         2.0f * zeta * wn * planeVel)) /
+                       (1.0f + 2.0f * zeta * wn * dt + wn * wn * dt * dt);
+            // One-sided: tyres push, they never pull. Above its rest height the
+            // body may fall no faster than gravity - inside the grounded slack
+            // the spring used to haul it down at ~200 x the gap, which beat
+            // gravity past 0.12 units and glued the car to every crest.
+            if (state.pos[1] > restY) nv = std::max(nv, state.velY - spec.gravity * dt);
+            state.velY = nv;
             state.pos[1] += state.velY * dt;
             // The spring may not put the body UNDER the ground plane by more
             // than the suspension has travel - a cliff-base slam bottoms out
@@ -882,8 +892,12 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
         if (brake > 0.01f) {
             state.speed = approach(state.speed, 0.0f, spec.brakeDecel * brake * dt);
         } else if (throttle > 0.01f) {
-            state.speed = std::min(state.speed + spec.accel * accelMul * throttle * dt,
-                                   spec.topSpeed * topMul);
+            // Above the cap the throttle only stops adding: drag takes the
+            // excess down. Clamping here dropped ~4 u/s in ONE frame when the
+            // nitrous ran out (and on every downhill), with a nose-dip to match.
+            const float cap = spec.topSpeed * topMul;
+            if (state.speed < cap)
+                state.speed = std::min(state.speed + spec.accel * accelMul * throttle * dt, cap);
         } else if (throttle < -0.01f) {
             state.speed = std::max(state.speed + spec.accel * throttle * dt,
                                    -spec.reverseTopSpeed);
@@ -908,6 +922,19 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
     if (state.grounded && std::fabs(state.speed) > 0.05f) {
         yawRateRad = (state.speed / std::max(spec.wheelBase, 0.01f)) *
                      std::tan(state.steerAngle * kDeg2Rad);
+        // Grip-limited: the path can bend at most grip / |v| (lateral
+        // acceleration = v * yaw rate <= grip), so the BODY may not turn
+        // faster than that either. The plain bicycle model asked for ~47 u/s^2
+        // at top speed against a grip of 26: full lock - every digital press -
+        // spun the car instead of pushing it wide. The scale is exactly 1: the
+        // yaw injects v * rate * dt of slip a step and grip removes grip * dt,
+        // so anything above 1 builds slip without bound (1.15 measured 11 u/s
+        // after three seconds - a permanent drift). The handbrake is the way
+        // past it, and keeps no cap.
+        if (!in.handbrake) {
+            const float cap = spec.grip * kYawGripScale / std::max(std::fabs(state.speed), 1.0f);
+            yawRateRad = clampf(yawRateRad, -cap, cap);
+        }
         dYaw = yawRateRad * dt * kRad2Deg;
         state.yaw += dYaw;
     }

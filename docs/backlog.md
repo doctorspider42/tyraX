@@ -292,6 +292,20 @@ leaves these, dearest first:
   on a regenerated fixture. Both rules read identical: garage night 13.79,
   and no bimodality in either. Not shipped. Revisit only if the two-population
   frames come back.
+- **Driving model, after 1.135.0's grip-limited yaw** (the review's order):
+  - walls redirect instead of scrub, and the twins' wall shapes agree (the
+    host uses unpadded world AABBs, the runtime rotated boxes padded by 0.35);
+  - a fixed 1/50 s step with an accumulator, since several rules are
+    per-frame;
+  - a swept wall test;
+  - a handbrake that loosens the REAR and blends grip back;
+  - a friction circle;
+  - a rescaled deadzone and an expo curve on the stick;
+  - air control and landings;
+  - per-surface grip;
+  - car-car spin.
+  The AI steers by heading error with no speed planning and was tuned
+  against uncapped yaw: check its laps (VEHAI) before placing AI cars again.
 - **Stale entries:** the two "vehicle BODIES are still triangle lists" entries
   further down predate 1.117.4, which strips the body parts (the Ravager's
   paint part is 5490 list vertices -> 2649 strip vertices, 0.483x).

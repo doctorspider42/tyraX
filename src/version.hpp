@@ -5261,6 +5261,11 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.135.0 - Handling: the body yaws no faster than grip allows (grip / |v|),
+// so full lock at speed pushes wide instead of spinning; a car above its top
+// speed coasts down instead of being clamped; the ride spring is one-sided
+// above rest. Both twins (vehiclesim + the generated runtime); new
+// --vehicle-check "handling" properties. MINOR (the car drives differently).
 // 1.134.5 - The pools of scene spots that are not carving a shadow draw as
 // one bag (docs/flashlight.md, "One bag for the still pools"). PS2: garage
 // night -0.15 ms, outer night +0.04. PATCH.
@@ -5344,8 +5349,8 @@
 // Particles face the camera a pass DRAWS with (cutscene override, shake,
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 134
-#define TYRAX_VERSION_PATCH 5
+#define TYRAX_VERSION_MINOR 135
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
