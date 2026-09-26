@@ -11833,13 +11833,29 @@ void TerrainGame::updateAndRenderLightPools() {
       // the ground is (docs/flashlight.md; same formulas, light for camera).
       const V3 sd = rotated({0.0F, -1.0F, 0.0F}, d.rotation);
       const float lx = d.position[0], ly = d.position[1], lz = d.position[2];
+      // A still lamp keeps its landing (up to ~30 surface queries a frame)
+      // and its STQ (a stamped rewrite of every vertex). On a physical PS2
+      // the eight garage lamps' pools cost 1.21 ms a night frame before this
+      // (docs/flashlight.md, "Scene spot pools that do not move").
+      const float spotKey[8] = {lx, ly, lz, d.rotation[0], d.rotation[1],
+                                d.rotation[2], d.lightRadius,
+                                d.lightSpotAngle};
+      const bool spotSame = b.spotKeyValid &&
+                            memcmp(spotKey, b.spotKey, sizeof(spotKey)) == 0;
       float hit = -1.0F;
-      for (float t = 0.3F; t <= d.lightRadius; t += 0.3F) {
-        if (ly + sd.y * t <=
-            projSurfaceAt(lx + sd.x * t, lz + sd.z * t)) {
-          hit = t;
-          break;
+      if (spotSame) {
+        hit = b.spotHit;
+      } else {
+        for (float t = 0.3F; t <= d.lightRadius; t += 0.3F) {
+          if (ly + sd.y * t <=
+              projSurfaceAt(lx + sd.x * t, lz + sd.z * t)) {
+            hit = t;
+            break;
+          }
         }
+        memcpy(b.spotKey, spotKey, sizeof(spotKey));
+        b.spotHit = hit;
+        b.spotKeyValid = false;  // set once the STQ below has been written
       }
       if (hit < 0.0F) continue;
       const float tanS = tanf(d.lightSpotAngle * 3.14159265F / 180.0F);
@@ -11861,7 +11877,10 @@ void TerrainGame::updateAndRenderLightPools() {
       const float suy = srz * sd.x - srx * sd.z;
       const float suz = srx * sd.y - sry * sd.x;
       const float kP = 0.43F / tanS;
-      for (size_t vi = 0; vi < b.verts.size(); ++vi) {
+      // Same lamp, same patch: the STQ below would come out identical.
+      const bool stqSame = spotSame && !patchChanged;
+      b.spotKeyValid = true;
+      for (size_t vi = 0; vi < b.verts.size() && !stqSame; ++vi) {
         const float ex = b.verts[vi].x - lx, ey = b.verts[vi].y - ly,
                     ez = b.verts[vi].z - lz;
         float fwd = ex * sd.x + ey * sd.y + ez * sd.z;

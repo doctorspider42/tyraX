@@ -5261,6 +5261,10 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.134.4 - A still scene spot keeps its ground landing and its projective
+// STQ (docs/flashlight.md, "Scene spot pools that do not move"): no cone
+// march and no stamped STQ rewrite a frame. PS2: garage night -0.50 ms.
+// PATCH.
 // 1.134.3 - The fog gate (docs/vu1-and-dma-cache-cost.md, "The fog gate"):
 // a bag whose fog coefficient is 255 at every vertex (fog off, or its box
 // inside the fog start) sends fog scale 0 / offset 255, and cull_tc takes a
@@ -5338,7 +5342,7 @@
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 134
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_PATCH 4
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

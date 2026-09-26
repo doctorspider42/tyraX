@@ -1856,6 +1856,14 @@ class TerrainGame : public Tyra::Game {
     // not run again merely because its brightness flickered.
     bool patchValid = false;
     float patchCx = 0.0F, patchCz = 0.0F, patchR = 0.0F, patchLift = 0.0F;
+    // A scene SPOT's landing and projective STQ, keyed on the light's pose,
+    // reach and cone (position, rotation, lightRadius, lightSpotAngle): a
+    // lamp that has not moved keeps both, so its cone is not marched to the
+    // ground again and its STQ array keeps its content stamp - the bag
+    // replays its baked stream instead of re-staging every frame.
+    float spotKey[8] = {};
+    bool spotKeyValid = false;
+    float spotHit = -1.0F;
     // The flashlight's SECOND patch, for the wall its beam is touching. Both
     // are drawn every frame and the depth buffer decides where each shows,
     // because a beam sweeping from the floor up a wall really does light both

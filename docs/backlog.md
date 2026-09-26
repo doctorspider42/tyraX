@@ -268,6 +268,12 @@ leaves these, dearest first:
   lights 0.25 ms. Caching the blob patch and the lamp colours bought
   0.02-0.09 ms and ~0.07 ms. Next: find the fixed cost (a bag each, a texture
   each, precise clip), for example one shared blob bag for every car.
+- **Night lighting passes** (garage night, physical PS2, all lamps removed per
+  pass): the scene spot pools still cost ~0.74 ms for eight lamps after
+  1.134.4's cache, which is one additive bag per lamp. Merging the static
+  lamps' pools into one bag, with the per-lamp FIX folded into vertex colours,
+  is the candidate. The light beams cost 0.52 ms; they are already two
+  submits, so that is GS fill of the cones.
 - **Stale entries:** the two "vehicle BODIES are still triangle lists" entries
   further down predate 1.117.4, which strips the body parts (the Ravager's
   paint part is 5490 list vertices -> 2649 strip vertices, 0.483x).

@@ -235,6 +235,29 @@ previews a beam at its authored brightness, exactly as it previews the light
 itself — a glow pulsing over a rock-steady pool of light would be a new lie
 rather than less of one.
 
+### Scene spot pools that do not move (1.134.4)
+
+A scene spot light's pool used to redo two things every frame, although for a
+lamp that does not move both come out the same:
+- it marched the cone's axis down to the ground, one `projSurfaceAt` per 0.3
+  units of reach (a 16-unit lamp aimed at the street takes ~20 steps, and each
+  one searches the road triangles);
+- it rewrote the projective STQ of every patch vertex through the `BagArray`,
+  which moves the content stamp, so the bag re-staged instead of replaying its
+  baked stream.
+
+Both are now keyed on the light's position, rotation, reach and cone
+(`LightPool::spotKey`). An unchanged lamp with an unchanged patch keeps its
+landing and its STQ. A lamp that flickers keeps them too: brightness is not
+in the key.
+
+Measured on a physical PS2, district fixture, one ELF with the old behaviour
+selectable at boot, median `work` of 240 frames, two boots per arm: **garage
+night -0.50 ms** (14.55 -> 14.05), outer night -0.08, day poses unchanged. The
+garage's eight pools now cost ~0.74 ms of the frame (all eight removed:
+13.31). That remainder is one bag per lamp plus the carving spot's volumes; it
+is the next item.
+
 ## What the pool does
 
 - **Follows the beam.** The patch is laid out along the beam's run across the
