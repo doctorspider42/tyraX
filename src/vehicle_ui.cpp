@@ -439,9 +439,16 @@ void App::vehicleDriveTick() {
     // triangle answers its road's grip, anything else is off the road. The
     // runtime also counts an object floor as paved (grip 1), which the test
     // drive has no model of.
-    const vehiclesim::SurfaceFn surface = [this](float x, float z) {
-        float grip = 1.0f;
-        return vehicleDriveRoads_.at(x, z, &grip) > -1.0e29f ? grip : -1.0f;
+    // Off the road the painted terrain layers bring their Grip (1.142.0).
+    std::vector<float> layerGrips;
+    for (const TerrainLayer& l : project_.active().terrainLayers)
+        layerGrips.push_back(l.grip);
+    const vehiclesim::SurfaceFn surface = [this, layerGrips](float x, float z) {
+        vehiclesim::SurfaceSample s;
+        if (vehicleDriveRoads_.at(x, z, &s.grip) > -1.0e29f) return s;
+        s.paved = false;
+        s.grip = viewport_.terrainLayerGrip(x, z, layerGrips);
+        return s;
     };
     // Walls, from placement's own boxes - approximate (world AABBs rather
     // than the console's slide resolver), but the same four corners and the

@@ -1876,6 +1876,9 @@ class TerrainGame : public Tyra::Game {
   mutable int roadIdxN = 0;
   mutable bool roadIdxDirty = true;
   float groundSurfaceAt(float x, float z) const;
+  // The painted terrain layers' tyre grip at (x, z), 1 without any
+  // (1.142.0; the host twin is Viewport::terrainLayerGrip).
+  float terrainGripAt(float x, float z) const;
   GeoPart skyDome;
   // Re-centered on the camera every frame (renderScene) so a large map can
   // never let the player walk (or climb) out from under the sky. The dome
@@ -3700,6 +3703,9 @@ class TerrainGame : public Tyra::Game {
   mutable int roadIdxN = 0;
   mutable bool roadIdxDirty = true;
   float groundSurfaceAt(float x, float z) const;
+  // The painted terrain layers' tyre grip at (x, z), 1 without any
+  // (1.142.0; the host twin is Viewport::terrainLayerGrip).
+  float terrainGripAt(float x, float z) const;
   GeoPart skyDome;
   // Re-centered on the camera every frame (renderScene) so a large map can
   // never let the player walk (or climb) out from under the sky. The dome
@@ -22638,6 +22644,42 @@ float TerrainGame::roadSurfaceAt(float x, float z, float* grip) const {
 #endif
   return best;
 }
+// Terrain layer grip (1.142.0): the painted layers composited bottom-up by
+// their weights, sampled on the two drawn triangles of the cell - the order
+// and the diagonal the terrain passes render with, so the grip a tyre feels
+// is the layer the player sees under it. A handful of byte reads per tyre;
+// nothing at all when no layer has a grip.
+float TerrainGame::terrainGripAt(float x, float z) const {
+  if (!TERRAIN_LAYER_GRIP_ANY) return 1.0F;
+  const int sc = g_activeScene;
+  const int layerN = TERRAIN_LAYER_COUNT;
+  const unsigned char* w8 = TERRAIN_SPLAT_WEIGHTS;
+  if (layerN <= 0 || w8 == nullptr || !TERRAIN_ENABLEDS[sc]) return 1.0F;
+  const int hw = HM_WS[sc], hd = HM_DS[sc];
+  float gx = (x - HM_ORIGIN_XS[sc]) / HM_STEP_XS[sc];
+  float gz = (z - HM_ORIGIN_ZS[sc]) / HM_STEP_ZS[sc];
+  if (gx < 0.0F) gx = 0.0F;
+  if (gz < 0.0F) gz = 0.0F;
+  if (gx > hw - 1.001F) gx = hw - 1.001F;
+  if (gz > hd - 1.001F) gz = hd - 1.001F;
+  const int ix = (int)gx, iz = (int)gz;
+  const float fx = gx - ix, fz = gz - iz;
+  const size_t r0 = ((size_t)iz * hw + ix) * layerN;
+  const size_t r1 = ((size_t)(iz + 1) * hw + ix) * layerN;
+  float m = 1.0F;
+  for (int l = 0; l < layerN; ++l) {
+    const float s00 = w8[r0 + l], s10 = w8[r0 + layerN + l];
+    const float s01 = w8[r1 + l], s11 = w8[r1 + layerN + l];
+    const float wl = (fx + fz <= 1.0F
+                          ? s00 + fx * (s10 - s00) + fz * (s01 - s00)
+                          : s11 + (1.0F - fz) * (s10 - s11) +
+                                (1.0F - fx) * (s01 - s11)) *
+                     (1.0F / 255.0F);
+    if (wl > 0.0F) m += (TERRAIN_LAYER_GRIPS[sc][l] - m) * wl;
+  }
+  return m;
+}
+
 float TerrainGame::groundSurfaceAt(float x, float z) const {
   const float terrain = terrainHeightAt(x, z);
   const float road = roadSurfaceAt(x, z);
@@ -39740,7 +39782,7 @@ void TerrainGame::updateVehicles(float dt) {
       bool pavedW = roadW > -1.0e29F;
       // This tyre's grip: its road's, the car's off-road value, or 1 on an
       // object floor (set below where a floor takes the wheel).
-      float wheelGrip = pavedW ? roadGW : s.offroadGrip;
+      float wheelGrip = pavedW ? roadGW : s.offroadGrip * terrainGripAt(wx, wz);
       // The wheel RIDES an object floor when one is higher than the terrain
       // under it - a platform, a ramp prop, generated prefab geometry. This
       // is what lets a car drive ONTO things instead of nosing into their
@@ -40739,6 +40781,8 @@ void TerrainGame::updateVehicles(float dt) {
                  " fw ", v.fastWheels ? 1 : 0,
                  // Tyres on the road (off-road grip's test enabler).
                  " paved ", v.paved,
+                 // The tyres' average surface grip (road, off-road, layer).
+                 " grip100 ", (int)(v.surfGrip * 100.0F + 0.5F),
                  // Speed feel (docs/vehicles.md): shake in mm, the blur
                  // floor FIX, the FOV the camera is drawing with.
                  " shake ", (int)(g_vehShake * 1000.0F), " blur ", g_vehBlurFix,
@@ -54725,6 +54769,29 @@ static std::string textureDataHeader(const Project& p) {
             out << "}";
         }
         out << "};\n";
+    }
+    // Terrain layer tyre grip (1.142.0, docs/vehicles.md "Off-road grip"). A
+    // project that never touches it gets TERRAIN_LAYER_GRIP_ANY = false and
+    // the per-tyre query folds away.
+    {
+        const size_t gl = maxLayers > 0 ? maxLayers : 1;
+        bool anyGrip = false;
+        out << "constexpr float TERRAIN_LAYER_GRIPS[" << p.scenes.size() << "]["
+            << gl << "] = {";
+        for (size_t si = 0; si < p.scenes.size(); ++si) {
+            out << (si ? ", " : "") << "{";
+            for (size_t li = 0; li < gl; ++li) {
+                float g = 1.0f;
+                if (li < p.scenes[si].terrainLayers.size())
+                    g = p.scenes[si].terrainLayers[li].grip;
+                anyGrip |= g != 1.0f;
+                out << (li ? ", " : "") << floatLit(g);
+            }
+            out << "}";
+        }
+        out << "};\n"
+            << "constexpr bool TERRAIN_LAYER_GRIP_ANY = "
+            << (anyGrip ? "true" : "false") << ";\n";
     }
     out << "\n}  // namespace " << ns << "\n";
     return out.str();

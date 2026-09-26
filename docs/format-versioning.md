@@ -200,6 +200,16 @@ Format 60 adds the optional per-road `roadSampleStep` field. It is purely
 additive: missing means the original 1 m longitudinal spacing, so no migration
 step is required.
 
+Format 77 adds six drive-spec keys for the driven car's speed feel
+(`feelFrom`, `feelShake`, `feelBlur`, `feelFov`, `feelNosFov`, `feelFlame`;
+docs/vehicles.md, "Speed feel"). A missing key reads as its default, so a
+car saved before it gets the shake, blur and nitrous flame too. They are
+presentation only, and 0 switches each part off. Additive; no migration step.
+
+Format 76 adds a terrain layer's `grip` (docs/terrain-painting.md, "Layers"),
+written only away from its default of 1. Missing means the bare terrain, as
+before. Additive; no migration step.
+
 Format 75 adds a vehicle's `drive.lampGlow` and a definition's bake-measured
 `"lampGlows"` (docs/vehicles.md, "Lamp glow"), the latter written only when
 non-empty. Missing means no halo, as before. The lamp-glow branch shipped it

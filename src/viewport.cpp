@@ -1916,6 +1916,38 @@ float Viewport::terrainHeight(float x, float z) const {
            (1.0f - fx) * (h(ix, iz + 1) - h(ix + 1, iz + 1));
 }
 
+float Viewport::terrainLayerGrip(float x, float z,
+                                 const std::vector<float>& grips) const {
+    const int layerN = (int)grips.size();
+    if (layerN <= 0 || hmW_ < 2 || hmD_ < 2 || !terrain_.enabled ||
+        splat_.size() != (size_t)hmW_ * hmD_ * layerN)
+        return 1.0f;
+    const float w = (float)terrain_.width, d = (float)terrain_.depth;
+    float gx = (x + w * 0.5f) / w * (hmW_ - 1);
+    float gz = (z + d * 0.5f) / d * (hmD_ - 1);
+    if (gx < 0) gx = 0;
+    if (gz < 0) gz = 0;
+    if (gx > hmW_ - 1.001f) gx = hmW_ - 1.001f;
+    if (gz > hmD_ - 1.001f) gz = hmD_ - 1.001f;
+    const int ix = (int)gx, iz = (int)gz;
+    const float fx = gx - ix, fz = gz - iz;
+    float m = 1.0f;
+    for (int l = 0; l < layerN; ++l) {
+        auto s = [&](int a, int b) {
+            return splat_[((size_t)b * hmW_ + a) * layerN + l] / 255.0f;
+        };
+        // The same two triangles terrainHeight samples (the drawn diagonal).
+        const float wl = fx + fz <= 1.0f
+                             ? s(ix, iz) + fx * (s(ix + 1, iz) - s(ix, iz)) +
+                                   fz * (s(ix, iz + 1) - s(ix, iz))
+                             : s(ix + 1, iz + 1) +
+                                   (1.0f - fz) * (s(ix + 1, iz) - s(ix + 1, iz + 1)) +
+                                   (1.0f - fx) * (s(ix, iz + 1) - s(ix + 1, iz + 1));
+        if (wl > 0.0f) m += (grips[(size_t)l] - m) * wl;
+    }
+    return m;
+}
+
 const char* Viewport::projectionName(Projection p) {
     switch (p) {
         case Projection::Ortho: return "Ortho";

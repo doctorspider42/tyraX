@@ -168,6 +168,10 @@ public:
     // terrain REMOVED (TerrainConfig::enabled false) - callers that must not
     // treat that as a floor ask the model, not this (App::placementHeight).
     float terrainHeight(float x, float z) const;
+    // The painted layers' tyre grip at (x, z) (1.142.0): the layers composited
+    // bottom-up by their weights on the drawn triangles, the generated
+    // TerrainGame::terrainGripAt's twin. `grips` is one value per layer.
+    float terrainLayerGrip(float x, float z, const std::vector<float>& grips) const;
 
     // The camera ray through normalized image coords - the same one pick() and
     // terrainRaycast() build. Exposed so the app can hit-test things the

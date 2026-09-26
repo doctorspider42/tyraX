@@ -323,6 +323,27 @@ everything else a scene does.
   `--vehicle-check` "offroad" checks it: on a road at 0.5 the default car's
   full-lock corner holds 9.9 u/s^2 against 24.4 on asphalt, and it still
   reaches 22.0 u/s in 3 s.
+
+  **Painted terrain layers carry a grip too (1.142.0).** A terrain layer's
+  *Grip* ([terrain-painting.md](terrain-painting.md), "Layers") multiplies
+  the car's `offroadGrip` where it is painted. The layers are composited
+  bottom-up by their weights, which is the order the terrain passes draw
+  them in. The weights are sampled on the same two triangles per cell that
+  the height sampler uses, so a tyre feels the layer the player sees under
+  it.
+
+  It costs a few byte reads per tyre from the splat table, which the console
+  already holds to build the terrain mesh. A project with no layer grip gets
+  `TERRAIN_LAYER_GRIP_ANY = false` and the query folds away. The host twin is
+  `Viewport::terrainLayerGrip`.
+
+  How it was checked:
+  - `--vehicle-check`: mud at 0.5 under a car with offroadGrip 0.5 holds
+    3.4 u/s^2 in the corner, against 11.5 on bare terrain.
+  - PCSX2, the district with a Mud layer (grip 0.5) painted everywhere: the
+    `VEH` line's `grip100` (the tyres' average surface grip) read 100 on the
+    road, 82 with three wheels on it ((3 + 0.3) / 4), and 30 fully off it
+    (the Ravager's 0.6 x 0.5).
   The console's `VEH` telemetry line ends in `paved N`, the tyres on the
   road at the last step.
 - **Car-car hits spin (1.135.7, runtime only; the test drive has one car).**

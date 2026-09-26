@@ -775,8 +775,8 @@ void handling() {
 // straddling the edge.
 void offroad() {
     auto flat = [](float, float) { return 0.0f; };
-    const SurfaceFn allPaved = [](float, float) { return 1.0f; };
-    const SurfaceFn noneRoad = [](float, float) { return -1.0f; };
+    const SurfaceFn allPaved = [](float, float) { return SurfaceSample{true, 1.0f}; };
+    const SurfaceFn noneRoad = [](float, float) { return SurfaceSample{false, 1.0f}; };
 
     // The run the rest of the checks share: full throttle from rest, then a
     // full-lock corner at speed. Returns the speed after 3 s and the worst
@@ -827,7 +827,7 @@ void offroad() {
 
     // Two wheels on each side: half the effect, not all or nothing.
     float vh, dh;
-    drive(rally, [](float x, float) { return x < 50.0f ? 1.0f : -1.0f; }, &vh, &dh);
+    drive(rally, [](float x, float) { return SurfaceSample{x < 50.0f, 1.0f}; }, &vh, &dh);
     std::printf("  half on the road: %.1f u/s after 3 s\n", vh);
     verdict(vh > vr + 0.2f && vh < vp - 0.2f,
             "a car half on the grass sits between the two surfaces");
@@ -835,12 +835,21 @@ void offroad() {
     // Road grip (1.137.0): a gravel road at 0.5 halves the corner, and leaves
     // the acceleration alone - it is still a road, not the car's off-road.
     float vg, dg;
-    drive(base, [](float, float) { return 0.5f; }, &vg, &dg);
+    drive(base, [](float, float) { return SurfaceSample{true, 0.5f}; }, &vg, &dg);
     std::printf("  road grip 0.5: corner %.1f u/s^2 (asphalt %.1f), %.1f u/s after 3 s\n",
                 dg, d0, vg);
     verdict(dg <= 0.5f * base.grip + 0.5f && dg < d0 - 1.0f,
             "a road's grip multiplier scales the tyres' hold");
     verdict(std::fabs(vg - v0) < 0.05f, "road grip leaves the acceleration alone");
+
+    // A painted terrain layer (1.142.0): mud at 0.5 multiplies ON TOP of the
+    // car's off-road grip - 0.5 x 0.5 for the rally-tuned car below.
+    float vm, dm;
+    drive(rally, [](float, float) { return SurfaceSample{false, 0.5f}; }, &vm, &dm);
+    std::printf("  mud layer 0.5 on offroadGrip 0.5: corner %.1f u/s^2 (grass %.1f)\n",
+                dm, dr);
+    verdict(dm <= 0.25f * rally.grip + 0.5f && dm < dr - 1.0f,
+            "a painted layer's grip multiplies the car's off-road grip");
 }
 
 }  // namespace
