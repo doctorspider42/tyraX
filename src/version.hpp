@@ -5267,6 +5267,10 @@
 // vehiclesim::pedals, read by the editor's test drive (W / S) and twinned in
 // the console's player controller; --vehicle-check "pedals".
 // No format change. MINOR.
+// 1.141.1 - The skid-mark ring starts degenerate: resize() left Vec4/Color
+// uninitialised and the whole ring is submitted, so unused slots drew as a
+// black sliver across the screen. Plus the Motor District night dressing
+// hashes (they never matched, so the night boxes showed by day). PATCH.
 // 1.141.0 - Lamp glow (docs/vehicles.md): a soft additive corona over every
 // lamp the vehicle bake measures (each lamp its own box, so a round headlamp
 // and a tail-lamp bar get their own halo), following the lamps' state -

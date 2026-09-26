@@ -37165,9 +37165,14 @@ void TerrainGame::setupVehicleFx() {
     fx.smokePos.resize(kVehSmokeMax);
     fx.smokeParams.resize(kVehSmokeMax);
     fx.smokeCols.resize(kVehSmokeMax);
-    fx.skidVerts.resize(kVehSkidMax * 6);
-    fx.skidSts.resize(kVehSkidMax * 6);
-    fx.skidCols.resize(kVehSkidMax * 6);
+    // Vec4()/Color() leave their members UNINITIALISED, and the skid bag
+    // submits the whole ring once any mark is alive: a slot never written
+    // held heap garbage (NaN, +-3.4e38, random w) and drew as a sliver across
+    // the screen in about one frame in three with AI traffic skidding
+    // (1.141.1). Unused slots are degenerate and transparent.
+    fx.skidVerts.assign(kVehSkidMax * 6, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+    fx.skidSts.assign(kVehSkidMax * 6, Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+    fx.skidCols.assign(kVehSkidMax * 6, Tyra::Color(0.0F, 0.0F, 0.0F, 0.0F));
     lookOf(VEHICLE_DEFS[d].skidMtl, "vehicles/fx-skid.png", fx.skidTexPath,
            fx.skidTex, fx.skidTint, true);
     const VehicleSmokeLook& look = VEHICLE_SMOKE_LOOKS[d];
