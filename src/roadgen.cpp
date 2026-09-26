@@ -505,9 +505,10 @@ void splineAt(const std::vector<float>& pointsXZ, float t, float* x, float* z) {
 
 // --- the drawn surface, for host code standing on a road --------------------
 
-void Surface::add(const std::vector<Vertex>& triangles) {
+void Surface::add(const std::vector<Vertex>& triangles, float grip) {
     const size_t n = triangles.size() - triangles.size() % 3;
     tris_.insert(tris_.end(), triangles.begin(), triangles.begin() + (long)n);
+    grip_.insert(grip_.end(), n / 3, grip);
 }
 
 void Surface::build() {
@@ -560,8 +561,9 @@ void Surface::build() {
     }
 }
 
-float Surface::at(float x, float z) const {
+float Surface::at(float x, float z, float* grip) const {
     float best = kNone;
+    if (grip) *grip = 1.0f;
     if (nx_ <= 0 || x < minX_ || z < minZ_) return best;
     const int ix = (int)((x - minX_) * inv_);
     const int iz = (int)((z - minZ_) * inv_);
@@ -579,7 +581,10 @@ float Surface::at(float x, float z) const {
         const float wc = 1.0f - wa - wb;
         if (wa < -0.0001f || wb < -0.0001f || wc < -0.0001f) continue;
         const float y = wa * a.y + wb * b.y + wc * c.y;
-        if (y > best) best = y;
+        if (y > best) {
+            best = y;
+            if (grip) *grip = grip_[cellItems_[e] / 3];
+        }
     }
     return best;
 }

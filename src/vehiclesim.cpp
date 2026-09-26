@@ -613,7 +613,7 @@ void wheelAnchors(const DriveSpec& spec, const DriveState& state, float out[4][3
 
 void step(const DriveSpec& specIn, const DriveInput& in, float dt,
           const HeightFn& height, DriveState& state, const SolidFn& solid,
-          float scale, const PavedFn& paved) {
+          float scale, const SurfaceFn& surface) {
     // A stalled frame or a paused editor must not tunnel the car through the
     // world; the sim would rather run slow than teleport.
     dt = clampf(dt, 0.0f, 0.05f);
@@ -673,27 +673,37 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
     float sum = 0.0f;
     int groundCount = 0;
     int pavedWheels = 0;
+    float gripSum = 0.0f;  // per-tyre grip multipliers, averaged below
     for (int i = 0; i < 4; ++i) {
         gy[i] = height ? height(anchors[i][0], anchors[i][2]) : 0.0f;
-        if (!paved || paved(anchors[i][0], anchors[i][2])) ++pavedWheels;
+        const float sg = surface ? surface(anchors[i][0], anchors[i][2]) : 1.0f;
+        if (sg >= 0.0f) {
+            ++pavedWheels;
+            gripSum += sg;
+        } else {
+            gripSum += spec.offroadGrip;
+        }
         // TERRAIN_VOID_Y: a scene with no terrain answers "unreachably low",
         // so "there is no floor here" needs no branch of its own.
         if (gy[i] > -1e5f) { ++groundCount; sum += gy[i]; }
     }
     const bool anyGround = groundCount > 0;
     const float planeY = anyGround ? sum / groundCount : -1e9f;
-    // OFF-ROAD (1.136.0): the share of the four tyres off the paved surface
-    // blends the grip, the handbrake grip and the acceleration toward their
-    // off-road multipliers - on the spec COPY, so every rule below (the yaw
-    // cap, the friction circle, the wheelspin) reads the surface for free. One
-    // wheel on the grass is a quarter of the effect, not a cliff edge.
+    // SURFACE (1.136.0 off-road, 1.137.0 per-road grip): each tyre brings a
+    // grip multiplier - its road's, or the car's offroadGrip off the road -
+    // and their average scales the grip and the handbrake grip. The share of
+    // tyres off the road blends the acceleration toward offroadAccel. All on
+    // the spec COPY, so every rule below (the yaw cap, the friction circle,
+    // the wheelspin) reads the surface for free. One wheel on the grass is a
+    // quarter of the effect, not a cliff edge.
     const float offShare = 1.0f - pavedWheels * 0.25f;
-    if (offShare > 0.0f) {
-        const float gm = 1.0f + (spec.offroadGrip - 1.0f) * offShare;
+    const float gm = gripSum * 0.25f;
+    if (gm != 1.0f) {
         spec.grip *= gm;
         spec.handbrakeGrip *= gm;
-        spec.accel *= 1.0f + (spec.offroadAccel - 1.0f) * offShare;
     }
+    if (offShare > 0.0f)
+        spec.accel *= 1.0f + (spec.offroadAccel - 1.0f) * offShare;
     // A missing contact is not a kilometre-deep suspension sample.
     for (float& y : gy) if (y <= -1e5f) y = planeY;
     const float restY = planeY + spec.rideHeight;

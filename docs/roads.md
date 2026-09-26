@@ -274,6 +274,21 @@ an authored value and reads `roadSampleStep` from the real fixture. Its V metric
 compares modulo whole repeats because runtime chunks intentionally rebase that
 integer part for physical-GS precision.
 
+## Surface grip (1.137)
+
+Each road has a **Surface grip** (0.1 to 1.5, the `roadGrip` object field,
+omitted at its default of 1). It multiplies the grip of every vehicle whose
+tyre stands on the road:
+- 1 is asphalt;
+- about 0.7 is gravel;
+- about 0.3 is ice.
+
+A junction takes the lower of its two roads. The value rides the road's
+`RoadDefRt` into its chunks, so `roadSurfaceAt` reports the grip of the
+triangle that answered, at no extra query. The vehicle side, including how
+it averages over the four tyres and what happens off the road, is in
+[vehicles.md](vehicles.md), "Off-road grip".
+
 ## The lateral budget (1.99)
 
 That rule was **all-or-nothing**: one full-width quad, or every one of the
