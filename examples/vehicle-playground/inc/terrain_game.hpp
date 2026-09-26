@@ -1972,6 +1972,13 @@ class TerrainGame : public Tyra::Game {
     BagArray<Tyra::Vec4> verts, sts;
     Tyra::Color color;
     Tyra::M4x4 mat;
+    // The caster's transform the patch was last built for (position,
+    // rotation, scale). A caster that has not moved keeps its patch, its
+    // content stamp and its bboxVersion, so the bag stays baked - see
+    // updateAndRenderBlobShadows. `keyHidden`: that build faded to nothing.
+    float key[9] = {};
+    bool keyValid = false, keyHidden = false;
+    Tyra::Vec4 cullMin, cullMax;  // the footprint box that build was culled by
     std::unique_ptr<Tyra::StaPipInfoBag> info;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;

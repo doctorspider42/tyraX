@@ -276,7 +276,10 @@ leaves these, dearest first:
   (`make_mc_arm.py` in the working notes) with `trafficDistance` 5 vs 0 at the
   9-unit parked Ravager - the number that says whether 12 is the right default,
   and whether the CC96 wants an authored far model too (its decimated tier is
-  1574 triangles).
+  1574 triangles). The district now parks two more authored-far cars at the
+  spawn (Pica Turbo 652 / Strix V12 668 far-tier triangles, 4.5 units either
+  side of the driven Ravager), so the spawn pose itself is a second fixture for
+  that A/B; the CC96 is no longer placed.
 - **Wheels, 0.27-0.39 ms a car**: four 160-triangle wheels rebuilt on the EE
   every frame. The fast-wheel model and the rebake skip exist; a coarser wheel
   for cars that are not driven does not.
@@ -285,6 +288,11 @@ leaves these, dearest first:
   "Where the shine's cost is, and one dead end"). What is left on the EE side:
   a hysteresis step that grows with the distance to the car, or rebuilding at
   most one car's colours a frame, round-robin. Both are unmeasured.
+- **Per-car small parts cost more than their triangles** (docs/shadows.md,
+  "Blob cost"): the blob is 0.35 ms by day for 18 triangles, and the lamps and
+  lights 0.25 ms. Caching the blob patch and the lamp colours bought
+  0.02-0.09 ms and ~0.07 ms. Next: find the fixed cost (a bag each, a texture
+  each, precise clip), for example one shared blob bag for every car.
 - **Stale entries:** the two "vehicle BODIES are still triangle lists" entries
   further down predate 1.117.4, which strips the body parts (the Ravager's
   paint part is 5490 list vertices -> 2649 strip vertices, 0.483x).

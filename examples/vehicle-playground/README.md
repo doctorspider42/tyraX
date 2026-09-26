@@ -1,8 +1,10 @@
 # Motor District — vehicle playground
 
-A compact PS2 driving district with a connected street network, three driveable
-car models and live scenery reflections. Open `vehicle-playground.tyra` in
-TyraX, build and run, then press Square beside the gold coupe.
+A compact PS2 driving district with a connected street network, three parked
+Blender-built cars and live scenery reflections. Open `vehicle-playground.tyra`
+in TyraX, build and run: the game starts behind the wheel of the orange
+Ravager, between the red Pica Turbo and the violet Strix V12 (Square gets out
+and into the nearest car).
 
 ![Motor District in PCSX2](preview/district.png)
 
@@ -36,8 +38,12 @@ scenes keep separate object copies, so editing one does not touch the other.
   can be pushed; buildings, street furniture and perimeter walls collide.
 - A flat city floor and gentle eastern crests. Roads and wheel contacts use the
   same terrain. The district fits within the existing 320 × 320 metre boundary.
-- Five placed vehicles: the hero CC96 coupe, a parked orange Rally 04, a Tristar Racer and two AI
-  patrols. The rivals remain driveable and resume their route after you get out.
+- Three placed vehicles in `main`, side by side at (-4.5 / 0 / +4.5, -74): the
+  Pica Turbo, the Ravager you start in, and the Strix V12. `dense` places the
+  Ravager alone on the same spot. All three are driveable. The CC96, Rally 04
+  and Tristar Racer definitions (and the Strata GT model) still ship, unplaced:
+  the studies below were measured on them, and the authoring scripts that
+  rebuild them read their definitions.
 
 The CC96 has a 29 m/s target speed before nitrous, more steering authority at
 speed and a four-second refillable tank. Rally 04 is a lighter, deliberately
@@ -105,6 +111,59 @@ The definition names it as *Far model* with *Parked / AI cars from* 12
 (docs/vehicles.md, "An authored far model"). What it saves on a physical PS2
 is not measured yet.
 
+### Pica Turbo and Strix V12
+
+Two more original cars, built the Ravager's way (headless Blender, lofted
+character lines, a world-space painted 256x256 atlas with Cycles AO, 8-bit
+Texture depth, see-through glass over a minimal cabin) and each with its own
+authored far model. The two design scripts keep only their design; the shared
+loft, atlas, wheel, bake, preview and far-model plumbing is
+`authoring/carkit.py`.
+
+- **Pica Turbo** ([preview](preview/pica.png),
+  [far model](preview/pica-far.png)), `authoring/make-pica.py`: a boxy mid-80s
+  three-door hot hatch - short flat hood, twin square headlamps, a long door
+  with a blacked-out B-pillar, a steep hatch under a roof spoiler, bolted-on
+  arch flares, black bumpers and cladding with a red pinstripe, a sunroof and
+  "pepper-pot" alloys. Glass opacity 0.6.
+- **Strix V12** ([preview](preview/strix.png),
+  [far model](preview/strix-far.png)), `authoring/make-strix.py`: a wide, low
+  early-90s mid-engine wedge - a blunt nose with slim lamps between fender
+  humps, a cab-forward glasshouse with deep tumblehome, a side intake scooped
+  out of the flank, a louvred engine cover in a tunnel between flying
+  buttresses, four round tail lamps in a black panel, a rear wing, five-spoke
+  wheels. Glass opacity 0.45.
+
+What the vehicle bake reports (`--refresh-gen`, the `[vehicle]` lines):
+
+| | Body tris (parts) | Wheel tris | Paint strip | Glass strip | Submits near | Far model (wheels in) | Far tier strip |
+|---|---|---|---|---|---|---|---|
+| Pica Turbo | 1718 (3) | 150 | 4890 -> 2442 verts, 0.499x | 0.513x | 4 | 540 + 4 x 28 = 652 tris, 2 submits | 0.755x |
+| Strix V12 | 1908 (3) | 160 | 5436 -> 2676 verts, 0.492x | 0.482x | 4 | 556 + 4 x 28 = 668 tris, 2 submits | 0.759x |
+| Ravager, for scale | 1938 (3) | 160 | 5490 -> 2649 verts, 0.483x | 0.441x | 4 | 596 + 4 x 28 = 708 tris, 2 submits | 0.768x |
+
+A far tier is about 28% of the near car's triangles (2318 -> 652 and 2548 ->
+668, wheels in). Rebuild in this order (each far script reads its full model's
+texture):
+
+```
+blender -b --factory-startup --python authoring/make-pica.py -- --preview DIR
+blender -b --factory-startup --python authoring/make-pica-far.py -- --preview DIR
+blender -b --factory-startup --python authoring/make-strix.py -- --preview DIR
+blender -b --factory-startup --python authoring/make-strix-far.py -- --preview DIR
+```
+
+Their drive blocks are tuned to character: the Pica is light and nimble (27
+m/s, 36 degrees of lock, 0.32 lean), the Strix fast and planted (34 m/s, grip
+28, 0.2 lean).
+
+[In PCSX2](preview/pica-strix-ps2.png) (the game's own `--capture-frame`): the
+spawn, Ravager driven, 50 FPS with scene time ~4.3 ms; on the right the two
+cars moved into the chase view on a scratch copy, full models on top and their
+far tiers below (`trafficDistance` 3, `VEHLOD car N tier 2 swap at 3`). The far
+tier gives up the body shine, which is why the full Pica reads pinker. No VIF
+or DMA errors in the emulator log. Not measured on a physical PS2 yet.
+
 The five-speed boxes use a 1.28 spread, 0.10 s shifts and reduced ratio torque.
 Body lean is 0.25 on the coupe/Tristar and 0.35 on the van. A 60 Hz flat-ground
 full-throttle comparison against the previous settings measured:
@@ -130,28 +189,29 @@ the lower gears are longer rather than the whole car becoming faster.
 | Cross | Nitrous |
 | Triangle | Chase / bumper / far camera |
 | Right stick / R3 | Look around / rear view |
-| D-pad up | CC96 headlamps |
-| Select | Repair the CC96 (its `Repair Vehicle` node) |
+| D-pad up | Headlamps |
+| Select | Repair the car you are driving (the `Repair Vehicle` node on `ravager-1`) |
 
 The coupe retains its engine/rev crossfade, tyre squeal, gear-shift sound,
 brake lamps, suspension and projected silhouette. The parked Rally also uses
 a projected silhouette; AI cars use cheaper blob shadows.
 
-The district opens **behind the wheel**: `vehicle-1` (the CC96) is parked at
-(0, -74) - the spot that held 25 FPS on a physical PS2 in September 2026 - and
-its flow graph runs `On Start -> Enter Vehicle`, so every boot starts at the
-same measurement pose (docs/vehicles.md, "From a flow graph"). Delete that
-graph to start on foot. The right-stick deadzone is 0.3 because the test pad
+The district opens **behind the wheel**: `ravager-1` (the Ravager) is parked at
+(0, -74) - the spot that held 25 FPS on a physical PS2 in September 2026, with
+the CC96 on it then - and its flow graph runs `On Start -> Enter Vehicle`, so
+every boot starts at the same pose (docs/vehicles.md, "From a flow graph").
+Delete that graph to start on foot. The Ravager took the CC96's place (and
+graph) in both scenes; measurements below that quote the CC96 as the player's
+car predate that swap. The right-stick deadzone is 0.3 because the test pad
 drifts; the car's glance camera reads it (it did not before 1.124.2).
 
 ## Damage
 
-Every car here can be damaged (Damage strength 1 on all four definitions,
-docs/vehicles.md "Damage"). Drive the CC96 straight ahead from the start into
-the arena wall: the log says `VEHDMG 0 hit dv10 ~210 dmg100 ~30`, the front
-crumples, the headlamps go out and the HUD reads `DMG 30`. A few more hits pass
-50% and the bonnet smokes; Select repairs it. The Ravager parked beside it
-dents too when rammed.
+Every car here can be damaged (Damage strength 1 on every definition,
+docs/vehicles.md "Damage"). Drive straight ahead from the start into the arena
+wall: the log says `VEHDMG <car> hit dv10 ... dmg100 ...`, the front crumples,
+the headlamps go out and the HUD reads `DMG n`. A few more hits pass 50% and
+the bonnet smokes; Select repairs it. Parked cars dent too when rammed.
 
 ## Hybrid colour and fast wheels
 

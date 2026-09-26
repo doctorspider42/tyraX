@@ -5261,6 +5261,9 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.134.1 - A still caster keeps its blob patch (no rebuild, no stamp, baked
+// replay) and vehicle lamp parts are re-coloured only on a change. PS2:
+// -0.02..-0.09 and ~-0.07 ms a parked car. PATCH.
 // 1.134.0 - An AUTHORED far model per vehicle definition (Vehicle Editor >
 // Cost > Far model, format v69): a hand-built low-poly twin in the same space
 // and texture as the car replaces the decimated far tier - wheels baked in,
