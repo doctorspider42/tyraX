@@ -257,6 +257,11 @@ void Vif1Queue::drain() {
 
 bool Vif1Queue::busy() { return running; }
 
+// Modified by TyraX: see the header - a read, never an advance.
+bool Vif1Queue::isComplete(u32 sequence) {
+  return static_cast<s32>(completed - sequence) >= 0;
+}
+
 void Vif1Queue::setOpenChainCloser(void (*closer)()) {
   openChainCloser = closer;
 }
