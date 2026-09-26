@@ -274,6 +274,13 @@ leaves these, dearest first:
   lamps' pools into one bag, with the per-lamp FIX folded into vertex colours,
   is the candidate. The light beams cost 0.52 ms; they are already two
   submits, so that is GS fill of the cones.
+- **Interleave tuner decision rule** (docs/interleaved-passes.md): one run
+  saw garage night alternate between ~13.9 and ~14.8 ms frames. The tuner then
+  picked plain on a 4/8 tie while interleaving averaged ~2% faster. A
+  median-of-pairs rule with 0.5% hysteresis was built and A/B'd over 8 boots
+  on a regenerated fixture. Both rules read identical: garage night 13.79,
+  and no bimodality in either. Not shipped. Revisit only if the two-population
+  frames come back.
 - **Stale entries:** the two "vehicle BODIES are still triangle lists" entries
   further down predate 1.117.4, which strips the body parts (the Ravager's
   paint part is 5490 list vertices -> 2649 strip vertices, 0.483x).
