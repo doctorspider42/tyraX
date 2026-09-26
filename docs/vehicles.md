@@ -379,6 +379,9 @@ everything else a scene does.
   fires on the first sub-step only (`vehSubStepRepeat_`). In PCSX2, with the
   same Remote Pad script, a run with the physics stepped every second frame in
   two sub-steps tracks the 50 fps run to within 1-2 units and a few degrees.
+  The second sub-step costs ~0.5 ms of EE on a physical PS2, and most of it
+  is work the first one already did; see "Per-car EE cuts" below for what a
+  later sub-step now reuses.
 - **A fast step is swept (1.135.3).** A wall move longer than `kSweepStep`
   (1 unit) is walked in pieces and stops at the first blocked one. At 90 u/s
   on a 20 fps frame a car moves 4.5 units, more than its own length, so a
@@ -1479,6 +1482,93 @@ the near paint parts strip to 0.499x / 0.492x. Two traps they added:
   tiles. The hatch is kept at 53 degrees and its window painted in the rear
   tile only.
 
+### Per-car EE cuts (2026-09-26)
+
+Five changes to the generated runtime, each behind an A/B macro on the
+`TYRA_STRIP_WHEELS` pattern (1 = shipped, 0 = the runtime before it), so a
+fixture can define all of them to one boot-time switch and price each lever
+from one ELF (`make_cc_arm.py` in the working notes, modes below).
+
+| knob | what it does | mode that turns it off |
+| --- | --- | ---: |
+| `TYRA_BEAMS_KEEP` | light-beam coronas and cones are assembled in scratch and written to their bag arrays only where a byte differs (`bagWriteIfChanged`); the box is re-stamped only on a write or a count change | 55 |
+| `TYRA_VEH_LIGHTS_KEEP` | the same for the vehicle headlight pools, and the lamp halos; a pool (54 vertices, 16 ground queries) is kept per car, keyed on x, z, yaw, scale and definition | 54 |
+| `TYRA_VEH_PAINT_DISTANCE_STEP` | a car nobody drives re-colours its paint after a view move of `0.8 x distance` 1/128 steps (4 at 5 units, capped at 24); the driven car keeps 4 | 52 |
+| `TYRA_VEH_PAINT_ONE_A_FRAME` | at most one non-driven car re-colours a frame; the one that waited goes first next frame | 53 |
+| `TYRA_VEH_SUBSTEP_REUSE` | on a 25 fps frame (two 1/50 s sub-steps) the second sub-step keeps the first one's collider list, walks only the first one's per-car candidate subset, and writes the body matrix, the chase camera and the engine note once | 56 (with 2 forced sub-steps) |
+
+Mode 59 turns all five off. Modes 43 and 56 force two vehicle sub-steps every
+frame (the 25 fps case) with and without the reuse.
+
+**Why the write-on-change is the lever for lights.** Every one of those
+batches was rebuilt from scratch and re-stamped every frame (`clear()` +
+`push_back`, or `span()`, plus `++g_bboxStamp`), so each frame re-staged its
+bag instead of replaying its baked stream - even with nothing moving. Counted
+in PCSX2 (`CCKEEP`, per 300 frames, submits that had to re-stamp their box):
+
+| fixture pose | batch | before | after |
+| --- | --- | ---: | ---: |
+| district, garage day/night | corona + cone batches | every submit | 0-1 of 29-241 |
+| district, all four poses | headlight pools (3 parked cars) | 300 of 300 | 0 of 300 |
+| orbit rig, still and orbiting | headlight pools | 300 of 300 | 0 of 300 |
+| orbit rig, still | lamp halos | 300 of 300 | 0 of 300 |
+
+A corona faces the camera, so a moving camera still rewrites it (as before);
+the cones are world geometry and keep their stream under any camera. The halos
+face the camera too. The headlight pool does not, so it now stays put while the
+camera orbits. Pixels: at the district's four poses and the orbit rig's still
+day/night poses, all five on against all five off, the game's own
+`--capture-frame` agrees to the pixel by day. At night the only differences
+are 1-2 levels on the lamp shafts and pools, and the all-off arm differs from
+itself by as much between two shots (night frames flicker). The debug overlay
+is masked in these comparisons.
+
+**The paint step is a small lever on this rig.** Over the orbit phases (600
+frames) the paint was rebuilt 393 times with the old 4-step rule and 360 with
+the distance step. Only one of the two shining cars is not driven there, and
+it orbits at 6.8-11.3 units (a step of 5-9). The one-a-frame cap deferred
+nothing, because no frame had two non-driven cars asking. Both levers are for
+traffic with several parked or AI cars in view.
+
+**The sub-step reuse is exact, and has an oracle.** The first sub-step of a
+multi-step frame records, per car, the collider entries whose centre lies
+within the widest radius any gather test uses plus a travel margin
+(`2 x max(speed, top speed) x frame dt + 0.5`). A later sub-step walks that
+subset in the original order, so every list and every cap comes out as the full
+walk's. It falls back to the full walk if the car moved further than the margin
+allows. Vertical rules are re-applied every sub-step. The collider list itself
+(`buildVehicleColliders`, a walk of every scene object) is reused because
+nothing in a vehicle sub-step moves a non-vehicle object: a pushed body only
+takes an impulse. Built with `TYRA_VEH_SUBSTEP_VERIFY 1`, every reused gather
+is redone by the full walk and compared byte for byte (`VEHSUBSTEP ...
+MISMATCH n`). In PCSX2, with the Ravager driven in a circle over the spawn
+apron (a wall hit included) and two sub-steps forced every frame, 1800 of 1800
+reused gathers matched. The 147 `VEH` lines of the run with the reuse and the
+run without it are identical in every physics field. Only `pitch`, the engine
+note's register, differs: it is now sent once a frame, from the last sub-step.
+At 50 fps (one sub-step) none of this runs.
+
+**What the wheels do NOT need.** The backlog priced the wheels at "four
+160-triangle wheels rebuilt on the EE every frame". The `WHEELBAKE` counters say
+otherwise for a parked car: on the orbit rig 900 wheel-sets were drawn per 300
+frames and 300 were rebuilt, which is the driven car. The parked ones are
+skipped by the rebake signature and replay their stream. So the 0.27-0.39 ms
+of a parked car's wheels is VU1/GS work on 4 x 300 strip vertices, not EE
+work. The `@auto` fast wheel is no cheaper there either: the Ravager's
+96-triangle copy strips to 213 vertices, and the batch pads every wheel to
+the larger model's 300, so it draws the same four packages. A cheaper parked
+wheel needs a coarse asset of at most 75 strip vertices (one package), for
+example the far models' 28-triangle octagon. Separately, the driven car
+re-bakes its wheels every frame while parked (300 of 300): its signature
+floats never settle to the bit. That is ~0.1 ms of EE that a tolerance could
+remove, but an exact compare is what rules out a wheel frozen behind its car.
+
+**The blob is not an EE cost.** The blob's patch has been cached since 1.134.1.
+What is left per frame is one frustum test and one submit. The 0.35 ms measured
+by day is `vif_wait`, i.e. VU1/GS (docs/shadows.md, "Blob cost"). A shared bag
+for every car would need one texture for every car's shaped mask. With one or
+two cars in view it would save a submit, not the 0.35 ms.
+
 ### What a car costs (1.125.2)
 
 Measured on a physical PS2, Motor District `main` scene, player car parked at
@@ -2218,6 +2308,9 @@ steps (roughly 1.8 degrees), with the current LOD tier in the cache key. This
 hysteresis prevents camera bob from alternating between two buckets while a
 parked vehicle looks unchanged. Stable colour arrays retain their content stamp,
 so StaPip can replay the already baked VIF payload for the reflection overlay.
+Four steps is the driven car's rule. A car nobody drives waits for
+`0.8 x distance` steps (4 at 5 units, at most 24), and only one such car
+rebuilds a frame (`vehiclePaintGate`, "Per-car EE cuts" above).
 
 Physical-PS2 render-cost captures of the strip-study CC96 in the same chase
 pose, with `bodyShine = 0.45`, measured the vehicle row at **5.586 -> 2.379 ms**

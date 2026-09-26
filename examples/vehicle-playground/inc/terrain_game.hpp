@@ -917,6 +917,12 @@ class TerrainGame : public Tyra::Game {
     // The distance tier the body shows (0 full, 1/2 far - vehicleLodTier),
     // kept so the swap has a hysteresis.
     int farTier = 0;
+    // Its paint rebuild lost the one-a-frame slot last frame, so it takes
+    // the next one whatever else wants it (vehiclePaintGate).
+    bool paintDeferred = false;
+    // Its render matrix was skipped on a sub-step another one follows
+    // (TYRA_VEH_SUBSTEP_REUSE); the frame's last sub-step writes it.
+    bool objMatPending = false;
     float compress[4] = {0.5F, 0.5F, 0.5F, 0.5F}; // 0..1, visual only
     // The powertrain (docs/vehicles.md). Derived from the speed the model
     // already produces - the gear and the engine speed feed nothing back
@@ -1112,6 +1118,7 @@ class TerrainGame : public Tyra::Game {
   std::unique_ptr<Tyra::StaPipInfoBag> lampGlowInfo_;
   std::unique_ptr<Tyra::StaPipColorBag> lampGlowColorBag_;
   std::unique_ptr<Tyra::StaPipTextureBag> lampGlowTexBag_;
+  int lampGlowQuadsPrev_ = -1;  // write-on-change (TYRA_VEH_LIGHTS_KEEP)
   Tyra::M4x4 lampGlowMat_;
   void renderVehicleLampGlow();
   void repairVehicle(int vi);
@@ -1193,6 +1200,23 @@ class TerrainGame : public Tyra::Game {
   // first, so edge-triggered input (use, lights, camera) fires once a frame.
   void stepVehicles(float dt);
   bool vehSubStepRepeat_ = false;
+  // True on every sub-step that another one follows in the same frame: the
+  // presentation a later sub-step overwrites anyway (body transform, camera,
+  // engine note) is written once, on the last (TYRA_VEH_SUBSTEP_REUSE).
+  bool vehSubStepMore_ = false;
+  float vehFrameDt_ = 0.02F;  // the whole frame stepVehicles is stepping
+  // A car's collider candidates from the frame's FIRST sub-step, kept for the
+  // later ones (docs/vehicles.md, "Per-car EE cuts"): indices into
+  // vehColliders_ / procColliders whose centre lay within the gather reach
+  // PLUS a travel margin. A later sub-step walks only these, in the same
+  // order, so its gather is the full walk's exact result - and falls back to
+  // the full walk if the car moved further than the margin covers.
+  struct VehGatherCache {
+    std::vector<int> col, proc;
+    float x = 0.0F, z = 0.0F, reach = 0.0F, margin = 0.0F;
+    bool valid = false;
+  };
+  std::vector<VehGatherCache> vehGather_;
   void renderVehicleWheels();
   int vehicleLod(int vi) const;  // the body's shown tier (telemetry)
   // Tyre smoke and skid marks (docs/vehicles.md, "Skid marks and smoke"):
@@ -1288,6 +1312,20 @@ class TerrainGame : public Tyra::Game {
   BagArray<Tyra::Vec4> headlightSts_;
   BagArray<Tyra::Color> headlightCols_;
   int headlightCount_ = 0;
+  int headlightCountPrev_ = -1;
+  // A car's pool is a function of where it stands and faces (x, z, yaw,
+  // scale, definition): the ground under it is static. So the 54 vertices
+  // and their 16 ground queries are kept per car and re-derived only when
+  // that key moves (TYRA_VEH_LIGHTS_KEEP) - a parked car with its lights on
+  // used to pay both every frame.
+  struct HeadlightPoolCache {
+    float key[5] = {0, 0, 0, 0, 0};
+    bool valid = false;
+    Tyra::Vec4 p[kVehHeadlightCells * 6];
+    Tyra::Vec4 st[kVehHeadlightCells * 6];
+    Tyra::Color c[kVehHeadlightCells * 6];
+  };
+  std::vector<HeadlightPoolCache> headlightCache_;
   std::unique_ptr<Tyra::StaPipBag> headlightBag_;
   std::unique_ptr<Tyra::StaPipInfoBag> headlightInfoBag_;
   std::unique_ptr<Tyra::StaPipColorBag> headlightColorBag_;
@@ -1304,6 +1342,13 @@ class TerrainGame : public Tyra::Game {
   void selectVehicleShine();
   bool vehicleShineOn(int objIdx) const;
   int vehicleShineLogged_ = -1;  // the last selection VEHSHINE printed
+  // May this car's paint colours be rebuilt now, for a view move of `delta`
+  // 1/128 steps? (docs/vehicles.md, "Per-car EE cuts"): the step grows with
+  // the distance to a car nobody drives, and at most one such car rebuilds
+  // a frame. vehPaintSlotObj_ is the object that took this frame's slot,
+  // reset by selectVehicleShine once a frame.
+  bool vehiclePaintGate(int objIdx, int delta);
+  int vehPaintSlotObj_ = -1;
   // The far tier's distance per vehicle body (hysteresis, traffic distance)
   // and the parts it hides while it shows (docs/vehicles.md).
   int vehicleLodTier(int objIdx, int tier);

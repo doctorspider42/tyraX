@@ -294,19 +294,34 @@ leaves these, dearest first:
   spawn (Pica Turbo 652 / Strix V12 668 far-tier triangles, 4.5 units either
   side of the driven Ravager), so the spawn pose itself is a second fixture for
   that A/B; the CC96 is no longer placed.
-- **Wheels, 0.27-0.39 ms a car**: four 160-triangle wheels rebuilt on the EE
-  every frame. The fast-wheel model and the rebake skip exist; a coarser wheel
-  for cars that are not driven does not.
+- **Wheels, 0.27-0.39 ms a car**: NOT an EE rebuild for a parked car - the
+  rebake signature skips it (`WHEELBAKE` on the orbit rig: 300 of 900
+  wheel-sets rebuilt per 300 frames, all of them the driven car's). The cost
+  is VU1/GS on 4 x 300 strip vertices, and the `@auto` fast wheel pads to the
+  same 300. Left: a coarse traffic wheel asset of at most 75 strip vertices,
+  and the driven car's signature, which never settles to the bit while parked
+  (docs/vehicles.md, "Per-car EE cuts").
 - **Paint colour rebuilds, 0.38-0.44 ms a shining car** while the camera
   turns (measured). Moving them to VU1 was tried and is SLOWER (docs/vehicles.md,
-  "Where the shine's cost is, and one dead end"). What is left on the EE side:
-  a hysteresis step that grows with the distance to the car, or rebuilding at
-  most one car's colours a frame, round-robin. Both are unmeasured.
+  "Where the shine's cost is, and one dead end"). BUILT 2026-09-26, console
+  price owed: a distance-grown step for cars nobody drives and a
+  one-rebuild-a-frame cap (modes 52/53 of `make_cc_arm.py`). PCSX2: 393 -> 360
+  rebuilds per 600 orbit frames on the rig, where only one shining car is not
+  driven.
 - **Per-car small parts cost more than their triangles** (docs/shadows.md,
   "Blob cost"): the blob is 0.35 ms by day for 18 triangles, and the lamps and
   lights 0.25 ms. Caching the blob patch and the lamp colours bought
-  0.02-0.09 ms and ~0.07 ms. Next: find the fixed cost (a bag each, a texture
-  each, precise clip), for example one shared blob bag for every car.
+  0.02-0.09 ms and ~0.07 ms. BUILT 2026-09-26, console price owed: headlight
+  pools and lamp halos write on change (they re-staged every frame; now 0 of
+  300 re-stamps parked, mode 54). The blob has no EE work left to cut: its
+  remaining cost is `vif_wait`, and one shared bag would need one texture for
+  every car's mask.
+- **Sub-step reuse at 25 fps**: the second `stepVehicles` sub-step cost
+  +0.48..+0.52 ms of `work` (physical PS2, district fixture, forced). BUILT
+  2026-09-26, console price owed: the collider list and a per-car candidate
+  subset are reused, and the body matrix, chase camera and engine note are
+  written once a frame (mode 43 vs 56 of `make_cc_arm.py`); exact, with an
+  in-game oracle (docs/vehicles.md, "Per-car EE cuts").
 - **Night lighting passes** (garage night, physical PS2, all lamps removed per
   pass): the scene spot pools still cost ~0.74 ms for eight lamps after
   1.134.4's cache, which is one additive bag per lamp. Merging the static
@@ -315,9 +330,12 @@ leaves these, dearest first:
   -0.15 more.) The light beams cost 0.54 ms in garage night, measured by
   removing each half (median, two boots):
   - the coronas are 0.31 ms: 8 camera-facing sprites rebuilt on the EE every
-    frame, so the batch re-stages every frame. The StaPip billboard family
-    would expand static centres on VU1 instead, but its programs are not
-    resident, so price the program-set swap first.
+    frame, so the batch re-stages every frame. BUILT 2026-09-26, console price
+    owed (mode 55): corona and cone batches write on change, so a still camera
+    replays both streams (PCSX2: 0-1 re-stamps of 29-241 submits) and a moving
+    one keeps the cones'. A moving camera still rewrites the coronas; the
+    StaPip billboard family would expand static centres on VU1 instead, but
+    its programs are not resident, so price the program-set swap first.
   - the cones are 0.23 ms: 8-triangle fans drawn with no back-face cull, so
     each silhouette is filled twice. A one-sided cone at double colour would
     halve the fill but changes the look.
