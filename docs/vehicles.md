@@ -291,8 +291,12 @@ everything else a scene does.
   rules act once per step - the head-on scrub, the attitude spring's response
   - so the test drive drove a different car from the one the PAL console runs
   at 50 fps. It now runs fixed 1/50 s steps off an accumulator (at most five
-  per editor frame). The console runtime still steps at its own frame time,
-  1/50 s at 50 fps; a 25 fps frame is one 1/25 s step there (backlog).
+  per editor frame). Since 1.135.6 the console does the same: `stepVehicles`
+  runs `updateVehicles` in 1/50 s sub-steps, twice on a 25 fps frame and once
+  at 50 fps, exactly as before. Edge-triggered input (use, lights, camera)
+  fires on the first sub-step only (`vehSubStepRepeat_`). In PCSX2, with the
+  same Remote Pad script, a run with the physics stepped every second frame in
+  two sub-steps tracks the 50 fps run to within 1-2 units and a few degrees.
 - **A fast step is swept (1.135.3).** A wall move longer than `kSweepStep`
   (1 unit) is walked in pieces and stops at the first blocked one. At 90 u/s
   on a 20 fps frame a car moves 4.5 units, more than its own length, so a

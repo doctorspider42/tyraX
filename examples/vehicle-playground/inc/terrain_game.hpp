@@ -1047,6 +1047,11 @@ class TerrainGame : public Tyra::Game {
   std::unique_ptr<Tyra::StaPipTextureBag> wheelTexBag_;
   void setupVehicles(int scene);
   void updateVehicles(float dt);
+  // Fixed 1/50 s sub-steps around updateVehicles (1.135.6): a 25 fps frame
+  // runs it twice. vehSubStepRepeat_ is true on every sub-step after the
+  // first, so edge-triggered input (use, lights, camera) fires once a frame.
+  void stepVehicles(float dt);
+  bool vehSubStepRepeat_ = false;
   void renderVehicleWheels();
   int vehicleLod(int vi) const;  // the body's shown tier (telemetry)
   // Tyre smoke and skid marks (docs/vehicles.md, "Skid marks and smoke"):

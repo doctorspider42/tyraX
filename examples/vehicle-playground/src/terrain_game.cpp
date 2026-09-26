@@ -2945,7 +2945,7 @@ void TerrainGame::loop() {
   // value rather than fight it.
   if (!menuActive) updateSpinners();
   UPD_LAP(4);
-  if (!menuActive) { { Tyra::HardwareTrace::Scope trace("Vehicles_update"); updateVehicles(g_frameScale * (1.0F / 50.0F)); } { Tyra::HardwareTrace::Scope trace("Vehicle_smoke_update"); updateVehicleSmoke(g_frameScale * (1.0F / 50.0F)); } { Tyra::HardwareTrace::Scope trace("Vehicle_skids_update"); updateVehicleSkids(g_frameScale * (1.0F / 50.0F)); } }
+  if (!menuActive) { { Tyra::HardwareTrace::Scope trace("Vehicles_update"); stepVehicles(g_frameScale * (1.0F / 50.0F)); } { Tyra::HardwareTrace::Scope trace("Vehicle_smoke_update"); updateVehicleSmoke(g_frameScale * (1.0F / 50.0F)); } { Tyra::HardwareTrace::Scope trace("Vehicle_skids_update"); updateVehicleSkids(g_frameScale * (1.0F / 50.0F)); } }
   else muteVehicleEngines();
 
   UPD_LAP(5);
@@ -18340,6 +18340,23 @@ void TerrainGame::buildVehicleColliders() {
   }
 }
 
+// The vehiclesim twin's fixed step, on the console (docs/vehicles.md, "The
+// test drive steps at 1/50 s"): several rules act once per step - the head-on
+// scrub, the car-car separation, the attitude spring's response - so a 25 fps
+// frame taken as ONE 1/25 s step drove a different car from a 50 fps one. At
+// 50 fps this is exactly one call, as before.
+void TerrainGame::stepVehicles(float dt) {
+  int n = (int)(dt * 50.0F + 0.5F);
+  if (n < 1) n = 1;
+  if (n > 4) n = 4;
+  const float h = dt / (float)n;
+  for (int k = 0; k < n; ++k) {
+    vehSubStepRepeat_ = k > 0;
+    updateVehicles(h);
+  }
+  vehSubStepRepeat_ = false;
+}
+
 void TerrainGame::updateVehicles(float dt) {
   if (dt <= 0.0F) return;
   if (dt > 0.05F) dt = 0.05F;
@@ -18419,7 +18436,7 @@ void TerrainGame::updateVehicles(float dt) {
     // Enter and exit, by PROXIMITY - not through the usable machinery, which
     // costs the matrix fast path (see the scene-row emitter). The price is
     // that no "press USE" prompt appears yet.
-    if (!useHandled && PLAYER_INDEX >= 0 &&
+    if (!useHandled && !vehSubStepRepeat_ && PLAYER_INDEX >= 0 &&
         inputClicked(engine->pad, IA_ROLE_USE)) {
       {
         const float ddx0 = players[0].x - v.pos[0];
@@ -18491,7 +18508,8 @@ void TerrainGame::updateVehicles(float dt) {
       // gas-on-the-stick VM keyboards, and the throttle lives on R2 since
       // 1.69.0. DpadUp toggles the lights; the rest is unbound for future
       // features.
-      if (engine->pad.getClicked().DpadUp) v.lightsOn = v.lightsOn ? 0 : 1;
+      if (!vehSubStepRepeat_ && engine->pad.getClicked().DpadUp)
+        v.lightsOn = v.lightsOn ? 0 : 1;
       // L1 as the DEFAULT, not Square: Square is USE's default binding, so a
       // brake there would also throw the driver out on the same press.
       // Getting in and slowing down cannot share a button.
@@ -19584,9 +19602,10 @@ void TerrainGame::updateVehicles(float dt) {
       float k = dt * 5.0F;
       if (k > 1.0F) k = 1.0F;
       vehCamYaw_ += dyaw * k;
-      if (IA_ROLE_VEH_CAMERA >= 0
-              ? inputClicked(engine->pad, IA_ROLE_VEH_CAMERA)
-              : engine->pad.getClicked().Triangle)
+      if (!vehSubStepRepeat_ &&
+          (IA_ROLE_VEH_CAMERA >= 0
+               ? inputClicked(engine->pad, IA_ROLE_VEH_CAMERA)
+               : engine->pad.getClicked().Triangle))
         vehCamMode_ = (vehCamMode_ + 1) % 3;
       // The RIGHT stick GLANCES around the car (X) and lifts or drops the
       // boom (Y) - up to +-60 degrees, never the full circle. Held, it

@@ -159,7 +159,11 @@ loop = loop.replace('void TerrainGame::loop() {', '''void TerrainGame::loop() {
   stapip.core.takeTelemetry();
   engine->renderer.core.takeStallTicks();
   const auto dmTex0 = engine->renderer.core.texture.stats;''', 1)
-needle = 'updateVehicles(g_frameScale * (1.0F / 50.0F));'
+# 1.135.6 wraps the vehicle update in fixed sub-steps (stepVehicles); older
+# generated games call updateVehicles directly.
+needle = 'stepVehicles(g_frameScale * (1.0F / 50.0F));'
+if loop.count(needle) != 1:
+    needle = 'updateVehicles(g_frameScale * (1.0F / 50.0F));'
 assert loop.count(needle) == 1
 loop = loop.replace(needle, '{ const unsigned t=districtMeasure::ticks(); ' + needle + ' dmVehicles=districtMeasure::ticks()-t; }')
 needle = '  engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));'

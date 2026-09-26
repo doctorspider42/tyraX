@@ -5261,6 +5261,9 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.135.6 - The console steps vehicles at a fixed 1/50 s too (stepVehicles:
+// two sub-steps on a 25 fps frame, one at 50 fps); edge input fires once.
+// PATCH.
 // 1.135.5 - The corner lean is clamped to the effective grip (a slide no
 // longer leans the body into a corner it is not taking). Both twins. PATCH.
 // 1.135.4 - The editor's vehicle test drive steps the sim at a fixed 1/50 s
@@ -5363,7 +5366,7 @@
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 135
-#define TYRAX_VERSION_PATCH 5
+#define TYRAX_VERSION_PATCH 6
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
