@@ -310,8 +310,9 @@ leaves these, dearest first:
     table - gravel vs grass vs mud - would need terrain paint layers to
     answer the query);
   - ~~car-car spin~~ done 1.135.7.
-  The AI steers by heading error with no speed planning and was tuned
-  against uncapped yaw: check its laps (VEHAI) before placing AI cars again.
+  ~~The AI steers by heading error with no speed planning~~ done 1.136.1
+  (path pursuit + planned corner speed; 25-31 s laps with no unsticks). Left:
+  the traffic rule can steer an overtaking car wide into the outside wall.
 - **Stale entries:** the two "vehicle BODIES are still triangle lists" entries
   further down predate 1.117.4, which strips the body parts (the Ravager's
   paint part is 5490 list vertices -> 2649 strip vertices, 0.483x).

@@ -18552,8 +18552,65 @@ void TerrainGame::updateVehicles(float dt) {
       const float dz = wp[2] - v.pos[2];
       const float dist2 = dx * dx + dz * dz;
       const float adv = 7.0F * SC;
-      if (dist2 < adv * adv) v.wpCur = (v.wpCur + 1) % v.wpCount;
-      const float wantYaw = atan2f(dx, dz) * kRad;
+      const int wpAim = v.wpCur;
+      v.aiLapT += dt;
+      // PATH PURSUIT (1.136.1). Aiming at the waypoint itself let a car
+      // thrown wide by a corner drive straight at the next one from where it
+      // landed, never back onto the line - the district's Strix ran the
+      // whole a->b leg 11-15 units off the road. The target is now a point
+      // on the leg (previous waypoint -> this one), `look` ahead of the
+      // car's projection onto it, carried round onto the next leg past the
+      // corner: classic pure pursuit, which pulls the car back to the line
+      // and flies a corner as an arc of radius look / tan(turn / 2).
+      const float* wq =
+          &VEH_WAYPOINTS[(size_t)(v.wpFirst + (wpAim + v.wpCount - 1) % v.wpCount) * 3];
+      const float* wn =
+          &VEH_WAYPOINTS[(size_t)(v.wpFirst + (wpAim + 1) % v.wpCount) * 3];
+      const float look =
+          (4.0F + 0.35F * (v.speed > 0.0F ? v.speed : 0.0F)) * SC;
+      float tgX = wp[0], tgZ = wp[2];
+      bool passed = false;
+      {
+        const float lx = wp[0] - wq[0], lz = wp[2] - wq[2];
+        const float ll = sqrtf(lx * lx + lz * lz);
+        if (ll > 1e-3F) {
+          const float ux = lx / ll, uz = lz / ll;
+          const float along = (v.pos[0] - wq[0]) * ux + (v.pos[2] - wq[2]) * uz;
+          const float off = (v.pos[0] - wq[0]) * uz - (v.pos[2] - wq[2]) * ux;
+          passed = along >= ll;
+          const float at = along + look;
+          if (along < 0.0F || off > 20.0F * SC || off < -20.0F * SC) {
+            // Not on the leg yet - a car leaving its parking spot, or one
+            // knocked far off the line: the line's start could be anywhere
+            // (the grid's is behind a building), so head for the waypoint
+            // itself, the pre-1.136.1 rule, until the leg is reached.
+          } else if (at <= ll) {
+            tgX = wq[0] + ux * at;
+            tgZ = wq[2] + uz * at;
+          } else {
+            const float ox = wn[0] - wp[0], oz = wn[2] - wp[2];
+            const float ol = sqrtf(ox * ox + oz * oz);
+            const float over = at - ll < ol ? at - ll : ol;
+            if (ol > 1e-3F) {
+              tgX = wp[0] + ox / ol * over;
+              tgZ = wp[2] + oz / ol * over;
+            }
+          }
+        }
+      }
+      if (dist2 < adv * adv || passed) {
+        v.wpCur = (v.wpCur + 1) % v.wpCount;
+        // A lap: the route wrapped. The lap time and the unstick count are
+        // the AI's acceptance numbers - a driver that overshoots its corners
+        // shows up as a slow lap and as wall stalls, not as a wrong pixel.
+        if (v.wpCur == 0) {
+          TYRA_LOG("VEHAILAP ", vi, " t10 ", (int)(v.aiLapT * 10.0F),
+                   " unstick ", v.aiUnstick);
+          v.aiLapT = 0.0F;
+          v.aiUnstick = 0;
+        }
+      }
+      const float wantYaw = atan2f(tgX - v.pos[0], tgZ - v.pos[2]) * kRad;
       float err = wantYaw - v.yaw;
       while (err > 180.0F) err -= 360.0F;
       while (err < -180.0F) err += 360.0F;
@@ -18565,6 +18622,43 @@ void TerrainGame::updateVehicles(float dt) {
       const float ae = err < 0.0F ? -err : err;
       inThrottle = ae < 45.0F ? 1.0F : (ae < 100.0F ? 0.45F : 0.15F);
       if (ae > 115.0F && v.speed > 7.0F) inBrake = 1.0F;
+      // SPEED PLANNING (1.136.1). Since 1.135.0 the yaw is grip-limited, so
+      // a corner has a real top speed and a car arriving faster runs wide
+      // into whatever is outside it. The corner at this waypoint turns by
+      // the angle between the leg we are on and the next one; the pursuit
+      // starts turning `look` before it, so the arc it flies has radius
+      // look / tan(turn / 2), and holding it needs speed^2 / R <= grip. From
+      // there the brake works backwards: the fastest we may go now is the
+      // speed that still brakes down to the corner speed in the distance
+      // left. Grip here is the surface's (the last step's paved count) at a
+      // 0.8 margin, braking at 0.6 of the definition's - the AI drives a
+      // little under the limit, not on it.
+      {
+        const float ox = wn[0] - wp[0], oz = wn[2] - wp[2];
+        const float la = sqrtf(dist2), lo = sqrtf(ox * ox + oz * oz);
+        if (la > 1e-3F && lo > 1e-3F) {
+          float ct = (dx * ox + dz * oz) / (la * lo);
+          ct = vehClamp(ct, -1.0F, 1.0F);
+          const float half = 0.5F * acosf(ct);
+          const float th = tanf(half);
+          // The pursuit's arc: it starts turning `look` before the corner.
+          const float radius = th > 1e-3F ? look / th : 1e6F;
+          const float offShareAi = 1.0F - (float)v.paved * 0.25F;
+          const float gripAi = s.grip * (1.0F + (s.offroadGrip - 1.0F) * offShareAi) *
+                               kVehYawGripScale * 0.8F;
+          const float vCorner2 = gripAi * radius;
+          const float brakeAi = s.brakeDecel * 0.6F;
+          const float rest = la > look ? la - look : 0.0F;
+          const float vAllow = sqrtf(vCorner2 + 2.0F * brakeAi * rest);
+          if (v.speed > vAllow + 1.5F) {
+            inBrake = 1.0F;
+            inThrottle = 0.0F;
+          } else if (v.speed > vAllow && inThrottle > 0.2F) {
+            inThrottle = 0.2F;
+          }
+          v.aiPlan = vAllow;
+        }
+      }
       // TRAFFIC. Pure pursuit is blind to the other cars, and two rivals
       // on one circuit ride each other's bumpers through every corner. A
       // car AHEAD inside a speed-scaled lookahead and within a lane of the
@@ -18609,17 +18703,29 @@ void TerrainGame::updateVehicles(float dt) {
       // SAME WAY the pursuit asks (reversing swings the nose the other
       // way), then resume. The waypoint also advances, so the car aims past
       // the obstacle instead of back into it.
-      const float sp0 = v.speed < 0.0F ? -v.speed : v.speed;
+      // Covered, not reported (1.136.1): a car pinned against something can
+      // carry a speed it is not making, and one asking for a crawl (0.15 with
+      // its back to the waypoint) never qualified for "throttle held". Any
+      // forward throttle that moves the car under 1 u/s counts.
+      const float cvx = v.pos[0] - v.aiPrevX, cvz = v.pos[2] - v.aiPrevZ;
+      const float sp0 = dt > 1e-6F ? sqrtf(cvx * cvx + cvz * cvz) / dt : 0.0F;
+      v.aiPrevX = v.pos[0];
+      v.aiPrevZ = v.pos[2];
       if (v.aiRevT > 0.0F) {
         v.aiRevT -= dt;
         inThrottle = -1.0F;
         inBrake = 0.0F;
-      } else if (inThrottle > 0.5F && sp0 < 1.0F) {
+      } else if (inThrottle > 0.05F && inBrake < 0.01F && sp0 < 1.0F) {
         v.aiStuckT += dt;
         if (v.aiStuckT > 1.2F) {
           v.aiStuckT = 0.0F;
           v.aiRevT = 1.0F;
-          v.wpCur = (v.wpCur + 1) % v.wpCount;
+          ++v.aiUnstick;
+          // Skip the waypoint only NEAR it (1.136.1): an obstacle on the
+          // racing line sits by the corner, and aiming past it is the way
+          // round. Far from it the skip only lost the route - a car wedged
+          // mid-leg burned through five waypoints and cut across the city.
+          if (dist2 < 9.0F * adv * adv) v.wpCur = (v.wpCur + 1) % v.wpCount;
         }
       } else {
         v.aiStuckT = 0.0F;
@@ -19345,8 +19451,13 @@ void TerrainGame::updateVehicles(float dt) {
           v.pos[0] = prevX + rvx * dt;
           v.pos[2] = prevZ + rvz * dt;
           if (blockedInfo(v.pos[0], v.pos[2], nullptr, nullptr) > 0) {
+            // A wedge: no free room along the wall either. The car stays put
+            // AND stops (1.136.1, the host twin's rule) - keeping the
+            // redirect's velocity spun an AI car up to 33.9 u/s standing
+            // still in a corner of the district.
             v.pos[0] = prevX;
             v.pos[2] = prevZ;
+            rvx = rvz = 0.0F;
           }
           // Line the body up with the wall (the host twin's rule): turn the
           // heading toward the new velocity by (1 - impact), unless that
@@ -19920,7 +20031,8 @@ void TerrainGame::updateVehicles(float dt) {
         TYRA_LOG("VEHAI ", ai, " pos ", (int)vehicles_[ai].pos[0], " ",
                  (int)vehicles_[ai].pos[2], " wp ", vehicles_[ai].wpCur,
                  " spd10 ", (int)(vehicles_[ai].speed * 10.0F), " av ",
-                 vehicles_[ai].aiAvoid, " lod ", vehicleLod(ai));
+                 vehicles_[ai].aiAvoid, " lod ", vehicleLod(ai), " plan10 ",
+                 (int)(vehicles_[ai].aiPlan * 10.0F));
   }
 }
 

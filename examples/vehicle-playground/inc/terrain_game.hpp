@@ -972,8 +972,16 @@ class TerrainGame : public Tyra::Game {
     // getting no motion, and seconds left of the reverse-out manoeuvre.
     float aiStuckT = 0.0F;
     float aiRevT = 0.0F;
+    // AI lap telemetry (1.136.1, VEHAILAP): seconds since the route last
+    // wrapped, and how many unstick manoeuvres this lap needed.
+    float aiLapT = 0.0F;
+    int aiUnstick = 0;
+    // Where the AI stood at its previous step: unstick reads the distance
+    // actually covered, not the speed the sim reports (1.136.1).
+    float aiPrevX = 0.0F, aiPrevZ = 0.0F;
     int wpFirst = -1;
     int aiAvoid = 0;  // cars the traffic rule saw ahead this frame (telemetry)
+    float aiPlan = 0.0F;  // the speed planning's allowed speed (telemetry)
     int wpCount = 0;
     int wpCur = 0;
     int sleepFrames = 0;  // settled parked frames before static-physics sleep

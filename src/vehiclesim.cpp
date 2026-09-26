@@ -1191,6 +1191,11 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
                 if (blockedInfo(state.pos[0], state.pos[2], nullptr, nullptr) > 0) {
                     state.pos[0] = prevX;  // no free room along it: stay put
                     state.pos[2] = prevZ;
+                    // ...and a car that stays put is not moving (1.136.1): a
+                    // wedge used to keep the redirect's velocity, spinning up
+                    // to top speed in place (33.9 u/s on the console, which
+                    // also hid it from the AI's unstick rule).
+                    rvx = rvz = 0.0f;
                 }
                 // Line the body up with the wall: turn the heading toward the
                 // new velocity by (1 - impact) - a scrape realigns almost

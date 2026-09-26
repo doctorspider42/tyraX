@@ -171,6 +171,35 @@ void walls() {
         verdict(st.speed < 3.0f && st.pos[2] < 10.0f,
                 "a head-on stops at the wall (no phantom grind-in-place)");
     }
+    // A WEDGE (1.136.1): driven into the inside of a corner, both the move
+    // and its redirect along either wall are refused. The car used to keep
+    // the redirect's velocity anyway - 33.7 u/s on the console standing
+    // still, which also hid it from the AI's unstick rule (it reads speed).
+    {
+        auto corner = [](float x, float z, float) { return z > 10.0f || x > 10.0f; };
+        DriveSpec s;
+        float worst = 0.0f, worstYaw = 0.0f;
+        for (float yaw = 20.0f; yaw <= 70.0f; yaw += 5.0f) {
+            DriveState st;
+            st.pos[1] = s.rideHeight;
+            st.yaw = yaw;
+            DriveInput in;
+            in.throttle = 1.0f;
+            float moved = 0.0f, prevX = 0.0f, prevZ = 0.0f;
+            for (int i = 0; i < 500; ++i) {
+                step(s, in, 1.0f / 50.0f, flat, st, corner);
+                // Standing still (under a unit in the last 4 s) with speed
+                // on the clock is the failure; sliding out along a wall is not.
+                if (i == 300) prevX = st.pos[0], prevZ = st.pos[2];
+            }
+            moved = std::hypot(st.pos[0] - prevX, st.pos[2] - prevZ);
+            if (moved < 1.0f && std::fabs(st.speed) > worst)
+                worst = std::fabs(st.speed), worstYaw = yaw;
+        }
+        std::printf("  wedge: worst speed while standing still %.2f u/s (yaw %.0f)\n",
+                    worst, worstYaw);
+        verdict(worst < 1.0f, "a car wedged in a corner stands still, it does not spin up");
+    }
     // A pillar NARROWER than the corner spacing must still stop the car -
     // four corner samples alone let a pole pass between them and sit inside
     // the body, which is exactly how "wjechac w obiekt" was reported. The

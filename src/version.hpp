@@ -5261,6 +5261,10 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.136.1 - AI drivers: path pursuit (a point on the leg, look ahead of
+// the car) and planned corner speed; unstick reads covered distance; a
+// wedge stops the car in both twins; VEHAILAP lap telemetry. Two Motor
+// District trees moved off the Ring road. PATCH.
 // 1.136.0 - Off-road grip: three vehicle definition fields (offroadGrip,
 // offroadAccel, offroadDrag) blend the grip, the handbrake grip and the
 // acceleration, and add a rolling drag, by the share of tyres off the paved
@@ -5374,7 +5378,7 @@
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 136
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
