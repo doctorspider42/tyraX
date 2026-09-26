@@ -405,7 +405,12 @@ const float swapWaitMs = sample.programSetWaitTicks / 294912.0F;
 `TYRA_FRAME_PROFILE` the generated game enables the counters at init, drains
 them **every frame** (`takeTelemetry` clears as it reads, so a skipped frame is
 a lost frame) and prints the `FTCLIP` line below beside `FRAMETIME`. Nothing
-outside that `#if` switches them on.
+outside that `#if` switches them on - except `--profile-frame`, whose cost CSV
+sums the same counters over the one frame it captures: `Program_swap_wait_included`
+(ms) and `Program_swaps_count`, the number of billboard/resident program-set
+swaps. Both read 0 whenever the billboard programs fit in the resident set,
+which is every built-in configuration since the clip TD merge
+([vu1-clipping.md](vu1-clipping.md), "The resident set after the VU1 audit").
 
 **The three timing brackets do not cover the whole of `StaPipCore::render`,** and
 that is worth knowing before any of them is compared with a frame-level number.

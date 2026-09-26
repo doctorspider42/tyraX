@@ -279,11 +279,20 @@ one qword of 2×2 basis weights per particle, colors one per particle; VU1
 expands each center into a camera-facing quad — 6 GS vertices — from the
 camera right/up basis at `VU1_BILLBOARD_BASIS_ADDR` transformed by the MVP
 once per mesh, and culls per QUAD with one `clipw` judgement per corner.
-The two programs are NOT resident: the VU1-clipping program set fills micro
-memory to 1676/2042, so they live in their own packet swapped in on demand
-(`StaPipQBufferRenderer::ensureProgramSet`) and the resident set is lazily
-restored by the next non-billboard bag. Opt-in `StaPipTelemetry` records the
-transition count and full wait/upload ticks, plus cull/clip/outside routes,
+The two programs are RESIDENT whenever they fit (since 2026-09-26, the VU1
+audit): `setProgramsCache` sizes the class set the way `createProgramsCache`
+will pack it (`programSetWords` - even-rounded, a shared image counted once) and
+appends the billboard pair when the total stays under
+`Path1::getDrawFinishAddr()`; `ensureProgramSet` is then a no-op. With clip TD
+on the TC image the all-class VU1-clipping set is ~1740 of 2042 words and the
+pair is 206, so every built-in configuration fits. Only a set a project's own
+programs have grown past that falls back to the old separate packet, swapped in
+on demand and lazily restored by the next non-billboard bag - two VIF1 drains
+plus a ~15.5 KB MPG upload per transition, which the district paid several
+times a frame. The boot log says which case it is (`StaPip VU1 program set: N
+programs, billboards resident|swapped on demand`). Opt-in `StaPipTelemetry`
+records the transition count (`programSetSwaps`, also the frame-cost CSV's
+`Program_swaps_count` row) and full wait/upload ticks, plus cull/clip/outside routes,
 active-plane population, qbuffer flushes, and VIF1/VU1 wait ticks; disabled
 telemetry keeps the AABB early-out and performs no COP0 reads. **Its three
 timing brackets do not cover the whole of `StaPipCore::render`** — the head
@@ -1076,9 +1085,18 @@ tyrax-editor --vu-check               # parse ALL of them, simulate, diff, budge
   simulating both on randomized input, and each emits the same instruction COUNT
   as its handwritten file. If you change one of those fifteen by hand,
   `--vu-check` starts failing - update the description in `vugen.cpp` too, or the
-  two have genuinely diverged and you should say which is right. (Only the
-  `as_is` five are *adopted* so far: the files in `vendor/tyra` ARE the generated
-  ones. The `cull` and `clip` families are still the handwritten originals.)
+  two have genuinely diverged and you should say which is right. (The `as_is`
+  five and the two clip IMAGES, `clip_c` and `clip_tc`, are *adopted*: the files
+  in `vendor/tyra` ARE the generated ones, plus a few hand-kept comment blocks -
+  re-adopt by patching the emitter's diff onto them, not by overwriting. The
+  `cull` family and the three unlinked clip references - `clip_d`, `clip_td`,
+  `clip_tce` - are still the handwritten originals.) **To prove a microcode edit
+  is output-preserving**, change the description first and run `--vu-check`
+  against the OLD handwritten file (`git checkout` it back for the run): IDENTICAL
+  there, then IDENTICAL again after the hand edit, is old = new. That caught the
+  one trap of the 2026-09-26 trims: the cull loops built a single-colour corner
+  as `vf00 + singleColor`, which adds vf00.w = 1.0 to the ALPHA, so a copy of the
+  raw colour was one alpha step off - the replicated copies keep the `+ vf00`.
 - **`--vu-replay <projectDir>` re-runs a REAL console capture on the host** and
   diffs it against what the hardware produced (`examples/vu-lab` is the fixture;
   36/36 GS vertices bit-identical). Two limits: only the LAST mesh of a chain can
@@ -1464,6 +1482,22 @@ Rules the same evening paid for:
   the original `softness / (objRange2 * (1 - cosCut2))` made the flashlight
   ramp up over its whole reach — black on anything close, full brightness
   only near the far end, i.e. "it doesn't light what I'm aiming at".
+- **Three output-preserving trims (2026-09-26), and the rules they rely on.**
+  (1) `CalculateTyraFog` is ONE `mul.x` now: `LoadTyraFogParams` copies the fog
+  scale into the REGISTER's x lane (the single-colour flag in that lane is only
+  ever read with `ilw` from memory, the dynpip lerp reads only y), so a new
+  caller of `CalculateTyraFog` must take its params from `LoadTyraFogParams`.
+  (2) A lit program's colour is not clamped twice: the light macro clamps to
+  0..255 and FixColor is reduced to its `ftoi0` (cull_d/cull_td, as_is_d/as_is_td),
+  and clip_c's emitter drops its ceiling because every path into C's scratch
+  polygon already capped at 255 (TC's image keeps it: its env path carries raw
+  stream colours). (3) The cull colour loops no longer branch on single colour:
+  the batch header writes three copies (`+ vf00`, see above) to
+  `VU1_SINGLE_COLOR_COPIES_ADDR` = 1016 (free data memory above polygon B) and
+  the loop walks the colour pointer with a stride register, 0 or 3. A stage list
+  or script keeps the old shapes. Net, with clip TD on the TC image: VU1-clipping
+  set 1944 -> 1698 words, EE-clipper set 1602 -> 1508, both leaving room for
+  the 206-word billboard pair (per-program table in docs/vu1-clipping.md).
 - **Clamp vertex colors BEFORE the VU1 clipper interpolates them.** The cull
   programs run `FixColor` (mini 255 / max 0) per vertex right after the spot
   light; the clip programs feed Sutherland-Hodgman and only clamp in the
@@ -1485,10 +1519,19 @@ Rules the same evening paid for:
   has to be made in BOTH places or `--vu-check` fails — which is the point:
   the ceiling above is exactly the kind of change that used to be applied to
   `clip_c` and forgotten on `clip_tc`.
-- **The five logical clip programs occupy three resident images.** `C/D` share
-  the C image (same two-stream input and stride-2 scratch ABI), `TC/TCE` share
-  TC (same three-stream/stride-3 ABI), and `TD` stays specialised.
-  `VU1_OPTIONS_ADDR.y` selects the peer's per-corner shading path. The wrapper
+- **The five logical clip programs occupy TWO resident images.** `C/D` share
+  the C image (same two-stream input and stride-2 scratch ABI) and `TC/TCE/TD`
+  share TC (same three-stream/stride-3 ABI - TD's normals sit where TC's colours
+  do, which is why the old "TD has an ABI of its own" was wrong; merging it
+  saved 230 words). `VU1_OPTIONS_ADDR.y > 0` selects D in C's image and TCE in
+  TC's; TD is `.y > 0` AND `.x < 0` (`sendObjectData` writes -1 into the
+  single-colour lane for a resident TD bag - every reader of that lane tests
+  `> 0` only, and TD is never single-colour). The TD test sits INSIDE the env
+  branch, so the TC colour path pays nothing; TD and TCE pay two instructions.
+  The TD path reuses the env-basis and spot registers the preamble already
+  loaded from the same addresses (the light matrix and directions) and loads
+  only the light colours + ambient per triangle, so the image's VF peak did not
+  move (30 of 31). The wrapper
   objects deliberately point at the same CodeStart/CodeEnd range and
   `Path1::createProgramsCache` must alias that range to one destination instead
   of uploading it twice. If a generated override replaces one peer, it gets its
@@ -1496,11 +1539,12 @@ Rules the same evening paid for:
   separate peer-path section because normal description parity only exercises
   variant zero, and an `-- EE wrappers --` section that reads the `extern u32
   ..._CodeStart` out of the wrapper in THIS tree and fails if it is not the
-  image the description names. `stapip_clip_d_vu1.vclpp` and
-  `..._tce_vu1.vclpp` are still compiled but never LINKED - nothing references
-  their symbols, so the archive member stays out of the ELF; they exist as the
-  reference the peer-path check runs against. Do not "fix" them by pointing a
-  wrapper back at them.
+  image the description names. `stapip_clip_d_vu1.vclpp`,
+  `..._tce_vu1.vclpp` and `..._td_vu1.vclpp` are still compiled but never
+  LINKED - nothing references their symbols, so the archive member stays out of
+  the ELF; they exist as the reference the peer-path check runs against (TC/TD
+  runs with `runtimeColorLane = -1`). Do not "fix" them by pointing a wrapper
+  back at them.
 - **A GIF A+D giftag whose NLOOP undercounts its register writes stalls the
   GIF forever** — the stray qword parses as a new giftag with a garbage
   NLOOP. Symptom: the game hangs on the loading screen (spinning in
@@ -2609,7 +2653,10 @@ when nothing is lit". Four things generalise:
   loop and a per-corner gate: its body is far larger, and its stage slots must
   still see the vertex in the order they always did.)
 - **THE RESIDENT SET IS NOT NEAR THE CEILING ANY MORE, whatever
-  docs/toolchain-image.md still says - but it is tighter than it was.** The
+  docs/toolchain-image.md still says - but it is tighter than it was.** (Update
+  2026-09-26: 1944 words measured with nm before the VU1 audit, 1698 after - see
+  docs/vu1-clipping.md "The resident set after the VU1 audit"; the billboard pair now
+  rides in the headroom.) The
   shared clip images left real room: MEASURED at 1684 of 2042 words before this
   change (8 distinct images - 5 cull + 3 clip, since clip C/D and TC/TCE alias)
   and **1862 after**, 180 spare, nearly all of the growth being the two

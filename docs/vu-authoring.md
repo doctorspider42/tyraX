@@ -378,7 +378,7 @@ slots?" is usually no:
 | Skeletal animation: pose | the EE | No |
 | Skeletal animation: skinning | VU0 in **macro mode** (COP2 instructions issued by the EE) | **No** - macro mode has no microprogram to upload |
 | Animated models, drawing | VU1, the dynamic pipeline's four programs | No - uploaded when that pipeline is used, over the same addresses, so it SWAPS with the static set rather than sharing it |
-| Particle billboards | VU1, their own small set | No - swapped in on demand (`ensureProgramSet`) |
+| Particle billboards | VU1, two programs (206 words) | **Yes when they fit, which is the normal case** - appended to the resident set whenever it stays under the ceiling; only a set your own programs have grown past that swaps them in on demand (`ensureProgramSet`, two VIF1 drains per transition) |
 | A project's VU0 kernel | VU0 in **micro** mode | Yes, but against VU0's own 512 slots |
 
 So a scene with no animation frees EE time and VU0 cycles, not slots: there is
@@ -1136,12 +1136,22 @@ than the generator's descriptions. That is not fastidiousness: budgeting against
 the cull half alone showed `examples/vu-lab` comfortably green while the console
 died on the engine's assert the first time it ran.
 
-The built-in clip family is five logical programs but only three resident code
-images. `C/D` share the two-stream image, `TC/TCE` share the three-stream image,
-and `TD` remains specialised. The Micro memory panel applies those aliases (and
+The built-in clip family is five logical programs but only TWO resident code
+images. `C/D` share the two-stream image and `TC/TCE/TD` share the
+three-stream one (TD's normals ride where TC's colours do; TD is picked by
+`VU1_OPTIONS_ADDR.x < 0`). The Micro memory panel applies those aliases (and
 prices a custom override as a separate image); summing all five `.vclpp` files
 by hand is deliberately conservative but no longer describes what Path1
 uploads.
+
+**What your own programs compete with besides the classes: the two billboard
+programs.** They are appended to the resident set whenever the whole set still
+fits (206 words; the all-class built-in set leaves room for them in both
+clipping modes). A project whose own looks push the set past that does not
+fail - the billboards drop back to being swapped in on demand, which costs two
+VIF1 drains per billboard/non-billboard transition. The boot log says which
+(`billboards resident` / `swapped on demand`), and the frame-cost CSV's
+`Program_swaps_count` row counts the swaps.
 
 ```
 | Assertion failed!
@@ -1152,9 +1162,16 @@ uploads.
 Two ways to buy room:
 
 - **Drop material classes the project never draws.** This is the one that
-  actually works, and codegen does it for you: the mask is derived from what the
-  scenes and prefabs draw (`project::vuNeededClasses`) and emitted as
-  `core.setResidentClasses(...)` at the top of `install`. vu-lab draws one lit
+  actually works, and codegen does it for you **in a project with its own VU
+  program**: the mask is derived from what the scenes and prefabs draw
+  (`project::vuNeededClasses`) and emitted as `core.setResidentClasses(...)` at
+  the top of `install`. A project WITHOUT one is not narrowed - its engine keeps
+  all five classes - because `vuNeededClasses` only sees scene objects and
+  prefabs, and a terrain, a road, a vehicle or a spawned mesh draws classes it
+  does not see; nothing there is short of micro memory anyway.
+  `vuprog::residentClasses()` asks the engine in both cases (it used to answer
+  from a copy seeded with the auto mask even where the engine kept all five, so
+  `vuprog::setResidentClasses(<that mask>)` silently did nothing). vu-lab draws one lit
   ball and no textured-lit mesh, so it ships `setResidentClasses(27)` and the
   dropped `td` class is what pays for its stages.
   `StaPipCore::setResidentClasses(mask)` removes a class's two programs from the

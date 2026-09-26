@@ -31,6 +31,7 @@
     lq         texBufferClutGifTag, 11(vi00)  ; VU1_CLUT_ADDR
     lq         alphaGifTag, 21(vi00)  ; VU1_ALPHA_ADDR - per-mesh GS blend equation, in-band
     lq         fogParams, 8(vi00)  ; VU1_OPTIONS_ADDR.zw = GS hardware fog
+    add.x      fogParams, vf00, fogParams[z]  ; fog scale into .x (CalculateTyraFog)
     lq         spotPos, 12(vi00)  ; LoadTyraSpotLight - reuses the dir-lights slots, free in the colour programs
     lq         spotDirV, 13(vi00)
     lq         spotColV, 14(vi00)
@@ -173,7 +174,75 @@ noSpot:
     loi        255
     mini.xyz   color3, color3, i
     b          sharedAttributesReady
+    ; Modified by TyraX: clip TD shares this image. A TD bag sets .y > 0
+    ; (it is a lighting bag) AND .x < 0 (StaPipQBufferRenderer::sendObjectData),
+    ; so it reaches this block from sharedEnvMode below; its normals sit
+    ; where TC keeps colours, so color1..3 already hold them (.x < 0 took
+    ; the multi-colour loads). The light matrix and directions are the
+    ; env-basis and spot registers the preamble loaded from the same
+    ; addresses; only the colours + ambient load here, per triangle.
+    ; stapip_clip_td_vu1.vclpp is the unlinked reference --vu-check runs
+    ; this path against.
+sharedDirMode:
+    lq.xyz     lightColors[0], 15(vi00)  ; TD path: light colours + ambient
+    lq.xyz     lightColors[1], 16(vi00)
+    lq.xyz     lightColors[2], 17(vi00)
+    lq         ambientColor, 18(vi00)
+    mula.xyz   acc, envBasisX, color1[x]  ; CalculateTyraDirectionalLights
+    madda.xyz  acc, envBasisY, color1[y]
+    madd.xyz   color1, envBasisZ, color1[z]
+    mula.xyz   acc, spotPos, color1[x]
+    madda.xyz  acc, spotDirV, color1[y]
+    madd.xyz   color1, spotColV, color1[z]
+    mini.xyz   color1, color1, vf00[w]
+    max.xyz    color1, color1, ambientColor[w]
+    mula.xyz   acc, lightColors[0], color1[x]
+    madda.xyz  acc, lightColors[1], color1[y]
+    madda.xyz  acc, lightColors[2], color1[z]
+    madd.xyz   color1, ambientColor, vf00[w]
+    loi        255
+    mini.xyz   color1, color1, i
+    max.xyz    color1, color1, vf00[x]
+    loi        128
+    add.w      color1, vf00, i
+    mula.xyz   acc, envBasisX, color2[x]  ; CalculateTyraDirectionalLights
+    madda.xyz  acc, envBasisY, color2[y]
+    madd.xyz   color2, envBasisZ, color2[z]
+    mula.xyz   acc, spotPos, color2[x]
+    madda.xyz  acc, spotDirV, color2[y]
+    madd.xyz   color2, spotColV, color2[z]
+    mini.xyz   color2, color2, vf00[w]
+    max.xyz    color2, color2, ambientColor[w]
+    mula.xyz   acc, lightColors[0], color2[x]
+    madda.xyz  acc, lightColors[1], color2[y]
+    madda.xyz  acc, lightColors[2], color2[z]
+    madd.xyz   color2, ambientColor, vf00[w]
+    loi        255
+    mini.xyz   color2, color2, i
+    max.xyz    color2, color2, vf00[x]
+    loi        128
+    add.w      color2, vf00, i
+    mula.xyz   acc, envBasisX, color3[x]  ; CalculateTyraDirectionalLights
+    madda.xyz  acc, envBasisY, color3[y]
+    madd.xyz   color3, envBasisZ, color3[z]
+    mula.xyz   acc, spotPos, color3[x]
+    madda.xyz  acc, spotDirV, color3[y]
+    madd.xyz   color3, spotColV, color3[z]
+    mini.xyz   color3, color3, vf00[w]
+    max.xyz    color3, color3, ambientColor[w]
+    mula.xyz   acc, lightColors[0], color3[x]
+    madda.xyz  acc, lightColors[1], color3[y]
+    madda.xyz  acc, lightColors[2], color3[z]
+    madd.xyz   color3, ambientColor, vf00[w]
+    loi        255
+    mini.xyz   color3, color3, i
+    max.xyz    color3, color3, vf00[x]
+    loi        128
+    add.w      color3, vf00, i
+    b          sharedAttributesReady
 sharedEnvMode:
+    ilw.x      sceFlag, 8(vi00)  ; VU1_OPTIONS_ADDR.x < 0 = a TD (lit) mesh
+    ibltz      sceFlag, sharedDirMode
     mul.xyz    tyraEnvLen, stq1, stq1  ; CalculateTyraEnvStq: renormalize (uses Q)
     add.x      tyraEnvLen, tyraEnvLen, tyraEnvLen[y]
     add.x      tyraEnvLen, tyraEnvLen, tyraEnvLen[z]
@@ -339,8 +408,7 @@ fanEmitLoop:
     lq         ecPos, 0(emitPtr)
     lq         ecStq, 1(emitPtr)
     lq         ecCol, 2(emitPtr)
-    add.x      ecFogF, vf00, ecPos[w]  ; CalculateTyraFog
-    mul.x      ecFogF, ecFogF, fogParams[z]
+    mul.x      ecFogF, fogParams, ecPos[w]  ; CalculateTyraFog
     add.x      ecFogF, ecFogF, fogParams[w]
     loi        255
     mini.x     ecFogF, ecFogF, i

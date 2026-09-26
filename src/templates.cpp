@@ -24428,6 +24428,7 @@ void TerrainGame::renderScene() {
     u32 dispatchTicks = 0;
     u32 vu1WaitTicks = 0;
     u32 programSetWaitTicks = 0;
+    u32 programSetSwaps = 0;
     u32 packagesCull = 0;
     u32 packagesClip = 0;
     u32 packagesGuardBand = 0;
@@ -24468,6 +24469,7 @@ void TerrainGame::renderScene() {
     d.dispatchTicks += t.dispatchTicks;
     d.vu1WaitTicks += t.vu1WaitTicks;
     d.programSetWaitTicks += t.programSetWaitTicks;
+    d.programSetSwaps += t.programSetSwaps;
     d.packagesCull += t.packagesCull;
     d.packagesClip += t.packagesClip;
     d.packagesGuardBand += t.packagesGuardBand;
@@ -25569,6 +25571,9 @@ void TerrainGame::renderScene() {
     costRows.push_back({-1,"Dispatch_included",pipeCost.dispatchTicks});
     costRows.push_back({-1,"VU1_wait_included",pipeCost.vu1WaitTicks});
     costRows.push_back({-1,"Program_swap_wait_included",pipeCost.programSetWaitTicks});
+    // How many billboard/resident program-set swaps the frame paid for - 0
+    // whenever the billboard programs fit in the resident set.
+    costRows.push_back({-1,"Program_swaps_count",pipeCost.programSetSwaps*294912U});
     costRows.push_back({-1,"Guard_band_bags_count",pipeCost.bagsGuardBandDirect*294912U});
     costRows.push_back({-1,"Packages_count",(pipeCost.packagesCull+pipeCost.packagesClip)*294912U});
     // packagesGuardBand is a SUBSET of packagesCull, so it is never added in.
@@ -58384,8 +58389,6 @@ std::string vuProgramsSource(const Project& p, const VuBuild& vb) {
         s += "Tyra::StaPipCore* g_core = nullptr;\n";
         s += std::string("bool g_vu1Clip = ") +
              (p.settings.clipping == "vu1" ? "true" : "false") + ";\n";
-        s += std::string("unsigned g_resident = ") +
-             std::to_string(project::vuResidentClasses(p)) + "u;\n";
         s += "}  // namespace\n\n";
         s += "void install(Tyra::StaPipCore& core) { g_core = &core; }\n\n";
         s += "void setVU1Clipping(bool onVU1) {\n";
@@ -58393,11 +58396,14 @@ std::string vuProgramsSource(const Project& p, const VuBuild& vb) {
         s += "  g_vu1Clip = onVU1;\n";
         s += "  g_core->setVU1Clipping(onVU1);\n}\n\n";
         s += "bool vu1Clipping() { return g_vu1Clip; }\n\n";
+        // No mirror of the mask here. This project is never narrowed - its
+        // engine keeps all five classes - and a copy seeded from the AUTO
+        // mask made setResidentClasses(<that mask>) a silent no-op. The engine
+        // skips an unchanged set by itself, so it is asked directly.
         s += "void setResidentClasses(unsigned mask) {\n";
-        s += "  if (!g_core || g_resident == (mask | 1u)) return;\n";
-        s += "  g_resident = mask | 1u;\n";
-        s += "  g_core->setResidentClasses(g_resident);\n}\n\n";
-        s += "unsigned residentClasses() { return g_resident; }\n\n";
+        s += "  if (g_core) g_core->setResidentClasses(mask | 1u);\n}\n\n";
+        s += "unsigned residentClasses() {\n";
+        s += "  return g_core ? g_core->getResidentClasses() : 31u;\n}\n\n";
         s += "}  // namespace vuprog\n";
         return s;
     }
@@ -58427,8 +58433,6 @@ std::string vuProgramsSource(const Project& p, const VuBuild& vb) {
     // before anything has flipped it.
     s += std::string("bool g_vu1Clip = ") +
          (p.settings.clipping == "vu1" ? "true" : "false") + ";\n";
-    s += std::string("unsigned g_resident = ") +
-         std::to_string(project::vuResidentClasses(p)) + "u;\n";
     s += "const char* const kNames[] = {";
     for (size_t i = 0; i < vb.looks.size(); ++i)
         s += (i ? ", " : "") + std::string("\"") + vb.looks[i].name + "\"";
@@ -58452,12 +58456,15 @@ std::string vuProgramsSource(const Project& p, const VuBuild& vb) {
     s += "  activate(g_active);\n";
     s += "}\n\n";
     s += "bool vu1Clipping() { return g_vu1Clip; }\n\n";
+    // The engine is the one source of truth for the mask (it skips an
+    // unchanged set by itself); before install() the answer is the mask
+    // install() is about to narrow to.
     s += "void setResidentClasses(unsigned mask) {\n";
-    s += "  if (!g_core || g_resident == (mask | 1u)) return;\n";
-    s += "  g_resident = mask | 1u;\n";
-    s += "  g_core->setResidentClasses(g_resident);\n";
+    s += "  if (g_core) g_core->setResidentClasses(mask | 1u);\n";
     s += "}\n\n";
-    s += "unsigned residentClasses() { return g_resident; }\n\n";
+    s += "unsigned residentClasses() {\n";
+    s += "  return g_core ? g_core->getResidentClasses() : " +
+         std::to_string(vb.residentMask | 1u) + "u;\n}\n\n";
     s += "bool movesGeometry() {\n";
     s += "  static const bool kMoves[] = {";
     for (size_t i = 0; i < vb.looks.size(); ++i)

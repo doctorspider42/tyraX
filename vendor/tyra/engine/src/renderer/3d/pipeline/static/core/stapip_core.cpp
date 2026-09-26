@@ -772,9 +772,10 @@ void StaPipCore::render(StaPipBag* bag) {
   TYRA_ATTRIB_ADD(prepTextureTicks, attribTextureStart);
 
   TYRA_ATTRIB_MARK(attribProgramStart);
-  // Modified by TyraX: billboard bags run from their own on-demand program
-  // set (micro memory is full - see ensureProgramSet); non-billboard bags
-  // lazily restore the resident set.
+  // Modified by TyraX: a no-op while the billboard programs are resident (the
+  // normal case - see setProgramsCache). Only a set grown past the micro
+  // memory ceiling by a project's own programs swaps them in on demand, and
+  // then non-billboard bags lazily restore the resident set.
   qbufferRenderer.ensureProgramSet(bag->billboard != nullptr);
 
   qbufferRenderer.clearLastProgramName();

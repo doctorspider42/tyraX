@@ -32,6 +32,7 @@
     lq         texBufferClutGifTag, 11(vi00)  ; VU1_CLUT_ADDR
     lq         alphaGifTag, 21(vi00)  ; VU1_ALPHA_ADDR - per-mesh GS blend equation, in-band
     lq         fogParams, 8(vi00)  ; VU1_OPTIONS_ADDR.zw = GS hardware fog
+    add.x      fogParams, vf00, fogParams[z]  ; fog scale into .x (CalculateTyraFog)
 begin:
     xtop       buffer
     lq.xyz     scale, 0(buffer)  ; LoadTyraBufferTags
@@ -93,10 +94,7 @@ vertexLoop:
     max.xyz    outputColor1, outputColor1, vf00[x]
     loi        128
     add.w      outputColor1, vf00, i
-    loi        255  ; FixColor: clamp to 0..255
-    mini.xyz   outputColor1, outputColor1, i
-    max.xyz    outputColor1, outputColor1, vf00[x]
-    ftoi0      outputColor1, outputColor1
+    ftoi0      outputColor1, outputColor1  ; FixColor without the clamp - the light macro already clamped
     mula.xyz   acc, scale, vf00[w]  ; ScaleVertexToGSFormat
     madd.xyz   vertex2, vertex2, scale
     ftoi4.xyz  vertex2, vertex2
@@ -119,10 +117,7 @@ vertexLoop:
     max.xyz    outputColor2, outputColor2, vf00[x]
     loi        128
     add.w      outputColor2, vf00, i
-    loi        255  ; FixColor: clamp to 0..255
-    mini.xyz   outputColor2, outputColor2, i
-    max.xyz    outputColor2, outputColor2, vf00[x]
-    ftoi0      outputColor2, outputColor2
+    ftoi0      outputColor2, outputColor2  ; FixColor without the clamp - the light macro already clamped
     mula.xyz   acc, scale, vf00[w]  ; ScaleVertexToGSFormat
     madd.xyz   vertex3, vertex3, scale
     ftoi4.xyz  vertex3, vertex3
@@ -145,12 +140,8 @@ vertexLoop:
     max.xyz    outputColor3, outputColor3, vf00[x]
     loi        128
     add.w      outputColor3, vf00, i
-    loi        255  ; FixColor: clamp to 0..255
-    mini.xyz   outputColor3, outputColor3, i
-    max.xyz    outputColor3, outputColor3, vf00[x]
-    ftoi0      outputColor3, outputColor3
-    add.x      fogAccum, vf00, vertex1[w]  ; CalculateTyraFog
-    mul.x      fogAccum, fogAccum, fogParams[z]
+    ftoi0      outputColor3, outputColor3  ; FixColor without the clamp - the light macro already clamped
+    mul.x      fogAccum, fogParams, vertex1[w]  ; CalculateTyraFog
     add.x      fogAccum, fogAccum, fogParams[w]
     loi        255
     mini.x     fogAccum, fogAccum, i
@@ -158,8 +149,7 @@ vertexLoop:
     ftoi4.x    fogAccum, fogAccum
     mtir       fogInt, fogAccum[x]
     isw.w      fogInt, 2(destAddress)
-    add.x      fogAccum, vf00, vertex2[w]  ; CalculateTyraFog
-    mul.x      fogAccum, fogAccum, fogParams[z]
+    mul.x      fogAccum, fogParams, vertex2[w]  ; CalculateTyraFog
     add.x      fogAccum, fogAccum, fogParams[w]
     loi        255
     mini.x     fogAccum, fogAccum, i
@@ -167,8 +157,7 @@ vertexLoop:
     ftoi4.x    fogAccum, fogAccum
     mtir       fogInt, fogAccum[x]
     isw.w      fogInt, 5(destAddress)
-    add.x      fogAccum, vf00, vertex3[w]  ; CalculateTyraFog
-    mul.x      fogAccum, fogAccum, fogParams[z]
+    mul.x      fogAccum, fogParams, vertex3[w]  ; CalculateTyraFog
     add.x      fogAccum, fogAccum, fogParams[w]
     loi        255
     mini.x     fogAccum, fogAccum, i

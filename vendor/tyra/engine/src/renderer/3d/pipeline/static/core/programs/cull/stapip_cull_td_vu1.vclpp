@@ -103,7 +103,9 @@ vertexLoop:
         ScaleVertexToGSFormat{ scale, vertex1 }
         PerformTexturePerspectiveCorrection{ outputStq1, stq1 }
         CalculateTyraDirectionalLights{ outputColor1, normal1, lightDirections, lightColors, lightMatrix, ambientColor }
-        FixColor{ outputColor1 }
+        ; Modified by TyraX: FixColor minus its clamp -
+        ; CalculateTyraDirectionalLights already clamped to 0..255
+        ftoi0   outputColor1,   outputColor1
 
         ;--- Calculate vertex2
         MatrixMultiplyVertex{ vertex2, mvp, vertex2 }
@@ -113,7 +115,7 @@ vertexLoop:
         ScaleVertexToGSFormat{ scale, vertex2 }
         PerformTexturePerspectiveCorrection{ outputStq2, stq2 }
         CalculateTyraDirectionalLights{ outputColor2, normal2, lightDirections, lightColors, lightMatrix, ambientColor }
-        FixColor{ outputColor2 }
+        ftoi0   outputColor2,   outputColor2
 
         ;--- Calculate vertex3
         MatrixMultiplyVertex{ vertex3, mvp, vertex3 }
@@ -123,7 +125,7 @@ vertexLoop:
         ScaleVertexToGSFormat{ scale, vertex3 }
         PerformTexturePerspectiveCorrection{ outputStq3, stq3 }
         CalculateTyraDirectionalLights{ outputColor3, normal3, lightDirections, lightColors, lightMatrix, ambientColor }
-        FixColor{ outputColor3 }
+        ftoi0   outputColor3,   outputColor3
 
         ;--- Store vertex1 
         sq      outputStq1,     STQ_STORE_OFFSET(destAddress)

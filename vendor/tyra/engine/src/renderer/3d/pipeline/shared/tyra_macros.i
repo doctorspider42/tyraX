@@ -263,9 +263,14 @@
 ;//   z - fogScale  = -255 / (fogEnd - fogStart)
 ;//   w - fogOffset = 255 * fogEnd / (fogEnd - fogStart)
 ;// (x holds singleColorEnabled, y holds dynpip interpolation)
+;// Modified by TyraX: the REGISTER's x then gets a copy of the
+;// scale (every reader of the single-colour flag uses ilw from
+;// memory, and the dynpip lerp reads only y), which is what lets
+;// CalculateTyraFog multiply w by it in one instruction.
 ;//---------------------------------------------------------
 #macro LoadTyraFogParams: t_fogParams, t_optionsAddr
    lq          t_fogParams,   t_optionsAddr(vi00)
+   add.x       t_fogParams,   vf00,          t_fogParams[z]
 #endmacro
 
 ;//---------------------------------------------------------
@@ -287,10 +292,13 @@
 ;// (word3 bits 4-11; the 4 fraction bits fall into ignored
 ;// bits 0-3). GS blends Cout = (F*Cin + (255-F)*FOGCOL) >> 8,
 ;// so F=255 means no fog.
+;// Modified by TyraX: t_fogParams must come from LoadTyraFogParams,
+;// whose x lane holds the scale: w * scale is then ONE multiply
+;// (w as the broadcast operand) instead of a copy of w into an x
+;// lane and a multiply - bit-identical, one instruction a vertex.
 ;//---------------------------------------------------------
 #macro CalculateTyraFog: t_fogInt, t_vertex, t_fogParams
-   add.x       fogAccum,      vf00,          t_vertex[w]
-   mul.x       fogAccum,      fogAccum,      t_fogParams[z]
+   mul.x       fogAccum,      t_fogParams,   t_vertex[w]
    add.x       fogAccum,      fogAccum,      t_fogParams[w]
    loi         255
    mini.x      fogAccum,      fogAccum,      i

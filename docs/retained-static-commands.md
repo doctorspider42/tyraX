@@ -112,8 +112,9 @@ recycled heap address that comes back with the same layout produces the same
 block, because the block carries addresses and counts and no vertex data at all.
 
 Two bag shapes are refused outright, for the same reasons the submission-batch
-scope refuses them: a **billboard** bag (its program set is swapped in on
-demand and its centres are expanded from a per-frame camera basis), and any bag
+scope refuses them: a **billboard** bag (its centres are expanded from a
+per-frame camera basis, and when a project's own programs leave no room for the
+billboard pair in the resident set its programs are swapped in on demand), and any bag
 at all while a **game-supplied program override** is installed (a replacement
 writer has no packet ABI and is not required to be position-independent).
 

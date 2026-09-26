@@ -473,6 +473,13 @@ struct Desc {
      * shading branch differs; custom programs remain fully specialised. */
     bool sharedClipDir = false;
     bool sharedClipEnv = false;
+    /** TC's image ALSO covers TD: same three-stream input (the normals sit
+     * where TC's colours do), same stride-3 scratch polygon, same GIF register
+     * list. Selected by VU1_OPTIONS_ADDR.x < 0 - a lane that was only ever
+     * tested `> 0` (single colour) against `<= 0`, and a TD mesh is never
+     * single-colour. Within the env branch (TD bags also set .y > 0), so the
+     * TC colour path pays nothing for it. */
+    bool sharedClipTexDir = false;
     /** The image an EE wrapper actually UPLOADS for this program, as a
      * `.name`/linker symbol stem. Empty means the program owns its own image;
      * otherwise it names the ABI-compatible peer whose image covers this one,
@@ -494,6 +501,9 @@ struct Desc {
     /** Test-harness value written to VU1_OPTIONS_ADDR.y. It does not change
      * generated code; non-zero selects the shared image's peer path. */
     int runtimeClipVariant = 0;
+    /** Test-harness value written to VU1_OPTIONS_ADDR.x instead of the
+     * single-colour flag when non-zero (negative selects TC's TD path). */
+    int runtimeColorLane = 0;
     std::string dir = "as_is";  // sub-directory under programs/
 
     /** A PROJECT's own program: the same skeleton with a stage list woven in.

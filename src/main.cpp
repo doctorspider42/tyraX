@@ -3761,12 +3761,14 @@ static int vuCheckFromCli(int argc, char** argv) {
     }
     std::printf("\n");
 
-    // The built-in C/D and TC/TCE clip pairs now share one resident image per
-    // ABI-compatible pair. The ordinary checks above exercise variant zero;
-    // compare variant one directly with the old specialised peer as well.
+    // The built-in clip classes share resident images: C carries D, TC
+    // carries TCE and TD. The ordinary checks above exercise variant zero;
+    // compare each peer path directly with the old specialised program too.
+    // TD is selected by VU1_OPTIONS_ADDR.x < 0 on top of .y > 0 (a TD bag is
+    // a lighting bag, which is what sets .y), hence the second lane.
     std::printf("-- shared clip images, peer paths --\n");
     auto checkSharedClip = [&](const char* sharedStem, const char* peerStem,
-                               const char* label) {
+                               const char* label, int colorLane = 0) {
         const std::vector<vugen::Desc> descs = vugen::allDescs();
         const vugen::Desc* peer = nullptr;
         for (const vugen::Desc& d : descs)
@@ -3793,6 +3795,7 @@ static int vuCheckFromCli(int argc, char** argv) {
         }
         vugen::Desc staged = *peer;
         staged.runtimeClipVariant = 1;
+        staged.runtimeColorLane = colorLane;
         const vugen::Equivalence eq = vugen::equivalence(
             shared, specialised, staged, 60, 0x5A4ECA11u);
         std::printf("  %-16s %-9s %d trials, up to %d vertices\n", label,
@@ -3806,6 +3809,7 @@ static int vuCheckFromCli(int argc, char** argv) {
     };
     checkSharedClip("stapip_clip_c_vu1", "stapip_clip_d_vu1", "Clip C/D");
     checkSharedClip("stapip_clip_tc_vu1", "stapip_clip_tce_vu1", "Clip TC/TCE");
+    checkSharedClip("stapip_clip_tc_vu1", "stapip_clip_td_vu1", "Clip TC/TD", -1);
     std::printf("\n");
 
     // 3. The emitted SOURCE must behave like the IR it came from.
@@ -3946,7 +3950,8 @@ static int vuCheckFromCli(int argc, char** argv) {
     }
     std::printf("  (ALIAS = no image of its own, and no .vclpp of its own in the "
                 "ELF: the peer's\n   body carries this program's path and "
-                "VU1_OPTIONS_ADDR.y picks it per mesh.)\n\n");
+                "VU1_OPTIONS_ADDR picks it per mesh:\n   .y > 0 for D and "
+                "TCE, .y > 0 with .x < 0 for TD.)\n\n");
 
     // 4. The micro-memory budget - per PHYSICAL image and per clipping MODE.
     //
