@@ -5261,6 +5261,12 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.147.0 - Vehicle pedals (docs/vehicles.md, "Driving it"): R2 is the only
+// gas, L2 brakes while rolling forward and reverses once stopped (R2 brakes a
+// car rolling backwards); the left stick only steers. One rule,
+// vehiclesim::pedals, read by the editor's test drive (W / S) and twinned in
+// the console's player controller; --vehicle-check "pedals".
+// No format change. MINOR.
 // 1.146.0 - VU1 audit: the billboard programs are resident whenever they fit
 // (no program-set swap), clip TD rides the TC image (clip_td unlinked), and
 // output-preserving trims (fog one multiply, no double clamp, no single-colour
@@ -5458,7 +5464,7 @@
 // Particles face the camera a pass DRAWS with (cutscene override, shake,
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 146
+#define TYRAX_VERSION_MINOR 147
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

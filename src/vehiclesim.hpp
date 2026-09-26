@@ -277,6 +277,14 @@ struct DriveInput {
     bool nos = false;       // nitrous held
 };
 
+// The two pedals (docs/vehicles.md, "Driving it"): R2 = gas, L2 = brake AND
+// reverse, the era's racer layout. Moving forward, L2 brakes; stopped (or
+// already rolling backwards), L2 drives backwards and R2 is the brake. Both
+// inputs 0..1 (a DualShock 2 trigger's pressure, a key = 1). The one rule the
+// console's player controller and the editor's test drive both read.
+constexpr float kPedalStop = 0.5f;  // units/s: below this the car counts as stopped
+void pedals(float speed, float gas, float brakeReverse, DriveInput& in);
+
 struct DriveState {
     float pos[3] = {0.0f, 0.0f, 0.0f};  // chassis origin (between the axles, at ride height)
     float yaw = 0.0f;                   // degrees, around the up axis
