@@ -281,6 +281,13 @@ everything else a scene does.
   slip against 0.52 at full grip. In PCSX2 a flick at 30 u/s slid on and
   recovered over ~1.5 s. The constants are code, not definition fields, yet:
   tune by feel first.
+- **The test drive steps at 1/50 s (1.135.4).** The editor used to feed the
+  sim its own frame time (ImGui's delta, 1/144 s on a fast monitor). Several
+  rules act once per step - the head-on scrub, the attitude spring's response
+  - so the test drive drove a different car from the one the PAL console runs
+  at 50 fps. It now runs fixed 1/50 s steps off an accumulator (at most five
+  per editor frame). The console runtime still steps at its own frame time,
+  1/50 s at 50 fps; a 25 fps frame is one 1/25 s step there (backlog).
 - **A fast step is swept (1.135.3).** A wall move longer than `kSweepStep`
   (1 unit) is walked in pieces and stops at the first blocked one. At 90 u/s
   on a 20 fps frame a car moves 4.5 units, more than its own length, so a

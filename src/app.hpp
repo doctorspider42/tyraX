@@ -812,6 +812,7 @@ private:
     // Scene-object index being test-driven, -1 = nobody.
     int vehicleDriveObj_ = -1;
     vehiclesim::DriveState vehicleDriveState_;
+    float vehicleDriveAccum_ = 0.0f;  // test drive: time not yet stepped (1/50 s steps)
     // The transform the object had before the drive. A test drive is a way of
     // LOOKING at a vehicle, never an edit - it must put the car back exactly
     // where the author left it (the procedural seed-sweep rule).

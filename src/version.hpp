@@ -5261,6 +5261,8 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.135.4 - The editor's vehicle test drive steps the sim at a fixed 1/50 s
+// (an accumulator), the PAL console's own step. PATCH.
 // 1.135.3 - Swept wall steps (a move over 1 unit is walked in pieces), and
 // the stick deadzones are rescaled with a gentle steering expo. PATCH.
 // 1.135.2 - The handbrake rotates the car into a drift (full-grip cap on
@@ -5359,7 +5361,7 @@
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 135
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_PATCH 4
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

@@ -296,8 +296,9 @@ leaves these, dearest first:
   - ~~walls redirect instead of scrub, and the twins' wall shapes agree~~
     done 1.135.1 (the host's boxes are still world AABBs of rotated objects,
     so a rotated prop is fatter in the test drive);
-  - a fixed 1/50 s step with an accumulator, since several rules are
-    per-frame;
+  - a fixed 1/50 s step: done for the editor's test drive in 1.135.4; the
+    console runtime still takes one step per frame, so a 25 fps frame is
+    one 1/25 s step (sub-stepping needs the sim split out of updateVehicles);
   - ~~a swept wall test~~ done 1.135.3 (the car-car push after the wall pass
     is still not wall-checked);
   - ~~a handbrake that loosens the rear and blends grip back; a friction

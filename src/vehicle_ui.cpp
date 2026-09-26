@@ -210,6 +210,7 @@ void App::vehicleDriveStart(int objectIndex) {
         vehicleDriveHome_[3 + a] = o.rotation[a];
     }
     vehicleDriveState_ = vehiclesim::DriveState{};
+    vehicleDriveAccum_ = 0.0f;
     for (int a = 0; a < 3; ++a) vehicleDriveState_.pos[a] = o.position[a];
     vehicleDriveState_.yaw = o.rotation[1];
     vehicleDriveObj_ = objectIndex;
@@ -339,9 +340,20 @@ void App::vehicleDriveTick() {
     // The instance's uniform scale rides into the sim the way the runtime
     // applies it (docs/vehicles.md): the example's car IS scale 1.5, and
     // without this the test drive tuned a car the console never runs.
-    vehiclesim::step(def->drive, in, ImGui::GetIO().DeltaTime, ground,
-                     vehicleDriveState_, solid,
-                     o.scale[0] > 0.001f ? o.scale[0] : 1.0f);
+    // FIXED 1/50 s steps (1.135.4), the PAL console's own step: several
+    // rules (the head-on scrub, the attitude spring's per-step response) act
+    // once per step, so a 144 Hz editor frame fed the sim at its own rate
+    // drove a different car from the one the PS2 runs at 50 fps. The
+    // accumulator keeps the remainder; a long hitch runs at most 5 steps
+    // rather than a burst.
+    vehicleDriveAccum_ += ImGui::GetIO().DeltaTime;
+    if (vehicleDriveAccum_ > 0.1f) vehicleDriveAccum_ = 0.1f;
+    constexpr float kStep = 1.0f / 50.0f;
+    while (vehicleDriveAccum_ >= kStep) {
+        vehicleDriveAccum_ -= kStep;
+        vehiclesim::step(def->drive, in, kStep, ground, vehicleDriveState_, solid,
+                         o.scale[0] > 0.001f ? o.scale[0] : 1.0f);
+    }
 
     for (int a = 0; a < 3; ++a) o.position[a] = vehicleDriveState_.pos[a];
     // Negated like the runtime's write: the sim's pitch is "positive = nose
