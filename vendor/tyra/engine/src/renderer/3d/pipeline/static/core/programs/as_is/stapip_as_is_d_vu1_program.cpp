@@ -8,14 +8,28 @@
 #include "debug/debug.hpp"
 #include "renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_vu1_program.hpp"
 
+#include "renderer/3d/pipeline/static/core/stapip_vu1_experiments.hpp"
+
+// Modified by TyraX: a measured-only experiment can swap in another image
+// (stapip_vu1_experiments.hpp). The #if branch is the experiment; the
+// #else branch is the shipping image `--vu-check` verifies.
+#if TYRA_VU1_EXP_EE_LIGHT_FOLD
+extern u32 StaPipVU1As_Is_D_FOLD_CodeStart __attribute__((section(".vudata")));
+extern u32 StaPipVU1As_Is_D_FOLD_CodeEnd __attribute__((section(".vudata")));
+#define TYRA_WRAPPER_IMAGE_START (&StaPipVU1As_Is_D_FOLD_CodeStart)
+#define TYRA_WRAPPER_IMAGE_END (&StaPipVU1As_Is_D_FOLD_CodeEnd)
+#else
 extern u32 StaPipVU1As_Is_D_CodeStart __attribute__((section(".vudata")));
 extern u32 StaPipVU1As_Is_D_CodeEnd __attribute__((section(".vudata")));
+#define TYRA_WRAPPER_IMAGE_START (&StaPipVU1As_Is_D_CodeStart)
+#define TYRA_WRAPPER_IMAGE_END (&StaPipVU1As_Is_D_CodeEnd)
+#endif
 
 namespace Tyra {
 
 StaPipAsIsDVU1Program::StaPipAsIsDVU1Program()
-    : StaPipVU1Program(StaPipAsIsDirLights, &StaPipVU1As_Is_D_CodeStart,
-                       &StaPipVU1As_Is_D_CodeEnd,
+    : StaPipVU1Program(StaPipAsIsDirLights, TYRA_WRAPPER_IMAGE_START,
+                       TYRA_WRAPPER_IMAGE_END,
                        ((u64)GIF_REG_RGBAQ) << 0 | ((u64)GIF_REG_XYZF2) << 4,
                        2, 3) {}
 

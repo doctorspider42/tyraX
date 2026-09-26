@@ -27,6 +27,7 @@
 #include "renderer/core/gs/renderer_core_depth.hpp"
 #include "packet2/packet2_tyra_utils.hpp"
 #include "renderer/3d/pipeline/static/core/stapip_vu_tap.hpp"
+#include "renderer/3d/pipeline/static/core/stapip_vu1_experiments.hpp"
 
 // #define TYRA_QBUFF_RENDERER_VERBOSE_LOG 1
 
@@ -1209,7 +1210,38 @@ void StaPipQBufferRenderer::sendObjectData(
                                      mvp->data, 4, false);
   }
 
-  if (bag->lighting) {
+  // Modified by TyraX: experiment (b), TYRA_VU1_EXP_EE_LIGHT_FOLD - the
+  // *_fold images read the light directions pre-multiplied by the light
+  // matrix and never read the matrix, so the EE folds D * M here (nine
+  // multiplies a bag, against three VU1 instructions a vertex) and skips the
+  // matrix upload. A project override of a lit program keeps the unfolded
+  // pair: its generator still does the multiply on VU1.
+  bool foldLights = false;
+#if TYRA_VU1_EXP_EE_LIGHT_FOLD
+  foldLights = bag->lighting != nullptr && !litProgramOverridden();
+#endif
+  if (bag->lighting && foldLights) {
+    // VU1: n_w = M0*n.x + M1*n.y + M2*n.z (Mi = the matrix's qword i), then
+    // c = D0*n_w.x + D1*n_w.y + D2*n_w.z; so Fi = D0*Mi.x + D1*Mi.y + D2*Mi.z.
+    const float* m = bag->lighting->lightMatrix->data;
+    const Vec4* d = bag->lighting->dirLights->getLightDirections();
+    alignas(16) Vec4 f[3];
+    for (int i = 0; i < 3; i++) {
+      const float* mi = m + i * 4;
+      f[i].x = d[0].x * mi[0] + d[1].x * mi[1] + d[2].x * mi[2];
+      f[i].y = d[0].y * mi[0] + d[1].y * mi[1] + d[2].y * mi[2];
+      f[i].z = d[0].z * mi[0] + d[1].z * mi[1] + d[2].z * mi[2];
+      f[i].w = 0.0F;
+    }
+    emitUnpack(objectDataPacket, VU1_LIGHTS_DIRS_ADDR, f, 3);
+    // One line per boot, so an A/B arm can prove the fold path RAN - a scene
+    // with no lit mesh never takes it and measures nothing.
+    static bool foldLogged = false;
+    if (!foldLogged) {
+      foldLogged = true;
+      TYRA_LOG("VU1 experiment (b): first folded light upload");
+    }
+  } else if (bag->lighting) {
     if (submissionBatchCandidate || kInlineUniforms) {
       emitUnpack(objectDataPacket, VU1_LIGHTS_MATRIX_ADDR,
                  bag->lighting->lightMatrix->data, 3);
@@ -1662,6 +1694,17 @@ void StaPipQBufferRenderer::setResidentClasses(const u32& mask) {
   setProgramsCache();
   uploadPrograms();
   clearLastProgramName();
+}
+
+// TyraX addition: experiment (b) folds the light matrix on the EE only for the
+// engine's own lit programs - see sendObjectData.
+bool StaPipQBufferRenderer::litProgramOverridden() const {
+  return repository.hasOverride(StaPipCullDirLights) ||
+         repository.hasOverride(StaPipCullTextureDirLights) ||
+         repository.hasOverride(StaPipClipDirLights) ||
+         repository.hasOverride(StaPipClipTextureDirLights) ||
+         repository.hasOverride(StaPipAsIsDirLights) ||
+         repository.hasOverride(StaPipAsIsTextureDirLights);
 }
 
 // TyraX addition: which material class a program name belongs to, so residency

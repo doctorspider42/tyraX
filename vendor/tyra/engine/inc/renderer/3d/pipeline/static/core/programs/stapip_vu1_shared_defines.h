@@ -109,5 +109,9 @@
 // written by the cull programs once per batch so their vertex loops read
 // colours through one pointer in both modes (stride 0 here, 3 over the
 // colour array). Like the clip scratch it is transient per program run.
-// 1019..1023 are still free. A literal, like the rest (see above).
+// 1021..1023 are still free. A literal, like the rest (see above).
 #define VU1_SINGLE_COLOR_COPIES_ADDR 1016
+// Modified by TyraX: 1019..1020 = the ADC table of the (a) experiment
+// (stapip_vu1_experiments.hpp): {0, 0x8000}, written by the k255 cull
+// programs' preamble and read with `ilw.x adcBit, VU1_ADC_TABLE_ADDR(VI01)`.
+#define VU1_ADC_TABLE_ADDR 1019

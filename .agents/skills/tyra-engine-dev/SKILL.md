@@ -1482,6 +1482,18 @@ Rules the same evening paid for:
   the original `softness / (objRange2 * (1 - cosCut2))` made the flashlight
   ramp up over its whole reach — black on anything close, full brightness
   only near the far end, i.e. "it doesn't light what I'm aiming at".
+- **A microcode experiment is a compile-time toggle that selects a whole IMAGE**
+  (`stapip_vu1_experiments.hpp`, all 0 = shipping). vclpp has no `#if`, so the
+  alternative program is its own `.vclpp` (`*_k255`, `*_fold`, `*_envn`, derived
+  from the shipping file - re-derive after editing it), always assembled, and the
+  wrapper picks symbols under `#if TYRA_VU1_EXP_...` / `#else`. `--vu-check`'s
+  wrapper check reads only the `#else` branch, and its "measured-only
+  experiments" section compares each image with the shipping one on the input
+  the EE would hand it: identity for (a), a printed colour/ST tolerance for (b)
+  and (c). **The cull harness used to keep every corner inside the clip volume,
+  so the ADC bit was 0 in every trial and a wrong ADC passed** - every fourth
+  cull corner now spreads past w. Arms and the console series: docs/backlog.md,
+  "VU1 audit: what is left".
 - **Three output-preserving trims (2026-09-26), and the rules they rely on.**
   (1) `CalculateTyraFog` is ONE `mul.x` now: `LoadTyraFogParams` copies the fog
   scale into the REGISTER's x lane (the single-colour flag in that lane is only

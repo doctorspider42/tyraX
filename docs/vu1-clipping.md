@@ -449,6 +449,52 @@ What these do to CYCLES is unmeasured: removing a loop-head branch and a copy
 per vertex should only help, but the only arbiter is a console run
 (docs/backlog.md, "VU1 audit: what is left").
 
+## Measured-only experiments (2026-09-26, `vu1-audit-measured`)
+
+Three follow-ups of the audit that a simulator cannot judge, because what they
+trade is cycles and none of them removes enough words to matter. Each is a
+compile-time toggle in `inc/renderer/3d/pipeline/static/core/stapip_vu1_experiments.hpp`,
+**all 0 by default = the shipping engine**. `vclpp` has no `#if`, so a toggle
+selects a whole alternative program IMAGE: the experiment's `.vclpp` is
+assembled with everything else (`*_k255_vu1`, `*_fold_vu1`, `*_envn_vu1`) and
+the wrapper picks its symbols under `#if TYRA_VU1_EXP_...`; with the toggle off
+nothing references them and they stay out of the ELF, like the unlinked clip
+references. The image files are DERIVED from the shipping ones by a fixed
+rewrite (they say so in their header) - re-derive after editing the original.
+
+| toggle | what changes | VU1 cost | output |
+|---|---|---|---|
+| (a) `TYRA_VU1_EXP_K255_ADC_TABLE` | `cull_c`, `cull_tc`: 255 kept in a VF register (no `loi 255` before each clamp); the ADC bit is `ilw.x adcBit, VU1_ADC_TABLE_ADDR(VI01)` over a {0, 0x8000} table the preamble writes at 1019..1020, instead of `iaddiu 0x7FFF; iand adcMask` | 309 -> 295 and 433 -> 413 emitted instructions; VF peak `cull_tc` 28/31 | **bit-identical** |
+| (b) `TYRA_VU1_EXP_EE_LIGHT_FOLD` | every static lit program (`cull_d/td`, `as_is_d/td`, the D path of clip C and the TD path of clip TC): the EE uploads the light directions already multiplied by the light matrix (`F_i = D0*M_i.x + D1*M_i.y + D2*M_i.z`, nine multiplies a bag) and skips the matrix upload; `CalculateTyraDirectionalLightsFolded` loses three instructions a vertex | -12 emitted instructions per program (-9 on the TC image) | colour within 1 LSB |
+| (c) `TYRA_VU1_EXP_ENV_NORMALIZED` | `cull_tce`: `StaPipCore::render` normalizes an env bag's normal array in place once (pointer + count + bboxVersion + contentVersion, 32-entry table) and the program drops the rsqrt normalize (`CalculateTyraEnvStqUnit`) | 190 -> 175 | ST within 2e-9 absolute |
+
+`as_is_tce` keeps its normalize under (c) - the EE clipper lerps normals, which
+shortens them - and so does the TC clip image's env path (same unit array; one
+toggle, one image). A project override of a lit program keeps the unfolded
+upload under (b): `litProgramOverridden()`.
+
+**The tolerance is measured, not promised.** `--vu-check` prints a
+"measured-only experiments" section that runs each experiment image against the
+shipping image it replaces, over 400 randomized trials, on the input the EE
+would hand EACH of them (for (b) the host folds with round-to-nearest, as the EE
+does, and poisons the matrix slots with FLT_MAX so an image that still read them
+would fail; for (c) the host normalizes the normal stream). Every GS word must
+match exactly except colour words (both <= 255, tolerated 2 LSB) and float words
+(ST, tolerated 1e-4 relative or 1e-6 absolute). Measured on the first run: (a)
+IDENTICAL everywhere; (b) ONE colour word off by 1 in 400 `cull_d` trials,
+everything else identical, the unlit paths of both clip images identical;
+(c) ST max absolute 2.1e-9 (relative 1.2e-3, but only on an ST near zero where
+the dot products cancel). Before (a)'s identity could mean anything the harness
+had to grow: every cull trial kept all corners inside the clip volume, so the ADC
+bit was 0 in every trial and a corrupted ADC table passed. Every fourth cull
+corner now spreads to +-80, past w = 60 - z; the same corruption fails at trial 0.
+
+Each image also logs once when it runs - `VU1 experiment (b): first folded light
+upload`, `VU1 experiment (c): normalized N env normals` - because a scene that
+draws no lit mesh never takes (b)'s path and an arm that measures zero must be
+told apart from one that measured nothing. The arms and the one-command console
+series are in `C:\tyra-vq\vux-build.sh` / `vux-ab.sh` (docs/backlog.md).
+
 ## See also
 
 - [profiling.md](profiling.md) — the frame-timing rig, the measurement protocol

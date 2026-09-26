@@ -20,14 +20,28 @@
 // every TD bag). stapip_clip_td_vu1.vclpp is still compiled but never linked -
 // it is the reference `tyrax-editor --vu-check` runs the TC image's TD path
 // against. Path1::createProgramsCache aliases the shared range to one upload.
+#include "renderer/3d/pipeline/static/core/stapip_vu1_experiments.hpp"
+
+// Modified by TyraX: a measured-only experiment can swap in another image
+// (stapip_vu1_experiments.hpp). The #if branch is the experiment; the
+// #else branch is the shipping image `--vu-check` verifies.
+#if TYRA_VU1_EXP_EE_LIGHT_FOLD
+extern u32 StaPipVU1Clip_TC_FOLD_CodeStart __attribute__((section(".vudata")));
+extern u32 StaPipVU1Clip_TC_FOLD_CodeEnd __attribute__((section(".vudata")));
+#define TYRA_WRAPPER_IMAGE_START (&StaPipVU1Clip_TC_FOLD_CodeStart)
+#define TYRA_WRAPPER_IMAGE_END (&StaPipVU1Clip_TC_FOLD_CodeEnd)
+#else
 extern u32 StaPipVU1Clip_TC_CodeStart __attribute__((section(".vudata")));
 extern u32 StaPipVU1Clip_TC_CodeEnd __attribute__((section(".vudata")));
+#define TYRA_WRAPPER_IMAGE_START (&StaPipVU1Clip_TC_CodeStart)
+#define TYRA_WRAPPER_IMAGE_END (&StaPipVU1Clip_TC_CodeEnd)
+#endif
 
 namespace Tyra {
 
 StaPipClipTDVU1Program::StaPipClipTDVU1Program()
-    : StaPipVU1Program(StaPipClipTextureDirLights, &StaPipVU1Clip_TC_CodeStart,
-                       &StaPipVU1Clip_TC_CodeEnd,
+    : StaPipVU1Program(StaPipClipTextureDirLights, TYRA_WRAPPER_IMAGE_START,
+                       TYRA_WRAPPER_IMAGE_END,
                        ((u64)GIF_REG_ST) << 0 | ((u64)GIF_REG_RGBAQ) << 4 |
                            ((u64)GIF_REG_XYZF2) << 8,
                        3, 4) {}

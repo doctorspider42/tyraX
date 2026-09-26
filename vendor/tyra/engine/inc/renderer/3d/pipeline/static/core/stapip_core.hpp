@@ -143,6 +143,18 @@ class StaPipCore {
   void setPrim();
   void setLod();
 
+  /** Modified by TyraX: experiment (c), TYRA_VU1_EXP_ENV_NORMALIZED
+   * (stapip_vu1_experiments.hpp) - normalize an env bag's normal array in
+   * place, once. Remembered by array pointer, count, bboxVersion and
+   * contentVersion in a small direct-mapped table; a miss only costs a
+   * repeated (idempotent) normalize. */
+  void ensureEnvNormalsUnit(StaPipBag* bag);
+  struct EnvNormalsSeen {
+    const void* coordinates = nullptr;
+    u32 count = 0, bboxVersion = 0, content = 0;
+  };
+  EnvNormalsSeen envNormalsSeen[32];
+
   prim_t prim;
   lod_t lod;
 
