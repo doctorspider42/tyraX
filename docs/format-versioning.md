@@ -200,6 +200,14 @@ Format 60 adds the optional per-road `roadSampleStep` field. It is purely
 additive: missing means the original 1 m longitudinal spacing, so no migration
 step is required.
 
+Format 80 adds six drive-spec keys for the driven car's speed feel
+(`feelFrom`, `feelShake`, `feelBlur`, `feelFov`, `feelNosFov`, `feelFlame`;
+docs/vehicles.md, "Speed feel"). A missing key reads as its default, so a
+car saved before it gets the shake, blur and nitrous flame too. They are
+presentation only, and 0 switches each part off. Additive; no migration step.
+The speed-feel branch shipped it as **v77**, a number `vehicles` had already
+spent (road rank and spill), so the merge renumbered it to 80.
+
 Format 79 adds a scene's `roadJunctions` list (docs/roads.md, "Junction
 overrides"): per-crossing road overrides, each a road-id pair, the crossing's
 position and the winner / patch material / grip, with every field at its Auto

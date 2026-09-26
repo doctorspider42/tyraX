@@ -5261,6 +5261,14 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.148.0 - Speed feel (docs/vehicles.md): the driven car shakes the camera
+// (road rumble, mostly vertical), raises a motion-blur floor under the scene's
+// own blur and widens the FOV as it nears its top speed; nitrous kicks the FOV
+// wider, adds shake and blur, and lights a flicking blue flame at two exhaust
+// pipes, drawn in the lamp-glow batch (no submit of its own). Six "feel*"
+// drive-spec keys on the Effects tab; every existing car gets the defaults.
+// Presentation only - the drive model is untouched. kFormatVersion
+// 79 -> 80 (the branch shipped it as v77, renumbered at the merge). MINOR.
 // 1.147.0 - Vehicle pedals (docs/vehicles.md, "Driving it"): R2 is the only
 // gas, L2 brakes while rolling forward and reverses once stopped (R2 brakes a
 // car rolling backwards); the left stick only steers. One rule,
@@ -5464,7 +5472,7 @@
 // Particles face the camera a pass DRAWS with (cutscene override, shake,
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 147
+#define TYRAX_VERSION_MINOR 148
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -5917,7 +5925,12 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // written only when non-empty, each field at its Auto value omitted. Missing =
 // no overrides, i.e. every crossing follows the rank rule as before. Additive;
 // no migration step.
-inline constexpr int kFormatVersion = 79;
+// v80 (docs/vehicles.md, "Speed feel"): six drive-spec keys - feelFrom,
+// feelShake, feelBlur, feelFov, feelNosFov, feelFlame - written with the rest
+// of the spec. Missing = the defaults, so a car saved before it gets the speed
+// feel too (it is presentation, and 0 switches each part off). Additive; no
+// migration step.
+inline constexpr int kFormatVersion = 80;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects
