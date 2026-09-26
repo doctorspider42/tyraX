@@ -1243,6 +1243,63 @@ written. At most 40 a frame, the driver's car first; the cost shows as its own
 `Vehicle_lamp_glow` row in a render-cost capture. A car whose model marks no
 lamp materials gets no halo (its fallback tail-lamp quads are unchanged).
 
+### Speed feel
+
+![The CC96 near its top speed: the road markings smear, the view is wider, and the nitrous burns blue at both pipes](img/vehicle-speed-feel.png)
+
+Speed feel is what the car you drive does to the game camera as it nears its
+top speed. Three things build up together: a **camera shake** (fast and mostly
+vertical, the road coming up through the suspension rather than a handheld
+sway), a **motion blur** and a **wider field of view**. **Nitrous** adds
+more of all three - the FOV jumps wider, the shake and the blur grow - and
+lights a blue **flame** at two exhaust pipes, a hot core, a wider blue glow and
+an orange tip, flickering on two sines so no two frames match. When the boost
+stops, the kick drains away more slowly than it arrived.
+
+The six knobs are the `feel*` keys on the Vehicle Editor's **Effects** tab.
+Every car has them, and a car saved before them gets the defaults, because
+this is presentation only and the drive model never reads them. Set a knob to
+0 to turn its part off:
+
+| Key | Default | What it does |
+|---|---|---|
+| `feelFrom` | 0.55 | The share of top speed where the feel starts. It reaches full strength at the top speed (smoothstep), and stays full past it on nitrous. |
+| `feelShake` | 1 | Shake strength. At 1, about 3 cm at top speed plus 3 cm more on nitrous, scaled with the car. Airborne, a third of that. |
+| `feelBlur` | 0.4 | Motion blur at top speed, as a share of the project's blur cap. Nitrous adds half again. |
+| `feelFov` | 6 | Degrees wider at top speed. |
+| `feelNosFov` | 10 | Extra degrees while the nitrous burns. |
+| `feelFlame` | 1 | Brightness of the nitrous flame. |
+
+`vehiclesim::speedFeel` holds the curve and `--vehicle-check` tests it. The
+runtime twin is `updateVehicleSpeedFeel`, which runs in the driver-camera
+block. It eases the result over time, in about a third of a second (the
+nitrous blend rises fast and falls slowly), so a bump across the start speed
+cannot flicker the blur. The `VEH` telemetry line reports all three results:
+`shake` (in mm), `blur` (engine FIX) and `fov`. A drive at top speed with
+the nitrous held reads `shake 59 blur 69 fov 75` on the CC96, against
+`shake 29 blur 46 fov 65` without the boost.
+
+Three things that follow from how it is built:
+
+- **The blur is a floor, not a replacement.** It is the same one-screen
+  [motion blur](motion-blur.md) (the previous frame blended in). The frame
+  uses the larger of the car's amount and the scene's authored amount, so a
+  scene that already blurs more keeps its own. It costs nothing in a scene
+  that has no blur: the blend switches on only while a car is driven fast.
+  The blur's source is the whole previous frame, so a HUD number that changes
+  every frame (the speedometer) shows a faint ghost of its last digit at full
+  nitrous. That is the technique's documented limit, not a bug in the car.
+- **The shake stacks on the Camera Shake node** and moves the eye more than
+  the aim, which adds a slight angular jitter. A cutscene camera is left
+  alone, and a cutscene owns the FOV while it runs.
+- **The flame uses the [lamp glow](#lamp-glow)'s batch**: the same corona
+  texture and the same single submit, with 6 quads per car. The pipes sit
+  under the measured tail lamps, or just past the rear bumper on a model with
+  no lamps marked. A project whose cars have no nitrous does not compile the
+  flame at all (`VEHICLE_NOS_FLAME_USED`).
+
+The editor's test drive has none of this. It is a game-camera effect.
+
 ### Weight transfer
 
 The body squats under power, dives under braking and leans OUT of a corner —

@@ -2435,6 +2435,17 @@ hud/flare-corona.png and its load). The arrays are fixed-size, sized in
 setupVehicles and written by slot (a previous frame's DMA may still read them).
 The "lamp*" spec keys live on the Effects tab, skipped by the Driving tab.
 
+Speed feel (docs/vehicles.md, "Speed feel") is the "feel*" keys, also on the
+Effects tab. `vehiclesim::speedFeel` is the curve and the generated
+`updateVehicleSpeedFeel` is its twin (called from the driver-camera block, with
+nullptr on foot so everything eases back and the FOV is put back). It
+talks to the frame loop through two prolog globals: `g_vehShake`, applied after
+the Camera Shake node's shake, and `g_vehBlurFix`, a floor under
+`g_motionBlurBase`. Both game templates carry the two consumers, so edit them
+as a pair. The nitrous flame is extra quads in `renderVehicleLampGlow`
+(`VEHICLE_NOS_FLAME_USED`), which is why `projectUsesBeams` also returns true
+for a car with nitrous.
+
 ## Vehicle bank and suspension invariants
 
 `vehiclesim::bodyRotation` and the generated `vehBodyRotation` are twins:

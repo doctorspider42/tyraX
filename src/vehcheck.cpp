@@ -845,6 +845,34 @@ void offroad() {
 
 }  // namespace
 
+// 12. Speed feel (docs/vehicles.md, "Speed feel"): nothing below the start,
+//     everything at the top speed and past it (a nitrous run), monotonic in
+//     between, the same either way the car is moving, and a start at 0 still
+//     begins at a standstill instead of dividing by nothing.
+void speedFeelCurve() {
+    std::printf("-- speed feel --\n");
+    DriveSpec s;
+    s.topSpeed = 30.0f;
+    s.feelFrom = 0.5f;
+    verdict(speedFeel(s, 0.0f) == 0.0f && speedFeel(s, 14.9f) == 0.0f,
+            "no feel below feelFrom of the top speed");
+    verdict(speedFeel(s, 30.0f) == 1.0f && speedFeel(s, 45.0f) == 1.0f,
+            "full feel at the top speed and past it on nitrous");
+    bool mono = true;
+    float prev = 0.0f;
+    for (int i = 0; i <= 60; ++i) {
+        const float k = speedFeel(s, (float)i * 0.5f);
+        if (k < prev - 1e-6f || k < 0.0f || k > 1.0f) mono = false;
+        prev = k;
+    }
+    std::printf("  at 75%% of top: %.3f\n", speedFeel(s, 22.5f));
+    verdict(mono, "the feel grows monotonically inside 0..1");
+    verdict(speedFeel(s, -25.0f) == speedFeel(s, 25.0f), "reverse feels like forward");
+    s.feelFrom = 0.0f;
+    verdict(speedFeel(s, 0.0f) == 0.0f && speedFeel(s, 15.0f) > 0.4f,
+            "feelFrom 0 starts at a standstill");
+}
+
 int run() {
     std::printf("vehicle-check: vehiclesim property tests\n");
     gearGeometry();
@@ -860,6 +888,7 @@ int run() {
     offroad();
     damage();
     pieces();
+    speedFeelCurve();
     if (failures) {
         std::printf("vehicle-check: %d FAILURE(S)\n", failures);
         return 1;

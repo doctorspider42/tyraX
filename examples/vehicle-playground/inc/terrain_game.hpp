@@ -914,6 +914,7 @@ class TerrainGame : public Tyra::Game {
     float wheelSpeed = 0.0F;   // driven wheels' surface speed (> speed = spin)
     float nos = 1.0F;          // tank, 0..1 - starts full
     int nosActive = 0;
+    float nosFx = 0.0F;        // the exhaust flame, 0..1, eased on and off
     float slip = 0.0F;         // 0..1, the ONE tyre-slip number
     // 0 while the handbrake is held, back to 1 over kVehHandbrakeRecover after
     // it is let go (the vehiclesim twin's DriveState::hbBlend).
@@ -1116,6 +1117,13 @@ class TerrainGame : public Tyra::Game {
   unsigned int vehColGen_ = ~0u;
   void buildVehicleColliders();
   int vehicleDriver_ = -1;  // which vehicle the player is in, -1 = on foot
+  // Speed feel (docs/vehicles.md, "Speed feel"): the driven car's eased
+  // speed and nitrous blends, and the FOV the camera had before the car
+  // widened it (-1 = not widened, nothing to put back).
+  float vehFeel_ = 0.0F;
+  float vehNosFeel_ = 0.0F;
+  float vehFovBase_ = -1.0F;
+  void updateVehicleSpeedFeel(const VehicleRt* v, float dt);
   float vehCamYaw_ = 0.0F;  // chase-cam yaw - follows the car with lag
   // Right-stick look-around, degrees AROUND the boom yaw and a height bias.
   // Both spring back to zero when the stick is released - the stick lets the

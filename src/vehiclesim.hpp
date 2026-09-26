@@ -229,6 +229,19 @@ struct DriveSpec {
     // definition written before it keeps; a new definition starts at 1.
     // Presentation only.
     float lampGlow = 0.0f;
+
+    // Speed feel (docs/vehicles.md, "Speed feel"): what the DRIVEN car does to
+    // the camera as it nears its top speed - a road-rumble shake, a motion
+    // blur floor and a wider field of view - plus the nitrous kick (a bigger
+    // FOV jump, more shake and blur, a flame at the exhaust). Presentation
+    // only: none of it touches the drive model. Each one scales its effect,
+    // 0 switches it off.
+    float feelFrom = 0.55f;    // fraction of top speed where the feel starts
+    float feelShake = 1.0f;    // camera shake strength
+    float feelBlur = 0.4f;     // motion blur at top speed (0..1 of the maximum)
+    float feelFov = 6.0f;      // degrees wider at top speed
+    float feelNosFov = 10.0f;  // degrees wider on top of that while boosting
+    float feelFlame = 1.0f;    // nitrous exhaust flame brightness
 };
 
 // One tunable of a DriveSpec, with everything a serializer or a widget needs.
@@ -443,6 +456,12 @@ int applyDent(const Impact& im, float maxDent, const float* rest, int restStride
 
 // Multiplier on acceleration and top speed for a damage level.
 float damagePerformance(const DriveSpec& s, float damage);
+
+// How much "speed feel" a speed earns (docs/vehicles.md, "Speed feel"): 0
+// below feelFrom of the top speed, 1 at the top speed and above (a nitrous
+// run goes past it), a smoothstep in between so the shake and the blur ease
+// in instead of switching on. The runtime smooths it over time on top.
+float speedFeel(const DriveSpec& s, float speed);
 
 // ---------------------------------------------------------------------------
 // Loose panels and glass (docs/vehicles.md, "Loose panels and glass")

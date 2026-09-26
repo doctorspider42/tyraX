@@ -92,6 +92,14 @@ bool g_playerLocked = false;
 float g_camShake = 0.0F;
 float g_camShakeT = 0.0F;
 float g_camShakeClock = 0.0F;
+// Speed feel (docs/vehicles.md, "Speed feel"): what the DRIVEN car asks of
+// this frame's camera - a road-rumble shake amplitude (world units) and a
+// motion-blur floor (engine FIX, 0..the project's cap). Written by
+// updateVehicles, 0 on foot and in projects with no vehicles, so the two
+// branches below cost nothing there.
+float g_vehShake = 0.0F;
+float g_vehShakeClock = 0.0F;
+int g_vehBlurFix = 0;
 
 // Camera flashlight runtime state (a Player object property; declared in
 // scene_data.hpp). g_flashEnabled is the master switch - seeded per scene from
@@ -3105,6 +3113,20 @@ void TerrainGame::loop() {
       g_camShake = 0.0F;
     }
   }
+  // The driven car's speed shake, on top of any flow-node shake: faster and
+  // mostly vertical - the road through the suspension, not a handheld sway.
+  // A cutscene camera is left alone.
+  if (g_vehShake > 0.0F && !scriptCtx.cameraOverride) {
+    g_vehShakeClock += g_frameDt;
+    const float t = g_vehShakeClock;
+    const float a = g_vehShake;
+    const Vec4 off(a * (0.30F * sinf(t * 29.3F) + 0.20F * sinf(t * 13.1F + 0.7F)),
+                   a * (0.55F * sinf(t * 37.9F + 1.3F) + 0.45F * sinf(t * 17.7F)),
+                   a * 0.15F * sinf(t * 23.3F + 2.1F));
+    cameraPosition = cameraPosition + off;
+    // The aim moves less than the eye: a touch of angular jitter too.
+    cameraLookAt = cameraLookAt + Vec4(off.x * 0.6F, off.y * 0.6F, off.z * 0.6F);
+  }
   // Cutscene "Hide player": drop the third-person avatar for this frame
   // (applied after scripts so the sequence player's flag wins).
   if (PLAYER_INDEX >= 0 && PLAYER_MODE == 2)
@@ -3276,7 +3298,11 @@ void TerrainGame::loop() {
           g_mbIdleFlushed = true;
         }
       }
-      const int mb = flush ? 0 : g_motionBlurBase;
+      // The driven car's speed blur is a FLOOR under the authored amount,
+      // never a replacement: a scene that already blurs more keeps its own.
+      const int mbWant = g_vehBlurFix > g_motionBlurBase ? g_vehBlurFix
+                                                         : g_motionBlurBase;
+      const int mb = flush ? 0 : mbWant;
       engine->renderer.core.postFx.setMotionBlur((unsigned char)mb);
       g_mbPrevEye[0] = cameraPosition.x;
       g_mbPrevEye[1] = cameraPosition.y;
@@ -18808,8 +18834,11 @@ void TerrainGame::applyVehicleEnvLimits() {
 
 
 void TerrainGame::renderVehicleLampGlow() {
-  if (VEHICLE_LAMP_GLOW_COUNT <= 0 || !beamCoronaTex) return;
+  if ((VEHICLE_LAMP_GLOW_COUNT <= 0 && !VEHICLE_NOS_FLAME_USED) || !beamCoronaTex) return;
   const float kDeg = 0.017453293F;
+  // The nitrous flame's flicker clock (real seconds, frozen with the game).
+  static float flameClock = 0.0F;
+  flameClock += g_frameDt;
   if (lampGlowVerts_.size() < (size_t)kVehLampGlowMax * 6) return;  // sized in setupVehicles
   // The camera basis the quads face, the light beams' own arithmetic.
   Vec4 fwd = cameraLookAt - cameraPosition;
@@ -18842,7 +18871,11 @@ void TerrainGame::renderVehicleLampGlow() {
       const float distFade = cd < 40.0F ? 1.0F : 1.0F - (cd - 40.0F) / 20.0F;
       const bool front = v.lightsOn > 0 && !(v.lampBroken & 1);
       const bool rearOn = (v.lightsOn > 0 || v.brakeOn) && !(v.lampBroken & 2);
-      if (!front && !rearOn) continue;
+      // Speed feel's nitrous flame rides the same batch (docs/vehicles.md,
+      // "Speed feel"): the same soft corona, so it costs no submit of its own.
+      const bool flame = VEHICLE_NOS_FLAME_USED && v.nosFx > 0.01F && s.feelFlame > 0.0F &&
+                         s.nosCapacity > 0.001F;
+      if (!front && !rearOn && !flame) continue;
       // The body's frame: the matrix-path object matrix (pitch and roll in),
       // else the heading alone for the frames before the promotion.
       float bx[3], by[3], bz[3], bo[3];
@@ -18908,6 +18941,57 @@ void TerrainGame::renderVehicleLampGlow() {
         auto gc = lampGlowCols_.span((size_t)quads * 6, 6);
         for (int j = 0; j < 6; ++j) gv[j] = q[j], gs[j] = st[j], gc[j] = col;
         ++quads;
+      }
+      if (!flame) continue;
+      // Two pipes under the rear bumper, each a burst of three camera-facing
+      // coronas: a hot blue-white core, a wider blue glow round it and an
+      // orange lick further back. Their sizes flicker on two incommensurate
+      // sines so no two frames match - with the motion blur on top, that
+      // reads as a flame rather than three sprites.
+      const bool measured = s.lampRear[3] > 0.0F;
+      const float pz = measured ? s.lampRear[2] - 0.04F
+                                : -(0.5F * s.wheelBase + s.bodyOverhang + 0.05F);
+      const float py = measured ? s.lampRear[1] * 0.45F : 0.08F;
+      const float px = 0.26F * s.track;
+      const float I = vehClamp(s.feelFlame, 0.0F, 2.0F) * v.nosFx * distFade;
+      for (int side = -1; side <= 1 && quads + 3 <= kVehLampGlowMax; side += 2) {
+        const float ph = (float)(vi * 3 + side) * 1.7F;
+        const float fl = 0.80F + 0.14F * sinf(flameClock * 41.0F + ph) +
+                         0.10F * sinf(flameClock * 67.0F + ph * 2.3F);
+        for (int layer = 0; layer < 3; ++layer) {
+          // back = how far behind the pipe, hs = half size, both in body units.
+          const float back = layer == 2 ? 0.55F * fl : (layer == 1 ? 0.16F : 0.03F);
+          const float hs = (layer == 0 ? 0.17F : (layer == 1 ? 0.36F : 0.26F)) * fl *
+                           (0.55F + 0.45F * v.nosFx);
+          float c[3];
+          for (int a = 0; a < 3; ++a)
+            c[a] = bo[a] + (bx[a] * px * (float)side + by[a] * py + bz[a] * (pz - back)) * SC;
+          const float tx = cameraPosition.x - c[0], ty = cameraPosition.y - c[1],
+                      tz = cameraPosition.z - c[2];
+          const float tl = sqrtf(tx * tx + ty * ty + tz * tz);
+          if (tl < 0.3F) continue;
+          const float pull = 0.25F * SC < 0.5F * tl ? 0.25F * SC : 0.5F * tl;
+          c[0] += tx / tl * pull, c[1] += ty / tl * pull, c[2] += tz / tl * pull;
+          const float hw = hs * SC, hh = hs * SC * (layer == 2 ? 0.8F : 1.0F);
+          Tyra::Color col;
+          if (layer == 0) col = Tyra::Color(150.0F * I, 175.0F * I, 255.0F * I, 128.0F);
+          else if (layer == 1) col = Tyra::Color(40.0F * I, 70.0F * I, 200.0F * I, 128.0F);
+          else col = Tyra::Color(170.0F * I, 70.0F * I, 25.0F * I, 128.0F);
+          const float ax = rx * hw, az = rz * hw;
+          const float vx = ux * hh, vy = uy * hh, vz = uz * hh;
+          const Vec4 p0(c[0] - ax - vx, c[1] - vy, c[2] - az - vz, 1.0F);
+          const Vec4 p1(c[0] + ax - vx, c[1] - vy, c[2] + az - vz, 1.0F);
+          const Vec4 p2(c[0] + ax + vx, c[1] + vy, c[2] + az + vz, 1.0F);
+          const Vec4 p3(c[0] - ax + vx, c[1] + vy, c[2] - az + vz, 1.0F);
+          const Vec4 q[6] = {p0, p1, p2, p0, p2, p3};
+          const Vec4 st[6] = {Vec4(0, 1, 1, 0), Vec4(1, 1, 1, 0), Vec4(1, 0, 1, 0),
+                              Vec4(0, 1, 1, 0), Vec4(1, 0, 1, 0), Vec4(0, 0, 1, 0)};
+          auto gv = lampGlowVerts_.span((size_t)quads * 6, 6);
+          auto gs = lampGlowSts_.span((size_t)quads * 6, 6);
+          auto gc = lampGlowCols_.span((size_t)quads * 6, 6);
+          for (int j = 0; j < 6; ++j) gv[j] = q[j], gs[j] = st[j], gc[j] = col;
+          ++quads;
+        }
       }
     }
   if (quads == 0) return;
@@ -19149,6 +19233,13 @@ void TerrainGame::updateVehicleDamage(float dt) {
 void TerrainGame::setupVehicles(int scene) {
   vehicleCount_ = 0;
   vehicleDriver_ = -1;
+  // Speed feel: nobody is driving, so nothing shakes, blurs or widens - and
+  // a FOV a car widened goes back to what it was.
+  vehFeel_ = vehNosFeel_ = 0.0F;
+  if (vehFovBase_ >= 0.0F) engine->renderer.core.renderer3D.setFov(vehFovBase_);
+  vehFovBase_ = -1.0F;
+  g_vehShake = 0.0F;
+  g_vehBlurFix = 0;
   // Every fixed-capacity vehicle effect writes before its lazy render bag is
   // guaranteed to exist: smoke clears dead slots, skids may spawn from the
   // first physics step, and glow builds lit lamps before checking glowBag_.
@@ -19337,9 +19428,70 @@ void TerrainGame::stepVehicles(float dt) {
   vehSubStepRepeat_ = false;
 }
 
+// Speed feel (docs/vehicles.md, "Speed feel"): turns the driven car's speed
+// and nitrous into this frame's camera shake, motion-blur floor and field of
+// view. The curve is vehiclesim::speedFeel's twin; the easing on top is what
+// keeps a bump over the start speed from flickering the blur on and off.
+// v = nullptr on foot: everything eases back and the FOV is put back.
+void TerrainGame::updateVehicleSpeedFeel(const VehicleRt* v, float dt) {
+  float feel = 0.0F, nos = 0.0F;
+  const VehicleDefData* s = v && v->def >= 0 ? &VEHICLE_DEFS[v->def] : nullptr;
+  if (s) {
+    const float top = s->topSpeed > 0.1F ? s->topSpeed : 0.1F;
+    const float from = vehClamp(s->feelFrom, 0.0F, 0.95F);
+    const float sp = v->speed < 0.0F ? -v->speed : v->speed;
+    float t = vehClamp((sp / top - from) / (1.0F - from), 0.0F, 1.0F);
+    feel = t * t * (3.0F - 2.0F * t);
+    nos = v->nosActive ? 1.0F : 0.0F;
+  }
+  // The speed blend follows in about a third of a second; the nitrous one
+  // kicks in fast and lets go slowly, the way a boost feels.
+  float kf = dt * 3.0F, kn = dt * (nos > vehNosFeel_ ? 7.0F : 2.0F);
+  if (kf > 1.0F) kf = 1.0F;
+  if (kn > 1.0F) kn = 1.0F;
+  vehFeel_ += (feel - vehFeel_) * kf;
+  vehNosFeel_ += (nos - vehNosFeel_) * kn;
+  if (!s) {
+    // On foot the blends drain to nothing and stay there.
+    if (vehFeel_ < 0.002F) vehFeel_ = 0.0F;
+    if (vehNosFeel_ < 0.002F) vehNosFeel_ = 0.0F;
+  }
+  const float SC = v ? v->scale : 1.0F;
+  const float shakeK = s ? vehClamp(s->feelShake, 0.0F, 3.0F) : 0.0F;
+  // Airborne there is no road to rumble through.
+  const float ground = v && v->grounded ? 1.0F : 0.35F;
+  g_vehShake = (0.030F * vehFeel_ * vehFeel_ + 0.030F * vehNosFeel_) * shakeK *
+               ground * SC;
+  if (g_vehShake < 0.0005F) g_vehShake = 0.0F;
+  const float blurK = s ? vehClamp(s->feelBlur, 0.0F, 1.0F) : 0.0F;
+  float blur = blurK * (vehFeel_ + 0.5F * vehNosFeel_);
+  if (blur > 1.0F) blur = 1.0F;
+  g_vehBlurFix = (int)(blur * (float)VEHICLE_BLUR_MAX_FIX + 0.5F);
+  // FOV: a cutscene owns the lens while it runs (its own base restores it).
+  if (scriptCtx.cameraOverride) return;
+  auto& r3d = engine->renderer.core.renderer3D;
+  const float widen = s ? vehClamp(s->feelFov, 0.0F, 25.0F) * vehFeel_ +
+                              (s->nosCapacity > 0.001F
+                                   ? vehClamp(s->feelNosFov, 0.0F, 30.0F) * vehNosFeel_
+                                   : 0.0F)
+                        : 0.0F;
+  if (widen > 0.05F) {
+    if (vehFovBase_ < 0.0F) vehFovBase_ = r3d.getFov();
+    float fov = vehFovBase_ + widen;
+    if (fov > 110.0F) fov = 110.0F;
+    if (fabsf(fov - r3d.getFov()) > 0.05F) r3d.setFov(fov);
+  } else if (vehFovBase_ >= 0.0F) {
+    if (fabsf(vehFovBase_ - r3d.getFov()) > 0.001F) r3d.setFov(vehFovBase_);
+    vehFovBase_ = -1.0F;
+  }
+}
+
 void TerrainGame::updateVehicles(float dt) {
   if (dt <= 0.0F) return;
   if (dt > 0.05F) dt = 0.05F;
+  if (vehicleDriver_ < 0 && (vehFeel_ > 0.0F || vehNosFeel_ > 0.0F || vehFovBase_ >= 0.0F ||
+                             g_vehShake > 0.0F || g_vehBlurFix > 0))
+    updateVehicleSpeedFeel(nullptr, dt);
   const float kDeg = 3.14159265F / 180.0F, kRad = 180.0F / 3.14159265F;
   // One USE press does one thing per frame: without this, exiting vehicle 0
   // left the click edge still true when the loop reached vehicle 1, and the
@@ -20161,6 +20313,14 @@ void TerrainGame::updateVehicles(float dt) {
         if (v.nos > 1.0F) v.nos = 1.0F;
       }
     }
+    // The exhaust flame (renderVehicleLampGlow) lights fast and dies a
+    // little slower, so a flicker of the button does not strobe it.
+    {
+      float k = dt * (v.nosActive ? 12.0F : 5.0F);
+      if (k > 1.0F) k = 1.0F;
+      v.nosFx += ((v.nosActive ? 1.0F : 0.0F) - v.nosFx) * k;
+      if (!v.nosActive && v.nosFx < 0.01F) v.nosFx = 0.0F;
+    }
     // A damaged car has less of both (vehiclesim::damagePerformance).
     const float perf = 1.0F - vehClamp(s.damagePerfLoss, 0.0F, 1.0F) *
                                   vehClamp(v.damage, 0.0F, 1.0F);
@@ -20886,6 +21046,7 @@ void TerrainGame::updateVehicles(float dt) {
         cameraLookAt.set(v.pos[0], atY, v.pos[2], 1.0F);
       }
       players[0].velY = 0.0F;
+      updateVehicleSpeedFeel(&v, dt);
       engine->renderer.core.renderer3D.update(
           Tyra::CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
       // Telemetry (docs/vehicles.md, "Verifying it"): a driven car states its
@@ -20908,7 +21069,11 @@ void TerrainGame::updateVehicles(float dt) {
                  // wheel"): 1 = the fast one. The swap's own test enabler.
                  " fw ", v.fastWheels ? 1 : 0,
                  // Tyres on the road (off-road grip's test enabler).
-                 " paved ", v.paved);
+                 " paved ", v.paved,
+                 // Speed feel (docs/vehicles.md): shake in mm, the blur
+                 // floor FIX, the FOV the camera is drawing with.
+                 " shake ", (int)(g_vehShake * 1000.0F), " blur ", g_vehBlurFix,
+                 " fov ", (int)engine->renderer.core.renderer3D.getFov());
       }
     }
   }

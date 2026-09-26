@@ -737,6 +737,7 @@ void App::drawVehicleWindow() {
             for (const vehiclesim::SpecField& f : fields) {
                 if (std::strncmp(f.key, "damage", 6) == 0) continue;  // Damage tab
                 if (std::strncmp(f.key, "lamp", 4) == 0) continue;    // Effects tab
+                if (std::strncmp(f.key, "feel", 4) == 0) continue;    // Effects tab
                 ImGui::SetNextItemWidth(scaled(220));
                 ImGui::SliderFloat(f.label, f.value, f.min, f.max, "%.4g");
                 if (f.tip && f.tip[0]) prefHelp(f.tip);
@@ -1177,6 +1178,23 @@ void App::drawVehicleWindow() {
                     if (f.tip && f.tip[0]) prefHelp(f.tip);
                 }
                 ImGui::Text("%zu lamp(s) measured on this body", v.lampGlows.size());
+            }
+            // Speed feel: the "feel*" fields - what the driven car does to the
+            // game camera near its top speed and on nitrous. Runtime only; the
+            // test drive here does not shake or blur.
+            ImGui::SeparatorText("Speed feel");
+            {
+                const std::vector<vehiclesim::SpecField> fields =
+                    vehiclesim::specFields(v.drive);
+                for (const vehiclesim::SpecField& f : fields) {
+                    if (std::strncmp(f.key, "feel", 4) != 0) continue;
+                    ImGui::SetNextItemWidth(scaled(220));
+                    ImGui::SliderFloat(f.label, f.value, f.min, f.max, "%.2f");
+                    if (f.tip && f.tip[0]) prefHelp(f.tip);
+                }
+                if (v.drive.nosCapacity <= 0.001f)
+                    ImGui::TextDisabled("No nitrous (Driving > Nitrous seconds): "
+                                        "the FOV kick and flame never fire.");
             }
             ImGui::EndTabItem();
         }

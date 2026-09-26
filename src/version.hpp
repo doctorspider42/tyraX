@@ -5261,6 +5261,13 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.143.0 - Speed feel (docs/vehicles.md): the driven car shakes the camera
+// (road rumble, mostly vertical), raises a motion-blur floor under the scene's
+// own blur and widens the FOV as it nears its top speed; nitrous kicks the FOV
+// wider, adds shake and blur, and lights a flicking blue flame at two exhaust
+// pipes, drawn in the lamp-glow batch (no submit of its own). Six "feel*"
+// drive-spec keys on the Effects tab; every existing car gets the defaults.
+// Presentation only - the drive model is untouched. MINOR.
 // 1.141.1 - The skid-mark ring starts degenerate: resize() left Vec4/Color
 // uninitialised and the whole ring is submitted, so unused slots drew as a
 // black sliver across the screen. Plus the Motor District night dressing
@@ -5418,8 +5425,8 @@
 // Particles face the camera a pass DRAWS with (cutscene override, shake,
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 141
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 143
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -5867,7 +5874,12 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v75 (docs/vehicles.md, "Lamp glow"): drive.lampGlow and a definition's
 // bake-measured "lampGlows" (written only when non-empty). Missing = no halo.
 // Additive; no migration step. (Shipped on its branch as v74.)
-inline constexpr int kFormatVersion = 75;
+// v76 (docs/vehicles.md, "Speed feel"): six drive-spec keys - feelFrom,
+// feelShake, feelBlur, feelFov, feelNosFov, feelFlame - written with the rest
+// of the spec. Missing = the defaults, so a car saved before it gets the speed
+// feel too (it is presentation, and 0 switches each part off). Additive; no
+// migration step.
+inline constexpr int kFormatVersion = 76;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

@@ -535,6 +535,21 @@ std::vector<SpecField> specFields(DriveSpec& s) {
         {"damageLoose", &s.damageLoose, 0.0f, 3.0f, "Loose parts",
          "How easily the bonnet, boot and doors come off and the windows break. "
          "0 = everything stays on."},
+        // Speed feel - every "feel*" key is on the Effects tab too.
+        {"feelFrom", &s.feelFrom, 0.0f, 0.95f, "Speed feel from",
+         "Fraction of the top speed where the shake, blur and wider view start. "
+         "They build up to full at the top speed."},
+        {"feelShake", &s.feelShake, 0.0f, 3.0f, "Speed shake",
+         "Camera shake at speed - road rumble. Nitrous adds more. 0 = none."},
+        {"feelBlur", &s.feelBlur, 0.0f, 1.0f, "Speed blur",
+         "Motion blur at the top speed, as a share of the maximum. Nitrous adds "
+         "more. Never less than the scene's own blur. 0 = none."},
+        {"feelFov", &s.feelFov, 0.0f, 25.0f, "Speed FOV",
+         "Degrees the view widens by at the top speed."},
+        {"feelNosFov", &s.feelNosFov, 0.0f, 30.0f, "Nitrous FOV kick",
+         "Extra degrees of view while the nitrous burns - the rush of the boost."},
+        {"feelFlame", &s.feelFlame, 0.0f, 2.0f, "Nitrous flame",
+         "Brightness of the flame out of the exhaust while boosting. 0 = none."},
     };
 }
 
@@ -702,6 +717,13 @@ int applyDent(const Impact& im, float maxDent, const float* rest, int restStride
 
 float damagePerformance(const DriveSpec& s, float damage) {
     return 1.0f - clampf(s.damagePerfLoss, 0.0f, 1.0f) * clampf(damage, 0.0f, 1.0f);
+}
+
+float speedFeel(const DriveSpec& s, float speed) {
+    const float top = s.topSpeed > 0.1f ? s.topSpeed : 0.1f;
+    const float from = clampf(s.feelFrom, 0.0f, 0.95f);
+    const float t = clampf((std::fabs(speed) / top - from) / (1.0f - from), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
 }
 
 const char* pieceName(int kind) {

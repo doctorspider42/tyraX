@@ -195,6 +195,11 @@ the lower gears are longer rather than the whole car becoming faster.
 | D-pad up | Headlamps |
 | Select | Repair the car you are driving (the `Repair Vehicle` node on `ravager-1`) |
 
+Take the perimeter loop flat out to feel the
+[speed feel](../../docs/vehicles.md#speed-feel): near the top speed the camera
+shakes, the road blurs and the view widens, and Cross adds the nitrous kick
+and the blue exhaust flame.
+
 The coupe retains its engine/rev crossfade, tyre squeal, gear-shift sound,
 brake lamps, suspension and projected silhouette. The parked Rally also uses
 a projected silhouette; AI cars use cheaper blob shadows.
