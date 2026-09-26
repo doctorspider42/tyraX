@@ -1235,6 +1235,11 @@ booted twice (drift 0.003 ms), batch path booted twice:
 PCSX2 night captures show the same coronas, shafts and pools. Night frames
 flicker, so the comparison is by eye and by self-noise, not byte for byte.
 
+**Since 2026-09-26 both batches write on change** (`TYRA_BEAMS_KEEP`,
+docs/vehicles.md "Per-car EE cuts"). The frame is assembled in scratch and
+reaches the bag arrays only where a byte differs, so a still camera replays
+the baked streams instead of re-staging both batches every frame.
+
 ### How to A/B a change to GAME code: one ELF, toggled at boot
 
 A two-ELF comparison of generated-game code moves more than the change. Code

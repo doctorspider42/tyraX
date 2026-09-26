@@ -4829,6 +4829,42 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include <map>
 #include <string>
 
+// PER-CAR AND PER-LAMP WRITE-ON-CHANGE (docs/vehicles.md, "Per-car EE cuts").
+// Each is an A/B knob on the same terms as TYRA_STRIP_WHEELS: 0 restores what
+// the runtime did before it. Macros, so a measurement fixture can define them
+// to a boot-time switch and price every lever from one ELF.
+//   TYRA_VEH_PAINT_DISTANCE_STEP  a car nobody drives re-colours its paint
+//                                 after a view move that grows with distance
+//   TYRA_VEH_PAINT_ONE_A_FRAME    at most one such car re-colours a frame
+//   TYRA_VEH_LIGHTS_KEEP          headlight pools, lamp halos and tail glow
+//                                 keep their bytes (and their baked stream)
+//                                 while nothing under them moved
+//   TYRA_BEAMS_KEEP               the same for the light beams' coronas/cones
+//   TYRA_VEH_SUBSTEP_REUSE        a frame's later vehicle sub-steps (25 fps)
+//                                 reuse the first one's collider walk and
+//                                 write the body matrix, camera and engine
+//                                 note once
+#ifndef TYRA_VEH_SUBSTEP_REUSE
+#define TYRA_VEH_SUBSTEP_REUSE 1
+#endif
+// Its oracle: every reused gather is re-done by the full walk and compared,
+// logged as VEHSUBSTEP. Costs more than it saves - never on when measuring.
+#ifndef TYRA_VEH_SUBSTEP_VERIFY
+#define TYRA_VEH_SUBSTEP_VERIFY 0
+#endif
+#ifndef TYRA_VEH_PAINT_DISTANCE_STEP
+#define TYRA_VEH_PAINT_DISTANCE_STEP 1
+#endif
+#ifndef TYRA_VEH_PAINT_ONE_A_FRAME
+#define TYRA_VEH_PAINT_ONE_A_FRAME 1
+#endif
+#ifndef TYRA_VEH_LIGHTS_KEEP
+#define TYRA_VEH_LIGHTS_KEEP 1
+#endif
+#ifndef TYRA_BEAMS_KEEP
+#define TYRA_BEAMS_KEEP 1
+#endif
+
 // Definition of the active-scene index declared in scene_data.hpp (which also
 // defines the SCENE_*/SKY_*/... accessor macros so scripts see them too).
 int g_activeScene = 0;
@@ -5000,6 +5036,24 @@ unsigned int g_contentStamp = 0;
 namespace {
 
 constexpr float PI = 3.14159265358979F;
+
+// WRITE-ON-CHANGE for a batch the frame rebuilds from scratch (the light
+// beams, the vehicle headlight pools, halos and glow). Every write through a
+// BagArray moves its content stamp, and a moved stamp re-stages the bag
+// instead of replaying its baked VIF stream - so a batch that writes the SAME
+// bytes every frame pays the re-stage every frame for nothing. This compares
+// first, through the const data() (which does not stamp), and writes only a
+// slot whose bytes differ. Bit comparison on purpose: equal bits in means an
+// identical stream out, and a NaN can only ever cause a write.
+template <class T>
+bool bagWriteIfChanged(BagArray<T>& arr, size_t at, const T* src, size_t n) {
+  if (n == 0) return false;
+  if (arr.size() < at + n) arr.resize(at + n);
+  else if (memcmp(arr.data() + at, src, n * sizeof(T)) == 0) return false;
+  auto dst = arr.span(at, n);
+  for (size_t i = 0; i < n; ++i) dst[i] = src[i];
+  return true;
+}
 
 // Display-mode option rows (bind 5): the engine mode an option drives, and
 // the option a mode shows as. Every such row carries an optModes table (codegen
@@ -18860,11 +18914,27 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
 
   // This call's batches (see BeamBatch): filled below, one submit each.
   BeamBatch& bb = beamBatchForCall();
-  bb.coronaVerts.clear();
-  bb.coronaSts.clear();
-  bb.coronaColors.clear();
-  bb.coneVerts.clear();
-  bb.coneColors.clear();
+  // WRITE-ON-CHANGE (TYRA_BEAMS_KEEP, docs/vehicles.md "Per-car EE cuts"):
+  // the frame is assembled in scratch and reaches the bag arrays only where
+  // a byte differs, so a still camera over steady lamps replays both baked
+  // streams instead of re-staging them every frame. The cones are world
+  // geometry and keep theirs under a moving camera too; the coronas face the
+  // camera and are rewritten whenever it moves, exactly as before.
+  const bool keep = TYRA_BEAMS_KEEP != 0;
+  static std::vector<Vec4> kCoronaV, kCoronaS, kConeV;
+  static std::vector<Color> kCoronaC, kConeC;
+  kCoronaV.clear();
+  kCoronaS.clear();
+  kCoronaC.clear();
+  kConeV.clear();
+  kConeC.clear();
+  if (!keep) {
+    bb.coronaVerts.clear();
+    bb.coronaSts.clear();
+    bb.coronaColors.clear();
+    bb.coneVerts.clear();
+    bb.coneColors.clear();
+  }
 
   for (LightBeam& b : lightBeams) {
     if (b.objIndex >= (int)runtimeObjects.size()) continue;
@@ -18970,6 +19040,12 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
                    128.0F * d.color[2] * kk, 128.0F);
     const LightBeam& cb = b;  // read-only: no content stamp on the sources
     for (int v = 0; v < 6; ++v) {
+      if (keep) {
+        kCoronaV.push_back(cb.coronaVerts[v]);
+        kCoronaS.push_back(cb.coronaSts[v]);
+        kCoronaC.push_back(cc);
+        continue;
+      }
       bb.coronaVerts.push_back(cb.coronaVerts[v]);
       bb.coronaSts.push_back(cb.coronaSts[v]);
       bb.coronaColors.push_back(cc);
@@ -19016,11 +19092,50 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
       const float cs = 52.0F * kk / 128.0F;
       for (int v = 0; v < 24; ++v) {
         const Color& src = cb.coneColors[v];
+        if (keep) {
+          kConeV.push_back(cb.coneVerts[v]);
+          kConeC.push_back(Color(src.r * cs, src.g * cs, src.b * cs, src.a));
+          continue;
+        }
         bb.coneVerts.push_back(cb.coneVerts[v]);
         bb.coneColors.push_back(
             Color(src.r * cs, src.g * cs, src.b * cs, src.a));
       }
     }
+  }
+
+  if (keep) {
+    // Resizing stays inside the capacity beamBatchForCall reserved, so the
+    // arrays never move under a stream the VIF may still be reading. A
+    // length change always re-stamps the box: the bbox cacher keys on
+    // (vertex pointer, version) and stores no count.
+    auto keepWrite = [](auto& arr, const auto& src) {
+      bool wrote = false;
+      if (arr.size() != src.size()) {
+        arr.resize(src.size());
+        wrote = true;
+      }
+      return bagWriteIfChanged(arr, 0, src.data(), src.size()) || wrote;
+    };
+    bool cw = keepWrite(bb.coronaVerts, kCoronaV);
+    cw = keepWrite(bb.coronaSts, kCoronaS) || cw;
+    cw = keepWrite(bb.coronaColors, kCoronaC) || cw;
+    if (!bb.coronaVerts.empty()) {
+      bb.coronaVerts.bind(bb.coronaBag);
+      bb.coronaSts.bind(bb.coronaTexBag);
+      bb.coronaColors.bind(bb.coronaColorBag);
+      if (cw) bb.coronaBag->bboxVersion = ++g_bboxStamp;
+      stapip.core.render(bb.coronaBag.get());
+    }
+    bool nw = keepWrite(bb.coneVerts, kConeV);
+    nw = keepWrite(bb.coneColors, kConeC) || nw;
+    if (!bb.coneVerts.empty()) {
+      bb.coneVerts.bind(bb.coneBag);
+      bb.coneColors.bind(bb.coneColorBag);
+      if (nw) bb.coneBag->bboxVersion = ++g_bboxStamp;
+      stapip.core.render(bb.coneBag.get());
+    }
+    return;
   }
 
   // One submission per batch. Additive and z-tested without z writes, so
@@ -25036,12 +25151,17 @@ void TerrainGame::renderScene() {
       // Four 1/128 steps are deliberate hysteresis. Camera suspension/bob can
       // hover on either side of a rounded bucket while the apparent view is
       // unchanged; waiting for a real angular move prevents alternating
-      // rebuild/replay frames at rest.
+      // rebuild/replay frames at rest. A car nobody drives waits for a
+      // larger move the further away it is, and shares one rebuild a frame
+      // with the others (vehiclePaintGate, docs/vehicles.md "Per-car EE
+      // cuts").
+      int maxDelta = 0;
       for (int k = 0; k < 6; ++k) {
         int delta = (int)part.envPaintKey[k] - (int)key[k];
         if (delta < 0) delta = -delta;
-        if (delta >= 4) paintChanged = true;
+        if (delta > maxDelta) maxDelta = delta;
       }
+      if (!paintChanged && maxDelta >= 4) paintChanged = {{VEHICLE_PAINT_GATE}};
       if (paintChanged) {
         for (int k = 0; k < 6; ++k) part.envPaintKey[k] = key[k];
         part.envPaintLod = (signed char)part.shownLod;
@@ -36911,6 +37031,12 @@ static std::string vehicleMembers(const Project& p) {
     // The distance tier the body shows (0 full, 1/2 far - vehicleLodTier),
     // kept so the swap has a hysteresis.
     int farTier = 0;
+    // Its paint rebuild lost the one-a-frame slot last frame, so it takes
+    // the next one whatever else wants it (vehiclePaintGate).
+    bool paintDeferred = false;
+    // Its render matrix was skipped on a sub-step another one follows
+    // (TYRA_VEH_SUBSTEP_REUSE); the frame's last sub-step writes it.
+    bool objMatPending = false;
     float compress[4] = {0.5F, 0.5F, 0.5F, 0.5F}; // 0..1, visual only
     // The powertrain (docs/vehicles.md). Derived from the speed the model
     // already produces - the gear and the engine speed feed nothing back
@@ -37106,6 +37232,7 @@ static std::string vehicleMembers(const Project& p) {
   std::unique_ptr<Tyra::StaPipInfoBag> lampGlowInfo_;
   std::unique_ptr<Tyra::StaPipColorBag> lampGlowColorBag_;
   std::unique_ptr<Tyra::StaPipTextureBag> lampGlowTexBag_;
+  int lampGlowQuadsPrev_ = -1;  // write-on-change (TYRA_VEH_LIGHTS_KEEP)
   Tyra::M4x4 lampGlowMat_;
   void renderVehicleLampGlow();
   void repairVehicle(int vi);
@@ -37187,6 +37314,23 @@ static std::string vehicleMembers(const Project& p) {
   // first, so edge-triggered input (use, lights, camera) fires once a frame.
   void stepVehicles(float dt);
   bool vehSubStepRepeat_ = false;
+  // True on every sub-step that another one follows in the same frame: the
+  // presentation a later sub-step overwrites anyway (body transform, camera,
+  // engine note) is written once, on the last (TYRA_VEH_SUBSTEP_REUSE).
+  bool vehSubStepMore_ = false;
+  float vehFrameDt_ = 0.02F;  // the whole frame stepVehicles is stepping
+  // A car's collider candidates from the frame's FIRST sub-step, kept for the
+  // later ones (docs/vehicles.md, "Per-car EE cuts"): indices into
+  // vehColliders_ / procColliders whose centre lay within the gather reach
+  // PLUS a travel margin. A later sub-step walks only these, in the same
+  // order, so its gather is the full walk's exact result - and falls back to
+  // the full walk if the car moved further than the margin covers.
+  struct VehGatherCache {
+    std::vector<int> col, proc;
+    float x = 0.0F, z = 0.0F, reach = 0.0F, margin = 0.0F;
+    bool valid = false;
+  };
+  std::vector<VehGatherCache> vehGather_;
   void renderVehicleWheels();
   int vehicleLod(int vi) const;  // the body's shown tier (telemetry)
   // Tyre smoke and skid marks (docs/vehicles.md, "Skid marks and smoke"):
@@ -37282,6 +37426,20 @@ static std::string vehicleMembers(const Project& p) {
   BagArray<Tyra::Vec4> headlightSts_;
   BagArray<Tyra::Color> headlightCols_;
   int headlightCount_ = 0;
+  int headlightCountPrev_ = -1;
+  // A car's pool is a function of where it stands and faces (x, z, yaw,
+  // scale, definition): the ground under it is static. So the 54 vertices
+  // and their 16 ground queries are kept per car and re-derived only when
+  // that key moves (TYRA_VEH_LIGHTS_KEEP) - a parked car with its lights on
+  // used to pay both every frame.
+  struct HeadlightPoolCache {
+    float key[5] = {0, 0, 0, 0, 0};
+    bool valid = false;
+    Tyra::Vec4 p[kVehHeadlightCells * 6];
+    Tyra::Vec4 st[kVehHeadlightCells * 6];
+    Tyra::Color c[kVehHeadlightCells * 6];
+  };
+  std::vector<HeadlightPoolCache> headlightCache_;
   std::unique_ptr<Tyra::StaPipBag> headlightBag_;
   std::unique_ptr<Tyra::StaPipInfoBag> headlightInfoBag_;
   std::unique_ptr<Tyra::StaPipColorBag> headlightColorBag_;
@@ -37298,6 +37456,13 @@ static std::string vehicleMembers(const Project& p) {
   void selectVehicleShine();
   bool vehicleShineOn(int objIdx) const;
   int vehicleShineLogged_ = -1;  // the last selection VEHSHINE printed
+  // May this car's paint colours be rebuilt now, for a view move of `delta`
+  // 1/128 steps? (docs/vehicles.md, "Per-car EE cuts"): the step grows with
+  // the distance to a car nobody drives, and at most one such car rebuilds
+  // a frame. vehPaintSlotObj_ is the object that took this frame's slot,
+  // reset by selectVehicleShine once a frame.
+  bool vehiclePaintGate(int objIdx, int delta);
+  int vehPaintSlotObj_ = -1;
   // The far tier's distance per vehicle body (hysteresis, traffic distance)
   // and the parts it hides while it shows (docs/vehicles.md).
   int vehicleLodTier(int objIdx, int tier);
@@ -37683,6 +37848,7 @@ void TerrainGame::renderVehicleSkids() {
 void TerrainGame::renderVehicleGlow() {
   glowCount_ = 0;
   headlightCount_ = 0;
+  bool headlightWrote = false;  // any pool slot's bytes changed this frame
   const float kDeg = 0.017453293F;
   for (int vi = 0; vi < vehicleCount_; ++vi) {
     VehicleRt& v = vehicles_[vi];
@@ -37740,6 +37906,33 @@ void TerrainGame::renderVehicleGlow() {
     }
     if (v.lightsOn > 0 && !(v.lampBroken & 1) && flashGoboTex &&
         headlightCount_ + kVehHeadlightCells <= kVehHeadlightMax) {
+      // KEPT PER CAR (TYRA_VEH_LIGHTS_KEEP): the pool below is a function of
+      // this key alone, so a car that did not move reuses last frame's 54
+      // vertices and skips the 16 ground queries. The batch then writes only
+      // the slots whose bytes differ (bagWriteIfChanged), which is what lets
+      // the bag replay its baked stream while every car in it stands still.
+      const bool keepPool = TYRA_VEH_LIGHTS_KEEP != 0;
+      Tyra::Vec4 tmpP[kVehHeadlightCells * 6], tmpSt[kVehHeadlightCells * 6];
+      Tyra::Color tmpC[kVehHeadlightCells * 6];
+      Tyra::Vec4* outP = tmpP;
+      Tyra::Vec4* outSt = tmpSt;
+      Tyra::Color* outC = tmpC;
+      bool rebuild = true;
+      if (keepPool) {
+        if ((int)headlightCache_.size() < vehicleCount_)
+          headlightCache_.resize((size_t)vehicleCount_);
+        HeadlightPoolCache& hc = headlightCache_[(size_t)vi];
+        const float hk[5] = {v.pos[0], v.pos[2], v.yaw, SC, (float)v.def};
+        rebuild = !hc.valid || memcmp(hk, hc.key, sizeof(hk)) != 0;
+        if (rebuild) {
+          memcpy(hc.key, hk, sizeof(hk));
+          hc.valid = true;
+        }
+        outP = hc.p;
+        outSt = hc.st;
+        outC = hc.c;
+      }
+      if (rebuild) {
       // The beam starts at the measured front lamps when the model marked
       // them, else just past the bumper.
       const float nose = s.lampFront[3] > 0.0F
@@ -37799,17 +37992,33 @@ void TerrainGame::renderVehicleGlow() {
                                     gridUv[iz + 1][ix + 1], gridUv[iz + 1][ix]};
           const Tyra::Color pc[4] = {gridCol[iz][ix], gridCol[iz][ix + 1],
                                      gridCol[iz + 1][ix + 1], gridCol[iz + 1][ix]};
-          auto g = headlightVerts_.span(headlightCount_ * 6, 6);
-          auto st = headlightSts_.span(headlightCount_ * 6, 6);
-          auto c = headlightCols_.span(headlightCount_ * 6, 6);
+          const int cell = iz * kCells + ix;
           for (int j = 0; j < 6; ++j) {
-            g[j] = p[tri[j]];
-            st[j] = uv[tri[j]];
-            c[j] = pc[tri[j]];
+            outP[cell * 6 + j] = p[tri[j]];
+            outSt[cell * 6 + j] = uv[tri[j]];
+            outC[cell * 6 + j] = pc[tri[j]];
           }
-          ++headlightCount_;
         }
       }
+      }  // rebuild
+      const size_t at = (size_t)headlightCount_ * 6;
+      const size_t n = (size_t)kVehHeadlightCells * 6;
+      if (keepPool) {
+        bool w = bagWriteIfChanged(headlightVerts_, at, outP, n);
+        w = bagWriteIfChanged(headlightSts_, at, outSt, n) || w;
+        w = bagWriteIfChanged(headlightCols_, at, outC, n) || w;
+        if (w) headlightWrote = true;
+      } else {
+        auto g = headlightVerts_.span(at, n);
+        auto st = headlightSts_.span(at, n);
+        auto c = headlightCols_.span(at, n);
+        for (size_t j = 0; j < n; ++j) {
+          g[j] = outP[j];
+          st[j] = outSt[j];
+          c[j] = outC[j];
+        }
+      }
+      headlightCount_ += kVehHeadlightCells;
     }
     // Tail lamps: two small red quads on the rear face. Dim while the
     // lights are on, FLARED while braking - and braking lights them even
@@ -37922,8 +38131,15 @@ void TerrainGame::renderVehicleGlow() {
       headlightVerts_.bind(headlightBag_);
     }
     headlightBag_->count = (u32)(headlightCount_ * 6);
-    headlightBag_->bboxVersion = ++g_bboxStamp;
+    // Kept: the box moves only when a slot was rewritten or the pool count
+    // changed (the bbox cacher stores no count, so a new count re-stamps).
+    if (!TYRA_VEH_LIGHTS_KEEP || headlightWrote ||
+        headlightCount_ != headlightCountPrev_)
+      headlightBag_->bboxVersion = ++g_bboxStamp;
+    headlightCountPrev_ = headlightCount_;
     stapip.core.render(headlightBag_.get());
+  } else {
+    headlightCountPrev_ = 0;
   }
   if (glowCount_ <= 0) return;
   if (!glowBag_) {
@@ -38657,6 +38873,7 @@ void TerrainGame::renderVehicleLampGlow() {
   }
   const float ux = -rz * fwd.y, uy = rz * fwd.x - rx * fwd.z, uz = rx * fwd.y;
   int quads = 0;
+  bool lampGlowWrote = false;  // any halo slot's bytes changed this frame
   // The driver's car first, so a crowded frame never drops the player's own.
   for (int pass = 0; pass < 2; ++pass)
     for (int vi = 0; vi < vehicleCount_; ++vi) {
@@ -38736,14 +38953,28 @@ void TerrainGame::renderVehicleLampGlow() {
                             Vec4(0, 1, 1, 0), Vec4(1, 0, 1, 0), Vec4(0, 0, 1, 0)};
         // Fixed-size arrays written by slot: a previous frame's DMA may still
         // read them, so they never move (the glow bag's rule).
-        auto gv = lampGlowVerts_.span((size_t)quads * 6, 6);
-        auto gs = lampGlowSts_.span((size_t)quads * 6, 6);
-        auto gc = lampGlowCols_.span((size_t)quads * 6, 6);
-        for (int j = 0; j < 6; ++j) gv[j] = q[j], gs[j] = st[j], gc[j] = col;
+        if (TYRA_VEH_LIGHTS_KEEP) {
+          // Write-on-change: a still camera over parked cars rewrites the
+          // same bytes, and not writing them keeps the baked stream.
+          const Tyra::Color cq[6] = {col, col, col, col, col, col};
+          const size_t at = (size_t)quads * 6;
+          bool w = bagWriteIfChanged(lampGlowVerts_, at, q, 6);
+          w = bagWriteIfChanged(lampGlowSts_, at, st, 6) || w;
+          w = bagWriteIfChanged(lampGlowCols_, at, cq, 6) || w;
+          if (w) lampGlowWrote = true;
+        } else {
+          auto gv = lampGlowVerts_.span((size_t)quads * 6, 6);
+          auto gs = lampGlowSts_.span((size_t)quads * 6, 6);
+          auto gc = lampGlowCols_.span((size_t)quads * 6, 6);
+          for (int j = 0; j < 6; ++j) gv[j] = q[j], gs[j] = st[j], gc[j] = col;
+        }
         ++quads;
       }
     }
-  if (quads == 0) return;
+  if (quads == 0) {
+    lampGlowQuadsPrev_ = 0;
+    return;
+  }
   if (!lampGlowBag_) {
     lampGlowMat_.identity();
     lampGlowInfo_ = std::make_unique<StaPipInfoBag>();
@@ -38767,7 +38998,11 @@ void TerrainGame::renderVehicleLampGlow() {
   lampGlowSts_.bind(lampGlowTexBag_);
   lampGlowVerts_.bind(lampGlowBag_);
   lampGlowBag_->count = (u32)(quads * 6);
-  lampGlowBag_->bboxVersion = ++g_bboxStamp;  // it moves with the cars
+  // It moves with the cars and the camera - but only a frame that moved a
+  // byte, or changed the halo count, needs a new box.
+  if (!TYRA_VEH_LIGHTS_KEEP || lampGlowWrote || quads != lampGlowQuadsPrev_)
+    lampGlowBag_->bboxVersion = ++g_bboxStamp;
+  lampGlowQuadsPrev_ = quads;
   stapip.core.render(lampGlowBag_.get());
 }
 
@@ -39163,11 +39398,18 @@ void TerrainGame::stepVehicles(float dt) {
   if (n < 1) n = 1;
   if (n > 4) n = 4;
   const float h = dt / (float)n;
+  vehFrameDt_ = dt;
+  // A cache from an earlier frame must never serve this one: a car that
+  // slept through the first sub-step (and so recorded nothing) could be
+  // woken by a hit before the second.
+  for (VehGatherCache& g : vehGather_) g.valid = false;
   for (int k = 0; k < n; ++k) {
     vehSubStepRepeat_ = k > 0;
+    vehSubStepMore_ = TYRA_VEH_SUBSTEP_REUSE && k + 1 < n;
     updateVehicles(h);
   }
   vehSubStepRepeat_ = false;
+  vehSubStepMore_ = false;
 }
 
 void TerrainGame::updateVehicles(float dt) {
@@ -39232,7 +39474,12 @@ void TerrainGame::updateVehicles(float dt) {
                                        : vehicles_[vi].object == req))
         repairVehicle(vi);
   }
-  buildVehicleColliders();
+  // The collider list is a function of the scene's non-vehicle objects, and
+  // nothing in a vehicle sub-step moves one (a pushed body only takes an
+  // impulse; the physics step moves it later). So a later sub-step of the
+  // same frame keeps the first one's list instead of re-walking every object.
+  if (!(TYRA_VEH_SUBSTEP_REUSE && vehSubStepRepeat_)) buildVehicleColliders();
+  if ((int)vehGather_.size() < vehicleCount_) vehGather_.resize((size_t)vehicleCount_);
   for (int vi = 0; vi < vehicleCount_; ++vi) {
     VehicleRt& v = vehicles_[vi];
     if (!v.active || v.def < 0) continue;
@@ -39590,6 +39837,12 @@ void TerrainGame::updateVehicles(float dt) {
     }
     if (v.sleepFrames >= 25) {
       Tyra::HardwareTrace::Scope trace("Vehicle_sleep");
+      if (v.objMatPending && !vehSubStepMore_ && v.object >= 0 &&
+          v.object < (int)runtimeObjects.size()) {
+        if (runtimeObjects[v.object].onMatrixPath) updateObjMat(v.object);
+        else runtimeObjects[v.object].dirty = true;
+        v.objMatPending = false;
+      }
       continue;
     }
 
@@ -39651,15 +39904,15 @@ void TerrainGame::updateVehicles(float dt) {
       // The frame's collider list (built once before the vehicle loop, see
       // buildVehicleColliders): every car reads the same compact array instead
       // of re-walking the scene - same entries, same order, same tests.
-      for (const VehColEntry& e : vehColliders_) {
+      auto considerCol = [&](const VehColEntry& e) {
         const int oi = e.oi;
-        if (oi == carryIndex) continue;
+        if (oi == carryIndex) return;
         if (e.kind == 2) {
           const float dx = e.wx - v.pos[0];
           const float dz = e.wz - v.pos[2];
           const float r = reach + e.rs + 1.0F;
           if (dx * dx + dz * dz < r * r && pushN < 8) pushIdx[pushN++] = oi;
-          continue;
+          return;
         }
         if (e.kind == 1) {
           const float dx = e.wx - v.pos[0];
@@ -39667,7 +39920,7 @@ void TerrainGame::updateVehicles(float dt) {
           const float r = reach + e.rs + 2.0F;
           if (dx * dx + dz * dz < r * r && nearMeshN < 4)
             nearMesh[nearMeshN++] = oi;
-          continue;
+          return;
         }
         const float top = e.top;
         const float bottom = e.bottom;
@@ -39680,18 +39933,18 @@ void TerrainGame::updateVehicles(float dt) {
           const float rr = reach + e.hx + e.hz;
           if (ddx * ddx + ddz * ddz < rr * rr && floorBoxN < 8)
             floorBox[floorBoxN++] = {wx, wz, e.hx, e.hz, e.cy, e.sy, top};
-          continue;
+          return;
         }
-        if (top <= feet0 + 0.5F || bottom >= feet0 + 0.9F) continue;
+        if (top <= feet0 + 0.5F || bottom >= feet0 + 0.9F) return;
         const float bhx = e.hx + 0.35F;  // the walker's playerRadius
         const float bhz = e.hz + 0.35F;
         const float rr = reach + bhx + bhz;
-        if (ddx * ddx + ddz * ddz >= rr * rr || wallBoxN >= 12) continue;
+        if (ddx * ddx + ddz * ddz >= rr * rr || wallBoxN >= 12) return;
         wallBox[wallBoxN++] = {wx, wz, bhx, bhz, e.cy, e.sy};
-      }
+      };
       // Generated geometry (prefabs, procedural volumes): already
       // axis-aligned conservative boxes, same vertical rules.
-      for (const StaticBox& b : procColliders) {
+      auto considerProc = [&](const StaticBox& b) {
         const float wx = 0.5F * (b.mx[0] + b.mn[0]);
         const float wz = 0.5F * (b.mx[2] + b.mn[2]);
         const float ddx = wx - v.pos[0], ddz = wz - v.pos[2];
@@ -39701,14 +39954,96 @@ void TerrainGame::updateVehicles(float dt) {
           const float rr = reach + fhx + fhz;
           if (ddx * ddx + ddz * ddz < rr * rr && floorBoxN < 8)
             floorBox[floorBoxN++] = {wx, wz, fhx, fhz, 1.0F, 0.0F, b.mx[1]};
-          continue;
+          return;
         }
-        if (b.mx[1] <= feet0 + 0.5F || b.mn[1] >= feet0 + 0.9F) continue;
+        if (b.mx[1] <= feet0 + 0.5F || b.mn[1] >= feet0 + 0.9F) return;
         const float bhx = 0.5F * (b.mx[0] - b.mn[0]) + 0.35F;
         const float bhz = 0.5F * (b.mx[2] - b.mn[2]) + 0.35F;
         const float rr = reach + bhx + bhz;
-        if (ddx * ddx + ddz * ddz >= rr * rr || wallBoxN >= 12) continue;
+        if (ddx * ddx + ddz * ddz >= rr * rr || wallBoxN >= 12) return;
         wallBox[wallBoxN++] = {wx, wz, bhx, bhz, 1.0F, 0.0F};
+      };
+      // SUB-STEP REUSE (TYRA_VEH_SUBSTEP_REUSE, docs/vehicles.md "Per-car EE
+      // cuts"). The first sub-step of a multi-step frame records every entry
+      // whose centre lies within the widest radius any test above could use
+      // (wall inflation included) plus a travel margin, horizontally only -
+      // the vertical rules are re-applied every sub-step, since the car's
+      // height moves. A later sub-step then walks that subset IN THE SAME
+      // ORDER, so every list and every cap comes out as the full walk's. It
+      // is valid while the car has moved less than the margin, less what the
+      // reach itself grew; otherwise the full walk runs, as always.
+      VehGatherCache& gc = vehGather_[(size_t)vi];
+      bool useCand = false;
+      if (vehSubStepRepeat_ && gc.valid) {
+        const float mx = v.pos[0] - gc.x, mz = v.pos[2] - gc.z;
+        const float grow = reach - gc.reach;
+        useCand = sqrtf(mx * mx + mz * mz) + (grow > 0.0F ? grow : 0.0F) < gc.margin;
+      }
+      if (useCand) {
+        for (const int ci : gc.col) considerCol(vehColliders_[(size_t)ci]);
+        for (const int pi : gc.proc) considerProc(procColliders[(size_t)pi]);
+#if TYRA_VEH_SUBSTEP_VERIFY
+        // THE ORACLE: the full walk again, and every list compared with the
+        // subset's to the byte. Off in anything measured or shipped.
+        {
+          VehWallBox w0[12];
+          VehFloorBox f0[8];
+          int m0[4], p0[8];
+          const int wn = wallBoxN, fn = floorBoxN, mn = nearMeshN, pn = pushN;
+          memcpy(w0, wallBox, sizeof(w0));
+          memcpy(f0, floorBox, sizeof(f0));
+          memcpy(m0, nearMesh, sizeof(m0));
+          memcpy(p0, pushIdx, sizeof(p0));
+          wallBoxN = floorBoxN = nearMeshN = pushN = 0;
+          for (const VehColEntry& e : vehColliders_) considerCol(e);
+          for (const StaticBox& b : procColliders) considerProc(b);
+          const bool same =
+              wn == wallBoxN && fn == floorBoxN && mn == nearMeshN && pn == pushN &&
+              memcmp(w0, wallBox, sizeof(VehWallBox) * (size_t)wn) == 0 &&
+              memcmp(f0, floorBox, sizeof(VehFloorBox) * (size_t)fn) == 0 &&
+              memcmp(m0, nearMesh, sizeof(int) * (size_t)mn) == 0 &&
+              memcmp(p0, pushIdx, sizeof(int) * (size_t)pn) == 0;
+          static u32 vChecked = 0, vBad = 0, vFrames = 0;
+          ++vChecked;
+          if (!same) ++vBad;
+          if (++vFrames >= 300) {
+            TYRA_LOG("VEHSUBSTEP checked ", vChecked, " MISMATCH ", vBad,
+                     " walls ", wallBoxN, " floors ", floorBoxN, " cand ",
+                     (int)gc.col.size(), " of ", (int)vehColliders_.size());
+            vChecked = vBad = vFrames = 0;
+          }
+        }
+#endif
+      } else if (vehSubStepMore_ && !vehSubStepRepeat_) {
+        const float top = s.topSpeed * SC;
+        const float margin = 2.0F * (spd > top ? spd : top) * vehFrameDt_ + 0.5F;
+        gc.col.clear();
+        gc.proc.clear();
+        gc.x = v.pos[0];
+        gc.z = v.pos[2];
+        gc.reach = reach;
+        gc.margin = margin;
+        gc.valid = true;
+        for (size_t ci = 0; ci < vehColliders_.size(); ++ci) {
+          const VehColEntry& e = vehColliders_[ci];
+          const float dx = e.wx - v.pos[0], dz = e.wz - v.pos[2];
+          const float span = e.kind == 0 ? e.hx + e.hz + 0.7F : e.rs + 2.0F;
+          const float r = reach + span + margin;
+          if (dx * dx + dz * dz < r * r) gc.col.push_back((int)ci);
+          considerCol(e);
+        }
+        for (size_t pi = 0; pi < procColliders.size(); ++pi) {
+          const StaticBox& b = procColliders[pi];
+          const float dx = 0.5F * (b.mx[0] + b.mn[0]) - v.pos[0];
+          const float dz = 0.5F * (b.mx[2] + b.mn[2]) - v.pos[2];
+          const float r = reach + 0.5F * (b.mx[0] - b.mn[0]) +
+                          0.5F * (b.mx[2] - b.mn[2]) + 0.7F + margin;
+          if (dx * dx + dz * dz < r * r) gc.proc.push_back((int)pi);
+          considerProc(b);
+        }
+      } else {
+        for (const VehColEntry& e : vehColliders_) considerCol(e);
+        for (const StaticBox& b : procColliders) considerProc(b);
       }
     }
     float gy[4];
@@ -40604,17 +40939,27 @@ void TerrainGame::updateVehicles(float dt) {
       // still while the wheels - built straight from v.pos - drove off across
       // the map on their own. The dirty rebuild costs a re-bake on those few
       // frames and is the only thing that makes the car ONE object.
-      if (o.onMatrixPath)
+      // The data above is written every sub-step (the mesh resolver of the
+      // next one reads it); the render matrix only once, on the last - a
+      // later sub-step overwrites it anyway (TYRA_VEH_SUBSTEP_REUSE).
+      if (vehSubStepMore_)
+        v.objMatPending = true;
+      else if (o.onMatrixPath) {
         updateObjMat(v.object);
-      else
+        v.objMatPending = false;
+      } else {
         o.dirty = true;
+        v.objMatPending = false;
+      }
     }
 
     VEH_LAP(5);
     // The engine note. Called for EVERY vehicle, not only the driven one, so
     // that leaving a car is what silences it - a `continue` above here would
-    // leave the loop running for ever on the channel.
-    updateVehicleEngineSound(v, s, vi == vehicleDriver_ ? 1 : 0);
+    // leave the loop running for ever on the channel. Once a frame, from the
+    // last sub-step: a pitch write is a blocking IOP RPC, and the one the
+    // first sub-step sent would be overwritten 20 ms of game time later.
+    if (!vehSubStepMore_) updateVehicleEngineSound(v, s, vi == vehicleDriver_ ? 1 : 0);
 
     VEH_LAP(6);
 #undef VEH_LAP
@@ -40689,6 +41034,11 @@ void TerrainGame::updateVehicles(float dt) {
       // drift throws the whole view sideways and the car feels like it has let
       // go. Same rig, two opposite choices, and that contrast is the reason to
       // have both.
+      // Placed once a frame, from the last sub-step (TYRA_VEH_SUBSTEP_REUSE):
+      // the lagged boom above integrates every sub-step, but the eye, the
+      // look-at and the renderer's camera matrices are overwritten by the
+      // next sub-step before anything draws with them.
+      if (!vehSubStepMore_) {
       const float bodyC = cosf(v.yaw * kDeg), bodyS = sinf(v.yaw * kDeg);
       // R3 held = the rear view, as an INSTANT cut both ways - the era's
       // look-back mirror. It takes the BODY yaw, not the lagging boom: what
@@ -40727,6 +41077,7 @@ void TerrainGame::updateVehicles(float dt) {
       players[0].velY = 0.0F;
       engine->renderer.core.renderer3D.update(
           Tyra::CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
+      }  // !vehSubStepMore_
       // Telemetry (docs/vehicles.md, "Verifying it"): a driven car states its
       // position, speed and whether the body is on the matrix path every half
       // second, so a --pad script plus a grep of bin/log.txt PROVES a drive
@@ -41148,6 +41499,47 @@ int TerrainGame::vehiclePaintFor(int objIdx) {
   return 0;
 }
 
+// THE PAINT REBUILD GATE (docs/vehicles.md, "Per-car EE cuts"). A rebuild
+// costs the EE ~0.4 ms a car plus a re-stage of the env bag, and a turning
+// camera asks for one every ~2 frames per shining car. Two rules, for the
+// cars nobody drives (the driven car keeps the 4-step hysteresis it always
+// had - the chase camera turns with it and it is the one being looked at):
+// - THE STEP GROWS WITH DISTANCE. The highlight a view move slides across a
+//   car covers screen pixels in proportion to the car's size on screen, which
+//   falls as 1/distance; a step proportional to the distance keeps that slide
+//   the same number of pixels. 4 steps (~1.8 degrees) at 5 units, 24 at most.
+// - ONE A FRAME. When two such cars want a rebuild in the same frame the
+//   second waits one frame, and then goes first, so a frame never pays for
+//   every car at once and no car waits two.
+// A tier change or a first build never comes here: those colours are wrong,
+// not stale, and the caller rebuilds them at once.
+bool TerrainGame::vehiclePaintGate(int objIdx, int delta) {
+  for (int i = 0; i < vehicleCount_; ++i) {
+    VehicleRt& v = vehicles_[i];
+    if (!v.active || v.object != objIdx) continue;
+    const bool driven = i == vehicleDriver_;
+    int step = 4;
+    if (TYRA_VEH_PAINT_DISTANCE_STEP && !driven && objIdx >= 0 &&
+        objIdx < (int)runtimeObjects.size()) {
+      const float* p = runtimeObjects[objIdx].data.position;
+      const float dx = p[0] - cameraPosition.x, dz = p[2] - cameraPosition.z;
+      const int s = (int)(0.8F * sqrtf(dx * dx + dz * dz));
+      step = s < 4 ? 4 : (s > 24 ? 24 : s);
+    }
+    if (delta < step) return false;
+    if (TYRA_VEH_PAINT_ONE_A_FRAME && !driven) {
+      if (vehPaintSlotObj_ >= 0 && vehPaintSlotObj_ != objIdx && !v.paintDeferred) {
+        v.paintDeferred = true;
+        return false;
+      }
+      if (vehPaintSlotObj_ < 0) vehPaintSlotObj_ = objIdx;
+      v.paintDeferred = false;
+    }
+    return true;
+  }
+  return delta >= 4;
+}
+
 // The shine budget (docs/vehicles.md, "The shine budget"). On a physical PS2
 // the shine pass of a parked 1938-triangle car 9 units away costs 0.67-0.71 ms
 // of `work`, and 1.12-1.20 ms while the camera turns (its paint colours are
@@ -41156,6 +41548,7 @@ int TerrainGame::vehiclePaintFor(int objIdx) {
 // matte. A car already shining keeps its place until another one is 20%
 // nearer, so two cars at about the same distance do not trade it every frame.
 void TerrainGame::selectVehicleShine() {
+  vehPaintSlotObj_ = -1;  // this frame's one paint rebuild is free again
   if (VEHICLE_SHINE_BUDGET <= 0) {
     for (int i = 0; i < vehicleCount_; ++i) vehicles_[i].shineOn = true;
     return;
@@ -42980,6 +43373,10 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{VEHICLE_SHINE_ON}}",
                    projectHasVehicles(p) ? "vehicleShineOn(objectIndex)"
                                          : "true");
+    s = replaceAll(s, "{{VEHICLE_PAINT_GATE}}",
+                   projectHasVehicles(p)
+                       ? "vehiclePaintGate(objectIndex, maxDelta)"
+                       : "true");
     s = replaceAll(s, "{{VEHICLE_SHINE_SELECT}}",
                    projectHasVehicles(p) ? "selectVehicleShine();" : "");
     // A vehicle body's tier is the vehicle's own (hysteresis, and the traffic

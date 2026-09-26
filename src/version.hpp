@@ -5261,6 +5261,12 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.145.1 - Per-car EE cuts (docs/vehicles.md "Per-car EE cuts"): the
+// headlight pools and lamp halos are kept per car (-0.27..-0.30 ms on the
+// district, -0.32..-0.47 on the orbit), undriven paint re-colours by distance,
+// one car a frame (-0.15..-0.40 together), beams write only changed bytes,
+// and later vehicle sub-steps in a frame reuse the first one's gather (a 25
+// FPS frame's second step ~0.5 -> ~0.3 ms). Physical PS2 medians. PATCH.
 // 1.145.0 - Junction overrides (docs/roads.md): a scene stores per-crossing
 // overrides (SceneData::roadJunctions: road-id pair + position + winner /
 // patch material / grip), matched to the computed crossing of the same pair
@@ -5447,7 +5453,7 @@
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 145
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
