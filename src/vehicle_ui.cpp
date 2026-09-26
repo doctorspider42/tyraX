@@ -369,46 +369,16 @@ void App::vehicleDriveStart(int objectIndex) {
             }
             vehicleDriveRoads_.addEdge(et, r.roadGrip, cov);
         }
-        // Spills onto higher-rank roads (1.143.0): the grip fades from this
-        // road's over the higher road's, with the drawn alpha.
-        if (r.roadSpill > 0.0f)
-            for (const SceneObject& hi : objs) {
-                if (hi.type != PrimitiveType::Road || hi.roadPoints.size() < 4 ||
-                    hi.roadRank <= r.roadRank)
-                    continue;
-                std::vector<roadgen::SpillVertex> sv;
-                roadgen::tessellateSpill(r.roadPoints, r.roadWidth, r.roadSampleStep,
-                                         hi.roadPoints, hi.roadWidth, r.roadSpill, sv,
-                                         r.roadEdgeFade);
-                if (sv.empty()) continue;
-                const float top =
-                    roadgen::kLift + roadgen::rankLift(hi.roadRank) + roadgen::kSpillLift;
-                std::vector<roadgen::Vertex> st;
-                std::vector<float> sg;
-                for (const roadgen::SpillVertex& v : sv) {
-                    st.push_back({v.x, terrainAt(v.x, v.z) + top, v.z, v.u, v.v});
-                    sg.push_back(hi.roadGrip + (r.roadGrip - hi.roadGrip) * v.a);
-                }
-                vehicleDriveRoads_.addBlended(st, sg);
-            }
-        if (r.roadIntersectionTexture.empty()) continue;
-        for (size_t j = i + 1; j < objs.size(); ++j) {
-            const SceneObject& other = objs[j];
-            if (other.type != PrimitiveType::Road || other.roadPoints.size() < 4 ||
-                other.roadIntersectionTexture != r.roadIntersectionTexture ||
-                other.roadRank != r.roadRank)  // unequal: the higher runs through
-                continue;
-            std::vector<roadgen::Junction> junctions;
-            roadgen::findJunctions(r.roadPoints, r.roadWidth, other.roadPoints,
-                                   other.roadWidth, junctions);
-            for (const roadgen::Junction& junction : junctions) {
-                tris.clear();
-                roadgen::tessellateJunction(junction, liftedAt, tris);
-                // A junction is as slippery as the worse of its two roads
-                // (the codegen's JunctionRow rule).
-                vehicleDriveRoads_.add(tris, std::min(r.roadGrip, other.roadGrip));
-            }
-        }
+    }
+    // Crossings (junction patches, overlays, spills): the codegen's own plan
+    // (roadgen::planCrossings) over the same roads and the scene's junction
+    // overrides, so the test drive stands where the console car will.
+    {
+        const std::vector<roadgen::CrossingRoad> cr = project::crossingRoads(objs);
+        if (cr.size() >= 2)
+            roadgen::addCrossingsToSurface(
+                vehicleDriveRoads_, cr,
+                roadgen::planCrossings(cr, project_.active().roadJunctions), terrainAt);
     }
     vehicleDriveRoads_.build();
 }

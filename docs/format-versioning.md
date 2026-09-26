@@ -200,6 +200,13 @@ Format 60 adds the optional per-road `roadSampleStep` field. It is purely
 additive: missing means the original 1 m longitudinal spacing, so no migration
 step is required.
 
+Format 79 adds a scene's `roadJunctions` list (docs/roads.md, "Junction
+overrides"): per-crossing road overrides, each a road-id pair, the crossing's
+position and the winner / patch material / grip, with every field at its Auto
+value omitted. Written only when the list is non-empty; missing means no
+overrides, so every crossing follows the rank rule as before. Additive; no
+migration step.
+
 Format 78 adds a road's `roadEdgeFade` (docs/roads.md, "Soft edges"), written
 only away from 0. Missing means the hard edge, as before. Additive; no
 migration step.

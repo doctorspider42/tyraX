@@ -3068,6 +3068,7 @@ void App::drawViewportWindow() {
             }
             viewport_.setGsColorSim(quant, dith);
         }
+        viewport_.setRoadJunctions(project_.active().roadJunctions);
         uint32_t tex = viewport_.render((int)avail.x, (int)avail.y, renderObjects,
                                         renderSel, renderPrimary);
         // Phone camera link: stream THIS frame to the connected device, so the
@@ -3199,6 +3200,9 @@ void App::drawViewportWindow() {
         // text of the selected one. Under the axis gizmo and the transform
         // gizmo below, which both own their pixels.
         drawScreenIconOverlay(imgPos, avail);
+        // Road crossings (docs/roads.md, "Junction overrides"): a diamond per
+        // crossing while a road or a junction is selected.
+        junctionMarkers(imgPos, avail, true, io.MousePos);
 
         // --- Axis view gizmo (top-right corner) ---
         // Drawn before the input handling so its hover can veto the click that
@@ -3900,8 +3904,15 @@ void App::drawViewportWindow() {
             const float u = (io.MousePos.x - imgPos.x) / avail.x;
             const float v = (io.MousePos.y - imgPos.y) / avail.y;
             bool cycled = false;
-            const int hit = viewportPick(u, v, io.MousePos, imgPos, avail, &cycled);
-            if (io.KeyCtrl) {
+            // A junction diamond wins over whatever is under it (it is only
+            // drawn while a road or a junction is selected).
+            const int junctionHit = junctionMarkers(imgPos, avail, false, io.MousePos);
+            const int hit = junctionHit != -1
+                                ? -1
+                                : viewportPick(u, v, io.MousePos, imgPos, avail, &cycled);
+            if (junctionHit != -1) {
+                selectJunction(junctionHit);
+            } else if (io.KeyCtrl) {
                 if (hit >= 0) toggleSelect(hit);
             } else {
                 selectOnly(hit);
@@ -3909,7 +3920,7 @@ void App::drawViewportWindow() {
             // Say what the click found and that there is more under it: the
             // stack is invisible otherwise, and "click again" is the only way
             // to reach an object standing inside or behind another one.
-            statusMessage_ = pickStackStatus(hit);
+            if (junctionHit == -1) statusMessage_ = pickStackStatus(hit);
             // A cycle click is hunting through a stack, not a new framing:
             // leave the orbit pivot where it is (the block below re-snaps it
             // to the selection otherwise), or the camera walks away under the
@@ -6960,6 +6971,7 @@ void App::ungroupSelection() {
 }
 
 void App::selectOnly(int i, bool expandGroups) {
+    junctionSel_.active = false;  // a junction is a selection of its own
     selectionGroupMember_ = !expandGroups;
     selection_.clear();
     if (i >= 0 && i < (int)project_.objects().size()) selection_.push_back(i);
@@ -6968,6 +6980,7 @@ void App::selectOnly(int i, bool expandGroups) {
 }
 
 void App::toggleSelect(int i) {
+    junctionSel_.active = false;
     selectionGroupMember_ = false;
     if (i < 0 || i >= (int)project_.objects().size()) return;
     const std::string group = project_.objects()[i].editorGroup;
@@ -8392,8 +8405,8 @@ bool App::pickProjectTexture(const char* popupId, std::string& path) {
 }
 
 bool App::drawRoadSurfaceCombo(const char* label, const char* id,
-                               std::string& surfacePath) {
-    const char* noneLabel = "<none - untextured grey>";
+                               std::string& surfacePath, const char* noneLabel) {
+    if (!noneLabel) noneLabel = "<none - untextured grey>";
     std::string current = surfacePath.empty() ? noneLabel : surfacePath;
     if (current.rfind("res/", 0) == 0) current = current.substr(4);
 

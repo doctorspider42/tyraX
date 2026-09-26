@@ -14,6 +14,7 @@
 #include "grading.hpp"
 #include "input.hpp"
 #include "procgraph.hpp"
+#include "roadgen.hpp"  // JunctionOverride - SceneData stores them verbatim
 #include "screenfx.hpp"
 #include "sequence.hpp"
 #include "vehiclesim.hpp"  // DriveSpec - a VehicleDef carries one verbatim
@@ -3284,6 +3285,11 @@ struct SceneData {
     // Project::loadingScreens). Empty = the project default
     // (Project::defaultLoadingScreen); a dangling name also falls back there.
     std::string loadingScreen;
+
+    // Per-junction road overrides (docs/roads.md, "Junction overrides"):
+    // matched to a computed crossing by road-id pair + nearest position
+    // (roadgen::planCrossings). Empty in every scene that never used one.
+    std::vector<roadgen::JunctionOverride> roadJunctions;
 };
 
 inline bool operator==(const SceneData& a, const SceneData& b) {
@@ -3298,7 +3304,8 @@ inline bool operator==(const SceneData& a, const SceneData& b) {
            a.terrainTintScale == b.terrainTintScale &&
            a.overrides == b.overrides && a.settings == b.settings &&
            a.ambiencePreset == b.ambiencePreset &&
-           a.loadingScreen == b.loadingScreen;
+           a.loadingScreen == b.loadingScreen &&
+           a.roadJunctions == b.roadJunctions;
 }
 
 // One selectable row of a generated in-game menu.
@@ -4718,6 +4725,13 @@ TerrainMaterial resolveTerrainMaterial(const Project& p, const std::string& matR
 std::string resolveRoadTexture(const std::string& projectDir,
                                const std::string& surfaceRel);
 std::string resolveRoadTexture(const Project& p, const std::string& surfaceRel);
+
+// The crossing planner's view of a scene's roads (roadgen::planCrossings),
+// in object order - the ONE conversion the codegen, the viewport, the test
+// drive and the Properties panel share. `objectIndex`, when given, receives
+// each road's index in sc.objects.
+std::vector<roadgen::CrossingRoad> crossingRoads(
+    const std::vector<SceneObject>& objects, std::vector<int>* objectIndex = nullptr);
 
 // Loads the single <name>.tyra project file from an existing project
 // directory (game data + editor-side state + window layout).

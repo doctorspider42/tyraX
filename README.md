@@ -236,7 +236,9 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [endless scroller](docs/endless-scroller.md).
 - **[Roads](docs/roads.md) and [vehicles](docs/vehicles.md)** — material-driven
   spline roads with per-road longitudinal detail and automatically generated,
-  separately surfaced intersections,
+  separately surfaced intersections (road ranks decide who runs through, and
+  a clickable per-junction override changes one crossing's patch material,
+  grip or winner),
   projected onto the terrain in both the editor and game, plus imported,
   budgeted cars with wheel suspension, gears, drifting, AI drivers, a
   "fast wheel" model that swaps in above a spin rate and an authored low-poly

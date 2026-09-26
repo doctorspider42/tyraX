@@ -364,6 +364,8 @@ void App::rebuildAssetUsage() {
         for (const TerrainLayer& l : scene.terrainLayers)
             if (!l.material.empty())
                 note(l.material, 2, sn + " terrain layer \"" + l.name + "\"");
+        for (const roadgen::JunctionOverride& j : scene.roadJunctions)
+            if (!j.material.empty()) note(j.material, 2, sn + " road junction patch");
     }
     if (!project_.settings.terrainMaterial.empty())
         note(project_.settings.terrainMaterial, 2, "project terrain material");
@@ -678,6 +680,7 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
         }
         swap(scene.settings.terrainMaterial);
         for (TerrainLayer& l : scene.terrainLayers) swap(l.material);
+        for (roadgen::JunctionOverride& j : scene.roadJunctions) swap(j.material);
     }
     swap(project_.settings.terrainMaterial);
 

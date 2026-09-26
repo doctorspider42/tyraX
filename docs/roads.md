@@ -47,6 +47,7 @@ in VRAM.** There is no baked geometry to store, ship or stream.
   references still work. Crossings below roughly 14 degrees are also left
   alone: their overlap is an unbounded needle and should be authored as a merge.
   The viewport shows the same generated patch and texture.
+  One crossing can differ from these rules: see "Junction overrides" below.
 - **Align terrain to road** flattens the heightfield to the road's line: the
   grade is snapshotted first (the spline's height read off the current
   terrain, box-smoothed twice along the line so no single cell's spike
@@ -217,9 +218,10 @@ canonicalizes only that integer part; positions and fractional UVs remain exact.
 
 | File | What it is |
 |---|---|
-| `src/roadgen.hpp/.cpp` | The Catmull-Rom tessellator + `splineAt` (align pass, handles). |
+| `src/roadgen.hpp/.cpp` | The Catmull-Rom tessellator, `splineAt` (align pass, handles) and `planCrossings` (every crossing decision). |
 | `src/templates.cpp` (`roadsImpl`) | The runtime twin + data tables + the scene-load hook. |
 | `src/props_ui.cpp` | The Road properties panel + `App::alignTerrainToRoad`. |
+| `src/junction_ui.cpp` | Junction markers, selection and the Junction section (overrides). |
 | `tools/road-texture.py` | The example's deterministic asphalt texture. |
 
 ## Adaptive street geometry budget (1.86.3)
@@ -292,6 +294,10 @@ its default of 1.5). Together they decide what a crossing looks like:
   the higher road's edge for `roadSpill` units and fades out, like mud
   trailed onto the asphalt. Grip fades with it, from the lower road's to the
   higher road's. 0 gives a clean edge.
+
+A crossing that needs something else (a patch across ranks, another patch
+material, the lower road winning) takes a per-junction override - "Junction
+overrides" below.
 
 ![A Track-rank dirt lane (spill 3, edge fade 1.5) crossing a Local street in PCSX2: the street runs through, the lane fades onto it from both sides with soft sides](img/road-crossing-spill.png)
 
@@ -368,6 +374,103 @@ spills now on the dense grid):
 A texture whose alpha is ragged along its sides (U 0 and 1) makes the edge
 look organic: StaPip discards texels with alpha 0, and the fade blends the
 rest.
+
+## Junction overrides (1.145)
+
+Rank decides every crossing at once. A **junction override** changes ONE
+crossing: select a road, click the white diamond on a crossing (or the road's
+*Junction with ...* button in Properties) and the Properties panel shows a
+**Junction** section.
+
+![The Motor District's central crossing selected: the Junction section with its plaza patch material and own grip](img/road-junction-override.png)
+
+- **Winner**: *Auto* (the rank rule), *Patch* (a junction patch whatever the
+  ranks), or one of the two roads, which then runs through here regardless of
+  rank. Choosing a winner at two equal-rank roads is how a patch is suppressed.
+- **Patch material**: a road `.mtl` for this crossing's patch. Setting one
+  forces a patch even across ranks or different intersection materials. Auto =
+  the roads' own intersection material.
+- **Own grip**: the tyre grip of the crossing's surface. Auto = the lower road
+  for a patch, the winner's for a winner.
+- **Reset to auto** deletes the override; *Frame in viewport* pivots the camera
+  on the crossing.
+
+Diamonds are drawn while a road or a junction is selected: white = Auto,
+accent = overridden, red = orphaned.
+
+![The central crossing in PCSX2: the plaza patch (cobbles, zebra crossings) where Garage boulevard meets Market cross street](img/road-junction-plaza.png)
+
+### How a crossing is identified
+
+An override is stored in the scene (`SceneData::roadJunctions`, the scene
+table's `"roadJunctions"` list, format 79): the two road object ids, the
+crossing's position, and the three fields (each omitted at Auto). It matches
+the computed crossing of the same road pair nearest to the stored position
+within the narrower road's width, so point edits that move the crossing a
+little keep it. Editing a field re-stamps the position.
+
+An override that matches nothing (a road deleted, or moved so the roads no
+longer cross there) is **orphaned**: it is kept, changes nothing, shows as a
+red diamond at its stored spot and as a warning in the road's Properties, and
+can be deleted from its Junction section. `--road-crossings <project>` lists
+every crossing, its result and every orphan, and exits 1 when there is one.
+
+### One decision, three readers
+
+`roadgen::planCrossings` (host-only, in roadgen.cpp) is the only place a
+crossing is decided. It takes a scene's roads (`project::crossingRoads`) and
+its overrides, and returns the crossings with their result plus the decals to
+draw. The codegen (`ROAD_JUNCTIONS` / `ROAD_SPILLS`), the viewport
+(`syncRoadDraws`) and the test drive (`roadgen::addCrossingsToSurface`) all
+read that result, so the three copies of the pairing loops are gone and the
+console builds what the editor shows.
+
+### How a winner is drawn
+
+A winner the rank lift already puts on top needs nothing. Otherwise (the
+lower or an equal rank wins) the winner gets an **overlay**: its own triangles
+over the loser at that crossing (`tessellateSpill` with no fade, only the
+winner's soft edges), `kSpillLift` above the highest road. The loser then
+spills onto the winner with its own Spill value, one more `kSpillLift` up, so
+the mud or asphalt it trails lies over the overlay.
+
+![PCSX2: the Track-rank dirt lane made the winner where it crosses Market cross street - it runs over the asphalt, soft-sided, and the street's asphalt spills onto it](img/road-junction-winner.png)
+
+The rank spills are filtered per crossing: a spill triangle belongs to the
+nearest crossing of its road pair, and it is dropped where that crossing is a
+patch or lets the other road win. Without overrides the output is the same
+as before, row for row.
+
+On the console an overlay is one more `ROAD_SPILLS` row (alpha 1, the
+winner's texture). `RoadSpillRt` gained `grip` (the grip at alpha 1) and
+`lift` (added over `roadSurfaceAt` + 0.02); overlays come first, because the
+spills that land on them must be drawn after them. A forced patch is an
+ordinary `ROAD_JUNCTIONS` row at the higher road's lift.
+
+### Verification and cost
+
+`--vehicle-check` "junction overrides" builds two crossing roads and checks:
+- Auto makes the patch at the lower grip;
+- an override stored with the ids reversed and 2.5 units off still matches;
+- a chosen winner suppresses the patch, its surface and grip are on top, and
+  the loser spills over the overlay;
+- a patch material forces a patch across ranks at its own grip, and removes
+  the crossing's spill;
+- an override far away, or naming a deleted road, is counted as orphaned and
+  changes nothing.
+
+In PCSX2 (both images above; a district fixture with the lane-wins override
+added at -65, 0) the plaza shows its setts and zebra bars and the lane runs
+over the street with soft sides.
+
+Cost, from `--road-crossings` and the boot log of that fixture:
+- a patch override costs nothing beyond its texture: the patch existed
+  already, and the plaza is one more 128 x 128 4-bit texture (8 KB of GS
+  memory);
+- the lane-wins override adds a 681-vertex overlay and a 24-vertex spill of
+  the street, and drops the 567-vertex lane spill it replaces: the main
+  scene's road vertices go 25 629 -> 25 767 (+138);
+- ELF data: `RoadSpillRt` grew two floats per row (7 rows in the district).
 
 ## Surface grip (1.137)
 

@@ -48,6 +48,7 @@
 #include "platform.hpp"
 #include "procbake.hpp"
 #include "project.hpp"
+#include "roadgen.hpp"
 #include "shadowbake.hpp"
 #include "staticbatch.hpp"
 #include "texatlas.hpp"
@@ -702,6 +703,76 @@ static int atlasReportFromCli(int argc, char** argv) {
                 plan.pages.size(), plan.entries.size(), plan.excluded.size(),
                 v.savedKb);
     return 0;
+}
+
+// tyrax-editor.exe --road-crossings <projectDir> [sceneIndex]
+// Every road crossing the build will make and what it does there
+// (docs/roads.md, "Junction overrides") - roadgen::planCrossings, the same
+// call the codegen makes, printed per scene: the pair, the position, the
+// result, the override that matched it, the decals, and every ORPHANED
+// override. Exits 1 when any override is orphaned, so a script can gate on it.
+static int roadCrossingsFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --road-crossings <projectDir> [sceneIndex]\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    const int only = argc > 3 ? std::atoi(argv[3]) : -1;
+    int orphans = 0;
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
+        if (only >= 0 && (int)si != only) continue;
+        const SceneData& sc = p.scenes[si];
+        std::vector<int> idx;
+        const std::vector<roadgen::CrossingRoad> roads =
+            project::crossingRoads(sc.objects, &idx);
+        const roadgen::CrossingPlan plan = roadgen::planCrossings(roads, sc.roadJunctions);
+        std::printf("=== scene %zu: %s - %zu roads, %zu crossings, %zu overrides ===\n",
+                    si, sc.name.c_str(), roads.size(), plan.crossings.size(),
+                    sc.roadJunctions.size());
+        auto name = [&](int r) { return sc.objects[(size_t)idx[(size_t)r]].name; };
+        for (size_t ci = 0; ci < plan.crossings.size(); ++ci) {
+            const roadgen::Crossing& c = plan.crossings[ci];
+            std::string what;
+            char buf[160];
+            if (c.kind == roadgen::kCrossPatch) {
+                std::snprintf(buf, sizeof(buf), "patch %s grip %.2f%s",
+                              c.material.empty() ? "(untextured)" : c.material.c_str(),
+                              c.grip, c.patchDuplicate ? " (merged)" : "");
+                what = buf;
+            } else if (c.kind == roadgen::kCrossThrough) {
+                what = name(c.winner) + " runs through";
+                if (c.overlay) {
+                    std::snprintf(buf, sizeof(buf), " (overlay, grip %.2f)", c.overlayGrip);
+                    what += buf;
+                }
+            } else {
+                what = "overlap";
+            }
+            std::printf("[road] crossing %zu: %s x %s at %.2f,%.2f: %s%s\n", ci,
+                        name(c.a).c_str(), name(c.b).c_str(), c.shape.x, c.shape.z,
+                        what.c_str(), c.override >= 0 ? "  [override]" : "");
+        }
+        int nOverlay = 0, nSpill = 0, verts = 0;
+        for (const roadgen::CrossingDecal& d : plan.decals) {
+            (d.overlay ? nOverlay : nSpill)++;
+            verts += (int)d.verts.size();
+        }
+        std::printf("[road] decals: %d overlay(s), %d spill(s), %d vertices\n", nOverlay,
+                    nSpill, verts);
+        for (size_t oi = 0; oi < sc.roadJunctions.size(); ++oi) {
+            if (plan.overrideCrossing[oi] >= 0) continue;
+            const roadgen::JunctionOverride& j = sc.roadJunctions[oi];
+            std::printf("[road] ORPHANED override %zu: %s x %s near %.2f,%.2f\n", oi,
+                        j.roadA.c_str(), j.roadB.c_str(), j.x, j.z);
+        }
+        orphans += plan.orphans;
+    }
+    return orphans > 0 ? 1 : 0;
 }
 
 // tyrax-editor.exe --batch-report <projectDir> [sceneIndex]
@@ -4518,6 +4589,8 @@ int main(int argc, char** argv) {
         return atlasReportFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--batch-report") == 0)
         return batchReportFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--road-crossings") == 0)
+        return roadCrossingsFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--dump-graph") == 0)
         return dumpGraphFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--apply-graph") == 0)
@@ -4663,6 +4736,11 @@ int main(int argc, char** argv) {
             "ask the GS for, against the\n"
             "                                          measured break-even: the "
             "speed half of 'turn it on?'\n"
+            "  --road-crossings <projectDir> [sceneIndex]\n"
+            "                                          every road crossing and what "
+            "it does; exit 1 on an\n"
+            "                                          orphaned junction override "
+            "(docs/roads.md)\n"
             "  --batch-report <projectDir> [sceneIndex]\n"
             "                                          how the static objects "
             "batch, and why each one that\n"

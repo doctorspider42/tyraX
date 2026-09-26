@@ -2815,3 +2815,19 @@ Two crossing roads' authored intersection references must match;
 stores centre plus four strip-overlap corners, and `buildRoads` only emits the
 resulting four triangles. Keep the viewport's junction mesh and generated data
 on that shared host result; do not move pairwise road detection onto the EE.
+
+**Every crossing decision is `roadgen::planCrossings` (1.145.0,
+docs/roads.md "Junction overrides").** Patch or not, who runs through, which
+spill survives, the per-junction overrides (`SceneData::roadJunctions`, matched
+by road-id pair + nearest position) and the winner OVERLAYS all come out of
+that one call; the codegen, `Viewport::syncRoadDraws` and the test drive
+(`roadgen::addCrossingsToSurface`) only read its result, over
+`project::crossingRoads`. A new crossing rule goes there, never into one of
+the three readers - they used to be three copies of the same pairing loops.
+Two rules worth keeping: spills are filtered PER CROSSING (a triangle belongs
+to the nearest crossing of its pair), and overlay decals precede the spills
+because a spill may land on one (the console reads all spill Y before adding
+any chunk, so the overlay's height reaches the spill through the row's
+`lift`, not through `roadSurfaceAt`). The junction UI (markers, selection,
+the Junction section) is `src/junction_ui.cpp`; a junction is selected by
+identity (`App::junctionSel_`), not by object index.

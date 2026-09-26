@@ -9,6 +9,7 @@
 #include "app.hpp"
 #include "app_internal.hpp"
 #include "roadgen.hpp"
+#include "theme.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -324,6 +325,11 @@ void App::drawPropertiesWindow() {
     ImGui::Begin("Properties");
     if (!hasProject_) {
         ImGui::TextDisabled("No project open.");
+        ImGui::End();
+        return;
+    }
+    if (junctionSel_.active) {
+        drawJunctionProperties();
         ImGui::End();
         return;
     }
@@ -816,6 +822,42 @@ void App::drawPropertiesWindow() {
                 "Snaps to the road's 0.5-unit lateral grid; the grip fades to\n"
                 "the terrain's with it. A texture whose alpha is ragged at the\n"
                 "edges makes it look organic. 0 = the hard edge.");
+        }
+        // This road's crossings (docs/roads.md, "Junction overrides"): the
+        // plan the build uses, one button each - the same junction the
+        // viewport diamond selects.
+        {
+            const roadgen::CrossingPlan& plan = sceneCrossings();
+            const auto& objs = project_.objects();
+            int shown = 0;
+            for (size_t ci = 0; ci < plan.crossings.size(); ++ci) {
+                const roadgen::Crossing& c = plan.crossings[ci];
+                const bool mineA = crossingRoadList_[(size_t)c.a].id == o.id;
+                const bool mineB = crossingRoadList_[(size_t)c.b].id == o.id;
+                if (!mineA && !mineB) continue;
+                if (shown++ == 0) ImGui::SeparatorText("Crossings");
+                const SceneObject& other =
+                    objs[(size_t)crossingRoadObj_[(size_t)(mineA ? c.b : c.a)]];
+                const char* what = c.kind == roadgen::kCrossPatch     ? "patch"
+                                   : c.kind == roadgen::kCrossThrough
+                                       ? (c.winner == (mineA ? c.a : c.b) ? "runs through"
+                                                                          : "covered")
+                                       : "overlap";
+                const std::string label = "Junction with " + other.name + " (" + what +
+                                          (c.override >= 0 ? ", override" : "") +
+                                          ")##junction" + std::to_string(ci);
+                if (ImGui::Button(label.c_str())) selectJunction((int)ci);
+            }
+            const auto& ovs = project_.active().roadJunctions;
+            for (size_t oi = 0; oi < ovs.size() && oi < plan.overrideCrossing.size(); ++oi) {
+                if (plan.overrideCrossing[oi] >= 0) continue;
+                if (ovs[oi].roadA != o.id && ovs[oi].roadB != o.id) continue;
+                if (shown++ == 0) ImGui::SeparatorText("Crossings");
+                ImGui::TextColored(theme::semantics().danger, "Orphaned junction override");
+                ImGui::SameLine();
+                if (ImGui::SmallButton(("Show##orphan" + std::to_string(oi)).c_str()))
+                    selectJunction(-2 - (int)oi);
+            }
         }
         // The points, world-space XZ. A table, not a gizmo (yet): blunt but
         // complete - insert after, remove, drag both axes.

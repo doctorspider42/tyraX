@@ -349,10 +349,11 @@ leaves these, dearest first:
     (`roadGrip`), per painted terrain layer 1.142.0 (`grip`);
   - ~~soft road edges~~ done 1.144.0 (Edge fade);
   - ~~road crossings you can control~~ road rank + spill done 1.143.0
-    (docs/roads.md "Crossings"). Still open: a per-junction override
-    (material, grip, which road wins) for the cases rank cannot say, keyed by
-    the road pair plus the crossing position, and shown as clickable
-    markers in the viewport;
+    (docs/roads.md "Crossings"); ~~a per-junction override~~ done 1.145.0
+    (docs/roads.md "Junction overrides": material, grip, which road wins,
+    keyed by the road pair + position, clickable viewport diamonds). Still
+    open: the override is not dragged along when a road is re-drawn far
+    enough to move its crossing past the narrower road's width (it orphans);
   - ~~car-car spin~~ done 1.135.7.
   ~~The AI steers by heading error with no speed planning~~ done 1.136.1
   (path pursuit + planned corner speed; 25-31 s laps with no unsticks). Left:

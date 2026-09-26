@@ -4039,11 +4039,12 @@ void Viewport::clearModelCache() {
 void Viewport::clearRoadDraws() {
     for (auto& [id, road] : roadDraws_) {
         destroyMesh(road.mesh);
-        destroyMesh(road.junctionMesh);
-        destroyMesh(road.spillMesh);
         destroyMesh(road.edgeMesh);
     }
     roadDraws_.clear();
+    for (RoadCrossDraw& c : roadCross_) destroyMesh(c.mesh);
+    roadCross_.clear();
+    roadCrossSig_ = 0;
 }
 
 void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
@@ -4053,19 +4054,6 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         const auto* p = static_cast<const unsigned char*>(data);
         for (size_t i = 0; i < size; ++i) h = (h ^ p[i]) * 1099511628211ULL;
     };
-    uint64_t junctionSig = 1469598103934665603ULL;
-    for (const SceneObject& r : objects) {
-        if (r.type != PrimitiveType::Road) continue;
-        mix(junctionSig, &r.roadWidth, sizeof(r.roadWidth));
-        if (!r.roadPoints.empty())
-            mix(junctionSig, r.roadPoints.data(),
-                r.roadPoints.size() * sizeof(float));
-        mix(junctionSig, r.roadIntersectionTexture.data(),
-            r.roadIntersectionTexture.size());
-        mix(junctionSig, &r.roadRank, sizeof(r.roadRank));
-        mix(junctionSig, &r.roadSpill, sizeof(r.roadSpill));
-        mix(junctionSig, &r.roadSampleStep, sizeof(r.roadSampleStep));
-    }
     std::map<std::string, bool> alive;
     for (size_t oi = 0; oi < objects.size(); ++oi) {
         const SceneObject& o = objects[oi];
@@ -4074,7 +4062,6 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         alive[key] = true;
         uint64_t sig = 1469598103934665603ULL;
         mix(sig, &roadTerrainRevision_, sizeof(roadTerrainRevision_));
-        mix(sig, &junctionSig, sizeof(junctionSig));
         mix(sig, &o.roadWidth, sizeof(o.roadWidth));
         mix(sig, &o.roadSampleStep, sizeof(o.roadSampleStep));
         if (!o.roadPoints.empty())
@@ -4082,6 +4069,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         mix(sig, o.roadTexture.data(), o.roadTexture.size());
         mix(sig, o.color, sizeof(o.color));
         mix(sig, &o.roadEdgeFade, sizeof(o.roadEdgeFade));
+        mix(sig, &o.roadRank, sizeof(o.roadRank));
         auto it = roadDraws_.find(key);
         if (it != roadDraws_.end() && it->second.signature == sig) continue;
 
@@ -4100,54 +4088,6 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         for (const roadgen::Vertex& v : strip)
             interleaved.insert(interleaved.end(),
                                {v.x, v.y, v.z, 1.0f, 1.0f, 1.0f, v.u, v.v});
-        std::vector<float> junctionInterleaved;
-        if (!o.roadIntersectionTexture.empty()) {
-            for (size_t oj = oi + 1; oj < objects.size(); ++oj) {
-                const SceneObject& other = objects[oj];
-                if (other.type != PrimitiveType::Road ||
-                    other.roadPoints.size() < 4 ||
-                    other.roadIntersectionTexture != o.roadIntersectionTexture ||
-                    other.roadRank != o.roadRank)  // unequal: the higher runs through
-                    continue;
-                std::vector<roadgen::Junction> junctions;
-                roadgen::findJunctions(o.roadPoints, o.roadWidth,
-                                       other.roadPoints, other.roadWidth,
-                                       junctions);
-                for (const roadgen::Junction& junction : junctions) {
-                    std::vector<roadgen::Vertex> triangles;
-                    roadgen::tessellateJunction(
-                        junction,
-                        [&](float x, float z) { return terrainHeight(x, z) + lift; },
-                        triangles);
-                    for (const roadgen::Vertex& v : triangles)
-                        junctionInterleaved.insert(
-                            junctionInterleaved.end(),
-                            {v.x, v.y, v.z, 1.0f, 1.0f, 1.0f, v.u, v.v});
-                }
-            }
-        }
-        // Spills (1.143.0): this road's surface trailing onto every
-        // HIGHER-rank road it crosses, as the console bakes it (the same
-        // roadgen::tessellateSpill), floated kSpillLift over the higher road.
-        std::vector<float> spillInterleaved;
-        if (o.roadSpill > 0.0f) {
-            for (const SceneObject& other : objects) {
-                if (other.type != PrimitiveType::Road || other.roadPoints.size() < 4 ||
-                    other.roadRank <= o.roadRank)
-                    continue;
-                std::vector<roadgen::SpillVertex> sv;
-                roadgen::tessellateSpill(o.roadPoints, o.roadWidth, o.roadSampleStep,
-                                         other.roadPoints, other.roadWidth,
-                                         o.roadSpill, sv, o.roadEdgeFade);
-                const float top = roadgen::kLift + roadgen::rankLift(other.roadRank) +
-                                  roadgen::kSpillLift;
-                for (const roadgen::SpillVertex& v : sv)
-                    spillInterleaved.insert(
-                        spillInterleaved.end(),
-                        {v.x, terrainHeight(v.x, v.z) + top, v.z, o.color[0],
-                         o.color[1], o.color[2], v.a, v.u, v.v});
-            }
-        }
         std::vector<float> edgeInterleaved;
         if (ef.columns > 0) {
             std::vector<roadgen::SpillVertex> ev;
@@ -4162,17 +4102,10 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         RoadDraw next;
         next.mesh = uploadMesh(interleaved);
         if (!edgeInterleaved.empty()) next.edgeMesh = uploadMesh9(edgeInterleaved);
-        if (!junctionInterleaved.empty())
-            next.junctionMesh = uploadMesh(junctionInterleaved);
-        if (!spillInterleaved.empty()) next.spillMesh = uploadMesh9(spillInterleaved);
         next.texture = project::resolveRoadTexture(projectDir_, o.roadTexture);
-        next.junctionTexture =
-            project::resolveRoadTexture(projectDir_, o.roadIntersectionTexture);
         next.signature = sig;
         if (it != roadDraws_.end()) {
             destroyMesh(it->second.mesh);
-            destroyMesh(it->second.junctionMesh);
-            destroyMesh(it->second.spillMesh);
             destroyMesh(it->second.edgeMesh);
             it->second = std::move(next);
         } else {
@@ -4185,10 +4118,83 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
             continue;
         }
         destroyMesh(it->second.mesh);
-        destroyMesh(it->second.junctionMesh);
-        destroyMesh(it->second.spillMesh);
         destroyMesh(it->second.edgeMesh);
         it = roadDraws_.erase(it);
+    }
+
+    // Crossings (docs/roads.md, "Crossings" + "Junction overrides"): the
+    // codegen's own roadgen::planCrossings over the same roads and the same
+    // overrides, rebuilt when any road, the overrides or the terrain move.
+    std::vector<int> objIdx;
+    const std::vector<roadgen::CrossingRoad> cr = project::crossingRoads(objects, &objIdx);
+    uint64_t csig = 1469598103934665603ULL;
+    mix(csig, &roadTerrainRevision_, sizeof(roadTerrainRevision_));
+    for (size_t k = 0; k < cr.size(); ++k) {
+        const roadgen::CrossingRoad& r = cr[k];
+        const SceneObject& o = objects[(size_t)objIdx[k]];
+        mix(csig, r.id.data(), r.id.size());
+        mix(csig, r.points.data(), r.points.size() * sizeof(float));
+        mix(csig, &r.width, sizeof(r.width));
+        mix(csig, &r.sampleStep, sizeof(r.sampleStep));
+        mix(csig, &r.grip, sizeof(r.grip));
+        mix(csig, &r.spill, sizeof(r.spill));
+        mix(csig, &r.edgeFade, sizeof(r.edgeFade));
+        mix(csig, &r.rank, sizeof(r.rank));
+        mix(csig, r.intersection.data(), r.intersection.size() + 1);
+        mix(csig, o.roadTexture.data(), o.roadTexture.size() + 1);
+        mix(csig, o.color, sizeof(o.color));
+    }
+    for (const roadgen::JunctionOverride& j : roadJunctions_) {
+        mix(csig, j.roadA.data(), j.roadA.size() + 1);
+        mix(csig, j.roadB.data(), j.roadB.size() + 1);
+        mix(csig, &j.x, sizeof(j.x));
+        mix(csig, &j.z, sizeof(j.z));
+        mix(csig, &j.winner, sizeof(j.winner));
+        mix(csig, j.material.data(), j.material.size() + 1);
+        mix(csig, &j.grip, sizeof(j.grip));
+    }
+    if (csig == roadCrossSig_) return;
+    roadCrossSig_ = csig;
+    for (RoadCrossDraw& c : roadCross_) destroyMesh(c.mesh);
+    roadCross_.clear();
+    if (cr.size() < 2) return;
+    const roadgen::CrossingPlan plan = roadgen::planCrossings(cr, roadJunctions_);
+    auto keyOf = [&](int road) {
+        const SceneObject& o = objects[(size_t)objIdx[(size_t)road]];
+        return o.id.empty() ? ("road-" + std::to_string(objIdx[(size_t)road])) : o.id;
+    };
+    for (const roadgen::Crossing& c : plan.crossings) {
+        if (c.kind != roadgen::kCrossPatch || c.patchDuplicate) continue;
+        const SceneObject& a = objects[(size_t)objIdx[(size_t)c.a]];
+        std::vector<roadgen::Vertex> triangles;
+        const float lift = c.lift;
+        roadgen::tessellateJunction(
+            c.shape, [&](float x, float z) { return terrainHeight(x, z) + lift; },
+            triangles);
+        std::vector<float> iv;
+        for (const roadgen::Vertex& v : triangles)
+            iv.insert(iv.end(), {v.x, v.y, v.z, 1.0f, 1.0f, 1.0f, v.u, v.v});
+        RoadCrossDraw d;
+        d.mesh = uploadMesh(iv);
+        d.texture = project::resolveRoadTexture(projectDir_, c.material);
+        d.owner = keyOf(c.a);
+        d.color[0] = a.color[0], d.color[1] = a.color[1], d.color[2] = a.color[2];
+        roadCross_.push_back(std::move(d));
+    }
+    for (const roadgen::CrossingDecal& dc : plan.decals) {
+        if (dc.verts.empty()) continue;
+        const SceneObject& o = objects[(size_t)objIdx[(size_t)dc.road]];
+        const float top = roadgen::kLift + dc.hostLift;
+        std::vector<float> iv;
+        for (const roadgen::SpillVertex& v : dc.verts)
+            iv.insert(iv.end(), {v.x, terrainHeight(v.x, v.z) + top, v.z, o.color[0],
+                                 o.color[1], o.color[2], v.a, v.u, v.v});
+        RoadCrossDraw d;
+        d.mesh = uploadMesh9(iv);
+        d.texture = project::resolveRoadTexture(projectDir_, o.roadTexture);
+        d.owner = keyOf(dc.road);
+        d.blended = true;
+        roadCross_.push_back(std::move(d));
     }
 }
 
@@ -4198,8 +4204,8 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
 // console's road chunks are.
 void Viewport::drawRoadSpills(const float* viewProj) {
     bool any = false;
-    for (const auto& [id, road] : roadDraws_)
-        any |= road.spillMesh.vertexCount > 0 || road.edgeMesh.vertexCount > 0;
+    for (const auto& [id, road] : roadDraws_) any |= road.edgeMesh.vertexCount > 0;
+    for (const RoadCrossDraw& c : roadCross_) any |= c.blended && c.mesh.vertexCount > 0;
     if (!any) return;
     glUseProgram(particleProgram_);
     glUniformMatrix4fv(uPartMvp_, 1, GL_FALSE, viewProj);
@@ -4210,11 +4216,19 @@ void Viewport::drawRoadSpills(const float* viewProj) {
         const uint32_t tex = road.texture.empty() ? 0 : glTexture(road.texture);
         glUniform1i(uPartUseTex_, tex ? 1 : 0);
         if (tex) glBindTexture(GL_TEXTURE_2D, tex);
-        for (const Mesh* m : {&road.edgeMesh, &road.spillMesh}) {
-            if (!m->vao || m->vertexCount == 0) continue;
-            glBindVertexArray(m->vao);
-            glDrawArrays(GL_TRIANGLES, 0, m->vertexCount);
+        if (road.edgeMesh.vao && road.edgeMesh.vertexCount > 0) {
+            glBindVertexArray(road.edgeMesh.vao);
+            glDrawArrays(GL_TRIANGLES, 0, road.edgeMesh.vertexCount);
         }
+    }
+    // Overlays, then spills: the plan's order, the console's draw order.
+    for (const RoadCrossDraw& c : roadCross_) {
+        if (!c.blended || !c.mesh.vao || c.mesh.vertexCount == 0) continue;
+        const uint32_t tex = c.texture.empty() ? 0 : glTexture(c.texture);
+        glUniform1i(uPartUseTex_, tex ? 1 : 0);
+        if (tex) glBindTexture(GL_TEXTURE_2D, tex);
+        glBindVertexArray(c.mesh.vao);
+        glDrawArrays(GL_TRIANGLES, 0, c.mesh.vertexCount);
     }
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
@@ -6083,13 +6097,15 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                     // survive instead of pairing arbitrary triangle corners.
                     draw(ri->second.mesh, GL_TRIANGLES, viewProj, o.color[0],
                          o.color[1], o.color[2], tex);
-                    if (ri->second.junctionMesh.vertexCount > 0) {
+                    // This road's junction patches (it is the crossing's
+                    // road A), each with its own material.
+                    for (const RoadCrossDraw& c : roadCross_) {
+                        if (c.blended || c.owner != key || c.mesh.vertexCount == 0)
+                            continue;
                         const uint32_t junctionTex =
-                            asLines || ri->second.junctionTexture.empty()
-                                ? 0
-                                : glTexture(ri->second.junctionTexture);
-                        draw(ri->second.junctionMesh, GL_TRIANGLES, viewProj,
-                             o.color[0], o.color[1], o.color[2], junctionTex);
+                            asLines || c.texture.empty() ? 0 : glTexture(c.texture);
+                        draw(c.mesh, GL_TRIANGLES, viewProj, c.color[0], c.color[1],
+                             c.color[2], junctionTex);
                     }
                     ps2NoDyn = 0;  // do not leak the road's static-light mode
                 }

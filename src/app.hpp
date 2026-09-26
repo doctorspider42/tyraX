@@ -431,6 +431,33 @@ private:
     // point, click a point = drag it, click the line = insert there.
     bool roadEdit_ = false;
     int roadDragPoint_ = -1;
+    // Junction overrides (docs/roads.md, "Junction overrides"). A junction is
+    // not an object: it is selected by its identity - the road-id pair and
+    // where it was - and re-found in the plan every frame, so a road edit
+    // that moves the crossing a little keeps it selected. `override` >= 0
+    // selects an ORPHANED override (its crossing is gone) by index instead.
+    struct JunctionSel {
+        bool active = false;
+        std::string a, b;  // road ids, the crossing's A/B
+        float x = 0.0f, z = 0.0f;
+        int orphan = -1;   // index into SceneData::roadJunctions
+        int scene = -1;    // a scene switch drops it
+    };
+    JunctionSel junctionSel_;
+    // The active scene's crossings (markers, Properties): planCrossings
+    // without the decals, cached on a signature of the roads + overrides.
+    roadgen::CrossingPlan crossingPlan_;
+    std::vector<roadgen::CrossingRoad> crossingRoadList_;
+    std::vector<int> crossingRoadObj_;  // road k -> index in project_.objects()
+    uint64_t crossingPlanSig_ = 0;
+    const roadgen::CrossingPlan& sceneCrossings();
+    // Crossing index the selection resolves to (-1: none / orphan).
+    int selectedCrossing();
+    void selectJunction(int crossing);
+    void drawJunctionProperties();
+    // Viewport diamonds on the crossings, shown while a road or a junction is
+    // selected. Returns the crossing under `mouse` (or -1) when `hit` asks.
+    int junctionMarkers(ImVec2 imgPos, ImVec2 avail, bool draw, ImVec2 mouse);
     // Retargets every BY-NAME reference to `renamed` after its name changed
     // from `from` (cutscene tracks and camera shots, mirror lists, scroller
     // members, camera feeds, portal links, texture feeds, and - for an Area -
@@ -632,7 +659,8 @@ private:
     // Road surface picker: materials first, legacy direct PNGs second. A .mtl
     // resolves through its first map_Kd in both viewport and generated game.
     bool drawRoadSurfaceCombo(const char* label, const char* id,
-                              std::string& surfacePath);
+                              std::string& surfacePath,
+                              const char* noneLabel = nullptr);
     // Cached objparser summary of a model (for the properties panel)
     struct ModelInfo {
         bool ok = false;

@@ -22558,7 +22558,9 @@ void TerrainGame::buildRoads(int scene) {
         const float* sv = &ROAD_SPILL_VERTS[(size_t)(sp.first + k) * 5];
         float y = roadSurfaceAt(sv[0], sv[1]);
         if (y < -1.0e29F) y = terrainHeightAt(sv[0], sv[1]) + 0.12F;
-        spillY.push_back(y + 0.02F);
+        // + the row's own lift: a spill landing on a junction OVERLAY
+        // (1.145.0) floats one more step, over the overlay.
+        spillY.push_back(y + 0.02F + sp.lift);
       }
     }
     size_t yi = 0;
@@ -22573,7 +22575,7 @@ void TerrainGame::buildRoads(int scene) {
       c.roadTex = (rd.tex >= 0 && rd.tex < ROAD_TEXTURE_COUNT)
                       ? roadTextures_[rd.tex]
                       : nullptr;
-      c.roadGrip = rd.grip;
+      c.roadGrip = sp.grip;
       c.roadGripBase = sp.baseGrip;
       c.roadBlend = true;
       c.stripRun = 0;

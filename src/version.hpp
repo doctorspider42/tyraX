@@ -5261,6 +5261,17 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.145.0 - Junction overrides (docs/roads.md): a scene stores per-crossing
+// overrides (SceneData::roadJunctions: road-id pair + position + winner /
+// patch material / grip), matched to the computed crossing of the same pair
+// nearest the stored spot within the narrower road's width; an unmatched one
+// is kept and reported as orphaned. roadgen::planCrossings is now the ONE
+// crossing decision - codegen, viewport and test drive read it. A chosen
+// winner the rank lift does not already put on top is drawn as an OVERLAY
+// decal (its own surface over the loser, a spill row with alpha 1) and the
+// loser spills onto it one kSpillLift higher; RoadSpillRt gains grip + lift.
+// Viewport diamonds + a Junction section in Properties, --road-crossings.
+// kFormatVersion 78 -> 79, additive. MINOR.
 // 1.144.0 - Soft road edges: Edge fade splits a road into a core (narrowed,
 // U-inset) and two blended bands baked by roadgen::tessellateEdges, alpha 1
 // at the core to 0 at the edge; spills from a faded road carry the lateral
@@ -5435,7 +5446,7 @@
 // Particles face the camera a pass DRAWS with (cutscene override, shake,
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 144
+#define TYRAX_VERSION_MINOR 145
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -5884,7 +5895,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v75 (docs/vehicles.md, "Lamp glow"): drive.lampGlow and a definition's
 // bake-measured "lampGlows" (written only when non-empty). Missing = no halo.
 // Additive; no migration step. (Shipped on its branch as v74.)
-inline constexpr int kFormatVersion = 78;
+// v79 (docs/roads.md, "Junction overrides"): a scene's "roadJunctions" list,
+// written only when non-empty, each field at its Auto value omitted. Missing =
+// no overrides, i.e. every crossing follows the rank rule as before. Additive;
+// no migration step.
+inline constexpr int kFormatVersion = 79;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

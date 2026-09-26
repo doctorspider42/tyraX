@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <utility>
 
 #include "meshstrip.hpp"  // the run contract the strip emitter keeps
@@ -622,6 +623,273 @@ void tessellateEdges(const std::vector<float>& pointsXZ, float width,
                 push(r1[(size_t)j], j);
             }
         }
+    }
+}
+
+// --- crossings: the one decision (docs/roads.md, "Junction overrides") -----
+
+namespace {
+
+// How far from a crossing's centre its spill and overlay triangles can lie:
+// the overlap parallelogram, half the wider road (a reduced full-width
+// triangle's centroid) and a station of slack.
+float crossingReach(const Crossing& c, const std::vector<CrossingRoad>& roads) {
+    float r = 0.0f;
+    for (int k = 0; k < 4; ++k)
+        r = std::max(r, std::hypot(c.shape.cornerXZ[k * 2] - c.shape.x,
+                                   c.shape.cornerXZ[k * 2 + 1] - c.shape.z));
+    return r + 0.5f * std::max(roads[(size_t)c.a].width, roads[(size_t)c.b].width) +
+           2.0f;
+}
+
+}  // namespace
+
+CrossingPlan planCrossings(const std::vector<CrossingRoad>& roads,
+                           const std::vector<JunctionOverride>& overrides,
+                           bool withDecals) {
+    CrossingPlan plan;
+    const int n = (int)roads.size();
+    auto usable = [&](int i) { return roads[(size_t)i].points.size() >= 4; };
+
+    // 1. Every crossing of every pair, in pair order (the order the codegen
+    // always emitted its patches in).
+    for (int a = 0; a < n; ++a)
+        for (int b = a + 1; b < n; ++b) {
+            if (!usable(a) || !usable(b)) continue;
+            std::vector<Junction> found;
+            findJunctions(roads[(size_t)a].points, roads[(size_t)a].width,
+                          roads[(size_t)b].points, roads[(size_t)b].width, found);
+            for (const Junction& j : found) {
+                Crossing c;
+                c.a = a;
+                c.b = b;
+                c.shape = j;
+                plan.crossings.push_back(c);
+            }
+        }
+
+    // 2. Overrides -> crossings: the same pair, the nearest crossing within
+    // the narrower road's width. Stored order decides ties; a crossing takes
+    // at most one override.
+    plan.overrideCrossing.assign(overrides.size(), -1);
+    std::vector<char> swapped(plan.crossings.size(), 0);
+    auto roadIndex = [&](const std::string& id) {
+        if (id.empty()) return -1;
+        for (int i = 0; i < n; ++i)
+            if (roads[(size_t)i].id == id) return i;
+        return -1;
+    };
+    for (size_t oi = 0; oi < overrides.size(); ++oi) {
+        const JunctionOverride& o = overrides[oi];
+        const int ia = roadIndex(o.roadA), ib = roadIndex(o.roadB);
+        if (ia < 0 || ib < 0 || ia == ib) {
+            ++plan.orphans;
+            continue;
+        }
+        const int lo = std::min(ia, ib), hi = std::max(ia, ib);
+        float best = std::max(1.0f, std::min(roads[(size_t)lo].width,
+                                             roads[(size_t)hi].width));
+        int at = -1;
+        for (size_t ci = 0; ci < plan.crossings.size(); ++ci) {
+            const Crossing& c = plan.crossings[ci];
+            if (c.a != lo || c.b != hi || c.override >= 0) continue;
+            const float d = std::hypot(c.shape.x - o.x, c.shape.z - o.z);
+            if (d <= best) {
+                best = d;
+                at = (int)ci;
+            }
+        }
+        if (at < 0) {
+            ++plan.orphans;
+            continue;
+        }
+        plan.crossings[(size_t)at].override = (int)oi;
+        swapped[(size_t)at] = ia > ib;
+        plan.overrideCrossing[oi] = at;
+    }
+
+    // 3. What each crossing does.
+    for (size_t ci = 0; ci < plan.crossings.size(); ++ci) {
+        Crossing& c = plan.crossings[ci];
+        const CrossingRoad& A = roads[(size_t)c.a];
+        const CrossingRoad& B = roads[(size_t)c.b];
+        int winner = kWinnerAuto;
+        std::string material;
+        float grip = 0.0f;
+        if (c.override >= 0) {
+            const JunctionOverride& o = overrides[(size_t)c.override];
+            winner = o.winner;
+            if (swapped[ci] && winner == kWinnerRoadA)
+                winner = kWinnerRoadB;
+            else if (swapped[ci] && winner == kWinnerRoadB)
+                winner = kWinnerRoadA;
+            material = o.material;
+            grip = o.grip;
+            // A material alone asks for a patch.
+            if (winner == kWinnerAuto && !material.empty()) winner = kWinnerPatch;
+        }
+        const float liftA = rankLift(A.rank), liftB = rankLift(B.rank);
+        if (winner == kWinnerAuto) {
+            if (A.rank == B.rank) {
+                if (!A.intersection.empty() && A.intersection == B.intersection) {
+                    c.kind = kCrossPatch;
+                    c.material = A.intersection;
+                    c.grip = std::min(A.grip, B.grip);
+                    c.lift = liftA;
+                }
+            } else {
+                c.kind = kCrossThrough;
+                c.winner = A.rank > B.rank ? c.a : c.b;
+            }
+        } else if (winner == kWinnerPatch) {
+            c.kind = kCrossPatch;
+            c.material = !material.empty()       ? material
+                         : !A.intersection.empty() ? A.intersection
+                                                   : B.intersection;
+            c.grip = grip > 0.0f ? grip : std::min(A.grip, B.grip);
+            c.lift = std::max(liftA, liftB);
+        } else {
+            c.kind = kCrossThrough;
+            c.winner = winner == kWinnerRoadA ? c.a : c.b;
+            const int loser = c.winner == c.a ? c.b : c.a;
+            // A winner the rank lift already puts on top needs nothing drawn,
+            // unless the crossing's grip is overridden (the overlay carries it).
+            c.overlay = roads[(size_t)c.winner].rank <= roads[(size_t)loser].rank ||
+                        grip > 0.0f;
+            c.overlayGrip = grip > 0.0f ? grip : roads[(size_t)c.winner].grip;
+        }
+        if (c.kind == kCrossPatch)
+            for (size_t e = 0; e < ci; ++e) {
+                const Crossing& old = plan.crossings[e];
+                if (old.kind == kCrossPatch && !old.patchDuplicate &&
+                    std::hypot(old.shape.x - c.shape.x, old.shape.z - c.shape.z) < 0.5f)
+                    c.patchDuplicate = true;
+            }
+    }
+    if (!withDecals) return plan;
+
+    // The crossing of pair (p, q) a triangle centred at (x, z) belongs to.
+    auto crossingAt = [&](int p, int q, float x, float z) {
+        const int lo = std::min(p, q), hi = std::max(p, q);
+        int best = -1;
+        float bestD = 1e30f;
+        for (size_t ci = 0; ci < plan.crossings.size(); ++ci) {
+            const Crossing& c = plan.crossings[ci];
+            if (c.a != lo || c.b != hi) continue;
+            const float d = std::hypot(c.shape.x - x, c.shape.z - z);
+            if (d < crossingReach(c, roads) && d < bestD) {
+                bestD = d;
+                best = (int)ci;
+            }
+        }
+        return best;
+    };
+
+    // 4a. OVERLAYS: at a crossing an override hands to the road the rank
+    // would put underneath, the winner's own surface is laid over the loser
+    // there - the spill's arrangement with no fade (alpha 1, only the
+    // winner's soft edges), lifted kSpillLift over the highest road.
+    for (size_t ci = 0; ci < plan.crossings.size(); ++ci) {
+        const Crossing& c = plan.crossings[ci];
+        if (c.kind != kCrossThrough || !c.overlay) continue;
+        const int w = c.winner, l = c.winner == c.a ? c.b : c.a;
+        const CrossingRoad& W = roads[(size_t)w];
+        const CrossingRoad& L = roads[(size_t)l];
+        std::vector<SpillVertex> sv;
+        tessellateSpill(W.points, W.width, W.sampleStep, L.points, L.width,
+                        std::numeric_limits<float>::infinity(), sv, W.edgeFade);
+        CrossingDecal d;
+        d.road = w;
+        d.under = l;
+        d.overlay = true;
+        d.grip = c.overlayGrip;
+        d.baseGrip = L.grip;
+        d.hostLift = std::max(rankLift(W.rank), rankLift(L.rank)) + kSpillLift;
+        for (size_t t = 0; t + 2 < sv.size(); t += 3) {
+            const float cx = (sv[t].x + sv[t + 1].x + sv[t + 2].x) / 3.0f;
+            const float cz = (sv[t].z + sv[t + 1].z + sv[t + 2].z) / 3.0f;
+            if (crossingAt(w, l, cx, cz) != (int)ci) continue;
+            d.verts.insert(d.verts.end(), sv.begin() + (long)t, sv.begin() + (long)t + 3);
+        }
+        if (!d.verts.empty()) plan.decals.push_back(std::move(d));
+    }
+
+    // 4b. SPILLS, in the (low, high) order the codegen always used. The rank
+    // decides the direction everywhere no crossing says otherwise; at a
+    // crossing, only the road that crossing lets win is spilled onto.
+    for (int li = 0; li < n; ++li)
+        for (int hi = 0; hi < n; ++hi) {
+            if (li == hi || !usable(li) || !usable(hi)) continue;
+            const CrossingRoad& lo = roads[(size_t)li];
+            const CrossingRoad& up = roads[(size_t)hi];
+            if (lo.spill <= 0.0f) continue;
+            const bool rankDir = up.rank > lo.rank;
+            bool needed = rankDir;
+            for (const Crossing& c : plan.crossings)
+                if (c.override >= 0 && c.kind == kCrossThrough && c.winner == hi &&
+                    (c.a == li || c.b == li))
+                    needed = true;
+            if (!needed) continue;
+            std::vector<SpillVertex> sv;
+            tessellateSpill(lo.points, lo.width, lo.sampleStep, up.points, up.width,
+                            lo.spill, sv, lo.edgeFade);
+            if (sv.empty()) continue;
+            // Grouped by where they land: on the road itself, or on an overlay
+            // (one kSpillLift higher, over the overlay's grip). Without
+            // overrides that is one group - the spill exactly as before.
+            std::vector<CrossingDecal> groups;
+            for (size_t t = 0; t + 2 < sv.size(); t += 3) {
+                const float cx = (sv[t].x + sv[t + 1].x + sv[t + 2].x) / 3.0f;
+                const float cz = (sv[t].z + sv[t + 1].z + sv[t + 2].z) / 3.0f;
+                const int ci = crossingAt(li, hi, cx, cz);
+                const Crossing* c = ci >= 0 ? &plan.crossings[(size_t)ci] : nullptr;
+                const bool keep =
+                    c ? (c->kind == kCrossThrough && c->winner == hi) : rankDir;
+                if (!keep) continue;
+                const bool onOverlay = c && c->overlay;
+                const float extra = onOverlay ? kSpillLift : 0.0f;
+                const float base = onOverlay ? c->overlayGrip : up.grip;
+                CrossingDecal* g = nullptr;
+                for (CrossingDecal& e : groups)
+                    if (e.extraLift == extra && e.baseGrip == base) g = &e;
+                if (!g) {
+                    groups.emplace_back();
+                    g = &groups.back();
+                    g->road = li;
+                    g->under = hi;
+                    g->grip = lo.grip;
+                    g->baseGrip = base;
+                    g->extraLift = extra;
+                    g->hostLift =
+                        std::max(rankLift(lo.rank), rankLift(up.rank)) + kSpillLift + extra;
+                }
+                g->verts.insert(g->verts.end(), sv.begin() + (long)t,
+                                sv.begin() + (long)t + 3);
+            }
+            for (CrossingDecal& g : groups) plan.decals.push_back(std::move(g));
+        }
+    return plan;
+}
+
+void addCrossingsToSurface(Surface& s, const std::vector<CrossingRoad>& roads,
+                           const CrossingPlan& plan, const HeightFn& terrain) {
+    for (const Crossing& c : plan.crossings) {
+        if (c.kind != kCrossPatch || c.patchDuplicate) continue;
+        std::vector<Vertex> tris;
+        const float lift = c.lift;
+        tessellateJunction(
+            c.shape, [&](float x, float z) { return terrain(x, z) + lift; }, tris);
+        s.add(tris, c.grip);
+    }
+    for (const CrossingDecal& d : plan.decals) {
+        (void)roads;
+        std::vector<Vertex> tris;
+        std::vector<float> grips;
+        for (const SpillVertex& v : d.verts) {
+            tris.push_back({v.x, terrain(v.x, v.z) + kLift + d.hostLift, v.z, v.u, v.v});
+            grips.push_back(d.baseGrip + (d.grip - d.baseGrip) * v.a);
+        }
+        s.addBlended(tris, grips);
     }
 }
 

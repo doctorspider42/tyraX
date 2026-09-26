@@ -443,6 +443,11 @@ public:
         std::vector<int> indices;
     };
     void setPeerSelections(std::vector<PeerSel> sels) { peerSels_ = std::move(sels); }
+    // The active scene's per-junction road overrides (SceneData::roadJunctions),
+    // pushed by the app every frame; the crossing draws rebuild when they change.
+    void setRoadJunctions(const std::vector<roadgen::JunctionOverride>& j) {
+        if (j != roadJunctions_) roadJunctions_ = j;
+    }
 
     // Material Editor live preview: a lit primitive OR one of the project's
     // .obj models over a checker floor, rendered into its own framebuffer
@@ -1088,15 +1093,24 @@ private:
     // sculpting under a road rebuilds exactly the strip that moved.
     struct RoadDraw {
         Mesh mesh;
-        Mesh junctionMesh;
-        Mesh spillMesh;  // over higher-rank roads, alpha-faded (1.143.0)
         Mesh edgeMesh;   // the soft-edge bands (1.144.0), alpha-faded
-        float spillColor[3] = {1.0f, 1.0f, 1.0f};
         std::string texture;
-        std::string junctionTexture;
         uint64_t signature = 0;
     };
     std::map<std::string, RoadDraw> roadDraws_;  // keyed by stable object id
+    // The scene's crossings (roadgen::planCrossings, 1.145.0): junction
+    // patches (opaque, drawn with their road A) and the overlay/spill decals
+    // (blended, drawn after the scene in plan order), rebuilt together.
+    struct RoadCrossDraw {
+        Mesh mesh;
+        std::string texture;
+        std::string owner;  // road key: a patch's road A, a decal's own road
+        float color[3] = {1.0f, 1.0f, 1.0f};
+        bool blended = false;
+    };
+    std::vector<RoadCrossDraw> roadCross_;
+    uint64_t roadCrossSig_ = 0;
+    std::vector<roadgen::JunctionOverride> roadJunctions_;
     uint64_t roadTerrainRevision_ = 1;
     void syncRoadDraws(const std::vector<SceneObject>& objects);
     void drawRoadSpills(const float* viewProj);

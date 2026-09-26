@@ -957,6 +957,126 @@ void crossings() {
     }
 }
 
+// Junction overrides (1.145.0, docs/roads.md "Junction overrides"): the ONE
+// crossing planner the codegen, the viewport and the test drive share. Two
+// Local roads, both naming the same intersection material, cross at right
+// angles on flat ground: "a" along X (width 10, grip 1) and "b" along Z
+// (width 6, grip 0.6). The surface is assembled exactly as the test drive
+// assembles it (roadgen::addCrossingsToSurface).
+void junctionOverrides() {
+    std::printf("-- junction overrides --\n");
+    std::vector<roadgen::CrossingRoad> roads(2);
+    roads[0].id = "a";
+    roads[0].points = {-50.0f, 0.0f, 50.0f, 0.0f};
+    roads[0].width = 10.0f;
+    roads[0].grip = 1.0f;
+    roads[0].intersection = "res/materials/x.mtl";
+    roads[1].id = "b";
+    roads[1].points = {0.0f, -50.0f, 0.0f, 50.0f};
+    roads[1].width = 6.0f;
+    roads[1].grip = 0.6f;
+    roads[1].spill = 2.0f;
+    roads[1].intersection = "res/materials/x.mtl";
+    const auto flat = [](float, float) { return 0.0f; };
+    auto surfaceOf = [&](const roadgen::CrossingPlan& plan) {
+        roadgen::Surface s;
+        for (const roadgen::CrossingRoad& r : roads) {
+            std::vector<roadgen::Vertex> tris;
+            const float lift = roadgen::rankLift(r.rank);
+            roadgen::tessellate(r.points, r.width, [&](float, float) { return lift; },
+                                tris);
+            s.add(tris, r.grip);
+        }
+        roadgen::addCrossingsToSurface(s, roads, plan, flat);
+        s.build();
+        return s;
+    };
+
+    // Auto: equal ranks + the same material = a patch at the lower grip.
+    roadgen::CrossingPlan p0 = roadgen::planCrossings(roads, {});
+    float g0 = 0.0f;
+    const float y0 = surfaceOf(p0).at(0.0f, 0.0f, &g0);
+    std::printf("  auto: %zu crossing(s), kind %d, grip %.2f, y %.3f\n",
+                p0.crossings.size(), p0.crossings.empty() ? -1 : p0.crossings[0].kind,
+                g0, y0);
+    verdict(p0.crossings.size() == 1 && p0.crossings[0].kind == roadgen::kCrossPatch &&
+                std::fabs(g0 - 0.6f) < 0.01f,
+            "without an override the rank rule makes the patch at the lower grip");
+
+    // Winner "b", stored with the ids REVERSED and 2.5 units off the crossing
+    // (a point edit since): it still matches, suppresses the patch, lays b over
+    // a, and a spills onto b one step higher.
+    roadgen::JunctionOverride ow;
+    ow.roadA = "b";
+    ow.roadB = "a";
+    ow.x = 1.5f;
+    ow.z = -2.0f;
+    ow.winner = roadgen::kWinnerRoadA;  // road "b" as stored
+    roadgen::CrossingPlan p1 = roadgen::planCrossings(roads, {ow});
+    const roadgen::Surface s1 = surfaceOf(p1);
+    float gc = 0.0f, ge = 0.0f, gf = 0.0f;
+    const float yc = s1.at(0.0f, 0.0f, &gc);
+    const float ye = s1.at(2.9f, 0.0f, &ge);
+    s1.at(20.0f, 0.0f, &gf);
+    int overlays = 0, spills = 0;
+    for (const roadgen::CrossingDecal& d : p1.decals) (d.overlay ? overlays : spills)++;
+    std::printf("  winner b: matched %d, kind %d, winner %d, %d overlay(s) %d spill(s); "
+                "centre grip %.2f y %.3f, edge grip %.2f y %.3f, a %.2f\n",
+                p1.overrideCrossing.empty() ? -1 : p1.overrideCrossing[0],
+                p1.crossings[0].kind, p1.crossings[0].winner, overlays, spills, gc, yc,
+                ge, ye, gf);
+    verdict(p1.overrideCrossing[0] == 0 && p1.orphans == 0,
+            "an override matches its crossing across a small point edit and swapped ids");
+    verdict(p1.crossings[0].kind == roadgen::kCrossThrough && p1.crossings[0].winner == 1,
+            "a chosen winner suppresses the patch");
+    verdict(overlays == 1 && std::fabs(gc - 0.6f) < 0.01f &&
+                std::fabs(yc - (roadgen::kLift + roadgen::kSpillLift)) < 0.001f,
+            "the winner's surface (and grip) is on top at the crossing");
+    verdict(spills == 1 && ge > 0.9f &&
+                std::fabs(ye - (roadgen::kLift + 2.0f * roadgen::kSpillLift)) < 0.001f,
+            "the loser spills onto the winner, over the overlay");
+    verdict(std::fabs(gf - 1.0f) < 0.01f, "away from the crossing each road is its own");
+
+    // Forced patch across ranks, with its own material and grip: a is Main, b
+    // is Track (which would spill onto a).
+    roads[0].rank = 2;
+    roads[1].rank = 0;
+    roadgen::CrossingPlan pr = roadgen::planCrossings(roads, {});
+    roadgen::JunctionOverride op;
+    op.roadA = "a";
+    op.roadB = "b";
+    op.winner = roadgen::kWinnerAuto;
+    op.material = "res/materials/cobble.mtl";  // a material alone forces a patch
+    op.grip = 0.3f;
+    roadgen::CrossingPlan p2 = roadgen::planCrossings(roads, {op});
+    float gp = 0.0f;
+    const float yp = surfaceOf(p2).at(0.0f, 0.0f, &gp);
+    std::printf("  ranks 2/0: auto kind %d with %zu decal(s); forced kind %d material %s "
+                "grip %.2f y %.3f, %zu decal(s)\n",
+                pr.crossings[0].kind, pr.decals.size(), p2.crossings[0].kind,
+                p2.crossings[0].material.c_str(), gp, yp, p2.decals.size());
+    verdict(pr.crossings[0].kind == roadgen::kCrossThrough && pr.decals.size() == 1,
+            "across ranks Auto keeps the rank rule (through + spill)");
+    verdict(p2.crossings[0].kind == roadgen::kCrossPatch &&
+                p2.crossings[0].material == op.material && std::fabs(gp - 0.3f) < 0.01f &&
+                std::fabs(yp - (roadgen::kLift + roadgen::rankLift(2) + 0.02f)) < 0.001f,
+            "a patch material forces a patch across ranks, at its own grip, on top");
+    verdict(p2.decals.empty(), "a forced patch takes the crossing's spill away");
+
+    // Orphans: an override far from any crossing of its pair, or naming a
+    // road that is gone, matches nothing and is counted, not dropped.
+    roadgen::JunctionOverride far = op;
+    far.x = 30.0f;
+    roadgen::JunctionOverride gone = op;
+    gone.roadB = "deleted";
+    roadgen::CrossingPlan p3 = roadgen::planCrossings(roads, {far, gone});
+    std::printf("  orphans: %d (crossing %d, %d)\n", p3.orphans, p3.overrideCrossing[0],
+                p3.overrideCrossing[1]);
+    verdict(p3.orphans == 2 && p3.overrideCrossing[0] < 0 && p3.overrideCrossing[1] < 0 &&
+                p3.crossings[0].kind == roadgen::kCrossThrough,
+            "an override whose crossing is gone is reported as orphaned and changes nothing");
+}
+
 }  // namespace
 
 int run() {
@@ -973,6 +1093,7 @@ int run() {
     handling();
     offroad();
     crossings();
+    junctionOverrides();
     damage();
     pieces();
     if (failures) {

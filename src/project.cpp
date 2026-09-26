@@ -1166,6 +1166,50 @@ static void readLayersArray(const json::Value& arr, std::vector<SceneLayer>& lay
     }
 }
 
+// "roadJunctions": [ ... ] - a scene's per-junction road overrides
+// (docs/roads.md, "Junction overrides"; format v79). Omitted when empty, and
+// each field omitted at its Auto value, so a scene without one resaves byte
+// for byte. Shared by the project file and the history file.
+static void writeRoadJunctionsArray(std::ostream& json,
+                                    const std::vector<roadgen::JunctionOverride>& js) {
+    json << "[";
+    for (size_t i = 0; i < js.size(); ++i) {
+        const roadgen::JunctionOverride& j = js[i];
+        json << (i ? ", " : "") << "{ \"roadA\": \"" << jsonEscape(j.roadA)
+             << "\", \"roadB\": \"" << jsonEscape(j.roadB) << "\", \"x\": "
+             << fmtFloat(j.x) << ", \"z\": " << fmtFloat(j.z);
+        if (j.winner != roadgen::kWinnerAuto) json << ", \"winner\": " << j.winner;
+        if (!j.material.empty())
+            json << ", \"material\": \"" << jsonEscape(j.material) << "\"";
+        if (j.grip > 0.0f) json << ", \"grip\": " << fmtFloat(j.grip);
+        json << " }";
+    }
+    json << "]";
+}
+
+static void readRoadJunctionsArray(const json::Value& arr,
+                                   std::vector<roadgen::JunctionOverride>& out) {
+    out.clear();
+    if (arr.type != json::Value::Type::Array) return;
+    for (const auto& jj : arr.arr) {
+        roadgen::JunctionOverride j;
+        if (const auto* v = jj.find("roadA")) j.roadA = v->stringOr("");
+        if (const auto* v = jj.find("roadB")) j.roadB = v->stringOr("");
+        if (const auto* v = jj.find("x")) j.x = (float)v->numberOr(0.0);
+        if (const auto* v = jj.find("z")) j.z = (float)v->numberOr(0.0);
+        if (const auto* v = jj.find("winner")) j.winner = (int)v->numberOr(0.0);
+        if (j.winner < roadgen::kWinnerAuto || j.winner > roadgen::kWinnerRoadB)
+            j.winner = roadgen::kWinnerAuto;
+        if (const auto* v = jj.find("material")) j.material = v->stringOr("");
+        if (const auto* v = jj.find("grip")) {
+            j.grip = (float)v->numberOr(0.0);
+            if (j.grip <= 0.0f) j.grip = 0.0f;
+            else j.grip = std::clamp(j.grip, 0.1f, 1.5f);
+        }
+        if (!j.roadA.empty() && !j.roadB.empty()) out.push_back(j);
+    }
+}
+
 // Paintable terrain layers (docs/terrain-painting.md). The per-texel splat
 // weights live in the terrain-<scene>.splat sidecar; only the layer list (a
 // name + .mtl material each) travels in the project / history JSON.
@@ -1642,6 +1686,29 @@ std::string resolveRoadTexture(const Project& p, const std::string& surfaceRel) 
     return resolveRoadTexture(p.dir, surfaceRel);
 }
 
+std::vector<roadgen::CrossingRoad> crossingRoads(const std::vector<SceneObject>& objects,
+                                                 std::vector<int>* objectIndex) {
+    std::vector<roadgen::CrossingRoad> out;
+    if (objectIndex) objectIndex->clear();
+    for (size_t i = 0; i < objects.size(); ++i) {
+        const SceneObject& o = objects[i];
+        if (o.type != PrimitiveType::Road || o.roadPoints.size() < 4) continue;
+        roadgen::CrossingRoad r;
+        r.id = o.id;
+        r.points = o.roadPoints;
+        r.width = o.roadWidth;
+        r.sampleStep = o.roadSampleStep;
+        r.grip = o.roadGrip;
+        r.spill = o.roadSpill;
+        r.edgeFade = o.roadEdgeFade;
+        r.rank = o.roadRank;
+        r.intersection = o.roadIntersectionTexture;
+        out.push_back(std::move(r));
+        if (objectIndex) objectIndex->push_back((int)i);
+    }
+    return out;
+}
+
 // --- Manifest section writers -------------------------------------------------
 // Each writes its group of top-level .tyra keys WITHOUT the leading ",\n  "
 // separator (the composers below add it), preserving the exact historical byte
@@ -1947,6 +2014,10 @@ static void writeScenesTable(std::ostream& json, const Project& p) {
         if (!sc.terrainLayers.empty()) {
             json << ",\n      \"terrainLayers\": ";
             writeTerrainLayersArray(json, sc.terrainLayers);
+        }
+        if (!sc.roadJunctions.empty()) {
+            json << ",\n      \"roadJunctions\": ";
+            writeRoadJunctionsArray(json, sc.roadJunctions);
         }
         if (sc.terrainBaseStochastic)
             json << ",\n      \"terrainBaseStochastic\": true";
@@ -4954,6 +5025,8 @@ bool applyScenesLayout(Project& p, const std::string& body) {
         SceneData sc;
         if (const auto* v = js.find("name")) sc.name = v->stringOr("scene");
         if (const auto* ls = js.find("layers")) readLayersArray(*ls, sc.layers);
+        if (const auto* rj = js.find("roadJunctions"))
+            readRoadJunctionsArray(*rj, sc.roadJunctions);
         if (const auto* tl = js.find("terrainLayers"))
             readTerrainLayersArray(*tl, sc.terrainLayers);
         if (const auto* v = js.find("terrainBaseStochastic"))
@@ -7693,6 +7766,8 @@ std::string load(Project& out, const std::string& projectDir) {
             SceneData sc;
             if (const auto* v = js.find("name")) sc.name = v->stringOr("scene");
             if (const auto* ls = js.find("layers")) readLayersArray(*ls, sc.layers);
+            if (const auto* rj = js.find("roadJunctions"))
+                readRoadJunctionsArray(*rj, sc.roadJunctions);
             if (const auto* tl = js.find("terrainLayers"))
                 readTerrainLayersArray(*tl, sc.terrainLayers);
             if (const auto* v = js.find("terrainBaseStochastic"))
@@ -7907,6 +7982,10 @@ std::string saveHistory(const Project& p, const History& h) {
                 json << ", \"terrainLayers\": ";
                 writeTerrainLayersArray(json, sc.terrainLayers);
             }
+            if (!sc.roadJunctions.empty()) {
+                json << ", \"roadJunctions\": ";
+                writeRoadJunctionsArray(json, sc.roadJunctions);
+            }
             if (sc.terrainBaseStochastic)
                 json << ", \"terrainBaseStochastic\": true";
             if (sc.terrainTintVariation > 0.0f)
@@ -7948,6 +8027,8 @@ std::string loadHistory(const Project& p, History& h) {
                 SceneData sc;
                 if (const auto* v = js.find("name")) sc.name = v->stringOr("scene");
                 if (const auto* ls = js.find("layers")) readLayersArray(*ls, sc.layers);
+                if (const auto* rj = js.find("roadJunctions"))
+                    readRoadJunctionsArray(*rj, sc.roadJunctions);
                 if (const auto* tl = js.find("terrainLayers"))
                     readTerrainLayersArray(*tl, sc.terrainLayers);
                 if (const auto* v = js.find("terrainBaseStochastic"))
@@ -8257,6 +8338,14 @@ uint64_t liveLinkContextHash(const Project& p) {
             fnvMixF(h, l.streamX), fnvMixF(h, l.streamZ);
             fnvMixF(h, l.streamRadius);
             fnvMixS(h, l.streamArea);  // baked as the zone's area object index
+        }
+        // Road crossings are baked at build (ROAD_JUNCTIONS / ROAD_SPILLS), so
+        // a junction override cannot reach a running game - it reads as
+        // "rebuild" (docs/roads.md, "Junction overrides").
+        for (const roadgen::JunctionOverride& j : sc.roadJunctions) {
+            fnvMixS(h, j.roadA), fnvMixS(h, j.roadB);
+            fnvMixF(h, j.x), fnvMixF(h, j.z);
+            fnvMix(h, (uint64_t)j.winner), fnvMixS(h, j.material), fnvMixF(h, j.grip);
         }
         // Scrollers bake their belt layout (clone objects + SCROLLERS tables)
         // from their segments AND the current transforms of the member objects

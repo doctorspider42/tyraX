@@ -34006,6 +34006,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             struct SpillRow {
                 int scene, road, first, count;
                 float baseGrip;
+                float grip;   // at alpha 1 (1.145.0: an overlay's may be overridden)
+                float lift;   // above the road under it, beyond kSpillLift
             };
             std::vector<SpillRow> spillRows;
             std::vector<float> spillVerts;  // x, z, u, v, alpha
@@ -34042,7 +34044,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                                                      o.roadEdgeFade, ev);
                             edgeRows.push_back({(int)si, (int)roadRows.size(),
                                                 (int)(edgeVerts.size() / 5),
-                                                (int)ev.size(), 1.0f});
+                                                (int)ev.size(), 1.0f, o.roadGrip, 0.0f});
                             for (const roadgen::SpillVertex& v : ev)
                                 edgeVerts.insert(edgeVerts.end(),
                                                  {v.x, v.z, v.u, v.v, v.a});
@@ -34054,54 +34056,48 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     roadPts.insert(roadPts.end(), o.roadPoints.begin(),
                                    o.roadPoints.end());
                 }
-            for (size_t ai = 0; ai < roadRows.size(); ++ai)
-                for (size_t bi = ai + 1; bi < roadRows.size(); ++bi) {
-                    const RoadRow& a = roadRows[ai];
-                    const RoadRow& b = roadRows[bi];
-                    if (a.scene != b.scene) continue;
-                    // Different ranks never meet in a patch: the higher road
-                    // runs through (and the lower may spill onto it, below).
-                    if (a.source->roadRank != b.source->roadRank) continue;
-                    const std::string& mat = a.source->roadIntersectionTexture;
-                    if (mat.empty() || mat != b.source->roadIntersectionTexture)
-                        continue;
-                    std::vector<roadgen::Junction> found;
-                    roadgen::findJunctions(a.source->roadPoints, a.width,
-                                           b.source->roadPoints, b.width, found);
-                    for (const roadgen::Junction& shape : found) {
-                        bool duplicate = false;
-                        for (const JunctionRow& old : junctionRows)
-                            if (old.scene == a.scene &&
-                                std::hypot(old.shape.x - shape.x,
-                                           old.shape.z - shape.z) < 0.5f)
-                                duplicate = true;
-                        if (!duplicate)
-                            junctionRows.push_back({
-                                a.scene,
-                                textureIndex(project::resolveRoadTexture(p, mat)),
-                                shape, std::min(a.grip, b.grip), a.lift});
-                    }
+            // Crossings (docs/roads.md, "Crossings" + "Junction overrides"):
+            // ONE decision per scene, roadgen::planCrossings - the viewport and
+            // the test drive read the same plan, so the console builds exactly
+            // what the editor shows. Patches become junction rows, overlays
+            // and spills become spill rows (overlays first: they are drawn
+            // before the spills that may land on them).
+            int crossingOrphans = 0;
+            for (size_t si = 0; si < p.scenes.size(); ++si) {
+                std::vector<int> objIdx;
+                const std::vector<roadgen::CrossingRoad> cr =
+                    project::crossingRoads(p.scenes[si].objects, &objIdx);
+                if (cr.empty()) continue;
+                // Scene road k -> its roadRows index (rows are in scene order).
+                std::vector<int> rowOf(cr.size(), -1);
+                for (size_t k = 0, r = 0; k < cr.size(); ++k) {
+                    while (r < roadRows.size() &&
+                           (roadRows[r].scene != (int)si ||
+                            roadRows[r].source != &p.scenes[si].objects[(size_t)objIdx[k]]))
+                        ++r;
+                    if (r < roadRows.size()) rowOf[k] = (int)r;
                 }
-            for (size_t li = 0; li < roadRows.size(); ++li)
-                for (size_t hi = 0; hi < roadRows.size(); ++hi) {
-                    const RoadRow& lo = roadRows[li];
-                    const RoadRow& up = roadRows[hi];
-                    if (li == hi || lo.scene != up.scene ||
-                        lo.source->roadSpill <= 0.0f ||
-                        up.source->roadRank <= lo.source->roadRank)
-                        continue;
-                    std::vector<roadgen::SpillVertex> sv;
-                    roadgen::tessellateSpill(lo.source->roadPoints, lo.width,
-                                             lo.sampleStep, up.source->roadPoints,
-                                             up.width, lo.source->roadSpill, sv,
-                                             lo.source->roadEdgeFade);
-                    if (sv.empty()) continue;
-                    spillRows.push_back({lo.scene, (int)li,
-                                         (int)(spillVerts.size() / 5),
-                                         (int)sv.size(), up.grip});
-                    for (const roadgen::SpillVertex& v : sv)
+                const roadgen::CrossingPlan plan =
+                    roadgen::planCrossings(cr, p.scenes[si].roadJunctions);
+                crossingOrphans += plan.orphans;
+                for (const roadgen::Crossing& c : plan.crossings) {
+                    if (c.kind != roadgen::kCrossPatch || c.patchDuplicate) continue;
+                    junctionRows.push_back(
+                        {(int)si, textureIndex(project::resolveRoadTexture(p, c.material)),
+                         c.shape, c.grip, c.lift});
+                }
+                for (const roadgen::CrossingDecal& d : plan.decals) {
+                    if (d.verts.empty() || rowOf[(size_t)d.road] < 0) continue;
+                    spillRows.push_back({(int)si, rowOf[(size_t)d.road],
+                                         (int)(spillVerts.size() / 5), (int)d.verts.size(),
+                                         d.baseGrip, d.grip, d.extraLift});
+                    for (const roadgen::SpillVertex& v : d.verts)
                         spillVerts.insert(spillVerts.end(), {v.x, v.z, v.u, v.v, v.a});
                 }
+            }
+            if (crossingOrphans > 0)
+                out << "\n// " << crossingOrphans
+                    << " road junction override(s) match no crossing (orphaned).\n";
             if (!roadRows.empty()) {
                 out << "\n// Roads (docs/roads.md): points in, geometry at boot.\n"
                     << "constexpr int ROAD_COUNT = " << roadRows.size() << ";\n"
@@ -34148,7 +34144,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                 // Spills (1.143.0, docs/roads.md "Crossings"): baked XZ + UV +
                 // fade; the EE lifts them onto the road surface at boot.
                 out << "struct RoadSpillRt { int scene; int road; int first;"
-                       " int count; float baseGrip; };\n"
+                       " int count; float baseGrip; float grip; float lift; };\n"
                     << "constexpr int ROAD_SPILL_COUNT = " << spillRows.size()
                     << ";\n";
                 if (spillRows.empty()) {
@@ -34160,7 +34156,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     for (const SpillRow& sr : spillRows)
                         out << "    {" << sr.scene << ", " << sr.road << ", "
                             << sr.first << ", " << sr.count << ", "
-                            << floatLit(sr.baseGrip) << "},\n";
+                            << floatLit(sr.baseGrip) << ", " << floatLit(sr.grip)
+                            << ", " << floatLit(sr.lift) << "},\n";
                     out << "};\nconstexpr float ROAD_SPILL_VERTS["
                         << spillVerts.size() << "] = {";
                     for (size_t k = 0; k < spillVerts.size(); ++k)
@@ -34177,7 +34174,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                         << "] = {\n";
                     for (const SpillRow& er : edgeRows)
                         out << "    {" << er.scene << ", " << er.road << ", "
-                            << er.first << ", " << er.count << ", 1.0F},\n";
+                            << er.first << ", " << er.count << ", 1.0F, "
+                            << floatLit(er.grip) << ", 0.0F},\n";
                     out << "};\nconstexpr float ROAD_EDGE_VERTS[" << edgeVerts.size()
                         << "] = {";
                     for (size_t k = 0; k < edgeVerts.size(); ++k)
@@ -42460,7 +42458,9 @@ void TerrainGame::buildRoads(int scene) {
         const float* sv = &ROAD_SPILL_VERTS[(size_t)(sp.first + k) * 5];
         float y = roadSurfaceAt(sv[0], sv[1]);
         if (y < -1.0e29F) y = terrainHeightAt(sv[0], sv[1]) + 0.12F;
-        spillY.push_back(y + 0.02F);
+        // + the row's own lift: a spill landing on a junction OVERLAY
+        // (1.145.0) floats one more step, over the overlay.
+        spillY.push_back(y + 0.02F + sp.lift);
       }
     }
     size_t yi = 0;
@@ -42475,7 +42475,7 @@ void TerrainGame::buildRoads(int scene) {
       c.roadTex = (rd.tex >= 0 && rd.tex < ROAD_TEXTURE_COUNT)
                       ? roadTextures_[rd.tex]
                       : nullptr;
-      c.roadGrip = rd.grip;
+      c.roadGrip = sp.grip;
       c.roadGripBase = sp.baseGrip;
       c.roadBlend = true;
       c.stripRun = 0;

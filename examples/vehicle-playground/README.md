@@ -35,6 +35,13 @@ scenes keep separate object copies, so editing one does not touch the other.
   asphalt from both sides; the grip fades with it. Its sides have a 1.5-unit
   edge fade (1.144.0, "Soft edges"), so it bleeds into the terrain instead of
   ending in a line.
+- The central crossing of Garage Boulevard and Market Street, next to the
+  spawn, is a **cobbled plaza** (1.145.0, docs/roads.md "Junction overrides"):
+  a per-junction override gives that one crossing the `district-plaza.mtl`
+  patch (setts, a granite band, zebra crossings on all four entries, a brass
+  compass rose) and grip 0.85, while every other crossing keeps the asphalt.
+  `authoring/make-plaza.py` regenerates the texture; select either street and
+  click the crossing's diamond to see or change the override.
 - Fourteen workshop, loft and tower blocks using lean exterior shells with
   baked Kenney Retro Urban Kit facades, with pavements, trees, benches, traffic
   signals, streetlights, dumpsters and barriers. Static batching keeps a building on the solo path unless every

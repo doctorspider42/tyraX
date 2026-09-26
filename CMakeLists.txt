@@ -241,6 +241,7 @@ add_executable(tyrax-editor
     src/procui.cpp
     src/vu_ui.cpp
     src/props_ui.cpp
+    src/junction_ui.cpp
     src/fbxparser.cpp
     src/gl_loader.cpp
     src/glbparser.cpp

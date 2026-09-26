@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <string>
 #include <vector>
 
 // Roads (docs/roads.md): the spline tessellator.
@@ -267,5 +268,108 @@ private:
     int nx_ = 0, nz_ = 0;
     float minX_ = 0, minZ_ = 0, inv_ = 1;
 };
+
+// --- crossings: the one decision (1.145.0, docs/roads.md "Junction overrides")
+//
+// Which crossing gets a patch, which road runs through and who spills onto
+// whom used to be decided three times - the codegen (the console's tables),
+// the viewport and the vehicle test drive - by three copies of the same
+// pairing loops. planCrossings() is now the ONLY place, and the three read
+// its result. It works per SCENE: callers hand it that scene's roads.
+//
+// A crossing is identified by its PAIR of road ids plus its position, so a
+// per-junction override survives small point edits: it matches the crossing
+// of the same pair nearest to where it was stored, within the narrower road's
+// width. One that matches nothing is ORPHANED - kept, and reported.
+
+// One road as the planner sees it.
+struct CrossingRoad {
+    std::string id;            // the SceneObject's stable id
+    std::vector<float> points; // x0,z0,x1,z1,...
+    float width = 8.0f, sampleStep = 1.0f, grip = 1.0f;
+    float spill = kSpillDefault, edgeFade = 0.0f;
+    int rank = 1;
+    std::string intersection;  // intersection material ("" = none)
+};
+
+// What an override says the crossing does. Auto = the rank rule.
+enum JunctionWinner : int {
+    kWinnerAuto = 0,   // the rank rule (and the intersection-material patch)
+    kWinnerPatch = 1,  // a junction patch, whatever the ranks and materials
+    kWinnerRoadA = 2,  // road A runs through, B is covered (and may spill)
+    kWinnerRoadB = 3,
+};
+// Stored in the scene (SceneData::roadJunctions). Fields at their Auto value
+// change nothing; a material alone forces a patch.
+struct JunctionOverride {
+    std::string roadA, roadB;  // object ids (A/B as stored; order is free)
+    float x = 0.0f, z = 0.0f;  // where the crossing was when last edited
+    int winner = kWinnerAuto;
+    std::string material;      // patch material, "" = the roads' own
+    float grip = 0.0f;         // 0 = auto (the lower road's / the winner's)
+};
+inline bool operator==(const JunctionOverride& a, const JunctionOverride& b) {
+    return a.roadA == b.roadA && a.roadB == b.roadB && a.x == b.x && a.z == b.z &&
+           a.winner == b.winner && a.material == b.material && a.grip == b.grip;
+}
+inline bool operator!=(const JunctionOverride& a, const JunctionOverride& b) {
+    return !(a == b);
+}
+
+enum CrossingKind : int {
+    kCrossOverlap = 0,  // equal ranks, no patch: the roads simply overlap
+    kCrossPatch = 1,    // a junction patch (tessellateJunction)
+    kCrossThrough = 2,  // `winner` runs through, the other is covered
+};
+
+struct Crossing {
+    int a = -1, b = -1;  // road indices into the planner's input, a < b
+    Junction shape;
+    int override = -1;   // index into the overrides, or -1 (Auto)
+    int kind = kCrossOverlap;
+    int winner = -1;     // road index for kCrossThrough
+    bool patchDuplicate = false;  // a patch another crossing already makes
+    // The patch (kCrossPatch): material key, grip and the rank lift it sits at.
+    std::string material;
+    float grip = 1.0f;
+    float lift = 0.0f;
+    // kCrossThrough decided by an override: the winner is drawn over the
+    // loser here as an OVERLAY decal. Its grip.
+    bool overlay = false;
+    float overlayGrip = 1.0f;
+};
+
+// A spill or an overlay: a road's own triangles laid over another road.
+struct CrossingDecal {
+    int road = -1;   // whose surface (texture, UV, colour)
+    int under = -1;  // the road it lies on
+    bool overlay = false;
+    std::vector<SpillVertex> verts;  // triangles; alpha 1 = this road's surface
+    float grip = 1.0f;      // at alpha 1
+    float baseGrip = 1.0f;  // at alpha 0 (the surface under it)
+    // Above the highest road under it, BEYOND kSpillLift: kSpillLift for a
+    // spill that lands on an overlay, 0 otherwise. The console adds it to its
+    // roadSurfaceAt; hosts use hostLift (rank lift + kSpillLift + this).
+    float extraLift = 0.0f;
+    float hostLift = 0.0f;
+};
+
+struct CrossingPlan {
+    std::vector<Crossing> crossings;
+    std::vector<CrossingDecal> decals;  // overlays first, then spills
+    std::vector<int> overrideCrossing;  // per override: crossing index or -1
+    int orphans = 0;                    // overrides matching no crossing
+};
+
+// `withDecals` false skips the spill/overlay tessellation (markers and the
+// Properties panel only need the crossings).
+CrossingPlan planCrossings(const std::vector<CrossingRoad>& roads,
+                           const std::vector<JunctionOverride>& overrides,
+                           bool withDecals = true);
+
+// The plan's patches and decals as drawn surface (the test drive, the check):
+// `terrain` is the bare ground height.
+void addCrossingsToSurface(Surface& s, const std::vector<CrossingRoad>& roads,
+                           const CrossingPlan& plan, const HeightFn& terrain);
 
 }  // namespace roadgen
