@@ -1173,6 +1173,35 @@ collapsed piece leaves an open hole into the body shell (the Blender-built cars
 show their modelled interior and engine bay through it), debris does not hit
 other debris or push the cars back, and a repair restores the pieces but leaves the debris on the road.
 
+### Lamp glow
+
+![Night in the Motor District: the brake lamps' halo, and the headlamps' seen from the front](img/vehicle-lamp-glow.png)
+
+A soft halo around the lamps - *Lamp glow* on the Vehicle Editor's **Effects**
+tab (0 = none, the value every definition written before it keeps; a new one
+starts at 1). It follows what the lamps are doing: the headlamps glow while the
+lights are on, the tail lamps dimly with the lights and brightly (and wider)
+under the brake, and a smashed lamp ([Damage](#damage)) has none. A halo fades
+as its lamp turns edge-on to the camera and past 40 units.
+
+**Shaped per lamp, not per texture.** The bake splits the lamp part into its
+separate lamps (triangles joined by shared corners) and records each one's box
+(`VehicleDef::lampGlows`, `VEHICLE_LAMP_GLOWS`), so a round headlamp gets a
+round halo and a tail-lamp bar a long one: the billboard is stretched to the
+lamp's width as the camera sees it and to its height. The picture itself is the
+one 64x64 corona the light beams and the stars already draw through, so there
+is no texture per car - which is also what keeps it to **one submit for every
+car on screen** (a bag carries one texture). A per-car texture would have
+bought nothing a few-pixel lamp could show on a PS2 and cost a submit and VRAM
+per car.
+
+The halos are camera-facing quads built on the EE each frame (6 vertices a
+lamp), pulled toward the camera so the body around the lamp cannot cut them in
+half, additive with the brightness in the vertex colours, depth-tested but not
+written. At most 40 a frame, the driver's car first; the cost shows as its own
+`Vehicle_lamp_glow` row in a render-cost capture. A car whose model marks no
+lamp materials gets no halo (its fallback tail-lamp quads are unchanged).
+
 ### Weight transfer
 
 The body squats under power, dives under braking and leans OUT of a corner —

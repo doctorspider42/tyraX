@@ -1478,6 +1478,58 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
         } else if (out.body.parts[k].name == "glass") {
             out.glassPart = (int)k;
         }
+    // LAMP GLOWS (docs/vehicles.md, "Lamp glow"): every separate lamp of the
+    // lamp part - triangles joined by shared corners - as its own box, so the
+    // runtime's halo takes each lamp's own size and shape (a round headlamp, a
+    // tail-lamp bar) instead of one cluster per end. Rear range first, then
+    // front, like the part itself.
+    if (out.lampPart >= 0) {
+        const tmdl::Part& lp = out.body.parts[(size_t)out.lampPart];
+        const int nt = (int)(lp.verts.size() / 24);
+        std::vector<int> parent((size_t)nt);
+        for (int t = 0; t < nt; ++t) parent[(size_t)t] = t;
+        auto find = [&](int a) {
+            while (parent[(size_t)a] != a) a = parent[(size_t)a] = parent[(size_t)parent[(size_t)a]];
+            return a;
+        };
+        std::map<std::array<long, 3>, int> owner;  // a quantised corner -> first triangle
+        for (int t = 0; t < nt; ++t)
+            for (int c = 0; c < 3; ++c) {
+                const float* q = &lp.verts[(size_t)(t * 3 + c) * 8];
+                const std::array<long, 3> key = {std::lround(q[0] * 500.0f),
+                                                 std::lround(q[1] * 500.0f),
+                                                 std::lround(q[2] * 500.0f)};
+                auto it = owner.find(key);
+                if (it == owner.end()) owner[key] = t;
+                else parent[(size_t)find(t)] = find(it->second);
+            }
+        std::map<int, std::array<float, 7>> box;  // root -> mn xyz, mx xyz, front
+        for (int t = 0; t < nt; ++t) {
+            std::array<float, 7>& b = box.try_emplace(find(t), std::array<float, 7>{
+                1e30f, 1e30f, 1e30f, -1e30f, -1e30f, -1e30f, 0.0f}).first->second;
+            if (t * 3 >= out.lampRearVerts) b[6] = 1.0f;
+            for (int c = 0; c < 3; ++c)
+                for (int a = 0; a < 3; ++a) {
+                    const float q = lp.verts[(size_t)(t * 3 + c) * 8 + (size_t)a];
+                    b[(size_t)a] = std::min(b[(size_t)a], q);
+                    b[3 + (size_t)a] = std::max(b[3 + (size_t)a], q);
+                }
+        }
+        for (const auto& kv : box) {
+            const std::array<float, 7>& b = kv.second;
+            std::array<float, 7> g = {0.5f * (b[0] + b[3]), 0.5f * (b[1] + b[4]),
+                                      0.5f * (b[2] + b[5]), 0.5f * (b[3] - b[0]),
+                                      0.5f * (b[4] - b[1]), 0.5f * (b[5] - b[2]), b[6]};
+            if (g[3] < 0.01f && g[4] < 0.01f) continue;  // a sliver, not a lamp
+            out.lampGlows.push_back(g);
+            if (out.lampGlows.size() >= 12) break;
+        }
+        if (!out.lampGlows.empty()) {
+            char b[96];
+            std::snprintf(b, sizeof(b), "Lamp glow: %zu lamp(s) measured.", out.lampGlows.size());
+            out.notes.push_back(b);
+        }
+    }
     out.bodyParts = (int)out.body.parts.size();
     out.wheelParts = (int)out.wheel.parts.size();
     out.bodyTris = modelTris(out.body);
@@ -1776,6 +1828,8 @@ bool adoptMeasured(VehicleDef& v, const Result& r) {
     v.pieces = r.pieces;
     if (v.envLimits != r.envLimits) changed = true;
     v.envLimits = r.envLimits;
+    if (v.lampGlows != r.lampGlows) changed = true;
+    v.lampGlows = r.lampGlows;
     // THE WHEEL RADIUS IS THE DRAWN WHEEL'S (docs/vehicles.md, "Wheels on the
     // road surface"). Both twins put a hub one wheelRadius above its ground
     // and the body rideHeight above the plane, so a definition whose radius

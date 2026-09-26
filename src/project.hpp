@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <map>
@@ -1317,6 +1318,9 @@ struct VehicleDef {
     // {part, vertices}: MEASURED like the pieces - the reflection pass of that
     // body part covers only its first `vertices` (the matte cabin after them).
     std::vector<std::pair<int, int>> envLimits;
+    // The lamp glow's lamps, MEASURED by the bake (vehbake::Result::lampGlows):
+    // centre xyz, half extents xyz, front 1 / rear 0. Written only when set.
+    std::vector<std::array<float, 7>> lampGlows;
 
     // The engine note (docs/vehicles.md, "Engine sound"). A path into the
     // project's own sound list, NOT an index: an index would retarget itself
@@ -1404,7 +1408,7 @@ inline bool operator==(const VehicleDef& a, const VehicleDef& b) {
         a.trafficDistance != b.trafficDistance || a.farPart != b.farPart ||
         a.farHideMask != b.farHideMask || a.fastWheel != b.fastWheel ||
         a.fastWheelTriBudget != b.fastWheelTriBudget || a.pieces != b.pieces ||
-        a.envLimits != b.envLimits)
+        a.envLimits != b.envLimits || a.lampGlows != b.lampGlows)
         return false;
     for (int i = 0; i < 3; ++i)
         if (a.exitOffset[i] != b.exitOffset[i]) return false;
