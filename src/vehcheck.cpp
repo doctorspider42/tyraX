@@ -551,6 +551,31 @@ void handling() {
                 before, st.speed);
     verdict(before - st.speed < 0.5f,
             "a car above its top speed coasts down, it is not clamped");
+
+    // Handbrake flick: the rear steps out (the body rotates past its path),
+    // then grip comes back over kHandbrakeRecover instead of in one frame.
+    st = {};
+    st.pos[1] = s.rideHeight;
+    st.speed = 20.0f;
+    in = {};
+    in.throttle = 0.6f;
+    in.steer = 1.0f;
+    in.handbrake = true;
+    const float yaw0 = st.yaw;
+    for (int i = 0; i < 40; ++i) step(s, in, 1.0f / 50.0f, flat, st);
+    const float turned = std::fabs(st.yaw - yaw0);
+    const float slipHeld = std::fabs(st.lateral);
+    in.handbrake = false;
+    const float lat0 = std::fabs(st.lateral);
+    step(s, in, 1.0f / 50.0f, flat, st);
+    const float firstDrop = lat0 - std::fabs(st.lateral);
+    std::printf("  handbrake flick: turned %.1f deg in 0.8 s, slip %.2f u/s, "
+                "first frame after release sheds %.2f u/s (full grip %.2f)\n",
+                turned, slipHeld, firstDrop, s.grip / 50.0f);
+    verdict(turned > 40.0f && slipHeld > 3.0f,
+            "a handbrake flick rotates the car into a drift");
+    verdict(firstDrop < 0.5f * s.grip / 50.0f,
+            "grip returns gradually after the handbrake, the drift does not snap");
 }
 
 }  // namespace

@@ -261,6 +261,26 @@ everything else a scene does.
   - It also makes the ride spring one-sided above its rest height: it never
     pulls the body down faster than gravity. Inside the grounded slack it used
     to haul the car down at ~200 x the gap and glue it to every crest.
+- **The handbrake starts a drift, and the drift winds down (1.135.2).**
+  1. **Yaw.** While it is held, the yaw cap uses the FULL grip, not the
+     handbrake grip, times `kHandbrakeYawCap` (1). It is taken on the car's
+     ground speed: the forward part falls in a slide, and a cap on it grew
+     until the car swapped ends. The steering adds `kHandbrakeYaw` (30 deg/s
+     at full lock), so the rear steps out instead of the car skating sideways
+     on four locked tyres.
+  2. **Release.** Grip returns from `handbrakeGrip` to `grip` over
+     `kHandbrakeRecover` (0.35 s, `hbBlend` in the state), instead of in one
+     frame.
+  3. **Friction circle, softened.** What the tyres spend on braking or driving
+     comes off the cornering grip: a longitudinal demand equal to the grip
+     costs `kFrictionShare` (half) of it. The full circle left a braking car
+     unable to turn at all.
+
+  `--vehicle-check`: a handbrake flick at 20 u/s turns 76 degrees in 0.8 s
+  with 16.6 u/s of slip, and the first frame after release sheds 0.00 u/s of
+  slip against 0.52 at full grip. In PCSX2 a flick at 30 u/s slid on and
+  recovered over ~1.5 s. The constants are code, not definition fields, yet:
+  tune by feel first.
 - **Walls redirect the car (1.135.1).** On a fresh hit:
   1. The wall's normal is taken from the blocked sample points: away from
      their centroid, so it works at any wall angle.

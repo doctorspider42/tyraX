@@ -910,6 +910,9 @@ class TerrainGame : public Tyra::Game {
     float nos = 1.0F;          // tank, 0..1 - starts full
     int nosActive = 0;
     float slip = 0.0F;         // 0..1, the ONE tyre-slip number
+    // 0 while the handbrake is held, back to 1 over kVehHandbrakeRecover after
+    // it is let go (the vehiclesim twin's DriveState::hbBlend).
+    float hbBlend = 1.0F;
     // Engine note (docs/vehicles.md). `engineCh` is the SPU2 channel the loop
     // holds while this vehicle is being driven, -1 when silent; `enginePitchReg`
     // is the LAST value written, because writing the pitch costs a blocking IOP

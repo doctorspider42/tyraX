@@ -36655,6 +36655,9 @@ static std::string vehicleMembers(const Project& p) {
     float nos = 1.0F;          // tank, 0..1 - starts full
     int nosActive = 0;
     float slip = 0.0F;         // 0..1, the ONE tyre-slip number
+    // 0 while the handbrake is held, back to 1 over kVehHandbrakeRecover after
+    // it is let go (the vehiclesim twin's DriveState::hbBlend).
+    float hbBlend = 1.0F;
     // Engine note (docs/vehicles.md). `engineCh` is the SPU2 channel the loop
     // holds while this vehicle is being driven, -1 when silent; `enginePitchReg`
     // is the LAST value written, because writing the pitch costs a blocking IOP
@@ -37554,6 +37557,12 @@ static int vehGearCount(const VehicleDefData& s) {
 static constexpr float kVehYawGripScale = 1.0F;
 // The into-wall speed a fresh hit gives back (vehiclesim twin kWallBounce).
 static constexpr float kVehWallBounce = 0.15F;
+// The handbrake and the friction circle (vehiclesim twins kHandbrakeRecover,
+// kHandbrakeYaw, kFrictionShare).
+static constexpr float kVehHandbrakeRecover = 0.35F;
+static constexpr float kVehHandbrakeYaw = 30.0F;
+static constexpr float kVehHandbrakeYawCap = 1.0F;
+static constexpr float kVehFrictionShare = 0.5F;
 static float vehClamp(float v, float lo, float hi) {
   return v < lo ? lo : (v > hi ? hi : v);
 }
@@ -38462,15 +38471,44 @@ void TerrainGame::updateVehicles(float dt) {
     float dYaw = 0.0F;
     float yawRateRad = 0.0F;  // saved for the cornering lean below
     const float absSp = v.speed < 0.0F ? -v.speed : v.speed;
+    // The handbrake's grip blend and the softened friction circle - the
+    // vehiclesim twin, line for line.
+    if (inHand) {
+      v.hbBlend = 0.0F;
+    } else {
+      v.hbBlend += dt / kVehHandbrakeRecover;
+      if (v.hbBlend > 1.0F) v.hbBlend = 1.0F;
+    }
+    const float blendGrip = s.handbrakeGrip + (s.grip - s.handbrakeGrip) * v.hbBlend;
+    float longUse = 0.0F;
+    if (v.grounded) {
+      if (inBrake > 0.01F)
+        longUse = s.brakeDecel * inBrake;
+      else if (inThrottle > 0.01F && v.speed < s.topSpeed * topMul)
+        longUse = s.accel * accelMul * inThrottle;
+      if (inHand) longUse += s.brakeDecel * 0.4F;
+    }
+    const float useFrac =
+        vehClamp(longUse / (blendGrip > 0.01F ? blendGrip : 0.01F), 0.0F, 1.0F);
+    const float effGrip = blendGrip * (1.0F - kVehFrictionShare * useFrac * useFrac);
     if (v.grounded && absSp > 0.05F) {
       yawRateRad = (v.speed / (s.wheelBase * SC > 0.01F ? s.wheelBase * SC : 0.01F)) *
                    tanf(v.steerAngle * kDeg);
       // Grip-limited yaw (vehiclesim twin): the body turns no faster than
       // the path can bend, grip / |v|, times kVehYawGripScale. The handbrake
-      // keeps no cap - it is the way past the limit.
+      // is the way past the limit: the full grip's cap plus kVehHandbrakeYaw.
       if (!inHand) {
-        const float cap = s.grip * kVehYawGripScale / (absSp > 1.0F ? absSp : 1.0F);
+        const float cap = effGrip * kVehYawGripScale / (absSp > 1.0F ? absSp : 1.0F);
         yawRateRad = vehClamp(yawRateRad, -cap, cap);
+      } else if (absSp > 3.0F) {
+        // The rear steps out (the host twin's rule): a looser cap, plus yaw.
+        const float ground = sqrtf(v.speed * v.speed + v.lateral * v.lateral);
+        const float hcap = s.grip * kVehHandbrakeYawCap / (ground > 1.0F ? ground : 1.0F);
+        yawRateRad = vehClamp(yawRateRad, -hcap, hcap);
+        const float steerFrac = vehClamp(
+            v.steerAngle / (s.maxSteerDeg > 1.0F ? s.maxSteerDeg : 1.0F), -1.0F, 1.0F);
+        yawRateRad += (v.speed > 0.0F ? 1.0F : -1.0F) * steerFrac *
+                      kVehHandbrakeYaw * kDeg;
       }
       dYaw = yawRateRad * dt * kRad;
       v.yaw += dYaw;
@@ -38483,7 +38521,7 @@ void TerrainGame::updateVehicles(float dt) {
       v.lateral = l;
     }
     {
-      float grip = inHand ? s.handbrakeGrip : s.grip;
+      float grip = effGrip;
       if (!v.grounded) grip = 0.0F;
       // A steep contact plane costs grip on the way to costing all of it -
       // the host twin's tilt term; maxSlopeCos was an authored slider that

@@ -282,6 +282,10 @@ struct DriveState {
     // to the tyre smoke and the screech, so both cannot disagree about when a
     // tyre is losing traction.
     float slip = 0.0f;
+    // 0 while the handbrake is held, back to 1 over kHandbrakeRecover seconds
+    // after it is let go: the lateral grip blends from handbrakeGrip to grip
+    // along it, so a drift winds down instead of snapping shut in one frame.
+    float hbBlend = 1.0f;
 
     // Weight transfer, presentation only - the body's squat under power, dive
     // under braking and lean out of a corner, in degrees ON TOP of the

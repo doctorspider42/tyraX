@@ -299,8 +299,9 @@ leaves these, dearest first:
   - a fixed 1/50 s step with an accumulator, since several rules are
     per-frame;
   - a swept wall test;
-  - a handbrake that loosens the REAR and blends grip back;
-  - a friction circle;
+  - ~~a handbrake that loosens the rear and blends grip back; a friction
+    circle~~ done 1.135.2 (its constants are code: make them definition
+    fields once the feel is settled);
   - a rescaled deadzone and an expo curve on the stick;
   - air control and landings;
   - per-surface grip;

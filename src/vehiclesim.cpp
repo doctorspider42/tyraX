@@ -12,6 +12,18 @@ constexpr float kYawGripScale = 1.0f;
 // How much of the into-wall speed comes back out on a fresh wall hit.
 // Keep in sync with kVehWallBounce in the generated runtime.
 constexpr float kWallBounce = 0.15f;
+// The handbrake (1.135.2): seconds for the grip to come back after release,
+// and the extra yaw it adds at full steering (degrees/s) - the rear stepping
+// out. Keep in sync with kVehHandbrakeRecover / kVehHandbrakeYaw.
+constexpr float kHandbrakeRecover = 0.35f;
+constexpr float kHandbrakeYaw = 30.0f;
+// Under the handbrake the yaw cap is this many times the FULL grip's limit
+// (not the handbrake grip's): with kHandbrakeYaw on top, loose enough to
+// rotate into a drift, tight enough not to swap ends.
+constexpr float kHandbrakeYawCap = 1.0f;
+// The friction circle, softened: a longitudinal demand equal to the grip
+// costs this share of the lateral grip. Keep in sync with kVehFrictionShare.
+constexpr float kFrictionShare = 0.5f;
 
 namespace {
 
@@ -922,6 +934,27 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
     // steering angle, so a long vehicle turns wide without a second knob.
     float dYaw = 0.0f;
     float yawRateRad = 0.0f;  // saved for the cornering lean below
+    // The handbrake's grip blend (see DriveState::hbBlend).
+    state.hbBlend = in.handbrake ? 0.0f
+                                 : std::min(1.0f, state.hbBlend + dt / kHandbrakeRecover);
+    const float blendGrip =
+        spec.handbrakeGrip + (spec.grip - spec.handbrakeGrip) * state.hbBlend;
+    // The friction circle, softened: what the tyres spend on braking or
+    // driving they cannot spend on cornering. A demand equal to the grip
+    // costs kFrictionShare of it - the full circle made a braking car
+    // unable to turn at all.
+    float longUse = 0.0f;
+    if (state.grounded) {
+        const float br = clampf(in.brake, 0.0f, 1.0f);
+        const float th = shifting ? 0.0f : clampf(in.throttle, 0.0f, 1.0f);
+        if (br > 0.01f)
+            longUse = spec.brakeDecel * br;
+        else if (th > 0.01f && state.speed < spec.topSpeed * topMul)
+            longUse = spec.accel * accelMul * th;
+        if (in.handbrake) longUse += spec.brakeDecel * 0.4f;
+    }
+    const float useFrac = clampf(longUse / std::max(blendGrip, 0.01f), 0.0f, 1.0f);
+    const float effGrip = blendGrip * (1.0f - kFrictionShare * useFrac * useFrac);
     if (state.grounded && std::fabs(state.speed) > 0.05f) {
         yawRateRad = (state.speed / std::max(spec.wheelBase, 0.01f)) *
                      std::tan(state.steerAngle * kDeg2Rad);
@@ -935,8 +968,22 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
         // after three seconds - a permanent drift). The handbrake is the way
         // past it, and keeps no cap.
         if (!in.handbrake) {
-            const float cap = spec.grip * kYawGripScale / std::max(std::fabs(state.speed), 1.0f);
+            const float cap = effGrip * kYawGripScale / std::max(std::fabs(state.speed), 1.0f);
             yawRateRad = clampf(yawRateRad, -cap, cap);
+        } else if (std::fabs(state.speed) > 3.0f) {
+            // GROUND speed, not forward speed: in a slide the forward part
+            // falls as the velocity turns into slip, and a cap on it grew
+            // until the car swapped ends (84 degrees in 0.8 s).
+            const float ground = std::sqrt(state.speed * state.speed + state.lateral * state.lateral);
+            const float cap = spec.grip * kHandbrakeYawCap / std::max(ground, 1.0f);
+            yawRateRad = clampf(yawRateRad, -cap, cap);
+            // The rear steps out: the handbrake adds yaw with the steering,
+            // so a flick while it is held rotates the car into a drift
+            // instead of skating it sideways on four locked tyres.
+            const float steerFrac =
+                clampf(state.steerAngle / std::max(spec.maxSteerDeg, 1.0f), -1.0f, 1.0f);
+            yawRateRad += (state.speed > 0.0f ? 1.0f : -1.0f) * steerFrac *
+                          kHandbrakeYaw * kDeg2Rad;
         }
         dYaw = yawRateRad * dt * kRad2Deg;
         state.yaw += dYaw;
@@ -954,7 +1001,7 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
         state.lateral = l;
     }
     {
-        float grip = in.handbrake ? spec.handbrakeGrip : spec.grip;
+        float grip = effGrip;
         if (!state.grounded) grip = 0.0f;  // no tyres on anything
         // A steep contact plane costs grip on the way to costing all of it.
         const float tilt = std::cos(std::fabs(state.roll) * kDeg2Rad);
