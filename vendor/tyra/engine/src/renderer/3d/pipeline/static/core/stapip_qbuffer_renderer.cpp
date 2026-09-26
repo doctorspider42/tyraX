@@ -1362,6 +1362,42 @@ void StaPipQBufferRenderer::sendObjectData(
       // Modified by TyraX: GS hardware fog params (see RendererCoreFog)
       float fogScale = rendererCore->fog.scale;
       float fogOffset = rendererCore->fog.offset;
+      // Modified by TyraX: fog scale 0 is the "F is the constant 255" signal
+      // cull_tc branches on (setFogConstant), read as the LOW 16 BITS of the
+      // float. A real, non-zero scale whose low half happens to be zero gets
+      // its lowest mantissa bit set: one ulp, invisible, never mistaken.
+      // Decided only where it can pay: a textured, unlit, non-env bag with no
+      // spot light reaching it is the one cull_tc runs through its fog-free
+      // loop. The box test is the linear maximum of clip w over the box: w
+      // at the centre plus |d w / d axis| times the half-extent, three
+      // multiplies instead of eight matrix transforms (the transforms cost
+      // the EE more than VU1 saved in a spot-lit night scene).
+      bool fogConstant = fogOffForBag;
+      if (!fogConstant && fogBox != nullptr && fogScale < 0.0F && !spotActive &&
+          bag->lighting == nullptr && bag->texture != nullptr &&
+          !bag->texture->coordinatesAreNormals && bag->billboard == nullptr) {
+        const Vec4& lo = (*fogBox)[0];
+        const Vec4& hi = (*fogBox)[7];
+        const float* m = mvp->data;
+        const float cx = 0.5F * (lo.x + hi.x), hx = 0.5F * (hi.x - lo.x);
+        const float cy = 0.5F * (lo.y + hi.y), hy = 0.5F * (hi.y - lo.y);
+        const float cz = 0.5F * (lo.z + hi.z), hz = 0.5F * (hi.z - lo.z);
+        const float maxW = m[3] * cx + m[7] * cy + m[11] * cz + m[15] +
+                           fabsf(m[3]) * hx + fabsf(m[7]) * hy +
+                           fabsf(m[11]) * hz;
+        fogConstant = maxW * fogScale + fogOffset >= 255.0F;
+      }
+      if (fogConstant) {
+        fogScale = 0.0F;
+        fogOffset = 255.0F;
+      } else {
+        u32 bits;
+        memcpy(&bits, &fogScale, 4);
+        if ((bits & 0xFFFFU) == 0U && bits != 0U) {
+          bits |= 1U;
+          memcpy(&fogScale, &bits, 4);
+        }
+      }
       memcpy(&q.sw[2], &fogScale, 4);
       memcpy(&q.sw[3], &fogOffset, 4);
     }

@@ -29,6 +29,7 @@
 #include "renderer/core/renderer_core.hpp"
 #include "renderer/core/texture/renderer_core_texture_buffers.hpp"
 #include "./stapip_vif_hash.hpp"
+#include "renderer/core/3d/bbox/core_bbox.hpp"  // Modified by TyraX: fog facts
 
 /**
  * Modified by TyraX: retained static geometry COMMAND data
@@ -681,6 +682,19 @@ class StaPipQBufferRenderer {
   void endSubmissionBatch();
   void onFrameEnd();
   bool isSubmissionBatchOpen() const { return submissionBatchScope; }
+  /**
+   * Modified by TyraX: what the NEXT bag's fog decision needs - GS fog off
+   * for it, and its object-space box. sendObjectData decides whether the fog
+   * coefficient is the constant 255 everywhere (fog off, or the whole box
+   * nearer than the fog start) for a bag cull_tc's fog-free loop can take,
+   * and sends fog scale 0 and offset 255 then. Every program turns that into
+   * F = 255 and cull_tc reads it as "skip the fog arithmetic": 12 cycles of
+   * its 73-cycle loop, bit-identical output.
+   */
+  void setFogFacts(const bool& fogOff, const CoreBBox* box) {
+    fogOffForBag = fogOff;
+    fogBox = box;
+  }
   void setSubmissionBatchCandidate(const bool& candidate,
                                    const bool& textured = false);
 
@@ -851,6 +865,8 @@ class StaPipQBufferRenderer {
   texwrap_t packetWrap = {};           // written by the unsent packet
   bool packetWrapSet = false;
   bool submissionBatchScope = false;
+  bool fogOffForBag = false;  // Modified by TyraX: see setFogFacts
+  const CoreBBox* fogBox = nullptr;
   bool submissionBatchCandidate = false;
   u8 submissionBatchBags = 0;
   bool submissionPacketHasTexture = false;

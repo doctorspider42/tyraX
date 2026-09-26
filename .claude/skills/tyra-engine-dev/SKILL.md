@@ -2578,7 +2578,10 @@ the SIGN of `VU1_OPTIONS_ADDR.y`, which the EE sets from
 halves of the formula hang off one fact). Measured on `.o.vsm`, cycles per
 triangle, unlit -> lit: `cull_c` 130 -> **72** / 130, `cull_tc` 133 -> **73** /
 133, `clip_c` 230 -> **173** / 232, `clip_tc` 241 -> **184** / 243 (the clip rows
-are the COLOUR path). Micro memory 1684 -> 1862 of 2042. Details in docs/flashlight.md, "The cone costs nothing
+are the COLOUR path). Micro memory 1684 -> 1862 of 2042 (and ~1950 since
+1.134.3's fog gate: `cull_tc` carries a third, fog-free unlit loop, entered when
+VU1_OPTIONS_ADDR.z - the fog SCALE - reads 0 in its low 16 bits; the EE keeps a
+real scale's low half non-zero, docs/vu1-and-dma-cache-cost.md "The fog gate"). Details in docs/flashlight.md, "The cone costs nothing
 when nothing is lit". Four things generalise:
 
 - **`VU1_OPTIONS_ADDR.y` IS THREE-STATE NOW** - `> 0` the shared clip image's

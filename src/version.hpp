@@ -5261,6 +5261,12 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.134.3 - The fog gate (docs/vu1-and-dma-cache-cost.md, "The fog gate"):
+// a bag whose fog coefficient is 255 at every vertex (fog off, or its box
+// inside the fog start) sends fog scale 0 / offset 255, and cull_tc takes a
+// fog-free copy of its unlit loop (61 cycles a batch against 73), output
+// bit-identical. PS2: garage day -0.24 ms, outer -0.04, garage night +0.02.
+// PATCH.
 // 1.134.2 - Vehicle wheels no longer sink into the ground (docs/vehicles.md,
 // "Wheels on the road surface"). Measured with the new VEHCONTACT telemetry
 // (lowest drawn tyre vertex minus the rendered surface): -119/-127 mm on the
@@ -5332,7 +5338,7 @@
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 134
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 3
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

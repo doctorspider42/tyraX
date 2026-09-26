@@ -310,6 +310,56 @@ shared vertex is packaged, transferred and transformed once per triangle that
 uses it; the district's baked models hold only 27.4% unique vertices, and roads
 and terrain are grids that strip perfectly.
 
+## The fog gate (1.134.3)
+
+`cull_tc`, the program most of a scene runs through, computed the GS fog
+coefficient for every vertex: `CalculateTyraFog`, 6 upper-pipe operations out of
+~20. Most geometry never shows fog, though. Everything nearer than the fog start
+gets F = 255, so a car, the street it is on and most of a district were paying
+for arithmetic whose answer was a constant.
+
+**The gate, and why its output is bit-identical.** `StaPipQBufferRenderer::sendObjectData`
+decides per bag whether F is 255 at every vertex. That is true when GS fog is
+off for the bag. It is also true when the bag's box lies wholly inside the fog
+start: F = w * scale + offset is linear in w, and the box's maximum clip w is
+w at the centre plus |dw/daxis| times the half-extent, three multiplies. When
+it holds, the options qword carries fog scale 0 and offset 255.
+- Every program computes F = 255 from those numbers, so the picture cannot
+  change.
+- `cull_tc` reads the scale's low 16 bits (`ilw.z`) and, on zero, takes a third
+  copy of its unlit loop that stores the constant 0xFF0 (ftoi4 of 255) instead
+  of computing it. The EE sets the lowest mantissa bit of a real scale whose
+  low half happens to be zero, so a real scale is never mistaken for the
+  signal.
+- The spot-lit loop is untouched.
+- The decision is taken only for bags that can use it: textured, unlit,
+  non-env, no billboard, no spot reaching them.
+- `--vu-check` stages a quarter of its trials with scale 0 / offset 255 and
+  still reads IDENTICAL for `cull_tc`.
+
+**Cost.** The fog-free loop is 61 cycles per three vertices against 73: the
+loop is partly bound by the lower pipe, so the gain is less than 6 of 20. The
+program grew by 66 words, and the VU1-clipping resident set is now ~1950 of
+2042.
+
+**Measured on a physical PS2**, district fixture, one ELF (engine toggle read
+at boot, control = the file holding 0), two rounds per arm, repeatability
+floor 0.007 ms. `work` change:
+
+| pose | `work` | `vif_wait` | `prepare` |
+| --- | ---: | ---: | ---: |
+| garage day | **-0.24** | -0.42..-0.43 | +0.04 |
+| garage night | +0.02 | -0.13..-0.14 | +0.09..+0.11 |
+| outer day | -0.04..-0.05 | -0.10 | +0.04..+0.05 |
+| outer night | -0.04..-0.05 | -0.11..-0.12 | +0.06 |
+
+The first version tested the box with eight full matrix transforms per bag and
+for every bag. It cost the EE more than VU1 saved at night: +0.08 ms in garage
+night, where most meshes take the spot-lit loop anyway. What is left of
+`prepare`'s increase is most likely D-cache misses on the boxes.
+**Next:** the same loop for `cull_c`, which needs ~60 words of the ~90 left,
+and the clip family.
+
 ## Limits
 
 These are four parked views of one scene on one console. Work excludes

@@ -963,6 +963,16 @@ void StaPipCore::render(StaPipBag* bag) {
   }
   TYRA_ATTRIB_ADD(prepBlssTicks, attribBlssStart);
 
+  // Modified by TyraX: is this bag's fog coefficient the constant 255? True
+  // with GS fog off for it, and when its whole box is nearer than the fog
+  // start: F = w * scale + offset with scale < 0, so F >= 255 wherever
+  // w <= (255 - offset) / scale, and w is linear, so the box's corners bound
+  // it. Most of a scene's near geometry - every car, the street it is on -
+  // is inside the fog start, and the VU1 fog arithmetic is 6 of cull_tc's
+  // ~20 upper-pipe operations a vertex.
+  qbufferRenderer.setFogFacts(prim.fogging != DRAW_ENABLE,
+                              bbox != nullptr ? bbox->getMainBBox() : nullptr);
+
   TYRA_ATTRIB_MARK(attribObjectDataStart);
   qbufferRenderer.sendObjectData(bag, &mvp, texBuffers);
 
