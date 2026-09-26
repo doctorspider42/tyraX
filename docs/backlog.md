@@ -307,7 +307,7 @@ leaves these, dearest first:
   - ~~a rescaled deadzone and an expo curve on the stick~~ done 1.135.3;
   - air control and landings;
   - per-surface grip;
-  - car-car spin.
+  - ~~car-car spin~~ done 1.135.7.
   The AI steers by heading error with no speed planning and was tuned
   against uncapped yaw: check its laps (VEHAI) before placing AI cars again.
 - **Stale entries:** the two "vehicle BODIES are still triangle lists" entries

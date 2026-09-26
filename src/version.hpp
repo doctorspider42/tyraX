@@ -5261,6 +5261,8 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.135.7 - Car-car hits spin: the impulse lands at the contact point and
+// turns each body by (r x J) / I, damped by the tyres; VEHHIT logs it. PATCH.
 // 1.135.6 - The console steps vehicles at a fixed 1/50 s too (stepVehicles:
 // two sub-steps on a 25 fps frame, one at 50 fps); edge input fires once.
 // PATCH.
@@ -5366,7 +5368,7 @@
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 135
-#define TYRAX_VERSION_PATCH 6
+#define TYRAX_VERSION_PATCH 7
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
