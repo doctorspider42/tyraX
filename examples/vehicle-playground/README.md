@@ -34,8 +34,10 @@ scenes keep separate object copies, so editing one does not touch the other.
   windows survive. The garage sign and road/ground textures are original assets.
 - A garage apron and western yard for handbrake turns. Loose crates and pallets
   can be pushed; buildings, street furniture and perimeter walls collide.
-- A flat city floor and gentle eastern crests. Roads and wheel contacts use the
-  same terrain. The district fits within the existing 320 × 320 metre boundary.
+- A flat city floor and gentle eastern crests. Roads are projected onto the
+  terrain, 0.12 above it, and the wheels stand on the road where there is one
+  (`VEHCONTACT` in `bin/log.txt` states each tyre's gap to the drawn surface;
+  docs/vehicles.md, "Wheels on the road surface"). The district fits within the existing 320 × 320 metre boundary.
 - Five placed vehicles: the hero CC96 coupe, a parked orange Rally 04, a Tristar Racer and two AI
   patrols. The rivals remain driveable and resume their route after you get out.
 

@@ -2896,6 +2896,15 @@ These are host properties, not a PS2 frame-rate measurement: build and drive
 vehicle-playground for runtime validation, and measure wheel-batch changes on
 the console/emulator with an unchanged mesh and camera.
 
+Whether a tyre touches the ground is a LOG LINE, not a screenshot: the game
+prints `VEHCONTACT car N def D parked|driven gap1000 ... roadlift1000 ...`
+(lowest drawn tyre vertex minus `groundSurfaceAt`, per wheel, in mm; a parked
+car once as it sleeps, the driven car every second, nothing on a far tier).
+0 is on the ground; -119 on a road was the terrain-only contact bug, -7 a
+definition radius behind its baked wheel (docs/vehicles.md, "Wheels on the
+road surface"). Check a car on a road AND one on bare terrain - the road
+lift column tells them apart.
+
 ## Triangle strips: a host property test, then one knob in PCSX2
 
 A stripifier is the kind of code that renders *almost* right, so check it where

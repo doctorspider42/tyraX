@@ -408,7 +408,8 @@ std::vector<SpecField> specFields(DriveSpec& s) {
          "How far the body reaches past the axles at either end - what the "
          "wall test adds to the wheelbase so the bumper cannot clip a wall."},
         {"wheelRadius", &s.wheelRadius, 0.05f, 2.0f, "Wheel radius",
-         "Measured off the baked wheel; drives ride height and how fast the "
+         "Measured off the baked wheel, and re-measured on every bake (an edit "
+         "here does not survive one); drives ride height and how fast the "
          "wheels appear to spin."},
         {"topSpeed", &s.topSpeed, 1.0f, 80.0f, "Top speed", "Units per second, forward."},
         {"reverseTopSpeed", &s.reverseTopSpeed, 0.5f, 30.0f, "Reverse top speed", ""},
@@ -432,7 +433,9 @@ std::vector<SpecField> specFields(DriveSpec& s) {
          "Replaces grip while the handbrake is held - this is the drift knob."},
         {"gravity", &s.gravity, 1.0f, 80.0f, "Gravity", "Units per second squared."},
         {"rideHeight", &s.rideHeight, 0.0f, 3.0f, "Ride height",
-         "Chassis origin above the contact plane. Seeded from the wheel radius."},
+         "Chassis origin above the contact plane. Seeded from the wheel radius; "
+         "equal to it puts the tyres on the ground, and a re-measured radius "
+         "moves it by the same amount."},
         {"suspensionTravel", &s.suspensionTravel, 0.0f, 1.0f, "Suspension travel",
          "How far a wheel moves against the body over bumps. Visual only."},
         {"suspensionRate", &s.suspensionRate, 0.5f, 40.0f, "Suspension rate",

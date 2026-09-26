@@ -269,7 +269,11 @@ ParticleEffect tyreSmokeEffect();
 // had been adopted long before its model grew lamp materials therefore never
 // received a lamp part index: the console drew the fallback quads over a body
 // that carried real lamp parts, and a headless build (no GUI tick at all)
-// could not have carried them either. Returns true when anything moved.
+// could not have carried them either. The WHEEL RADIUS follows the drawn wheel
+// the same way (rounded to 1 mm), with the ride height moved by the same
+// amount so the author's clearance above the tyres survives - a radius that
+// disagreed with the baked wheel sank or floated every tyre by the difference.
+// Returns true when anything moved.
 bool adoptMeasured(VehicleDef& v, const Result& r);
 
 // Returns "" on success, else the first error. Definitions with no model are

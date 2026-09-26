@@ -213,6 +213,37 @@ void App::vehicleDriveStart(int objectIndex) {
     for (int a = 0; a < 3; ++a) vehicleDriveState_.pos[a] = o.position[a];
     vehicleDriveState_.yaw = o.rotation[1];
     vehicleDriveObj_ = objectIndex;
+
+    // The roads this scene draws, as the viewport tessellates them (same
+    // height function, same junction pairing), so the test drive stands on
+    // the asphalt the author sees - and the console car, which reads
+    // groundSurfaceAt, stands on it too. Built once per drive: a test drive is
+    // not an edit, and a road dragged mid-drive is picked up by the next one.
+    vehicleDriveRoads_ = roadgen::Surface{};
+    const auto terrainAt = [this](float x, float z) { return viewport_.terrainHeight(x, z); };
+    for (size_t i = 0; i < objs.size(); ++i) {
+        const SceneObject& r = objs[i];
+        if (r.type != PrimitiveType::Road || r.roadPoints.size() < 4) continue;
+        std::vector<roadgen::Vertex> tris;
+        roadgen::tessellate(r.roadPoints, r.roadWidth, terrainAt, tris, {}, r.roadSampleStep);
+        vehicleDriveRoads_.add(tris);
+        if (r.roadIntersectionTexture.empty()) continue;
+        for (size_t j = i + 1; j < objs.size(); ++j) {
+            const SceneObject& other = objs[j];
+            if (other.type != PrimitiveType::Road || other.roadPoints.size() < 4 ||
+                other.roadIntersectionTexture != r.roadIntersectionTexture)
+                continue;
+            std::vector<roadgen::Junction> junctions;
+            roadgen::findJunctions(r.roadPoints, r.roadWidth, other.roadPoints,
+                                   other.roadWidth, junctions);
+            for (const roadgen::Junction& junction : junctions) {
+                tris.clear();
+                roadgen::tessellateJunction(junction, terrainAt, tris);
+                vehicleDriveRoads_.add(tris);
+            }
+        }
+    }
+    vehicleDriveRoads_.build();
 }
 
 void App::vehicleDriveStop() {
@@ -266,9 +297,15 @@ void App::vehicleDriveTick() {
     }
 
     // The SAME sampler the placement snap uses, so the car drives on exactly
-    // the heightfield the editor draws - and the console walks.
+    // the heightfield the editor draws - and, over a road, on the road mesh
+    // drawn roadgen::kLift above it: the generated runtime's groundSurfaceAt
+    // (max of the two). Terrain alone put every tyre 0.12 into the asphalt on
+    // both twins (docs/vehicles.md, "Wheels on the road surface").
     const vehiclesim::HeightFn ground = [this](float x, float z) {
-        return project_.active().terrain.enabled ? viewport_.terrainHeight(x, z) : -1e6f;
+        const float terrain =
+            project_.active().terrain.enabled ? viewport_.terrainHeight(x, z) : -1e6f;
+        const float road = vehicleDriveRoads_.at(x, z);
+        return road > terrain ? road : terrain;
     };
     // Walls, from placement's own boxes - approximate (world AABBs rather
     // than the console's slide resolver), but the same four corners and the

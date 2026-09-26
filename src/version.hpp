@@ -5261,6 +5261,17 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.134.1 - Vehicle wheels no longer sink into the ground (docs/vehicles.md,
+// "Wheels on the road surface"). Measured with the new VEHCONTACT telemetry
+// (lowest drawn tyre vertex minus the rendered surface): -119/-127 mm on the
+// playground's spawn road, -7 mm for the CC96 on bare terrain, 0 on every row
+// after. Two causes: both twins stood the car on the TERRAIN, 0.12 under every
+// road mesh (the runtime now samples groundSurfaceAt, the test drive a new
+// host roadgen::Surface); and a definition's wheelRadius drifted from its
+// baked wheel (CC96 0.232 vs 0.240) because the editor adopted it only while
+// the definition held the defaults - vehbake::adoptMeasured now takes the
+// drawn radius on every bake and moves rideHeight by the same amount. No
+// format change. Regenerate to pick it up. PATCH.
 // 1.134.0 - An AUTHORED far model per vehicle definition (Vehicle Editor >
 // Cost > Far model, format v69): a hand-built low-poly twin in the same space
 // and texture as the car replaces the decimated far tier - wheels baked in,
@@ -5318,7 +5329,7 @@
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 134
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
