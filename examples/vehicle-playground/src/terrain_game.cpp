@@ -17431,6 +17431,19 @@ void TerrainGame::procFinishChunks() {
     // Re-stated every pass, not only on creation: a regeneration reuses the
     // chunk, and a world whose blocks moved may have gained or lost the AO.
     c.bag->info = c.smooth ? procSmoothInfoBag.get() : batchInfoBag.get();
+    if (c.roadBlend) {
+      // A spill is alpha-over by its vertex alpha (the fade) on the road
+      // under it: the painted terrain layer's arrangement.
+      if (!roadBlendInfoBag) {
+        roadBlendInfoBag = std::make_unique<StaPipInfoBag>();
+        roadBlendInfoBag->model = &model;
+        roadBlendInfoBag->shadingType = TyraShadingGouraud;
+        roadBlendInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+        roadBlendInfoBag->fullClipChecks = true;
+        roadBlendInfoBag->blendingEnabled = true;
+      }
+      c.bag->info = roadBlendInfoBag.get();
+    }
     c.colors.bind(c.colorBag);
     c.vertices.bind(c.bag);
     c.bag->count = static_cast<u32>(c.vertices.size());
@@ -22303,7 +22316,7 @@ void TerrainGame::buildRoads(int scene) {
           nx[(size_t)j] = cx2 + rxu * side;
           nz[(size_t)j] = cz2 + rzu * side;
           ny[(size_t)j] =
-              terrainHeightAt(nx[(size_t)j], nz[(size_t)j]) + 0.12F;
+              terrainHeightAt(nx[(size_t)j], nz[(size_t)j]) + 0.12F + rd.lift;
         }
         if (havePrev) {
           // Two triangles per lateral cell, CCW seen from above - the twin's
@@ -22503,15 +22516,15 @@ void TerrainGame::buildRoads(int scene) {
     c.roadTex = tex;
     c.roadGrip = j.grip;
     c.stripRun = 0;
-    const Tyra::Vec4 center(j.xz[0], terrainHeightAt(j.xz[0], j.xz[1]) + 0.14F,
+    const Tyra::Vec4 center(j.xz[0], terrainHeightAt(j.xz[0], j.xz[1]) + 0.14F + j.lift,
                             j.xz[1], 1.0F);
     const Tyra::Vec4 centerSt(0.5F, 0.5F, 1.0F, 0.0F);
     for (int k = 0; k < 4; ++k) {
       const int n = (k + 1) & 3;
       const float ax = j.xz[2 + k * 2], az = j.xz[3 + k * 2];
       const float bx = j.xz[2 + n * 2], bz = j.xz[3 + n * 2];
-      const Tyra::Vec4 a(ax, terrainHeightAt(ax, az) + 0.14F, az, 1.0F);
-      const Tyra::Vec4 b(bx, terrainHeightAt(bx, bz) + 0.14F, bz, 1.0F);
+      const Tyra::Vec4 a(ax, terrainHeightAt(ax, az) + 0.14F + j.lift, az, 1.0F);
+      const Tyra::Vec4 b(bx, terrainHeightAt(bx, bz) + 0.14F + j.lift, bz, 1.0F);
       const Tyra::Vec4 ast(0.5F + (ax - j.xz[0]) / 32.0F,
                            0.5F + (az - j.xz[1]) / 32.0F, 1.0F, 0.0F);
       const Tyra::Vec4 bst(0.5F + (bx - j.xz[0]) / 32.0F,
@@ -22519,6 +22532,47 @@ void TerrainGame::buildRoads(int scene) {
       c.vertices.push_back(center); c.sts.push_back(centerSt); c.colors.push_back(grey);
       c.vertices.push_back(a); c.sts.push_back(ast); c.colors.push_back(grey);
       c.vertices.push_back(b); c.sts.push_back(bst); c.colors.push_back(grey);
+    }
+  }
+  // SPILLS (1.143.0, docs/roads.md "Crossings"): a lower-rank road's surface
+  // trailing onto a higher one, baked on the host (roadgen::tessellateSpill).
+  // The EE only lifts each vertex onto the road under it - which is why the
+  // Y values are all taken before the first spill chunk joins procChunks:
+  // roadSurfaceAt rebuilds its index whenever that list grows.
+  {
+    std::vector<float> spillY;
+    for (int si = 0; si < ROAD_SPILL_COUNT; ++si) {
+      const RoadSpillRt& sp = ROAD_SPILLS[si];
+      if (sp.scene != scene) continue;
+      for (int k = 0; k < sp.count; ++k) {
+        const float* sv = &ROAD_SPILL_VERTS[(size_t)(sp.first + k) * 5];
+        float y = roadSurfaceAt(sv[0], sv[1]);
+        if (y < -1.0e29F) y = terrainHeightAt(sv[0], sv[1]) + 0.12F;
+        spillY.push_back(y + 0.02F);
+      }
+    }
+    size_t yi = 0;
+    for (int si = 0; si < ROAD_SPILL_COUNT; ++si) {
+      const RoadSpillRt& sp = ROAD_SPILLS[si];
+      if (sp.scene != scene) continue;
+      const RoadDefRt& rd = ROAD_DEFS[sp.road];
+      any = true;
+      procChunks.push_back(ProcChunk());
+      ProcChunk& c = procChunks.back();
+      c.owner = -3;
+      c.roadTex = (rd.tex >= 0 && rd.tex < ROAD_TEXTURE_COUNT)
+                      ? roadTextures_[rd.tex]
+                      : nullptr;
+      c.roadGrip = rd.grip;
+      c.roadGripBase = sp.baseGrip;
+      c.roadBlend = true;
+      c.stripRun = 0;
+      for (int k = 0; k < sp.count; ++k) {
+        const float* sv = &ROAD_SPILL_VERTS[(size_t)(sp.first + k) * 5];
+        c.vertices.push_back(Tyra::Vec4(sv[0], spillY[yi++], sv[1], 1.0F));
+        c.sts.push_back(Tyra::Vec4(sv[2], sv[3], 1.0F, 0.0F));
+        c.colors.push_back(Tyra::Color(128.0F, 128.0F, 128.0F, sv[4] * 128.0F));
+      }
     }
   }
   if (any) procFinishChunks();
@@ -23002,7 +23056,7 @@ float TerrainGame::roadSurfaceAt(float x, float z, float* grip) const {
   float best = -1.0e30F;
   if (grip) *grip = 1.0F;
   auto testTriangle = [&](const Vec4& a, const Vec4& b, const Vec4& c,
-                          float triGrip) {
+                          float ga, float gb, float gc) {
     // Cheap XZ reject before the arithmetic: a cell holds every triangle whose
     // box touches it, and most of those do not span this exact point.
     float lo = a.x < b.x ? a.x : b.x;
@@ -23031,7 +23085,7 @@ float TerrainGame::roadSurfaceAt(float x, float z, float* grip) const {
     const float y = wa * a.y + wb * b.y + wc * c.y;
     if (y > best) {
       best = y;
-      if (grip) *grip = triGrip;
+      if (grip) *grip = wa * ga + wb * gb + wc * gc;
     }
   };
   if (roadIdxDirty || roadIdxChunks != procChunks.size())
@@ -23046,7 +23100,15 @@ float TerrainGame::roadSurfaceAt(float x, float z, float* grip) const {
     const unsigned int item = roadIdxItems[e];
     const ProcChunk& c = procChunks[(size_t)(item >> 22)];
     const size_t i = (size_t)(item & 0x3FFFFFU);
-    testTriangle(c.vertices[i - 2], c.vertices[i - 1], c.vertices[i], c.roadGrip);
+    float ga = c.roadGrip, gb = ga, gc = ga;
+    if (c.roadBlend) {
+      // The spill's fade blends its grip over the road under it.
+      const float k = (c.roadGrip - c.roadGripBase) * (1.0F / 128.0F);
+      ga = c.roadGripBase + k * c.colors[i - 2].a;
+      gb = c.roadGripBase + k * c.colors[i - 1].a;
+      gc = c.roadGripBase + k * c.colors[i].a;
+    }
+    testTriangle(c.vertices[i - 2], c.vertices[i - 1], c.vertices[i], ga, gb, gc);
   }
 #if TYRA_ROAD_INDEX_VERIFY
   {

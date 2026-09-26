@@ -477,6 +477,69 @@ void tessellateJunction(const Junction& j, const HeightFn& height,
     }
 }
 
+void tessellateSpill(const std::vector<float>& lowPts, float lowWidth,
+                     float lowSampleStep, const std::vector<float>& highPts,
+                     float highWidth, float spill, std::vector<SpillVertex>& out) {
+    out.clear();
+    if (spill <= 0.0f || lowPts.size() < 4 || highPts.size() < 4) return;
+    // The high road's centreline as a dense polyline (0.5-unit pieces per
+    // segment): the fade is a distance from its edge.
+    std::vector<P> line;
+    const int hn = (int)(highPts.size() / 2);
+    for (int seg = 0; seg + 1 < hn; ++seg) {
+        const P a = pointAt(highPts, seg), b = pointAt(highPts, seg + 1);
+        const int steps =
+            std::max(1, (int)std::ceil(std::hypot(b.x - a.x, b.z - a.z) / 0.5f));
+        for (int k = (seg == 0 ? 0 : 1); k <= steps; ++k)
+            line.push_back(sample(highPts, seg, (float)k / (float)steps));
+    }
+    if (line.size() < 2) return;
+    float mnx = 1e30f, mnz = 1e30f, mxx = -1e30f, mxz = -1e30f;
+    for (const P& q : line) {
+        mnx = std::min(mnx, q.x);
+        mnz = std::min(mnz, q.z);
+        mxx = std::max(mxx, q.x);
+        mxz = std::max(mxz, q.z);
+    }
+    const float hw = 0.5f * highWidth;
+    mnx -= hw; mnz -= hw; mxx += hw; mxz += hw;
+    // Depth INSIDE the high road: half its width minus the distance to the
+    // centreline (negative outside it).
+    auto inside = [&](float x, float z) {
+        if (x < mnx || x > mxx || z < mnz || z > mxz) return -1e30f;
+        float best = 1e30f;
+        for (size_t i = 0; i + 1 < line.size(); ++i) {
+            const float ax = line[i].x, az = line[i].z;
+            const float dx = line[i + 1].x - ax, dz = line[i + 1].z - az;
+            const float l2 = dx * dx + dz * dz;
+            float t = l2 > 1e-12f ? ((x - ax) * dx + (z - az) * dz) / l2 : 0.0f;
+            t = std::clamp(t, 0.0f, 1.0f);
+            const float ex = ax + dx * t - x, ez = az + dz * t - z;
+            best = std::min(best, ex * ex + ez * ez);
+        }
+        return hw - std::sqrt(best);
+    };
+    // The low road flat (no height: the consumer lifts it onto the surface).
+    std::vector<Vertex> tris;
+    tessellate(lowPts, lowWidth, nullptr, tris, {}, lowSampleStep);
+    for (size_t t = 0; t + 2 < tris.size(); t += 3) {
+        float d[3], a[3];
+        bool anyInside = false, anyVisible = false;
+        for (int k = 0; k < 3; ++k) {
+            d[k] = inside(tris[t + k].x, tris[t + k].z);
+            // 1 at (and beyond) the edge, 0 `spill` units in.
+            a[k] = d[k] <= 0.0f ? 1.0f : std::clamp(1.0f - d[k] / spill, 0.0f, 1.0f);
+            anyInside |= d[k] > 0.0f;
+            anyVisible |= a[k] > 0.001f;
+        }
+        // Wholly outside: that is the low road itself. Wholly faded: nothing.
+        if (!anyInside || !anyVisible) continue;
+        for (int k = 0; k < 3; ++k)
+            out.push_back({tris[t + k].x, tris[t + k].z, tris[t + k].u,
+                           tris[t + k].v, a[k]});
+    }
+}
+
 void splineAt(const std::vector<float>& pointsXZ, float t, float* x, float* z) {
     const int n = (int)(pointsXZ.size() / 2);
     if (n < 1) {
@@ -508,7 +571,15 @@ void splineAt(const std::vector<float>& pointsXZ, float t, float* x, float* z) {
 void Surface::add(const std::vector<Vertex>& triangles, float grip) {
     const size_t n = triangles.size() - triangles.size() % 3;
     tris_.insert(tris_.end(), triangles.begin(), triangles.begin() + (long)n);
-    grip_.insert(grip_.end(), n / 3, grip);
+    grip_.insert(grip_.end(), n, grip);
+}
+
+void Surface::addBlended(const std::vector<Vertex>& triangles,
+                         const std::vector<float>& grips) {
+    const size_t n = std::min(triangles.size() - triangles.size() % 3,
+                              grips.size() - grips.size() % 3);
+    tris_.insert(tris_.end(), triangles.begin(), triangles.begin() + (long)n);
+    grip_.insert(grip_.end(), grips.begin(), grips.begin() + (long)n);
 }
 
 void Surface::build() {
@@ -583,7 +654,10 @@ float Surface::at(float x, float z, float* grip) const {
         const float y = wa * a.y + wb * b.y + wc * c.y;
         if (y > best) {
             best = y;
-            if (grip) *grip = grip_[cellItems_[e] / 3];
+            if (grip) {
+                const size_t t = cellItems_[e];
+                *grip = wa * grip_[t] + wb * grip_[t + 1] + wc * grip_[t + 2];
+            }
         }
     }
     return best;

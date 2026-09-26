@@ -200,6 +200,11 @@ Format 60 adds the optional per-road `roadSampleStep` field. It is purely
 additive: missing means the original 1 m longitudinal spacing, so no migration
 step is required.
 
+Format 77 adds a road's `roadRank` and `roadSpill` (docs/roads.md,
+"Crossings"), each written only away from its default (Local, 1.5). Missing
+means Local, which is every road before ranks, so crossings build exactly as
+before. Additive; no migration step.
+
 Format 76 adds a terrain layer's `grip` (docs/terrain-painting.md, "Layers"),
 written only away from its default of 1. Missing means the bare terrain, as
 before. Additive; no migration step.

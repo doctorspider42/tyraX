@@ -4040,6 +4040,7 @@ void Viewport::clearRoadDraws() {
     for (auto& [id, road] : roadDraws_) {
         destroyMesh(road.mesh);
         destroyMesh(road.junctionMesh);
+        destroyMesh(road.spillMesh);
     }
     roadDraws_.clear();
 }
@@ -4060,6 +4061,9 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
                 r.roadPoints.size() * sizeof(float));
         mix(junctionSig, r.roadIntersectionTexture.data(),
             r.roadIntersectionTexture.size());
+        mix(junctionSig, &r.roadRank, sizeof(r.roadRank));
+        mix(junctionSig, &r.roadSpill, sizeof(r.roadSpill));
+        mix(junctionSig, &r.roadSampleStep, sizeof(r.roadSampleStep));
     }
     std::map<std::string, bool> alive;
     for (size_t oi = 0; oi < objects.size(); ++oi) {
@@ -4075,13 +4079,17 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         if (!o.roadPoints.empty())
             mix(sig, o.roadPoints.data(), o.roadPoints.size() * sizeof(float));
         mix(sig, o.roadTexture.data(), o.roadTexture.size());
+        mix(sig, o.color, sizeof(o.color));
         auto it = roadDraws_.find(key);
         if (it != roadDraws_.end() && it->second.signature == sig) continue;
 
+        // The rank lifts the whole road (roadgen::rankLift) - the console's
+        // RoadDefRt::lift.
+        const float lift = roadgen::rankLift(o.roadRank);
         std::vector<roadgen::Vertex> strip;
         roadgen::tessellate(
             o.roadPoints, o.roadWidth,
-            [&](float x, float z) { return terrainHeight(x, z); }, strip, {},
+            [&](float x, float z) { return terrainHeight(x, z) + lift; }, strip, {},
             o.roadSampleStep);
         std::vector<float> interleaved;
         interleaved.reserve(strip.size() * 8);
@@ -4094,7 +4102,8 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
                 const SceneObject& other = objects[oj];
                 if (other.type != PrimitiveType::Road ||
                     other.roadPoints.size() < 4 ||
-                    other.roadIntersectionTexture != o.roadIntersectionTexture)
+                    other.roadIntersectionTexture != o.roadIntersectionTexture ||
+                    other.roadRank != o.roadRank)  // unequal: the higher runs through
                     continue;
                 std::vector<roadgen::Junction> junctions;
                 roadgen::findJunctions(o.roadPoints, o.roadWidth,
@@ -4104,7 +4113,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
                     std::vector<roadgen::Vertex> triangles;
                     roadgen::tessellateJunction(
                         junction,
-                        [&](float x, float z) { return terrainHeight(x, z); },
+                        [&](float x, float z) { return terrainHeight(x, z) + lift; },
                         triangles);
                     for (const roadgen::Vertex& v : triangles)
                         junctionInterleaved.insert(
@@ -4113,10 +4122,33 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
                 }
             }
         }
+        // Spills (1.143.0): this road's surface trailing onto every
+        // HIGHER-rank road it crosses, as the console bakes it (the same
+        // roadgen::tessellateSpill), floated kSpillLift over the higher road.
+        std::vector<float> spillInterleaved;
+        if (o.roadSpill > 0.0f) {
+            for (const SceneObject& other : objects) {
+                if (other.type != PrimitiveType::Road || other.roadPoints.size() < 4 ||
+                    other.roadRank <= o.roadRank)
+                    continue;
+                std::vector<roadgen::SpillVertex> sv;
+                roadgen::tessellateSpill(o.roadPoints, o.roadWidth, o.roadSampleStep,
+                                         other.roadPoints, other.roadWidth,
+                                         o.roadSpill, sv);
+                const float top = roadgen::kLift + roadgen::rankLift(other.roadRank) +
+                                  roadgen::kSpillLift;
+                for (const roadgen::SpillVertex& v : sv)
+                    spillInterleaved.insert(
+                        spillInterleaved.end(),
+                        {v.x, terrainHeight(v.x, v.z) + top, v.z, o.color[0],
+                         o.color[1], o.color[2], v.a, v.u, v.v});
+            }
+        }
         RoadDraw next;
         next.mesh = uploadMesh(interleaved);
         if (!junctionInterleaved.empty())
             next.junctionMesh = uploadMesh(junctionInterleaved);
+        if (!spillInterleaved.empty()) next.spillMesh = uploadMesh9(spillInterleaved);
         next.texture = project::resolveRoadTexture(projectDir_, o.roadTexture);
         next.junctionTexture =
             project::resolveRoadTexture(projectDir_, o.roadIntersectionTexture);
@@ -4124,6 +4156,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         if (it != roadDraws_.end()) {
             destroyMesh(it->second.mesh);
             destroyMesh(it->second.junctionMesh);
+            destroyMesh(it->second.spillMesh);
             it->second = std::move(next);
         } else {
             roadDraws_.emplace(key, std::move(next));
@@ -4136,8 +4169,35 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         }
         destroyMesh(it->second.mesh);
         destroyMesh(it->second.junctionMesh);
+        destroyMesh(it->second.spillMesh);
         it = roadDraws_.erase(it);
     }
+}
+
+// Road spills (1.143.0): after the whole scene, so the higher road they lie
+// on is already there - alpha-over by the fade, z-tested, never z-written,
+// the console's blended road chunk. Unlit (colour x texture), as the
+// console's road chunks are.
+void Viewport::drawRoadSpills(const float* viewProj) {
+    bool any = false;
+    for (const auto& [id, road] : roadDraws_) any |= road.spillMesh.vertexCount > 0;
+    if (!any) return;
+    glUseProgram(particleProgram_);
+    glUniformMatrix4fv(uPartMvp_, 1, GL_FALSE, viewProj);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_FALSE);
+    for (const auto& [id, road] : roadDraws_) {
+        if (!road.spillMesh.vao || road.spillMesh.vertexCount == 0) continue;
+        const uint32_t tex = road.texture.empty() ? 0 : glTexture(road.texture);
+        glUniform1i(uPartUseTex_, tex ? 1 : 0);
+        if (tex) glBindTexture(GL_TEXTURE_2D, tex);
+        glBindVertexArray(road.spillMesh.vao);
+        glDrawArrays(GL_TRIANGLES, 0, road.spillMesh.vertexCount);
+    }
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    glUseProgram(sceneProgActive_);
 }
 
 void Viewport::invalidateAnimatedModels(const std::string& relPath) {
@@ -6343,6 +6403,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         }
         glDepthMask(GL_TRUE);
     }
+
+    // Road spills lie ON the roads, so they go after the whole scene.
+    if (viewMode_ != ViewMode::Wireframe) drawRoadSpills(viewProj.m);
 
     // Post-scene passes (glass, portal surfaces, gizmos) are blends and
     // markers, not static bags - back to Gouraud interpolation.

@@ -910,6 +910,13 @@ struct SceneObject {
     // docs/vehicles.md "Surface grip"): 1 = asphalt, lower = gravel, ice.
     // Junctions take the lower of their two roads.
     float roadGrip = 1.0f;
+    // Crossing rules (1.143.0, docs/roads.md "Crossings"). RANK: 0 track, 1
+    // local, 2 main - the higher road runs through a crossing and covers the
+    // lower; equal ranks get the intersection-material junction as before.
+    // SPILL: how far this road's surface trails onto a HIGHER-rank road it
+    // crosses, fading out (units, 0 = a clean edge).
+    int roadRank = 1;
+    float roadSpill = 1.5f;
     // Road surface asset. New authoring points at a .mtl (its first map_Kd);
     // direct PNG paths remain accepted for projects authored before the
     // material picker existed. Empty = untextured grey.
@@ -1573,7 +1580,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.procGraph == b.procGraph && a.procSource == b.procSource &&
            a.roadPoints == b.roadPoints && a.roadHeights == b.roadHeights &&
            a.roadWidth == b.roadWidth && a.roadSampleStep == b.roadSampleStep &&
-           a.roadGrip == b.roadGrip &&
+           a.roadGrip == b.roadGrip && a.roadRank == b.roadRank &&
+           a.roadSpill == b.roadSpill &&
            a.roadTexture == b.roadTexture &&
            a.roadIntersectionTexture == b.roadIntersectionTexture &&
            a.vuParams[0] == b.vuParams[0] && a.vuParams[1] == b.vuParams[1] &&

@@ -23,6 +23,7 @@
 #include <functional>
 #include <vector>
 
+#include "roadgen.hpp"
 #include "vehiclesim.hpp"
 
 namespace vehcheck {
@@ -852,6 +853,65 @@ void offroad() {
             "a painted layer's grip multiplies the car's off-road grip");
 }
 
+// Crossings (1.143.0): a mud track (rank 0, grip 0.5, spill 2) crossing a
+// main road (rank 2, grip 1) at right angles, assembled exactly as the test
+// drive assembles its surface (vehicle_ui.cpp): the main road is on top, the
+// track's surface trails 2 units onto it and its grip fades with the alpha.
+void crossings() {
+    std::printf("-- road crossings --\n");
+    const std::vector<float> mainPts = {-50.0f, 0.0f, 50.0f, 0.0f};
+    const std::vector<float> trackPts = {0.0f, -50.0f, 0.0f, 50.0f};
+    const float mainW = 10.0f, trackW = 6.0f, spill = 2.0f;
+    roadgen::Surface surf;
+    std::vector<roadgen::Vertex> tris;
+    roadgen::tessellate(mainPts, mainW, [](float, float) { return roadgen::rankLift(2); },
+                        tris);
+    surf.add(tris, 1.0f);
+    roadgen::tessellate(trackPts, trackW, [](float, float) { return roadgen::rankLift(0); },
+                        tris);
+    surf.add(tris, 0.5f);
+    std::vector<roadgen::SpillVertex> sv;
+    roadgen::tessellateSpill(trackPts, trackW, 1.0f, mainPts, mainW, spill, sv);
+    std::vector<roadgen::Vertex> st;
+    std::vector<float> sg;
+    for (const roadgen::SpillVertex& v : sv) {
+        st.push_back({v.x, roadgen::kLift + roadgen::rankLift(2) + roadgen::kSpillLift,
+                      v.z, v.u, v.v});
+        sg.push_back(1.0f + (0.5f - 1.0f) * v.a);
+    }
+    surf.addBlended(st, sg);
+    surf.build();
+    auto gripAt = [&](float x, float z, float* y) {
+        float g = -1.0f;
+        *y = surf.at(x, z, &g);
+        return g;
+    };
+    float y;
+    const float gTrack = gripAt(0.0f, 20.0f, &y);
+    const float gEdge = gripAt(0.0f, 4.9f, &y);
+    const float gHalf = gripAt(0.0f, 4.0f, &y);
+    const float gDeep = gripAt(0.0f, 2.0f, &y);
+    float yCentre;
+    const float gCentre = gripAt(0.0f, 0.0f, &yCentre);
+    const float gMain = gripAt(20.0f, 0.0f, &y);
+    std::printf("  spill %zu verts; grip track %.2f, edge %.2f, 1 in %.2f, 3 in %.2f, "
+                "centre %.2f (y %.3f), main %.2f\n",
+                sv.size(), gTrack, gEdge, gHalf, gDeep, gCentre, yCentre, gMain);
+    verdict(!sv.empty() && sv.size() % 3 == 0, "a lower-rank crossing bakes a spill");
+    verdict(std::fabs(gTrack - 0.5f) < 0.01f && std::fabs(gMain - 1.0f) < 0.01f,
+            "each road keeps its own grip away from the crossing");
+    verdict(gEdge < 0.6f && gHalf > gEdge + 0.1f && gHalf < 0.9f,
+            "the spill's grip fades from the track's at the edge");
+    verdict(std::fabs(gDeep - 1.0f) < 0.01f && std::fabs(gCentre - 1.0f) < 0.01f,
+            "past the spill the main road's grip is back");
+    verdict(std::fabs(yCentre - (roadgen::kLift + roadgen::rankLift(2))) < 0.001f,
+            "the higher rank is the surface on top at the crossing");
+    std::vector<roadgen::SpillVertex> none;
+    roadgen::tessellateSpill(trackPts, trackW, 1.0f, {60.0f, 0.0f, 90.0f, 0.0f}, mainW,
+                             spill, none);
+    verdict(none.empty(), "roads that do not cross bake no spill");
+}
+
 }  // namespace
 
 int run() {
@@ -867,6 +927,7 @@ int run() {
     terrainStability();
     handling();
     offroad();
+    crossings();
     damage();
     pieces();
     if (failures) {

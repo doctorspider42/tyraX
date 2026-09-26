@@ -1089,6 +1089,8 @@ private:
     struct RoadDraw {
         Mesh mesh;
         Mesh junctionMesh;
+        Mesh spillMesh;  // over higher-rank roads, alpha-faded (1.143.0)
+        float spillColor[3] = {1.0f, 1.0f, 1.0f};
         std::string texture;
         std::string junctionTexture;
         uint64_t signature = 0;
@@ -1096,6 +1098,7 @@ private:
     std::map<std::string, RoadDraw> roadDraws_;  // keyed by stable object id
     uint64_t roadTerrainRevision_ = 1;
     void syncRoadDraws(const std::vector<SceneObject>& objects);
+    void drawRoadSpills(const float* viewProj);
     void clearRoadDraws();
     // Per-detail primitive meshes (Box/Sphere/Cylinder/Cone), built lazily and
     // shared across objects with the same detail. The fixed box_ / sphere_ /

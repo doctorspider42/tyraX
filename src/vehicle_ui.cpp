@@ -349,20 +349,44 @@ void App::vehicleDriveStart(int objectIndex) {
         const SceneObject& r = objs[i];
         if (r.type != PrimitiveType::Road || r.roadPoints.size() < 4) continue;
         std::vector<roadgen::Vertex> tris;
-        roadgen::tessellate(r.roadPoints, r.roadWidth, terrainAt, tris, {}, r.roadSampleStep);
+        const float lift = roadgen::rankLift(r.roadRank);  // the console's lift
+        const auto liftedAt = [&](float x, float z) { return terrainAt(x, z) + lift; };
+        roadgen::tessellate(r.roadPoints, r.roadWidth, liftedAt, tris, {}, r.roadSampleStep);
         vehicleDriveRoads_.add(tris, r.roadGrip);
+        // Spills onto higher-rank roads (1.143.0): the grip fades from this
+        // road's over the higher road's, with the drawn alpha.
+        if (r.roadSpill > 0.0f)
+            for (const SceneObject& hi : objs) {
+                if (hi.type != PrimitiveType::Road || hi.roadPoints.size() < 4 ||
+                    hi.roadRank <= r.roadRank)
+                    continue;
+                std::vector<roadgen::SpillVertex> sv;
+                roadgen::tessellateSpill(r.roadPoints, r.roadWidth, r.roadSampleStep,
+                                         hi.roadPoints, hi.roadWidth, r.roadSpill, sv);
+                if (sv.empty()) continue;
+                const float top =
+                    roadgen::kLift + roadgen::rankLift(hi.roadRank) + roadgen::kSpillLift;
+                std::vector<roadgen::Vertex> st;
+                std::vector<float> sg;
+                for (const roadgen::SpillVertex& v : sv) {
+                    st.push_back({v.x, terrainAt(v.x, v.z) + top, v.z, v.u, v.v});
+                    sg.push_back(hi.roadGrip + (r.roadGrip - hi.roadGrip) * v.a);
+                }
+                vehicleDriveRoads_.addBlended(st, sg);
+            }
         if (r.roadIntersectionTexture.empty()) continue;
         for (size_t j = i + 1; j < objs.size(); ++j) {
             const SceneObject& other = objs[j];
             if (other.type != PrimitiveType::Road || other.roadPoints.size() < 4 ||
-                other.roadIntersectionTexture != r.roadIntersectionTexture)
+                other.roadIntersectionTexture != r.roadIntersectionTexture ||
+                other.roadRank != r.roadRank)  // unequal: the higher runs through
                 continue;
             std::vector<roadgen::Junction> junctions;
             roadgen::findJunctions(r.roadPoints, r.roadWidth, other.roadPoints,
                                    other.roadWidth, junctions);
             for (const roadgen::Junction& junction : junctions) {
                 tris.clear();
-                roadgen::tessellateJunction(junction, terrainAt, tris);
+                roadgen::tessellateJunction(junction, liftedAt, tris);
                 // A junction is as slippery as the worse of its two roads
                 // (the codegen's JunctionRow rule).
                 vehicleDriveRoads_.add(tris, std::min(r.roadGrip, other.roadGrip));

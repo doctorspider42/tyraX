@@ -619,6 +619,7 @@ class TerrainGame : public Tyra::Game {
   // above, because that one is shared with the static batcher, whose members
   // are flat-shaded by design.
   std::unique_ptr<Tyra::StaPipInfoBag> procSmoothInfoBag;
+  std::unique_ptr<Tyra::StaPipInfoBag> roadBlendInfoBag;  // road spills
   // The same settings with the camera spot switched off, for a batch that holds
   // nothing but the flashlight's current receiver (setFlashSpotOff). A batch is
   // one bag for many objects, so this is only ever swapped in for a batch of
@@ -656,6 +657,11 @@ class TerrainGame : public Tyra::Game {
     // A road chunk's tyre grip (1.137.0, RoadDefRt::grip): what
     // roadSurfaceAt reports for its triangles.
     float roadGrip = 1.0F;
+    // A road SPILL chunk (1.143.0): drawn blended, its colours' alpha is the
+    // fade, and its grip blends from roadGripBase (the road under it) to
+    // roadGrip by that alpha.
+    bool roadBlend = false;
+    float roadGripBase = 1.0F;
     // Triangle strips (docs/model-pipeline.md): non-zero when this chunk's
     // vertices are baked strip RUNS of that length rather than a triangle
     // list. procFinishChunks pins StaPipBag::packageSize to it and sets

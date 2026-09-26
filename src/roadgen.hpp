@@ -58,6 +58,32 @@ inline constexpr float kTexLen = 4.0f;
 // low enough that a wheel on the road reads as ON it.
 inline constexpr float kLift = 0.12f;
 
+// Road RANK (1.143.0, docs/roads.md "Crossings"): 0 track, 1 local (the
+// default, every road authored before ranks), 2 main. A higher rank sits
+// this much higher, so where two roads of different rank cross, the higher
+// one covers the lower without z-fighting and every "highest surface"
+// query (the wheels, the grip) answers the higher road. Equal ranks keep
+// the junction patches of the intersection material.
+inline float rankLift(int rank) { return (float)(rank - 1) * 0.03f; }
+// How far above the road under it a spill patch floats.
+inline constexpr float kSpillLift = 0.02f;
+inline constexpr float kSpillDefault = 1.5f;
+
+// A SPILL (1.143.0): where a road crosses a higher-rank one, its surface
+// carries on over the higher road's edge for `spill` units and fades out -
+// mud trailed onto the asphalt. XZ + the low road's own UV + the fade alpha
+// (1 at the higher road's edge, 0 `spill` units in). The consumer puts Y on
+// it from the surface under it: the patch is a decal on the higher road.
+struct SpillVertex {
+    float x, z, u, v, a;
+};
+// Triangles of the LOW road that lie on the HIGH road within `spill` of its
+// edge, with their fade. Empty when the two do not overlap. Deterministic:
+// the codegen bakes this for the console and the editor draws the same.
+void tessellateSpill(const std::vector<float>& lowPts, float lowWidth,
+                     float lowSampleStep, const std::vector<float>& highPts,
+                     float highWidth, float spill, std::vector<SpillVertex>& out);
+
 // The two budgets that decide how coarsely a station pair may be stitched
 // laterally (roadgen.cpp, spanCuts). Both are world units and both are
 // measured against the DENSE sampling. THEY ARE NOT THE SAME KIND OF NUMBER,
@@ -191,6 +217,10 @@ public:
     // A triangle LIST (three Vertex per triangle): tessellate() and
     // tessellateJunction() output. Call build() once after the last add().
     void add(const std::vector<Vertex>& triangles, float grip = 1.0f);
+    // Triangles with a grip PER VERTEX (a spill patch: its fade blends the
+    // low road's grip over the one under it). `grips` is one per vertex.
+    void addBlended(const std::vector<Vertex>& triangles,
+                    const std::vector<float>& grips);
     void build();
     bool empty() const { return tris_.empty(); }
     // kNone when no triangle covers (x, z). `grip`, when given, receives the
@@ -200,7 +230,7 @@ public:
 
 private:
     std::vector<Vertex> tris_;
-    std::vector<float> grip_;  // one per triangle
+    std::vector<float> grip_;  // one per VERTEX, interpolated by at()
     std::vector<unsigned> cellStart_, cellItems_;
     int nx_ = 0, nz_ = 0;
     float minX_ = 0, minZ_ = 0, inv_ = 1;

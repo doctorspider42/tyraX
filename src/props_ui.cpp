@@ -783,10 +783,30 @@ void App::drawPropertiesWindow() {
                                  o.roadIntersectionTexture))
             committed = true;
         prefHelp(
-            "When two roads cross and both name this same non-empty material,\n"
-            "TyraX generates a terrain-hugging junction patch at build time.\n"
-            "Different or empty values leave the crossing unchanged; old direct\n"
-            "PNG references remain supported.");
+            "When two roads of the SAME rank cross and both name this same\n"
+            "non-empty material, TyraX generates a terrain-hugging junction\n"
+            "patch at build time. Different ranks never make a patch: the\n"
+            "higher road runs through. Old direct PNG references remain\n"
+            "supported.");
+        {
+            static const char* kRanks[] = {"Track", "Local", "Main"};
+            ImGui::SetNextItemWidth(scaled(220));
+            if (ImGui::Combo("Rank", &o.roadRank, kRanks, 3)) committed = true;
+            prefHelp(
+                "Which road wins a crossing. A higher rank runs straight\n"
+                "through and covers the lower one - a mud track stops at the\n"
+                "asphalt's edge instead of fighting it. Equal ranks meet in\n"
+                "an intersection-material junction, as before.");
+            ImGui::SetNextItemWidth(scaled(220));
+            if (ImGui::SliderFloat("Spill onto higher roads", &o.roadSpill, 0.0f,
+                                   8.0f, "%.1f units"))
+                committed = true;
+            prefHelp(
+                "Where this road crosses a higher-rank one, its surface carries\n"
+                "on over the higher road's edge for this far and fades out -\n"
+                "mud trailed onto the asphalt. Grip fades with it. 0 = a clean\n"
+                "edge. No effect against equal or lower ranks.");
+        }
         // The points, world-space XZ. A table, not a gizmo (yet): blunt but
         // complete - insert after, remove, drag both axes.
         ImGui::SeparatorText("Points");
