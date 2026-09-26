@@ -210,6 +210,10 @@ struct DriveSpec {
     float damageRadius = 1.1f;        // how wide one dent reaches
     float damagePerfLoss = 0.45f;     // fraction of accel/top speed lost when wrecked
     float damageSmoke = 0.5f;         // damage level from which the engine smokes
+    // Loose panels and glass (docs/vehicles.md, "Loose panels and glass"): a
+    // multiplier on how easily the bonnet, boot and doors come off and the
+    // windows break. 0 = everything stays on (dents only).
+    float damageLoose = 1.0f;
 };
 
 // One tunable of a DriveSpec, with everything a serializer or a widget needs.
@@ -415,5 +419,53 @@ int applyDent(const Impact& im, float maxDent, const float* rest, int restStride
 
 // Multiplier on acceleration and top speed for a damage level.
 float damagePerformance(const DriveSpec& s, float damage);
+
+// ---------------------------------------------------------------------------
+// Loose panels and glass (docs/vehicles.md, "Loose panels and glass")
+// ---------------------------------------------------------------------------
+//
+// The bake sorts every body triangle into a PIECE - the fixed shell, or one of
+// the panels and windows below - by where it sits on the canonical body and
+// which way it faces (and whether its material is glass). No model has to be
+// authored for it. Each piece then owns a contiguous vertex range of its part
+// (whole strip runs, padded), so the runtime can remove it by collapsing that
+// range to a point: no extra submit while it is on, none when it is gone. A
+// panel that comes off flies as debris; a window shatters.
+
+enum PieceKind {
+    PieceBody = 0,
+    PieceHood,
+    PieceTrunk,
+    PieceDoorL,
+    PieceDoorR,
+    PieceWindscreen,
+    PieceRearWindow,
+    PieceWindowL,
+    PieceWindowR,
+    PieceKindCount
+};
+const char* pieceName(int kind);
+inline bool pieceIsGlass(int kind) { return kind >= PieceWindscreen; }
+
+// One piece of a baked body: `count` vertices from `first` of body part
+// `part`, in the array tier 0 draws (the strip when the part is stripped).
+struct Piece {
+    int part = -1, kind = 0, first = 0, count = 0;
+};
+inline bool operator==(const Piece& a, const Piece& b) {
+    return a.part == b.part && a.kind == b.kind && a.first == b.first && a.count == b.count;
+}
+
+// Which piece a triangle of the canonical body belongs to (bmin/bmax = the
+// body's AABB, x right / y up / z forward). `glass` = its material is glass.
+int classifyTriangle(const float a[3], const float b[3], const float c[3], bool glass,
+                     const float bmin[3], const float bmax[3]);
+
+// Does this hit take the piece off? A window breaks on one hard enough hit
+// that reaches it; a panel accumulates `hp` from the hits that reach it from
+// its own side and comes off past a threshold. pmin/pmax = the piece's AABB
+// in the same frame as the impact. `over` = impact speed past the threshold.
+bool pieceTakesHit(const DriveSpec& s, int kind, const Impact& im, float over,
+                   const float pmin[3], const float pmax[3], float& hp);
 
 }  // namespace vehiclesim

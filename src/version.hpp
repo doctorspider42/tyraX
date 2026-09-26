@@ -5328,8 +5328,15 @@
 // DMG readout on the vehicle HUD. The per-frame cost is a velocity difference
 // per car; a hit rewrites one car's tier-0 vertices once (1.2-2.3 ms in
 // PCSX2, measured). MINOR.
+// 1.136.0 - Loose panels and glass (docs/vehicles.md): the vehicle bake sorts
+// the body into the shell, bonnet, boot, two doors and four window groups by
+// position, facing and glass material - no model authoring - and gives each
+// piece whole strip runs of its part. A hit knocks a panel off (collapsed in
+// the body, thrown as tumbling debris that lands flat, one submit per texture
+// for all debris) and shatters a window (collapsed, a spray of shards). The
+// Damage tab previews it; a "Loose parts" tunable scales it. MINOR.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 135
+#define TYRAX_VERSION_MINOR 136
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -5764,7 +5771,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // written with the rest of the spec. Missing = damage 0, i.e. the car cannot
 // be hurt, which is exactly how every definition saved before drove. Additive;
 // no migration step.
-inline constexpr int kFormatVersion = 70;
+// v71 (docs/vehicles.md, "Loose panels and glass"): drive.damageLoose, and a
+// definition's bake-measured "pieces" list (written only when non-empty).
+// Missing = Loose parts 1 and no pieces until the next bake measures them.
+// Additive; no migration step.
+inline constexpr int kFormatVersion = 71;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

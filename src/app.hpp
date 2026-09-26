@@ -830,6 +830,10 @@ private:
     float vehDmgPreviewDamage_ = 0.0f;
     int vehDmgPreviewSerial_ = 0;      // the drive's impactSerial last dented
     float vehDmgTestSpeed_ = 18.0f;    // the Damage tab's test-hit speed
+    float vehDmgPreviewOver_ = 0.0f;   // the pending hit's speed past the threshold
+    std::vector<float> vehDmgPreviewHp_;  // per bake piece, the runtime's hp
+    std::vector<char> vehDmgPreviewGone_;
+    std::string vehDmgPreviewLost_;       // what came off, for the readout
     // Dents one impact into the preview (starting it from the bake if none).
     void vehicleDamagePreviewHit(const VehicleDef& v, const vehiclesim::Impact& im);
     void vehicleDamagePreviewReset();

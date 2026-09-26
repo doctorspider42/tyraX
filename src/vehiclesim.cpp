@@ -496,6 +496,9 @@ std::vector<SpecField> specFields(DriveSpec& s) {
          "does not drive."},
         {"damageSmoke", &s.damageSmoke, 0.0f, 1.0f, "Smoke from damage",
          "Damage level at which the engine starts to smoke (black when wrecked)."},
+        {"damageLoose", &s.damageLoose, 0.0f, 3.0f, "Loose parts",
+         "How easily the bonnet, boot and doors come off and the windows break. "
+         "0 = everything stays on."},
     };
 }
 
@@ -663,6 +666,81 @@ int applyDent(const Impact& im, float maxDent, const float* rest, int restStride
 
 float damagePerformance(const DriveSpec& s, float damage) {
     return 1.0f - clampf(s.damagePerfLoss, 0.0f, 1.0f) * clampf(damage, 0.0f, 1.0f);
+}
+
+const char* pieceName(int kind) {
+    static const char* names[PieceKindCount] = {
+        "body", "bonnet", "boot", "left door", "right door",
+        "windscreen", "rear window", "left windows", "right windows"};
+    return kind >= 0 && kind < PieceKindCount ? names[kind] : "?";
+}
+
+int classifyTriangle(const float a[3], const float b[3], const float c[3], bool glass,
+                     const float bmin[3], const float bmax[3]) {
+    float n[3];
+    {
+        const float e1[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+        const float e2[3] = {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+        n[0] = e1[1] * e2[2] - e1[2] * e2[1];
+        n[1] = e1[2] * e2[0] - e1[0] * e2[2];
+        n[2] = e1[0] * e2[1] - e1[1] * e2[0];
+        const float l = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+        if (l < 1e-12f) return PieceBody;
+        for (int k = 0; k < 3; ++k) n[k] /= l;
+    }
+    float m[3];
+    for (int k = 0; k < 3; ++k) m[k] = (a[k] + b[k] + c[k]) / 3.0f;
+    const float cx = 0.5f * (bmin[0] + bmax[0]);
+    const float hw = std::max(0.5f * (bmax[0] - bmin[0]), 1e-3f);
+    const float zf = (m[2] - bmin[2]) / std::max(bmax[2] - bmin[2], 1e-3f);
+    const float yf = (m[1] - bmin[1]) / std::max(bmax[1] - bmin[1], 1e-3f);
+    const float xf = (m[0] - cx) / hw;
+    // Winding is not reliable in an import (nothing backface-culls), so a
+    // face reads the same whichever way its normal points: by magnitude, and
+    // by the side of the body it sits on.
+    const float ax = std::fabs(n[0]), ay = std::fabs(n[1]), az = std::fabs(n[2]);
+    if (glass) {
+        if (az > 0.3f && az >= ax) return zf > 0.5f ? PieceWindscreen : PieceRearWindow;
+        if (ax > 0.3f) return xf < 0.0f ? PieceWindowL : PieceWindowR;
+        return zf > 0.5f ? PieceWindscreen : PieceRearWindow;
+    }
+    // Panels: the flat top at either end, and the side between the arches
+    // and under the window line.
+    if (ay > 0.55f && yf > 0.35f && std::fabs(xf) < 0.9f) {
+        if (zf > 0.70f) return PieceHood;
+        if (zf < 0.22f) return PieceTrunk;
+    }
+    if (ax > 0.55f && zf > 0.36f && zf < 0.66f && yf > 0.2f && yf < 0.72f)
+        return xf < 0.0f ? PieceDoorL : PieceDoorR;
+    return PieceBody;
+}
+
+bool pieceTakesHit(const DriveSpec& s, int kind, const Impact& im, float over,
+                   const float pmin[3], const float pmax[3], float& hp) {
+    if (kind <= PieceBody || kind >= PieceKindCount || s.damageLoose <= 0.0f) return false;
+    // A piece only loosens from its own side: a bonnet or windscreen from the
+    // front, a boot or rear window from behind, a door or side window from
+    // its flank. Glass on the struck side is reached further - the shock of a
+    // head-on shatters the windscreen well behind the bumper it hit.
+    const float dx = im.dir[0], dz = im.dir[2];
+    const bool facing = (kind == PieceHood || kind == PieceWindscreen)   ? dz > 0.5f
+                        : (kind == PieceTrunk || kind == PieceRearWindow) ? dz < -0.5f
+                        : (kind == PieceDoorL || kind == PieceWindowL)    ? dx < -0.5f
+                                                                          : dx > 0.5f;
+    const float r = im.radius * (pieceIsGlass(kind) && facing ? 1.8f : 1.3f);
+    float d2 = 0.0f;
+    for (int a = 0; a < 3; ++a) {
+        const float c = im.point[a] < pmin[a] ? pmin[a] - im.point[a]
+                        : (im.point[a] > pmax[a] ? im.point[a] - pmax[a] : 0.0f);
+        d2 += c * c;
+    }
+    if (d2 >= r * r) return false;
+    const float push = over * s.damageLoose;
+    if (pieceIsGlass(kind)) return push >= 5.0f;
+    if (!facing) return false;
+    // Soaked up over several hits, or torn off by one big one.
+    hp += push;
+    return hp >= 18.0f || push >= 12.0f;
 }
 
 void wheelAnchors(const DriveSpec& spec, const DriveState& state, float out[4][3]) {

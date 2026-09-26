@@ -981,6 +981,10 @@ class TerrainGame : public Tyra::Game {
     // Smashed lamps: bit 0 the front, bit 1 the rear. A broken lamp is dark
     // whatever the switch or the brake say, and throws no beam or glow.
     int lampBroken = 0;
+    // Loose pieces this car has lost (bit = row - the definition's first row
+    // in VEHICLE_PIECES) and the hits each panel has soaked up so far.
+    unsigned int piecesGone = 0;
+    float pieceHp[16] = {};
     int dentTotal = 0;           // every hit that dented, for the telemetry
     // point xyz, dir x z, depth, radius - local frame, instance units. Kept
     // so a geometry rebuild (which bakes fresh, undamaged vertices) can put
@@ -997,12 +1001,60 @@ class TerrainGame : public Tyra::Game {
     std::vector<std::vector<u32>> restCol;  // packed RGBA8 per vertex
     std::vector<u32> stamp;
     std::vector<float> partBox;             // min xyz, max xyz per part
+    std::vector<float> pieceBox;            // the same per VEHICLE_PIECES row of the def
     float bmin[3] = {0.0F, 0.0F, 0.0F};
     float bmax[3] = {0.0F, 0.0F, 0.0F};
     int ready = 0;
   };
   std::vector<VehDamageGeo> vehDamageGeo_;
   bool vehicleDamageCapture(int vi);
+  // Loose pieces: collapse every lost piece of a car to a point (after any
+  // write that may have re-grown it), and throw one off as debris.
+  void vehiclePiecesCollapse(int vi);
+  void vehicleDetachPiece(int vi, int row, const float* dent);
+  static int vehiclePieceFirstRow(int def) {
+    for (int r = 0; r < VEHICLE_PIECE_COUNT; ++r)
+      if (VEHICLE_PIECES[r].def == def) return r;
+    return -1;
+  }
+  // DEBRIS: a lost panel, flying and then lying on the ground. World-space
+  // triangle lists merged per texture into one bag each - one submit per
+  // texture for every piece in flight or at rest, rebuilt only while
+  // something moves (the wheel batch's shape).
+  enum { kVehDebrisMax = 8 };
+  struct VehDebris {
+    int active = 0;
+    int rest = 0;
+    Tyra::Texture* tex = nullptr;
+    std::vector<Tyra::Vec4> local;   // list triangles around the centroid
+    std::vector<Tyra::Color> cols;
+    std::vector<Tyra::Vec4> sts;
+    float pos[3] = {0, 0, 0}, vel[3] = {0, 0, 0};
+    // Orientation as a rotation matrix (row-major, applied to `local`) and a
+    // world angular velocity, rad/s. A matrix rather than Euler angles
+    // because a landed piece is rotated to lie FLAT - its thinnest axis
+    // turned to the vertical - which is one axis-angle step on a matrix.
+    float rot[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+    float spin[3] = {0, 0, 0};
+    int thin = 1;      // the local axis of its smallest extent (the panel's normal)
+    float low = 0.0F;  // how far below its centroid the piece reaches, set as it tumbles
+  };
+  VehDebris vehDebris_[kVehDebrisMax];
+  int vehDebrisNext_ = 0;
+  struct VehDebrisBatch {
+    Tyra::Texture* tex = nullptr;
+    BagArray<Tyra::Vec4> verts;
+    BagArray<Tyra::Color> cols;
+    BagArray<Tyra::Vec4> sts;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    u32 stamp = 0;
+    int dirty = 1;
+  };
+  std::vector<std::unique_ptr<VehDebrisBatch>> vehDebrisBatches_;
+  void updateVehicleDebris(float dt);
+  void renderVehicleDebris();
   int vehicleDentApply(int vi, const float* dent);
   void updateVehicleDamage(float dt);
   void repairVehicle(int vi);

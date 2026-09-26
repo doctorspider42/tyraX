@@ -2896,7 +2896,13 @@ front dent from the chase rig, back off a few units and HOLD R3 (the rear view
 puts the camera ahead of the nose) while `--capture-frame` runs - against a wall
 the rig sits inside it. The editor side needs no game: Damage tab > Hit front
 with the car framed via the manifest's `editor.cam` (`[yaw, pitch, dist, tx,
-ty, tz]`, radians) and `selectedObject`.
+ty, tz]`, radians) and `selectedObject` - edit that key by its `editor` block,
+not with a global replace: vehicle definitions have a `"cam"` key too. Loose
+pieces: `VEHDMG <car> lost <kind> ...`; the Ravager into the arena wall from the
+start loses kind 5 and 1 in the hit, and a burst of `--capture-frame` right
+after `lost 1` appears catches the bonnet in the air. To force a door off,
+park another car broadside across the start lane in a scratch copy (its object
+JSON `position` / `rotation`) and raise its `damageLoose`.
 
 Run `--vehicle-check` after changing vehicle contact or transforms. Its bank
 fixture restrains horizontal translation but retains gravity (zero gravity

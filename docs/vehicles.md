@@ -908,12 +908,70 @@ Telemetry, one line per dent: `VEHDMG <car> hit dv10 <impact x10> dmg100 <damage
 dents <n> total <n> moved <vertices> at <x10> <z10> lamps <bits> body10 <w>x<l>
 us <microseconds>`, and `VEHDMG <car> repaired`.
 
-**Limits of this first version.** Only tier 0 dents - a car on its far tier
-shows the undamaged decimated body (a few pixels by then). Nothing detaches
-(no bumper falling off, no wheel loss). The shading is frozen at the undented
+**Limits.** Only tier 0 dents - a car on its far tier
+shows the undamaged decimated body (a few pixels by then). Panels and windows come off
+([below](#loose-panels-and-glass)); bumpers and wheels do not. The shading is frozen at the undented
 normals, so a dent reads through its shape and the scuff rather than through
 lighting. AI drivers keep driving a wreck at reduced power. See
 docs/backlog.md.
+
+### Loose panels and glass
+
+The second half of damage: a hard enough hit **tears the bonnet, the boot or a
+door off** - it flies, tumbles and lands flat on the road - and **shatters the
+windows** it reaches, with a spray of shards. *Loose parts* on the Damage tab
+scales how easily (0 = dents only).
+
+**No model has to be authored for it.** The vehicle bake sorts every body
+triangle with `vehiclesim::classifyTriangle`: the flat top at the front fifth-
+and-a-bit is the bonnet, at the back the boot, the flank between the arches and
+under the window line a door, and a triangle whose material is glass (by name -
+split into its own part or merged into the palette, where its palette cell
+still identifies it) a windscreen, rear or side window by the way it faces. All
+six cars of the Motor District came out with a bonnet, a boot, two doors and
+their windows on the first try, and the Damage tab's test hits show them come
+off in the viewport (the readout names what was lost).
+
+**Each piece owns whole strip runs of its part.** The bake reorders a part's
+list so a piece is contiguous, strips every piece on its own (a group
+meshstrip refuses is encoded triangle by triangle with degenerate joins) and
+pads each to a whole run. The runtime removes a piece by collapsing its range
+onto one vertex - its triangles go to zero area and no neighbour's triangle
+shares a vertex with it - so a car costs **no extra submit** with its panels
+on or off. The price is the padding: the CC96 body goes from 4 212 to 4 803
+strip vertices (+14%, 57 -> 65 VU1 packages), which is why only a definition
+with damage on and *Loose parts* above 0 is split at all.
+
+**When does a piece come off?** `vehiclesim::pieceTakesHit`, twinned in
+`updateVehicleDamage`: the dent's sphere (x1.3, x1.8 for glass on the struck
+side) must reach the piece's box, and the hit must come from the piece's own
+side - a bonnet or windscreen from the front, a boot or rear window from
+behind, a door or side window from its flank. Glass breaks on any hit 5 u/s
+past the threshold; a panel soaks hits up and goes at 18 accumulated, or at
+once on a single hit 12 past the threshold (a head-on at top speed pops the
+bonnet).
+
+**Debris** is the removed piece's current (dented) triangles taken into world
+space, one of 8 slots shared by the scene (oldest recycled). A lid folds up and
+flips back over the car, a door falls away from its side; gravity, a few
+bounces off `groundSurfaceAt`, and once on the ground the piece turns its
+thinnest axis to the vertical so it comes to rest lying flat rather than on an
+edge. All debris of one texture is ONE world-space bag, rebuilt only while
+something in it moves - a resting piece costs its share of that submit and
+nothing else. The windows' shards ride the tyre-smoke pool.
+
+Telemetry: `VEHDMG <car> lost <kind> debris|shattered verts <n>` (kind is
+`vehiclesim::PieceKind`: 1 bonnet, 2 boot, 3/4 doors, 5 windscreen, 6 rear,
+7/8 side windows). Measured in PCSX2 on the Motor District: the Ravager into
+the arena wall at 22 u/s loses the windscreen and the bonnet in the hit (the
+bonnet flips over the roof and lands in front of the car), the Pica rammed in
+its right side loses its right windows and windscreen, and with *Loose parts*
+3 its right door; 48-50 FPS through it.
+
+Limits: the far tier still shows every piece (a few pixels by then), a
+collapsed piece leaves an open hole into the body shell (the Blender-built cars
+show their modelled interior through it), debris does not collide with walls
+or cars, and a repair restores the pieces but leaves the debris on the road.
 
 ### Weight transfer
 

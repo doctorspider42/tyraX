@@ -39,9 +39,10 @@ float r_geom(float measured, float fallback) {
 
 std::string bakeKey(const VehicleDef& v) {
     char buf[96];
-    std::snprintf(buf, sizeof(buf), "|%d|%d|%d|%.3f|%d|%d|", v.bodyTriBudget,
+    std::snprintf(buf, sizeof(buf), "|%d|%d|%d|%.3f|%d|%d|%d|", v.bodyTriBudget,
                   v.wheelTriBudget, v.mergeUntextured ? 1 : 0, v.bodyShine,
-                  v.fastWheelTriBudget, v.glassOpacity < 1.0f ? 1 : 0);
+                  v.fastWheelTriBudget, v.glassOpacity < 1.0f ? 1 : 0,
+                  v.drive.damage > 0.0f && v.drive.damageLoose > 0.0f ? 1 : 0);
     return v.modelPath + buf + v.bodyReflMap + "|" + v.fastWheel + "|" + v.farModel;
 }
 
@@ -101,6 +102,7 @@ void App::vehicleRefreshBake(int index, bool force) {
     opt.fastWheel = v.fastWheel;
     opt.fastWheelTriBudget = v.fastWheelTriBudget;
     opt.glassSplit = v.glassOpacity < 1.0f;
+    opt.loosePieces = v.drive.damage > 0.0f && v.drive.damageLoose > 0.0f;
     if (!v.farModel.empty()) opt.farModel = project_.filePath(v.farModel);
     // The palette is baked into the merged part's texture field, so the name
     // here has to be the path the game will actually open. Everything the bake
@@ -228,6 +230,44 @@ void App::vehicleDamagePreviewHit(const VehicleDef& v, const vehiclesim::Impact&
                                   dst.stripVerts.data(), 8,
                                   (int)(src.stripVerts.size() / 8), nullptr);
     }
+    // Loose pieces, the runtime's rule (vehiclesim::pieceTakesHit): a piece
+    // that comes off is collapsed to a point in BOTH arrays, like the console
+    // collapses its range - the debris flight itself is the game's.
+    vehDmgPreviewHp_.resize(r.pieces.size(), 0.0f);
+    vehDmgPreviewGone_.resize(r.pieces.size(), 0);
+    const float over = vehDmgPreviewOver_;
+    for (size_t k = 0; k < r.pieces.size() && k < r.pieceLists.size(); ++k) {
+        const vehiclesim::Piece& pc = r.pieces[k];
+        if (vehDmgPreviewGone_[k] || pc.part < 0 ||
+            pc.part >= (int)vehDmgPreviewBody_.parts.size())
+            continue;
+        const tmdl::Part& src = r.body.parts[(size_t)pc.part];
+        const int lf = r.pieceLists[k].first, lc = r.pieceLists[k].second;
+        float mn[3] = {1e30f, 1e30f, 1e30f}, mx[3] = {-1e30f, -1e30f, -1e30f};
+        for (int i = lf; i < lf + lc && (size_t)(i * 8 + 2) < src.verts.size(); ++i)
+            for (int a = 0; a < 3; ++a) {
+                mn[a] = std::min(mn[a], src.verts[(size_t)i * 8 + a]);
+                mx[a] = std::max(mx[a], src.verts[(size_t)i * 8 + a]);
+            }
+        if (!vehiclesim::pieceTakesHit(v.drive, pc.kind, im, over, mn, mx,
+                                       vehDmgPreviewHp_[k]))
+            continue;
+        vehDmgPreviewGone_[k] = 1;
+        vehDmgPreviewLost_ += std::string(vehDmgPreviewLost_.empty() ? "" : ", ") +
+                              vehiclesim::pieceName(pc.kind);
+    }
+    for (size_t k = 0; k < r.pieces.size() && k < r.pieceLists.size(); ++k) {
+        if (!vehDmgPreviewGone_[k]) continue;
+        const vehiclesim::Piece& pc = r.pieces[k];
+        tmdl::Part& dst = vehDmgPreviewBody_.parts[(size_t)pc.part];
+        auto collapse = [](std::vector<float>& a, int first, int count) {
+            if (count <= 0 || (size_t)(first + count) * 8 > a.size()) return;
+            for (int i = first + 1; i < first + count; ++i)
+                for (int c = 0; c < 3; ++c) a[(size_t)i * 8 + c] = a[(size_t)first * 8 + c];
+        };
+        collapse(dst.verts, r.pieceLists[k].first, r.pieceLists[k].second);
+        if (dst.stripRun) collapse(dst.stripVerts, pc.first, pc.count);
+    }
     viewport_.setVehicleDraw(v.name, vehDmgPreviewBody_, r.wheel,
                              ".res-baked/vehicles/veh-" + v.id + "-palette.png",
                              v.drive.wheelBase, v.drive.track, v.drive.wheelRadius,
@@ -240,6 +280,9 @@ void App::vehicleDamagePreviewReset() {
     vehDmgPreviewId_.clear();
     vehDmgPreviewDamage_ = 0.0f;
     vehDmgPreviewBody_ = tmdl::Model();
+    vehDmgPreviewHp_.clear();
+    vehDmgPreviewGone_.clear();
+    vehDmgPreviewLost_.clear();
     for (const VehicleDef& v : project_.vehicles) {
         if (v.id != id) continue;
         auto it = vehicleBakes_.find(v.id);
@@ -368,6 +411,9 @@ void App::vehicleDriveTick() {
                                             vehicleDriveState_.impactDv[0],
                                             vehicleDriveState_.impactDv[1], body.min,
                                             body.max, 1.0f, im, nullptr)) {
+                vehDmgPreviewOver_ =
+                    std::hypot(vehicleDriveState_.impactDv[0], vehicleDriveState_.impactDv[1]) -
+                    std::max(def->drive.damageThreshold, 0.0f);
                 vehicleDamagePreviewHit(*def, im);
                 vehDmgPreviewDamage_ = vehicleDriveState_.damage;
             }
@@ -644,6 +690,8 @@ void App::drawVehicleWindow() {
                                 v.drive, 0.0f, hits[h].dr * vehDmgTestSpeed_,
                                 hits[h].df * vehDmgTestSpeed_, body.min, body.max,
                                 1.0f, im, &add)) {
+                            vehDmgPreviewOver_ =
+                                vehDmgTestSpeed_ - std::max(v.drive.damageThreshold, 0.0f);
                             vehicleDamagePreviewHit(v, im);
                             vehDmgPreviewDamage_ =
                                 std::min(1.0f, vehDmgPreviewDamage_ + add);
@@ -652,6 +700,17 @@ void App::drawVehicleWindow() {
                 }
                 ImGui::SameLine();
                 if (ImGui::Button("Repair")) vehicleDamagePreviewReset();
+                if (vehDmgPreviewId_ == v.id)
+                {
+                    const size_t np = bk->second.result.pieces.size();
+                    if (np == 0)
+                        ImGui::TextDisabled("No loose pieces found on this body.");
+                    else if (vehDmgPreviewId_ == v.id && !vehDmgPreviewLost_.empty())
+                        ImGui::Text("Lost: %s", vehDmgPreviewLost_.c_str());
+                    else
+                        ImGui::TextDisabled("%zu loose piece(s) - hit hard to knock them off.",
+                                            np);
+                }
                 if (vehDmgPreviewId_ == v.id)
                     ImGui::Text("Damage %.0f%%   power %.0f%%%s",
                                 vehDmgPreviewDamage_ * 100.0f,

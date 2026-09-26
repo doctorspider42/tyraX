@@ -252,9 +252,13 @@ order of what a player would notice first:
 - **Dent the far tier too**, or fall back to tier 0 for a damaged car inside
   twice its far distance - an obviously wrecked rival pops back to pristine on
   its traffic tier.
-- **Loose parts.** A bumper or door that detaches into a physics body, a wheel
-  that wobbles (camber on the struck corner - the wheel batch already composes a
-  per-wheel transform).
+- **Loose parts, the rest** (bonnet/boot/doors/windows came off in 1.136.0):
+  debris that collides with walls and cars, bumpers, a wheel that wobbles or
+  comes off (camber on the struck corner - the wheel batch already composes a
+  per-wheel transform), and a repair that picks the debris up again.
+- **Author-named pieces.** The classifier is geometric; a model whose
+  materials or nodes say `hood`/`door_l` should be obeyed first (the lamp
+  materials already work that way).
 - **A crash sound**: a one-shot on the VehicleDef, volume from the impact speed,
   like the shift blip.
 - **Flow-graph reads**: a Vehicle Damage number node and an On Vehicle Wrecked

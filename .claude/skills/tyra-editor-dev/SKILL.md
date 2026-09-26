@@ -2407,6 +2407,17 @@ colours every frame - `lampBroken` is how damage speaks to it). The six
 "damage*" DriveSpec keys are shown on the Damage tab and skipped by the Driving
 tab by that prefix, so a new damage tunable must keep it.
 
+Loose pieces (1.136.0) add one invariant with teeth: a piece is a vertex RANGE
+of a body part's tier-0 array (`VEHICLE_PIECES`, measured into
+`VehicleDef::pieces` by the bake), and the range is only safe to collapse
+because the bake gave the piece whole strip runs of its own. Anything that
+re-orders or re-strips a vehicle body (a new weld key, a merge of parts, a
+change to meshstrip's run packing) must keep that - or collapsing a bonnet
+tears a triangle out of the fender next to it. `vehiclePiecesCollapse` must run
+after every write that could re-grow a lost piece (a dent, a re-capture).
+Debris lives in `vehDebris_` / `vehDebrisBatches_` (one world-space bag per
+texture, rebuilt only while dirty).
+
 ## Vehicle bank and suspension invariants
 
 `vehiclesim::bodyRotation` and the generated `vehBodyRotation` are twins:

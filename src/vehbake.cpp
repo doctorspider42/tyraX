@@ -1,3 +1,4 @@
+#include <array>
 #include "vehbake.hpp"
 
 #include "particletex.hpp"
@@ -461,7 +462,8 @@ void collect(const glbparser::Skel& sk, const std::vector<M4>& g, const M4& cano
              const std::string& paletteTex, const std::vector<std::string>& imagePaths,
              Merge& mg, tmdl::Model& out,
              int& srcParts, int& srcTris, bool shineSplit = false,
-             int* lampRearVertsOut = nullptr, bool glassSplit = false) {
+             int* lampRearVertsOut = nullptr, bool glassSplit = false,
+             std::vector<int>* glassCellsOut = nullptr) {
     std::vector<float> mergedVerts;
     std::vector<float> glassVerts;
     std::vector<float> matteVerts;
@@ -532,6 +534,10 @@ void collect(const glbparser::Skel& sk, const std::vector<M4>& g, const M4& cano
             dst = &part.verts;
             v = 0.0f;  // real UVs, nothing to patch later
         } else {
+            // A merged glass material: remember its cell, so the piece
+            // classifier can still tell its triangles apart after the merge.
+            if (glassCellsOut && glassMaterial(p.material))
+                glassCellsOut->push_back(mg.cellFor(p.baseColor));
             // The palette CELL INDEX rides in the u slot with v = -1 as the
             // marker, and resolvePaletteUvs turns both into a real coordinate
             // once the palette's final size is known. The alternative is
@@ -883,6 +889,7 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
     // The palette is shared by the body and the wheel: one texture for the
     // whole vehicle, so the pair costs one VRAM allocation rather than two.
     Merge mg;
+    std::vector<std::array<float, 2>> glassUvs;  // merged glass cells, resolved
     const std::string paletteTex = opt.mergeUntextured ? opt.paletteTexture : "";
 
     // The body is re-origined to the AXLE CENTRE at HUB HEIGHT - the mean of
@@ -905,10 +912,11 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
             bodyOrigin[a] /= (float)out.detection.wheels.size();
     }
     int lampRearVerts = 0;
+    std::vector<int> glassCells;
     collect(sk, g, canon, out.detection.bodyNodes, bodyOrigin, opt.mergeUntextured,
             paletteTex, imagePaths, mg, out.body, out.srcParts, out.srcTris,
             /*shineSplit=*/opt.bodyShine > 0.001f, &lampRearVerts,
-            opt.glassSplit);
+            opt.glassSplit, &glassCells);
 
     if (!out.detection.wheels.empty()) {
         // One wheel is baked, hub at the origin. Which one does not matter for
@@ -966,6 +974,11 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
         if (opt.fastWheel != "@auto")  // "@auto" copied already-resolved UVs
             resolvePaletteUvs(out.fastWheel, out.paletteSize, paletteTex);
         out.palettePng = encodePng(paletteImage(mg, out.paletteSize), out.paletteSize);
+        for (int cell : glassCells) {
+            float gu = 0.0f, gv = 0.0f;
+            paletteUv(cell, out.paletteSize, gu, gv);
+            glassUvs.push_back({gu, gv});
+        }
         char buf[180];
         std::snprintf(buf, sizeof(buf),
                       "Merged %d untextured materials into %zu palette colours "
@@ -1146,6 +1159,109 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
     computeBounds(out.wheel);
     if (!out.fastWheel.parts.empty()) computeBounds(out.fastWheel);
 
+    // LOOSE PIECES (docs/vehicles.md, "Loose panels and glass"): every body
+    // triangle is sorted into the fixed shell or one of the panels/windows
+    // vehiclesim::classifyTriangle names, and each part's list is REORDERED
+    // so a piece is one contiguous run of triangles. The strip pass below then
+    // strips each piece on its own and pads it to whole runs, so the runtime
+    // can remove a piece by collapsing its range without touching a
+    // neighbour's triangles. The lamps keep their order (corner ranges).
+    std::vector<std::vector<std::pair<int, int>>> pieceTris(out.body.parts.size());
+    for (size_t pi = 0; opt.loosePieces && pi < out.body.parts.size(); ++pi) {
+        tmdl::Part& p = out.body.parts[pi];
+        if (p.name == "lamps" || p.name == "merged-matte" || !p.ao.empty()) continue;
+        const bool allGlass = p.name == "glass";
+        const bool palette = p.texture == paletteTex && !paletteTex.empty();
+        std::vector<std::vector<float>> bucket(vehiclesim::PieceKindCount);
+        const size_t nt = p.verts.size() / 24;
+        for (size_t t = 0; t < nt; ++t) {
+            const float* v = &p.verts[t * 24];
+            bool glass = allGlass;
+            if (!glass && palette && !glassUvs.empty()) {
+                glass = true;
+                for (int c = 0; c < 3 && glass; ++c) {
+                    bool hit = false;
+                    for (const auto& uv : glassUvs)
+                        hit |= std::fabs(v[c * 8 + 6] - uv[0]) < 1e-5f &&
+                               std::fabs(v[c * 8 + 7] - uv[1]) < 1e-5f;
+                    glass = hit;
+                }
+            }
+            const int kind = vehiclesim::classifyTriangle(v, v + 8, v + 16, glass,
+                                                          out.body.min, out.body.max);
+            bucket[(size_t)kind].insert(bucket[(size_t)kind].end(), v, v + 24);
+        }
+        bool any = false;
+        for (int k = 1; k < vehiclesim::PieceKindCount; ++k)
+            // A piece of a couple of triangles is noise, not a panel.
+            if (bucket[(size_t)k].size() / 24 >= 4) any = true;
+            else if (!bucket[(size_t)k].empty()) {
+                bucket[0].insert(bucket[0].end(), bucket[(size_t)k].begin(),
+                                 bucket[(size_t)k].end());
+                bucket[(size_t)k].clear();
+            }
+        if (!any) continue;
+        p.verts.clear();
+        for (int k = 0; k < vehiclesim::PieceKindCount; ++k) {
+            pieceTris[pi].push_back({(int)(p.verts.size() / 24),
+                                     (int)(bucket[(size_t)k].size() / 24)});
+            p.verts.insert(p.verts.end(), bucket[(size_t)k].begin(),
+                           bucket[(size_t)k].end());
+        }
+    }
+    // Strips one piece's triangles on their own; falls back to a
+    // triangle-per-join encoding (A B C, then C D D E F per triangle) when
+    // meshstrip refuses a small group, and never lets a triangle straddle a
+    // run. Pads to whole runs unless `last`.
+    auto stripGroup = [](const float* verts, int tris, bool last, std::vector<float>& out) {
+        const size_t start = out.size();
+        // Repeat the last vertex (a degenerate). Copied first: inserting a
+        // vector's own range into it is undefined once it reallocates.
+        auto dupLast = [&out]() {
+            float t[8];
+            std::copy(out.end() - 8, out.end(), t);
+            out.insert(out.end(), t, t + 8);
+        };
+        std::vector<float> sub(verts, verts + (size_t)tris * 24), st;
+        std::vector<unsigned char> noAo, stAo;
+        if (tris > 0 && meshstrip::build(sub, noAo, meshstrip::kRun, st, stAo,
+                                         meshstrip::Weld::kFull)) {
+            out.insert(out.end(), st.begin(), st.end());
+        } else {
+            const unsigned kRun = meshstrip::kRun;
+            unsigned inRun = 0;
+            auto pad = [&]() {
+                while (inRun > 0 && inRun < kRun) {
+                    dupLast();
+                    ++inRun;
+                }
+                inRun = 0;
+            };
+            for (int t = 0; t < tris; ++t) {
+                const float* v = verts + (size_t)t * 24;
+                const unsigned need = inRun == 0 ? 3 : 5;
+                if (inRun + need > kRun) pad();
+                if (inRun == 0) {
+                    out.insert(out.end(), v, v + 24);
+                    inRun = 3;
+                } else {
+                    dupLast();  // C again
+                    out.insert(out.end(), v, v + 8);                  // D
+                    out.insert(out.end(), v, v + 24);                 // D E F
+                    inRun += 5;
+                }
+                if (inRun == kRun) inRun = 0;
+            }
+        }
+        if (!last) {
+            const size_t n = (out.size() - start) / 8;
+            const size_t rem = n % meshstrip::kRun;
+            if (rem && n)
+                for (size_t k = rem; k < meshstrip::kRun; ++k)
+                    dupLast();
+        }
+    };
+
     // VEHICLE TRIANGLE STRIPS (docs/vehicles.md, "Strip-ready bodies" and
     // "The wheel batch is a strip"; docs/model-pipeline.md, "Triangle strips").
     //
@@ -1174,7 +1290,47 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
         p.stripAo.clear();
         p.stripRun = 0;
         bodyListVerts += p.verts.size() / 8;
-        if (p.name != "lamps" &&
+        const size_t partIdx = (size_t)(&p - out.body.parts.data());
+        const std::vector<std::pair<int, int>>& groups = pieceTris[partIdx];
+        bool grouped = false;
+        if (!groups.empty()) {
+            // Piece by piece: the body shell first, each loose piece padded
+            // to whole runs. Kept only when it still beats the list.
+            std::vector<float> st;
+            std::vector<std::pair<int, int>> ranges;
+            int lastNonEmpty = 0;
+            for (size_t k = 0; k < groups.size(); ++k)
+                if (groups[k].second > 0) lastNonEmpty = (int)k;
+            for (size_t k = 0; k < groups.size(); ++k) {
+                const int first = (int)(st.size() / 8);
+                if (groups[k].second > 0)
+                    stripGroup(&p.verts[(size_t)groups[k].first * 24], groups[k].second,
+                               (int)k == lastNonEmpty, st);
+                ranges.push_back({first, (int)(st.size() / 8) - first});
+            }
+            if (st.size() < p.verts.size()) {
+                p.stripVerts.swap(st);
+                grouped = true;
+                for (size_t k = 1; k < ranges.size(); ++k)
+                    if (ranges[k].second > 0) {
+                        out.pieces.push_back({(int)partIdx, (int)k, ranges[k].first,
+                                              ranges[k].second});
+                        out.pieceLists.push_back({groups[k].first * 3, groups[k].second * 3});
+                    }
+            } else {
+                for (size_t k = 1; k < groups.size(); ++k)
+                    if (groups[k].second > 0) {
+                        out.pieces.push_back({(int)partIdx, (int)k, groups[k].first * 3,
+                                              groups[k].second * 3});
+                        out.pieceLists.push_back({groups[k].first * 3, groups[k].second * 3});
+                    }
+            }
+        }
+        if (grouped) {
+            p.stripRun = meshstrip::kRun;
+            bodyStripVerts += p.stripVerts.size() / 8;
+            ++bodyStripParts;
+        } else if (p.name != "lamps" && groups.empty() &&
             meshstrip::build(p.verts, p.ao, meshstrip::kRun, p.stripVerts,
                              p.stripAo, meshstrip::Weld::kFull)) {
             p.stripRun = meshstrip::kRun;
@@ -1251,6 +1407,16 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
                                  p.stripAo, meshstrip::Weld::kNoNormal))
                 p.stripRun = meshstrip::kRun;
         }
+    if (!out.pieces.empty()) {
+        std::string line = "Loose pieces:";
+        for (const vehiclesim::Piece& pc : out.pieces) {
+            char b[64];
+            std::snprintf(b, sizeof(b), " %s (part %d, %d verts)",
+                          vehiclesim::pieceName(pc.kind), pc.part, pc.count);
+            line += b;
+        }
+        out.notes.push_back(line + ".");
+    }
     for (size_t k = 0; k < out.body.parts.size(); ++k)
         if (out.body.parts[k].name == "lamps") {
             out.lampPart = (int)k;
@@ -1552,6 +1718,8 @@ bool adoptMeasured(VehicleDef& v, const Result& r) {
     if (v.farPart != r.farPart || v.farHideMask != r.farHideMask) changed = true;
     v.farPart = r.farPart;
     v.farHideMask = r.farHideMask;
+    if (v.pieces != r.pieces) changed = true;
+    v.pieces = r.pieces;
     return changed;
 }
 
@@ -1661,6 +1829,7 @@ std::string bakeProject(Project& p,
         opt.fastWheel = v.fastWheel;
         opt.fastWheelTriBudget = v.fastWheelTriBudget;
         opt.glassSplit = v.glassOpacity < 1.0f;
+        opt.loosePieces = v.drive.damage > 0.0f && v.drive.damageLoose > 0.0f;
         if (!v.farModel.empty()) opt.farModel = p.filePath(v.farModel);
         Result r;
         std::string err;

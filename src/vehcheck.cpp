@@ -20,6 +20,7 @@
 #include <cmath>
 #include <algorithm>
 #include <cstdio>
+#include <functional>
 #include <vector>
 
 #include "vehiclesim.hpp"
@@ -577,6 +578,53 @@ void damage() {
     }
 }
 
+// 11. Loose panels and glass: the classifier finds the obvious pieces on a
+//     box-shaped body, and the break rule honours side, strength and switch.
+void pieces() {
+    std::printf("-- loose pieces --\n");
+    const float bmin[3] = {-0.9f, -0.3f, -2.2f}, bmax[3] = {0.9f, 1.1f, 2.2f};
+    auto kindOf = std::function<int(float, float, float, int, bool)>();
+    // A small quad-ish triangle at a point with a given outward axis.
+    kindOf = [&](float x, float y, float z, int axis, bool glass) {
+        float a[3] = {x, y, z}, b[3] = {x, y, z}, c[3] = {x, y, z};
+        const int u = (axis + 1) % 3, w = (axis + 2) % 3;
+        b[u] += 0.1f;
+        c[w] += 0.1f;
+        return classifyTriangle(a, b, c, glass, bmin, bmax);
+    };
+    verdict(kindOf(0.0f, 0.8f, 1.8f, 1, false) == PieceHood, "a top face at the front is the bonnet");
+    verdict(kindOf(0.0f, 0.8f, -1.9f, 1, false) == PieceTrunk, "a top face at the back is the boot");
+    verdict(kindOf(-0.9f, 0.4f, 0.0f, 0, false) == PieceDoorL, "the left flank amidships is the left door");
+    verdict(kindOf(0.9f, 0.4f, 0.0f, 0, false) == PieceDoorR, "the right flank amidships is the right door");
+    verdict(kindOf(0.0f, 0.8f, 0.0f, 1, false) == PieceBody, "the roof stays on");
+    verdict(kindOf(0.0f, 0.9f, 1.0f, 2, true) == PieceWindscreen, "glass facing forward is the windscreen");
+    verdict(kindOf(-0.8f, 0.9f, 0.0f, 0, true) == PieceWindowL, "glass on the left is a left window");
+
+    DriveSpec s;
+    s.damage = 1.0f;
+    Impact front;
+    front.point[0] = 0.0f, front.point[1] = 0.3f, front.point[2] = 2.2f;
+    front.dir[0] = 0.0f, front.dir[1] = 0.0f, front.dir[2] = 1.0f;
+    front.radius = 1.1f;
+    const float hood[6] = {-0.8f, 0.6f, 1.2f, 0.8f, 0.9f, 2.2f};
+    const float doorL[6] = {-0.9f, 0.0f, -0.6f, -0.8f, 0.8f, 0.8f};
+    float hp = 0.0f;
+    verdict(!pieceTakesHit(s, PieceHood, front, 8.0f, hood, hood + 3, hp) &&
+                pieceTakesHit(s, PieceHood, front, 11.0f, hood, hood + 3, hp),
+            "a bonnet soaks up hits and comes off on the second");
+    hp = 0.0f;
+    verdict(pieceTakesHit(s, PieceHood, front, 13.0f, hood, hood + 3, hp),
+            "one big hit tears a bonnet off at once");
+    hp = 0.0f;
+    verdict(!pieceTakesHit(s, PieceDoorL, front, 30.0f, doorL, doorL + 3, hp),
+            "a head-on never takes a door off");
+    DriveSpec off = s;
+    off.damageLoose = 0.0f;
+    hp = 0.0f;
+    verdict(!pieceTakesHit(off, PieceHood, front, 40.0f, hood, hood + 3, hp),
+            "Loose parts 0: nothing comes off");
+}
+
 }  // namespace
 
 int run() {
@@ -591,6 +639,7 @@ int run() {
     analyticWheelRig();
     terrainStability();
     damage();
+    pieces();
     if (failures) {
         std::printf("vehicle-check: %d FAILURE(S)\n", failures);
         return 1;
