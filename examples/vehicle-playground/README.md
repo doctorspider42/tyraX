@@ -186,8 +186,9 @@ the lower gears are longer rather than the whole car becoming faster.
 |---|---|
 | Start | Pause menu, including Day / Night |
 | Square | Enter / leave the nearest vehicle |
-| Left stick | Steer; vertical axis also supplies throttle / reverse |
-| R2 / L2 | Throttle / brake |
+| Left stick | Steer |
+| R2 | Gas (brakes when rolling backwards) |
+| L2 | Brake; reverse once stopped |
 | Circle | Handbrake |
 | Cross | Nitrous |
 | Triangle | Chase / bumper / far camera |

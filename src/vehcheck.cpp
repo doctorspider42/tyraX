@@ -17,6 +17,7 @@
 // the PS2 toolchain) - the VEH telemetry on a real boot stays the check for
 // that, and docs/vehicles.md says which lines to read.
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 
@@ -690,6 +691,53 @@ void offroad() {
             "a car half on the grass sits between the two surfaces");
 }
 
+// The pedals: R2 gas, L2 brake-then-reverse (vehiclesim::pedals, the rule the
+// console's controller and the test drive share).
+void pedalsCheck() {
+    std::printf("-- pedals --\n");
+    DriveSpec s;
+    // From a standstill, holding L2 alone drives the car backwards.
+    DriveState st;
+    st.pos[1] = s.rideHeight;
+    for (int i = 0; i < 150; ++i) {
+        DriveInput in;
+        pedals(st.speed, 0.0f, 1.0f, in);
+        step(s, in, 1.0f / 50.0f, flat, st);
+    }
+    std::printf("  L2 from a standstill: speed %.2f after 3 s\n", st.speed);
+    verdict(st.speed < -2.0f, "L2 held at a standstill reverses");
+    // Rolling forward, L2 brakes to a stop FIRST, and only then reverses.
+    DriveState f;
+    f.pos[1] = s.rideHeight;
+    for (int i = 0; i < 150; ++i) {
+        DriveInput in;
+        pedals(f.speed, 1.0f, 0.0f, in);
+        step(s, in, 1.0f / 50.0f, flat, f);
+    }
+    const float v0 = f.speed;
+    float minBack = 0.0f;
+    int framesToStop = -1;
+    for (int i = 0; i < 300; ++i) {
+        DriveInput in;
+        pedals(f.speed, 0.0f, 1.0f, in);
+        step(s, in, 1.0f / 50.0f, flat, f);
+        if (framesToStop < 0 && f.speed <= kPedalStop) framesToStop = i;
+        minBack = std::min(minBack, f.speed);
+        if (framesToStop < 0 && in.throttle < 0.0f) {
+            verdict(false, "L2 never reverses while the car still rolls forward");
+            return;
+        }
+    }
+    std::printf("  forward %.1f u/s: stopped after %d frames, then reversed to %.2f\n", v0,
+                framesToStop, minBack);
+    verdict(framesToStop > 0 && framesToStop < 100, "L2 brakes a forward-rolling car");
+    verdict(minBack < -2.0f, "and, once stopped, the same L2 reverses");
+    // Rolling backwards, R2 is the brake.
+    DriveInput in;
+    pedals(-3.0f, 1.0f, 0.0f, in);
+    verdict(in.brake > 0.9f && in.throttle == 0.0f, "R2 brakes a car rolling backwards");
+}
+
 }  // namespace
 
 int run() {
@@ -703,6 +751,7 @@ int run() {
     roughRide();
     analyticWheelRig();
     terrainStability();
+    pedalsCheck();
     handling();
     offroad();
     if (failures) {

@@ -591,6 +591,27 @@ void bodyRotation(float pitch, float yaw, float roll, float out[3]) {
     out[2] = (c > 1e-5f ? std::atan2(sr, cy * cr) : 0.0f) * kRad2Deg;
 }
 
+void pedals(float speed, float gas, float brakeReverse, DriveInput& in) {
+    gas = clampf(gas, 0.0f, 1.0f);
+    brakeReverse = clampf(brakeReverse, 0.0f, 1.0f);
+    const bool g = gas > 0.02f, b = brakeReverse > 0.02f;
+    in.throttle = 0.0f;
+    in.brake = 0.0f;
+    if (speed > kPedalStop) {           // rolling forward: L2 brakes
+        in.throttle = gas;
+        in.brake = brakeReverse;
+    } else if (speed < -kPedalStop) {   // rolling backward: L2 drives, R2 brakes
+        in.throttle = -brakeReverse;
+        in.brake = gas;
+    } else if (g && !b) {
+        in.throttle = gas;
+    } else if (b && !g) {
+        in.throttle = -brakeReverse;    // stopped: L2 is reverse
+    } else if (g && b) {
+        in.brake = 1.0f;                // both held at a standstill: stay put
+    }
+}
+
 void wheelAnchors(const DriveSpec& spec, const DriveState& state, float out[4][3]) {
     const float hx = 0.5f * spec.track, hz = 0.5f * spec.wheelBase;
     // FL, FR, RL, RR - Detection::wheels order.

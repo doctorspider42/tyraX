@@ -282,20 +282,23 @@ void App::vehicleDriveTick() {
     // held. What must not steal a keystroke is an ACTIVE TEXT FIELD (typing a
     // top speed must not also floor the throttle), and that is what this asks.
     vehiclesim::DriveInput in;
-    if (vehicleDriveHoldThrottle_) in.throttle += 1.0f;
+    // The console's pedals (vehiclesim::pedals): W is R2, S is L2 - brake
+    // while rolling forward, reverse once stopped.
+    float gas = vehicleDriveHoldThrottle_ ? 1.0f : 0.0f, brakeRev = 0.0f;
     in.steer += vehicleDriveSteer_;
     if (!ImGui::GetIO().WantTextInput) {
-        if (ImGui::IsKeyDown(ImGuiKey_W)) in.throttle += 1.0f;
-        if (ImGui::IsKeyDown(ImGuiKey_S)) in.throttle -= 1.0f;
+        if (ImGui::IsKeyDown(ImGuiKey_W)) gas = 1.0f;
+        if (ImGui::IsKeyDown(ImGuiKey_S)) brakeRev = 1.0f;
         if (ImGui::IsKeyDown(ImGuiKey_A)) in.steer -= 1.0f;
         if (ImGui::IsKeyDown(ImGuiKey_D)) in.steer += 1.0f;
         if (ImGui::IsKeyDown(ImGuiKey_Space)) in.handbrake = true;
-        if (ImGui::IsKeyDown(ImGuiKey_LeftShift)) in.brake = 1.0f;
+        if (ImGui::IsKeyDown(ImGuiKey_LeftShift)) brakeRev = 1.0f;
         // E, so nitrous is testable at all: the two branches that change
         // acceleration and top speed were unreachable in the host copy, and a
         // divergence in them would have been invisible until it shipped.
         if (ImGui::IsKeyDown(ImGuiKey_E)) in.nos = true;
     }
+    vehiclesim::pedals(vehicleDriveState_.speed, gas, brakeRev, in);
 
     // The SAME sampler the placement snap uses, so the car drives on exactly
     // the heightfield the editor draws - and, over a road, on the road mesh
@@ -607,7 +610,7 @@ void App::drawVehicleWindow() {
             } else if (vehicleDriveObj_ == inst) {
                 if (ImGui::Button("Stop driving")) vehicleDriveStop();
                 ImGui::SameLine();
-                ImGui::TextDisabled("W/S throttle, A/D steer, Shift brake, Space handbrake");
+                ImGui::TextDisabled("W gas, S brake / reverse, A/D steer, Space handbrake");
                 ImGui::Separator();
                 const vehiclesim::DriveState& st = vehicleDriveState_;
                 ImGui::Checkbox("Hold throttle", &vehicleDriveHoldThrottle_);
