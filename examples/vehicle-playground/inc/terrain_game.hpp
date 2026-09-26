@@ -911,6 +911,15 @@ class TerrainGame : public Tyra::Game {
     float nos = 1.0F;          // tank, 0..1 - starts full
     int nosActive = 0;
     float slip = 0.0F;         // 0..1, the ONE tyre-slip number
+    // 0 while the handbrake is held, back to 1 over kVehHandbrakeRecover after
+    // it is let go (the vehiclesim twin's DriveState::hbBlend).
+    float hbBlend = 1.0F;
+    // Yaw rate (deg/s) a car-car hit gave the body (1.135.7). Integrated on
+    // top of the bicycle yaw and damped by the tyres, so a hit off the centre
+    // of mass spins the car instead of only pushing it.
+    float spin = 0.0F;
+    // Tyres on the paved surface at the last step (0..4, off-road grip).
+    int paved = 4;
     // Engine note (docs/vehicles.md). `engineCh` is the SPU2 channel the loop
     // holds while this vehicle is being driven, -1 when silent; `enginePitchReg`
     // is the LAST value written, because writing the pitch costs a blocking IOP
@@ -975,6 +984,10 @@ class TerrainGame : public Tyra::Game {
     // is the hit, so no contact code needs to know damage exists.
     float damage = 0.0F;         // 0 pristine .. 1 wrecked
     float dmgPreV[2] = {0.0F, 0.0F};
+    // The wall pass touched a wall this frame (dmgHaveN; dmgN its normal): the
+    // damage then counts only what stopped the car along its travel.
+    float dmgN[2] = {0.0F, 0.0F};
+    int dmgHaveN = 0;
     float dmgCool = 0.0F;        // seconds before the next dent may land
     float dmgSmokeAcc = 0.0F;    // fractional engine-smoke puffs owed
     int dentCount = 0;           // dents recorded (merged once full)
@@ -990,6 +1003,7 @@ class TerrainGame : public Tyra::Game {
     // so a geometry rebuild (which bakes fresh, undamaged vertices) can put
     // every dent back; a hit itself is applied to the vertices at once.
     float dents[kVehDentMax][7] = {};
+    int contactLogged = 0;  // VEHCONTACT stated for this sleep (telemetry)
   };
   VehicleRt vehicles_[VEHICLE_COUNT > 0 ? VEHICLE_COUNT : 1];
   // The undamaged pose each dented body is measured against (per vehicle
@@ -1132,6 +1146,11 @@ class TerrainGame : public Tyra::Game {
   std::unique_ptr<Tyra::StaPipTextureBag> wheelTexBag_;
   void setupVehicles(int scene);
   void updateVehicles(float dt);
+  // Fixed 1/50 s sub-steps around updateVehicles (1.135.6): a 25 fps frame
+  // runs it twice. vehSubStepRepeat_ is true on every sub-step after the
+  // first, so edge-triggered input (use, lights, camera) fires once a frame.
+  void stepVehicles(float dt);
+  bool vehSubStepRepeat_ = false;
   void renderVehicleWheels();
   int vehicleLod(int vi) const;  // the body's shown tier (telemetry)
   // Tyre smoke and skid marks (docs/vehicles.md, "Skid marks and smoke"):
@@ -1947,6 +1966,14 @@ class TerrainGame : public Tyra::Game {
     // not run again merely because its brightness flickered.
     bool patchValid = false;
     float patchCx = 0.0F, patchCz = 0.0F, patchR = 0.0F, patchLift = 0.0F;
+    // A scene SPOT's landing and projective STQ, keyed on the light's pose,
+    // reach and cone (position, rotation, lightRadius, lightSpotAngle): a
+    // lamp that has not moved keeps both, so its cone is not marched to the
+    // ground again and its STQ array keeps its content stamp - the bag
+    // replays its baked stream instead of re-staging every frame.
+    float spotKey[8] = {};
+    bool spotKeyValid = false;
+    float spotHit = -1.0F;
     // The flashlight's SECOND patch, for the wall its beam is touching. Both
     // are drawn every frame and the depth buffer decides where each shows,
     // because a beam sweeping from the floor up a wall really does light both
@@ -1995,6 +2022,25 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipBag> bag;
   };
   std::vector<LightPool> lightPools;
+  // Scene spot pools that are not carving a shadow this frame, drawn as ONE
+  // bag (docs/flashlight.md, "One bag for the still pools"): their verts and
+  // STQs copied end to end, each lamp's colour times its FIX in the vertex
+  // colours, FIX 128 for the batch. Rewritten only when a member or one of
+  // its source stamps changes, so a still district replays it baked.
+  struct PoolBatch {
+    BagArray<Tyra::Vec4> verts, sts;
+    BagArray<Tyra::Color> colors;
+    Tyra::M4x4 mat;
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::vector<const LightPool*> members;
+    std::vector<float> memberFix;
+    std::vector<unsigned int> key, lastKey;
+  } poolBatch_;
+  void poolBatchAdd(const LightPool& b, float fix);
+  void poolBatchFlush();
   // Optional custom sprite for the flashlight's pool (Player > Flashlight >
   // Pool texture). Cached by path - a scene switch must not re-add the same
   // texture to the repository.

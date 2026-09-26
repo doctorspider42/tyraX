@@ -175,6 +175,14 @@ struct DriveSpec {
     // replaces it while the handbrake is held, which is the whole drift knob.
     float grip = 26.0f;
     float handbrakeGrip = 6.0f;
+    // Off the road (1.136.0, docs/vehicles.md "Off-road"): multipliers on the
+    // grip (and the handbrake grip) and on the acceleration, and a rolling
+    // resistance in u/s^2, weighted by how many wheels are off the paved
+    // surface. 1 / 1 / 0 is a car that does not care, which is every car
+    // authored before the fields existed.
+    float offroadGrip = 1.0f;
+    float offroadAccel = 1.0f;
+    float offroadDrag = 0.0f;
 
     // Ground contact
     float gravity = 24.0f;          // units/s^2 (vehicles want more than the walker's)
@@ -299,6 +307,10 @@ struct DriveState {
     // to the tyre smoke and the screech, so both cannot disagree about when a
     // tyre is losing traction.
     float slip = 0.0f;
+    // 0 while the handbrake is held, back to 1 over kHandbrakeRecover seconds
+    // after it is let go: the lateral grip blends from handbrakeGrip to grip
+    // along it, so a drift winds down instead of snapping shut in one frame.
+    float hbBlend = 1.0f;
 
     // Weight transfer, presentation only - the body's squat under power, dive
     // under braking and lean out of a corner, in degrees ON TOP of the
@@ -339,6 +351,9 @@ using HeightFn = std::function<float(float x, float z)>;
 // clears. Optional: an empty function is open ground everywhere, which is
 // what the harness and any caller that only cares about handling want.
 using SolidFn = std::function<bool(float x, float z, float feetY)>;
+// Is (x, z) paved - a road, a junction, an object floor? Empty = everywhere,
+// which is what a caller with no roads (the property harness) means.
+using PavedFn = std::function<bool(float x, float z)>;
 
 // Advances one vehicle by `dt` seconds. `dt` is clamped internally so a paused
 // editor or a stalled frame cannot tunnel the car through the world.
@@ -361,7 +376,7 @@ using SolidFn = std::function<bool(float x, float z, float feetY)>;
 // list of what is authored and the harness keeps calling with the raw spec.
 void step(const DriveSpec& spec, const DriveInput& in, float dt,
           const HeightFn& height, DriveState& state, const SolidFn& solid = {},
-          float scale = 1.0f);
+          float scale = 1.0f, const PavedFn& paved = {});
 
 // The four wheel centres in WORLD space for the current visual state, in the
 // same order as Detection::wheels. Full body pitch/roll, cosmetic lean and

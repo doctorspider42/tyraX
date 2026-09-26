@@ -136,3 +136,5 @@ examples/*/*.history
 /livelink.*
 /vucap.bin
 /crash.txt
+
+__pycache__/

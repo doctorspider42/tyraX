@@ -235,6 +235,58 @@ previews a beam at its authored brightness, exactly as it previews the light
 itself — a glow pulsing over a rock-steady pool of light would be a new lie
 rather than less of one.
 
+### Scene spot pools that do not move (1.134.4)
+
+A scene spot light's pool used to redo two things every frame, although for a
+lamp that does not move both come out the same:
+- it marched the cone's axis down to the ground, one `projSurfaceAt` per 0.3
+  units of reach (a 16-unit lamp aimed at the street takes ~20 steps, and each
+  one searches the road triangles);
+- it rewrote the projective STQ of every patch vertex through the `BagArray`,
+  which moves the content stamp, so the bag re-staged instead of replaying its
+  baked stream.
+
+Both are now keyed on the light's position, rotation, reach and cone
+(`LightPool::spotKey`). An unchanged lamp with an unchanged patch keeps its
+landing and its STQ. A lamp that flickers keeps them too: brightness is not
+in the key.
+
+Measured on a physical PS2, district fixture, one ELF with the old behaviour
+selectable at boot, median `work` of 240 frames, two boots per arm: **garage
+night -0.50 ms** (14.55 -> 14.05), outer night -0.08, day poses unchanged. The
+garage's eight pools now cost ~0.74 ms of the frame (all eight removed:
+13.31). That remainder is one bag per lamp plus the carving spot's volumes; it
+is the next item.
+
+### One bag for the still pools (1.134.5)
+
+The pools of scene spots that are not carving a shadow this frame now draw as
+ONE bag (`PoolBatch`). Their vertices and projective STQs are copied end to
+end. Each lamp's colour times its FIX / 128 goes into the vertex colours, and
+the batch draws at FIX 128. That is the same Cs * FIX / 128 the separate bags
+drew, up to rounding: a PCSX2 night capture differs only in the profiler's
+digits and one-step noise inside a pool. The copy is redone only when a
+member, one of its source stamps, its colour or its FIX changes. A still
+district therefore replays the batch baked.
+
+**The batch goes out before anything that builds a shadow mask.** That means
+the torch, which is last in the list, and the one scene spot carving this
+frame. Those two keep their own bags and their DATE pass.
+
+The gobo is CLAMP-wrapped, so no pool bag was ever a submission-batch
+candidate: each sent its own packet. Measured on a physical PS2, one ELF,
+median `work`, two boots per arm:
+- **garage night -0.15 ms** (14.16 -> 14.01);
+- **outer night +0.04**: fewer lamps are in view there, and one bag spanning
+  them is partly visible, so it takes the per-package route where separate
+  bags were culled whole;
+- day unchanged.
+
+All pools removed reads 13.42 in garage night, so ~0.6 ms remains. A 1.2 x
+tighter footprint (instead of 1.5) was worth only another 0.09 ms, so the
+remainder is not mostly fill. It was not shipped: a tilted spot's ellipse
+needs the margin.
+
 ## What the pool does
 
 - **Follows the beam.** The patch is laid out along the beam's run across the

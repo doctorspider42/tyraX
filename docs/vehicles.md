@@ -150,7 +150,9 @@ at ±wheelBase/2 and ±track/2 around the *chassis origin*, so a body that kept
 the exporter's own pivot put every wheel wherever that pivot happened to be:
 the reference car's origin sat 0.25 behind the axle midpoint and all four
 wheels rode visibly forward of their arches. With the origin at hub height,
-`rideHeight = wheelRadius` puts the tyres exactly on the ground.
+`rideHeight = wheelRadius` puts the tyres exactly on the ground - on the
+ground the player SEES, which over a road is the road mesh, not the terrain
+under it (see "Wheels on the road surface").
 
 **What it cannot decide is which end is the nose.** If a node or material says
 `front`/`rear` that wins; otherwise the shorter body overhang past an axle is
@@ -212,7 +214,12 @@ silhouette lost **21% of its radius**; at 700 it loses 2%.
 from the source.** A collapse pulls a round silhouette inward, and a car whose
 physics rides on a 0.240 radius while a 0.190 wheel is drawn floats above the
 road with its wheels spinning at the wrong rate. The bake corrects the figure and
-says so in the panel whenever the shrink exceeds 5%.
+says so in the panel whenever the shrink exceeds 5%, and **every bake writes it
+back into the definition** (`vehbake::adoptMeasured`, since 1.134.1): the
+radius becomes the drawn wheel's, and the ride height moves by the same amount
+so the author's clearance survives. Before that the editor adopted it only
+while the definition still held the struct defaults, so a re-bake with another
+wheel model or budget never reached it - see "Wheels on the road surface".
 
 ## The drive model
 
@@ -232,6 +239,147 @@ everything else a scene does.
   difference *is* the sideways slip, and grip is the cap on how fast the tyres
   kill it. Low slides, high is on rails, and `handbrakeGrip` replaces it while
   the handbrake is held — that is the entire drift knob.
+- **The body yaws no faster than grip allows (1.135.0).** The bicycle model's
+  yaw rate is capped at `grip / |v|`: a lateral acceleration of `v x yaw rate`
+  may not exceed `grip`. The speed taper on the steering lock was not enough
+  on its own. At top speed full lock still asked for ~47 u/s^2 against a grip
+  of 26, so every d-pad or keyboard press rotated the body faster than its
+  path could follow, and the car spun instead of pushing wide.
+  - The scale is exactly 1 (`kYawGripScale` / `kVehYawGripScale`). Yaw
+    injects `v x rate x dt` of slip a step and grip removes `grip x dt`, so any
+    scale above 1 grows slip without bound: 1.15 measured 11 u/s after three
+    seconds.
+  - The handbrake keeps no cap; it is how a drift starts.
+  - `--vehicle-check` "handling": full lock at top speed now demands 26.0 u/s^2
+    with 0.00 u/s of slip.
+  - PCSX2, same Remote Pad script: at 30 u/s and full lock the old runtime
+    built 22.7 u/s of slip and turned 70 degrees in half a second; the new one
+    holds 0 slip and turns 7, 21, 16 degrees in successive half seconds.
+  - The same release also stops clamping the speed down to the cap under
+    throttle (a car above its top speed, e.g. when the nitrous ends, now
+    coasts down on drag instead of losing ~4 u/s in one frame).
+  - It also makes the ride spring one-sided above its rest height: it never
+    pulls the body down faster than gravity. Inside the grounded slack it used
+    to haul the car down at ~200 x the gap and glue it to every crest.
+- **The handbrake starts a drift, and the drift winds down (1.135.2).**
+  1. **Yaw.** While it is held, the yaw cap uses the FULL grip, not the
+     handbrake grip, times `kHandbrakeYawCap` (1). It is taken on the car's
+     ground speed: the forward part falls in a slide, and a cap on it grew
+     until the car swapped ends. The steering adds `kHandbrakeYaw` (30 deg/s
+     at full lock), so the rear steps out instead of the car skating sideways
+     on four locked tyres.
+  2. **Release.** Grip returns from `handbrakeGrip` to `grip` over
+     `kHandbrakeRecover` (0.35 s, `hbBlend` in the state), instead of in one
+     frame.
+  3. **Friction circle, softened.** What the tyres spend on braking or driving
+     comes off the cornering grip: a longitudinal demand equal to the grip
+     costs `kFrictionShare` (half) of it. The full circle left a braking car
+     unable to turn at all.
+
+  `--vehicle-check`: a handbrake flick at 20 u/s turns 76 degrees in 0.8 s
+  with 16.6 u/s of slip, and the first frame after release sheds 0.00 u/s of
+  slip against 0.52 at full grip. In PCSX2 a flick at 30 u/s slid on and
+  recovered over ~1.5 s. The constants are code, not definition fields, yet:
+  tune by feel first.
+- **Off-road grip (1.136.0).** Three definition fields (Vehicle Editor,
+  format 70) set how a car behaves off the paved surface:
+  - `offroadGrip` multiplies the grip and the handbrake grip;
+  - `offroadAccel` multiplies the acceleration;
+  - `offroadDrag` is a rolling resistance in u/s^2, a constant pull toward
+    rest, so a shortcut across the grass costs time at any speed.
+
+  Each tyre's contact sample also asks whether it is paved. On the console
+  that means a road triangle (`roadSurfaceAt`) or an object floor the wheel
+  rides. In the test drive it means a road triangle only, because the test
+  drive has no floor model. The share of tyres off the road blends the three
+  toward their values: one wheel on the grass gives a quarter of the effect,
+  so the road edge is not a cliff.
+
+  The blend is applied once, to the grip and acceleration every later rule
+  reads, so the yaw cap, the friction circle and the wheelspin all see the
+  surface without a line of their own. The defaults 1 / 1 / 0 ignore the
+  surface, so every car authored before the fields existed drives exactly as
+  before.
+
+  `--vehicle-check` "offroad" checks it. At 0.5 / 0.7 / 3, from rest:
+  - on the grass the car reaches 9.7 u/s in 3 s, against 22.0 on the road;
+  - its full-lock corner holds 11.5 u/s^2, half its grip of 26 (24.4 on the
+    road);
+  - straddling the edge, it reaches 17.9 u/s.
+
+  The playground's road cars are set to about 0.6 / 0.8 / 2.5, the Strix
+  harsher and Rally 04 almost unaffected (0.95 / 0.95 / 0.8).
+  The console's `VEH` telemetry line ends in `paved N`, the tyres on the
+  road at the last step.
+- **Car-car hits spin (1.135.7, runtime only; the test drive has one car).**
+  - **Where the impulse lands.** The velocity exchange along the contact
+    normal is applied at the contact point (the deepest disc pair's surface),
+    not the centre. It therefore also turns each body by
+    `kVehSpinGain x (r x J) / I`, with I a wheelbase x track box's moment
+    about its centre.
+  - **How the spin lives on.** It is its own yaw rate (`VehicleRt::spin`, deg/s,
+    capped at 540). It is integrated on top of the bicycle yaw without
+    turning the velocity, which is the slip the tyres then fight. The tyres
+    damp it at `kVehSpinDamp` (5/s) on the ground, 0.5/s in the air.
+  - **What it looks like.** A clipped rear quarter or a T-bone near a bumper
+    spins the car out; a hit through the centre still only pushes it.
+  - **Log line.** `VEHHIT a b rel10 R spinA A spinB B` is written once per hit.
+  - **Measured.** In PCSX2 the Ravager was driven straight into the front
+    quarter of a Strix parked across its path at 14.2 u/s. It gave the Strix
+    445 deg/s and deflected the Ravager by about 20 degrees (-104 deg/s),
+    after which it drove on.
+- **The corner lean follows what the tyres carry (1.135.5).** The roll target
+  was the lateral acceleration the steering ASKED for. It is now clamped to
+  the effective grip, so a handbrake slide (grip 6) no longer leans the body
+  fully into a corner the car is not taking. In an ordinary corner the lean
+  is unchanged (the roll-bound properties still read +-6.00).
+- **The test drive steps at 1/50 s (1.135.4).** The editor used to feed the
+  sim its own frame time (ImGui's delta, 1/144 s on a fast monitor). Several
+  rules act once per step - the head-on scrub, the attitude spring's response
+  - so the test drive drove a different car from the one the PAL console runs
+  at 50 fps. It now runs fixed 1/50 s steps off an accumulator (at most five
+  per editor frame). Since 1.135.6 the console does the same: `stepVehicles`
+  runs `updateVehicles` in 1/50 s sub-steps, twice on a 25 fps frame and once
+  at 50 fps, exactly as before. Edge-triggered input (use, lights, camera)
+  fires on the first sub-step only (`vehSubStepRepeat_`). In PCSX2, with the
+  same Remote Pad script, a run with the physics stepped every second frame in
+  two sub-steps tracks the 50 fps run to within 1-2 units and a few degrees.
+- **A fast step is swept (1.135.3).** A wall move longer than `kSweepStep`
+  (1 unit) is walked in pieces and stops at the first blocked one. At 90 u/s
+  on a 20 fps frame a car moves 4.5 units, more than its own length, so a
+  0.3-unit wall between two frames used to be jumped whole. `--vehicle-check`
+  "swept": the centre stops at z 16.49 in front of a wall at 20.00, and with
+  the sweep disabled the same run ends at z 184.97. Ordinary steps are
+  shorter than a unit and pay nothing.
+- **The stick is rescaled past its deadzone (1.135.3, the runtime; the
+  test drive has no stick).** The steering's 0.12 and the stick throttle's
+  0.15 used to be hard cuts that jumped straight to 12% and 15%. They now
+  rescale from zero. The steering also gets a gentle expo (65% linear + 35%
+  cubic) for fine control around the centre, where a fast car lives. Full
+  deflection and the digital buttons still give full lock.
+- **Walls redirect the car (1.135.1).** On a fresh hit:
+  1. The wall's normal is taken from the blocked sample points: away from
+     their centroid, so it works at any wall angle.
+  2. The velocity keeps its along-wall part, scrubbed by the impact angle
+     (the old grind curve, so a scrape barely slows). The into-wall part is
+     reflected at 0.15 (`kWallBounce` / `kVehWallBounce`).
+  3. The car moves on along the new velocity if that position is free.
+  4. The heading turns toward the new velocity by (1 - impact): a scrape
+     realigns almost fully, a head-on keeps its heading and bounces. The turn
+     is dropped if it would put a corner into the wall.
+
+  The old resolver slid along world X or Z only and kept the velocity pointed
+  into the wall. The car ground with its nose pinned and never lined up; a
+  45-degree wall gave a stair-step or a stop; a head-on took the speed with no
+  bounce. `--vehicle-check` walls: a glancing hit slides 155 units at 21.98 u/s,
+  and a new diagonal-wall property slides 88 units at 21.98 u/s without
+  entering the wall. Pillar, head-on, overlap-escape and thin-wall properties
+  still hold.
+
+  The editor's test drive now uses the runtime's wall rules exactly: boxes
+  inflated by 0.35, and a wall only when its top is above feet + 0.5 and its
+  bottom below feet + 0.9. Before, a car touched walls 0.35 later in the
+  editor than on the console.
 - **Walls are eight sample points** — the four corners of the BODY rectangle
   (the wheelbase plus `bodyOverhang`, the bumpers' reach past the axles,
   measured off the baked body — the axle rectangle alone let the bonnet clip
@@ -689,7 +837,8 @@ with a Remote Pad drift and a `SKIDDBG` log:
    taken across the tyre's displacement since the previous edge now.
 3. **Height.** The marks sat at the wheel height, which samples the terrain
    only, so on every road (0.12 above it) they were under the asphalt. Both
-   edges sit on `groundSurfaceAt` now.
+   edges sit on `groundSurfaceAt` now - and since 1.134.1 so do the wheels
+   themselves ("Wheels on the road surface").
 
 **The puffs rise and slow** (drag 1.6/s, a little buoyancy), fade in over
 their first tenth instead of popping, start small and billow out. They spawn
@@ -873,6 +1022,18 @@ the hit - its size is the impact speed, its direction says which side was
 struck (the obstacle pushed the car along it). So every existing contact dents
 through one rule, a parked car hit by another car included, and a new kind of
 contact will too.
+
+**Against a wall, the hit is the approach speed along the wall's normal.** The
+wall response (1.135.x) redirects a car along the wall, bounces it and - once a
+corner is already inside - cuts its speed to a quarter, so the raw velocity
+change of a 2-degree scrape read as a 20 u/s crash. The damage therefore takes
+the pre-collision velocity's component INTO the wall at the contact: the host
+probes the solid test on both sides of the contact point for the normal, the
+runtime reads the face of the oriented collision box the contact is least
+deep behind (a mesh prop falls back to "away from the contact"). Measured with
+`--vehicle-check`'s fixtures: head-on 12.5, a 75-degree hit 5.7, a 2-degree
+scrape 0 (it used to be 17). Car-car and physics-body contacts keep the full
+velocity change.
 
 **The dent is a pure function of the rest pose.** `vehiclesim::applyDent`
 displaces each vertex from its *undamaged* position with a falloff that depends
@@ -1960,6 +2121,65 @@ objects were deleted, a new car inherited one of those rows: collision and
 driving still worked, but the script correctly hid the wrong object. The example
 now stores stable FNV-1a object-ID hashes and resolves them through
 `SCENE_OBJECT_ID_TABLES` when the scene loads.
+
+## Wheels on the road surface
+
+The wheels of every car in `examples/vehicle-playground` sank into the ground,
+parked ones at the spawn included. It was measured, not eyeballed: the game
+prints `VEHCONTACT car N def D parked|driven gap1000 g0 g1 g2 g3 roadlift1000
+l0 l1 l2 l3` - the lowest DRAWN vertex of each tyre (read back out of the
+wheel batch, i.e. what the GS receives) minus `groundSurfaceAt` under it, and
+how far that surface sits above the terrain, both in thousandths. A parked
+car states it once as it goes to sleep, the driven car every second. A car on
+its far tier draws no wheel batch and prints nothing; its wheels are baked
+into the body at the rest anchors, so they follow the body. Before the fix, in
+PCSX2:
+
+| Car | where | gap (mm) | road lift (mm) |
+|---|---|---|---|
+| Ravager (radius right) | road (the spawn) | -119 | 119 |
+| CC96 (radius 0.232, drawn 0.240) | road (the spawn) | -127 | 119 |
+| Ravager | bare terrain | 0 | 0 |
+| CC96 | bare terrain | -7 | 0 |
+
+Two causes, and they add:
+
+1. **The cars stood on the terrain, and the road is drawn above it.** A road is
+   its own mesh `roadgen::kLift` (0.12) over the heightfield, junctions 0.14,
+   and the spawn is on Garage boulevard. Both twins sampled only the terrain
+   under each hardpoint - `updateVehicles` called `terrainHeightAt`, and the
+   editor's test drive handed `vehiclesim::step` the viewport's
+   `terrainHeight` - so every tyre on every road was drawn 0.12 into the
+   asphalt, on every car alike. The skid marks had hit the same thing earlier
+   and moved to `groundSurfaceAt`; the car under them had not. Now the four
+   contacts and the six body-clearance probes read `groundSurfaceAt` (the max
+   of terrain and road), and the test drive reads the same max through
+   `roadgen::Surface`, a host sampler over the triangles the viewport draws
+   (the runtime's barycentric test and tolerance), built when a drive starts.
+2. **A definition's wheel radius had drifted from its drawn wheel.** Both twins
+   hold each hub one `wheelRadius` above its ground and the body `rideHeight`
+   above the plane, so a radius smaller than the baked wheel sinks the tyre by
+   the difference. The CC96 carried 0.232 against a 0.240 wheel after its model
+   was re-baked (the Tristar 0.31 against 0.303, floating 7 mm): the editor
+   adopted the measured radius only while the definition still held the struct
+   defaults, and the build merely logged `measured ... radius 0.240 - the
+   definition's Driving tab should match`. `vehbake::adoptMeasured` now takes
+   the drawn radius on every bake (rounded to 1 mm, GUI and `--build` alike)
+   and moves `rideHeight` by the same amount, keeping the author's clearance
+   (`rideHeight - wheelRadius`, zero for a car on its tyres) instead of the
+   absolute value. A car added later, or re-baked with another wheel budget,
+   gets the same treatment without anyone reading the log.
+
+After the fix every row above reads a gap of **0**, and a short reverse drive
+(`--pad "stick l 0 127"`, 1 s) holds 0..+2 on both surfaces - the +2 is a
+faceted tyre spun off its flat. Rally 04 and the Tristar are not placed in
+`main`; their bake-measured radii (0.341 = definition, 0.303 against 0.31) are
+the whole check for them, and cause 1 does not depend on the car. Ruled out on the way, by the same numbers: the
+suspension rest compression (zero at rest on flat ground; the upward clamp is
+6% of the radius), the wheel mesh origin (the bake centres the wheel on its hub;
+the Ravager on terrain reads exactly 0), instance scale (1 on every placed car)
+and the body-versus-wheel placement in `renderVehicleWheels` (the same hub
+arithmetic as the body's rest height).
 
 ## Not built yet
 

@@ -134,6 +134,34 @@ void walls() {
         verdict(touched && slid > 20.0f && st.speed > 5.0f,
                 "a glancing hit grinds instead of sticking");
     }
+    // A wall at 45 degrees to the world axes. The old resolver slid along
+    // world X or Z only, so a diagonal wall gave a stair-step or a dead stop;
+    // the normal now comes from the blocked points, whatever the wall's angle.
+    {
+        auto diag = [](float x, float z, float) { return x + z > 14.0f; };
+        DriveSpec s;
+        DriveState st;
+        st.pos[1] = s.rideHeight;
+        st.yaw = 15.0f;  // 30 degrees off the wall's own direction
+        DriveInput in;
+        in.throttle = 1.0f;
+        bool touched = false;
+        float along0 = 0.0f;
+        for (int i = 0; i < 400; ++i) {
+            step(s, in, 1.0f / 50.0f, flat, st, diag);
+            if (!touched && st.pos[0] + st.pos[2] > 12.0f) {
+                touched = true;
+                along0 = st.pos[2] - st.pos[0];
+            }
+        }
+        const float along = (st.pos[2] - st.pos[0]) - along0;
+        std::printf("  diagonal wall: slid %.1f along it at end speed %.2f, "
+                    "depth %.2f\n", along * 0.7071f, st.speed,
+                    (st.pos[0] + st.pos[2]) * 0.7071f);
+        verdict(touched && along * 0.7071f > 20.0f && st.speed > 5.0f &&
+                    st.pos[0] + st.pos[2] < 14.0f,
+                "a diagonal wall slides the car along it, no stair-step");
+    }
     {
         DriveSpec s;
         DriveState st;
@@ -216,6 +244,27 @@ void walls() {
         std::printf("  thin wall: deepest centre z %.2f (far face at 11.50)\n",
                     worstZ);
         verdict(worstZ < 10.6f, "a thin wall cannot be tunneled by grinding");
+    }
+    // A fast car on a slow frame: 90 u/s at 20 fps is 4.5 units a step, more
+    // than the car is long, so a 0.3-unit wall between two frames used to be
+    // jumped whole. The swept step stops it.
+    {
+        auto thin = [](float, float z, float) { return z > 20.0f && z < 20.3f; };
+        DriveSpec s;
+        s.topSpeed = 120.0f;
+        DriveState st;
+        st.pos[1] = s.rideHeight;
+        st.pos[2] = 12.0f;
+        st.speed = 90.0f;
+        DriveInput in;
+        in.throttle = 1.0f;
+        float worstZ = -1e9f;
+        for (int i = 0; i < 40; ++i) {
+            step(s, in, 1.0f / 20.0f, flat, st, thin);
+            worstZ = std::max(worstZ, st.pos[2]);
+        }
+        std::printf("  swept: deepest centre z %.2f (wall at 20.00-20.30)\n", worstZ);
+        verdict(worstZ < 20.0f, "a fast car on a slow frame cannot jump a thin wall");
     }
 }
 
@@ -625,6 +674,136 @@ void pieces() {
             "Loose parts 0: nothing comes off");
 }
 
+// Handling: the body turns no faster than grip allows, and a car above its
+// top speed coasts down instead of being clamped in one frame.
+void handling() {
+    DriveSpec s;
+    auto flat = [](float, float) { return 0.0f; };
+    // Full lock at top speed, the digital-steering case. The body's yaw rate
+    // times its speed is the lateral acceleration it demands.
+    DriveState st;
+    st.pos[1] = s.rideHeight;
+    st.speed = s.topSpeed;
+    DriveInput in;
+    in.throttle = 1.0f;
+    in.steer = 1.0f;
+    float worstDemand = 0.0f, worstSlip = 0.0f;
+    float prevYaw = st.yaw;
+    for (int i = 0; i < 150; ++i) {
+        step(s, in, 1.0f / 50.0f, flat, st);
+        const float yawRate = (st.yaw - prevYaw) * (3.14159265f / 180.0f) * 50.0f;
+        prevYaw = st.yaw;
+        worstDemand = std::max(worstDemand, std::fabs(yawRate * st.speed));
+        worstSlip = std::max(worstSlip, std::fabs(st.lateral));
+    }
+    std::printf("  full lock at top speed: demand %.1f u/s^2 (grip %.1f), "
+                "worst slip %.2f u/s\n", worstDemand, s.grip, worstSlip);
+    verdict(worstDemand <= s.grip + 0.5f,
+            "full lock at speed asks no more of the tyres than the grip cap");
+    verdict(worstSlip < 1.0f, "full lock at speed pushes wide, it does not spin");
+
+    // Above the cap (nitrous just ended): one frame of throttle costs drag,
+    // not the whole excess.
+    st = {};
+    st.pos[1] = s.rideHeight;
+    st.speed = s.topSpeed * 1.2f;
+    in = {};
+    in.throttle = 1.0f;
+    const float before = st.speed;
+    step(s, in, 1.0f / 50.0f, flat, st);
+    std::printf("  above top speed, one throttle frame: %.2f -> %.2f u/s\n",
+                before, st.speed);
+    verdict(before - st.speed < 0.5f,
+            "a car above its top speed coasts down, it is not clamped");
+
+    // Handbrake flick: the rear steps out (the body rotates past its path),
+    // then grip comes back over kHandbrakeRecover instead of in one frame.
+    st = {};
+    st.pos[1] = s.rideHeight;
+    st.speed = 20.0f;
+    in = {};
+    in.throttle = 0.6f;
+    in.steer = 1.0f;
+    in.handbrake = true;
+    const float yaw0 = st.yaw;
+    for (int i = 0; i < 40; ++i) step(s, in, 1.0f / 50.0f, flat, st);
+    const float turned = std::fabs(st.yaw - yaw0);
+    const float slipHeld = std::fabs(st.lateral);
+    in.handbrake = false;
+    const float lat0 = std::fabs(st.lateral);
+    step(s, in, 1.0f / 50.0f, flat, st);
+    const float firstDrop = lat0 - std::fabs(st.lateral);
+    std::printf("  handbrake flick: turned %.1f deg in 0.8 s, slip %.2f u/s, "
+                "first frame after release sheds %.2f u/s (full grip %.2f)\n",
+                turned, slipHeld, firstDrop, s.grip / 50.0f);
+    verdict(turned > 40.0f && slipHeld > 3.0f,
+            "a handbrake flick rotates the car into a drift");
+    verdict(firstDrop < 0.5f * s.grip / 50.0f,
+            "grip returns gradually after the handbrake, the drift does not snap");
+}
+
+// Off-road grip (1.136.0): the same drive on the road, on the grass, and
+// straddling the edge.
+void offroad() {
+    auto flat = [](float, float) { return 0.0f; };
+    const PavedFn allPaved = [](float, float) { return true; };
+    const PavedFn noneRoad = [](float, float) { return false; };
+
+    // The run the rest of the checks share: full throttle from rest, then a
+    // full-lock corner at speed. Returns the speed after 3 s and the worst
+    // lateral demand in the corner.
+    auto drive = [&](const DriveSpec& s, const PavedFn& paved, float* speed3,
+                     float* demand) {
+        DriveState st;
+        st.pos[0] = 50.0f;  // the half-paved case splits the track at x = 50
+        st.pos[1] = s.rideHeight;
+        DriveInput in;
+        in.throttle = 1.0f;
+        for (int i = 0; i < 150; ++i) step(s, in, 1.0f / 50.0f, flat, st, {}, 1.0f, paved);
+        *speed3 = st.speed;
+        in.steer = 1.0f;
+        float prevYaw = st.yaw, worst = 0.0f;
+        for (int i = 0; i < 100; ++i) {
+            step(s, in, 1.0f / 50.0f, flat, st, {}, 1.0f, paved);
+            const float yr = (st.yaw - prevYaw) * (3.14159265f / 180.0f) * 50.0f;
+            prevYaw = st.yaw;
+            worst = std::max(worst, std::fabs(yr * st.speed));
+        }
+        *demand = worst;
+    };
+
+    // A default car does not know the surface exists: every earlier car keeps
+    // driving exactly as it did.
+    DriveSpec base;
+    float v0, d0, v1, d1;
+    drive(base, allPaved, &v0, &d0);
+    drive(base, noneRoad, &v1, &d1);
+    std::printf("  default spec, paved vs grass: %.3f/%.3f u/s, %.3f/%.3f u/s^2\n",
+                v0, v1, d0, d1);
+    verdict(v0 == v1 && d0 == d1, "a default definition ignores the surface");
+
+    DriveSpec rally = base;
+    rally.offroadGrip = 0.5f;
+    rally.offroadAccel = 0.7f;
+    rally.offroadDrag = 3.0f;
+    float vr, dr, vp, dp;
+    drive(rally, noneRoad, &vr, &dr);
+    drive(rally, allPaved, &vp, &dp);
+    std::printf("  offroad 0.5/0.7/3: grass %.1f u/s after 3 s, corner %.1f u/s^2 "
+                "(paved %.1f, %.1f; grip %.1f)\n", vr, dr, vp, dp, rally.grip);
+    verdict(vr < vp - 1.0f, "off the road the car accelerates slower");
+    verdict(dr <= 0.5f * rally.grip + 0.5f && dr < dp - 1.0f,
+            "off the road the tyres hold half the corner");
+    verdict(vp == v0 && dp == d0, "on the road the off-road fields change nothing");
+
+    // Two wheels on each side: half the effect, not all or nothing.
+    float vh, dh;
+    drive(rally, [](float x, float) { return x < 50.0f; }, &vh, &dh);
+    std::printf("  half on the road: %.1f u/s after 3 s\n", vh);
+    verdict(vh > vr + 0.2f && vh < vp - 0.2f,
+            "a car half on the grass sits between the two surfaces");
+}
+
 }  // namespace
 
 int run() {
@@ -638,6 +817,8 @@ int run() {
     roughRide();
     analyticWheelRig();
     terrainStability();
+    handling();
+    offroad();
     damage();
     pieces();
     if (failures) {

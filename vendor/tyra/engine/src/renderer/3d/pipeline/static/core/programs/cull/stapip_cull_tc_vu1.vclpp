@@ -99,7 +99,7 @@ materialStateReady:
     ; every mesh picks a light. The loop below is the original body, untouched,
     ; so the lit path cannot regress; the unlit twin after it is the same body
     ; with the three spot calls removed.
-    ibgez   spotEnabled,    unlitVertexLoop
+    ibgez   spotEnabled,    unlitSelect
 vertexLoop:
 
         iblez  singleColorEnabled, multiColor
@@ -185,6 +185,17 @@ processing:
         ibne    vertexCounter,  buffer, vertexLoop  ; and repeat if needed
     b       vertexLoopsDone
 
+unlitSelect:
+    ; Modified by TyraX: the fog gate, ONE branch per batch, the spot gate's
+    ; shape. A mesh whose fog coefficient is the constant 255 (fog off, or its
+    ; whole box nearer than the fog start - StaPipCore::render decides) gets
+    ; fog scale 0 in VU1_OPTIONS_ADDR.z, and the loop after the unlit one
+    ; stores that constant instead of computing it: CalculateTyraFog is 6
+    ; upper-pipe operations a vertex. The output is bit-identical - scale 0 and
+    ; offset 255 give F = ftoi4(255) = 0xFF0 in the unlit loop too. ilw reads
+    ; the float's LOW 16 bits; the EE keeps a real scale's low half non-zero.
+    ilw.z   fogScaleBits,   VU1_OPTIONS_ADDR(vi00)
+    ibeq    fogScaleBits,   vi00,   noFogSetup
 unlitVertexLoop:
 
         iblez  singleColorEnabled, multiColorUnlit
@@ -265,6 +276,87 @@ processingUnlit:
         ;--- Fix loop
         iaddi   vertexCounter,  vertexCounter,  -3  ; decrement the loop counter 
         ibne    vertexCounter,  buffer, unlitVertexLoop  ; and repeat if needed
+    b       vertexLoopsDone
+
+noFogSetup:
+    iaddiu  fogConstInt,    vi00,   0xFF0
+noFogVertexLoop:
+
+        iblez  singleColorEnabled, multiColorNoFog
+        ;--- Load vertices single color
+        add      color1,    vf00,   singleColor
+        add      color2,    vf00,   singleColor
+        add      color3,    vf00,   singleColor
+        b processingNoFog
+
+multiColorNoFog:
+        ;--- Load vertices colors
+        lq      color1,   (colorData)
+        lq      color2,   1(colorData)
+        lq      color3,   2(colorData)
+        
+processingNoFog:
+        ;--- Load vertex1
+        lq      vertex1,  (vertexData)
+        lq      stq1,     (stqData)
+
+        ;--- Load vertex2
+        lq      vertex2,  1(vertexData)
+        lq      stq2,     1(stqData)
+
+        ;--- Load vertex3
+        lq      vertex3,  2(vertexData)
+        lq      stq3,     2(stqData)
+
+        ;--- Calculate vertex1
+        MatrixMultiplyVertex{ vertex1, mvp, vertex1 }
+        PerformTyraFogClipCheck{ vertex1, destAddress, XYZ2_STORE_OFFSET, fogConstInt, adcMask }
+        VertexPersCorr{ vertex1, vertex1 }
+        ScaleVertexToGSFormat{ scale, vertex1 }
+        PerformTexturePerspectiveCorrection{ outputStq1, stq1 }
+        FixColor{ color1 }
+
+        ;--- Calculate vertex2
+        MatrixMultiplyVertex{ vertex2, mvp, vertex2 }
+        PerformTyraFogClipCheck{ vertex2, destAddress, XYZ2_STORE_OFFSET+3, fogConstInt, adcMask }
+        VertexPersCorr{ vertex2, vertex2 }
+        ScaleVertexToGSFormat{ scale, vertex2 }
+        PerformTexturePerspectiveCorrection{ outputStq2, stq2 }
+        FixColor{ color2 }
+
+        ;--- Calculate vertex3
+        MatrixMultiplyVertex{ vertex3, mvp, vertex3 }
+        PerformTyraFogClipCheck{ vertex3, destAddress, XYZ2_STORE_OFFSET+6, fogConstInt, adcMask }
+        VertexPersCorr{ vertex3, vertex3 }
+        ScaleVertexToGSFormat{ scale, vertex3 }
+        PerformTexturePerspectiveCorrection{ outputStq3, stq3 }
+        FixColor{ color3 }
+
+        ;--- Store vertex1 
+        sq      outputStq1,     STQ_STORE_OFFSET(destAddress)
+        sq      color1,         RGBA_STORE_OFFSET(destAddress)
+        sq.xyz  vertex1,        XYZ2_STORE_OFFSET(destAddress)
+
+        ;--- Store vertex2
+        sq      outputStq2,     STQ_STORE_OFFSET+3(destAddress)
+        sq      color2,         RGBA_STORE_OFFSET+3(destAddress)
+        sq.xyz  vertex2,        XYZ2_STORE_OFFSET+3(destAddress)
+
+        ;--- Store vertex3
+        sq      outputStq3,     STQ_STORE_OFFSET+6(destAddress)
+        sq      color3,         RGBA_STORE_OFFSET+6(destAddress)
+        sq.xyz  vertex3,        XYZ2_STORE_OFFSET+6(destAddress)
+
+        ;-------------------------------
+
+        iaddiu  vertexData,     vertexData,     3                         
+        iaddiu  stqData,        stqData,        3  
+        iaddiu  colorData,      colorData,      3  
+        iaddiu  destAddress,    destAddress,    9
+
+        ;--- Fix loop
+        iaddi   vertexCounter,  vertexCounter,  -3  ; decrement the loop counter 
+        ibne    vertexCounter,  buffer, noFogVertexLoop  ; and repeat if needed
 vertexLoopsDone:
 
     xgkick kickAddress ; dispatch to the GS rasterizer.

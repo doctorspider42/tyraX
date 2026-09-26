@@ -332,10 +332,42 @@ void App::vehicleDriveStart(int objectIndex) {
         vehicleDriveHome_[3 + a] = o.rotation[a];
     }
     vehicleDriveState_ = vehiclesim::DriveState{};
+    vehicleDriveAccum_ = 0.0f;
     for (int a = 0; a < 3; ++a) vehicleDriveState_.pos[a] = o.position[a];
     vehicleDriveState_.yaw = o.rotation[1];
     vehicleDriveObj_ = objectIndex;
     vehDmgPreviewSerial_ = 0;
+
+    // The roads this scene draws, as the viewport tessellates them (same
+    // height function, same junction pairing), so the test drive stands on
+    // the asphalt the author sees - and the console car, which reads
+    // groundSurfaceAt, stands on it too. Built once per drive: a test drive is
+    // not an edit, and a road dragged mid-drive is picked up by the next one.
+    vehicleDriveRoads_ = roadgen::Surface{};
+    const auto terrainAt = [this](float x, float z) { return viewport_.terrainHeight(x, z); };
+    for (size_t i = 0; i < objs.size(); ++i) {
+        const SceneObject& r = objs[i];
+        if (r.type != PrimitiveType::Road || r.roadPoints.size() < 4) continue;
+        std::vector<roadgen::Vertex> tris;
+        roadgen::tessellate(r.roadPoints, r.roadWidth, terrainAt, tris, {}, r.roadSampleStep);
+        vehicleDriveRoads_.add(tris);
+        if (r.roadIntersectionTexture.empty()) continue;
+        for (size_t j = i + 1; j < objs.size(); ++j) {
+            const SceneObject& other = objs[j];
+            if (other.type != PrimitiveType::Road || other.roadPoints.size() < 4 ||
+                other.roadIntersectionTexture != r.roadIntersectionTexture)
+                continue;
+            std::vector<roadgen::Junction> junctions;
+            roadgen::findJunctions(r.roadPoints, r.roadWidth, other.roadPoints,
+                                   other.roadWidth, junctions);
+            for (const roadgen::Junction& junction : junctions) {
+                tris.clear();
+                roadgen::tessellateJunction(junction, terrainAt, tris);
+                vehicleDriveRoads_.add(tris);
+            }
+        }
+    }
+    vehicleDriveRoads_.build();
 }
 
 void App::vehicleDriveStop() {
@@ -391,9 +423,20 @@ void App::vehicleDriveTick() {
     }
 
     // The SAME sampler the placement snap uses, so the car drives on exactly
-    // the heightfield the editor draws - and the console walks.
+    // the heightfield the editor draws - and, over a road, on the road mesh
+    // drawn roadgen::kLift above it: the generated runtime's groundSurfaceAt
+    // (max of the two). Terrain alone put every tyre 0.12 into the asphalt on
+    // both twins (docs/vehicles.md, "Wheels on the road surface").
     const vehiclesim::HeightFn ground = [this](float x, float z) {
-        return project_.active().terrain.enabled ? viewport_.terrainHeight(x, z) : -1e6f;
+        const float terrain =
+            project_.active().terrain.enabled ? viewport_.terrainHeight(x, z) : -1e6f;
+        const float road = vehicleDriveRoads_.at(x, z);
+        return road > terrain ? road : terrain;
+    };
+    // Off-road grip (1.136.0): a tyre is paved over a road triangle - the
+    // runtime also counts an object floor, which the test drive has no model of.
+    const vehiclesim::PavedFn paved = [this](float x, float z) {
+        return vehicleDriveRoads_.at(x, z) > -1.0e29f;
     };
     // Walls, from placement's own boxes - approximate (world AABBs rather
     // than the console's slide resolver), but the same four corners and the
@@ -409,19 +452,38 @@ void App::vehicleDriveTick() {
             solids.push_back(placement::worldAabb(all[i], aabbFn));
         }
     }
+    // The runtime twin's wall rules exactly (buildVehicleColliders in
+    // templates.cpp): a box is a wall when its top is above feet + 0.5 and its
+    // bottom below feet + 0.9 (lower tops are floors the wheels ride), and it
+    // is inflated by 0.35 (the walker's radius) on both horizontal axes. The
+    // test drive used the bare box with its own height band, so a car touched
+    // walls 0.35 later here than on the console.
     const vehiclesim::SolidFn solid = [&](float x, float z, float feetY) {
+        constexpr float kPad = 0.35f;
         for (const placement::Aabb& b : solids)
-            if (x > b.mn[0] && x < b.mx[0] && z > b.mn[2] && z < b.mx[2] &&
-                feetY + 1.0f > b.mn[1] && feetY < b.mx[1])
+            if (x > b.mn[0] - kPad && x < b.mx[0] + kPad &&
+                z > b.mn[2] - kPad && z < b.mx[2] + kPad &&
+                b.mx[1] > feetY + 0.5f && b.mn[1] < feetY + 0.9f)
                 return true;
         return false;
     };
     // The instance's uniform scale rides into the sim the way the runtime
     // applies it (docs/vehicles.md): the example's car IS scale 1.5, and
     // without this the test drive tuned a car the console never runs.
-    vehiclesim::step(def->drive, in, ImGui::GetIO().DeltaTime, ground,
-                     vehicleDriveState_, solid,
-                     o.scale[0] > 0.001f ? o.scale[0] : 1.0f);
+    // FIXED 1/50 s steps (1.135.4), the PAL console's own step: several
+    // rules (the head-on scrub, the attitude spring's per-step response) act
+    // once per step, so a 144 Hz editor frame fed the sim at its own rate
+    // drove a different car from the one the PS2 runs at 50 fps. The
+    // accumulator keeps the remainder; a long hitch runs at most 5 steps
+    // rather than a burst.
+    vehicleDriveAccum_ += ImGui::GetIO().DeltaTime;
+    if (vehicleDriveAccum_ > 0.1f) vehicleDriveAccum_ = 0.1f;
+    constexpr float kStep = 1.0f / 50.0f;
+    while (vehicleDriveAccum_ >= kStep) {
+        vehicleDriveAccum_ -= kStep;
+        vehiclesim::step(def->drive, in, kStep, ground, vehicleDriveState_, solid,
+                         o.scale[0] > 0.001f ? o.scale[0] : 1.0f, paved);
+    }
 
     // A hit that dented: show it on the car being driven (the preview copy),
     // at the instance's scale the way the console's local vertices carry it.

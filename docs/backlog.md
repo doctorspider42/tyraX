@@ -240,7 +240,7 @@ direct route requires that a guard-band-only bag lacks, and whether an
 
 ## Vehicle damage: what the first version left out (2026-09-26)
 
-Damage shipped in 1.135.0 (docs/vehicles.md, "Damage"). Queued, roughly in
+Damage shipped in 1.137.0 (docs/vehicles.md, "Damage"). Queued, roughly in
 order of what a player would notice first:
 
 - **Physical-PS2 price of a hit.** 1.2-2.3 ms per dent is a PCSX2 number, and
@@ -252,8 +252,8 @@ order of what a player would notice first:
 - **Dent the far tier too**, or fall back to tier 0 for a damaged car inside
   twice its far distance - an obviously wrecked rival pops back to pristine on
   its traffic tier.
-- **Loose parts, the rest** (bonnet/boot/doors/windows came off in 1.136.0;
-  debris kicked by cars, walls and a 60-unit cull in 1.137.0): debris against
+- **Loose parts, the rest** (bonnet/boot/doors/windows came off in 1.138.0;
+  debris kicked by cars, walls and a 60-unit cull in 1.139.0): debris against
   debris and pushing back on a car, bumpers, a wheel that wobbles or
   comes off (camber on the struck corner - the wheel batch already composes a
   per-wheel transform), and a repair that picks the debris up again.
@@ -298,6 +298,50 @@ leaves these, dearest first:
   lights 0.25 ms. Caching the blob patch and the lamp colours bought
   0.02-0.09 ms and ~0.07 ms. Next: find the fixed cost (a bag each, a texture
   each, precise clip), for example one shared blob bag for every car.
+- **Night lighting passes** (garage night, physical PS2, all lamps removed per
+  pass): the scene spot pools still cost ~0.74 ms for eight lamps after
+  1.134.4's cache, which is one additive bag per lamp. Merging the static
+  lamps' pools into one bag, with the per-lamp FIX folded into vertex colours,
+  is the candidate. (1.134.5 then merged the still pools into one bag:
+  -0.15 more.) The light beams cost 0.54 ms in garage night, measured by
+  removing each half (median, two boots):
+  - the coronas are 0.31 ms: 8 camera-facing sprites rebuilt on the EE every
+    frame, so the batch re-stages every frame. The StaPip billboard family
+    would expand static centres on VU1 instead, but its programs are not
+    resident, so price the program-set swap first.
+  - the cones are 0.23 ms: 8-triangle fans drawn with no back-face cull, so
+    each silhouette is filled twice. A one-sided cone at double colour would
+    halve the fill but changes the look.
+  - outer night: the beams cost 0.10 ms in total.
+  The district fixture itself draws the debug profiler overlay (showProfiler,
+  showFps, showMemory), which is a constant in every A/B.
+- **Interleave tuner decision rule** (docs/interleaved-passes.md): one run
+  saw garage night alternate between ~13.9 and ~14.8 ms frames. The tuner then
+  picked plain on a 4/8 tie while interleaving averaged ~2% faster. A
+  median-of-pairs rule with 0.5% hysteresis was built and A/B'd over 8 boots
+  on a regenerated fixture. Both rules read identical: garage night 13.79,
+  and no bimodality in either. Not shipped. Revisit only if the two-population
+  frames come back.
+- **Driving model, after 1.135.0's grip-limited yaw** (the review's order):
+  - ~~walls redirect instead of scrub, and the twins' wall shapes agree~~
+    done 1.135.1 (the host's boxes are still world AABBs of rotated objects,
+    so a rotated prop is fatter in the test drive);
+  - ~~a fixed 1/50 s step~~ done: the test drive in 1.135.4, the console in
+    1.135.6 (whole updateVehicles sub-steps: a 25 fps frame pays the vehicle
+    update twice);
+  - ~~a swept wall test~~ done 1.135.3 (the car-car push after the wall pass
+    is still not wall-checked);
+  - ~~a handbrake that loosens the rear and blends grip back; a friction
+    circle~~ done 1.135.2 (its constants are code: make them definition
+    fields once the feel is settled);
+  - ~~a rescaled deadzone and an expo curve on the stick~~ done 1.135.3;
+  - air control and landings;
+  - ~~per-surface grip~~ done 1.136.0 (paved or not; a per-material surface
+    table - gravel vs grass vs mud - would need terrain paint layers to
+    answer the query);
+  - ~~car-car spin~~ done 1.135.7.
+  The AI steers by heading error with no speed planning and was tuned
+  against uncapped yaw: check its laps (VEHAI) before placing AI cars again.
 - **Stale entries:** the two "vehicle BODIES are still triangle lists" entries
   further down predate 1.117.4, which strips the body parts (the Ravager's
   paint part is 5490 list vertices -> 2649 strip vertices, 0.483x).

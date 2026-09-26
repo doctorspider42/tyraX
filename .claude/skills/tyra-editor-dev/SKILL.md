@@ -2386,7 +2386,7 @@ with GI, but the two own separate contexts (GI may bake on a worker). GPU captur
 uses a private function table, never overwrites gl_loader's viewport pointers,
 and allocates texture storage before filling it (AMD driver workaround).
 
-## Vehicle damage (1.135.0)
+## Vehicle damage (1.137.0)
 
 docs/vehicles.md, "Damage". Three rules. (1) A hit is the velocity change the
 frame's collision stages imposed (`VehicleRt::dmgPreV` is taken at the loop top
@@ -2407,7 +2407,7 @@ colours every frame - `lampBroken` is how damage speaks to it). The six
 "damage*" DriveSpec keys are shown on the Damage tab and skipped by the Driving
 tab by that prefix, so a new damage tunable must keep it.
 
-Loose pieces (1.136.0) add one invariant with teeth: a piece is a vertex RANGE
+Loose pieces (1.138.0) add one invariant with teeth: a piece is a vertex RANGE
 of a body part's tier-0 array (`VEHICLE_PIECES`, measured into
 `VehicleDef::pieces` by the bake), and the range is only safe to collapse
 because the bake gave the piece whole strip runs of its own. Anything that

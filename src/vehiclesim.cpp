@@ -6,6 +6,27 @@
 
 namespace vehiclesim {
 
+// How far past the grip limit the body may yaw (see the yaw step). Keep in
+// sync with kVehYawGripScale in the generated runtime (templates.cpp).
+constexpr float kYawGripScale = 1.0f;
+// How much of the into-wall speed comes back out on a fresh wall hit.
+// Keep in sync with kVehWallBounce in the generated runtime.
+constexpr float kWallBounce = 0.15f;
+// The handbrake (1.135.2): seconds for the grip to come back after release,
+// and the extra yaw it adds at full steering (degrees/s) - the rear stepping
+// out. Keep in sync with kVehHandbrakeRecover / kVehHandbrakeYaw.
+constexpr float kHandbrakeRecover = 0.35f;
+// Wall moves longer than this (units) are swept in pieces (kVehSweepStep).
+constexpr float kSweepStep = 1.0f;
+constexpr float kHandbrakeYaw = 30.0f;
+// Under the handbrake the yaw cap is this many times the FULL grip's limit
+// (not the handbrake grip's): with kHandbrakeYaw on top, loose enough to
+// rotate into a drift, tight enough not to swap ends.
+constexpr float kHandbrakeYawCap = 1.0f;
+// The friction circle, softened: a longitudinal demand equal to the grip
+// costs this share of the lateral grip. Keep in sync with kVehFrictionShare.
+constexpr float kFrictionShare = 0.5f;
+
 namespace {
 
 constexpr float kPi = 3.14159265358979f;
@@ -408,7 +429,8 @@ std::vector<SpecField> specFields(DriveSpec& s) {
          "How far the body reaches past the axles at either end - what the "
          "wall test adds to the wheelbase so the bumper cannot clip a wall."},
         {"wheelRadius", &s.wheelRadius, 0.05f, 2.0f, "Wheel radius",
-         "Measured off the baked wheel; drives ride height and how fast the "
+         "Measured off the baked wheel, and re-measured on every bake (an edit "
+         "here does not survive one); drives ride height and how fast the "
          "wheels appear to spin."},
         {"topSpeed", &s.topSpeed, 1.0f, 80.0f, "Top speed", "Units per second, forward."},
         {"reverseTopSpeed", &s.reverseTopSpeed, 0.5f, 30.0f, "Reverse top speed", ""},
@@ -430,9 +452,19 @@ std::vector<SpecField> specFields(DriveSpec& s) {
          "The cap on how fast the tyres kill sideways slip. Low slides, high is on rails."},
         {"handbrakeGrip", &s.handbrakeGrip, 0.0f, 40.0f, "Handbrake grip",
          "Replaces grip while the handbrake is held - this is the drift knob."},
+        {"offroadGrip", &s.offroadGrip, 0.1f, 1.5f, "Off-road grip",
+         "Grip multiplier with the wheels off the road (terrain, grass, dirt), "
+         "weighted by how many are off. 1 = the surface does not matter."},
+        {"offroadAccel", &s.offroadAccel, 0.1f, 1.5f, "Off-road acceleration",
+         "Acceleration multiplier off the road. Below 1 the tyres spin on loose ground."},
+        {"offroadDrag", &s.offroadDrag, 0.0f, 20.0f, "Off-road rolling drag",
+         "Extra slowdown off the road, units per second squared - what makes a "
+         "shortcut across the grass cost time."},
         {"gravity", &s.gravity, 1.0f, 80.0f, "Gravity", "Units per second squared."},
         {"rideHeight", &s.rideHeight, 0.0f, 3.0f, "Ride height",
-         "Chassis origin above the contact plane. Seeded from the wheel radius."},
+         "Chassis origin above the contact plane. Seeded from the wheel radius; "
+         "equal to it puts the tyres on the ground, and a re-measured radius "
+         "moves it by the same amount."},
         {"suspensionTravel", &s.suspensionTravel, 0.0f, 1.0f, "Suspension travel",
          "How far a wheel moves against the body over bumps. Visual only."},
         {"suspensionRate", &s.suspensionRate, 0.5f, 40.0f, "Suspension rate",
@@ -765,7 +797,7 @@ void wheelAnchors(const DriveSpec& spec, const DriveState& state, float out[4][3
 
 void step(const DriveSpec& specIn, const DriveInput& in, float dt,
           const HeightFn& height, DriveState& state, const SolidFn& solid,
-          float scale) {
+          float scale, const PavedFn& paved) {
     // A stalled frame or a paused editor must not tunnel the car through the
     // world; the sim would rather run slow than teleport.
     dt = clampf(dt, 0.0f, 0.05f);
@@ -824,14 +856,28 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
     float gy[4];
     float sum = 0.0f;
     int groundCount = 0;
+    int pavedWheels = 0;
     for (int i = 0; i < 4; ++i) {
         gy[i] = height ? height(anchors[i][0], anchors[i][2]) : 0.0f;
+        if (!paved || paved(anchors[i][0], anchors[i][2])) ++pavedWheels;
         // TERRAIN_VOID_Y: a scene with no terrain answers "unreachably low",
         // so "there is no floor here" needs no branch of its own.
         if (gy[i] > -1e5f) { ++groundCount; sum += gy[i]; }
     }
     const bool anyGround = groundCount > 0;
     const float planeY = anyGround ? sum / groundCount : -1e9f;
+    // OFF-ROAD (1.136.0): the share of the four tyres off the paved surface
+    // blends the grip, the handbrake grip and the acceleration toward their
+    // off-road multipliers - on the spec COPY, so every rule below (the yaw
+    // cap, the friction circle, the wheelspin) reads the surface for free. One
+    // wheel on the grass is a quarter of the effect, not a cliff edge.
+    const float offShare = 1.0f - pavedWheels * 0.25f;
+    if (offShare > 0.0f) {
+        const float gm = 1.0f + (spec.offroadGrip - 1.0f) * offShare;
+        spec.grip *= gm;
+        spec.handbrakeGrip *= gm;
+        spec.accel *= 1.0f + (spec.offroadAccel - 1.0f) * offShare;
+    }
     // A missing contact is not a kilometre-deep suspension sample.
     for (float& y : gy) if (y <= -1e5f) y = planeY;
     const float restY = planeY + spec.rideHeight;
@@ -900,9 +946,15 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
                 0.5f * (gy[1] + gy[3] - gy[0] - gy[2]) * state.lateral /
                     std::max(spec.track, 0.01f);
             // Implicit spring: stable throughout the accepted 0..50 ms step.
-            state.velY = (state.velY + dt * (wn * wn * (restY - state.pos[1]) +
-                           2.0f * zeta * wn * planeVel)) /
-                         (1.0f + 2.0f * zeta * wn * dt + wn * wn * dt * dt);
+            float nv = (state.velY + dt * (wn * wn * (restY - state.pos[1]) +
+                         2.0f * zeta * wn * planeVel)) /
+                       (1.0f + 2.0f * zeta * wn * dt + wn * wn * dt * dt);
+            // One-sided: tyres push, they never pull. Above its rest height the
+            // body may fall no faster than gravity - inside the grounded slack
+            // the spring used to haul it down at ~200 x the gap, which beat
+            // gravity past 0.12 units and glued the car to every crest.
+            if (state.pos[1] > restY) nv = std::max(nv, state.velY - spec.gravity * dt);
+            state.velY = nv;
             state.pos[1] += state.velY * dt;
             // The spring may not put the body UNDER the ground plane by more
             // than the suspension has travel - a cliff-base slam bottoms out
@@ -1066,8 +1118,12 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
         if (brake > 0.01f) {
             state.speed = approach(state.speed, 0.0f, spec.brakeDecel * brake * dt);
         } else if (throttle > 0.01f) {
-            state.speed = std::min(state.speed + spec.accel * accelMul * throttle * dt,
-                                   spec.topSpeed * topMul);
+            // Above the cap the throttle only stops adding: drag takes the
+            // excess down. Clamping here dropped ~4 u/s in ONE frame when the
+            // nitrous ran out (and on every downhill), with a nose-dip to match.
+            const float cap = spec.topSpeed * topMul;
+            if (state.speed < cap)
+                state.speed = std::min(state.speed + spec.accel * accelMul * throttle * dt, cap);
         } else if (throttle < -0.01f) {
             state.speed = std::max(state.speed + spec.accel * throttle * dt,
                                    -spec.reverseTopSpeed);
@@ -1081,6 +1137,10 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
         // and costs grip - which is what stops a vehicle climbing a cliff.
         const float slope = std::sin(state.pitch * kDeg2Rad);
         state.speed -= spec.gravity * slope * dt;
+        // Rolling resistance of loose ground: a constant pull toward rest, so
+        // a shortcut across the grass costs time at any speed.
+        if (offShare > 0.0f && spec.offroadDrag > 0.0f)
+            state.speed = approach(state.speed, 0.0f, spec.offroadDrag * offShare * dt);
     }
     state.speed -= spec.drag * state.speed * std::fabs(state.speed) * dt;
 
@@ -1089,9 +1149,57 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
     // steering angle, so a long vehicle turns wide without a second knob.
     float dYaw = 0.0f;
     float yawRateRad = 0.0f;  // saved for the cornering lean below
+    // The handbrake's grip blend (see DriveState::hbBlend).
+    state.hbBlend = in.handbrake ? 0.0f
+                                 : std::min(1.0f, state.hbBlend + dt / kHandbrakeRecover);
+    const float blendGrip =
+        spec.handbrakeGrip + (spec.grip - spec.handbrakeGrip) * state.hbBlend;
+    // The friction circle, softened: what the tyres spend on braking or
+    // driving they cannot spend on cornering. A demand equal to the grip
+    // costs kFrictionShare of it - the full circle made a braking car
+    // unable to turn at all.
+    float longUse = 0.0f;
+    if (state.grounded) {
+        const float br = clampf(in.brake, 0.0f, 1.0f);
+        const float th = shifting ? 0.0f : clampf(in.throttle, 0.0f, 1.0f);
+        if (br > 0.01f)
+            longUse = spec.brakeDecel * br;
+        else if (th > 0.01f && state.speed < spec.topSpeed * topMul)
+            longUse = spec.accel * accelMul * th;
+        if (in.handbrake) longUse += spec.brakeDecel * 0.4f;
+    }
+    const float useFrac = clampf(longUse / std::max(blendGrip, 0.01f), 0.0f, 1.0f);
+    const float effGrip = blendGrip * (1.0f - kFrictionShare * useFrac * useFrac);
     if (state.grounded && std::fabs(state.speed) > 0.05f) {
         yawRateRad = (state.speed / std::max(spec.wheelBase, 0.01f)) *
                      std::tan(state.steerAngle * kDeg2Rad);
+        // Grip-limited: the path can bend at most grip / |v| (lateral
+        // acceleration = v * yaw rate <= grip), so the BODY may not turn
+        // faster than that either. The plain bicycle model asked for ~47 u/s^2
+        // at top speed against a grip of 26: full lock - every digital press -
+        // spun the car instead of pushing it wide. The scale is exactly 1: the
+        // yaw injects v * rate * dt of slip a step and grip removes grip * dt,
+        // so anything above 1 builds slip without bound (1.15 measured 11 u/s
+        // after three seconds - a permanent drift). The handbrake is the way
+        // past it, and keeps no cap.
+        if (!in.handbrake) {
+            const float cap = effGrip * kYawGripScale / std::max(std::fabs(state.speed), 1.0f);
+            yawRateRad = clampf(yawRateRad, -cap, cap);
+        } else if (std::fabs(state.speed) > 3.0f) {
+            // GROUND speed, not forward speed: in a slide the forward part
+            // falls as the velocity turns into slip, and a cap on it grew
+            // until the car swapped ends (84 degrees in 0.8 s).
+            const float ground = std::sqrt(state.speed * state.speed + state.lateral * state.lateral);
+            const float cap = spec.grip * kHandbrakeYawCap / std::max(ground, 1.0f);
+            yawRateRad = clampf(yawRateRad, -cap, cap);
+            // The rear steps out: the handbrake adds yaw with the steering,
+            // so a flick while it is held rotates the car into a drift
+            // instead of skating it sideways on four locked tyres.
+            const float steerFrac =
+                clampf(state.steerAngle / std::max(spec.maxSteerDeg, 1.0f), -1.0f, 1.0f);
+            yawRateRad += (state.speed > 0.0f ? 1.0f : -1.0f) * steerFrac *
+                          kHandbrakeYaw * kDeg2Rad;
+        }
         dYaw = yawRateRad * dt * kRad2Deg;
         state.yaw += dYaw;
     }
@@ -1108,7 +1216,7 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
         state.lateral = l;
     }
     {
-        float grip = in.handbrake ? spec.handbrakeGrip : spec.grip;
+        float grip = effGrip;
         if (!state.grounded) grip = 0.0f;  // no tyres on anything
         // A steep contact plane costs grip on the way to costing all of it.
         const float tilt = std::cos(std::fabs(state.roll) * kDeg2Rad);
@@ -1124,6 +1232,13 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
     state.pos[0] += vx * dt;
     state.pos[2] += vz * dt;
 
+    // Where the wall pass touched a wall this step (the blocked points'
+    // centroid): damage reads the hit off the approach speed along the wall's
+    // real normal there, not off what the wall response did to the velocity -
+    // that response bounces and scrubs a mere scrape hard enough to read as a
+    // crash (docs/vehicles.md, "Damage").
+    float wallC[2] = {0.0f, 0.0f};
+    bool haveWallN = false;
     // Walls: EIGHT sample points against the caller's solid test, the PS2
     // runtime's twin (updateVehicles in templates.cpp - change one, change
     // both). Corners plus edge midpoints: four corners alone let anything
@@ -1152,12 +1267,13 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
         // Count AND centroid, not a boolean: once the car is already
         // overlapping, WHERE the blocked points sit is what tells "out of
         // the thing" from "deeper into it".
-        auto blockedInfo = [&](float bx, float bz, float* ox, float* oz) {
+        auto blockedInfoAt = [&](float bx, float bz, float cc, float ss, float* ox,
+                                 float* oz) {
             int n = 0;
             float sx = 0.0f, sz = 0.0f;
             for (int k = 0; k < 8; ++k) {
-                const float px = bx + lx[k] * c + lz[k] * s;
-                const float pz = bz - lx[k] * s + lz[k] * c;
+                const float px = bx + lx[k] * cc + lz[k] * ss;
+                const float pz = bz - lx[k] * ss + lz[k] * cc;
                 if (solid(px, pz, feet)) {
                     ++n;
                     sx += px;
@@ -1167,6 +1283,34 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
             if (n > 0 && ox) *ox = sx / (float)n, *oz = sz / (float)n;
             return n;
         };
+        auto blockedInfo = [&](float bx, float bz, float* ox, float* oz) {
+            return blockedInfoAt(bx, bz, c, s, ox, oz);
+        };
+        auto blockedAt = [&](float bx, float bz, float cc, float ss) {
+            return blockedInfoAt(bx, bz, cc, ss, nullptr, nullptr);
+        };
+        // SWEPT (1.135.3): a step longer than kSweepStep is walked in pieces
+        // and stops at the first blocked one, so a fast car on a slow frame
+        // (nitrous at 20 fps is ~4.7 units a step) cannot jump a wall that
+        // lies wholly between two frames. Only the long steps pay for it.
+        {
+            const float mx = vx * dt, mz = vz * dt;
+            const float ml = std::sqrt(mx * mx + mz * mz);
+            if (ml > kSweepStep) {
+                const float bx0 = state.pos[0] - mx, bz0 = state.pos[2] - mz;
+                if (blockedInfo(bx0, bz0, nullptr, nullptr) == 0) {
+                    const int n = (int)std::ceil(ml / kSweepStep);
+                    for (int k = 1; k < n; ++k) {
+                        const float f = (float)k / (float)n;
+                        if (blockedInfo(bx0 + mx * f, bz0 + mz * f, nullptr, nullptr) > 0) {
+                            state.pos[0] = bx0 + mx * f;
+                            state.pos[2] = bz0 + mz * f;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
         const int nowBlocked = blockedInfo(state.pos[0], state.pos[2], nullptr,
                                            nullptr);
         if (nowBlocked > 0) {
@@ -1189,6 +1333,8 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
                 // first point after half a unit of travel it was refusing.
                 const float awayX = state.pos[0] - obX;
                 const float awayZ = state.pos[2] - obZ;
+                wallC[0] = obX, wallC[1] = obZ;
+                haveWallN = true;
                 if (vx * awayX + vz * awayZ > 0.0f) {
                     state.speed *= 1.0f - clampf(2.0f * dt, 0.0f, 0.6f);
                     state.lateral *= 1.0f - clampf(12.0f * dt, 0.0f, 0.9f);
@@ -1199,44 +1345,111 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
                     state.lateral = 0.0f;
                 }
             } else {
-                // A slide is only a slide if that axis carries REAL motion. A
-                // head-on has ~zero motion along the wall, so "keep only X" is
-                // trivially free - and the first version took that branch,
-                // ground in place and reported ~5 u/s while standing still
-                // (the harness caught it: end z 8.90, end speed 4.80 where a
-                // stop was owed).
+                // A FRESH hit (1.135.1): the wall's normal from the blocked
+                // points, then the velocity is redirected along the wall. It
+                // used to slide along world X or Z only and scrub speed while
+                // keeping the velocity pointed into the wall, so the next frame
+                // hit it again: the car ground with its nose pinned, a wall at
+                // 45 degrees gave a stair-step slide or a stop, and a head-on
+                // took the speed with no bounce. Now:
+                //   n       = away from the blocked points' centroid (XZ)
+                //   v       = t + vn n, vn < 0 into the wall
+                //   t       scrubbed by the impact angle (a scrape barely
+                //           slows, a steep hit digs in - the old grind curve)
+                //   vn      reflected at kWallBounce
+                // then the car moves on along the new velocity if that is
+                // free, and the velocity goes back into speed + lateral, so
+                // the tyres' grip realigns the body along the wall.
+                float bX = 0.0f, bZ = 0.0f;
+                blockedInfo(state.pos[0], state.pos[2], &bX, &bZ);
+                float nx = state.pos[0] - bX, nz = state.pos[2] - bZ;
+                float nl = std::sqrt(nx * nx + nz * nz);
                 const float wl = std::sqrt(vx * vx + vz * vz);
-                const float fx = wl > 1e-6f ? std::fabs(vx) / wl : 0.0f;
-                const float fz = wl > 1e-6f ? std::fabs(vz) / wl : 0.0f;
-                // The grind scrubs by ANGLE: a shallow scrape barely slows, a
-                // steep one digs in. f is the fraction of the motion the wall
-                // lets through.
-                auto grind = [&](float f) {
-                    return 1.0f - clampf((0.3f + 2.5f * (1.0f - f)) * dt, 0.0f, 0.6f);
-                };
-                const float latScrub = 1.0f - clampf(12.0f * dt, 0.0f, 0.9f);
-                if (fx > 0.3f && blockedInfo(state.pos[0], prevZ, nullptr, nullptr) == 0) {
-                    state.pos[2] = prevZ;  // slide along X
-                    state.speed *= grind(fx);
-                    state.lateral *= latScrub;
-                } else if (fz > 0.3f && blockedInfo(prevX, state.pos[2], nullptr, nullptr) == 0) {
-                    state.pos[0] = prevX;  // slide along Z
-                    state.speed *= grind(fz);
-                    state.lateral *= latScrub;
-                } else {
-                    state.pos[0] = prevX;  // head-on: the impact takes the speed
-                    state.pos[2] = prevZ;
-                    state.speed *= 0.25f;
-                    state.lateral = 0.0f;
+                if (nl < 1e-4f) {  // centroid on the centre: face the motion
+                    nx = -vx, nz = -vz, nl = wl;
                 }
+                float rvx = vx, rvz = vz;
+                if (nl > 1e-6f && wl > 1e-6f) {
+                    nx /= nl, nz /= nl;
+                    wallC[0] = bX, wallC[1] = bZ;
+                    haveWallN = true;
+                    const float vn = vx * nx + vz * nz;
+                    if (vn < 0.0f) {
+                        const float impact = clampf(-vn / wl, 0.0f, 1.0f);
+                        const float keep =
+                            1.0f - clampf((0.3f + 2.5f * impact) * dt, 0.0f, 0.6f);
+                        const float tx = (vx - vn * nx) * keep;
+                        const float tz = (vz - vn * nz) * keep;
+                        rvx = tx - kWallBounce * vn * nx;
+                        rvz = tz - kWallBounce * vn * nz;
+                    }
+                }
+                state.pos[0] = prevX + rvx * dt;
+                state.pos[2] = prevZ + rvz * dt;
+                if (blockedInfo(state.pos[0], state.pos[2], nullptr, nullptr) > 0) {
+                    state.pos[0] = prevX;  // no free room along it: stay put
+                    state.pos[2] = prevZ;
+                }
+                // Line the body up with the wall: turn the heading toward the
+                // new velocity by (1 - impact) - a scrape realigns almost
+                // fully, a head-on keeps its heading and bounces. Without it
+                // the tyres read the along-wall motion as slip and killed it
+                // (a glancing hit slid 5 units and stopped). A turn that
+                // would put a corner into the wall is not taken.
+                float useC = c, useS = s;
+                const float rl = std::sqrt(rvx * rvx + rvz * rvz);
+                if (rl > 0.5f) {
+                    const float dirSign = state.speed >= 0.0f ? 1.0f : -1.0f;
+                    const float target =
+                        std::atan2(dirSign * rvx, dirSign * rvz) * kRad2Deg;
+                    float delta = std::fmod(target - state.yaw + 540.0f, 360.0f) - 180.0f;
+                    const float wl2 = std::sqrt(vx * vx + vz * vz);
+                    const float vn2 = vx * nx + vz * nz;
+                    const float impact2 = wl2 > 1e-6f ? clampf(-vn2 / wl2, 0.0f, 1.0f) : 1.0f;
+                    delta *= 1.0f - impact2;
+                    const float ny = state.yaw + delta;
+                    const float nc = std::cos(ny * kDeg2Rad), ns = std::sin(ny * kDeg2Rad);
+                    if (blockedAt(state.pos[0], state.pos[2], nc, ns) == 0) {
+                        state.yaw = ny;
+                        useC = nc, useS = ns;
+                    }
+                }
+                state.speed = rvx * useS + rvz * useC;
+                state.lateral = rvx * useC - rvz * useS;
             }
         }
         // Damage: what the wall did to the velocity is the hit (the runtime
         // reads the same difference after walls, bodies and other cars).
         if (spec.damage > 0.0f) {
-            const float nvx = state.speed * s + state.lateral * c;
-            const float nvz = state.speed * c - state.lateral * s;
-            const float dvx = nvx - vx, dvz = nvz - vz;
+            // In the frame the wall pass LEFT the car in: a redirect turns the
+            // body, and speed/lateral are expressed along the new heading.
+            const float fc = std::cos(state.yaw * kDeg2Rad), fs = std::sin(state.yaw * kDeg2Rad);
+            const float nvx = state.speed * fs + state.lateral * fc;
+            const float nvz = state.speed * fc - state.lateral * fs;
+            float dvx = nvx - vx, dvz = nvz - vz;
+            // Against a wall the hit is the approach speed along the wall's
+            // normal at the contact, probed from the solid test itself (which
+            // side of the contact is free), falling back to "away from the
+            // contact" for something too thin to probe.
+            if (haveWallN) {
+                const float feetY = state.pos[1] - spec.rideHeight;
+                const float e = 0.3f;
+                float wnx = 0.0f, wnz = 0.0f;
+                if (!solid(wallC[0] + e, wallC[1], feetY)) wnx += 1.0f;
+                if (!solid(wallC[0] - e, wallC[1], feetY)) wnx -= 1.0f;
+                if (!solid(wallC[0], wallC[1] + e, feetY)) wnz += 1.0f;
+                if (!solid(wallC[0], wallC[1] - e, feetY)) wnz -= 1.0f;
+                float wl = std::sqrt(wnx * wnx + wnz * wnz);
+                if (wl < 0.5f) {
+                    wnx = state.pos[0] - wallC[0], wnz = state.pos[2] - wallC[1];
+                    wl = std::sqrt(wnx * wnx + wnz * wnz);
+                }
+                if (wl > 1e-4f) {
+                    wnx /= wl, wnz /= wl;
+                    const float in = std::max(0.0f, -(vx * wnx + vz * wnz));
+                    dvx = wnx * in, dvz = wnz * in;
+                }
+            }
             const float over = std::sqrt(dvx * dvx + dvz * dvz) -
                                std::max(spec.damageThreshold, 0.0f);
             if (over > 0.0f) {
@@ -1292,7 +1505,11 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
     // side up (the body leans OUT of the corner).
     {
         const float accLong = (state.speed - speed0) / dt;
-        const float aLat = state.grounded ? yawRateRad * state.speed : 0.0f;
+        // What the tyres actually carry, not what the steering asked for: a
+        // slide on the handbrake grip used to lean the body fully into a
+        // corner it was not taking (1.135.5).
+        const float aLat =
+            state.grounded ? clampf(yawRateRad * state.speed, -effGrip, effGrip) : 0.0f;
         const float la = clampf(spec.leanAmount, 0.0f, 2.0f);
         const float tp =
             state.grounded ? clampf(accLong * 0.30f, -4.0f, 4.0f) * la : 0.0f;

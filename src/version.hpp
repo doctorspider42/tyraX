@@ -5261,6 +5261,59 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.136.0 - Off-road grip: three vehicle definition fields (offroadGrip,
+// offroadAccel, offroadDrag) blend the grip, the handbrake grip and the
+// acceleration, and add a rolling drag, by the share of tyres off the paved
+// surface (a road, or on the console an object floor). Defaults 1/1/0 drive
+// exactly as before. Both twins; --vehicle-check "offroad". kFormatVersion
+// 69 -> 70, additive (the drive block writes every field). MINOR.
+// 1.135.7 - Car-car hits spin: the impulse lands at the contact point and
+// turns each body by (r x J) / I, damped by the tyres; VEHHIT logs it. PATCH.
+// 1.135.6 - The console steps vehicles at a fixed 1/50 s too (stepVehicles:
+// two sub-steps on a 25 fps frame, one at 50 fps); edge input fires once.
+// PATCH.
+// 1.135.5 - The corner lean is clamped to the effective grip (a slide no
+// longer leans the body into a corner it is not taking). Both twins. PATCH.
+// 1.135.4 - The editor's vehicle test drive steps the sim at a fixed 1/50 s
+// (an accumulator), the PAL console's own step. PATCH.
+// 1.135.3 - Swept wall steps (a move over 1 unit is walked in pieces), and
+// the stick deadzones are rescaled with a gentle steering expo. PATCH.
+// 1.135.2 - The handbrake rotates the car into a drift (full-grip cap on
+// ground speed plus 30 deg/s of steering yaw) and grip returns over 0.35 s;
+// a softened friction circle takes up to half the cornering grip under
+// braking or throttle. Both twins. PATCH.
+// 1.135.1 - Walls redirect the car (normal from the blocked points, tangent
+// kept and scrubbed by angle, 0.15 bounce, heading realigned), and the
+// test drive uses the runtime's wall rules. PATCH.
+// 1.135.0 - Handling: the body yaws no faster than grip allows (grip / |v|),
+// so full lock at speed pushes wide instead of spinning; a car above its top
+// speed coasts down instead of being clamped; the ride spring is one-sided
+// above rest. Both twins (vehiclesim + the generated runtime); new
+// --vehicle-check "handling" properties. MINOR (the car drives differently).
+// 1.134.5 - The pools of scene spots that are not carving a shadow draw as
+// one bag (docs/flashlight.md, "One bag for the still pools"). PS2: garage
+// night -0.15 ms, outer night +0.04. PATCH.
+// 1.134.4 - A still scene spot keeps its ground landing and its projective
+// STQ (docs/flashlight.md, "Scene spot pools that do not move"): no cone
+// march and no stamped STQ rewrite a frame. PS2: garage night -0.50 ms.
+// PATCH.
+// 1.134.3 - The fog gate (docs/vu1-and-dma-cache-cost.md, "The fog gate"):
+// a bag whose fog coefficient is 255 at every vertex (fog off, or its box
+// inside the fog start) sends fog scale 0 / offset 255, and cull_tc takes a
+// fog-free copy of its unlit loop (61 cycles a batch against 73), output
+// bit-identical. PS2: garage day -0.24 ms, outer -0.04, garage night +0.02.
+// PATCH.
+// 1.134.2 - Vehicle wheels no longer sink into the ground (docs/vehicles.md,
+// "Wheels on the road surface"). Measured with the new VEHCONTACT telemetry
+// (lowest drawn tyre vertex minus the rendered surface): -119/-127 mm on the
+// playground's spawn road, -7 mm for the CC96 on bare terrain, 0 on every row
+// after. Two causes: both twins stood the car on the TERRAIN, 0.12 under every
+// road mesh (the runtime now samples groundSurfaceAt, the test drive a new
+// host roadgen::Surface); and a definition's wheelRadius drifted from its
+// baked wheel (CC96 0.232 vs 0.240) because the editor adopted it only while
+// the definition held the defaults - vehbake::adoptMeasured now takes the
+// drawn radius on every bake and moves rideHeight by the same amount. No
+// format change. Regenerate to pick it up. PATCH.
 // 1.134.1 - A still caster keeps its blob patch (no rebuild, no stamp, baked
 // replay) and vehicle lamp parts are re-coloured only on a change. PS2:
 // -0.02..-0.09 and ~-0.07 ms a parked car. PATCH.
@@ -5319,7 +5372,7 @@
 // flicker, an unfurl/fade-in and taller quads (game and viewport twins).
 // Particles face the camera a pass DRAWS with (cutscene override, shake,
 // split half) - they used to face the player's camera during cutscenes.
-// 1.135.0 - Vehicle damage (docs/vehicles.md, "Damage"): a crash dents the
+// 1.137.0 - Vehicle damage (docs/vehicles.md, "Damage"): a crash dents the
 // body's own vertices where it hit (matrix-path local frame, measured from a
 // rest copy so welded corners never tear), scuffs the paint, smashes the lamps
 // at a hard end-on hit, costs power, and smokes the engine past a threshold.
@@ -5328,20 +5381,20 @@
 // DMG readout on the vehicle HUD. The per-frame cost is a velocity difference
 // per car; a hit rewrites one car's tier-0 vertices once (1.2-2.3 ms in
 // PCSX2, measured). MINOR.
-// 1.136.0 - Loose panels and glass (docs/vehicles.md): the vehicle bake sorts
+// 1.138.0 - Loose panels and glass (docs/vehicles.md): the vehicle bake sorts
 // the body into the shell, bonnet, boot, two doors and four window groups by
 // position, facing and glass material - no model authoring - and gives each
 // piece whole strip runs of its part. A hit knocks a panel off (collapsed in
 // the body, thrown as tumbling debris that lands flat, one submit per texture
 // for all debris) and shatters a window (collapsed, a spray of shards). The
 // Damage tab previews it; a "Loose parts" tunable scales it. MINOR.
-// 1.137.0 - Vehicle debris stays physical: cars kick lying pieces away
+// 1.139.0 - Vehicle debris stays physical: cars kick lying pieces away
 // (velocity, lift and spin from the car's speed), flying pieces bounce off
 // collision boxes and (rationed) mesh props, and a piece 60 units from the
 // camera is deleted. The Blender-built cars get an engine bay under the
 // bonnet (texture only) and a darker, more detailed cabin. MINOR.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 137
+#define TYRAX_VERSION_MINOR 139
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -5771,20 +5824,20 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // bake-measured farPart + farHideMask (only when farPart >= 0). Missing = the
 // decimated tiers at farDistance for every car, as before. Additive; no
 // migration step.
-// v70 (docs/vehicles.md, "Damage"): six drive-spec keys - damage,
+// v71 (docs/vehicles.md, "Damage"): six drive-spec keys - damage,
 // damageThreshold, damageMaxDent, damageRadius, damagePerfLoss, damageSmoke -
 // written with the rest of the spec. Missing = damage 0, i.e. the car cannot
 // be hurt, which is exactly how every definition saved before drove. Additive;
 // no migration step.
-// v71 (docs/vehicles.md, "Loose panels and glass"): drive.damageLoose, and a
+// v72 (docs/vehicles.md, "Loose panels and glass"): drive.damageLoose, and a
 // definition's bake-measured "pieces" list (written only when non-empty).
 // Missing = Loose parts 1 and no pieces until the next bake measures them.
 // Additive; no migration step.
-// v72: a definition's bake-measured "envLimits" (the shine's matte suffix,
+// v73: a definition's bake-measured "envLimits" (the shine's matte suffix,
 // docs/vehicles.md "Loose panels and glass"), written only when non-empty.
 // Missing = the reflection covers the whole part until the next bake.
 // Additive; no migration step.
-inline constexpr int kFormatVersion = 72;
+inline constexpr int kFormatVersion = 73;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

@@ -4013,6 +4013,14 @@ std::vector<uint32_t> stageInput(const Desc& d, int top, int verts, uint32_t& s,
              : (spotOn ? 0xFFFFFFFFu : 0u));
     putf(kOptionsAddr, 2, -255.0f / 900.0f);
     putf(kOptionsAddr, 3, 255.0f * 1000.0f / 900.0f);
+    // A quarter of the trials stage the "fog coefficient is the constant 255"
+    // mesh (StaPipQBufferRenderer::setFogConstant): scale 0, offset 255.
+    // cull_tc takes its fog-free loop on it and every other program computes
+    // F = 255, so the two twins must still agree byte for byte.
+    if ((xorshift(s) & 3u) == 0u) {
+        putf(kOptionsAddr, 2, 0.0f);
+        putf(kOptionsAddr, 3, 255.0f);
+    }
     for (int f = 0; f < 4; ++f)
         putf(kSingleColorAddr, f, randomFloat(s, 0.0f, 300.0f));
 
