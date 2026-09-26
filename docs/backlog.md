@@ -306,7 +306,9 @@ leaves these, dearest first:
     fields once the feel is settled);
   - ~~a rescaled deadzone and an expo curve on the stick~~ done 1.135.3;
   - air control and landings;
-  - per-surface grip;
+  - ~~per-surface grip~~ done 1.136.0 (paved or not; a per-material surface
+    table - gravel vs grass vs mud - would need terrain paint layers to
+    answer the query);
   - ~~car-car spin~~ done 1.135.7.
   The AI steers by heading error with no speed planning and was tuned
   against uncapped yaw: check its laps (VEHAI) before placing AI cars again.

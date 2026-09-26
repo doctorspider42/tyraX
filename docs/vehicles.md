@@ -281,6 +281,36 @@ everything else a scene does.
   slip against 0.52 at full grip. In PCSX2 a flick at 30 u/s slid on and
   recovered over ~1.5 s. The constants are code, not definition fields, yet:
   tune by feel first.
+- **Off-road grip (1.136.0).** Three definition fields (Vehicle Editor,
+  format 70) set how a car behaves off the paved surface:
+  - `offroadGrip` multiplies the grip and the handbrake grip;
+  - `offroadAccel` multiplies the acceleration;
+  - `offroadDrag` is a rolling resistance in u/s^2, a constant pull toward
+    rest, so a shortcut across the grass costs time at any speed.
+
+  Each tyre's contact sample also asks whether it is paved. On the console
+  that means a road triangle (`roadSurfaceAt`) or an object floor the wheel
+  rides. In the test drive it means a road triangle only, because the test
+  drive has no floor model. The share of tyres off the road blends the three
+  toward their values: one wheel on the grass gives a quarter of the effect,
+  so the road edge is not a cliff.
+
+  The blend is applied once, to the grip and acceleration every later rule
+  reads, so the yaw cap, the friction circle and the wheelspin all see the
+  surface without a line of their own. The defaults 1 / 1 / 0 ignore the
+  surface, so every car authored before the fields existed drives exactly as
+  before.
+
+  `--vehicle-check` "offroad" checks it. At 0.5 / 0.7 / 3, from rest:
+  - on the grass the car reaches 9.7 u/s in 3 s, against 22.0 on the road;
+  - its full-lock corner holds 11.5 u/s^2, half its grip of 26 (24.4 on the
+    road);
+  - straddling the edge, it reaches 17.9 u/s.
+
+  The playground's road cars are set to about 0.6 / 0.8 / 2.5, the Strix
+  harsher and Rally 04 almost unaffected (0.95 / 0.95 / 0.8).
+  The console's `VEH` telemetry line ends in `paved N`, the tyres on the
+  road at the last step.
 - **Car-car hits spin (1.135.7, runtime only; the test drive has one car).**
   - **Where the impulse lands.** The velocity exchange along the contact
     normal is applied at the contact point (the deepest disc pair's surface),

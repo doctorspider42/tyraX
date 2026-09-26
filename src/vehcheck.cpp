@@ -599,6 +599,68 @@ void handling() {
             "grip returns gradually after the handbrake, the drift does not snap");
 }
 
+// Off-road grip (1.136.0): the same drive on the road, on the grass, and
+// straddling the edge.
+void offroad() {
+    auto flat = [](float, float) { return 0.0f; };
+    const PavedFn allPaved = [](float, float) { return true; };
+    const PavedFn noneRoad = [](float, float) { return false; };
+
+    // The run the rest of the checks share: full throttle from rest, then a
+    // full-lock corner at speed. Returns the speed after 3 s and the worst
+    // lateral demand in the corner.
+    auto drive = [&](const DriveSpec& s, const PavedFn& paved, float* speed3,
+                     float* demand) {
+        DriveState st;
+        st.pos[0] = 50.0f;  // the half-paved case splits the track at x = 50
+        st.pos[1] = s.rideHeight;
+        DriveInput in;
+        in.throttle = 1.0f;
+        for (int i = 0; i < 150; ++i) step(s, in, 1.0f / 50.0f, flat, st, {}, 1.0f, paved);
+        *speed3 = st.speed;
+        in.steer = 1.0f;
+        float prevYaw = st.yaw, worst = 0.0f;
+        for (int i = 0; i < 100; ++i) {
+            step(s, in, 1.0f / 50.0f, flat, st, {}, 1.0f, paved);
+            const float yr = (st.yaw - prevYaw) * (3.14159265f / 180.0f) * 50.0f;
+            prevYaw = st.yaw;
+            worst = std::max(worst, std::fabs(yr * st.speed));
+        }
+        *demand = worst;
+    };
+
+    // A default car does not know the surface exists: every earlier car keeps
+    // driving exactly as it did.
+    DriveSpec base;
+    float v0, d0, v1, d1;
+    drive(base, allPaved, &v0, &d0);
+    drive(base, noneRoad, &v1, &d1);
+    std::printf("  default spec, paved vs grass: %.3f/%.3f u/s, %.3f/%.3f u/s^2\n",
+                v0, v1, d0, d1);
+    verdict(v0 == v1 && d0 == d1, "a default definition ignores the surface");
+
+    DriveSpec rally = base;
+    rally.offroadGrip = 0.5f;
+    rally.offroadAccel = 0.7f;
+    rally.offroadDrag = 3.0f;
+    float vr, dr, vp, dp;
+    drive(rally, noneRoad, &vr, &dr);
+    drive(rally, allPaved, &vp, &dp);
+    std::printf("  offroad 0.5/0.7/3: grass %.1f u/s after 3 s, corner %.1f u/s^2 "
+                "(paved %.1f, %.1f; grip %.1f)\n", vr, dr, vp, dp, rally.grip);
+    verdict(vr < vp - 1.0f, "off the road the car accelerates slower");
+    verdict(dr <= 0.5f * rally.grip + 0.5f && dr < dp - 1.0f,
+            "off the road the tyres hold half the corner");
+    verdict(vp == v0 && dp == d0, "on the road the off-road fields change nothing");
+
+    // Two wheels on each side: half the effect, not all or nothing.
+    float vh, dh;
+    drive(rally, [](float x, float) { return x < 50.0f; }, &vh, &dh);
+    std::printf("  half on the road: %.1f u/s after 3 s\n", vh);
+    verdict(vh > vr + 0.2f && vh < vp - 0.2f,
+            "a car half on the grass sits between the two surfaces");
+}
+
 }  // namespace
 
 int run() {
@@ -613,6 +675,7 @@ int run() {
     analyticWheelRig();
     terrainStability();
     handling();
+    offroad();
     if (failures) {
         std::printf("vehicle-check: %d FAILURE(S)\n", failures);
         return 1;

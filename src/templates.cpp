@@ -36662,6 +36662,8 @@ static std::string vehicleMembers(const Project& p) {
     // top of the bicycle yaw and damped by the tyres, so a hit off the centre
     // of mass spins the car instead of only pushing it.
     float spin = 0.0F;
+    // Tyres on the paved surface at the last step (0..4, off-road grip).
+    int paved = 4;
     // Engine note (docs/vehicles.md). `engineCh` is the SPU2 channel the loop
     // holds while this vehicle is being driven, -1 when silent; `enginePitchReg`
     // is the LAST value written, because writing the pitch costs a blocking IOP
@@ -38226,6 +38228,7 @@ void TerrainGame::updateVehicles(float dt) {
     float gy[4];
     float sum = 0.0F;
     int groundCount = 0;
+    int pavedWheels = 0;  // on a road, or on an object floor (off-road, 1.136.0)
     // The four contact hardpoints follow the PHYSICAL chassis attitude in all
     // three axes. The previous X/Z positions used yaw only, while the body
     // pitched and rolled around them; on a crest the arch and its wheel were
@@ -38253,7 +38256,12 @@ void TerrainGame::updateVehicles(float dt) {
       // VEHCONTACT read -119 on both parked cars at the playground's spawn
       // (docs/vehicles.md, "Wheels on the road surface"). The host twin's
       // HeightFn answers the same max (vehicle_ui.cpp).
-      gy[w] = groundSurfaceAt(wx, wz);
+      // groundSurfaceAt, unrolled: the road query also says whether this
+      // tyre is on the paved surface.
+      const float terrW = terrainHeightAt(wx, wz);
+      const float roadW = roadSurfaceAt(wx, wz);
+      gy[w] = roadW > terrW ? roadW : terrW;
+      bool pavedW = roadW > -1.0e29F;
       // The wheel RIDES an object floor when one is higher than the terrain
       // under it - a platform, a ramp prop, generated prefab geometry. This
       // is what lets a car drive ONTO things instead of nosing into their
@@ -38264,8 +38272,10 @@ void TerrainGame::updateVehicles(float dt) {
         const float dx = wx - f.bx, dz = wz - f.bz;
         const float lxx = dx * f.yc - dz * f.ys;
         const float lzz = dx * f.ys + dz * f.yc;
-        if (lxx > -f.hx && lxx < f.hx && lzz > -f.hz && lzz < f.hz)
+        if (lxx > -f.hx && lxx < f.hx && lzz > -f.hz && lzz < f.hz) {
           gy[w] = f.top;
+          pavedW = true;
+        }
       }
       if (nearMeshN > 0) {
         // A mesh prop's walkable ground (its shallow faces): the resolver's
@@ -38277,12 +38287,26 @@ void TerrainGame::updateVehicles(float dt) {
         float gr = -1e9F, ce = 1e9F;
         collidePlayer(wx, wz, &nx, &nz, feet0, 0.6F, &gr, &ce);
         if (v.object >= 0) runtimeObjects[v.object].data.collision = ownColW;
-        if (gr > gy[w] && gr <= feet0 + 0.5F) gy[w] = gr;
+        if (gr > gy[w] && gr <= feet0 + 0.5F) {
+          gy[w] = gr;
+          pavedW = true;
+        }
       }
+      if (pavedW) ++pavedWheels;
       v.wheelY[w] = gy[w];
       if (gy[w] > -1e5F) { ++groundCount; sum += gy[w]; }
     }
     const float planeY = groundCount > 0 ? sum / groundCount : -1e9F;
+    // OFF-ROAD (1.136.0), the vehiclesim twin's offShare: the share of the
+    // tyres off the paved surface blends grip, handbrake grip and
+    // acceleration toward the definition's off-road multipliers. Everything
+    // below reads these three instead of s.grip / s.handbrakeGrip / s.accel.
+    const float offShare = 1.0F - (float)pavedWheels * 0.25F;
+    v.paved = pavedWheels;
+    const float offGripMul = 1.0F + (s.offroadGrip - 1.0F) * offShare;
+    const float sGrip = s.grip * offGripMul;
+    const float sHbGrip = s.handbrakeGrip * offGripMul;
+    const float sAccel = s.accel * (1.0F + (s.offroadAccel - 1.0F) * offShare);
     // Keep the raw wheelY sentinel for visual droop, exclude it from the fit.
     for (int w = 0; w < 4; ++w) if (gy[w] <= -1e5F) gy[w] = planeY;
     const float restY = planeY + s.rideHeight * SC;
@@ -38490,11 +38514,11 @@ void TerrainGame::updateVehicles(float dt) {
         // (vehiclesim twin: a clamp here dropped ~4 u/s in one frame).
         const float cap = s.topSpeed * topMul;
         if (v.speed < cap) {
-          v.speed += s.accel * accelMul * inThrottle * dt;
+          v.speed += sAccel * accelMul * inThrottle * dt;
           if (v.speed > cap) v.speed = cap;
         }
       } else if (inThrottle < -0.01F) {
-        v.speed += s.accel * inThrottle * dt;
+        v.speed += sAccel * inThrottle * dt;
         if (v.speed < -s.reverseTopSpeed) v.speed = -s.reverseTopSpeed;
       } else {
         const float d = s.engineBraking * dt;
@@ -38510,6 +38534,12 @@ void TerrainGame::updateVehicles(float dt) {
         else { v.speed += d; if (v.speed > 0.0F) v.speed = 0.0F; }
       }
       v.speed -= s.gravity * sinf(v.pitch * kDeg) * dt;
+      // Rolling resistance of loose ground (vehiclesim twin).
+      if (offShare > 0.0F && s.offroadDrag > 0.0F) {
+        const float d = s.offroadDrag * offShare * dt;
+        if (v.speed > 0.0F) { v.speed -= d; if (v.speed < 0.0F) v.speed = 0.0F; }
+        else { v.speed += d; if (v.speed > 0.0F) v.speed = 0.0F; }
+      }
     }
     v.speed -= s.drag * v.speed * (v.speed < 0.0F ? -v.speed : v.speed) * dt;
 
@@ -38525,13 +38555,13 @@ void TerrainGame::updateVehicles(float dt) {
       v.hbBlend += dt / kVehHandbrakeRecover;
       if (v.hbBlend > 1.0F) v.hbBlend = 1.0F;
     }
-    const float blendGrip = s.handbrakeGrip + (s.grip - s.handbrakeGrip) * v.hbBlend;
+    const float blendGrip = sHbGrip + (sGrip - sHbGrip) * v.hbBlend;
     float longUse = 0.0F;
     if (v.grounded) {
       if (inBrake > 0.01F)
         longUse = s.brakeDecel * inBrake;
       else if (inThrottle > 0.01F && v.speed < s.topSpeed * topMul)
-        longUse = s.accel * accelMul * inThrottle;
+        longUse = sAccel * accelMul * inThrottle;
       if (inHand) longUse += s.brakeDecel * 0.4F;
     }
     const float useFrac =
@@ -38549,7 +38579,7 @@ void TerrainGame::updateVehicles(float dt) {
       } else if (absSp > 3.0F) {
         // The rear steps out (the host twin's rule): a looser cap, plus yaw.
         const float ground = sqrtf(v.speed * v.speed + v.lateral * v.lateral);
-        const float hcap = s.grip * kVehHandbrakeYawCap / (ground > 1.0F ? ground : 1.0F);
+        const float hcap = sGrip * kVehHandbrakeYawCap / (ground > 1.0F ? ground : 1.0F);
         yawRateRad = vehClamp(yawRateRad, -hcap, hcap);
         const float steerFrac = vehClamp(
             v.steerAngle / (s.maxSteerDeg > 1.0F ? s.maxSteerDeg : 1.0F), -1.0F, 1.0F);
@@ -38883,8 +38913,8 @@ void TerrainGame::updateVehicles(float dt) {
     {
       float demand = v.speed < 0.0F ? -v.speed : v.speed;
       if (v.grounded && !shifting && inThrottle > 0.01F && inBrake < 0.01F) {
-        const float drive = s.accel * accelMul * vehClamp(inThrottle, 0.0F, 1.0F);
-        const float excess = drive - s.grip;
+        const float drive = sAccel * accelMul * vehClamp(inThrottle, 0.0F, 1.0F);
+        const float excess = drive - sGrip;
         if (excess > 0.0F) demand += 0.5F * excess;
       }
       const float absLat = v.lateral < 0.0F ? -v.lateral : v.lateral;
@@ -39172,7 +39202,9 @@ void TerrainGame::updateVehicles(float dt) {
                                      : 0),
                  // Which wheel model the car draws (docs/vehicles.md, "A fast
                  // wheel"): 1 = the fast one. The swap's own test enabler.
-                 " fw ", v.fastWheels ? 1 : 0);
+                 " fw ", v.fastWheels ? 1 : 0,
+                 // Tyres on the road (off-road grip's test enabler).
+                 " paved ", v.paved);
       }
     }
   }

@@ -917,6 +917,8 @@ class TerrainGame : public Tyra::Game {
     // top of the bicycle yaw and damped by the tyres, so a hit off the centre
     // of mass spins the car instead of only pushing it.
     float spin = 0.0F;
+    // Tyres on the paved surface at the last step (0..4, off-road grip).
+    int paved = 4;
     // Engine note (docs/vehicles.md). `engineCh` is the SPU2 channel the loop
     // holds while this vehicle is being driven, -1 when silent; `enginePitchReg`
     // is the LAST value written, because writing the pitch costs a blocking IOP

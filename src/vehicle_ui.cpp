@@ -308,6 +308,11 @@ void App::vehicleDriveTick() {
         const float road = vehicleDriveRoads_.at(x, z);
         return road > terrain ? road : terrain;
     };
+    // Off-road grip (1.136.0): a tyre is paved over a road triangle - the
+    // runtime also counts an object floor, which the test drive has no model of.
+    const vehiclesim::PavedFn paved = [this](float x, float z) {
+        return vehicleDriveRoads_.at(x, z) > -1.0e29f;
+    };
     // Walls, from placement's own boxes - approximate (world AABBs rather
     // than the console's slide resolver), but the same four corners and the
     // same refusal, so a pillar stops the test drive the way it stops the
@@ -352,7 +357,7 @@ void App::vehicleDriveTick() {
     while (vehicleDriveAccum_ >= kStep) {
         vehicleDriveAccum_ -= kStep;
         vehiclesim::step(def->drive, in, kStep, ground, vehicleDriveState_, solid,
-                         o.scale[0] > 0.001f ? o.scale[0] : 1.0f);
+                         o.scale[0] > 0.001f ? o.scale[0] : 1.0f, paved);
     }
 
     for (int a = 0; a < 3; ++a) o.position[a] = vehicleDriveState_.pos[a];

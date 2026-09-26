@@ -5261,6 +5261,12 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.136.0 - Off-road grip: three vehicle definition fields (offroadGrip,
+// offroadAccel, offroadDrag) blend the grip, the handbrake grip and the
+// acceleration, and add a rolling drag, by the share of tyres off the paved
+// surface (a road, or on the console an object floor). Defaults 1/1/0 drive
+// exactly as before. Both twins; --vehicle-check "offroad". kFormatVersion
+// 69 -> 70, additive (the drive block writes every field). MINOR.
 // 1.135.7 - Car-car hits spin: the impulse lands at the contact point and
 // turns each body by (r x J) / I, damped by the tyres; VEHHIT logs it. PATCH.
 // 1.135.6 - The console steps vehicles at a fixed 1/50 s too (stepVehicles:
@@ -5367,8 +5373,8 @@
 // Particles face the camera a pass DRAWS with (cutscene override, shake,
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 135
-#define TYRAX_VERSION_PATCH 7
+#define TYRAX_VERSION_MINOR 136
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -5797,7 +5803,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // bake-measured farPart + farHideMask (only when farPart >= 0). Missing = the
 // decimated tiers at farDistance for every car, as before. Additive; no
 // migration step.
-inline constexpr int kFormatVersion = 69;
+inline constexpr int kFormatVersion = 70;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

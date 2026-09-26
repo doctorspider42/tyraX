@@ -452,6 +452,14 @@ std::vector<SpecField> specFields(DriveSpec& s) {
          "The cap on how fast the tyres kill sideways slip. Low slides, high is on rails."},
         {"handbrakeGrip", &s.handbrakeGrip, 0.0f, 40.0f, "Handbrake grip",
          "Replaces grip while the handbrake is held - this is the drift knob."},
+        {"offroadGrip", &s.offroadGrip, 0.1f, 1.5f, "Off-road grip",
+         "Grip multiplier with the wheels off the road (terrain, grass, dirt), "
+         "weighted by how many are off. 1 = the surface does not matter."},
+        {"offroadAccel", &s.offroadAccel, 0.1f, 1.5f, "Off-road acceleration",
+         "Acceleration multiplier off the road. Below 1 the tyres spin on loose ground."},
+        {"offroadDrag", &s.offroadDrag, 0.0f, 20.0f, "Off-road rolling drag",
+         "Extra slowdown off the road, units per second squared - what makes a "
+         "shortcut across the grass cost time."},
         {"gravity", &s.gravity, 1.0f, 80.0f, "Gravity", "Units per second squared."},
         {"rideHeight", &s.rideHeight, 0.0f, 3.0f, "Ride height",
          "Chassis origin above the contact plane. Seeded from the wheel radius; "
@@ -605,7 +613,7 @@ void wheelAnchors(const DriveSpec& spec, const DriveState& state, float out[4][3
 
 void step(const DriveSpec& specIn, const DriveInput& in, float dt,
           const HeightFn& height, DriveState& state, const SolidFn& solid,
-          float scale) {
+          float scale, const PavedFn& paved) {
     // A stalled frame or a paused editor must not tunnel the car through the
     // world; the sim would rather run slow than teleport.
     dt = clampf(dt, 0.0f, 0.05f);
@@ -664,14 +672,28 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
     float gy[4];
     float sum = 0.0f;
     int groundCount = 0;
+    int pavedWheels = 0;
     for (int i = 0; i < 4; ++i) {
         gy[i] = height ? height(anchors[i][0], anchors[i][2]) : 0.0f;
+        if (!paved || paved(anchors[i][0], anchors[i][2])) ++pavedWheels;
         // TERRAIN_VOID_Y: a scene with no terrain answers "unreachably low",
         // so "there is no floor here" needs no branch of its own.
         if (gy[i] > -1e5f) { ++groundCount; sum += gy[i]; }
     }
     const bool anyGround = groundCount > 0;
     const float planeY = anyGround ? sum / groundCount : -1e9f;
+    // OFF-ROAD (1.136.0): the share of the four tyres off the paved surface
+    // blends the grip, the handbrake grip and the acceleration toward their
+    // off-road multipliers - on the spec COPY, so every rule below (the yaw
+    // cap, the friction circle, the wheelspin) reads the surface for free. One
+    // wheel on the grass is a quarter of the effect, not a cliff edge.
+    const float offShare = 1.0f - pavedWheels * 0.25f;
+    if (offShare > 0.0f) {
+        const float gm = 1.0f + (spec.offroadGrip - 1.0f) * offShare;
+        spec.grip *= gm;
+        spec.handbrakeGrip *= gm;
+        spec.accel *= 1.0f + (spec.offroadAccel - 1.0f) * offShare;
+    }
     // A missing contact is not a kilometre-deep suspension sample.
     for (float& y : gy) if (y <= -1e5f) y = planeY;
     const float restY = planeY + spec.rideHeight;
@@ -928,6 +950,10 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
         // and costs grip - which is what stops a vehicle climbing a cliff.
         const float slope = std::sin(state.pitch * kDeg2Rad);
         state.speed -= spec.gravity * slope * dt;
+        // Rolling resistance of loose ground: a constant pull toward rest, so
+        // a shortcut across the grass costs time at any speed.
+        if (offShare > 0.0f && spec.offroadDrag > 0.0f)
+            state.speed = approach(state.speed, 0.0f, spec.offroadDrag * offShare * dt);
     }
     state.speed -= spec.drag * state.speed * std::fabs(state.speed) * dt;
 
