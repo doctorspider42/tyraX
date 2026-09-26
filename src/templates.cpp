@@ -37963,12 +37963,112 @@ void TerrainGame::updateVehicleDebris(float dt) {
         o[i * 3 + j] = r[i * 3] * m[j] + r[i * 3 + 1] * m[3 + j] + r[i * 3 + 2] * m[6 + j];
     for (int k = 0; k < 9; ++k) m[k] = o[k];
   };
+  const float kDeg = 3.14159265F / 180.0F;
+  // Beyond this from the camera a piece is gone for good: nobody sees it,
+  // and a slot, its share of the batch and its physics all come back.
+  const float kKeep = 60.0F;
+  int meshBudget = 2;  // collidePlayer walks every object - at most twice a frame
+  auto dirtyTex = [&](Tyra::Texture* t) {
+    for (auto& b : vehDebrisBatches_)
+      if (b->tex == t) b->dirty = 1;
+  };
   for (VehDebris& d : vehDebris_) {
-    if (!d.active || d.rest) continue;
+    if (!d.active) continue;
+    {
+      const float cdx = d.pos[0] - cameraPosition.x, cdz = d.pos[2] - cameraPosition.z;
+      if (cdx * cdx + cdz * cdz > kKeep * kKeep) {
+        d.active = 0;
+        dirtyTex(d.tex);
+        TYRA_LOG("VEHDMG debris removed, out of range");
+        continue;
+      }
+    }
+    // CARS: a piece in a car's footprint is kicked out of it - along the
+    // side it is nearest, carrying the car's velocity, up and spinning in
+    // proportion to how fast the car was going. This is what wakes a piece
+    // lying on the road, so driving over debris scatters it.
+    for (int vi = 0; vi < vehicleCount_; ++vi) {
+      const VehicleRt& v = vehicles_[vi];
+      if (!v.active || v.def < 0) continue;
+      const VehicleDefData& s = VEHICLE_DEFS[v.def];
+      const float SC = v.scale;
+      const float dx = d.pos[0] - v.pos[0], dz = d.pos[2] - v.pos[2];
+      if (dx * dx + dz * dz > 49.0F * SC * SC) continue;
+      if (d.pos[1] - d.low > v.pos[1] + 1.0F * SC) continue;  // flying over it
+      const float cy = cosf(v.yaw * kDeg), sy = sinf(v.yaw * kDeg);
+      const float lx = dx * cy - dz * sy, lz = dx * sy + dz * cy;
+      const float hx = 0.5F * s.track * SC + 0.2F;
+      const float hz = 0.5F * s.wheelBase * SC + s.bodyOverhang * SC + 0.15F;
+      const float px = hx - fabsf(lx), pz = hz - fabsf(lz);
+      if (px <= 0.0F || pz <= 0.0F) continue;
+      float nlx = 0.0F, nlz = 0.0F;
+      if (px < pz) nlx = lx < 0.0F ? -1.0F : 1.0F;
+      else nlz = lz < 0.0F ? -1.0F : 1.0F;
+      const float wnx = nlx * cy + nlz * sy, wnz = -nlx * sy + nlz * cy;
+      const float push = (px < pz ? px : pz) + 0.05F;
+      d.pos[0] += wnx * push;
+      d.pos[2] += wnz * push;
+      const float cvx = v.speed * sy + v.lateral * cy, cvz = v.speed * cy - v.lateral * sy;
+      const float cs = sqrtf(cvx * cvx + cvz * cvz);
+      const float along = d.vel[0] * wnx + d.vel[2] * wnz;
+      const float want = cvx * wnx + cvz * wnz + 1.0F + 0.25F * cs;
+      if (along < want) {
+        d.vel[0] += wnx * (want - along) + 0.3F * cvx;
+        d.vel[2] += wnz * (want - along) + 0.3F * cvz;
+        if (cs > 1.0F) {
+          d.vel[1] = 1.5F + 0.18F * cs;
+          d.spin[0] += -wnz * 0.4F * cs;
+          d.spin[2] += wnx * 0.4F * cs;
+          d.spin[1] += 0.2F * cs;
+        }
+        if (d.rest) TYRA_LOG("VEHDMG debris kicked by car ", vi, " spd10 ", (int)(cs * 10.0F));
+        d.rest = 0;
+      }
+    }
+    if (d.rest) continue;
+    const float prevX = d.pos[0], prevZ = d.pos[2];
     d.vel[1] -= 24.0F * dt;
     for (int a = 0; a < 3; ++a) d.pos[a] += d.vel[a] * dt;
     const float w = sqrtf(d.spin[0] * d.spin[0] + d.spin[1] * d.spin[1] + d.spin[2] * d.spin[2]);
     if (w > 1e-4F) rotate(d.rot, d.spin[0] / w, d.spin[1] / w, d.spin[2] / w, w * dt);
+    // WALLS: the frame's collider list (buildVehicleColliders). A collision
+    // box turns the piece back out along its nearest face and reflects the
+    // motion into it; a mesh prop asks the walker's resolver, rationed.
+    for (const VehColEntry& e : vehColliders_) {
+      if (e.oi >= 0 && e.oi < (int)vehColIsVeh_.size() && vehColIsVeh_[e.oi]) continue;
+      const float dx = d.pos[0] - e.wx, dz = d.pos[2] - e.wz;
+      if (e.kind == 0) {
+        if (d.pos[1] - d.low > e.top || d.pos[1] < e.bottom) continue;
+        const float lx = dx * e.cy - dz * e.sy, lz = dx * e.sy + dz * e.cy;
+        const float px = e.hx - fabsf(lx), pz = e.hz - fabsf(lz);
+        if (px <= 0.0F || pz <= 0.0F) continue;
+        float nlx = 0.0F, nlz = 0.0F;
+        if (px < pz) nlx = lx < 0.0F ? -1.0F : 1.0F;
+        else nlz = lz < 0.0F ? -1.0F : 1.0F;
+        const float wnx = nlx * e.cy + nlz * e.sy, wnz = -nlx * e.sy + nlz * e.cy;
+        const float push = (px < pz ? px : pz) + 0.02F;
+        d.pos[0] += wnx * push;
+        d.pos[2] += wnz * push;
+        const float vn = d.vel[0] * wnx + d.vel[2] * wnz;
+        if (vn < 0.0F) {
+          d.vel[0] -= 1.4F * vn * wnx;
+          d.vel[2] -= 1.4F * vn * wnz;
+          for (float& q : d.spin) q *= 0.7F;
+        }
+      } else if (e.kind == 1 && meshBudget > 0 &&
+                 dx * dx + dz * dz < (e.rs + 1.5F) * (e.rs + 1.5F)) {
+        --meshBudget;
+        float nx = d.pos[0], nz = d.pos[2], gr = -1e9F, ce = 1e9F;
+        collidePlayer(prevX, prevZ, &nx, &nz, d.pos[1] - d.low, 0.3F, &gr, &ce);
+        if (nx != d.pos[0] || nz != d.pos[2]) {
+          d.pos[0] = nx;
+          d.pos[2] = nz;
+          d.vel[0] *= -0.4F;
+          d.vel[2] *= -0.4F;
+        }
+        if (gr > d.pos[1] - d.low && gr < d.pos[1] + 0.5F) d.pos[1] = gr + d.low;
+      }
+    }
     const float ground = groundSurfaceAt(d.pos[0], d.pos[2]);
     if (d.pos[1] - d.low < ground + 0.02F) {
       d.pos[1] = ground + d.low;
@@ -37980,9 +38080,8 @@ void TerrainGame::updateVehicleDebris(float dt) {
       // way it already points), so it comes to lie flat instead of resting
       // on an edge.
       const float ux = d.rot[d.thin], uy = d.rot[3 + d.thin], uz = d.rot[6 + d.thin];
-      const float sy = uy >= 0.0F ? 1.0F : -1.0F;
-      // axis = u x (0, sy, 0)
-      float axx = -uz * sy, axz = ux * sy;
+      const float sgn = uy >= 0.0F ? 1.0F : -1.0F;
+      float axx = -uz * sgn, axz = ux * sgn;  // u x (0, sgn, 0)
       const float al = sqrtf(axx * axx + axz * axz);
       const float ang = acosf(fabsf(uy) > 1.0F ? 1.0F : fabsf(uy));
       if (al > 1e-4F && ang > 0.01F) {
@@ -37995,8 +38094,7 @@ void TerrainGame::updateVehicleDebris(float dt) {
         for (int a = 0; a < 3; ++a) d.vel[a] = d.spin[a] = 0.0F;
       }
     }
-    for (auto& b : vehDebrisBatches_)
-      if (b->tex == d.tex) b->dirty = 1;
+    dirtyTex(d.tex);
   }
 }
 

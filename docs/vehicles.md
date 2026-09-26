@@ -956,9 +956,17 @@ space, one of 8 slots shared by the scene (oldest recycled). A lid folds up and
 flips back over the car, a door falls away from its side; gravity, a few
 bounces off `groundSurfaceAt`, and once on the ground the piece turns its
 thinnest axis to the vertical so it comes to rest lying flat rather than on an
-edge. All debris of one texture is ONE world-space bag, rebuilt only while
-something in it moves - a resting piece costs its share of that submit and
-nothing else. The windows' shards ride the tyre-smoke pool.
+edge. **It stays physical after that**: a car whose footprint reaches a piece
+kicks it out along the nearest side with the car's own velocity, up and
+spinning in proportion to the car's speed (so driving over debris scatters
+it), and a flying piece turns back off the frame's collision boxes (the same
+`buildVehicleColliders` list the cars read) and, at most twice a frame, off
+mesh props through the walker's resolver. All debris of one texture is ONE
+world-space bag, rebuilt only while something in it moves - a resting piece
+costs its share of that submit and a footprint test per car, nothing else -
+and **a piece more than 60 units from the camera is deleted** (`VEHDMG debris
+removed, out of range`), so a long race does not keep paying for the first
+lap's crash. The windows' shards ride the tyre-smoke pool.
 
 Telemetry: `VEHDMG <car> lost <kind> debris|shattered verts <n>` (kind is
 `vehiclesim::PieceKind`: 1 bonnet, 2 boot, 3/4 doors, 5 windscreen, 6 rear,
@@ -970,8 +978,8 @@ its right side loses its right windows and windscreen, and with *Loose parts*
 
 Limits: the far tier still shows every piece (a few pixels by then), a
 collapsed piece leaves an open hole into the body shell (the Blender-built cars
-show their modelled interior through it), debris does not collide with walls
-or cars, and a repair restores the pieces but leaves the debris on the road.
+show their modelled interior and engine bay through it), debris does not hit
+other debris or push the cars back, and a repair restores the pieces but leaves the debris on the road.
 
 ### Weight transfer
 

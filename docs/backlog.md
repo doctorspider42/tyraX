@@ -252,8 +252,9 @@ order of what a player would notice first:
 - **Dent the far tier too**, or fall back to tier 0 for a damaged car inside
   twice its far distance - an obviously wrecked rival pops back to pristine on
   its traffic tier.
-- **Loose parts, the rest** (bonnet/boot/doors/windows came off in 1.136.0):
-  debris that collides with walls and cars, bumpers, a wheel that wobbles or
+- **Loose parts, the rest** (bonnet/boot/doors/windows came off in 1.136.0;
+  debris kicked by cars, walls and a 60-unit cull in 1.137.0): debris against
+  debris and pushing back on a car, bumpers, a wheel that wobbles or
   comes off (camber on the struck corner - the wheel batch already composes a
   per-wheel transform), and a repair that picks the debris up again.
 - **Author-named pieces.** The classifier is geometric; a model whose

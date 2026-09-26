@@ -5335,8 +5335,13 @@
 // the body, thrown as tumbling debris that lands flat, one submit per texture
 // for all debris) and shatters a window (collapsed, a spray of shards). The
 // Damage tab previews it; a "Loose parts" tunable scales it. MINOR.
+// 1.137.0 - Vehicle debris stays physical: cars kick lying pieces away
+// (velocity, lift and spin from the car's speed), flying pieces bounce off
+// collision boxes and (rationed) mesh props, and a piece 60 units from the
+// camera is deleted. The Blender-built cars get an engine bay under the
+// bonnet (texture only) and a darker, more detailed cabin. MINOR.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 136
+#define TYRAX_VERSION_MINOR 137
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
