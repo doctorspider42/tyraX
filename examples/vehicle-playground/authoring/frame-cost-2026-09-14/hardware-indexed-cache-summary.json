@@ -1,0 +1,58 @@
+{
+  "platform": "physical PS2",
+  "candidate": "256-bucket indexed StapipBagBBoxesCacher",
+  "baseline_file": "hardware-lean-repeat-frame-cost.csv",
+  "candidate_file": "hardware-indexed-cache-frame-cost.csv",
+  "rolling_fps_file": "hardware-indexed-cache-rolling-fps.csv",
+  "visual_check": "hardware-indexed-cache-frame.png",
+  "elf_sha256": "3a129c8ff6c42a14374912db827c84db9344ac4c6c5e754cc2389a30a8a3bacc",
+  "configuration": "parked PAL 512x512 32bpp native raster; automatic devkit intervals; no BLSS",
+  "phases": {
+    "garage-day": {
+      "phase": 0,
+      "rows": 240,
+      "baseline_bounds_ms": 6.8055,
+      "candidate_bounds_ms": 4.7896,
+      "candidate_total_ms": 58.7117,
+      "candidate_submit_ms": 37.5487,
+      "candidate_fps_median": 16.9875,
+      "triangles_mean": 25650.5
+    },
+    "garage-night": {
+      "phase": 1,
+      "rows": 240,
+      "baseline_bounds_ms": 8.4685,
+      "candidate_bounds_ms": 5.9153,
+      "candidate_total_ms": 65.0459,
+      "candidate_submit_ms": 43.8059,
+      "candidate_fps_median": 15.728,
+      "triangles_mean": 26324.5
+    },
+    "outer-day": {
+      "phase": 2,
+      "rows": 240,
+      "baseline_bounds_ms": 3.9468,
+      "candidate_bounds_ms": 2.6367,
+      "candidate_total_ms": 38.7906,
+      "candidate_submit_ms": 16.153,
+      "candidate_fps_median": 25.961,
+      "triangles_mean": 12154.5
+    },
+    "outer-night": {
+      "phase": 3,
+      "rows": 240,
+      "baseline_bounds_ms": 5.0828,
+      "candidate_bounds_ms": 3.3765,
+      "candidate_total_ms": 43.2959,
+      "candidate_submit_ms": 18.8116,
+      "candidate_fps_median": 23.2065,
+      "triangles_mean": 12488.5
+    }
+  },
+  "caveats": [
+    "The candidate was measured once after the retained baseline; the arms were not alternated.",
+    "Inclusive telemetry buckets overlap and their deltas do not add directly to whole-frame time.",
+    "The matching triangle means establish equivalent submitted geometry, not pixel identity.",
+    "The functional candidate boot ran beyond 1900 frames without an assert before the measured boot."
+  ]
+}

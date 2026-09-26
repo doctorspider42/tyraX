@@ -1,0 +1,1 @@
+{ "id": "district0dc12f41", "name": "Pavement 10", "type": "box", "position": [-87, 0.02, -80], "rotation": [0, 0, 0], "scale": [12, 0.16, 12], "color": [0.44, 0.46, 0.44], "physics": false, "collision": "none", "castShadow": false }

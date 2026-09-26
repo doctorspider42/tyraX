@@ -7,9 +7,9 @@ LIGHT rather than an object ("Spot-light shadow volumes"):
 | | Blob | Projected silhouette | Baked (decal) |
 | --- | --- | --- | --- |
 | What it is | one soft dark quad that follows the ground under the object | the object rendered a second time (64×64, from the sun) and projected under itself | the shadow traced once on your machine and projected onto whatever is under it |
-| Shape | none — a smudge | the real silhouette, animation included | the real silhouette, with a real penumbra |
+| Shape | a baked/picked top-down mask per object; round fallback when none is assigned | the real silhouette, animation included | the real silhouette, with a real penumbra |
 | Moves | yes | yes | **no** — it is baked |
-| Cost | one quad | a second render per frame, **four casters at a time** (the nearest to the camera win) | one submit per atlas page, whatever the shadow count |
+| Cost | one 18-triangle / one-package patch | a second render per frame, **four casters at a time** (the nearest to the camera win) | one submit per atlas page, whatever the shadow count |
 | Good for | crowds, small props, anything you want grounded | hero objects | static scenery, and anything standing on a textured floor or against a wall |
 
 They are not the same thing as **"Cast shadow"** further down that panel, which
@@ -48,6 +48,50 @@ Picking anything else overrides both, in both directions:
 
 Lights and markers never cast either kind, whatever the mode says.
 
+## Baked blob shapes
+
+Choose **Blob**, then use **Blob shape** in the same Rendering section. Every
+renderable scene object can pick an existing project PNG or press **Bake blob
+shape**. The bake rasterises the object's top-down triangles into a soft
+128x128 alpha mask under `res/textures/blob-shadows/`; static OBJ models and
+primitives use their authored mesh, while animated GLB/FBX models use frame
+zero. The stored X/Z footprint keeps rectangular objects rectangular after the
+mask is normalised into a square texture.
+
+![A box using its per-object baked blob silhouette in Properties](img/blob-shadow-shape.png)
+
+The console cost does not grow with mesh complexity: it samples the mask on a
+compact 3x3 heading-aligned receiver grid (54 vertices, one textured VU1
+package) that follows the visible ground — the baked road/junction surface
+where present, otherwise terrain. The interior samples matter at road edges:
+four outside corners can all sit on terrain while asphalt crosses the middle of
+the footprint. Heading comes
+from the full runtime object basis, so vehicle pitch/roll and the XYZ Euler fold
+past 90 degrees cannot freeze or reverse the mask. Re-bake after a model's
+silhouette changes. Picking a PNG manually is useful for an art-directed
+shadow; because an arbitrary image has no geometry metadata, its quad size is
+inferred from the runtime model or primitive. Lights, cameras, markers and
+other objects without drawable triangles may pick a mask, but cannot generate
+one from themselves.
+
+Vehicles expose the same choice in their **Rendering** section. A projected
+silhouette is intended for the player's car or another hero vehicle; a blob is
+cheap enough to put under every AI traffic car. Both follow the vehicle's live
+runtime transform, so an NPC keeps its shadow while driving its route. Vehicles
+cannot use baked shadow decals: the baker rejects them, and their selector
+offers only runtime modes, including for objects without the generic physics
+flag. Their
+size comes from the imported body's real model bounds rather than the instance's
+unit-cube scale. The vehicle import also rasterises the canonical body's
+top-down triangles into a soft 128×128 alpha mask. Blob mode puts that mask on
+one yaw-aligned, four-corner terrain-conforming quad, so the low-cost shadow
+reads as the car's shape instead of a circle without adding another model
+render. The blob covers the wheelbase instead of sitting between the axles,
+and the 64x64 projected-shadow camera frames the whole body. The
+projected pass renders the body model; the separately batched near wheels do not
+consume another shadow submit (at distance they are already baked into the body
+LOD).
+
 **Under a GI bake, Default draws no sun silhouette for a static object.** Its
 sun shadow is already in the baked lighting
 ([global-illumination.md](global-illumination.md)), per texel, and the editor
@@ -73,18 +117,142 @@ part, a model's underground part flattens to a sliver at floor level.
 The projected system claims its VRAM at boot **only if some object asks for a
 silhouette** (`PROJ_SHADOWS_USED`), and the blob system loads its sprite only if
 some object asks for a blob or the preference is on (`BLOB_SHADOWS_USED`) — so a
-project that uses neither pays for neither. The blob's alpha mask is the flare
-glow sprite, baked into `res/hud/` when either half wants it.
+project that uses neither pays for neither. An assigned per-object mask wins;
+a vehicle otherwise uses its derived
+`.res-baked/vehicles/veh-<id>-shadow.png`; blobs with neither use the round
+flare-glow fallback baked into `res/hud/` when either half wants it.
 
-Four projected casters are active per frame, chosen by distance to the camera,
-so marking everything does not draw everything. Blobs have no such limit; they
-are a quad each.
+Four projected casters are active per frame, ranked by apparent size (distance
+divided by their bounding radius), so marking everything does not draw
+everything. Blobs have no such limit; they are a quad each. A blob does,
+however, follow its caster's authored draw distance and uses a conservative
+whole-footprint frustum test before rebuilding the quad or sampling terrain.
+Off-screen casters therefore do not pay five terrain queries merely to be
+rejected later by per-package culling.
 
 A silhouette also fades out with distance on its own: it is dropped past **50
 units** from the camera and dissolves over the last 15 of them, so backing away
 from a caster loses its shadow smoothly rather than switching it off. Nothing
 scales that with the caster's size — a building's shadow goes at the same range
 a crate's does.
+
+### Almost all of it is the CASTER's geometry, not the shadow's
+
+Worth knowing before anyone optimises this producer, because the shape of the
+cost is not where it looks. Measured per producer on the Motor District's
+garage-day frame (`examples/vehicle-playground/authoring/wheel-strip-2026-09-17/`),
+with the bracket split three ways:
+
+| what submits it | VU1 packages | vertices | bags |
+| --- | ---: | ---: | ---: |
+| the caster's own model bags, into the slot | **60** | **4 440** | 4 |
+| the receiver patches | 2 | 96 | 2 |
+| the torch's wall copy | 0 | 0 | 0 |
+
+**87% of the packages and 96% of the vertices are the caster's own bags being
+re-submitted from the light's point of view** — geometry this feature neither
+builds nor owns, and which is packed exactly as well as the object loop packs
+it. If a caster's model is a triangle list, its shadow is one too. (In this
+scene they are: the casters are two imported cars, and an imported car is
+flat-shaded — see [vehicles.md](vehicles.md), "The wheel batch is a strip".)
+
+### Halving that, without touching the geometry
+
+The vertices are not the lever; **how they are packaged** is. Those bags are
+submitted exactly as the object loop submits them — textured, with per-vertex
+colours — which is the texture+colour VU1 class at **75 vertices a package**.
+The shadow map reads neither attribute. It is 64x64, and
+`RendererCoreShadowMap` says so itself: no colour fidelity, only the alpha
+coverage matters, because the receiver draws black modulated by that alpha.
+
+Submit the same vertices with no texture bag and ONE colour and they go through
+the colour class at **150 a package** — exactly double. `getMaxVertCount` is
+`(dbuffer - 9) / (colorElementsPerVertex + reglistCount)` rounded down to a
+multiple of 3; the double buffer is `(944 - 22) / 2 = 461` and `cull_c` is built
+with `elementsPerVertex 2, reglistCount 2`:
+
+| silhouette bag | vertices per package |
+| --- | ---: |
+| textured + per-vertex colour | 75 |
+| untextured + per-vertex colour | 111 |
+| untextured + single colour | **150** |
+
+That is `TYRA_CHEAP_PROJ_CASTER` in the generated game, and on the garage frame
+it takes the silhouette from **60 packages to 32**, in both the day and the
+night pose, with the vertex count, the bag count and the receiver patch
+unchanged. No geometry changes, no second vertex array, no bake and no format
+change: the silhouette bag shares the part's own vertices.
+
+Two things make it work, and both were paid for:
+
+- **The package size must NOT be inherited from the base bag.** `pinPackageSize`
+  gives that bag the minimum size over itself and its coplanar companions — the
+  reflective env pass, the AO pass, the emissive one — because they rasterize
+  the same pixels and a GEQUAL test cannot survive two passes that classify a
+  triangle differently. A car body is reflective, so copying its pin held the
+  silhouette at 75 and the change moved *nothing at all*. The silhouette is
+  coplanar with nothing: it rasterizes alone into a slot target with its own
+  z-buffer, so it asks for its own derived size. A **stripped** array is the
+  exception — its runs are self-contained, so it keeps its run and wins only
+  the class change.
+- **It shares the base bag's binding, not an array.** A LOD tier re-aims the
+  base bag at the tier's own array, so the silhouette follows whichever array
+  the base currently points at — pointer, count and `contentVersion` together
+  (docs/bag-content-version.md).
+
+**Why it defaults to 0.** The colour half is exact: `pushVert` writes alpha 128
+for every model vertex, so per-vertex colour carries nothing the coverage reads.
+The texture half is not. The GS modulates alpha as well as RGB, so a caster
+whose texture has alpha — foliage, a chain-link fence, any alpha-tested cutout —
+gets its holes from that texture and would cast a solid blob without it. That is
+a per-model property the pass cannot see (`Texture` exposes no alpha predicate),
+so the knob stays off until a project's casters are known to be opaque. A
+per-material gate is the real fix and is not built. In the Motor District both
+casters are vehicles — the only two `shadowMode 3` objects in it — and their
+bodies are opaque palette bakes.
+
+The receiver patch, the only array this feature generates, is written as a
+**triangle strip**: one strip per row of cells joined by degenerate seams, 48
+vertices where the list was 96, and `StaPipBag::packageSize` pinned to it. That
+is a bigger saving than halving the vertex count suggests — a list patch is a
+single 96-vertex package that the partial-frustum route then sub-splits into
+thirds, and a stripped package is never sub-split, so the two patches fell from
+**9 packages to 2**. The pixels are byte-identical; a patch is a grid, which is
+the shape a strip is best at.
+
+Authored scene-light floor pools cache their terrain/road-conforming 5x5 corner
+lattice until the light's position or radius changes. The original 4x4 patch
+queried the same shared corners once per adjoining triangle — 96 surface queries
+per light, every frame — although its geometry was static. The cache reduces a
+rebuild to 25 queries and ordinary frames to none; a conservative radius-based
+frustum test also skips off-screen pool submission. Dynamic object lighting is
+independent and remains active even when the receiver patch is outside the view.
+
+The torch's **wall copy** is still a triangle list, built per frame from
+arbitrary receiver geometry. Nothing above prices it, because no sunlit pose
+reaches it at all.
+
+### Road and terrain are both receivers
+
+Receiver patches are depth-tested and never write z. `groundSurfaceAt` first
+tests the already-built road chunks (including automatic junction fans) and
+falls back to the terrain; `projSurfaceAt` can then raise that result to the top
+of an ordinary platform or bridge receiver. Blob shadows, point-light pools,
+flashlight floor pools and projected silhouettes all share this base. Reading
+the baked triangles instead of re-evaluating the road spline is important: the
+answer includes the exact lateral terrain tessellation and list/strip geometry
+that is submitted to the GS.
+
+The old Motor District garage pose exposed the bug: both casters stood on a
+road, while their patches were placed on terrain 0.12 units below it and failed
+the road depth test. When validating receiver work, still compare against a
+known-bad arm; a held shadow slot or submitted package is not proof that a pixel
+survived depth testing.
+
+Sampling the correct height function is necessary but not sufficient for a
+moving decal. Blob shadows therefore use a 3x3 grid rather than one quad: a
+road can cross the footprint without touching any of its four outer corners.
+The 54 textured vertices remain below the 75-vertex package ceiling.
 
 ### The four slots change hands slowly
 
@@ -139,6 +307,23 @@ the same point about the sun/moon handover).
 None of this is a reason to mark everything. Four is still four, and the
 casters you did not want are still the ones the camera happens to be near — it
 just no longer blinks while it decides.
+
+### Blob cost
+
+A blob is 18 triangles: a 3x3 patch that follows the ground, sampled at a
+cached 4x4 lattice. On a physical PS2 a parked car's blob still measured
+**0.35 ms of `work` by day and 0.12 at night** (Motor District orbit rig,
+median of 240 frames, two boots; removing the Ravager's blob only). Since
+1.134.1 a caster whose position, rotation and scale have not changed keeps
+its patch: the same vertices, the same content stamp and no `bboxVersion`
+bump, so its bag replays its baked stream, and the 16 ground queries are
+skipped. That bought only **0.02..0.09 ms**, so rebuilding the patch was not
+what the blob costs. The rest is still unexplained: a separate bag and a
+separate texture per car, TestOnly z, precise culling and clipping. Open in
+docs/backlog.md. What is known: it is not EE work. What the EE still does for a
+parked blob is one frustum test and one submit. The 0.35 ms is `vif_wait`
+(VU1/GS), and drawing it with the shared generic 64x64 texture changed nothing
+(docs/vehicles.md, "Per-car EE cuts").
 
 ## Baked (decal)
 

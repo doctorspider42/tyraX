@@ -11,7 +11,9 @@
 #pragma once
 
 #include <dma.h>
+#include "renderer/core/paths/path1/vif1_queue.hpp"
 #include <packet2_utils.h>
+#include <memory>
 #include <vector>
 #include "debug/debug.hpp"
 #include "math/m4x4.hpp"
@@ -26,8 +28,517 @@
 #include "renderer/core/paths/path1/path1.hpp"
 #include "renderer/core/renderer_core.hpp"
 #include "renderer/core/texture/renderer_core_texture_buffers.hpp"
+#include "./stapip_vif_hash.hpp"
+#include "renderer/core/3d/bbox/core_bbox.hpp"  // Modified by TyraX: fog facts
+
+/**
+ * Modified by TyraX: retained static geometry COMMAND data
+ * (docs/retained-static-commands.md). Compile it out to get exactly the
+ * pre-1.96 packet construction back - that is the A/B control arm.
+ */
+#ifndef TYRA_STAPIP_RETAINED_COMMANDS
+#define TYRA_STAPIP_RETAINED_COMMANDS 1
+#endif
+
+/**
+ * Modified by TyraX: the BAKED VIF STREAM spike
+ * (docs/baked-vif-stream.md). A wholly visible static bag's whole per-frame
+ * VIF1 command stream - unpack headers, the scale/count quadword, the prim
+ * GIFtag, the vertex payload INLINE, and the MSCAL/MSCNT that kicks each
+ * package - is emitted once into EE-private storage and replayed with a single
+ * DMA REF tag per contiguous run of packages.
+ *
+ * ON since the content-version contract landed. It was parked at 0 for one
+ * reason and one only: the cache key could not see a caller re-writing a
+ * bag's array in place, so a re-shade replayed stale lighting
+ * (docs/baked-vif-stream.md, "THE BLOCKER"). `contentVersion` closes that -
+ * and it closes it STRUCTURALLY, with the generated game's BagArray type, not
+ * with a rule somebody has to remember at 280 write sites
+ * (docs/bag-content-version.md). Measured on the physical PS2 at -1.287 ms of
+ * garage-day `work`, with garage night's judder removed; it costs the
+ * duplicated vertex payload (docs/baked-vif-stream.md, "The memory"), which
+ * the arena budget below caps. 0 is the control arm.
+ */
+#ifndef TYRA_STAPIP_BAKED_STREAM
+#define TYRA_STAPIP_BAKED_STREAM 1
+#endif
+
+// The periodic STAPIPBAKE / STAPIPQW readout. Same reasoning as the
+// STAPIPRET one below: a host: write inside a sampling window is noise with a
+// period, so it is opt-in even though it only prints COUNTS. Build both arms
+// with -DTYRA_STAPIP_BAKED_REPORT=1 to read the per-frame DMA quadword count.
+// Modified by TyraX: THE TWO ADVERSARIAL MODES
+// (docs/baked-stream-acceptance-gate.md). Neither ships; both exist because
+// benchmark-district.py's traffic is PARKED, and a parked fixture flatters any
+// change that skips work when an input did not change - every car is still,
+// every frame, for ever, so a skip test that would never fire in a real
+// district scores 100% (docs/wheel-rebake-skip.md is the worked example).
+// Legs 1 and 2 of the gate would both pass a renderer whose invalidation is
+// broken in a way this fixture never opens.
+//
+// VERIFY does not replay at all. It runs the ordinary writers, rebuilds the
+// bag's blocks, and compares them byte for byte against what the cache is
+// holding - so it answers "would the cache have served something the ordinary
+// path would not have produced?". It needs NO control arm, which is what lets
+// it run under --keep-routes with the traffic MOVING: the one fixture where a
+// missing invalidation can actually fire. (A --keep-routes A/B is impossible;
+// the two arms run at different speeds and never share a frame.)
+#ifndef TYRA_STAPIP_BAKED_VERIFY
+#define TYRA_STAPIP_BAKED_VERIFY 0
+#endif
+// SAMPLED VERIFY: the same comparison, priced so it can run in an ordinary
+// devkit build instead of only in a dedicated ELF.
+//
+// The exhaustive arm above rebuilds EVERY block every frame and replays NONE
+// of them, so it deletes the whole saving by construction - it is a
+// correctness ELF, like TYRA_STAPIP_VIFHASH, and never a timing one. That is
+// fine for an acceptance run and useless as a routine check, and the failure
+// mode it guards is invisible (stale colours, only while something moves, no
+// crash and no counter).
+//
+// This verifies ONE entry per frame, round-robin, and replays everything else.
+// On the Motor District's garage-day frame that is one block of ~360, about
+// 1/360 of the arm's cost, and a missing invalidation on any bag is found
+// within a few seconds of play rather than only when somebody thinks to build
+// the special ELF.
+//
+// DEFAULT 0, AND THE GATE IS THE DEVKIT ONE. `#ifndef NDEBUG` is NOT that gate
+// in this engine - a game build never defines NDEBUG, which is how a census
+// once shipped live at ~1 ms a frame (docs/ps2-perf-measurement-traps.md). The
+// generated game defines this from the project's devkit profile, so a release
+// ELF carries none of it and `--audit-release` stays clean.
+#ifndef TYRA_STAPIP_BAKED_SAMPLE_VERIFY
+#define TYRA_STAPIP_BAKED_SAMPLE_VERIFY 0
+#endif
+#if TYRA_STAPIP_BAKED_VERIFY && TYRA_STAPIP_BAKED_SAMPLE_VERIFY
+#error "TYRA_STAPIP_BAKED_VERIFY and TYRA_STAPIP_BAKED_SAMPLE_VERIFY are two arms of one check; enable exactly one."
+#endif
+/** Either arm compiles the comparison in. */
+#define TYRA_STAPIP_BAKED_ANY_VERIFY \
+  (TYRA_STAPIP_BAKED_VERIFY || TYRA_STAPIP_BAKED_SAMPLE_VERIFY)
+// POISON overwrites an evicted arena with a recognisable pattern IMMEDIATELY,
+// instead of letting the two-frame graveyard hide it. Anything still naming it
+// then corrupts the picture loudly on the next capture rather than silently on
+// some future content - it converts the latent DMA-lifetime defect, the Probe B
+// class, into one leg 2 can see. Pair it with TYRA_STAPIP_BAKED_BUDGET_QW far
+// below the arena's real size, so eviction and the graveyard actually cycle and
+// the poison has something to catch.
+#ifndef TYRA_STAPIP_BAKED_POISON
+#define TYRA_STAPIP_BAKED_POISON 0
+#endif
+#ifndef TYRA_STAPIP_BAKED_BUDGET_QW
+#define TYRA_STAPIP_BAKED_BUDGET_QW 262144
+#endif
+
+#ifndef TYRA_STAPIP_BAKED_REPORT
+#define TYRA_STAPIP_BAKED_REPORT 0
+#endif
+
+// The periodic STAPIPRET readout. Separate from the feature and OFF by default:
+// it is a timed host: write, and a timed host: write inside a measurement
+// window is noise with a period. Build with -DTYRA_STAPIP_RETAINED_REPORT=1.
+#ifndef TYRA_STAPIP_RETAINED_REPORT
+#define TYRA_STAPIP_RETAINED_REPORT 0
+#endif
 
 namespace Tyra {
+
+#if TYRA_STAPIP_RETAINED_COMMANDS
+
+/**
+ * Modified by TyraX: one bag's retained VU1 command data.
+ *
+ * A wholly visible static bag hands VU1 the same DMA/VIF command block every
+ * frame: a CNT tag carrying the scale quadword and the prim GIFtag, then one
+ * DMA REF tag per vertex stream. None of it depends on the camera - the MVP,
+ * the picked light and the visibility classification are the per-frame half
+ * and stay per-frame. So the block is CAPTURED the first time it is built, out
+ * of the packet the ordinary builders just wrote it into, and replayed with a
+ * memcpy afterwards. Capturing rather than re-deriving is what makes the
+ * replay byte-identical by construction, for every program variant including
+ * a game-supplied one.
+ *
+ * Two properties make this safe, and any edit must keep both:
+ *
+ * - **The block is COPIED into the packet, never referenced by DMA.** Its REF
+ *   tags name the bag's own vertex arrays exactly as before, so this adds no
+ *   new DMA-lifetime exposure at all: the retained storage is EE-private and
+ *   the packet is as self-contained as it was. (The slot pool's lifetime rule
+ *   is untouched - a copied qbuffer never gets a retained block.)
+ * - **The key is every input the block encodes.** Stream pointers, vertex
+ *   count, package size, the bag's `bboxVersion`, the resolved VU1 program,
+ *   the prim state and the single-colour/strip flags. Anything that moves
+ *   rebuilds; a bag whose array was freed and reallocated elsewhere fails the
+ *   pointer compare, which is the case a version stamp alone would miss.
+ */
+struct StaPipRetainedEntry {
+  // The key. Compared as a whole; a mismatch discards the blocks.
+  const void* vertices;
+  const void* sts;
+  const void* colors;
+  const void* normals;
+  const void* program;
+  u32 count;
+  u32 maxVertCount;
+  u32 bboxVersion;
+  u32 primKey;
+  u32 depthScaleBits;
+  u8 singleColor;
+  u8 stripped;
+
+  /** Packages = ceil(count / maxVertCount). */
+  u16 packages;
+  /** Qwords per package block. 0 until the first capture. */
+  u16 blockQw;
+  /** packages * kMaxBlockQw quadwords; each package's block at its own slot. */
+  std::unique_ptr<qword_t[]> data;
+  /** One byte per package: has that block been captured yet? (Modified by
+   * TyraX: the block's emit-state flag is rewritten on every replay - see the
+   * replay site in addBuffersDataToPacket.) */
+  std::unique_ptr<u8[]> ready;
+
+  int framesLeftToDestroy;
+  int nextInBucket;
+};
+
+/**
+ * Modified by TyraX: the bag -> retained-block cache. Shaped like
+ * StapipBagBBoxesCacher on purpose - a 256-bucket index over vector indices
+ * (relocation-safe), a per-entry unused-frame countdown, and a compaction that
+ * rebuilds the index. What is different is the hard BYTE cap: a scene with
+ * more visible static geometry than the cap simply keeps rebuilding the bags
+ * that did not fit, which is slower and always correct.
+ */
+class StaPipRetainedCommands {
+ public:
+  /** At most this many qwords in one package block; a program that needs more
+   * is never retained. It is 3 for the scale/GIFtag group plus one DMA REF per
+   * vertex stream, so the fattest BUILT-IN class is 6 (position + ST + one of
+   * colours/normals) and this leaves one stream of headroom. Raising it costs
+   * capacity for every entry, not just the fat ones - a slot is reserved
+   * before the first capture measures the block. */
+  static const u16 kMaxBlockQw = 7;
+  /** ~128 KB of EE RAM, i.e. about 1170 VU1 packages - more than the Motor
+   * District garage submits in a frame. The cap is a hard budget, not a hint:
+   * when it binds, the least recently used entries are dropped to make room
+   * (bounded per frame, see kMaxEvictionsPerFrame). */
+  static const u32 kMaxQwords = 8192;
+  /** Same 5-second retention the bbox cacher uses. */
+  static const int kLifetimeFrames = 50 * 5;
+  /** How many entries one frame may drop to make room. Without a bound, a
+   * scene whose working set genuinely exceeds the cap would evict and
+   * re-capture the same bags every frame - strictly worse than simply not
+   * retaining them. With it, such a scene settles on the subset that fits. */
+  static const int kMaxEvictionsPerFrame = 8;
+
+  StaPipRetainedCommands();
+
+  void onFrameEnd();
+  void clear();
+
+  /**
+   * The entry for this bag, or nullptr when it cannot be retained (the cap is
+   * reached, or the bag has more packages than one entry may hold). A key
+   * mismatch invalidates in place rather than allocating a second entry.
+   */
+  StaPipRetainedEntry* acquire(const StaPipRetainedEntry& key);
+
+  u32 getBytes() const { return usedQwords * 16; }
+  u32 takeHits() { const u32 v = hits; hits = 0; return v; }
+  u32 takeBuilds() { const u32 v = builds; builds = 0; return v; }
+  void countHit() { ++hits; }
+  void countBuild() { ++builds; }
+
+ private:
+  static const u32 kBucketCount = 256;
+
+  u32 getBucket(const void* vertices, u32 maxVertCount) const;
+  void rebuildIndex();
+  /** Drop least-recently-used entries until `wanted` quadwords fit. Never
+   * takes an entry this frame has already touched, and never more than
+   * kMaxEvictionsPerFrame in one frame. */
+  bool evictFor(u32 wanted);
+  static bool keyMatches(const StaPipRetainedEntry& a,
+                         const StaPipRetainedEntry& b);
+
+  std::vector<StaPipRetainedEntry> storage;
+  int indexBuckets[kBucketCount];
+  u32 usedQwords = 0;
+  u32 hits = 0, builds = 0;
+  int evictionsThisFrame = 0;
+};
+
+#endif  // TYRA_STAPIP_RETAINED_COMMANDS
+
+#if TYRA_STAPIP_BAKED_STREAM
+
+/**
+ * Modified by TyraX: one bag's BAKED VIF1 command stream
+ * (docs/baked-vif-stream.md).
+ *
+ * The retained-command cache above replays the bag's finished DMA CHAIN with a
+ * memcpy: six quadwords of tags per package, whose REF tags still name the
+ * bag's arrays. This goes one step further and replays the whole thing with ONE
+ * DMA REF tag, which means the payload the REF names may contain no DMA tags at
+ * all - the DMAC does not interpret tags inside referenced data, it feeds every
+ * word of it to VIF1 as a VIFcode. So the baked block is a PURE VIFCODE STREAM:
+ * STCYCL + UNPACK followed inline by the data that unpack transfers, repeated,
+ * then the FLUSH + MSCAL/MSCNT that kicks the microprogram.
+ *
+ * It is TRANSCODED out of the chain the ordinary writers just produced, not
+ * re-derived from a second description of the packet format. Each tag becomes
+ * one header quadword carrying the tag's own two VIFcodes verbatim (padded in
+ * FRONT with two VIF NOPs, so the unpack data stays quadword aligned and the
+ * VIFcodes keep their order), followed by the quadwords that tag transferred -
+ * from the packet for a CNT tag, from the named address for a REF tag. Anything
+ * that is not CNT or REF refuses the bake. That keeps the property the retained
+ * cache has: a future edit to a program's writer cannot be silently missed here.
+ *
+ * Two consequences of inlining the payload, both load bearing:
+ *
+ * - **It COSTS the payload.** A 75-vertex textured package with per-vertex
+ *   colours bakes to 231 quadwords - 3 696 bytes - against 96 bytes of retained
+ *   chain, because the three vertex streams are now stored twice. The budget
+ *   below is a hard cap for exactly that reason.
+ * - **The block is referenced by DMA, so it is NOT EE-private.** Unlike the
+ *   retained blocks it must stay alive and unchanged until VIF1 has consumed
+ *   the packet that names it. A block is written once, when it is built, and
+ *   only read afterwards, so the one lifetime rule is that eviction may not
+ *   free a block an in-flight packet still names - which is why eviction runs
+ *   at frame end, after the pipeline's own flush.
+ */
+struct StaPipBakedEntry {
+  // The key. Identical to the retained one plus the program's VU1 destination
+  // address, because the baked block carries the MSCAL that names it.
+  const void* vertices;
+  const void* sts;
+  const void* colors;
+  const void* normals;
+  const void* program;
+  u32 count;
+  u32 maxVertCount;
+  u32 bboxVersion;
+  /**
+   * Modified by TyraX: THE FIX FOR THE DEFECT THAT PARKED THIS FEATURE, and
+   * the reason it is a separate field rather than a wider reading of
+   * `bboxVersion`.
+   *
+   * `bboxVersion` is a statement about the bounding BOX, i.e. about positions,
+   * and `StapipBagBBoxesCacher` is its consumer - so a caller that re-shades
+   * per-vertex COLOURS in place changed what this block must contain without
+   * touching anything the key could see. The adversarial verify arm caught
+   * exactly that, 1 438 times on the Motor District, every one of them in the
+   * colour-only program class with the first differing quadword landing on the
+   * first colour quadword.
+   *
+   * This folds the four per-stream stamps the bags now carry (see
+   * `StaPipBag::contentVersion`) into one word. A stream whose owner does not
+   * opt in contributes nothing, which is what keeps the legacy
+   * `StaticPipeline` path and any un-migrated caller behaving exactly as
+   * before. The retained cache deliberately does NOT carry this - it stores
+   * the chain, whose `REF`s still name the caller's arrays, so re-written
+   * contents are followed at DMA time and folding this in would rebuild its
+   * blocks for nothing.
+   */
+  u32 contentVersion;
+  u32 primKey;
+  u32 depthScaleBits;
+  u32 programAddr;
+  u8 singleColor;
+  u8 stripped;
+
+  /** Packages = ceil(count / maxVertCount). */
+  u16 packages;
+  /** How many blocks have been baked. They must arrive 0, 1, 2, ... - the
+   * direct route submits every package of the bag in order, and anything else
+   * resets the entry rather than leaving a hole in the arena. */
+  u16 built;
+  u8 complete;
+  /** Modified by TyraX: churn damping (StaPipBakedStreams::kChurnGapFrames).
+   * The frame this entry last had to be rebuilt because its payload moved;
+   * while `churning` it is not baked at all, and `seen*` / `settled` watch
+   * for the payload to stop moving. */
+  u32 lastRebuildFrame = 0;
+  u32 seenBBoxVersion = 0;
+  u32 seenContentVersion = 0;
+  u8 churning = 0;
+  u8 settled = 0;
+
+  /** Quadword offset and length of each package's block inside `data`. */
+  std::unique_ptr<u32[]> offsets;
+  std::unique_ptr<u16[]> sizes;
+  /** The arena: the bag's package blocks laid out contiguously IN PACKAGE
+   * ORDER, which is what lets ONE REF tag cover a run of consecutive packages.
+   * `raw` owns the allocation and `arena` is the 16-byte-aligned pointer the
+   * REF names - a DMA tag's address field drops its low four bits, so a
+   * misaligned arena would be silently transferred from somewhere else. */
+  std::unique_ptr<u8[]> raw;
+  qword_t* arena;
+  u32 arenaQw;
+
+  int framesLeftToDestroy;
+  int nextInBucket;
+};
+
+/** Modified by TyraX: the bag -> baked-stream cache. Same shape as
+ * StaPipRetainedCommands - 256-bucket index over vector indices, per-entry
+ * unused-frame countdown, bounded LRU eviction against a hard byte budget -
+ * with one difference that matters: the budget here is megabytes, not
+ * kilobytes, because every entry carries a copy of its bag's vertex payload. */
+class StaPipBakedStreams {
+ public:
+  /** The budget, in quadwords. 262 144 qw = 4 MB of EE RAM. The Motor
+   * District garage's cull-routed working set alone is about 2.9 MB at
+   * 3 696 bytes a package, so this is a real bound and it is meant to be read
+   * against the measured usage, not assumed generous. */
+  static const u32 kMaxQwords = TYRA_STAPIP_BAKED_BUDGET_QW;
+  /** Refuse a single block larger than this - a runaway package size would
+   * otherwise evict the whole cache for one bag. */
+  static const u32 kMaxBlockQw = 1024;
+  static const int kLifetimeFrames = 50 * 5;
+  static const int kMaxEvictionsPerFrame = 8;
+  /**
+   * Modified by TyraX: a bag whose payload has to be rebuilt on two frames
+   * within kChurnGapFrames stops being baked and takes the retained route
+   * instead, whose REF chain reads its arrays fresh at DMA time, until the
+   * payload has held still for kSettleFrames - then it bakes once and replays
+   * as before. Baking inlines the payload, so a bag rewritten every frame paid
+   * the whole build PLUS the copy every frame and never replayed once: the
+   * vehicle paint pass while the camera orbits the car, 0.85 -> 5.0 ms of EE
+   * on a physical PS2. A stable bag never enters this state.
+   */
+  static const u32 kChurnGapFrames = 2;
+  static const u32 kSettleFrames = 3;
+  u32 takeChurnSkips() { const u32 v = churnSkips; churnSkips = 0; return v; }
+
+  StaPipBakedStreams();
+
+  void onFrameEnd();
+  void clear();
+
+  StaPipBakedEntry* acquire(const StaPipBakedEntry& key);
+  /** Charge the budget for a finished arena. False means it does not fit even
+   * after eviction, and the caller abandons the bake for now. */
+  bool reserve(u32 qwords);
+
+  u32 getBytes() const { return usedQwords * 16; }
+  u32 takeHits() { const u32 v = hits; hits = 0; return v; }
+  u32 takeBuilds() { const u32 v = builds; builds = 0; return v; }
+  void countHit() { ++hits; }
+  void countBuild() { ++builds; }
+
+  /**
+   * Modified by TyraX: WHY a bag rebuilt. A cache that never converges is a
+   * third of a route paying for nothing, and "it churns" is not actionable -
+   * the field that moved is. `acquire` tallies one reason per invalidation and
+   * records the LOUDEST bag (the one whose key moved carrying the most
+   * packages) so the readout can name a mesh by its vertex count rather than
+   * by a heap address. Read and cleared together, and compiled out with the
+   * feature like everything else here.
+   */
+  enum MissReason {
+    MissNewEntry = 0,   // no entry for this (array, package size) at all
+    MissBBoxVersion,    // the caller claims the buffer's POSITIONS changed
+    MissContentVersion,  // a stream's CONTENTS were rewritten in place
+    MissPrimState,      // same array, different prim/GIFtag - a second pass
+    MissStreams,        // an ST/colour/normal stream pointer moved
+    MissProgram,        // a different VU1 program, or a different address
+    MissCountOrSize,    // the mesh resized, or its package size was re-pinned
+    MissIncomplete,     // every package arrived but the bag never completed
+    MissReasonCount
+  };
+  const u32* getMisses() const { return misses; }
+  void clearMisses() {
+    for (u32 i = 0; i < MissReasonCount; ++i) misses[i] = 0;
+    loudCount = loudPackages = 0;
+    loudReason = MissReasonCount;
+  }
+  void countMiss(MissReason reason) { ++misses[reason]; }
+  /** The biggest invalidated bag of the window: its vertex count, its package
+   * count and which field moved. */
+  void noteLoud(MissReason reason, u32 count, u32 packages) {
+    if (packages <= loudPackages) return;
+    loudReason = reason;
+    loudCount = count;
+    loudPackages = packages;
+  }
+  u32 getLoudCount() const { return loudCount; }
+  u32 getLoudPackages() const { return loudPackages; }
+  u32 getLoudReason() const { return loudReason; }
+#if TYRA_STAPIP_BAKED_ANY_VERIFY
+  /** Blocks compared, and blocks that did NOT match. A single mismatch is a
+   * failure of the whole arm: it means the cache would have replayed something
+   * the ordinary writers no longer produce. */
+  u32 verifyChecked = 0, verifyFailed = 0;
+#endif
+#if TYRA_STAPIP_BAKED_SAMPLE_VERIFY
+  /** The round-robin cursor of the sampled arm, and the entry it selected for
+   * THIS frame. `verifyTarget` is what `replayBakedBag` refuses to replay, so
+   * exactly one bag a frame takes the ordinary route and gets compared while
+   * every other bag is replayed at full speed. Advanced once per frame, at the
+   * same place the frame's other per-frame bookkeeping happens, so the cursor
+   * cannot race the submission order within a frame. */
+  u32 verifyCursor = 0;
+  const StaPipBakedEntry* verifyTarget = nullptr;
+  /** Choose this frame's victim. Called once a frame; walks the storage so
+   * every resident entry is checked in turn. Defined out of line because it
+   * reads `storage`, which is declared below. */
+  void pickVerifyTarget();
+  const StaPipBakedEntry* getVerifyTarget() const { return verifyTarget; }
+#endif
+
+  /**
+   * Is this entry being VERIFIED this frame - rebuilt by the ordinary writers
+   * and compared against the arena - rather than replayed from it?
+   *
+   * This is the ONE predicate the two arms differ in, and every site that used
+   * to test the macro now tests this instead. The exhaustive arm answers yes
+   * for every entry, which is why it deletes the whole saving; the sampled arm
+   * answers yes for one entry a frame, which is why it can ship. With neither
+   * arm compiled in it is a compile-time false and every branch behind it
+   * folds away, so a release build carries none of it.
+   */
+  bool verifying(const StaPipBakedEntry* e) const {
+#if TYRA_STAPIP_BAKED_VERIFY
+    return e != nullptr;
+#elif TYRA_STAPIP_BAKED_SAMPLE_VERIFY
+    return e != nullptr && e == verifyTarget;
+#else
+    (void)e;
+    return false;
+#endif
+  }
+
+ private:
+  static const u32 kBucketCount = 256;
+
+  u32 getBucket(const void* vertices, u32 maxVertCount) const;
+  void rebuildIndex();
+  bool evictFor(u32 wanted);
+  /** Give an entry's arena back to the budget and its memory to the graveyard
+   * - never straight to free(). See the definition. */
+  void retire(StaPipBakedEntry& item);
+  static bool keyMatches(const StaPipBakedEntry& a, const StaPipBakedEntry& b);
+
+  /** Entries are owned by POINTER, not by value: `acquire` may evict while a
+   * caller is holding the entry it just got, and a vector of values would move
+   * that entry out from under it. */
+  std::vector<std::unique_ptr<StaPipBakedEntry>> storage;
+  /** Arenas freed two frames from now. A baked block is named by a DMA REF, so
+   * it may not be freed while the last submitted packet can still reach it. */
+  std::vector<std::unique_ptr<u8[]>> graveyard[2];
+  u8 graveyardWrite = 0;
+  int indexBuckets[kBucketCount];
+  u32 usedQwords = 0;
+  u32 hits = 0, builds = 0;
+  u32 frameNow = 1;
+  u32 churnSkips = 0;
+  int evictionsThisFrame = 0;
+  u32 misses[MissReasonCount] = {0};
+  u32 loudCount = 0, loudPackages = 0, loudReason = MissReasonCount;
+};
+
+#endif  // TYRA_STAPIP_BAKED_STREAM
 
 class StaPipQBufferRenderer {
  public:
@@ -46,6 +557,20 @@ class StaPipQBufferRenderer {
   // object-space spot light to the EE clipper.
   void sendObjectData(StaPipBag* bag, M4x4* mvp,
                       RendererCoreTextureBuffers* texBuffers);
+
+  /**
+   * Modified by TyraX: the texture wrap (GS CLAMP_1) the next bag draws with.
+   * StaPipCore sets it for every bag before sendObjectData, which writes the
+   * register INTO THE CHAIN when it differs from the wrap in force: FLUSH (VU1
+   * done, PATH1 idle), then DIRECT A+D CLAMP_1, ahead of the bag's uniforms.
+   * That replaces a sync.align3D() + PATH3 write per switch - the EE waiting
+   * for the whole 3D frame so far, 0.4 ms a switch on a physical PS2 (1.28 ms
+   * in Motor District's garage night). The GS wrap cache
+   * (RendererCoreGS::currentTextureWrap) is updated when the packet carrying
+   * the write is SUBMITTED, so a packet thrown away unsent takes its write
+   * with it and the cache never claims a wrap the GS will not get.
+   */
+  void setBagWrap(const texwrap_t* wrap) { bagWrap = wrap; }
 
   // Modified by TyraX: the dynamic light this bag renders with (picked per
   // bag by StaPipCore::render from the flashlight + scene lights). Null =
@@ -134,20 +659,141 @@ class StaPipQBufferRenderer {
   void setVuTime(const float& seconds);
 
   /**
-   * Modified by TyraX: particle billboards. The resident program set has no
-   * room for the billboard family (the VU1-clipping set fills micro memory
-   * to the brim), so the two billboard programs live in their own small
-   * packet and are swapped in when a billboard bag renders - the same
-   * upload mechanism a StaPip<->DynPip pipeline switch uses every frame.
-   * The main set is lazily restored by the next non-billboard bag.
+   * Modified by TyraX: particle billboards. setProgramsCache appends the two
+   * billboard programs to the resident set whenever they fit under the
+   * draw-finish helper (the normal case since clip TD shares the TC image),
+   * and then this is a no-op. Only when they do not fit - a project's own
+   * oversized programs, say - do they live in their own small packet and get
+   * swapped in when a billboard bag renders (two VIF1 drains plus a ~15 KB
+   * MPG upload each way), the main set lazily restored by the next
+   * non-billboard bag. StaPipTelemetry::programSetSwaps counts those swaps.
    */
   void ensureProgramSet(const bool& billboard);
+  /** Modified by TyraX: true when the billboard programs sit in the resident
+   * set and ensureProgramSet never swaps. */
+  bool areBillboardsResident() const { return billboardsResident; }
 
   void flushBuffers();
 
+  /**
+   * Modified by TyraX: opt one known-owned sequence into bounded submission
+   * batching. The caller guarantees that every direct vertex, texture-coordinate,
+   * colour and normal stream remains alive and unchanged through the next VIF1
+   * synchronization after
+   * endSubmissionBatch(); end submits asynchronously and is not a fence.
+   * Texture and copy/clip paths force an internal flush.
+   */
+  void beginSubmissionBatch();
+  void endSubmissionBatch();
+  void onFrameEnd();
+  bool isSubmissionBatchOpen() const { return submissionBatchScope; }
+  /**
+   * Modified by TyraX: what the NEXT bag's fog decision needs - GS fog off
+   * for it, and its object-space box. sendObjectData decides whether the fog
+   * coefficient is the constant 255 everywhere (fog off, or the whole box
+   * nearer than the fog start) for a bag cull_tc's fog-free loop can take,
+   * and sends fog scale 0 and offset 255 then. Every program turns that into
+   * F = 255 and cull_tc reads it as "skip the fog arithmetic": 12 cycles of
+   * its 73-cycle loop, bit-identical output.
+   */
+  void setFogFacts(const bool& fogOff, const CoreBBox* box) {
+    fogOffForBag = fogOff;
+    fogBox = box;
+  }
+  void setSubmissionBatchCandidate(const bool& candidate,
+                                   const bool& textured = false);
+
   void clearLastProgramName();
 
+  /**
+   * Modified by TyraX: open the retained-command scope for one bag, right
+   * before its packages are submitted (so after setInfo - the prim state is
+   * part of the key). Returns true when this bag's cull-routed packages may
+   * carry a retain index; false means every package is built the old way.
+   *
+   * Only the CULL route is ever retained: a clip buffer's count word carries a
+   * plane mask that changes with the camera, and a copied or strip-expanded
+   * buffer points into the double-buffered slot pool, whose address is not a
+   * property of the bag.
+   */
+  bool beginRetainedBag(StaPipBag* bag, const u32& packageSize);
+  void endRetainedBag();
+
+  /** TyraX diagnostics: how many package command blocks were replayed from
+   * retained storage against how many were built, and how much EE RAM the
+   * cache holds. Reading the two counters clears them. */
+  u32 takeRetainedHits();
+  u32 takeRetainedBuilds();
+  u32 getRetainedBytes() const;
+
+  /**
+   * Modified by TyraX: the BAKED VIF STREAM spike
+   * (docs/baked-vif-stream.md). Opened by StaPipCore for the DIRECT,
+   * wholly-visible cull route ONLY - the one branch whose packages are a fixed
+   * slice of the bag and whose MSCAL/MSCNT sequence is therefore a bake-time
+   * fact (render() calls clearLastProgramName() per bag, so package 0 always
+   * gets MSCAL and the rest always get MSCNT).
+   *
+   * Returns true when this bag's packages may carry a bake index. Everything
+   * else - partial bags, the clip route, copied/strip-expanded buffers,
+   * billboards and any game-supplied program override - falls through to the
+   * path it took before, unchanged.
+   */
+  bool beginBakedBag(StaPipBag* bag, const u32& packageSize);
+  /**
+   * Modified by TyraX: replay a COMPLETE baked bag with ONE DMA REF tag,
+   * bypassing the qbuffer ring entirely.
+   *
+   * THIS IS THE CHANGE THE SPIKE COULD NOT MAKE. The spike still walked the
+   * ring - getBuffer, fillByPointer, cull, the 16-group flush bookkeeping and
+   * the per-buffer loop in addBuffersDataToPacket - and only replaced the
+   * bytes each buffer wrote. It had to: a run of packages under one REF cannot
+   * cross a packet flush boundary, so a longer run means a moved flush cadence,
+   * and the acceptance gate every earlier round used PINS the flush cadence.
+   * With docs/baked-stream-acceptance-gate.md that constraint is gone, and the
+   * whole ring can go with it: the arena already holds every package of the bag
+   * contiguously, in package order, kick included, so the EE's entire per-
+   * package contribution for such a bag is ONE TAG.
+   *
+   * Preconditions the caller owes, all of which hold at the point render()
+   * calls this:
+   *
+   * - the qbuffer ring is EMPTY. render() ends every bag with flushBuffers(),
+   *   which writes any pending buffers into the packet and resets both indices,
+   *   so nothing of a previous bag is waiting to be emitted. Appending a REF
+   *   while buffers were pending would put this bag's geometry BEFORE theirs.
+   * - the bag's uniforms are already in the packet (sendObjectData ran).
+   * - the entry is complete, i.e. every package was baked.
+   *
+   * False means not eligible and the caller runs the ordinary loop.
+   */
+  bool replayWholeBakedBag();
+  void endBakedBag();
+  u32 takeBakedHits();
+  u32 takeBakedBuilds();
+  u32 getBakedBytes() const;
+  /** TyraX diagnostics: why bags rebuilt - see StaPipBakedStreams::MissReason.
+   * Returns MissReasonCount counters, or null when the feature is compiled
+   * out; clearBakedMisses() resets them and the loudest-bag record. */
+  const u32* getBakedMisses() const;
+  u32 getBakedLoudCount() const;
+  u32 getBakedLoudPackages() const;
+  u32 getBakedLoudReason() const;
+  void clearBakedMisses();
+  /** TYRA_STAPIP_BAKED_VERIFY: blocks compared, and blocks that did not match.
+   * Zero when the arm is compiled out. */
+  u32 getVerifyChecked() const;
+  u32 getVerifyFailed() const;
+
+  /** TyraX diagnostics: DMA quadwords the pipeline handed to VIF1 this frame,
+   * summed over every submitted packet - the CHAIN, not the payload the REF
+   * tags name. This is the number the baked stream is trying to move, so it is
+   * compiled into BOTH arms and is always zero when telemetry is off. Reading
+   * it clears it. */
+  u32 takeChainQwords() { const u32 v = chainQwords; chainQwords = 0; return v; }
+
   StaPipVU1Program* getCullProgramByBag(const StaPipBag* bag);
+  bool hasProgramOverrides() const { return repository.hasAnyOverride(); }
 
   StaPipVU1Program* getCullProgramByParams(const bool& isLightingEnabled,
                                            const bool& isTextureEnabled);
@@ -171,11 +817,28 @@ class StaPipQBufferRenderer {
   u16 getQBufferIndex(StaPipQBuffer* buffer);
   u16 packetSize;
 
+#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
+  /**
+   * Probe B only (stapip_probes.hpp): any buffer committed into the packet
+   * currently being built had its streams written into the qbuffer copy pool,
+   * so this send must keep the whole-data-cache write-back. Set in
+   * addBuffersDataToPacket, consumed and cleared in sendPacket.
+   */
+  bool probePacketUsesPool;
+#endif
+
   static const u16 buffersCount;
 
   StaPipVU1Program* getProgramByName(const StaPipProgramName& name);
-  void addBuffersDataToPacket(const u32& from, const u32& to);
+  void addBuffersDataToPacket(const u32& from, const u32& to,
+                              const bool& finalize = true);
+  // Modified by TyraX: the per-mesh VU1 clipping uniform chain, lifted out of
+  // sendObjectData so the retained-command path can capture and replay it.
+  void addClipChain(packet2_t* objectDataPacket) const;
   void sendPacket();
+  void flushPendingPacket();
+  static void textureMutationBarrier(void* context);
+  void beforeTextureMutation();
   StaPipVU1Program* getAsIsProgramByBag(const StaPipBag* bag);
   // Modified by TyraX: VU1 clipping.
   StaPipVU1Program* getClipProgramByBag(const StaPipBag* bag);
@@ -185,17 +848,36 @@ class StaPipQBufferRenderer {
       const bool& isLightingEnabled, const bool& isTextureEnabled) const;
   packet2_t* programsPacket;
   // Modified by TyraX: on-demand billboard program set (see
-  // ensureProgramSet).
+  // ensureProgramSet). Only built when the two billboard programs do NOT fit
+  // beside the resident set - billboardsResident says which case this is.
   packet2_t* billboardProgramsPacket;
   bool billboardSetActive = false;
+  bool billboardsResident = false;
 
   packet2_t** packets;
+  /** Modified by TyraX: how many packet buffers rotate. 2 is the stock
+   * ping-pong; with TYRA_VIF1_QUEUE it is Vif1Queue::kDepth, and
+   * packetSequence records which queued chain last used each buffer so that
+   * buffer is only rewritten once VIF1 has finished reading it. */
+  static constexpr u8 kPacketCount = TYRA_VIF1_QUEUE ? Vif1Queue::kDepth : 2;
+  u32 packetSequence[kPacketCount] = {};
   StaPipVU1Program** dBufferPrograms;
   StaPipQBuffer** buffers;
   packet2_t* staticDataPacket;
   // Modified by TyraX: uniforms already occupy the current geometry packet;
   // append the first buffer flush instead of resetting that packet.
   bool objectDataPending = false;
+  // Modified by TyraX: see setBagWrap().
+  const texwrap_t* bagWrap = nullptr;  // wanted by the bag being prepared
+  texwrap_t packetWrap = {};           // written by the unsent packet
+  bool packetWrapSet = false;
+  bool submissionBatchScope = false;
+  bool fogOffForBag = false;  // Modified by TyraX: see setFogFacts
+  const CoreBBox* fogBox = nullptr;
+  bool submissionBatchCandidate = false;
+  u8 submissionBatchBags = 0;
+  bool submissionPacketHasTexture = false;
+  bool submissionTextureReadersOutstanding = false;
 
   RendererCore* rendererCore;
 
@@ -229,6 +911,70 @@ class StaPipQBufferRenderer {
   const RendererCoreSpotLight* bagLight = nullptr;
   // Modified by TyraX: opt-in routing/VU1 back-pressure telemetry.
   StaPipTelemetry* telemetry = nullptr;
+#if TYRA_STAPIP_PACKET_PROFILE
+  /** Producer owning the packet being assembled. Zero means either unknown or
+   * a packet that intentionally spans more than one producer scope. */
+  u8 packetTelemetryProducer = StaPipProducerMixed;
+#endif
+
+#if TYRA_STAPIP_RETAINED_COMMANDS
+  // Modified by TyraX: retained command data (see StaPipRetainedCommands).
+  StaPipRetainedCommands retained;
+  /** The bag currently being submitted, or nullptr. Every buffer in a flush
+   * belongs to one bag - flushBuffers resets the slot indices per bag - so one
+   * pointer is enough to resolve a buffer's retainIndex. */
+  StaPipRetainedEntry* retainedCurrent = nullptr;
+
+  /**
+   * The VU1 clip constants and the six clip planes, captured once. They are
+   * uploaded per mesh and are the same fifteen quadwords every time: their
+   * only inputs are the renderer's near/far and the guard-band constant. 52
+   * float stores per bag became a memcpy, and the block is thrown away
+   * whenever those inputs could have moved (init, setVU1Clipping).
+   */
+  qword_t clipBlock[16] __attribute__((aligned(16)));
+  u16 clipBlockQw = 0;
+  // Modified by TyraX: the same block as a plain VIF stream (its CNT tags'
+  // DMA halves turned into VIF NOPs), so every bag REFs this one copy instead
+  // of copying fifteen quadwords into its packet. Rebuilt with clipBlock;
+  // rewritten only after a VIF1 drain, because in-flight chains REF it.
+  qword_t clipBlockVif[16] __attribute__((aligned(64)));
+  u16 clipBlockVifQw = 0;
+#endif
+
+  /** See takeChainQwords(). Accumulated in sendPacket, reset on read. */
+  u32 chainQwords = 0;
+
+#if TYRA_STAPIP_VIFHASH
+ public:
+  /** The acceptance gate, leg 1 - docs/baked-stream-acceptance-gate.md. Folded
+   * in sendPacket() (every chain, before the send) and in
+   * beforeTextureMutation() (every texture change, in sequence), read and
+   * printed by StaPipCore::onFrameEnd. */
+  StaPipVifHash vifHash;
+
+ private:
+#endif
+
+#if TYRA_STAPIP_BAKED_STREAM
+  // Modified by TyraX: baked VIF streams (see StaPipBakedStreams).
+  StaPipBakedStreams baked;
+  /** The bag currently being submitted through the direct route, or nullptr.
+   * Mirrors retainedCurrent, and for the same reason: every buffer in a flush
+   * belongs to one bag. */
+  StaPipBakedEntry* bakedCurrent = nullptr;
+
+  /** Transcode a finished DMA chain fragment of the current packet into a
+   * pure VIFcode stream and append it to bakeScratch as package `index` of
+   * `entry`. False means the fragment carried a tag this cannot express; the
+   * bake is then abandoned and the bag keeps building its packets. */
+  bool bakeBlock(packet2_t* packet, u32 fromQw, u32 toQw,
+                 StaPipBakedEntry* entry, u32 index);
+
+  /** The bag being baked, built package by package and handed to the entry as
+   * one aligned arena by endBakedBag(). Lives only inside one render() call. */
+  std::vector<qword_t> bakeScratch;
+#endif
 };
 
 }  // namespace Tyra

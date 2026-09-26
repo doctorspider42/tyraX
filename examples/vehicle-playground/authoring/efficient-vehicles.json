@@ -1,0 +1,210 @@
+{
+  "scope": "Tier-zero resource inventory; 75-vertex list packages or baked strip runs. No culling, wheel batching, reflection/shadow replays or hardware timing.",
+  "vehicles": {
+    "CC96": {
+      "before": {
+        "body": {
+          "triangles": 3882,
+          "parts": 3,
+          "packages": 157,
+          "reflection_parts": 1,
+          "lod_triangles": [
+            2478,
+            2208
+          ]
+        },
+        "wheel": {
+          "triangles": 1156,
+          "parts": 1,
+          "packages": 26,
+          "reflection_parts": 0,
+          "lod_triangles": [
+            1156,
+            1156
+          ]
+        },
+        "near_triangles": 8506,
+        "near_packages": 261
+      },
+      "after": {
+        "body": {
+          "triangles": 3882,
+          "parts": 3,
+          "packages": 157,
+          "reflection_parts": 1,
+          "lod_triangles": [
+            1694,
+            1424
+          ]
+        },
+        "wheel": {
+          "triangles": 76,
+          "parts": 1,
+          "packages": 2,
+          "reflection_parts": 0,
+          "lod_triangles": [
+            76,
+            76
+          ]
+        },
+        "near_triangles": 4186,
+        "near_packages": 165
+      },
+      "max_body_position_normal_error": 6.244238466024399e-05,
+      "host_body_render_difference": [
+        {
+          "changed_pixels": 0,
+          "max_channel_difference": 0
+        },
+        {
+          "changed_pixels": 0,
+          "max_channel_difference": 0
+        }
+      ],
+      "host_complete_silhouette_changed_pixels": [
+        277,
+        275
+      ]
+    },
+    "Rally 04": {
+      "before": {
+        "body": {
+          "triangles": 364,
+          "parts": 1,
+          "packages": 15,
+          "reflection_parts": 1,
+          "lod_triangles": [
+            476,
+            476
+          ]
+        },
+        "wheel": {
+          "triangles": 28,
+          "parts": 1,
+          "packages": 1,
+          "reflection_parts": 0,
+          "lod_triangles": [
+            28,
+            28
+          ]
+        },
+        "near_triangles": 476,
+        "near_packages": 19
+      },
+      "after": {
+        "body": {
+          "triangles": 364,
+          "parts": 1,
+          "packages": 15,
+          "reflection_parts": 1,
+          "lod_triangles": [
+            476,
+            476
+          ]
+        },
+        "wheel": {
+          "triangles": 28,
+          "parts": 1,
+          "packages": 1,
+          "reflection_parts": 0,
+          "lod_triangles": [
+            28,
+            28
+          ]
+        },
+        "near_triangles": 476,
+        "near_packages": 19
+      },
+      "max_body_position_normal_error": 0.0
+    },
+    "Tristar Racer": {
+      "before": {
+        "body": {
+          "triangles": 789,
+          "parts": 2,
+          "packages": 32,
+          "reflection_parts": 2,
+          "lod_triangles": [
+            1345,
+            1345
+          ]
+        },
+        "wheel": {
+          "triangles": 139,
+          "parts": 1,
+          "packages": 4,
+          "reflection_parts": 0,
+          "lod_triangles": [
+            139,
+            139
+          ]
+        },
+        "near_triangles": 1345,
+        "near_packages": 48
+      },
+      "after": {
+        "body": {
+          "triangles": 789,
+          "parts": 2,
+          "packages": 32,
+          "reflection_parts": 2,
+          "lod_triangles": [
+            1093,
+            1093
+          ]
+        },
+        "wheel": {
+          "triangles": 76,
+          "parts": 1,
+          "packages": 2,
+          "reflection_parts": 0,
+          "lod_triangles": [
+            76,
+            76
+          ]
+        },
+        "near_triangles": 1093,
+        "near_packages": 40
+      },
+      "max_body_position_normal_error": 1.1920928955078125e-07,
+      "host_body_render_difference": [
+        {
+          "changed_pixels": 0,
+          "max_channel_difference": 1
+        },
+        {
+          "changed_pixels": 0,
+          "max_channel_difference": 1
+        }
+      ],
+      "host_complete_silhouette_changed_pixels": [
+        71,
+        107
+      ]
+    }
+  },
+  "baseline_budgets": {
+    "CC96": {
+      "bodyTris": 3938,
+      "wheelTris": 1281
+    },
+    "Tristar Racer": {
+      "bodyTris": 1200,
+      "wheelTris": 700
+    }
+  },
+  "model_sha256": {
+    "car1.fbx": "7b96db9c961c02a9df3593cbc004900232e51d697f664641ef1dffeb9361d7b2",
+    "tristar-lean.glb": "dba5f0a12a8a62c20858b8a8d80f94eff8d16a1651e14554c63204e39614583a",
+    "cc96-efficient.glb": "cd4dbfc059cffb66627ce98f560f8b28588634b3293a0ca7765eb409b51607ae",
+    "tristar-efficient.glb": "dc367806e835e709c90e3bd72ef86fda429958aed1a52e8bd9847dae1f7e0ee5",
+    "ggbot-rally.glb": "5596eebed8975281c6e62c22fc823b1100ede2fd45f1a5804cf29a3f537596ba"
+  },
+  "validation": [
+    "Native PS2 build passed",
+    "vehicle-check passed",
+    "Host geometry/material/pixel gate passed",
+    "PCSX2 GS captures: CC96 and Tristar close views, distant wheel retention",
+    "PCSX2 CC96 chase-camera entry, acceleration, steering and braking; rear brake lamps and night headlamp toggle inspected"
+  ]
+}

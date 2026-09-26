@@ -8,7 +8,8 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 */
 
-// Modified by TyraX: version-aware entries. A bag whose vertex buffer
+// Modified by TyraX: version-aware entries and a bounded hash index. A bag
+// whose vertex buffer
 // is rewritten in place (skinned meshes, particles) bumps its bboxVersion;
 // the cacher recomputes that entry instead of piling up a new one per frame
 // (250-frame retention made per-frame versions leak entries and allocations).
@@ -17,6 +18,7 @@
 
 #include <tamtypes.h>
 #include "./bag/packaging/stapip_bag_packages_bbox.hpp"
+#include "./stapip_attrib.hpp"
 #include "renderer/3d/mesh/mesh.hpp"
 #include <memory>
 #include <vector>
@@ -29,6 +31,7 @@ struct StapipBagBBoxesCacheItem {
   u32 version;  // bag's bboxVersion at computation time
   std::unique_ptr<StaPipBagPackagesBBox> bboxes;
   int framesLeftToDestroy;
+  int nextInBucket;
 };
 
 class StapipBagBBoxesCacher {
@@ -45,10 +48,40 @@ class StapipBagBBoxesCacher {
                                    const u32& id, const u32& version,
                                    const u32& maxVertCount);
 
+#if TYRA_STAPIP_ATTRIB
+  /**
+   * Added by TyraX: attribution counters
+   * (docs/render-submission-attribution.md). Compiled out by default with
+   * everything else behind TYRA_STAPIP_ATTRIB - at 0 this class gains no
+   * field and no increment.
+   *
+   * StaPipCore folds them into StaPipTelemetry::attrib in takeTelemetry()
+   * and clears them there, so they reset on read like every other counter.
+   * They are gathered unconditionally rather than under `telemetryEnabled`,
+   * because the cacher has no view of that flag; the whole block only exists
+   * in an instrumented build anyway.
+   */
+  struct Stats {
+    u32 hits = 0;
+    u32 recalcs = 0;
+    u32 fresh = 0;
+    u32 probes = 0;
+    u32 entries = 0;
+    u32 frameEndTicks = 0;
+    u32 recalcTicks = 0;
+  };
+  Stats stats;
+#endif
+
  private:
+  static const u32 indexBucketCount = 256;
+
   StapipBagBBoxesCacheItem* getCache(const u32& maxVertCount, const u32& id);
+  u32 getBucket(const u32& maxVertCount, const u32& id) const;
+  void rebuildIndex();
 
   std::vector<StapipBagBBoxesCacheItem> storage;
+  int indexBuckets[indexBucketCount];
 };
 
 }  // namespace Tyra

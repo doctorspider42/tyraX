@@ -31,10 +31,22 @@ constexpr float TERRAIN_LOD_DISTANCE = 0.0F;
 // The flashlight's shadow technique (Preferences > Rendering,
 // docs/flashlight.md "The shadow"). 0 = silhouette slots (mesh-accurate
 // shapes, four-caster ceiling, light leaks through unflagged solids);
-// 1 = shadow volumes stencil-counted in the framebuffer's destination alpha
-// (occlusion exact per pixel against the real z buffer, box-shaped
-// silhouettes, every solid in the beam occludes).
+// 1 = shadow volumes (occlusion exact per pixel against the real z buffer,
+// every solid in the beam occludes): model casters silhouette-extrude their
+// REAL triangles, counted in a dedicated GS target and resolved into the
+// destination-alpha mask; primitives extrude their boxes.
 constexpr int FLASH_SHADOW_VOLUMES = 0;
+// Hidden console diagnostic (project.hpp shadowVolumesDebug): 1 = count but
+// never resolve, 2 = clear + resolve with no volume drawn.
+constexpr int SHADOW_VOLUMES_DEBUG = 0;
+
+// The same technique offered to the scene's SPOT LIGHTS (docs/shadows.md,
+// "Spot-light shadow volumes"). This is the project-wide DEFAULT; a light can
+// say otherwise on itself through SceneObjectData::lightShadowVolumes, and
+// SPOT_SHADOW_VOLUMES_USED in scene_data.hpp is what the two resolve to for
+// the project as a whole. Only ONE spot casts volumes per frame - the count
+// band is a single buffer, shared with the torch's.
+constexpr int SPOT_SHADOW_VOLUMES = 0;
 
 constexpr float EYE_HEIGHT = 1.8F;
 constexpr float WALK_SPEED = 0.4F;
@@ -111,14 +123,41 @@ constexpr float ANIM_LOD_DISTANCE = 0.0F;
 // the ~25% one. 0 = off (the build then bakes no LOD chains at all).
 constexpr float MESH_LOD_DISTANCE = 0.0F;
 
-// Static batching (Preferences > Rendering): merge non-moving primitive
-// objects sharing a material into combined world-space bags at scene load -
+// Shared reflection probe reuse (Preferences > Rendering,
+// docs/reflective-materials.md "The reuse budget"): how far the retained
+// 128x128 target may be out of date, IN PIXELS OF ITSELF, before the probe
+// re-renders. The probe already runs only every second frame and already
+// retains the basis that produced the image; this is the other half - do not
+// capture at all while nothing that feeds the capture has moved. 0 = capture
+// on every cadence beat, i.e. exactly the pre-1.106 behaviour.
+constexpr float REFLECTION_REUSE_BUDGET = 1.0F;
+// How far from the eye the shared probe redraws terrain and road chunks
+// (Preferences > Rendering, docs/reflective-materials.md "The ground in the
+// probe"). 0 = every resident chunk.
+constexpr float REFLECTION_GROUND_RADIUS = 0.0F;
+// The probe's own raster, in pixels across, and its horizontal field of view
+// in degrees - the two numbers that turn an angle into a pixel count. They
+// must match the pushEnvView call in renderScene; both are compile-time facts
+// of RendererCoreEnvMap and of that call, not settings.
+constexpr float REFLECTION_PROBE_PIXELS = 128.0F;
+constexpr float REFLECTION_PROBE_FOV_DEG = 110.0F;
+
+// Static batching (Preferences > Rendering): merge non-moving primitives and
+// compact imported-model parts sharing a texture into world-space bags -
 // each StaPip submit costs ~0.7-1.5 ms of fixed EE overhead on real
 // hardware regardless of size, so many small separate objects dominate the
 // frame (twice over in split screen). Eligibility is decided at build time
-// (SceneObjectData::batchStatic); runtime edits to a batched member rebuild
-// its batch. false = every object submits its own bag.
+// (SceneObjectData::batchStatic); runtime edits demote that member and rebuild
+// its former batches. false = every object submits its own bag.
 constexpr bool STATIC_BATCHING = true;
+
+// Interleaved passes (Preferences > Rendering, docs/interleaved-passes.md):
+// the static batch and road bags are EE-cheap and GPU-heavy, the object loop
+// the opposite, and drawn one after the other the EE waits for VU1 in the
+// first and VU1 idles in the second. Interleaving feeds the batch and road
+// bags into the object loop instead. 0 = off, 1 = auto (the game times both
+// orders every few seconds and keeps the faster), 2 = always.
+constexpr int INTERLEAVE_PASSES = 1;
 
 // Dynamic reflection probe aim (Preferences > Rendering): false = the
 // classic GT3 level-forward aim; true = a camera ray is intersected with

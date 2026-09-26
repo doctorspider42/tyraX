@@ -1,0 +1,4 @@
+LOG: Static batching: 65 objects in 48 batches
+LOG: Static batching: eligible 87, solo 22, base cell 80, widest cell 80
+LOG: ROADSTRIP scene 0 strips 1 packages 337 triangles 21252
+LOG: TERRAINSTRIP scene 0 chunk 2,2 strips 1 vertices 588 packages 8 triangles 512

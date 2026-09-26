@@ -18,7 +18,23 @@
 #include "navmesh.hpp"
 #include "procgen.hpp"
 #include "project.hpp"
+#include "tmdl.hpp"  // vehicles draw from the import bake, not from an asset path
 #include "objparser.hpp"
+
+// One world-space wire box of the static-batch overlay (Viewport::
+// setBatchOverlay). Axis-aligned, because every box this overlay draws
+// already is: a batch's merged bounds, its grouping cell, and a member's own
+// world AABB.
+struct BatchOverlayBox {
+    float min[3] = {0, 0, 0};
+    float max[3] = {0, 0, 0};
+    float color[3] = {1, 1, 1};
+    // A member's box is drawn thin and a batch's merged box twice as thick,
+    // because the merged one is the thing worth looking at - it is what the
+    // frustum and the draw-distance test are applied to, and an over-wide one
+    // is the regression this overlay exists to make visible.
+    bool thick = false;
+};
 
 // 3D preview of the project terrain and scene objects, rendered into an
 // offscreen texture shown inside an ImGui window. Orbit camera (drag+scroll).
@@ -50,6 +66,19 @@ public:
 
     void setCollisionOverlay(bool on) { collisionOverlay_ = on; }
     bool collisionOverlay() const { return collisionOverlay_; }
+
+    // Static-batch overlay (Tools > Static Batches, View > Static batches).
+    // The app computes the grouping - staticbatch::compute, whose answer the
+    // panel and the generated game share - and pushes a flat list of world
+    // boxes in once per frame; the viewport only draws them. Deliberately
+    // dumb: a viewport that re-derived the grouping would be a third
+    // implementation of it, and the whole point of the feature is that there
+    // are two and they are checked against each other.
+    //
+    // Empty = the overlay is off.
+    void setBatchOverlay(std::vector<BatchOverlayBox> boxes) {
+        batchOverlay_ = std::move(boxes);
+    }
 
     void setViewMode(ViewMode m) { viewMode_ = m; }
     ViewMode viewMode() const { return viewMode_; }
@@ -139,6 +168,10 @@ public:
     // terrain REMOVED (TerrainConfig::enabled false) - callers that must not
     // treat that as a floor ask the model, not this (App::placementHeight).
     float terrainHeight(float x, float z) const;
+    // The painted layers' tyre grip at (x, z) (1.142.0): the layers composited
+    // bottom-up by their weights on the drawn triangles, the generated
+    // TerrainGame::terrainGripAt's twin. `grips` is one value per layer.
+    float terrainLayerGrip(float x, float z, const std::vector<float>& grips) const;
 
     // The camera ray through normalized image coords - the same one pick() and
     // terrainRaycast() build. Exposed so the app can hit-test things the
@@ -410,6 +443,11 @@ public:
         std::vector<int> indices;
     };
     void setPeerSelections(std::vector<PeerSel> sels) { peerSels_ = std::move(sels); }
+    // The active scene's per-junction road overrides (SceneData::roadJunctions),
+    // pushed by the app every frame; the crossing draws rebuild when they change.
+    void setRoadJunctions(const std::vector<roadgen::JunctionOverride>& j) {
+        if (j != roadJunctions_) roadJunctions_ = j;
+    }
 
     // Material Editor live preview: a lit primitive OR one of the project's
     // .obj models over a checker floor, rendered into its own framebuffer
@@ -593,6 +631,15 @@ public:
     // after an asset file changed on disk (e.g. the Material Editor saved a
     // .mtl) so the next frame re-reads it.
     void invalidateAssets();
+    // docs/particles.md: the extra layers of every linked emitter in the scene.
+    struct EmitterLayerPreview {
+        SceneObject look;  // the emitter wearing the layer
+        float offset[3] = {0, 0, 0};
+        float area[3] = {1, 1, 1};
+    };
+    void setEmitterLayers(std::map<int, std::vector<EmitterLayerPreview>> layers) {
+        emitterLayers_ = std::move(layers);
+    }
     // Re-bakes cached animated models IN THE BACKGROUND: entries are marked
     // stale and keep drawing their old bake until the fresh one lands. An
     // import change alters the CLIP LIST of a model, which is baked into the
@@ -762,6 +809,7 @@ private:
 
     // Nav-mesh overlay mesh (see setNavOverlay)
     bool collisionOverlay_ = false;
+    std::vector<BatchOverlayBox> batchOverlay_;
     bool navOverlayOn_ = false;
     std::vector<char> scrollerGhosts_;
     uint64_t navOverlayVersion_ = 0;
@@ -948,7 +996,7 @@ private:
     float flashRange_ = 30.0f, flashAngle_ = 20.0f;
     // Spherical environment map (refl) preview - matcap on texture unit 1;
     // "@sky" dynamic mode approximated by the analytic sky gradient
-    int uReflOn_ = -1, uRefl_ = -1, uReflStrength_ = -1;
+    int uReflOn_ = -1, uRefl_ = -1, uReflStrength_ = -1, uPaintFx_ = -1;
     int uReflSkyHorizon_ = -1, uReflSkyTop_ = -1;
     int uReflRounded_ = -1, uReflCenter_ = -1;
     int uEmissive_ = -1;  // Ke floor, premultiplied by the object tint
@@ -1040,6 +1088,33 @@ private:
     Mesh wireCone_;    // unit spot cone: apex origin, base ring at y = -1
     Mesh cameraBody_;     // Camera entity marker (film camera, lens = +Z)
     Mesh cameraFrustum_;  // FOV wedge lines, scaled to the entity's FOV
+    // Roads are real depth-tested viewport geometry, not a translucent ImGui
+    // overlay. The cache follows authored points and the terrain revision so
+    // sculpting under a road rebuilds exactly the strip that moved.
+    struct RoadDraw {
+        Mesh mesh;
+        Mesh edgeMesh;   // the soft-edge bands (1.144.0), alpha-faded
+        std::string texture;
+        uint64_t signature = 0;
+    };
+    std::map<std::string, RoadDraw> roadDraws_;  // keyed by stable object id
+    // The scene's crossings (roadgen::planCrossings, 1.145.0): junction
+    // patches (opaque, drawn with their road A) and the overlay/spill decals
+    // (blended, drawn after the scene in plan order), rebuilt together.
+    struct RoadCrossDraw {
+        Mesh mesh;
+        std::string texture;
+        std::string owner;  // road key: a patch's road A, a decal's own road
+        float color[3] = {1.0f, 1.0f, 1.0f};
+        bool blended = false;
+    };
+    std::vector<RoadCrossDraw> roadCross_;
+    uint64_t roadCrossSig_ = 0;
+    std::vector<roadgen::JunctionOverride> roadJunctions_;
+    uint64_t roadTerrainRevision_ = 1;
+    void syncRoadDraws(const std::vector<SceneObject>& objects);
+    void drawRoadSpills(const float* viewProj);
+    void clearRoadDraws();
     // Per-detail primitive meshes (Box/Sphere/Cylinder/Cone), built lazily and
     // shared across objects with the same detail. The fixed box_ / sphere_ /
     // cylinder_ / cone_ above stay at the default detail (markers, previews).
@@ -1050,6 +1125,7 @@ private:
     // .obj models split per material (MTL): each part carries its own GL mesh
     // (Kd baked into the vertex colors) and map_Kd texture.
     struct ModelPart {
+        std::string bakedTextureRel;  // vehicle part; resolved at draw time
         Mesh mesh;
         uint32_t tex = 0;  // GL texture from map_Kd (0 = untextured)
         // map_Kd carries transparency: draw this part cutout + blended, the
@@ -1078,6 +1154,42 @@ private:
         float mn[3] = {0, 0, 0};       // model-space AABB (AO occluder shape)
         float mx[3] = {0, 0, 0};
     };
+    // Vehicles (docs/vehicles.md). A vehicle's geometry does not come from an
+    // asset path but from the IMPORT BAKE, which only the App has - so the App
+    // pushes the baked models in (setVehicleDraw) rather than the viewport
+    // resolving anything. That also keeps the preview and the console reading
+    // one bake instead of two: what is drawn here IS what ships.
+    struct VehicleDraw {
+        ModelDraw body;
+        ModelDraw wheel;  // ONE wheel, hub at the origin - drawn four times
+        // The palette's project-relative PATH, not its GL name: texCache_ is
+        // wiped (and its textures deleted) by invalidateAssets, so an id
+        // stored here goes dangling and samples black.
+        std::string palette;
+        float wheelBase = 2.0f, track = 1.4f, wheelRadius = 0.32f;
+        float rideHeight = 0.32f;
+    };
+    std::map<std::string, VehicleDraw> vehicleDraws_;  // by definition NAME
+
+   public:
+    // Publishes one definition's baked geometry. Cheap to call only when a
+    // bake changes - it uploads meshes.
+    // lampPart/lampRearVerts: the body's emissive lamp part and its rear
+    // corner range (docs/vehicles.md) - drawn in the console's lights-off
+    // colours, so the preview shows the car the way it parks.
+    void setVehicleDraw(const std::string& name, const tmdl::Model& body,
+                        const tmdl::Model& wheel, const std::string& paletteRel,
+                        float wheelBase, float track, float wheelRadius,
+                        float rideHeight, int lampPart = -1, int lampRearVerts = 0);
+    void clearVehicleDraws();
+    // World-space bounds of a placed vehicle, body and wheels together - what
+    // a click tests against and what the selection outline wraps.
+    bool vehicleLocalBounds(const SceneObject& o, float mn[3], float mx[3]) const;
+
+   private:
+    ModelDraw uploadTmdl(const tmdl::Model& m, const std::string& paletteRel,
+                         int lampPart = -1, int lampRearVerts = 0);
+
     // keyed by "<modelPath>|<materialPath>" - an .mtl override changes the draw
     std::map<std::string, ModelDraw> modelCache_;
     const ModelDraw* modelDraw(const std::string& relPath,
@@ -1206,6 +1318,9 @@ private:
         std::vector<PreviewParticle> parts;
     };
     std::map<int, EmitterPreview> emitterPreviews_;
+    // A linked emitter's extra particle layers by object index (pushed by the
+    // app from project::emitterLayerObjects - the viewport has no Project).
+    std::map<int, std::vector<EmitterLayerPreview>> emitterLayers_;
     double particleClock_ = 0.0;  // last sim time (advances with animClock_)
     uint32_t particleProgram_ = 0;
     int uPartMvp_ = -1, uPartUseTex_ = -1;

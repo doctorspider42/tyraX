@@ -566,13 +566,17 @@ std::string bake(const Project& p,
         // modelao/ is the model-AO cache: content-hashed maps with no res/
         // source, kept across builds precisely so a build that changed nothing
         // does not re-raytrace them.
+        // vehicles/ is the vehicle import bake (docs/vehicles.md): a body and
+        // wheel .tmdl plus a colour palette, produced from a .glb/.fbx by the
+        // Vehicle Editor and having no res/ source of their own. Sweeping them
+        // deletes the geometry the game loads, with nothing to say so.
         // shadow/ is the baked-shadow cache - an explicit bake like gi/, so a
         // build must not sweep it - and shadowatlas/ its pages, regenerated
         // wholesale from that cache below.
         const std::string top0 = rel.begin()->generic_string();
         if (top0 == "stoch" || top0 == "aomap" || top0 == "aoatlas" ||
-            top0 == "gi" || top0 == "modelao" || top0 == "shadow" ||
-            top0 == "shadowatlas")
+            top0 == "gi" || top0 == "modelao" || top0 == "vehicles" ||
+            top0 == "shadow" || top0 == "shadowatlas")
             continue;
         // atlas pages have no res/ source; the atlas block below removes the
         // ones the current plan no longer produces

@@ -1,0 +1,45 @@
+{
+  "glb_sha256": "f240b86a04c4c784264e314c4f44e3b92f72ae828f5b339d6620a8d7771e8077",
+  "stripifier_sha256": "7b8b0c9e5a7d78bfe2fb1dc53cef04677ca955296c367a7d378dafa6d36574c4",
+  "weld": "kFull: exact position + normal + UV",
+  "parts": [
+    {
+      "material": "body",
+      "triangles": 3686,
+      "indexed_vertices": 2417,
+      "list_vertices": 11058,
+      "strip_vertices": 4212,
+      "run": 75,
+      "accepted": true,
+      "list_packages": 148,
+      "strip_packages": 57,
+      "surface_and_attributes_equal": true
+    },
+    {
+      "material": "front_lights",
+      "triangles": 48,
+      "indexed_vertices": 100,
+      "list_vertices": 144,
+      "strip_vertices": 144,
+      "run": 75,
+      "accepted": false,
+      "list_packages": 2,
+      "strip_packages": 2,
+      "surface_and_attributes_equal": true
+    },
+    {
+      "material": "rear_lights",
+      "triangles": 48,
+      "indexed_vertices": 42,
+      "list_vertices": 144,
+      "strip_vertices": 63,
+      "run": 75,
+      "accepted": true,
+      "list_packages": 2,
+      "strip_packages": 1,
+      "surface_and_attributes_equal": true
+    }
+  ],
+  "wheel_anchors_and_bounds_unchanged": true,
+  "note": "Host source-geometry experiment; not importer output, runtime package inventory or an FPS result. Lamps should initially remain lists to preserve rear/front ranges."
+}

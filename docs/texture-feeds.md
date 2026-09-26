@@ -68,6 +68,23 @@ drain and a CLAMP register write. That drain is why the mechanism is reserved
 for render targets: it is a barrier, and one per such mesh per frame is only
 affordable because there are a handful of them.
 
+**Since 1.123.1 the bracket is lazy on both sides** and the register write is
+skipped when the wrap is already the one the bag wants. It used to be two
+unconditional drains per clamped bag - set, draw, restore - so a RUN of bags
+sampling the same clamped target paid two barriers each; it now pays one in
+total, and the restore is deferred to whoever next needs REPEAT. Three places
+close that contract and they are the whole safety argument: the next bag that
+wants a different wrap, `Renderer2D`'s first sprite (which already drains PATH1
+once a frame, so it is free there), and `RendererCore::endFrame` before the
+post-fx blits - which is also before `RendererCoreAlphaMask`, the one subsystem
+that documents its reliance on the REPEAT contract. Measured on the Motor
+District at a frozen night vantage on a physical PS2: `Light_pools` 1.605 ->
+**1.342 ms** (six samples per arm, ranges 1.590-1.628 against 1.306-1.375, so
+the two do not overlap), whole render 20.900 -> 20.819, which is inside that
+row's own noise. The backlog entry this came from priced the pair at 1.730 ms
+of a PCSX2 garage-night frame; the console number at this vantage is a sixth of
+that, and the difference is the pose - PCSX2 shares do not travel.
+
 ## Costs and constraints
 
 - A camera feed is a real second scene render (bounded by the view list) at

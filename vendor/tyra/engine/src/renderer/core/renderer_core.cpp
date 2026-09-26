@@ -11,7 +11,10 @@
 #include "math/math.hpp"
 
 #include <math.h>
+#include "debug/hardware_trace.hpp"
 #include "renderer/core/renderer_core.hpp"
+#include "renderer/core/paths/path3/path3_fence.hpp"
+#include "renderer/core/paths/path1/vif1_queue.hpp"
 #include "thread/threading.hpp"
 #include "debug/debug.hpp"
 #include "debug/frame_profile.hpp"
@@ -23,6 +26,9 @@ namespace FrameProfile {
 // COP0 Count at the top of this frame's beginFrame(). Not published in the
 // header: nothing outside endFrame() has any business reading a half-frame.
 static u32 frameStart = 0;
+// The previous present's end (tPre, tPeriod). 0 until the first present, which
+// is what keeps the first frame's tPre from reading "since power-on".
+static u32 prevPresentEnd = 0;
 }  // namespace FrameProfile
 #endif
 
@@ -309,26 +315,34 @@ const RendererCoreSpotLight* RendererCore::pickDynLight(
 void RendererCore::beginFrame() {
 #if TYRA_FRAME_PROFILE
   FrameProfile::frameStart = FrameProfile::ticks();
+  FrameProfile::tPre = FrameProfile::prevPresentEnd != 0
+                           ? FrameProfile::frameStart -
+                                 FrameProfile::prevPresentEnd
+                           : 0;
 #endif
   beginFrameStamp();
   renderer3D.update();
   drained3DFor2D = false;
   postFxAppliedMask = 0;
   postFxDrained = false;
-  Threading::switchThread();
+  if (frameYield) Threading::switchThread();  // Modified by TyraX: see setFrameYield
   path3.clearScreen(&gs.zBuffer, bgColor);
 }
 
 void RendererCore::beginFrame(const CameraInfo3D& cameraInfo) {
 #if TYRA_FRAME_PROFILE
   FrameProfile::frameStart = FrameProfile::ticks();
+  FrameProfile::tPre = FrameProfile::prevPresentEnd != 0
+                           ? FrameProfile::frameStart -
+                                 FrameProfile::prevPresentEnd
+                           : 0;
 #endif
   beginFrameStamp();
   renderer3D.update(cameraInfo);
   drained3DFor2D = false;
   postFxAppliedMask = 0;
   postFxDrained = false;
-  Threading::switchThread();
+  if (frameYield) Threading::switchThread();  // Modified by TyraX: see setFrameYield
   path3.clearScreen(&gs.zBuffer, bgColor);
 }
 
@@ -385,7 +399,61 @@ void RendererCore::beginFrameStamp() {
 }
 
 void RendererCore::endFrame() {
-  Threading::switchThread();
+  HardwareTrace::Scope traceEnd("EndFrame");
+  if (frameYield) Threading::switchThread();  // Modified by TyraX: see setFrameYield
+  // Modified by TyraX (TYRA_2D_VIF1_DIRECT): the frame's sprites may still be
+  // queued on VIF1 behind the 3D, and with no interrupt nothing starts a
+  // queued chain while the EE sits in the vsync wait below - so the frame is
+  // not finished until they have gone out. This is where the wait the stock
+  // path paid before its first sprite (sync.align3D) now lands, after the EE
+  // has built the whole 2D pass alongside the GS.
+  path3Fence();
+#if TYRA_VIF1_QUEUE_HOLD
+  // The GPU-only frame probe (vif1_queue.hpp). The frame's VIF1 work ran in
+  // segments with the EE waiting - normally ONE, released by the fence just
+  // above - and this FINISH ends the last of them. busy = the closed segments
+  // + the tail from where the EE last saw work finish (or the fence returned)
+  // to FINISH. Logged as a 30-frame mean in microseconds.
+  if (path1.isVU1Configured()) {
+    u32 tFence;
+    __asm__ volatile("mfc0 %0, $9" : "=r"(tFence));
+    sync.align3D();
+    u32 t1;
+    __asm__ volatile("mfc0 %0, $9" : "=r"(t1));
+    static u32 frames = 0, measured = 0, chains = 0, releases = 0;
+    static float sumUs = 0.0F, maxUs = 0.0F;
+    if (Vif1Queue::holdReleases > 0) {
+      u32 busy = Vif1Queue::holdBusyTicks;
+      if (Vif1Queue::holdSegOpen) {
+        busy += t1 - Vif1Queue::holdSegStart;
+      } else {
+        const u32 from =
+            static_cast<s32>(Vif1Queue::holdLastClose - tFence) > 0
+                ? Vif1Queue::holdLastClose
+                : tFence;
+        busy += t1 - from;
+      }
+      const float us = busy / 294.912F;
+      sumUs += us;
+      if (us > maxUs) maxUs = us;
+      ++measured;
+    }
+    chains += Vif1Queue::holdChains;
+    releases += Vif1Queue::holdReleases;
+    Vif1Queue::holdReleases = 0;
+    Vif1Queue::holdChains = 0;
+    Vif1Queue::holdBusyTicks = 0;
+    Vif1Queue::holdSegOpen = false;
+    if (++frames == 30) {
+      TYRA_LOG("GPUHOLD us ", measured ? static_cast<int>(sumUs / measured) : -1,
+               " max ", static_cast<int>(maxUs), " frames ", measured,
+               "/30 chains ", chains / 30, " releases/frame x10 ",
+               releases / 3);
+      frames = measured = chains = releases = 0;
+      sumUs = maxUs = 0.0F;
+    }
+  }
+#endif
   // The dynamic pipeline kicks the scene on PATH1/VU1 asynchronously (double
   // buffered - sendPacket() returns while the DMA is still draining). PostFx
   // composites over the framebuffer via PATH3 and writes no z, so any scene
@@ -397,7 +465,17 @@ void RendererCore::endFrame() {
   // that - e.g. the pure-2D loading screen - there is nothing on PATH1 to
   // drain and the draw-finish handshake would spin forever waiting for a
   // FINISH that VU1 can't deliver yet.
-  applyPostFx();
+  // Modified by TyraX: close the 3D pass's texture-wrap contract before
+  // anything composites. StaPipCore no longer restores REPEAT per clamped bag
+  // (see StaPipCore::render), and RendererCoreAlphaMask documents its reliance
+  // on that contract, so the last clamped bag of a frame is undone here. The
+  // drain is guarded the same way every barrier in this function is: before
+  // VU1 is up there is nothing on PATH1 and the handshake would spin forever.
+  if (!gs.textureWrapIsRepeat()) {
+    if (path1.isVU1Configured()) sync.align3D();
+    gs.setTextureWrap(RendererCoreGS::repeatWrap());
+  }
+  { HardwareTrace::Scope trace("PostFx"); applyPostFx(); }
 #if TYRA_FRAME_PROFILE
   // THE FAIRNESS FENCE (inc/debug/frame_profile.hpp, tDrain). One guarded
   // drain, at one point, in BOTH arms - a BLSS frame is already serialised by
@@ -428,6 +506,7 @@ void RendererCore::endFrame() {
   // presenting, and an overrunning frame costs one late field instead of an
   // idle one.
   {  // Modified by TyraX: everything below is STALL, not the frame's cost.
+    HardwareTrace::Scope trace("Present");
     u32 t0, t1;
     __asm__ volatile("mfc0 %0, $9" : "=r"(t0));
     if (gs.getFrameBufferCount() < 3) {
@@ -436,6 +515,14 @@ void RendererCore::endFrame() {
     gs.flipBuffers(isFrameLimitOn);
     __asm__ volatile("mfc0 %0, $9" : "=r"(t1));
     stallAccum += t1 - t0;
+    stallTotal += t1 - t0;
+#if TYRA_FRAME_PROFILE
+    FrameProfile::tStall = t1 - t0;
+    FrameProfile::tPeriod = FrameProfile::prevPresentEnd != 0
+                                ? t1 - FrameProfile::prevPresentEnd
+                                : 0;
+    FrameProfile::prevPresentEnd = t1;
+#endif
   }
   hasPresentedFrame = true;  // Modified by TyraX: the warp has a source now
 }
@@ -446,14 +533,19 @@ bool RendererCore::presentWarpFrame(const WarpCamera& from,
   // Nothing to warp before the first flip - the "previous" buffer is still
   // whatever the GS powered up with.
   if (!hasPresentedFrame) return false;
+  // Modified by TyraX: the Hybrid colour depth keeps no previous 32-bit frame
+  // to warp (see ColorDepth::Hybrid), so it presents no synthetic frames; the
+  // caller reads `false` and simply waits for the next rendered one.
+  if (settings.isHybridOutput()) return false;
 
-  Threading::switchThread();
+  if (frameYield) Threading::switchThread();  // Modified by TyraX: see setFrameYield
   warp.draw(from, to);
   // Deliberately NO applyPostFx: bloom, grain and grading are already baked
   // into the source image, and running them again would compound them on every
   // warped frame. Deliberately no beginFrame either - the warp covers every
   // pixel, so the clear would only be work.
   {  // Modified by TyraX: the synthesised frame's present is stall too.
+    HardwareTrace::Scope trace("Present");
     u32 t0, t1;
     __asm__ volatile("mfc0 %0, $9" : "=r"(t0));
     if (gs.getFrameBufferCount() < 3) {
@@ -462,6 +554,7 @@ bool RendererCore::presentWarpFrame(const WarpCamera& from,
     gs.flipBuffers(isFrameLimitOn, /*synthetic=*/true);
     __asm__ volatile("mfc0 %0, $9" : "=r"(t1));
     stallAccum += t1 - t0;
+    stallTotal += t1 - t0;
   }
   return true;
 }

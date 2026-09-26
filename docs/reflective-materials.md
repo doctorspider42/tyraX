@@ -61,9 +61,10 @@ the filename token `@sky`):
 refl -type sphere -mm 0 0.9 @sky
 ```
 
-The game then re-renders the scene's **sky dome** into a small VRAM texture
-every frame and samples that as the sphere map — reflections follow the live
-sky, including script retints (*Set Sky Color*). The editor viewport
+The game then re-renders the scene's **sky dome, resident terrain and roads**
+into a small VRAM texture every second frame and samples that as the sphere map —
+reflections follow the live sky and the ground under the vehicle, including
+script retints (*Set Sky Color*). The editor viewport
 approximates it with the analytic horizon/zenith gradient.
 
 **Objects in reflections:** mark an object's *Show in reflections* checkbox
@@ -73,6 +74,18 @@ second (small, wide-FOV) render per frame, so mark the few props that sell
 the effect. The env pass owns a dedicated 128×128 z-buffer, so marked
 objects occlude each other correctly inside the map. The editor viewport's
 approximation shows the sky only — check object reflections in the game.
+
+For a large background object, enable **Reflection box proxy** below that
+checkbox. The environment-map pass then draws one untextured box over the
+object's current visual bounds: 12 triangles in one material bag, normally one
+VU1 package. The main camera still draws the full model, and collision and
+picking are unchanged. This is intentionally a reflection-only lie: the target
+is 128×128 and is sphere-mapped afterwards, so a building's material seams and
+window geometry often cost many packages while resolving to only a few blurred
+texels. Leave it off for nearby hero props or silhouettes that are not box-like.
+
+The field is stored as `"reflectionProxy": true` (format v57). Existing
+projects retain full-model reflection submission until the option is enabled.
 
 A marked object the camera is standing right next to is **skipped** from the
 map (within ~1.9× its bounding radius): it would swamp the whole reflection —
@@ -95,8 +108,8 @@ ugly patches up close. It fades back in as you step away.
 - **Both passes are pinned to one VU1 package size** (`StaPipBag::packageSize`,
   set by the generated game's `pinPackageSize`). They must be: the engine
   derives the package size from the bag's *program class*, and an untextured
-  base pass fits **108** verts per package where its textured env twin fits
-  **72** — so without the pin the same array splits at different boundaries,
+  base pass fits **111** verts per package where its textured env twin fits
+  **75** — so without the pin the same array splits at different boundaries,
   and one pass can classify a triangle as fully inside (perspective divide on
   VU1) while the other sees a straddling package (clipped on the EE, drawn
   `as_is`). Two routes over one coplanar triangle disagree in the last bits of
@@ -136,7 +149,19 @@ ugly patches up close. It fades back in as you step away.
   vanished (found on real hardware).
 - The dynamic env map is re-rendered **every second frame** (the GT3 cadence
   — the VRAM target persists, and a 25/30 Hz refresh of a blurry 128 px
-  reflection is imperceptible), halving the pass's per-frame cost.
+  reflection is imperceptible), halving the pass's per-frame cost. The
+  level-forward right/up basis is saved with each target update and reused for
+  the intervening sample; applying a newer camera yaw to an older target makes
+  stationary reflected buildings swim across the material. A scene load marks
+  that basis invalid and forces the next non-split classic view to capture,
+  regardless of the cadence phase. Since 1.106.0 the cadence is a CEILING
+  rather than a schedule: see "The reuse budget" below.
+- Terrain uses the chunks already resident around the main camera. Road capture
+  filters the shared procedural list to owner `-3`, so it draws asphalt and
+  automatic junctions without also paying for prefabs or procedural volumes.
+  These ground layers are static capture content; scene generation
+  invalidates the retained map, while ordinary camera translation is already
+  bounded by the reuse budget's conservative one-unit nearest distance.
 
 The editor's GLSL twin lives in the viewport fragment shader (`uReflOn` block)
 — flat normals from screen-space derivatives, the same camera-basis formula.
@@ -158,11 +183,11 @@ The editor's GLSL twin lives in the viewport fragment shader (`uReflOn` block)
   sample correctly.
 - Animated (`.glb`) models and terrain don't take reflections; static
   primitives and `.obj` models do.
-- Dynamic mode reflects the **sky only** — scene geometry (terrain, objects)
-  is not in the env render. The plumbing (`RendererCoreEnvMap::begin/end` +
-  `RendererCore3D::pushEnvView/popEnvView`) supports submitting more bags into
-  the bracket if a project ever wants true GT3 surroundings; it costs frame
-  time per extra pass.
+- Dynamic mode reflects the sky, terrain, roads and objects marked **Show in
+  reflections**. Unmarked ordinary scenery is not submitted; each included
+  object costs an additional render in the environment pass. Terrain and roads
+  add their visible chunk submissions on capture frames, so profile the shared
+  probe when using many small chunks.
 - Remaining "pro" idea: smoothed normals for the env pass.
 
 ## Probe aim: reflected ray (Preferences > Rendering)
@@ -217,3 +242,138 @@ map). Off by default (existing projects keep their look).
 - Beware the GIF NLOOP pitfall hit while building this: an A+D giftag whose
   NLOOP undercounts its register writes stalls the GIF forever — the game
   hangs on the loading screen inside `draw_wait_finish()`.
+
+## The vehicle paint pass
+
+A placed vehicle's env bag is drawn with the GS **HIGHLIGHT2** texture function
+and per-frame per-vertex colours - a fresnel rim in the RGB, a white Blinn-Phong
+specular in the alpha (docs/vehicles.md, "A shiny body"). This is gated per
+OBJECT (`vehiclePaintFor`), so every other `refl` material keeps the exact
+MODULATE + constant-FIX look this page describes. The engine hook it rides is
+`StaPipTextureBag::textureFunction` - per-bag TFX, safe on a shared texture
+because TEX0 is re-emitted per bag.
+
+The paint colours are a pure function of the normal, so the pass evaluates
+each DISTINCT normal once and scatters (1.125.0): the CC96 body's 4212 env
+vertices carry 2106 distinct normals. The map is built once per normal array
+and logged as `VEHPAINT normals N distinct M`.
+
+Only the driven car and the nearest others up to *Shiny vehicles at once*
+(default 2) draw this pass; the rest stay matte (docs/vehicles.md, "The shine
+budget"). A second car's pass measured 0.7 ms a frame parked and 1.2 ms while
+the camera turned, on a physical PS2.
+
+## The ground in the probe (1.125.0)
+
+The shared probe paints the resident terrain and road chunks into its target,
+so the car's paint shows the world under it. A turning camera moves the aim
+past the reuse budget on every beat, and the probe then captures every second
+frame - and the whole resident ring cost **10-15 ms of each capturing frame**
+on a physical PS2 (Motor District, car parked at the 25 FPS spot, camera swept
+at ~180 deg/s with the right stick). It was the frame drop on every turn.
+
+*Preferences > Rendering > Reflection ground radius* keeps only the chunks
+whose box lies within that distance of the eye. In a 128-pixel target with a
+110 deg field of view a chunk a hundred units away is a few pixels at the
+horizon. FRAMETIME `work`, ordinary frame, same sweep:
+
+| ground in the probe | mean | worst window |
+|---|---:|---:|
+| every resident chunk (0, the default) | 25.6 ms | 36.4 ms |
+| 40 units | 21.8 | 27.6 |
+| **20 units** (Motor District) | **21.2** | **25.2** |
+| none at all (measured for reference only) | 20.2 | 23.8 |
+
+At 20 the paint loses only the faint grass streaks near its horizon line.
+Objects with *Show in reflections* are not affected by the radius. 0 keeps the
+old behaviour, and a project without the key loads as 0 (format v62).
+
+## The reuse budget (1.106.0)
+
+The cadence above halves the probe's cost and stops there. What it cannot do is
+notice that the capture it is about to take would come out the same as the one
+already in VRAM — and on a parked camera under a still sky, every second one
+does. *Preferences > Rendering > Reflection reuse budget* is that second half,
+and it is the half Task 5 of the
+[Motor District plan](motor-district-performance-plan.md) asked for: "detect
+conditions permitting reuse: unchanged capture pose and unchanged relevant
+scene/lighting".
+
+**The budget is the quality contract, and its unit is pixels of the probe's own
+128-pixel target.** Not frames, not milliseconds — how far the retained image
+may be out of date, measured in the only raster it is ever seen through. One
+radian of aim is `128 / (110 degrees in radians)` = 66.7 pixels, and every pose
+term converts through that one factor and is **summed**, so the figure bounds
+the worst displacement rather than describing a typical one:
+
+| term | what it measures |
+| --- | --- |
+| aim | the angle between this frame's level-forward and the captured one |
+| camera travel | the distance moved, seen as parallax on the NEAREST reflected object — the dome and the discs are parked on the eye and do not move with it, so the objects are the only thing translation can shift. The nearest distance is clamped to 1 unit, so a scene with **no** "Show in reflections" object at all re-captures on any camera movement even though nothing in its target could have moved: conservative, never wrong, and worth revisiting if such a scene ever matters |
+| sun and moon direction | the angle each disc has swung since the capture |
+| sun and moon radius | the disc growing or shrinking |
+| moon roll | the roll times the moon's own radius in pixels |
+
+**Colour is not traded against the budget at all.** The sky tint, the dome's
+top colour, the day-cycle grade compensation, the star fade and the moon's
+opacity are compared at the **8-bit precision the GS actually stores**, so a
+capture is skipped only when the colours would come out bit-identical. Neither
+is content: a reflected object that moves, rotates, scales, appears, vanishes
+or dirties its geometry invalidates outright, and so do a scene load (which
+already cleared the basis) and a teleport (which the travel term sees as a very
+large number).
+
+**It can only ever REDUCE captures.** The every-second-frame cadence stays the
+ceiling and the gate is consulted only on a beat the cadence would have
+captured on, so the worst case is exactly the pre-1.106 behaviour. **0 turns
+the reuse off** and restores that behaviour exactly.
+
+**What the budget costs, stated the way it is actually paid.** The reflection
+was already up to one cadence beat out of date; the budget says how many
+*extra* target pixels of lag you will accept on top of that. So the worst
+displacement goes from "one beat's motion" to "one beat's motion plus B", and
+when nothing is moving it goes from zero to zero — a parked camera under a
+still sky reuses with a measured staleness of **0.000 pixels**, because the
+capture it skipped would have been the same image. The **default of 1.0 pixel**
+is therefore one pixel of a 128-pixel reflection at worst and nothing at all at
+rest, which is why it is safe to enable for projects that predate the setting.
+
+The shape of what it buys follows from that, and it is the right shape: the
+faster the camera turns, the less it saves, because a fast turn is exactly when
+a stale reflection would be seen. Measured on the Motor District garage at 50
+Hz, the drift a single cadence beat produces is **0.00 px parked, 0.91 px
+driving straight at 6 units/s, 0.93 px turning at 20 deg/s and 4.19 px turning
+at 90 deg/s** — so at the default budget the hard turn captures on every beat,
+exactly as it does today.
+
+**Nothing can take the target away while it is being reused.** The env map is
+allocated at init below the texture region and is *never evicted*
+(`renderer_core_envmap.hpp`), which is what makes an arbitrarily long reuse
+safe rather than a race against the texture heap — the every-second-frame
+cadence already depended on it, and this only lengthens the interval.
+
+The gate's own cost is one walk of the runtime objects per cadence beat: a
+branch each, plus about a dozen multiplies and a hash for the ones flagged
+`reflected`. On the Motor District's 142 objects that is roughly 0.01 ms per
+beat against 4.14 ms per capture, and it is paid only on beats the cadence
+would have captured on.
+
+Two honest statements go with it. The staleness bound is "the budget, plus one
+cadence beat's motion", because drift is noticed on a beat and acted on at that
+same beat. And what the budget buys depends entirely on how the camera is
+moving — measured on the Motor District garage,
+[the round's evidence](../examples/vehicle-playground/authoring/reflection-probe-2026-09-16/README.md)
+gives the capture rate idle, driving straight and turning at 20 and 90 degrees
+a second, with the worst staleness the gate actually permitted in each.
+
+## Dynamic map camera basis (1.85.0)
+
+The shared `@sky` probe renders with a level forward direction. Its sampling
+basis must therefore use world-up, including when a chase camera tilts down.
+Previously the sampler used the viewing camera's pitched up vector: visible
+rear/side faces sampled below the captured horizon and could show only the
+clear colour, despite buildings being present in the environment target.
+The generated runtime now matches the capture basis; the viewport's analytic
+sky approximation uses the same world-up rule. Static image sphere maps retain
+their camera-relative basis, and per-object reflected-ray probes retain their
+own captured basis.

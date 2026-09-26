@@ -502,6 +502,11 @@ class TerrainGame : public Tyra::Game {
     int model = -1;    // gameModels index the vertices came from
     int part = 0;      // that model's material part = this bag's texture
     int material = -1; // primitives: gameMaterials index
+    // Roads (docs/roads.md): a chunk built by buildRoads holds its texture
+    // DIRECTLY - road surfaces come from a project texture, not from a
+    // model part or an .mtl. Owner is -3 for these, so a scene revisit can
+    // clear and rebuild them without touching merged geometry.
+    Tyra::Texture* roadTex = nullptr;
     std::vector<Tyra::Vec4> vertices;
     std::vector<Tyra::Color> colors;
     std::vector<Tyra::Vec4> sts;
@@ -661,6 +666,8 @@ class TerrainGame : public Tyra::Game {
   // RuntimeObject::spinRate and promotes spinners onto the per-object
   // matrix path so they cost no per-frame vertex re-bake.
   void updateSpinners();
+
+
   // Physics bodies in a walking player's path get shoved along the attempted
   // move (impulse scaled by 1/mass) and woken; called before collidePlayer so
   // a blocked step still transfers its push into the crate.

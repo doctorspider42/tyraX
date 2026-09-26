@@ -145,6 +145,11 @@ way the game's bags do. One formula, two evaluation sites: the lighting
 functions live in a single GLSL chunk shared by both paths, so they cannot
 drift.
 
+Vehicle paint follows the same rule. In PS2-shading mode the editor now applies
+the console's per-vertex Fresnel factor and HIGHLIGHT2 white specular to the
+same baked palette and sky reflection. It no longer drops those two terms and
+shows a silver preview for paint that becomes purple in the generated game.
+
 **Baked lightmaps stay per pixel in both modes.** The GI cache's terrain map
 and primitive atlas are textures on the console, read per pixel by two extra
 passes, so the viewport samples them in the fragment stage whatever the

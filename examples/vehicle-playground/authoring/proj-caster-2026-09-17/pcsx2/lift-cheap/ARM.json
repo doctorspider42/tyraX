@@ -1,0 +1,20 @@
+{
+  "arm": "lift-cheap",
+  "profile": "debug",
+  "stripRun": "75",
+  "cheapProjCaster": 1,
+  "noSilhouette": false,
+  "shadowCam": true,
+  "projDebug": false,
+  "patchLift": 1.2,
+  "keepRoutes": false,
+  "movingCaster": false,
+  "roadStrip": "  TYRA_LOG(\"ROADSTRIP scene \", scene, \" strips \", useStrips ? 1 : 0,",
+  "terrainStrip": "    TYRA_LOG(\"TERRAINSTRIP scene \", g_activeScene, \" chunk \", cx, \",\", cz,",
+  "instrument": "none (picture arm)",
+  "elfSha256": "DBE716351FC4B79C2783DD5F5345871B2827AB2802DA006D740E0603B7873FE1",
+  "editor": "D:\\tyra-editor\\.claude\\worktrees\\agent-af461bddaf36021de\\build-dev\\tyrax-editor.exe",
+  "editorSha256": "E9E923A30991F16E16A5D479D8A4D8EB4E75CB5CDDE46422551239AEB0029A8F",
+  "commit": "133d2bcee3552a807aea2e367c1e03350c1fdfe3",
+  "built": "2026-09-17T12:20:59.7318238+02:00"
+}

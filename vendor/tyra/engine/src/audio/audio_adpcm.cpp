@@ -176,6 +176,24 @@ static void logVoiceState(const s8& t_ch) {
 #endif
 }
 
+// Added by TyraX: the one write of the SPU2 pitch register. audsrv has no pitch
+// call, but the voice a channel maps to is fixed and libsd is already linked
+// here (endedMask reads ENDX in every build), so retuning a playing voice is a
+// single register write. Used by vehicle engine sound (docs/vehicles.md).
+//
+// It is a BLOCKING RPC - see logVoiceState above, where that cost is the reason
+// reading these registers is debug-only. Callers must write only on a real
+// change.
+void AudioAdpcm::setPitch(const s8& t_ch, const u16& t_pitch) {
+  if (t_ch < 0 || t_ch >= (s8)AUDSRV_ADPCM_CHANNELS) return;
+  const int core = AUDSRV_ADPCM_CH_CORE(t_ch);
+  const int v = AUDSRV_ADPCM_CH_VOICE(t_ch);
+  // 14-bit register; anything above 0x3FFF wraps into a much LOWER pitch, which
+  // sounds like the engine suddenly dropping an octave rather than like a clamp.
+  const u16 pitch = t_pitch > 0x3FFF ? (u16)0x3FFF : t_pitch;
+  sceSdSetParam((u16)(SD_VOICE(core, v) | SD_VPARAM_PITCH), pitch);
+}
+
 AdpcmResult AudioAdpcm::tryPlay(audsrv_adpcm_t* t_adpcm, const s8& t_ch) {
   // Modified by TyraX: load() now returns nullptr for samples that
   // failed to load (e.g. too large for SPU2); treat that as a benign no-op

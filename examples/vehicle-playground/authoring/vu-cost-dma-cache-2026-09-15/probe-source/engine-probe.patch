@@ -1,0 +1,52 @@
+diff --git a/vendor/tyra/engine/src/engine.cpp b/vendor/tyra/engine/src/engine.cpp
+index 52dc7d28..68b10081 100644
+--- a/vendor/tyra/engine/src/engine.cpp
++++ b/vendor/tyra/engine/src/engine.cpp
+@@ -11,6 +11,7 @@
+ */
+ 
+ #include "debug/hardware_trace.hpp"
++#include "debug/perf_probe.hpp"
+ #include "engine.hpp"
+ #include "debug/sifrpc_guard.hpp"
+ #include <kernel.h>
+@@ -30,6 +31,7 @@ void Engine::run(Game* t_game) {
+   game = t_game;
+   game->init();
+   HardwareTrace::configure();
++  PerfProbe::configure();
+   while (true) {
+     realLoop();
+   }
+diff --git a/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp b/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp
+index dd947e1f..6522b9e3 100644
+--- a/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp
++++ b/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp
+@@ -17,6 +17,8 @@
+ 
+ #include <math.h>
+ #include "debug/hardware_trace.hpp"
++#include "debug/perf_probe.hpp"
++#include <kernel.h>  // FlushCache, for the PerfProbe diagnostic only
+ #include "renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp"
+ #include "renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h"
+ #include "packet2/packet2_tyra_utils.hpp"
+@@ -1148,10 +1150,17 @@ void StaPipQBufferRenderer::sendPacket() {
+ 
+   // dma_wait_fast(); // This have no impact on performance
+ 
++  // TyraX DIAGNOSTIC (PerfProbe::extraFlushes): zero unless perf-probe.cfg asks.
++  // Inside the submit bracket on purpose - the syscall half is then visible in
++  // VIF1_submit while the cold-cache half stays where it really lands, in the
++  // next bag's preparation.
++  for (u32 i = 0; i < PerfProbe::extraFlushes; ++i) FlushCache(0);
++
+   const u32 submitStart = telemetry != nullptr ? readTelemetryTicks() : 0;
+   { HardwareTrace::Scope trace("VIF1_submit");
+     if (HardwareTrace::active) { const u32 t=HardwareTrace::ticks(); HardwareTrace::record("Packet_qwords", t, t, packet2_get_qw_count(currentPacket)); }
+-    dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1, true); }
++    dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1,
++                             PerfProbe::suppressFlush ? 0 : 1); }
+   if (submissionPacketHasTexture)
+     submissionTextureReadersOutstanding = true;
+   submissionPacketHasTexture = false;

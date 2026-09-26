@@ -6,6 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: env/portal views save and restore the frustum planes.
 */
 
 #include "renderer/core/3d/renderer_core_3d.hpp"
@@ -84,6 +85,7 @@ void RendererCore3D::pushEnvView(const Vec4& position, const Vec4& lookAt,
   savedView = view;
   savedProjection = projection;
   savedViewProj = viewProj;
+  savedFrustumPlanes = frustumPlanes;  // Modified by TyraX: see popEnvView
   foreignView = true;  // Modified by TyraX (see isForeignViewActive)
   projection = M4x4::perspective(envFov, size, size,
                                  settings->getProjectionScale(), 1.0F,
@@ -104,6 +106,7 @@ void RendererCore3D::pushPortalView(const Vec4& position, const Vec4& lookAt) {
   savedView = view;
   savedProjection = projection;
   savedViewProj = viewProj;
+  savedFrustumPlanes = frustumPlanes;  // Modified by TyraX: see popEnvView
   foreignView = true;  // Modified by TyraX (see isForeignViewActive)
   Vec4 pos = position;
   Vec4 look = lookAt;
@@ -113,11 +116,16 @@ void RendererCore3D::pushPortalView(const Vec4& position, const Vec4& lookAt) {
 }
 
 void RendererCore3D::popEnvView(const CameraInfo3D& cameraInfo) {
+  (void)cameraInfo;  // Modified by TyraX: see the header - no longer read
   foreignView = false;  // Modified by TyraX (see isForeignViewActive)
   view = savedView;
   projection = savedProjection;
   viewProj = savedViewProj;
-  frustumPlanes.update(cameraInfo, fov);
+  // Modified by TyraX: the planes the saved view was classified with, not
+  // planes rebuilt from the caller's camera - the two must describe the same
+  // view, or the rest of the frame classifies against a camera it is not
+  // drawing with (the projected-shadow pass passed no `up`).
+  frustumPlanes = savedFrustumPlanes;
 }
 
 u32 RendererCore3D::uploadVU1Program(VU1Program* program, const u32& address) {

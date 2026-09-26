@@ -220,11 +220,13 @@ add_executable(tyrax-editor
     src/blssscene.cpp
     src/blss_ui.cpp
     src/blss_window.cpp
+    src/blobshadowbake.cpp
     src/camtake.cpp
     src/chat_ui.cpp
     src/credits_ui.cpp
     src/cutscene_ui.cpp
     src/devkit_ui.cpp
+    src/hardware_timeline.cpp
     src/devsession.cpp
     src/facts.cpp
     src/facts_ui.cpp
@@ -233,10 +235,13 @@ add_executable(tyrax-editor
     src/hud_ui.cpp
     src/mateditor_ui.cpp
     src/prefab_ui.cpp
+    src/particle_ui.cpp
     src/atlas_ui.cpp
+    src/batch_ui.cpp
     src/procui.cpp
     src/vu_ui.cpp
     src/props_ui.cpp
+    src/junction_ui.cpp
     src/fbxparser.cpp
     src/gl_loader.cpp
     src/glbparser.cpp
@@ -266,6 +271,7 @@ add_executable(tyrax-editor
     src/matbake.cpp
     src/modelao.cpp
     src/objparser.cpp
+    src/occlusionbake.cpp
     src/iso9660.cpp
     src/isoexport.cpp
     src/menubake.cpp
@@ -273,6 +279,7 @@ add_executable(tyrax-editor
     src/menustyle.cpp
     src/menustyle_ui.cpp
     src/meshlod.cpp
+    src/meshstrip.cpp
     src/migrations.cpp
     src/pcsx2_config.cpp
     src/phonecam.cpp
@@ -281,6 +288,8 @@ add_executable(tyrax-editor
     src/pngquant.cpp
     src/prefab.cpp
     src/primmesh.cpp
+    src/physhull.cpp
+    src/particletex.cpp
     src/procgraph.cpp
     src/procgen.cpp
     src/procbake.cpp
@@ -296,6 +305,8 @@ add_executable(tyrax-editor
     src/screenfx.cpp
     src/session.cpp
     src/starfield.cpp
+    src/staticbatch.cpp
+    src/staticbatchdisk.cpp
     src/stochtile.cpp
     src/texatlas.cpp
     src/texbake.cpp
@@ -305,16 +316,23 @@ add_executable(tyrax-editor
     src/treeimpostor.cpp
     src/impostorgpu.cpp
     src/modelimpostor.cpp
+    src/modelproxy.cpp
     src/uiscript.cpp
     src/update.cpp
     src/update_ui.cpp
     src/uvunwrap.cpp
+    src/vehbake.cpp
+    src/vehicle_ui.cpp
+    src/roadgen.cpp
+    src/vehcheck.cpp
+    src/vehiclesim.cpp
     src/save_assets.cpp
     src/templates.cpp
     src/viewport.cpp
     src/wavconvert.cpp
     src/wire.cpp
     src/runner.cpp
+    src/sessionlog.cpp
     vendor/imguizmo/src/ImGuizmo.cpp
     vendor/imnodes/imnodes.cpp
     vendor/ufbx/ufbx.c

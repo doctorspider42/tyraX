@@ -8,8 +8,11 @@
 // -------------------------------------------------------------------------
 #include "app.hpp"
 #include "app_internal.hpp"
+#include "roadgen.hpp"
+#include "theme.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cfloat>
 #include <cmath>
 #include <cstdint>
@@ -26,6 +29,7 @@
 
 #include "aisupport.hpp"
 #include "animedit.hpp"
+#include "blobshadowbake.hpp"
 #include "decalproj.hpp"
 #include "devsession.hpp"
 #include "editorcfg.hpp"
@@ -36,6 +40,7 @@
 #include "menubake.hpp"
 #include "objparser.hpp"
 #include "impostorbake.hpp"
+#include "modelproxy.hpp"
 #include "pngquant.hpp"
 #include "uvunwrap.hpp"
 #include "stochtile.hpp"
@@ -85,9 +90,142 @@ static const char* typeLabel(PrimitiveType t) {
         // object to choose the generation mode.
         case PrimitiveType::Scatter: return "Procedural volume";
         case PrimitiveType::Scroller: return "Scroller";
+        case PrimitiveType::Road: return "Road";
+        case PrimitiveType::Vehicle: return "Vehicle";
         case PrimitiveType::Comment: return "Comment";
     }
     return "Object";
+}
+
+static std::string blobShadowFileName(const SceneObject& o) {
+    std::string id = o.id.empty() ? o.name : o.id;
+    for (char& c : id)
+        if (!std::isalnum((unsigned char)c) && c != '-' && c != '_') c = '-';
+    if (id.empty()) id = "object";
+    return "res/textures/blob-shadows/" + id + ".png";
+}
+
+// One control for every SceneObject kind. A Vehicle already owns an automatic
+// import-time mask, but may override it here; ordinary renderables may bake
+// directly from their mesh or choose any project PNG.
+static bool drawBlobShadowShape(Project& project, SceneObject& o,
+                                std::string& status) {
+    bool changed = false;
+    const char* fallback = o.type == PrimitiveType::Vehicle
+                               ? "<automatic vehicle silhouette>"
+                               : "<round fallback>";
+    const char* shown = o.blobShadowTexture.empty()
+                            ? fallback
+                            : o.blobShadowTexture.c_str();
+    if (ImGui::BeginCombo("Blob shape", shown)) {
+        std::vector<std::string> pngs;
+        const std::filesystem::path root =
+            std::filesystem::path(project.dir) / "res";
+        std::error_code ec;
+        for (std::filesystem::recursive_directory_iterator it(root, ec), end;
+             it != end && !ec; it.increment(ec)) {
+            if (!it->is_regular_file(ec)) continue;
+            std::string ext = it->path().extension().string();
+            for (char& c : ext) c = (char)std::tolower((unsigned char)c);
+            if (ext != ".png") continue;
+            pngs.push_back(std::filesystem::relative(it->path(), project.dir, ec)
+                               .generic_string());
+            if (ec) break;
+        }
+        std::sort(pngs.begin(), pngs.end());
+        if (ImGui::Selectable(fallback, o.blobShadowTexture.empty()) &&
+            !o.blobShadowTexture.empty()) {
+            o.blobShadowTexture.clear();
+            o.blobShadowSize[0] = o.blobShadowSize[1] = 0.0f;
+            changed = true;
+        }
+        for (const std::string& path : pngs)
+            if (ImGui::Selectable(path.c_str(), path == o.blobShadowTexture) &&
+                path != o.blobShadowTexture) {
+                o.blobShadowTexture = path; changed = true;
+                o.blobShadowSize[0] = o.blobShadowSize[1] = 0.0f;
+            }
+        ImGui::EndCombo();
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Alpha mask sampled by the single runtime quad. Pick an existing\n"
+            "project PNG or bake the object's top-down mesh below. This does\n"
+            "not add another model render on the console.");
+
+    if (blobshadowbake::canBake(o)) {
+        if (ImGui::Button("Bake blob shape")) {
+            const std::string path = blobShadowFileName(o);
+            std::string error;
+            float footprint[2] = {};
+            if (blobshadowbake::bake(project, o, path, footprint, error)) {
+                o.blobShadowTexture = path;
+                o.blobShadowSize[0] = footprint[0];
+                o.blobShadowSize[1] = footprint[1];
+                status = "Baked blob-shadow shape for '" + o.name + "'";
+                changed = true;
+            } else {
+                status = "Blob-shadow bake failed: " + error;
+            }
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Bake a soft 128x128 top-down silhouette from this mesh.\n"
+                "Animated models use frame zero; the mask then follows the\n"
+                "object's position and yaw at runtime.");
+    } else if (o.type == PrimitiveType::Vehicle) {
+        ImGui::TextDisabled("Vehicle import already bakes this shape");
+    } else {
+        ImGui::TextDisabled("No drawable mesh to bake; choose a PNG if needed");
+    }
+    return changed;
+}
+
+// Moving vehicles support runtime shadows; baked decals cannot follow them.
+static bool drawDynamicShadowControls(SceneObject& o) {
+    bool changed = false;
+    const char* shadowNames[] = {"Default (follow the project)", "None",
+                                 "Blob (baked shape)",
+                                 "Projected silhouette"};
+    int mode = o.shadowMode;
+    if (mode < 0 || mode > 3) mode = 0;
+    if (ImGui::Combo("Dynamic shadow", &mode, shadowNames, 4)) {
+        o.shadowMode = mode;
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "What this object casts while the game runs.\n"
+            "DEFAULT - the project decides: a blob under the moving\n"
+            "things (avatar, animated models, physics) if Preferences\n"
+            "has blob shadows on, plus the silhouette below if it is\n"
+            "ticked.\n"
+            "NONE - nothing, whatever the project says.\n"
+            "BLOB - one soft dark quad that follows the ground under\n"
+            "it. A baked top-down mask rotates with the object without\n"
+            "another model render; vehicles receive one on import.\n"
+            "Cheap enough for traffic and crowds.\n"
+            "PROJECTED - the real silhouette: the object renders a\n"
+            "second time each frame (64x64, from the sun). The 4\n"
+            "casters largest on screen are active at a time, so use it\n"
+            "for the player's car and other hero objects.\n"
+            "Game-only (no preview). 'Cast shadow' is the BAKED, static\n"
+            "shadow - a different thing entirely.");
+    // The old flag still means "projected" while the mode follows the
+    // project, so it stays reachable for existing projects.
+    if (o.shadowMode == 0) {
+        if (ImGui::Checkbox("Projected shadow (live)", &o.projShadow))
+            changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "The project-default form of the choice above. Pick\n"
+                "\"Projected silhouette\" in the combo to say it on the\n"
+                "object instead.\n"
+                "With a GI bake a static object's sun shadow is already\n"
+                "baked: the live one then draws only while the day/night\n"
+                "clock runs or under a torch. The combo forces it.");
+    }
+    return changed;
 }
 
 // Area reference picker (docs/areas.md): the scene's Area objects plus
@@ -187,6 +325,11 @@ void App::drawPropertiesWindow() {
     ImGui::Begin("Properties");
     if (!hasProject_) {
         ImGui::TextDisabled("No project open.");
+        ImGui::End();
+        return;
+    }
+    if (junctionSel_.active) {
+        drawJunctionProperties();
         ImGui::End();
         return;
     }
@@ -393,6 +536,64 @@ void App::drawPropertiesWindow() {
                     "then triangles nothing shades.");
         }
     }
+    if (o.type == PrimitiveType::Vehicle) {
+        // An instance names its definition; everything else about the vehicle
+        // lives there (docs/vehicles.md). A dangling name is REPORTED here
+        // rather than repaired, because deleting a definition must not
+        // silently edit scenes.
+        const std::string current = o.vehicleDef.empty() ? "<none>" : o.vehicleDef;
+        if (ImGui::BeginCombo("Vehicle", current.c_str())) {
+            for (size_t i = 0; i < project_.vehicles.size(); ++i) {
+                const std::string& n = project_.vehicles[i].name;
+                // Explicit ##id: a Selectable's LABEL is its ImGui id, and a
+                // definition being renamed can momentarily collide.
+                if (ImGui::Selectable((n + "##vehpick" + std::to_string(i)).c_str(),
+                                      n == o.vehicleDef) &&
+                    n != o.vehicleDef) {
+                    o.vehicleDef = n;
+                    committed = true;
+                }
+            }
+            if (project_.vehicles.empty())
+                ImGui::TextDisabled("None - make one in Tools > Vehicle Editor.");
+            ImGui::EndCombo();
+        }
+        bool known = o.vehicleDef.empty();
+        for (const VehicleDef& v : project_.vehicles)
+            if (v.name == o.vehicleDef) known = true;
+        if (!known) {
+            ImGui::PushStyleColor(ImGuiCol_Text, theme::semantics().danger);
+            ImGui::TextWrapped("No vehicle called \"%s\" - pick another.",
+                               o.vehicleDef.c_str());
+            ImGui::PopStyleColor();
+        }
+        if (ImGui::Checkbox("Player can drive it", &o.vehicleDriveable))
+            committed = true;
+        prefHelp(
+            "Off makes it scenery that still collides and can still be moved by\n"
+            "a script - what parked traffic wants.");
+        {
+            char rt[96];
+            std::snprintf(rt, sizeof(rt), "%s", o.vehicleRoute.c_str());
+            ImGui::SetNextItemWidth(scaled(200));
+            if (ImGui::InputText("AI route prefix", rt, sizeof(rt))) {
+                o.vehicleRoute = rt;
+            }
+            if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
+            prefHelp(
+                "An AI drives this car around every object whose name starts\n"
+                "with this prefix, sorted by name - place Areas as the\n"
+                "corners (invisible, no collider). Empty = parked until the\n"
+                "player takes it. The player taking THIS car pauses its AI.");
+        }
+        ImGui::SeparatorText("Rendering");
+        if (drawDynamicShadowControls(o)) committed = true;
+        if (o.shadowMode == 2 &&
+            drawBlobShadowShape(project_, o, statusMessage_))
+            committed = true;
+        ImGui::TextDisabled(
+            "Blob suits traffic; projected silhouette suits the hero car.");
+    }
     if (o.type == PrimitiveType::Model) {
         // model file: pick among the project's res/models assets
         const std::string current = o.modelPath.empty()
@@ -552,6 +753,161 @@ void App::drawPropertiesWindow() {
     // (local +Z); the scroller-specific block (segments, speed) sits below.
     // Scale/color are the marker's own - it has no geometry in the game.
     const bool isScroller = o.type == PrimitiveType::Scroller;
+    const bool isRoad = o.type == PrimitiveType::Road;
+    if (isRoad) {
+        ImGui::TextDisabled(
+            "Road: a spline through the points below, tessellated onto the "
+            "terrain at boot.");
+        ImGui::SetNextItemWidth(scaled(220));
+        ImGui::SliderFloat("Width", &o.roadWidth, 1.0f, 24.0f, "%.1f");
+        prefHelp("Full width of the surface, world units.");
+        ImGui::SetNextItemWidth(scaled(220));
+        if (ImGui::SliderFloat("Longitudinal spacing", &o.roadSampleStep,
+                               1.0f, 2.0f, "%.2f m"))
+            committed = true;
+        prefHelp(
+            "Distance between geometry rows along the spline. 1 m follows\n"
+            "sharp terrain folds most closely; up to 2 m reduces road\n"
+            "triangles and VU1 packages. Inspect crests and tight bends.");
+        ImGui::SetNextItemWidth(scaled(220));
+        if (ImGui::SliderFloat("Surface grip", &o.roadGrip, 0.1f, 1.5f, "%.2f"))
+            committed = true;
+        prefHelp(
+            "Tyre grip on this road, multiplying every vehicle's own grip:\n"
+            "1 = asphalt, ~0.7 gravel, ~0.3 ice. A junction takes the lower\n"
+            "of its two roads. Terrain off the road uses each vehicle's\n"
+            "Off-road grip instead.");
+        if (drawRoadSurfaceCombo("Surface material", "road-surface",
+                                 o.roadTexture))
+            committed = true;
+        prefHelp(
+            "A project material; its first map_Kd is tiled along the road -\n"
+            "one repeat per 4 units, so one small texture carries a street of\n"
+            "any length. Direct PNG references from older projects still work.\n"
+            "Empty = untextured grey.");
+        if (drawRoadSurfaceCombo("Intersection material", "road-intersection",
+                                 o.roadIntersectionTexture))
+            committed = true;
+        prefHelp(
+            "When two roads of the SAME rank cross and both name this same\n"
+            "non-empty material, TyraX generates a terrain-hugging junction\n"
+            "patch at build time. Different ranks never make a patch: the\n"
+            "higher road runs through. Old direct PNG references remain\n"
+            "supported.");
+        {
+            static const char* kRanks[] = {"Track", "Local", "Main"};
+            ImGui::SetNextItemWidth(scaled(220));
+            if (ImGui::Combo("Rank", &o.roadRank, kRanks, 3)) committed = true;
+            prefHelp(
+                "Which road wins a crossing. A higher rank runs straight\n"
+                "through and covers the lower one - a mud track stops at the\n"
+                "asphalt's edge instead of fighting it. Equal ranks meet in\n"
+                "an intersection-material junction, as before.");
+            ImGui::SetNextItemWidth(scaled(220));
+            if (ImGui::SliderFloat("Spill onto higher roads", &o.roadSpill, 0.0f,
+                                   8.0f, "%.1f units"))
+                committed = true;
+            prefHelp(
+                "Where this road crosses a higher-rank one, its surface carries\n"
+                "on over the higher road's edge for this far and fades out -\n"
+                "mud trailed onto the asphalt. Grip fades with it. 0 = a clean\n"
+                "edge. No effect against equal or lower ranks.");
+            ImGui::SetNextItemWidth(scaled(220));
+            if (ImGui::SliderFloat("Edge fade", &o.roadEdgeFade, 0.0f, 4.0f,
+                                   "%.1f units"))
+                committed = true;
+            prefHelp(
+                "Soft edges: the outer this-many units on each side fade into\n"
+                "the terrain instead of ending in a hard line - a dirt track.\n"
+                "Snaps to the road's 0.5-unit lateral grid; the grip fades to\n"
+                "the terrain's with it. A texture whose alpha is ragged at the\n"
+                "edges makes it look organic. 0 = the hard edge.");
+        }
+        // This road's crossings (docs/roads.md, "Junction overrides"): the
+        // plan the build uses, one button each - the same junction the
+        // viewport diamond selects.
+        {
+            const roadgen::CrossingPlan& plan = sceneCrossings();
+            const auto& objs = project_.objects();
+            int shown = 0;
+            for (size_t ci = 0; ci < plan.crossings.size(); ++ci) {
+                const roadgen::Crossing& c = plan.crossings[ci];
+                const bool mineA = crossingRoadList_[(size_t)c.a].id == o.id;
+                const bool mineB = crossingRoadList_[(size_t)c.b].id == o.id;
+                if (!mineA && !mineB) continue;
+                if (shown++ == 0) ImGui::SeparatorText("Crossings");
+                const SceneObject& other =
+                    objs[(size_t)crossingRoadObj_[(size_t)(mineA ? c.b : c.a)]];
+                const char* what = c.kind == roadgen::kCrossPatch     ? "patch"
+                                   : c.kind == roadgen::kCrossThrough
+                                       ? (c.winner == (mineA ? c.a : c.b) ? "runs through"
+                                                                          : "covered")
+                                       : "overlap";
+                const std::string label = "Junction with " + other.name + " (" + what +
+                                          (c.override >= 0 ? ", override" : "") +
+                                          ")##junction" + std::to_string(ci);
+                if (ImGui::Button(label.c_str())) selectJunction((int)ci);
+            }
+            const auto& ovs = project_.active().roadJunctions;
+            for (size_t oi = 0; oi < ovs.size() && oi < plan.overrideCrossing.size(); ++oi) {
+                if (plan.overrideCrossing[oi] >= 0) continue;
+                if (ovs[oi].roadA != o.id && ovs[oi].roadB != o.id) continue;
+                if (shown++ == 0) ImGui::SeparatorText("Crossings");
+                ImGui::TextColored(theme::semantics().danger, "Orphaned junction override");
+                ImGui::SameLine();
+                if (ImGui::SmallButton(("Show##orphan" + std::to_string(oi)).c_str()))
+                    selectJunction(-2 - (int)oi);
+            }
+        }
+        // The points, world-space XZ. A table, not a gizmo (yet): blunt but
+        // complete - insert after, remove, drag both axes.
+        ImGui::SeparatorText("Points");
+        int removeAt = -1, insertAfter = -1;
+        const int np = (int)(o.roadPoints.size() / 2);
+        for (int i = 0; i < np; ++i) {
+            ImGui::PushID(i);
+            float* px = &o.roadPoints[(size_t)i * 2];
+            ImGui::SetNextItemWidth(scaled(170));
+            ImGui::DragFloat2("##pt", px, 0.25f, 0.0f, 0.0f, "%.1f");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("+")) insertAfter = i;
+            ImGui::SameLine();
+            if (np > 2 && ImGui::SmallButton("-")) removeAt = i;
+            ImGui::PopID();
+        }
+        if (insertAfter >= 0) {
+            // Midway to the next point (or extended past the end).
+            const size_t at = (size_t)(insertAfter + 1) * 2;
+            float nx, nz;
+            if (insertAfter + 1 < np) {
+                nx = 0.5f * (o.roadPoints[at - 2] + o.roadPoints[at]);
+                nz = 0.5f * (o.roadPoints[at - 1] + o.roadPoints[at + 1]);
+            } else {
+                nx = 2.0f * o.roadPoints[at - 2] - o.roadPoints[at - 4];
+                nz = 2.0f * o.roadPoints[at - 1] - o.roadPoints[at - 3];
+            }
+            o.roadPoints.insert(o.roadPoints.begin() + at, {nx, nz});
+            o.roadHeights.clear();
+        }
+        if (removeAt >= 0) {
+            o.roadPoints.erase(o.roadPoints.begin() + (size_t)removeAt * 2,
+                               o.roadPoints.begin() + (size_t)removeAt * 2 + 2);
+            o.roadHeights.clear();
+        }
+        if (ImGui::Button(roadEdit_ ? "Stop editing (Esc)" : "Edit in viewport"))
+            roadEdit_ = !roadEdit_;
+        prefHelp(
+            "Click the ground to APPEND a point, click a point to DRAG it,\n"
+            "click the line between points to INSERT one there. Esc stops.\n"
+            "Every operation is one undo step (Ctrl+Z).");
+        ImGui::SameLine();
+        if (ImGui::Button("Align terrain to road"))
+            alignTerrainToRoad(selectedObject_);
+        prefHelp(
+            "Flattens the heightfield to the road's interpolated line -\n"
+            "the surface under the asphalt becomes the asphalt's own grade,\n"
+            "with a smooth shoulder falloff. Undoable like any edit.");
+    }
     if (isScatter) {
         ImGui::TextDisabled(
             "Procedural region: position and scale are the box the graph fills.");
@@ -671,17 +1027,17 @@ void App::drawPropertiesWindow() {
             committed |= ImGui::IsItemDeactivatedAfterEdit();
             ImGui::DragFloat("Friction", &o.physFriction, 0.01f, 0.0f, 1.0f, "%.2f");
             committed |= ImGui::IsItemDeactivatedAfterEdit();
-            if (ImGui::Checkbox("Tumble (impacts add spin)", &o.physTumble))
+            if (ImGui::Checkbox("Tumble (can rotate)", &o.physTumble))
                 committed = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Off = the body slides but never turns.");
             ImGui::DragFloat("Sleep after (s)", &o.physSleep, 0.1f, 0.1f, 60.0f,
                              "%.1f");
             committed |= ImGui::IsItemDeactivatedAfterEdit();
-            ImGui::TextDisabled(
-                "Falls, bounces off slopes and objects, slides with friction\n"
-                "and can be shoved by the player / Apply Impulse nodes.\n"
-                "Mass is relative - it matters only against other bodies.\n"
-                "Sleep after: seconds of near-rest before the body freezes\n"
-                "(a sleeping body costs nothing until something wakes it).");
+            ImGui::TextDisabled("Collides as its convex hull.");
+            prefHelp("A rigid body: it tips, rolls and rests on the corners of\n"
+                     "its shape's convex hull (docs/physics.md). Mass is relative.\n"
+                     "A sleeping body costs nothing until something wakes it.");
             ImGui::Unindent();
         }
         if (o.type == PrimitiveType::SavePoint) {
@@ -875,11 +1231,51 @@ void App::drawPropertiesWindow() {
         if (o.drawDistance > 0.0f)
             ImGui::TextDisabled(
                 "Skipped at draw time when the camera is farther than this;\n"
-                "collision and logic still run. 0 = always drawn.");
+                "collision and logic still run. 0 = always drawn.\n"
+                "Objects merged into one static batch share a cut-off and\n"
+                "switch off together, so a batched object can stay visible\n"
+                "a little past its own distance - never less.");
+
+        // The one per-object static-batching lever (docs/static-batching.md).
+        // Everything else about batching is inferred by the build; this is a
+        // decision the author makes, for the case the rules cannot see - a
+        // member whose position widens its batch's merged box enough to keep
+        // the whole group drawn past what the scene would cull. Tools >
+        // Static Batches is where that is visible.
+        if (ImGui::Checkbox("Exclude from static batch", &o.batchExclude))
+            committed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Keep this object out of every static batch - it submits its\n"
+                "own bag, as it did before batching existed. A batch is culled\n"
+                "as a UNIT against the union of its members, so one outlying\n"
+                "member can keep the rest drawn; excluding it is the fix.\n"
+                "Tools > Static Batches shows the merged boxes and the cost.");
+
+        if (ImGui::Checkbox("Never occlude other objects", &o.occluderExclude))
+            committed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Opt out of the build-time occluder proxy. Moving, open,\n"
+                "non-manifold and alpha-textured geometry is rejected\n"
+                "automatically even when this remains unchecked.");
+        if (ImGui::Checkbox("Can be occlusion culled", &o.occlusionCull))
+            committed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Allow this object's complete bounds to be skipped when they\n"
+                "are safely behind the conservative visibility buffer.");
 
         // Rendered into the dynamic ("@sky") environment map, so reflective
         // materials mirror this object - costs a second small render per frame.
         if (ImGui::Checkbox("Show in reflections", &o.reflected)) committed = true;
+        if (o.reflected) {
+            if (ImGui::Checkbox("Reflection box proxy", &o.reflectionProxy))
+                committed = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Draw one 12-triangle, one-material box in 128px environment maps.\n"
+                                  "The main view, collision and picking keep the full object.");
+        }
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
                 "Materials with a <dynamic - live sky> sphere map will mirror\n"
@@ -918,8 +1314,9 @@ void App::drawPropertiesWindow() {
                     "ticked.\n"
                     "NONE - nothing, whatever the project says.\n"
                     "BLOB - one soft dark quad that follows the ground under\n"
-                    "it. Cheap enough for a crowd, and it works on a static\n"
-                    "prop too; it has no shape of its own.\n"
+                    "it. Bake or pick a top-down mask below; vehicles also\n"
+                    "receive one automatically during import.\n"
+                    "Cheap enough for traffic and crowds.\n"
                     "PROJECTED - the real silhouette: the object renders a\n"
                     "second time each frame (64x64, from the sun) and the\n"
                     "shape is projected under it. The 4 casters nearest the\n"
@@ -950,6 +1347,9 @@ void App::drawPropertiesWindow() {
                 else
                     ImGui::TextDisabled("Bake it in Ambience Editor > Baked lighting");
             }
+            if (o.shadowMode == 2 &&
+                drawBlobShadowShape(project_, o, statusMessage_))
+                committed = true;
             // The old flag still means "projected" while the mode follows the
             // project, so it stays reachable - and stays the thing every
             // existing .tyra carries.
@@ -1634,8 +2034,35 @@ void App::drawPropertiesWindow() {
 
     if (o.type == PrimitiveType::Emitter) {
         ImGui::SeparatorText("Particle emitter");
+        // The particle library (docs/particles.md): a linked emitter wears the
+        // effect's look, copied in by project::applyParticleEffects on commit.
+        const ParticleEffect* linked = project::findParticleEffect(project_, o.particleEffect);
+        if (ImGui::BeginCombo("Library", o.particleEffect.empty()
+                                             ? "(own settings)"
+                                             : o.particleEffect.c_str())) {
+            if (ImGui::Selectable("(own settings)##fxnone", o.particleEffect.empty())) {
+                o.particleEffect.clear();
+                committed = true;
+            }
+            for (size_t k = 0; k < project_.particleEffects.size(); ++k) {
+                const ParticleEffect& fx = project_.particleEffects[k];
+                const std::string label = fx.name + "##fx" + std::to_string(k);
+                if (ImGui::Selectable(label.c_str(), fx.name == o.particleEffect)) {
+                    o.particleEffect = fx.name;
+                    committed = true;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Edit...##fxedit")) openParticleEditor(o.particleEffect);
+        if (!o.particleEffect.empty() && !linked)
+            ImGui::TextColored(theme::semantics().warn, "No effect named \"%s\".",
+                               o.particleEffect.c_str());
+        if (linked) ImGui::BeginDisabled();
         const char* kinds[] = {"Fire", "Smoke", "Fog", "Sparks", "Rain", "Custom"};
         if (ImGui::Combo("Effect", &o.emitterKind, kinds, 6)) committed = true;
+        if (ImGui::Checkbox("Additive (glows)", &o.emitterAdditive)) committed = true;
         if (ImGui::DragInt("Density (count)", &o.emitterCount, 1.0f, 1, 256)) {}
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::DragFloat("Particle size", &o.emitterSize, 0.02f, 0.05f, 8.0f, "%.2f");
@@ -1683,6 +2110,7 @@ void App::drawPropertiesWindow() {
                 "Rotation to aim (90 deg X = a horizontal pipe leak).\n"
                 "Negative gravity rises (steam); low weight = air drag.");
         }
+        if (linked) ImGui::EndDisabled();
         if (ImGui::Checkbox("Enabled", &o.emitterEnabled)) committed = true;
         if (ImGui::Checkbox("Follow player", &o.emitterFollowPlayer)) committed = true;
         if (o.emitterFollowPlayer)
@@ -2697,6 +3125,9 @@ void App::drawMultiProperties() {
         multiDragF("Draw distance", &SceneObject::drawDistance, 0.5f, 0.0f, 2000.0f,
                    "%.0f units");
         multiCheck("Show in reflections", &SceneObject::reflected);
+        multiCheck("Reflection box proxy", &SceneObject::reflectionProxy);
+        multiCheck("Never occlude other objects", &SceneObject::occluderExclude);
+        multiCheck("Can be occlusion culled", &SceneObject::occlusionCull);
         multiCheck("Projected shadow (live)", &SceneObject::projShadow);
         multiCheck("Cast shadow", &SceneObject::castShadow);
         multiCheck("Physics (rigid body)", &SceneObject::physics);
@@ -2880,15 +3311,49 @@ bool App::drawLodOverrides(SceneObject& o, bool animated) {
             ImGui::SetTooltip("Bake this OBJ and its material into the selected number of 128px views.\n"
                               "Requires a static, upright object with equal positive X/Z scale.\n"
                               "Reflection and emission are unsupported. Rebuild the game after baking.");
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!supported);
+        if (ImGui::Button("Bake hull proxy")) {
+            std::string key = o.id;
+            for (char& c : key)
+                if (!std::isalnum((unsigned char)c) && c != '-') c = '_';
+            std::string path, error;
+            float extent = 0.0f;
+            int triangles = 0;
+            if (modelproxy::bakeHull(project_.dir, o.modelPath, o.materialPath,
+                    "res/models/proxies/model-" + key, &path, &extent,
+                    &triangles, &error)) {
+                o.impostorPath = path;
+                o.impostorBillboard = false;
+                if (o.impostorDistance <= 0)
+                    o.impostorDistance = std::max(1.0f, extent *
+                        std::max(o.scale[0], o.scale[1]) * 6.0f);
+                viewport_.invalidateAssets();
+                committed = true;
+                statusMessage_ = "Baked " + std::to_string(triangles) +
+                    "-triangle hull proxy for '" + o.name + "'";
+            } else statusMessage_ = "Hull proxy bake failed: " + error;
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Build one-material geometry from the model's convex XZ silhouette and height.\n"
+                              "Useful for distant buildings and rocks; collision keeps the original mesh.\n"
+                              "Requires the same upright/equal-XZ transform as a captured impostor.");
     }
     if (!animated && !o.impostorPath.empty()) {
-        ImGui::TextWrapped("Impostor: %s (%d views)", o.impostorPath.c_str(), o.impostorViews);
-        ImGui::DragFloat("Impostor distance", &o.impostorDistance, 1.0f,
+        if (o.impostorBillboard)
+            ImGui::TextWrapped("Distant representation: captured impostor (%d views)\n%s",
+                               o.impostorViews, o.impostorPath.c_str());
+        else
+            ImGui::TextWrapped("Distant representation: hull proxy\n%s",
+                               o.impostorPath.c_str());
+        ImGui::DragFloat("Switch distance", &o.impostorDistance, 1.0f,
                           0.0f, 2000.0f, "%.0f units");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("0 disables the distant model. Collision keeps the original mesh.\n"
-                              "Eight-view cards approximate the silhouette; the swap is not blended.");
+            ImGui::SetTooltip("Camera distance at which the distant representation replaces the model.\n"
+                              "0 disables the swap. Collision always keeps the original mesh;\n"
+                              "the visual transition is not blended.");
     }
     return committed;
 }
@@ -2964,4 +3429,96 @@ std::vector<std::string> App::flowVarNames(const std::string& nodeType) const {
                 if (!seen) names.push_back(n.str);
             }
     return names;
+}
+
+
+// Align the terrain to the selected road (docs/roads.md). The GRADE is
+// snapshotted FIRST - the spline's height read off the terrain as it is now,
+// smoothed along the line - and only then flattened toward, so the pass
+// cannot chase its own edits. One undo step, like a brush stroke.
+void App::alignTerrainToRoad(int objIndex) {
+    if (objIndex < 0 || objIndex >= (int)project_.objects().size()) return;
+    SceneObject& o = project_.objects()[objIndex];
+    if (o.type != PrimitiveType::Road || o.roadPoints.size() < 4) return;
+
+    // Dense stations along the spline, ~1 unit apart.
+    float total = 0.0f;
+    for (size_t k = 2; k + 1 < o.roadPoints.size(); k += 2) {
+        const float dx = o.roadPoints[k] - o.roadPoints[k - 2];
+        const float dz = o.roadPoints[k + 1] - o.roadPoints[k - 1];
+        total += std::sqrt(dx * dx + dz * dz);
+    }
+    const int stations = std::max(8, (int)(total / 1.0f));
+    struct St { float x, z, h; };
+    std::vector<St> line((size_t)stations + 1);
+    for (int i = 0; i <= stations; ++i) {
+        St& st = line[(size_t)i];
+        roadgen::splineAt(o.roadPoints, (float)i / (float)stations, &st.x, &st.z);
+        st.h = project::heightAtWorld(project_, st.x, st.z);
+    }
+    // Smooth the grade (a 5-tap box) so the road never inherits a single
+    // cell's spike - the whole point of aligning is a drivable surface.
+    for (int pass = 0; pass < 2; ++pass) {
+        std::vector<float> sm((size_t)stations + 1);
+        for (int i = 0; i <= stations; ++i) {
+            float acc = 0.0f;
+            int n = 0;
+            for (int k = -2; k <= 2; ++k) {
+                const int j = i + k;
+                if (j < 0 || j > stations) continue;
+                acc += line[(size_t)j].h;
+                ++n;
+            }
+            sm[(size_t)i] = acc / (float)n;
+        }
+        for (int i = 0; i <= stations; ++i) line[(size_t)i].h = sm[(size_t)i];
+    }
+    // FLAT under the asphalt, falloff only on the SHOULDERS: the first cut
+    // ran the flatten brush (cosine from the centre) per station, which
+    // crowned the road - the surface must be level across its own width.
+    // Direct heightfield pass: every cell within reach of the line takes the
+    // height of its NEAREST station, full strength inside halfWidth, cosine
+    // out to the shoulder edge.
+    {
+        SceneData& sc = project_.active();
+        if (sc.hmW >= 2 && sc.hmD >= 2) {
+            const float w = (float)sc.terrain.width, d = (float)sc.terrain.depth;
+            const float stepX = w / (sc.hmW - 1), stepZ = d / (sc.hmD - 1);
+            const float halfW = 0.5f * o.roadWidth + 0.4f;
+            const float shoulder = 3.0f;
+            const float reach = halfW + shoulder;
+            for (int z = 0; z < sc.hmD; ++z) {
+                for (int x = 0; x < sc.hmW; ++x) {
+                    const float vx = -w * 0.5f + x * stepX;
+                    const float vz = -d * 0.5f + z * stepZ;
+                    float best = 1e30f;
+                    float bh = 0.0f;
+                    for (const St& st : line) {
+                        const float dx = vx - st.x, dz = vz - st.z;
+                        const float d2 = dx * dx + dz * dz;
+                        if (d2 < best) {
+                            best = d2;
+                            bh = st.h;
+                        }
+                    }
+                    const float dist = std::sqrt(best);
+                    if (dist >= reach) continue;
+                    float k = 1.0f;
+                    if (dist > halfW) {
+                        const float t = (dist - halfW) / shoulder;
+                        k = 0.5f + 0.5f * std::cos(t * 3.14159265f);
+                    }
+                    float& h = sc.heights[(size_t)z * sc.hmW + x];
+                    h += (bh - h) * k;
+                }
+            }
+        }
+    }
+    const float radius = 0.5f * o.roadWidth + 3.0f;  // viewport rebuild reach
+    // Rebuild the viewport terrain under the whole line (region updates per
+    // station - the sculpt brush's own path, so chunk rebuilds stay local).
+    for (const St& st : line)
+        viewport_.updateTerrainRegion(project_.active().heights, st.x, st.z, radius);
+    commitChange();
+    statusMessage_ = "Terrain aligned to the road";
 }

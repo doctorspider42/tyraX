@@ -69,6 +69,126 @@ a triangle is exact and `S/Q` per pixel is the true projective mapping. Finished
 patch of a few dozen triangles, as a *fan of triangles* rather than a pool of
 light, however finely you cut it.
 
+## The cone costs nothing when nothing is lit
+
+`CalculateTyraSpotLight` is **21 upper-pipe operations per vertex, 63 per
+triangle**, and until 1.94.0 every colour-program mesh in every scene paid them
+whether or not a light could reach it. That is not a rounding error: VU1
+arithmetic in the Motor District garage is worth
+[0.0768 ms of frame time per cycle per triangle](vu1-and-dma-cache-cost.md), and
+the generated game attaches a lighting bag only to *dynamically lit* objects, so
+ordinary static geometry selects `cull_c` / `cull_tc` (or `clip_c` / `clip_tc`
+when it crosses a clip plane) and ran the cone regardless. `StaPipCore::render`
+already hands a `spotLit = false` bag a deliberately inert light (`kNoSpotLight`
+— black, range 0) and `RendererCore::pickDynLight` can decline as well; the
+programs simply computed with it and added zero.
+
+They branch over it now. The EE already knew the answer at the moment it built
+the packet — `StaPipClipperSpot::enabled`, the same predicate the EE clipper's
+`addSpotToColor` has always used to decide whether to bake the term into an
+EE-clipped triangle — so the fix is to publish that one fact to VU1 and let both
+halves of the formula hang off it.
+
+**The flag is the sign of `VU1_OPTIONS_ADDR.y`**, which costs no new quadword,
+no new DMA and no packet growth. That lane already carried the shared clip
+image's peer selector (`clip_c` hosts `clip_d`, `clip_tc` hosts `clip_tce`), and
+every reader of it tested only `> 0` against `<= 0` — so the negative half was
+free:
+
+| `VU1_OPTIONS_ADDR.y` | meaning |
+| --- | ---: |
+| `> 0` | the shared clip image's peer path (directional shading / matcap ST) |
+| `= 0` | base path, **no** dynamic light reaches this mesh — skip the cone |
+| `< 0` | base path, a dynamic light does reach it — run the cone |
+
+The two can never disagree: the peer variant is selected by a lighting bag or by
+matcap coordinates, and neither of those material classes carries the spot macro
+at all, so the variant wins when both would be true.
+
+Measured on the generated assembler (`openvcl`, rows a path actually executes
+between the loop label and the loop branch — cycles per triangle, the static
+pipeline processes three vertices per iteration; the clip rows are the COLOUR
+path, since the peer half of a shared image never runs for a colour bag):
+
+| program | before | unlit mesh | lit mesh |
+| --- | ---: | ---: | ---: |
+| `cull_c` | 130 | **72** | 130 |
+| `cull_tc` | 133 | **73** | 133 |
+| `clip_c` | 230 | **173** | 232 |
+| `clip_tc` | 241 | **184** | 243 |
+
+`cull_d`, `cull_td`, `cull_tce`, `clip_d`, `clip_td` and `clip_tce` are byte-for-byte
+what they were — they never carried the macro.
+
+**The picture is unchanged in both directions, and the unlit case is unchanged by
+CONSTRUCTION rather than by inspection.** A bag whose light is inert already
+uploads a black spot colour, and the macro's last two instructions are
+`mul.xyz spotAdd, spotCol, spotC[x]` followed by `add.xyz color, color, spotAdd`
+— VU1 floats saturate instead of producing infinities or NaNs, so `0 * anything`
+is 0 and the addition is the identity. Skipping the block and running it give the
+same colour bit for bit. A mesh the light does reach runs exactly the same
+arithmetic on exactly the same object-space vertex; only a branch was put in
+front of it.
+
+**A BRANCH IS A SCHEDULING BARRIER, and that is what this feature is really
+about.** The first shipped version put the gate inside the loop and it was
+measured on a console: the unlit win was real (garage day −1.06 ms, outer day
+−0.62, outer night −0.70) and **garage night — the heaviest pose in the scene —
+got 1.26 ms SLOWER**, because at night the lamps are on, nearly every mesh picks
+a dynamic light, and a gate inside the loop stops `openvcl` interleaving the
+spot with the transform, fog and store chains. Three arms, `cull_tc`, lit/unlit:
+
+| shape | lit | unlit |
+| --- | ---: | ---: |
+| gate per corner | 154 | 91 |
+| one gate before the first `MatrixMultiplyVertex` | 144 | 81 |
+| **two whole loops, picked once per batch** | **133** | **73** |
+
+So the cull pair is **two complete loops** now. The lit one is the original body
+with nothing added to it at all, which is the strongest guarantee available that
+it cannot regress — and the unlit one comes out shorter than the branch version
+as well, because it is a whole loop the assembler schedules on its own terms
+rather than a hole punched in another one. The clip pair keeps a branch, but it
+**duplicates the colour clamp** rather than jumping into the middle of the lit
+block, which takes its cost from +7/+6 down to +2/+2. In `clip_c` the gate sits
+at the top of `sharedColorMode`, where `sceFlag` still holds the lane the peer
+test just read, so it needs no second `ilw` — and the unlit copy is emitted
+first so the lit half keeps its fall-through.
+
+The cost is **+178 words of VU1 micro memory** across the four programs
+(1684 → 1862 of the 2042 below `drawFinishAddr`, leaving 180), nearly all of it
+the two duplicated cull loops. Note the host budget estimator in `--vu-check`
+now prints an upper bound above the ceiling (`1102..2201 of 2042 slots`): it is
+pessimistic by construction because it cannot know how VCL will pair
+instructions. **Measure with `nm` on the built objects, not with the estimate.**
+
+The flashlight's projected pool, its shadow volumes and the terrain are on other
+paths entirely and are untouched.
+
+**What the console said, and what it is worth.** The first version was measured
+on a physical PS2 over four parked Motor District poses (240 warmed rows each,
+triangle and re-upload counts identical between arms, every delta landing in the
+VIF1 wait bucket):
+
+| pose | baseline | gate inside the loop | VIF1 wait delta |
+| --- | ---: | ---: | ---: |
+| garage day | 40.986 | 39.927 (**−1.059**) | −1.104 |
+| garage night | 44.390 | 45.654 (**+1.264**) | +0.897 |
+| outer day | 18.452 | 17.832 (**−0.620**) | −0.632 |
+| outer night | 21.363 | 20.662 (**−0.701**) | −0.611 |
+
+Solving the cycle table against those deltas puts the unlit fraction of
+colour-program triangles at about **39% in garage day and essentially zero in
+garage night** — the lamps are on, so almost every mesh picks a light. That is
+what the two-loop shape is for. The numbers above belong to the shape that is no
+longer shipped; **the current one has not been on a console**, so read its lit
+column as "the same instructions the assembler already scheduled" rather than as
+a measured frame time, and convert the unlit column with the rate in
+[vu1-and-dma-cache-cost.md](vu1-and-dma-cache-cost.md) if you want milliseconds.
+The saving is proportional to the fraction of a scene's triangles that reach a
+colour program with no light on them, which is a property of the scene and of
+the time of day.
+
 ## A scene light with the same trick
 
 A dynamic point light can opt into a **Spot** style (*Properties > Point
@@ -114,6 +234,58 @@ Light* and a streamed-out light are all runtime state, so the viewport
 previews a beam at its authored brightness, exactly as it previews the light
 itself — a glow pulsing over a rock-steady pool of light would be a new lie
 rather than less of one.
+
+### Scene spot pools that do not move (1.134.4)
+
+A scene spot light's pool used to redo two things every frame, although for a
+lamp that does not move both come out the same:
+- it marched the cone's axis down to the ground, one `projSurfaceAt` per 0.3
+  units of reach (a 16-unit lamp aimed at the street takes ~20 steps, and each
+  one searches the road triangles);
+- it rewrote the projective STQ of every patch vertex through the `BagArray`,
+  which moves the content stamp, so the bag re-staged instead of replaying its
+  baked stream.
+
+Both are now keyed on the light's position, rotation, reach and cone
+(`LightPool::spotKey`). An unchanged lamp with an unchanged patch keeps its
+landing and its STQ. A lamp that flickers keeps them too: brightness is not
+in the key.
+
+Measured on a physical PS2, district fixture, one ELF with the old behaviour
+selectable at boot, median `work` of 240 frames, two boots per arm: **garage
+night -0.50 ms** (14.55 -> 14.05), outer night -0.08, day poses unchanged. The
+garage's eight pools now cost ~0.74 ms of the frame (all eight removed:
+13.31). That remainder is one bag per lamp plus the carving spot's volumes; it
+is the next item.
+
+### One bag for the still pools (1.134.5)
+
+The pools of scene spots that are not carving a shadow this frame now draw as
+ONE bag (`PoolBatch`). Their vertices and projective STQs are copied end to
+end. Each lamp's colour times its FIX / 128 goes into the vertex colours, and
+the batch draws at FIX 128. That is the same Cs * FIX / 128 the separate bags
+drew, up to rounding: a PCSX2 night capture differs only in the profiler's
+digits and one-step noise inside a pool. The copy is redone only when a
+member, one of its source stamps, its colour or its FIX changes. A still
+district therefore replays the batch baked.
+
+**The batch goes out before anything that builds a shadow mask.** That means
+the torch, which is last in the list, and the one scene spot carving this
+frame. Those two keep their own bags and their DATE pass.
+
+The gobo is CLAMP-wrapped, so no pool bag was ever a submission-batch
+candidate: each sent its own packet. Measured on a physical PS2, one ELF,
+median `work`, two boots per arm:
+- **garage night -0.15 ms** (14.16 -> 14.01);
+- **outer night +0.04**: fewer lamps are in view there, and one bag spanning
+  them is partly visible, so it takes the per-package route where separate
+  bags were culled whole;
+- day unchanged.
+
+All pools removed reads 13.42 in garage night, so ~0.6 ms remains. A 1.2 x
+tighter footprint (instead of 1.5) was worth only another 0.09 ms, so the
+remainder is not mostly fill. It was not shipped: a tilted spot's ellipse
+needs the margin.
 
 ## What the pool does
 
@@ -291,10 +463,21 @@ The rule is a property of the object, not of the aim:
 
 The pool's texture *is* the shape of the light. The editor bakes one into
 `res/hud/flashlight-gobo.png` (128x128) for any project that can show a
-flashlight: a hot centre, a soft penumbra, the faint ring a dish reflector
+flashlight **or projected vehicle headlights**: a hot centre, a soft penumbra, the faint ring a dish reflector
 throws, and two low-frequency lobes so the circle is not perfectly round. It
 costs about 6% of the console's ~1.08 MB texture heap ([GS VRAM](gs-vram.md)),
-and a project with no flashlight never loads it.
+and a project with neither use never loads it.
+
+Entering a vehicle suspends the camera flashlight (pool, spot lighting and its
+projected-shadow contribution) but does not flip the authored/toggled state.
+It returns on exit. The car's own bounded headlight projector uses this same
+gobo independently; see [Vehicles](vehicles.md).
+
+The floor receiver also has absolute half-width and length caps after all cone
+and landing calculations. This is intentionally stricter than the flashlight's
+authored range: at a grazing angle the useful gobo occupies a small part of a
+huge mostly-black canvas, and on physical hardware that invisible fill once
+cost 125.06 ms by itself in a 147.07 ms frame.
 
 The pool's gain is solved so its peak lands at 0.8, not at 1.0. That matters
 more than it sounds: the blend is `Cs*FIX/128 + Cd`, and a peak at or over 1.0

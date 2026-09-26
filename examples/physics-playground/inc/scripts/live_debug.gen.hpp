@@ -20,12 +20,18 @@ namespace livedbg {
 /** An instrumented node ran. Bumps its counter, records it in the event ring
  * and stops the game when the editor has a breakpoint on it. */
 void hit(int key);
+unsigned int takeRenderCostRequest();
 
 /** True while the game is stopped by the debugger. The generated loop folds
  * this into its "a menu is pausing the world" condition, so a halt freezes
  * scripts, the walker, particles and animation while frames keep presenting.
  */
 bool halted();
+
+/** True once the editor has attached (a valid livedbg.cmd was read). The
+ * game keeps the renderer's frame yield on while it is - see
+ * RendererCore::setFrameYield. */
+bool attached();
 
 /** True for the one frame in which the editor asked to force-fire this node
  * (Debugger > "Fire"), OR'd into the node's own trigger condition. */

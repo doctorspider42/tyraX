@@ -1,0 +1,1 @@
+PASS: regenerated main Objects block exactly matches checked-in generated example; begin/probe/cost/end boundaries present. Editor 1.93.0; format 54 unchanged.

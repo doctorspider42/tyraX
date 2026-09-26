@@ -1,0 +1,1 @@
+{ "id": "picapark00000001", "name": "pica-1", "type": "vehicle", "position": [-4.5, 0.5, -74.3035], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.6, 0.6, 0.6], "physics": false, "shadowMode": 2, "vehicle": { "def": "Pica Turbo", "driveable": true } }

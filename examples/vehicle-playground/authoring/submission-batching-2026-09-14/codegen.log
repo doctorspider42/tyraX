@@ -1,0 +1,11 @@
+[vehicle] CC96: far tier 1848 tris (wheels in), then 1848, 1 submit past 48 units
+[vehicle] CC96: lamp materials -> emissive part 2 (60 rear corners, 120 front)
+[vehicle] CC96: body 1116 tris / 3 part(s), wheel 314 tris, 4 submit(s) per vehicle
+[vehicle] CC96: measured wheelBase 2.066 track 1.248 radius 0.228 rideHeight 0.228 - the definition's Driving tab should match
+[vehicle] Rally 04: far tier 476 tris (wheels in), then 476, 1 submit past 48 units
+[vehicle] Rally 04: body 364 tris / 1 part(s), wheel 28 tris, 2 submit(s) per vehicle
+[vehicle] Rally 04: measured wheelBase 2.733 track 1.562 radius 0.341 rideHeight 0.341 - the definition's Driving tab should match
+[vehicle] Tristar Racer: far tier 1327 tris (wheels in), then 1327, 1 submit past 48 units
+[vehicle] Tristar Racer: body 789 tris / 2 part(s), wheel 139 tris, 3 submit(s) per vehicle
+[vehicle] Tristar Racer: measured wheelBase 2.354 track 1.555 radius 0.303 rideHeight 0.303 - the definition's Driving tab should match
+refreshed generated files: D:/tyra-batching-0914/codegen

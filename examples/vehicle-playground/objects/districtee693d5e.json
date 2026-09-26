@@ -1,0 +1,1 @@
+{ "id": "districtee693d5e", "name": "Night window 17 13", "type": "box", "position": [14, 13, 6.97], "rotation": [0, 0, 0], "scale": [1.7, 1.5, 0.035], "color": [1, 1, 1], "physics": false, "collision": "none", "reflected": true, "castShadow": false, "material": "res/materials/night-warm.mtl" }

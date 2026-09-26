@@ -1,0 +1,20 @@
+{
+  "transform-garage": {
+    "identical_rgb": true
+  },
+  "transform-outer": {
+    "identical_rgb": true
+  },
+  "dma-garage": {
+    "identical_rgb": true
+  },
+  "dma-outer": {
+    "identical_rgb": true
+  },
+  "baseline-repeat-garage": {
+    "identical_rgb": true
+  },
+  "baseline-repeat-outer": {
+    "identical_rgb": true
+  }
+}

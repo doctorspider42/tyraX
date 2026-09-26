@@ -63,6 +63,14 @@ u32 songBytesLeft = 0xFFFFFFFF;
 // callback never fires and playback stays silent. Small formats stream in
 // smaller chunks with a matching threshold instead.
 s32 songChunkBytes = 4 * 1024;
+// Modified by TyraX: audsrv's ring for the current format, in INPUT bytes -
+// ten feeds of 512 output samples at 48 kHz (iop/sound/audsrv/src/audsrv.c:
+// feed_size = ((512 * freq) / 48000) << sample_shift, ring = feed * 10).
+// The low-ring warning in work() compares against it.
+u32 songRingBytes = 0;
+u32 songFeedBytes = 0;  // one audsrv feed, for reference
+u32 dryCount = 0;     // plays that found the ring over 70% empty
+u32 dryWindow = 0;    // COP0 count the current 5 s window started at
 
 // Streamer ring (see the header comment). Producer = the streamer thread
 // (owns all FILE access while active), consumer = the audio thread's
@@ -269,6 +277,11 @@ void AudioSong::load(const char* t_path) {
   // Keep the chunk (and the audsrv callback threshold) well below the ring
   // buffer for low-byte-rate formats, or the stream starves silently.
   const u32 bytesPerSec = format.freq * format.channels * (format.bits / 8);
+  {
+    const u32 frameBytes = format.channels * (format.bits / 8);
+    songFeedBytes = ((512U * format.freq) / 48000U) * (frameBytes ? frameBytes : 1);
+    songRingBytes = songFeedBytes * 10U;
+  }
   s32 wantChunk = (s32)chunkSize;
   while (wantChunk > 1024 && (u32)wantChunk * 16 > bytesPerSec) wantChunk /= 2;
   if (wantChunk != songChunkBytes) {
@@ -400,7 +413,35 @@ void AudioSong::work() {
     // this thread off the EE while it has nothing to do; the fillbuf callback
     // above already means room is expected, so the loop normally runs zero
     // times.
-    while (audsrv_available() < chunkReadStatus) Threading::sleep(1);
+    // Modified by TyraX: the low-ring warning. A healthy stream reaches this
+    // play with the ring at least half full (the fillbuf callback fires at a
+    // chunk of room); finding over 70% of it free means the EE was answered
+    // late and the IOP ran on its last few feeds - heard as a dragged beat, a
+    // stutter or a pop. Measured on a PS2: ~73% free in every 2 s window while
+    // audible, ~10% with the same song in RAM. Measured on a PS2 the cause
+    // was the MUSIC ITSELF streaming from the PC over ps2link - the IOP runs
+    // TCP for every fread and audsrv waits behind it; with the same song in
+    // RAM the ring stayed full (docs/sound.md, "Music stutters over
+    // ps2link"). Counted here, printed at most once per 5 s, so the log can
+    // tell "the dev network" from "the engine". Uses the first poll's answer
+    // - no extra RPC.
+    int avail = audsrv_available();
+    if (songRingBytes != 0 && (u32)avail * 10U >= songRingBytes * 7U) {
+      ++dryCount;
+      u32 now;
+      __asm__ volatile("mfc0 %0, $9" : "=r"(now));
+      if (now - dryWindow > 5U * 294912000U) {
+        TYRA_WARN("Music ring ran low ", dryCount,
+                  " time(s) in 5 s - the song is starving. Over ps2link that is the "
+                  "network: see docs/sound.md, \"Music stutters over ps2link\".");
+        dryCount = 0;
+        dryWindow = now;
+      }
+    }
+    while (avail < chunkReadStatus) {
+      Threading::sleep(1);
+      avail = audsrv_available();
+    }
     audsrv_play_audio(chunk, chunkReadStatus);
     for (u32 i = 0; i < getListenersCount(); i++)
       songListeners[i]->listener->onAudioTick();

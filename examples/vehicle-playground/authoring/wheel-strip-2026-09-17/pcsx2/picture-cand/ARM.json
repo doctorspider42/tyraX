@@ -1,0 +1,14 @@
+{
+  "arm": "picture-cand",
+  "profile": "debug",
+  "stripRun": "75",
+  "stripWheels": 1,
+  "stripProjPatch": 1,
+  "wheelTmdl": "veh-cc96playground01-wheel.tmdl: list 942 -> strip 720 (0.764x), run 75, padded 750, 10 pkgs/wheel vs 13 | veh-ggbotrally0001-wheel.tmdl: list 84 -> strip 54 (0.643x), run 75, padded 75, 1 pkgs/wheel vs 2 | veh-tristarplay01-wheel.tmdl: list 417 -> strip 297 (0.712x), run 75, padded 300, 4 pkgs/wheel vs 6",
+  "instrument": "none (picture arm)",
+  "elfSha256": "20A07E6F364BBBDA31B7CF12D735E1E729BFC38308CC885EB6162B133BFFBE2E",
+  "editor": "D:\\tyra-editor\\.claude\\worktrees\\agent-a0d998caa5503357d\\build\\tyrax-editor.exe",
+  "editorSha256": "88549C21551F6BFB5836CF4EACA9916B7AD29CF8820AE1FF5F32238DCA290528",
+  "commit": "428e2c5978be103e54b8a418a3834fc6b1dd0245",
+  "built": "2026-09-17T07:30:47.3599238+02:00"
+}

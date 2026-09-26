@@ -1,0 +1,8 @@
+{
+    "arm":  "r2-strip",
+    "extraFlushes":  0,
+    "suppressFlush":  0,
+    "pid":  10452,
+    "started":  "2026-09-15T21:11:42.5357556+02:00",
+    "elf":  "C6D9D606DC1DB7B1D9356A5A452CD6DBC2329CE2F02ABE333439C4CC15EC2A09"
+}

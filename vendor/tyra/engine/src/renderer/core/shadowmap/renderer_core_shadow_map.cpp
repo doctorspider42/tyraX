@@ -6,9 +6,11 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Added by TyraX: projected silhouette shadows (per-object render targets).
+# Modified by TyraX: GIF-channel sends pass path3Fence() first.
 */
 
 #include <dma.h>
+#include "renderer/core/paths/path3/path3_fence.hpp"
 #include <draw.h>
 #include <gif_tags.h>
 #include <gs_gp.h>
@@ -134,6 +136,7 @@ void RendererCoreShadowMap::begin(const int slot) {
   packet2_update(beginPacket, q);
   packet2_update(beginPacket, draw_finish(beginPacket->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(beginPacket, DMA_CHANNEL_GIF, true);
   draw_wait_finish();
 }
@@ -152,6 +155,7 @@ void RendererCoreShadowMap::end() {
   packet2_update(endPacket, q);
   packet2_update(endPacket, draw_finish(endPacket->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(endPacket, DMA_CHANNEL_GIF, true);
   draw_wait_finish();
 }

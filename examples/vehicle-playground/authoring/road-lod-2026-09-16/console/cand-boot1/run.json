@@ -1,0 +1,17 @@
+{
+  "arm": "cand",
+  "label": "boot1",
+  "pid": 25372,
+  "started": "2026-09-16T20:52:58.6562450+02:00",
+  "elf": "A6FFAD9F47C7B40BC4D5E73A04D6CDDDAFFCA3E84CC2BFC27C03A98E8A449150",
+  "armJson": {
+    "arm": "cand",
+    "profile": "quiet-debug",
+    "stripRun": "75",
+    "elfSha256": "A6FFAD9F47C7B40BC4D5E73A04D6CDDDAFFCA3E84CC2BFC27C03A98E8A449150",
+    "built": "2026-09-16T20:49:45.8430801+02:00",
+    "editor": "C:\\Users\\papaj\\AppData\\Local\\Temp\\claude\\D--tyra-editor\\40dd8f5e-81d5-4703-bac0-575680f88601\\scratchpad\\tyrax-editor-cand.exe",
+    "editorSha256": "E5B3413EE1017CB83955B8FEE241BDB0578FC4EDC11FDF2F59190DFD7F41A788",
+    "commit": "e24e358a55d9f563dcd0fc067a7bb62fb86bcbec"
+  }
+}

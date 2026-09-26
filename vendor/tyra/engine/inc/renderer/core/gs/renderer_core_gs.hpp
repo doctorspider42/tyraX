@@ -213,6 +213,29 @@ class RendererCoreGS {
   static const texwrap_t& repeatWrap();
 
   /**
+   * Modified by TyraX: what setTextureWrap last programmed, so a caller can
+   * skip the write AND the PATH1 drain that has to bracket it. The two sites
+   * that write GS_REG_CLAMP without going through here - Path3::clearScreen at
+   * the top of every frame, and the post-fx / warp / BLSS / alpha-mask blits
+   * that bracket their own - both leave it REPEAT or run after the last 3D bag
+   * of the frame, which is what makes this cache legal. See
+   * StaPipCore::render.
+   */
+  const texwrap_t& currentTextureWrap() const { return currentWrap; }
+  /** Modified by TyraX: a CLAMP write that went out another way (the 2D VIF1
+   * chain carries its own REPEAT restore) - updates the cache, sends nothing. */
+  void noteTextureWrap(const texwrap_t& wrap) { currentWrap = wrap; }
+  bool textureWrapIsRepeat() const {
+    return currentWrap.horizontal == WRAP_REPEAT &&
+           currentWrap.vertical == WRAP_REPEAT;
+  }
+  static bool wrapEquals(const texwrap_t& a, const texwrap_t& b) {
+    return a.horizontal == b.horizontal && a.vertical == b.vertical &&
+           a.minu == b.minu && a.maxu == b.maxu && a.minv == b.minv &&
+           a.maxv == b.maxv;
+  }
+
+  /**
    * The DISPLAY buffer currently being drawn to (TyraX fork, for post fx).
    *
    * This is the double-buffered display target and nothing else - it is NOT
@@ -300,6 +323,9 @@ class RendererCoreGS {
   framebuffer_t frameBuffers[kMaxFrameBuffers];
   unsigned int bufferCount = 2;
   packet2_t* flipPacket;
+  /** Modified by TyraX: the Hybrid colour depth's present blit (32-bit draw
+   * buffer -> dithered 16-bit display buffer), built per flip. */
+  packet2_t* hybridPacket = nullptr;
   packet2_t* zTestPacket;
   // Modified by TyraX: preallocated ALPHA-register packet (setAlpha
   // runs per reflective mesh per frame - no per-call heap churn).
@@ -307,6 +333,9 @@ class RendererCoreGS {
   // Modified by TyraX: preallocated CLAMP-register packet (setTextureWrap
   // brackets every clamped bag - two calls per such mesh per frame).
   packet2_t* wrapPacket;
+  // Modified by TyraX: what that packet last sent. REPEAT at the top of every
+  // frame by Path3::clearScreen's contract, which is where this starts too.
+  texwrap_t currentWrap = {WRAP_REPEAT, WRAP_REPEAT, 0, 0, 0, 0};
   u8 context;
   u8 currentField;
 
@@ -372,6 +401,10 @@ class RendererCoreGS {
   // at frameBuffers[target] and, in InterlacedField, re-bias XYOFFSET for the
   // field that frame will be scanned in. Shared by both flip paths.
   void emitDrawTargetSwitch(u8 target);
+  /** Hybrid colour depth: copy frameBuffers[0] (PSMCT32) into
+   * frameBuffers[1] (PSMCT16) with DTHE armed, then restore the raster state
+   * the frame's drawing expects. See ColorDepth::Hybrid. */
+  void emitHybridPresent();
   // Install / tear down the INTC vblank handler that latches DISPFB. Only
   // used with three buffers; with two, RendererCore's graph_wait_vsync is the
   // whole story and no handler is installed.

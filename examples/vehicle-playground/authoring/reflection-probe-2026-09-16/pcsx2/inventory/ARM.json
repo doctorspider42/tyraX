@@ -1,0 +1,13 @@
+{
+  "arm": "inventory",
+  "profile": "quiet-debug",
+  "stripRun": "75",
+  "keepRoutes": false,
+  "instrument": "inventory-frame.py (per-producer counters; NOT a timing run)",
+  "elfSha256": "D9CB2AF2FB58139F1915610686D00ABD561236764A9B6A71E8411FFC48DCA5F9",
+  "editor": "build/tyrax-editor.exe",
+  "editorSha256": "BD73D0F723F7C3DBFC4327FC396CA6B9408B7CFD4630C61BCC28A29528B8F45F",
+  "commit": "b108735da27f4270bb616bec8ab4692e5aeb662c",
+  "built": "2026-09-16T21:57:12.7969235+02:00",
+  "note": "ARM.json written by hand: build-inventory.ps1 stopped at the instrumenter on its first run and the remaining steps were re-run individually with identical arguments"
+}

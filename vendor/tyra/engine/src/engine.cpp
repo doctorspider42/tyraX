@@ -10,6 +10,7 @@
 #                    USB keyboard/mouse device (kbdMouse)
 */
 
+#include "debug/hardware_trace.hpp"
 #include "engine.hpp"
 #include "debug/sifrpc_guard.hpp"
 #include <kernel.h>
@@ -28,18 +29,21 @@ Engine::~Engine() {}
 void Engine::run(Game* t_game) {
   game = t_game;
   game->init();
+  HardwareTrace::configure();
   while (true) {
     realLoop();
   }
 }
 
 void Engine::realLoop() {
-  pad.update();
+  HardwareTrace::beginFrame();
+  { HardwareTrace::Scope trace("Pad"); pad.update(); }
   if (kbdMouse.isEnabled()) kbdMouse.update();
-  game->loop();
-  info.update();
+  { HardwareTrace::Scope trace("Game"); game->loop(); }
+  { HardwareTrace::Scope trace("Info"); info.update(); }
   // One compare per frame unless the guard has actually dropped something.
   SifRpcGuard::report();
+  HardwareTrace::endFrame();
 }
 
 void Engine::initAll(const EngineOptions& options) {

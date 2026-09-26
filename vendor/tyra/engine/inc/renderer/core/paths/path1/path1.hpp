@@ -39,6 +39,12 @@ class Path1 {
   /** True once any 3D pipeline configured the VU1 double buffer. */
   bool isVU1Configured() const { return vu1Configured; }
 
+  /** Modified by TyraX: the first micro-memory word the draw-finish helper
+   * occupies, i.e. the ceiling a program cache built from address 0 must stay
+   * under (createProgramsCache asserts it; the assert is compiled out in
+   * release, so a caller deciding what to make resident asks first). */
+  const u32& getDrawFinishAddr() const { return drawFinishAddr; }
+
  private:
   void uploadDrawFinishProgram();
   void prepareDrawFinishPacket();

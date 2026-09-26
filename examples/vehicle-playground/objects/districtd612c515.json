@@ -1,0 +1,1 @@
+{ "id": "districtd612c515", "name": "District night lamp 8", "type": "point-light", "position": [-25, 4.8, -22], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.18, 0.65, 0.8], "physics": false, "light": { "brightness": 1.15, "radius": 16, "dynamic": true, "flicker": 0, "spot": true, "spotAngle": 48, "shadowVolumes": 1, "beam": 2 } }

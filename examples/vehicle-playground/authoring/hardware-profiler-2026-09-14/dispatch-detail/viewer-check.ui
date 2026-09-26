@@ -1,0 +1,11 @@
+wait 5
+click 'Hardware timeline'
+click 'Load hardware capture'
+frames 3
+click 'Next hardware frame'
+frames 3
+drag 'Timeline zoom' 50 0
+click 'Previous hardware frame'
+click 'Arm next boot'
+click 'Disarm next boot'
+dump

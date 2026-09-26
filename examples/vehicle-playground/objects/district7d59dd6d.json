@@ -1,0 +1,1 @@
+{ "id": "district7d59dd6d", "name": "Drift barrier -103 23", "type": "model", "position": [-103, 0, 23], "rotation": [0, 0, 0], "scale": [4, 4, 4], "color": [1, 1, 1], "physics": false, "drawDistance": 145, "castShadow": false, "model": "res/models/urban/detail-barrier-type-a.obj" }

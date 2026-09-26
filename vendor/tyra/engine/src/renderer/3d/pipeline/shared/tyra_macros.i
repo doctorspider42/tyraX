@@ -263,9 +263,14 @@
 ;//   z - fogScale  = -255 / (fogEnd - fogStart)
 ;//   w - fogOffset = 255 * fogEnd / (fogEnd - fogStart)
 ;// (x holds singleColorEnabled, y holds dynpip interpolation)
+;// Modified by TyraX: the REGISTER's x then gets a copy of the
+;// scale (every reader of the single-colour flag uses ilw from
+;// memory, and the dynpip lerp reads only y), which is what lets
+;// CalculateTyraFog multiply w by it in one instruction.
 ;//---------------------------------------------------------
 #macro LoadTyraFogParams: t_fogParams, t_optionsAddr
    lq          t_fogParams,   t_optionsAddr(vi00)
+   add.x       t_fogParams,   vf00,          t_fogParams[z]
 #endmacro
 
 ;//---------------------------------------------------------
@@ -287,10 +292,13 @@
 ;// (word3 bits 4-11; the 4 fraction bits fall into ignored
 ;// bits 0-3). GS blends Cout = (F*Cin + (255-F)*FOGCOL) >> 8,
 ;// so F=255 means no fog.
+;// Modified by TyraX: t_fogParams must come from LoadTyraFogParams,
+;// whose x lane holds the scale: w * scale is then ONE multiply
+;// (w as the broadcast operand) instead of a copy of w into an x
+;// lane and a multiply - bit-identical, one instruction a vertex.
 ;//---------------------------------------------------------
 #macro CalculateTyraFog: t_fogInt, t_vertex, t_fogParams
-   add.x       fogAccum,      vf00,          t_vertex[w]
-   mul.x       fogAccum,      fogAccum,      t_fogParams[z]
+   mul.x       fogAccum,      t_fogParams,   t_vertex[w]
    add.x       fogAccum,      fogAccum,      t_fogParams[w]
    loi         255
    mini.x      fogAccum,      fogAccum,      i
@@ -343,11 +351,26 @@
 ;//   quad0: position.xyz,  w = 1/objRange^2
 ;//   quad1: direction.xyz, w = cos^2(halfAngle)
 ;//   quad2: color.rgb,     w = softness/(objRange^2*(1-cos^2))
+;//
+;// t_spotFlag receives VU1_OPTIONS_ADDR.y, which is a THREE-STATE
+;// integer and the gate the per-vertex arithmetic below hangs on:
+;//    > 0   the shared clip image's PEER path (D shading / matcap
+;//          ST). Predates this gate; every existing reader tests
+;//          only the sign in that direction, which is why the spot
+;//          could be folded into the same lane for free.
+;//    = 0   base path, and NO dynamic light reaches this mesh -
+;//          skip CalculateTyraSpotLight entirely.
+;//    < 0   base path, and a dynamic light does reach it - run it.
+;// The EE decides (StaPipQBufferRenderer::sendObjectData, from
+;// StaPipClipperSpot::enabled), which is the same predicate the EE
+;// clipper's addSpotToColor already used - so the two halves agree
+;// by construction and a gated mesh renders bit-identically.
 ;//---------------------------------------------------------
-#macro LoadTyraSpotLight: t_spotPos, t_spotDir, t_spotCol, t_addr
+#macro LoadTyraSpotLight: t_spotPos, t_spotDir, t_spotCol, t_spotFlag, t_addr, t_optionsAddr
    lq          t_spotPos,     t_addr+0(vi00)
    lq          t_spotDir,     t_addr+1(vi00)
    lq          t_spotCol,     t_addr+2(vi00)
+   ilw.y       t_spotFlag,    t_optionsAddr(vi00)
 #endmacro
 
 ;//---------------------------------------------------------

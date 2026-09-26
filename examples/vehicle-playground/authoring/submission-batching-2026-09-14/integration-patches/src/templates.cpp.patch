@@ -1,0 +1,39 @@
+--- a/src/templates.cpp
++++ b/src/templates.cpp
+@@ -20939,6 +20939,8 @@
+   const bool hlActive = HIGHLIGHT_USABLE;
+   const bool hlOverlay = HIGHLIGHT_OVERLAY;
+   const u32 costObjectsStart=costStart();
++  // Owned object streams remain alive until the next VIF1 synchronization.
++  stapip.core.beginSubmissionBatch();
+   int impostorSwitchBudget = 4;
+   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
+     if (!runtimeObjects[i].active) continue;  // streamed out with its layer
+@@ -21077,7 +21079,9 @@
+       Texture* envTex = engine->renderer.core.envMap.getTexture();
+       for (GeoPart& part : objectGeometry[i].parts)
+         if (part.envTexBag && part.envTexBag->texture == envTex) {
++          stapip.core.endSubmissionBatch();
+           renderObjectProbe(i);
++          stapip.core.beginSubmissionBatch();
+           break;
+         }
+     }
+@@ -21100,7 +21104,9 @@
+           stapip.core.render(part.emisBag.get());
+         renderEnvPass(i, objectGeometry[i], part);
+       }
++    if (costSeq) stapip.core.endSubmissionBatch();
+     costEnd("Object",i,costObjectStart);
++    if (costSeq) stapip.core.beginSubmissionBatch();
+     // Back to zero the moment this object's bags are out. The numbers are
+     // RENDERER STATE, not a property of the bag, so everything drawn after an
+     // object - the terrain, the sky dome, a static batch, the next object -
+@@ -21112,6 +21118,7 @@
+       vuprog::setParams(stapip.core, none);
+     }
+   }
++  stapip.core.endSubmissionBatch();
+   costEnd("Objects",-1,costObjectsStart);
+ {{VEHICLE_RENDER}}
+   // Animated models: advance playback, then skin + draw the in-view ones

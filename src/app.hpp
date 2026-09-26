@@ -42,8 +42,11 @@
 #include "livetime.hpp"
 #include "livelogic.hpp"
 #include "placement.hpp"
+#include "roadgen.hpp"  // roadgen::Surface - the test drive stands on roads
 #include "prefab.hpp"
+#include "vehbake.hpp"  // the import bake cached per vehicle definition
 #include "project.hpp"
+#include "staticbatch.hpp"
 #include "texatlas.hpp"
 #include "vugen.hpp"  // vugen::Built - the VU panel keeps a live preview
 #include "runner.hpp"
@@ -421,6 +424,40 @@ private:
     // static .obj model only takes the mesh-LOD distance. Returns true when a
     // value changed (caller commits).
     bool drawLodOverrides(SceneObject& o, bool animated = true);
+    // Roads (docs/roads.md): flatten the heightfield to the selected
+    // road's interpolated line, smooth shoulder falloff, one undo step.
+    void alignTerrainToRoad(int objIndex);
+    // Road viewport editing (docs/roads.md): click empty ground = append a
+    // point, click a point = drag it, click the line = insert there.
+    bool roadEdit_ = false;
+    int roadDragPoint_ = -1;
+    // Junction overrides (docs/roads.md, "Junction overrides"). A junction is
+    // not an object: it is selected by its identity - the road-id pair and
+    // where it was - and re-found in the plan every frame, so a road edit
+    // that moves the crossing a little keeps it selected. `override` >= 0
+    // selects an ORPHANED override (its crossing is gone) by index instead.
+    struct JunctionSel {
+        bool active = false;
+        std::string a, b;  // road ids, the crossing's A/B
+        float x = 0.0f, z = 0.0f;
+        int orphan = -1;   // index into SceneData::roadJunctions
+        int scene = -1;    // a scene switch drops it
+    };
+    JunctionSel junctionSel_;
+    // The active scene's crossings (markers, Properties): planCrossings
+    // without the decals, cached on a signature of the roads + overrides.
+    roadgen::CrossingPlan crossingPlan_;
+    std::vector<roadgen::CrossingRoad> crossingRoadList_;
+    std::vector<int> crossingRoadObj_;  // road k -> index in project_.objects()
+    uint64_t crossingPlanSig_ = 0;
+    const roadgen::CrossingPlan& sceneCrossings();
+    // Crossing index the selection resolves to (-1: none / orphan).
+    int selectedCrossing();
+    void selectJunction(int crossing);
+    void drawJunctionProperties();
+    // Viewport diamonds on the crossings, shown while a road or a junction is
+    // selected. Returns the crossing under `mouse` (or -1) when `hit` asks.
+    int junctionMarkers(ImVec2 imgPos, ImVec2 avail, bool draw, ImVec2 mouse);
     // Retargets every BY-NAME reference to `renamed` after its name changed
     // from `from` (cutscene tracks and camera shots, mirror lists, scroller
     // members, camera feeds, portal links, texture feeds, and - for an Area -
@@ -619,6 +656,11 @@ private:
     std::vector<std::string> listAnimatedModelFiles();
     // "Pick..." button + popup listing res/textures; true when path changed
     bool pickProjectTexture(const char* popupId, std::string& path);
+    // Road surface picker: materials first, legacy direct PNGs second. A .mtl
+    // resolves through its first map_Kd in both viewport and generated game.
+    bool drawRoadSurfaceCombo(const char* label, const char* id,
+                              std::string& surfacePath,
+                              const char* noneLabel = nullptr);
     // Cached objparser summary of a model (for the properties panel)
     struct ModelInfo {
         bool ok = false;
@@ -767,6 +809,74 @@ private:
     // a procedural graph, or by the Spawn Prefab node at runtime. Lives in
     // prefab_ui.cpp (the assetbrowser.cpp precedent).
     void drawPrefabsWindow();
+    // Tools > Particle Editor (docs/particles.md): the project's particle
+    // library - effects defined once, linked from emitters and from a
+    // vehicle's tyre smoke, with procedural smoke / flame / glow textures.
+    // Lives in particle_ui.cpp (the prefab_ui.cpp precedent).
+    void drawParticleEditorWindow();
+    // Opens the window with `effect` selected ("" = keep the selection).
+    void openParticleEditor(const std::string& effect);
+    // Regenerates the effect's procedural texture into res/ and points its
+    // material at it; returns false with a message in particleStatus_.
+    bool particleBakeTexture(ParticleEffect& fx);
+
+    // Tools > Vehicle Editor (docs/vehicles.md): define a car once - model,
+    // wheels, driving - and place it in as many scenes as you like. Lives in
+    // vehicle_ui.cpp (the prefab_ui.cpp precedent).
+    void drawVehicleWindow();
+    // Runs the import bake for one definition and caches the result. Called
+    // when the model or a budget changes, never per frame - it parses a .fbx.
+    void vehicleRefreshBake(int index, bool force);
+    // Per-frame, from drawUI: keeps definitions baked so placed instances draw
+    // even with the window shut (the giBakerPoll rule).
+    void vehicleTick();
+    // Test drive (docs/vehicles.md): runs vehiclesim::step on a placed vehicle
+    // straight in the viewport, against the real scene's terrain. The whole
+    // point of vehiclesim being host-only - tuning grip and acceleration in a
+    // "slider, feel, slider" loop instead of "slider, four minutes, PCSX2".
+    void vehicleDriveTick();
+    void vehicleDriveStart(int objectIndex);
+    void vehicleDriveStop();
+    // Scene-object index being test-driven, -1 = nobody.
+    int vehicleDriveObj_ = -1;
+    vehiclesim::DriveState vehicleDriveState_;
+    float vehicleDriveAccum_ = 0.0f;  // test drive: time not yet stepped (1/50 s steps)
+    // The transform the object had before the drive. A test drive is a way of
+    // LOOKING at a vehicle, never an edit - it must put the car back exactly
+    // where the author left it (the procedural seed-sweep rule).
+    float vehicleDriveHome_[6] = {0, 0, 0, 0, 0, 0};
+    // The drawn road surface of the driven scene, built at vehicleDriveStart:
+    // the test drive's ground is max(terrain, road), the generated runtime's
+    // groundSurfaceAt (docs/vehicles.md, "Wheels on the road surface").
+    roadgen::Surface vehicleDriveRoads_;
+    // Panel-driven controls, alongside the keyboard. Not a testing hook: when
+    // you are tuning grip you want the car to keep going while both hands are
+    // on the sliders, and a held key cannot do that.
+    bool vehicleDriveHoldThrottle_ = false;
+    float vehicleDriveSteer_ = 0.0f;
+    // Damage preview (docs/vehicles.md, "Damage"): a dented COPY of one
+    // definition's baked body, pushed to the viewport in place of the real
+    // one - by the Damage tab's test hits and by a test drive into a wall.
+    // Like the drive it is a way of looking, never an edit: nothing reaches
+    // the project, and a re-bake or Repair drops it.
+    std::string vehDmgPreviewId_;      // definition id, "" = no preview
+    tmdl::Model vehDmgPreviewBody_;
+    float vehDmgPreviewDamage_ = 0.0f;
+    int vehDmgPreviewSerial_ = 0;      // the drive's impactSerial last dented
+    float vehDmgTestSpeed_ = 18.0f;    // the Damage tab's test-hit speed
+    float vehDmgPreviewOver_ = 0.0f;   // the pending hit's speed past the threshold
+    std::vector<float> vehDmgPreviewHp_;  // per bake piece, the runtime's hp
+    std::vector<char> vehDmgPreviewGone_;
+    std::string vehDmgPreviewLost_;       // what came off, for the readout
+    // Dents one impact into the preview (starting it from the bake if none).
+    void vehicleDamagePreviewHit(const VehicleDef& v, const vehiclesim::Impact& im);
+    void vehicleDamagePreviewReset();
+    // Renaming a definition retargets every instance in every scene. The
+    // renameFont precedent: a reference stores the NAME, so it has to follow.
+    void renameVehicleDef(int index, const std::string& newName);
+    // Body bounds of a placed Vehicle, for placement/collision (the
+    // ModelAabbFn a Vehicle takes - only the App knows the definitions).
+    bool vehicleBodyBounds(const SceneObject& o, float* mn, float* mx);
 
     // Tools > Neural Upscaler (BLSS) - blss_ui.cpp, docs/neural-upscaler.md.
     // Training, evaluation, cross-validation, the input-channel report, the
@@ -1566,6 +1676,12 @@ private:
     // Both are machine-global: which build is installed on this PC is not a
     // property of any project.
     bool globalUpdateCheck_ = true;
+    // The console session log (sessionlog.hpp): EditorConfig::consoleLogLines /
+    // consoleLogFiles, and their Preferences working copies.
+    int globalConsoleLogLines_ = 20000;
+    int globalConsoleLogFiles_ = 10;
+    int prefConsoleLogLines_ = 20000;
+    int prefConsoleLogFiles_ = 10;
     std::string globalUpdateSkip_;
     // ONE worker for both jobs (the check and the download), because they are
     // never both wanted and the UI is a single modal. Everything below it is
@@ -1739,18 +1855,19 @@ private:
     // over the finished image instead, which is why the icon is the same size
     // at any distance and never hides what the note is about.
     //
-    // ONE function computes where those icons are (commentIcons); the overlay
+    // ONE function computes where those icons are (screenIcons); the overlay
     // draws them and the picker hit-tests them, so what you see is exactly
     // what a click selects - the axis-gizmo arrangement.
-    struct CommentIcon {
+    struct ScreenIcon {
         int index = -1;      // into project_.objects()
         ImVec2 center{0, 0};  // screen-space centre of the bubble
         float w = 0.0f, h = 0.0f;
         ImVec2 anchor{0, 0};  // the object's own point, where the tail lands
         float depth = 0.0f;   // distance along the view axis, for ordering
+        bool emitter = false;  // a particle emitter's badge (docs/particles.md)
     };
-    std::vector<CommentIcon> commentIcons(ImVec2 imgPos, ImVec2 avail);
-    void drawCommentOverlay(ImVec2 imgPos, ImVec2 avail);
+    std::vector<ScreenIcon> screenIcons(ImVec2 imgPos, ImVec2 avail);
+    void drawScreenIconOverlay(ImVec2 imgPos, ImVec2 avail);
     // View > Comments. Machine-global (editor.ini), not project data: icons
     // always remain visible and clickable; this only chooses whether every
     // note's text is expanded or only the selected one's. Off by default.
@@ -1813,6 +1930,47 @@ private:
     // Prefabs (Tools > Prefabs). Project-wide, so the window is a plain list
     // with an index - nothing about it is per scene.
     bool showPrefabs_ = false;
+    bool showParticles_ = false;
+    // docs/particles.md: what viewport_.setEmitterLayers was last fed from.
+    uint64_t emitterLayersSerial_ = ~0ull;
+    int emitterLayersScene_ = -1;
+    int particleSel_ = -1;             // selected library entry
+    std::string particleStatus_;       // last bake / rename message
+    int particleLayerSel_ = 0;         // 0 = the effect's main layer
+    // GL previews of each layer's generated texture, one per flipbook frame.
+    struct ParticleTexCache {
+        ParticleTexGen recipe;
+        std::vector<unsigned int> ids;
+        bool valid = false;
+    };
+    std::vector<ParticleTexCache> particleTex_;
+    std::string particleRenameFrom_;   // name while the Name field is edited
+    // The window's animated 2D preview: a handful of billboards simulated with
+    // the effect's own knobs (an approximation - the viewport shows the exact
+    // per-kind formulas on a placed emitter).
+    struct ParticlePreviewDot { float x, y, vx, vy, life, maxLife, spin; };
+    std::vector<std::vector<ParticlePreviewDot>> particlePreview_;  // per layer
+    unsigned particlePreviewRng_ = 1u;
+    float particlePreviewAcc_ = 0.0f;
+    bool showVehicles_ = false;
+    int vehicleSel_ = -1;  // selected definition in the Vehicle Editor
+    // Cached import bakes, one per definition, keyed by what the bake depends
+    // on. A bake parses a .glb/.fbx and decimates it - far too slow for a
+    // frame - so the window shows the last result and re-runs it only when
+    // that key changes or the author asks.
+    struct VehicleBakeCache {
+        std::string key;          // model path + budgets + merge flag
+        bool ok = false;
+        std::string error;
+        vehbake::Result result;
+    };
+    std::map<std::string, VehicleBakeCache> vehicleBakes_;  // by definition id
+    // The Vehicle Editor's own undo stack. Definitions are project-wide, so
+    // commitChange() dirties without pushing a step (History carries the
+    // scenes alone) - and a window full of sliders needs an undo of its own.
+    // The Material Editor and the Menu Editor's Style tab made the same call.
+    std::vector<std::vector<VehicleDef>> vehicleUndo_;
+    int vehicleUndoAt_ = -1;
     // Tools > World Facts (docs/world-facts.md). Project-wide like Prefabs, so
     // the window is a tabbed list with an index and nothing about it is per
     // scene.
@@ -2006,6 +2164,24 @@ private:
     // the packer merged with what, why a texture was refused, and the VRAM
     // arithmetic. The plan reads every candidate image off disk, so it is
     // cached and recomputed only when something that feeds it changes.
+    // Tools > Static Batches (docs/static-batching.md, src/batch_ui.cpp): what
+    // merged with what, what it costs in VU1 packages, and why every object
+    // that is not batched is not batched. The grouping comes from
+    // staticbatch::compute - the host twin of the generated
+    // buildStaticBatchList - and is cached because it reads every baked
+    // .tmdl in the scene.
+    bool showStaticBatches_ = false;
+    bool showBatchOverlay_ = false;  // View > Static batches
+    bool showBatchCells_ = false;    // the selected batch's grouping cell
+    bool batchDirty_ = true;
+    int batchSelected_ = -1;  // focuses the overlay on one batch, -1 = all
+    staticbatch::Result batchResult_;
+    std::vector<std::string> batchWarnings_;
+    void drawStaticBatchesWindow();
+    void refreshStaticBatches();
+    void updateBatchOverlay();
+    void drawBatchExcludeCheckbox(int objectIndex);
+
     bool showTextureAtlas_ = false;
     bool atlasPlanDirty_ = true;
     texatlas::Plan atlasPlan_;
@@ -3353,6 +3529,8 @@ private:
     livedbg::Symbols dbgSyms_;      // src/gen/livedbg.sym (as generated)
     livedbg::Snapshot dbgSnap_;  // newest snapshot the game wrote
     livedbg::RenderCost dbgRenderCost_, dbgRenderBaseline_;
+    // Show the Obj_* rows (one object's own pipeline bill, docs/profiling.md).
+    bool dbgRenderCostDetail_ = false;
     uint32_t dbgRenderCostSeq_ = 0;
     bool dbgRenderCostWaiting_ = false;
     double dbgRenderCostPoll_ = 0;
@@ -3532,6 +3710,7 @@ private:
     size_t dbgShotPartial_ = 0;     // size of the last short read - see below
     bool dbgShotWaiting_ = false;   // asked for one, none arrived yet
     std::string dbgShotFile_;       // the PNG this capture was kept as
+    std::vector<unsigned char> dbgShotPixels_;  // RGBA, for Copy image
     std::string dbgShotError_;
     void dbgReadFrameShot();
     void dbgReadVuCapture();

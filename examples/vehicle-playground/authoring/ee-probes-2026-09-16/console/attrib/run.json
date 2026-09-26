@@ -1,0 +1,20 @@
+{
+  "arm": "attrib",
+  "label": "",
+  "pid": 20044,
+  "started": "2026-09-16T19:12:52.5502465+02:00",
+  "elf": "B440F8DEB1ECFE92197760D25E565ECD92C02E67195E398DB845B8C963062D5D",
+  "armJson": {
+    "arm": "attrib",
+    "acceptAll": 0,
+    "coarseClassify": 0,
+    "uncachedChain": 0,
+    "logSends": 0,
+    "forceFlush": 0,
+    "stapipAttrib": 1,
+    "elfSha256": "B440F8DEB1ECFE92197760D25E565ECD92C02E67195E398DB845B8C963062D5D",
+    "built": "2026-09-16T19:10:49.5874933+02:00",
+    "editorSha256": "B54E4CA4FCD63D992B8E9DE8FF9C63935DE63AF7464C3680A37F9A89EA661999",
+    "commit": "a64155fef2d5ac9b36af6100d0e7cfbcfd64e2c0"
+  }
+}

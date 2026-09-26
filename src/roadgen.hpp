@@ -1,0 +1,375 @@
+#pragma once
+
+#include <functional>
+#include <string>
+#include <vector>
+
+// Roads (docs/roads.md): the spline tessellator.
+//
+// Host-only - no GL, no ImGui, no project.hpp - the vehiclesim shape, and for
+// the same reason: this is the single source of truth for TWO consumers that
+// must never disagree. The editor viewport previews a road through this exact
+// function, and the generated PS2 runtime tessellates the same points at BOOT
+// with its raw-string twin in templates.cpp (buildRoads). CHANGE ONE AND
+// CHANGE BOTH - a road that previews half a metre off its console self is a
+// road nobody can author.
+//
+// The economics this encodes: a road OBJECT is only its points, width and one
+// texture name. All geometry is derived - sampled at the road's authored
+// 1..2-unit longitudinal spacing along a Catmull-Rom through the points and
+// every ~0.5 unit across its width, every vertex glued to the caller's height
+// function. V runs along the arc length so ONE small texture tiles the whole
+// street. The authored data is still only a few hundred floats per kilometre
+// in the .tyra and one texture in VRAM.
+namespace roadgen {
+
+struct Vertex {
+    float x, y, z;  // world, y projected onto the height function
+    float u, v;     // u 0..1 across the width, v = arc length / texLen
+};
+
+// A crossing of two sampled centre lines. `cornerXZ` is the convex overlap of
+// the two road-width strips, ordered around the centre. Codegen stores these
+// ten floats directly, so the PS2 never performs pairwise road detection.
+struct Junction {
+    float x = 0, z = 0;
+    float cornerXZ[8] = {};
+};
+
+// Ground height under a world XZ (the terrain, on both consumers).
+using HeightFn = std::function<float(float x, float z)>;
+
+// Default distance between spline samples, in world units. Individual roads
+// may opt into a coarser 1..2-unit spacing; the one-unit default remains the
+// safe choice for sharp terrain folds.
+#ifndef TYRA_ROAD_SAMPLE_STEP
+#define TYRA_ROAD_SAMPLE_STEP 1.0f
+#endif
+inline constexpr float kSampleStep = TYRA_ROAD_SAMPLE_STEP;
+inline constexpr float kArcSampleStep = 1.0f;
+// A two-edge strip spans an entire road with one plane. On a terrain cell
+// wider than the strip's lift that plane can pass below the heightfield in
+// the middle, showing grass triangles through the asphalt. Subdivide across
+// the road as well, so the generated surface follows the ground it projects
+// onto rather than merely touching it at both shoulders.
+inline constexpr float kCrossSampleStep = 0.5f;
+// One texture repeat every this many units of road.
+inline constexpr float kTexLen = 4.0f;
+// How far the surface floats above the terrain - enough to never z-fight,
+// low enough that a wheel on the road reads as ON it.
+inline constexpr float kLift = 0.12f;
+
+// Road RANK (1.143.0, docs/roads.md "Crossings"): 0 track, 1 local (the
+// default, every road authored before ranks), 2 main. A higher rank sits
+// this much higher, so where two roads of different rank cross, the higher
+// one covers the lower without z-fighting and every "highest surface"
+// query (the wheels, the grip) answers the higher road. Equal ranks keep
+// the junction patches of the intersection material.
+inline float rankLift(int rank) { return (float)(rank - 1) * 0.03f; }
+// How far above the road under it a spill patch floats.
+inline constexpr float kSpillLift = 0.02f;
+inline constexpr float kSpillDefault = 1.5f;
+
+// A SPILL (1.143.0): where a road crosses a higher-rank one, its surface
+// carries on over the higher road's edge for `spill` units and fades out -
+// mud trailed onto the asphalt. XZ + the low road's own UV + the fade alpha
+// (1 at the higher road's edge, 0 `spill` units in). The consumer puts Y on
+// it from the surface under it: the patch is a decal on the higher road.
+struct SpillVertex {
+    float x, z, u, v, a;
+};
+// Triangles of the LOW road that lie on the HIGH road within `spill` of its
+// edge, with their fade. Empty when the two do not overlap. Deterministic:
+// the codegen bakes this for the console and the editor draws the same.
+// `lowEdgeFade` (1.144.0): the low road's soft edge carries onto the spill,
+// so the mud on the asphalt has soft sides too (the spill is then built on
+// the dense 0.5-unit lateral grid instead of the reduced one).
+void tessellateSpill(const std::vector<float>& lowPts, float lowWidth,
+                     float lowSampleStep, const std::vector<float>& highPts,
+                     float highWidth, float spill, std::vector<SpillVertex>& out,
+                     float lowEdgeFade = 0.0f);
+
+// EDGE FADE (1.144.0, docs/roads.md "Soft edges"): the road's outer `fade`
+// units on each side are drawn as blended bands whose alpha falls from 1 at
+// the core to 0 at the authored edge, so a dirt track bleeds into the
+// terrain. The fade snaps to the tessellator's lateral grid (width /
+// ceil(width / 0.5)); the CORE is the rest, tessellated at coreWidth with
+// uInset so its texture still spans the full width, and its outer vertices
+// are exactly the bands' inner ones - no crack.
+struct EdgeFade {
+    float coreWidth = 0.0f;
+    float uInset = 0.0f;
+    int columns = 0;  // lateral cells per band; 0 = no fade
+};
+EdgeFade edgeFadeFor(float width, float fade);
+// The two bands as triangles (XZ, full-width UV, alpha), wound like the road.
+// Empty when edgeFadeFor gives no columns.
+void tessellateEdges(const std::vector<float>& pointsXZ, float width,
+                     float sampleStep, float fade, std::vector<SpillVertex>& out);
+
+// The two budgets that decide how coarsely a station pair may be stitched
+// laterally (roadgen.cpp, spanCuts). Both are world units and both are
+// measured against the DENSE sampling. THEY ARE NOT THE SAME KIND OF NUMBER,
+// which is the whole reason there are two of them:
+//
+//   - `kSpanFlatness` bounds how far a dense sample may sit off the merged
+//     quad's plane. It is the SURFACE error, and - because neighbouring
+//     station pairs cut the row they share independently - it is also the
+//     size of the T-vertex seam a merge can open. At 1e-5, the float noise
+//     floor at district coordinates, both are exactly zero: a row's samples
+//     lie on a straight line in XZ, so coplanar implies collinear and the
+//     shared segment has ONE representation. Raising it buys a great deal of
+//     geometry and starts opening cracks; the sweep in docs/roads.md prices
+//     both halves and this repository has not accepted that trade.
+//
+//   - `kSpanShear` bounds the quad's parallelogram defect. The two triangles
+//     of a trapezoid interpolate ST with two different affine maps, so this is
+//     a pure UV error - the surface and the seams are untouched by it, which
+//     is why it is the budget that was relaxed. It is what a BEND trips, and
+//     on the district's curved splines it is what was refusing every merge.
+//
+// 0.05 is the measured knee: the reduction saturates just past it, and the
+// worst UV drift it causes anywhere in the Motor District is 0.36 of a texel
+// on the 128-pixel road texture. docs/roads.md, "The lateral budget", carries
+// the sweep, the error at each setting and the harness that produced them.
+#ifndef TYRA_ROAD_SPAN_FLATNESS
+#define TYRA_ROAD_SPAN_FLATNESS 0.00001f
+#endif
+#ifndef TYRA_ROAD_SPAN_SHEAR
+#define TYRA_ROAD_SPAN_SHEAR 0.05f
+#endif
+inline constexpr float kSpanFlatness = TYRA_ROAD_SPAN_FLATNESS;
+inline constexpr float kSpanShear = TYRA_ROAD_SPAN_SHEAR;
+
+// Tessellates `pointsXZ` (x0,z0,x1,z1,... - at least 2 points) into a
+// triangle list, three Vertex per triangle, two triangles per longitudinal /
+// lateral cell.
+// Horizontal pairs of rows collapse to one full-width quad after all interior
+// heights have been checked; uneven terrain retains every lateral cell.
+// Endpoints are clamped (the spline passes through the first and last
+// point). Returns the total arc length; `out` is cleared first.
+// `lifts` is retained only for source/format compatibility with the short-lived
+// raised-road authoring pass. It is ignored: roads are terrain decals and every
+// generated vertex is projected onto the height function.
+// `uInset` (1.144.0, edge fade): the road's U runs uInset..1-uInset across
+// this width instead of 0..1 - the CORE of a road whose outer bands are the
+// faded edge (tessellateEdges), so the texture still spans the full width.
+float tessellate(const std::vector<float>& pointsXZ, float width,
+                 const HeightFn& height, std::vector<Vertex>& out,
+                 const std::vector<float>& lifts = {},
+                 float sampleStep = kSampleStep, float uInset = 0.0f);
+
+// --- triangle strips (docs/model-pipeline.md, "Triangle strips") ------------
+//
+// A road is a ribbon over a regular grid, and a grid strips PROPERLY. One
+// station pair of n lateral cells is 6n list vertices and 2(n + 1) strip ones:
+// on the district's 13-unit streets (crossSteps 26) that is 156 against 54,
+// a 0.346x count, where the flat-shaded baked models only reached 0.732x.
+// Every EE term of render submission scales with the VU1 PACKAGE count, which
+// scales with vertices, so this is the lever the .tmdl bake already pulled -
+// aimed at the 93 150 road vertices that are the rest of the frame.
+//
+// meshstrip is deliberately NOT reused here, for three reasons in order of
+// weight:
+//   - THE TWIN RUNS ON THE EE. buildRoads tessellates the whole district at
+//     SCENE LOAD on the PlayStation 2, and meshstrip is an exact-bytes weld
+//     hash over every corner, an edge-adjacency multimap, and a six-
+//     orientation greedy walk per seed. A grid's optimal strip is known in
+//     closed form, so that search would buy nothing at a price the EE cannot
+//     pay at all.
+//   - meshstrip's weld key is the 32 bytes of an 8-float BAKED vertex. A road
+//     vertex is position + UV (this Vertex), and its colour lives in a
+//     parallel array on the runtime side - there is no such key to hash.
+//   - the ordering subtlety meshstrip found the hard way (a strip's trailing
+//     pair is ORDERED, so a seed has six orientations and picking from three
+//     gives 201 strips of mean length 4 on a 200-cell row) is exactly what
+//     the closed form cannot get wrong: the ribbon's rows ARE the strip.
+//
+// What IS reused is meshstrip's run CONTRACT, because StaPipCore slices a
+// stripped bag the same way whatever produced it: runs of exactly kStripRun
+// vertices, every one a self-contained strip, padded with repeats of the last
+// vertex, separate strips inside a run joined by repeating a vertex either
+// side of the seam, and every run length a multiple of 3.
+inline constexpr int kStripRun = 75;  // == meshstrip::kRun, asserted in the .cpp
+
+// Chunking, and the reason it belongs in this header now. TWIN NOTICE: the
+// generated buildRoads carries these as literals. They used to matter only to
+// the runtime, because the list emitter produced one flat vertex sequence
+// that chunking merely CUT. A run may not straddle a chunk, so with strips
+// the chunk boundaries move padding into the array and the host has to agree
+// about where they fall or the twins no longer produce the same vertices.
+inline constexpr int kChunkSpans = 36;    // at most this many station pairs
+inline constexpr int kChunkBudget = 1800; // ... and this many vertices
+
+// The same surface as tessellate(), emitted as triangle STRIP runs and cut
+// into the same chunks the generated runtime builds, so the two can be
+// compared vertex for vertex (examples/vehicle-playground/authoring/
+// verify-road-twins.py). Every triangle of tessellate() is present, split
+// along the SAME diagonal - a ribbon row pair walks N[0], P[0], N[s], P[s],
+// ..., whose successive triples are that row's quads cut P[j]-N[j+s], which
+// is the cut the list stitch makes. Winding parity alternates, as it does in
+// any strip; nothing in this engine backface-culls.
+//
+// `chunkSizes`, when given, receives one vertex count per chunk (they sum to
+// out.size()). Returns the total arc length; `out` is cleared first.
+float tessellateStrips(const std::vector<float>& pointsXZ, float width,
+                       const HeightFn& height, std::vector<Vertex>& out,
+                       std::vector<int>* chunkSizes = nullptr,
+                       float sampleStep = kSampleStep, float uInset = 0.0f);
+
+// Find centre-line crossings and turn each into four terrain-projected
+// triangles. Near-parallel crossings are rejected because their strip overlap
+// grows without bound; repeated hits within one road width are deduplicated.
+void findJunctions(const std::vector<float>& aPoints, float aWidth,
+                   const std::vector<float>& bPoints, float bWidth,
+                   std::vector<Junction>& out);
+void tessellateJunction(const Junction& junction, const HeightFn& height,
+                        std::vector<Vertex>& out);
+
+// The spline position alone (for the align-terrain pass and the editor's
+// point handles): world XZ at parameter t in [0, 1] over the whole polyline.
+void splineAt(const std::vector<float>& pointsXZ, float t, float* x, float* z);
+
+// The DRAWN road surface under a world XZ, for host code that must stand on
+// it: the highest road or junction triangle containing the point. The host
+// twin of the generated TerrainGame::roadSurfaceAt (the same barycentric test
+// and tolerance over the same triangles; a uniform grid instead of the
+// runtime's prefix-offset one, which only changes how fast the answer comes).
+// The editor's vehicle test drive is the consumer: without it the host car
+// sat on the terrain 0.12 under every road, like the console one did
+// (docs/vehicles.md, "Wheels on the road surface").
+class Surface {
+public:
+    // A triangle LIST (three Vertex per triangle): tessellate() and
+    // tessellateJunction() output. Call build() once after the last add().
+    void add(const std::vector<Vertex>& triangles, float grip = 1.0f);
+    // Triangles with a grip PER VERTEX (a spill patch: its fade blends the
+    // low road's grip over the one under it). `grips` is one per vertex.
+    void addBlended(const std::vector<Vertex>& triangles,
+                    const std::vector<float>& grips);
+    // A faded EDGE band: `covers` (per vertex) is how much of the road a
+    // tyre is on - its fade alpha - so the grip there blends toward the
+    // terrain's.
+    void addEdge(const std::vector<Vertex>& triangles, float grip,
+                 const std::vector<float>& covers);
+    void build();
+    bool empty() const { return tris_.empty(); }
+    // kNone when no triangle covers (x, z). `grip`, when given, receives the
+    // grip of the triangle that answered (1 when none did); `cover` how much
+    // of the road is there (1, or a faded edge's alpha).
+    float at(float x, float z, float* grip = nullptr, float* cover = nullptr) const;
+    static constexpr float kNone = -1.0e30f;
+
+private:
+    std::vector<Vertex> tris_;
+    std::vector<float> grip_;   // one per VERTEX, interpolated by at()
+    std::vector<float> cover_;  // one per VERTEX: 1, or an edge band's fade
+    std::vector<unsigned> cellStart_, cellItems_;
+    int nx_ = 0, nz_ = 0;
+    float minX_ = 0, minZ_ = 0, inv_ = 1;
+};
+
+// --- crossings: the one decision (1.145.0, docs/roads.md "Junction overrides")
+//
+// Which crossing gets a patch, which road runs through and who spills onto
+// whom used to be decided three times - the codegen (the console's tables),
+// the viewport and the vehicle test drive - by three copies of the same
+// pairing loops. planCrossings() is now the ONLY place, and the three read
+// its result. It works per SCENE: callers hand it that scene's roads.
+//
+// A crossing is identified by its PAIR of road ids plus its position, so a
+// per-junction override survives small point edits: it matches the crossing
+// of the same pair nearest to where it was stored, within the narrower road's
+// width. One that matches nothing is ORPHANED - kept, and reported.
+
+// One road as the planner sees it.
+struct CrossingRoad {
+    std::string id;            // the SceneObject's stable id
+    std::vector<float> points; // x0,z0,x1,z1,...
+    float width = 8.0f, sampleStep = 1.0f, grip = 1.0f;
+    float spill = kSpillDefault, edgeFade = 0.0f;
+    int rank = 1;
+    std::string intersection;  // intersection material ("" = none)
+};
+
+// What an override says the crossing does. Auto = the rank rule.
+enum JunctionWinner : int {
+    kWinnerAuto = 0,   // the rank rule (and the intersection-material patch)
+    kWinnerPatch = 1,  // a junction patch, whatever the ranks and materials
+    kWinnerRoadA = 2,  // road A runs through, B is covered (and may spill)
+    kWinnerRoadB = 3,
+};
+// Stored in the scene (SceneData::roadJunctions). Fields at their Auto value
+// change nothing; a material alone forces a patch.
+struct JunctionOverride {
+    std::string roadA, roadB;  // object ids (A/B as stored; order is free)
+    float x = 0.0f, z = 0.0f;  // where the crossing was when last edited
+    int winner = kWinnerAuto;
+    std::string material;      // patch material, "" = the roads' own
+    float grip = 0.0f;         // 0 = auto (the lower road's / the winner's)
+};
+inline bool operator==(const JunctionOverride& a, const JunctionOverride& b) {
+    return a.roadA == b.roadA && a.roadB == b.roadB && a.x == b.x && a.z == b.z &&
+           a.winner == b.winner && a.material == b.material && a.grip == b.grip;
+}
+inline bool operator!=(const JunctionOverride& a, const JunctionOverride& b) {
+    return !(a == b);
+}
+
+enum CrossingKind : int {
+    kCrossOverlap = 0,  // equal ranks, no patch: the roads simply overlap
+    kCrossPatch = 1,    // a junction patch (tessellateJunction)
+    kCrossThrough = 2,  // `winner` runs through, the other is covered
+};
+
+struct Crossing {
+    int a = -1, b = -1;  // road indices into the planner's input, a < b
+    Junction shape;
+    int override = -1;   // index into the overrides, or -1 (Auto)
+    int kind = kCrossOverlap;
+    int winner = -1;     // road index for kCrossThrough
+    bool patchDuplicate = false;  // a patch another crossing already makes
+    // The patch (kCrossPatch): material key, grip and the rank lift it sits at.
+    std::string material;
+    float grip = 1.0f;
+    float lift = 0.0f;
+    // kCrossThrough decided by an override: the winner is drawn over the
+    // loser here as an OVERLAY decal. Its grip.
+    bool overlay = false;
+    float overlayGrip = 1.0f;
+};
+
+// A spill or an overlay: a road's own triangles laid over another road.
+struct CrossingDecal {
+    int road = -1;   // whose surface (texture, UV, colour)
+    int under = -1;  // the road it lies on
+    bool overlay = false;
+    std::vector<SpillVertex> verts;  // triangles; alpha 1 = this road's surface
+    float grip = 1.0f;      // at alpha 1
+    float baseGrip = 1.0f;  // at alpha 0 (the surface under it)
+    // Above the highest road under it, BEYOND kSpillLift: kSpillLift for a
+    // spill that lands on an overlay, 0 otherwise. The console adds it to its
+    // roadSurfaceAt; hosts use hostLift (rank lift + kSpillLift + this).
+    float extraLift = 0.0f;
+    float hostLift = 0.0f;
+};
+
+struct CrossingPlan {
+    std::vector<Crossing> crossings;
+    std::vector<CrossingDecal> decals;  // overlays first, then spills
+    std::vector<int> overrideCrossing;  // per override: crossing index or -1
+    int orphans = 0;                    // overrides matching no crossing
+};
+
+// `withDecals` false skips the spill/overlay tessellation (markers and the
+// Properties panel only need the crossings).
+CrossingPlan planCrossings(const std::vector<CrossingRoad>& roads,
+                           const std::vector<JunctionOverride>& overrides,
+                           bool withDecals = true);
+
+// The plan's patches and decals as drawn surface (the test drive, the check):
+// `terrain` is the bare ground height.
+void addCrossingsToSurface(Surface& s, const std::vector<CrossingRoad>& roads,
+                           const CrossingPlan& plan, const HeightFn& terrain);
+
+}  // namespace roadgen

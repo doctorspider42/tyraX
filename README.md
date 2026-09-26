@@ -136,7 +136,9 @@ Then, in the editor:
   side lives inside WSL.
 - **Keep the project path short.** PCSX2's `host:` loader silently refuses an ELF
   path longer than ~145 characters — the game never starts and nothing is logged.
-  The editor warns in *Output*.
+  The editor warns in *Output*. Build & Run passes an absolute native path;
+  invoking PCSX2 by hand should do the same, because its host loader can rebase
+  a relative `-elf` path below `bin/` and leave only a black screen.
 
 ## What it does
 
@@ -156,7 +158,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [the console does](docs/ps2-viewport.md) — GS raster, per-vertex flat-shaded
   lighting, 16-bit colour with the GS dither, and the lights' own
   [visible beams](docs/flashlight.md) drawn the game's way.
-- **[Shadows](docs/shadows.md)** - a blob, a real projected silhouette, or one
+- **[Shadows](docs/shadows.md)** - a one-quad blob with an optional baked,
+  yaw-following silhouette on every renderable object, a real projected silhouette, or one
   **baked into a projected decal**, chosen per object; the cheap one works on a
   static prop too. The baked one is traced here and costs the console one draw
   call per atlas page however many shadows there are — the only static shadow
@@ -187,7 +190,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - **Generators** — [procedural scatter graphs](docs/procedural-generation.md)
   baked to chunk meshes or [run on the EE](docs/procedural-runtime.md),
   [prefabs](docs/prefabs.md), the [Tree Generator](docs/tree-generator.md),
-  [GPU/CPU impostors with 4/8/16 views](docs/impostors.md) and
+  [GPU/CPU impostors with 4/8/16 views plus one-material hull proxies](docs/impostors.md) and
   the [Drone Generator](docs/drone-generator.md) for ambient music.
 - **[World scale](docs/world-scale.md)** — one number that keeps imported reality
   the size your own content is.
@@ -206,6 +209,9 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [sphere-mapped chrome](docs/reflective-materials.md), Mirror objects,
   [VU0-raytraced mirrors](docs/raytraced-reflections.md),
   [live texture feeds](docs/texture-feeds.md) and [portals with visible lamp effects](docs/portals.md).
+- **Particles** — a [particle library](docs/particles.md): effects made once,
+  used by emitters and vehicle tyre smoke, with additive fire and generated
+  smoke / flame / glow textures.
 - **Screen** — sky, fog, bloom, film grain, [motion blur](docs/motion-blur.md)
   and your own [`.screenfx` effects](docs/custom-screen-effects.md), plus
   [TV safe areas](docs/safe-areas.md) to frame against.
@@ -221,13 +227,27 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - **[Object scripts](docs/object-scripts.md)** — Unity-style C++ components in
   `src/scripts/`, a directory the editor never touches.
 - **Player and physics** — FPP / third-person / noclip player entities with
-  [walk, run and sprint speeds](docs/player-speeds.md), rigid
-  bodies, [collision boxes and invisible walls](docs/collision-boxes.md), pickable and usable
+  [walk, run and sprint speeds](docs/player-speeds.md),
+  [rigid bodies that collide as their mesh's convex hull](docs/physics.md), [collision boxes and invisible walls](docs/collision-boxes.md), pickable and usable
   objects, and [two-player shared or split screen](docs/multiplayer.md).
 - **World state** — [areas](docs/areas.md),
   [streaming layers](docs/streaming-layers.md),
   [world facts](docs/world-facts.md), runtime spawning and the
   [endless scroller](docs/endless-scroller.md).
+- **[Roads](docs/roads.md) and [vehicles](docs/vehicles.md)** — material-driven
+  spline roads with per-road longitudinal detail and automatically generated,
+  separately surfaced intersections (road ranks decide who runs through, and
+  a clickable per-junction override changes one crossing's patch material,
+  grip or winner),
+  projected onto the terrain in both the editor and game, plus imported,
+  budgeted cars with wheel suspension, gears, drifting, AI drivers, a
+  "fast wheel" model that swaps in above a spin rate and an authored low-poly
+  far/traffic model per car, and [crash damage](docs/vehicles.md#damage) -
+  dented bodies, smashed lamps and windows, bonnets and doors torn off,
+  engine smoke, lost power. Try the
+  [Motor District](examples/vehicle-playground) city course, strip-ready
+  atlas-authored vehicle bodies and live paint reflections
+  of the sky, terrain, roads and selected scenery.
 - **[NavMesh + NPC AI](docs/navigation-ai.md)** — baked on the host, A* on the EE.
 - **[Cinematics](docs/cutscenes.md)** — the Cutscene Director, fed by keyframes
   or by a [phone-recorded 6DoF take](docs/camera-takes.md) or the
@@ -252,10 +272,28 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 
 - [Static batching for primitives and compact repeated models](docs/model-pipeline.md#compact-static-model-batching),
   [texture atlasing](docs/texture-atlasing.md), mesh LOD, draw distances and an
-  adaptive overdraw budget for distant optional effects.
+  adaptive overdraw budget for distant optional effects. A
+  [draw distance no longer forces an object to draw alone](docs/model-pipeline.md#draw-distance-on-a-batch) —
+  it groups the batch instead and cuts the whole batch off together.
+- [See how static objects batch](docs/static-batching.md) — a panel and a
+  viewport overlay showing what merged with what, what each batch costs in VU1
+  packages, and the reason named for every object that stayed solo; plus a
+  per-object opt-out for when one outlying member keeps a whole batch drawn.
+- [Interleaved passes](docs/interleaved-passes.md) - batches and roads are
+  drawn in between the objects, so the EE works while VU1 draws (-0.5 ms a
+  frame in a dense scene); Auto times both orders and keeps the faster.
+- [Conservative occlusion culling](docs/occlusion-culling.md) — build-time
+  inner proxies and a tiny CPU visibility buffer reject whole draw units behind
+  solid walls, with per-object occluder and receiver opt-outs.
+- [Triangle strips for static models](docs/model-pipeline.md#triangle-strips) —
+  the build ships the strip beside the list, so a shared corner is packaged,
+  transferred and transformed once instead of once per triangle; the
+  [vehicle wheel batch](docs/vehicles.md) and the
+  [projected-shadow receiver patch](docs/shadows.md) take one too.
 - **[GS VRAM residency](docs/gs-vram.md)** — the frame buffers can be **16-bit**
   (with the GS's ordered dithering to keep skies from banding), which roughly
-  doubles the texture budget; a texture is charged the GS blocks it really
+  doubles the texture budget, or **hybrid** (draw 32-bit, show a dithered 16-bit
+  copy: half a buffer back, no banding in the blends); a texture is charged the GS blocks it really
   spans instead of a flat pad; and the env-map and camera-feed render targets
   are reserved only for the projects that read them.
 - **[VU1 clipping and the guard band](docs/vu1-clipping.md)** — geometry that
@@ -263,14 +301,21 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   picture and the GS scissor crops it, so only near-plane crossings pay for a
   real cut.
 - The in-game [frame profiler](docs/profiling.md).
+- [Static submission batching](docs/static-submission-batching.md) combines resident object draws while preserving draw order and texture lifetimes.
+- [Retained static command data](docs/retained-static-commands.md): a static bag's VU1 command block is captured once and replayed, so only the matrix, the light and the culling are rebuilt per frame.
+- [VU1 arithmetic and DMA cache-flush cost](docs/vu1-and-dma-cache-cost.md): what a VU1 cycle per triangle costs on a physical PS2, measured.
+- [Renderer work, checked on a second map](docs/engine-performance-on-a-second-map.md): the control that says it is the engine and not the showcase.
+- [Attributing render submission](docs/render-submission-attribution.md): opt-in counters that account for the whole `beginFrame`..`endFrame` block, not just the static pipeline, down to a zero residual.
+- [Not re-baking wheels that did not move](docs/wheel-rebake-skip.md): the vehicle wheel batch skips a rig whose inputs did not change, and keeps its `bboxVersion` when the vertices are byte-identical.
+- A [physical PS2 timeline](docs/hardware-profiler.md) in the editor and HTML/Perfetto, with EE scopes, DMA waits and pipeline-state snapshots.
 - [On-demand render costs](docs/profiling.md#on-demand-render-cost-178): debugger phase/object timings, sortable by name, cost or delta, with baseline comparison and CSV export on PCSX2 and PS2.
 - The [VU framework](docs/vu-framework.md): describe a microprogram in C++,
   generate both sides of it and run it in a host simulator with no PS2 —
   and [compose VU1 programs out of stages](docs/vu-authoring.md), or write a
   VU0 compute kernel, with no assembly.
 
-**Iterating on a running game** — the [devkit](docs/devkit.md), and a release
-build that provably carries none of it
+**Iterating on a running game** — the [devkit](docs/devkit.md) with per-channel
+polling/report intervals, and a release build that provably carries none of it
 
 - **Build & Run** in PCSX2 (`F5`), or on a
   [real PS2 over ethernet](docs/ps2link-setup.md) (`F6`).
@@ -332,7 +377,8 @@ wait for their polish pass.
 | [night-walk](examples/night-walk) | A dark backlot and a torch that projects, lands on real walls, and carves shadows — every flashlight feature in one yard |
 | [cutscene-demo](examples/cutscene-demo) | 14 seconds of dolly, hard cut, shake, FOV ramp and cinema bars. Skippable, of course |
 | [nav-ai](examples/nav-ai) | A guard that patrols, spots you, and chases you around the wall instead of into it. The rabbit just runs |
-| [physics-playground](examples/physics-playground) | 28 hyperactive bodies rain onto a terraced slope. Doubles as the physics benchmark |
+| [particle-lab](examples/particle-lab) | A campfire, its smoke, a chimney reusing the same smoke, torch sparks and magic motes - all from the particle library with generated textures |
+| [physics-playground](examples/physics-playground) | 28 hyperactive bodies and imported furniture (stools, barriers, chairs, a table) rain onto a terraced slope. Doubles as the physics benchmark |
 | [object-spawning](examples/object-spawning) | GTA-style traffic conjured and dismissed by two flow-graph nodes |
 | [portals](examples/portals) | A cube falls through a portal pair forever. You get to walk through instead |
 | [mirror-room](examples/mirror-room) | The classic PS2 mirror trick, shown from backstage — your reflection included |
@@ -365,6 +411,7 @@ wait for their polish pass.
 | [upscaler-lab](examples/upscaler-lab) | The fill-bound scene built to make the neural upscaler sweat. It wins: 1.63× on real hardware |
 | [video-modes](examples/video-modes) | 480i / 480p / 1080i and 4:3 / 16:9, switched at runtime — with keep-or-revert |
 | [vu-lab](examples/vu-lab) | Six props on five VU1 paths — capture a draw off the console, replay it on the host |
+| [vehicle-playground](examples/vehicle-playground) | Motor District: seven roads, CC0 city scenery, three driveable car models, menu-selectable day/night and live paint reflections |
 
 ## CLI
 
@@ -422,7 +469,9 @@ either brings the *Output* panel forward; the toolbar's Stop button (or
 With a console on the LAN running the **TyraX ps2link**, **Build > Build && Run on
 PS2** (`F6`) boots the game over ethernet: the ELF and every asset are served from
 the project's `bin\` on this PC (no ISO, no SMB) and the console's log streams into
-*Output* as `[ps2]` lines. Set the IP in `Edit > Preferences > Real PS2`.
+*Output* as `[ps2]` lines, and into a bounded, crash-safe
+[`logs/` file](docs/ps2link-setup.md#the-session-log) per session. Set the IP in
+`Edit > Preferences > Real PS2`.
 **Stop on PS2** ends the session and hands the console back to ps2link;
 **Power Off PS2** switches the console itself off, without leaving the desk.
 

@@ -8,6 +8,7 @@
 // -------------------------------------------------------------------------
 #include "app.hpp"
 #include "app_internal.hpp"
+#include "hardware_timeline.hpp"
 
 #include <algorithm>
 #include <cfloat>
@@ -459,6 +460,7 @@ void App::dbgReadFrameShot() {
     glUploadTexRgba(w, h, rgba.data());
     dbgShotW_ = w;
     dbgShotH_ = h;
+    dbgShotPixels_ = rgba;
     dbgShotError_.clear();
 
     // KEEP THE PICTURE. bin/frame.tga is a CHANNEL, not an album: one file,
@@ -1211,7 +1213,15 @@ void App::livedbgTick() {
 
     // The game is "there" while its snapshots keep arriving. A halted game
     // still flushes (its loop keeps running), so silence means gone, not paused.
-    const bool reporting = dbgSnapTime_ > 0.0 && now - dbgSnapTime_ < 2.0;
+    // Allow several report intervals at the observed game rate. A deliberately
+    // slow report channel must not look like a crash every two seconds.
+    const double reportFps = dbgSnap_.stats.fpsX10 > 0
+                                 ? dbgSnap_.stats.fpsX10 / 10.0
+                                 : std::max(1, dbgSnap_.stats.fps);
+    const int reportFrames = project_.settings.liveDebugSnapshotFrames > 0
+                                 ? project_.settings.liveDebugSnapshotFrames : 25;
+    const double silenceLimit = std::max(2.0, 1.0 + 3.0 * reportFrames / reportFps);
+    const bool reporting = dbgSnapTime_ > 0.0 && now - dbgSnapTime_ < silenceLimit;
     // A game that WAS reporting and stopped, with no crash report and no
     // assertion, is a hang (or an exception nobody caught): the devkit
     // heartbeat is the only witness. Remember where it died - the fire history,
@@ -1511,10 +1521,8 @@ std::string App::dbgSilenceReason() const {
     if (dbgState_ == DbgState::Off || dbgState_ == DbgState::NoBuild) return {};
     if (dbgSnapFileAge_ < 0.0)
         return "Nothing is reporting yet - Build & Run (F5 / F6).";
-    // The game rewrites this every 6 frames locally and every 25 over ps2link
-    // - about 0.5 s either way at a healthy frame rate. Several seconds of
-    // silence is a dead channel, not a slow one; a collapsed frame rate makes
-    // it late, never absent.
+    // Running/Waiting already accounts for the configured report interval and
+    // observed frame rate in livedbgTick. File age adds transport context here.
     const double age = dbgSnapFileAge_;
     std::string when;
     if (age < 90.0)
@@ -2371,6 +2379,11 @@ void App::drawDebuggerWindow() {
         ImGui::EndTabItem();
     }
 
+    if (ImGui::BeginTabItem("Hardware timeline")) {
+        hardware_timeline::draw(project_.dir);
+        ImGui::EndTabItem();
+    }
+
     if (ImGui::BeginTabItem("Render cost")) {
         if (dbgRenderCostProject_ != project_.dir) {
             dbgRenderCostProject_ = project_.dir;
@@ -2410,6 +2423,13 @@ void App::drawDebuggerWindow() {
             if (ImGui::Button("Copy render cost CSV"))
                 ImGui::SetClipboardText(livedbg::renderCostCsv(dbgRenderCost_).c_str());
             ImGui::TextDisabled("Object rows belong to Objects. Engine counters overlap phases; do not sum them.");
+            // The Obj_* rows are ~15 per drawn object: the answer to "why is
+            // THIS object dear", and noise in every other reading.
+            ImGui::Checkbox("Per-object pipeline detail", &dbgRenderCostDetail_);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Adds each object's own counters (Obj_ rows): EE time of its\n"
+                                  "main and companion passes, bounds/prepare/dispatch/DMA, and\n"
+                                  "package counts (cull/guard/clip/outside, as whole numbers).");
             // Resolve the label and the baseline delta ONCE, before sorting:
             // both are what the table shows, so both are what it has to sort
             // on, and the delta is a lookup a comparator would otherwise
@@ -2426,6 +2446,8 @@ void App::drawDebuggerWindow() {
             std::vector<CostView> view;
             view.reserve(dbgRenderCost_.rows.size());
             for (const auto& row : dbgRenderCost_.rows) {
+                const bool detail = row.label.rfind("Obj_", 0) == 0;
+                if (detail && !dbgRenderCostDetail_) continue;
                 CostView v;
                 v.ms = row.ms;
                 v.object = row.object >= 0;
@@ -2437,6 +2459,11 @@ void App::drawDebuggerWindow() {
                     if (si >= 0 && si < (int)project_.scenes.size() &&
                         row.object < (int)project_.scenes[si].objects.size())
                         label += " " + project_.scenes[si].objects[row.object].name;
+                    if (detail) {
+                        std::string stage = row.label.substr(4);
+                        std::replace(stage.begin(), stage.end(), '_', ' ');
+                        label += " - " + stage;
+                    }
                 }
                 v.label = std::move(label);
                 if (haveBase)
@@ -2565,6 +2592,22 @@ void App::drawDebuggerWindow() {
                         "the saved PNG is gone - capture again to write one.";
                 }
             }
+            ImGui::SameLine();
+            if (ImGui::Button("Copy image")) {
+                if (platform::copyImageToClipboard(
+                        dbgShotPixels_.data(), dbgShotW_, dbgShotH_,
+                        dbgShotFile_)) {
+                    dbgShotError_.clear();
+                    statusMessage_ = "Frame image copied to the clipboard";
+                } else {
+                    dbgShotError_ =
+                        "could not put the frame image on the clipboard.";
+                }
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Copies the actual bitmap, ready to paste into chat or an "
+                    "image editor.");
         }
 
         if (!dbgShotError_.empty()) {

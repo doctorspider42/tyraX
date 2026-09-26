@@ -1,0 +1,9 @@
+{
+  "arm": "cand",
+  "commit": "6008a252e304924e808a7146644758b187768a63",
+  "stripRun": "const unsigned int stripRun = 75u;",
+  "vifHash": 1,
+  "bakedStream": 1,
+  "built": "2026-09-16T21:46:00.9717075+02:00",
+  "elfSha256": "780331F730CBF2BBE69141401D268FD1DAB49176B0F71F409C9615F605A37D83"
+}

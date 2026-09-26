@@ -1,0 +1,1 @@
+{ "id": "district3d41a218", "name": "Outer pine -141 38", "type": "model", "position": [-141, 0, 38], "rotation": [0, 0, 0], "scale": [7, 7, 7], "color": [1, 1, 1], "physics": false, "drawDistance": 145, "castShadow": false, "model": "res/models/urban/tree-park-pine-large.obj" }

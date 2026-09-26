@@ -1,0 +1,8 @@
+{
+    "arm":  "bwprobe",
+    "extraFlushes":  0,
+    "suppressFlush":  0,
+    "pid":  15188,
+    "started":  "2026-09-15T19:48:44.2091892+02:00",
+    "elf":  "A3E701CEEF9F4EDE3B50CCDB2E5A68CF6C85FE73363E11CEF3E338CF255A7EBB"
+}

@@ -24,6 +24,13 @@ namespace Tyra {
 
 class StaPipCore {
  public:
+  /**
+   * Modified by TyraX: bounded batching for caller-owned immutable bag
+   * streams. Every begin must be paired with end; referenced streams remain
+   * immutable until the renderer's next VIF1 synchronization.
+   */
+  void beginSubmissionBatch() { qbufferRenderer.beginSubmissionBatch(); }
+  void endSubmissionBatch() { qbufferRenderer.endSubmissionBatch(); }
   StaPipCore();
   ~StaPipCore();
 
@@ -101,8 +108,33 @@ class StaPipCore {
    * the accumulated interval and resets it.
    */
   void setTelemetryEnabled(const bool& enabled);
+  void setTelemetryProducer(const StaPipTelemetryProducer& producer) {
+#if TYRA_STAPIP_PACKET_PROFILE
+    if (telemetryEnabled) telemetry.producer = static_cast<u8>(producer);
+#else
+    (void)producer;
+#endif
+  }
   bool isTelemetryEnabled() const { return telemetryEnabled; }
   StaPipTelemetry takeTelemetry();
+
+  /**
+   * TyraX diagnostics: retained static command data
+   * (docs/retained-static-commands.md). How many VU1 package command blocks
+   * were REPLAYED from retained storage since the last read, how many were
+   * built, and how much EE RAM the cache holds. Always compiled - they are
+   * three loads - and always zero when the feature is compiled out, so a
+   * game's HUD can print them in either arm.
+   */
+  u32 takeRetainedCommandHits() {
+    return qbufferRenderer.takeRetainedHits();
+  }
+  u32 takeRetainedCommandBuilds() {
+    return qbufferRenderer.takeRetainedBuilds();
+  }
+  u32 getRetainedCommandBytes() const {
+    return qbufferRenderer.getRetainedBytes();
+  }
 
   void allocateOnUse() { qbufferRenderer.allocateOnUse(); }
   void deallocateOnUse() { qbufferRenderer.deallocateOnUse(); }
@@ -149,6 +181,9 @@ class StaPipCore {
   bool isGuardBandOnly(const StaPipBagPackage& package) const;
   StaPipBagPackager packager;
   StaPipQBufferRenderer qbufferRenderer;
+  // Modified by TyraX: may this bag's cull-routed packages carry a retained
+  // command block? Set once per render() and read by the package loops.
+  bool retainCurrentBag = false;
   bool telemetryEnabled = false;
   StaPipTelemetry telemetry;
   void recordPackage(const StaPipBagPackage& package,
@@ -156,6 +191,15 @@ class StaPipCore {
   void recordGuardBandPackage(const StaPipBagPackage& package);
   void recordOutsideBag(const StaPipBag* bag);
   void renderPkgs(StaPipBagPackage* packages, const bool& doClip, u16 count);
+  /**
+   * Modified by TyraX: the partial-frustum route for a STRIPPED bag
+   * (StaPipBag::stripped). Its packages are the baked strip RUNS and must
+   * never be sub-split - a 1/3 subpackage of a strip is not a strip, and the
+   * fillByCopy* merges would fuse two of them. A package that needs real
+   * clipping is expanded back into a triangle list instead.
+   */
+  void renderStrippedPkgs(StaPipBagPackage* packages, const bool& doClip,
+                          u16 count);
   void renderSubpkgs(StaPipBagPackage* packages, u16 count);
 };
 

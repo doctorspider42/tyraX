@@ -1,0 +1,54 @@
+{
+  "body_triangles": 3782,
+  "parts": {
+    "body": {
+      "triangles": 3686,
+      "unique_full_vertices": 2417
+    },
+    "front_lights": {
+      "triangles": 48,
+      "unique_full_vertices": 100
+    },
+    "rear_lights": {
+      "triangles": 48,
+      "unique_full_vertices": 42
+    }
+  },
+  "wheel_triangles": 76,
+  "wheel_nodes": [
+    {
+      "name": "Cylinder.001",
+      "translation": [
+        -0.624,
+        0.0,
+        1.033
+      ]
+    },
+    {
+      "name": "Cylinder",
+      "translation": [
+        0.624,
+        0.0,
+        1.033
+      ]
+    },
+    {
+      "name": "Cylinder.002",
+      "translation": [
+        -0.624,
+        0.0,
+        -1.033
+      ]
+    },
+    {
+      "name": "Cylinder.003",
+      "translation": [
+        0.624,
+        0.0,
+        -1.033
+      ]
+    }
+  ],
+  "source": "New authored body; efficient wheel proportions/artwork retained",
+  "scope": "Additional asset only; no scene/importer changes; no hardware FPS claim"
+}

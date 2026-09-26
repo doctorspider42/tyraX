@@ -1,5 +1,6 @@
 ﻿#include "app.hpp"
 #include "app_internal.hpp"
+#include "roadgen.hpp"
 #include "hudanim.hpp"
 
 #include <algorithm>
@@ -204,6 +205,12 @@ struct EditorConfig {
     // both belong here rather than in any .tyra.
     bool updateCheck = true;
     std::string updateSkipVersion;
+    // The console session log (sessionlog.hpp, docs/ps2link-setup.md): lines
+    // kept per session file (0 = do not write one) and session files kept in a
+    // project's logs/. How much disk this machine spends on it is a property of
+    // the machine.
+    int consoleLogLines = 20000;
+    int consoleLogFiles = 10;
     // Project folders opened most recently, most-recent first (the welcome
     // screen's list). Machine-global like everything else here: which projects
     // this PC has seen is a property of the PC, not of any one project.
@@ -312,6 +319,10 @@ static EditorConfig loadEditorConfig() {
         else if (match("chatAllowBuild", v)) cfg.chatAllowBuild = toI(v, 0) != 0;
         else if (match("updateCheck", v)) cfg.updateCheck = toI(v, 1) != 0;
         else if (match("updateSkipVersion", v)) cfg.updateSkipVersion = v;
+        else if (match("consoleLogLines", v))
+            cfg.consoleLogLines = std::max(0, toI(v, cfg.consoleLogLines));
+        else if (match("consoleLogFiles", v))
+            cfg.consoleLogFiles = std::max(1, toI(v, cfg.consoleLogFiles));
         // One line per entry, written in list order (most recent first).
         else if (match("recentProject", v)) {
             if (!v.empty() && cfg.recentProjects.size() < kMaxRecentProjects)
@@ -390,6 +401,8 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "chatAllowEdits=" << (cfg.chatAllowEdits ? 1 : 0) << "\n"
       << "chatAllowBuild=" << (cfg.chatAllowBuild ? 1 : 0) << "\n"
       << "updateCheck=" << (cfg.updateCheck ? 1 : 0) << "\n"
+      << "consoleLogLines=" << cfg.consoleLogLines << "\n"
+      << "consoleLogFiles=" << cfg.consoleLogFiles << "\n"
       << "updateSkipVersion=" << cfg.updateSkipVersion << "\n";
     for (const std::string& dir : cfg.recentProjects) f << "recentProject=" << dir << "\n";
 }
@@ -648,6 +661,8 @@ int App::run(const std::string& initialProjectDir) {
         chatAllowEdits_ = cfg.chatAllowEdits;
         chatAllowBuild_ = cfg.chatAllowBuild;
         globalUpdateCheck_ = cfg.updateCheck;
+        globalConsoleLogLines_ = cfg.consoleLogLines;
+        globalConsoleLogFiles_ = cfg.consoleLogFiles;
         globalUpdateSkip_ = cfg.updateSkipVersion;
         // Probe the recent projects once, here: the welcome screen draws this
         // list every frame and must not scan the disk to do it.
@@ -976,7 +991,12 @@ void App::drawUI() {
     drawTreeGeneratorWindow();
     drawProceduralWindow();
     drawPrefabsWindow();
+    drawParticleEditorWindow();
+    vehicleTick();
+    vehicleDriveTick();
+    drawVehicleWindow();
     drawTextureAtlasWindow();
+    drawStaticBatchesWindow();
     drawWorldFactsWindow();
     drawVuProgramsWindow();
     drawDroneGeneratorWindow();
@@ -1171,6 +1191,7 @@ void App::saveGlobalConfig() {
                       logOut_.mask, logDbg_.mask, logOut_.selectText,
                       logDbg_.selectText, chatAllowEdits_, chatAllowBuild_,
                       giGpuBake_, globalUpdateCheck_, globalUpdateSkip_,
+                      globalConsoleLogLines_, globalConsoleLogFiles_,
                       std::move(recent)});
 }
 
@@ -1280,6 +1301,8 @@ void App::drawMenuBar() {
                 snprintf(prefEmulatorPath_, sizeof(prefEmulatorPath_), "%s",
                          globalEmulatorPath_.c_str());
                 snprintf(prefPs2Ip_, sizeof(prefPs2Ip_), "%s", globalPs2Ip_.c_str());
+                prefConsoleLogLines_ = globalConsoleLogLines_;
+                prefConsoleLogFiles_ = globalConsoleLogFiles_;
                 snprintf(prefToolchainImage_, sizeof(prefToolchainImage_), "%s",
                          globalToolchainImage_.c_str());
                 prefBuildBackend_ = globalBuildBackend_ == "docker" ? 1 : 0;
@@ -1535,6 +1558,19 @@ void App::drawMenuBar() {
                     "prop you cannot walk up to or a\ncamera that pulls in "
                     "early. The running game can draw the same\nboxes - "
                     "Preferences > Build > Show collision boxes.");
+            if (ImGui::MenuItem("Static batches", nullptr, showBatchOverlay_,
+                                hasProject_)) {
+                showBatchOverlay_ = !showBatchOverlay_;
+                batchDirty_ = true;
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Colour every static object by the batch it merges into, "
+                    "with\nsolo objects in grey, and draw each batch's MERGED "
+                    "BOX. That box\nis what the frustum and the draw-distance "
+                    "test are applied to -\na batch draws as a unit - so an "
+                    "over-wide one is geometry the\nunbatched scene would "
+                    "cull. Tools > Static Batches lists them.");
             if (ImGui::MenuItem("Procedural preview", nullptr, showProcPreview_,
                                 hasProject_))
                 showProcPreview_ = !showProcPreview_;
@@ -1723,6 +1759,10 @@ void App::drawMenuBar() {
                     "render it into res/audio as a looping background track.");
             if (ImGui::MenuItem("Font Manager...")) showFontManager_ = true;
             if (ImGui::MenuItem("Material Editor...")) showMaterialEditor_ = true;
+            if (ImGui::MenuItem("Particle Editor...")) showParticles_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The particle library: effects defined once, used by\n"
+                                  "emitters and vehicle tyre smoke.");
             if (ImGui::MenuItem("Texture Atlas...")) {
                 showTextureAtlas_ = true;
                 atlasPlanDirty_ = true;
@@ -1748,6 +1788,13 @@ void App::drawMenuBar() {
                     "Reusable groups of objects - a hut, a room, a lamp post\n"
                     "with its light and its script. Stamp them by hand, scatter\n"
                     "them with a procedural graph, or spawn them at runtime.");
+            if (ImGui::MenuItem("Vehicle Editor...")) showVehicles_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Driveable cars. Define one - model, wheels, how it drives -\n"
+                    "and place it in as many scenes as you like. The wheels are\n"
+                    "found in the model by their geometry, so their names in\n"
+                    "Blender do not matter.");
             if (ImGui::MenuItem("Procedural...")) showProcedural_ = true;
             if (ImGui::MenuItem("Terrain Editor...")) showTerrainEditor_ = true;
 
@@ -1775,6 +1822,17 @@ void App::drawMenuBar() {
                     "reconstruction network, and look at the pictures it makes.\n"
                     "Everything --blss-train / --blss-eval / --blss-emit can do,\n"
                     "without a terminal. Proof of concept - read the notes.");
+            if (ImGui::MenuItem("Static Batches...")) {
+                showStaticBatches_ = true;
+                batchDirty_ = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Which static objects merged into one submit, what each\n"
+                    "batch costs in VU1 packages against drawing its members\n"
+                    "solo, and WHY every object that is not batched is not.\n"
+                    "A batch is culled as a unit, so its merged box is worth\n"
+                    "looking at.");
             if (ImGui::MenuItem("VU Programs...")) showVuPrograms_ = true;
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
@@ -2851,6 +2909,34 @@ void App::drawViewportWindow() {
         // the scene preview retimes and trims exactly like the build bakes.
         viewport_.setAnimEdits(project_.animClipEdits,
                                animedit::projectTimeScale(project_.settings));
+        // A linked emitter's extra particle layers (docs/particles.md), rebuilt
+        // only when the model or the scene changes; the viewport places them
+        // on the live emitter every frame.
+        if (emitterLayersSerial_ != modelEditSerial_ ||
+            emitterLayersScene_ != project_.activeScene) {
+            std::map<int, std::vector<Viewport::EmitterLayerPreview>> m;
+            const auto& objs = project_.objects();
+            for (size_t i = 0; i < objs.size(); ++i) {
+                const ParticleEffect* fx =
+                    objs[i].type == PrimitiveType::Emitter
+                        ? project::findParticleEffect(project_, objs[i].particleEffect)
+                        : nullptr;
+                if (!fx || fx->layers.empty()) continue;
+                const std::vector<SceneObject> ls = project::emitterLayerObjects(project_, objs[i]);
+                for (size_t k = 0; k < ls.size(); ++k) {
+                    Viewport::EmitterLayerPreview L;
+                    L.look = ls[k];
+                    for (int a = 0; a < 3; ++a) {
+                        L.offset[a] = fx->layers[k].offset[a];
+                        L.area[a] = fx->layers[k].area[a];
+                    }
+                    m[(int)i].push_back(std::move(L));
+                }
+            }
+            viewport_.setEmitterLayers(std::move(m));
+            emitterLayersSerial_ = modelEditSerial_;
+            emitterLayersScene_ = project_.activeScene;
+        }
         // Clips borrowed from other model files, grouped per target model - the
         // preview merges them exactly as bakeAnimAssets does, so an imported
         // clip is visible in the editor and not only on the console. Built only
@@ -2957,6 +3043,7 @@ void App::drawViewportWindow() {
         updateShadowDecals();
         updateNavOverlay();
         viewport_.setCollisionOverlay(showCollisionBoxes_);
+        updateBatchOverlay();
         updateProcPreview();
         // Pushed every frame rather than on change: the geometry follows the
         // project's display settings, which the Preferences dialog can change
@@ -2970,7 +3057,9 @@ void App::drawViewportWindow() {
             bool quant = false, dith = false;
             switch (viewportGsColor_) {
                 case 0:
-                    quant = project_.settings.colorDepth == "16bit";
+                    // Hybrid's OUTPUT is a dithered 16-bit buffer, so that
+                    // is what the viewport shows for it.
+                    quant = project_.settings.colorDepth != "32bit";
                     dith = project_.settings.dither;
                     break;
                 case 2: quant = true; break;
@@ -2979,6 +3068,7 @@ void App::drawViewportWindow() {
             }
             viewport_.setGsColorSim(quant, dith);
         }
+        viewport_.setRoadJunctions(project_.active().roadJunctions);
         uint32_t tex = viewport_.render((int)avail.x, (int)avail.y, renderObjects,
                                         renderSel, renderPrimary);
         // Phone camera link: stream THIS frame to the connected device, so the
@@ -3109,7 +3199,10 @@ void App::drawViewportWindow() {
         // Editor notes (docs/comments.md): a message icon per comment, and the
         // text of the selected one. Under the axis gizmo and the transform
         // gizmo below, which both own their pixels.
-        drawCommentOverlay(imgPos, avail);
+        drawScreenIconOverlay(imgPos, avail);
+        // Road crossings (docs/roads.md, "Junction overrides"): a diamond per
+        // crossing while a road or a junction is selected.
+        junctionMarkers(imgPos, avail, true, io.MousePos);
 
         // --- Axis view gizmo (top-right corner) ---
         // Drawn before the input handling so its hover can veto the click that
@@ -3204,12 +3297,100 @@ void App::drawViewportWindow() {
             }
         }
 
+        // --- Road preview (docs/roads.md): the SELECTED road's tessellated
+        // edges plus a marker per authored point - the exact SURFACE the game
+        // will build, because it comes from the same roadgen::tessellate the
+        // runtime twin transcribes. The game submits that surface as triangle
+        // STRIPS (roadgen::tessellateStrips, same rows, same diagonals, only
+        // the vertex order differs); the list is what the preview, the picker
+        // and the align pass read, and it stays the source of truth for the
+        // shape. Selected-only: a map of roads as permanent overlays would be
+        // noise.
+        for (size_t roi = 0; roi < project_.objects().size(); ++roi) {
+            const SceneObject& ro = project_.objects()[roi];
+            if (ro.type != PrimitiveType::Road || ro.roadPoints.size() < 4)
+                continue;
+            const bool roSel = (int)roi == selectedObject_;
+            auto worldToImage = [&](float wx, float wy, float wz, ImVec2& out) {
+                const float* V = viewport_.viewMatrix();
+                const float* P = viewport_.projMatrix();
+                const float vx = V[0] * wx + V[4] * wy + V[8] * wz + V[12];
+                const float vy = V[1] * wx + V[5] * wy + V[9] * wz + V[13];
+                const float vz = V[2] * wx + V[6] * wy + V[10] * wz + V[14];
+                const float cx = P[0] * vx + P[4] * vy + P[8] * vz + P[12];
+                const float cy = P[1] * vx + P[5] * vy + P[9] * vz + P[13];
+                const float cw = P[3] * vx + P[7] * vy + P[11] * vz + P[15];
+                if (cw <= 0.001f) return false;
+                out = ImVec2(imgPos.x + (cx / cw * 0.5f + 0.5f) * avail.x,
+                             imgPos.y + (1.0f - (cy / cw * 0.5f + 0.5f)) * avail.y);
+                return true;
+            };
+            std::vector<roadgen::Vertex> strip;
+            roadgen::tessellate(
+                ro.roadPoints, ro.roadWidth,
+                [&](float x, float z) { return viewport_.terrainHeight(x, z); },
+                strip, {}, ro.roadSampleStep);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            // The filled, textured strip is real viewport geometry now. This
+            // overlay owns only the selected road's handles and crisp edges.
+            if (roSel) {
+                const ImU32 edgeCol = IM_COL32(90, 200, 255, 220);
+                // The two authored borders, found by U rather than by
+                // counting. A station pair emits SIX vertices per lateral
+                // span - A, B, C, A, C, D - but how many spans it emits is
+                // the lateral reduction's business and has not been a fixed
+                // `crossSteps` since the flat collapse existed
+                // (docs/roads.md, "The lateral budget", where a pair can now
+                // be cut anywhere). Walking in strides of `crossSteps * 6`
+                // therefore drifts off the station grid and draws the cyan
+                // border through the middle of the asphalt. U is exactly 0 on
+                // the left shoulder and exactly 1 on the right, by
+                // construction in buildRows, so the spans that own a border
+                // say so themselves: A->D is a border when A's u is 0, and
+                // B->C is one when B's u is 1. Drawing both sides of every
+                // lateral cell instead would expose the tessellation as a
+                // cyan comb.
+                for (size_t s = 0; s + 5 < strip.size(); s += 6) {
+                    ImVec2 a, b;
+                    if (strip[s].u == 0.0f &&
+                        worldToImage(strip[s].x, strip[s].y + 0.05f,
+                                     strip[s].z, a) &&
+                        worldToImage(strip[s + 5].x, strip[s + 5].y + 0.05f,
+                                     strip[s + 5].z, b))
+                        dl->AddLine(a, b, edgeCol, 2.0f);
+                    if (strip[s + 1].u == 1.0f &&
+                        worldToImage(strip[s + 1].x, strip[s + 1].y + 0.05f,
+                                     strip[s + 1].z, a) &&
+                        worldToImage(strip[s + 2].x, strip[s + 2].y + 0.05f,
+                                     strip[s + 2].z, b))
+                        dl->AddLine(a, b, edgeCol, 2.0f);
+                }
+                for (size_t k = 0; k + 1 < ro.roadPoints.size(); k += 2) {
+                    const float px = ro.roadPoints[k], pz = ro.roadPoints[k + 1];
+                    ImVec2 pt;
+                    if (worldToImage(
+                            px, viewport_.terrainHeight(px, pz) + 0.15f, pz,
+                            pt)) {
+                        const float rr = roadEdit_ ? 7.0f : 5.0f;
+                        dl->AddCircleFilled(pt, rr,
+                                            roadEdit_
+                                                ? IM_COL32(255, 130, 40, 245)
+                                                : IM_COL32(255, 220, 60, 235));
+                        dl->AddCircle(pt, rr, IM_COL32(20, 20, 20, 235), 0,
+                                      1.5f);
+                    }
+                }
+            }
+        }
+
         // --- Transform gizmo on the selection (disabled while sculpting;
         // objects on a hidden layer can't be grabbed either) ---
         bool objectSelected = !sculptMode_ && !paintMode_ && !measureMode_ &&
                               !pastePending_ &&
                               selectedObject_ >= 0 &&
                               selectedObject_ < (int)project_.objects().size() &&
+                              project_.objects()[selectedObject_].type !=
+                                  PrimitiveType::Road &&
                               !isObjectHiddenInEditor(project_.objects()[selectedObject_]);
         if (objectSelected) {
             SceneObject& o = project_.objects()[selectedObject_];
@@ -3456,7 +3637,7 @@ void App::drawViewportWindow() {
             // Alt+LMB does) and we're not sculpting.
             const bool lmbCamera = (nav_.scheme == NavScheme::Maya) && alt;
             if (!sculptMode_ && !paintMode_ && !measureMode_ && !pastePending_ &&
-                !lmbCamera && !overAxisGizmo &&
+                !roadEdit_ && !lmbCamera && !overAxisGizmo &&
                 ImGui::IsMouseClicked(ImGuiMouseButton_Left))
                 boxSelecting_ = true;
         }
@@ -3477,6 +3658,112 @@ void App::drawViewportWindow() {
                     commitPastePlacement();
             }
             if (ImGui::IsKeyPressed(ImGuiKey_Escape)) cancelPastePlacement();
+        }
+
+        // --- Road viewport editing (docs/roads.md): append / drag / insert.
+        // Every finished operation is ONE commitChange, so Ctrl+Z peels them
+        // point by point like any other edit.
+        if (roadEdit_) {
+            const bool roadOk =
+                selectedObject_ >= 0 &&
+                selectedObject_ < (int)project_.objects().size() &&
+                project_.objects()[selectedObject_].type == PrimitiveType::Road;
+            if (!roadOk || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+                roadEdit_ = false;
+                roadDragPoint_ = -1;
+            } else if (imageHovered && !gizmoBusy) {
+                SceneObject& ro = project_.objects()[selectedObject_];
+                const float u = (io.MousePos.x - imgPos.x) / avail.x;
+                const float v = (io.MousePos.y - imgPos.y) / avail.y;
+                float ground[3];
+                std::vector<char> skipAll(project_.objects().size(), 1);
+                const bool hit = viewport_.placementRaycast(
+                    u, v, project_.objects(), skipAll, ground);
+                auto toScreen = [&](float wx, float wz, ImVec2& out) {
+                    const float wy = viewport_.terrainHeight(wx, wz) + 0.15f;
+                    const float* V = viewport_.viewMatrix();
+                    const float* P = viewport_.projMatrix();
+                    const float vx = V[0] * wx + V[4] * wy + V[8] * wz + V[12];
+                    const float vy = V[1] * wx + V[5] * wy + V[9] * wz + V[13];
+                    const float vz = V[2] * wx + V[6] * wy + V[10] * wz + V[14];
+                    const float cx = P[0] * vx + P[4] * vy + P[8] * vz + P[12];
+                    const float cyw = P[1] * vx + P[5] * vy + P[9] * vz + P[13];
+                    const float cw = P[3] * vx + P[7] * vy + P[11] * vz + P[15];
+                    if (cw <= 0.001f) return false;
+                    out = ImVec2(imgPos.x + (cx / cw * 0.5f + 0.5f) * avail.x,
+                                 imgPos.y + (1.0f - (cyw / cw * 0.5f + 0.5f)) * avail.y);
+                    return true;
+                };
+                if (roadDragPoint_ >= 0) {
+                    // Dragging: the point follows the ground hit.
+                    if (hit &&
+                        (size_t)roadDragPoint_ * 2 + 1 < ro.roadPoints.size()) {
+                        ro.roadPoints[(size_t)roadDragPoint_ * 2] = ground[0];
+                        ro.roadPoints[(size_t)roadDragPoint_ * 2 + 1] = ground[2];
+                    }
+                    if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+                        roadDragPoint_ = -1;
+                        commitChange();
+                        statusMessage_ = "Road point moved";
+                    }
+                } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && hit) {
+                    const int np = (int)(ro.roadPoints.size() / 2);
+                    // 1) an existing point under the cursor? drag it.
+                    int grab = -1;
+                    for (int i = 0; i < np; ++i) {
+                        ImVec2 pt;
+                        if (!toScreen(ro.roadPoints[(size_t)i * 2],
+                                      ro.roadPoints[(size_t)i * 2 + 1], pt))
+                            continue;
+                        const float dx = pt.x - io.MousePos.x;
+                        const float dy = pt.y - io.MousePos.y;
+                        if (dx * dx + dy * dy < 12.0f * 12.0f) {
+                            grab = i;
+                            break;
+                        }
+                    }
+                    if (grab >= 0) {
+                        roadDragPoint_ = grab;
+                    } else {
+                        // 2) near the LINE? insert there. Sample the spline
+                        // densely in screen space and find the closest station.
+                        int insertSeg = -1;
+                        float bestD = 10.0f * 10.0f;
+                        const int dense = np * 12;
+                        for (int k = 0; k <= dense; ++k) {
+                            float sx, sz;
+                            roadgen::splineAt(ro.roadPoints,
+                                              (float)k / (float)dense, &sx, &sz);
+                            ImVec2 pt;
+                            if (!toScreen(sx, sz, pt)) continue;
+                            const float dx = pt.x - io.MousePos.x;
+                            const float dy = pt.y - io.MousePos.y;
+                            const float d2 = dx * dx + dy * dy;
+                            if (d2 < bestD) {
+                                bestD = d2;
+                                insertSeg =
+                                    (int)((float)k / (float)dense * (np - 1));
+                            }
+                        }
+                        if (insertSeg >= 0) {
+                            const size_t at = (size_t)(insertSeg + 1) * 2;
+                            ro.roadPoints.insert(ro.roadPoints.begin() + at,
+                                                 {ground[0], ground[2]});
+                            ro.roadHeights.clear();
+                            roadDragPoint_ = insertSeg + 1;
+                            statusMessage_ = "Road point inserted";
+                        } else {
+                            // 3) open ground: append.
+                            ro.roadPoints.push_back(ground[0]);
+                            ro.roadPoints.push_back(ground[2]);
+                            ro.roadHeights.clear();
+                            roadDragPoint_ =
+                                (int)(ro.roadPoints.size() / 2) - 1;
+                            statusMessage_ = "Road point added";
+                        }
+                    }
+                }
+            }
         }
 
         // --- Measuring tape: click a point, then a second one. The end
@@ -3617,8 +3904,15 @@ void App::drawViewportWindow() {
             const float u = (io.MousePos.x - imgPos.x) / avail.x;
             const float v = (io.MousePos.y - imgPos.y) / avail.y;
             bool cycled = false;
-            const int hit = viewportPick(u, v, io.MousePos, imgPos, avail, &cycled);
-            if (io.KeyCtrl) {
+            // A junction diamond wins over whatever is under it (it is only
+            // drawn while a road or a junction is selected).
+            const int junctionHit = junctionMarkers(imgPos, avail, false, io.MousePos);
+            const int hit = junctionHit != -1
+                                ? -1
+                                : viewportPick(u, v, io.MousePos, imgPos, avail, &cycled);
+            if (junctionHit != -1) {
+                selectJunction(junctionHit);
+            } else if (io.KeyCtrl) {
                 if (hit >= 0) toggleSelect(hit);
             } else {
                 selectOnly(hit);
@@ -3626,7 +3920,7 @@ void App::drawViewportWindow() {
             // Say what the click found and that there is more under it: the
             // stack is invisible otherwise, and "click again" is the only way
             // to reach an object standing inside or behind another one.
-            statusMessage_ = pickStackStatus(hit);
+            if (junctionHit == -1) statusMessage_ = pickStackStatus(hit);
             // A cycle click is hunting through a stack, not a new framing:
             // leave the orbit pivot where it is (the block below re-snaps it
             // to the selection otherwise), or the camera walks away under the
@@ -3649,7 +3943,7 @@ void App::drawViewportWindow() {
             const float v = (io.MousePos.y - imgPos.y) / avail.y;
             viewport_.pickAll(u, v, project_.objects(), pickMenu_);
             // A comment's icon is hit in screen space and is not in that list.
-            for (const CommentIcon& ic : commentIcons(imgPos, avail)) {
+            for (const ScreenIcon& ic : screenIcons(imgPos, avail)) {
                 if (std::fabs(io.MousePos.x - ic.center.x) > ic.w * 0.5f) continue;
                 if (std::fabs(io.MousePos.y - ic.center.y) > ic.h * 0.5f) continue;
                 pickMenu_.insert(pickMenu_.begin(), ic.index);
@@ -4596,28 +4890,34 @@ void App::drawMeasureOverlay(ImVec2 imgPos, ImVec2 avail) {
                        measurePoints_ == 1 ? "  - click the second point" : "");
 }
 
-// --- Comments (docs/comments.md) -------------------------------------------
-// Where every visible note's icon sits on screen, farthest first. The overlay
-// draws this list and viewportPick walks it backwards, so the icon you can see
-// is the icon you click - there is no second answer to "where is that note".
-std::vector<App::CommentIcon> App::commentIcons(ImVec2 imgPos, ImVec2 avail) {
-    std::vector<CommentIcon> out;
+// --- Screen-space icons: comments and emitters --------------------------------
+// Where every visible note's and particle emitter's icon sits on screen,
+// farthest first (docs/comments.md, docs/particles.md). The overlay draws this
+// list and viewportPick walks it backwards, so the icon you can see is the
+// icon you click - there is no second answer to "where is that object".
+std::vector<App::ScreenIcon> App::screenIcons(ImVec2 imgPos, ImVec2 avail) {
+    std::vector<ScreenIcon> out;
     if (!hasProject_ || avail.x < 1.0f || avail.y < 1.0f) return out;
     const std::vector<SceneObject>& objs = project_.objects();
     for (size_t i = 0; i < objs.size(); ++i) {
         const SceneObject& o = objs[i];
-        if (o.type != PrimitiveType::Comment) continue;
+        const bool emitter = o.type == PrimitiveType::Emitter;
+        if (o.type != PrimitiveType::Comment && !emitter) continue;
         if (isObjectHiddenInEditor(o)) continue;  // hidden layer
         float u = 0.0f, v = 0.0f, depth = 0.0f;
         if (!viewport_.projectToImage(o.position, u, v, &depth)) continue;
-        CommentIcon ic;
+        ScreenIcon ic;
         ic.index = (int)i;
-        ic.w = scaled(30.0f);
+        ic.emitter = emitter;
+        ic.w = scaled(emitter ? 22.0f : 30.0f);
         ic.h = scaled(22.0f);
         ic.anchor = ImVec2(imgPos.x + u * avail.x, imgPos.y + v * avail.y);
         // The bubble floats above the anchor with its tail on the point, so
-        // the note never covers the spot it is pinned to.
-        ic.center = ImVec2(ic.anchor.x, ic.anchor.y - ic.h * 0.5f - scaled(8.0f));
+        // the note never covers the spot it is pinned to. An emitter's badge
+        // sits ON its point: that is where the particles come from, and a
+        // small round icon hides far less than the cone it replaced.
+        ic.center = emitter ? ic.anchor
+                            : ImVec2(ic.anchor.x, ic.anchor.y - ic.h * 0.5f - scaled(8.0f));
         ic.depth = depth;
         // One icon of slack around the image, so a note just off the edge is
         // neither drawn nor clickable.
@@ -4628,14 +4928,14 @@ std::vector<App::CommentIcon> App::commentIcons(ImVec2 imgPos, ImVec2 avail) {
         out.push_back(ic);
     }
     std::stable_sort(out.begin(), out.end(),
-                     [](const CommentIcon& a, const CommentIcon& b) {
+                     [](const ScreenIcon& a, const ScreenIcon& b) {
                          return a.depth > b.depth;  // far first: near draws over
                      });
     return out;
 }
 
-void App::drawCommentOverlay(ImVec2 imgPos, ImVec2 avail) {
-    const std::vector<CommentIcon> icons = commentIcons(imgPos, avail);
+void App::drawScreenIconOverlay(ImVec2 imgPos, ImVec2 avail) {
+    const std::vector<ScreenIcon> icons = screenIcons(imgPos, avail);
     if (icons.empty()) return;
     const std::vector<SceneObject>& objs = project_.objects();
     const theme::Semantics& sem = theme::semantics();
@@ -4648,11 +4948,63 @@ void App::drawCommentOverlay(ImVec2 imgPos, ImVec2 avail) {
     constexpr size_t kPreviewChars = 420;
     const ImVec2 mouse = ImGui::GetIO().MousePos;
 
-    for (const CommentIcon& ic : icons) {
+    for (const ScreenIcon& ic : icons) {
         const SceneObject& o = objs[(size_t)ic.index];
         const bool selected = isSelected(ic.index);
         const bool hovered = std::fabs(mouse.x - ic.center.x) <= ic.w * 0.5f &&
                              std::fabs(mouse.y - ic.center.y) <= ic.h * 0.5f;
+        if (ic.emitter) {
+            // A particle emitter: a dark round badge with a flame glyph, dimmed
+            // while the emitter starts disabled. Drawn, not an asset - the
+            // comment bubble's reason.
+            const float rad = ic.w * 0.5f;
+            const int a = o.emitterEnabled ? 255 : 120;
+            dl->AddCircleFilled(ic.center, rad, IM_COL32(24, 24, 30, selected || hovered ? 235 : 190));
+            dl->AddCircle(ic.center, rad,
+                          selected ? ImGui::GetColorU32(sem.accent)
+                                   : IM_COL32(255, 150, 60, hovered ? 255 : 170),
+                          0, scaled(selected ? 2.0f : 1.2f));
+            // flame: an outer orange teardrop and an inner yellow one
+            auto flame = [&](float s, ImU32 col) {
+                const ImVec2 c(ic.center.x, ic.center.y + scaled(2.5f) * s);
+                ImVec2 pts[9];
+                const float r = scaled(4.6f) * s, h = scaled(10.5f) * s;
+                pts[0] = ImVec2(c.x, c.y - h);                          // tip
+                pts[1] = ImVec2(c.x + r * 0.55f, c.y - h * 0.45f);
+                pts[2] = ImVec2(c.x + r, c.y - r * 0.2f);
+                pts[3] = ImVec2(c.x + r * 0.75f, c.y + r * 0.7f);
+                pts[4] = ImVec2(c.x, c.y + r);
+                pts[5] = ImVec2(c.x - r * 0.75f, c.y + r * 0.7f);
+                pts[6] = ImVec2(c.x - r, c.y - r * 0.2f);
+                pts[7] = ImVec2(c.x - r * 0.55f, c.y - h * 0.45f);
+                pts[8] = pts[0];
+                dl->AddConvexPolyFilled(pts, 8, col);
+            };
+            // Selected: the emission direction the cone used to show - the
+            // object's +Y through Rz*Ry*Rx, one unit long.
+            if (selected) {
+                const float d2r = 3.14159265f / 180.0f;
+                const float cx = std::cos(o.rotation[0] * d2r), sx = std::sin(o.rotation[0] * d2r);
+                const float cy = std::cos(o.rotation[1] * d2r), sy = std::sin(o.rotation[1] * d2r);
+                const float cz = std::cos(o.rotation[2] * d2r), sz = std::sin(o.rotation[2] * d2r);
+                float x = 0.0f, y = cx, z = sx;             // X
+                const float x2 = x * cy + z * sy; z = -x * sy + z * cy; x = x2;  // Y
+                const float x3 = x * cz - y * sz; y = x * sz + y * cz; x = x3;   // Z
+                const float tip[3] = {o.position[0] + x, o.position[1] + y, o.position[2] + z};
+                float tu = 0.0f, tv = 0.0f;
+                if (viewport_.projectToImage(tip, tu, tv, nullptr)) {
+                    const ImVec2 t(imgPos.x + tu * avail.x, imgPos.y + tv * avail.y);
+                    dl->AddLine(ic.center, t, ImGui::GetColorU32(sem.accent), scaled(2.0f));
+                    dl->AddCircleFilled(t, scaled(3.0f), ImGui::GetColorU32(sem.accent));
+                }
+            }
+            flame(1.0f, IM_COL32(255, 120, 30, a));
+            flame(0.55f, IM_COL32(255, 225, 90, a));
+            if (hovered && !selected)
+                dl->AddText(ImVec2(ic.center.x + rad + scaled(4.0f), ic.center.y - scaled(7.0f)),
+                            IM_COL32(230, 230, 236, 230), o.name.c_str());
+            continue;
+        }
         // The note's own colour tints the bubble - that is what turns a scene
         // full of notes into categories (a red one is a problem, a green one
         // is settled). Kept light enough for dark glyphs to read on it.
@@ -5036,6 +5388,8 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "tree") return &showTreeGenerator_;
     if (key == "proc") return &showProcedural_;
     if (key == "prefabs") return &showPrefabs_;
+    if (key == "particles") return &showParticles_;
+    if (key == "vehicles") return &showVehicles_;
     if (key == "facts") return &showWorldFacts_;
     if (key == "vu") return &showVuPrograms_;
     if (key == "drone") return &showDroneGenerator_;
@@ -5047,6 +5401,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "chat") return &showAiChat_;
     if (key == "blss") return &showBlss_;
     if (key == "atlas") return &showTextureAtlas_;
+    if (key == "batches") return &showStaticBatches_;
     if (key == "projectprefs") return &showProjectPrefs_;
     return nullptr;
 }
@@ -5070,11 +5425,15 @@ static const char* const kLayoutWindowKeys[] = {
     // "credits" was missing here while showFlagForKey knew it - exactly the
     // leak the note above describes (the Credits Editor stayed open across
     // every layout switch while every other window reset).
-    "credits",  "vu",       "chat",     "blss",     "atlas",
+    "credits",  "vu",       "chat",     "blss",     "atlas",   "batches",
     // Project Preferences stopped being a modal in 1.20.0 and became an
     // ordinary window, so it needs the same deterministic open/close every
     // other optional window has.
-    "projectprefs"};
+    "projectprefs",
+    // Tools > Vehicle Editor (docs/vehicles.md).
+    "vehicles",
+    // Tools > Particle Editor (docs/particles.md).
+    "particles"};
 
 // The same keys, for the AI Assistant's open_window tool (chat_ui.cpp). Defined
 // here rather than there because kLayoutWindowKeys is private to this TU, and
@@ -5440,12 +5799,21 @@ void App::commitChange() {
     // Push an undo snapshot; mark the project dirty only when the edit actually
     // changed something. No disk write - saving is on demand (see saveAll).
     layerRamCache_.clear();  // objects/layers may have changed - re-estimate
+    // The static-batch grouping is a function of the scene, so any commit can
+    // move it: a transform crosses a cell boundary, a material changes the
+    // texture key, a flow-graph reference makes an object ineligible. Cheap
+    // to invalidate, expensive to recompute, so it is recomputed lazily by
+    // whoever next needs it (the panel or the overlay).
+    batchDirty_ = true;
     // Stamp ids on any freshly inserted / pasted object before it enters an
     // undo snapshot or hits disk, so every persisted object has a stable id.
     project::ensureObjectIds(project_);
     // Same contract for a freshly added fact: its id is what a player's save
     // file is keyed by, so it must exist before the fact can be persisted.
     project::ensureFactIds(project_);
+    // A linked emitter wears its library effect (docs/particles.md): copy the
+    // effect in before the snapshot, so undo and the session see the result.
+    project::applyParticleEffects(project_);
     ++modelEditSerial_;  // let the session diff pick up this edit (see sessionTick)
     // The undo snapshot only carries the SCENES, so push() returns false for an
     // edit to any project-wide collection - menus, the Input Map, gradings,
@@ -6491,13 +6859,13 @@ int App::viewportPick(float u, float v, ImVec2 mouse, ImVec2 imgPos, ImVec2 avai
     // A comment's icon wins over everything under it, and it is tested in
     // screen space: the icon is a fixed size whatever the distance, so the
     // small 3D box the note also carries stops being clickable long before
-    // the thing you can see does. Nearest first (commentIcons sorts far to
+    // the thing you can see does. Nearest first (screenIcons sorts far to
     // near for drawing, so the last one drawn is the first one hit) - the
     // note on top is the note you clicked.
     {
-        const std::vector<CommentIcon> icons = commentIcons(imgPos, avail);
+        const std::vector<ScreenIcon> icons = screenIcons(imgPos, avail);
         for (size_t k = icons.size(); k-- > 0;) {
-            const CommentIcon& ic = icons[k];
+            const ScreenIcon& ic = icons[k];
             if (std::fabs(mouse.x - ic.center.x) > ic.w * 0.5f) continue;
             if (std::fabs(mouse.y - ic.center.y) > ic.h * 0.5f) continue;
             pickCycle_.clear();  // an icon is one target, never a stack
@@ -6603,6 +6971,7 @@ void App::ungroupSelection() {
 }
 
 void App::selectOnly(int i, bool expandGroups) {
+    junctionSel_.active = false;  // a junction is a selection of its own
     selectionGroupMember_ = !expandGroups;
     selection_.clear();
     if (i >= 0 && i < (int)project_.objects().size()) selection_.push_back(i);
@@ -6611,6 +6980,7 @@ void App::selectOnly(int i, bool expandGroups) {
 }
 
 void App::toggleSelect(int i) {
+    junctionSel_.active = false;
     selectionGroupMember_ = false;
     if (i < 0 || i >= (int)project_.objects().size()) return;
     const std::string group = project_.objects()[i].editorGroup;
@@ -6771,6 +7141,9 @@ void App::pasteObject() {
 
 aobake::ModelAabbFn App::placementModelAabb() {
     return [this](const SceneObject& o, float mn[3], float mx[3]) {
+        // A Vehicle's bounds come from its DEFINITION's baked body, which only
+        // the App can resolve - the viewport knows models, not definitions.
+        if (o.type == PrimitiveType::Vehicle) return vehicleBodyBounds(o, mn, mx);
         return viewport_.modelLocalBounds(o, mn, mx);
     };
 }
@@ -6969,6 +7342,8 @@ void App::attachProject() {
     project_.ps2LinkIp = globalPs2Ip_;
     project_.toolchainImage = globalToolchainImage_;
     project_.buildBackend = globalBuildBackend_;
+    project_.consoleLogLines = globalConsoleLogLines_;
+    project_.consoleLogFiles = globalConsoleLogFiles_;
 
     flowGraphObject_ = -1;
     flowPositionsApplied_ = false;
@@ -8029,6 +8404,73 @@ bool App::pickProjectTexture(const char* popupId, std::string& path) {
     return changed;
 }
 
+bool App::drawRoadSurfaceCombo(const char* label, const char* id,
+                               std::string& surfacePath, const char* noneLabel) {
+    if (!noneLabel) noneLabel = "<none - untextured grey>";
+    std::string current = surfacePath.empty() ? noneLabel : surfacePath;
+    if (current.rfind("res/", 0) == 0) current = current.substr(4);
+
+    bool changed = false;
+    ImGui::SetNextItemWidth(scaled(300));
+    if (ImGui::BeginCombo(label, current.c_str())) {
+        if (ImGui::Selectable(noneLabel, surfacePath.empty()) &&
+            !surfacePath.empty()) {
+            surfacePath.clear();
+            changed = true;
+        }
+
+        ImGui::SeparatorText("Materials");
+        const std::vector<std::string> materials = listMaterialAssets();
+        for (const std::string& rel : materials) {
+            const std::string item = rel.rfind("res/", 0) == 0 ? rel.substr(4) : rel;
+            if (ImGui::Selectable(item.c_str(), rel == surfacePath) &&
+                rel != surfacePath) {
+                surfacePath = rel;
+                changed = true;
+            }
+        }
+        if (materials.empty()) ImGui::TextDisabled("No .mtl assets yet.");
+
+        ImGui::SeparatorText("Direct textures (legacy)");
+        const std::vector<std::string> textures =
+            listAssetFiles("textures", ".png");
+        for (const std::string& name : textures) {
+            const std::string rel = "res/textures/" + name;
+            if (ImGui::Selectable(name.c_str(), rel == surfacePath) &&
+                rel != surfacePath) {
+                surfacePath = rel;
+                changed = true;
+            }
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem("Import material (.mtl)...")) {
+            const std::string imported = importMaterialAsset();
+            if (!imported.empty()) {
+                surfacePath = imported;
+                changed = true;
+            }
+        }
+        if (ImGui::MenuItem("Import texture (.png, legacy)...")) {
+            const std::string imported = importTextureAsset();
+            if (!imported.empty()) {
+                surfacePath = imported;
+                changed = true;
+            }
+        }
+        ImGui::EndCombo();
+    }
+    std::string ext = std::filesystem::path(surfacePath).extension().string();
+    for (char& c : ext) c = (char)std::tolower((unsigned char)c);
+    if (ext == ".mtl") {
+        ImGui::SameLine();
+        if (ImGui::SmallButton((std::string("Edit...##") + id).c_str()))
+            activateAsset(surfacePath);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Open this road material in the Material Editor.");
+    }
+    return changed;
+}
+
 const App::ModelInfo& App::modelInfo(const std::string& relPath,
                                      const std::string& materialRel) {
     const std::string key = relPath + "|" + materialRel;
@@ -8572,6 +9014,26 @@ void App::drawAddObjectMenu() {
     }
     if (ImGui::BeginMenu("Gameplay")) {
         if (ImGui::MenuItem("Player")) addObject(PrimitiveType::Player);
+        // A driveable car. The object is only the placement - what the vehicle
+        // IS lives in a definition (Tools > Vehicle Editor, docs/vehicles.md),
+        // and a fresh instance adopts the first one so it is never nameless.
+        if (ImGui::MenuItem("Vehicle")) {
+            addObject(PrimitiveType::Vehicle, /*commit=*/false);
+            if (!project_.vehicles.empty())
+                project_.objects().back().vehicleDef = project_.vehicles.front().name;
+            commitChange();
+        }
+        // A spline road (docs/roads.md): points in, terrain-hugging textured
+        // chunks at boot. A fresh one gets three points around the placement
+        // spot so there is something to see and grab immediately.
+        if (ImGui::MenuItem("Road")) {
+            addObject(PrimitiveType::Road, /*commit=*/false);
+            SceneObject& r = project_.objects().back();
+            r.roadPoints = {r.position[0] - 12.0f, r.position[2],
+                            r.position[0],         r.position[2],
+                            r.position[0] + 12.0f, r.position[2]};
+            commitChange();
+        }
         // Linked pair of surfaces: a live view through to the target portal
         // plus a walk-through teleport that carries speed and view angle.
         if (ImGui::MenuItem("Portal")) addPortal();
@@ -14488,6 +14950,16 @@ void App::drawTerrainWindow() {
                     : "Pick a material with a texture first -\nstochastic tiling "
                       "scrambles the texture, so a\nflat color has nothing to work "
                       "on.");
+        ImGui::SameLine(0.0f, scaled(12));
+        ImGui::SetNextItemWidth(scaled(90));
+        ImGui::DragFloat("Grip", &L.grip, 0.01f, 0.1f, 1.5f, "%.2fx");
+        if (ImGui::IsItemDeactivatedAfterEdit()) layersChanged = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Tyre grip where this layer is painted, multiplying each\n"
+                "vehicle's Off-road grip (blended by the painted weight).\n"
+                "1 = the bare terrain, ~0.5 mud, ~0.8 sand. Roads use their\n"
+                "own Surface grip.");
         ImGui::Unindent(scaled(22));
 
         ImGui::PopID();
@@ -14881,10 +15353,14 @@ void App::drawPreferencesWindow() {
     // this is the biggest single lever on how much VRAM textures get - and
     // on whether the third display buffer below fits at all.
     {
-        int depth = prefSettings_.colorDepth == "16bit" ? 1 : 0;
-        const char* depthNames[] = {"32-bit colour", "16-bit colour"};
-        if (ImGui::Combo("Colour depth", &depth, depthNames, 2))
-            prefSettings_.colorDepth = depth == 1 ? "16bit" : "32bit";
+        int depth = prefSettings_.colorDepth == "16bit"    ? 1
+                    : prefSettings_.colorDepth == "hybrid" ? 2
+                                                           : 0;
+        const char* depthNames[] = {"32-bit colour", "16-bit colour",
+                                    "Hybrid (draw 32-bit, show 16-bit)"};
+        if (ImGui::Combo("Colour depth", &depth, depthNames, 3))
+            prefSettings_.colorDepth =
+                depth == 1 ? "16bit" : depth == 2 ? "hybrid" : "32bit";
         prefHelp(
             "Pixel format of the frame buffers. 32-bit is the stock 8-8-8-8\n"
             "buffer. 16-bit (5-5-5-1) HALVES what the frame buffers cost in\n"
@@ -14896,8 +15372,15 @@ void App::drawPreferencesWindow() {
             "gradients - skies, fog, bloom - band unless Dithering is on.\n"
             "The z buffer follows it (a 16-bit z over a 16-bit frame - the\n"
             "GS needs the pair to share page geometry), so depth precision\n"
-            "drops with it: keep the near plane up. See docs/gs-vram.md.");
-        ImGui::BeginDisabled(prefSettings_.colorDepth != "16bit");
+            "drops with it: keep the near plane up.\n"
+            "Hybrid draws the whole frame in ONE 32-bit buffer over a 32-bit\n"
+            "z (full-precision blending and depth), then one dithered copy per\n"
+            "frame puts it in ONE 16-bit buffer the TV shows: half a frame\n"
+            "buffer back for textures without 16-bit banding in the blends.\n"
+            "In Hybrid there is no previous frame to sample, so motion blur,\n"
+            "the upscaler's temporal pass, frame extrapolation and triple\n"
+            "buffering are off. See docs/gs-vram.md.");
+        ImGui::BeginDisabled(prefSettings_.colorDepth == "32bit");
         ImGui::Indent(scaled(16));
         ImGui::Checkbox("Dithering", &prefSettings_.dither);
         prefHelp(
@@ -15357,6 +15840,44 @@ void App::drawPreferencesWindow() {
         "actually mirrors. Best on large curved chrome at mid distance;\n"
         "the single shared probe still approximates every other surface.");
 
+    ImGui::DragFloat("Reflection reuse budget",
+                     &prefSettings_.reflectionReuseBudget, 0.1f, 0.0f, 32.0f,
+                     prefSettings_.reflectionReuseBudget > 0.0f
+                         ? "%.1f px"
+                         : "off (capture every beat)");
+    if (prefSettings_.reflectionReuseBudget < 0.0f)
+        prefSettings_.reflectionReuseBudget = 0.0f;
+    prefHelp(
+        "How far the shared 128x128 reflection target may be out of date\n"
+        "before the probe re-renders, IN PIXELS OF ITSELF. The probe costs\n"
+        "about 2 ms of a busy frame on real hardware and already runs only\n"
+        "every second frame; this skips the capture entirely while nothing\n"
+        "that feeds it has moved. Aim, camera travel, the sun and the moon\n"
+        "all convert into that one number; the sky colours and every\n"
+        "reflected object's transform and visibility are compared exactly\n"
+        "and are never traded against it.\n"
+        "The reflection was already up to one refresh out of date; this is\n"
+        "how many EXTRA pixels of lag you accept on top of that - and none\n"
+        "at all while nothing moves, where the skipped capture would have\n"
+        "produced the same image. 1.0 is one pixel of 128. 0 = off.");
+
+    ImGui::DragFloat("Reflection ground radius",
+                     &prefSettings_.reflectionGroundRadius, 1.0f, 0.0f, 1000.0f,
+                     prefSettings_.reflectionGroundRadius > 0.0f
+                         ? "%.0f units"
+                         : "all resident ground");
+    if (prefSettings_.reflectionGroundRadius < 0.0f)
+        prefSettings_.reflectionGroundRadius = 0.0f;
+    prefHelp(
+        "How far from the camera the shared reflection probe redraws the\n"
+        "terrain and the roads. The probe paints the ground into its\n"
+        "128x128 target on every capture, and a turning camera captures\n"
+        "every second frame - on a physical PS2 the whole resident ground\n"
+        "cost 10-15 ms of each capturing frame. Far chunks are a few pixels\n"
+        "at the probe's horizon, so a radius of a few dozen units keeps the\n"
+        "ground under the car in the paint and drops the rest.\n"
+        "0 = every resident chunk (the old behaviour).");
+
     ImGui::Checkbox("Static object batching", &prefSettings_.staticBatching);
     prefHelp(
         "Merges non-moving primitives and compact imported-model parts\n"
@@ -15365,6 +15886,45 @@ void App::drawPreferencesWindow() {
         "on real hardware; a batch pays it once. Large models and objects\n"
         "with physics, LODs, scripts, runtime references, save-state or a\n"
         "streaming layer stay individual.");
+
+    {
+        static const char* kInterleaveNames[] = {"Auto", "Always", "Off"};
+        static const char* kInterleaveKeys[] = {"auto", "always", "off"};
+        int il = 0;
+        for (int k = 0; k < 3; ++k)
+            if (prefSettings_.interleavePasses == kInterleaveKeys[k]) il = k;
+        if (ImGui::Combo("Interleave batches and roads with objects", &il,
+                         kInterleaveNames, 3))
+            prefSettings_.interleavePasses = kInterleaveKeys[il];
+    }
+    prefHelp(
+        "Feeds the static batch and road draws into the object loop instead\n"
+        "of drawing them first. Batches and roads are cheap for the EE and\n"
+        "heavy for VU1/GS, objects the opposite, so drawn one after the other\n"
+        "the EE waits in the first and VU1 idles in the second. Measured on a\n"
+        "PS2: -0.4 ms a frame in a dense garage, a small loss in open ground\n"
+        "with few objects. Auto: the game times both orders every few seconds\n"
+        "and keeps the faster. The first object that may blend (alpha,\n"
+        "cutouts, blend modes) always finds the batches and roads drawn.");
+
+    ImGui::SliderInt("Shiny vehicles at once", &prefSettings_.vehicleShineBudget,
+                     0, 8, prefSettings_.vehicleShineBudget == 0 ? "all" : "%d");
+    prefHelp(
+        "How many vehicles draw their body shine (the paint reflection and\n"
+        "highlight) in one view: the car being driven first, then the\n"
+        "nearest. The rest stay matte. Measured on a PS2: a second car's\n"
+        "shine costs 0.7 ms a frame parked and 1.2 ms while the camera\n"
+        "turns, a third to a half of the whole car. 0 = every vehicle\n"
+        "within 35 units, the look before this setting.");
+
+    ImGui::Checkbox("Conservative occlusion culling",
+                    &prefSettings_.occlusionCulling);
+    prefHelp(
+        "Builds inward proxies for static opaque objects, rasterizes them\n"
+        "into a tiny CPU depth buffer, then skips fully hidden objects and\n"
+        "chunks before they enter the renderer. Open, non-manifold and\n"
+        "alpha-textured models are refused as occluders. Existing projects\n"
+        "default off: verify the trade with the profiler on target hardware.");
 
     // Texture quantization - the PS2-native "compression" (palettized
     // PSMT8/PSMT4 textures). Applied at build time into .res-baked; per
@@ -15831,6 +16391,25 @@ void App::drawPreferencesWindow() {
         "grows while the game runs. Debugger > Replay, or the command line\n"
         "(tyrax-editor --record / --replay). See docs/input-replay.md.");
     ImGui::BeginDisabled(profile == 0);
+    ImGui::SeparatorText("Devkit frequency (rebuild required)");
+    ImGui::TextWrapped("Intervals in game updates. 0 = automatic; 1 = every update. "
+                       "Disable unused channels above to remove their work entirely.");
+    auto cadence = [](const char* label, int& frames, bool enabled) {
+        ImGui::BeginDisabled(!enabled);
+        ImGui::SetNextItemWidth(130.0f);
+        if (ImGui::InputInt(label, &frames)) frames = std::clamp(frames, 0, 120);
+        ImGui::EndDisabled();
+    };
+    cadence("Live Link / textures interval", prefSettings_.liveLinkPollFrames, prefSettings_.liveLink);
+    cadence("Live Logic interval", prefSettings_.liveLogicPollFrames, prefSettings_.liveLogic);
+    cadence("Debugger commands interval", prefSettings_.liveDebugPollFrames, prefSettings_.liveDebug);
+    cadence("Debugger reports interval", prefSettings_.liveDebugSnapshotFrames, prefSettings_.liveDebug);
+    cadence("Time machine interval", prefSettings_.timeMachineFrames, prefSettings_.timeMachine);
+    ImGui::TextWrapped("At 50 FPS, 50 updates take one second; at 16 FPS they take "
+                       "about three seconds. Longer intervals delay edits and reports. "
+                       "Paused debugger commands stay responsive. Remote Pad and replay "
+                       "input keep their existing cadence.");
+    ImGui::Separator();
     ImGui::Checkbox("EE crash handler", &prefSettings_.eeCrashHandler);
     ImGui::EndDisabled();
     prefHelp(
@@ -16017,6 +16596,18 @@ void App::drawEditorPreferencesModal() {
         "IP of a PS2 on the LAN running PS2LINK.ELF. Enables Build > Build &&\n"
         "Run on PS2 (F6): the game boots on the console over ethernet with its\n"
         "assets served from this PC - no ISO, no SMB. Leave empty to disable.");
+    ImGui::InputInt("Console log lines", &prefConsoleLogLines_, 1000, 10000);
+    if (prefConsoleLogLines_ < 0) prefConsoleLogLines_ = 0;
+    prefHelp(
+        "Every Run on PS2 session also writes the console's log to\n"
+        "<project>/logs/ps2-<date>-<time>.log, flushed line by line, so a crash\n"
+        "or an unwatched run still leaves a record. A file keeps the last this\n"
+        "many lines (it holds up to twice that before trimming). 0 = no file.");
+    ImGui::InputInt("Console logs kept", &prefConsoleLogFiles_, 1, 5);
+    if (prefConsoleLogFiles_ < 1) prefConsoleLogFiles_ = 1;
+    prefHelp(
+        "How many session files stay in a project's logs/ folder. Starting a\n"
+        "session deletes the oldest ones beyond this.");
 
     ImGui::SeparatorText("Build toolchain");
     const char* backendLabels[] = {"Native (PS2DEV + OpenVCL)", "Docker fallback"};
@@ -16175,6 +16766,8 @@ void App::drawEditorPreferencesModal() {
     if (ImGui::Button("Save", ImVec2(scaled(120), 0))) {
         globalEmulatorPath_ = prefEmulatorPath_;
         globalPs2Ip_ = prefPs2Ip_;
+        globalConsoleLogLines_ = prefConsoleLogLines_;
+        globalConsoleLogFiles_ = prefConsoleLogFiles_;
         globalToolchainImage_ = prefToolchainImage_;
         globalBuildBackend_ = prefBuildBackend_ == 1 ? "docker" : "native";
         globalDefaultProjectsDir_ = prefDefaultProjectsDir_;
@@ -16188,6 +16781,8 @@ void App::drawEditorPreferencesModal() {
         if (hasProject_) {
             project_.emulatorPath = globalEmulatorPath_;
             project_.ps2LinkIp = globalPs2Ip_;
+            project_.consoleLogLines = globalConsoleLogLines_;
+            project_.consoleLogFiles = globalConsoleLogFiles_;
             // The Runner reads the image off the project too, so an already-open
             // one has to be told now - otherwise the change only takes effect the
             // next time the project is opened.

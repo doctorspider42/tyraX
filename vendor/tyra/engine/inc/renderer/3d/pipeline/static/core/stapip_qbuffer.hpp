@@ -15,6 +15,7 @@
 #include "debug/debug.hpp"
 #include "./bag/packaging/stapip_bag_package.hpp"
 #include "./bag/stapip_bag.hpp"
+#include "./stapip_probes.hpp"
 
 namespace Tyra {
 
@@ -28,6 +29,10 @@ class StaPipQBuffer {
   // per packet SEND, right where the packet double buffer flips (see the pool
   // comment in stapip_qbuffer.cpp).
   static void flipPoolSide();
+  /** Diagnostic: is this address inside one of the copy pools? See the
+   * definition - it exists to settle where the acceptance gate's geometry
+   * hash gets its irreproducibility from. */
+  static bool isPoolAddress(const void* addr);
 
   /**
    * @brief Dont allocate any dynamic data in buffer.
@@ -63,6 +68,27 @@ class StaPipQBuffer {
   void fillByCopy1By3(const StaPipBagPackage& pkg);
 
   /**
+   * Modified by TyraX: expand `triCount` triangles of a STRIPPED package back
+   * into an ordinary triangle list, into the copy pool.
+   *
+   * The clip programs and the EE clipper both loop by whole triangles over a
+   * triangle list, so a stripped package that genuinely crosses a clip plane
+   * cannot be handed to either as it stands. It is expanded here instead -
+   * even triangle i is (v[i], v[i+1], v[i+2]) and an odd one swaps its first
+   * two vertices to preserve the strip's alternating winding. The result is an
+   * ordinary list qbuffer that every existing route already handles. The
+   * buffer's own `stripped` flag is cleared, which is what makes the GIF tag
+   * this buffer produces say PRIM_TRIANGLE, so one bag may mix the two.
+   *
+   * `firstTri` is an index into the package's triangles, not its vertices.
+   * The expansion is 3x, so the caller must chunk it: at most maxVertCount / 3
+   * triangles at a time, which is the same triangle budget the list path's
+   * subpackages carry.
+   */
+  void fillByStripExpand(const StaPipBagPackage& pkg, u32 firstTri,
+                         u32 triCount);
+
+  /**
    * @brief Deallocate dynamic data if it was allocated and allocate new data
    * specified by size.
    * @param size 48 is max
@@ -80,6 +106,47 @@ class StaPipQBuffer {
   u32 size;
   /** Conservative OR of the source packages' exact VU clip-plane masks. */
   u8 clipPlaneMask;
+
+  /**
+   * Modified by TyraX: this buffer's vertices are a triangle STRIP, so the
+   * GIF tag the microprogram writes must carry PRIM_TRIANGLE_STRIP. It is per
+   * BUFFER and not per bag on purpose - a stripped bag's clip-routed packages
+   * are expanded back to lists (fillByStripExpand) and travel in the same
+   * flush as its stripped ones.
+   */
+  bool stripped;
+
+  /**
+   * Modified by TyraX: which package of the current bag's RETAINED command
+   * block this buffer is, or -1 when it has none (a copied, clipped or
+   * strip-expanded buffer, a bag the cache refused, or the feature compiled
+   * out). See StaPipRetainedCommands in stapip_qbuffer_renderer.hpp.
+   *
+   * StaPipQBufferRenderer::getBuffer() resets it - the one gate every buffer
+   * passes through before any fill - so a slot recycled out of a retained bag
+   * cannot carry a stale index into a copied or clipped one. StaPipCore sets
+   * it back after the fill, for the routes that may be retained.
+   */
+  int retainIndex;
+
+  /**
+   * Modified by TyraX: this buffer's package index inside its bag's BAKED VIF
+   * stream, or -1 (docs/baked-vif-stream.md). Set only by the DIRECT,
+   * wholly-visible cull route - the one route whose packages are a fixed slice
+   * of the bag - and reset by getBuffer() like retainIndex above.
+   */
+  int bakeIndex;
+#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
+  /**
+   * Probe B only (stapip_probes.hpp): this buffer's streams live in the
+   * qbuffer COPY POOL, written by the EE between sends, rather than in the
+   * bag's own long-lived arrays. The DMA REF tags then point at memory whose
+   * dirty cache lines only `FlushCache` writes back, so a send carrying one of
+   * these must keep the flush. Cleared by getBuffer(), set by the copy fills
+   * and by StaPipClipper::writeChunk.
+   */
+  bool probeCopyFilled;
+#endif
 
   void print() const;
   void print(const char* name) const;

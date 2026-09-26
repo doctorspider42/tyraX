@@ -1,0 +1,27 @@
+Fixture identity for every arm of this round.
+
+stripRun, read out of each arm's generated source (the branch tip bakes 75):
+  ctl              75
+  cand             75
+  lod-m64          75
+  lod-m64-t96      75
+  lod-t96          75
+  lod-t160         75
+  probe-cadence4   75
+
+ELF and editor identity per arm (from ARM.json):
+  ctl              elf DEB78BF9C20E1C33  editor E9E120E285A4124F  meshLod None  terrainLod None  
+  cand             elf A6FFAD9F47C7B40B  editor E5B3413EE1017CB8  meshLod None  terrainLod None  
+  lod-m64          elf 609337CB20F809EC  editor E5B3413EE1017CB8  meshLod 64.0  terrainLod 0.0  
+  lod-m64-t96      elf 43F35D2B52DC70ED  editor E5B3413EE1017CB8  meshLod 64.0  terrainLod 96.0  
+  lod-t96          elf 498F709DE0E3C500  editor E5B3413EE1017CB8  meshLod 0.0  terrainLod 96.0  
+  lod-t160         elf 1152919E7789B19C  editor E5B3413EE1017CB8  meshLod 0.0  terrainLod 160.0  
+  probe-cadence4   elf E2055A7EC4AACA02  editor -  meshLod None  terrainLod None  shared reflection probe every 4th frame
+
+ROADSTRIP, from the host oracle that reproduces the console's
+own producer line (road-budget-sweep.py):
+  control (branch tip) : packages 470  triangles 31050
+  candidate (shipped)  : packages 337  triangles 21252
+
+A matching capture hash would be a PICTURE check and never a
+fixture check. The lines above are the fixture check.

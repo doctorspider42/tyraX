@@ -1,0 +1,554 @@
+--- a/vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_core.hpp
++++ b/vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_core.hpp
+@@ -24,6 +24,13 @@
+ 
+ class StaPipCore {
+  public:
++  /**
++   * Modified by TyraX: bounded batching for caller-owned immutable bag
++   * streams. Every begin must be paired with end; referenced streams remain
++   * immutable until the renderer's next VIF1 synchronization.
++   */
++  void beginSubmissionBatch() { qbufferRenderer.beginSubmissionBatch(); }
++  void endSubmissionBatch() { qbufferRenderer.endSubmissionBatch(); }
+   StaPipCore();
+   ~StaPipCore();
+ 
+--- a/vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_programs_repository.hpp
++++ b/vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_programs_repository.hpp
+@@ -46,6 +46,8 @@
+   ~StaPipProgramsRepository();
+ 
+   StaPipVU1Program* getProgram(const StaPipProgramName& name);
++  bool hasOverride(const StaPipProgramName& name) const;
++  bool hasAnyOverride() const { return overrideCount != 0; }
+ 
+   /** TyraX addition: let a GAME supply its own microprogram in place of a
+    * built-in one (docs/vu-framework.md). The editor can generate a VU1 program
+@@ -85,6 +87,7 @@
+    * built-in member above. */
+   static const int kOverrideSlots = 32;
+   StaPipVU1Program* overrides[kOverrideSlots];
++  u8 overrideCount = 0;
+ };
+ 
+ }  // namespace Tyra
+--- a/vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp
++++ b/vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp
+@@ -145,9 +145,25 @@
+ 
+   void flushBuffers();
+ 
++  /**
++   * Modified by TyraX: opt one known-owned sequence into bounded submission
++   * batching. The caller guarantees that every direct vertex, texture-coordinate,
++   * colour and normal stream remains alive and unchanged through the next VIF1
++   * synchronization after
++   * endSubmissionBatch(); end submits asynchronously and is not a fence.
++   * Texture and copy/clip paths force an internal flush.
++   */
++  void beginSubmissionBatch();
++  void endSubmissionBatch();
++  void onFrameEnd();
++  bool isSubmissionBatchOpen() const { return submissionBatchScope; }
++  void setSubmissionBatchCandidate(const bool& candidate,
++                                   const bool& textured = false);
++
+   void clearLastProgramName();
+ 
+   StaPipVU1Program* getCullProgramByBag(const StaPipBag* bag);
++  bool hasProgramOverrides() const { return repository.hasAnyOverride(); }
+ 
+   StaPipVU1Program* getCullProgramByParams(const bool& isLightingEnabled,
+                                            const bool& isTextureEnabled);
+@@ -174,8 +190,12 @@
+   static const u16 buffersCount;
+ 
+   StaPipVU1Program* getProgramByName(const StaPipProgramName& name);
+-  void addBuffersDataToPacket(const u32& from, const u32& to);
++  void addBuffersDataToPacket(const u32& from, const u32& to,
++                              const bool& finalize = true);
+   void sendPacket();
++  void flushPendingPacket();
++  static void textureMutationBarrier(void* context);
++  void beforeTextureMutation();
+   StaPipVU1Program* getAsIsProgramByBag(const StaPipBag* bag);
+   // Modified by TyraX: VU1 clipping.
+   StaPipVU1Program* getClipProgramByBag(const StaPipBag* bag);
+@@ -196,6 +216,11 @@
+   // Modified by TyraX: uniforms already occupy the current geometry packet;
+   // append the first buffer flush instead of resetting that packet.
+   bool objectDataPending = false;
++  bool submissionBatchScope = false;
++  bool submissionBatchCandidate = false;
++  u8 submissionBatchBags = 0;
++  bool submissionPacketHasTexture = false;
++  bool submissionTextureReadersOutstanding = false;
+ 
+   RendererCore* rendererCore;
+ 
+--- a/vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_telemetry.hpp
++++ b/vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_telemetry.hpp
+@@ -45,6 +45,11 @@
+   u32 prepareTicks = 0;
+   u32 dispatchTicks = 0;
+   u32 packetFlushes = 0;
++  // Modified by TyraX: explicit retained-source submission batching. These
++  // make a zero-hit fixture visible instead of looking like a failed probe.
++  u32 submissionBatchEligibleBags = 0;
++  u32 submissionBatchedBags = 0;
++  u32 submissionBatchPackets = 0;
+   u32 vu1WaitTicks = 0;
+   u32 programSetSwaps = 0;
+   u32 programSetWaitTicks = 0;
+--- a/vendor/tyra/engine/inc/renderer/core/texture/renderer_core_texture.hpp
++++ b/vendor/tyra/engine/inc/renderer/core/texture/renderer_core_texture.hpp
+@@ -47,6 +47,7 @@
+ 
+ class RendererCoreTexture {
+  public:
++  typedef void (*MutationBarrier)(void* context);
+   RendererCoreTexture();
+   ~RendererCoreTexture();
+ 
+@@ -54,6 +55,16 @@
+   TextureRepository repository;
+ 
+   RendererCoreTextureBuffers useTexture(const Texture* t_tex);
++  /** Modified by TyraX: called only before VRAM content/address mutation. */
++  void setMutationBarrier(MutationBarrier barrier, void* context) {
++    mutationBarrier = barrier;
++    mutationBarrierContext = context;
++  }
++  void clearMutationBarrier(void* context) {
++    if (mutationBarrierContext != context) return;
++    mutationBarrier = nullptr;
++    mutationBarrierContext = nullptr;
++  }
+ 
+   /**
+    * Called by user after changing texture wrap settings
+@@ -126,6 +137,9 @@
+   RendererCoreGS* gs;
+   RendererCoreTextureSender sender;
+   Path3* path3;
++  MutationBarrier mutationBarrier = nullptr;
++  void* mutationBarrierContext = nullptr;
++  void beforeMutation();
+ };
+ 
+ }  // namespace Tyra
+--- a/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp
++++ b/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp
+@@ -83,6 +83,7 @@
+ }
+ 
+ void StaPipCore::onFrameEnd() {
++  qbufferRenderer.onFrameEnd();
+   cacher.onFrameEnd();
+   transformCacheValid = false;
+   transformCachePlanesValid = false;
+@@ -405,6 +406,33 @@
+   } else {
+     packager.setClipObjectSpacePlanes(nullptr);
+   }
++
++  const bool directBag =
++      (frustumCull && frustumCheck == IN_FRUSTUM) ||
++      (!frustumCull && !bag->info->fullClipChecks);
++  const bool batchScope = qbufferRenderer.isSubmissionBatchOpen();
++  const bool hasTexture = bag->texture && bag->texture->texture;
++  const bool cheapBatchCandidate =
++      batchScope && directBag && bag->billboard == nullptr &&
++      bag->count <= maxVertCount * 15 &&
++      !qbufferRenderer.hasProgramOverrides();
++  bool residentTexture = true;
++  bool repeatTexture = true;
++  if (cheapBatchCandidate && hasTexture) {
++    residentTexture =
++        bag->texture->texture->vramResident != nullptr ||
++        rendererCore->texture
++                .getAllocatedBuffersByTextureId(bag->texture->texture->id)
++                .id != 0;
++    repeatTexture =
++        bag->texture->texture->getWrapSettings()->horizontal == WRAP_REPEAT &&
++        bag->texture->texture->getWrapSettings()->vertical == WRAP_REPEAT;
++  }
++  // Modified by TyraX: decide before useTexture(), because a GIF upload must
++  // never overtake geometry retained in an earlier PATH1 packet.
++  qbufferRenderer.setSubmissionBatchCandidate(
++      cheapBatchCandidate && residentTexture && repeatTexture,
++      hasTexture);
+ 
+   // Modified by TyraX: stack storage - sendObjectData consumes the
+   // struct immediately, the old per-bag new/delete was pure heap churn.
+--- a/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_programs_repository.cpp
++++ b/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_programs_repository.cpp
+@@ -23,6 +23,10 @@
+                                            StaPipVU1Program* program) {
+   const int slot = static_cast<int>(name);
+   if (slot < 0 || slot >= kOverrideSlots) return;
++  if (overrides[slot] == nullptr && program != nullptr)
++    ++overrideCount;
++  else if (overrides[slot] != nullptr && program == nullptr)
++    --overrideCount;
+   overrides[slot] = program;
+ }
+ 
+@@ -86,4 +90,10 @@
+   }
+ }
+ 
++bool StaPipProgramsRepository::hasOverride(
++    const StaPipProgramName& name) const {
++  const int slot = static_cast<int>(name);
++  return slot >= 0 && slot < kOverrideSlots && overrides[slot] != nullptr;
++}
++
+ }  // namespace Tyra
+--- a/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp
++++ b/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp
+@@ -61,7 +61,13 @@
+ 
+ const u16 StaPipQBufferRenderer::buffersCount = 32;
+ namespace {
+-constexpr u16 kObjectDataPacketSize = 57;
++// Modified by TyraX: 57 packet qwords before the transient REF payloads were
++// made inline, plus 4 MVP, 3 light-matrix, 3 direction and 1 colour qwords.
++constexpr u16 kObjectDataPacketSize = 68;
++constexpr u16 kSubmissionBatchSize = 4;
++constexpr u16 kQBufferCommandCapacity = 32;  // keep with buffersCount
++constexpr u16 kWorstBagPacketSize =
++    4 * kQBufferCommandCapacity + kObjectDataPacketSize;
+ }
+ 
+ StaPipQBufferRenderer::StaPipQBufferRenderer() {
+@@ -70,12 +76,16 @@
+   context = 0;
+   lastProgramName = StaPipUndefinedProgram;
+ 
+-  packetSize = 4 * buffersCount + kObjectDataPacketSize;
++  // Modified by TyraX: four bounded small direct bags can share one native
++  // packet. Each retains its own worst-case uniforms and up to 15 command
++  // groups; the extra headroom keeps packet construction fail-closed.
++  packetSize = kSubmissionBatchSize * kWorstBagPacketSize;
+   programsPacket = nullptr;
+   billboardProgramsPacket = nullptr;
+ }
+ 
+ void StaPipQBufferRenderer::allocateOnUse() {
++  rendererCore->texture.setMutationBarrier(textureMutationBarrier, this);
+   staticDataPacket = packet2_create(3, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
+   // Modified by TyraX: +6 qwords for the spot light unpack, +16 for the
+   // VU1 clipping constants + plane table.
+@@ -100,7 +110,11 @@
+ }
+ 
+ void StaPipQBufferRenderer::deallocateOnUse() {
+-  objectDataPending = false;
++  beforeTextureMutation();
++  dma_channel_wait(DMA_CHANNEL_VIF1, 0);
++  rendererCore->texture.clearMutationBarrier(this);
++  submissionBatchScope = false;
++  submissionBatchCandidate = false;
+   packet2_free(staticDataPacket);
+   for (u16 i = 0; i < 2; i++) packet2_free(packets[i]);
+   delete[] packets;
+@@ -141,6 +155,7 @@
+ }
+ 
+ void StaPipQBufferRenderer::reinitVU1() {
++  flushPendingPacket();
+   uploadPrograms();
+   setDoubleBuffer();
+ }
+@@ -256,7 +271,7 @@
+   // The other packet was completed before sendPacket flipped back to this
+   // context, so it is safe to reuse without adding a preparation-side wait.
+   auto* objectDataPacket = packets[context];
+-  packet2_reset(objectDataPacket, false);
++  if (!objectDataPending) packet2_reset(objectDataPacket, false);
+   // Modified by TyraX: everything in this chain lands at an ABSOLUTE VU1
+   // address (MVP 0..3, OPTIONS 8, CLIP_CONSTS 20, ALPHA 21, the clip planes at
+   // 944..955) and the microprograms read those inside their loops. The DMA
+@@ -275,16 +290,45 @@
+   packet2_vif_flushe(objectDataPacket, 0);
+   packet2_vif_nop(objectDataPacket, 0);
+   packet2_chain_close_tag(objectDataPacket);
+-  packet2_utils_vu_add_unpack_data(objectDataPacket, VU1_MVP_MATRIX_ADDR,
+-                                   mvp->data, 4, false);
++  if (submissionBatchCandidate) {
++    packet2_utils_vu_open_unpack(objectDataPacket, VU1_MVP_MATRIX_ADDR, false);
++    const float* mvpData = reinterpret_cast<const float*>(mvp->data);
++    for (u32 i = 0; i < 16; ++i)
++      packet2_add_float(objectDataPacket, mvpData[i]);
++    packet2_utils_vu_close_unpack(objectDataPacket);
++  } else {
++    packet2_utils_vu_add_unpack_data(objectDataPacket, VU1_MVP_MATRIX_ADDR,
++                                     mvp->data, 4, false);
++  }
+ 
+   if (bag->lighting) {
+-    packet2_utils_vu_add_unpack_data(objectDataPacket, VU1_LIGHTS_MATRIX_ADDR,
+-                                     bag->lighting->lightMatrix, 3, false);
+-
+-    packet2_utils_vu_add_unpack_data(
+-        objectDataPacket, VU1_LIGHTS_DIRS_ADDR,
+-        bag->lighting->dirLights->getLightDirections(), 3, false);
++    if (submissionBatchCandidate) {
++      packet2_utils_vu_open_unpack(objectDataPacket, VU1_LIGHTS_MATRIX_ADDR,
++                                   false);
++      const float* lightMatrix =
++          reinterpret_cast<const float*>(bag->lighting->lightMatrix->data);
++      for (u32 i = 0; i < 12; ++i)
++        packet2_add_float(objectDataPacket, lightMatrix[i]);
++      packet2_utils_vu_close_unpack(objectDataPacket);
++
++      packet2_utils_vu_open_unpack(objectDataPacket, VU1_LIGHTS_DIRS_ADDR,
++                                   false);
++      const Vec4* directions = bag->lighting->dirLights->getLightDirections();
++      for (u32 i = 0; i < 3; ++i) {
++        packet2_add_float(objectDataPacket, directions[i].x);
++        packet2_add_float(objectDataPacket, directions[i].y);
++        packet2_add_float(objectDataPacket, directions[i].z);
++        packet2_add_float(objectDataPacket, directions[i].w);
++      }
++      packet2_utils_vu_close_unpack(objectDataPacket);
++    } else {
++      packet2_utils_vu_add_unpack_data(objectDataPacket,
++                                       VU1_LIGHTS_MATRIX_ADDR,
++                                       bag->lighting->lightMatrix, 3, false);
++      packet2_utils_vu_add_unpack_data(
++          objectDataPacket, VU1_LIGHTS_DIRS_ADDR,
++          bag->lighting->dirLights->getLightDirections(), 3, false);
++    }
+     // add_unpack_data emits a DMA REF, not a copy. The mode-adjusted
+     // colors must live in the packet, never in a temporary stack array.
+     const Vec4* colors = bag->lighting->dirLights->getLightColors();
+@@ -384,10 +428,19 @@
+ 
+   u8 singleColorEnabled = bag->color->single != nullptr;
+ 
+-  if (singleColorEnabled)  // Color is placed in 4th slot of
+-                           // VU1_LIGHTS_MATRIX_ADDR
+-    Packet2TyraUtils::addUnpackData(objectDataPacket, VU1_SINGLE_COLOR_ADDR,
+-                                    bag->color->single->rgba, 1, false);
++  if (singleColorEnabled) {  // Color is placed in 4th slot of
++                            // VU1_LIGHTS_MATRIX_ADDR
++    if (submissionBatchCandidate) {
++      packet2_utils_vu_open_unpack(objectDataPacket, VU1_SINGLE_COLOR_ADDR,
++                                   false);
++      for (u32 i = 0; i < 4; ++i)
++        packet2_add_float(objectDataPacket, bag->color->single->rgba[i]);
++      packet2_utils_vu_close_unpack(objectDataPacket);
++    } else {
++      Packet2TyraUtils::addUnpackData(objectDataPacket, VU1_SINGLE_COLOR_ADDR,
++                                      bag->color->single->rgba, 1, false);
++    }
++  }
+ 
+   packet2_utils_vu_open_unpack(objectDataPacket, VU1_OPTIONS_ADDR, false);
+   {
+@@ -617,6 +670,7 @@
+ void StaPipQBufferRenderer::setResidentClasses(const u32& mask) {
+   const u32 wanted = mask | StaPipClassColor;  // colour is the fallback floor
+   if (wanted == residentClasses) return;
++  flushPendingPacket();
+   residentClasses = wanted;
+   if (programsPacket == nullptr) return;  // init() will build the right set
+ 
+@@ -712,6 +766,7 @@
+ 
+ void StaPipQBufferRenderer::setProgramOverride(const StaPipProgramName& name,
+                                                StaPipVU1Program* program) {
++  flushPendingPacket();
+   repository.setOverride(name, program);
+   if (programsPacket == nullptr) return;  // init() will pick it up
+ 
+@@ -725,6 +780,7 @@
+ void StaPipQBufferRenderer::setProgramOverrides(
+     const StaPipProgramName* names, StaPipVU1Program* const* programs,
+     u32 count) {
++  flushPendingPacket();
+   for (u32 i = 0; i < count; i++) repository.setOverride(names[i], programs[i]);
+   if (programsPacket == nullptr) return;  // init() will pick them up
+ 
+@@ -736,6 +792,7 @@
+ 
+ void StaPipQBufferRenderer::setVU1Clipping(const bool& enabled) {
+   if (vu1Clipping == enabled) return;
++  flushPendingPacket();
+   vu1Clipping = enabled;
+ 
+   if (programsPacket == nullptr) return;  // init() will build the right set
+@@ -764,6 +821,7 @@
+ // the VIF stalls it until VU1 halts, so it is safe mid-frame).
+ void StaPipQBufferRenderer::ensureProgramSet(const bool& billboard) {
+   if (billboardSetActive == billboard) return;
++  flushPendingPacket();
+   billboardSetActive = billboard;
+ 
+   const u32 waitStart = telemetry != nullptr ? readTelemetryTicks() : 0;
+@@ -838,8 +896,13 @@
+     auto offset = currentBufferIndex >= buffersCount / 2 ? buffersCount / 2 : 0;
+     auto size = (currentBufferIndex + 1) - offset;
+     Verbose("-- End flush. from: ", offset, " to: ", offset + size);
+-    addBuffersDataToPacket(offset, offset + size);
+-    sendPacket();
++    addBuffersDataToPacket(offset, offset + size,
++                           !submissionBatchCandidate);
++    if (!submissionBatchCandidate) {
++      sendPacket();
++    } else if (++submissionBatchBags >= kSubmissionBatchSize) {
++      flushPendingPacket();
++    }
+   }
+ 
+   currentBufferIndex = 0;
+@@ -957,7 +1020,8 @@
+ }
+ 
+ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
+-                                                   const u32& to) {
++                                                   const u32& to,
++                                                   const bool& finalize) {
+   HardwareTrace::Scope trace("Packet_build");
+   const u32 buildStart = telemetry ? readTelemetryTicks() : 0;
+   auto* currentPacket = packets[context];
+@@ -981,8 +1045,80 @@
+     }
+   }
+ 
+-  packet2_utils_vu_add_end_tag(currentPacket);
++  if (finalize) packet2_utils_vu_add_end_tag(currentPacket);
+   if (telemetry) telemetry->packetBuildTicks += readTelemetryTicks()-buildStart;
++}
++
++void StaPipQBufferRenderer::beginSubmissionBatch() {
++  TYRA_ASSERT(!submissionBatchScope, "Submission batch is already open");
++  submissionBatchScope = true;
++}
++
++void StaPipQBufferRenderer::endSubmissionBatch() {
++  TYRA_ASSERT(submissionBatchScope, "Submission batch is not open");
++  flushPendingPacket();
++  submissionBatchScope = false;
++  submissionBatchCandidate = false;
++}
++
++void StaPipQBufferRenderer::onFrameEnd() {
++  // Modified by TyraX: fail safe for a mismatched caller scope. Never carry
++  // DMA references into the next frame, where retained source arrays may be
++  // updated before VIF1 consumes them.
++  flushPendingPacket();
++  TYRA_ASSERT(!submissionBatchScope,
++              "Submission batch must end before the frame ends");
++  submissionBatchScope = false;
++  submissionBatchCandidate = false;
++}
++
++void StaPipQBufferRenderer::setSubmissionBatchCandidate(const bool& candidate,
++                                                        const bool& textured) {
++  const bool enabled = submissionBatchScope && candidate;
++  if (!enabled && objectDataPending) flushPendingPacket();
++  // Modified by TyraX: reserve a complete old-style 32-group packet before
++  // appending any bytes. The candidate currently caps at 15 groups, but this
++  // conservative bound remains valid if that policy changes. Checking after
++  // construction is too late: packet2 would already have written past base.
++  if (enabled && objectDataPending &&
++      packet2_get_qw_count(packets[context]) + kWorstBagPacketSize >
++          packetSize)
++    flushPendingPacket();
++  submissionBatchCandidate = enabled;
++  if (enabled && textured) submissionPacketHasTexture = true;
++  if (enabled && telemetry) ++telemetry->submissionBatchEligibleBags;
++}
++
++void StaPipQBufferRenderer::flushPendingPacket() {
++  if (!objectDataPending) return;
++  if (submissionBatchBags == 0) {
++    packet2_reset(packets[context], false);
++    objectDataPending = false;
++    submissionPacketHasTexture = false;
++    return;
++  }
++  if (HardwareTrace::active && submissionBatchBags > 0) {
++    const u32 now = HardwareTrace::ticks();
++    HardwareTrace::record("Submission_batch", now, now, submissionBatchBags);
++  }
++  if (telemetry && submissionBatchBags > 0) {
++    telemetry->submissionBatchedBags += submissionBatchBags;
++    ++telemetry->submissionBatchPackets;
++  }
++  packet2_utils_vu_add_end_tag(packets[context]);
++  sendPacket();
++  submissionBatchBags = 0;
++}
++
++void StaPipQBufferRenderer::textureMutationBarrier(void* context) {
++  static_cast<StaPipQBufferRenderer*>(context)->beforeTextureMutation();
++}
++
++void StaPipQBufferRenderer::beforeTextureMutation() {
++  flushPendingPacket();
++  if (!submissionTextureReadersOutstanding) return;
++  rendererCore->sync.align3D();
++  submissionTextureReadersOutstanding = false;
+ }
+ 
+ void StaPipQBufferRenderer::sendPacket() {
+@@ -1016,6 +1152,9 @@
+   { HardwareTrace::Scope trace("VIF1_submit");
+     if (HardwareTrace::active) { const u32 t=HardwareTrace::ticks(); HardwareTrace::record("Packet_qwords", t, t, packet2_get_qw_count(currentPacket)); }
+     dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1, true); }
++  if (submissionPacketHasTexture)
++    submissionTextureReadersOutstanding = true;
++  submissionPacketHasTexture = false;
+   if (telemetry) telemetry->dmaSubmitTicks += readTelemetryTicks()-submitStart;
+   objectDataPending = false;
+ 
+--- a/vendor/tyra/engine/src/renderer/core/texture/renderer_core_texture.cpp
++++ b/vendor/tyra/engine/src/renderer/core/texture/renderer_core_texture.cpp
+@@ -22,6 +22,10 @@
+ 
+ RendererCoreTexture::~RendererCoreTexture() {}
+ 
++void RendererCoreTexture::beforeMutation() {
++  if (mutationBarrier) mutationBarrier(mutationBarrierContext);
++}
++
+ void RendererCoreTexture::init(RendererCoreGS* t_gs, Path3* t_path3) {
+   gs = t_gs;
+   sender.init(t_path3, t_gs);
+@@ -34,6 +38,7 @@
+ void RendererCoreTexture::freeTextureBuffers(const u32& texId) {
+   auto allocated = getAllocatedBuffersByTextureId(texId);
+   if (allocated.id == 0) return;  // never uploaded - nothing on the GS
++  beforeMutation();
+   // Modified by TyraX: residency counters. Freeing anything but the newest
+   // allocation used to rewind the bump pointer under still-live textures;
+   // the heap handles it now, but the counter stays as proof the path is
+@@ -47,6 +52,7 @@
+ 
+ // Modified by TyraX - see the header comment.
+ void RendererCoreTexture::evictAll() {
++  if (!currentAllocations.empty()) beforeMutation();
+   for (int i = currentAllocations.size() - 1; i >= 0; i--)
+     sender.deallocate(currentAllocations[i]);
+   currentAllocations.clear();
+@@ -93,6 +99,7 @@
+   // Modified by TyraX: evict the coldest allocations until this one fits,
+   // instead of dumping the entire resident set. The heap frees in any order
+   // and coalesces, so the survivors keep their VRAM and their pixels.
++  beforeMutation();
+   makeRoomFor(t_tex);
+ 
+   auto newTexBuffer = sender.allocate(t_tex);
+@@ -247,6 +254,7 @@
+   auto allocated = getAllocatedBuffersByTextureId(t_tex->id);
+   TYRA_ASSERT(allocated.id != 0, "Can't update an unallocated texture!");
+ 
++  beforeMutation();
+   path3->sendTexture(t_tex, allocated);
+   return allocated;
+ }

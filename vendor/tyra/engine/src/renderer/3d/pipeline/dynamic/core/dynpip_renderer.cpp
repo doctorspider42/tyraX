@@ -6,12 +6,16 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: VIF1 waits go through Vif1Queue::drain(), so a chain
+# queued by the static pipeline is finished before this code takes the channel
+# (renderer/core/paths/path1/vif1_queue.hpp).
 */
 
 // Modified by TyraX: PipelineZTest_TestOnly branch in sendObjectData;
 // alpha-test AFAIL fixed to ATEST_KEEP_ALL (cutout texels write no z).
 
 #include "renderer/3d/pipeline/dynamic/core/dynpip_renderer.hpp"
+#include "renderer/core/paths/path1/vif1_queue.hpp"
 #include "renderer/3d/pipeline/dynamic/core/programs/dynpip_vu1_shared_defines.h"
 #include <dma.h>
 #include <utility>
@@ -93,14 +97,14 @@ void DynPipRenderer::sendStaticData() const {
   packet2_utils_vu_close_unpack(staticDataPacket);
 
   packet2_utils_vu_add_end_tag(staticDataPacket);
-  dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+  Vif1Queue::drain();
   dma_channel_send_packet2(staticDataPacket, DMA_CHANNEL_VIF1, true);
 }
 
 void DynPipRenderer::sendObjectData(
     DynPipBag* bag, M4x4* mvp, RendererCoreTextureBuffers* texBuffers) const {
   // The previous DMA must finish before reusing its packet storage.
-  dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+  Vif1Queue::drain();
   packet2_reset(objectDataPacket, false);
   // Modified by TyraX: same barrier as StaPipQBufferRenderer::sendObjectData.
   // The wait above only proves the previous chain was CONSUMED; its last MSCAL
@@ -224,7 +228,7 @@ void DynPipRenderer::addBufferDataToPacket(DynPipBag** bags, const u32& count) {
 }
 
 void DynPipRenderer::sendPacket() {
-  dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+  Vif1Queue::drain();
   dma_channel_wait(DMA_CHANNEL_GIF, 0);  // Wait for texture. Issue #182.
 
   // dma_wait_fast(); // This have no impact on performance
@@ -242,9 +246,9 @@ void DynPipRenderer::clearLastProgramName() {
 }
 
 void DynPipRenderer::uploadPrograms() {
-  dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+  Vif1Queue::drain();
   dma_channel_send_packet2(programsPacket, DMA_CHANNEL_VIF1, true);
-  dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+  Vif1Queue::drain();
 }
 
 void DynPipRenderer::setDoubleBuffer() {

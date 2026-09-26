@@ -1,0 +1,13 @@
+{
+  "arm": "vis-pixels",
+  "kind": "pixels",
+  "profile": "debug",
+  "stripRun": "75",
+  "sampler": "visibility: parked garage day, command file names objects to HIDE",
+  "instrument": "none (capture arm)",
+  "elfSha256": "A3EAA1297CD39E21DFD92E634179EB4D771100DEA733548F62047FC8465F7972",
+  "editor": "D:\\tyra-editor\\.claude\\worktrees\\agent-aa4dd857197b86f19\\build\\tyrax-editor.exe",
+  "editorSha256": "583755C2C786563D8DD9E4C3F4B169EA3F4014D0755B8016D74E0CF49F876AAC",
+  "commit": "428e2c5978be103e54b8a418a3834fc6b1dd0245",
+  "built": "2026-09-17T06:40:08.1890896+02:00"
+}

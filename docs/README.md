@@ -7,6 +7,10 @@ for people building games with it. Internals live in code comments, the git log
 (commit messages carry what changed and how it was verified) and the
 `.claude/skills/` developer guides. What's queued is in [Backlog](backlog.md).
 
+The [Motor District performance work plan](motor-district-performance-plan.md)
+details the current wheel, road, LOD, reflection and measurement tasks, including
+their ownership and acceptance checks.
+
 **World & objects**
 
 - [Animated models (.glb / .fbx)](animated-models.md) — authoring in Blender, import,
@@ -16,8 +20,14 @@ for people building games with it. Internals live in code comments, the git log
   already have: name-based bone matching, the translation policy that keeps your
   character's proportions instead of the source's, root-motion retargeting.
 - [Static models: the .tmdl pipeline and mesh LOD](model-pipeline.md) — why the
-  game reads a binary model instead of your `.obj`, and distance LOD with
-  authored or auto-decimated tiers.
+  game reads a binary model instead of your `.obj`, distance LOD with authored
+  or auto-decimated tiers, and the triangle strips the build ships beside the
+  triangle list so a shared corner costs one VU1 package instead of three.
+- [Seeing how static objects batch](static-batching.md) — which objects merged
+  into one submission and which did not, with the reason named for every object
+  that stayed solo; what a batch costs in VU1 packages against its members
+  drawn separately, why the merged box is the number to look at, and the
+  per-object opt-out for when one outlying member keeps a whole group drawn.
 - [World scale: units, meters and imports](world-scale.md) — what a unit is
   worth, why imports land several times too small, and the tools that tell you.
 - [The terrain, and building without one](terrain.md) — the per-scene ground
@@ -26,6 +36,10 @@ for people building games with it. Internals live in code comments, the git log
   with a brush, two-pass GS splatting, stochastic tiling.
 - [Terrain distance detail (LOD)](terrain-lod.md) — far tiles built from fewer
   heightmap samples, stitched so no crack shows; what makes a big map drawable.
+- [Roads](roads.md) — spline streets glued to the terrain: a handful of authored
+  points and one texture become a tessellated, terrain-projected ribbon, built
+  at scene load by a twin of the editor's own tessellator, shipped as triangle
+  strips, and reduced laterally against a published surface and UV budget.
 - [Areas (invisible volumes)](areas.md) — the box that replaces hand-typed
   distances: streaming zones, catch lists for mirrors/portals/feeds, the In
   Area trigger, reverb rooms.
@@ -41,6 +55,12 @@ for people building games with it. Internals live in code comments, the git log
   console rasterizes it, field rendering included.
 - [TV safe areas](safe-areas.md) — viewport guides for what a real television
   will not crop, plus the one case where PAL shows more than NTSC.
+- [Rigid-body physics](physics.md) — physics bodies as real rigid bodies: a baked
+  convex hull per mesh, contact points, impulses with friction and restitution,
+  and what it costs on the EE.
+- [Particle library](particles.md) — particle effects defined once in the Particle
+  Editor and linked from emitters and vehicle tyre smoke, additive fire and
+  sparks, and procedural smoke / flame / glow textures.
 - [Collision boxes](collision-boxes.md) — what actually stops the player, why
   it's nowhere near the object's centre, and how to see it.
 - [Prefabs](prefabs.md) — reusable object groups (flow graphs included),
@@ -72,7 +92,8 @@ for people building games with it. Internals live in code comments, the git log
   lights can carve — with the reason only one spot casts per frame, and how the
   four silhouette slots change hands without blinking.
 - [Reflective materials (sphere-mapped "chrome")](reflective-materials.md) —
-  the PS2-era fake for car paint, static or re-rendered from the live sky.
+  the PS2-era fake for car paint, static or re-rendered from the live sky, with
+  a reuse budget stated in pixels of the probe's own target.
 - [Raytraced reflections (VU0, experimental PoC)](raytraced-reflections.md) — a
   Mirror whose reflection is actually ray-traced per pixel, and what it costs.
 - [Live texture feeds (CCTV + mirror streams)](texture-feeds.md) — any surface
@@ -83,6 +104,12 @@ for people building games with it. Internals live in code comments, the git log
   shadows where geometry meets, and the knobs; plus **Model AO**, each `.obj`
   model's own self-occlusion baked automatically into the texture it already
   ships, for no extra VRAM.
+- [Interleaved passes](interleaved-passes.md) - the static batch and road
+  draws fed into the object loop so EE and VU1 work overlap; Auto / Always /
+  Off, the whole-loop auto tuner, the blend gate and the PS2 numbers.
+- [Conservative occlusion culling](occlusion-culling.md) — build-time inner
+  proxy boxes, the runtime CPU visibility buffer, safety refusals and per-object
+  opt-outs.
 - [Baked global illumination + light probes](global-illumination.md) — a
   multi-bounce lightmap plus a probe grid, traced on your desktop so the
   console pays nothing.
@@ -111,6 +138,9 @@ for people building games with it. Internals live in code comments, the git log
   authored segments forever; the train-window level generator.
 - [Two-player games](multiplayer.md) — shared or split screen, pad-2 hot-join,
   and what the second player costs.
+- [Vehicles](vehicles.md) — driveable cars: one model in, wheels found by
+  geometry, 36 submits merged down to two, a bicycle-model chassis, and a fast
+  wheel model the four wheels swap to above a spin rate.
 - [NavMesh + NPC AI](navigation-ai.md) — the host-side navigation bake, A* on
   the EE, and the guard-wiring flow nodes.
 - [Configurable buttons & keys](input-bindings.md) — named actions, binding
@@ -167,6 +197,18 @@ for people building games with it. Internals live in code comments, the git log
 
 **Iterating on a running game**
 
+- [Full-asset PS2 performance recheck](performance-hardware-recheck.md) — corrected
+  hardware tests after detecting missing textures and models in agent fixtures.
+- [Static submission batching](static-submission-batching.md) — the
+  retained-stream ownership contract, safe resident-texture boundaries and the
+  physical-PS2 measurements, image checks and eviction/pipeline stress behind
+  bounded StaPip DMA submission.
+- [Retained static geometry command data](retained-static-commands.md) — a
+  wholly visible static bag's VU1 command block and the clipping constants are
+  captured once and replayed with a memcpy, so only the MVP, the picked light
+  and the visibility classification stay per-frame; why copying finished DMA
+  tags is safe, and what invalidates a block.
+
 - [The devkit, and its zero-cost promise](devkit.md) — the live channels, crash
   reporting, the VU1 inspector, and the release audit that PROVES a shipped ELF
   carries none of it.
@@ -218,8 +260,65 @@ for people building games with it. Internals live in code comments, the git log
 
 Developer design docs (internals, not user guides):
 
+- [Physical PS2 hardware timeline](hardware-profiler.md) — bounded RAM captures of EE scopes, DMA waits and VIF/GIF state, viewed directly in the editor or exported to interactive HTML and Perfetto JSON.
+- [Hardware profiler findings](hardware-profiler-results.md) — seven full-asset physical PS2 controls separating host I/O, framebuffer depth, raster area and additional-pass costs.
+- [VU1 arithmetic and DMA cache-flush cost](vu1-and-dma-cache-cost.md) — what a
+  VU1 cycle per triangle is worth in frame time on real hardware, why ps2sdk's
+  two cache primitives are both wrong for a DMA packet, and why neither answer
+  is a reason to fork the SDK.
+- [The EE pays 147 cycles per triangle](ee-submission-rearchitecture.md) — the
+  plan for the next round: why an immediate-mode static pipeline cannot reach
+  60 Hz whatever its constants are, the baked VIF stream that would replace it,
+  and what is already measured NOT to be the lever. The two bounding probes
+  have now been RUN on hardware and both capped what they were aimed at:
+  per-package frustum rejection buys more than it costs so the redesign must
+  keep it, coarsening the classification is a net loss, and dropping
+  `FlushCache` corrupted the picture even with the packet allocated uncached.
+- [A baked VIF stream per mesh](baked-vif-stream.md) — the spike behind that
+  plan's central change: the exact quadword layout of a package's pure-VIFcode
+  block, why one DMA `REF` may replay it, the three facts that turn out to be
+  bake-time (the GIFtag, the Z scale and the `MSCAL`), and the memory it costs
+  — about as much again as the vertex arrays it duplicates.
+- [The content version](bag-content-version.md) — the contract that unparked
+  that spike, and the reason it is a TYPE rather than a rule. The baked
+  stream's cache key could not see a caller re-shading per-vertex colours in
+  place, because `bboxVersion` is a statement about the bounding box; the
+  adversarial arm caught it 1 438 times, only while the camera moved. The
+  generated game's arrays are now a `BagArray<T>` whose `data()` is const and
+  whose every mutation stamps, so a write that forgets to invalidate does not
+  compile — with a negative test that was falsified before it was believed, the
+  one engine exception named rather than implied away, and the second caller
+  the arm then found (the vehicle paint pass, `const_cast`-ing past the array).
+- [The acceptance gate for a restructured static pipeline](baked-stream-acceptance-gate.md)
+  — the gate every earlier renderer round used pins `packetFlushes`, and a run
+  of packages under one `REF` tag cannot cross a flush boundary, so that gate
+  pins the prize. This designs the replacement: a canonical, NOP-normalised hash
+  of the word stream VIF1 actually receives, with texture mutations interleaved,
+  plus byte-identical pixels over a pose sweep — why the VU1 packet tap is the
+  right seam but the wrong shape, and the one hole (DMA lifetime on a frozen
+  fixture, which PCSX2 cannot see at all) that no gate on this fixture closes.
+- [Does the renderer work generalise?](engine-performance-on-a-second-map.md) —
+  the control for six rounds of performance work driven by one scene: a second
+  map with no content in common gains 8.9% of its work from the same engine.
+- [Attributing render submission](render-submission-attribution.md) — the
+  opt-in counters that close the gap between the static pipeline's three
+  telemetry brackets and the whole `beginFrame`..`endFrame` block, what the
+  unmeasured remainder turned out to be, and what the hooks themselves cost.
+  Round two splits `bounds` and the package-creation box the same way: it
+  exonerates the bbox cacher, prices a caller's per-frame `bboxVersion` bump at
+  0.618 ms, and finds 22% of `bounds` in a per-bag fan-out to thirty-two
+  qbuffers that reads as three stores.
+- [Not re-baking wheels that did not move](wheel-rebake-skip.md) — the vehicle
+  wheel batch keeps the vertices of a rig whose inputs did not change and stops
+  bumping `bboxVersion` when its buffer is byte-identical, plus the fixture
+  hazard that makes a parked benchmark flatter any skip-when-unchanged change.
 - [Profiling the generated game](profiling.md) — the built-in frame profiler,
   the COP0 deep-dive technique, and the frame-timing rig.
+- [Emulator captures](emulator-captures.md) — unattended PCSX2 savestates and
+  GS dumps from a private emulator instance (no focus, no global input), the
+  analysers that read them (GS buffer formats, dithering, fill per target, DMA
+  chains left in EE RAM), and a 60 Hz commercial title's measured frame shape
+  as a yardstick.
 - [The VU framework](vu-framework.md) — describe a microprogram in C++,
   generate both sides, run it in the host simulator with no PS2.
 - [Authoring VU programs](vu-authoring.md) — composing VU1 programs and VU0
@@ -239,8 +338,9 @@ Developer design docs (internals, not user guides):
   geometry needs no clipping at all (the GS scissor crops it), and the measured
   cost of getting that decision wrong.
 - [GS VRAM residency](gs-vram.md) — where the 4 MB goes, 16-bit frame buffers
-  and dithering, what a texture really costs, the texture heap and its eviction
-  policy, measured before/after numbers.
+  and dithering, the hybrid mode (draw 32-bit, show a dithered 16-bit copy), what a texture really costs, the texture heap and its eviction
+  policy, the residency census that names what is resident, the Motor District
+  garage inventory, measured before/after numbers.
 - [Frame extrapolation](frame-extrapolation.md) — synthesising an extra frame
   by re-drawing the last one under a newer camera: 25 Hz world, 50 Hz picture.
 - [Frame pacing](frame-pacing.md) — the vsync cliff and the triple-buffered

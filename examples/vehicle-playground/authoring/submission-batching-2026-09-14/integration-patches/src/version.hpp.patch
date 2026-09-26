@@ -1,0 +1,21 @@
+--- a/src/version.hpp
++++ b/src/version.hpp
+@@ -16,6 +16,9 @@
+ //   migrations.cpp for the same bump; purely additive bumps need no step and
+ //   open silently. See docs/format-versioning.md.
+ 
++// 1.93.0: explicit resident static submission batches in generated object draws.
++// No project format change.
++//
+ // 1.92.0: native hardware timeline and detailed static submission scopes.
+ // No project format change.
+ //
+@@ -3983,7 +3986,7 @@
+ // 1.86.0: merge baked shadow decals with main's render-cost table and
+ // object-group line.
+ #define TYRAX_VERSION_MAJOR 1
+-#define TYRAX_VERSION_MINOR 92
++#define TYRAX_VERSION_MINOR 93
+ #define TYRAX_VERSION_PATCH 0
+ 
+ #define TYRAX_STR2(x) #x

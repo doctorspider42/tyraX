@@ -36,7 +36,9 @@
 
     ResetClipFlags{ }
     MatrixLoad{ mvp, VU1_MVP_MATRIX_ADDR, vi00 }
-    LoadTyraSingleColor{ singleColor, singleColorEnabled, VU1_SINGLE_COLOR_ADDR, VU1_OPTIONS_ADDR }
+    ; Modified by TyraX: only the flag here - the colour itself is loaded
+    ; per batch, where it is replicated (setDestAddr).
+    ilw.x   singleColorEnabled, VU1_OPTIONS_ADDR(vi00)
     LoadTyraFogParams{ fogParams, VU1_OPTIONS_ADDR }
     MakeTyraAdcMask{ adcMask }
     LoadTyraEnvBasis{ envBasisX, envBasisY, envBasisZ }
@@ -61,9 +63,23 @@ begin:
     iadd    colorData,          stqData,        vertexCount
     iblez   singleColorEnabled, setDestAddrMultiColor
     iadd    kickAddress,        stqData,        vertexCount
+    ; Modified by TyraX: one colour, three copies at
+    ; VU1_SINGLE_COLOR_COPIES_ADDR and a stride-0 colour pointer, so the
+    ; vertex loops below load their colours the same way in both modes
+    ; instead of branching on the flag at the top of every body.
+    lq      singleColor,        VU1_SINGLE_COLOR_ADDR(vi00)
+    ; the loop used to build each corner as vf00 + singleColor, which
+    ; adds vf00.w = 1.0 to the alpha - kept, so the output is bit-identical
+    add     singleColor,        vf00,           singleColor
+    sq      singleColor,        VU1_SINGLE_COLOR_COPIES_ADDR(vi00)
+    sq      singleColor,        VU1_SINGLE_COLOR_COPIES_ADDR+1(vi00)
+    sq      singleColor,        VU1_SINGLE_COLOR_COPIES_ADDR+2(vi00)
+    iaddiu  colorData,          vi00,           VU1_SINGLE_COLOR_COPIES_ADDR
+    iaddiu  colorStride,        vi00,           0
     b       setDestAddr
 setDestAddrMultiColor:
     iadd    kickAddress,        colorData,      vertexCount
+    iaddiu  colorStride,        vi00,           3
 setDestAddr:
     iaddiu  destAddress,        kickAddress,    0
 
@@ -77,20 +93,12 @@ setDestAddr:
     iadd vertexCounter, buffer, vertexCount
 vertexLoop:
 
-        iblez  singleColorEnabled, multiColor
-        ;--- Load vertices single color
-        add      color1,    vf00,   singleColor
-        add      color2,    vf00,   singleColor
-        add      color3,    vf00,   singleColor
-        b processing
-
-multiColor:
-        ;--- Load vertices colors
+        ;--- Load vertices colors (a single colour reads three copies,
+        ;--- stride 0 - see setDestAddr)
         lq      color1,   (colorData)
         lq      color2,   1(colorData)
         lq      color3,   2(colorData)
 
-processing:
         ;--- Load vertex1 (stq slot = object-space normal)
         lq      vertex1,  (vertexData)
         lq      stq1,     (stqData)
@@ -152,7 +160,7 @@ processing:
 
         iaddiu  vertexData,     vertexData,     3
         iaddiu  stqData,        stqData,        3
-        iaddiu  colorData,      colorData,      3
+        iadd    colorData,      colorData,      colorStride
         iaddiu  destAddress,    destAddress,    9
 
         ;--- Fix loop

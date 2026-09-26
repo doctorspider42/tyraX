@@ -1,0 +1,1 @@
+{ "id": "dense0005eed001e", "name": "Dense Tower 31", "type": "model", "position": [96.45, 0.953, 14.74], "rotation": [0, 88.3, 0], "scale": [1.2, 1.2, 1.2], "color": [1, 1, 1], "physics": false, "drawDistance": 145, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

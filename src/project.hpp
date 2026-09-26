@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <map>
@@ -13,8 +14,10 @@
 #include "grading.hpp"
 #include "input.hpp"
 #include "procgraph.hpp"
+#include "roadgen.hpp"  // JunctionOverride - SceneData stores them verbatim
 #include "screenfx.hpp"
 #include "sequence.hpp"
+#include "vehiclesim.hpp"  // DriveSpec - a VehicleDef carries one verbatim
 #include "version.hpp"
 
 struct TerrainConfig {
@@ -49,11 +52,15 @@ struct TerrainLayer {
     // organic textures (grass/sand/rock); leave off for anything with fixed
     // seams (bricks, tiles). No effect on a flat layer.
     bool stochastic = false;
+    // Tyre grip on this layer (1.142.0, docs/vehicles.md "Off-road grip"): a
+    // multiplier on top of each vehicle's Off-road grip wherever the layer is
+    // painted, blended by its weight. 1 = the bare terrain; mud ~0.5.
+    float grip = 1.0f;
 };
 
 inline bool operator==(const TerrainLayer& a, const TerrainLayer& b) {
     return a.name == b.name && a.material == b.material && a.scale == b.scale &&
-           a.stochastic == b.stochastic;
+           a.stochastic == b.stochastic && a.grip == b.grip;
 }
 
 enum class PrimitiveType {
@@ -150,11 +157,24 @@ enum class PrimitiveType {
     // object INDICES are baked into every generated table and dropping one
     // type from the emitted list would retarget all of them.
     Comment = 20,
+    // Vehicle instance (docs/vehicles.md): a driveable car. The object is only
+    // a PLACEMENT - everything the vehicle is (its model, its wheels, how it
+    // drives) lives in a project-wide VehicleDef the object names in
+    // `vehicleDef`, so one definition can be dropped into as many scenes as
+    // you like and tuned in one place. The editor draws the definition's body
+    // and wheels; the game builds two bags out of it and drives it.
+    Vehicle = 21,
+    // Road (docs/roads.md): a Catmull-Rom spline through authored points,
+    // tessellated into terrain-hugging textured chunks AT BOOT - the object
+    // stores only the points, the width and a texture, so a kilometre of
+    // road costs a handful of floats in the .tyra and ONE tiled texture in
+    // VRAM. The editor can also flatten the terrain to the road's line.
+    Road = 22,
 };
 
 // One past the last PrimitiveType value - loops over "every object type" (the
 // multi-select tally) bound on this instead of a hardcoded member.
-constexpr int kPrimitiveTypeCount = (int)PrimitiveType::Comment + 1;
+constexpr int kPrimitiveTypeCount = (int)PrimitiveType::Road + 1;
 
 // Tessellation detail for the geometry primitives, stored per object in
 // SceneObject::primDetail. Its meaning depends on the shape: for the curved
@@ -335,6 +355,30 @@ struct SceneObject {
     // drawn at all (collision, sounds and scripts still run). 0 = unlimited.
     // The cheapest LOD there is - era-correct for dense scenes.
     float drawDistance = 0.0f;
+    // Keep this object OUT of static batching, whatever the automatic rules
+    // decide (Tools > Static Batches, or Properties > Exclude from static
+    // batch). It is the only per-object lever there is: `batchStatic` in the
+    // generated scene table is a build-time VERDICT computed by
+    // templates.cpp's staticBatchEligible, not an authored field, so before
+    // this the only way to refuse one batch was to switch batching off for
+    // the entire project.
+    //
+    // The case it serves is the merged-box regression (docs/static-batching.md):
+    // a batch is culled as a unit against the union of its members, so one
+    // outlying member can keep the whole group drawn - measured once as 400
+    // pixels of geometry the unbatched scene culled. Excluding that one
+    // member is the surgical fix; the alternatives are re-authoring the scene
+    // or losing batching everywhere.
+    //
+    // Written to the .tyra only when true, so every project that never
+    // touches it resaves byte for byte.
+    bool batchExclude = false;
+    // Conservative software occlusion (docs/occlusion-culling.md). Static,
+    // opaque geometry may contribute an inward proxy unless excluded.
+    bool occluderExclude = false;
+    // Receiving is separate: glass may be hidden by a wall without ever
+    // pretending to be that wall.
+    bool occlusionCull = true;
     std::string impostorPath; // optional static far model; collision stays original
     float impostorDistance = 0.0f; // 0 disables, world units
     bool impostorBillboard = false; // ordered view parts, upright/equal XZ scale
@@ -344,6 +388,9 @@ struct SceneObject {
     // trick's second half. Each marked object costs a second (128x128,
     // wide-FOV) render per frame; mark the few props that sell the effect.
     bool reflected = false;
+    // Use one cheap box in dynamic environment maps. Main-view geometry,
+    // collision and picking keep the full object.
+    bool reflectionProxy = false;
     // Ambient occlusion: this object darkens nearby terrain and objects
     // (a baked contact shadow - docs/ambient-occlusion.md). Off = the object
     // casts nothing; it still receives shadows from others.
@@ -443,6 +490,13 @@ struct SceneObject {
     // caster AND its receivers to stand still - a moving one is refused by
     // shadowbake::plan with its name said out loud.
     int shadowMode = 0;
+    // Optional baked alpha mask for the cheap one-quad blob. Project-relative
+    // PNG; empty keeps the round fallback (or a vehicle definition's automatic
+    // body mask). The runtime rotates it with the object's yaw.
+    std::string blobShadowTexture;
+    // Local X/Z footprint captured with the mask. Zero means infer from the
+    // runtime model/primitive (also the value for hand-picked legacy masks).
+    float blobShadowSize[2] = {0.0f, 0.0f};
     std::string modelPath;    // for PrimitiveType::Model, e.g. "res/models/tree.obj"
     // Material library (.mtl) assigned to the object, e.g.
     // "res/materials/walls.mtl". Primitives take the file's FIRST material
@@ -595,6 +649,22 @@ struct SceneObject {
     float emitterOpacity = 0.6f;
     bool emitterDieOnGround = false;  // particle dies when it hits the terrain
                                       // (water soaking in instead of clipping)
+    // Additive blending (docs/particles.md): the particles ADD light instead
+    // of covering what is behind them - fire, sparks, magic. Depth-tested,
+    // never writes depth. Off = ordinary alpha-over (smoke, dust, fog).
+    bool emitterAdditive = false;
+    // Particle library link (docs/particles.md): the NAME of a
+    // Project::particleEffects entry, "" = the emitter's own settings. While
+    // linked, project::applyParticleEffects copies the effect's look and
+    // physics into the emitter fields above on every commit and on load, so
+    // everything downstream (codegen, the viewport preview, Live Link) keeps
+    // reading ordinary emitter fields.
+    std::string particleEffect;
+    // Flipbook (docs/particles.md): materialPath is frame 0 and frames 1..N-1
+    // are particletex::framePath(materialPath, k), swapped at emitterFps.
+    // Copied from the linked effect; 1 = a still texture.
+    int emitterFrames = 1;
+    float emitterFps = 12.0f;
 
     // Sound emitter parameters (used when type == SoundEmitter)
     std::string soundPath;      // one of Project::sounds ("res/sfx/x.wav")
@@ -752,6 +822,23 @@ struct SceneObject {
     // shipping. Mirrors' reflections and particles still don't show.
     bool portalViewAll = false;
 
+    // Vehicle instance (used when type == Vehicle, docs/vehicles.md): the NAME
+    // of the Project::vehicles definition this is an instance of. Everything
+    // expensive - the model, the wheel table, the driving - belongs to the
+    // definition; an instance carries only its placement and the short list of
+    // overrides below. The split is the whole point: the moment a top speed can
+    // be set in two places, two cars of one name drive differently and nobody
+    // knows which is real.
+    std::string vehicleDef;
+    // AI route: a NAME PREFIX. Codegen collects every object in the scene
+    // whose name starts with it, sorted by name, and bakes their positions as
+    // this instance's waypoint loop - an Area per corner is the natural
+    // authoring (invisible at runtime, no collider). Empty = parked until the
+    // player takes it.
+    std::string vehicleRoute;
+    // Can the player get in? Off makes it scenery that still collides and can
+    // still be driven by a script, which is what parked traffic wants.
+    bool vehicleDriveable = true;
     // Endless scroller parameters (used when type == Scroller). The belt runs
     // along the object's local +Z (its forward, rotated by `rotation`). It
     // tiles `scrollSegments` in order and slides them along the axis at
@@ -808,6 +895,40 @@ struct SceneObject {
     // gizmo moves and resizes it. Evaluated in the editor (procgen), baked to
     // static geometry at build (procbake); nothing of it reaches the PS2.
     ProcGraph procGraph;
+    // Road payload (type Road): the polyline the spline threads, XZ pairs in
+    // world space (the object's own position is cosmetic for roads - points
+    // are absolute, which is what lets "align terrain" mean one thing).
+    std::vector<float> roadPoints;
+    // Per-point LIFT above the terrain (units; empty = all glued flat).
+    // Catmull-Rom interpolated along the spline like the XZ, so a ramp
+    // climbs smoothly between anchors - dunes-jump material.
+    std::vector<float> roadHeights;
+    float roadWidth = 6.0f;
+    // Longitudinal geometry spacing. 1 preserves the dense terrain-following
+    // surface; 2 halves the stations for broad, gently varying streets.
+    float roadSampleStep = 1.0f;
+    // Tyre grip on this road, a multiplier on every vehicle's grip (1.137.0,
+    // docs/vehicles.md "Surface grip"): 1 = asphalt, lower = gravel, ice.
+    // Junctions take the lower of their two roads.
+    float roadGrip = 1.0f;
+    // Crossing rules (1.143.0, docs/roads.md "Crossings"). RANK: 0 track, 1
+    // local, 2 main - the higher road runs through a crossing and covers the
+    // lower; equal ranks get the intersection-material junction as before.
+    // SPILL: how far this road's surface trails onto a HIGHER-rank road it
+    // crosses, fading out (units, 0 = a clean edge).
+    int roadRank = 1;
+    float roadSpill = 1.5f;
+    // Soft edges (1.144.0, docs/roads.md "Soft edges"): the outer this-many
+    // units on each side fade into the terrain (0 = the hard edge).
+    float roadEdgeFade = 0.0f;
+    // Road surface asset. New authoring points at a .mtl (its first map_Kd);
+    // direct PNG paths remain accepted for projects authored before the
+    // material picker existed. Empty = untextured grey.
+    std::string roadTexture;
+    // Optional overlay shared by two crossing roads. A junction is generated
+    // only when both roads name the same non-empty texture, which keeps an
+    // ambiguous crossing deterministic and costs no per-frame detection.
+    std::string roadIntersectionTexture;
     // Set on the chunk objects a Scatter bake produced: the id of the Scatter
     // object that owns them. They are real scene objects (so codegen,
     // culling, LOD and the disc layout need no special case) but the editor
@@ -989,6 +1110,340 @@ inline bool operator==(const Prefab& a, const Prefab& b) {
 }
 inline bool operator!=(const Prefab& a, const Prefab& b) { return !(a == b); }
 
+// One wheel of a vehicle definition, as the AUTHOR decided it (docs/vehicles.md).
+// Deliberately not the wheel's geometry: the anchor, the radius and the width
+// are re-measured from the model, because they are facts about the asset and
+// storing a copy of a fact is how a definition goes stale against its own file.
+// What is stored is only what a person can disagree with the detector about.
+struct VehicleWheel {
+    // The model node this wheel is. parseSkel uniquifies node names, so this
+    // identifies a wheel across re-imports of an edited model.
+    std::string node;
+    bool steered = false;
+    bool driven = false;
+};
+
+inline bool operator==(const VehicleWheel& a, const VehicleWheel& b) {
+    return a.node == b.node && a.steered == b.steered && a.driven == b.driven;
+}
+inline bool operator!=(const VehicleWheel& a, const VehicleWheel& b) { return !(a == b); }
+
+// A vehicle, defined once per project and placed as many times as you like
+// (docs/vehicles.md). Project-wide like a Prefab or an AmbiencePreset, and
+// referenced BY NAME from SceneObject::vehicleDef.
+//
+// It is project data rather than a file in res/ on purpose: the file route
+// (.mtl, .flownode, .screenfx, .drone) is for things that honour somebody
+// else's format or carry C++, and this is neither. Being a Section buys the
+// collaboration wire, the AI Assistant's get_section/set_section and the
+// sectionJson edit guard with no code of its own.
+// A procedural particle texture recipe (docs/particles.md): the editor bakes
+// it into res/materials/particles/<effect>.png + a one-line .mtl, which the
+// effect then uses like any other material. kind 0 = none (the effect names a
+// material of its own), 1 smoke puff, 2 flame, 3 glow/spark.
+struct ParticleTexGen {
+    int kind = 0;
+    int size = 64;           // texels per side, 32 / 64 / 128
+    int seed = 1;
+    float softness = 0.6f;   // edge falloff 0..1 (0 = hard disc)
+    float detail = 0.5f;     // noise contrast 0..1
+    float scale = 1.0f;      // noise feature size multiplier
+    float turbulence = 0.5f; // flame: how far the tongues lick sideways
+    float heat = 0.5f;       // flame: white core size / glow: core size
+    float color[3] = {1.0f, 1.0f, 1.0f};  // smoke / glow tint baked in
+    // Flipbook (docs/particles.md): frames of the same recipe with the noise
+    // moving through a seamless loop, swapped at `fps` on the console - one
+    // bag, one submit, only the texture pointer changes. Each frame is its own
+    // texture in GS VRAM, so 4 x 64x64 RGBA32 = 64 KB.
+    int frames = 1;          // 1 / 2 / 4 / 8
+    float fps = 12.0f;
+    bool operator==(const ParticleTexGen& o) const {
+        return kind == o.kind && size == o.size && seed == o.seed &&
+               frames == o.frames && fps == o.fps &&
+               softness == o.softness && detail == o.detail && scale == o.scale &&
+               turbulence == o.turbulence && heat == o.heat &&
+               color[0] == o.color[0] && color[1] == o.color[1] &&
+               color[2] == o.color[2];
+    }
+    bool operator!=(const ParticleTexGen& o) const { return !(*this == o); }
+};
+
+// One EMITTER's worth of a particle effect (docs/particles.md): motion, look
+// and texture. The fields mirror SceneObject's emitter* fields one for one,
+// and project::applyParticleLayer is the ONE place that copies them across.
+struct ParticleLayer {
+    std::string label;  // "Embers", "Glow" ... (extra layers; the main one is "Main")
+    int kind = 1;       // emitterKind semantics: 0 fire .. 4 rain, 5 custom
+    int count = 24;
+    float size = 0.5f;
+    float color[3] = {1.0f, 1.0f, 1.0f};
+    float speed = 3.0f, spread = 20.0f, gravity = 9.8f, weight = 1.0f;
+    float life = 1.5f, grow = 1.0f, opacity = 0.6f;
+    bool dieOnGround = false;
+    bool additive = false;
+    std::string materialPath;  // texture (.mtl, first material's map_Kd)
+    ParticleTexGen texGen;     // how materialPath's texture was generated
+    // Extra layers only: where the layer sits relative to its emitter (world
+    // axes) and its spawn area as a multiple of the emitter's scale. The main
+    // layer IS the emitter, so it has neither.
+    float offset[3] = {0.0f, 0.0f, 0.0f};
+    float area[3] = {1.0f, 1.0f, 1.0f};
+    bool operator==(const ParticleLayer& o) const {
+        return label == o.label && kind == o.kind &&
+               count == o.count && size == o.size && color[0] == o.color[0] &&
+               color[1] == o.color[1] && color[2] == o.color[2] &&
+               speed == o.speed && spread == o.spread && gravity == o.gravity &&
+               weight == o.weight && life == o.life && grow == o.grow &&
+               opacity == o.opacity && dieOnGround == o.dieOnGround &&
+               additive == o.additive && materialPath == o.materialPath &&
+               texGen == o.texGen && offset[0] == o.offset[0] &&
+               offset[1] == o.offset[1] && offset[2] == o.offset[2] &&
+               area[0] == o.area[0] && area[1] == o.area[1] && area[2] == o.area[2];
+    }
+    bool operator!=(const ParticleLayer& o) const { return !(*this == o); }
+};
+
+// One entry of the project's particle library (Tools > Particle Editor,
+// docs/particles.md). Emitters and vehicle tyre smoke reference an effect by
+// NAME. The effect's own ParticleLayer fields are its MAIN layer - the one
+// copied into a linked emitter's own fields - and `layers` are the further
+// emitters it adds around that one (a campfire's flame + embers + glow +
+// smoke), which codegen bakes into EMITTER_LAYERS and the viewport previews.
+struct ParticleEffect : ParticleLayer {
+    std::string id;    // stable identity (collaboration merge key)
+    std::string name;  // what references use
+    std::vector<ParticleLayer> layers;
+    bool operator==(const ParticleEffect& o) const {
+        return id == o.id && name == o.name && layers == o.layers &&
+               ParticleLayer::operator==(o);
+    }
+    bool operator!=(const ParticleEffect& o) const { return !(*this == o); }
+};
+
+struct VehicleDef {
+    // Stable, opaque identity - the collaboration merge key, like Prefab::id.
+    // Every REFERENCE to a vehicle is by name.
+    std::string id;
+    std::string name;
+    std::string notes;
+
+    // The authored model: ONE .glb or .fbx holding the body and the wheels.
+    // An asset path, so it must appear in App::retargetAssetPath.
+    std::string modelPath;
+
+    // Import (see vehbake::Options - these are its authored twin).
+    int bodyTriBudget = 2400;
+    int wheelTriBudget = 700;
+    bool mergeUntextured = true;
+    // Paint shine 0..1: a reflection pass on the baked body's paint (the
+    // matte merge - rubber, near-black trim - is left out, and so are the
+    // wheels). 0 = matte and writes nothing, so an existing definition
+    // resaves byte for byte.
+    float bodyShine = 0.0f;
+    // What the paint mirrors: a res/ image used as a SPHERE MAP, or "" for
+    // the engine's dynamic "@sky" env map. An asset path - it joins
+    // App::retargetAssetPath and rebuildAssetUsage.
+    std::string bodyReflMap;
+    // The panel's answer when the importer could not tell which end is the
+    // nose. Flips the resolved forward axis and nothing else.
+    bool flipFront = false;
+
+    // Per-wheel author overrides, matched to the detection by node name. A
+    // wheel the detector finds and this list does not mention keeps the
+    // detector's seeding (front steers, rear drives).
+    std::vector<VehicleWheel> wheels;
+
+    // How it drives. Carried verbatim rather than flattened, so vehiclesim
+    // stays the one definition of what a vehicle's tuning IS.
+    vehiclesim::DriveSpec drive;
+
+    // The camera while the player is driving. Same rig shape as the
+    // third-person player camera, which is what the spring arm already knows.
+    float camDist = 6.5f;
+    float camHeight = 2.2f;
+    float camPitch = 12.0f;
+
+    // Where the player is put down on getting out, relative to the chassis in
+    // the canonical frame (x = right, y = up, z = forward): the driver's door.
+    float exitOffset[3] = {-1.4f, 0.0f, 0.0f};
+
+    // The distance (world units, camera to car) past which the body swaps to
+    // its far tier - the decimated paint with the wheels baked in, ONE submit
+    // for the whole car - and the wheel bag stops. Twice that reaches the
+    // coarser tier. 0 = never (the wheel bag still stops at 70 units, the
+    // pre-tier rule). Baked into the body row's meshLod at codegen.
+    float farDistance = 40.0f;
+
+    // An AUTHORED far tier (docs/vehicles.md, "An authored far model"): a
+    // second .glb/.fbx built in the SAME space as modelPath - same origin,
+    // same scale, wheels in place - that replaces the decimated tiers above.
+    // Its textured materials must sample an image the body already uses
+    // (pixel-equal) and its untextured ones join the palette, so the swap
+    // costs no VRAM. The whole model, wheels included, becomes the far tier
+    // of the body part it samples, and the body parts it does not reach are
+    // hidden while it shows - except the lamps, which stay drawn and lit, so
+    // the far model leaves room for them. "" = the decimated tiers. An
+    // asset path, so it belongs in App::retargetAssetPath and
+    // App::rebuildAssetUsage.
+    std::string farModel;
+    // Cars NOBODY drives (parked, AI rivals) swap to the far tier from this
+    // distance instead of farDistance - a traffic tier. 0 = farDistance for
+    // every car.
+    float trafficDistance = 0.0f;
+    // Measured by the bake, never authored (vehbake::adoptMeasured): the body
+    // part that carries the far tier (-1 = the body has none) and a bit per
+    // body part the runtime hides while that tier shows.
+    int farPart = -1;
+    int farHideMask = 0;
+
+    // The FAST wheel (docs/vehicles.md, "A fast wheel"): a second wheel model
+    // the game swaps all four wheels to while they spin faster than
+    // drive.fastWheelSpeed. "" = none; "@auto" = the ordinary wheel again at
+    // fastWheelTriBudget triangles (a lower-resolution copy); anything else
+    // names a mesh NODE of modelPath - an artist's motion-blurred wheel - which
+    // the import then leaves out of the body and of the wheel detection. It
+    // bakes into the same palette as the rest of the car, so the four wheels
+    // stay one submit.
+    std::string fastWheel;
+    int fastWheelTriBudget = 120;
+
+    // Lamp clusters, measured off the model's own MATERIALS by the import
+    // (names saying head/tail/brake/lamp/light - docs/vehicles.md, "The
+    // visual pack"): {sideways |x| offset, y, z, half-size}, canonical frame.
+    // size 0 = the model marked no lamps and the runtime falls back to its
+    // shape-blind heuristic positions. This is what makes the glow fit EVERY
+    // body: the material says where the lamps are on THIS shape.
+    float lampRear[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    float lampFront[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    // The emissive lamp PART of the baked body (-1 = none) and the corner
+    // count of its rear range (the front lamps follow it): the runtime
+    // brightens the two ranges' vertex colors per instance - lamps that are
+    // body mesh stick to every shape by construction. Measured by the bake,
+    // never authored (vehbake::adoptMeasured).
+    int lampPart = -1;
+    int lampRearVerts = 0;
+    // Translucent glass (docs/vehicles.md, "See-through glass"): below 1 the
+    // bake keeps glass-named untextured materials out of the palette merge as
+    // their own body part, and the runtime draws that part with this vertex
+    // alpha at the frame's translucent tail - so a modelled interior shows
+    // through. 1 (the default) is the old opaque merge, one submit fewer.
+    // glassPart is that part's index, MEASURED by the bake like lampPart.
+    float glassOpacity = 1.0f;
+    int glassPart = -1;
+    // Loose panels and windows, MEASURED by the bake (vehbake::adoptMeasured,
+    // docs/vehicles.md "Loose panels and glass"): each a vertex range of one
+    // body part the runtime can take off. Written only when non-empty.
+    std::vector<vehiclesim::Piece> pieces;
+    // {part, vertices}: MEASURED like the pieces - the reflection pass of that
+    // body part covers only its first `vertices` (the matte cabin after them).
+    std::vector<std::pair<int, int>> envLimits;
+    // The lamp glow's lamps, MEASURED by the bake (vehbake::Result::lampGlows):
+    // centre xyz, half extents xyz, front 1 / rear 0. Written only when set.
+    std::vector<std::array<float, 7>> lampGlows;
+
+    // The engine note (docs/vehicles.md, "Engine sound"). A path into the
+    // project's own sound list, NOT an index: an index would retarget itself
+    // the moment somebody reordered the Sounds panel. It must name a
+    // `*-loop.wav`, because the loop lives in the ENCODED sample (adpenc -L)
+    // and nothing at runtime can make a one-shot repeat. An asset path, so it
+    // belongs in App::retargetAssetPath and App::rebuildAssetUsage.
+    std::string engineSound;
+    // The pitch the sample plays at, as a multiple of its own encoded rate, at
+    // idle and at the redline. The runtime interpolates between them on the
+    // engine speed the powertrain already computes.
+    float enginePitchIdle = 0.75f;
+    float enginePitchRedline = 2.4f;
+    float engineVolume = 70.0f;  // 0..100, audsrv's own scale
+    // The second engine loop, for HIGH revs ("" = single-sample mode, exactly
+    // the behavior above). With one set, the runtime CROSSFADES the two loops
+    // on the engine speed - the era's two-sample engine - both riding the
+    // same authored pitch curve.
+    std::string engineHighSound;
+    // Tyre squeal: a loop whose volume rides DriveState::slip - the same one
+    // number the smoke and the telemetry already read, so they can never
+    // disagree about when a tyre lets go. "" = no squeal.
+    std::string screechSound;
+    // A one-shot played on every gear change while driving. "" = silent.
+    std::string shiftSound;
+    float screechVolume = 80.0f;  // 0..100
+    float shiftVolume = 80.0f;    // 0..100
+    // Headlight pools: two additive beams painted on the terrain ahead.
+    // Off by default - they read as light, so a day map opts in knowingly.
+    bool headlights = false;
+
+    // Tyre effects (docs/vehicles.md, "Skid marks and smoke"): an .mtl
+    // (res/...) whose texture and Kd colour the skid ribbon / smoke puffs
+    // take. Empty = the built-in tread and puff textures the vehicle bake
+    // generates.
+    std::string skidMaterial;
+    std::string smokeMaterial;
+
+    // The driver's readout (docs/vehicles.md, "The HUD"). Off by default, so a
+    // vehicle authored before it existed still shows nothing.
+    bool showHud = false;
+    // A font NAME, like every other font reference in the project ("" = the
+    // default entry). It needs a glyph ATLAS, which is why a vehicle with the
+    // HUD on joins Project::atlasFontIndices().
+    std::string hudFont;
+    // Speed is in world units per second, and a unit is whatever the project
+    // decided it is - so what the number should READ as is an authoring
+    // question, not one this code can answer. 3.6 turns metres per second into
+    // km/h, which is the common case.
+    float hudSpeedScale = 3.6f;
+    // Tyre smoke look (docs/particles.md): the NAME of a particle-library
+    // effect, "" = the built-in grey puffs. The effect's colour, opacity,
+    // size, growth, life and texture drive the puffs; the SPAWNING stays the
+    // sim's (slip decides when, the rear wheels decide where).
+    std::string smokeEffect;
+
+    bool valid() const { return !name.empty(); }
+};
+
+inline bool operator==(const VehicleDef& a, const VehicleDef& b) {
+    if (a.id != b.id || a.name != b.name || a.notes != b.notes ||
+        a.modelPath != b.modelPath || a.bodyTriBudget != b.bodyTriBudget ||
+        a.wheelTriBudget != b.wheelTriBudget || a.mergeUntextured != b.mergeUntextured ||
+        a.bodyShine != b.bodyShine || a.bodyReflMap != b.bodyReflMap ||
+        a.flipFront != b.flipFront || a.wheels != b.wheels || a.camDist != b.camDist ||
+        a.camHeight != b.camHeight || a.camPitch != b.camPitch ||
+        a.engineSound != b.engineSound ||
+        a.enginePitchIdle != b.enginePitchIdle ||
+        a.enginePitchRedline != b.enginePitchRedline ||
+        a.engineVolume != b.engineVolume || a.showHud != b.showHud ||
+        a.engineHighSound != b.engineHighSound ||
+        a.screechSound != b.screechSound || a.shiftSound != b.shiftSound ||
+        a.screechVolume != b.screechVolume || a.shiftVolume != b.shiftVolume ||
+        a.headlights != b.headlights ||
+        a.skidMaterial != b.skidMaterial || a.smokeMaterial != b.smokeMaterial ||
+        a.headlights != b.headlights || a.smokeEffect != b.smokeEffect ||
+        a.lampRear[0] != b.lampRear[0] || a.lampRear[1] != b.lampRear[1] ||
+        a.lampRear[2] != b.lampRear[2] || a.lampRear[3] != b.lampRear[3] ||
+        a.lampFront[0] != b.lampFront[0] || a.lampFront[1] != b.lampFront[1] ||
+        a.lampFront[2] != b.lampFront[2] || a.lampFront[3] != b.lampFront[3] ||
+        a.lampPart != b.lampPart || a.lampRearVerts != b.lampRearVerts ||
+        a.glassOpacity != b.glassOpacity || a.glassPart != b.glassPart ||
+        a.hudFont != b.hudFont || a.hudSpeedScale != b.hudSpeedScale ||
+        a.farDistance != b.farDistance || a.farModel != b.farModel ||
+        a.trafficDistance != b.trafficDistance || a.farPart != b.farPart ||
+        a.farHideMask != b.farHideMask || a.fastWheel != b.fastWheel ||
+        a.fastWheelTriBudget != b.fastWheelTriBudget || a.pieces != b.pieces ||
+        a.envLimits != b.envLimits || a.lampGlows != b.lampGlows)
+        return false;
+    for (int i = 0; i < 3; ++i)
+        if (a.exitOffset[i] != b.exitOffset[i]) return false;
+    // The spec is compared through its own field list, so a tunable added to
+    // DriveSpec joins undo's equality test by appearing in specFields() - the
+    // same single-list rule that makes it saveable.
+    vehiclesim::DriveSpec ca = a.drive, cb = b.drive;
+    const std::vector<vehiclesim::SpecField> fa = vehiclesim::specFields(ca);
+    const std::vector<vehiclesim::SpecField> fb = vehiclesim::specFields(cb);
+    if (fa.size() != fb.size()) return false;
+    for (size_t i = 0; i < fa.size(); ++i)
+        if (*fa[i].value != *fb[i].value) return false;
+    return true;
+}
+inline bool operator!=(const VehicleDef& a, const VehicleDef& b) { return !(a == b); }
+
 const char* primitiveTypeName(PrimitiveType t);
 
 // Animated models are .glb or .fbx files (serialized to .tskl at build);
@@ -1015,12 +1470,20 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.layer == b.layer &&
            a.primDetail == b.primDetail && a.primRings == b.primRings &&
            a.drawDistance == b.drawDistance &&
+           a.batchExclude == b.batchExclude &&
+           a.occluderExclude == b.occluderExclude &&
+           a.occlusionCull == b.occlusionCull &&
            a.impostorPath == b.impostorPath &&
            a.impostorDistance == b.impostorDistance &&
            a.impostorBillboard == b.impostorBillboard &&
            a.impostorViews == b.impostorViews &&
-           a.reflected == b.reflected && a.castShadow == b.castShadow &&
+           a.reflected == b.reflected &&
+           a.reflectionProxy == b.reflectionProxy &&
+           a.castShadow == b.castShadow &&
            a.projShadow == b.projShadow && a.shadowMode == b.shadowMode &&
+           a.blobShadowTexture == b.blobShadowTexture &&
+           a.blobShadowSize[0] == b.blobShadowSize[0] &&
+           a.blobShadowSize[1] == b.blobShadowSize[1] &&
            a.bakedLighting == b.bakedLighting &&
            a.dynamicLighting == b.dynamicLighting && a.prelit == b.prelit &&
            a.prelitWanted == b.prelitWanted && a.prelitSig == b.prelitSig &&
@@ -1070,6 +1533,9 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.emitterWeight == b.emitterWeight && a.emitterLife == b.emitterLife &&
            a.emitterGrow == b.emitterGrow && a.emitterOpacity == b.emitterOpacity &&
            a.emitterDieOnGround == b.emitterDieOnGround &&
+           a.emitterAdditive == b.emitterAdditive &&
+           a.particleEffect == b.particleEffect &&
+           a.emitterFrames == b.emitterFrames && a.emitterFps == b.emitterFps &&
            a.soundPath == b.soundPath && a.soundAuto == b.soundAuto &&
            a.soundRange == b.soundRange && a.soundInterval == b.soundInterval &&
            a.soundOnPlayer == b.soundOnPlayer && a.soundReverb == b.soundReverb &&
@@ -1099,6 +1565,9 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.portalShowTerrain == b.portalShowTerrain &&
            a.portalTeleportObjects == b.portalTeleportObjects &&
            a.portalViewAll == b.portalViewAll &&
+           a.vehicleDef == b.vehicleDef &&
+           a.vehicleDriveable == b.vehicleDriveable &&
+           a.vehicleRoute == b.vehicleRoute &&
            a.scrollSegments == b.scrollSegments &&
            a.scrollSpeed == b.scrollSpeed && a.scrollAhead == b.scrollAhead &&
            a.scrollBehind == b.scrollBehind &&
@@ -1113,6 +1582,12 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.modelYawOffset == b.modelYawOffset &&
            a.flowGraph == b.flowGraph && a.scripts == b.scripts &&
            a.procGraph == b.procGraph && a.procSource == b.procSource &&
+           a.roadPoints == b.roadPoints && a.roadHeights == b.roadHeights &&
+           a.roadWidth == b.roadWidth && a.roadSampleStep == b.roadSampleStep &&
+           a.roadGrip == b.roadGrip && a.roadRank == b.roadRank &&
+           a.roadSpill == b.roadSpill && a.roadEdgeFade == b.roadEdgeFade &&
+           a.roadTexture == b.roadTexture &&
+           a.roadIntersectionTexture == b.roadIntersectionTexture &&
            a.vuParams[0] == b.vuParams[0] && a.vuParams[1] == b.vuParams[1] &&
            a.vuParams[2] == b.vuParams[2] && a.vuParams[3] == b.vuParams[3] &&
            a.prefabSource == b.prefabSource && a.editorGroup == b.editorGroup &&
@@ -1172,7 +1647,12 @@ struct ProjectSettings {
     // exists to break up. The z buffer FOLLOWS it (PSMZ16 over a PSMCT16
     // frame - the GS needs the pair to share page geometry), so depth
     // precision drops with it: keep the near plane up.
-    std::string colorDepth = "32bit";  // "32bit" | "16bit"
+    // "hybrid": the scene draws into ONE 32-bit buffer over a 32-bit z and one
+    // dithered blit per frame copies it into ONE 16-bit display buffer - full
+    // precision blending with half a buffer back (ColorDepth::Hybrid in the
+    // engine; no motion blur, no upscaler temporal pass, no frame
+    // extrapolation, no triple buffering in that mode).
+    std::string colorDepth = "32bit";  // "32bit" | "16bit" | "hybrid"
 
     // GS ordered dithering (the DTHE + DIMX registers). The GS only dithers
     // when it writes a 16-bit destination, so this does nothing at "32bit"
@@ -1258,6 +1738,14 @@ struct ProjectSettings {
     // Off = the game never reads livelink.bin and the editor never writes it -
     // for anyone who does not want their debug builds patched from outside.
     bool liveLink = true;
+
+    // Devkit cadence in game updates: 0 = platform defaults, 1..120 = override.
+    int liveLinkPollFrames = 0;
+    int liveLogicPollFrames = 0;
+    int liveDebugPollFrames = 0;
+    int liveDebugSnapshotFrames = 0;
+    int timeMachineFrames = 0;
+
 
     // Debug profile only: compile the Live Debugger runtime into the game -
     // the flow graphs report every node they run to the editor, and the editor
@@ -1380,6 +1868,24 @@ struct ProjectSettings {
     // bag (pre-batching behavior; the A/B lever for profiling).
     bool staticBatching = true;
 
+    // Interleaved passes (docs/interleaved-passes.md): the generated game
+    // feeds the static batch and road bags into the object loop so the EE's
+    // object work overlaps VU1's batch and road work. "auto" = the game times
+    // both orders every few seconds and keeps the faster one, "always",
+    // "off" = the plain order.
+    std::string interleavePasses = "auto";
+
+    // The shine budget (docs/vehicles.md): how many vehicles draw the
+    // body-shine pass in one view - the driven one first, then the nearest.
+    // 0 = every vehicle within the pass's 35 units (the look before format
+    // v66).
+    int vehicleShineBudget = 2;
+
+    // Build conservative inner proxies for opaque static objects and use a
+    // tiny CPU depth buffer to reject fully hidden objects/chunks before they
+    // enter StaPip. Off by default until measured on target hardware.
+    bool occlusionCulling = false;
+
     // Dynamic reflection probe aim (docs/reflective-materials.md). false =
     // the classic GT3 aim: the env camera looks level along the player
     // forward from the eye. true = "reflected ray": each frame a ray from
@@ -1431,6 +1937,32 @@ struct ProjectSettings {
     // Gameplay is unaffected - collision and every height query read the
     // heightmap, never the mesh.
     float terrainLodDistance = 0.0f;  // world units, 0 = off
+    // Shared reflection probe: how far the captured image may be out of date
+    // before the probe re-renders, IN PIXELS OF ITS OWN 128-pixel target
+    // (docs/reflective-materials.md, "The reuse budget"). The probe already
+    // refreshes only every SECOND frame and already retains the basis that
+    // produced the image; this adds the other half Task 5 of the Motor
+    // District plan asked for - do not capture at all while nothing that feeds
+    // the capture has moved. The budget is the whole quality contract, and it
+    // is paid on top of a lag that already existed: the image was always up to
+    // one cadence beat old, so this is how many EXTRA target pixels of lag are
+    // accepted - and NONE at all while nothing moves, where the skipped
+    // capture would have produced the same image (measured: 0.000 px on a
+    // parked Motor District pose, 0.91 driving straight, 4.19 in a 90 deg/s
+    // turn, which is why a hard turn still captures every beat). 1.0 is one
+    // pixel of 128 and is the default; 0 disables the reuse and restores
+    // exactly the pre-1.106 behaviour. Every non-geometric input - the sky tint, the sun
+    // and moon, a reflected object moving, appearing or vanishing, a scene
+    // load - invalidates outright and is not traded against the budget.
+    float reflectionReuseBudget = 1.0f;  // target pixels, 0 = always capture
+    // Shared reflection probe: how far from the eye the terrain and road
+    // chunks it redraws may be (docs/reflective-materials.md, "The ground in
+    // the probe"). The probe renders the resident ground into its 128-pixel
+    // target on every capture, and a turning camera captures every second
+    // frame: on a physical PS2 that was 10-15 ms of the frame that captured.
+    // Distant chunks are a few pixels at the horizon there. 0 = every
+    // resident chunk, which is what the probe always did.
+    float reflectionGroundRadius = 0.0f;  // world units, 0 = no limit
     // The flashlight's shadow technique (docs/flashlight.md, "The shadow").
     // false = silhouette slots: the caster's mesh silhouette from the torch,
     // sampled on a ground patch and painted on the wall behind - mesh-accurate
@@ -1832,7 +2364,7 @@ struct ProjectSettings {
     bool highlightOverlay = false;
 };
 
-static_assert(sizeof(ProjectSettings) == 736,
+static_assert(sizeof(ProjectSettings) == 816,
               "ProjectSettings changed size - a field was added or removed. "
               "Add it to operator== below as well, or its Preferences widget "
               "will silently do nothing; then update this number.");
@@ -1874,6 +2406,11 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.showCollision == b.showCollision &&
            a.liveLink == b.liveLink && a.liveDebug == b.liveDebug &&
            a.liveLogic == b.liveLogic && a.timeMachine == b.timeMachine &&
+           a.liveLinkPollFrames == b.liveLinkPollFrames &&
+           a.liveLogicPollFrames == b.liveLogicPollFrames &&
+           a.liveDebugPollFrames == b.liveDebugPollFrames &&
+           a.liveDebugSnapshotFrames == b.liveDebugSnapshotFrames &&
+           a.timeMachineFrames == b.timeMachineFrames &&
            a.remotePad == b.remotePad &&
            a.inputRecorder == b.inputRecorder &&
            a.eeCrashHandler == b.eeCrashHandler &&
@@ -1885,6 +2422,9 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.animSourceFps == b.animSourceFps &&
            a.animPlayFps == b.animPlayFps &&
            a.staticBatching == b.staticBatching &&
+           a.interleavePasses == b.interleavePasses &&
+           a.vehicleShineBudget == b.vehicleShineBudget &&
+           a.occlusionCulling == b.occlusionCulling &&
            a.envProbeReflected == b.envProbeReflected &&
            a.navCellSize == b.navCellSize && a.navMaxSlope == b.navMaxSlope &&
            a.navAgentRadius == b.navAgentRadius &&
@@ -1892,6 +2432,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.terrainDetail == b.terrainDetail &&
            a.terrainViewDistance == b.terrainViewDistance &&
            a.terrainLodDistance == b.terrainLodDistance &&
+           a.reflectionReuseBudget == b.reflectionReuseBudget &&
+           a.reflectionGroundRadius == b.reflectionGroundRadius &&
            a.flashShadowVolumes == b.flashShadowVolumes &&
            a.shadowVolumesDebug == b.shadowVolumesDebug &&
            a.spotShadowVolumes == b.spotShadowVolumes &&
@@ -2743,6 +3285,11 @@ struct SceneData {
     // Project::loadingScreens). Empty = the project default
     // (Project::defaultLoadingScreen); a dangling name also falls back there.
     std::string loadingScreen;
+
+    // Per-junction road overrides (docs/roads.md, "Junction overrides"):
+    // matched to a computed crossing by road-id pair + nearest position
+    // (roadgen::planCrossings). Empty in every scene that never used one.
+    std::vector<roadgen::JunctionOverride> roadJunctions;
 };
 
 inline bool operator==(const SceneData& a, const SceneData& b) {
@@ -2757,7 +3304,8 @@ inline bool operator==(const SceneData& a, const SceneData& b) {
            a.terrainTintScale == b.terrainTintScale &&
            a.overrides == b.overrides && a.settings == b.settings &&
            a.ambiencePreset == b.ambiencePreset &&
-           a.loadingScreen == b.loadingScreen;
+           a.loadingScreen == b.loadingScreen &&
+           a.roadJunctions == b.roadJunctions;
 }
 
 // One selectable row of a generated in-game menu.
@@ -3548,6 +4096,15 @@ struct Project {
     // scene is available in all of them) and persisted through save(), but not
     // part of undo/redo. Members carry transforms LOCAL to the prefab origin.
     std::vector<Prefab> prefabs;
+    // The particle library (Tools > Particle Editor, docs/particles.md).
+    std::vector<ParticleEffect> particleEffects;
+
+    // Vehicle definitions (Tools > Vehicle Editor, docs/vehicles.md). Defined
+    // once, placed as often as you like: a Vehicle scene object names one of
+    // these. Project-wide like the prefabs above, so - as with them - editing
+    // one dirties the project and syncs to session peers but takes no undo
+    // step, because History carries the scenes alone.
+    std::vector<VehicleDef> vehicles;
 
     // World Facts (Tools > World Facts, docs/world-facts.md): the project's
     // central memory of game state - the declared catalog, the reusable named
@@ -3625,6 +4182,11 @@ struct Project {
     // headless --build path (main.cpp) also sets ps2LinkIp here directly.
     std::string emulatorPath;  // PCSX2 exe; empty = auto-detect under Program Files
     std::string ps2LinkIp;     // ps2link IP for "Run on PS2"; empty = disabled
+    // The console session log (sessionlog.hpp): lines kept per file (0 = no
+    // file) and session files kept in <project>/logs/. Machine-global like the
+    // IP above, copied in from editor.ini the same way.
+    int consoleLogLines = 20000;
+    int consoleLogFiles = 10;
     // Docker image the game compiles in. Empty = say nothing and let the
     // generated compose file's `${TYRAX_IMAGE:-h4570/tyra}` resolve from the
     // project's own .env, which is how this worked before the setting existed.
@@ -3812,6 +4374,27 @@ void ensureProjectId(Project& p);
 // by it instead of by position (docs/world-facts.md "Saving").
 void ensureFactIds(Project& p);
 
+// The particle library (docs/particles.md). findParticleEffect answers by
+// name (nullptr = none / stale). applyParticleEffects copies every linked
+// effect into the emitters that name it (scenes + prefab members) - called by
+// load() and by App::commitChange, so a linked emitter's own fields are
+// always the effect's; returns true when anything changed. particlePreset is
+// the starting point "New effect" offers for each emitterKind.
+const ParticleEffect* findParticleEffect(const Project& p, const std::string& name);
+bool applyParticleEffects(Project& p);
+void applyParticleEffect(const ParticleEffect& fx, SceneObject& o);
+void applyParticleLayer(const ParticleLayer& L, SceneObject& o);
+// The EXTRA layers of a linked emitter as ordinary emitter objects: a copy of
+// `o` wearing each layer, moved by its offset and its spawn area scaled. Empty
+// for an unlinked emitter or an effect with one layer. The ONE expansion
+// codegen (EMITTER_LAYERS) and the viewport preview read.
+std::vector<SceneObject> emitterLayerObjects(const Project& p, const SceneObject& o);
+// The file stem a layer's generated texture is baked under.
+std::string particleLayerStem(const ParticleEffect& fx, int layer);
+ParticleEffect particlePreset(int kind);
+// Retargets every emitter and vehicle that names `from` to `to` ("" = unlink).
+void renameParticleEffectRefs(Project& p, const std::string& from, const std::string& to);
+
 // Where one fact is used. `graphs` names owning objects as "scene / object",
 // the rest name the query, rule or scenario. The single answer to "what
 // breaks if I change this" - read by the Facts window's Used by list and by
@@ -3970,10 +4553,12 @@ enum class Section {
     ModelUnits,      // "modelUnits" (per-model real-world size)
     Input,           // "input" (actions + binding presets)
     Prefabs,         // "prefabs" (reusable object groups)
+    Vehicles,        // "vehicles" (driveable-car definitions)
     VuPrograms,      // "vu" (the project's own VU1 programs and VU0 kernel)
     Facts,           // "facts", "factQueries", "factRules", "factScenarios"
     BlssShots,       // "blssShots" (the neural upscaler's training-shot plan)
     Atlas,           // "atlasControl" (per-texture atlas keep-out / group)
+    Particles,       // "particleEffects" (the particle library)
     Count            // not a section - the enum size, see kSectionCount below
 };
 // KEEP THIS EQUAL TO THE ENUM SIZE. save() loops sections by index, so a count
@@ -3985,7 +4570,7 @@ enum class Section {
 // static_assert below is the fix that outlives the comment: Section::Count is
 // maintained by the compiler, so the next section to arrive cannot repeat this.
 enum : int { kSectionCount = (int)Section::Count };
-static_assert(kSectionCount == 23,
+static_assert(kSectionCount == 25,
               "A section was added or removed - check that everything which "
               "loops sections by index (save(), the collaboration shadow) "
               "still means what it says, then update this number.");
@@ -4133,6 +4718,20 @@ struct TerrainMaterial {
 // .mtl is unreadable. Codegen, the editor viewport and the ISO planner resolve
 // through this so they agree on the terrain's texture, color and tiling.
 TerrainMaterial resolveTerrainMaterial(const Project& p, const std::string& matRel);
+
+// Resolves a road surface reference to the texture the runtime needs. A .mtl
+// uses its first material's map_Kd (relative to the material and normalized);
+// legacy direct image paths pass through unchanged.
+std::string resolveRoadTexture(const std::string& projectDir,
+                               const std::string& surfaceRel);
+std::string resolveRoadTexture(const Project& p, const std::string& surfaceRel);
+
+// The crossing planner's view of a scene's roads (roadgen::planCrossings),
+// in object order - the ONE conversion the codegen, the viewport, the test
+// drive and the Properties panel share. `objectIndex`, when given, receives
+// each road's index in sc.objects.
+std::vector<roadgen::CrossingRoad> crossingRoads(
+    const std::vector<SceneObject>& objects, std::vector<int>* objectIndex = nullptr);
 
 // Loads the single <name>.tyra project file from an existing project
 // directory (game data + editor-side state + window layout).

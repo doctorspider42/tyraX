@@ -190,3 +190,96 @@ below is only the two versions that predate those entries.
 Format 44 combines Aster's invisible box collision mode and optional editorGroup
 with main's format 43 comments/HUD fields. These additive fields need no data
 conversion; formats from both development branches remain readable.
+
+The vehicles branch integration used format 51 for vehicle/road fields from
+branch formats 44–50 together with main's optional editorGroup and invisible-box
+fields. Format 52 additionally retains main's baked shadow decal mode/settings
+(main format 46). These fields are additive and need no value conversion.
+
+Format 60 adds the optional per-road `roadSampleStep` field. It is purely
+additive: missing means the original 1 m longitudinal spacing, so no migration
+step is required.
+
+Format 79 adds a scene's `roadJunctions` list (docs/roads.md, "Junction
+overrides"): per-crossing road overrides, each a road-id pair, the crossing's
+position and the winner / patch material / grip, with every field at its Auto
+value omitted. Written only when the list is non-empty; missing means no
+overrides, so every crossing follows the rank rule as before. Additive; no
+migration step.
+
+Format 78 adds a road's `roadEdgeFade` (docs/roads.md, "Soft edges"), written
+only away from 0. Missing means the hard edge, as before. Additive; no
+migration step.
+
+Format 77 adds a road's `roadRank` and `roadSpill` (docs/roads.md,
+"Crossings"), each written only away from its default (Local, 1.5). Missing
+means Local, which is every road before ranks, so crossings build exactly as
+before. Additive; no migration step.
+
+Format 76 adds a terrain layer's `grip` (docs/terrain-painting.md, "Layers"),
+written only away from its default of 1. Missing means the bare terrain, as
+before. Additive; no migration step.
+
+Format 75 adds a vehicle's `drive.lampGlow` and a definition's bake-measured
+`"lampGlows"` (docs/vehicles.md, "Lamp glow"), the latter written only when
+non-empty. Missing means no halo, as before. The lamp-glow branch shipped it
+as **74**, taken by the damage merge, so it moved to 75. Additive; no
+migration step.
+
+Formats 72-74 are vehicle damage (docs/vehicles.md, "Damage" and "Loose
+panels and glass"): 72 adds six drive-spec keys (`damage`, `damageThreshold`,
+`damageMaxDent`, `damageRadius`, `damagePerfLoss`, `damageSmoke`), 73 adds
+`drive.damageLoose` and a definition's bake-measured `"pieces"`, 74 adds a
+definition's bake-measured `"envLimits"`. The damage branch shipped them as
+**71-73**; 71 was already the per-road grip on vehicles, so the merge moved
+them up by one (rule 5 above). Every key is additive and read whatever the
+stamp says, so a file that branch saved as 71-73 opens with its damage
+tunables intact and stamps 74 on its next save. No migration step.
+
+Format 71 adds a road's `roadGrip` (docs/roads.md, "Surface grip"), written only
+away from its default of 1. Missing means asphalt, as before. Additive; no
+migration step.
+
+Format 70 adds a vehicle's `offroadGrip`, `offroadAccel` and `offroadDrag`
+inside its `"drive"` block (docs/vehicles.md, "Off-road grip"). Missing means
+1 / 1 / 0, a car that ignores the surface, as before. Additive; no migration
+step.
+
+Format 69 adds a vehicle definition's optional `farModel`, `trafficDistance`
+and the bake-measured `farPart` / `farHideMask` (docs/vehicles.md, "An authored
+far model"), each written only away from its default. Missing means the
+decimated tiers at `farDistance` for every car, as before. Additive; no
+migration step.
+
+Format 68 is the particle library ([particles.md](particles.md), "Format"):
+the `"particleEffects"` section, an emitter's `"effect"`/`"additive"`/
+`"frames"`/`"fps"` and a vehicle's `"smokeEffect"`. The particle branch
+shipped it as **v62**, a number the vehicles branch had already spent (v62..v67:
+reflection ground radius, hybrid colour depth, interleaved passes, skid/smoke
+materials, glass, shine budget), so the merge renumbered it to 68 rather than
+reuse a number that means two different things. No step is needed either way,
+because every key involved is additive and read regardless of the stamp: a file
+the particle branch saved as 62 opens here with its effects intact (and stamps
+68 on its next save), and a vehicles-branch file at 62..67 simply has no
+particle keys (rule 5 above: a
+format number is claimed at merge time, not at branch time).
+
+Format 67 adds `settings.vehicleShineBudget` (docs/vehicles.md, "The shine
+budget"), written only when it is not 2. Missing reads as 2, so an older
+project with three or more cars near the camera now draws two of them shiny;
+0 restores every car. Additive; no migration step.
+
+Format 65 adds a vehicle definition's optional `skidMaterial` and
+`smokeMaterial` (docs/vehicles.md, "Skid marks and smoke"), written only when
+set; missing means the built-in textures. Additive; no migration step.
+
+Format 64 adds `settings.interleavePasses` ("auto", "always", "off";
+[interleaved-passes.md](interleaved-passes.md)). It is written only when it
+is not "auto", so a project that never sets it resaves byte for byte, and a
+missing key reads as "auto". Additive; no migration step.
+
+Format 61 adds the project-wide `occlusionCulling` opt-in and the per-object
+`occluderExclude` / `occlusionCull` controls. Missing keeps occlusion disabled,
+allows the object to receive culling if the project is later enabled and lets
+proved-safe static geometry act as an occluder. The fields are additive, so no
+migration step is required.

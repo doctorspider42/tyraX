@@ -17,8 +17,10 @@ triangles**. Each capture keeps its own projected bounds and the source origin.
 The view is selected relative to the object's authored yaw, in sectors of 360 degrees divided by the capture count.
 Binary alpha and RGB padding keep the silhouette clear of black filter fringes.
 
-The inserted object switches beyond six authored tree heights by default. Change
-**Impostor distance** in its LOD properties; zero disables replacement. The game
+The inserted object switches beyond six authored tree heights by default. In
+the selected model's **Properties > LOD**, the result is named **Distant
+representation** (captured impostor or hull proxy); change **Switch distance**
+directly below it. Zero disables replacement. The game
 returns to the full model below 90% of that distance. At most four representation
 switches happen per scene render. Initial geometry is built directly in the
 selected representation. Camera movement subsequently updates six positions and
@@ -39,13 +41,30 @@ The output is `res/models/impostors/model-<object-id>.obj`, `.mtl` and `.png`.
 Baking assigns it to this object, sets the billboard flag and refreshes the
 viewport. A positive existing distance is preserved; otherwise the initial
 threshold is six times the largest local dimension multiplied by the largest
-supported instance scale. Change **Impostor distance** afterwards. The scene
+supported instance scale. Change **Switch distance** afterwards. The scene
 assignment is undoable; exported files remain on disk. Re-baking overwrites this
 object's generated assets, so undo does not restore an earlier texture bake.
 
 The Tree Generator keeps its convenient export checkbox and shares the capture
 kernel. Existing crossed cards remain ordinary replacement meshes. Static models
 imported into the editor as OBJ use the same button; animated models are excluded.
+
+### Geometry hull proxies
+
+For a building, rock or other solid object, **Properties > Bake hull proxy**
+offers a geometry alternative to captured cards. It computes the convex outline
+of every source vertex in the XZ plane, extrudes that outline between the
+model's minimum and maximum Y, and writes one OBJ part with one averaged `Kd`
+material. This is not QEM decimation: internal detail, UV seams and source
+material boundaries do not enter the result. The proxy preserves the footprint
+silhouette and height with `4n - 4` triangles for an `n`-point outline.
+
+The files live under `res/models/proxies/`. Baking assigns the OBJ as the
+ordinary non-billboard far representation and chooses the same initial
+six-extents distance as a captured impostor. Collision, scripts, picking and
+near rendering keep the original model. Hull proxies are untextured and
+deliberately crude; use a captured impostor when facade colour or foliage
+cutouts matter more than volume.
 
 `impostorBillboard: true` opts into the multi-view asset contract: exactly the saved number of
 ordered material parts sharing the generated atlas, each holding one XY card.
@@ -71,6 +90,29 @@ turning on the flag alone does not convert their old two-card assets.
   existing static mesh LOD. Per-view billboards remain future work.
 - Both source and far assets stay loaded. Atlas storage grows with the number of views. Fewer triangles are not a proportional
   frame-rate guarantee: texture traffic, draw calls and alpha overdraw still cost.
+- Assigning an impostor makes an object ineligible for **static batching**, for
+  the same reason a catch-area object is: a batched member has no bag of its
+  own, so there would be nothing to swap for a card.
+
+## Measured on buildings, not just foliage
+
+Impostors were built for trees, but the largest measured win so far is on
+**district buildings**. On the Motor District, eight-view impostors for the two
+building models switching at 100 world units take the garage-day frame from
+**750 to 670 VU1 packages (−10.7%)** and garage night from 803 to 723, with the
+outer-road poses unchanged because the same buildings are near the camera there.
+Packages are the unit that matters — the EE pays about 19.5 us per package in
+that scene ([the submission plan](ee-submission-rearchitecture.md)) — and a
+triangle count would have understated it.
+
+Two lessons that transfer to any impostor threshold. **Pick the distance from
+measured screen contribution, not from the model size**: the threshold above
+sits in the gap between the furthest building the frame was measured to SEE
+(82 units) and the nearest one it was not (117 units). And **the win is
+pose-shaped**: a distance rule cannot save work the camera is not already
+spending, so the same threshold is worth 80 packages from the garage forecourt
+and nothing at all from the outer road.
+[Raw evidence](../examples/vehicle-playground/authoring/impostor-threshold-2026-09-17/README.md).
 
 ## Data and implementation
 
@@ -88,6 +130,10 @@ output, and retains the tree wrapper.
 visual geometry without changing `SceneObjectData::model`. UV updates use loaded
 model coordinates, retaining texture-atlas remapping. No engine/VU changes or new
 console texture format are required.
+
+`modelproxy.cpp` owns the convex-footprint generator. It emits ordinary OBJ/MTL
+assets, so the existing far-model path, `.tmdl` bake and runtime switch need no
+special proxy format.
 
 See [the grove example](../examples/impostor-grove/README.md) and
 [rendering directions](rendering-directions.md).

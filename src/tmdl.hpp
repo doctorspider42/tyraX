@@ -23,7 +23,8 @@
 namespace tmdl {
 
 // Bumped when the layout changes; the loader accepts a range of versions.
-constexpr unsigned int kVersion = 3;  // 2 added Part::ke, 3 Model::shadowVerts
+constexpr unsigned int kVersion = 4;  // 2 added Part::ke, 3 Model::shadowVerts,
+                                      // 4 the triangle-strip twin of every mesh
 
 // One decimated variant of a part's mesh (same layout, fewer triangles),
 // rendered instead of the full mesh beyond a distance. Baked by the build,
@@ -31,6 +32,10 @@ constexpr unsigned int kVersion = 3;  // 2 added Part::ke, 3 Model::shadowVerts
 struct Lod {
     std::vector<float> verts;       // interleaved 8 floats per vertex
     std::vector<unsigned char> ao;  // empty, or one byte per vertex
+    // Version 4: the same mesh as triangle STRIPS, chopped into independent
+    // runs of meshstrip::kRun vertices. Empty = stripping was not worth it.
+    std::vector<float> stripVerts;
+    std::vector<unsigned char> stripAo;
 };
 
 // One draw batch: all triangles of the model that share a material.
@@ -48,6 +53,19 @@ struct Part {
     std::vector<float> verts;       // flat triangle list, 8 floats per vertex
     std::vector<unsigned char> ao;  // empty, or one byte per vertex
     std::vector<Lod> lods;          // distance tiers, coarsest last (max 2)
+    // Version 4: the TRIANGLE STRIP twin of `verts` (meshstrip::build), same
+    // 8-float layout and the same surface, in strip order and chopped into
+    // independent runs of `stripRun` vertices. It is a SECOND copy rather
+    // than a replacement on purpose: `verts` is what the collider, the shadow
+    // proxy, the decal projector and every other per-triangle consumer walk,
+    // and only the render bag wants the strip. Empty = this part did not
+    // strip smaller than its list (a mesh with no shared corners does not),
+    // and the game renders it as the list it always was.
+    std::vector<float> stripVerts;
+    std::vector<unsigned char> stripAo;
+    // Vertices per strip run, == the VU1 package size the game must pin.
+    // 0 with a non-empty stripVerts is malformed.
+    unsigned int stripRun = 0;
 };
 
 struct Model {
@@ -84,9 +102,54 @@ struct Model {
 //     u8   ao[aoCount]
 //     u32  lodCount
 //     lodCount * { u32 vertexCount; f32 verts[vc*8]; u32 aoCount; u8 ao[] }
+//     u32  stripRun             // version >= 4; 0 = this part has no strip
+//     1 + lodCount * {          // base mesh first, then each tier in order
+//       u32 vertexCount         //   0 = no strip for this mesh
+//       f32 verts[vertexCount * 8]
+//       u32 aoCount             //   0 or == vertexCount
+//       u8  ao[aoCount]
+//     }
 //   }
 //   u32    shadowCornerCount    // version >= 3; a multiple of 3, 0 = none
 //   f32    shadowXyz[shadowCornerCount * 3]
 std::string write(const Model& m);
+
+// What a part looks like to somebody who only needs to know HOW IT DRAWS -
+// which texture it binds, whether it takes the reflective second pass, and
+// the package size its baked strip pins. Deliberately not `Part`: the caller
+// this exists for (staticbatch.cpp, the host twin of the generated game's
+// static-batch grouping) reads every model in the scene and cares about none
+// of the geometry, so `readInfo` SEEKS PAST the vertex payloads instead of
+// copying tens of megabytes to look at three fields.
+struct PartInfo {
+    std::string name;
+    std::string texture;      // bin-relative, "" = untextured
+    std::string reflTexture;  // non-empty = draws a second additive env pass
+    unsigned int stripRun = 0;
+    // Tier-0 vertex counts, which are what a VU1 package count is derived
+    // from. Both are carried because the two representations package
+    // differently: a strip is chopped into whole runs of `stripRun`, a list
+    // is cut at the program's own derived package size.
+    unsigned int vertexCount = 0;
+    unsigned int stripVertexCount = 0;  // 0 = this part ships no strip
+};
+
+struct Info {
+    float min[3] = {0, 0, 0};
+    float max[3] = {0, 0, 0};
+    std::vector<PartInfo> parts;
+};
+
+// Parses the header and the per-part metadata out of a .tmdl image. Returns
+// false on a bad magic, an unsupported version or a truncated file - never
+// a partially filled `out`, because a caller that grouped a scene against
+// half a model would report a batch layout the game does not build.
+//
+// This reads the SHIPPED artifact rather than re-deriving anything from the
+// .obj, which is the point: `stripRun` and the resolved texture names are
+// products of the bake (meshstrip, the atlas rects, the per-object .mtl
+// override), and a second derivation of them is exactly the drift the twin
+// oracle exists to catch.
+bool readInfo(const std::string& bytes, Info& out);
 
 }  // namespace tmdl

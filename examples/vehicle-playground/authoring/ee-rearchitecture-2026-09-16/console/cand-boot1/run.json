@@ -1,0 +1,15 @@
+{
+  "arm": "cand",
+  "label": "boot1",
+  "pid": 13000,
+  "started": "2026-09-16T23:47:28.9441125+02:00",
+  "elf": "6B122B2B8A7B0E4C250C6656695116355BE8F261AC236000BADAD80329850825",
+  "armJson": {
+    "built": "2026-09-16T23:33:36.5614682+02:00",
+    "bakedStream": 1,
+    "elfSha256": "6B122B2B8A7B0E4C250C6656695116355BE8F261AC236000BADAD80329850825",
+    "arm": "cand",
+    "commit": "0dc2356d169f0d219409203139bba51ce0e93d18",
+    "stripRun": "const unsigned int stripRun = 75u;"
+  }
+}

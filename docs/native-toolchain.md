@@ -37,6 +37,11 @@ install is ~940 MB and an OpenVCL build, and having the manual command and the
 editor disagree simply meant paying for both. Override it with `TYRAX_PS2DEV`
 or a positional argument.
 
+Sound conversion has the same contract as the Docker fallback: WAV effects
+whose names end in `-loop.wav` are encoded with `adpenc -L`. The native build
+also reads the loop byte from an existing ADPCM header, so an incorrectly
+encoded but newer output is repaired instead of being accepted as fresh.
+
 ## Host prerequisites
 
 Linux needs `build-essential`, CMake, curl, tar and rsync. Windows needs WSL
@@ -84,6 +89,11 @@ respect to the WSL distribution and prints the command above when a tool is
 missing.
 
 ## Docker fallback
+
+The editor resolves the project directory to an absolute native path before it
+starts the native helper. This matters for headless commands such as
+`--build ./examples/cube`: the helper changes into the project, so forwarding
+that relative spelling would append it a second time and fail before compiling.
 
 Choose **Docker fallback** under *Edit > Preferences > Build backend*, or pass
 `--docker` after the project path to the headless `--build` command. The fallback

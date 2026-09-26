@@ -6,9 +6,11 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Added by the TyraX fork.
+# Modified by TyraX: GIF-channel sends pass path3Fence() first.
 */
 
 #include <dma.h>
+#include "renderer/core/paths/path3/path3_fence.hpp"
 #include <draw.h>
 #include <gif_tags.h>
 #include <gs_gp.h>
@@ -115,6 +117,7 @@ void RendererCorePostFx::uploadNoise() {
                                        noiseSize));
   packet2_update(transfer, draw_texture_flush(transfer->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(transfer, DMA_CHANNEL_GIF, true);
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
   packet2_free(transfer);
@@ -300,6 +303,7 @@ void RendererCorePostFx::portalMaskBegin(int x0, int y0, int x1, int y1) {
   packet2_update(packet, q);
   packet2_update(packet, draw_finish(packet->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
   draw_wait_finish();
 }
@@ -397,6 +401,7 @@ void RendererCorePostFx::portalMaskEnd(const float* xy, const u32* z,
   packet2_update(packet, q);
   packet2_update(packet, draw_finish(packet->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
   draw_wait_finish();
 }
@@ -780,6 +785,7 @@ void RendererCorePostFx::apply(int passes) {
                                          2048.0F - (fbH / 2.0F)));
   packet2_update(packet, draw_finish(packet->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
   draw_wait_finish();
 }
@@ -846,6 +852,7 @@ void RendererCorePostFx::applyCustom(CustomFxBuild build, void* user) {
                                          2048.0F - (fbH / 2.0F)));
   packet2_update(packet, draw_finish(packet->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
   draw_wait_finish();
 }

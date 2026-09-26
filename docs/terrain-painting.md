@@ -28,7 +28,11 @@ Each layer has:
 - texture and tile size;
 - tint and blend strength;
 - stochastic tiling controls;
-- macro variation controls.
+- macro variation controls;
+- **Grip** (1.142.0): a tyre-grip multiplier where the layer is painted. Mud
+  is about 0.5 and sand about 0.8. It multiplies each vehicle's own Off-road
+  grip, blended by the painted weight in the stack's order. See
+  [vehicles.md](vehicles.md), "Off-road grip".
 
 Keep the stack short. Every extra painted layer adds another GS pass over the
 affected terrain patches.

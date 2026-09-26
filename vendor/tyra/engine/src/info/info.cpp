@@ -11,6 +11,10 @@
 #include "info/info.hpp"
 #include "strings.h"
 #include <stdlib.h>
+#include <malloc.h>
+#include <unistd.h>
+#include <kernel.h>
+#include "debug/debug.hpp"
 
 namespace Tyra {
 
@@ -128,7 +132,41 @@ void* Info::allocateLargestFreeRAMBlock(size_t* Size) {
   return p;
 }
 
+// Modified by TyraX (2026-09-23): free RAM from the allocator's own books.
+// The probe below answers by ALLOCATING - the largest block, by binary search,
+// then the largest of what is left, until malloc fails - so its cost grows with
+// how fragmented the heap is. The debug HUD asks every two seconds, and on a
+// physical PS2 that was a 31 ms hitch on one Motor District pose and 75 ms on a
+// more fragmented one: one ruined frame every two seconds in every debug build
+// that shows MEM, and inside every frame-time measurement taken with it on.
+//
+// The same number is two reads. newlib's mallinfo().fordblks is every free
+// byte inside the arena already obtained from sbrk, the top chunk included;
+// everything above the current break up to EndOfHeap() is what sbrk can still
+// hand out (ps2sdk's crt0 sets the heap up to the stack, _heap_size = -1).
+// Neither allocates. The two differ from the probe only by chunk headers and
+// alignment - the probe counts payload - which is noise at the HUD's 0.1 MB.
 size_t Info::getFreeRAMSize() {
+  const struct mallinfo mi = mallinfo();
+  const uintptr_t brk = reinterpret_cast<uintptr_t>(sbrk(0));
+  const uintptr_t top = reinterpret_cast<uintptr_t>(EndOfHeap());
+  size_t total = static_cast<size_t>(mi.fordblks) +
+                 (top > brk ? static_cast<size_t>(top - brk) : 0);
+  const size_t kEeRamFast = 32u * 1024u * 1024u;
+  if (total > kEeRamFast) total = kEeRamFast;
+#if TYRA_MEM_VERIFY
+  {
+    const size_t probe = getFreeRAMSizeProbe();
+    TYRA_LOG("MEMVERIFY fast=", (int)total, " probe=", (int)probe,
+             " diff=", (int)total - (int)probe,
+             " fordblks=", (int)mi.fordblks, " untapped=",
+             (int)(top > brk ? top - brk : 0));
+  }
+#endif
+  return total;
+}
+
+size_t Info::getFreeRAMSizeProbe() {
   size_t total = 0;
   void* pFirst = nullptr;
   void* pLast = nullptr;
