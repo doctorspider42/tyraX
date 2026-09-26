@@ -29,6 +29,10 @@ scenes keep separate object copies, so editing one does not touch the other.
   the older central/western crossings retain their deliberately larger drift
   aprons. Both road and junction surfaces are assigned through reusable `.mtl`
   assets; changing either material's `map_Kd` updates every road that uses it.
+- The western service lane is a **dirt track** (1.143.0, docs/roads.md
+  "Crossings"): rank Track, the ground material, grip 0.6 and a 3-unit spill.
+  The streets it crosses run straight through, and the dirt fades onto their
+  asphalt from both sides; the grip fades with it.
 - Fourteen workshop, loft and tower blocks using lean exterior shells with
   baked Kenney Retro Urban Kit facades, with pavements, trees, benches, traffic
   signals, streetlights, dumpsters and barriers. Static batching keeps a building on the solo path unless every
