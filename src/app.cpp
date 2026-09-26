@@ -14937,6 +14937,16 @@ void App::drawTerrainWindow() {
                     : "Pick a material with a texture first -\nstochastic tiling "
                       "scrambles the texture, so a\nflat color has nothing to work "
                       "on.");
+        ImGui::SameLine(0.0f, scaled(12));
+        ImGui::SetNextItemWidth(scaled(90));
+        ImGui::DragFloat("Grip", &L.grip, 0.01f, 0.1f, 1.5f, "%.2fx");
+        if (ImGui::IsItemDeactivatedAfterEdit()) layersChanged = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Tyre grip where this layer is painted, multiplying each\n"
+                "vehicle's Off-road grip (blended by the painted weight).\n"
+                "1 = the bare terrain, ~0.5 mud, ~0.8 sand. Roads use their\n"
+                "own Surface grip.");
         ImGui::Unindent(scaled(22));
 
         ImGui::PopID();

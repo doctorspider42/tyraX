@@ -51,11 +51,15 @@ struct TerrainLayer {
     // organic textures (grass/sand/rock); leave off for anything with fixed
     // seams (bricks, tiles). No effect on a flat layer.
     bool stochastic = false;
+    // Tyre grip on this layer (1.142.0, docs/vehicles.md "Off-road grip"): a
+    // multiplier on top of each vehicle's Off-road grip wherever the layer is
+    // painted, blended by its weight. 1 = the bare terrain; mud ~0.5.
+    float grip = 1.0f;
 };
 
 inline bool operator==(const TerrainLayer& a, const TerrainLayer& b) {
     return a.name == b.name && a.material == b.material && a.scale == b.scale &&
-           a.stochastic == b.stochastic;
+           a.stochastic == b.stochastic && a.grip == b.grip;
 }
 
 enum class PrimitiveType {

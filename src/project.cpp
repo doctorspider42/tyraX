@@ -1171,6 +1171,7 @@ static void writeTerrainLayersArray(std::ostream& json,
              << "\", \"material\": \"" << layers[i].material << "\", \"scale\": "
              << fmtFloat(layers[i].scale);
         if (layers[i].stochastic) json << ", \"stochastic\": true";
+        if (layers[i].grip != 1.0f) json << ", \"grip\": " << fmtFloat(layers[i].grip);
         json << " }";
     }
     json << "]";
@@ -1187,6 +1188,11 @@ static void readTerrainLayersArray(const json::Value& arr,
         if (const auto* v = jl.find("scale")) l.scale = (float)v->numberOr(1.0);
         if (l.scale <= 0.0f) l.scale = 1.0f;
         if (const auto* v = jl.find("stochastic")) l.stochastic = v->boolOr(false);
+        if (const auto* v = jl.find("grip")) {
+            l.grip = (float)v->numberOr(1.0);
+            if (l.grip < 0.1f) l.grip = 0.1f;
+            if (l.grip > 1.5f) l.grip = 1.5f;
+        }
         layers.push_back(l);
     }
 }

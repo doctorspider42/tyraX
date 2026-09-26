@@ -200,6 +200,10 @@ Format 60 adds the optional per-road `roadSampleStep` field. It is purely
 additive: missing means the original 1 m longitudinal spacing, so no migration
 step is required.
 
+Format 76 adds a terrain layer's `grip` (docs/terrain-painting.md, "Layers"),
+written only away from its default of 1. Missing means the bare terrain, as
+before. Additive; no migration step.
+
 Format 75 adds a vehicle's `drive.lampGlow` and a definition's bake-measured
 `"lampGlows"` (docs/vehicles.md, "Lamp glow"), the latter written only when
 non-empty. Missing means no halo, as before. The lamp-glow branch shipped it

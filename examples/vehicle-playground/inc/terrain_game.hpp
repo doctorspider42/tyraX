@@ -779,6 +779,9 @@ class TerrainGame : public Tyra::Game {
   mutable int roadIdxN = 0;
   mutable bool roadIdxDirty = true;
   float groundSurfaceAt(float x, float z) const;
+  // The painted terrain layers' tyre grip at (x, z), 1 without any
+  // (1.142.0; the host twin is Viewport::terrainLayerGrip).
+  float terrainGripAt(float x, float z) const;
   GeoPart skyDome;
   // Re-centered on the camera every frame (renderScene) so a large map can
   // never let the player walk (or climb) out from under the sky. The dome

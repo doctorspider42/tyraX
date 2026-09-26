@@ -864,12 +864,13 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
     float gripSum = 0.0f;  // per-tyre grip multipliers, averaged below
     for (int i = 0; i < 4; ++i) {
         gy[i] = height ? height(anchors[i][0], anchors[i][2]) : 0.0f;
-        const float sg = surface ? surface(anchors[i][0], anchors[i][2]) : 1.0f;
-        if (sg >= 0.0f) {
+        const SurfaceSample sg =
+            surface ? surface(anchors[i][0], anchors[i][2]) : SurfaceSample{};
+        if (sg.paved) {
             ++pavedWheels;
-            gripSum += sg;
+            gripSum += sg.grip;
         } else {
-            gripSum += spec.offroadGrip;
+            gripSum += spec.offroadGrip * sg.grip;  // the painted layer's share
         }
         // TERRAIN_VOID_Y: a scene with no terrain answers "unreachably low",
         // so "there is no floor here" needs no branch of its own.

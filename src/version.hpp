@@ -5261,6 +5261,11 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.142.0 - Terrain layer grip: a painted layer's Grip multiplies each
+// vehicle's offroadGrip where it is painted, composited bottom-up on the
+// drawn triangles (TerrainGame::terrainGripAt / Viewport::terrainLayerGrip).
+// Zero cost without one (TERRAIN_LAYER_GRIP_ANY). The VEH line gains grip100.
+// SurfaceFn returns a SurfaceSample. kFormatVersion 75 -> 76, additive. MINOR.
 // 1.141.1 - The skid-mark ring starts degenerate: resize() left Vec4/Color
 // uninitialised and the whole ring is submitted, so unused slots drew as a
 // black sliver across the screen. Plus the Motor District night dressing
@@ -5418,8 +5423,8 @@
 // Particles face the camera a pass DRAWS with (cutscene override, shake,
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 141
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 142
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -5867,7 +5872,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v75 (docs/vehicles.md, "Lamp glow"): drive.lampGlow and a definition's
 // bake-measured "lampGlows" (written only when non-empty). Missing = no halo.
 // Additive; no migration step. (Shipped on its branch as v74.)
-inline constexpr int kFormatVersion = 75;
+inline constexpr int kFormatVersion = 76;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects
