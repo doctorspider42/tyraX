@@ -1240,7 +1240,11 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
     // side up (the body leans OUT of the corner).
     {
         const float accLong = (state.speed - speed0) / dt;
-        const float aLat = state.grounded ? yawRateRad * state.speed : 0.0f;
+        // What the tyres actually carry, not what the steering asked for: a
+        // slide on the handbrake grip used to lean the body fully into a
+        // corner it was not taking (1.135.5).
+        const float aLat =
+            state.grounded ? clampf(yawRateRad * state.speed, -effGrip, effGrip) : 0.0f;
         const float la = clampf(spec.leanAmount, 0.0f, 2.0f);
         const float tp =
             state.grounded ? clampf(accLong * 0.30f, -4.0f, 4.0f) * la : 0.0f;

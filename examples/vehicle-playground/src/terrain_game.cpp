@@ -19516,7 +19516,9 @@ void TerrainGame::updateVehicles(float dt) {
     // acceleration), lean OUT of a corner from the centripetal term.
     {
       const float accLong = (v.speed - spd0) / dt;
-      const float aLat = v.grounded ? yawRateRad * v.speed : 0.0F;
+      // What the tyres actually carry (the host twin's rule, 1.135.5).
+      const float aLat =
+          v.grounded ? vehClamp(yawRateRad * v.speed, -effGrip, effGrip) : 0.0F;
       const float la = vehClamp(s.leanAmount, 0.0F, 2.0F);
       float tp = v.grounded ? accLong * 0.30F : 0.0F;
       if (tp > 4.0F) tp = 4.0F;
