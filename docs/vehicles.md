@@ -994,6 +994,8 @@ disabled"* and the paint silently stays matte.
 
 ### Damage
 
+![Test hits on the CC96 in the Vehicle Editor's Damage tab](img/vehicle-damage-dents.png)
+
 A crash leaves a mark. Each definition has a **Damage** tab (*Tools > Vehicle
 Editor*) with six tunables - they are ordinary drive-spec fields, so they save,
 undo and reach the console through `vehiclesim::specFields` like the rest:
@@ -1077,6 +1079,10 @@ lighting. AI drivers keep driving a wreck at reduced power. See
 docs/backlog.md.
 
 ### Loose panels and glass
+
+![The Ravager after test hits: bonnet, windscreen, left door and windows gone, engine bay and dark cabin showing](img/vehicle-damage-editor.png)
+
+![PCSX2: a head-on into the arena wall throws the bonnet over the roof with a spray of glass; it lands in front of the car](img/vehicle-damage-bonnet-ps2.png)
 
 The second half of damage: a hard enough hit **tears the bonnet, the boot or a
 door off** - it flies, tumbles and lands flat on the road - and **shatters the
