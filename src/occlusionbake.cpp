@@ -170,9 +170,16 @@ Result build(const std::string& modelPath, const std::string& materialOverride) 
                           model.max[2]-model.min[2]};
     const float longest = std::max(ext[0], std::max(ext[1], ext[2]));
     if (!(longest > 1e-5f)) { out.reason = "degenerate bounds"; return out; }
+    // Grid resolution. The one-cell erosion below and the corner test make
+    // the proxy a whole cell smaller than the mesh on every side, so a coarse
+    // grid costs a lot of coverage: at 18 cells a 17-unit tower lost ~1 unit
+    // at every wall and at its base, which at street level is the band
+    // everything behind it has to cross (docs/occlusion-culling.md). A
+    // low-poly mesh (every building kit piece) is cheap to sample finely.
+    const int res = tris.size() <= 256 ? 48 : tris.size() <= 2048 ? 32 : 18;
     int n[3];
     for (int a=0;a<3;++a)
-        n[a] = std::max(3, std::min(18, (int)std::ceil(18.0f*ext[a]/longest)));
+        n[a] = std::max(3, std::min(res, (int)std::ceil((float)res*ext[a]/longest)));
     const float step[3] = {ext[0]/n[0], ext[1]/n[1], ext[2]/n[2]};
     const int total=n[0]*n[1]*n[2];
     std::vector<unsigned char> solid(total,0), used(total,0);
@@ -219,6 +226,19 @@ Result build(const std::string& modelPath, const std::string& materialOverride) 
       b.min[1]=model.min[1]+(y+0.08f)*step[1]; b.max[1]=model.min[1]+(ye-0.08f)*step[1];
       b.min[2]=model.min[2]+(z+0.08f)*step[2]; b.max[2]=model.min[2]+(ze-0.08f)*step[2];
       out.boxes.push_back(b);
+    }
+    // The finer grid steps a pitched roof into a stack of thin slabs. Each
+    // box costs the game eight projections and a hull every frame it is in
+    // view, and a slab a few percent of the body's volume covers almost
+    // nothing the body does not, so it is dropped. Dropping an occluder box
+    // can only make the runtime answer "visible" more often.
+    if(out.boxes.size()>1){
+      auto vol=[](const Box& b){return (b.max[0]-b.min[0])*(b.max[1]-b.min[1])*(b.max[2]-b.min[2]);};
+      float big=0.0f;
+      for(const Box& b:out.boxes) big=std::max(big,vol(b));
+      std::vector<Box> kept;
+      for(const Box& b:out.boxes) if(vol(b)>=0.05f*big) kept.push_back(b);
+      out.boxes.swap(kept);
     }
     if(out.boxes.empty()) out.reason="no safely eroded interior remained";
     if(out.boxes.size()>32){out.boxes.clear();out.reason="proxy exceeded 32 boxes";}

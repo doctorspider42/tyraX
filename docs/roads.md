@@ -678,7 +678,13 @@ dirty.
 1.122.2 removed TWO coarse rejects from `renderRoadChunks` in one commit after
 false-hidden asphalt gaps: the whole-AABB frustum test and the software-depth
 one. Only one of them can produce a false negative. The software-depth test is
-approximate by construction and stays out. The frustum test is
+approximate by construction and stays out. (Later found: neither had caused
+the gaps - they were the retained-command EMIT_STATE flag, "Holes in the road"
+below - and the Motor District had occlusion culling switched off, so the
+software-depth test returned before looking at anything. It came back for
+roads with the exact-coverage rewrite; see
+[occlusion-culling.md](occlusion-culling.md), "Roads and terrain are tested
+again".) The frustum test is
 `CoreBBox::frustumCheckAABB` against the chunk's own exact world box - the
 identical call `renderProcChunks` makes on every other generated chunk and
 `renderVehicleWheels` on every rig, at the same point in the frame and off the

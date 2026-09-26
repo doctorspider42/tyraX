@@ -280,6 +280,66 @@ direct route requires that a guard-band-only bag lacks, and whether an
 "every package is IN or guard-band" bag can take it. Measure with the
 `Obj_*` capture rows (docs/profiling.md, "The game side of the object loop").
 
+## Occlusion culling: the hardware verdict (2026-09-26)
+
+The runtime rewrite and the better proxies ([occlusion-culling.md](occlusion-culling.md))
+take the dense Motor District from **0 hidden to 0-23 hidden draw units per
+street pose**. PCSX2 shows no pixel lost at any of 24 poses, and at the
+timing-arm poses it cuts submitted triangles from 22 452 to 10 291 (pose A)
+and from 21 110 to 16 756 (pose B). What is still owed is the console
+milliseconds, and until they exist the example keeps `occlusionCulling` off.
+
+**The arm** (one ELF, built from the ee-occlusion editor, devkit off):
+`C:\tyra-vq\gen-occ-timing.sh <name> "<eyeA>" "<atA>" "<eyeB>" "<atB>"`.
+It builds a `benchmark-district.py --profile quiet-debug` copy in `arms/<name>`
+with these settings:
+- `startScene` 1 (`dense`) and `occlusionCulling` on;
+- `instrument-frame-cost.py`, whose four phases are re-aimed so that phase
+  0/1 = pose A day/night and 2/3 = pose B day/night;
+- `make_occ_arm.py`, which adds the boot mode.
+
+The arm built on 2026-09-26 is `arms/occ-dense-timing`:
+- pose A: eye (0, 1.8, 20), looking at (40, 1.5, 30);
+- pose B: eye (0, 1.8, -45), looking at (0, 1.5, 0).
+Its ELF sha256 is in `ELF.sha256`.
+
+**Boot modes** (`bin/stapipexp.txt`):
+
+| mode | behaviour |
+|---|---|
+| absent | occlusion on |
+| 70 | occlusion off (the control) |
+| 72 | every test is run, nothing is hidden (the price of the test alone) |
+| 73 | on, but no terrain or road tests |
+
+**The series:**
+
+```sh
+cd /c/tyra-vq && bash mode-series2.sh occ-dense-timing occ 70 72 73
+```
+
+Mode 0 (absent) is the occlusion-on arm there. `summarize_console.py` prints
+`work` per phase. The two readings to take:
+- mode 0 against 70 is the verdict;
+- mode 72 against 70 is what the buffer and tests cost.
+
+Check the triangle column first. It must be identical within a mode and
+should match the PCSX2 figures above: 70 at 22 452 / 21 110, absent at
+10 291 / 16 756, day phases.
+
+**What would make it a win.** On the PS2 the frame is EE-bound, and the
+buffer used to cost +1.0 to +2.5 ms (1.125.2).
+- If mode 72 costs more than mode 0 saves, the next lever is the buffer
+  build: cap the occluders to the nearest N, or share the corner projections
+  between a proxy and its slices.
+- If it wins, turn `occlusionCulling` on in the example and quote the
+  numbers in occlusion-culling.md.
+
+**Also found, not occlusion:** in PCSX2 a culled unit changes the pixels in
+front of it by 1-3 levels (see "How the pixels were judged"). A surface is
+evidently blending about 1/128 of what lies behind it, as with alpha 127
+instead of 128. Find which pass that is.
+
 ## Vehicle lamp glow: next (2026-09-26)
 
 - The editor viewport does not draw the halo yet (the light beams' corona has

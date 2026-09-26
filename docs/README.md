@@ -108,8 +108,9 @@ their ownership and acceptance checks.
   draws fed into the object loop so EE and VU1 work overlap; Auto / Always /
   Off, the whole-loop auto tuner, the blend gate and the PS2 numbers.
 - [Conservative occlusion culling](occlusion-culling.md) — build-time inner
-  proxy boxes, the runtime CPU visibility buffer, safety refusals and per-object
-  opt-outs.
+  proxy boxes, the runtime CPU visibility buffer (exact per-proxy coverage,
+  per-piece depth; objects, batches, terrain and roads), safety refusals,
+  per-object opt-outs and the Motor District PCSX2 A/B.
 - [Baked global illumination + light probes](global-illumination.md) — a
   multi-bounce lightmap plus a probe grid, traced on your desktop so the
   console pays nothing.

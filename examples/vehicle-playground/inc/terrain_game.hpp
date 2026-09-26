@@ -631,7 +631,8 @@ class TerrainGame : public Tyra::Game {
 
   void buildOcclusionBuffer();
   bool occlusionHiddenObject(int index);
-  bool occlusionHiddenAabb(const float* mn, const float* mx);
+  // cat: 0 object, 1 static batch, 2 terrain chunk, 3 road chunk, 4 procedural
+  bool occlusionHiddenAabb(const float* mn, const float* mx, int cat = 0);
   bool occlusionObjectIsOccluder(int index) const;
 
   // --- Runtime procedural + prefab geometry (docs/procedural-runtime.md,

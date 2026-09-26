@@ -1728,7 +1728,8 @@ class TerrainGame : public Tyra::Game {
 
   void buildOcclusionBuffer();
   bool occlusionHiddenObject(int index);
-  bool occlusionHiddenAabb(const float* mn, const float* mx);
+  // cat: 0 object, 1 static batch, 2 terrain chunk, 3 road chunk, 4 procedural
+  bool occlusionHiddenAabb(const float* mn, const float* mx, int cat = 0);
   bool occlusionObjectIsOccluder(int index) const;
 
   // --- Runtime procedural + prefab geometry (docs/procedural-runtime.md,
@@ -3566,7 +3567,8 @@ class TerrainGame : public Tyra::Game {
 
   void buildOcclusionBuffer();
   bool occlusionHiddenObject(int index);
-  bool occlusionHiddenAabb(const float* mn, const float* mx);
+  // cat: 0 object, 1 static batch, 2 terrain chunk, 3 road chunk, 4 procedural
+  bool occlusionHiddenAabb(const float* mn, const float* mx, int cat = 0);
   bool occlusionObjectIsOccluder(int index) const;
 
   // --- Runtime procedural + prefab geometry (docs/procedural-runtime.md,
@@ -21586,10 +21588,24 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
 namespace {
 constexpr int OCC_W=48, OCC_H=42;
 float g_occDepth[OCC_W*OCC_H];
-unsigned char g_occCover[OCC_W*OCC_H], g_occEroded[OCC_W*OCC_H];
+unsigned char g_occCover[OCC_W*OCC_H];
 M4x4 g_occVp;
 float g_occSx=1.0F,g_occSy=1.0F;
 int g_occTested=0,g_occHidden=0,g_occProxies=0;
+// Per draw-unit kind (occlusionHiddenAabb's cat), for the OCC log line.
+int g_occCatTested[5]={},g_occCatHidden[5]={};
+// Why a candidate stayed visible (near plane, centre uncovered, off the
+// buffer, a cell uncovered, a cell not nearer) and why an occluder wrote
+// nothing (draw distance, impostor/LOD/blend/split, eye inside, outside the
+// view, every box too near or too small) - the OCC line prints both.
+int g_occWhy[5]={},g_occSkip[5]={};
+// The buffer answers for ONE view: the pass that built it. Every other pass
+// that shares a render function with it (the reflection probe, portals,
+// mirrors, camera feeds all call renderTerrain/renderRoadChunks) has another
+// view-projection and must never read it; occEndPass closes it after the main
+// pass's last consumer and occlusionHiddenAabb also compares the matrix.
+bool g_occValid=false;
+void occEndPass(){g_occValid=false;}
 bool occProject(const V3& p,float& x,float& y,float& w){
   const Vec4 c=g_occVp*Vec4(p.x,p.y,p.z,1.0F); w=c.w;
   if(w<=0.15F)return false;
@@ -21601,6 +21617,42 @@ float occEdge(float ax,float ay,float bx,float by,float px,float py){
   return (bx-ax)*(py-ay)-(by-ay)*(px-ax);
 }
 struct OccPt{float x,y;};
+// Depth slices. One farthest (occluder) or nearest (candidate) w for a whole
+// box is what a long building or a road chunk seen end-on can least afford:
+// its far end sets the depth of its near end. A box is therefore cut into up
+// to kOccSlices pieces along its longer horizontal edge, each with its own
+// projected rectangle and w; a cell uses only the pieces whose rectangle
+// touches it. Still conservative: the pieces partition the box, so a ray
+// through a cell meets the box only inside a piece that touches that cell.
+constexpr int kOccSlices=8;
+constexpr float kOccSliceLen=4.0F;  // world units per piece, at most
+struct OccSlice{float x0,y0,x1,y1,w;};
+// c[8] in OCCLUSION_BOXES corner order (bit 1 = x, 2 = y, 4 = z). Returns the
+// piece count, 0 when a corner fails the projection. farthest picks max w.
+int occSlices(const V3* c,bool farthest,OccSlice* out){
+  const V3 ex{c[1].x-c[0].x,c[1].y-c[0].y,c[1].z-c[0].z};
+  const V3 ez{c[4].x-c[0].x,c[4].y-c[0].y,c[4].z-c[0].z};
+  const float lx=ex.x*ex.x+ex.z*ex.z,lz=ez.x*ez.x+ez.z*ez.z;
+  const int bit=lx>=lz?1:4;
+  int k=(int)ceilf(sqrtf(lx>=lz?lx:lz)/kOccSliceLen);
+  if(k<1)k=1;
+  if(k>kOccSlices)k=kOccSlices;
+  // The four corners of each cut plane, projected once and shared.
+  float px[kOccSlices+1][4],py[kOccSlices+1][4],pw[kOccSlices+1][4];
+  int lo[4],n=0;
+  for(int i=0;i<8;++i)if(!(i&bit))lo[n++]=i;
+  for(int s=0;s<=k;++s){const float f=(float)s/(float)k;
+    for(int q=0;q<4;++q){const V3& a=c[lo[q]];const V3& b=c[lo[q]|bit];
+      const V3 m{a.x+(b.x-a.x)*f,a.y+(b.y-a.y)*f,a.z+(b.z-a.z)*f};
+      if(!occProject(m,px[s][q],py[s][q],pw[s][q]))return 0;}}
+  for(int s=0;s<k;++s){OccSlice& o=out[s];
+    o.x0=o.y0=1e30F;o.x1=o.y1=-1e30F;o.w=farthest?0.0F:1e30F;
+    for(int e=s;e<=s+1;++e)for(int q=0;q<4;++q){
+      o.x0=std::min(o.x0,px[e][q]);o.x1=std::max(o.x1,px[e][q]);
+      o.y0=std::min(o.y0,py[e][q]);o.y1=std::max(o.y1,py[e][q]);
+      o.w=farthest?std::max(o.w,pw[e][q]):std::min(o.w,pw[e][q]);}}
+  return k;
+}
 bool occBox(const V3* v){
   OccPt p[8]; float farW=0.0F;
   float px0=1e30F,px1=-1e30F,py0=1e30F,py1=-1e30F;
@@ -21643,29 +21695,52 @@ bool occBox(const V3* v){
   const u32 occR0=Tyra::FrameProfile::ticks();
   struct OccRasterLap{u32 t0;~OccRasterLap(){ftrig::occLap[2]+=Tyra::FrameProfile::ticks()-t0;}} occRasterLap{occR0};
 #endif
-  // One span per row: the hull is convex, so the cells whose centre is inside
-  // it on row Y form one run, bounded by where the row's centre line meets the
-  // hull. Each edge that spans the line yields one x; a cell is inside exactly
-  // when its centre lies between the smallest and largest of them - the same
-  // cells the per-cell all-edges test accepted, edge-on included, at a cost
-  // that follows the rows instead of rows x columns x edges (that was 1.0 ms
-  // of a physical-PS2 frame for ten proxies).
-  for(int Y=y0;Y<=y1;++Y){
-    const float py=Y+0.5F;float sx0=1e30F,sx1=-1e30F;
+  // Conservative coverage, PER PROXY: a cell is written only when this one
+  // hull contains all four of its corners - the hull is convex, so it then
+  // contains the whole cell. The hull's x-span on every integer row LINE is
+  // found once; a cell row lies between two lines and a cell is inside when it
+  // fits inside both spans. The old rule (cell CENTRE inside any hull, then a
+  // one-cell erosion of the union) was not conservative twice over: a slit
+  // narrower than a cell between two proxies - an alley between two
+  // buildings - never met a sampled centre and was bridged, and a cell could
+  // take one proxy's depth while another, farther one supplied the coverage.
+  // Both hide geometry that is on screen. This buffer only ever claims area
+  // that one proxy covers entirely, at that proxy's own farthest depth.
+  float lineL[OCC_H+1],lineR[OCC_H+1];
+  for(int Y=y0;Y<=y1+1;++Y){
+    const float py=(float)Y;float sx0=1e30F,sx1=-1e30F;
     for(int e=0;e<n;++e){const OccPt&a=h[e],&b=h[(e+1)%n];
       if((a.y>py)==(b.y>py)){
         if(a.y==py){sx0=std::min(sx0,a.x);sx1=std::max(sx1,a.x);}
         continue;}
       const float t=(py-a.y)/(b.y-a.y);const float x=a.x+(b.x-a.x)*t;
       sx0=std::min(sx0,x);sx1=std::max(sx1,x);}
-    if(sx0>sx1)continue;
-    int X0=(int)ceilf(sx0-0.5F),X1=(int)floorf(sx1-0.5F);
+    lineL[Y]=sx0;lineR[Y]=sx1;
+  }
+  // A fiftieth of a cell inward absorbs float noise on edge-on spans.
+  constexpr float kIn=0.02F;
+  OccSlice sl[kOccSlices];
+  const int ns=occSlices(v,true,sl);
+  bool wrote=false;
+  for(int Y=y0;Y<=y1;++Y){
+    const float L=std::max(lineL[Y],lineL[Y+1])+kIn;
+    const float R=std::min(lineR[Y],lineR[Y+1])-kIn;
+    if(!(R-L>=1.0F))continue;  // an empty span is 1e30/-1e30 and fails here
+    int X0=(int)ceilf(L),X1=(int)floorf(R)-1;
     if(X0<x0)X0=x0;
     if(X1>x1)X1=x1;
-    for(int X=X0;X<=X1;++X){const int i=Y*OCC_W+X;g_occCover[i]=1;
-      if(farW<g_occDepth[i])g_occDepth[i]=farW;}
+    for(int X=X0;X<=X1;++X){const int i=Y*OCC_W+X;
+      // Deepest piece whose rectangle touches this cell (the whole box's
+      // farW when slicing failed or, by float noise, nothing touched).
+      float d=0.0F;
+      for(int s=0;s<ns;++s)
+        if(sl[s].x0<=X+1.0F&&sl[s].x1>=(float)X&&sl[s].y0<=Y+1.0F&&sl[s].y1>=(float)Y)
+          d=std::max(d,sl[s].w);
+      if(d<=0.0F)d=farW;
+      g_occCover[i]=1;wrote=true;
+      if(d<g_occDepth[i])g_occDepth[i]=d;}
   }
-  return true;
+  return wrote;
 }
 }
 
@@ -21676,10 +21751,19 @@ bool TerrainGame::occlusionObjectIsOccluder(int index) const {
 void TerrainGame::buildOcclusionBuffer(){
   static int reportBeat=0;
   if(DEBUG_SHOW_PROFILER && OCCLUSION_CULLING && ++reportBeat>=120){
-    TYRA_LOG("OCC proxies=",g_occProxies," hidden=",g_occHidden,"/",g_occTested);
+    TYRA_LOG("OCC proxies=",g_occProxies," hidden=",g_occHidden,"/",g_occTested,
+             " obj=",g_occCatHidden[0],"/",g_occCatTested[0],
+             " batch=",g_occCatHidden[1],"/",g_occCatTested[1],
+             " terrain=",g_occCatHidden[2],"/",g_occCatTested[2],
+             " road=",g_occCatHidden[3],"/",g_occCatTested[3],
+             " proc=",g_occCatHidden[4],"/",g_occCatTested[4],
+             " why=",g_occWhy[0],",",g_occWhy[1],",",g_occWhy[2],",",g_occWhy[3],",",g_occWhy[4],
+             " skip=",g_occSkip[0],",",g_occSkip[1],",",g_occSkip[2],",",g_occSkip[3],",",g_occSkip[4]);
     reportBeat=0;
   }
   g_occTested=g_occHidden=g_occProxies=0;
+  for(int k=0;k<5;++k)g_occCatTested[k]=g_occCatHidden[k]=g_occWhy[k]=g_occSkip[k]=0;
+  g_occValid=false;
   if(!OCCLUSION_CULLING)return;
 #if TYRA_FRAME_PROFILE
   u32 occT=Tyra::FrameProfile::ticks();
@@ -21698,7 +21782,7 @@ void TerrainGame::buildOcclusionBuffer(){
   // frame were most of what the buffer cost on a physical PS2. Occluders are
   // static by construction (codegen refuses anything that moves), and the key
   // below catches the ones a script or Live Link moves anyway.
-  struct OccCornerCache{float key[10];float mn[3],mx[3];bool valid;};
+  struct OccCornerCache{float key[10];float mn[3],mx[3],emn[3],emx[3];bool valid;};
   static std::vector<OccCornerCache> objKeys;
   static std::vector<V3> corners;  // 8 per box, OCCLUSION_BOXES order
   static unsigned int cornerGen=~0u;
@@ -21715,6 +21799,34 @@ void TerrainGame::buildOcclusionBuffer(){
     if(r.scene!=currentScene||r.object<0||r.object>=(int)runtimeObjects.size())continue;
     const RuntimeObject& o=runtimeObjects[r.object];
     if(!o.active||!o.visible)continue;
+    // A proxy may only stand for geometry THIS pass draws, whole and opaque.
+    // Codegen proved the asset solid; these are the runtime reasons the mesh
+    // behind the proxy is not what reaches the frame: past its draw distance
+    // (nothing drawn), an impostor card (a picture with see-through edges -
+    // counted from the lower end of its hysteresis so a switch this frame is
+    // covered), a decimated mesh LOD tier, a blended part, or the other half
+    // of a split screen. Each one only ever removes an occluder, never adds.
+    if(beyondDrawDistance(o.data,cameraPosition)){++g_occSkip[0];continue;}
+    if(splitBandActive&&objectOutsideSplitBand(r.object)){++g_occSkip[1];continue;}
+    if(r.object>=(int)objectBatchOf.size()||objectBatchOf[r.object]==-1){
+      if(r.object>=(int)objectGeometry.size())continue;
+      ObjectGeometry& og=objectGeometry[r.object];
+      if(og.parts.empty()||og.impostor||og.matrixMode){++g_occSkip[1];continue;}
+      const SceneObjectData& d=o.data;
+      const float ddx=d.position[0]-cameraPosition.x,ddy=d.position[1]-cameraPosition.y,
+                  ddz=d.position[2]-cameraPosition.z;
+      const float d2=ddx*ddx+ddy*ddy+ddz*ddz;
+      if(d.impostorDistance>0.0F&&d.impostorModel>=0&&
+         d2>0.81F*d.impostorDistance*d.impostorDistance){++g_occSkip[1];continue;}
+      if(d.type==5&&modelLodEligible(r.object)){
+        const float lodDist=d.meshLod<0.0F?MESH_LOD_DISTANCE:d.meshLod;
+        if(lodDist>0.0F&&d2>lodDist*lodDist){++g_occSkip[1];continue;}
+      }
+      bool whole=true;
+      for(const GeoPart& part:og.parts)
+        if(!part.bag||part.translucent||part.lodHidden){whole=false;break;}
+      if(!whole||objectMayBlend(r.object)){++g_occSkip[1];continue;}
+    }
     const float key[10]={o.data.position[0],o.data.position[1],o.data.position[2],
       o.data.rotation[0],o.data.rotation[1],o.data.rotation[2],
       o.data.scale[0],o.data.scale[1],o.data.scale[2],o.data.modelYaw};
@@ -21743,9 +21855,26 @@ void TerrainGame::buildOcclusionBuffer(){
         ck.mn[0]=std::min(ck.mn[0],c.x);ck.mx[0]=std::max(ck.mx[0],c.x);
         ck.mn[1]=std::min(ck.mn[1],c.y);ck.mx[1]=std::max(ck.mx[1],c.y);
         ck.mn[2]=std::min(ck.mn[2],c.z);ck.mx[2]=std::max(ck.mx[2],c.z);}
+      // The object's own mesh box (objectCollisionBox is the mesh bounds for
+      // a model and the unit box for a primitive), for the eye test below.
+      {const CollisionBox cb=objectCollisionBox(o);
+       const V3 bx=boxRotate({1.0F,0.0F,0.0F},o.data),by=boxRotate({0.0F,1.0F,0.0F},o.data),
+                bz=boxRotate({0.0F,0.0F,1.0F},o.data);
+       for(int a=0;a<3;++a){ck.emn[a]=1e30F;ck.emx[a]=-1e30F;}
+       for(int k=0;k<8;++k){const float x=cb.center[0]+(k&1?cb.half[0]:-cb.half[0]),
+         y=cb.center[1]+(k&2?cb.half[1]:-cb.half[1]),z=cb.center[2]+(k&4?cb.half[2]:-cb.half[2]);
+         const float q[3]={o.data.position[0]+bx.x*x+by.x*y+bz.x*z,
+           o.data.position[1]+bx.y*x+by.y*y+bz.y*z,o.data.position[2]+bx.z*x+by.z*y+bz.z*z};
+         for(int a=0;a<3;++a){ck.emn[a]=std::min(ck.emn[a],q[a]);ck.emx[a]=std::max(ck.emx[a],q[a]);}}}
       for(int k=0;k<10;++k)ck.key[k]=key[k];
       ck.valid=true;
     }
+    // An eye INSIDE the mesh (a chase camera pushed into a wall, a free
+    // camera) sees the backs of its faces, which are culled: the proxy would
+    // stand for surfaces that are not drawn. Such an occluder sits out.
+    {const float e[3]={cameraPosition.x,cameraPosition.y,cameraPosition.z};bool in=true;
+     for(int a=0;a<3&&in;++a)in=e[a]>ck.emn[a]-0.25F&&e[a]<ck.emx[a]+0.25F;
+     if(in){++g_occSkip[2];continue;}}
     // A whole occluder outside the view writes nothing: one six-plane box test
     // instead of eight projections per proxy box. In a city most of them are
     // behind or beside the camera at any moment.
@@ -21756,13 +21885,15 @@ void TerrainGame::buildOcclusionBuffer(){
       const Tyra::Vec4 omn(ck.mn[0],ck.mn[1],ck.mn[2],1.0F),omx(ck.mx[0],ck.mx[1],ck.mx[2],1.0F);
       if(Tyra::CoreBBox::frustumCheckAABB(
              engine->renderer.core.renderer3D.frustumPlanes.getAll(),omn,omx)==
-         Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)continue;
+         Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM){++g_occSkip[3];continue;}
     }
 #if TYRA_FRAME_PROFILE
     ftrig::occBoxes+=(u32)r.count;
 #endif
-    for(int bi=0;bi<r.count;++bi)
-      if(occBox(&corners[(size_t)(r.first+bi)*8]))++g_occProxies;  // near/tiny rejected inside
+    {int wrote=0;
+     for(int bi=0;bi<r.count;++bi)
+       if(occBox(&corners[(size_t)(r.first+bi)*8])){++g_occProxies;++wrote;}  // near/tiny rejected inside
+     if(!wrote)++g_occSkip[4];}
   }
 #if TYRA_FRAME_PROFILE
   {const u32 n=Tyra::FrameProfile::ticks();
@@ -21771,22 +21902,22 @@ void TerrainGame::buildOcclusionBuffer(){
    const u64 rasterNow=ftrig::occLap[2]-rasterSeen; rasterSeen=ftrig::occLap[2];
    ftrig::occLap[1]+=(n-occT)-(u32)rasterNow; occT=n;}
 #endif
-  // Erode coverage by one cell. Depth keeps the farthest proxy surface in a
-  // covered cell; target tests add another world-depth bias below.
-  for(int y=0;y<OCC_H;++y)for(int x=0;x<OCC_W;++x){
-    bool on=g_occCover[y*OCC_W+x]!=0;
-    for(int yy=y-1;yy<=y+1&&on;++yy)for(int xx=x-1;xx<=x+1;++xx)
-      if(xx<0||yy<0||xx>=OCC_W||yy>=OCC_H||!g_occCover[yy*OCC_W+xx]){on=false;break;}
-    g_occEroded[y*OCC_W+x]=on?1:0;
-  }
+  // No erosion pass any more: occBox writes only cells a single proxy covers
+  // whole, which is already the conservative answer (FTOCC's erode lap now
+  // reads ~0 and is kept so the line keeps its columns).
+  g_occValid=true;
 #if TYRA_FRAME_PROFILE
   ftrig::occLap[3]+=Tyra::FrameProfile::ticks()-occT;
 #endif
 }
 
-bool TerrainGame::occlusionHiddenAabb(const float* mn,const float* mx){
-  if(!OCCLUSION_CULLING)return false;
+bool TerrainGame::occlusionHiddenAabb(const float* mn,const float* mx,int cat){
+  if(!OCCLUSION_CULLING||!g_occValid)return false;
+  {const M4x4& vp=engine->renderer.core.renderer3D.getViewProj();
+   for(int k=0;k<16;++k)if(vp.data[k]!=g_occVp.data[k])return false;}
   ++g_occTested;
+  if(cat<0||cat>4)cat=0;
+  ++g_occCatTested[cat];
 #if TYRA_FRAME_PROFILE
   ++ftrig::occTests;
   struct OccTestLap{u32 t0;~OccTestLap(){ftrig::occLap[4]+=Tyra::FrameProfile::ticks()-t0;}} occTestLap{Tyra::FrameProfile::ticks()};
@@ -21795,57 +21926,74 @@ bool TerrainGame::occlusionHiddenAabb(const float* mn,const float* mx){
   // their centre before paying for eight corner transforms and a rectangle.
   V3 mid{(mn[0]+mx[0])*0.5F,(mn[1]+mx[1])*0.5F,(mn[2]+mx[2])*0.5F};
   float midX,midY,midW;
-  if(!occProject(mid,midX,midY,midW))return false;
+  if(!occProject(mid,midX,midY,midW)){++g_occWhy[0];return false;}
   const int midXi=(int)floorf(midX),midYi=(int)floorf(midY);
-  if(midXi<0||midYi<0||midXi>=OCC_W||midYi>=OCC_H||
-     !g_occEroded[midYi*OCC_W+midXi])return false;
+  if(midXi>=0&&midYi>=0&&midXi<OCC_W&&midYi<OCC_H&&
+     !g_occCover[midYi*OCC_W+midXi]){++g_occWhy[1];return false;}
   float x0=1e30F,y0=1e30F,x1=-1e30F,y1=-1e30F,nearW=1e30F;
   for(int k=0;k<8;++k){V3 p{k&1?mx[0]:mn[0],k&2?mx[1]:mn[1],k&4?mx[2]:mn[2]};
-    float x,y,w;if(!occProject(p,x,y,w))return false;
+    float x,y,w;if(!occProject(p,x,y,w)){++g_occWhy[0];return false;}
     x0=std::min(x0,x);x1=std::max(x1,x);y0=std::min(y0,y);y1=std::max(y1,y);nearW=std::min(nearW,w);
   }
-  int X0=(int)floorf(x0)-1,Y0=(int)floorf(y0)-1,X1=(int)ceilf(x1)+1,Y1=(int)ceilf(y1)+1;
-  if(X0<0||Y0<0||X1>=OCC_W||Y1>=OCC_H)return false;
+  // Every cell the projected box touches, plus a twentieth of a cell of
+  // float slack. Coverage is exact per proxy (occBox), and the occluders and
+  // this box go through the same projection, so no wider margin is needed:
+  // a mapping error would move both alike, and occlusion along a ray does
+  // not depend on where the ray lands on the screen.
+  constexpr float kM=0.05F;
+  // The buffer IS the raster (x/w spans +-W/4096 there, the same edge the
+  // frustum's side planes use), so the part of a box past its edge is outside
+  // the picture and needs no cover: a candidate half off screen can still be
+  // hidden by what covers its on-screen half. A box entirely off the buffer
+  // passed the frustum test only by float noise and stays visible.
+  int X0=(int)floorf(x0-kM),Y0=(int)floorf(y0-kM),
+      X1=(int)floorf(x1+kM),Y1=(int)floorf(y1+kM);
+  if(X1<0||Y1<0||X0>=OCC_W||Y0>=OCC_H){++g_occWhy[2];return false;}
+  if(X0<0)X0=0;
+  if(Y0<0)Y0=0;
+  if(X1>=OCC_W)X1=OCC_W-1;
+  if(Y1>=OCC_H)Y1=OCC_H-1;
+  // Per cell, the nearest w of the pieces of this box that touch it; a cell
+  // of the rectangle no piece touches is not part of the box's footprint.
+  V3 c[8];
+  for(int k=0;k<8;++k)c[k]={k&1?mx[0]:mn[0],k&2?mx[1]:mn[1],k&4?mx[2]:mn[2]};
+  OccSlice sl[kOccSlices];
+  const int ns=occSlices(c,false,sl);
+  if(ns<=0){++g_occWhy[0];return false;}
   for(int y=Y0;y<=Y1;++y)for(int x=X0;x<=X1;++x){const int i=y*OCC_W+x;
-    if(!g_occEroded[i]||g_occDepth[i]+0.35F>=nearW)return false;}
-  ++g_occHidden;return true;
+    float need=1e30F;
+    for(int s=0;s<ns;++s)
+      if(sl[s].x0-kM<=x+1.0F&&sl[s].x1+kM>=(float)x&&sl[s].y0-kM<=y+1.0F&&sl[s].y1+kM>=(float)y)
+        need=std::min(need,sl[s].w);
+    if(need>=1e29F)continue;
+    if(!g_occCover[i]){++g_occWhy[3];return false;}
+    if(g_occDepth[i]+0.35F>=need){++g_occWhy[4];return false;}}
+  (void)nearW;
+  ++g_occHidden;++g_occCatHidden[cat];return true;
 }
 
 bool TerrainGame::occlusionHiddenObject(int index){
-  if(!occlusionCanCull(currentScene,index)||occlusionObjectIsOccluder(index))return false;
-  if(index<0||index>=(int)runtimeObjects.size())return false;
-  const RuntimeObject& o=runtimeObjects[index];
-  // The world AABB below is three Euler rotations and eight corners - most of
-  // the ~13 us a test cost on a physical PS2 - and for everything that does
-  // not move it is the same box every frame. Cached per object, keyed on the
-  // exact inputs, so anything that moves, turns or rescales recomputes.
-  struct OccAabbCache{float key[10];float mn[3],mx[3];bool valid;};
-  static std::vector<OccAabbCache> cache;
-  static unsigned int cacheGen=~0u;
-  if(cacheGen!=sceneGeneration||cache.size()!=runtimeObjects.size()){
-    cache.assign(runtimeObjects.size(),OccAabbCache{});cacheGen=sceneGeneration;}
-  OccAabbCache& ce=cache[(size_t)index];
-  const float key[10]={o.data.position[0],o.data.position[1],o.data.position[2],
-    o.data.rotation[0],o.data.rotation[1],o.data.rotation[2],
-    o.data.scale[0],o.data.scale[1],o.data.scale[2],o.data.modelYaw};
-  bool same=ce.valid&&!o.dirty;
-  for(int k=0;k<10&&same;++k)same=ce.key[k]==key[k];
-  if(same)return occlusionHiddenAabb(ce.mn,ce.mx);
-  const CollisionBox b=objectCollisionBox(o);
-  const V3 ax=boxRotate({1.0F,0.0F,0.0F},o.data),
-           ay=boxRotate({0.0F,1.0F,0.0F},o.data),
-           az=boxRotate({0.0F,0.0F,1.0F},o.data);
-  float mn[3]={1e30F,1e30F,1e30F},mx[3]={-1e30F,-1e30F,-1e30F};
-  for(int k=0;k<8;++k){const float x=b.center[0]+(k&1?b.half[0]:-b.half[0]),
-    y=b.center[1]+(k&2?b.half[1]:-b.half[1]),z=b.center[2]+(k&4?b.half[2]:-b.half[2]);
-    const float p[3]={o.data.position[0]+ax.x*x+ay.x*y+az.x*z,
-      o.data.position[1]+ax.y*x+ay.y*y+az.y*z,
-      o.data.position[2]+ax.z*x+ay.z*y+az.z*z};
-    for(int a=0;a<3;++a){mn[a]=std::min(mn[a],p[a]);mx[a]=std::max(mx[a],p[a]);}}
-  for(int k=0;k<10;++k)ce.key[k]=key[k];
-  for(int a=0;a<3;++a){ce.mn[a]=mn[a];ce.mx[a]=mx[a];}
-  ce.valid=true;
-  return occlusionHiddenAabb(mn,mx);
+  if(!OCCLUSION_CULLING||!occlusionCanCull(currentScene,index))return false;
+  if(index<0||index>=(int)objectGeometry.size())return false;
+  // The box is the one coarseObjectOutside trusts: built from the very
+  // vertices the object draws, at rebuild time, so it is exact for every
+  // static object and needs no per-frame transform. Anything whose drawn
+  // vertices can leave it (an impostor card turning to face the camera, a
+  // matrix-path body, a VU program that moves geometry) stays visible.
+  //
+  // OCCLUDERS ARE TESTED TOO. They used to be exempt "to prevent
+  // self-occlusion", but that cannot happen: an object's own proxies lie
+  // inside this box, w is affine, so every proxy's farthest w is at least the
+  // box's nearest w - and a cell only hides when its depth is NEARER than
+  // that by the bias. Two occluders cannot hide each other either (each would
+  // need its proxy nearer than the other's box). A building behind a building
+  // is exactly the case a city needs.
+  const ObjectGeometry& g=objectGeometry[index];
+  if(!g.coarseBoxValid||g.impostor||g.matrixMode||vuscript::movesGeometry())
+    return false;
+  const float mn[3]={g.coarseBox.vertices[0].x,g.coarseBox.vertices[0].y,g.coarseBox.vertices[0].z};
+  const float mx[3]={g.coarseBox.vertices[7].x,g.coarseBox.vertices[7].y,g.coarseBox.vertices[7].z};
+  return occlusionHiddenAabb(mn,mx,0);
 }
 
 void TerrainGame::renderStaticBatches() {
@@ -21907,10 +22055,10 @@ void TerrainGame::renderStaticBatches() {
           Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
         continue;
     }
-    bool ownsOccluder = false;
-    for (const StaticBatchMember& m : b.members)
-      if (occlusionObjectIsOccluder(m.object)) { ownsOccluder = true; break; }
-    if (!ownsOccluder && occlusionHiddenAabb(b.aabbMin, b.aabbMax)) continue;
+    // A batch holding occluders is tested like any other: its box is the
+    // exact vertex box of every member, so it contains those members' own
+    // proxies and cannot be hidden by them (see occlusionHiddenObject).
+    if (occlusionHiddenAabb(b.aabbMin, b.aabbMax, 1)) continue;
     submitHeavy(b.bag.get());
   }
 }
@@ -22321,7 +22469,7 @@ void TerrainGame::renderProcChunks() {
       if (dx * dx + dy * dy + dz * dz > c.drawDist * c.drawDist) continue;
     }
     if (splitBandActive && outsideSplitBand(c.aabbMin, c.aabbMax)) continue;
-    if (occlusionHiddenAabb(c.aabbMin, c.aabbMax)) continue;
+    if (occlusionHiddenAabb(c.aabbMin, c.aabbMax, 4)) continue;
     stapip.core.render(c.bag.get());
   }
 }
@@ -22347,9 +22495,11 @@ void TerrainGame::renderRoadChunks() {
                        cameraPosition.z) > g_groundDrawRadius * g_groundDrawRadius)
       continue;
     // Roads are long, shallow receiver surfaces, and BOTH coarse rejects were
-    // removed together in 1.122.2 after false-hidden asphalt gaps. Only one of
-    // them could have caused those: the SOFTWARE-DEPTH test is approximate by
-    // construction and stays out. The frustum test is not - it is
+    // removed together in 1.122.2 after false-hidden asphalt gaps. Neither
+    // caused them: the gaps were retained command blocks replaying a stale
+    // EMIT_STATE flag (docs/roads.md, "Holes in the road", 1.127.1), and the
+    // example had occlusion culling switched off, so the software-depth test
+    // returned before it looked at anything. The frustum test is
     // CoreBBox::frustumCheckAABB against the chunk's own exact world box, the
     // identical call renderProcChunks makes on every other generated chunk and
     // renderVehicleWheels on every rig, at the same point in the frame and off
@@ -22367,6 +22517,11 @@ void TerrainGame::renderRoadChunks() {
             engine->renderer.core.renderer3D.frustumPlanes.getAll(), mn, mx) ==
         Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
       continue;
+    // The software-depth test is back too (docs/occlusion-culling.md): with
+    // per-proxy exact coverage it hides a chunk only when EVERY cell its
+    // whole box touches is covered nearer than the box's nearest corner, and
+    // a near arm of the same road is inside that box.
+    if (occlusionHiddenAabb(c.aabbMin, c.aabbMax, 3)) continue;
     submitHeavy(c.bag.get());
   }
 }
@@ -25010,6 +25165,10 @@ void TerrainGame::renderScene() {
     renderSkyBodies(cameraPosition, cameraLookAt);
   }
   costEnd("Sky",-1,costSkyStart);
+  // The occlusion buffer before the terrain, so terrain chunks can be tested
+  // against the buildings as well (docs/occlusion-culling.md). It reads only
+  // the view-projection and the static proxies, nothing the terrain draws.
+  { const u32 ct=costStart(); buildOcclusionBuffer(); costEnd("Occlusion",-1,ct); }
   const u32 costTerrainStart=costStart();
   // Terrain: stream the chunk ring around the view focus (budgeted, so the
   // build cost spreads over frames), then submit the built chunks - the
@@ -25026,7 +25185,6 @@ void TerrainGame::renderScene() {
   }
   renderTerrain();
   costEnd("Terrain",-1,costTerrainStart);
-  { const u32 ct=costStart(); buildOcclusionBuffer(); costEnd("Occlusion",-1,ct); }
   // Static batches: one submit per material x cell group of the non-moving
   // primitives (rebuilt first when a member changed). Opaque z-tested
   // geometry, so drawing before the solo objects is order-free.
@@ -25573,6 +25731,7 @@ void TerrainGame::renderScene() {
   if (heavyActive) dripHeavy(true);
   if (INTERLEAVE_PASSES != 0) interleaveEnd();
   costEnd("Objects",-1,costObjectsStart);
+  occEndPass();  // the last consumer of this view's occlusion buffer
   if (lp) {
     // Laps are EE time only and sit inside the Objects row; counts ride the
     // ms column scaled by one millisecond of ticks, like Objects_*_count.
@@ -29226,6 +29385,10 @@ void TerrainGame::renderTerrain() {
               tmx) == Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
         continue;
     }
+    // Behind buildings: the main view builds the occlusion buffer before the
+    // terrain now. Other passes calling this function get false (another
+    // view-projection), and the box is the chunk's real minY/maxY one.
+    if (occlusionHiddenAabb(ch.aabbMin, ch.aabbMax, 2)) continue;
     stapip.core.render(ch.bag.get());
     // Painted layers: alpha-blend over the base pass right away (same
     // geometry = equal depth passes the GS >= z-test; keeping base + layers
@@ -32796,7 +32959,10 @@ static std::string occlusionDataHeader(const Project& p) {
             const int first=(int)boxes.size();
             if (o.type==PrimitiveType::Box && o.materialPath.empty()) {
                 occlusionbake::Box b;
-                for(int a=0;a<3;++a)b.min[a]=-0.46f,b.max[a]=0.46f;
+                // A box primitive's mesh IS this box (detail only subdivides
+                // its flat faces), so the inset only has to absorb float noise.
+                // 0.46 cost a 16-unit pavement 0.64 on every side.
+                for(int a=0;a<3;++a)b.min[a]=-0.49f,b.max[a]=0.49f;
                 boxes.push_back(b);
             } else if (o.type==PrimitiveType::Model && !o.modelPath.empty() &&
                        !isAnimatedModelPath(o.modelPath)) {
