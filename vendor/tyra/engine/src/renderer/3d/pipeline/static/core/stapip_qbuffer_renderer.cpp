@@ -27,6 +27,9 @@
 #include "renderer/core/gs/renderer_core_depth.hpp"
 #include "packet2/packet2_tyra_utils.hpp"
 #include "renderer/3d/pipeline/static/core/stapip_vu_tap.hpp"
+#include <malloc.h>  // Modified by TyraX: memalign, retained uniform blocks
+#include <cstdio>
+#include "file/file_utils.hpp"  // Modified by TyraX: the uniforms A/B file
 
 // #define TYRA_QBUFF_RENDERER_VERBOSE_LOG 1
 
@@ -340,6 +343,33 @@ inline void emitUnpack(packet2_t* packet, u32 addr, const void* src,
   const qword_t* s = static_cast<const qword_t*>(src);
   for (u32 i = 0; i < qwords; ++i) q[1 + i] = s[i];
   packet->next = q + 1 + qwords;
+}
+
+// Modified by TyraX: retained uniform blocks. Is `vif` exactly the VIF stream
+// the CNT chain `chain` delivers, i.e. what chainToVifStream(chain) would
+// write? `chain` is a run of whole CNT unpacks this file just built.
+bool vifMatchesChain(const qword_t* vif, const qword_t* chain, u32 qw) {
+  u32 i = 0;
+  while (i < qw) {
+    const u32 end = i + 1 + static_cast<u32>(chain[i].dw[0] & 0xFFFFU);
+    if (end > qw || vif[i].dw[0] != 0 || vif[i].dw[1] != chain[i].dw[1])
+      return false;
+    for (u32 k = i + 1; k < end; ++k)
+      if (vif[k].dw[0] != chain[k].dw[0] || vif[k].dw[1] != chain[k].dw[1])
+        return false;
+    i = end;
+  }
+  return true;
+}
+
+// Modified by TyraX: the spot cache's key compare, word by word (bitwise, so
+// a hit is the same arithmetic on the same bits).
+inline bool sameWords(const void* a, const void* b, u32 words) {
+  const u32* x = static_cast<const u32*>(a);
+  const u32* y = static_cast<const u32*>(b);
+  for (u32 i = 0; i < words; ++i)
+    if (x[i] != y[i]) return false;
+  return true;
 }
 }  // namespace
 
@@ -918,6 +948,20 @@ void StaPipQBufferRenderer::allocateOnUse() {
 
   dBufferPrograms = new StaPipVU1Program*[buffersCount];
 
+#if TYRA_STAPIP_UNIFORMS_BUILT
+  // Modified by TyraX: retained uniform blocks, allocated once and kept across
+  // pipeline switches - an entry's bytes are checked on every use, so nothing
+  // in them can go stale, and the drain in deallocateOnUse finishes every
+  // chain that named them.
+  if (uniformEntries == nullptr) {
+    uniformEntries = new UniformEntry[kUniformEntries]();
+    uniformBlocks = static_cast<qword_t*>(
+        memalign(64, kUniformEntries * kUniformEntryQw * sizeof(qword_t)));
+    TYRA_ASSERT(uniformBlocks != nullptr,
+                "Retained uniform blocks: out of memory");
+  }
+#endif
+
   sendStaticData();
 }
 
@@ -954,6 +998,11 @@ void StaPipQBufferRenderer::deallocateOnUse() {
 }
 
 StaPipQBufferRenderer::~StaPipQBufferRenderer() {
+#if TYRA_STAPIP_UNIFORMS_BUILT
+  Vif1Queue::drain();  // Modified by TyraX: chains may REF the blocks
+  delete[] uniformEntries;
+  free(uniformBlocks);
+#endif
   if (programsPacket) packet2_free(programsPacket);
   if (billboardProgramsPacket) packet2_free(billboardProgramsPacket);
 }
@@ -1097,6 +1146,161 @@ StaPipClipperSpot buildSpotForBag(const RendererCoreSpotLight& spot,
 }
 }  // namespace
 
+// Modified by TyraX: buildSpotForBag through the spot cache
+// (TYRA_STAPIP_SPOT_CACHE). Every input of buildSpotForBag is in the key: the
+// model matrix and every field of the light, compared bitwise.
+StaPipClipperSpot StaPipQBufferRenderer::spotForBag(
+    const RendererCoreSpotLight& light, const M4x4* model) {
+#if TYRA_STAPIP_SPOT_CACHE
+  if (light.enabled && spotCacheOn()) {
+    const RendererCoreSpotLight& c = spotCacheLight;
+    if (spotCacheValid && c.enabled == light.enabled &&
+        c.point == light.point &&
+        sameWords(&c.position, &light.position, 4) &&
+        sameWords(&c.direction, &light.direction, 4) &&
+        sameWords(&c.color, &light.color, 4) &&
+        sameWords(&c.range, &light.range, 1) &&
+        sameWords(&c.cosCutoff, &light.cosCutoff, 1) &&
+        sameWords(&c.softness, &light.softness, 1) &&
+        sameWords(spotCacheModel.data, model->data, 16)) {
+#if TYRA_STAPIP_UNIFORMS_BUILT && TYRA_STAPIP_UNIFORMS_VERIFY
+      // The verify arm checks every hit against the arithmetic it skipped.
+      const StaPipClipperSpot fresh = buildSpotForBag(light, model);
+      const StaPipClipperSpot& r = spotCacheResult;
+      ++uniVerified;
+      if (fresh.enabled != r.enabled ||
+          !sameWords(&fresh.position, &r.position, 4) ||
+          !sameWords(&fresh.direction, &r.direction, 4) ||
+          !sameWords(fresh.color, r.color, 3) ||
+          !sameWords(&fresh.invRange2, &r.invRange2, 1) ||
+          !sameWords(&fresh.cosCut2, &r.cosCut2, 1) ||
+          !sameWords(&fresh.invSoft, &r.invSoft, 1)) {
+        ++uniMismatched;
+        if (uniMismatched <= 8) TYRA_LOG("STAPIPUNI MISMATCH spot cache");
+      }
+#endif
+      return spotCacheResult;
+    }
+    spotCacheResult = buildSpotForBag(light, model);
+    spotCacheModel = *model;
+    spotCacheLight = light;
+    spotCacheValid = true;
+    return spotCacheResult;
+  }
+#endif
+  return buildSpotForBag(light, model);
+}
+
+#if TYRA_STAPIP_UNIFORMS_AB
+// Modified by TyraX: the one-ELF A/B arm (TYRA_STAPIP_UNIFORMS_AB). Read once,
+// at the first bag, from the game's bin/ (host: under ps2link and PCSX2).
+void StaPipQBufferRenderer::resolveUniformsMode() {
+  int v = 0;
+  FILE* f = std::fopen(FileUtils::fromCwd("stapipexp.txt").c_str(), "r");
+  if (f != nullptr) {
+    if (std::fscanf(f, "%d", &v) != 1) v = 1;
+    std::fclose(f);
+  }
+  if (v < 0) v = 0;
+  const int mask = v == 1 ? 0x1E : v;
+  uniformsMode = mask;
+  TYRA_LOG("STAPIPEXP ", v, " spotCache=", (mask & 2) ? 1 : 0,
+           " retainedUniforms=", (mask & 4) && TYRA_STAPIP_UNIFORMS_BUILT ? 1 : 0,
+           " skipInactiveSpot=", (mask & 8) ? 1 : 0,
+           " clipBlockGate=", (mask & 16) ? 1 : 0);
+}
+#endif
+
+#if TYRA_STAPIP_UNIFORMS_BUILT
+// Modified by TyraX: which entry a bag uses. A PLACEMENT HINT ONLY - a hit is
+// decided by comparing the built bytes, so two bags that hash alike just take
+// turns (rewrite or inline), they never draw each other's uniforms. Two ways
+// per set; a way this frame already used is never a victim, so the second of
+// two colliding bags goes inline rather than evicting the first mid-frame.
+StaPipQBufferRenderer::UniformEntry* StaPipQBufferRenderer::findUniformEntry(
+    const StaPipBag* bag) {
+  u32 k = reinterpret_cast<u32>(bag->vertices) * 0x9E3779B1U;
+  k ^= reinterpret_cast<u32>(bag->info) * 0x85EBCA77U;
+  k ^= reinterpret_cast<u32>(bag->texture) * 0xC2B2AE3DU;
+  k ^= reinterpret_cast<u32>(bag->color) * 0x27D4EB2FU;
+  k ^= k >> 15;
+  if (k == 0) k = 1;
+  UniformEntry* e = uniformEntries + ((k >> 9) & (kUniformSets - 1)) * 2;
+  if (e[0].key == k) {
+    e[0].lastFrame = uniformFrame;
+    return e;
+  }
+  if (e[1].key == k) {
+    e[1].lastFrame = uniformFrame;
+    return e + 1;
+  }
+  UniformEntry* victim = nullptr;
+  if (e[0].lastFrame != uniformFrame) victim = e;
+  if (e[1].lastFrame != uniformFrame &&
+      (victim == nullptr || e[1].lastFrame < victim->lastFrame))
+    victim = e + 1;
+  if (victim == nullptr) {
+    ++uniNoEntry;
+    return nullptr;
+  }
+  // The copies stay where they are - they may still be named by a chain in
+  // flight, which each group's refSerial keeps track of - only their claim to
+  // hold anything goes.
+  victim->key = k;
+  victim->lastFrame = uniformFrame;
+  victim->group[0].qw = 0;
+  victim->group[1].qw = 0;
+  ++uniRetags;
+  return victim;
+}
+
+// Modified by TyraX: may this group's retained copy be rewritten? Only once
+// every chain that named it has run: never while the packet being built names
+// it, and otherwise only when the packet that last named it was submitted and
+// Vif1Queue has seen its sequence complete. A serial that fell out of the ring
+// is kSerialRing packets old - with at most kDepth + 1 chains on the queue,
+// long finished.
+bool StaPipQBufferRenderer::uniformGroupFree(const UniformGroup& group) const {
+  if (group.refSerial == 0) return true;
+  if (group.refSerial == packetSerial) return false;
+  const u32 slot = group.refSerial % kSerialRing;
+  if (serialTag[slot] != group.refSerial) return true;
+  return Vif1Queue::isComplete(serialSeq[slot]);
+}
+
+const qword_t* StaPipQBufferRenderer::emitUniformGroup(
+    packet2_t* packet, UniformEntry* entry, u32 group, const qword_t* scratch,
+    u32 qw, bool shadow) {
+  if (qw == 0) return nullptr;
+  const u32 cap = group == 0 ? kUniformGroupQw0 : kUniformGroupQw1;
+  if (entry != nullptr && qw <= cap) {
+    UniformGroup& g = entry->group[group];
+    qword_t* copy = uniformBlocks +
+                    static_cast<u32>(entry - uniformEntries) * kUniformEntryQw +
+                    (group == 0 ? 0 : kUniformGroupQw0);
+    if (g.qw == qw && vifMatchesChain(copy, scratch, qw)) {
+      if (!shadow) emitRef(packet, copy, qw);
+      g.refSerial = packetSerial;
+      ++uniHits;
+      return copy;
+    }
+    if (uniformGroupFree(g)) {
+      g.qw = 0;
+      if (chainToVifStream(scratch, qw, copy) == qw) {
+        g.qw = static_cast<u16>(qw);
+        if (!shadow) emitRef(packet, copy, qw);
+        g.refSerial = packetSerial;
+        ++uniWrites;
+        return copy;
+      }
+    }
+  }
+  if (!shadow) appendChainQwords(packet, scratch, qw);
+  ++uniInline;
+  return nullptr;
+}
+#endif  // TYRA_STAPIP_UNIFORMS_BUILT
+
 // Modified by TyraX: the VU1 clipping uniform chain - one quadword of
 // constants for the per-triangle crossing test plus the six clip planes as
 // (A,B,C,D)+(E,0,0,0) pairs. Lifted out of sendObjectData unchanged so the
@@ -1209,81 +1413,147 @@ void StaPipQBufferRenderer::sendObjectData(
                                      mvp->data, 4, false);
   }
 
-  if (bag->lighting) {
-    if (submissionBatchCandidate || kInlineUniforms) {
-      emitUnpack(objectDataPacket, VU1_LIGHTS_MATRIX_ADDR,
-                 bag->lighting->lightMatrix->data, 3);
-      emitUnpack(objectDataPacket, VU1_LIGHTS_DIRS_ADDR,
-                 bag->lighting->dirLights->getLightDirections(), 3);
-    } else {
-      packet2_utils_vu_add_unpack_data(objectDataPacket,
-                                       VU1_LIGHTS_MATRIX_ADDR,
-                                       bag->lighting->lightMatrix, 3, false);
-      packet2_utils_vu_add_unpack_data(
-          objectDataPacket, VU1_LIGHTS_DIRS_ADDR,
-          bag->lighting->dirLights->getLightDirections(), 3, false);
+  // Modified by TyraX: retained per-bag uniform blocks (see
+  // TYRA_STAPIP_RETAINED_UNIFORMS in the header). The light group and the
+  // material group are each built by the code below into `dst`: the packet
+  // itself on the old path, a stack scratch on the retained one, which then
+  // REFs the bag's retained copy when the bytes match. The verify arm builds
+  // each group twice - into the packet (sent) and into the scratch (shadowed)
+  // - and compares.
+#if TYRA_STAPIP_UNIFORMS_BUILT
+  static_assert(kInlineUniforms,
+                "retained uniforms replace the inline copies; the REF-to-"
+                "renderer-storage branches below must be dead when they run");
+  constexpr bool kUniVerify = TYRA_STAPIP_UNIFORMS_VERIFY != 0;
+  const bool retainUniforms = retainedUniformsOn();
+  UniformEntry* uniEntry = retainUniforms ? findUniformEntry(bag) : nullptr;
+  alignas(64) qword_t uniScratch[32];
+  packet2_t uniScratchPacket;
+  const u32 uniPasses = retainUniforms && kUniVerify ? 2 : 1;
+  auto uniDst = [&](u32 pass) -> packet2_t* {
+    if (!retainUniforms) return objectDataPacket;
+    if (kUniVerify) return pass == 0 ? objectDataPacket : &uniScratchPacket;
+    return &uniScratchPacket;
+  };
+  qword_t* uniLegacyStart = objectDataPacket->next;
+  auto uniGroupEnd = [&](u32 group) {
+    if (!retainUniforms) return;
+    const u32 qw = static_cast<u32>(uniScratchPacket.next - uniScratch);
+    TYRA_ASSERT(qw <= 32, "Retained uniform scratch overflow: ", qw);
+    const qword_t* copy = emitUniformGroup(objectDataPacket, uniEntry, group,
+                                           uniScratch, qw, kUniVerify);
+    if (kUniVerify) {
+      // The packet holds the old path's bytes for this group; the scratch the
+      // new builder's; `copy` what the retained path would have REF'd.
+      const qword_t* legacy = uniLegacyStart;
+      const u32 legacyQw = static_cast<u32>(objectDataPacket->next - legacy);
+      bool ok = legacyQw == qw && memcmp(legacy, uniScratch, qw * 16) == 0;
+      if (ok && copy != nullptr) ok = vifMatchesChain(copy, legacy, qw);
+      ++uniVerified;
+      if (!ok) {
+        ++uniMismatched;
+        if (uniMismatched <= 8)
+          TYRA_LOG("STAPIPUNI MISMATCH group=", group, " legacyQw=", legacyQw,
+                   " qw=", qw, " retained=", copy != nullptr ? 1 : 0);
+      }
     }
-    // add_unpack_data emits a DMA REF, not a copy. The mode-adjusted
-    // colors must live in the packet, never in a temporary stack array.
-    const Vec4* colors = bag->lighting->dirLights->getLightColors();
-    {
-      alignas(16) Vec4 c[4] = {colors[0], colors[1], colors[2], colors[3]};
-      c[3].w = bag->lighting->dirLights->signedSH ? -1.0F : 0.0F;
-      emitUnpack(objectDataPacket, VU1_LIGHTS_COLORS_ADDR, c, 4);
-    }
-  }
+    uniScratchPacket.next = uniScratch;
+    uniLegacyStart = objectDataPacket->next;
+  };
+  uniScratchPacket.next = uniScratch;
+#else
+  constexpr u32 uniPasses = 1;
+  auto uniDst = [&](u32) -> packet2_t* { return objectDataPacket; };
+  auto uniGroupEnd = [&](u32) {};
+#endif
 
-  // Modified by TyraX: dynamic light for the color programs - the per-bag
-  // pick from StaPipCore (flashlight or the strongest scene point light),
-  // falling back to the global flashlight state when no pick was made.
-  // The dir-lights addresses are free when the bag has no lighting - the
-  // C/TC programs read the three spot quads from there. Always uploaded and
-  // the same numbers go to the EE clipper for the as_is path.
-  //
-  // Modified by TyraX: the quads are uploaded unconditionally, but the VU1
-  // ARITHMETIC is not - `spotActive` below rides in VU1_OPTIONS_ADDR.y and
-  // the cull/clip colour programs branch over CalculateTyraSpotLight when it
-  // is clear. `enabled` is exactly the predicate the EE clipper's
-  // addSpotToColor already used, so the two halves of the formula are gated
-  // by one fact and a skipped mesh renders bit-identically (an inert light
-  // uploads a black colour, and colour * anything is 0 on VU1).
+  // The light group.
   bool spotActive = false;
-  if (!bag->lighting) {
-    const auto& light = bagLight ? *bagLight : rendererCore->spot;
-    const auto meshSpot = buildSpotForBag(light, bag->info->model);
-    clipper.setSpot(meshSpot);
-    spotActive = meshSpot.enabled;
-
-    {
-      alignas(16) const float s[12] = {
-          meshSpot.position.x,  meshSpot.position.y,  meshSpot.position.z,
-          meshSpot.invRange2,   meshSpot.direction.x, meshSpot.direction.y,
-          meshSpot.direction.z, meshSpot.cosCut2,
-          meshSpot.enabled ? meshSpot.color[0] : 0.0F,
-          meshSpot.enabled ? meshSpot.color[1] : 0.0F,
-          meshSpot.enabled ? meshSpot.color[2] : 0.0F,
-          meshSpot.invSoft};
-      emitUnpack(objectDataPacket, VU1_LIGHTS_DIRS_ADDR, s, 3);
+  for (u32 uniPass = 0; uniPass < uniPasses; ++uniPass) {
+    packet2_t* const dst = uniDst(uniPass);
+    if (bag->lighting) {
+      if (submissionBatchCandidate || kInlineUniforms) {
+        emitUnpack(dst, VU1_LIGHTS_MATRIX_ADDR,
+                   bag->lighting->lightMatrix->data, 3);
+        emitUnpack(dst, VU1_LIGHTS_DIRS_ADDR,
+                   bag->lighting->dirLights->getLightDirections(), 3);
+      } else {
+        packet2_utils_vu_add_unpack_data(dst,
+                                         VU1_LIGHTS_MATRIX_ADDR,
+                                         bag->lighting->lightMatrix, 3, false);
+        packet2_utils_vu_add_unpack_data(
+            dst, VU1_LIGHTS_DIRS_ADDR,
+            bag->lighting->dirLights->getLightDirections(), 3, false);
+      }
+      // add_unpack_data emits a DMA REF, not a copy. The mode-adjusted
+      // colors must live in the packet, never in a temporary stack array.
+      const Vec4* colors = bag->lighting->dirLights->getLightColors();
+      {
+        alignas(16) Vec4 c[4] = {colors[0], colors[1], colors[2], colors[3]};
+        c[3].w = bag->lighting->dirLights->signedSH ? -1.0F : 0.0F;
+        emitUnpack(dst, VU1_LIGHTS_COLORS_ADDR, c, 4);
+      }
     }
 
-    // Modified by TyraX: the two quadwords a project's own microprogram reads
-    // (docs/vu-authoring.md). Inside the `if (!bag->lighting)` on purpose -
-    // they occupy the directional-lights COLOUR block, which a lit bag needs.
-    if (vuCustomEnabled) {
-      {
-        alignas(16) const float c[8] = {vuParams[0], vuParams[1], vuParams[2],
-                                        vuParams[3], vuTime[0],   vuTime[1],
-                                        vuTime[2],   vuTime[3]};
-        emitUnpack(objectDataPacket, VU1_CUSTOM_PARAMS_ADDR, c, 2);
+    // Modified by TyraX: dynamic light for the color programs - the per-bag
+    // pick from StaPipCore (flashlight or the strongest scene point light),
+    // falling back to the global flashlight state when no pick was made.
+    // The dir-lights addresses are free when the bag has no lighting - the
+    // C/TC programs read the three spot quads from there. Always uploaded and
+    // the same numbers go to the EE clipper for the as_is path.
+    //
+    // Modified by TyraX: the quads are uploaded unconditionally, but the VU1
+    // ARITHMETIC is not - `spotActive` below rides in VU1_OPTIONS_ADDR.y and
+    // the cull/clip colour programs branch over CalculateTyraSpotLight when it
+    // is clear. `enabled` is exactly the predicate the EE clipper's
+    // addSpotToColor already used, so the two halves of the formula are gated
+    // by one fact and a skipped mesh renders bit-identically (an inert light
+    // uploads a black colour, and colour * anything is 0 on VU1).
+    if (!bag->lighting) {
+      const auto& light = bagLight ? *bagLight : rendererCore->spot;
+      const auto meshSpot = spotForBag(light, bag->info->model);
+      clipper.setSpot(meshSpot);
+      spotActive = meshSpot.enabled;
+
+      // Modified by TyraX: TYRA_STAPIP_SKIP_INACTIVE_SPOT - dead data when the
+      // spot does not reach the bag, unless someone else's program reads it.
+      if (meshSpot.enabled || !spotSkipOn() ||
+          repository.hasAnyOverride()) {
+        alignas(16) const float s[12] = {
+            meshSpot.position.x,  meshSpot.position.y,  meshSpot.position.z,
+            meshSpot.invRange2,   meshSpot.direction.x, meshSpot.direction.y,
+            meshSpot.direction.z, meshSpot.cosCut2,
+            meshSpot.enabled ? meshSpot.color[0] : 0.0F,
+            meshSpot.enabled ? meshSpot.color[1] : 0.0F,
+            meshSpot.enabled ? meshSpot.color[2] : 0.0F,
+            meshSpot.invSoft};
+        emitUnpack(dst, VU1_LIGHTS_DIRS_ADDR, s, 3);
+      }
+
+      // Modified by TyraX: the two quadwords a project's own microprogram reads
+      // (docs/vu-authoring.md). Inside the `if (!bag->lighting)` on purpose -
+      // they occupy the directional-lights COLOUR block, which a lit bag needs.
+      if (vuCustomEnabled) {
+        {
+          alignas(16) const float c[8] = {vuParams[0], vuParams[1], vuParams[2],
+                                          vuParams[3], vuTime[0],   vuTime[1],
+                                          vuTime[2],   vuTime[3]};
+          emitUnpack(dst, VU1_CUSTOM_PARAMS_ADDR, c, 2);
+        }
       }
     }
   }
+  uniGroupEnd(0);
 
   // Modified by TyraX: VU1 clipping data. One quad of constants for the
   // per-triangle crossing test (see stapip_vu1_shared_defines.h) and the six
   // clip planes as (A,B,C,D)+(E,0,0,0) pairs; inside = dot4(v,ABCD) + E >= 0.
   // Uploaded per mesh: other pipelines may reuse this VU1 memory in between.
-  if (vu1Clipping) {
+  // Modified by TyraX: ... and only for a bag that can reach a clip program
+  // (TYRA_STAPIP_CLIP_BLOCK_GATE, setBagMayClip).
+  const bool bagClips = bagMayClip || !clipGateOn();
+  bagMayClip = true;
+  if (vu1Clipping && bagClips) {
 #if TYRA_STAPIP_RETAINED_COMMANDS
     // Modified by TyraX: retained command data. These fifteen quadwords are
     // the same for every mesh in the run - their only inputs are the
@@ -1320,197 +1590,205 @@ void StaPipQBufferRenderer::sendObjectData(
 #endif
   }
 
-  u8 singleColorEnabled = bag->color->single != nullptr;
+  // The material group.
+#if TYRA_STAPIP_UNIFORMS_BUILT
+  uniLegacyStart = objectDataPacket->next;  // past the clip block
+#endif
+  for (u32 uniPass = 0; uniPass < uniPasses; ++uniPass) {
+    packet2_t* const dst = uniDst(uniPass);
+    u8 singleColorEnabled = bag->color->single != nullptr;
 
-  if (singleColorEnabled) {  // Color is placed in 4th slot of
-                            // VU1_LIGHTS_MATRIX_ADDR
-    if (submissionBatchCandidate || kInlineUniforms) {
-      emitUnpack(objectDataPacket, VU1_SINGLE_COLOR_ADDR,
-                 bag->color->single->rgba, 1);
-    } else {
-      Packet2TyraUtils::addUnpackData(objectDataPacket, VU1_SINGLE_COLOR_ADDR,
-                                      bag->color->single->rgba, 1, false);
-    }
-  }
-
-  // Modified by TyraX: the options block through the fast path too (see
-  // emitUnpack) - built as whole qwords, the same GS_SET_* words packet2's
-  // helpers would have written, then one cached header + copy.
-  {
-    alignas(16) qword_t opt[4];
-    u32 optQw = 0;
-    const u32 sharedClipVariant =
-        bag->lighting != nullptr ||
-                (bag->texture != nullptr && bag->texture->coordinatesAreNormals)
-            ? 1
-            : 0;
-    // Static-pipeline-only use of the old dynpip lerp lane: C/D and TC/TCE
-    // share one clip image per ABI-compatible pair. Other programs ignore it.
-    //
-    // Modified by TyraX: the lane is THREE-STATE now. Every reader that
-    // predates this tested only `> 0` versus `<= 0` (clip_c's three `iblez`,
-    // clip_tc's `ibgtz`), so the negative half was free to carry a second
-    // fact: the colour programs run CalculateTyraSpotLight only when it is
-    // negative. The two cannot collide - the peer variant is selected by a
-    // lighting bag or matcap coordinates, and neither of those classes has
-    // the spot macro at all - so the variant wins when both are true.
-    const s32 variantLane = sharedClipVariant ? 1 : (spotActive ? -1 : 0);
-    {
-      qword_t& q = opt[optQw++];
-      q.sw[0] = singleColorEnabled;  // Single color enabled.
-      q.sw[1] = static_cast<u32>(variantLane);
-      // Modified by TyraX: GS hardware fog params (see RendererCoreFog)
-      float fogScale = rendererCore->fog.scale;
-      float fogOffset = rendererCore->fog.offset;
-      // Modified by TyraX: fog scale 0 is the "F is the constant 255" signal
-      // cull_tc branches on (setFogConstant), read as the LOW 16 BITS of the
-      // float. A real, non-zero scale whose low half happens to be zero gets
-      // its lowest mantissa bit set: one ulp, invisible, never mistaken.
-      // Decided only where it can pay: a textured, unlit, non-env bag with no
-      // spot light reaching it is the one cull_tc runs through its fog-free
-      // loop. The box test is the linear maximum of clip w over the box: w
-      // at the centre plus |d w / d axis| times the half-extent, three
-      // multiplies instead of eight matrix transforms (the transforms cost
-      // the EE more than VU1 saved in a spot-lit night scene).
-      bool fogConstant = fogOffForBag;
-      if (!fogConstant && fogBox != nullptr && fogScale < 0.0F && !spotActive &&
-          bag->lighting == nullptr && bag->texture != nullptr &&
-          !bag->texture->coordinatesAreNormals && bag->billboard == nullptr) {
-        const Vec4& lo = (*fogBox)[0];
-        const Vec4& hi = (*fogBox)[7];
-        const float* m = mvp->data;
-        const float cx = 0.5F * (lo.x + hi.x), hx = 0.5F * (hi.x - lo.x);
-        const float cy = 0.5F * (lo.y + hi.y), hy = 0.5F * (hi.y - lo.y);
-        const float cz = 0.5F * (lo.z + hi.z), hz = 0.5F * (hi.z - lo.z);
-        const float maxW = m[3] * cx + m[7] * cy + m[11] * cz + m[15] +
-                           fabsf(m[3]) * hx + fabsf(m[7]) * hy +
-                           fabsf(m[11]) * hz;
-        fogConstant = maxW * fogScale + fogOffset >= 255.0F;
-      }
-      if (fogConstant) {
-        fogScale = 0.0F;
-        fogOffset = 255.0F;
+    if (singleColorEnabled) {  // Color is placed in 4th slot of
+                              // VU1_LIGHTS_MATRIX_ADDR
+      if (submissionBatchCandidate || kInlineUniforms) {
+        emitUnpack(dst, VU1_SINGLE_COLOR_ADDR,
+                   bag->color->single->rgba, 1);
       } else {
-        u32 bits;
-        memcpy(&bits, &fogScale, 4);
-        if ((bits & 0xFFFFU) == 0U && bits != 0U) {
-          bits |= 1U;
-          memcpy(&fogScale, &bits, 4);
+        Packet2TyraUtils::addUnpackData(dst, VU1_SINGLE_COLOR_ADDR,
+                                        bag->color->single->rgba, 1, false);
+      }
+    }
+
+    // Modified by TyraX: the options block through the fast path too (see
+    // emitUnpack) - built as whole qwords, the same GS_SET_* words packet2's
+    // helpers would have written, then one cached header + copy.
+    {
+      alignas(16) qword_t opt[4];
+      u32 optQw = 0;
+      const u32 sharedClipVariant =
+          bag->lighting != nullptr ||
+                  (bag->texture != nullptr && bag->texture->coordinatesAreNormals)
+              ? 1
+              : 0;
+      // Static-pipeline-only use of the old dynpip lerp lane: C/D and TC/TCE
+      // share one clip image per ABI-compatible pair. Other programs ignore it.
+      //
+      // Modified by TyraX: the lane is THREE-STATE now. Every reader that
+      // predates this tested only `> 0` versus `<= 0` (clip_c's three `iblez`,
+      // clip_tc's `ibgtz`), so the negative half was free to carry a second
+      // fact: the colour programs run CalculateTyraSpotLight only when it is
+      // negative. The two cannot collide - the peer variant is selected by a
+      // lighting bag or matcap coordinates, and neither of those classes has
+      // the spot macro at all - so the variant wins when both are true.
+      const s32 variantLane = sharedClipVariant ? 1 : (spotActive ? -1 : 0);
+      {
+        qword_t& q = opt[optQw++];
+        q.sw[0] = singleColorEnabled;  // Single color enabled.
+        q.sw[1] = static_cast<u32>(variantLane);
+        // Modified by TyraX: GS hardware fog params (see RendererCoreFog)
+        float fogScale = rendererCore->fog.scale;
+        float fogOffset = rendererCore->fog.offset;
+        // Modified by TyraX: fog scale 0 is the "F is the constant 255" signal
+        // cull_tc branches on (setFogConstant), read as the LOW 16 BITS of the
+        // float. A real, non-zero scale whose low half happens to be zero gets
+        // its lowest mantissa bit set: one ulp, invisible, never mistaken.
+        // Decided only where it can pay: a textured, unlit, non-env bag with no
+        // spot light reaching it is the one cull_tc runs through its fog-free
+        // loop. The box test is the linear maximum of clip w over the box: w
+        // at the centre plus |d w / d axis| times the half-extent, three
+        // multiplies instead of eight matrix transforms (the transforms cost
+        // the EE more than VU1 saved in a spot-lit night scene).
+        bool fogConstant = fogOffForBag;
+        if (!fogConstant && fogBox != nullptr && fogScale < 0.0F && !spotActive &&
+            bag->lighting == nullptr && bag->texture != nullptr &&
+            !bag->texture->coordinatesAreNormals && bag->billboard == nullptr) {
+          const Vec4& lo = (*fogBox)[0];
+          const Vec4& hi = (*fogBox)[7];
+          const float* m = mvp->data;
+          const float cx = 0.5F * (lo.x + hi.x), hx = 0.5F * (hi.x - lo.x);
+          const float cy = 0.5F * (lo.y + hi.y), hy = 0.5F * (hi.y - lo.y);
+          const float cz = 0.5F * (lo.z + hi.z), hz = 0.5F * (hi.z - lo.z);
+          const float maxW = m[3] * cx + m[7] * cy + m[11] * cz + m[15] +
+                             fabsf(m[3]) * hx + fabsf(m[7]) * hy +
+                             fabsf(m[11]) * hz;
+          fogConstant = maxW * fogScale + fogOffset >= 255.0F;
         }
+        if (fogConstant) {
+          fogScale = 0.0F;
+          fogOffset = 255.0F;
+        } else {
+          u32 bits;
+          memcpy(&bits, &fogScale, 4);
+          if ((bits & 0xFFFFU) == 0U && bits != 0U) {
+            bits |= 1U;
+            memcpy(&fogScale, &bits, 4);
+          }
+        }
+        memcpy(&q.sw[2], &fogScale, 4);
+        memcpy(&q.sw[3], &fogOffset, 4);
       }
-      memcpy(&q.sw[2], &fogScale, 4);
-      memcpy(&q.sw[3], &fogOffset, 4);
-    }
-    {
-      qword_t& q = opt[optQw++];
-      q.dw[0] = GS_SET_TEX1(lod->calculation, lod->max_level, lod->mag_filter,
-                            lod->min_filter, lod->mipmap_select, lod->l,
-                            (int)(lod->k * 16.0F));
-      q.dw[1] = GS_REG_TEX1;
-    }
-
-    // Modified by TyraX: the destination-alpha gate (PipelineInfoBag::
-    // dateLit) rides the same in-band TEST qword every mesh already emits -
-    // DATE = 1 draws this bag's pixels only where the framebuffer alpha's
-    // MSB is 0, which is how the flashlight's shadow volumes mask its light.
-    const int date = bag->info->dateLit ? 1 : 0;
-    {
-      qword_t& q = opt[optQw++];
-      if (bag->info->zTestType == PipelineZTest_AllPass) {
-        q.dw[0] = GS_SET_TEST(0, 0, 0, 0, date, 0, 0, ZTEST_METHOD_ALLPASS);
-      } else if (bag->info->zTestType == PipelineZTest_TestOnly) {
-        // Depth-tested, no z write: alpha test fails every pixel and AFAIL
-        // keeps the z buffer (GS FB_ONLY - color still written). The ZBUF
-        // register (and thus the VU1 options layout) stays untouched.
-        q.dw[0] = GS_SET_TEST(DRAW_ENABLE, ATEST_METHOD_ALLFAIL, 0x00,
-                              ATEST_KEEP_ZBUFFER, date, DRAW_DISABLE,
-                              DRAW_ENABLE, rendererCore->gs.zBuffer.method);
-      } else {
-        // Cutout alpha: texels with alpha 0 fail the test and must write
-        // NOTHING. Upstream passed ATEST_KEEP_FRAMEBUFFER, whose ps2sdk name
-        // reads backwards - it is AFAIL=ZB_ONLY (2), "keep the framebuffer,
-        // update z". So every transparent texel stamped the z buffer while
-        // drawing no colour, and the invisible part of an alpha-cutout card
-        // (foliage, decals, grates) occluded whatever was drawn behind it
-        // later. ATEST_KEEP_ALL (0) leaves both buffers alone, which is what a
-        // cutout means. Opaque geometry carries alpha 0x80 and never fails the
-        // test, so nothing else changes.
-        q.dw[0] = GS_SET_TEST(DRAW_ENABLE, ATEST_METHOD_NOTEQUAL, 0x00,
-                              ATEST_KEEP_ALL, date, DRAW_DISABLE, DRAW_ENABLE,
-                              rendererCore->gs.zBuffer.method);
+      {
+        qword_t& q = opt[optQw++];
+        q.dw[0] = GS_SET_TEX1(lod->calculation, lod->max_level, lod->mag_filter,
+                              lod->min_filter, lod->mipmap_select, lod->l,
+                              (int)(lod->k * 16.0F));
+        q.dw[1] = GS_REG_TEX1;
       }
-      q.dw[1] = GS_REG_TEST;
+
+      // Modified by TyraX: the destination-alpha gate (PipelineInfoBag::
+      // dateLit) rides the same in-band TEST qword every mesh already emits -
+      // DATE = 1 draws this bag's pixels only where the framebuffer alpha's
+      // MSB is 0, which is how the flashlight's shadow volumes mask its light.
+      const int date = bag->info->dateLit ? 1 : 0;
+      {
+        qword_t& q = opt[optQw++];
+        if (bag->info->zTestType == PipelineZTest_AllPass) {
+          q.dw[0] = GS_SET_TEST(0, 0, 0, 0, date, 0, 0, ZTEST_METHOD_ALLPASS);
+        } else if (bag->info->zTestType == PipelineZTest_TestOnly) {
+          // Depth-tested, no z write: alpha test fails every pixel and AFAIL
+          // keeps the z buffer (GS FB_ONLY - color still written). The ZBUF
+          // register (and thus the VU1 options layout) stays untouched.
+          q.dw[0] = GS_SET_TEST(DRAW_ENABLE, ATEST_METHOD_ALLFAIL, 0x00,
+                                ATEST_KEEP_ZBUFFER, date, DRAW_DISABLE,
+                                DRAW_ENABLE, rendererCore->gs.zBuffer.method);
+        } else {
+          // Cutout alpha: texels with alpha 0 fail the test and must write
+          // NOTHING. Upstream passed ATEST_KEEP_FRAMEBUFFER, whose ps2sdk name
+          // reads backwards - it is AFAIL=ZB_ONLY (2), "keep the framebuffer,
+          // update z". So every transparent texel stamped the z buffer while
+          // drawing no colour, and the invisible part of an alpha-cutout card
+          // (foliage, decals, grates) occluded whatever was drawn behind it
+          // later. ATEST_KEEP_ALL (0) leaves both buffers alone, which is what a
+          // cutout means. Opaque geometry carries alpha 0x80 and never fails the
+          // test, so nothing else changes.
+          q.dw[0] = GS_SET_TEST(DRAW_ENABLE, ATEST_METHOD_NOTEQUAL, 0x00,
+                                ATEST_KEEP_ALL, date, DRAW_DISABLE, DRAW_ENABLE,
+                                rendererCore->gs.zBuffer.method);
+        }
+        q.dw[1] = GS_REG_TEST;
+      }
+
+      if (texBuffers != nullptr) {
+        rendererCore->texture.updateClutBuffer(texBuffers->clut);
+
+        // Added by TyraX: per-bag GS texture function (StaPipTextureBag - the
+        // NFS paint pass draws HIGHLIGHT2). TEX0 is emitted per bag right
+        // here, so writing the shared texbuffer_t immediately before the emit
+        // gives every bag its own TFX - the next bag on the same texture
+        // overwrites it again, which is exactly why the mutation is safe.
+        texBuffers->core->info.function = bag->texture->textureFunction;
+        const texbuffer_t* tb = texBuffers->core;
+        const clutbuffer_t* cl = &rendererCore->texture.clut;
+        qword_t& q = opt[optQw++];
+        q.dw[0] = GS_SET_TEX0(tb->address >> 6, tb->width >> 6, tb->psm,
+                              tb->info.width, tb->info.height,
+                              tb->info.components, tb->info.function,
+                              cl->address >> 6, cl->psm, cl->storage_mode,
+                              cl->start, cl->load_method);
+        q.dw[1] = GS_REG_TEX0;
+      }
+      emitUnpack(dst, VU1_OPTIONS_ADDR, opt, optQw);
     }
 
-    if (texBuffers != nullptr) {
-      rendererCore->texture.updateClutBuffer(texBuffers->clut);
-
-      // Added by TyraX: per-bag GS texture function (StaPipTextureBag - the
-      // NFS paint pass draws HIGHLIGHT2). TEX0 is emitted per bag right
-      // here, so writing the shared texbuffer_t immediately before the emit
-      // gives every bag its own TFX - the next bag on the same texture
-      // overwrites it again, which is exactly why the mutation is safe.
-      texBuffers->core->info.function = bag->texture->textureFunction;
-      const texbuffer_t* tb = texBuffers->core;
-      const clutbuffer_t* cl = &rendererCore->texture.clut;
-      qword_t& q = opt[optQw++];
-      q.dw[0] = GS_SET_TEX0(tb->address >> 6, tb->width >> 6, tb->psm,
-                            tb->info.width, tb->info.height,
-                            tb->info.components, tb->info.function,
-                            cl->address >> 6, cl->psm, cl->storage_mode,
-                            cl->start, cl->load_method);
-      q.dw[1] = GS_REG_TEX0;
+    // Modified by TyraX: particle billboard camera basis (right, up - world
+    // space). Reuses the lights-matrix area like the env basis; billboard
+    // bags never carry lighting (asserted in StaPipCore::render). Swapping
+    // this basis and re-rendering the same bag draws the same centers for
+    // another view (e.g. a portal's virtual camera).
+    if (bag->billboard != nullptr) {
+      {
+        alignas(16) const float bb[8] = {
+            bag->billboard->right.x, bag->billboard->right.y,
+            bag->billboard->right.z, 0.0F,
+            bag->billboard->up.x,    bag->billboard->up.y,
+            bag->billboard->up.z,    0.0F};
+        emitUnpack(dst, VU1_BILLBOARD_BASIS_ADDR, bb, 2);
+      }
     }
-    emitUnpack(objectDataPacket, VU1_OPTIONS_ADDR, opt, optQw);
-  }
 
-  // Modified by TyraX: particle billboard camera basis (right, up - world
-  // space). Reuses the lights-matrix area like the env basis; billboard
-  // bags never carry lighting (asserted in StaPipCore::render). Swapping
-  // this basis and re-rendering the same bag draws the same centers for
-  // another view (e.g. a portal's virtual camera).
-  if (bag->billboard != nullptr) {
+    // Modified by TyraX: env (matcap) camera basis for the TCE programs.
+    // Transpose it and fold in the ST scale here so CalculateTyraEnvStq can
+    // evaluate both scaled dot products in one VU1 accumulator chain. Reuses
+    // the lights-matrix area; env bags never carry lighting.
+    if (bag->texture != nullptr && bag->texture->coordinatesAreNormals) {
+      const Vec4& r = bag->texture->envRight;
+      const Vec4& u = bag->texture->envUp;
+      {
+        alignas(16) const float e[12] = {r.x * 0.5F, u.x * -0.5F, 0.0F, 0.0F,
+                                         r.y * 0.5F, u.y * -0.5F, 0.0F, 0.0F,
+                                         r.z * 0.5F, u.z * -0.5F, 1.0F, 0.5F};
+        emitUnpack(dst, VU1_ENV_BASIS_ADDR, e, 3);
+      }
+    }
+
+    // Modified by TyraX: per-mesh GS blend equation, emitted in-band with the
+    // other tags by every program (StoreTyraGifTags*Alpha) - no FINISH barrier
+    // to switch it. Default alpha-over; the reflective-material env pass sets
+    // additiveBlendFix for Cv = Cs*FIX/128 + Cd.
     {
-      alignas(16) const float bb[8] = {
-          bag->billboard->right.x, bag->billboard->right.y,
-          bag->billboard->right.z, 0.0F,
-          bag->billboard->up.x,    bag->billboard->up.y,
-          bag->billboard->up.z,    0.0F};
-      emitUnpack(objectDataPacket, VU1_BILLBOARD_BASIS_ADDR, bb, 2);
+      const u8 fix = bag->info->additiveBlendFix;
+      const u8 sub = bag->info->subtractiveBlendFix;
+      // Subtractive wins over additive when both are set: (0 - Cs)*FIX + Cd,
+      // clamped at 0 - the shadow volumes' count-down pass.
+      qword_t a;
+      a.dw[0] = sub != 0   ? GS_SET_ALPHA(2, 0, 2, 1, sub)
+                : fix != 0 ? GS_SET_ALPHA(0, 2, 2, 1, fix)
+                           : GS_SET_ALPHA(0, 1, 0, 1, 0);
+      a.dw[1] = GS_REG_ALPHA;
+      emitUnpack(dst, VU1_ALPHA_ADDR, &a, 1);
     }
   }
-
-  // Modified by TyraX: env (matcap) camera basis for the TCE programs.
-  // Transpose it and fold in the ST scale here so CalculateTyraEnvStq can
-  // evaluate both scaled dot products in one VU1 accumulator chain. Reuses
-  // the lights-matrix area; env bags never carry lighting.
-  if (bag->texture != nullptr && bag->texture->coordinatesAreNormals) {
-    const Vec4& r = bag->texture->envRight;
-    const Vec4& u = bag->texture->envUp;
-    {
-      alignas(16) const float e[12] = {r.x * 0.5F, u.x * -0.5F, 0.0F, 0.0F,
-                                       r.y * 0.5F, u.y * -0.5F, 0.0F, 0.0F,
-                                       r.z * 0.5F, u.z * -0.5F, 1.0F, 0.5F};
-      emitUnpack(objectDataPacket, VU1_ENV_BASIS_ADDR, e, 3);
-    }
-  }
-
-  // Modified by TyraX: per-mesh GS blend equation, emitted in-band with the
-  // other tags by every program (StoreTyraGifTags*Alpha) - no FINISH barrier
-  // to switch it. Default alpha-over; the reflective-material env pass sets
-  // additiveBlendFix for Cv = Cs*FIX/128 + Cd.
-  {
-    const u8 fix = bag->info->additiveBlendFix;
-    const u8 sub = bag->info->subtractiveBlendFix;
-    // Subtractive wins over additive when both are set: (0 - Cs)*FIX + Cd,
-    // clamped at 0 - the shadow volumes' count-down pass.
-    qword_t a;
-    a.dw[0] = sub != 0   ? GS_SET_ALPHA(2, 0, 2, 1, sub)
-              : fix != 0 ? GS_SET_ALPHA(0, 2, 2, 1, fix)
-                         : GS_SET_ALPHA(0, 1, 0, 1, 0);
-    a.dw[1] = GS_REG_ALPHA;
-    emitUnpack(objectDataPacket, VU1_ALPHA_ADDR, &a, 1);
-  }
+  uniGroupEnd(1);
 
   // Do not terminate the DMA chain here: addBuffersDataToPacket appends the
   // first geometry commands and adds the single END tag for the whole packet.
@@ -2635,6 +2913,31 @@ void StaPipQBufferRenderer::onFrameEnd() {
   bakeScratch.clear();
   baked.onFrameEnd();
 #endif
+#if TYRA_STAPIP_UNIFORMS_BUILT
+  ++uniformFrame;
+#if TYRA_STAPIP_UNIFORMS_REPORT || TYRA_STAPIP_UNIFORMS_VERIFY
+  // Modified by TyraX: the retained-uniform readout, totals over 300 frames.
+  // Opt-in: a host: write with a period (see STAPIPRET).
+  {
+    static u32 uniFrames = 0;
+    if (++uniFrames >= 300) {
+      u32 used = 0;
+      for (u32 i = 0; i < kUniformEntries; ++i)
+        if (uniformEntries[i].key != 0 &&
+            uniformFrame - uniformEntries[i].lastFrame < 300)
+          ++used;
+      TYRA_LOG("STAPIPUNI hits=", uniHits, " writes=", uniWrites,
+               " inline=", uniInline, " retags=", uniRetags,
+               " noEntry=", uniNoEntry, " entriesLive=", used,
+               " verified=", uniVerified, " mismatched=", uniMismatched,
+               " over ", uniFrames, " frames");
+      uniFrames = 0;
+      uniHits = uniWrites = uniInline = uniRetags = uniNoEntry = 0;
+      uniVerified = 0;  // mismatched stays: a sticky total
+    }
+  }
+#endif
+#endif
 }
 
 void StaPipQBufferRenderer::setSubmissionBatchCandidate(const bool& candidate,
@@ -2794,6 +3097,13 @@ void StaPipQBufferRenderer::sendPacket() {
     FlushCache(0);
 #endif
     packetSequence[context] = Vif1Queue::submit(currentPacket->base);
+#if TYRA_STAPIP_UNIFORMS_BUILT
+    // Modified by TyraX: which queue sequence this packet serial became - the
+    // retained uniform blocks it REFs are free again once that completes.
+    serialTag[packetSerial % kSerialRing] = packetSerial;
+    serialSeq[packetSerial % kSerialRing] = packetSequence[context];
+    ++packetSerial;
+#endif
 #else
     dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1, true);
 #endif

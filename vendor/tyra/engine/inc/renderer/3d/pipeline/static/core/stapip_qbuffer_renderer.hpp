@@ -141,6 +141,110 @@
 #define TYRA_STAPIP_RETAINED_REPORT 0
 #endif
 
+/**
+ * Modified by TyraX: RETAINED PER-BAG UNIFORM BLOCKS
+ * (docs/ee-submission-rearchitecture.md, "Round six").
+ *
+ * Every bag's uniform tail - the light group (the lit bag's light matrix,
+ * directions and colours, or the unlit bag's object-space spot quads and the
+ * custom VU params) and the material group (single colour, OPTIONS/TEX1/TEST/
+ * TEX0, billboard and env bases, ALPHA) - used to be written into the packet
+ * for every bag, every frame, although between two frames it almost never
+ * changes. Each group is now built into a hot stack scratch (the same builder,
+ * so the same bytes), compared with the copy the bag's entry retains, and on a
+ * match the packet carries ONE DMA REF to that copy instead of the group's
+ * 4-16 quadwords. The MVP stays inline: it moves with the camera every frame.
+ *
+ * THE KEY IS THE OUTPUT. Nothing here is keyed on inputs, so there is no input
+ * a key could fail to see - a re-shade, a camera-dependent fog decision, a
+ * texture evicted and re-uploaded at a new VRAM address all change the built
+ * bytes, and a changed byte is a miss. Which entry a bag uses (a hash of its
+ * vertex, info, texture and colour pointers) is only a placement hint: two bags
+ * that collide just stop sharing, they cannot draw each other's uniforms.
+ *
+ * THE LIFETIME RULE. A retained copy is named by DMA REF tags, so it may only be
+ * rewritten once every chain that names it has run. Each group remembers the
+ * renderer's packet serial that last REF'd it; a group is rewritten in place
+ * only when that packet has been submitted AND Vif1Queue reports its sequence
+ * complete - the same counter the packet-buffer rotation waits on. Anything
+ * else (named by the packet being built, or by a chain still queued) is emitted
+ * inline exactly as before and the retained copy is left alone.
+ *
+ * 0 = the pre-round-six code path. Needs TYRA_VIF1_QUEUE (inline uniforms are
+ * what it replaces) and is compiled out under the uncached-chain probe.
+ */
+#ifndef TYRA_STAPIP_RETAINED_UNIFORMS
+#define TYRA_STAPIP_RETAINED_UNIFORMS 1
+#endif
+/**
+ * Modified by TyraX: cache the object-space spot light (buildSpotForBag).
+ * Consecutive parts of one model share the model matrix and the picked light,
+ * so the affine inverse, the square root and the three divisions are computed
+ * once per (model matrix, light) pair instead of once per bag. The cache key is
+ * the matrix values and every light field, compared bit for bit, so a hit is
+ * the same arithmetic on the same inputs.
+ */
+#ifndef TYRA_STAPIP_SPOT_CACHE
+#define TYRA_STAPIP_SPOT_CACHE 1
+#endif
+/**
+ * Modified by TyraX: skip the three spot-light quadwords for a bag the spot
+ * does not reach (`enabled` false). The colour programs branch over the spot
+ * arithmetic on the OPTIONS lane in that case and nothing else reads
+ * VU1_LIGHTS_DIRS_ADDR for an unlit bag, so the upload was dead data. Kept
+ * whenever a game-supplied program override is installed: that code may read
+ * the quads unconditionally.
+ */
+#ifndef TYRA_STAPIP_SKIP_INACTIVE_SPOT
+#define TYRA_STAPIP_SKIP_INACTIVE_SPOT 1
+#endif
+/**
+ * Modified by TyraX: in VU1-clipping mode, send the clip block (constants +
+ * six planes, one REF since 1.127.5) only for a bag that can route a package
+ * to a clip program - PARTIALLY_IN_FRUSTUM with fullClipChecks, which
+ * StaPipCore decides before sendObjectData (setBagMayClip). Every other route
+ * (whole-IN, guard-band direct, frustum culling off) runs cull programs only,
+ * and those never read VU1_CLIP_CONSTS_ADDR or the plane table. A clipping bag
+ * still uploads the block itself, so VU1 memory another pipeline reused in
+ * between cannot matter.
+ */
+#ifndef TYRA_STAPIP_CLIP_BLOCK_GATE
+#define TYRA_STAPIP_CLIP_BLOCK_GATE 1
+#endif
+/**
+ * Modified by TyraX: the ONE-ELF A/B arm for the four features above. 1
+ * compiles them all in and picks them at boot from bin/stapipexp.txt (read
+ * once at the first bag, logged as `STAPIPEXP <n>`): no file or 0 = the old
+ * code for all four, 1 = all four new, and any other value is a bit mask -
+ * 2 spot cache, 4 retained uniforms, 8 skip the inactive spot, 16 clip-block
+ * gate (e.g. 4 = the retained uniforms alone). Never on in a shipped build;
+ * the default build runs all four, unconditionally.
+ */
+#ifndef TYRA_STAPIP_UNIFORMS_AB
+#define TYRA_STAPIP_UNIFORMS_AB 0
+#endif
+/**
+ * Modified by TyraX: the self-check arm. The packet carries the OLD inline
+ * bytes (so the picture is the reference), while the retained machinery runs
+ * in the shadow - lookup, compare, rewrite, lifetime bookkeeping - and every
+ * block it WOULD have REF'd is compared with the inline bytes turned into the
+ * VIF stream VIF1 would have seen. The STAPIPUNI readout prints
+ * `verified=` / `mismatched=`; mismatched must be 0. A correctness ELF, never
+ * a timing one.
+ */
+#ifndef TYRA_STAPIP_UNIFORMS_VERIFY
+#define TYRA_STAPIP_UNIFORMS_VERIFY 0
+#endif
+/** Modified by TyraX: the periodic STAPIPUNI counters (every 300 frames). A
+ * host: write, so opt-in like STAPIPRET. */
+#ifndef TYRA_STAPIP_UNIFORMS_REPORT
+#define TYRA_STAPIP_UNIFORMS_REPORT 0
+#endif
+/** Modified by TyraX: whether the retained-uniform machinery is compiled at all. */
+#define TYRA_STAPIP_UNIFORMS_BUILT                                  \
+  (TYRA_STAPIP_RETAINED_UNIFORMS && TYRA_VIF1_QUEUE && \
+   !TYRA_STAPIP_PROBE_UNCACHED_CHAIN)
+
 namespace Tyra {
 
 #if TYRA_STAPIP_RETAINED_COMMANDS
@@ -577,6 +681,15 @@ class StaPipQBufferRenderer {
   // fall back to the global flashlight state.
   void setBagLight(const RendererCoreSpotLight* light) { bagLight = light; }
 
+  /**
+   * Modified by TyraX: can the next bag route a package to a VU1 clip program?
+   * StaPipCore knows before sendObjectData (PARTIALLY_IN_FRUSTUM with
+   * fullClipChecks); false lets sendObjectData leave the clip block out
+   * (TYRA_STAPIP_CLIP_BLOCK_GATE). Consumed by one sendObjectData, which puts
+   * it back to true, so a caller that never sets it keeps the old behaviour.
+   */
+  void setBagMayClip(const bool& mayClip) { bagMayClip = mayClip; }
+
   void setMaxVertCount(const u32& count);
 
   void setInfo(PipelineInfoBag* bag);
@@ -937,6 +1050,88 @@ class StaPipQBufferRenderer {
 
   /** See takeChainQwords(). Accumulated in sendPacket, reset on read. */
   u32 chainQwords = 0;
+
+  // Modified by TyraX: the boot-selected A/B mode (TYRA_STAPIP_UNIFORMS_AB);
+  // -1 until the first sendObjectData reads bin/stapipexp.txt.
+#if TYRA_STAPIP_UNIFORMS_AB
+  int uniformsMode = -1;  // the bit mask; see TYRA_STAPIP_UNIFORMS_AB
+  void resolveUniformsMode();
+  bool uniformsModeBit(int bit) {
+    if (uniformsMode < 0) resolveUniformsMode();
+    return (uniformsMode & bit) != 0;
+  }
+  bool spotCacheOn() { return TYRA_STAPIP_SPOT_CACHE && uniformsModeBit(2); }
+  bool retainedUniformsOn() {
+    return TYRA_STAPIP_UNIFORMS_BUILT && uniformsModeBit(4);
+  }
+  bool spotSkipOn() {
+    return TYRA_STAPIP_SKIP_INACTIVE_SPOT && uniformsModeBit(8);
+  }
+  bool clipGateOn() { return TYRA_STAPIP_CLIP_BLOCK_GATE && uniformsModeBit(16); }
+#else
+  static constexpr bool spotCacheOn() { return TYRA_STAPIP_SPOT_CACHE != 0; }
+  static constexpr bool retainedUniformsOn() {
+    return TYRA_STAPIP_UNIFORMS_BUILT != 0;
+  }
+  static constexpr bool spotSkipOn() {
+    return TYRA_STAPIP_SKIP_INACTIVE_SPOT != 0;
+  }
+  static constexpr bool clipGateOn() { return TYRA_STAPIP_CLIP_BLOCK_GATE != 0; }
+#endif
+  /** Modified by TyraX: see setBagMayClip(). */
+  bool bagMayClip = true;
+  /** Modified by TyraX: buildSpotForBag through the spot cache. */
+  StaPipClipperSpot spotForBag(const RendererCoreSpotLight& light,
+                               const M4x4* model);
+
+#if TYRA_STAPIP_SPOT_CACHE
+  // Modified by TyraX: see TYRA_STAPIP_SPOT_CACHE.
+  bool spotCacheValid = false;
+  M4x4 spotCacheModel;
+  RendererCoreSpotLight spotCacheLight;
+  StaPipClipperSpot spotCacheResult;
+#endif
+
+#if TYRA_STAPIP_UNIFORMS_BUILT
+  // Modified by TyraX: retained per-bag uniform blocks (see
+  // TYRA_STAPIP_RETAINED_UNIFORMS at the top of this file).
+  struct UniformGroup {
+    u32 refSerial;  // packet serial that last REF'd the copy; 0 = never
+    u16 qw;         // quadwords held; 0 = nothing retained
+  };
+  struct UniformEntry {
+    u32 key;        // placement hint (pointer hash); 0 = unused
+    u32 lastFrame;  // for the two-way victim choice
+    UniformGroup group[2];
+  };
+  /** 0 = the light group, 1 = the material group. Worst cases: a lit bag's
+   * three light unpacks (4 + 4 + 5 qw); single colour + options + billboard or
+   * env + ALPHA (2 + 5 + 4 + 2 = 13, 16 with both bases). */
+  static constexpr u32 kUniformGroupQw0 = 13;
+  static constexpr u32 kUniformGroupQw1 = 16;
+  static constexpr u32 kUniformEntryQw = kUniformGroupQw0 + kUniformGroupQw1;
+  static constexpr u32 kUniformSets = 256;
+  static constexpr u32 kUniformEntries = kUniformSets * 2;
+  static constexpr u32 kSerialRing = 64;
+  UniformEntry* uniformEntries = nullptr;
+  qword_t* uniformBlocks = nullptr;  // kUniformEntries * kUniformEntryQw
+  /** The serial the packet being built will be submitted as. Advanced by
+   * sendPacket after each submit, so every serial below it was submitted. */
+  u32 packetSerial = 1;
+  u32 serialTag[kSerialRing] = {};
+  u32 serialSeq[kSerialRing] = {};
+  u32 uniformFrame = 1;
+  u32 uniHits = 0, uniWrites = 0, uniInline = 0, uniRetags = 0,
+      uniNoEntry = 0, uniVerified = 0, uniMismatched = 0;
+  UniformEntry* findUniformEntry(const StaPipBag* bag);
+  bool uniformGroupFree(const UniformGroup& group) const;
+  /** Emits one built group: a REF to the retained copy, or inline. With
+   * `shadow` (the verify arm) nothing is emitted; returns the copy that would
+   * have been REF'd, or nullptr for inline. */
+  const qword_t* emitUniformGroup(packet2_t* packet, UniformEntry* entry,
+                                  u32 group, const qword_t* scratch, u32 qw,
+                                  bool shadow);
+#endif
 
 #if TYRA_STAPIP_VIFHASH
  public:

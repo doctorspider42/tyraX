@@ -2514,6 +2514,21 @@ must keep:
   treatment. Symptom and bisection recipe: docs/roads.md, "Holes in the road".
 - **`popEnvView` restores the frustum planes its push saved**; it no longer
   rebuilds them from the caller's camera (the shadow pass passed no `up`).
+- **A bag's uniform groups are REF'd from retained copies** (round six,
+  `TYRA_STAPIP_RETAINED_UNIFORMS`; docs/ee-submission-rearchitecture.md). A
+  hit is a byte compare of the freshly built group against the copy, so adding
+  an input to a group needs no key change. **Do not "optimise" the compare into
+  an input key:** the missed-input class is what it exists to avoid. A copy
+  may only be rewritten when `uniformGroupFree` says every chain naming it has
+  completed (packet serial -> `Vif1Queue` sequence ->
+  `Vif1Queue::isComplete`, a read that never advances the queue). A new
+  uniform block goes inside one of the two build loops (light group or
+  material group) and must fit the group's quadword cap (13 / 16), or it
+  silently goes inline. The same round skips an inactive spot's quads and a
+  non-clipping bag's clip block. So a new reader of `VU1_LIGHTS_DIRS_ADDR` or
+  `VU1_CLIP_CONSTS_ADDR` must either be gated the same way or turn those
+  flags off. `TYRA_STAPIP_UNIFORMS_VERIFY` is the self-check and
+  `TYRA_STAPIP_UNIFORMS_AB` the one-ELF boot toggle (`bin/stapipexp.txt`).
 - **Object data is written by a fast path, not by packet2 calls**
   (1.127.2, `emitUnpack` in stapip_qbuffer_renderer.cpp). Per packet2
   open/close the cost was ~1.4 us a bag, the data itself little. Headers are

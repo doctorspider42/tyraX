@@ -113,6 +113,16 @@ class Vif1Queue {
   static bool busy();
 
   /**
+   * Modified by TyraX: has the chain with this sequence number been
+   * transferred, as far as the queue has already noticed? A pure read of the
+   * completion counter - it never advances the queue (a probe that did, from
+   * game code inside an open batch, hung a console). The counter only moves
+   * when a submit or a wait advances it, so a stale answer is always "not yet":
+   * safe for a caller that falls back to not reusing the memory.
+   */
+  static bool isComplete(u32 sequence);
+
+  /**
    * A chain that is still being BUILT and has to reach VIF1 before anything
    * else does - the 2D sprite chain (RendererCore2D, TYRA_2D_VIF1_DIRECT). Set
    * while such a chain is open; the next submit() or drain() by anyone calls

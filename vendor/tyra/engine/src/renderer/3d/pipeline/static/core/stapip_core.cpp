@@ -974,6 +974,11 @@ void StaPipCore::render(StaPipBag* bag) {
                               bbox != nullptr ? bbox->getMainBBox() : nullptr);
 
   TYRA_ATTRIB_MARK(attribObjectDataStart);
+  // Modified by TyraX: the one route that runs VU1 clip programs (doClip in
+  // the partial branch below) - everything else can leave the clip block out.
+  qbufferRenderer.setBagMayClip(frustumCull &&
+                                frustumCheck == PARTIALLY_IN_FRUSTUM &&
+                                bag->info->fullClipChecks);
   qbufferRenderer.sendObjectData(bag, &mvp, texBuffers);
 
   qbufferRenderer.setClipperMVP(&mvp);

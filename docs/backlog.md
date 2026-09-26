@@ -207,14 +207,18 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
 - **The per-bag `prepare` bracket (2.0-3.0 ms).** Partly done in 1.127.2:
   uniform blocks, and since 1.127.3 the options block, are a cached header
   plus whole-qword copies (docs/ee-submission-rearchitecture.md, "Round
-  three"). Left: `sendObjectData` still rebuilds every uniform for every bag,
-  and the in-chain wrap write still uses packet2. The clip block is REF'd from
-  one shared copy since 1.127.5 (-0.03..-0.13 ms, "Round five"); in the garage
-  part of that saving went into `vif_wait`. A retained per-bag uniform block
-  patched only where the MVP or the light changed would also remove the +0.23 ms
-  the queue's inline copies added at night. Failure test: a re-shade or
-  camera-dependent term that the key cannot see, which is the same class as the
-  baked stream's content-version work.
+  three"). The clip block is REF'd from one shared copy since 1.127.5
+  (-0.03..-0.13 ms, "Round five"); in the garage part of that saving went into
+  `vif_wait`. **Built, PCSX2-verified, console pending (branch
+  `ee-bag-uniforms`, "Round six"):** the light and material groups are REF'd
+  from a retained per-bag copy when their freshly built bytes match it (the key
+  is the output, so no input can be missed), the spot light is cached per
+  (model matrix, light), an inactive spot's quads and a non-clipping bag's clip
+  block are no longer sent. Owed: the one-ELF console series
+  (`arms/bag-ab-release-timing`, `bag-series.sh`) and a night failure-rate
+  check for the copy lifetime. Still left: the MVP (inline by design), the
+  build itself (the same loads as before), and the in-chain wrap write, which
+  still uses packet2.
 - **The DMAC-interrupt variant** (`TYRA_VIF1_QUEUE_ISR 1`) crashes a real PS2
   and is off. Only worth reopening with the kernel's DMAC handler chain
   inspected on hardware, under ps2link, since PCSX2 ran it clean. It would only
@@ -419,16 +423,16 @@ against a 0.222 FPS control spread and a 0.001 FPS same-build repeatability,
 with 76 % of the frame's package command blocks replayed. What it does NOT
 cover, in order of what would pay:
 
-- **The per-bag UNIFORM tail is still rebuilt** — the OPTIONS/LOD/TEST/TEX0
-  group, the ALPHA quadword and the single colour are per-bag constants that
-  change only with a material, a z-test mode or a texture's VRAM address, but
-  they are not retained. That needs a key over the texture buffer as well, which
-  is the one input a pointer compare does not settle (eviction re-uploads to a
-  new address), so it was left for its own change with its own eviction stress.
-- **`buildSpotForBag` runs an affine inverse per bag per frame**, and the model
-  matrix it inverts is the same one `transformCacheModel` already proved
-  unchanged for consecutive parts of one model. Caching the inverse beside the
-  MVP is a small, self-contained follow-up.
+- ~~**The per-bag UNIFORM tail is still rebuilt**~~ **BUILT (round six of
+  docs/ee-submission-rearchitecture.md, console pending).** It is still
+  REBUILT, into a stack scratch, but no longer written into the packet when it
+  matches the bag's retained copy byte for byte. Comparing the output instead
+  of keying the inputs settles the texture-address case (eviction changes the
+  TEX0 word) without an eviction-specific key. An eviction stress on the
+  console is still owed, because the district fixture evicts nothing.
+- ~~**`buildSpotForBag` runs an affine inverse per bag per frame**~~ **BUILT
+  (`TYRA_STAPIP_SPOT_CACHE`, round six):** the result is cached per (model
+  matrix, light), keyed bitwise on both.
 - **The hardware number.** Everything measured for this change is PCSX2 and
   counts. PCSX2 emulates no EE data cache, and this change trades computing
   bytes for reading them out of a cold 128 KB arena, so the emulator sees the
