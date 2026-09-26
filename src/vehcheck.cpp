@@ -131,6 +131,34 @@ void walls() {
         verdict(touched && slid > 20.0f && st.speed > 5.0f,
                 "a glancing hit grinds instead of sticking");
     }
+    // A wall at 45 degrees to the world axes. The old resolver slid along
+    // world X or Z only, so a diagonal wall gave a stair-step or a dead stop;
+    // the normal now comes from the blocked points, whatever the wall's angle.
+    {
+        auto diag = [](float x, float z, float) { return x + z > 14.0f; };
+        DriveSpec s;
+        DriveState st;
+        st.pos[1] = s.rideHeight;
+        st.yaw = 15.0f;  // 30 degrees off the wall's own direction
+        DriveInput in;
+        in.throttle = 1.0f;
+        bool touched = false;
+        float along0 = 0.0f;
+        for (int i = 0; i < 400; ++i) {
+            step(s, in, 1.0f / 50.0f, flat, st, diag);
+            if (!touched && st.pos[0] + st.pos[2] > 12.0f) {
+                touched = true;
+                along0 = st.pos[2] - st.pos[0];
+            }
+        }
+        const float along = (st.pos[2] - st.pos[0]) - along0;
+        std::printf("  diagonal wall: slid %.1f along it at end speed %.2f, "
+                    "depth %.2f\n", along * 0.7071f, st.speed,
+                    (st.pos[0] + st.pos[2]) * 0.7071f);
+        verdict(touched && along * 0.7071f > 20.0f && st.speed > 5.0f &&
+                    st.pos[0] + st.pos[2] < 14.0f,
+                "a diagonal wall slides the car along it, no stair-step");
+    }
     {
         DriveSpec s;
         DriveState st;

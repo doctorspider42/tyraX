@@ -5261,6 +5261,9 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.135.1 - Walls redirect the car (normal from the blocked points, tangent
+// kept and scrubbed by angle, 0.15 bounce, heading realigned), and the
+// test drive uses the runtime's wall rules. PATCH.
 // 1.135.0 - Handling: the body yaws no faster than grip allows (grip / |v|),
 // so full lock at speed pushes wide instead of spinning; a car above its top
 // speed coasts down instead of being clamped; the ride spring is one-sided
@@ -5350,7 +5353,7 @@
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 135
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

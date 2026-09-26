@@ -293,8 +293,9 @@ leaves these, dearest first:
   and no bimodality in either. Not shipped. Revisit only if the two-population
   frames come back.
 - **Driving model, after 1.135.0's grip-limited yaw** (the review's order):
-  - walls redirect instead of scrub, and the twins' wall shapes agree (the
-    host uses unpadded world AABBs, the runtime rotated boxes padded by 0.35);
+  - ~~walls redirect instead of scrub, and the twins' wall shapes agree~~
+    done 1.135.1 (the host's boxes are still world AABBs of rotated objects,
+    so a rotated prop is fatter in the test drive);
   - a fixed 1/50 s step with an accumulator, since several rules are
     per-frame;
   - a swept wall test;

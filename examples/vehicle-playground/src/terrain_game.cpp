@@ -18119,6 +18119,8 @@ static int vehGearCount(const VehicleDefData& s) {
 // How far past the grip limit a car's body may yaw - the vehiclesim twin's
 // kYawGripScale; keep the two equal.
 static constexpr float kVehYawGripScale = 1.0F;
+// The into-wall speed a fresh hit gives back (vehiclesim twin kWallBounce).
+static constexpr float kVehWallBounce = 0.15F;
 static float vehClamp(float v, float lo, float hi) {
   return v < lo ? lo : (v > hi ? hi : v);
 }
@@ -19104,12 +19106,13 @@ void TerrainGame::updateVehicles(float dt) {
       // height from the TERRAIN alone, so "walkable" mesh geometry was a
       // door straight into the prop's inside).
       const int ownCol = v.object >= 0 ? runtimeObjects[v.object].data.collision : 2;
-      auto blockedInfo = [&](float bx, float bz, float* ox, float* oz) {
+      auto blockedInfoAt = [&](float bx, float bz, float cc, float ss, float* ox,
+                               float* oz) {
         int n = 0;
         float sx = 0.0F, sz = 0.0F;
         for (int k = 0; k < 8; ++k) {
-          const float px = bx + cx[k] * c2 + cz[k] * s2;
-          const float pz = bz - cx[k] * s2 + cz[k] * c2;
+          const float px = bx + cx[k] * cc + cz[k] * ss;
+          const float pz = bz - cx[k] * ss + cz[k] * cc;
           bool hit = false;
           for (int b = 0; b < wallBoxN && !hit; ++b) {
             const VehWallBox& w = wallBox[b];
@@ -19138,6 +19141,12 @@ void TerrainGame::updateVehicles(float dt) {
         }
         if (n > 0 && ox) *ox = sx / (float)n, *oz = sz / (float)n;
         return n;
+      };
+      auto blockedInfo = [&](float bx, float bz, float* ox, float* oz) {
+        return blockedInfoAt(bx, bz, c2, s2, ox, oz);
+      };
+      auto blockedAt = [&](float bx, float bz, float cc, float ss) {
+        return blockedInfoAt(bx, bz, cc, ss, nullptr, nullptr);
       };
       const int nowBlocked =
           blockedInfo(v.pos[0], v.pos[2], nullptr, nullptr);
@@ -19176,24 +19185,66 @@ void TerrainGame::updateVehicles(float dt) {
           // host harness caught exactly that). And the grind scrubs by
           // ANGLE: f is the fraction of the motion the wall lets through, so
           // a shallow scrape barely slows and a steep one digs in.
-          const float wvx = v.pos[0] - prevX, wvz = v.pos[2] - prevZ;
+          // A FRESH hit (1.135.1, the host twin's arithmetic exactly): the
+          // wall's normal away from the blocked points' centroid, the
+          // velocity redirected along the wall (the tangent scrubbed by the
+          // impact angle, the into-wall part reflected at kVehWallBounce),
+          // the car moved on along it if that is free, and the velocity
+          // written back into speed + lateral so grip realigns the body. The
+          // old X-or-Z slide kept the velocity pointed into the wall, so a
+          // car ground with its nose pinned and never lined up.
+          const float wvx = (v.pos[0] - prevX) / (dt > 1e-6F ? dt : 1e-6F);
+          const float wvz = (v.pos[2] - prevZ) / (dt > 1e-6F ? dt : 1e-6F);
           const float wl = sqrtf(wvx * wvx + wvz * wvz);
-          const float fx = wl > 1e-6F ? (wvx < 0.0F ? -wvx : wvx) / wl : 0.0F;
-          const float fz = wl > 1e-6F ? (wvz < 0.0F ? -wvz : wvz) / wl : 0.0F;
-          if (fx > 0.3F && blockedInfo(v.pos[0], prevZ, nullptr, nullptr) == 0) {
-            v.pos[2] = prevZ;  // slide along X
-            v.speed *= 1.0F - vehClamp((0.3F + 2.5F * (1.0F - fx)) * dt, 0.0F, 0.6F);
-            v.lateral *= latScrub;
-          } else if (fz > 0.3F && blockedInfo(prevX, v.pos[2], nullptr, nullptr) == 0) {
-            v.pos[0] = prevX;  // slide along Z
-            v.speed *= 1.0F - vehClamp((0.3F + 2.5F * (1.0F - fz)) * dt, 0.0F, 0.6F);
-            v.lateral *= latScrub;
-          } else {
-            v.pos[0] = prevX;  // head-on: the impact takes the speed with it
-            v.pos[2] = prevZ;
-            v.speed *= 0.25F;
-            v.lateral = 0.0F;
+          float bX = 0.0F, bZ = 0.0F;
+          blockedInfo(v.pos[0], v.pos[2], &bX, &bZ);
+          float nx = v.pos[0] - bX, nz = v.pos[2] - bZ;
+          float nl = sqrtf(nx * nx + nz * nz);
+          if (nl < 1e-4F) {
+            nx = -wvx, nz = -wvz, nl = wl;
           }
+          float rvx = wvx, rvz = wvz;
+          if (nl > 1e-6F && wl > 1e-6F) {
+            nx /= nl, nz /= nl;
+            const float vn = wvx * nx + wvz * nz;
+            if (vn < 0.0F) {
+              const float impact = vehClamp(-vn / wl, 0.0F, 1.0F);
+              const float keep =
+                  1.0F - vehClamp((0.3F + 2.5F * impact) * dt, 0.0F, 0.6F);
+              const float tx = (wvx - vn * nx) * keep;
+              const float tz = (wvz - vn * nz) * keep;
+              rvx = tx - kVehWallBounce * vn * nx;
+              rvz = tz - kVehWallBounce * vn * nz;
+            }
+          }
+          v.pos[0] = prevX + rvx * dt;
+          v.pos[2] = prevZ + rvz * dt;
+          if (blockedInfo(v.pos[0], v.pos[2], nullptr, nullptr) > 0) {
+            v.pos[0] = prevX;
+            v.pos[2] = prevZ;
+          }
+          // Line the body up with the wall (the host twin's rule): turn the
+          // heading toward the new velocity by (1 - impact), unless that
+          // turn puts a corner into the wall.
+          float useC = c2, useS = s2;
+          const float rl = sqrtf(rvx * rvx + rvz * rvz);
+          if (rl > 0.5F) {
+            const float dirSign = v.speed >= 0.0F ? 1.0F : -1.0F;
+            const float target = atan2f(dirSign * rvx, dirSign * rvz) * kRad;
+            float delta = fmodf(target - v.yaw + 540.0F, 360.0F) - 180.0F;
+            const float vn2 = wvx * nx + wvz * nz;
+            const float impact2 = wl > 1e-6F ? vehClamp(-vn2 / wl, 0.0F, 1.0F) : 1.0F;
+            delta *= 1.0F - impact2;
+            const float ny = v.yaw + delta;
+            const float nc = cosf(ny * kDeg), ns = sinf(ny * kDeg);
+            if (blockedAt(v.pos[0], v.pos[2], nc, ns) == 0) {
+              v.yaw = ny;
+              useC = nc, useS = ns;
+            }
+          }
+          v.speed = rvx * useS + rvz * useC;
+          v.lateral = rvx * useC - rvz * useS;
+          (void)latScrub;
         }
       }
     }

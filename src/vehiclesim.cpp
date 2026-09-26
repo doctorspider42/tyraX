@@ -9,6 +9,9 @@ namespace vehiclesim {
 // How far past the grip limit the body may yaw (see the yaw step). Keep in
 // sync with kVehYawGripScale in the generated runtime (templates.cpp).
 constexpr float kYawGripScale = 1.0f;
+// How much of the into-wall speed comes back out on a fresh wall hit.
+// Keep in sync with kVehWallBounce in the generated runtime.
+constexpr float kWallBounce = 0.15f;
 
 namespace {
 
@@ -995,12 +998,13 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
         // Count AND centroid, not a boolean: once the car is already
         // overlapping, WHERE the blocked points sit is what tells "out of
         // the thing" from "deeper into it".
-        auto blockedInfo = [&](float bx, float bz, float* ox, float* oz) {
+        auto blockedInfoAt = [&](float bx, float bz, float cc, float ss, float* ox,
+                                 float* oz) {
             int n = 0;
             float sx = 0.0f, sz = 0.0f;
             for (int k = 0; k < 8; ++k) {
-                const float px = bx + lx[k] * c + lz[k] * s;
-                const float pz = bz - lx[k] * s + lz[k] * c;
+                const float px = bx + lx[k] * cc + lz[k] * ss;
+                const float pz = bz - lx[k] * ss + lz[k] * cc;
                 if (solid(px, pz, feet)) {
                     ++n;
                     sx += px;
@@ -1009,6 +1013,12 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
             }
             if (n > 0 && ox) *ox = sx / (float)n, *oz = sz / (float)n;
             return n;
+        };
+        auto blockedInfo = [&](float bx, float bz, float* ox, float* oz) {
+            return blockedInfoAt(bx, bz, c, s, ox, oz);
+        };
+        auto blockedAt = [&](float bx, float bz, float cc, float ss) {
+            return blockedInfoAt(bx, bz, cc, ss, nullptr, nullptr);
         };
         const int nowBlocked = blockedInfo(state.pos[0], state.pos[2], nullptr,
                                            nullptr);
@@ -1042,36 +1052,75 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
                     state.lateral = 0.0f;
                 }
             } else {
-                // A slide is only a slide if that axis carries REAL motion. A
-                // head-on has ~zero motion along the wall, so "keep only X" is
-                // trivially free - and the first version took that branch,
-                // ground in place and reported ~5 u/s while standing still
-                // (the harness caught it: end z 8.90, end speed 4.80 where a
-                // stop was owed).
+                // A FRESH hit (1.135.1): the wall's normal from the blocked
+                // points, then the velocity is redirected along the wall. It
+                // used to slide along world X or Z only and scrub speed while
+                // keeping the velocity pointed into the wall, so the next frame
+                // hit it again: the car ground with its nose pinned, a wall at
+                // 45 degrees gave a stair-step slide or a stop, and a head-on
+                // took the speed with no bounce. Now:
+                //   n       = away from the blocked points' centroid (XZ)
+                //   v       = t + vn n, vn < 0 into the wall
+                //   t       scrubbed by the impact angle (a scrape barely
+                //           slows, a steep hit digs in - the old grind curve)
+                //   vn      reflected at kWallBounce
+                // then the car moves on along the new velocity if that is
+                // free, and the velocity goes back into speed + lateral, so
+                // the tyres' grip realigns the body along the wall.
+                float bX = 0.0f, bZ = 0.0f;
+                blockedInfo(state.pos[0], state.pos[2], &bX, &bZ);
+                float nx = state.pos[0] - bX, nz = state.pos[2] - bZ;
+                float nl = std::sqrt(nx * nx + nz * nz);
                 const float wl = std::sqrt(vx * vx + vz * vz);
-                const float fx = wl > 1e-6f ? std::fabs(vx) / wl : 0.0f;
-                const float fz = wl > 1e-6f ? std::fabs(vz) / wl : 0.0f;
-                // The grind scrubs by ANGLE: a shallow scrape barely slows, a
-                // steep one digs in. f is the fraction of the motion the wall
-                // lets through.
-                auto grind = [&](float f) {
-                    return 1.0f - clampf((0.3f + 2.5f * (1.0f - f)) * dt, 0.0f, 0.6f);
-                };
-                const float latScrub = 1.0f - clampf(12.0f * dt, 0.0f, 0.9f);
-                if (fx > 0.3f && blockedInfo(state.pos[0], prevZ, nullptr, nullptr) == 0) {
-                    state.pos[2] = prevZ;  // slide along X
-                    state.speed *= grind(fx);
-                    state.lateral *= latScrub;
-                } else if (fz > 0.3f && blockedInfo(prevX, state.pos[2], nullptr, nullptr) == 0) {
-                    state.pos[0] = prevX;  // slide along Z
-                    state.speed *= grind(fz);
-                    state.lateral *= latScrub;
-                } else {
-                    state.pos[0] = prevX;  // head-on: the impact takes the speed
-                    state.pos[2] = prevZ;
-                    state.speed *= 0.25f;
-                    state.lateral = 0.0f;
+                if (nl < 1e-4f) {  // centroid on the centre: face the motion
+                    nx = -vx, nz = -vz, nl = wl;
                 }
+                float rvx = vx, rvz = vz;
+                if (nl > 1e-6f && wl > 1e-6f) {
+                    nx /= nl, nz /= nl;
+                    const float vn = vx * nx + vz * nz;
+                    if (vn < 0.0f) {
+                        const float impact = clampf(-vn / wl, 0.0f, 1.0f);
+                        const float keep =
+                            1.0f - clampf((0.3f + 2.5f * impact) * dt, 0.0f, 0.6f);
+                        const float tx = (vx - vn * nx) * keep;
+                        const float tz = (vz - vn * nz) * keep;
+                        rvx = tx - kWallBounce * vn * nx;
+                        rvz = tz - kWallBounce * vn * nz;
+                    }
+                }
+                state.pos[0] = prevX + rvx * dt;
+                state.pos[2] = prevZ + rvz * dt;
+                if (blockedInfo(state.pos[0], state.pos[2], nullptr, nullptr) > 0) {
+                    state.pos[0] = prevX;  // no free room along it: stay put
+                    state.pos[2] = prevZ;
+                }
+                // Line the body up with the wall: turn the heading toward the
+                // new velocity by (1 - impact) - a scrape realigns almost
+                // fully, a head-on keeps its heading and bounces. Without it
+                // the tyres read the along-wall motion as slip and killed it
+                // (a glancing hit slid 5 units and stopped). A turn that
+                // would put a corner into the wall is not taken.
+                float useC = c, useS = s;
+                const float rl = std::sqrt(rvx * rvx + rvz * rvz);
+                if (rl > 0.5f) {
+                    const float dirSign = state.speed >= 0.0f ? 1.0f : -1.0f;
+                    const float target =
+                        std::atan2(dirSign * rvx, dirSign * rvz) * kRad2Deg;
+                    float delta = std::fmod(target - state.yaw + 540.0f, 360.0f) - 180.0f;
+                    const float wl2 = std::sqrt(vx * vx + vz * vz);
+                    const float vn2 = vx * nx + vz * nz;
+                    const float impact2 = wl2 > 1e-6f ? clampf(-vn2 / wl2, 0.0f, 1.0f) : 1.0f;
+                    delta *= 1.0f - impact2;
+                    const float ny = state.yaw + delta;
+                    const float nc = std::cos(ny * kDeg2Rad), ns = std::sin(ny * kDeg2Rad);
+                    if (blockedAt(state.pos[0], state.pos[2], nc, ns) == 0) {
+                        state.yaw = ny;
+                        useC = nc, useS = ns;
+                    }
+                }
+                state.speed = rvx * useS + rvz * useC;
+                state.lateral = rvx * useC - rvz * useS;
             }
         }
     }

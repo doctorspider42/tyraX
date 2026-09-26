@@ -261,6 +261,29 @@ everything else a scene does.
   - It also makes the ride spring one-sided above its rest height: it never
     pulls the body down faster than gravity. Inside the grounded slack it used
     to haul the car down at ~200 x the gap and glue it to every crest.
+- **Walls redirect the car (1.135.1).** On a fresh hit:
+  1. The wall's normal is taken from the blocked sample points: away from
+     their centroid, so it works at any wall angle.
+  2. The velocity keeps its along-wall part, scrubbed by the impact angle
+     (the old grind curve, so a scrape barely slows). The into-wall part is
+     reflected at 0.15 (`kWallBounce` / `kVehWallBounce`).
+  3. The car moves on along the new velocity if that position is free.
+  4. The heading turns toward the new velocity by (1 - impact): a scrape
+     realigns almost fully, a head-on keeps its heading and bounces. The turn
+     is dropped if it would put a corner into the wall.
+
+  The old resolver slid along world X or Z only and kept the velocity pointed
+  into the wall. The car ground with its nose pinned and never lined up; a
+  45-degree wall gave a stair-step or a stop; a head-on took the speed with no
+  bounce. `--vehicle-check` walls: a glancing hit slides 155 units at 21.98 u/s,
+  and a new diagonal-wall property slides 88 units at 21.98 u/s without
+  entering the wall. Pillar, head-on, overlap-escape and thin-wall properties
+  still hold.
+
+  The editor's test drive now uses the runtime's wall rules exactly: boxes
+  inflated by 0.35, and a wall only when its top is above feet + 0.5 and its
+  bottom below feet + 0.9. Before, a car touched walls 0.35 later in the
+  editor than on the console.
 - **Walls are eight sample points** — the four corners of the BODY rectangle
   (the wheelbase plus `bodyOverhang`, the bumpers' reach past the axles,
   measured off the baked body — the axle rectangle alone let the bonnet clip

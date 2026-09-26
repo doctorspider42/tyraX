@@ -321,10 +321,18 @@ void App::vehicleDriveTick() {
             solids.push_back(placement::worldAabb(all[i], aabbFn));
         }
     }
+    // The runtime twin's wall rules exactly (buildVehicleColliders in
+    // templates.cpp): a box is a wall when its top is above feet + 0.5 and its
+    // bottom below feet + 0.9 (lower tops are floors the wheels ride), and it
+    // is inflated by 0.35 (the walker's radius) on both horizontal axes. The
+    // test drive used the bare box with its own height band, so a car touched
+    // walls 0.35 later here than on the console.
     const vehiclesim::SolidFn solid = [&](float x, float z, float feetY) {
+        constexpr float kPad = 0.35f;
         for (const placement::Aabb& b : solids)
-            if (x > b.mn[0] && x < b.mx[0] && z > b.mn[2] && z < b.mx[2] &&
-                feetY + 1.0f > b.mn[1] && feetY < b.mx[1])
+            if (x > b.mn[0] - kPad && x < b.mx[0] + kPad &&
+                z > b.mn[2] - kPad && z < b.mx[2] + kPad &&
+                b.mx[1] > feetY + 0.5f && b.mn[1] < feetY + 0.9f)
                 return true;
         return false;
     };
