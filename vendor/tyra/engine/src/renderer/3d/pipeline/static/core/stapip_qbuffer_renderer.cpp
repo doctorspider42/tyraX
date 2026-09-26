@@ -28,8 +28,6 @@
 #include "packet2/packet2_tyra_utils.hpp"
 #include "renderer/3d/pipeline/static/core/stapip_vu_tap.hpp"
 #include <malloc.h>  // Modified by TyraX: memalign, retained uniform blocks
-#include <cstdio>
-#include "file/file_utils.hpp"  // Modified by TyraX: the uniforms A/B file
 
 // #define TYRA_QBUFF_RENDERER_VERBOSE_LOG 1
 
@@ -1192,18 +1190,13 @@ StaPipClipperSpot StaPipQBufferRenderer::spotForBag(
 }
 
 #if TYRA_STAPIP_UNIFORMS_AB
-// Modified by TyraX: the one-ELF A/B arm (TYRA_STAPIP_UNIFORMS_AB). Read once,
-// at the first bag, from the game's bin/ (host: under ps2link and PCSX2).
-void StaPipQBufferRenderer::resolveUniformsMode() {
-  int v = 0;
-  FILE* f = std::fopen(FileUtils::fromCwd("stapipexp.txt").c_str(), "r");
-  if (f != nullptr) {
-    if (std::fscanf(f, "%d", &v) != 1) v = 1;
-    std::fclose(f);
-  }
+// Modified by TyraX: the one-ELF A/B arm (TYRA_STAPIP_UNIFORMS_AB). Set by the
+// game at scene setup; the renderer never reads a host file for it.
+int g_stapipUniformsMode = 0;
+void stapipSetUniformsMode(int v) {
   if (v < 0) v = 0;
   const int mask = v == 1 ? 0x1E : v;
-  uniformsMode = mask;
+  g_stapipUniformsMode = mask;
   TYRA_LOG("STAPIPEXP ", v, " spotCache=", (mask & 2) ? 1 : 0,
            " retainedUniforms=", (mask & 4) && TYRA_STAPIP_UNIFORMS_BUILT ? 1 : 0,
            " skipInactiveSpot=", (mask & 8) ? 1 : 0,
@@ -1277,7 +1270,7 @@ const qword_t* StaPipQBufferRenderer::emitUniformGroup(
     UniformGroup& g = entry->group[group];
     qword_t* copy = uniformBlocks +
                     static_cast<u32>(entry - uniformEntries) * kUniformEntryQw +
-                    (group == 0 ? 0 : kUniformGroupQw0);
+                    (group == 0 ? 0 : kUniformGroup1At);
     if (g.qw == qw && vifMatchesChain(copy, scratch, qw)) {
       if (!shadow) emitRef(packet, copy, qw);
       g.refSerial = packetSerial;
@@ -1287,6 +1280,15 @@ const qword_t* StaPipQBufferRenderer::emitUniformGroup(
     if (uniformGroupFree(g)) {
       g.qw = 0;
       if (chainToVifStream(scratch, qw, copy) == qw) {
+        // Write the rewritten lines back now instead of relying on the
+        // queue's lazy FlushCache(0) at the start of the chain that REFs
+        // them. That one covers this too (it writes back the whole cache,
+        // and this copy is written before its chain is submitted), so this
+        // is belt and braces: the retained store lives outside the packet
+        // buffers, and a future change to the flush policy must not be able
+        // to leave these bytes in the cache. Rewrites are rare (0.3-4 a
+        // frame on the district), so it costs nothing measurable.
+        SyncDCache(copy, reinterpret_cast<u8*>(copy) + kUniformGroupQw1 * 16);
         g.qw = static_cast<u16>(qw);
         if (!shadow) emitRef(packet, copy, qw);
         g.refSerial = packetSerial;

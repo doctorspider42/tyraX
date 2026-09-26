@@ -257,7 +257,8 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   is the output, so no input can be missed), the spot light is cached per
   (model matrix, light), an inactive spot's quads and a non-clipping bag's clip
   block are no longer sent. Owed: the one-ELF console series
-  (`arms/bag-ab-release-timing`, `bag-series.sh`) and a night failure-rate
+  (`arms/bag2-ab-release-timing`, `bag2-series.sh`; the first arm's boot hung
+  in scene load before the code ran, see "Round six") and a night failure-rate
   check for the copy lifetime. Still left: the MVP (inline by design), the
   build itself (the same loads as before), and the in-chain wrap write, which
   still uses packet2.

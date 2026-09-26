@@ -2572,7 +2572,14 @@ must keep:
   non-clipping bag's clip block. So a new reader of `VU1_LIGHTS_DIRS_ADDR` or
   `VU1_CLIP_CONSTS_ADDR` must either be gated the same way or turn those
   flags off. `TYRA_STAPIP_UNIFORMS_VERIFY` is the self-check and
-  `TYRA_STAPIP_UNIFORMS_AB` the one-ELF boot toggle (`bin/stapipexp.txt`).
+  `TYRA_STAPIP_UNIFORMS_AB` the one-ELF boot toggle, set by the GAME
+  (`stapipSetUniformsMode`). **Never open a host file from inside the
+  renderer for a toggle.** The first A/B arm did, and its console boot
+  hard-hung in scene load (SIF stuck). The log places the hang before that
+  read could run, so the read was not proven guilty, but a SIF round trip
+  mid-frame is exactly the class to avoid. Anything the DMAC REFs outside the
+  packet buffers is written back explicitly when rewritten (`SyncDCache`),
+  instead of relying on the lazy `FlushCache` at chain start.
 - **Object data is written by a fast path, not by packet2 calls**
   (1.127.2, `emitUnpack` in stapip_qbuffer_renderer.cpp). Per packet2
   open/close the cost was ~1.4 us a bag, the data itself little. Headers are

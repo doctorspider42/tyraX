@@ -213,12 +213,14 @@
 #endif
 /**
  * Modified by TyraX: the ONE-ELF A/B arm for the four features above. 1
- * compiles them all in and picks them at boot from bin/stapipexp.txt (read
- * once at the first bag, logged as `STAPIPEXP <n>`): no file or 0 = the old
- * code for all four, 1 = all four new, and any other value is a bit mask -
- * 2 spot cache, 4 retained uniforms, 8 skip the inactive spot, 16 clip-block
- * gate (e.g. 4 = the retained uniforms alone). Never on in a shipped build;
- * the default build runs all four, unconditionally.
+ * compiles them all in; the GAME picks them with stapipSetUniformsMode(n)
+ * (the A/B fixture reads bin/stapipexp.txt at scene setup and logs
+ * `STAPIPEXP <n>`). Until it does, all four run the old code. 0 = the old
+ * code for all four, 1 = all four new, any other value a bit mask - 2 spot
+ * cache, 4 retained uniforms, 8 skip the inactive spot, 16 clip-block gate.
+ * The engine itself never opens a host file for this: a host: read from inside
+ * the renderer is a SIF round trip in the middle of a frame. Never on in a
+ * shipped build; the default build runs all four, unconditionally.
  */
 #ifndef TYRA_STAPIP_UNIFORMS_AB
 #define TYRA_STAPIP_UNIFORMS_AB 0
@@ -246,6 +248,14 @@
    !TYRA_STAPIP_PROBE_UNCACHED_CHAIN)
 
 namespace Tyra {
+
+#if TYRA_STAPIP_UNIFORMS_AB
+/** Modified by TyraX: the A/B mask (TYRA_STAPIP_UNIFORMS_AB); 0 until the game
+ * calls stapipSetUniformsMode. */
+extern int g_stapipUniformsMode;
+/** 1 = all four features; anything else is the bit mask. Logs STAPIPEXP. */
+void stapipSetUniformsMode(int value);
+#endif
 
 #if TYRA_STAPIP_RETAINED_COMMANDS
 
@@ -1061,11 +1071,8 @@ class StaPipQBufferRenderer {
   // Modified by TyraX: the boot-selected A/B mode (TYRA_STAPIP_UNIFORMS_AB);
   // -1 until the first sendObjectData reads bin/stapipexp.txt.
 #if TYRA_STAPIP_UNIFORMS_AB
-  int uniformsMode = -1;  // the bit mask; see TYRA_STAPIP_UNIFORMS_AB
-  void resolveUniformsMode();
-  bool uniformsModeBit(int bit) {
-    if (uniformsMode < 0) resolveUniformsMode();
-    return (uniformsMode & bit) != 0;
+  static bool uniformsModeBit(int bit) {
+    return (g_stapipUniformsMode & bit) != 0;
   }
   bool spotCacheOn() { return TYRA_STAPIP_SPOT_CACHE && uniformsModeBit(2); }
   bool retainedUniformsOn() {
@@ -1116,7 +1123,11 @@ class StaPipQBufferRenderer {
    * env + ALPHA (2 + 5 + 4 + 2 = 13, 16 with both bases). */
   static constexpr u32 kUniformGroupQw0 = 13;
   static constexpr u32 kUniformGroupQw1 = 16;
-  static constexpr u32 kUniformEntryQw = kUniformGroupQw0 + kUniformGroupQw1;
+  /** Each group starts on its own 64-byte D-cache line (group 1 at qword 16,
+   * a 32-qword entry stride on a 64-aligned store), so the explicit
+   * write-back of a rewritten copy covers whole lines of that copy only. */
+  static constexpr u32 kUniformGroup1At = 16;
+  static constexpr u32 kUniformEntryQw = 32;
   static constexpr u32 kUniformSets = 256;
   static constexpr u32 kUniformEntries = kUniformSets * 2;
   static constexpr u32 kSerialRing = 64;

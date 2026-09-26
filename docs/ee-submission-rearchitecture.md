@@ -1406,7 +1406,16 @@ camera.
   probe that did, `pending()`, hung a console). A stale counter answers "not
   yet", which means inline, so the fallback is always safe. The packet being
   built never gets a copy rewritten under it.
-- Memory: 512 entries x 29 qwords = 232 KB, allocated once at the first
+- **Coherency.** The copies are written through the D-cache and read by the
+  DMAC. The queue's lazy `FlushCache(0)` at the start of the referencing chain
+  already covers them: it writes back the WHOLE cache, and a copy is only ever
+  written before the chain naming it is submitted. Each rewrite is still
+  written back explicitly (`SyncDCache` over the copy's own lines, so each group
+  starts on a 64-byte line). That way a later change to the flush policy
+  cannot strand these bytes, because the store lives outside the packet
+  buffers the policy is written around. Rewrites are 0.3-4 a frame, so this
+  costs nothing measurable.
+- Memory: 512 entries x 32 qwords = 256 KB, allocated once at the first
   `allocateOnUse` and kept for the renderer's life. The district fixture has at
   most ~100 entries live.
 - **The saving is bounded by what it removes.** Per bag the EE still builds
@@ -1460,8 +1469,25 @@ caused by this change.
 
 **What is NOT established.**
 - The milliseconds. The console series belongs to the lead: one ELF,
-  `arms/bag-ab-release-timing`, `bash bag-series.sh <tag> [mode]`, with modes
-  1 (all four), 4 (retained alone), 2 / 8 / 16.
+  `arms/bag2-ab-release-timing`, `bash bag2-series.sh <tag> <mode>`. Run the
+  low-risk bits first, each alone (2, 8, 16), then 4 (retained), then 1 (all).
+- **The first console attempt hung, before any of this code ran.** The first
+  A/B ELF read its mode file from inside the renderer, at the first bag. Booted
+  in mode 1 it hard-hung the console during scene load: `freepad: DMA Busy`,
+  SIF stuck, and a power cycle was needed. The last host open was
+  `vehicles/veh-strix0000001-body.tmdl`, line 270 of the ps2link log. The mode-0
+  boot of the SAME ELF just before shows the renderer's first bag, and with it
+  the first read of the mode file, at line 365. Every feature was off until
+  then. So up to the hang both boots ran identical code, and the only
+  difference was one extra file in `bin/`. That points at the host-I/O/SIF
+  flake class (the ps2link host fileio path, an IOP busy with
+  the load's host reads), not at retained copies. It was not proven, because
+  the console could not be inspected. Two changes follow anyway. The second
+  arm sets the mode from the GAME at scene setup (`stapipSetUniformsMode`,
+  the pattern every earlier one-ELF arm used on hardware), so the renderer does
+  no host I/O. And each rewritten copy is written back explicitly (above). If
+  the second arm hangs in mode 0 or 2 as well, the cause is not in this
+  change.
 - **The lifetime argument on hardware.** PCSX2 finishes a DMA before the EE
   runs on, so it cannot see a copy rewritten under a live REF (the slot-pool
   race class). The argument is structural: the same completion counter the
