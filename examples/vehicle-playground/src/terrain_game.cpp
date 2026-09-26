@@ -18125,6 +18125,10 @@ static constexpr float kVehWallBounce = 0.15F;
 // kHandbrakeYaw, kFrictionShare).
 static constexpr float kVehHandbrakeRecover = 0.35F;
 static constexpr float kVehSweepStep = 1.0F;  // vehiclesim twin kSweepStep
+// Car-car spin (runtime only - the test drive has one car): the share of the
+// rigid-body yaw impulse the hit keeps, and the tyres' damping of it (1/s).
+static constexpr float kVehSpinGain = 0.8F;
+static constexpr float kVehSpinDamp = 5.0F;
 static constexpr float kVehHandbrakeYaw = 30.0F;
 static constexpr float kVehHandbrakeYawCap = 1.0F;
 static constexpr float kVehFrictionShare = 0.5F;
@@ -19117,6 +19121,14 @@ void TerrainGame::updateVehicles(float dt) {
       v.speed = f;
       v.lateral = l;
     }
+    // A hit's spin turns the BODY without turning the velocity, which is the
+    // slip the tyres then fight - a clipped car slews and scrubs. The tyres
+    // damp it while grounded, the air barely.
+    if (v.spin != 0.0F) {
+      v.yaw += v.spin * dt;
+      v.spin /= 1.0F + (v.grounded ? kVehSpinDamp : 0.5F) * dt;
+      if (v.spin > -0.5F && v.spin < 0.5F) v.spin = 0.0F;
+    }
     {
       float grip = effGrip;
       if (!v.grounded) grip = 0.0F;
@@ -19745,6 +19757,7 @@ void TerrainGame::updateVehicles(float dt) {
       const float da = 0.3F * sa.wheelBase * va.scale;
       const float db = 0.3F * sb.wheelBase * vb.scale;
       float worst = 0.0F, nx = 0.0F, nz = 0.0F;
+      float contactAx = 0.0F, contactAz = 0.0F;  // the deepest pair's A disc
       for (int ia = -1; ia <= 1; ia += 2)
         for (int ib = -1; ib <= 1; ib += 2) {
           const float ax = va.pos[0] + sna * da * (float)ia;
@@ -19761,6 +19774,8 @@ void TerrainGame::updateVehicles(float dt) {
             worst = pen;
             nx = dx / d;
             nz = dz / d;
+            contactAx = ax;
+            contactAz = az;
           }
         }
       if (worst <= 0.0F) continue;
@@ -19789,6 +19804,35 @@ void TerrainGame::updateVehicles(float dt) {
         va.lateral = ax2 * ca - az2 * sna;
         vb.speed = bx2 * snb + bz2 * cb;
         vb.lateral = bx2 * cb - bz2 * snb;
+        // SPIN (1.135.7): the impulse lands at the contact point, not the
+        // centre, so it also turns each body by (r x J) / I, the moment of
+        // inertia a box of wheelbase x track has about its centre. An
+        // off-centre hit - a clipped rear quarter, a T-bone near a bumper -
+        // spins a car out; a hit through the centre still only pushes it.
+        {
+          const float pcx = contactAx + nx * ra, pcz = contactAz + nz * ra;
+          const float wa2 = sa.wheelBase * va.scale, ta2 = sa.track * va.scale;
+          const float wb2 = sb.wheelBase * vb.scale, tb2 = sb.track * vb.scale;
+          const float ia2 = ma * (wa2 * wa2 + ta2 * ta2) / 12.0F;
+          const float ib2 = mb * (wb2 * wb2 + tb2 * tb2) / 12.0F;
+          // J on A is -n * imp, on B +n * imp. Positive yaw turns forward
+          // from +Z toward +X, so a force F at offset r turns it by
+          // r.z * F.x - r.x * F.z.
+          const float rax = pcx - va.pos[0], raz = pcz - va.pos[2];
+          const float rbx = pcx - vb.pos[0], rbz = pcz - vb.pos[2];
+          const float tqa = raz * (-nx * imp) - rax * (-nz * imp);
+          const float tqb = rbz * (nx * imp) - rbx * (nz * imp);
+          if (ia2 > 1e-4F) va.spin += kVehSpinGain * tqa / ia2 * kRad;
+          if (ib2 > 1e-4F) vb.spin += kVehSpinGain * tqb / ib2 * kRad;
+          if (va.spin > 540.0F) va.spin = 540.0F;
+          if (va.spin < -540.0F) va.spin = -540.0F;
+          if (vb.spin > 540.0F) vb.spin = 540.0F;
+          if (vb.spin < -540.0F) vb.spin = -540.0F;
+          // One line per hit: the acceptance check that an off-centre hit
+          // spins (docs/vehicles.md, "Car-car hits spin").
+          TYRA_LOG("VEHHIT ", a, " ", b, " rel10 ", (int)(rel * 10.0F),
+                   " spinA ", (int)va.spin, " spinB ", (int)vb.spin);
+        }
       } else if (rel < 0.5F) {
         // RESTING contact: bumper against bumper. The first cut kept firing
         // the bouncy impulse here and the per-frame separation ate the

@@ -913,6 +913,10 @@ class TerrainGame : public Tyra::Game {
     // 0 while the handbrake is held, back to 1 over kVehHandbrakeRecover after
     // it is let go (the vehiclesim twin's DriveState::hbBlend).
     float hbBlend = 1.0F;
+    // Yaw rate (deg/s) a car-car hit gave the body (1.135.7). Integrated on
+    // top of the bicycle yaw and damped by the tyres, so a hit off the centre
+    // of mass spins the car instead of only pushing it.
+    float spin = 0.0F;
     // Engine note (docs/vehicles.md). `engineCh` is the SPU2 channel the loop
     // holds while this vehicle is being driven, -1 when silent; `enginePitchReg`
     // is the LAST value written, because writing the pitch costs a blocking IOP

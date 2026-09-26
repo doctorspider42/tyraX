@@ -281,6 +281,23 @@ everything else a scene does.
   slip against 0.52 at full grip. In PCSX2 a flick at 30 u/s slid on and
   recovered over ~1.5 s. The constants are code, not definition fields, yet:
   tune by feel first.
+- **Car-car hits spin (1.135.7, runtime only; the test drive has one car).**
+  - **Where the impulse lands.** The velocity exchange along the contact
+    normal is applied at the contact point (the deepest disc pair's surface),
+    not the centre. It therefore also turns each body by
+    `kVehSpinGain x (r x J) / I`, with I a wheelbase x track box's moment
+    about its centre.
+  - **How the spin lives on.** It is its own yaw rate (`VehicleRt::spin`, deg/s,
+    capped at 540). It is integrated on top of the bicycle yaw without
+    turning the velocity, which is the slip the tyres then fight. The tyres
+    damp it at `kVehSpinDamp` (5/s) on the ground, 0.5/s in the air.
+  - **What it looks like.** A clipped rear quarter or a T-bone near a bumper
+    spins the car out; a hit through the centre still only pushes it.
+  - **Log line.** `VEHHIT a b rel10 R spinA A spinB B` is written once per hit.
+  - **Measured.** In PCSX2 the Ravager was driven straight into the front
+    quarter of a Strix parked across its path at 14.2 u/s. It gave the Strix
+    445 deg/s and deflected the Ravager by about 20 degrees (-104 deg/s),
+    after which it drove on.
 - **The corner lean follows what the tyres carry (1.135.5).** The roll target
   was the lateral acceleration the steering ASKED for. It is now clamped to
   the effective grip, so a handbrake slide (grip 6) no longer leans the body
