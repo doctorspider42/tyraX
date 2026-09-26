@@ -120,7 +120,7 @@ struct StaticBatch {
   bool dirty = true;
   std::unique_ptr<int> bag;
 };
-struct RuntimeObjectStub { bool dirty = false; };
+struct RuntimeObjectStub { bool dirty = false; bool wantsMatrixPath = false; };
 struct DynLightRt { int objIndex = 0; };
 
 // The scene under test, written by the fixture builder below.
@@ -488,14 +488,26 @@ int main() {
     check(fx);
   }
   // I: a multi-part model - one part merges with a neighbour, the other is
-  // alone and drops. The OBJECT is still batched (objectBatchOf != -1).
+  // alone. A model is batched ALL-OR-NOTHING (the solo path skips it as one
+  // object), so the lonely part drops the whole model, and that leaves the
+  // neighbour a singleton: nothing is batched at all.
   {
-    Fixture fx; fx.name = "I multi-part model spans batches";
+    Fixture fx; fx.name = "I multi-part model with a lonely part";
     FxModel two{"two.obj", {-1,-1,-1}, {1,1,1},
                 {{"shared.png", false, 0, 90}, {"lonely.png", false, 0, 90}}};
     FxModel one{"one.obj", {-1,-1,-1}, {1,1,1}, {{"shared.png", false, 0, 90}}};
     fx.models = {two, one};
     fx.objects = {mdl(0,0,"two.obj"), mdl(2,0,"one.obj")};
+    check(fx);
+  }
+  // I2: two copies of the same two-part model: every part has a partner, so
+  // both objects are batched, each in two batches.
+  {
+    Fixture fx; fx.name = "I2 multi-part model, every part paired";
+    FxModel two{"two.obj", {-1,-1,-1}, {1,1,1},
+                {{"shared.png", false, 0, 90}, {"lonely.png", false, 0, 90}}};
+    fx.models = {two};
+    fx.objects = {mdl(0,0,"two.obj"), mdl(2,0,"two.obj")};
     check(fx);
   }
   // J: batching off project-wide builds nothing at all.

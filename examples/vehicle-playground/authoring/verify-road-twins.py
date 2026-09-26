@@ -29,14 +29,23 @@ struct Texture {};
 struct Vec4 { float x,y,z,w; Vec4(float a,float b,float c,float d):x(a),y(b),z(c),w(d){} };
 using Color = Vec4;
 }
+// The runtime structs as the codegen emits them (grip/lift/uInset 1.137-1.144,
+// the spill/edge tables 1.143/1.144): trailing fields zero-initialise, which
+// is a Local-rank road with no fade and no spills - the case this oracle
+// compares against the preserved baseline.
 struct ProcChunk { int owner=0; Tyra::Texture* roadTex=nullptr; int stripRun=0;
+float roadGrip=1.0F; float roadGripBase=1.0F; bool roadBlend=false; bool roadEdge=false;
 std::vector<Tyra::Vec4> vertices,sts,colors; };
-struct RoadDefRt { int scene,first,pointCount; float width,sampleStep; int tex; };
+struct RoadDefRt { int scene,first,pointCount; float width,sampleStep; int tex;
+float grip, lift, uInset; };
 int ROAD_COUNT=1, ROAD_TEXTURE_COUNT=0;
 RoadDefRt ROAD_DEFS[1];
 float ROAD_POINTS[64];
 const char* ROAD_TEXTURE_PATHS[1]={""};
-struct RoadJunctionRt { int scene,tex; float xz[10]; };
+struct RoadJunctionRt { int scene,tex; float xz[10]; float grip, lift; };
+struct RoadSpillRt { int scene,road,first,count; float baseGrip, grip, lift; };
+int ROAD_SPILL_COUNT=0; RoadSpillRt ROAD_SPILLS[1]{}; float ROAD_SPILL_VERTS[1]{};
+int ROAD_EDGE_COUNT=0; RoadSpillRt ROAD_EDGES[1]{}; float ROAD_EDGE_VERTS[1]{};
 int ROAD_JUNCTION_COUNT=0;
 RoadJunctionRt ROAD_JUNCTIONS[1]{};
 struct TerrainGame {
@@ -44,6 +53,7 @@ std::vector<ProcChunk> procChunks;
 Tyra::Texture* roadTextures_[1]={nullptr};
 std::function<float(float,float)> height;
 float terrainHeightAt(float x,float z) { return height(x,z); }
+float roadSurfaceAt(float,float) const { return -1.0e30F; }  // only spills ask
 Tyra::Texture* acquireTexture(const char*) { return nullptr; }
 // The engine's smallest derived package - 75 on every static program class
 // this game can route a road bag through, which is why roadgen::kStripRun is

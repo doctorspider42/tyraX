@@ -99,6 +99,7 @@ const char* reasonLabel(Reason r) {
         case Reason::ReflectiveMaterial: return "reflective material";
         case Reason::FootprintTooBigForCell: return "too big for its cell";
         case Reason::SingletonGroup: return "alone in its group";
+        case Reason::PartialModel: return "a part is alone";
     }
     return "?";
 }
@@ -172,6 +173,11 @@ const char* reasonDetail(Reason r) {
             return "Nothing else shares its texture, cell, draw distance, "
                    "lamp and strip run. A batch of one saves no submit and "
                    "only duplicates geometry, so it is dropped.";
+        case Reason::PartialModel:
+            return "One of this model's parts has no batch partner. The solo "
+                   "path skips a model as ONE object, so batching only some "
+                   "parts would leave the others missing - the whole model "
+                   "draws solo instead.";
     }
     return "";
 }
@@ -185,6 +191,7 @@ const char* reasonStage(Reason r) {
         case Reason::ReflectiveMaterial:
         case Reason::FootprintTooBigForCell:
         case Reason::SingletonGroup:
+        case Reason::PartialModel:
             return "runtime";
         default: return "build";
     }
@@ -369,6 +376,9 @@ Result compute(const Project& p, const SceneData& sc, const Inputs& in,
     };
 
     std::vector<Reason> runtimeReason((size_t)count, Reason::Batched);
+    // How many members an object must keep to stay batched: 1, or a model's
+    // part count (the all-or-nothing prune below).
+    std::vector<unsigned int> expectedParts((size_t)count, 1u);
     for (int i = 0; i < count; ++i) {
         if (!flagged[(size_t)i]) continue;
         const SceneObject& d = sc.objects[(size_t)i];
@@ -403,6 +413,7 @@ Result compute(const Project& p, const SceneData& sc, const Inputs& in,
                 runtimeReason[(size_t)i] = Reason::ReflectiveMaterial;
                 continue;
             }
+            expectedParts[(size_t)i] = (unsigned int)mi.parts.size();
             for (int pi = 0; pi < (int)mi.parts.size(); ++pi) {
                 const ModelPart& mp = mi.parts[(size_t)pi];
                 // The bag renders the STRIP when the bake produced one, and
@@ -453,10 +464,45 @@ Result compute(const Project& p, const SceneData& sc, const Inputs& in,
     }
     res.batches = std::move(kept);
 
-    // A multi-part model can have some parts in surviving batches and others
-    // dropped as singletons. The object is BATCHED if any part survived -
-    // matching objectBatchOf, which is != -1 in that case - so the singleton
-    // note above is only kept for objects that landed nowhere at all.
+    // A model is batched ALL-OR-NOTHING (the runtime's buildStaticBatchList,
+    // 1.139+: the solo path skips a model as one object, so a model with only
+    // some parts batched lost the rest - walls missing under a batched roof).
+    // Prune every object whose surviving members are fewer than its parts,
+    // drop the groups that leaves as singletons, and repeat to the fixed
+    // point, exactly as the runtime does.
+    for (;;) {
+        std::vector<unsigned int> memberCount((size_t)count, 0u);
+        for (const Batch& b : res.batches)
+            for (const Member& m : b.members) ++memberCount[(size_t)m.object];
+        std::vector<unsigned char> incomplete((size_t)count, 0);
+        bool anyIncomplete = false;
+        for (int i = 0; i < count; ++i) {
+            if (memberCount[(size_t)i] == 0) continue;
+            if (memberCount[(size_t)i] == expectedParts[(size_t)i]) continue;
+            incomplete[(size_t)i] = 1;
+            anyIncomplete = true;
+            runtimeReason[(size_t)i] = Reason::PartialModel;
+        }
+        if (!anyIncomplete) break;
+        std::vector<Batch> next;
+        next.reserve(res.batches.size());
+        for (Batch& b : res.batches) {
+            std::vector<Member> keep;
+            for (const Member& m : b.members)
+                if (!incomplete[(size_t)m.object]) keep.push_back(m);
+            b.members = std::move(keep);
+            if (b.members.size() < 2) {
+                for (const Member& m : b.members)
+                    if (runtimeReason[(size_t)m.object] == Reason::Batched)
+                        runtimeReason[(size_t)m.object] = Reason::SingletonGroup;
+                continue;
+            }
+            next.push_back(std::move(b));
+        }
+        res.batches = std::move(next);
+    }
+
+    // The survivors: every one of an object's parts is in some batch.
     for (int bi = 0; bi < (int)res.batches.size(); ++bi)
         for (const Member& m : res.batches[(size_t)bi].members) {
             runtimeReason[(size_t)m.object] = Reason::Batched;

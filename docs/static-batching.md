@@ -107,6 +107,7 @@ Runtime (`buildStaticBatchList`, among the objects that passed the above):
 | reflective material | draws a second additive pass per bag |
 | too big for its cell | footprint over half its cell; merging would defeat the whole-bag frustum cut |
 | alone in its group | nothing else shares its texture, cell, draw distance, lamp and strip run |
+| a part is alone | one part of a multi-part model has no batch partner; a model is batched all-or-nothing (the solo path skips it as one object), so the whole model draws solo |
 
 **"Alone in its group" is the common one, and it is usually a near miss.**
 Turn on *Show cell* with a batch selected: two objects that look like they
