@@ -272,8 +272,19 @@ leaves these, dearest first:
   pass): the scene spot pools still cost ~0.74 ms for eight lamps after
   1.134.4's cache, which is one additive bag per lamp. Merging the static
   lamps' pools into one bag, with the per-lamp FIX folded into vertex colours,
-  is the candidate. The light beams cost 0.52 ms; they are already two
-  submits, so that is GS fill of the cones.
+  is the candidate. (1.134.5 then merged the still pools into one bag:
+  -0.15 more.) The light beams cost 0.54 ms in garage night, measured by
+  removing each half (median, two boots):
+  - the coronas are 0.31 ms: 8 camera-facing sprites rebuilt on the EE every
+    frame, so the batch re-stages every frame. The StaPip billboard family
+    would expand static centres on VU1 instead, but its programs are not
+    resident, so price the program-set swap first.
+  - the cones are 0.23 ms: 8-triangle fans drawn with no back-face cull, so
+    each silhouette is filled twice. A one-sided cone at double colour would
+    halve the fill but changes the look.
+  - outer night: the beams cost 0.10 ms in total.
+  The district fixture itself draws the debug profiler overlay (showProfiler,
+  showFps, showMemory), which is a constant in every A/B.
 - **Interleave tuner decision rule** (docs/interleaved-passes.md): one run
   saw garage night alternate between ~13.9 and ~14.8 ms frames. The tuner then
   picked plain on a 4/8 tie while interleaving averaged ~2% faster. A
