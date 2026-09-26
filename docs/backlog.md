@@ -298,7 +298,7 @@ with these settings:
   0/1 = pose A day/night and 2/3 = pose B day/night;
 - `make_occ_arm.py`, which adds the boot mode.
 
-The arm built on 2026-09-26 is `arms/occ-dense-timing`:
+The arm (last rebuilt 2026-09-27 on vehicles 799b9468, ELF sha256 7a7bef14...) is `arms/occ-dense-timing`:
 - pose A: eye (0, 1.8, 20), looking at (40, 1.5, 30);
 - pose B: eye (0, 1.8, -45), looking at (0, 1.5, 0).
 Its ELF sha256 is in `ELF.sha256`.
