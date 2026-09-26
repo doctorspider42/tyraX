@@ -2890,8 +2890,9 @@ during motion, so do not describe larger view counts as free.
 the host rules. In the game, `On Start -> Enter Vehicle` seats the player in
 vehicle-playground's CC96 facing +z; `--pad "hold r2; wait 12; release all"`
 drives it into the arena wall and `bin/log.txt` answers with a `VEHDMG ... hit`
-line (impact, damage %, vertices moved, microseconds). The throttle is R2 and
-reverse is the left stick DOWN (`stick l 0 127`), not L2 (brake only). To SEE a
+line (impact, damage %, vertices moved, microseconds). The throttle is R2 and,
+since 1.142.0, reverse is L2 held from a standstill (`hold l2`; it brakes
+first if the car is still rolling) - the left stick only steers. To SEE a
 front dent from the chase rig, back off a few units and HOLD R3 (the rear view
 puts the camera ahead of the nose) while `--capture-frame` runs - against a wall
 the rig sits inside it. The editor side needs no game: Damage tab > Hit front

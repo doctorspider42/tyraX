@@ -367,7 +367,7 @@ everything else a scene does.
   shorter than a unit and pay nothing.
 - **The stick is rescaled past its deadzone (1.135.3, the runtime; the
   test drive has no stick).** The steering's 0.12 and the stick throttle's
-  0.15 used to be hard cuts that jumped straight to 12% and 15%. They now
+  0.15 (the stick throttle is gone since 1.142.0 - the pedals below) used to be hard cuts that jumped straight to 12% and 15%. They now
   rescale from zero. The steering also gets a gentle expo (65% linear + 35%
   cubic) for fine control around the centre, where a fast car lives. Full
   deflection and the digital buttons still give full lock.
@@ -1626,24 +1626,31 @@ stores the name, so it has to.
 | Button | What it does |
 |---|---|
 | Square | the USE action — get in, and get out at the driver's door |
-| R2 | throttle — **analog**: the DualShock 2 button pressure, so a squeeze is a crawl |
-| L2 | brake |
-| D-pad | drives too (steer + throttle/reverse). A keyboard emulating a stick — PCSX2 in a VM above all — can drop chorded key events, and full-lock-plus-throttle is exactly a chord; the d-pad is independent booleans end to end, so it cannot ghost |
+| R2 | gas — **analog**: the DualShock 2 button pressure, so a squeeze is a crawl. Brakes a car that is rolling backwards |
+| L2 | brake while rolling forward; once the car has stopped (under 0.5 u/s), **reverse** — hold it through the stop and the car backs up. Analog too |
+| D-pad up | headlights on / off |
 | Circle | handbrake, i.e. `handbrakeGrip` instead of `grip` — the drift |
 | Cross | nitrous, when the definition has a tank |
 | Triangle | cycle the camera |
-| left stick X | steer |
+| left stick X | steer — the stick only steers: its vertical axis no longer throttles or reverses, which a driver at full lock could not help nudging |
 | right stick | glance around the car (X, up to ±60°) and lift the boom (Y); springs back on release |
 | R3 | held: instant rear view — the look-back mirror |
+
+**The pedals are one rule** (`vehiclesim::pedals`, 1.142.0): the console's
+player controller is its twin, and the editor's test drive reads it with W as
+R2 and S as L2, so both feel alike. Both pedals held at a standstill hold the
+car still. AI drivers fill the drive input directly and are unaffected.
+`--vehicle-check` "pedals" holds it: L2 from a standstill reverses, L2 on a
+car at 22 u/s stops it in ~58 frames and only then reverses, R2 brakes a car
+rolling backwards.
 
 Every BUTTON of the set is an Input Map role (`veh-throttle`, `veh-brake`,
 `veh-handbrake`, `veh-nitrous`, `veh-camera`, `veh-rearview` —
 docs/input-bindings.md), so a project can rebind the throttle; the table above
 shows the seeded defaults. The runtime falls back to those exact buttons when a
 project's map lost an action (they are deletable), and the ANALOG reads — the
-steering stick, the stick's own throttle and the d-pad ghosting fallback —
-stay hardwired: an axis is not an action, and the ergonomic fallbacks exist
-precisely for pads that cannot chord. The throttle role reads the DualShock
+steering stick — stays hardwired: an axis is not an action, and the ergonomic fallbacks exist
+precisely for pads that cannot chord. The throttle and brake roles read the DualShock
 2's **button pressure** (`inputAnalog`), so the default R2 squeezes from a
 crawl to flat out, and any digital source (a keyboard, an emulator without
 pressure mapping) reads as a clean 1.
@@ -2298,7 +2305,7 @@ Two causes, and they add:
    gets the same treatment without anyone reading the log.
 
 After the fix every row above reads a gap of **0**, and a short reverse drive
-(`--pad "stick l 0 127"`, 1 s) holds 0..+2 on both surfaces - the +2 is a
+(`--pad "stick l 0 127"`, 1 s - since 1.142.0 that is `hold l2` from a standstill) holds 0..+2 on both surfaces - the +2 is a
 faceted tyre spun off its flat. Rally 04 and the Tristar are not placed in
 `main`; their bake-measured radii (0.341 = definition, 0.303 against 0.31) are
 the whole check for them, and cause 1 does not depend on the car. Ruled out on the way, by the same numbers: the

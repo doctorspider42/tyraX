@@ -19473,29 +19473,37 @@ void TerrainGame::updateVehicles(float dt) {
       // while positive steer turns toward +X. Found by a driver, not a
       // harness - the acceptance test only proved yaw moved.
       inSteer = -((float)joy.h - 128.0F) / 128.0F;
-      const float fwd = -((float)joy.v - 128.0F) / 128.0F;
-      // Rescaled past the deadzone (1.135.3): the old hard cut jumped from 0
-      // straight to 15% the moment the stick left it.
-      if (fwd > 0.15F || fwd < -0.15F)
-        inThrottle = (fwd > 0.0F ? fwd - 0.15F : fwd + 0.15F) / 0.85F;
-      // The drive's BUTTONS are Input Map roles (docs/input-bindings.md), so
-      // a project can rebind the throttle - the axes stay the analog stick,
-      // because an axis is not an action. Each role falls back to the button
-      // the runtime hardcoded before the roles existed, so a project whose
-      // map lost the action (they are deletable) keeps driving; the ternary
-      // folds away at compile time either way.
-      // The throttle is ANALOG: a DualShock 2 reports the button's pressure,
-      // so the default R2 squeezes from a crawl to flat out - and any digital
-      // source (keyboard, an emulator without pressure mapping) reads as a
-      // clean 1. The role default moved to R2 for the original reason gas
-      // lives on a shoulder button in the era's racers: a stick at full lock
-      // has no vertical deflection left ("turning brakes the car to zero").
+      // THE PEDALS (vehiclesim::pedals - change one, change both): R2 gas,
+      // L2 brake while rolling forward and REVERSE once stopped (R2 then
+      // brakes a car rolling backwards). The left stick only steers now - its
+      // vertical axis used to throttle and reverse, which a driver at full
+      // lock could not help nudging. Both triggers are ANALOG: a DualShock 2
+      // reports the button's pressure, any digital source reads a clean 1.
+      // Each role falls back to its old hardcoded button, so a project whose
+      // map lost the action (they are deletable) keeps driving.
+      const float gasIn = IA_ROLE_VEH_THROTTLE >= 0
+                              ? inputAnalog(engine->pad, IA_ROLE_VEH_THROTTLE)
+                              : (engine->pad.getPressed().R2 ? 1.0F : 0.0F);
+      const float brkIn = IA_ROLE_VEH_BRAKE >= 0
+                              ? inputAnalog(engine->pad, IA_ROLE_VEH_BRAKE)
+                              : (engine->pad.getPressed().L2 ? 1.0F : 0.0F);
       {
-        const float thr =
-            IA_ROLE_VEH_THROTTLE >= 0
-                ? inputAnalog(engine->pad, IA_ROLE_VEH_THROTTLE)
-                : (engine->pad.getPressed().R2 ? 1.0F : 0.0F);
-        if (thr > 0.02F) inThrottle = thr;
+        const float gas = vehClamp(gasIn, 0.0F, 1.0F), brk = vehClamp(brkIn, 0.0F, 1.0F);
+        const bool g = gas > 0.02F, b = brk > 0.02F;
+        const float kStop = 0.5F;  // vehiclesim::kPedalStop
+        if (v.speed > kStop) {
+          inThrottle = gas;
+          inBrake = brk;
+        } else if (v.speed < -kStop) {
+          inThrottle = -brk;
+          inBrake = gas;
+        } else if (g && !b) {
+          inThrottle = gas;
+        } else if (b && !g) {
+          inThrottle = -brk;
+        } else if (g && b) {
+          inBrake = 1.0F;
+        }
       }
       // The D-PAD drives too. The generated game's rule is "only the analog
       // sticks", but a keyboard emulating a stick (PCSX2 in a VM above all)
@@ -19510,12 +19518,6 @@ void TerrainGame::updateVehicles(float dt) {
       // features.
       if (!vehSubStepRepeat_ && engine->pad.getClicked().DpadUp)
         v.lightsOn = v.lightsOn ? 0 : 1;
-      // L1 as the DEFAULT, not Square: Square is USE's default binding, so a
-      // brake there would also throw the driver out on the same press.
-      // Getting in and slowing down cannot share a button.
-      if (IA_ROLE_VEH_BRAKE >= 0 ? inputPressed(engine->pad, IA_ROLE_VEH_BRAKE)
-                                 : engine->pad.getPressed().L2)
-        inBrake = 1.0F;
       if (IA_ROLE_VEH_HANDBRAKE >= 0
               ? inputPressed(engine->pad, IA_ROLE_VEH_HANDBRAKE)
               : engine->pad.getPressed().Circle)
