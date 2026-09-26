@@ -1750,6 +1750,9 @@ class TerrainGame : public Tyra::Game {
     // model part or an .mtl. Owner is -3 for these, so a scene revisit can
     // clear and rebuild them without touching merged geometry.
     Tyra::Texture* roadTex = nullptr;
+    // A road chunk's tyre grip (1.137.0, RoadDefRt::grip): what
+    // roadSurfaceAt reports for its triangles.
+    float roadGrip = 1.0F;
     // Triangle strips (docs/model-pipeline.md): non-zero when this chunk's
     // vertices are baked strip RUNS of that length rather than a triangle
     // list. procFinishChunks pins StaPipBag::packageSize to it and sets
@@ -1857,7 +1860,8 @@ class TerrainGame : public Tyra::Game {
   // stall (vsync / display buffer), taken from one interleaveBegin to the next.
   bool ilHaveMark = false, ilMarkActive = false;
   u32 ilMark = 0, ilStallMark = 0;
-  float roadSurfaceAt(float x, float z) const;
+  // `grip`, when given, receives the answering road's grip (1 when none).
+  float roadSurfaceAt(float x, float z, float* grip = nullptr) const;
   void buildRoadHeightIndex() const;
   // The pre-grid exhaustive walk, defined only under TYRA_ROAD_INDEX_VERIFY
   // (see roadSurfaceAt) - it is the oracle that gate compares against.
@@ -3570,6 +3574,9 @@ class TerrainGame : public Tyra::Game {
     // model part or an .mtl. Owner is -3 for these, so a scene revisit can
     // clear and rebuild them without touching merged geometry.
     Tyra::Texture* roadTex = nullptr;
+    // A road chunk's tyre grip (1.137.0, RoadDefRt::grip): what
+    // roadSurfaceAt reports for its triangles.
+    float roadGrip = 1.0F;
     // Triangle strips (docs/model-pipeline.md): non-zero when this chunk's
     // vertices are baked strip RUNS of that length rather than a triangle
     // list. procFinishChunks pins StaPipBag::packageSize to it and sets
@@ -3677,7 +3684,8 @@ class TerrainGame : public Tyra::Game {
   // stall (vsync / display buffer), taken from one interleaveBegin to the next.
   bool ilHaveMark = false, ilMarkActive = false;
   u32 ilMark = 0, ilStallMark = 0;
-  float roadSurfaceAt(float x, float z) const;
+  // `grip`, when given, receives the answering road's grip (1 when none).
+  float roadSurfaceAt(float x, float z, float* grip = nullptr) const;
   void buildRoadHeightIndex() const;
   // The pre-grid exhaustive walk, defined only under TYRA_ROAD_INDEX_VERIFY
   // (see roadSurfaceAt) - it is the oracle that gate compares against.
@@ -22533,9 +22541,11 @@ void TerrainGame::buildRoadHeightIndex() const {
            (int)roadIdxItems.size());
 }
 
-float TerrainGame::roadSurfaceAt(float x, float z) const {
+float TerrainGame::roadSurfaceAt(float x, float z, float* grip) const {
   float best = -1.0e30F;
-  auto testTriangle = [&](const Vec4& a, const Vec4& b, const Vec4& c) {
+  if (grip) *grip = 1.0F;
+  auto testTriangle = [&](const Vec4& a, const Vec4& b, const Vec4& c,
+                          float triGrip) {
     // Cheap XZ reject before the arithmetic: a cell holds every triangle whose
     // box touches it, and most of those do not span this exact point.
     float lo = a.x < b.x ? a.x : b.x;
@@ -22562,7 +22572,10 @@ float TerrainGame::roadSurfaceAt(float x, float z) const {
     // crack to a six-vertex light/shadow patch on their shared edge.
     if (wa < -0.0001F || wb < -0.0001F || wc < -0.0001F) return;
     const float y = wa * a.y + wb * b.y + wc * c.y;
-    if (y > best) best = y;
+    if (y > best) {
+      best = y;
+      if (grip) *grip = triGrip;
+    }
   };
   if (roadIdxDirty || roadIdxChunks != procChunks.size())
     buildRoadHeightIndex();
@@ -22576,7 +22589,7 @@ float TerrainGame::roadSurfaceAt(float x, float z) const {
     const unsigned int item = roadIdxItems[e];
     const ProcChunk& c = procChunks[(size_t)(item >> 22)];
     const size_t i = (size_t)(item & 0x3FFFFFU);
-    testTriangle(c.vertices[i - 2], c.vertices[i - 1], c.vertices[i]);
+    testTriangle(c.vertices[i - 2], c.vertices[i - 1], c.vertices[i], c.roadGrip);
   }
 #if TYRA_ROAD_INDEX_VERIFY
   {
@@ -33861,10 +33874,11 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             struct RoadRow {
                 int scene, first, count, tex;
                 float width, sampleStep;
+                float grip = 1.0f;
                 std::string name;
                 const SceneObject* source;
             };
-            struct JunctionRow { int scene, tex; roadgen::Junction shape; };
+            struct JunctionRow { int scene, tex; roadgen::Junction shape; float grip; };
             std::vector<RoadRow> roadRows;
             std::vector<JunctionRow> junctionRows;
             for (size_t si = 0; si < p.scenes.size(); ++si)
@@ -33880,6 +33894,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     r.tex = tix;
                     r.width = o.roadWidth;
                     r.sampleStep = o.roadSampleStep;
+                    r.grip = o.roadGrip;
                     r.name = o.name;
                     r.source = &o;
                     roadRows.push_back(r);
@@ -33908,7 +33923,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                             junctionRows.push_back({
                                 a.scene,
                                 textureIndex(project::resolveRoadTexture(p, mat)),
-                                shape});
+                                shape, std::min(a.grip, b.grip)});
                     }
                 }
             if (!roadRows.empty()) {
@@ -33919,13 +33934,14 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << "constexpr int ROAD_JUNCTION_COUNT = "
                     << junctionRows.size() << ";\n"
                     << "struct RoadDefRt { int scene; int first; int pointCount;"
-                       " float width; float sampleStep; int tex; };\n"
+                       " float width; float sampleStep; int tex; float grip; };\n"
                     << "constexpr RoadDefRt ROAD_DEFS[" << roadRows.size()
                     << "] = {\n";
                 for (const RoadRow& r : roadRows)
                     out << "    {" << r.scene << ", " << r.first << ", "
                         << r.count << ", " << floatLit(r.width) << ", "
-                        << floatLit(r.sampleStep) << ", " << r.tex
+                        << floatLit(r.sampleStep) << ", " << r.tex << ", "
+                        << floatLit(r.grip)
                         << "},  // " << escapeCString(r.name) << "\n";
                 out << "};\n"
                     << "constexpr float ROAD_POINTS[" << roadPts.size()
@@ -33933,7 +33949,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                 for (size_t k = 0; k < roadPts.size(); ++k)
                     out << (k ? ", " : "") << floatLit(roadPts[k]);
                 out << "};\n"
-                    << "struct RoadJunctionRt { int scene; int tex; float xz[10]; };\n";
+                    << "struct RoadJunctionRt { int scene; int tex; float xz[10];"
+                       " float grip; };\n";
                 if (junctionRows.empty()) {
                     out << "constexpr RoadJunctionRt ROAD_JUNCTIONS[1] = {};\n";
                 } else {
@@ -33945,7 +33962,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                             << floatLit(j.shape.z);
                         for (float v : j.shape.cornerXZ)
                             out << ", " << floatLit(v);
-                        out << "}},\n";
+                        out << "}, " << floatLit(j.grip) << "},\n";
                     }
                     out << "};\n";
                 }
@@ -36697,8 +36714,10 @@ static std::string vehicleMembers(const Project& p) {
     // top of the bicycle yaw and damped by the tyres, so a hit off the centre
     // of mass spins the car instead of only pushing it.
     float spin = 0.0F;
-    // Tyres on the paved surface at the last step (0..4, off-road grip).
+    // Tyres on the paved surface at the last step (0..4, off-road grip), and
+    // their average grip multiplier (road grip, 1.137.0) - the AI plans with it.
     int paved = 4;
+    float surfGrip = 1.0F;
     // Engine note (docs/vehicles.md). `engineCh` is the SPU2 channel the loop
     // holds while this vehicle is being driven, -1 when silent; `enginePitchReg`
     // is the LAST value written, because writing the pitch costs a blocking IOP
@@ -36752,8 +36771,16 @@ static std::string vehicleMembers(const Project& p) {
     // getting no motion, and seconds left of the reverse-out manoeuvre.
     float aiStuckT = 0.0F;
     float aiRevT = 0.0F;
+    // AI lap telemetry (1.136.1, VEHAILAP): seconds since the route last
+    // wrapped, and how many unstick manoeuvres this lap needed.
+    float aiLapT = 0.0F;
+    int aiUnstick = 0;
+    // Where the AI stood at its previous step: unstick reads the distance
+    // actually covered, not the speed the sim reports (1.136.1).
+    float aiPrevX = 0.0F, aiPrevZ = 0.0F;
     int wpFirst = -1;
     int aiAvoid = 0;  // cars the traffic rule saw ahead this frame (telemetry)
+    float aiPlan = 0.0F;  // the speed planning's allowed speed (telemetry)
     int wpCount = 0;
     int wpCur = 0;
     int sleepFrames = 0;  // settled parked frames before static-physics sleep
@@ -38984,8 +39011,65 @@ void TerrainGame::updateVehicles(float dt) {
       const float dz = wp[2] - v.pos[2];
       const float dist2 = dx * dx + dz * dz;
       const float adv = 7.0F * SC;
-      if (dist2 < adv * adv) v.wpCur = (v.wpCur + 1) % v.wpCount;
-      const float wantYaw = atan2f(dx, dz) * kRad;
+      const int wpAim = v.wpCur;
+      v.aiLapT += dt;
+      // PATH PURSUIT (1.136.1). Aiming at the waypoint itself let a car
+      // thrown wide by a corner drive straight at the next one from where it
+      // landed, never back onto the line - the district's Strix ran the
+      // whole a->b leg 11-15 units off the road. The target is now a point
+      // on the leg (previous waypoint -> this one), `look` ahead of the
+      // car's projection onto it, carried round onto the next leg past the
+      // corner: classic pure pursuit, which pulls the car back to the line
+      // and flies a corner as an arc of radius look / tan(turn / 2).
+      const float* wq =
+          &VEH_WAYPOINTS[(size_t)(v.wpFirst + (wpAim + v.wpCount - 1) % v.wpCount) * 3];
+      const float* wn =
+          &VEH_WAYPOINTS[(size_t)(v.wpFirst + (wpAim + 1) % v.wpCount) * 3];
+      const float look =
+          (4.0F + 0.35F * (v.speed > 0.0F ? v.speed : 0.0F)) * SC;
+      float tgX = wp[0], tgZ = wp[2];
+      bool passed = false;
+      {
+        const float lx = wp[0] - wq[0], lz = wp[2] - wq[2];
+        const float ll = sqrtf(lx * lx + lz * lz);
+        if (ll > 1e-3F) {
+          const float ux = lx / ll, uz = lz / ll;
+          const float along = (v.pos[0] - wq[0]) * ux + (v.pos[2] - wq[2]) * uz;
+          const float off = (v.pos[0] - wq[0]) * uz - (v.pos[2] - wq[2]) * ux;
+          passed = along >= ll;
+          const float at = along + look;
+          if (along < 0.0F || off > 20.0F * SC || off < -20.0F * SC) {
+            // Not on the leg yet - a car leaving its parking spot, or one
+            // knocked far off the line: the line's start could be anywhere
+            // (the grid's is behind a building), so head for the waypoint
+            // itself, the pre-1.136.1 rule, until the leg is reached.
+          } else if (at <= ll) {
+            tgX = wq[0] + ux * at;
+            tgZ = wq[2] + uz * at;
+          } else {
+            const float ox = wn[0] - wp[0], oz = wn[2] - wp[2];
+            const float ol = sqrtf(ox * ox + oz * oz);
+            const float over = at - ll < ol ? at - ll : ol;
+            if (ol > 1e-3F) {
+              tgX = wp[0] + ox / ol * over;
+              tgZ = wp[2] + oz / ol * over;
+            }
+          }
+        }
+      }
+      if (dist2 < adv * adv || passed) {
+        v.wpCur = (v.wpCur + 1) % v.wpCount;
+        // A lap: the route wrapped. The lap time and the unstick count are
+        // the AI's acceptance numbers - a driver that overshoots its corners
+        // shows up as a slow lap and as wall stalls, not as a wrong pixel.
+        if (v.wpCur == 0) {
+          TYRA_LOG("VEHAILAP ", vi, " t10 ", (int)(v.aiLapT * 10.0F),
+                   " unstick ", v.aiUnstick);
+          v.aiLapT = 0.0F;
+          v.aiUnstick = 0;
+        }
+      }
+      const float wantYaw = atan2f(tgX - v.pos[0], tgZ - v.pos[2]) * kRad;
       float err = wantYaw - v.yaw;
       while (err > 180.0F) err -= 360.0F;
       while (err < -180.0F) err += 360.0F;
@@ -38997,6 +39081,41 @@ void TerrainGame::updateVehicles(float dt) {
       const float ae = err < 0.0F ? -err : err;
       inThrottle = ae < 45.0F ? 1.0F : (ae < 100.0F ? 0.45F : 0.15F);
       if (ae > 115.0F && v.speed > 7.0F) inBrake = 1.0F;
+      // SPEED PLANNING (1.136.1). Since 1.135.0 the yaw is grip-limited, so
+      // a corner has a real top speed and a car arriving faster runs wide
+      // into whatever is outside it. The corner at this waypoint turns by
+      // the angle between the leg we are on and the next one; the pursuit
+      // starts turning `look` before it, so the arc it flies has radius
+      // look / tan(turn / 2), and holding it needs speed^2 / R <= grip. From
+      // there the brake works backwards: the fastest we may go now is the
+      // speed that still brakes down to the corner speed in the distance
+      // left. Grip here is the surface's (the last step's paved count) at a
+      // 0.8 margin, braking at 0.6 of the definition's - the AI drives a
+      // little under the limit, not on it.
+      {
+        const float ox = wn[0] - wp[0], oz = wn[2] - wp[2];
+        const float la = sqrtf(dist2), lo = sqrtf(ox * ox + oz * oz);
+        if (la > 1e-3F && lo > 1e-3F) {
+          float ct = (dx * ox + dz * oz) / (la * lo);
+          ct = vehClamp(ct, -1.0F, 1.0F);
+          const float half = 0.5F * acosf(ct);
+          const float th = tanf(half);
+          // The pursuit's arc: it starts turning `look` before the corner.
+          const float radius = th > 1e-3F ? look / th : 1e6F;
+          const float gripAi = s.grip * v.surfGrip * kVehYawGripScale * 0.8F;
+          const float vCorner2 = gripAi * radius;
+          const float brakeAi = s.brakeDecel * 0.6F;
+          const float rest = la > look ? la - look : 0.0F;
+          const float vAllow = sqrtf(vCorner2 + 2.0F * brakeAi * rest);
+          if (v.speed > vAllow + 1.5F) {
+            inBrake = 1.0F;
+            inThrottle = 0.0F;
+          } else if (v.speed > vAllow && inThrottle > 0.2F) {
+            inThrottle = 0.2F;
+          }
+          v.aiPlan = vAllow;
+        }
+      }
       // TRAFFIC. Pure pursuit is blind to the other cars, and two rivals
       // on one circuit ride each other's bumpers through every corner. A
       // car AHEAD inside a speed-scaled lookahead and within a lane of the
@@ -39041,17 +39160,29 @@ void TerrainGame::updateVehicles(float dt) {
       // SAME WAY the pursuit asks (reversing swings the nose the other
       // way), then resume. The waypoint also advances, so the car aims past
       // the obstacle instead of back into it.
-      const float sp0 = v.speed < 0.0F ? -v.speed : v.speed;
+      // Covered, not reported (1.136.1): a car pinned against something can
+      // carry a speed it is not making, and one asking for a crawl (0.15 with
+      // its back to the waypoint) never qualified for "throttle held". Any
+      // forward throttle that moves the car under 1 u/s counts.
+      const float cvx = v.pos[0] - v.aiPrevX, cvz = v.pos[2] - v.aiPrevZ;
+      const float sp0 = dt > 1e-6F ? sqrtf(cvx * cvx + cvz * cvz) / dt : 0.0F;
+      v.aiPrevX = v.pos[0];
+      v.aiPrevZ = v.pos[2];
       if (v.aiRevT > 0.0F) {
         v.aiRevT -= dt;
         inThrottle = -1.0F;
         inBrake = 0.0F;
-      } else if (inThrottle > 0.5F && sp0 < 1.0F) {
+      } else if (inThrottle > 0.05F && inBrake < 0.01F && sp0 < 1.0F) {
         v.aiStuckT += dt;
         if (v.aiStuckT > 1.2F) {
           v.aiStuckT = 0.0F;
           v.aiRevT = 1.0F;
-          v.wpCur = (v.wpCur + 1) % v.wpCount;
+          ++v.aiUnstick;
+          // Skip the waypoint only NEAR it (1.136.1): an obstacle on the
+          // racing line sits by the corner, and aiming past it is the way
+          // round. Far from it the skip only lost the route - a car wedged
+          // mid-leg burned through five waypoints and cut across the city.
+          if (dist2 < 9.0F * adv * adv) v.wpCur = (v.wpCur + 1) % v.wpCount;
         }
       } else {
         v.aiStuckT = 0.0F;
@@ -39214,6 +39345,7 @@ void TerrainGame::updateVehicles(float dt) {
     float sum = 0.0F;
     int groundCount = 0;
     int pavedWheels = 0;  // on a road, or on an object floor (off-road, 1.136.0)
+    float gripSum = 0.0F;  // per-tyre surface grip (1.137.0), averaged below
     // The four contact hardpoints follow the PHYSICAL chassis attitude in all
     // three axes. The previous X/Z positions used yaw only, while the body
     // pitched and rolled around them; on a crest the arch and its wheel were
@@ -39244,9 +39376,13 @@ void TerrainGame::updateVehicles(float dt) {
       // groundSurfaceAt, unrolled: the road query also says whether this
       // tyre is on the paved surface.
       const float terrW = terrainHeightAt(wx, wz);
-      const float roadW = roadSurfaceAt(wx, wz);
+      float roadGW = 1.0F;
+      const float roadW = roadSurfaceAt(wx, wz, &roadGW);
       gy[w] = roadW > terrW ? roadW : terrW;
       bool pavedW = roadW > -1.0e29F;
+      // This tyre's grip: its road's, the car's off-road value, or 1 on an
+      // object floor (set below where a floor takes the wheel).
+      float wheelGrip = pavedW ? roadGW : s.offroadGrip;
       // The wheel RIDES an object floor when one is higher than the terrain
       // under it - a platform, a ramp prop, generated prefab geometry. This
       // is what lets a car drive ONTO things instead of nosing into their
@@ -39260,6 +39396,7 @@ void TerrainGame::updateVehicles(float dt) {
         if (lxx > -f.hx && lxx < f.hx && lzz > -f.hz && lzz < f.hz) {
           gy[w] = f.top;
           pavedW = true;
+          wheelGrip = 1.0F;
         }
       }
       if (nearMeshN > 0) {
@@ -39275,9 +39412,11 @@ void TerrainGame::updateVehicles(float dt) {
         if (gr > gy[w] && gr <= feet0 + 0.5F) {
           gy[w] = gr;
           pavedW = true;
+          wheelGrip = 1.0F;
         }
       }
       if (pavedW) ++pavedWheels;
+      gripSum += wheelGrip;
       v.wheelY[w] = gy[w];
       if (gy[w] > -1e5F) { ++groundCount; sum += gy[w]; }
     }
@@ -39288,7 +39427,9 @@ void TerrainGame::updateVehicles(float dt) {
     // below reads these three instead of s.grip / s.handbrakeGrip / s.accel.
     const float offShare = 1.0F - (float)pavedWheels * 0.25F;
     v.paved = pavedWheels;
-    const float offGripMul = 1.0F + (s.offroadGrip - 1.0F) * offShare;
+    // The tyres' average surface grip (1.137.0: roads carry their own).
+    const float offGripMul = gripSum * 0.25F;
+    v.surfGrip = offGripMul;
     const float sGrip = s.grip * offGripMul;
     const float sHbGrip = s.handbrakeGrip * offGripMul;
     const float sAccel = s.accel * (1.0F + (s.offroadAccel - 1.0F) * offShare);
@@ -39812,8 +39953,13 @@ void TerrainGame::updateVehicles(float dt) {
           v.pos[0] = prevX + rvx * dt;
           v.pos[2] = prevZ + rvz * dt;
           if (blockedInfo(v.pos[0], v.pos[2], nullptr, nullptr) > 0) {
+            // A wedge: no free room along the wall either. The car stays put
+            // AND stops (1.136.1, the host twin's rule) - keeping the
+            // redirect's velocity spun an AI car up to 33.9 u/s standing
+            // still in a corner of the district.
             v.pos[0] = prevX;
             v.pos[2] = prevZ;
+            rvx = rvz = 0.0F;
           }
           // Line the body up with the wall (the host twin's rule): turn the
           // heading toward the new velocity by (1 - impact), unless that
@@ -40394,7 +40540,8 @@ void TerrainGame::updateVehicles(float dt) {
         TYRA_LOG("VEHAI ", ai, " pos ", (int)vehicles_[ai].pos[0], " ",
                  (int)vehicles_[ai].pos[2], " wp ", vehicles_[ai].wpCur,
                  " spd10 ", (int)(vehicles_[ai].speed * 10.0F), " av ",
-                 vehicles_[ai].aiAvoid, " lod ", vehicleLod(ai));
+                 vehicles_[ai].aiAvoid, " lod ", vehicleLod(ai), " plan10 ",
+                 (int)(vehicles_[ai].aiPlan * 10.0F));
   }
 }
 
@@ -41789,6 +41936,7 @@ void TerrainGame::buildRoads(int scene) {
             c = &procChunks.back();
             c->owner = -3;
             c->roadTex = tex;
+            c->roadGrip = rd.grip;
             c->stripRun = useStrips ? (int)stripRun : 0;
             // Texture repeat is invariant under an integer V offset. Keep the
             // value local to this bag: long roads otherwise feed ever-growing
@@ -41895,6 +42043,7 @@ void TerrainGame::buildRoads(int scene) {
     ProcChunk& c = procChunks.back();
     c.owner = -3;
     c.roadTex = tex;
+    c.roadGrip = j.grip;
     c.stripRun = 0;
     const Tyra::Vec4 center(j.xz[0], terrainHeightAt(j.xz[0], j.xz[1]) + 0.14F,
                             j.xz[1], 1.0F);

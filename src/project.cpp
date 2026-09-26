@@ -1074,6 +1074,8 @@ std::string objectJson(const SceneObject& o) {
         json += "], \"roadWidth\": " + fmtFloat(o.roadWidth);
         if (o.roadSampleStep != 1.0f)
             json += ", \"roadSampleStep\": " + fmtFloat(o.roadSampleStep);
+        if (o.roadGrip != 1.0f)
+            json += ", \"roadGrip\": " + fmtFloat(o.roadGrip);
         bool anyLift = false;
         for (float h : o.roadHeights) anyLift |= h != 0.0f;
         if (anyLift) {
@@ -5905,6 +5907,11 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             o.roadSampleStep = (float)rs->numberOr(1.0);
             if (o.roadSampleStep < 1.0f) o.roadSampleStep = 1.0f;
             if (o.roadSampleStep > 2.0f) o.roadSampleStep = 2.0f;
+        }
+        if (const auto* rg = jo.find("roadGrip")) {
+            o.roadGrip = (float)rg->numberOr(1.0);
+            if (o.roadGrip < 0.1f) o.roadGrip = 0.1f;
+            if (o.roadGrip > 1.5f) o.roadGrip = 1.5f;
         }
         if (const auto* rh = jo.find("roadHeights")) {
             o.roadHeights.clear();

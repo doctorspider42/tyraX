@@ -200,6 +200,10 @@ Format 60 adds the optional per-road `roadSampleStep` field. It is purely
 additive: missing means the original 1 m longitudinal spacing, so no migration
 step is required.
 
+Format 71 adds a road's `roadGrip` (docs/roads.md, "Surface grip"), written only
+away from its default of 1. Missing means asphalt, as before. Additive; no
+migration step.
+
 Format 70 adds a vehicle's `offroadGrip`, `offroadAccel` and `offroadDrag`
 inside its `"drive"` block (docs/vehicles.md, "Off-road grip"). Missing means
 1 / 1 / 0, a car that ignores the surface, as before. Additive; no migration

@@ -763,6 +763,14 @@ void App::drawPropertiesWindow() {
             "Distance between geometry rows along the spline. 1 m follows\n"
             "sharp terrain folds most closely; up to 2 m reduces road\n"
             "triangles and VU1 packages. Inspect crests and tight bends.");
+        ImGui::SetNextItemWidth(scaled(220));
+        if (ImGui::SliderFloat("Surface grip", &o.roadGrip, 0.1f, 1.5f, "%.2f"))
+            committed = true;
+        prefHelp(
+            "Tyre grip on this road, multiplying every vehicle's own grip:\n"
+            "1 = asphalt, ~0.7 gravel, ~0.3 ice. A junction takes the lower\n"
+            "of its two roads. Terrain off the road uses each vehicle's\n"
+            "Off-road grip instead.");
         if (drawRoadSurfaceCombo("Surface material", "road-surface",
                                  o.roadTexture))
             committed = true;

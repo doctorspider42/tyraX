@@ -350,7 +350,7 @@ void App::vehicleDriveStart(int objectIndex) {
         if (r.type != PrimitiveType::Road || r.roadPoints.size() < 4) continue;
         std::vector<roadgen::Vertex> tris;
         roadgen::tessellate(r.roadPoints, r.roadWidth, terrainAt, tris, {}, r.roadSampleStep);
-        vehicleDriveRoads_.add(tris);
+        vehicleDriveRoads_.add(tris, r.roadGrip);
         if (r.roadIntersectionTexture.empty()) continue;
         for (size_t j = i + 1; j < objs.size(); ++j) {
             const SceneObject& other = objs[j];
@@ -363,7 +363,9 @@ void App::vehicleDriveStart(int objectIndex) {
             for (const roadgen::Junction& junction : junctions) {
                 tris.clear();
                 roadgen::tessellateJunction(junction, terrainAt, tris);
-                vehicleDriveRoads_.add(tris);
+                // A junction is as slippery as the worse of its two roads
+                // (the codegen's JunctionRow rule).
+                vehicleDriveRoads_.add(tris, std::min(r.roadGrip, other.roadGrip));
             }
         }
     }
@@ -433,10 +435,13 @@ void App::vehicleDriveTick() {
         const float road = vehicleDriveRoads_.at(x, z);
         return road > terrain ? road : terrain;
     };
-    // Off-road grip (1.136.0): a tyre is paved over a road triangle - the
-    // runtime also counts an object floor, which the test drive has no model of.
-    const vehiclesim::PavedFn paved = [this](float x, float z) {
-        return vehicleDriveRoads_.at(x, z) > -1.0e29f;
+    // The surface under a tyre (off-road 1.136.0, road grip 1.137.0): a road
+    // triangle answers its road's grip, anything else is off the road. The
+    // runtime also counts an object floor as paved (grip 1), which the test
+    // drive has no model of.
+    const vehiclesim::SurfaceFn surface = [this](float x, float z) {
+        float grip = 1.0f;
+        return vehicleDriveRoads_.at(x, z, &grip) > -1.0e29f ? grip : -1.0f;
     };
     // Walls, from placement's own boxes - approximate (world AABBs rather
     // than the console's slide resolver), but the same four corners and the
@@ -482,7 +487,7 @@ void App::vehicleDriveTick() {
     while (vehicleDriveAccum_ >= kStep) {
         vehicleDriveAccum_ -= kStep;
         vehiclesim::step(def->drive, in, kStep, ground, vehicleDriveState_, solid,
-                         o.scale[0] > 0.001f ? o.scale[0] : 1.0f, paved);
+                         o.scale[0] > 0.001f ? o.scale[0] : 1.0f, surface);
     }
 
     // A hit that dented: show it on the car being driven (the preview copy),

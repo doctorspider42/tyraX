@@ -309,6 +309,20 @@ everything else a scene does.
 
   The playground's road cars are set to about 0.6 / 0.8 / 2.5, the Strix
   harsher and Rally 04 almost unaffected (0.95 / 0.95 / 0.8).
+
+  **Roads carry their own grip (1.137.0).** A road's *Surface grip*
+  ([roads.md](roads.md), "Surface grip") is the multiplier a tyre gets on it.
+  The car's `offroadGrip` applies off the road, and an object floor counts as
+  1. The four tyres' multipliers are averaged into the grip and the handbrake
+  grip.
+
+  Road grip leaves the acceleration and the drag alone: those stay the
+  off-road fields' job, by the share of tyres off the road. An AI driver
+  plans its corner speed with the same average.
+
+  `--vehicle-check` "offroad" checks it: on a road at 0.5 the default car's
+  full-lock corner holds 9.9 u/s^2 against 24.4 on asphalt, and it still
+  reaches 22.0 u/s in 3 s.
   The console's `VEH` telemetry line ends in `paved N`, the tyres on the
   road at the last step.
 - **Car-car hits spin (1.135.7, runtime only; the test drive has one car).**
@@ -426,9 +440,22 @@ everything else a scene does.
   car's own collision box.
 - **The AI driver un-sticks itself.** Pure pursuit has no obstacle avoidance,
   so a pillar on the racing line parks the rival against itself forever the
-  moment walls actually hold. Throttle held for over a second with no motion
-  reads as wedged: the car backs out for a second, advances its waypoint so
-  it aims past the obstacle, and resumes.
+  moment walls actually hold. Any forward throttle with under 1 u/s of
+  distance actually COVERED for over a second reads as wedged: the car backs
+  out for a second and resumes. Near its waypoint (within three advance
+  radii) it also skips to the next one, so it aims past the obstacle.
+  Since 1.136.1 the test reads covered distance, not the sim's speed, and
+  fires at any throttle. A car pinned in a corner used to report 33.9 u/s
+  standing still, and one crawling at 0.15 with its back to the waypoint
+  never counted as "throttle held". The skip is limited to near the waypoint
+  because a car wedged mid-leg used to burn through five waypoints and cut
+  across the city.
+- **A wedge stops the car (1.136.1, both twins).** When the move into a wall
+  is refused AND its redirect along the wall is refused too - the inside of
+  a corner, a car between two props - the car stays put with zero velocity.
+  It used to keep the redirect's velocity, so the throttle spun it up to top
+  speed in place. `--vehicle-check` "wedge" sweeps entry angles 20-70
+  degrees into a corner.
 - **Ground contact is four height samples** under the wheel anchors — each
   the MAX of the terrain and any object floor there (a box top within half a
   unit of the car's feet, a mesh prop's walkable face), so a car drives ONTO
@@ -1430,6 +1457,48 @@ and the baked `VEH_WAYPOINTS` table means no runtime name matching at all. The
 controller is pure pursuit: steer from the heading error, throttle backed off in
 tight corners, waypoint advanced within a radius.
 
+**Path pursuit and speed planning (1.136.1).** Since 1.135.0 the yaw is
+grip-limited, so a corner has a real top speed. The first controller aimed at
+the waypoint itself and backed off only on heading error, which broke in two
+ways:
+- a car arriving too fast ran wide;
+- from wherever it landed, it drove straight at the next waypoint and never
+  returned to the line. In the Motor District the Strix ran the whole a->b
+  leg 11-15 units off the road.
+
+Two changes fix it:
+- **The target is a point on the leg** (previous waypoint -> this one),
+  `look = 4 + 0.35 x speed` units ahead of the car's projection onto it, and
+  carried onto the next leg past the corner. This pulls the car back to the
+  line and flies a corner as an arc of radius `look / tan(turn / 2)`. A car
+  that is not on the leg yet (before its start, or more than 20 units off
+  it) heads for the waypoint directly. A parked car's line can start behind
+  a building.
+- **The speed is planned.** Holding the arc needs `speed^2 / R <= grip`. The
+  grip is the surface's (off-road, from the last step's paved count) at a 0.8
+  margin. From there the brake works backwards: the allowed speed now is the
+  speed that still brakes down to the corner speed, at 0.6 of the
+  definition's brake, in the distance left. Over it by 1.5 u/s brakes; over
+  it at all lifts to 0.2 throttle.
+
+Measured in PCSX2 on the district fixture with two AI cars on the ten-Area
+`circuit-` loop (`--keep-routes`, both routed by the test):
+- **Before:** both cars stopped for good about three quarters into the first
+  lap.
+- **After:** the Pica laps in 30.8 s and the Strix in 25.2 s, lap after lap,
+  with no unsticks.
+
+Two park trees stood inside the Ring road's curves and were moved to the
+inside kerb:
+- one 3.5 units from the centreline, which is on the carriageway;
+- one whose 2.6-unit collision box reached past the kerb where every car cuts
+  the corner.
+
+`VEHAILAP ai t10 T unstick U` is logged once a lap. `VEHAI` now ends in
+`plan10`, the planned speed. Still open: a faster car overtaking can be
+steered wide by the traffic rule; one Strix lap in eight did that and took
+59 s.
+
 **Traffic.** Pure pursuit is blind to the other cars, and two rivals on one
 circuit ride each other's bumpers through every corner. So the AI reads every
 other vehicle — the parked player's included — and one AHEAD inside a
@@ -1441,7 +1510,9 @@ by more than 2 u/s. A rival therefore overtakes on the outside instead of
 pushing, and no longer rams a car left at the roadside. Two things it is
 not: a planner (it sees one frame ahead, so a car cutting across at a
 junction still gets hit), and a wall (car vs car stays the momentum pass).
-The example ships two rivals on one circuit for exactly this reason.
+The example's `circuit-` Areas (a ten-corner loop on the Ring road) are
+there for this; no car is routed on it by default since the scripted CC96
+left the scene. Route one in *Properties > AI route prefix* to see it.
 
 A player can **hijack** a patrolling car — the pad branch simply outranks the AI
 branch while they drive it, and getting out resumes the patrol where it stood.
@@ -1451,8 +1522,8 @@ and `av` — how many cars the traffic rule saw ahead in the lane that frame):
 which is the backlog's own "done when", machine-checked, and `av 1` on the
 following car proves the avoidance branch fired — which a distance table alone
 cannot, because two identical cars hold a gap at top speed whether or not
-anything steers them. The example ships two rivals on a four-Area `circuit-`
-loop.
+anything steers them. `VEHAILAP` (above) gives the lap time and the
+unstick count per lap.
 
 ## The Vehicle Editor
 

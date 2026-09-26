@@ -653,6 +653,9 @@ class TerrainGame : public Tyra::Game {
     // model part or an .mtl. Owner is -3 for these, so a scene revisit can
     // clear and rebuild them without touching merged geometry.
     Tyra::Texture* roadTex = nullptr;
+    // A road chunk's tyre grip (1.137.0, RoadDefRt::grip): what
+    // roadSurfaceAt reports for its triangles.
+    float roadGrip = 1.0F;
     // Triangle strips (docs/model-pipeline.md): non-zero when this chunk's
     // vertices are baked strip RUNS of that length rather than a triangle
     // list. procFinishChunks pins StaPipBag::packageSize to it and sets
@@ -760,7 +763,8 @@ class TerrainGame : public Tyra::Game {
   // stall (vsync / display buffer), taken from one interleaveBegin to the next.
   bool ilHaveMark = false, ilMarkActive = false;
   u32 ilMark = 0, ilStallMark = 0;
-  float roadSurfaceAt(float x, float z) const;
+  // `grip`, when given, receives the answering road's grip (1 when none).
+  float roadSurfaceAt(float x, float z, float* grip = nullptr) const;
   void buildRoadHeightIndex() const;
   // The pre-grid exhaustive walk, defined only under TYRA_ROAD_INDEX_VERIFY
   // (see roadSurfaceAt) - it is the oracle that gate compares against.
@@ -918,8 +922,10 @@ class TerrainGame : public Tyra::Game {
     // top of the bicycle yaw and damped by the tyres, so a hit off the centre
     // of mass spins the car instead of only pushing it.
     float spin = 0.0F;
-    // Tyres on the paved surface at the last step (0..4, off-road grip).
+    // Tyres on the paved surface at the last step (0..4, off-road grip), and
+    // their average grip multiplier (road grip, 1.137.0) - the AI plans with it.
     int paved = 4;
+    float surfGrip = 1.0F;
     // Engine note (docs/vehicles.md). `engineCh` is the SPU2 channel the loop
     // holds while this vehicle is being driven, -1 when silent; `enginePitchReg`
     // is the LAST value written, because writing the pitch costs a blocking IOP
@@ -973,8 +979,16 @@ class TerrainGame : public Tyra::Game {
     // getting no motion, and seconds left of the reverse-out manoeuvre.
     float aiStuckT = 0.0F;
     float aiRevT = 0.0F;
+    // AI lap telemetry (1.136.1, VEHAILAP): seconds since the route last
+    // wrapped, and how many unstick manoeuvres this lap needed.
+    float aiLapT = 0.0F;
+    int aiUnstick = 0;
+    // Where the AI stood at its previous step: unstick reads the distance
+    // actually covered, not the speed the sim reports (1.136.1).
+    float aiPrevX = 0.0F, aiPrevZ = 0.0F;
     int wpFirst = -1;
     int aiAvoid = 0;  // cars the traffic rule saw ahead this frame (telemetry)
+    float aiPlan = 0.0F;  // the speed planning's allowed speed (telemetry)
     int wpCount = 0;
     int wpCur = 0;
     int sleepFrames = 0;  // settled parked frames before static-physics sleep

@@ -240,7 +240,7 @@ direct route requires that a guard-band-only bag lacks, and whether an
 
 ## Vehicle damage: what the first version left out (2026-09-26)
 
-Damage shipped in 1.137.0 (docs/vehicles.md, "Damage"). Queued, roughly in
+Damage shipped in 1.142.0 (docs/vehicles.md, "Damage"). Queued, roughly in
 order of what a player would notice first:
 
 - **Physical-PS2 price of a hit.** 1.2-2.3 ms per dent is a PCSX2 number, and
@@ -252,8 +252,8 @@ order of what a player would notice first:
 - **Dent the far tier too**, or fall back to tier 0 for a damaged car inside
   twice its far distance - an obviously wrecked rival pops back to pristine on
   its traffic tier.
-- **Loose parts, the rest** (bonnet/boot/doors/windows came off in 1.138.0;
-  debris kicked by cars, walls and a 60-unit cull in 1.139.0): debris against
+- **Loose parts, the rest** (bonnet/boot/doors/windows came off in 1.143.0;
+  debris kicked by cars, walls and a 60-unit cull in 1.144.0): debris against
   debris and pushing back on a car, bumpers, a wheel that wobbles or
   comes off (camber on the struck corner - the wheel batch already composes a
   per-wheel transform), and a repair that picks the debris up again.
@@ -336,12 +336,15 @@ leaves these, dearest first:
     fields once the feel is settled);
   - ~~a rescaled deadzone and an expo curve on the stick~~ done 1.135.3;
   - air control and landings;
-  - ~~per-surface grip~~ done 1.136.0 (paved or not; a per-material surface
-    table - gravel vs grass vs mud - would need terrain paint layers to
-    answer the query);
+  - ~~per-surface grip~~ done 1.136.0 (paved or not), per road 1.137.0
+    (`roadGrip`). Still open: a grip per TERRAIN PAINT LAYER (grass, sand,
+    mud). The splat weights are already in console RAM (the terrain mesh is
+    built from them), so the query is a few byte reads per tyre plus one
+    layer field and a format bump;
   - ~~car-car spin~~ done 1.135.7.
-  The AI steers by heading error with no speed planning and was tuned
-  against uncapped yaw: check its laps (VEHAI) before placing AI cars again.
+  ~~The AI steers by heading error with no speed planning~~ done 1.136.1
+  (path pursuit + planned corner speed; 25-31 s laps with no unsticks). Left:
+  the traffic rule can steer an overtaking car wide into the outside wall.
 - **Stale entries:** the two "vehicle BODIES are still triangle lists" entries
   further down predate 1.117.4, which strips the body parts (the Ravager's
   paint part is 5490 list vertices -> 2649 strip vertices, 0.483x).
