@@ -190,15 +190,17 @@ class Surface {
 public:
     // A triangle LIST (three Vertex per triangle): tessellate() and
     // tessellateJunction() output. Call build() once after the last add().
-    void add(const std::vector<Vertex>& triangles);
+    void add(const std::vector<Vertex>& triangles, float grip = 1.0f);
     void build();
     bool empty() const { return tris_.empty(); }
-    // kNone when no triangle covers (x, z).
-    float at(float x, float z) const;
+    // kNone when no triangle covers (x, z). `grip`, when given, receives the
+    // grip of the triangle that answered (1 when none did).
+    float at(float x, float z, float* grip = nullptr) const;
     static constexpr float kNone = -1.0e30f;
 
 private:
     std::vector<Vertex> tris_;
+    std::vector<float> grip_;  // one per triangle
     std::vector<unsigned> cellStart_, cellItems_;
     int nx_ = 0, nz_ = 0;
     float minX_ = 0, minZ_ = 0, inv_ = 1;

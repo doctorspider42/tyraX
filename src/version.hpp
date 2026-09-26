@@ -5266,8 +5266,14 @@
 // car rolling backwards); the left stick only steers. One rule,
 // vehiclesim::pedals, read by the editor's test drive (W / S) and twinned in
 // the console's player controller; --vehicle-check "pedals". Numbered past
-// the open vehicle-damage PRs (1.137-1.140) so the merges do not collide.
+// the open vehicle-damage PRs so the merges do not collide.
 // No format change. MINOR.
+// 1.137.0 - Per-road surface grip: roadGrip on a Road object (Properties >
+// Surface grip), carried by RoadDefRt into the road chunks so roadSurfaceAt
+// returns the answering triangle's grip; junctions take the lower road. The
+// four tyres' multipliers (road grip, offroadGrip, 1 on a floor) average into
+// the grip in both twins; the AI plans with it. kFormatVersion 70 -> 71,
+// additive. MINOR.
 // 1.136.1 - AI drivers: path pursuit (a point on the leg, look ahead of
 // the car) and planned corner speed; unstick reads covered distance; a
 // wedge stops the car in both twins; VEHAILAP lap telemetry. Two Motor
@@ -5814,7 +5820,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // bake-measured farPart + farHideMask (only when farPart >= 0). Missing = the
 // decimated tiers at farDistance for every car, as before. Additive; no
 // migration step.
-inline constexpr int kFormatVersion = 70;
+inline constexpr int kFormatVersion = 71;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

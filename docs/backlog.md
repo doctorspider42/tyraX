@@ -306,9 +306,11 @@ leaves these, dearest first:
     fields once the feel is settled);
   - ~~a rescaled deadzone and an expo curve on the stick~~ done 1.135.3;
   - air control and landings;
-  - ~~per-surface grip~~ done 1.136.0 (paved or not; a per-material surface
-    table - gravel vs grass vs mud - would need terrain paint layers to
-    answer the query);
+  - ~~per-surface grip~~ done 1.136.0 (paved or not), per road 1.137.0
+    (`roadGrip`). Still open: a grip per TERRAIN PAINT LAYER (grass, sand,
+    mud). The splat weights are already in console RAM (the terrain mesh is
+    built from them), so the query is a few byte reads per tyre plus one
+    layer field and a format bump;
   - ~~car-car spin~~ done 1.135.7.
   ~~The AI steers by heading error with no speed planning~~ done 1.136.1
   (path pursuit + planned corner speed; 25-31 s laps with no unsticks). Left:

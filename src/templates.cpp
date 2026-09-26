@@ -1750,6 +1750,9 @@ class TerrainGame : public Tyra::Game {
     // model part or an .mtl. Owner is -3 for these, so a scene revisit can
     // clear and rebuild them without touching merged geometry.
     Tyra::Texture* roadTex = nullptr;
+    // A road chunk's tyre grip (1.137.0, RoadDefRt::grip): what
+    // roadSurfaceAt reports for its triangles.
+    float roadGrip = 1.0F;
     // Triangle strips (docs/model-pipeline.md): non-zero when this chunk's
     // vertices are baked strip RUNS of that length rather than a triangle
     // list. procFinishChunks pins StaPipBag::packageSize to it and sets
@@ -1857,7 +1860,8 @@ class TerrainGame : public Tyra::Game {
   // stall (vsync / display buffer), taken from one interleaveBegin to the next.
   bool ilHaveMark = false, ilMarkActive = false;
   u32 ilMark = 0, ilStallMark = 0;
-  float roadSurfaceAt(float x, float z) const;
+  // `grip`, when given, receives the answering road's grip (1 when none).
+  float roadSurfaceAt(float x, float z, float* grip = nullptr) const;
   void buildRoadHeightIndex() const;
   // The pre-grid exhaustive walk, defined only under TYRA_ROAD_INDEX_VERIFY
   // (see roadSurfaceAt) - it is the oracle that gate compares against.
@@ -3570,6 +3574,9 @@ class TerrainGame : public Tyra::Game {
     // model part or an .mtl. Owner is -3 for these, so a scene revisit can
     // clear and rebuild them without touching merged geometry.
     Tyra::Texture* roadTex = nullptr;
+    // A road chunk's tyre grip (1.137.0, RoadDefRt::grip): what
+    // roadSurfaceAt reports for its triangles.
+    float roadGrip = 1.0F;
     // Triangle strips (docs/model-pipeline.md): non-zero when this chunk's
     // vertices are baked strip RUNS of that length rather than a triangle
     // list. procFinishChunks pins StaPipBag::packageSize to it and sets
@@ -3677,7 +3684,8 @@ class TerrainGame : public Tyra::Game {
   // stall (vsync / display buffer), taken from one interleaveBegin to the next.
   bool ilHaveMark = false, ilMarkActive = false;
   u32 ilMark = 0, ilStallMark = 0;
-  float roadSurfaceAt(float x, float z) const;
+  // `grip`, when given, receives the answering road's grip (1 when none).
+  float roadSurfaceAt(float x, float z, float* grip = nullptr) const;
   void buildRoadHeightIndex() const;
   // The pre-grid exhaustive walk, defined only under TYRA_ROAD_INDEX_VERIFY
   // (see roadSurfaceAt) - it is the oracle that gate compares against.
@@ -22533,9 +22541,11 @@ void TerrainGame::buildRoadHeightIndex() const {
            (int)roadIdxItems.size());
 }
 
-float TerrainGame::roadSurfaceAt(float x, float z) const {
+float TerrainGame::roadSurfaceAt(float x, float z, float* grip) const {
   float best = -1.0e30F;
-  auto testTriangle = [&](const Vec4& a, const Vec4& b, const Vec4& c) {
+  if (grip) *grip = 1.0F;
+  auto testTriangle = [&](const Vec4& a, const Vec4& b, const Vec4& c,
+                          float triGrip) {
     // Cheap XZ reject before the arithmetic: a cell holds every triangle whose
     // box touches it, and most of those do not span this exact point.
     float lo = a.x < b.x ? a.x : b.x;
@@ -22562,7 +22572,10 @@ float TerrainGame::roadSurfaceAt(float x, float z) const {
     // crack to a six-vertex light/shadow patch on their shared edge.
     if (wa < -0.0001F || wb < -0.0001F || wc < -0.0001F) return;
     const float y = wa * a.y + wb * b.y + wc * c.y;
-    if (y > best) best = y;
+    if (y > best) {
+      best = y;
+      if (grip) *grip = triGrip;
+    }
   };
   if (roadIdxDirty || roadIdxChunks != procChunks.size())
     buildRoadHeightIndex();
@@ -22576,7 +22589,7 @@ float TerrainGame::roadSurfaceAt(float x, float z) const {
     const unsigned int item = roadIdxItems[e];
     const ProcChunk& c = procChunks[(size_t)(item >> 22)];
     const size_t i = (size_t)(item & 0x3FFFFFU);
-    testTriangle(c.vertices[i - 2], c.vertices[i - 1], c.vertices[i]);
+    testTriangle(c.vertices[i - 2], c.vertices[i - 1], c.vertices[i], c.roadGrip);
   }
 #if TYRA_ROAD_INDEX_VERIFY
   {
@@ -33827,10 +33840,11 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             struct RoadRow {
                 int scene, first, count, tex;
                 float width, sampleStep;
+                float grip = 1.0f;
                 std::string name;
                 const SceneObject* source;
             };
-            struct JunctionRow { int scene, tex; roadgen::Junction shape; };
+            struct JunctionRow { int scene, tex; roadgen::Junction shape; float grip; };
             std::vector<RoadRow> roadRows;
             std::vector<JunctionRow> junctionRows;
             for (size_t si = 0; si < p.scenes.size(); ++si)
@@ -33846,6 +33860,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     r.tex = tix;
                     r.width = o.roadWidth;
                     r.sampleStep = o.roadSampleStep;
+                    r.grip = o.roadGrip;
                     r.name = o.name;
                     r.source = &o;
                     roadRows.push_back(r);
@@ -33874,7 +33889,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                             junctionRows.push_back({
                                 a.scene,
                                 textureIndex(project::resolveRoadTexture(p, mat)),
-                                shape});
+                                shape, std::min(a.grip, b.grip)});
                     }
                 }
             if (!roadRows.empty()) {
@@ -33885,13 +33900,14 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << "constexpr int ROAD_JUNCTION_COUNT = "
                     << junctionRows.size() << ";\n"
                     << "struct RoadDefRt { int scene; int first; int pointCount;"
-                       " float width; float sampleStep; int tex; };\n"
+                       " float width; float sampleStep; int tex; float grip; };\n"
                     << "constexpr RoadDefRt ROAD_DEFS[" << roadRows.size()
                     << "] = {\n";
                 for (const RoadRow& r : roadRows)
                     out << "    {" << r.scene << ", " << r.first << ", "
                         << r.count << ", " << floatLit(r.width) << ", "
-                        << floatLit(r.sampleStep) << ", " << r.tex
+                        << floatLit(r.sampleStep) << ", " << r.tex << ", "
+                        << floatLit(r.grip)
                         << "},  // " << escapeCString(r.name) << "\n";
                 out << "};\n"
                     << "constexpr float ROAD_POINTS[" << roadPts.size()
@@ -33899,7 +33915,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                 for (size_t k = 0; k < roadPts.size(); ++k)
                     out << (k ? ", " : "") << floatLit(roadPts[k]);
                 out << "};\n"
-                    << "struct RoadJunctionRt { int scene; int tex; float xz[10]; };\n";
+                    << "struct RoadJunctionRt { int scene; int tex; float xz[10];"
+                       " float grip; };\n";
                 if (junctionRows.empty()) {
                     out << "constexpr RoadJunctionRt ROAD_JUNCTIONS[1] = {};\n";
                 } else {
@@ -33911,7 +33928,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                             << floatLit(j.shape.z);
                         for (float v : j.shape.cornerXZ)
                             out << ", " << floatLit(v);
-                        out << "}},\n";
+                        out << "}, " << floatLit(j.grip) << "},\n";
                     }
                     out << "};\n";
                 }
@@ -36662,8 +36679,10 @@ static std::string vehicleMembers(const Project& p) {
     // top of the bicycle yaw and damped by the tyres, so a hit off the centre
     // of mass spins the car instead of only pushing it.
     float spin = 0.0F;
-    // Tyres on the paved surface at the last step (0..4, off-road grip).
+    // Tyres on the paved surface at the last step (0..4, off-road grip), and
+    // their average grip multiplier (road grip, 1.137.0) - the AI plans with it.
     int paved = 4;
+    float surfGrip = 1.0F;
     // Engine note (docs/vehicles.md). `engineCh` is the SPU2 channel the loop
     // holds while this vehicle is being driven, -1 when silent; `enginePitchReg`
     // is the LAST value written, because writing the pitch costs a blocking IOP
@@ -38100,9 +38119,7 @@ void TerrainGame::updateVehicles(float dt) {
           const float th = tanf(half);
           // The pursuit's arc: it starts turning `look` before the corner.
           const float radius = th > 1e-3F ? look / th : 1e6F;
-          const float offShareAi = 1.0F - (float)v.paved * 0.25F;
-          const float gripAi = s.grip * (1.0F + (s.offroadGrip - 1.0F) * offShareAi) *
-                               kVehYawGripScale * 0.8F;
+          const float gripAi = s.grip * v.surfGrip * kVehYawGripScale * 0.8F;
           const float vCorner2 = gripAi * radius;
           const float brakeAi = s.brakeDecel * 0.6F;
           const float rest = la > look ? la - look : 0.0F;
@@ -38345,6 +38362,7 @@ void TerrainGame::updateVehicles(float dt) {
     float sum = 0.0F;
     int groundCount = 0;
     int pavedWheels = 0;  // on a road, or on an object floor (off-road, 1.136.0)
+    float gripSum = 0.0F;  // per-tyre surface grip (1.137.0), averaged below
     // The four contact hardpoints follow the PHYSICAL chassis attitude in all
     // three axes. The previous X/Z positions used yaw only, while the body
     // pitched and rolled around them; on a crest the arch and its wheel were
@@ -38375,9 +38393,13 @@ void TerrainGame::updateVehicles(float dt) {
       // groundSurfaceAt, unrolled: the road query also says whether this
       // tyre is on the paved surface.
       const float terrW = terrainHeightAt(wx, wz);
-      const float roadW = roadSurfaceAt(wx, wz);
+      float roadGW = 1.0F;
+      const float roadW = roadSurfaceAt(wx, wz, &roadGW);
       gy[w] = roadW > terrW ? roadW : terrW;
       bool pavedW = roadW > -1.0e29F;
+      // This tyre's grip: its road's, the car's off-road value, or 1 on an
+      // object floor (set below where a floor takes the wheel).
+      float wheelGrip = pavedW ? roadGW : s.offroadGrip;
       // The wheel RIDES an object floor when one is higher than the terrain
       // under it - a platform, a ramp prop, generated prefab geometry. This
       // is what lets a car drive ONTO things instead of nosing into their
@@ -38391,6 +38413,7 @@ void TerrainGame::updateVehicles(float dt) {
         if (lxx > -f.hx && lxx < f.hx && lzz > -f.hz && lzz < f.hz) {
           gy[w] = f.top;
           pavedW = true;
+          wheelGrip = 1.0F;
         }
       }
       if (nearMeshN > 0) {
@@ -38406,9 +38429,11 @@ void TerrainGame::updateVehicles(float dt) {
         if (gr > gy[w] && gr <= feet0 + 0.5F) {
           gy[w] = gr;
           pavedW = true;
+          wheelGrip = 1.0F;
         }
       }
       if (pavedW) ++pavedWheels;
+      gripSum += wheelGrip;
       v.wheelY[w] = gy[w];
       if (gy[w] > -1e5F) { ++groundCount; sum += gy[w]; }
     }
@@ -38419,7 +38444,9 @@ void TerrainGame::updateVehicles(float dt) {
     // below reads these three instead of s.grip / s.handbrakeGrip / s.accel.
     const float offShare = 1.0F - (float)pavedWheels * 0.25F;
     v.paved = pavedWheels;
-    const float offGripMul = 1.0F + (s.offroadGrip - 1.0F) * offShare;
+    // The tyres' average surface grip (1.137.0: roads carry their own).
+    const float offGripMul = gripSum * 0.25F;
+    v.surfGrip = offGripMul;
     const float sGrip = s.grip * offGripMul;
     const float sHbGrip = s.handbrakeGrip * offGripMul;
     const float sAccel = s.accel * (1.0F + (s.offroadAccel - 1.0F) * offShare);
@@ -40878,6 +40905,7 @@ void TerrainGame::buildRoads(int scene) {
             c = &procChunks.back();
             c->owner = -3;
             c->roadTex = tex;
+            c->roadGrip = rd.grip;
             c->stripRun = useStrips ? (int)stripRun : 0;
             // Texture repeat is invariant under an integer V offset. Keep the
             // value local to this bag: long roads otherwise feed ever-growing
@@ -40984,6 +41012,7 @@ void TerrainGame::buildRoads(int scene) {
     ProcChunk& c = procChunks.back();
     c.owner = -3;
     c.roadTex = tex;
+    c.roadGrip = j.grip;
     c.stripRun = 0;
     const Tyra::Vec4 center(j.xz[0], terrainHeightAt(j.xz[0], j.xz[1]) + 0.14F,
                             j.xz[1], 1.0F);

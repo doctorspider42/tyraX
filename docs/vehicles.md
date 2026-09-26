@@ -309,6 +309,20 @@ everything else a scene does.
 
   The playground's road cars are set to about 0.6 / 0.8 / 2.5, the Strix
   harsher and Rally 04 almost unaffected (0.95 / 0.95 / 0.8).
+
+  **Roads carry their own grip (1.137.0).** A road's *Surface grip*
+  ([roads.md](roads.md), "Surface grip") is the multiplier a tyre gets on it.
+  The car's `offroadGrip` applies off the road, and an object floor counts as
+  1. The four tyres' multipliers are averaged into the grip and the handbrake
+  grip.
+
+  Road grip leaves the acceleration and the drag alone: those stay the
+  off-road fields' job, by the share of tyres off the road. An AI driver
+  plans its corner speed with the same average.
+
+  `--vehicle-check` "offroad" checks it: on a road at 0.5 the default car's
+  full-lock corner holds 9.9 u/s^2 against 24.4 on asphalt, and it still
+  reaches 22.0 u/s in 3 s.
   The console's `VEH` telemetry line ends in `paved N`, the tyres on the
   road at the last step.
 - **Car-car hits spin (1.135.7, runtime only; the test drive has one car).**

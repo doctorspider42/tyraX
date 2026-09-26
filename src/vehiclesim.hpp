@@ -331,9 +331,11 @@ using HeightFn = std::function<float(float x, float z)>;
 // clears. Optional: an empty function is open ground everywhere, which is
 // what the harness and any caller that only cares about handling want.
 using SolidFn = std::function<bool(float x, float z, float feetY)>;
-// Is (x, z) paved - a road, a junction, an object floor? Empty = everywhere,
-// which is what a caller with no roads (the property harness) means.
-using PavedFn = std::function<bool(float x, float z)>;
+// The surface at (x, z): a road's grip multiplier (>= 0) when it is paved - a
+// road, a junction - or a negative value off the road, where the car's own
+// offroad* fields apply. Empty = paved at grip 1 everywhere, which is what a
+// caller with no roads (the property harness) means.
+using SurfaceFn = std::function<float(float x, float z)>;
 
 // Advances one vehicle by `dt` seconds. `dt` is clamped internally so a paused
 // editor or a stalled frame cannot tunnel the car through the world.
@@ -356,7 +358,7 @@ using PavedFn = std::function<bool(float x, float z)>;
 // list of what is authored and the harness keeps calling with the raw spec.
 void step(const DriveSpec& spec, const DriveInput& in, float dt,
           const HeightFn& height, DriveState& state, const SolidFn& solid = {},
-          float scale = 1.0f, const PavedFn& paved = {});
+          float scale = 1.0f, const SurfaceFn& surface = {});
 
 // The four wheel centres in WORLD space for the current visual state, in the
 // same order as Detection::wheels. Full body pitch/roll, cosmetic lean and
