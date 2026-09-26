@@ -1314,6 +1314,13 @@ struct VehicleDef {
     // glassPart is that part's index, MEASURED by the bake like lampPart.
     float glassOpacity = 1.0f;
     int glassPart = -1;
+    // Loose panels and windows, MEASURED by the bake (vehbake::adoptMeasured,
+    // docs/vehicles.md "Loose panels and glass"): each a vertex range of one
+    // body part the runtime can take off. Written only when non-empty.
+    std::vector<vehiclesim::Piece> pieces;
+    // {part, vertices}: MEASURED like the pieces - the reflection pass of that
+    // body part covers only its first `vertices` (the matte cabin after them).
+    std::vector<std::pair<int, int>> envLimits;
 
     // The engine note (docs/vehicles.md, "Engine sound"). A path into the
     // project's own sound list, NOT an index: an index would retarget itself
@@ -1400,7 +1407,8 @@ inline bool operator==(const VehicleDef& a, const VehicleDef& b) {
         a.farDistance != b.farDistance || a.farModel != b.farModel ||
         a.trafficDistance != b.trafficDistance || a.farPart != b.farPart ||
         a.farHideMask != b.farHideMask || a.fastWheel != b.fastWheel ||
-        a.fastWheelTriBudget != b.fastWheelTriBudget)
+        a.fastWheelTriBudget != b.fastWheelTriBudget || a.pieces != b.pieces ||
+        a.envLimits != b.envLimits)
         return false;
     for (int i = 0; i < 3; ++i)
         if (a.exitOffset[i] != b.exitOffset[i]) return false;

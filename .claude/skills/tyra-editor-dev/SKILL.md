@@ -2386,6 +2386,44 @@ with GI, but the two own separate contexts (GI may bake on a worker). GPU captur
 uses a private function table, never overwrites gl_loader's viewport pointers,
 and allocates texture storage before filling it (AMD driver workaround).
 
+## Vehicle damage (1.138.0)
+
+docs/vehicles.md, "Damage". Three rules. (1) A hit is the velocity change the
+frame's collision stages imposed (`VehicleRt::dmgPreV` is taken at the loop top
+for sleepers and again right after the drive integrates); a new contact path
+dents for free as long as it runs before `updateVehicleDamage`, which is called
+after the car-vs-car pass - never write a speed change that is not a collision
+between those two points, or it reads as a crash. (2) `vehiclesim::
+impactFromDelta`/`dentHash`/`applyDent` are the host source and
+`vehDentHash`/`vehicleDentApply` in `vehicleImpl` the twin; the dent is a
+function of the REST position only (welded corners cannot split), and the
+rest copy lives in `VehDamageGeo`, re-captured whenever a part's `baseStamp`
+moves - so anything that rebuilds a vehicle body gets the dents re-applied, and
+anything else that bumps `baseStamp` without rebuilding would be captured as
+the undamaged pose. (3) Dents write the matrix-path LOCAL vertices through
+`BagArray::span` and must bump `baseStamp`/`bboxVersion` (the package boxes
+move); they skip the lamp and glass colours (renderVehicleGlow owns the lamp
+colours every frame - `lampBroken` is how damage speaks to it). The six
+"damage*" DriveSpec keys are shown on the Damage tab and skipped by the Driving
+tab by that prefix, so a new damage tunable must keep it.
+
+Loose pieces (1.139.0) add one invariant with teeth: a piece is a vertex RANGE
+of a body part's tier-0 array (`VEHICLE_PIECES`, measured into
+`VehicleDef::pieces` by the bake), and the range is only safe to collapse
+because the bake gave the piece whole strip runs of its own. Anything that
+re-orders or re-strips a vehicle body (a new weld key, a merge of parts, a
+change to meshstrip's run packing) must keep that - or collapsing a bonnet
+tears a triangle out of the fender next to it. `vehiclePiecesCollapse` must run
+after every write that could re-grow a lost piece (a dent, a re-capture).
+Debris lives in `vehDebris_` / `vehDebrisBatches_` (one world-space bag per
+texture, rebuilt only while dirty), kicked by cars, turned off collision boxes
+and deleted past 60 units from the camera. The same reorder puts a shiny
+textured part's matte (near-black texel) triangles LAST, and
+`applyVehicleEnvLimits` shortens that part's env bag to the prefix every frame
+(`VEHICLE_ENV_LIMITS`) - a rebuild or tier swap resets the count, which is why
+it is re-asserted rather than set once. The editor mirrors it by splitting the
+part in `viewportBody` (vehicle_ui.cpp).
+
 ## Vehicle bank and suspension invariants
 
 `vehiclesim::bodyRotation` and the generated `vehBodyRotation` are twins:

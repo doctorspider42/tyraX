@@ -5261,6 +5261,29 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.140.0 - Vehicle debris stays physical: cars kick lying pieces away
+// (velocity, lift and spin from the car's speed), flying pieces bounce off
+// collision boxes and (rationed) mesh props, and a piece 60 units from the
+// camera is deleted. The Blender-built cars get an engine bay under the
+// bonnet (texture only) and a darker, more detailed cabin. MINOR.
+// 1.139.0 - Loose panels and glass (docs/vehicles.md): the vehicle bake sorts
+// the body into the shell, bonnet, boot, two doors and four window groups by
+// position, facing and glass material - no model authoring - and gives each
+// piece whole strip runs of its part. A hit knocks a panel off (collapsed in
+// the body, thrown as tumbling debris that lands flat, one submit per texture
+// for all debris) and shatters a window (collapsed, a spray of shards). The
+// Damage tab previews it; a "Loose parts" tunable scales it. MINOR.
+// 1.138.0 - Vehicle damage (docs/vehicles.md, "Damage"): a crash dents the
+// body's own vertices where it hit (matrix-path local frame, measured from a
+// rest copy so welded corners never tear), scuffs the paint, smashes the lamps
+// at a hard end-on hit, costs power, and smokes the engine past a threshold.
+// Six drive-spec tunables on a new Damage tab (with test hits previewed in the
+// viewport, and dents during a test drive), a Repair Vehicle flow node and a
+// DMG readout on the vehicle HUD. The per-frame cost is a velocity difference
+// per car; a hit rewrites one car's tier-0 vertices once (1.2-2.3 ms in
+// PCSX2, measured). MINOR. (1.138.0-1.140.0 shipped on the vehicle-damage
+// branch as 1.137.0-1.139.0 and its formats as v71-v73; renumbered by the
+// merge into vehicles, where 1.137.0 and v71 are the per-road grip.)
 // 1.137.0 - Per-road surface grip: roadGrip on a Road object (Properties >
 // Surface grip), carried by RoadDefRt into the road chunks so roadSurfaceAt
 // returns the answering triangle's grip; junctions take the lower road. The
@@ -5383,7 +5406,7 @@
 // Particles face the camera a pass DRAWS with (cutscene override, shake,
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 137
+#define TYRAX_VERSION_MINOR 140
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -5813,7 +5836,23 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // bake-measured farPart + farHideMask (only when farPart >= 0). Missing = the
 // decimated tiers at farDistance for every car, as before. Additive; no
 // migration step.
-inline constexpr int kFormatVersion = 71;
+// v70 (off-road grip) and v71 (per-road grip): see docs/format-versioning.md.
+// v72..v74 shipped on the vehicle-damage branch as v71..v73 (renumbered by
+// the merge; every key is additive and read whatever the stamp says).
+// v72 (docs/vehicles.md, "Damage"): six drive-spec keys - damage,
+// damageThreshold, damageMaxDent, damageRadius, damagePerfLoss, damageSmoke -
+// written with the rest of the spec. Missing = damage 0, i.e. the car cannot
+// be hurt, which is exactly how every definition saved before drove. Additive;
+// no migration step.
+// v73 (docs/vehicles.md, "Loose panels and glass"): drive.damageLoose, and a
+// definition's bake-measured "pieces" list (written only when non-empty).
+// Missing = Loose parts 1 and no pieces until the next bake measures them.
+// Additive; no migration step.
+// v74: a definition's bake-measured "envLimits" (the shine's matte suffix,
+// docs/vehicles.md "Loose panels and glass"), written only when non-empty.
+// Missing = the reflection covers the whole part until the next bake.
+// Additive; no migration step.
+inline constexpr int kFormatVersion = 74;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

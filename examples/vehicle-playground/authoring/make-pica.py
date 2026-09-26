@@ -178,12 +178,21 @@ COLOURS = {
 }
 
 
+# Under the bonnet (carkit.build_engine_bay): a transverse four with red cam
+# covers, the floor at hub height, well below the skin.
+BAYS = [{"x0": XWB - 0.03, "x1": XF - 0.20, "w": ARCH_INNER_Y - 0.04, "z": HUB_Z + 0.12,
+         "engine": True, "radiator": True}]
+ENGINE_ACCENT = (160, 30, 26)
+
+
 def make_atlas():
+    # The cabin colours are dark on purpose: a lost door or window shows it.
     return K.Atlas(XR, XF, side_z=(0.14, 1.40), front_z=(0.20, 0.96), rear_z=(0.20, 1.40), half_w=0.86,
                    cells=["black", "dark", "plastic", "int", "intdark", "seat", "paint"],
                    ramps={"plastic": K.plastic_ramp},
-                   colours={"black": BLACK, "dark": (10, 10, 11), "int": (46, 43, 40),
-                            "intdark": (26, 25, 24), "seat": (72, 44, 48), "paint": PAINT})
+                   colours={"black": BLACK, "dark": (10, 10, 11), "int": (28, 26, 24),
+                            "intdark": (15, 14, 14), "seat": (46, 28, 31), "paint": PAINT},
+                   bay=BAYS[0])
 
 
 # --- trim, lamps, interior, wheel ----------------------------------------------
