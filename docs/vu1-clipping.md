@@ -464,9 +464,9 @@ rewrite (they say so in their header) - re-derive after editing the original.
 
 | toggle | what changes | VU1 cost | output |
 |---|---|---|---|
-| (a) `TYRA_VU1_EXP_K255_ADC_TABLE` | `cull_c`, `cull_tc`: 255 kept in a VF register (no `loi 255` before each clamp); the ADC bit is `ilw.x adcBit, VU1_ADC_TABLE_ADDR(VI01)` over a {0, 0x8000} table the preamble writes at 1019..1020, instead of `iaddiu 0x7FFF; iand adcMask` | 309 -> 295 and 433 -> 413 emitted instructions; VF peak `cull_tc` 28/31 | **bit-identical** |
-| (b) `TYRA_VU1_EXP_EE_LIGHT_FOLD` | every static lit program (`cull_d/td`, `as_is_d/td`, the D path of clip C and the TD path of clip TC): the EE uploads the light directions already multiplied by the light matrix (`F_i = D0*M_i.x + D1*M_i.y + D2*M_i.z`, nine multiplies a bag) and skips the matrix upload; `CalculateTyraDirectionalLightsFolded` loses three instructions a vertex | -12 emitted instructions per program (-9 on the TC image) | colour within 1 LSB |
-| (c) `TYRA_VU1_EXP_ENV_NORMALIZED` | `cull_tce`: `StaPipCore::render` normalizes an env bag's normal array in place once (pointer + count + bboxVersion + contentVersion, 32-entry table) and the program drops the rsqrt normalize (`CalculateTyraEnvStqUnit`) | 190 -> 175 | ST within 2e-9 absolute |
+| (a) `TYRA_VU1_EXP_K255_ADC_TABLE` | `cull_c`, `cull_tc`: 255 kept in a VF register (no `loi 255` before each clamp); the ADC bit is `ilw.x adcBit, VU1_ADC_TABLE_ADDR(VI01)` over a {0, 0x8000} table the preamble writes at 1019..1020, instead of `iaddiu 0x7FFF; iand adcMask` | nm words `cull_c` 226 -> 228, `cull_tc` 306 -> 304 (the table init costs what the clamps save); VF peak `cull_tc` 28/31 | **bit-identical** |
+| (b) `TYRA_VU1_EXP_EE_LIGHT_FOLD` | every static lit program (`cull_d/td`, `as_is_d/td`, the D path of clip C and the TD path of clip TC): the EE uploads the light directions already multiplied by the light matrix (`F_i = D0*M_i.x + D1*M_i.y + D2*M_i.z`, nine multiplies a bag) and skips the matrix upload; `CalculateTyraDirectionalLightsFolded` loses three instructions a vertex | nm words `cull_d` 142 -> 130, `cull_td` 156 -> 144, `as_is_d` 116 -> 104, `as_is_td` 128 -> 114, clip C 346 -> 338, clip TC 372 -> 364 | colour within 1 LSB |
+| (c) `TYRA_VU1_EXP_ENV_NORMALIZED` | `cull_tce`: `StaPipCore::render` normalizes an env bag's normal array in place once (pointer + count + bboxVersion + contentVersion, 32-entry table) and the program drops the rsqrt normalize (`CalculateTyraEnvStqUnit`) | nm words 150 -> 126 | ST within 2e-9 absolute |
 
 `as_is_tce` keeps its normalize under (c) - the EE clipper lerps normals, which
 shortens them - and so does the TC clip image's env path (same unit array; one
@@ -489,10 +489,27 @@ had to grow: every cull trial kept all corners inside the clip volume, so the AD
 bit was 0 in every trial and a corrupted ADC table passed. Every fourth cull
 corner now spreads to +-80, past w = 60 - z; the same corruption fails at trial 0.
 
+**PCSX2 pixel A/B, all four arms** (debug builds of the augmented fixture,
+two or more captures per pose, HUD text excluded): garage day and outer road
+day are pixel-IDENTICAL to base for (a), (b) and (c) - the lit wobblers and
+the chrome boxes included - and the two night poses differ only within the
+base arm's own capture-to-capture noise. The pixel check earned its keep: the
+first cut of (b) skipped the light-COLOUR upload together with the matrix, and
+every lit mesh drew black. `--vu-check` could not see it - it stages VU1 memory
+itself - which is why an EE-side change needs a frame, not only a simulator.
+
 Each image also logs once when it runs - `VU1 experiment (b): first folded light
 upload`, `VU1 experiment (c): normalized N env normals` - because a scene that
 draws no lit mesh never takes (b)'s path and an arm that measures zero must be
-told apart from one that measured nothing. The arms and the one-command console
+told apart from one that measured nothing. **The Motor District is such a
+scene**: it has no dynamically lit and no reflective mesh, and a plain-district
+boot of arms b and c printed neither line. The console fixture is therefore the
+district AUGMENTED for every arm, base included (`C:\tyra-vq\vux-augment.py`:
+sixteen paused animated wobblers in front of the benchmark cameras - an animated
+model always renders with a lighting bag, while a static `model` marked
+dynamicLighting is lit only when the scene has GI probes, which the district has
+not - and every 2nd box chrome with a static sphere map),
+so its numbers are not comparable with earlier district series. The arms and the one-command console
 series are in `C:\tyra-vq\vux-build.sh` / `vux-ab.sh` (docs/backlog.md).
 
 ## See also

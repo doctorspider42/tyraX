@@ -19,13 +19,17 @@ less per vertex) and `dispatch` -0.18..-0.25.
 compile-time toggles now (docs/vu1-clipping.md, "Measured-only experiments"),
 with `--vu-check` proving (a) bit-identical and bounding (b) and (c). The arms
 are prebuilt in `C:\tyra-vq\arms\vux-{base,a,b,c}` (quiet-debug, instrumented,
-one fixture, one engine copy per toggle). One command rebuilds and boots
+one fixture, one engine copy per toggle). The fixture is the district AUGMENTED
+(`vux-augment.py`: sixteen paused animated wobblers in front of the two
+cameras - animated models always render lit - and every 2nd box chrome),
+because the plain district never runs (b) or (c) - so compare arms only with
+each other, not with earlier district series. One command rebuilds and boots
 `base a b c base a b c`, stopping at the first failed boot:
 `bash /c/tyra-vq/vux-ab.sh` (or `SKIP_BUILD=1 bash /c/tyra-vq/vux-ab.sh` to
 boot the prebuilt arms). Decide each on its own pose: (a) every pose (cull_c/tc
-run everywhere), (b) only where `VU1 experiment (b)` appears in the arm's
-`ps2client-stdout.txt` - a pose with no lit mesh measures nothing - and (c) the
-poses with a parked car in view. Keep a toggle only if both boots agree; delete
+run everywhere); (b) and (c) wherever the augmented props are in view - check
+that `VU1 experiment (b)` / `(c)` appears in that arm's `ps2client-stdout.txt`,
+or the arm measured nothing. Keep a toggle only if both boots agree; delete
 the others' images and wrappers' `#if` branch rather than leaving dead options.
 
 What each one was, for the record:

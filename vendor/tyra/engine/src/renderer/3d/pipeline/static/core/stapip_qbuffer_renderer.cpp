@@ -1220,7 +1220,8 @@ void StaPipQBufferRenderer::sendObjectData(
 #if TYRA_VU1_EXP_EE_LIGHT_FOLD
   foldLights = bag->lighting != nullptr && !litProgramOverridden();
 #endif
-  if (bag->lighting && foldLights) {
+  if (bag->lighting) {
+  if (foldLights) {
     // VU1: n_w = M0*n.x + M1*n.y + M2*n.z (Mi = the matrix's qword i), then
     // c = D0*n_w.x + D1*n_w.y + D2*n_w.z; so Fi = D0*Mi.x + D1*Mi.y + D2*Mi.z.
     const float* m = bag->lighting->lightMatrix->data;
@@ -1241,8 +1242,7 @@ void StaPipQBufferRenderer::sendObjectData(
       foldLogged = true;
       TYRA_LOG("VU1 experiment (b): first folded light upload");
     }
-  } else if (bag->lighting) {
-    if (submissionBatchCandidate || kInlineUniforms) {
+  } else if (submissionBatchCandidate || kInlineUniforms) {
       emitUnpack(objectDataPacket, VU1_LIGHTS_MATRIX_ADDR,
                  bag->lighting->lightMatrix->data, 3);
       emitUnpack(objectDataPacket, VU1_LIGHTS_DIRS_ADDR,
@@ -1254,7 +1254,11 @@ void StaPipQBufferRenderer::sendObjectData(
       packet2_utils_vu_add_unpack_data(
           objectDataPacket, VU1_LIGHTS_DIRS_ADDR,
           bag->lighting->dirLights->getLightDirections(), 3, false);
-    }
+  }
+    // The colours and ambient go up in BOTH cases - a first cut of the
+    // fold skipped them with the matrix and every lit mesh drew black
+    // (caught by the PCSX2 pixel A/B; --vu-check stages memory itself and
+    // cannot see an EE upload that is missing).
     // add_unpack_data emits a DMA REF, not a copy. The mode-adjusted
     // colors must live in the packet, never in a temporary stack array.
     const Vec4* colors = bag->lighting->dirLights->getLightColors();
