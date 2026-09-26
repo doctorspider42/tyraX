@@ -242,6 +242,27 @@ void walls() {
                     worstZ);
         verdict(worstZ < 10.6f, "a thin wall cannot be tunneled by grinding");
     }
+    // A fast car on a slow frame: 90 u/s at 20 fps is 4.5 units a step, more
+    // than the car is long, so a 0.3-unit wall between two frames used to be
+    // jumped whole. The swept step stops it.
+    {
+        auto thin = [](float, float z, float) { return z > 20.0f && z < 20.3f; };
+        DriveSpec s;
+        s.topSpeed = 120.0f;
+        DriveState st;
+        st.pos[1] = s.rideHeight;
+        st.pos[2] = 12.0f;
+        st.speed = 90.0f;
+        DriveInput in;
+        in.throttle = 1.0f;
+        float worstZ = -1e9f;
+        for (int i = 0; i < 40; ++i) {
+            step(s, in, 1.0f / 20.0f, flat, st, thin);
+            worstZ = std::max(worstZ, st.pos[2]);
+        }
+        std::printf("  swept: deepest centre z %.2f (wall at 20.00-20.30)\n", worstZ);
+        verdict(worstZ < 20.0f, "a fast car on a slow frame cannot jump a thin wall");
+    }
 }
 
 // 5. Weight transfer: bounded, settles at a cruise, and the roll flips with

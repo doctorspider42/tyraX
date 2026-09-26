@@ -298,11 +298,12 @@ leaves these, dearest first:
     so a rotated prop is fatter in the test drive);
   - a fixed 1/50 s step with an accumulator, since several rules are
     per-frame;
-  - a swept wall test;
+  - ~~a swept wall test~~ done 1.135.3 (the car-car push after the wall pass
+    is still not wall-checked);
   - ~~a handbrake that loosens the rear and blends grip back; a friction
     circle~~ done 1.135.2 (its constants are code: make them definition
     fields once the feel is settled);
-  - a rescaled deadzone and an expo curve on the stick;
+  - ~~a rescaled deadzone and an expo curve on the stick~~ done 1.135.3;
   - air control and landings;
   - per-surface grip;
   - car-car spin.

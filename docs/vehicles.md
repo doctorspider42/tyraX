@@ -281,6 +281,19 @@ everything else a scene does.
   slip against 0.52 at full grip. In PCSX2 a flick at 30 u/s slid on and
   recovered over ~1.5 s. The constants are code, not definition fields, yet:
   tune by feel first.
+- **A fast step is swept (1.135.3).** A wall move longer than `kSweepStep`
+  (1 unit) is walked in pieces and stops at the first blocked one. At 90 u/s
+  on a 20 fps frame a car moves 4.5 units, more than its own length, so a
+  0.3-unit wall between two frames used to be jumped whole. `--vehicle-check`
+  "swept": the centre stops at z 16.49 in front of a wall at 20.00, and with
+  the sweep disabled the same run ends at z 184.97. Ordinary steps are
+  shorter than a unit and pay nothing.
+- **The stick is rescaled past its deadzone (1.135.3, the runtime; the
+  test drive has no stick).** The steering's 0.12 and the stick throttle's
+  0.15 used to be hard cuts that jumped straight to 12% and 15%. They now
+  rescale from zero. The steering also gets a gentle expo (65% linear + 35%
+  cubic) for fine control around the centre, where a fast car lives. Full
+  deflection and the digital buttons still give full lock.
 - **Walls redirect the car (1.135.1).** On a fresh hit:
   1. The wall's normal is taken from the blocked sample points: away from
      their centroid, so it works at any wall angle.

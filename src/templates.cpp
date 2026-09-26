@@ -37560,6 +37560,7 @@ static constexpr float kVehWallBounce = 0.15F;
 // The handbrake and the friction circle (vehiclesim twins kHandbrakeRecover,
 // kHandbrakeYaw, kFrictionShare).
 static constexpr float kVehHandbrakeRecover = 0.35F;
+static constexpr float kVehSweepStep = 1.0F;  // vehiclesim twin kSweepStep
 static constexpr float kVehHandbrakeYaw = 30.0F;
 static constexpr float kVehHandbrakeYawCap = 1.0F;
 static constexpr float kVehFrictionShare = 0.5F;
@@ -37892,7 +37893,10 @@ void TerrainGame::updateVehicles(float dt) {
       // harness - the acceptance test only proved yaw moved.
       inSteer = -((float)joy.h - 128.0F) / 128.0F;
       const float fwd = -((float)joy.v - 128.0F) / 128.0F;
-      if (fwd > 0.15F || fwd < -0.15F) inThrottle = fwd;
+      // Rescaled past the deadzone (1.135.3): the old hard cut jumped from 0
+      // straight to 15% the moment the stick left it.
+      if (fwd > 0.15F || fwd < -0.15F)
+        inThrottle = (fwd > 0.0F ? fwd - 0.15F : fwd + 0.15F) / 0.85F;
       // The drive's BUTTONS are Input Map roles (docs/input-bindings.md), so
       // a project can rebind the throttle - the axes stay the analog stick,
       // because an axis is not an action. Each role falls back to the button
@@ -37938,7 +37942,18 @@ void TerrainGame::updateVehicles(float dt) {
               ? inputPressed(engine->pad, IA_ROLE_VEH_NITROUS)
               : engine->pad.getPressed().Cross)
         inNos = 1;
-      if (inSteer > -0.12F && inSteer < 0.12F) inSteer = 0.0F;
+      // Deadzone RESCALED, then a gentle expo (1.135.3): the old hard 0.12 cut
+      // jumped to 12% steering the moment the stick left it, and a linear
+      // stick gave no fine control around the centre, where a fast car lives.
+      // 35% cubic keeps full lock at full deflection. Digital sources arrive
+      // here as +-1 and are unchanged.
+      {
+        const float a = inSteer < 0.0F ? -inSteer : inSteer;
+        float r = a > 0.12F ? (a - 0.12F) / 0.88F : 0.0F;
+        if (r > 1.0F) r = 1.0F;
+        r = r * 0.65F + r * r * r * 0.35F;
+        inSteer = inSteer < 0.0F ? -r : r;
+      }
     } else if (v.wpCount > 0) {
       // AI DRIVER (docs/vehicles.md): fills the IDENTICAL four numbers the
       // pad fills - the whole reason DriveInput is a struct and not a pad
@@ -38619,6 +38634,23 @@ void TerrainGame::updateVehicles(float dt) {
       auto blockedAt = [&](float bx, float bz, float cc, float ss) {
         return blockedInfoAt(bx, bz, cc, ss, nullptr, nullptr);
       };
+      // SWEPT (1.135.3, the host twin's rule): a step longer than
+      // kVehSweepStep is walked in pieces and stops at the first blocked one.
+      {
+        const float mx = v.pos[0] - prevX, mz = v.pos[2] - prevZ;
+        const float ml = sqrtf(mx * mx + mz * mz);
+        if (ml > kVehSweepStep && blockedInfo(prevX, prevZ, nullptr, nullptr) == 0) {
+          const int n = (int)ceilf(ml / kVehSweepStep);
+          for (int k = 1; k < n; ++k) {
+            const float f = (float)k / (float)n;
+            if (blockedInfo(prevX + mx * f, prevZ + mz * f, nullptr, nullptr) > 0) {
+              v.pos[0] = prevX + mx * f;
+              v.pos[2] = prevZ + mz * f;
+              break;
+            }
+          }
+        }
+      }
       const int nowBlocked =
           blockedInfo(v.pos[0], v.pos[2], nullptr, nullptr);
       if (nowBlocked > 0) {

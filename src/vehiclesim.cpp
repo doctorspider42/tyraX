@@ -16,6 +16,8 @@ constexpr float kWallBounce = 0.15f;
 // and the extra yaw it adds at full steering (degrees/s) - the rear stepping
 // out. Keep in sync with kVehHandbrakeRecover / kVehHandbrakeYaw.
 constexpr float kHandbrakeRecover = 0.35f;
+// Wall moves longer than this (units) are swept in pieces (kVehSweepStep).
+constexpr float kSweepStep = 1.0f;
 constexpr float kHandbrakeYaw = 30.0f;
 // Under the handbrake the yaw cap is this many times the FULL grip's limit
 // (not the handbrake grip's): with kHandbrakeYaw on top, loose enough to
@@ -1067,6 +1069,28 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
         auto blockedAt = [&](float bx, float bz, float cc, float ss) {
             return blockedInfoAt(bx, bz, cc, ss, nullptr, nullptr);
         };
+        // SWEPT (1.135.3): a step longer than kSweepStep is walked in pieces
+        // and stops at the first blocked one, so a fast car on a slow frame
+        // (nitrous at 20 fps is ~4.7 units a step) cannot jump a wall that
+        // lies wholly between two frames. Only the long steps pay for it.
+        {
+            const float mx = vx * dt, mz = vz * dt;
+            const float ml = std::sqrt(mx * mx + mz * mz);
+            if (ml > kSweepStep) {
+                const float bx0 = state.pos[0] - mx, bz0 = state.pos[2] - mz;
+                if (blockedInfo(bx0, bz0, nullptr, nullptr) == 0) {
+                    const int n = (int)std::ceil(ml / kSweepStep);
+                    for (int k = 1; k < n; ++k) {
+                        const float f = (float)k / (float)n;
+                        if (blockedInfo(bx0 + mx * f, bz0 + mz * f, nullptr, nullptr) > 0) {
+                            state.pos[0] = bx0 + mx * f;
+                            state.pos[2] = bz0 + mz * f;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
         const int nowBlocked = blockedInfo(state.pos[0], state.pos[2], nullptr,
                                            nullptr);
         if (nowBlocked > 0) {
