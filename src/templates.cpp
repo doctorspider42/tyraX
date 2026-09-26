@@ -2720,6 +2720,25 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipBag> bag;
   };
   std::vector<LightPool> lightPools;
+  // Scene spot pools that are not carving a shadow this frame, drawn as ONE
+  // bag (docs/flashlight.md, "One bag for the still pools"): their verts and
+  // STQs copied end to end, each lamp's colour times its FIX in the vertex
+  // colours, FIX 128 for the batch. Rewritten only when a member or one of
+  // its source stamps changes, so a still district replays it baked.
+  struct PoolBatch {
+    BagArray<Tyra::Vec4> verts, sts;
+    BagArray<Tyra::Color> colors;
+    Tyra::M4x4 mat;
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::vector<const LightPool*> members;
+    std::vector<float> memberFix;
+    std::vector<unsigned int> key, lastKey;
+  } poolBatch_;
+  void poolBatchAdd(const LightPool& b, float fix);
+  void poolBatchFlush();
   // Optional custom sprite for the flashlight's pool (Player > Flashlight >
   // Pool texture). Cached by path - a scene switch must not re-add the same
   // texture to the repository.
@@ -4521,6 +4540,25 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipBag> bag;
   };
   std::vector<LightPool> lightPools;
+  // Scene spot pools that are not carving a shadow this frame, drawn as ONE
+  // bag (docs/flashlight.md, "One bag for the still pools"): their verts and
+  // STQs copied end to end, each lamp's colour times its FIX in the vertex
+  // colours, FIX 128 for the batch. Rewritten only when a member or one of
+  // its source stamps changes, so a still district replays it baked.
+  struct PoolBatch {
+    BagArray<Tyra::Vec4> verts, sts;
+    BagArray<Tyra::Color> colors;
+    Tyra::M4x4 mat;
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::vector<const LightPool*> members;
+    std::vector<float> memberFix;
+    std::vector<unsigned int> key, lastKey;
+  } poolBatch_;
+  void poolBatchAdd(const LightPool& b, float fix);
+  void poolBatchFlush();
   // Optional custom sprite for the flashlight's pool (Player > Flashlight >
   // Pool texture). Cached by path - a scene switch must not re-add the same
   // texture to the repository.
@@ -15067,6 +15105,78 @@ bool TerrainGame::buildPoolPatch(LightPool& b, float cx, float cz, float r,
   return true;
 }
 
+void TerrainGame::poolBatchAdd(const LightPool& b, float fix) {
+  poolBatch_.members.push_back(&b);
+  poolBatch_.memberFix.push_back(fix);
+}
+
+void TerrainGame::poolBatchFlush() {
+  PoolBatch& pb = poolBatch_;
+  if (pb.members.empty()) return;
+  // One key word run per member: which pool, its two source stamps, its
+  // colour and FIX. Equal to last flush's = the arrays already hold this.
+  pb.key.clear();
+  for (size_t m = 0; m < pb.members.size(); ++m) {
+    const LightPool& b = *pb.members[m];
+    unsigned int w[7];
+    w[0] = (unsigned int)(uintptr_t)&b;
+    w[1] = b.verts.stamp();
+    w[2] = b.sts.stamp();
+    memcpy(&w[3], &b.color.r, 4);
+    memcpy(&w[4], &b.color.g, 4);
+    memcpy(&w[5], &b.color.b, 4);
+    memcpy(&w[6], &pb.memberFix[m], 4);
+    pb.key.insert(pb.key.end(), w, w + 7);
+  }
+  if (!pb.bag) {
+    const LightPool& b0 = *pb.members[0];
+    pb.mat.identity();
+    pb.info = std::make_unique<StaPipInfoBag>();
+    *pb.info = *b0.info;  // TestOnly z, precise culling, clip checks, no relight
+    pb.info->model = &pb.mat;
+    pb.info->shadingType = TyraShadingGouraud;
+    pb.info->additiveBlendFix = 128;
+    pb.info->dateLit = false;
+    pb.colorBag = std::make_unique<StaPipColorBag>();
+    pb.texBag = std::make_unique<StaPipTextureBag>();
+    pb.texBag->texture = b0.texBag->texture;
+    pb.bag = std::make_unique<StaPipBag>();
+    pb.bag->info = pb.info.get();
+    pb.bag->color = pb.colorBag.get();
+    pb.bag->texture = pb.texBag.get();
+    pb.bag->lighting = nullptr;
+  }
+  if (pb.key != pb.lastKey) {
+    pb.verts.clear();
+    pb.sts.clear();
+    pb.colors.clear();
+    for (size_t m = 0; m < pb.members.size(); ++m) {
+      const LightPool& b = *pb.members[m];
+      // The old pass drew Cs * FIX / 128 with Cs = tex * colour / 128; the
+      // batch draws at FIX 128, so FIX / 128 moves into the colour.
+      const float f = pb.memberFix[m] / 128.0F;
+      const Tyra::Color c(b.color.r * f, b.color.g * f, b.color.b * f, 128.0F);
+      const BagArray<Tyra::Vec4>& cv = b.verts;
+      const BagArray<Tyra::Vec4>& cs = b.sts;
+      for (size_t k = 0; k < cv.size(); ++k) {
+        pb.verts.push_back(cv[k]);
+        pb.sts.push_back(cs[k]);
+        pb.colors.push_back(c);
+      }
+    }
+    pb.verts.bind(pb.bag);
+    pb.bag->count = (u32)pb.verts.size();
+    pb.sts.bind(pb.texBag);
+    pb.colors.bind(pb.colorBag);
+    pb.colorBag->single = nullptr;
+    pb.bag->bboxVersion = ++g_bboxStamp;
+    pb.lastKey = pb.key;
+  }
+  stapip.core.render(pb.bag.get());
+  pb.members.clear();
+  pb.memberFix.clear();
+}
+
 void TerrainGame::updateAndRenderLightPools() {
   if (lightPools.empty()) return;
   // Last frame's receivers get their lamp back; this frame's pass re-applies
@@ -15365,6 +15475,9 @@ void TerrainGame::updateAndRenderLightPools() {
   }
 
   for (LightPool& b : lightPools) {
+    // The batch goes out before anything that builds a shadow mask: the
+    // torch, and the one scene spot carving this frame.
+    if (b.objIndex < 0 || b.objIndex == g_spotVolObj) poolBatchFlush();
     if (b.objIndex < 0) {
       // The camera flashlight (docs/flashlight.md). Per-vertex lighting cannot
       // draw a spot smaller than the mesh tessellation, and a terrain cell is
@@ -16530,7 +16643,11 @@ void TerrainGame::updateAndRenderLightPools() {
         fix > 255.0F ? 255 : (fix < 1.0F ? 1 : (u8)fix);
     b.info->dateLit = spotVol;
     if (patchChanged) b.bag->bboxVersion = ++g_bboxStamp;
-    stapip.core.render(b.bag.get());
+    if (!spotVol && d.lightSpot && flashGoboTex &&
+        b.texBag->texture == flashGoboTex && b.colorBag->single != nullptr)
+      poolBatchAdd(b, (float)b.info->additiveBlendFix);
+    else
+      stapip.core.render(b.bag.get());
     // --- the carving spot's RECEIVER pass ----------------------------------
     // The torch's wall pass on a scene lamp (docs/shadows.md): the solids
     // its cone touches - nearest three, the torch's rules - are rendered a
@@ -16712,6 +16829,7 @@ void TerrainGame::updateAndRenderLightPools() {
     // list) clears the mask for its own.
     if (spotVol) rc.alphaMask.repaintAlpha();
   }
+  poolBatchFlush();
 }
 
 // Blob shadows: per-scene setup. A caster is anything that visibly moves -

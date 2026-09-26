@@ -5261,6 +5261,9 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.134.5 - The pools of scene spots that are not carving a shadow draw as
+// one bag (docs/flashlight.md, "One bag for the still pools"). PS2: garage
+// night -0.15 ms, outer night +0.04. PATCH.
 // 1.134.4 - A still scene spot keeps its ground landing and its projective
 // STQ (docs/flashlight.md, "Scene spot pools that do not move"): no cone
 // march and no stamped STQ rewrite a frame. PS2: garage night -0.50 ms.
@@ -5342,7 +5345,7 @@
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 134
-#define TYRAX_VERSION_PATCH 4
+#define TYRAX_VERSION_PATCH 5
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
