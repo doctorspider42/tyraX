@@ -2947,6 +2947,7 @@ void TerrainGame::loop() {
   UPD_LAP(4);
   if (!menuActive) { { Tyra::HardwareTrace::Scope trace("Vehicles_update"); updateVehicles(g_frameScale * (1.0F / 50.0F)); } { Tyra::HardwareTrace::Scope trace("Vehicle_smoke_update"); updateVehicleSmoke(g_frameScale * (1.0F / 50.0F)); } { Tyra::HardwareTrace::Scope trace("Vehicle_skids_update"); updateVehicleSkids(g_frameScale * (1.0F / 50.0F)); } updateVehicleDebris(g_frameScale * (1.0F / 50.0F)); }
   else muteVehicleEngines();
+  applyVehicleEnvLimits();
 
   UPD_LAP(5);
   // Portal surfaces: carry the player / physics objects that crossed a
@@ -18660,6 +18661,28 @@ void TerrainGame::renderVehicleDebris() {
       b.bag->texture = nullptr;
     }
     stapip.core.render(b.bag.get());
+  }
+}
+
+// The shine's matte suffix (VEHICLE_ENV_LIMITS): a shiny part's reflection
+// pass covers its first `count` vertices only, so the dark cabin and trim
+// never catch the sky. Re-asserted every frame because a rebuild or a tier
+// swap re-aims the env bag at the whole array; only tier 0 carries the order.
+void TerrainGame::applyVehicleEnvLimits() {
+  for (int vi = 0; vi < vehicleCount_; ++vi) {
+    const VehicleRt& v = vehicles_[vi];
+    if (!v.active || v.def < 0 || v.object < 0 || v.object >= (int)objectGeometry.size())
+      continue;
+    ObjectGeometry& g = objectGeometry[(size_t)v.object];
+    for (int r = 0; r < VEHICLE_ENV_LIMIT_COUNT; ++r) {
+      const VehicleEnvLimit& el = VEHICLE_ENV_LIMITS[r];
+      if (el.def != v.def || el.part < 0 || el.part >= (int)g.parts.size()) continue;
+      GeoPart& part = g.parts[(size_t)el.part];
+      if (!part.envBag || part.shownLod != 0) continue;
+      const u32 want = (u32)el.count < (u32)part.vertices.size() ? (u32)el.count
+                                                                  : (u32)part.vertices.size();
+      if (part.envBag->count != want) part.envBag->count = want;
+    }
   }
 }
 

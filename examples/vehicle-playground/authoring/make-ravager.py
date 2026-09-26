@@ -42,6 +42,7 @@ Deterministic apart from the AO bake's sampling noise (blurred before use).
 import math
 import os
 import sys
+import types
 
 import bmesh
 import bpy
@@ -65,6 +66,13 @@ XSE = -2.05                  # sail end (buttresses meet the deck)
 XQ = -1.117                  # rear edge of the quarter glass
 XDASH = 0.55                 # interior front (dash) / rear (parcel shelf)
 XSHELF = -1.50
+ARCH_INNER_Y = 0.58
+# Under the bonnet (carkit.build_engine_bay / Atlas.paint_engine, shared with
+# the other lofted cars): a big V8 with black crinkle valve covers, the floor
+# at hub height, the radiator behind the grille.
+BAY = {"x0": XWB - 0.03, "x1": XF - 0.24, "w": ARCH_INNER_Y - 0.04, "z": HUB_Z + 0.10,
+       "engine": True, "radiator": True}
+ENGINE_ACCENT = (215, 92, 22)   # Hemi orange, like the paint
 
 
 def pchip(keys):
@@ -360,6 +368,15 @@ def build_lamps(g):
                "rear lights", "auto", out=(-1, 0, 0))
 
 
+def _kit():
+    """carkit.py, the shared plumbing of the later lofted cars - borrowed for
+    the engine bay only; everything else here stays this file's own."""
+    if HERE not in sys.path:
+        sys.path.insert(0, HERE)
+    import carkit
+    return carkit
+
+
 def build_interior(g):
     wi = lambda x: half_w(x) - 0.13
     zf = 0.42
@@ -407,6 +424,17 @@ def build_interior(g):
         q = [pt(ro, s), pt(ro, s + 1), pt(ri, s + 1), pt(ri, s)]
         g.face(q, "body paint", "cell:intdark", mirror=False, out=tilt @ Vector((1, 0, 0)))
         g.face(q, "body paint", "cell:intdark", mirror=False, out=tilt @ Vector((-1, 0, 0)))
+    # a centre console with a gear lever, a binnacle over the wheel, door
+    # cards with an armrest - all in the dark cells
+    g.box((0.05, 0.0, 0.53), (0.33, 0.085, 0.11), "body paint", "cell:intdark", mirror=False, skip=("-z",))
+    g.box((0.20, 0.0, 0.70), (0.02, 0.015, 0.06), "body paint", "cell:dark", mirror=False, skip=("-z",))
+    g.box((0.20, 0.0, 0.77), (0.03, 0.03, 0.02), "body paint", "cell:dark", mirror=False)
+    g.box((0.33, 0.40, zd + 0.035), (0.07, 0.16, 0.035), "body paint", "cell:dark", mirror=False, skip=("-z",))
+    for (x0, x1) in ((xa, -0.45), (-0.45, xb)):
+        xc = 0.5 * (x0 + x1)
+        zc = 0.5 * (zf + belt(xc)) + 0.06
+        g.box((xc, wi(xc) - 0.03, zc), (0.5 * (x1 - x0) - 0.06, 0.03, 0.025), "body paint",
+              "cell:intdark", skip=("+y",))
     hub = c + tilt @ Vector((0.02, 0, 0))
     g.face([hub + Vector((0, -0.03, 0)), hub + Vector((0, 0.03, 0)), Vector((0.42, 0.43, 0.70)),
             Vector((0.42, 0.37, 0.70))], "body paint", "cell:intdark", mirror=False, out=(-0.5, 0, 1))
@@ -417,7 +445,9 @@ TEX = 256
 SS = 4                       # paint supersampling
 TILE = {                     # name: (u0, v0, w, h) in pixels, v down; world ranges
     "side": ((0, 0, 256, 96), (XR - 0.02, XF + 0.05), (0.14, 1.40)),
-    "top": ((0, 96, 256, 64), (XR - 0.02, XF + 0.05), (0.0, 1.0)),
+    "top": ((0, 96, 192, 64), (XR - 0.02, XF + 0.05), (0.0, 1.0)),
+    # a quarter of the top tile's length went to the engine bay's floor
+    "engine": ((192, 96, 64, 64), (BAY["x0"], BAY["x1"]), (0.0, BAY["w"])),
     "front": ((0, 160, 96, 96), (0.0, 1.0), (0.18, 1.00)),
     "rear": ((96, 160, 96, 96), (0.0, 1.0), (0.18, 1.06)),
 }
@@ -438,8 +468,8 @@ VINYL_C = (26, 26, 27)
 AMBER = (240, 150, 28)
 RED = (190, 22, 20)
 PLATE = (226, 206, 120)
-SEAT = (74, 68, 62)
-INT_C = (46, 43, 40)
+SEAT = (44, 40, 36)          # the cabin is dark on purpose: a lost door or
+INT_C = (27, 25, 23)         # window shows it, and dark hides how little it is
 GLASS_C = (26, 33, 41)       # the "glass window" material's colour
 KEEP_OUT = 0.035             # m, two texels: see the far-model glass below
 LAMP_C = (234, 232, 214)
@@ -451,7 +481,7 @@ def tile_uv(name, a, b):
     if name == "side":   # x left->right = rear->front, z up
         u = u0 + (a - a0) / (a1 - a0) * w
         v = v0 + (1 - (b - b0) / (b1 - b0)) * h
-    elif name == "top":  # x, |y| down from the centre line
+    elif name in ("top", "engine"):  # x, |y| down from the centre line
         u = u0 + (a - a0) / (a1 - a0) * w
         v = v0 + (b - b0) / (b1 - b0) * h
     else:                # |y| from the centre outwards, z up
@@ -468,6 +498,8 @@ def face_uvs(pts, uvmode):
         if z1 - z0 > 0.004:
             return [((x + w * 0.5) / TEX, 1.0 - (y + 1 + (h - 2) * (z1 - p.z) / (z1 - z0)) / TEX)
                     for p in pts], None
+    if uvmode == "tile:engine":
+        return [tile_uv("engine", p.x, abs(p.y)) for p in pts], "engine"
     if uvmode.startswith("cell:"):
         x, y, w, h = CELL_RECT[uvmode[5:]]
         c = ((x + w * 0.5) / TEX, 1.0 - (y + h * 0.5) / TEX)
@@ -496,7 +528,7 @@ def world_grid(name):
     vs = (np.arange(h * SS) + 0.5) / SS
     U, V = np.meshgrid(us, vs)
     A = a0 + U / w * (a1 - a0)
-    if name == "top":
+    if name in ("top", "engine"):
         B = b0 + V / h * (b1 - b0)
     else:
         B = b0 + (1 - V / h) * (b1 - b0)
@@ -780,7 +812,7 @@ def paint_atlas():
     for name, (x, y, w_, h) in CELL_RECT.items():
         sl = (slice(y * SS, (y + h) * SS), slice(x * SS, (x + w_) * SS))
         aomask[sl] = 0.0
-        col = {"black": BLACK, "dark": (10, 10, 11), "int": INT_C, "intdark": (26, 25, 24),
+        col = {"black": BLACK, "dark": (10, 10, 11), "int": INT_C, "intdark": (15, 14, 14),
                "seat": SEAT, "paint": PAINT}.get(name)
         if name == "chrome":
             prof = chrome_ramp(np.linspace(0, 1, h * SS))
@@ -811,6 +843,10 @@ def paint_atlas():
     reg[cap] = chrome_ramp(0.2 + r[cap] * 2.0)
     rgb[sl] = reg
     aomask[sl] = 0.0
+
+    # the three calls carkit's painter makes, answered by this atlas
+    canvas = types.SimpleNamespace(grid=world_grid, view=view, flat=flat)
+    _kit().Atlas.paint_engine(canvas, BAY, ENGINE_ACCENT)
     return rgb, aomask
 
 
@@ -1023,6 +1059,11 @@ def main():
     build_trim(g)
     build_lamps(g)
     build_interior(g)
+
+    class KitGeo:  # carkit's face() takes the material as a keyword
+        def face(self, pts, mat="body paint", uv="auto", mirror=True, out=None):
+            g.face(pts, mat, uv, mirror, out)
+    _kit().build_engine_bay(KitGeo(), sys.modules[__name__], BAY)
     body = to_object(g, "body", {k: mats[k] for k in ("body paint", "glass window", "headlights", "rear lights")})
 
     wg = Geo()

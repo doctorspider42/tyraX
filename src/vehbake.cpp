@@ -1166,13 +1166,37 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
     // strips each piece on its own and pads it to whole runs, so the runtime
     // can remove a piece by collapsing its range without touching a
     // neighbour's triangles. The lamps keep their order (corner ranges).
+    //
+    // The same reorder carries a second group: a SHINY textured part's MATTE
+    // triangles - the ones sampling a near-black texel (cabin, engine bay
+    // walls, black trim) - go LAST, and the runtime draws the part's
+    // reflection pass over the prefix before them only (VEHICLE_ENV_LIMITS).
+    // Without it the paint's sky reflection lit the dark cabin a pale grey
+    // through every lost door and window; with it the env pass also has
+    // fewer vertices to transform.
     std::vector<std::vector<std::pair<int, int>>> pieceTris(out.body.parts.size());
-    for (size_t pi = 0; opt.loosePieces && pi < out.body.parts.size(); ++pi) {
+    const int kMatteGroup = vehiclesim::PieceKindCount;  // the bucket after the pieces
+    for (size_t pi = 0; pi < out.body.parts.size(); ++pi) {
         tmdl::Part& p = out.body.parts[pi];
         if (p.name == "lamps" || p.name == "merged-matte" || !p.ao.empty()) continue;
         const bool allGlass = p.name == "glass";
         const bool palette = p.texture == paletteTex && !paletteTex.empty();
-        std::vector<std::vector<float>> bucket(vehiclesim::PieceKindCount);
+        // The texture a shiny textured part samples, for the matte test.
+        std::vector<unsigned char> img;
+        int iw = 0, ih = 0;
+        if (!p.reflTexture.empty() && !palette && !p.texture.empty())
+            for (const Result::Texture& t : out.textures)
+                if (t.path == p.texture) img = decodeRgba(t.png, iw, ih);
+        if (!opt.loosePieces && img.empty()) continue;
+        auto lum = [&](float u, float v) {
+            u -= std::floor(u);
+            v -= std::floor(v);
+            const int x = std::min(iw - 1, std::max(0, (int)(u * (float)iw)));
+            const int y = std::min(ih - 1, std::max(0, (int)(v * (float)ih)));
+            const unsigned char* c = &img[((size_t)y * iw + x) * 4];
+            return 0.30f * c[0] + 0.59f * c[1] + 0.11f * c[2];
+        };
+        std::vector<std::vector<float>> bucket(vehiclesim::PieceKindCount + 1);
         const size_t nt = p.verts.size() / 24;
         for (size_t t = 0; t < nt; ++t) {
             const float* v = &p.verts[t * 24];
@@ -1187,11 +1211,21 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
                     glass = hit;
                 }
             }
-            const int kind = vehiclesim::classifyTriangle(v, v + 8, v + 16, glass,
-                                                          out.body.min, out.body.max);
+            int kind = opt.loosePieces
+                           ? vehiclesim::classifyTriangle(v, v + 8, v + 16, glass,
+                                                          out.body.min, out.body.max)
+                           : 0;
+            if (!img.empty() && !glass) {
+                const float cu = (v[6] + v[14] + v[22]) / 3.0f, cv = (v[7] + v[15] + v[23]) / 3.0f;
+                float l = lum(cu, cv);
+                for (int c = 0; c < 3; ++c) l = std::max(l, lum(v[c * 8 + 6], v[c * 8 + 7]));
+                // Matte trumps a piece: a door card stays when its skin goes,
+                // which is also what keeps the hole dark.
+                if (l < 42.0f) kind = kMatteGroup;
+            }
             bucket[(size_t)kind].insert(bucket[(size_t)kind].end(), v, v + 24);
         }
-        bool any = false;
+        bool any = bucket[(size_t)kMatteGroup].size() / 24 >= 4;
         for (int k = 1; k < vehiclesim::PieceKindCount; ++k)
             // A piece of a couple of triangles is noise, not a panel.
             if (bucket[(size_t)k].size() / 24 >= 4) any = true;
@@ -1202,7 +1236,7 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
             }
         if (!any) continue;
         p.verts.clear();
-        for (int k = 0; k < vehiclesim::PieceKindCount; ++k) {
+        for (int k = 0; k <= vehiclesim::PieceKindCount; ++k) {
             pieceTris[pi].push_back({(int)(p.verts.size() / 24),
                                      (int)(bucket[(size_t)k].size() / 24)});
             p.verts.insert(p.verts.end(), bucket[(size_t)k].begin(),
@@ -1311,14 +1345,26 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
             if (st.size() < p.verts.size()) {
                 p.stripVerts.swap(st);
                 grouped = true;
-                for (size_t k = 1; k < ranges.size(); ++k)
+                if (groups.size() > (size_t)vehiclesim::PieceKindCount &&
+                    groups[(size_t)vehiclesim::PieceKindCount].second > 0)
+                    out.envLimits.push_back(
+                        {(int)partIdx, ranges[(size_t)vehiclesim::PieceKindCount].first}),
+                    out.envLimitsList.push_back(
+                        {(int)partIdx, groups[(size_t)vehiclesim::PieceKindCount].first * 3});
+                for (size_t k = 1; k < ranges.size() && k < (size_t)vehiclesim::PieceKindCount; ++k)
                     if (ranges[k].second > 0) {
                         out.pieces.push_back({(int)partIdx, (int)k, ranges[k].first,
                                               ranges[k].second});
                         out.pieceLists.push_back({groups[k].first * 3, groups[k].second * 3});
                     }
             } else {
-                for (size_t k = 1; k < groups.size(); ++k)
+                if (groups.size() > (size_t)vehiclesim::PieceKindCount &&
+                    groups[(size_t)vehiclesim::PieceKindCount].second > 0)
+                    out.envLimits.push_back(
+                        {(int)partIdx, groups[(size_t)vehiclesim::PieceKindCount].first * 3}),
+                    out.envLimitsList.push_back(
+                        {(int)partIdx, groups[(size_t)vehiclesim::PieceKindCount].first * 3});
+                for (size_t k = 1; k < groups.size() && k < (size_t)vehiclesim::PieceKindCount; ++k)
                     if (groups[k].second > 0) {
                         out.pieces.push_back({(int)partIdx, (int)k, groups[k].first * 3,
                                               groups[k].second * 3});
@@ -1407,6 +1453,14 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
                                  p.stripAo, meshstrip::Weld::kNoNormal))
                 p.stripRun = meshstrip::kRun;
         }
+    for (const auto& el : out.envLimits) {
+        char b[160];
+        const tmdl::Part& lp = out.body.parts[(size_t)el.first];
+        std::snprintf(b, sizeof(b), "Shine: part %d reflects its first %d of %zu vertices "
+                      "(the dark cabin and trim after them stay matte).", el.first, el.second,
+                      (lp.stripRun ? lp.stripVerts : lp.verts).size() / 8);
+        out.notes.push_back(b);
+    }
     if (!out.pieces.empty()) {
         std::string line = "Loose pieces:";
         for (const vehiclesim::Piece& pc : out.pieces) {
@@ -1720,6 +1774,8 @@ bool adoptMeasured(VehicleDef& v, const Result& r) {
     v.farHideMask = r.farHideMask;
     if (v.pieces != r.pieces) changed = true;
     v.pieces = r.pieces;
+    if (v.envLimits != r.envLimits) changed = true;
+    v.envLimits = r.envLimits;
     return changed;
 }
 

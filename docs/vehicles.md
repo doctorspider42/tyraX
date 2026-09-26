@@ -976,6 +976,31 @@ bonnet flips over the roof and lands in front of the car), the Pica rammed in
 its right side loses its right windows and windscreen, and with *Loose parts*
 3 its right door; 48-50 FPS through it.
 
+**What the holes show.** The three Blender-built cars (Ravager, Pica, Strix -
+`authoring/carkit.py` and `make-ravager.py`) carry an **engine bay** under the
+lid the game can tear off: a floor at hub height wearing a 64x64 engine
+picture (block, valve covers in the car's accent colour, a chrome air cleaner,
+battery, hoses, the radiator on a front engine) and dark inner walls up to just
+under the skin. It is texture, not geometry - the picture took a quarter of the
+top tile's length resolution in the same 256x256 atlas, so it costs no VRAM and
+about 25 triangles. The Strix is mid-engined, so its V12 sits under the rear
+deck and its nose holds a dark luggage well. The cabins are darker than before
+and gained a centre console with a gear lever, a binnacle and door cards with
+an armrest - dark on purpose, because a dark cabin hides how little geometry it
+is. An imported car (CC96, Rally, Tristar) shows its own shell through the hole.
+
+**A shiny car keeps its cabin matte, for free.** The paint's reflection is a
+second pass over the same part, and it used to light the dark cabin and bay a
+pale sky-grey through every lost door and window. The bake now also moves a
+shiny textured part's MATTE triangles - those sampling a near-black texel - to
+the end of the part (after the pieces, a whole strip run of their own), and the
+runtime draws the reflection pass over the prefix only (`VEHICLE_ENV_LIMITS`,
+`applyVehicleEnvLimits`). The Ravager's reflection now covers 2 025 of its
+3 390 body vertices - less VU1 work, not more. A matte door card is never part
+of a door piece, so when a door skin comes off its dark inner panel stays and
+the hole reads dark. The editor viewport draws the same split
+(`viewportBody`).
+
 Limits: the far tier still shows every piece (a few pixels by then), a
 collapsed piece leaves an open hole into the body shell (the Blender-built cars
 show their modelled interior and engine bay through it), debris does not hit

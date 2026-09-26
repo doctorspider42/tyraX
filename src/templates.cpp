@@ -33671,6 +33671,19 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                          << vehiclesim::pieceName(pc.kind) << "\n";
                     ++n;
                 }
+            // The shine's matte suffix: the reflection pass of (def, part)
+            // draws its first `count` vertices only (vehbake, envLimits).
+            std::ostringstream lrows;
+            int ln = 0;
+            for (size_t d = 0; d < defs.size(); ++d)
+                for (const auto& el : defs[d]->envLimits) {
+                    lrows << "    {" << d << ", " << el.first << ", " << el.second << "},\n";
+                    ++ln;
+                }
+            out << "struct VehicleEnvLimit { int def; int part; int count; };\n"
+                << "constexpr int VEHICLE_ENV_LIMIT_COUNT = " << ln << ";\n"
+                << "constexpr VehicleEnvLimit VEHICLE_ENV_LIMITS[" << (ln ? ln : 1) << "] = {\n"
+                << (ln ? lrows.str() : std::string("    {-1, -1, 0}\n")) << "};\n";
             out << "struct VehiclePieceData { int def; int part; int kind; int first; int count; };\n"
                 << "constexpr int VEHICLE_PIECE_COUNT = " << n << ";\n"
                 << "constexpr VehiclePieceData VEHICLE_PIECES[" << (n ? n : 1) << "] = {\n"
@@ -36670,6 +36683,7 @@ static std::string vehicleMembers(const Project& p) {
   void renderVehicleDebris();
   int vehicleDentApply(int vi, const float* dent);
   void updateVehicleDamage(float dt);
+  void applyVehicleEnvLimits();
   void repairVehicle(int vi);
   int vehicleCount_ = 0;
   // The frame's contact candidates for every car (buildVehicleColliders).
@@ -38150,6 +38164,28 @@ void TerrainGame::renderVehicleDebris() {
       b.bag->texture = nullptr;
     }
     stapip.core.render(b.bag.get());
+  }
+}
+
+// The shine's matte suffix (VEHICLE_ENV_LIMITS): a shiny part's reflection
+// pass covers its first `count` vertices only, so the dark cabin and trim
+// never catch the sky. Re-asserted every frame because a rebuild or a tier
+// swap re-aims the env bag at the whole array; only tier 0 carries the order.
+void TerrainGame::applyVehicleEnvLimits() {
+  for (int vi = 0; vi < vehicleCount_; ++vi) {
+    const VehicleRt& v = vehicles_[vi];
+    if (!v.active || v.def < 0 || v.object < 0 || v.object >= (int)objectGeometry.size())
+      continue;
+    ObjectGeometry& g = objectGeometry[(size_t)v.object];
+    for (int r = 0; r < VEHICLE_ENV_LIMIT_COUNT; ++r) {
+      const VehicleEnvLimit& el = VEHICLE_ENV_LIMITS[r];
+      if (el.def != v.def || el.part < 0 || el.part >= (int)g.parts.size()) continue;
+      GeoPart& part = g.parts[(size_t)el.part];
+      if (!part.envBag || part.shownLod != 0) continue;
+      const u32 want = (u32)el.count < (u32)part.vertices.size() ? (u32)el.count
+                                                                  : (u32)part.vertices.size();
+      if (part.envBag->count != want) part.envBag->count = want;
+    }
   }
 }
 
@@ -41460,7 +41496,8 @@ static std::string vehicleUpdateCall(const Project& p) {
            " { Tyra::HardwareTrace::Scope trace(\"Vehicle_skids_update\");"
            " updateVehicleSkids(g_frameScale * (1.0F / 50.0F)); }"
            " updateVehicleDebris(g_frameScale * (1.0F / 50.0F)); }\n"
-           "  else muteVehicleEngines();\n";
+           "  else muteVehicleEngines();\n"
+           "  applyVehicleEnvLimits();\n";
 }
 
 static std::string vehicleRenderCall(const Project& p) {

@@ -3036,6 +3036,13 @@ static void writeVehiclesSection(std::ostream& json, const Project& p) {
                      << v.pieces[k].count << "]";
             json << "]";
         }
+        if (!v.envLimits.empty()) {
+            json << ", \"envLimits\": [";
+            for (size_t k = 0; k < v.envLimits.size(); ++k)
+                json << (k ? ", " : "") << "[" << v.envLimits[k].first << ", "
+                     << v.envLimits[k].second << "]";
+            json << "]";
+        }
         if (!v.fastWheel.empty())
             json << ", \"fastWheel\": \"" << jsonEscape(v.fastWheel)
                  << "\", \"fastWheelTris\": " << v.fastWheelTriBudget;
@@ -3146,6 +3153,12 @@ static void readVehiclesSection(const json::Value& root, Project& out) {
                 pc.count = (int)q.arr[3].numberOr(0.0);
                 if (pc.part >= 0 && pc.kind > 0 && pc.count > 0) v.pieces.push_back(pc);
             }
+        if (const json::Value* el = e.find("envLimits");
+            el && el->type == json::Value::Type::Array)
+            for (const json::Value& q : el->arr)
+                if (q.type == json::Value::Type::Array && q.arr.size() >= 2)
+                    v.envLimits.push_back({(int)q.arr[0].numberOr(-1.0),
+                                           (int)q.arr[1].numberOr(0.0)});
         if (const json::Value* x = e.find("fastWheel")) v.fastWheel = x->stringOr("");
         if (const json::Value* x = e.find("fastWheelTris"))
             v.fastWheelTriBudget = (int)x->numberOr(120);

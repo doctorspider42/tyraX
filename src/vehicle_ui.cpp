@@ -62,6 +62,31 @@ std::string uniqueName(const std::vector<VehicleDef>& defs, const std::string& b
     return base;
 }
 
+// What the viewport draws for a body: the bake's model, with every shiny part
+// that has a matte suffix (vehbake envLimits) split in two - the prefix keeps
+// its reflection, the suffix is appended as a matte part - so the preview's
+// cabin stays dark the way the console's env pass leaves it. Appended, so the
+// lamp and glass part indices the viewport is handed stay valid.
+tmdl::Model viewportBody(const tmdl::Model& body, const vehbake::Result& r) {
+    tmdl::Model m = body;
+    for (const auto& el : r.envLimitsList) {
+        if (el.first < 0 || el.first >= (int)m.parts.size()) continue;
+        tmdl::Part& p = m.parts[(size_t)el.first];
+        const size_t cut = (size_t)el.second * 8;
+        if (cut >= p.verts.size()) continue;
+        tmdl::Part matte = p;
+        matte.name += "-matte";
+        matte.reflTexture.clear();
+        matte.reflStrength = 0.0f;
+        matte.verts.assign(p.verts.begin() + (long)cut, p.verts.end());
+        matte.stripVerts.clear();
+        matte.lods.clear();
+        p.verts.resize(cut);
+        m.parts.push_back(std::move(matte));
+    }
+    return m;
+}
+
 }  // namespace
 
 bool App::vehicleBodyBounds(const SceneObject& o, float* mn, float* mx) {
@@ -183,7 +208,7 @@ void App::vehicleRefreshBake(int index, bool force) {
     // Hand the geometry to the viewport so a placed instance draws. The
     // viewport gets the IN-MEMORY bake rather than re-reading the files: one
     // bake, and no .tmdl reader on the host that would have to agree with it.
-    viewport_.setVehicleDraw(v.name, c.result.body, c.result.wheel,
+    viewport_.setVehicleDraw(v.name, viewportBody(c.result.body, c.result), c.result.wheel,
                              ".res-baked/" + rel + "-palette.png", v.drive.wheelBase,
                              v.drive.track, v.drive.wheelRadius, v.drive.rideHeight,
                              c.result.lampPart, c.result.lampRearVerts);
@@ -268,7 +293,7 @@ void App::vehicleDamagePreviewHit(const VehicleDef& v, const vehiclesim::Impact&
         collapse(dst.verts, r.pieceLists[k].first, r.pieceLists[k].second);
         if (dst.stripRun) collapse(dst.stripVerts, pc.first, pc.count);
     }
-    viewport_.setVehicleDraw(v.name, vehDmgPreviewBody_, r.wheel,
+    viewport_.setVehicleDraw(v.name, viewportBody(vehDmgPreviewBody_, r), r.wheel,
                              ".res-baked/vehicles/veh-" + v.id + "-palette.png",
                              v.drive.wheelBase, v.drive.track, v.drive.wheelRadius,
                              v.drive.rideHeight, r.lampPart, r.lampRearVerts);
@@ -288,7 +313,7 @@ void App::vehicleDamagePreviewReset() {
         auto it = vehicleBakes_.find(v.id);
         if (it == vehicleBakes_.end() || !it->second.ok) return;
         const vehbake::Result& r = it->second.result;
-        viewport_.setVehicleDraw(v.name, r.body, r.wheel,
+        viewport_.setVehicleDraw(v.name, viewportBody(r.body, r), r.wheel,
                                  ".res-baked/vehicles/veh-" + v.id + "-palette.png",
                                  v.drive.wheelBase, v.drive.track, v.drive.wheelRadius,
                                  v.drive.rideHeight, r.lampPart, r.lampRearVerts);

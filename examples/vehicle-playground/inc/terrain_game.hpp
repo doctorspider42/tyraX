@@ -1057,6 +1057,7 @@ class TerrainGame : public Tyra::Game {
   void renderVehicleDebris();
   int vehicleDentApply(int vi, const float* dent);
   void updateVehicleDamage(float dt);
+  void applyVehicleEnvLimits();
   void repairVehicle(int vi);
   int vehicleCount_ = 0;
   // The frame's contact candidates for every car (buildVehicleColliders).

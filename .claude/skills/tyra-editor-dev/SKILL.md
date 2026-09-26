@@ -2416,7 +2416,13 @@ change to meshstrip's run packing) must keep that - or collapsing a bonnet
 tears a triangle out of the fender next to it. `vehiclePiecesCollapse` must run
 after every write that could re-grow a lost piece (a dent, a re-capture).
 Debris lives in `vehDebris_` / `vehDebrisBatches_` (one world-space bag per
-texture, rebuilt only while dirty).
+texture, rebuilt only while dirty), kicked by cars, turned off collision boxes
+and deleted past 60 units from the camera. The same reorder puts a shiny
+textured part's matte (near-black texel) triangles LAST, and
+`applyVehicleEnvLimits` shortens that part's env bag to the prefix every frame
+(`VEHICLE_ENV_LIMITS`) - a rebuild or tier swap resets the count, which is why
+it is re-asserted rather than set once. The editor mirrors it by splitting the
+part in `viewportBody` (vehicle_ui.cpp).
 
 ## Vehicle bank and suspension invariants
 

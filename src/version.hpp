@@ -5780,7 +5780,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // definition's bake-measured "pieces" list (written only when non-empty).
 // Missing = Loose parts 1 and no pieces until the next bake measures them.
 // Additive; no migration step.
-inline constexpr int kFormatVersion = 71;
+// v72: a definition's bake-measured "envLimits" (the shine's matte suffix,
+// docs/vehicles.md "Loose panels and glass"), written only when non-empty.
+// Missing = the reflection covers the whole part until the next bake.
+// Additive; no migration step.
+inline constexpr int kFormatVersion = 72;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

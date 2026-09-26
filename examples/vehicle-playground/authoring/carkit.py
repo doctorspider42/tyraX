@@ -162,14 +162,24 @@ KEEP_OUT = 0.035   # m: far-only paint stays this far inside the edges the full
 
 class Atlas:
     """The 256x256 layout every car here shares: side (x, z) 256x96, top
-    (x, |y|) 256x64, front and rear (|y|, z) 96x96, seven 32x24 cells and the
-    far model's wheel face in the eighth slot. `cells` names the seven cells;
-    `ramps` maps the ones drawn as a vertical ramp to a colour function."""
+    (x, |y|) 192x64, the ENGINE BAY floor (x, |y|) 64x64 beside it, front and
+    rear (|y|, z) 96x96, seven 32x24 cells and the far model's wheel face in
+    the eighth slot. `cells` names the seven cells; `ramps` maps the ones drawn
+    as a vertical ramp to a colour function. `bay` is the car's BAY dict
+    (build_engine_bay): the engine tile spans its floor."""
 
-    def __init__(self, xr, xf, side_z, front_z, rear_z, half_w, cells, ramps, colours):
+    def __init__(self, xr, xf, side_z, front_z, rear_z, half_w, cells, ramps, colours,
+                 bay=None):
+        # The top tile gave a quarter of its length resolution to the engine
+        # bay: a bonnet can come off in the game (docs/vehicles.md, "Loose
+        # panels and glass"), and what is under it is a 64x64 picture, not
+        # geometry - no VRAM, no triangles beyond the bay's own few.
+        bx = (bay["x0"], bay["x1"]) if bay else (0.0, 1.0)
+        bw = bay["w"] if bay else 1.0
         self.tile = {
             "side": ((0, 0, 256, 96), (xr - 0.02, xf + 0.05), side_z),
-            "top": ((0, 96, 256, 64), (xr - 0.02, xf + 0.05), (0.0, half_w)),
+            "top": ((0, 96, 192, 64), (xr - 0.02, xf + 0.05), (0.0, half_w)),
+            "engine": ((192, 96, 64, 64), bx, (0.0, bw)),
             "front": ((0, 160, 96, 96), (0.0, half_w), front_z),
             "rear": ((96, 160, 96, 96), (0.0, half_w), rear_z),
         }
@@ -187,7 +197,7 @@ class Atlas:
     def tile_uv(self, name, a, b):
         (u0, v0, w, h), (a0, a1), (b0, b1) = self.tile[name]
         u = u0 + (a - a0) / (a1 - a0) * w
-        if name == "top":
+        if name in ("top", "engine"):
             v = v0 + (b - b0) / (b1 - b0) * h
         else:
             v = v0 + (1 - (b - b0) / (b1 - b0)) * h
@@ -211,7 +221,7 @@ class Atlas:
             t = uvmode[5:]
             if t in ("front", "rear"):
                 return [self.tile_uv(t, abs(p.y), p.z) for p in pts], t
-            if t == "top":
+            if t in ("top", "engine"):
                 return [self.tile_uv(t, p.x, abs(p.y)) for p in pts], t
             return [self.tile_uv(t, p.x, p.z) for p in pts], t
         n = Vector((0, 0, 0))
@@ -243,7 +253,7 @@ class Atlas:
         vs = (np.arange(h * SS) + 0.5) / SS
         U, V = np.meshgrid(us, vs)
         A = a0 + U / w * (a1 - a0)
-        B = b0 + (V / h if name == "top" else (1 - V / h)) * (b1 - b0)
+        B = b0 + (V / h if name in ("top", "engine") else (1 - V / h)) * (b1 - b0)
         return A, B
 
     def view(self, name):
@@ -310,6 +320,60 @@ class Atlas:
         up = (cy - py) / rr
         self.rgb[sl] = face_fn(r, ang, up)
         self.aomask[sl] = 0.0
+
+    def paint_engine(self, bay, accent=(150, 28, 24)):
+        """The picture under the bonnet, painted in the bay's own world
+        coordinates (x along the car, |y| from the centre line - the floor is
+        mirrored, so everything is symmetric): a dark bay, the block with two
+        ribbed valve covers in the car's accent colour, a chrome air cleaner,
+        hoses, a battery and, for a front engine, the radiator. No baked AO -
+        the bonnet above it would bake it black - but its own shading."""
+        X, Y = self.grid("engine")
+        x0, x1, w = bay["x0"], bay["x1"], bay["w"]
+        L = abs(x1 - x0)
+        u = (X - x0) / (x1 - x0)             # 0 firewall .. 1 the far end
+        base = np.full(X.shape + (3,), 26.0, np.float32)
+        base += grain(X.shape, 11, 10.0)[..., None]
+        edge = np.minimum(np.minimum(u, 1.0 - u) * L, w - Y) / 0.12
+        base *= (0.55 + 0.45 * np.clip(edge, 0, 1))[..., None]
+        t = self.view("engine")
+        t[:] = base
+        m = lambda mask: mask.astype(np.float32)[..., None]
+        front = bay.get("radiator", True)
+        # the block, in u (along the bay) and Y (across it)
+        u0b, u1b = 0.12, 1.0 - (0.30 if front else 0.12)
+        block = (u > u0b) & (u < u1b) & (Y < 0.62 * w)
+        shade = 96 + 34 * np.clip(1.0 - Y / (0.62 * w), 0, 1)
+        t[:] = t * (1 - m(block)) + np.stack([shade, shade * 1.02, shade * 1.06], -1) * m(block)
+        # valve covers, ribbed
+        du = 0.04 / L
+        vc = (u > u0b + du) & (u < u1b - du) & (Y > 0.18 * w) & (Y < 0.50 * w)
+        rib = 0.78 + 0.22 * (np.sin(X * 90.0) > 0)
+        col = np.asarray(accent, np.float32)[None, None, :] * rib[..., None]
+        t[:] = t * (1 - m(vc)) + col * m(vc)
+        # the air cleaner: a chrome disc on the centre line
+        cxw = x0 + 0.5 * (u0b + u1b) * (x1 - x0)
+        r = np.hypot(X - cxw, Y) / (0.30 * w)
+        disc = r < 1.0
+        ring = np.clip(1.0 - np.abs(r - 0.85) / 0.15, 0, 1)
+        chrome = 120 + 110 * (1.0 - r) + 40 * ring
+        t[:] = t * (1 - m(disc)) + np.stack([chrome] * 3, -1) * m(disc)
+        t[:] *= (1.0 - 0.6 * m(disc & (r < 0.18)))
+        # hoses: two dark runs from the block to the far end
+        for yy in (0.25 * w, 0.40 * w):
+            hose = (np.abs(Y - yy) < 0.018) & (u > u1b) & (u < 1.0 - 0.04 / L)
+            t[:] = t * (1 - m(hose)) + np.asarray((16, 16, 17), np.float32) * m(hose)
+        # battery: a black box, red terminal, by the firewall
+        bat = (u > 0.05 / L) & (u < 0.05 / L + 0.22) & (Y > 0.70 * w) & (Y < 0.92 * w)
+        t[:] = t * (1 - m(bat)) + np.asarray((18, 18, 19), np.float32) * m(bat)
+        term = bat & (np.hypot((u - 0.10 / L) * L, Y - 0.76 * w) < 0.02)
+        t[:] = t * (1 - m(term)) + np.asarray((170, 30, 24), np.float32) * m(term)
+        if front:
+            # the radiator across the front: dark fins
+            rad = u > 1.0 - 0.09 / L
+            fins = 22 + 22 * (np.sin(Y * 160.0) > 0.3)
+            t[:] = t * (1 - m(rad)) + np.stack([fins] * 3, -1) * m(rad)
+        self.flat("engine", np.ones(X.shape, bool))
 
     def finish(self, ao):
         img = self.rgb.reshape(TEX, SS, TEX, SS, 3).mean(axis=(1, 3))
@@ -504,6 +568,58 @@ def build_interior(g, C, I):
         q = [pt(ro, s), pt(ro, s + 1), pt(ri, s + 1), pt(ri, s)]
         g.face(q, uv="cell:intdark", mirror=False, out=tilt @ Vector((1, 0, 0)))
         g.face(q, uv="cell:intdark", mirror=False, out=tilt @ Vector((-1, 0, 0)))
+    # A little more cabin for what a lost door or window now shows: a centre
+    # console with a gear lever, an instrument binnacle over the wheel, door
+    # cards with an armrest and a pull. All in the dark cells - a darker
+    # cabin hides how little geometry it is.
+    cx0, cx1 = sx - 0.30, xd - 0.02
+    g.box((0.5 * (cx0 + cx1), 0.0, zf + 0.11), (0.5 * (cx1 - cx0), 0.085, 0.11),
+          uv="cell:intdark", mirror=False, skip=("-z",))
+    g.box((sx + 0.22, 0.0, zf + 0.27), (0.02, 0.015, 0.06), uv="cell:dark", mirror=False, skip=("-z",))
+    g.box((sx + 0.22, 0.0, zf + 0.34), (0.03, 0.03, 0.02), uv="cell:dark", mirror=False)
+    wy = I["wheel"][1]
+    g.box((xd + 0.03, wy, zd + 0.035), (0.07, 0.15, 0.035), uv="cell:dark", mirror=False, skip=("-z",))
+    for (x0, x1) in ((xa, xm), (xm, xb)):
+        xc = 0.5 * (x0 + x1)
+        zc = 0.5 * (zf + C.belt(xc)) + 0.06
+        g.box((xc, wi(xc) - 0.03, zc), (0.5 * (x1 - x0) - 0.06, 0.03, 0.025), uv="cell:intdark",
+              skip=("+y",))
+        g.box((xc, wi(xc) - 0.012, zc + 0.12), (0.10, 0.012, 0.012), uv="cell:dark", skip=("+y",))
+
+
+def surface_z(C, x, y):
+    """Height of the car's outer skin at (x, |y|): the highest crossing of
+    the half section at station x - what an inner wall has to stay under."""
+    sec = C.section(x)
+    best = None
+    for (y0, z0), (y1, z1) in zip(sec, sec[1:]):
+        if (y0 - y) * (y1 - y) <= 0 and abs(y1 - y0) > 1e-6:
+            z = z0 + (z1 - z0) * (y - y0) / (y1 - y0)
+            best = z if best is None else max(best, z)
+    return best if best is not None else max(z for _, z in sec)
+
+
+def build_engine_bay(g, C, B):
+    """What a lost bonnet (or boot lid) leaves: a floor carrying the engine
+    tile (or a dark one), and dark inner walls up to just under the skin, so
+    the hole shows an engine bay instead of the inside of the body shell.
+    B: x0 / x1 (the ends, firewall first), w (half width), z (floor height),
+    engine (paint the engine tile on the floor), radiator (a front engine)."""
+    x0, x1, w, zf = B["x0"], B["x1"], B["w"], B["z"]
+    lo, hi = min(x0, x1), max(x0, x1)
+    uv = "tile:engine" if B.get("engine", True) else "cell:dark"
+    g.face([(lo, 0, zf), (hi, 0, zf), (hi, w, zf), (lo, w, zf)], uv=uv, out=(0, 0, 1))
+    n = 6
+    xs = [lo + (hi - lo) * i / n for i in range(n + 1)]
+    for xa, xb in zip(xs, xs[1:]):  # the inner fender, following the skin
+        za, zb = surface_z(C, xa, w) - 0.03, surface_z(C, xb, w) - 0.03
+        g.face([(xa, w, zf), (xb, w, zf), (xb, w, zb), (xa, w, za)], uv="cell:dark", out=(0, -1, 0))
+    ys = [w * i / 3 for i in range(4)]
+    for xe, sgn in ((lo, 1), (hi, -1)):  # the two end walls
+        for ya, yb in zip(ys, ys[1:]):
+            za, zb = surface_z(C, xe, ya) - 0.03, surface_z(C, xe, yb) - 0.03
+            g.face([(xe, ya, zf), (xe, yb, zf), (xe, yb, zb), (xe, ya, za)], uv="cell:dark",
+                   out=(sgn, 0, 0))
 
 
 # --- wheel ------------------------------------------------------------------------
@@ -777,6 +893,8 @@ def main(C):
     C.build_trim(g)
     C.build_lamps(g)
     build_interior(g, C, C.INTERIOR)
+    for bay in getattr(C, "BAYS", []):
+        build_engine_bay(g, C, bay)
     body = to_object(g, "body", mats, atlas)
 
     wg = Geo()
@@ -787,6 +905,9 @@ def main(C):
 
     atlas.begin(C.COLOURS["paint"])
     C.paint(atlas)
+    for bay in getattr(C, "BAYS", []):
+        if bay.get("engine", True):
+            atlas.paint_engine(bay, getattr(C, "ENGINE_ACCENT", (150, 28, 24)))
     atlas.paint_cells()
     atlas.paint_wheel_face(C.wheel_face)
     ao = np.ones((TEX, TEX), np.float32)

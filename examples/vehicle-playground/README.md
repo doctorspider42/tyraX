@@ -213,6 +213,14 @@ wall: the log says `VEHDMG <car> hit dv10 ... dmg100 ...`, the front crumples,
 the headlamps go out and the HUD reads `DMG n`. A few more hits pass 50% and
 the bonnet smokes; Select repairs it. Parked cars dent too when rammed.
 
+A hard hit also tears the bonnet, boot or a door off and shatters the windows
+it reaches. The Ravager, Pica and Strix show an engine bay under the lost lid
+(the Strix's V12 is under its rear deck) and a dark cabin through a lost door;
+debris can be driven into and is deleted 60 units from the camera. The three
+bodies are rebuilt with `blender -b --factory-startup --python
+authoring/make-<car>.py` and then `make-<car>-far.py` (the far model wears the
+full model's atlas); Blender needs numpy (`python3-numpy` on a distro build).
+
 ## Hybrid colour and fast wheels
 
 The project renders in the **hybrid** colour depth: every frame draws into one

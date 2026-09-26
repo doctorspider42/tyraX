@@ -769,44 +769,54 @@ constexpr VehicleDefData VEHICLE_DEFS[6] = {
     {19, 20, "vehicles/veh-ggbotrally0001-shadow.png", 2.733F, 1.562F, 0.3F, 0.341F, 26.0F, 6.0F, 10.0F, 18.0F, 3.0F, 0.0016F, 34.0F, 11.0F, 220.0F, 300.0F, 22.0F, 5.0F, 24.0F, 0.341F, 0.26F, 8.0F, 0.5F, 12.0F, 0.35F, 5.0F, 1.28F, 800.0F, 7200.0F, 0.95F, 0.48F, 0.1F, 0.35F, 4.0F, 0.8F, 1.18F, 0.12F, 45.0F, 1.0F, 5.0F, 0.35F, 1.1F, 0.45F, 0.5F, 1.0F, 6.5F, 2.2F, 12.0F, {-1.4F, 0.0F, 0.0F}, 0, 0.75F, 2.4F, 70, 1, 2, 3, 80, 80, 0, {0.0F, 0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0, 0, 3.6F, 27, "", "", -1, 128.0F, 0, 0, 48.0F, 0.0F},  // Rally 04
     {21, 22, "vehicles/veh-tristarplay01-shadow.png", 2.354F, 1.555F, 0.3F, 0.31F, 32.0F, 6.0F, 12.0F, 18.0F, 3.0F, 0.0016F, 34.0F, 12.0F, 220.0F, 300.0F, 29.0F, 6.0F, 24.0F, 0.31F, 0.18F, 8.0F, 0.5F, 12.0F, 0.25F, 5.0F, 1.28F, 800.0F, 7200.0F, 0.95F, 0.48F, 0.1F, 0.35F, 4.0F, 0.8F, 1.18F, 0.18F, 0.0F, 1.0F, 5.0F, 0.35F, 1.1F, 0.45F, 0.5F, 1.0F, 6.5F, 2.2F, 12.0F, {-1.4F, 0.0F, 0.0F}, 0, 0.75F, 2.4F, 70, 1, 2, 3, 80, 80, 0, {0.0F, 0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0, 0, 3.6F, -1, "", "", -1, 128.0F, 1, 0, 48.0F, 0.0F},  // Tristar Racer
 };
+struct VehicleEnvLimit { int def; int part; int count; };
+constexpr int VEHICLE_ENV_LIMIT_COUNT = 6;
+constexpr VehicleEnvLimit VEHICLE_ENV_LIMITS[6] = {
+    {0, 1, 4650},
+    {1, 2, 2025},
+    {2, 2, 1725},
+    {3, 2, 2025},
+    {4, 0, 612},
+    {5, 1, 1674},
+};
 struct VehiclePieceData { int def; int part; int kind; int first; int count; };
 constexpr int VEHICLE_PIECE_COUNT = 35;
 constexpr VehiclePieceData VEHICLE_PIECES[35] = {
-    {0, 1, 1, 3450, 450},  // bonnet
-    {0, 1, 2, 3900, 375},  // boot
-    {0, 1, 3, 4275, 300},  // left door
-    {0, 1, 4, 4575, 228},  // right door
+    {0, 1, 1, 3300, 375},  // bonnet
+    {0, 1, 2, 3675, 375},  // boot
+    {0, 1, 3, 4050, 300},  // left door
+    {0, 1, 4, 4350, 300},  // right door
     {1, 1, 5, 0, 54},  // windscreen
     {1, 1, 6, 54, 72},  // rear window
     {1, 1, 7, 126, 39},  // left windows
     {1, 1, 8, 165, 39},  // right windows
-    {1, 2, 1, 2100, 450},  // bonnet
-    {1, 2, 2, 2550, 300},  // boot
-    {1, 2, 3, 2850, 75},  // left door
-    {1, 2, 4, 2925, 84},  // right door
+    {1, 2, 1, 1200, 375},  // bonnet
+    {1, 2, 2, 1575, 300},  // boot
+    {1, 2, 3, 1875, 75},  // left door
+    {1, 2, 4, 1950, 75},  // right door
     {2, 1, 5, 0, 51},  // windscreen
     {2, 1, 6, 51, 96},  // rear window
     {2, 1, 7, 147, 42},  // left windows
     {2, 1, 8, 189, 39},  // right windows
-    {2, 2, 1, 1875, 375},  // bonnet
-    {2, 2, 2, 2250, 300},  // boot
-    {2, 2, 3, 2550, 75},  // left door
-    {2, 2, 4, 2625, 72},  // right door
+    {2, 2, 1, 975, 375},  // bonnet
+    {2, 2, 2, 1350, 225},  // boot
+    {2, 2, 3, 1575, 75},  // left door
+    {2, 2, 4, 1650, 75},  // right door
     {3, 1, 5, 0, 42},  // windscreen
     {3, 1, 6, 42, 60},  // rear window
     {3, 1, 7, 102, 33},  // left windows
     {3, 1, 8, 135, 33},  // right windows
-    {3, 2, 1, 2025, 525},  // bonnet
-    {3, 2, 2, 2550, 375},  // boot
-    {3, 2, 3, 2925, 150},  // left door
-    {3, 2, 4, 3075, 93},  // right door
-    {4, 0, 1, 996, 96},  // bonnet
+    {3, 2, 1, 1200, 375},  // bonnet
+    {3, 2, 2, 1575, 300},  // boot
+    {3, 2, 3, 1875, 75},  // left door
+    {3, 2, 4, 1950, 75},  // right door
+    {4, 0, 1, 552, 60},  // bonnet
     {5, 0, 6, 0, 36},  // rear window
     {5, 0, 8, 36, 18},  // right windows
-    {5, 1, 1, 1899, 117},  // bonnet
-    {5, 1, 2, 2016, 150},  // boot
-    {5, 1, 3, 2166, 87},  // left door
-    {5, 1, 4, 2253, 60},  // right door
+    {5, 1, 1, 1326, 75},  // bonnet
+    {5, 1, 2, 1401, 144},  // boot
+    {5, 1, 3, 1545, 69},  // left door
+    {5, 1, 4, 1614, 60},  // right door
 };
 
 // Roads (docs/roads.md): points in, geometry at boot.

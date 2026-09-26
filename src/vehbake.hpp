@@ -185,6 +185,10 @@ struct Result {
     // The same pieces as ranges of each part's LIST (`verts`), which is what
     // the editor viewport draws - host-only, the game never sees it.
     std::vector<std::pair<int, int>> pieceLists;
+    // {part, vertices}: a shiny part's reflection pass covers only its first
+    // `vertices` (the matte suffix after them is the dark cabin and trim).
+    std::vector<std::pair<int, int>> envLimits;
+    std::vector<std::pair<int, int>> envLimitsList;  // the same, in `verts` (host-only)
 
     std::vector<std::string> notes;
 };
