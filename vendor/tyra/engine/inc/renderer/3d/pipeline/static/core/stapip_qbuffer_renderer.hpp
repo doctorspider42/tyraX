@@ -183,9 +183,15 @@
  * once per (model matrix, light) pair instead of once per bag. The cache key is
  * the matrix values and every light field, compared bit for bit, so a hit is
  * the same arithmetic on the same inputs.
+ *
+ * OFF: a DEAD END on the console. One ELF, mode 2 against mode 0, `work`
+ * +0.006 / +0.062 / +0.125 / +0.089 ms (garage day, garage night, outer day,
+ * outer night) - the key compare (16 matrix words + the light, cold in the
+ * D-cache) and the result copy cost more than the inverse they skip.
+ * docs/ee-submission-rearchitecture.md, "Round six".
  */
 #ifndef TYRA_STAPIP_SPOT_CACHE
-#define TYRA_STAPIP_SPOT_CACHE 1
+#define TYRA_STAPIP_SPOT_CACHE 0
 #endif
 /**
  * Modified by TyraX: skip the three spot-light quadwords for a bag the spot

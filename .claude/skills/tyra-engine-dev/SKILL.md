@@ -2558,6 +2558,11 @@ must keep:
   treatment. Symptom and bisection recipe: docs/roads.md, "Holes in the road".
 - **`popEnvView` restores the frustum planes its push saved**; it no longer
   rebuilds them from the caller's camera (the shadow pass passed no `up`).
+- **Caching per-bag EE arithmetic behind a content key can LOSE on the
+  console.** The spot-light cache (round six, `TYRA_STAPIP_SPOT_CACHE`, off)
+  compared 16 matrix words plus the light to skip an inverse and three
+  divides, and measured +0.006..+0.125 ms of `work`. PCSX2 has no D-cache and
+  cannot show this, so price such a cache on hardware before keeping it.
 - **A bag's uniform groups are REF'd from retained copies** (round six,
   `TYRA_STAPIP_RETAINED_UNIFORMS`; docs/ee-submission-rearchitecture.md). A
   hit is a byte compare of the freshly built group against the copy, so adding

@@ -254,12 +254,12 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   `vif_wait`. **Built, PCSX2-verified, console pending (branch
   `ee-bag-uniforms`, "Round six"):** the light and material groups are REF'd
   from a retained per-bag copy when their freshly built bytes match it (the key
-  is the output, so no input can be missed), the spot light is cached per
-  (model matrix, light), an inactive spot's quads and a non-clipping bag's clip
-  block are no longer sent. Owed: the one-ELF console series
-  (`arms/bag2-ab-release-timing`, `bag2-series.sh`; the first arm's boot hung
-  in scene load before the code ran, see "Round six") and a night failure-rate
-  check for the copy lifetime. Still left: the MVP (inline by design), the
+  is the output, so no input can be missed), and an inactive spot's quads and a
+  non-clipping bag's clip block are no longer sent. The spot-light cache was
+  measured on the console and is SLOWER (+0.006..+0.125 ms `work`), so it is
+  off. Owed: the one-ELF console series (`arms/bag3-ab-release-timing`,
+  `bag3-all.sh`; the first arm's boot hung in scene load before the code ran,
+  see "Round six") and a night failure-rate check for the copy lifetime. Still left: the MVP (inline by design), the
   build itself (the same loads as before), and the in-chain wrap write, which
   still uses packet2.
 - **The DMAC-interrupt variant** (`TYRA_VIF1_QUEUE_ISR 1`) crashes a real PS2
@@ -492,9 +492,12 @@ cover, in order of what would pay:
   of keying the inputs settles the texture-address case (eviction changes the
   TEX0 word) without an eviction-specific key. An eviction stress on the
   console is still owed, because the district fixture evicts nothing.
-- ~~**`buildSpotForBag` runs an affine inverse per bag per frame**~~ **BUILT
-  (`TYRA_STAPIP_SPOT_CACHE`, round six):** the result is cached per (model
-  matrix, light), keyed bitwise on both.
+- **`buildSpotForBag` runs an affine inverse per bag per frame - caching it is
+  a DEAD END** (`TYRA_STAPIP_SPOT_CACHE`, round six, off). A bitwise key over
+  the model matrix and the light measured +0.006 / +0.062 / +0.125 / +0.089 ms
+  of `work` on the console. The key's cold loads cost more than the
+  arithmetic. Only a key the caller keeps (a pointer plus a generation stamp)
+  could pay.
 - **The hardware number.** Everything measured for this change is PCSX2 and
   counts. PCSX2 emulates no EE data cache, and this change trades computing
   bytes for reading them out of a cold 128 KB arena, so the emulator sees the

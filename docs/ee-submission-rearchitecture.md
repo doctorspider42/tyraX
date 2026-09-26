@@ -1373,8 +1373,8 @@ working notes; re-run the route probe on top of it before trying again.
 
 Round five ended on "only NOT building, and NOT writing, the block helps".
 This round stops writing most of it. Four changes in `sendObjectData`
-(`stapip_qbuffer_renderer.{hpp,cpp}`), each behind its own flag, all on by
-default and all selectable at boot in one ELF (below).
+(`stapip_qbuffer_renderer.{hpp,cpp}`), each behind its own flag, selectable at boot in one ELF
+(below). Three are on by default; the spot cache (2) measured slower and is off.
 
 **1. Retained per-bag uniform blocks (`TYRA_STAPIP_RETAINED_UNIFORMS`).** The
 uniform tail is two groups: the LIGHT group (a lit bag's light matrix,
@@ -1425,11 +1425,19 @@ camera.
   1.0 us against 0.17 us hot. PCSX2 has no data cache, so only the console can
   say whether reading a clean copy beats writing a dirty line.
 
-**2. The spot cache (`TYRA_STAPIP_SPOT_CACHE`).** `buildSpotForBag` ran an
-affine inverse, a square root and three divisions per unlit bag. Its result
-is now kept for the last (model matrix, light) pair. The key is the 16 matrix
-words and every light field, compared bitwise, so a hit is the same arithmetic
-on the same bits. Consecutive parts of one model hit.
+**2. The spot cache (`TYRA_STAPIP_SPOT_CACHE`) - a DEAD END, off.**
+`buildSpotForBag` runs an affine inverse, a square root and three divisions per
+unlit bag. The cache kept its result for the last (model matrix, light) pair,
+keyed bitwise on the 16 matrix words and every light field. **Physical PS2,
+one ELF, mode 2 (the cache alone) against mode 0, `work`: +0.006 / +0.062 /
++0.125 / +0.089 ms** (garage day, garage night, outer day, outer night; one
+candidate boot between two control boots, because the console dropped off
+ps2link before the second one). It is slower everywhere. The compare reads
+the bag's model matrix and the picked light, plus the cache's own copies,
+and copies the result out. On a console, loads that miss the cache cost
+more than the ~60 flops and three divides they replace. The code stays behind
+the flag, default 0. Do not revive it without a cheaper key (for example a
+model-pointer-and-generation stamp that the caller maintains).
 
 **3. No spot quads for a bag the spot does not reach
 (`TYRA_STAPIP_SKIP_INACTIVE_SPOT`).** Since 1.94.0 the colour programs branch
@@ -1469,8 +1477,9 @@ caused by this change.
 
 **What is NOT established.**
 - The milliseconds. The console series belongs to the lead: one ELF,
-  `arms/bag2-ab-release-timing`, `bash bag2-series.sh <tag> <mode>`. Run the
-  low-risk bits first, each alone (2, 8, 16), then 4 (retained), then 1 (all).
+  `arms/bag3-ab-release-timing` (rebased on 1.148.0), `bash bag3-all.sh`: modes
+  8, 16, 4, 24 (8+16), 28 (8+16+4), each as its own old/new/old/new series
+  against mode 0. Mode 2 was measured and is the dead end above.
 - **The first console attempt hung, before any of this code ran.** The first
   A/B ELF read its mode file from inside the renderer, at the first bag. Booted
   in mode 1 it hard-hung the console during scene load: `freepad: DMA Busy`,
