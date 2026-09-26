@@ -357,8 +357,11 @@ The first version tested the box with eight full matrix transforms per bag and
 for every bag. It cost the EE more than VU1 saved at night: +0.08 ms in garage
 night, where most meshes take the spot-lit loop anyway. What is left of
 `prepare`'s increase is most likely D-cache misses on the boxes.
-**Next:** the same loop for `cull_c`, which needs ~60 words of the ~90 left,
-and the clip family.
+**The same loop for `cull_c` was measured and not kept.** It cost 64 words and
+bought ~0.03 ms more in garage day (-0.27 against -0.24) and nothing
+elsewhere. Untextured geometry is a small share of the vertices, and ~90 free
+words are worth more than that. The clip family's fog lives in its emitter,
+and there is no room for a second copy of it.
 
 ## Limits
 
