@@ -293,7 +293,7 @@ its default of 1.5). Together they decide what a crossing looks like:
   trailed onto the asphalt. Grip fades with it, from the lower road's to the
   higher road's. 0 gives a clean edge.
 
-![A Track-rank dirt lane (spill 3) crossing a Local street in PCSX2: the street runs through, the lane fades onto it from both sides](img/road-crossing-spill.png)
+![A Track-rank dirt lane (spill 3, edge fade 1.5) crossing a Local street in PCSX2: the street runs through, the lane fades onto it from both sides with soft sides](img/road-crossing-spill.png)
 
 How the spill is made:
 - `roadgen::tessellateSpill` bakes the patch on the host. It keeps the lower
@@ -319,6 +319,55 @@ road (grip 0.5, spill 2) crossing a Main road:
 
 In PCSX2 (the image above) the six patches of the district's service lane
 add 138 vertices in both scenes together.
+
+## Soft edges (1.144)
+
+**Edge fade** (`roadEdgeFade`, 0-4 units, omitted at 0) makes the road's
+outer band on each side fade into the terrain instead of ending in a hard
+line, as a dirt track does.
+
+![The Motor District's dirt lane (edge fade 1.5) in PCSX2: no hard edge against the terrain](img/road-soft-edge.png)
+
+How it is built:
+- `roadgen::edgeFadeFor` snaps the fade to the tessellator's lateral grid
+  (width / ceil(width / 0.5), so 0.5 units on a 9-unit road) and splits the
+  road into a CORE and two bands.
+- The core is tessellated as before at `coreWidth`, with a `uInset` so its
+  texture still spans the full width. Both twins take it: the host through
+  `tessellate`'s `uInset`, the console through `RoadDefRt::width` /
+  `uInset`.
+- `roadgen::tessellateEdges` bakes the bands on the lateral grid of the full
+  width. Their inner vertices are exactly the core's outer ones, so there is
+  no crack. The alpha is 1 at the core and 0 at the authored edge.
+- The codegen emits them as `ROAD_EDGES` / `ROAD_EDGE_VERTS`. The EE projects
+  each vertex exactly like the road's own (terrain + 0.12 + the rank lift),
+  cuts the bands into chunks of whole quads with the integer V rebase, and
+  draws them blended (`ProcChunk::roadEdge`).
+- A spill from a faded road carries the same lateral fade. It is then built
+  on the dense grid, because the reduced one keeps only the two faded edges
+  of a flat street. So the mud on the asphalt has soft sides too.
+
+The GRIP fades with the picture. `roadSurfaceAt` (and
+`roadgen::Surface::at`) reports a `cover`: 1 on a road, the fade alpha on a
+band. A tyre's grip is `cover x road grip + (1 - cover) x offroadGrip x the
+terrain layers' grip`, and the off-road acceleration and drag take
+`1 - cover` as their share (`vehiclesim::SurfaceSample::cover`).
+
+`--vehicle-check` checks it on a 9-wide road with a 1.5 fade:
+- 3 columns per band and a 6.00 core with U 0.167..0.833;
+- the core's edge and the band's inner edge both at x 3.0000;
+- cover 1.00 at the centre, 0.50 mid-band and 0.03 at the edge.
+
+Cost, measured in PCSX2 on the district's dirt lane (both bands, and its 6
+spills now on the dense grid):
+- 3300 more road vertices in the main scene (22 329 -> 25 629);
+- the spill tables grew from 138 to 2424 vertices;
+- the crossing view's SCENE went from 1.34 to 1.47 ms (a single pair of
+  captures, so a rough number).
+
+A texture whose alpha is ragged along its sides (U 0 and 1) makes the edge
+look organic: StaPip discards texels with alpha 0, and the fade blends the
+rest.
 
 ## Surface grip (1.137)
 

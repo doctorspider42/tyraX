@@ -80,9 +80,31 @@ struct SpillVertex {
 // Triangles of the LOW road that lie on the HIGH road within `spill` of its
 // edge, with their fade. Empty when the two do not overlap. Deterministic:
 // the codegen bakes this for the console and the editor draws the same.
+// `lowEdgeFade` (1.144.0): the low road's soft edge carries onto the spill,
+// so the mud on the asphalt has soft sides too (the spill is then built on
+// the dense 0.5-unit lateral grid instead of the reduced one).
 void tessellateSpill(const std::vector<float>& lowPts, float lowWidth,
                      float lowSampleStep, const std::vector<float>& highPts,
-                     float highWidth, float spill, std::vector<SpillVertex>& out);
+                     float highWidth, float spill, std::vector<SpillVertex>& out,
+                     float lowEdgeFade = 0.0f);
+
+// EDGE FADE (1.144.0, docs/roads.md "Soft edges"): the road's outer `fade`
+// units on each side are drawn as blended bands whose alpha falls from 1 at
+// the core to 0 at the authored edge, so a dirt track bleeds into the
+// terrain. The fade snaps to the tessellator's lateral grid (width /
+// ceil(width / 0.5)); the CORE is the rest, tessellated at coreWidth with
+// uInset so its texture still spans the full width, and its outer vertices
+// are exactly the bands' inner ones - no crack.
+struct EdgeFade {
+    float coreWidth = 0.0f;
+    float uInset = 0.0f;
+    int columns = 0;  // lateral cells per band; 0 = no fade
+};
+EdgeFade edgeFadeFor(float width, float fade);
+// The two bands as triangles (XZ, full-width UV, alpha), wound like the road.
+// Empty when edgeFadeFor gives no columns.
+void tessellateEdges(const std::vector<float>& pointsXZ, float width,
+                     float sampleStep, float fade, std::vector<SpillVertex>& out);
 
 // The two budgets that decide how coarsely a station pair may be stitched
 // laterally (roadgen.cpp, spanCuts). Both are world units and both are
@@ -128,10 +150,13 @@ inline constexpr float kSpanShear = TYRA_ROAD_SPAN_SHEAR;
 // `lifts` is retained only for source/format compatibility with the short-lived
 // raised-road authoring pass. It is ignored: roads are terrain decals and every
 // generated vertex is projected onto the height function.
+// `uInset` (1.144.0, edge fade): the road's U runs uInset..1-uInset across
+// this width instead of 0..1 - the CORE of a road whose outer bands are the
+// faded edge (tessellateEdges), so the texture still spans the full width.
 float tessellate(const std::vector<float>& pointsXZ, float width,
                  const HeightFn& height, std::vector<Vertex>& out,
                  const std::vector<float>& lifts = {},
-                 float sampleStep = kSampleStep);
+                 float sampleStep = kSampleStep, float uInset = 0.0f);
 
 // --- triangle strips (docs/model-pipeline.md, "Triangle strips") ------------
 //
@@ -189,7 +214,7 @@ inline constexpr int kChunkBudget = 1800; // ... and this many vertices
 float tessellateStrips(const std::vector<float>& pointsXZ, float width,
                        const HeightFn& height, std::vector<Vertex>& out,
                        std::vector<int>* chunkSizes = nullptr,
-                       float sampleStep = kSampleStep);
+                       float sampleStep = kSampleStep, float uInset = 0.0f);
 
 // Find centre-line crossings and turn each into four terrain-projected
 // triangles. Near-parallel crossings are rejected because their strip overlap
@@ -221,16 +246,23 @@ public:
     // low road's grip over the one under it). `grips` is one per vertex.
     void addBlended(const std::vector<Vertex>& triangles,
                     const std::vector<float>& grips);
+    // A faded EDGE band: `covers` (per vertex) is how much of the road a
+    // tyre is on - its fade alpha - so the grip there blends toward the
+    // terrain's.
+    void addEdge(const std::vector<Vertex>& triangles, float grip,
+                 const std::vector<float>& covers);
     void build();
     bool empty() const { return tris_.empty(); }
     // kNone when no triangle covers (x, z). `grip`, when given, receives the
-    // grip of the triangle that answered (1 when none did).
-    float at(float x, float z, float* grip = nullptr) const;
+    // grip of the triangle that answered (1 when none did); `cover` how much
+    // of the road is there (1, or a faded edge's alpha).
+    float at(float x, float z, float* grip = nullptr, float* cover = nullptr) const;
     static constexpr float kNone = -1.0e30f;
 
 private:
     std::vector<Vertex> tris_;
-    std::vector<float> grip_;  // one per VERTEX, interpolated by at()
+    std::vector<float> grip_;   // one per VERTEX, interpolated by at()
+    std::vector<float> cover_;  // one per VERTEX: 1, or an edge band's fade
     std::vector<unsigned> cellStart_, cellItems_;
     int nx_ = 0, nz_ = 0;
     float minX_ = 0, minZ_ = 0, inv_ = 1;

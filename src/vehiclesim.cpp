@@ -860,18 +860,15 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
     float gy[4];
     float sum = 0.0f;
     int groundCount = 0;
-    int pavedWheels = 0;
+    float pavedWheels = 0.0f;  // the tyres' summed road cover
     float gripSum = 0.0f;  // per-tyre grip multipliers, averaged below
     for (int i = 0; i < 4; ++i) {
         gy[i] = height ? height(anchors[i][0], anchors[i][2]) : 0.0f;
         const SurfaceSample sg =
             surface ? surface(anchors[i][0], anchors[i][2]) : SurfaceSample{};
-        if (sg.paved) {
-            ++pavedWheels;
-            gripSum += sg.grip;
-        } else {
-            gripSum += spec.offroadGrip * sg.grip;  // the painted layer's share
-        }
+        const float cv = std::clamp(sg.cover, 0.0f, 1.0f);
+        pavedWheels += cv;
+        gripSum += cv * sg.grip + (1.0f - cv) * spec.offroadGrip * sg.terrainGrip;
         // TERRAIN_VOID_Y: a scene with no terrain answers "unreachably low",
         // so "there is no floor here" needs no branch of its own.
         if (gy[i] > -1e5f) { ++groundCount; sum += gy[i]; }

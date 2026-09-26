@@ -662,6 +662,9 @@ class TerrainGame : public Tyra::Game {
     // roadGrip by that alpha.
     bool roadBlend = false;
     float roadGripBase = 1.0F;
+    // A road's soft-EDGE band (1.144.0): drawn blended, its colours' alpha is
+    // the fade, and roadSurfaceAt reports that alpha as the tyre's cover.
+    bool roadEdge = false;
     // Triangle strips (docs/model-pipeline.md): non-zero when this chunk's
     // vertices are baked strip RUNS of that length rather than a triangle
     // list. procFinishChunks pins StaPipBag::packageSize to it and sets
@@ -769,8 +772,10 @@ class TerrainGame : public Tyra::Game {
   // stall (vsync / display buffer), taken from one interleaveBegin to the next.
   bool ilHaveMark = false, ilMarkActive = false;
   u32 ilMark = 0, ilStallMark = 0;
-  // `grip`, when given, receives the answering road's grip (1 when none).
-  float roadSurfaceAt(float x, float z, float* grip = nullptr) const;
+  // `grip`, when given, receives the answering road's grip (1 when none);
+  // `cover` how much of the road is there (1, or a soft edge's fade).
+  float roadSurfaceAt(float x, float z, float* grip = nullptr,
+                      float* cover = nullptr) const;
   void buildRoadHeightIndex() const;
   // The pre-grid exhaustive walk, defined only under TYRA_ROAD_INDEX_VERIFY
   // (see roadSurfaceAt) - it is the oracle that gate compares against.

@@ -347,6 +347,7 @@ leaves these, dearest first:
   - air control and landings;
   - ~~per-surface grip~~ done 1.136.0 (paved or not), per road 1.137.0
     (`roadGrip`), per painted terrain layer 1.142.0 (`grip`);
+  - ~~soft road edges~~ done 1.144.0 (Edge fade);
   - ~~road crossings you can control~~ road rank + spill done 1.143.0
     (docs/roads.md "Crossings"). Still open: a per-junction override
     (material, grip, which road wins) for the cases rank cannot say, keyed by

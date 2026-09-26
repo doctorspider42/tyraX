@@ -363,9 +363,13 @@ using SolidFn = std::function<bool(float x, float z, float feetY)>;
 // fields apply and `grip` is the painted layers' multiplier ON TOP of
 // offroadGrip (1.142.0). Empty = paved at grip 1 everywhere, which is what a
 // caller with no roads (the property harness) means.
+// 1.144.0: `cover` replaces the paved flag - how much of the road the tyre
+// is on, 1 on a road, 0 off it, the fade alpha on a road's soft EDGE; the
+// tyre's grip is cover x grip + (1 - cover) x offroadGrip x terrainGrip.
 struct SurfaceSample {
-    bool paved = true;
-    float grip = 1.0f;
+    float cover = 1.0f;
+    float grip = 1.0f;         // the road's (or the spill's) grip
+    float terrainGrip = 1.0f;  // the painted layers' under it (off the road)
 };
 using SurfaceFn = std::function<SurfaceSample(float x, float z)>;
 

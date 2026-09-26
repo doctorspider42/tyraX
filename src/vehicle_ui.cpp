@@ -351,8 +351,24 @@ void App::vehicleDriveStart(int objectIndex) {
         std::vector<roadgen::Vertex> tris;
         const float lift = roadgen::rankLift(r.roadRank);  // the console's lift
         const auto liftedAt = [&](float x, float z) { return terrainAt(x, z) + lift; };
-        roadgen::tessellate(r.roadPoints, r.roadWidth, liftedAt, tris, {}, r.roadSampleStep);
+        // Soft edges (1.144.0): the core, then the faded bands - a tyre on a
+        // band is only partly on the road (its cover is the band's alpha).
+        const roadgen::EdgeFade ef = roadgen::edgeFadeFor(r.roadWidth, r.roadEdgeFade);
+        roadgen::tessellate(r.roadPoints, ef.coreWidth, liftedAt, tris, {},
+                            r.roadSampleStep, ef.uInset);
         vehicleDriveRoads_.add(tris, r.roadGrip);
+        if (ef.columns > 0) {
+            std::vector<roadgen::SpillVertex> ev;
+            roadgen::tessellateEdges(r.roadPoints, r.roadWidth, r.roadSampleStep,
+                                     r.roadEdgeFade, ev);
+            std::vector<roadgen::Vertex> et;
+            std::vector<float> cov;
+            for (const roadgen::SpillVertex& v : ev) {
+                et.push_back({v.x, liftedAt(v.x, v.z) + roadgen::kLift, v.z, v.u, v.v});
+                cov.push_back(v.a);
+            }
+            vehicleDriveRoads_.addEdge(et, r.roadGrip, cov);
+        }
         // Spills onto higher-rank roads (1.143.0): the grip fades from this
         // road's over the higher road's, with the drawn alpha.
         if (r.roadSpill > 0.0f)
@@ -362,7 +378,8 @@ void App::vehicleDriveStart(int objectIndex) {
                     continue;
                 std::vector<roadgen::SpillVertex> sv;
                 roadgen::tessellateSpill(r.roadPoints, r.roadWidth, r.roadSampleStep,
-                                         hi.roadPoints, hi.roadWidth, r.roadSpill, sv);
+                                         hi.roadPoints, hi.roadWidth, r.roadSpill, sv,
+                                         r.roadEdgeFade);
                 if (sv.empty()) continue;
                 const float top =
                     roadgen::kLift + roadgen::rankLift(hi.roadRank) + roadgen::kSpillLift;
@@ -469,9 +486,8 @@ void App::vehicleDriveTick() {
         layerGrips.push_back(l.grip);
     const vehiclesim::SurfaceFn surface = [this, layerGrips](float x, float z) {
         vehiclesim::SurfaceSample s;
-        if (vehicleDriveRoads_.at(x, z, &s.grip) > -1.0e29f) return s;
-        s.paved = false;
-        s.grip = viewport_.terrainLayerGrip(x, z, layerGrips);
+        if (vehicleDriveRoads_.at(x, z, &s.grip, &s.cover) <= -1.0e29f) s.cover = 0.0f;
+        if (s.cover < 1.0f) s.terrainGrip = viewport_.terrainLayerGrip(x, z, layerGrips);
         return s;
     };
     // Walls, from placement's own boxes - approximate (world AABBs rather

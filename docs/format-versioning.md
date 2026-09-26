@@ -200,6 +200,10 @@ Format 60 adds the optional per-road `roadSampleStep` field. It is purely
 additive: missing means the original 1 m longitudinal spacing, so no migration
 step is required.
 
+Format 78 adds a road's `roadEdgeFade` (docs/roads.md, "Soft edges"), written
+only away from 0. Missing means the hard edge, as before. Additive; no
+migration step.
+
 Format 77 adds a road's `roadRank` and `roadSpill` (docs/roads.md,
 "Crossings"), each written only away from its default (Local, 1.5). Missing
 means Local, which is every road before ranks, so crossings build exactly as

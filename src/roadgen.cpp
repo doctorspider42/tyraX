@@ -50,7 +50,8 @@ inline P sample(const std::vector<float>& pts, int seg, float t) {
 // and neither emitter can drift from the other.
 float buildRows(const std::vector<float>& pointsXZ, float width,
                 const HeightFn& height, float sampleStep,
-                std::vector<std::vector<Vertex>>& rows, int* crossStepsOut) {
+                std::vector<std::vector<Vertex>>& rows, int* crossStepsOut,
+                float uInset = 0.0f) {
     rows.clear();
     *crossStepsOut = 1;
     const int n = (int)(pointsXZ.size() / 2);
@@ -124,7 +125,7 @@ float buildRows(const std::vector<float>& pointsXZ, float width,
                 q.x = c.x + rx * side;
                 q.z = c.z + rz * side;
                 q.y = (height ? height(q.x, q.z) : 0.0f) + kLift;
-                q.u = u;
+                q.u = uInset + (1.0f - 2.0f * uInset) * u;
                 q.v = v;
                 row.push_back(q);
             }
@@ -234,13 +235,13 @@ std::vector<P> centreLine(const std::vector<float>& pts) {
 
 float tessellate(const std::vector<float>& pointsXZ, float width,
                  const HeightFn& height, std::vector<Vertex>& out,
-                 const std::vector<float>& lifts, float sampleStep) {
+                 const std::vector<float>& lifts, float sampleStep, float uInset) {
     (void)lifts;  // legacy project field; roads are always terrain-projected
     out.clear();
     std::vector<std::vector<Vertex>> rows;
     int crossSteps = 1;
     const float arc =
-        buildRows(pointsXZ, width, height, sampleStep, rows, &crossSteps);
+        buildRows(pointsXZ, width, height, sampleStep, rows, &crossSteps, uInset);
 
     // Stitch every lateral cell. Wound counter-clockwise seen from above
     // (+Y), the terrain's own convention.
@@ -283,7 +284,8 @@ float tessellate(const std::vector<float>& pointsXZ, float width,
 // packing verbatim, chunk policy included - change one and change both.
 float tessellateStrips(const std::vector<float>& pointsXZ, float width,
                        const HeightFn& height, std::vector<Vertex>& out,
-                       std::vector<int>* chunkSizes, float sampleStep) {
+                       std::vector<int>* chunkSizes, float sampleStep,
+                       float uInset) {
     static_assert(kStripRun == (int)meshstrip::kRun,
                   "the road run must be the run the .tmdl bake uses - both are "
                   "the smallest package a static program class derives");
@@ -292,7 +294,7 @@ float tessellateStrips(const std::vector<float>& pointsXZ, float width,
     std::vector<std::vector<Vertex>> rows;
     int crossSteps = 1;
     const float arc =
-        buildRows(pointsXZ, width, height, sampleStep, rows, &crossSteps);
+        buildRows(pointsXZ, width, height, sampleStep, rows, &crossSteps, uInset);
 
     // Run and chunk bookkeeping. A chunk is a bag; a run is one VU1 package
     // inside it, so the LAST run of a chunk owes only the multiple of 3 the
@@ -479,7 +481,8 @@ void tessellateJunction(const Junction& j, const HeightFn& height,
 
 void tessellateSpill(const std::vector<float>& lowPts, float lowWidth,
                      float lowSampleStep, const std::vector<float>& highPts,
-                     float highWidth, float spill, std::vector<SpillVertex>& out) {
+                     float highWidth, float spill, std::vector<SpillVertex>& out,
+                     float lowEdgeFade) {
     out.clear();
     if (spill <= 0.0f || lowPts.size() < 4 || highPts.size() < 4) return;
     // The high road's centreline as a dense polyline (0.5-unit pieces per
@@ -520,8 +523,36 @@ void tessellateSpill(const std::vector<float>& lowPts, float lowWidth,
         return hw - std::sqrt(best);
     };
     // The low road flat (no height: the consumer lifts it onto the surface).
+    // With a soft edge the spill needs the DENSE lateral grid - the reduced
+    // one collapses a flat street to one quad per station, whose only lateral
+    // vertices are the two faded edges - and each vertex also carries the
+    // edge's lateral fade (the soft-edge bands' alpha).
     std::vector<Vertex> tris;
-    tessellate(lowPts, lowWidth, nullptr, tris, {}, lowSampleStep);
+    std::vector<float> lateral;  // per vertex, 1 without a soft edge
+    const EdgeFade ef = edgeFadeFor(lowWidth, lowEdgeFade);
+    if (ef.columns > 0) {
+        std::vector<std::vector<Vertex>> rows;
+        int cs = 1;
+        buildRows(lowPts, lowWidth, nullptr, lowSampleStep, rows, &cs);
+        const int kc = ef.columns;
+        auto lat = [&](int j) {
+            if (j <= kc) return (float)j / (float)kc;
+            if (j >= cs - kc) return (float)(cs - j) / (float)kc;
+            return 1.0f;
+        };
+        for (size_t i = 0; i + 1 < rows.size(); ++i)
+            for (int j = 0; j < cs; ++j) {
+                const Vertex& A = rows[i][(size_t)j];
+                const Vertex& B = rows[i][(size_t)j + 1];
+                const Vertex& C = rows[i + 1][(size_t)j + 1];
+                const Vertex& D = rows[i + 1][(size_t)j];
+                for (const Vertex* q : {&A, &B, &C, &A, &C, &D}) tris.push_back(*q);
+                for (int jj : {j, j + 1, j + 1, j, j + 1, j}) lateral.push_back(lat(jj));
+            }
+    } else {
+        tessellate(lowPts, lowWidth, nullptr, tris, {}, lowSampleStep);
+        lateral.assign(tris.size(), 1.0f);
+    }
     for (size_t t = 0; t + 2 < tris.size(); t += 3) {
         float d[3], a[3];
         bool anyInside = false, anyVisible = false;
@@ -529,6 +560,7 @@ void tessellateSpill(const std::vector<float>& lowPts, float lowWidth,
             d[k] = inside(tris[t + k].x, tris[t + k].z);
             // 1 at (and beyond) the edge, 0 `spill` units in.
             a[k] = d[k] <= 0.0f ? 1.0f : std::clamp(1.0f - d[k] / spill, 0.0f, 1.0f);
+            a[k] *= lateral[t + k];
             anyInside |= d[k] > 0.0f;
             anyVisible |= a[k] > 0.001f;
         }
@@ -537,6 +569,59 @@ void tessellateSpill(const std::vector<float>& lowPts, float lowWidth,
         for (int k = 0; k < 3; ++k)
             out.push_back({tris[t + k].x, tris[t + k].z, tris[t + k].u,
                            tris[t + k].v, a[k]});
+    }
+}
+
+EdgeFade edgeFadeFor(float width, float fade) {
+    EdgeFade e;
+    const float w = width > 0.1f ? width : 0.1f;
+    e.coreWidth = w;
+    if (fade <= 0.0f) return e;
+    // buildRows' own lateral grid, so the band's inner column IS a core edge.
+    const int cs = std::max(1, (int)std::ceil(w / kCrossSampleStep));
+    const float step = w / (float)cs;
+    // Keep at least one core cell: a road that is all fade has nothing opaque.
+    const int maxCols = (cs - 1) / 2;
+    const int cols = std::clamp((int)std::lround(fade / step), 0, maxCols);
+    if (cols <= 0) return e;
+    e.columns = cols;
+    e.coreWidth = w - 2.0f * (float)cols * step;
+    e.uInset = (float)cols / (float)cs;
+    return e;
+}
+
+void tessellateEdges(const std::vector<float>& pointsXZ, float width,
+                     float sampleStep, float fade, std::vector<SpillVertex>& out) {
+    out.clear();
+    const EdgeFade e = edgeFadeFor(width, fade);
+    if (e.columns <= 0) return;
+    std::vector<std::vector<Vertex>> rows;
+    int cs = 1;
+    buildRows(pointsXZ, width, nullptr, sampleStep, rows, &cs);
+    const int k = e.columns;
+    auto alphaOf = [&](int j) {
+        if (j <= k) return (float)j / (float)k;              // left band
+        if (j >= cs - k) return (float)(cs - j) / (float)k;  // right band
+        return 1.0f;
+    };
+    auto push = [&](const Vertex& q, int j) {
+        out.push_back({q.x, q.z, q.u, q.v, alphaOf(j)});
+    };
+    for (size_t i = 0; i + 1 < rows.size(); ++i) {
+        const std::vector<Vertex>& r0 = rows[i];
+        const std::vector<Vertex>& r1 = rows[i + 1];
+        for (int side = 0; side < 2; ++side) {
+            const int j0 = side == 0 ? 0 : cs - k;
+            for (int j = j0; j < j0 + k; ++j) {
+                // The road's stitch: A B C, A C D (CCW from above).
+                push(r0[(size_t)j], j);
+                push(r0[(size_t)j + 1], j + 1);
+                push(r1[(size_t)j + 1], j + 1);
+                push(r0[(size_t)j], j);
+                push(r1[(size_t)j + 1], j + 1);
+                push(r1[(size_t)j], j);
+            }
+        }
     }
 }
 
@@ -572,6 +657,16 @@ void Surface::add(const std::vector<Vertex>& triangles, float grip) {
     const size_t n = triangles.size() - triangles.size() % 3;
     tris_.insert(tris_.end(), triangles.begin(), triangles.begin() + (long)n);
     grip_.insert(grip_.end(), n, grip);
+    cover_.insert(cover_.end(), n, 1.0f);
+}
+
+void Surface::addEdge(const std::vector<Vertex>& triangles, float grip,
+                      const std::vector<float>& covers) {
+    const size_t n = std::min(triangles.size() - triangles.size() % 3,
+                              covers.size() - covers.size() % 3);
+    tris_.insert(tris_.end(), triangles.begin(), triangles.begin() + (long)n);
+    grip_.insert(grip_.end(), n, grip);
+    cover_.insert(cover_.end(), covers.begin(), covers.begin() + (long)n);
 }
 
 void Surface::addBlended(const std::vector<Vertex>& triangles,
@@ -580,6 +675,7 @@ void Surface::addBlended(const std::vector<Vertex>& triangles,
                               grips.size() - grips.size() % 3);
     tris_.insert(tris_.end(), triangles.begin(), triangles.begin() + (long)n);
     grip_.insert(grip_.end(), grips.begin(), grips.begin() + (long)n);
+    cover_.insert(cover_.end(), n, 1.0f);
 }
 
 void Surface::build() {
@@ -632,9 +728,10 @@ void Surface::build() {
     }
 }
 
-float Surface::at(float x, float z, float* grip) const {
+float Surface::at(float x, float z, float* grip, float* cover) const {
     float best = kNone;
     if (grip) *grip = 1.0f;
+    if (cover) *cover = 1.0f;
     if (nx_ <= 0 || x < minX_ || z < minZ_) return best;
     const int ix = (int)((x - minX_) * inv_);
     const int iz = (int)((z - minZ_) * inv_);
@@ -654,10 +751,10 @@ float Surface::at(float x, float z, float* grip) const {
         const float y = wa * a.y + wb * b.y + wc * c.y;
         if (y > best) {
             best = y;
-            if (grip) {
-                const size_t t = cellItems_[e];
-                *grip = wa * grip_[t] + wb * grip_[t + 1] + wc * grip_[t + 2];
-            }
+            const size_t t = cellItems_[e];
+            if (grip) *grip = wa * grip_[t] + wb * grip_[t + 1] + wc * grip_[t + 2];
+            if (cover)
+                *cover = wa * cover_[t] + wb * cover_[t + 1] + wc * cover_[t + 2];
         }
     }
     return best;

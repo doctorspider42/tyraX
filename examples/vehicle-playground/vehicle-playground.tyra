@@ -1,7 +1,7 @@
 {
   "name": "vehicle-playground",
-  "formatVersion": 77,
-  "editorVersion": "1.143.0",
+  "formatVersion": 78,
+  "editorVersion": "1.144.0",
   "template": "fpp",
   "projectId": "99089f551e395d01",
   "settings": {

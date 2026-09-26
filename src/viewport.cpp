@@ -4041,6 +4041,7 @@ void Viewport::clearRoadDraws() {
         destroyMesh(road.mesh);
         destroyMesh(road.junctionMesh);
         destroyMesh(road.spillMesh);
+        destroyMesh(road.edgeMesh);
     }
     roadDraws_.clear();
 }
@@ -4080,17 +4081,20 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
             mix(sig, o.roadPoints.data(), o.roadPoints.size() * sizeof(float));
         mix(sig, o.roadTexture.data(), o.roadTexture.size());
         mix(sig, o.color, sizeof(o.color));
+        mix(sig, &o.roadEdgeFade, sizeof(o.roadEdgeFade));
         auto it = roadDraws_.find(key);
         if (it != roadDraws_.end() && it->second.signature == sig) continue;
 
         // The rank lifts the whole road (roadgen::rankLift) - the console's
         // RoadDefRt::lift.
         const float lift = roadgen::rankLift(o.roadRank);
+        // Soft edges (1.144.0): the opaque core, plus the faded bands below.
+        const roadgen::EdgeFade ef = roadgen::edgeFadeFor(o.roadWidth, o.roadEdgeFade);
         std::vector<roadgen::Vertex> strip;
         roadgen::tessellate(
-            o.roadPoints, o.roadWidth,
+            o.roadPoints, ef.coreWidth,
             [&](float x, float z) { return terrainHeight(x, z) + lift; }, strip, {},
-            o.roadSampleStep);
+            o.roadSampleStep, ef.uInset);
         std::vector<float> interleaved;
         interleaved.reserve(strip.size() * 8);
         for (const roadgen::Vertex& v : strip)
@@ -4134,7 +4138,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
                 std::vector<roadgen::SpillVertex> sv;
                 roadgen::tessellateSpill(o.roadPoints, o.roadWidth, o.roadSampleStep,
                                          other.roadPoints, other.roadWidth,
-                                         o.roadSpill, sv);
+                                         o.roadSpill, sv, o.roadEdgeFade);
                 const float top = roadgen::kLift + roadgen::rankLift(other.roadRank) +
                                   roadgen::kSpillLift;
                 for (const roadgen::SpillVertex& v : sv)
@@ -4144,8 +4148,20 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
                          o.color[1], o.color[2], v.a, v.u, v.v});
             }
         }
+        std::vector<float> edgeInterleaved;
+        if (ef.columns > 0) {
+            std::vector<roadgen::SpillVertex> ev;
+            roadgen::tessellateEdges(o.roadPoints, o.roadWidth, o.roadSampleStep,
+                                     o.roadEdgeFade, ev);
+            for (const roadgen::SpillVertex& v : ev)
+                edgeInterleaved.insert(
+                    edgeInterleaved.end(),
+                    {v.x, terrainHeight(v.x, v.z) + roadgen::kLift + lift, v.z,
+                     o.color[0], o.color[1], o.color[2], v.a, v.u, v.v});
+        }
         RoadDraw next;
         next.mesh = uploadMesh(interleaved);
+        if (!edgeInterleaved.empty()) next.edgeMesh = uploadMesh9(edgeInterleaved);
         if (!junctionInterleaved.empty())
             next.junctionMesh = uploadMesh(junctionInterleaved);
         if (!spillInterleaved.empty()) next.spillMesh = uploadMesh9(spillInterleaved);
@@ -4157,6 +4173,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
             destroyMesh(it->second.mesh);
             destroyMesh(it->second.junctionMesh);
             destroyMesh(it->second.spillMesh);
+            destroyMesh(it->second.edgeMesh);
             it->second = std::move(next);
         } else {
             roadDraws_.emplace(key, std::move(next));
@@ -4170,6 +4187,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         destroyMesh(it->second.mesh);
         destroyMesh(it->second.junctionMesh);
         destroyMesh(it->second.spillMesh);
+        destroyMesh(it->second.edgeMesh);
         it = roadDraws_.erase(it);
     }
 }
@@ -4180,7 +4198,8 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
 // console's road chunks are.
 void Viewport::drawRoadSpills(const float* viewProj) {
     bool any = false;
-    for (const auto& [id, road] : roadDraws_) any |= road.spillMesh.vertexCount > 0;
+    for (const auto& [id, road] : roadDraws_)
+        any |= road.spillMesh.vertexCount > 0 || road.edgeMesh.vertexCount > 0;
     if (!any) return;
     glUseProgram(particleProgram_);
     glUniformMatrix4fv(uPartMvp_, 1, GL_FALSE, viewProj);
@@ -4188,12 +4207,14 @@ void Viewport::drawRoadSpills(const float* viewProj) {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDepthMask(GL_FALSE);
     for (const auto& [id, road] : roadDraws_) {
-        if (!road.spillMesh.vao || road.spillMesh.vertexCount == 0) continue;
         const uint32_t tex = road.texture.empty() ? 0 : glTexture(road.texture);
         glUniform1i(uPartUseTex_, tex ? 1 : 0);
         if (tex) glBindTexture(GL_TEXTURE_2D, tex);
-        glBindVertexArray(road.spillMesh.vao);
-        glDrawArrays(GL_TRIANGLES, 0, road.spillMesh.vertexCount);
+        for (const Mesh* m : {&road.edgeMesh, &road.spillMesh}) {
+            if (!m->vao || m->vertexCount == 0) continue;
+            glBindVertexArray(m->vao);
+            glDrawArrays(GL_TRIANGLES, 0, m->vertexCount);
+        }
     }
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);

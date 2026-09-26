@@ -806,6 +806,16 @@ void App::drawPropertiesWindow() {
                 "on over the higher road's edge for this far and fades out -\n"
                 "mud trailed onto the asphalt. Grip fades with it. 0 = a clean\n"
                 "edge. No effect against equal or lower ranks.");
+            ImGui::SetNextItemWidth(scaled(220));
+            if (ImGui::SliderFloat("Edge fade", &o.roadEdgeFade, 0.0f, 4.0f,
+                                   "%.1f units"))
+                committed = true;
+            prefHelp(
+                "Soft edges: the outer this-many units on each side fade into\n"
+                "the terrain instead of ending in a hard line - a dirt track.\n"
+                "Snaps to the road's 0.5-unit lateral grid; the grip fades to\n"
+                "the terrain's with it. A texture whose alpha is ragged at the\n"
+                "edges makes it look organic. 0 = the hard edge.");
         }
         // The points, world-space XZ. A table, not a gizmo (yet): blunt but
         // complete - insert after, remove, drag both axes.

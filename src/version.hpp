@@ -5261,6 +5261,12 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.144.0 - Soft road edges: Edge fade splits a road into a core (narrowed,
+// U-inset) and two blended bands baked by roadgen::tessellateEdges, alpha 1
+// at the core to 0 at the edge; spills from a faded road carry the lateral
+// fade. roadSurfaceAt reports a cover and the tyre grip blends into the
+// terrain's (SurfaceSample::cover). Spills/edges V-rebased per chunk.
+// kFormatVersion 77 -> 78, additive. MINOR.
 // 1.143.0 - Road crossings: a road Rank (Track/Local/Main) lifts the higher
 // road over the lower one (roadgen::rankLift) so it runs through, junction
 // patches only between equal ranks, and a Spill: the lower road's surface
@@ -5429,7 +5435,7 @@
 // Particles face the camera a pass DRAWS with (cutscene override, shake,
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 143
+#define TYRAX_VERSION_MINOR 144
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -5878,7 +5884,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v75 (docs/vehicles.md, "Lamp glow"): drive.lampGlow and a definition's
 // bake-measured "lampGlows" (written only when non-empty). Missing = no halo.
 // Additive; no migration step. (Shipped on its branch as v74.)
-inline constexpr int kFormatVersion = 77;
+inline constexpr int kFormatVersion = 78;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

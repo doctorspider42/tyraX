@@ -1090,6 +1090,7 @@ private:
         Mesh mesh;
         Mesh junctionMesh;
         Mesh spillMesh;  // over higher-rank roads, alpha-faded (1.143.0)
+        Mesh edgeMesh;   // the soft-edge bands (1.144.0), alpha-faded
         float spillColor[3] = {1.0f, 1.0f, 1.0f};
         std::string texture;
         std::string junctionTexture;

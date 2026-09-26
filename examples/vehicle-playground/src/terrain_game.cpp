@@ -17431,9 +17431,10 @@ void TerrainGame::procFinishChunks() {
     // Re-stated every pass, not only on creation: a regeneration reuses the
     // chunk, and a world whose blocks moved may have gained or lost the AO.
     c.bag->info = c.smooth ? procSmoothInfoBag.get() : batchInfoBag.get();
-    if (c.roadBlend) {
+    if (c.roadBlend || c.roadEdge) {
       // A spill is alpha-over by its vertex alpha (the fade) on the road
-      // under it: the painted terrain layer's arrangement.
+      // under it, a soft edge on the terrain: the painted terrain layer's
+      // arrangement.
       if (!roadBlendInfoBag) {
         roadBlendInfoBag = std::make_unique<StaPipInfoBag>();
         roadBlendInfoBag->model = &model;
@@ -19894,7 +19895,7 @@ void TerrainGame::updateVehicles(float dt) {
     float gy[4];
     float sum = 0.0F;
     int groundCount = 0;
-    int pavedWheels = 0;  // on a road, or on an object floor (off-road, 1.136.0)
+    float pavedWheels = 0.0F;  // summed road cover (off-road 1.136.0, 1.144.0)
     float gripSum = 0.0F;  // per-tyre surface grip (1.137.0), averaged below
     // The four contact hardpoints follow the PHYSICAL chassis attitude in all
     // three axes. The previous X/Z positions used yaw only, while the body
@@ -19926,13 +19927,16 @@ void TerrainGame::updateVehicles(float dt) {
       // groundSurfaceAt, unrolled: the road query also says whether this
       // tyre is on the paved surface.
       const float terrW = terrainHeightAt(wx, wz);
-      float roadGW = 1.0F;
-      const float roadW = roadSurfaceAt(wx, wz, &roadGW);
+      float roadGW = 1.0F, roadCover = 1.0F;
+      const float roadW = roadSurfaceAt(wx, wz, &roadGW, &roadCover);
       gy[w] = roadW > terrW ? roadW : terrW;
       bool pavedW = roadW > -1.0e29F;
-      // This tyre's grip: its road's, the car's off-road value, or 1 on an
-      // object floor (set below where a floor takes the wheel).
-      float wheelGrip = pavedW ? roadGW : s.offroadGrip * terrainGripAt(wx, wz);
+      // How much of the road this tyre is on (1.144.0): 1, 0 off it, or a
+      // soft edge's fade - its grip blends the road's into the terrain's.
+      float cover = pavedW ? roadCover : 0.0F;
+      float wheelGrip = cover * roadGW;
+      if (cover < 1.0F)
+        wheelGrip += (1.0F - cover) * s.offroadGrip * terrainGripAt(wx, wz);
       // The wheel RIDES an object floor when one is higher than the terrain
       // under it - a platform, a ramp prop, generated prefab geometry. This
       // is what lets a car drive ONTO things instead of nosing into their
@@ -19946,6 +19950,7 @@ void TerrainGame::updateVehicles(float dt) {
         if (lxx > -f.hx && lxx < f.hx && lzz > -f.hz && lzz < f.hz) {
           gy[w] = f.top;
           pavedW = true;
+          cover = 1.0F;
           wheelGrip = 1.0F;
         }
       }
@@ -19962,10 +19967,12 @@ void TerrainGame::updateVehicles(float dt) {
         if (gr > gy[w] && gr <= feet0 + 0.5F) {
           gy[w] = gr;
           pavedW = true;
+          cover = 1.0F;
           wheelGrip = 1.0F;
         }
       }
-      if (pavedW) ++pavedWheels;
+      (void)pavedW;
+      pavedWheels += cover;
       gripSum += wheelGrip;
       v.wheelY[w] = gy[w];
       if (gy[w] > -1e5F) { ++groundCount; sum += gy[w]; }
@@ -19975,8 +19982,8 @@ void TerrainGame::updateVehicles(float dt) {
     // tyres off the paved surface blends grip, handbrake grip and
     // acceleration toward the definition's off-road multipliers. Everything
     // below reads these three instead of s.grip / s.handbrakeGrip / s.accel.
-    const float offShare = 1.0F - (float)pavedWheels * 0.25F;
-    v.paved = pavedWheels;
+    const float offShare = 1.0F - pavedWheels * 0.25F;
+    v.paved = (int)(pavedWheels + 0.5F);
     // The tyres' average surface grip (1.137.0: roads carry their own).
     const float offGripMul = gripSum * 0.25F;
     v.surfGrip = offGripMul;
@@ -22426,14 +22433,17 @@ void TerrainGame::buildRoads(int scene) {
                                        pz0[(size_t)j], 1.0F);
           };
           auto sAt = [&](int j, bool newRow) {
-            return Tyra::Vec4((float)j / (float)crossSteps,
+            return Tyra::Vec4(rd.uInset + (1.0F - 2.0F * rd.uInset) *
+                                              (float)j / (float)crossSteps,
                               (newRow ? v : lv0) - chunkVBase, 1.0F, 0.0F);
           };
           if (!useStrips) {
             for (size_t ci = 0; ci + 1 < cuts.size(); ++ci) {
               const int j = cuts[ci], j2 = cuts[ci + 1];
-              const float u0 = (float)j / (float)crossSteps;
-              const float u1 = (float)j2 / (float)crossSteps;
+              const float u0 = rd.uInset + (1.0F - 2.0F * rd.uInset) *
+                                               (float)j / (float)crossSteps;
+              const float u1 = rd.uInset + (1.0F - 2.0F * rd.uInset) *
+                                               (float)j2 / (float)crossSteps;
               const Tyra::Vec4 A(px0[(size_t)j], py0[(size_t)j],
                                  pz0[(size_t)j], 1.0F);
               const Tyra::Vec4 B(px0[(size_t)j2], py0[(size_t)j2],
@@ -22567,11 +22577,51 @@ void TerrainGame::buildRoads(int scene) {
       c.roadGripBase = sp.baseGrip;
       c.roadBlend = true;
       c.stripRun = 0;
+      // Integer V rebase, the road chunks' rule (the physical PS2's ST path).
+      float vBase = 1.0e30F;
+      for (int k = 0; k < sp.count; ++k)
+        vBase = fminf(vBase, ROAD_SPILL_VERTS[(size_t)(sp.first + k) * 5 + 3]);
+      vBase = floorf(vBase);
       for (int k = 0; k < sp.count; ++k) {
         const float* sv = &ROAD_SPILL_VERTS[(size_t)(sp.first + k) * 5];
         c.vertices.push_back(Tyra::Vec4(sv[0], spillY[yi++], sv[1], 1.0F));
-        c.sts.push_back(Tyra::Vec4(sv[2], sv[3], 1.0F, 0.0F));
+        c.sts.push_back(Tyra::Vec4(sv[2], sv[3] - vBase, 1.0F, 0.0F));
         c.colors.push_back(Tyra::Color(128.0F, 128.0F, 128.0F, sv[4] * 128.0F));
+      }
+    }
+  }
+  // SOFT EDGES (1.144.0, docs/roads.md "Soft edges"): each faded road's two
+  // bands, baked on the host (roadgen::tessellateEdges) and projected here
+  // exactly as the road's own vertices are (terrain + 0.12 + the rank lift),
+  // so the bands' inner vertices ARE the narrowed core's outer ones. Cut into
+  // chunks of whole quads, each V-rebased like the road's own chunks.
+  for (int ei = 0; ei < ROAD_EDGE_COUNT; ++ei) {
+    const RoadSpillRt& ed = ROAD_EDGES[ei];
+    if (ed.scene != scene) continue;
+    const RoadDefRt& rd = ROAD_DEFS[ed.road];
+    any = true;
+    Tyra::Texture* tex = (rd.tex >= 0 && rd.tex < ROAD_TEXTURE_COUNT)
+                             ? roadTextures_[rd.tex]
+                             : nullptr;
+    for (int at = 0; at < ed.count; at += 1800) {
+      const int n = ed.count - at < 1800 ? ed.count - at : 1800;
+      procChunks.push_back(ProcChunk());
+      ProcChunk& c = procChunks.back();
+      c.owner = -3;
+      c.roadTex = tex;
+      c.roadGrip = rd.grip;
+      c.roadEdge = true;
+      c.stripRun = 0;
+      float vBase = 1.0e30F;
+      for (int k = 0; k < n; ++k)
+        vBase = fminf(vBase, ROAD_EDGE_VERTS[(size_t)(ed.first + at + k) * 5 + 3]);
+      vBase = floorf(vBase);
+      for (int k = 0; k < n; ++k) {
+        const float* ev = &ROAD_EDGE_VERTS[(size_t)(ed.first + at + k) * 5];
+        c.vertices.push_back(Tyra::Vec4(
+            ev[0], terrainHeightAt(ev[0], ev[1]) + 0.12F + rd.lift, ev[1], 1.0F));
+        c.sts.push_back(Tyra::Vec4(ev[2], ev[3] - vBase, 1.0F, 0.0F));
+        c.colors.push_back(Tyra::Color(128.0F, 128.0F, 128.0F, ev[4] * 128.0F));
       }
     }
   }
@@ -23052,11 +23102,14 @@ void TerrainGame::buildRoadHeightIndex() const {
            (int)roadIdxItems.size());
 }
 
-float TerrainGame::roadSurfaceAt(float x, float z, float* grip) const {
+float TerrainGame::roadSurfaceAt(float x, float z, float* grip,
+                                 float* cover) const {
   float best = -1.0e30F;
   if (grip) *grip = 1.0F;
+  if (cover) *cover = 1.0F;
   auto testTriangle = [&](const Vec4& a, const Vec4& b, const Vec4& c,
-                          float ga, float gb, float gc) {
+                          float ga, float gb, float gc, float ca, float cb,
+                          float cc) {
     // Cheap XZ reject before the arithmetic: a cell holds every triangle whose
     // box touches it, and most of those do not span this exact point.
     float lo = a.x < b.x ? a.x : b.x;
@@ -23086,6 +23139,7 @@ float TerrainGame::roadSurfaceAt(float x, float z, float* grip) const {
     if (y > best) {
       best = y;
       if (grip) *grip = wa * ga + wb * gb + wc * gc;
+      if (cover) *cover = wa * ca + wb * cb + wc * cc;
     }
   };
   if (roadIdxDirty || roadIdxChunks != procChunks.size())
@@ -23108,7 +23162,14 @@ float TerrainGame::roadSurfaceAt(float x, float z, float* grip) const {
       gb = c.roadGripBase + k * c.colors[i - 1].a;
       gc = c.roadGripBase + k * c.colors[i].a;
     }
-    testTriangle(c.vertices[i - 2], c.vertices[i - 1], c.vertices[i], ga, gb, gc);
+    float ca = 1.0F, cb = 1.0F, cc = 1.0F;
+    if (c.roadEdge) {
+      ca = c.colors[i - 2].a * (1.0F / 128.0F);
+      cb = c.colors[i - 1].a * (1.0F / 128.0F);
+      cc = c.colors[i].a * (1.0F / 128.0F);
+    }
+    testTriangle(c.vertices[i - 2], c.vertices[i - 1], c.vertices[i], ga, gb, gc,
+                 ca, cb, cc);
   }
 #if TYRA_ROAD_INDEX_VERIFY
   {
