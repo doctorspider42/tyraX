@@ -2424,6 +2424,17 @@ textured part's matte (near-black texel) triangles LAST, and
 it is re-asserted rather than set once. The editor mirrors it by splitting the
 part in `viewportBody` (vehicle_ui.cpp).
 
+## Vehicle lamp glow (1.141.0)
+
+docs/vehicles.md, "Lamp glow". The lamps are measured per LAMP by the bake
+(connected components of the lamp part -> `VehicleDef::lampGlows`), emitted as
+`VEHICLE_LAMP_GLOWS` only for definitions with `drive.lampGlow` > 0, and drawn
+by `renderVehicleLampGlow` through `beamCoronaTex` - which is why
+`projectUsesBeams` returns true for such a project (it gates both the bake of
+hud/flare-corona.png and its load). The arrays are fixed-size, sized in
+setupVehicles and written by slot (a previous frame's DMA may still read them).
+The "lamp*" spec keys live on the Effects tab, skipped by the Driving tab.
+
 ## Vehicle bank and suspension invariants
 
 `vehiclesim::bodyRotation` and the generated `vehBodyRotation` are twins:

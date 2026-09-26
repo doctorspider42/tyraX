@@ -222,6 +222,13 @@ struct DriveSpec {
     // multiplier on how easily the bonnet, boot and doors come off and the
     // windows break. 0 = everything stays on (dents only).
     float damageLoose = 1.0f;
+
+    // The halo around the lamps (docs/vehicles.md, "Lamp glow"): a soft
+    // additive corona billboard over every lamp the bake measured, shaped to
+    // that lamp. 0 (the struct default) = none, which is what every
+    // definition written before it keeps; a new definition starts at 1.
+    // Presentation only.
+    float lampGlow = 0.0f;
 };
 
 // One tunable of a DriveSpec, with everything a serializer or a widget needs.

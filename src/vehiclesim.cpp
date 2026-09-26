@@ -528,6 +528,10 @@ std::vector<SpecField> specFields(DriveSpec& s) {
          "does not drive."},
         {"damageSmoke", &s.damageSmoke, 0.0f, 1.0f, "Smoke from damage",
          "Damage level at which the engine starts to smoke (black when wrecked)."},
+        // The Vehicle Editor shows every "lamp*" key on its Effects tab.
+        {"lampGlow", &s.lampGlow, 0.0f, 2.0f, "Lamp glow",
+         "Brightness of the halo around the headlamps and tail lamps. 0 = no halo. "
+         "It follows the lamps' own state: headlights on, brake, broken."},
         {"damageLoose", &s.damageLoose, 0.0f, 3.0f, "Loose parts",
          "How easily the bonnet, boot and doors come off and the windows break. "
          "0 = everything stays on."},

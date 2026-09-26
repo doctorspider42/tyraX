@@ -18801,6 +18801,138 @@ void TerrainGame::applyVehicleEnvLimits() {
   }
 }
 
+
+void TerrainGame::renderVehicleLampGlow() {
+  if (VEHICLE_LAMP_GLOW_COUNT <= 0 || !beamCoronaTex) return;
+  const float kDeg = 0.017453293F;
+  if (lampGlowVerts_.size() < (size_t)kVehLampGlowMax * 6) return;  // sized in setupVehicles
+  // The camera basis the quads face, the light beams' own arithmetic.
+  Vec4 fwd = cameraLookAt - cameraPosition;
+  {
+    const float l = sqrtf(fwd.x * fwd.x + fwd.y * fwd.y + fwd.z * fwd.z);
+    if (l > 1e-4F) fwd.x /= l, fwd.y /= l, fwd.z /= l;
+  }
+  float rx = fwd.z, rz = -fwd.x;
+  {
+    const float l = sqrtf(rx * rx + rz * rz);
+    if (l > 1e-4F) rx /= l, rz /= l; else rx = 1.0F, rz = 0.0F;
+  }
+  const float ux = -rz * fwd.y, uy = rz * fwd.x - rx * fwd.z, uz = rx * fwd.y;
+  int quads = 0;
+  // The driver's car first, so a crowded frame never drops the player's own.
+  for (int pass = 0; pass < 2; ++pass)
+    for (int vi = 0; vi < vehicleCount_; ++vi) {
+      if ((pass == 0) != (vi == vehicleDriver_)) continue;
+      const VehicleRt& v = vehicles_[vi];
+      if (!v.active || v.def < 0 || v.object < 0 || v.object >= (int)objectGeometry.size())
+        continue;
+      const RuntimeObject& ro = runtimeObjects[v.object];
+      if (!ro.visible) continue;
+      const VehicleDefData& s = VEHICLE_DEFS[v.def];
+      const float SC = v.scale;
+      const float cdx = v.pos[0] - cameraPosition.x, cdy = v.pos[1] - cameraPosition.y,
+                  cdz = v.pos[2] - cameraPosition.z;
+      const float cd = sqrtf(cdx * cdx + cdy * cdy + cdz * cdz);
+      if (cd > 60.0F) continue;
+      const float distFade = cd < 40.0F ? 1.0F : 1.0F - (cd - 40.0F) / 20.0F;
+      const bool front = v.lightsOn > 0 && !(v.lampBroken & 1);
+      const bool rearOn = (v.lightsOn > 0 || v.brakeOn) && !(v.lampBroken & 2);
+      if (!front && !rearOn) continue;
+      // The body's frame: the matrix-path object matrix (pitch and roll in),
+      // else the heading alone for the frames before the promotion.
+      float bx[3], by[3], bz[3], bo[3];
+      const ObjectGeometry& g = objectGeometry[(size_t)v.object];
+      if (g.matrixMode) {
+        for (int a = 0; a < 3; ++a) {
+          bx[a] = g.objMat.data[a], by[a] = g.objMat.data[4 + a], bz[a] = g.objMat.data[8 + a];
+          bo[a] = g.objMat.data[12 + a];
+        }
+      } else {
+        const float cy = cosf(v.yaw * kDeg), sy = sinf(v.yaw * kDeg);
+        bx[0] = cy, bx[1] = 0.0F, bx[2] = -sy;
+        by[0] = 0.0F, by[1] = 1.0F, by[2] = 0.0F;
+        bz[0] = sy, bz[1] = 0.0F, bz[2] = cy;
+        for (int a = 0; a < 3; ++a) bo[a] = v.pos[a];
+      }
+      const float camRx = fabsf(rx * bx[0] + rz * bx[2]);
+      for (int r = 0; r < VEHICLE_LAMP_GLOW_COUNT && quads < kVehLampGlowMax; ++r) {
+        const VehicleLampGlow& L = VEHICLE_LAMP_GLOWS[r];
+        if (L.def != v.def) continue;
+        if (L.front ? !front : !rearOn) continue;
+        const float n = L.front ? 1.0F : -1.0F;
+        // Out through the lamp's face, in world space.
+        float c[3], nz[3];
+        for (int a = 0; a < 3; ++a) {
+          nz[a] = bz[a] * n;
+          c[a] = bo[a] + (bx[a] * L.c[0] + by[a] * L.c[1] + bz[a] * (L.c[2] + n * (L.h[2] + 0.03F))) * SC;
+        }
+        // Seen from its front the halo is full, edge-on it is gone.
+        const float tx = cameraPosition.x - c[0], ty = cameraPosition.y - c[1],
+                    tz = cameraPosition.z - c[2];
+        const float tl = sqrtf(tx * tx + ty * ty + tz * tz);
+        if (tl < 0.3F) continue;
+        float facing = (tx * nz[0] + ty * nz[1] + tz * nz[2]) / tl;
+        if (facing <= 0.05F) continue;
+        facing = sqrtf(facing);
+        // Pulled toward the camera so the body round the lamp cannot cut the
+        // halo in half (the light beams' camera pull).
+        const float pull = 0.35F * SC < 0.5F * tl ? 0.35F * SC : 0.5F * tl;
+        for (int a = 0; a < 3; ++a) c[a] += (a == 0 ? tx : (a == 1 ? ty : tz)) / tl * pull;
+        const bool braking = !L.front && v.brakeOn;
+        const float k = braking ? 3.3F : 2.4F;
+        const float hw = (L.h[0] * camRx + 0.35F * L.h[1]) * k * SC + 0.06F * SC;
+        const float hh = L.h[1] * k * SC + 0.06F * SC;
+        const float I = vehClamp(s.lampGlow, 0.0F, 2.0F) * facing * distFade;
+        Tyra::Color col;
+        if (L.front) col = Tyra::Color(118.0F * I, 110.0F * I, 88.0F * I, 128.0F);
+        else if (braking) col = Tyra::Color(190.0F * I, 30.0F * I, 20.0F * I, 128.0F);
+        else col = Tyra::Color(70.0F * I, 9.0F * I, 7.0F * I, 128.0F);
+        const float ax = rx * hw, ay = 0.0F, az = rz * hw;
+        const float vx = ux * hh, vy = uy * hh, vz = uz * hh;
+        const Vec4 p0(c[0] - ax - vx, c[1] - ay - vy, c[2] - az - vz, 1.0F);
+        const Vec4 p1(c[0] + ax - vx, c[1] + ay - vy, c[2] + az - vz, 1.0F);
+        const Vec4 p2(c[0] + ax + vx, c[1] + ay + vy, c[2] + az + vz, 1.0F);
+        const Vec4 p3(c[0] - ax + vx, c[1] - ay + vy, c[2] - az + vz, 1.0F);
+        const Vec4 q[6] = {p0, p1, p2, p0, p2, p3};
+        const Vec4 st[6] = {Vec4(0, 1, 1, 0), Vec4(1, 1, 1, 0), Vec4(1, 0, 1, 0),
+                            Vec4(0, 1, 1, 0), Vec4(1, 0, 1, 0), Vec4(0, 0, 1, 0)};
+        // Fixed-size arrays written by slot: a previous frame's DMA may still
+        // read them, so they never move (the glow bag's rule).
+        auto gv = lampGlowVerts_.span((size_t)quads * 6, 6);
+        auto gs = lampGlowSts_.span((size_t)quads * 6, 6);
+        auto gc = lampGlowCols_.span((size_t)quads * 6, 6);
+        for (int j = 0; j < 6; ++j) gv[j] = q[j], gs[j] = st[j], gc[j] = col;
+        ++quads;
+      }
+    }
+  if (quads == 0) return;
+  if (!lampGlowBag_) {
+    lampGlowMat_.identity();
+    lampGlowInfo_ = std::make_unique<StaPipInfoBag>();
+    lampGlowInfo_->model = &lampGlowMat_;
+    lampGlowInfo_->shadingType = TyraShadingGouraud;
+    lampGlowInfo_->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    lampGlowInfo_->zTestType = PipelineZTest_TestOnly;  // occluded, no z write
+    lampGlowInfo_->fullClipChecks = true;
+    lampGlowInfo_->fogDisabled = true;
+    lampGlowInfo_->additiveBlendFix = 128;  // the brightness rides the colours
+    lampGlowColorBag_ = std::make_unique<StaPipColorBag>();
+    lampGlowTexBag_ = std::make_unique<StaPipTextureBag>();
+    lampGlowTexBag_->texture = beamCoronaTex;
+    lampGlowBag_ = std::make_unique<StaPipBag>();
+    lampGlowBag_->info = lampGlowInfo_.get();
+    lampGlowBag_->color = lampGlowColorBag_.get();
+    lampGlowBag_->texture = lampGlowTexBag_.get();
+    lampGlowBag_->lighting = nullptr;
+  }
+  lampGlowCols_.bind(lampGlowColorBag_);
+  lampGlowSts_.bind(lampGlowTexBag_);
+  lampGlowVerts_.bind(lampGlowBag_);
+  lampGlowBag_->count = (u32)(quads * 6);
+  lampGlowBag_->bboxVersion = ++g_bboxStamp;  // it moves with the cars
+  stapip.core.render(lampGlowBag_.get());
+}
+
 void TerrainGame::updateVehicleDamage(float dt) {
   const float kDeg = 3.14159265F / 180.0F;
   for (int vi = 0; vi < vehicleCount_; ++vi) {
@@ -19019,6 +19151,9 @@ void TerrainGame::setupVehicles(int scene) {
   setupVehicleFx();  // one smoke + skid pool per definition, textures held
   glowVerts_.resize(kVehGlowMax * 6);
   glowCols_.resize(kVehGlowMax * 6);
+  lampGlowVerts_.resize(kVehLampGlowMax * 6);
+  lampGlowSts_.resize(kVehLampGlowMax * 6);
+  lampGlowCols_.resize(kVehLampGlowMax * 6);
   headlightVerts_.resize(kVehHeadlightMax * 6);
   headlightSts_.resize(kVehHeadlightMax * 6);
   headlightCols_.resize(kVehHeadlightMax * 6);
@@ -25777,6 +25912,7 @@ void TerrainGame::renderScene() {
   renderVehicleSkids();
   renderVehicleSmoke();
   { const u32 ct=costStart(); renderVehicleGlow(); costEnd("Vehicle_lights",-1,ct); }
+  { const u32 ct=costStart(); renderVehicleLampGlow(); costEnd("Vehicle_lamp_glow",-1,ct); }
 
   if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
   costEnd("Particles",-1,costParticleStart);

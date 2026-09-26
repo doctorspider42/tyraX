@@ -189,6 +189,9 @@ struct Result {
     // `vertices` (the matte suffix after them is the dark cabin and trim).
     std::vector<std::pair<int, int>> envLimits;
     std::vector<std::pair<int, int>> envLimitsList;  // the same, in `verts` (host-only)
+    // Every lamp of the lamp part: centre xyz, half extents xyz, front (1) or
+    // rear (0), canonical frame - what the lamp glow sizes each halo by.
+    std::vector<std::array<float, 7>> lampGlows;
 
     std::vector<std::string> notes;
 };

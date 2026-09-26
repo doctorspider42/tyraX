@@ -1086,6 +1086,20 @@ class TerrainGame : public Tyra::Game {
   int vehicleDentApply(int vi, const float* dent);
   void updateVehicleDamage(float dt);
   void applyVehicleEnvLimits();
+  // The LAMP GLOW (docs/vehicles.md, "Lamp glow"): a camera-facing corona
+  // billboard over every measured lamp of every car, shaped to that lamp,
+  // brightness in the vertex colours - ONE additive submit for all of them,
+  // through the corona texture the light beams already load.
+  enum { kVehLampGlowMax = 40 };
+  BagArray<Tyra::Vec4> lampGlowVerts_;
+  BagArray<Tyra::Vec4> lampGlowSts_;
+  BagArray<Tyra::Color> lampGlowCols_;
+  std::unique_ptr<Tyra::StaPipBag> lampGlowBag_;
+  std::unique_ptr<Tyra::StaPipInfoBag> lampGlowInfo_;
+  std::unique_ptr<Tyra::StaPipColorBag> lampGlowColorBag_;
+  std::unique_ptr<Tyra::StaPipTextureBag> lampGlowTexBag_;
+  Tyra::M4x4 lampGlowMat_;
+  void renderVehicleLampGlow();
   void repairVehicle(int vi);
   int vehicleCount_ = 0;
   // The frame's contact candidates for every car (buildVehicleColliders).

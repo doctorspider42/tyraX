@@ -238,6 +238,15 @@ direct route requires that a guard-band-only bag lacks, and whether an
 "every package is IN or guard-band" bag can take it. Measure with the
 `Obj_*` capture rows (docs/profiling.md, "The game side of the object loop").
 
+## Vehicle lamp glow: next (2026-09-26)
+
+- The editor viewport does not draw the halo yet (the light beams' corona has
+  a viewport twin, drawLightBeams; the vehicle one should join it).
+- Brightness does not know day from night: a day scene could scale it by the
+  ambient level.
+- Occlusion is the depth test alone - a halo whose lamp is hidden behind
+  another car still shows around it.
+
 ## Vehicle damage: what the first version left out (2026-09-26)
 
 Damage shipped in 1.138.0 (docs/vehicles.md, "Damage"). Queued, roughly in

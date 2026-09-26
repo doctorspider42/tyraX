@@ -578,6 +578,7 @@ void App::drawVehicleWindow() {
         // A NEW car can be damaged; the struct default stays 0 so every
         // definition saved before damage existed keeps driving as it did.
         v.drive.damage = 1.0f;
+        v.drive.lampGlow = 1.0f;
         defs.push_back(std::move(v));
         vehicleSel_ = (int)defs.size() - 1;
     }
@@ -735,6 +736,7 @@ void App::drawVehicleWindow() {
                 vehiclesim::specFields(v.drive);
             for (const vehiclesim::SpecField& f : fields) {
                 if (std::strncmp(f.key, "damage", 6) == 0) continue;  // Damage tab
+                if (std::strncmp(f.key, "lamp", 4) == 0) continue;    // Effects tab
                 ImGui::SetNextItemWidth(scaled(220));
                 ImGui::SliderFloat(f.label, f.value, f.min, f.max, "%.4g");
                 if (f.tip && f.tip[0]) prefHelp(f.tip);
@@ -1161,6 +1163,20 @@ void App::drawVehicleWindow() {
                         "sizes and life), links this car to it and opens the\n"
                         "Particle Editor on it.");
                 }
+            }
+            // The lamp halo: the "lamp*" spec fields, shown here rather than on
+            // the Driving tab (presentation, not handling).
+            ImGui::SeparatorText("Lamp glow");
+            {
+                const std::vector<vehiclesim::SpecField> fields =
+                    vehiclesim::specFields(v.drive);
+                for (const vehiclesim::SpecField& f : fields) {
+                    if (std::strncmp(f.key, "lamp", 4) != 0) continue;
+                    ImGui::SetNextItemWidth(scaled(220));
+                    ImGui::SliderFloat(f.label, f.value, f.min, f.max, "%.2f");
+                    if (f.tip && f.tip[0]) prefHelp(f.tip);
+                }
+                ImGui::Text("%zu lamp(s) measured on this body", v.lampGlows.size());
             }
             ImGui::EndTabItem();
         }

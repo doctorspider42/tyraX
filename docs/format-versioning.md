@@ -200,6 +200,12 @@ Format 60 adds the optional per-road `roadSampleStep` field. It is purely
 additive: missing means the original 1 m longitudinal spacing, so no migration
 step is required.
 
+Format 75 adds a vehicle's `drive.lampGlow` and a definition's bake-measured
+`"lampGlows"` (docs/vehicles.md, "Lamp glow"), the latter written only when
+non-empty. Missing means no halo, as before. The lamp-glow branch shipped it
+as **74**, taken by the damage merge, so it moved to 75. Additive; no
+migration step.
+
 Formats 72-74 are vehicle damage (docs/vehicles.md, "Damage" and "Loose
 panels and glass"): 72 adds six drive-spec keys (`damage`, `damageThreshold`,
 `damageMaxDent`, `damageRadius`, `damagePerfLoss`, `damageSmoke`), 73 adds

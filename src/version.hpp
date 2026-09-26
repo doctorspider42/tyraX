@@ -5261,6 +5261,14 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.141.0 - Lamp glow (docs/vehicles.md): a soft additive corona over every
+// lamp the vehicle bake measures (each lamp its own box, so a round headlamp
+// and a tail-lamp bar get their own halo), following the lamps' state -
+// headlights, brake (brighter, wider), broken - fading edge-on and with
+// distance. One submit for every car through the corona texture the light
+// beams already load; the driver's car always first under a 40-halo budget.
+// Drive-spec "lampGlow" on the Effects tab, 0 for every older definition.
+// MINOR. (Shipped on the vehicle-lamp-glow branch as 1.140.0 / v74.)
 // 1.140.0 - Vehicle debris stays physical: cars kick lying pieces away
 // (velocity, lift and spin from the car's speed), flying pieces bounce off
 // collision boxes and (rationed) mesh props, and a piece 60 units from the
@@ -5406,7 +5414,7 @@
 // Particles face the camera a pass DRAWS with (cutscene override, shake,
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 140
+#define TYRAX_VERSION_MINOR 141
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -5852,7 +5860,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // docs/vehicles.md "Loose panels and glass"), written only when non-empty.
 // Missing = the reflection covers the whole part until the next bake.
 // Additive; no migration step.
-inline constexpr int kFormatVersion = 74;
+// v75 (docs/vehicles.md, "Lamp glow"): drive.lampGlow and a definition's
+// bake-measured "lampGlows" (written only when non-empty). Missing = no halo.
+// Additive; no migration step. (Shipped on its branch as v74.)
+inline constexpr int kFormatVersion = 75;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

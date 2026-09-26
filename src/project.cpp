@@ -3038,6 +3038,16 @@ static void writeVehiclesSection(std::ostream& json, const Project& p) {
                      << v.pieces[k].count << "]";
             json << "]";
         }
+        if (!v.lampGlows.empty()) {
+            json << ", \"lampGlows\": [";
+            for (size_t k = 0; k < v.lampGlows.size(); ++k) {
+                json << (k ? ", " : "") << "[";
+                for (int a = 0; a < 7; ++a)
+                    json << (a ? ", " : "") << fmtFloat(v.lampGlows[k][(size_t)a]);
+                json << "]";
+            }
+            json << "]";
+        }
         if (!v.envLimits.empty()) {
             json << ", \"envLimits\": [";
             for (size_t k = 0; k < v.envLimits.size(); ++k)
@@ -3155,6 +3165,14 @@ static void readVehiclesSection(const json::Value& root, Project& out) {
                 pc.count = (int)q.arr[3].numberOr(0.0);
                 if (pc.part >= 0 && pc.kind > 0 && pc.count > 0) v.pieces.push_back(pc);
             }
+        if (const json::Value* lg = e.find("lampGlows");
+            lg && lg->type == json::Value::Type::Array)
+            for (const json::Value& q : lg->arr)
+                if (q.type == json::Value::Type::Array && q.arr.size() >= 7) {
+                    std::array<float, 7> g{};
+                    for (int a = 0; a < 7; ++a) g[(size_t)a] = (float)q.arr[(size_t)a].numberOr(0.0);
+                    v.lampGlows.push_back(g);
+                }
         if (const json::Value* el = e.find("envLimits");
             el && el->type == json::Value::Type::Array)
             for (const json::Value& q : el->arr)
