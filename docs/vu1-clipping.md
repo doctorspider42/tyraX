@@ -255,8 +255,9 @@ arms are not looking at the same scene.
 From the same GDC talk, evaluated against this pipeline and **not** adopted:
 
 - **Rejecting degenerate triangles before the cut.** Real meshes produce few of
-  them and micro memory is the scarce resource here — the clip program set sits
-  at 1676 of 2042 slots.
+  them and micro memory is the scarce resource here — the VU1-clipping set sits
+  at 1698 of 2042 words (plus the 206-word billboard pair) since the 2026-09-26
+  audit, see below.
 - **Per-triangle plane masks.** The talk reuses each vertex's clip codes to pick
   the planes to cut against. Here the mask is already per *package*, and the
   `clipw` flags cannot be reused for it: they describe `±w`, while the planes
@@ -387,6 +388,66 @@ production set pixel-identically to Sony's for 24 of 24 frames - so that
 distance is not a hardware hazard and the patch was not kept. The lesson for
 the next hardware-only bug: measure a **rate**, on a **parked
 pose**, and bisect with **barriers** before reading microcode.
+
+## The resident set after the VU1 audit (2026-09-26)
+
+A read-through of the microcode found three things worth taking, all measured
+with `nm` on the built objects (`C:\tyra-vq\vu_budget.sh <engine cache>`,
+words = `(CodeEnd - CodeStart) / 8`, rounded to even the way the uploader does):
+
+| program | before | after | why |
+|---|---:|---:|---|
+| `clip_c` (C/D image) | 346 | 346 | fog one-multiply + one ceiling fewer; VCL packed it into the same words |
+| `clip_tc` (TC/TCE/**TD** image) | 324 | 372 | carries TD's lighting path now |
+| `clip_td` | 230 | **not linked** | an alias of the TC image |
+| `cull_c` | 246 | 226 | no single-colour branch in the two loops, fog one-multiply |
+| `cull_tc` | 328 | 306 | the same, three loops |
+| `cull_tce` | 154 | 150 | the same, one loop |
+| `cull_d` | 152 | 142 | FixColor reduced to `ftoi0` (the light macro clamps), fog |
+| `cull_td` | 164 | 156 | the same |
+| **VU1-clipping set** | **1944** | **1698** | |
+| `as_is` five (EE-clipper set) | 558 | 528 | fog, and the lit pair's double clamp |
+| **EE-clipper set** | **1602** | **1508** | |
+| billboards (`billboard_c` + `_t`) | 206, swapped in | 206, **resident** | 1698 + 206 = 1904 of 2042 |
+
+On the physical PS2 (1.146.0) the four district benchmark poses got faster by
+0.38-0.50 ms of `work` each. Of that, 0.13-0.22 is VU1 time the EE no longer
+waits for (`vif_wait`) and 0.18-0.25 is `dispatch`. See docs/backlog.md, "VU1
+audit: what is left".
+
+**Clip TD rides the TC image.** Its three streams are vertices, ST and normals,
+and the normals sit exactly where TC keeps colours; the scratch polygon is TC's
+`[pos, stq, colour]` at stride 3, and the plane, edge, fan and emit code were
+the same instructions. So TC's image grew a third per-corner path, entered from
+the env branch (a TD bag also sets `VU1_OPTIONS_ADDR.y > 0`, it is a lighting
+bag) when `.x < 0` - the single-colour lane, which the EE sets to -1 for a
+resident TD bag and which every other reader only ever tests `> 0`. The light
+matrix and directions are the env-basis and spot registers the preamble already
+holds (same addresses); only the colours and ambient load per triangle, so the
+image's VF peak stayed at 30 of 31. The TC colour path pays nothing; TCE and TD
+pay two instructions. `--vu-check` runs the TC image's TD path against the
+unlinked `stapip_clip_td_vu1.vclpp` (`Clip TC/TD`), and was falsified before
+being trusted: flipping the selector branch, or feeding one corner's normal to
+the next, fails it on the first trial.
+
+**The billboards are resident.** `setProgramsCache` sizes the class set the way
+`Path1::createProgramsCache` will pack it and appends the billboard pair when
+the total stays under the draw-finish helper - every built-in configuration
+now. Before, the district swapped the whole set per billboard/non-billboard
+transition: two VIF1 drains and a ~15.5 KB MPG upload each time. The swap
+remains, as the fallback for a set a project's own looks have grown past the
+ceiling; the boot log names the case and `--profile-frame`'s
+`Program_swaps_count` counts swaps.
+
+**Every microcode change here is output-preserving, and proven so the hard way**:
+the descriptions were changed first and `--vu-check` run against the OLD
+handwritten files (IDENTICAL), then the handwritten files were edited and it was
+run again (IDENTICAL). That order caught the one trap: the cull loops built a
+single-colour corner as `vf00 + singleColor`, which adds 1.0 to the alpha, so
+the replicated copies at `VU1_SINGLE_COLOR_COPIES_ADDR` keep the `+ vf00`.
+What these do to CYCLES is unmeasured: removing a loop-head branch and a copy
+per vertex should only help, but the only arbiter is a console run
+(docs/backlog.md, "VU1 audit: what is left").
 
 ## See also
 

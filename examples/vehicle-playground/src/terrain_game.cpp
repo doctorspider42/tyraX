@@ -25292,6 +25292,7 @@ void TerrainGame::renderScene() {
     u32 dispatchTicks = 0;
     u32 vu1WaitTicks = 0;
     u32 programSetWaitTicks = 0;
+    u32 programSetSwaps = 0;
     u32 packagesCull = 0;
     u32 packagesClip = 0;
     u32 packagesGuardBand = 0;
@@ -25332,6 +25333,7 @@ void TerrainGame::renderScene() {
     d.dispatchTicks += t.dispatchTicks;
     d.vu1WaitTicks += t.vu1WaitTicks;
     d.programSetWaitTicks += t.programSetWaitTicks;
+    d.programSetSwaps += t.programSetSwaps;
     d.packagesCull += t.packagesCull;
     d.packagesClip += t.packagesClip;
     d.packagesGuardBand += t.packagesGuardBand;
@@ -26445,6 +26447,9 @@ void TerrainGame::renderScene() {
     costRows.push_back({-1,"Dispatch_included",pipeCost.dispatchTicks});
     costRows.push_back({-1,"VU1_wait_included",pipeCost.vu1WaitTicks});
     costRows.push_back({-1,"Program_swap_wait_included",pipeCost.programSetWaitTicks});
+    // How many billboard/resident program-set swaps the frame paid for - 0
+    // whenever the billboard programs fit in the resident set.
+    costRows.push_back({-1,"Program_swaps_count",pipeCost.programSetSwaps*294912U});
     costRows.push_back({-1,"Guard_band_bags_count",pipeCost.bagsGuardBandDirect*294912U});
     costRows.push_back({-1,"Packages_count",(pipeCost.packagesCull+pipeCost.packagesClip)*294912U});
     // packagesGuardBand is a SUBSET of packagesCull, so it is never added in.

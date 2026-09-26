@@ -1357,7 +1357,17 @@ void StaPipQBufferRenderer::sendObjectData(
     const s32 variantLane = sharedClipVariant ? 1 : (spotActive ? -1 : 0);
     {
       qword_t& q = opt[optQw++];
-      q.sw[0] = singleColorEnabled;  // Single color enabled.
+      // Single color enabled - or, Modified by TyraX, -1 for a TD bag: the
+      // TC clip image carries TD's lighting path and picks it on .x < 0
+      // (every reader of the lane tests `> 0` only; a TD bag is never drawn
+      // single-colour). Gated on the class being resident so a TD bag walked
+      // down to the TC program (residentFallback) is still drawn as TC.
+      const bool textureDirLightsBag =
+          bag->lighting != nullptr && bag->texture != nullptr &&
+          !bag->texture->coordinatesAreNormals && bag->billboard == nullptr &&
+          (residentClasses & StaPipClassTextureDirLights) != 0;
+      q.sw[0] = textureDirLightsBag ? static_cast<u32>(-1)
+                                    : static_cast<u32>(singleColorEnabled);
       q.sw[1] = static_cast<u32>(variantLane);
       // Modified by TyraX: GS hardware fog params (see RendererCoreFog)
       float fogScale = rendererCore->fog.scale;
@@ -1546,6 +1556,21 @@ void StaPipQBufferRenderer::sendStaticData() const {
   dma_channel_send_packet2(staticDataPacket, DMA_CHANNEL_VIF1, true);
 }
 
+// Modified by TyraX: micro-memory words a program cache of these programs
+// occupies - Path1::createProgramsCache's own arithmetic (back to back, each
+// rounded to an even count, an image shared by two wrappers counted once).
+static u32 programSetWords(VU1Program* const* programs, const u32& count) {
+  u32 words = 0;
+  for (u32 i = 0; i < count; i++) {
+    bool shared = false;
+    for (u32 j = 0; j < i && !shared; j++)
+      shared = programs[i]->getStart() == programs[j]->getStart() &&
+               programs[i]->getEnd() == programs[j]->getEnd();
+    if (!shared) words += programs[i]->getProgramSize();
+  }
+  return words;
+}
+
 void StaPipQBufferRenderer::setProgramsCache() {
   // Modified by TyraX: in VU1 clipping mode the clip programs replace
   // the as_is family (both plus cull would overflow VU1 micro memory, and
@@ -1563,7 +1588,7 @@ void StaPipQBufferRenderer::setProgramsCache() {
   // as_is twin - and a class the project never draws can be dropped to buy
   // micro memory for a program the user wrote. Every class is kept unless a
   // game says otherwise, so this is the old hardcoded ten by default.
-  VU1Program* programs[10];
+  VU1Program* programs[12];  // ten class programs + the two billboards
   u32 count = 0;
   const struct {
     u32 bit;
@@ -1585,17 +1610,41 @@ void StaPipQBufferRenderer::setProgramsCache() {
     programs[count++] =
         repository.getProgram(vu1Clipping ? c.clipped : c.asIs);
   }
+  // Modified by TyraX: the billboard family joins the resident set whenever it
+  // fits under the draw-finish helper - with clip TD sharing the TC image the
+  // all-class VU1-clipping set is ~1740 of 2042 words and the pair is 206, so
+  // that is every built-in configuration. Resident, ensureProgramSet never
+  // swaps: a swap was two VIF1 drains plus a ~15.5 KB MPG upload per
+  // billboard/non-billboard transition, several per frame in a scene with
+  // particles. Only a set that a project's own programs have grown past the
+  // ceiling falls back to the old separate packet, swapped in on demand.
+  // Decided on every rebuild, because overrides and setResidentClasses change
+  // the set's size at run time.
+  VU1Program* billboardPrograms[2] = {
+      repository.getProgram(StaPipBillboardColor),
+      repository.getProgram(StaPipBillboardTexture)};
+  billboardsResident = programSetWords(programs, count) +
+                           programSetWords(billboardPrograms, 2) <=
+                       path1->getDrawFinishAddr();
+  if (billboardsResident) {
+    programs[count++] = billboardPrograms[0];
+    programs[count++] = billboardPrograms[1];
+  }
   programsPacket = path1->createProgramsCache(programs, count, 0);
 
-  // Modified by TyraX: the billboard family lives in its own small packet,
-  // swapped in on demand (ensureProgramSet). Built once; independent of the
-  // clipping mode, even though shared clip images now leave useful headroom.
-  if (billboardProgramsPacket == nullptr) {
-    VU1Program* billboardPrograms[2];
-    billboardPrograms[0] = repository.getProgram(StaPipBillboardColor);
-    billboardPrograms[1] = repository.getProgram(StaPipBillboardTexture);
-    billboardProgramsPacket = path1->createProgramsCache(billboardPrograms, 2, 0);
+  // createProgramsCache assigns each program's micro-memory address, so the
+  // fallback packet is rebuilt AFTER the main one: its programs must point at
+  // address 0 (where the swap puts them), not at wherever an earlier resident
+  // build had parked them.
+  if (billboardProgramsPacket != nullptr) {
+    packet2_free(billboardProgramsPacket);
+    billboardProgramsPacket = nullptr;
   }
+  if (!billboardsResident)
+    billboardProgramsPacket =
+        path1->createProgramsCache(billboardPrograms, 2, 0);
+  TYRA_LOG("StaPip VU1 program set: ", count, " programs, billboards ",
+           billboardsResident ? "resident" : "swapped on demand");
 }
 
 // TyraX addition: see the header. Safe to call at run time - a level that stops
@@ -1769,7 +1818,8 @@ void StaPipQBufferRenderer::uploadPrograms() {
 // billboard set (both packets are prebuilt - this is one VIF1 MPG upload,
 // the VIF stalls it until VU1 halts, so it is safe mid-frame).
 void StaPipQBufferRenderer::ensureProgramSet(const bool& billboard) {
-  if (billboardSetActive == billboard) return;
+  // Modified by TyraX: resident billboards (see setProgramsCache) never swap.
+  if (billboardsResident || billboardSetActive == billboard) return;
   flushPendingPacket();
   billboardSetActive = billboard;
 

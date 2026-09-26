@@ -54,6 +54,11 @@ constexpr int kClipPlanesAddr = 944;
 // triangle cut by six planes can reach.
 constexpr int kClipPolyAAddr = 956;
 constexpr int kClipPolyBAddr = 986;
+// Three copies of the single colour, written once per buffer by the cull
+// family, so its loop loads a colour the same way in both modes: the pointer
+// sits here with stride 0 instead of walking the colour array with stride 3.
+// 1016..1023 are the free tail above polygon B (stapip_vu1_shared_defines.h).
+constexpr int kSingleColorCopiesAddr = 1016;
 constexpr float kClipGuard = 4096.0f;
 // The env (matcap) camera basis reuses the lights-matrix area: an env bag
 // never carries lighting, so the two can share (stapip_vu1_shared_defines.h).
@@ -591,9 +596,11 @@ void Vu::fixColor(Val color) {
 void Vu::fogCoefficient(IVal dst, Val vertex, Val fogParams, Val scratch) {
     // F = clamp(w * fogScale + fogOffset, 0, 255), then ftoi4 so the value is
     // already shifted into the F field of a packed XYZF2 (bits 4..11).
-    addInto(scratch, zero(), vertex.broadcast(3), MX);
+    // fogParams.x holds the SCALE (emitPreamble copies .z there once), so w
+    // needs no copy into an x lane of its own first: one multiply with w as
+    // the broadcast operand, bit-identical to `(0 + w) * scale`.
+    mulInto(scratch, fogParams, vertex.broadcast(3), MX);
     p_->code.back().comment = "CalculateTyraFog";
-    mulInto(scratch, scratch, fogParams.broadcast(2), MX);
     addInto(scratch, scratch, fogParams.broadcast(3), MX);
     loadI(255.0f);
     minimumIInto(scratch, scratch, MX);
@@ -1118,6 +1125,7 @@ Desc descClipTextureColor() {
     Desc d = descClipColor();
     d.sharedClipDir = false;
     d.sharedClipEnv = true;
+    d.sharedClipTexDir = true;
     d.vclName = "StaPipVU1ClipTC";
     d.asmName = "StaPipVU1Clip_TC";
     d.fileStem = "stapip_clip_tc_vu1";
@@ -1148,10 +1156,16 @@ Desc descClipDirLights() {
 
 Desc descClipTextureDirLights() {
     Desc d = descClipDirLights();
-    // TD is the one clip class nothing shares with: three input streams plus
-    // normals is an ABI of its own. Copied from D, so the alias has to go.
-    d.residentImageAsmName.clear();
-    d.codeOwner.clear();
+    // TD shares TC's image, the way D shares C's. The "ABI of its own" this
+    // used to claim was never there: TD's three streams are vertices, ST and
+    // normals, and the normals sit exactly where TC's colours do; the scratch
+    // polygon is TC's [pos, stq, colour] at stride 3 and the emitter, planes,
+    // edges and fan are the same code. Only where a corner's colour comes
+    // from differs - lit from the normals here - and TC's image carries that
+    // path behind VU1_OPTIONS_ADDR.x < 0 (sharedClipTexDir). So this body is
+    // a REFERENCE for `--vu-check`'s peer-path comparison, never linked.
+    d.residentImageAsmName = descClipTextureColor().asmName;
+    d.codeOwner = descClipTextureColor().fileStem;
     d.vclName = "StaPipVU1ClipTD";
     d.asmName = "StaPipVU1Clip_TD";
     d.fileStem = "stapip_clip_td_vu1";
@@ -1165,6 +1179,7 @@ Desc descClipTextureDirLights() {
 Desc descClipTextureEnv() {
     Desc d = descClipTextureColor();
     d.sharedClipEnv = false;
+    d.sharedClipTexDir = false;
     // Same relationship D has with C, one stream up: TC's image generates the
     // matcap ST as well, chosen by VU1_OPTIONS_ADDR.y.
     d.residentImageAsmName = descClipTextureColor().asmName;
@@ -1317,6 +1332,7 @@ Desc descForClass(unsigned classBit, int lookIndex, Half half) {
     d.custom = true;
     d.sharedClipDir = false;
     d.sharedClipEnv = false;
+    d.sharedClipTexDir = false;
     // A look is fully specialised: it has a stage list woven in, so no peer's
     // body can stand in for it. Cleared rather than left alone because the D
     // and TCE descriptions this copies from DO alias, and an override that
@@ -1932,7 +1948,8 @@ void loadDirLights(Vu& b, Program& prog, Constants& k) {
 }
 
 /** Everything that runs once per BUFFER before the first vertex is touched. */
-void emitPreamble(Vu& b, Program& prog, const Desc& d, Constants& k) {
+void emitPreamble(Vu& b, Program& prog, const Desc& d, Constants& k,
+                  bool singleColorPerBuffer = false) {
     const bool colorStream = !d.dirLights;
     // The families that judge a vertex against the frustum on VU1 start from a
     // cleared clip-flag shift register.
@@ -1952,8 +1969,11 @@ void emitPreamble(Vu& b, Program& prog, const Desc& d, Constants& k) {
 
     if (colorStream) {
         k.singleColor = b.named("singleColor");
-        loadK(prog, k.singleColor, kSingleColorAddr, MALL,
-              "VU1_SINGLE_COLOR_ADDR");
+        // A program that replicates the single colour per buffer loads it
+        // there, where it is used, instead of holding it live across the loop.
+        if (!singleColorPerBuffer)
+            loadK(prog, k.singleColor, kSingleColorAddr, MALL,
+                  "VU1_SINGLE_COLOR_ADDR");
         // The CLIP family deliberately does NOT keep the flag in an integer
         // register: its inner loops need every one of the sixteen, so it pays
         // an ilw per triangle instead (the handwritten programs say so too).
@@ -1981,6 +2001,11 @@ void emitPreamble(Vu& b, Program& prog, const Desc& d, Constants& k) {
     k.fogParams = b.named("fogParams");
     loadK(prog, k.fogParams, kOptionsAddr, MALL,
           "VU1_OPTIONS_ADDR.zw = GS hardware fog");
+    // .x carries the single-colour flag, read with ilw from memory and never
+    // from this register, so it is free to hold the fog SCALE for
+    // fogCoefficient's one-multiply form (LoadTyraFogParams does the same).
+    b.addInto(k.fogParams, b.zero(), k.fogParams.broadcast(2), MX);
+    prog.code.back().comment = "fog scale into .x (CalculateTyraFog)";
 
     // The ADC mask is the cull family's alone: a clip program never derives an
     // ADC bit from clip flags (the historically fragile path) - it cuts the
@@ -2148,8 +2173,21 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     // of this block is how the handwritten programs drifted.
     const bool colorStream = !d.dirLights;
     const bool spot = usesSpotLight(d);
+    // The built-in cull programs point the colour pointer at three copies of
+    // the single colour (stride 0) instead of branching on the flag inside
+    // every loop body: the loop then loads its colours the same way in both
+    // modes and the scheduler gets one straight block. A stage list or script
+    // keeps the old shape - its own register budget is not this one.
+    const bool replicatedSingle =
+        d.cull && colorStream && !hasStages && d.script == nullptr;
+    // A lit program's colour leaves CalculateTyraDirectionalLights already
+    // clamped to 0..255, so FixColor's clamp is redundant there and only the
+    // float-to-int conversion is left - unless a stage or script can still
+    // move the colour in between.
+    const bool litColorClamped =
+        !colorStream && !hasStages && d.script == nullptr;
     Constants k;
-    emitPreamble(b, prog, d, k);
+    emitPreamble(b, prog, d, k, replicatedSingle);
 
     // --- the stage list's own constants -------------------------------------
     //
@@ -2173,7 +2211,7 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     const IVal vertexCount = hdr.vertexCount;
     const Val scale = hdr.scale;
 
-    IVal stqData{}, colorData{}, normalData{};
+    IVal stqData{}, colorData{}, normalData{}, colorStride{};
     const IVal kickAddress = b.inamed("kickAddress");
     const IVal destAddress = b.inamed("destAddress");
     if (d.texture) {
@@ -2182,6 +2220,7 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     }
     if (colorStream) {
         colorData = b.inamed("colorData");
+        if (replicatedSingle) colorStride = b.inamed("colorStride");
         b.iaddInto(colorData, d.texture ? stqData : vertexData, vertexCount);
         // Where the output starts depends on whether the colour array is there
         // at all: with a single colour the EE simply does not upload it.
@@ -2189,9 +2228,22 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         const Lbl done = b.label("setDestAddr");
         b.branchIfLez(k.singleColorEnabled, multi);
         b.iaddInto(kickAddress, d.texture ? stqData : vertexData, vertexCount);
+        if (replicatedSingle) {
+            loadInto(prog, k.singleColor, b.izero(), kSingleColorAddr, MALL,
+                     "VU1_SINGLE_COLOR_ADDR - replicated for a stride-0 loop");
+            // The branchy loop built each corner as vf00 + singleColor, and
+            // vf00.w is 1.0: the alpha has always come out one higher than
+            // the uploaded value. Kept, so the output stays bit-identical.
+            b.addInto(k.singleColor, b.zero(), k.singleColor);
+            for (int i = 0; i < 3; ++i)
+                b.sq(k.singleColor, b.izero(), kSingleColorCopiesAddr + i);
+            b.iaddiuInto(colorData, b.izero(), kSingleColorCopiesAddr);
+            b.iaddiuInto(colorStride, b.izero(), 0);
+        }
         b.branch(done);
         b.bind(multi);
         b.iaddInto(kickAddress, colorData, vertexCount);
+        if (replicatedSingle) b.iaddiuInto(colorStride, b.izero(), 3);
         b.bind(done);
         b.iaddiuInto(destAddress, kickAddress, 0);
     } else {
@@ -2239,6 +2291,15 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     if (twoLoops) b.branchIfGez(k.spotEnabled, unlitLoop);
 
     bool loopScriptWroteQ = false;
+    auto fixOrConvertColor = [&](Val color) {
+        if (!litColorClamped) {
+            b.fixColor(color);
+            return;
+        }
+        b.ftoi0Into(color, color, MALL);
+        prog.code.back().comment =
+            "FixColor without the clamp - the light macro already clamped";
+    };
     auto emitVertexLoop = [&](Lbl loopLbl, bool withSpot) {
     b.bind(loopLbl);
 
@@ -2261,7 +2322,10 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         if (!colorStream) normal[i] = b.named(normalNames[i]);
     }
 
-    if (colorStream) {
+    if (colorStream && replicatedSingle) {
+        // Same loads in both modes - the pointer is what differs (above).
+        for (int i = 0; i < 3; ++i) loadInto(prog, color[i], colorData, i);
+    } else if (colorStream) {
         // The unlit twin needs its own names: a body-local label emitted twice
         // is defined twice, and dvp-as refuses the file.
         const char* sfx = twoLoops && !withSpot ? "Unlit" : "";
@@ -2443,7 +2507,7 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         // shortcut layered on the framework, the script IS the framework, and
         // an author who writes both means "and then this".
         if (d.script && d.scriptSlot == Slot::Color) runScript(sc, d);
-        b.fixColor(color[i]);
+        fixOrConvertColor(color[i]);
     }
 
     for (int i = 0; i < 3 && !d.cull; ++i) {
@@ -2503,7 +2567,7 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
             sc.st = d.texture ? st[i] : Val{};
             runScript(sc, d);
         }
-        b.fixColor(color[i]);
+        fixOrConvertColor(color[i]);
     }
 
     // One scratch pair for all three vertices - see Vu::fogCoefficient on why
@@ -2523,7 +2587,9 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
 
     b.iaddiuInto(vertexData, vertexData, 3);
     if (d.texture) b.iaddiuInto(stqData, stqData, 3);
-    if (colorStream)
+    if (colorStream && replicatedSingle)
+        b.iaddInto(colorData, colorData, colorStride);
+    else if (colorStream)
         b.iaddiuInto(colorData, colorData, 3);
     else
         b.iaddiuInto(normalData, normalData, 3);
@@ -2764,6 +2830,30 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
                         spotScratch);
         clampColors();
     };
+    // TD's shading inside TC's image. The light matrix and the three light
+    // directions live at the addresses the preamble already loaded as the
+    // env basis (VU1_ENV_BASIS_ADDR = VU1_LIGHTS_MATRIX_ADDR) and the spot
+    // quads (VU1_LIGHTS_DIRS_ADDR), and the macro reads only their xyz, so
+    // those registers stand in: no extra register is live across the
+    // clipper, and only the colours + ambient are loaded here, per triangle,
+    // the way clip_td loads its whole light block.
+    auto shadeSharedTexDir = [&]() {
+        static const char* cn[3] = {"lightColors[0]", "lightColors[1]",
+                                    "lightColors[2]"};
+        Val lightColors[3];
+        for (int i = 0; i < 3; ++i) {
+            lightColors[i] = b.named(cn[i]);
+            loadInto(prog, lightColors[i], b.izero(), kLightsColorsAddr + i,
+                     MXYZ, i == 0 ? "TD path: light colours + ambient" : nullptr);
+        }
+        const Val ambient = b.named("ambientColor");
+        loadInto(prog, ambient, b.izero(), kLightsColorsAddr + 3, MALL);
+        const Val lightMatrix[3] = {k.envBasisX, k.envBasisY, k.envBasisZ};
+        const Val lightDirs[3] = {k.spotPos, k.spotDirV, k.spotColV};
+        for (int i = 0; i < 3; ++i)
+            b.dirLightShade(color[i], color[i], lightMatrix, lightDirs,
+                            lightColors, ambient);
+    };
     auto applyEnv = [&]() {
         // Matcap ST from the object-space normals, before any Q-consuming
         // clip interpolation or perspective divide.
@@ -2819,7 +2909,25 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
                 clampColors();
             }
             b.branch(prepared);
-            b.bind(envMode);
+            if (d.sharedClipTexDir) {
+                // TD's path, placed BEFORE envMode so the TC colour path above
+                // is untouched and only the two classes that set .y > 0 pay
+                // the extra test. The colour registers already hold the
+                // normals: .x < 0 took loadColors' multi-colour branch, and
+                // TD's normal stream sits where TC's colours do. Lit on the
+                // original three corners, exactly like clip_td; the macro
+                // clamps to 0..255 itself, so no ceiling is added here.
+                const Lbl dirMode = b.label("sharedDirMode");
+                b.bind(dirMode);
+                shadeSharedTexDir();
+                b.branch(prepared);
+                b.bind(envMode);
+                ilwInto(prog, sceFlag, b.izero(), kOptionsAddr, 0,
+                        "VU1_OPTIONS_ADDR.x < 0 = a TD (lit) mesh");
+                b.branchIfLtz(sceFlag, dirMode);
+            } else {
+                b.bind(envMode);
+            }
             applyEnv();
             b.bind(prepared);
         } else if (d.env) {
@@ -3181,7 +3289,19 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
             applyStages(sc, plan, Slot::Ndc);
         }
         b.scaleToGsFormat(ecPos, scale);
-        b.fixColor(ecCol);
+        if (sharedDir && !hasStages && d.script == nullptr) {
+            // C's image: every path into the scratch polygon already capped the
+            // colour at 255 (clampColors, the spot's clamp, the light macro),
+            // and a lerp between two corners at or under 255 with t in [0, 1]
+            // cannot exceed it - VU1 rounds toward zero. The floor stays: the
+            // pre-clip ceiling is an upper bound only. Not TC's image: its env
+            // path carries unclamped stream colours into the polygon.
+            b.maximumInto(ecCol, ecCol, b.zero().broadcast(0), MXYZ);
+            prog.code.back().comment = "FixColor floor - the ceiling ran pre-clip";
+            b.ftoi0Into(ecCol, ecCol, MALL);
+        } else {
+            b.fixColor(ecCol);
+        }
         if (d.texture) b.sq(ecStq, destAddress, stqOut);
         b.sq(ecCol, destAddress, rgbaOut);
         b.sq(ecPos, destAddress, xyzOut, MXYZ);
@@ -4002,7 +4122,9 @@ std::vector<uint32_t> stageInput(const Desc& d, int top, int verts, uint32_t& s,
     auto putf = [&](int qw, int f, float v) { mem[(size_t)qw * 4 + f] = asBits(v); };
     auto puti = [&](int qw, int f, uint32_t v) { mem[(size_t)qw * 4 + f] = v; };
 
-    puti(kOptionsAddr, 0, singleColor ? 1u : 0u);
+    puti(kOptionsAddr, 0,
+         d.runtimeColorLane != 0 ? static_cast<uint32_t>(d.runtimeColorLane)
+                                 : (singleColor ? 1u : 0u));
     // Three-state (see LoadTyraSpotLight in tyra_macros.i): positive selects a
     // shared clip image's peer path, negative says a dynamic light reaches the
     // mesh. Alternated per trial by the caller, because a lane pinned to 0 or 1

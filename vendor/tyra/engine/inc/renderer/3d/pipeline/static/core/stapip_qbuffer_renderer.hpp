@@ -659,14 +659,19 @@ class StaPipQBufferRenderer {
   void setVuTime(const float& seconds);
 
   /**
-   * Modified by TyraX: particle billboards. The resident program set has no
-   * room for the billboard family (the VU1-clipping set fills micro memory
-   * to the brim), so the two billboard programs live in their own small
-   * packet and are swapped in when a billboard bag renders - the same
-   * upload mechanism a StaPip<->DynPip pipeline switch uses every frame.
-   * The main set is lazily restored by the next non-billboard bag.
+   * Modified by TyraX: particle billboards. setProgramsCache appends the two
+   * billboard programs to the resident set whenever they fit under the
+   * draw-finish helper (the normal case since clip TD shares the TC image),
+   * and then this is a no-op. Only when they do not fit - a project's own
+   * oversized programs, say - do they live in their own small packet and get
+   * swapped in when a billboard bag renders (two VIF1 drains plus a ~15 KB
+   * MPG upload each way), the main set lazily restored by the next
+   * non-billboard bag. StaPipTelemetry::programSetSwaps counts those swaps.
    */
   void ensureProgramSet(const bool& billboard);
+  /** Modified by TyraX: true when the billboard programs sit in the resident
+   * set and ensureProgramSet never swaps. */
+  bool areBillboardsResident() const { return billboardsResident; }
 
   void flushBuffers();
 
@@ -843,9 +848,11 @@ class StaPipQBufferRenderer {
       const bool& isLightingEnabled, const bool& isTextureEnabled) const;
   packet2_t* programsPacket;
   // Modified by TyraX: on-demand billboard program set (see
-  // ensureProgramSet).
+  // ensureProgramSet). Only built when the two billboard programs do NOT fit
+  // beside the resident set - billboardsResident says which case this is.
   packet2_t* billboardProgramsPacket;
   bool billboardSetActive = false;
+  bool billboardsResident = false;
 
   packet2_t** packets;
   /** Modified by TyraX: how many packet buffers rotate. 2 is the stock

@@ -6,20 +6,28 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
-# Modified by TyraX: VU1 clipping program (clip family).
+# Modified by TyraX: VU1 clipping program (clip family). Links the TC image,
+# which carries the TD shading path too.
 */
 
 #include "debug/debug.hpp"
 #include "renderer/3d/pipeline/static/core/programs/clip/stapip_clip_td_vu1_program.hpp"
 
-extern u32 StaPipVU1Clip_TD_CodeStart __attribute__((section(".vudata")));
-extern u32 StaPipVU1Clip_TD_CodeEnd __attribute__((section(".vudata")));
+// TC and TD have the same three-stream input (TD's normals sit where TC's
+// colours do), stride-3 scratch polygon and GIF register list, so the TC image
+// carries TD's per-corner lighting as a third path, selected by
+// VU1_OPTIONS_ADDR.x < 0 (StaPipQBufferRenderer::sendObjectData sets it for
+// every TD bag). stapip_clip_td_vu1.vclpp is still compiled but never linked -
+// it is the reference `tyrax-editor --vu-check` runs the TC image's TD path
+// against. Path1::createProgramsCache aliases the shared range to one upload.
+extern u32 StaPipVU1Clip_TC_CodeStart __attribute__((section(".vudata")));
+extern u32 StaPipVU1Clip_TC_CodeEnd __attribute__((section(".vudata")));
 
 namespace Tyra {
 
 StaPipClipTDVU1Program::StaPipClipTDVU1Program()
-    : StaPipVU1Program(StaPipClipTextureDirLights, &StaPipVU1Clip_TD_CodeStart,
-                       &StaPipVU1Clip_TD_CodeEnd,
+    : StaPipVU1Program(StaPipClipTextureDirLights, &StaPipVU1Clip_TC_CodeStart,
+                       &StaPipVU1Clip_TC_CodeEnd,
                        ((u64)GIF_REG_ST) << 0 | ((u64)GIF_REG_RGBAQ) << 4 |
                            ((u64)GIF_REG_XYZF2) << 8,
                        3, 4) {}

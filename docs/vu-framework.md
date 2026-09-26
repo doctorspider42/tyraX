@@ -256,15 +256,19 @@ own guard is a runtime `TYRA_ASSERT` in `createProgramsCache` — which is
 **compiled out in release**, so the comment in `stapip_qbuffer_renderer.cpp`
 telling you to check with `nm` after touching a program still stands.
 
-## Shared images: five programs, three bodies
+## Shared images: five programs, two bodies
 
-`C/D` and `TC/TCE` are ABI-compatible pairs — same input streams, same scratch
-stride, same GIF register list — so each pair rides ONE resident image and
-`VU1_OPTIONS_ADDR.y` selects the per-corner shading path per mesh. `TD` stays
-specialised. This is the difference between 1676 and 2030 measured slots, and it
+`C/D` and `TC/TCE/TD` are ABI-compatible groups — same input streams, same
+scratch stride, same GIF register list — so each rides ONE resident image and
+`VU1_OPTIONS_ADDR.y` selects the per-corner shading path per mesh (`.y > 0`: D
+in C's image, TCE in TC's; TD additionally sets `.x < 0`, the single-colour
+lane, which a TD mesh never uses - `Desc::sharedClipTexDir`). `TD` used to stay
+specialised on the belief that its normals made "an ABI of its own"; they sit
+exactly where TC's colours do, and folding it in saved 230 words. The C/D and
+TC/TCE sharing was the difference between 1676 and 2030 measured slots, and it
 lives in three places that have to agree:
 
-- **The description.** `Desc::sharedClipDir`/`sharedClipEnv` say "my body also
+- **The description.** `Desc::sharedClipDir`/`sharedClipEnv`/`sharedClipTexDir` say "my body also
   carries a peer's path"; `Desc::residentImageAsmName`/`codeOwner` say "somebody
   else's body carries mine". Both directions are needed, and the second is the
   one every consumer reads: it is what the EE wrapper links, what the budget
@@ -287,16 +291,19 @@ peer gets its own image, and the built-in one stays for the other.
 ## Loading and unloading programs at run time
 
 This already exists and is worth knowing before reaching for it.
-`StaPipQBufferRenderer::ensureProgramSet` swaps the billboard program set in and
-out mid-frame (one VIF1 MPG upload; the VIF stalls it until VU1 halts), because
-the resident ten-program set has no spare micro memory for it. Microcode is just
-a `u32*` range in EE memory (`VU1Program`), and `createProgramsCache` assigns
-destination addresses when it builds the packet — programs are relocatable, with
-no address baked in.
+`StaPipQBufferRenderer::ensureProgramSet` can swap the billboard program set in
+and out mid-frame (one VIF1 MPG upload; the VIF stalls it until VU1 halts).
+Since the clip TD merge it only does so as a FALLBACK: `setProgramsCache`
+appends the two billboard programs to the resident set whenever the whole set
+fits under the draw-finish helper, which every built-in configuration does, and
+then `ensureProgramSet` returns at once. Microcode is just a `u32*` range in EE
+memory (`VU1Program`), and `createProgramsCache` assigns destination addresses
+when it builds the packet — programs are relocatable, with no address baked in.
 
-The cost is serialization: `ensureProgramSet` waits for the DMA channel before
-*and* after the upload, and it is called per bag, so a scene that interleaves
-billboard and ordinary bags pays for a swap at every transition.
+The cost of a swap is serialization: `ensureProgramSet` waits for the DMA
+channel before *and* after the upload, and it is called per bag, so a scene that
+interleaves billboard and ordinary bags pays for a swap at every transition -
+which is why residency is decided first and swapping is what is left over.
 `StaPipCore::setTelemetryEnabled(true)` now measures both the transition count
 (`programSetSwaps`) and total drain/upload time (`programSetWaitTicks`); read and
 reset an interval with `takeTelemetry()`. It is opt-in, so the normal render path
@@ -340,8 +347,9 @@ only if every handwritten program parsed and every described one matched. This
 is the framework's test — there is no unit-test suite in this repo
 (`tyra-testing`).
 
-The check also exercises variant one of both shared clip images against the old
-specialised `D` and `TCE` programs. Ordinary per-description equivalence only
+The check also exercises the peer paths of both shared clip images against the
+old specialised `D`, `TCE` and `TD` programs (TD with `Desc::runtimeColorLane =
+-1`, the `.x < 0` selector). Ordinary per-description equivalence only
 selects variant zero and is not sufficient proof for a multi-entry image.
 
 And it checks the EE wrappers, which no amount of microcode comparison can:
@@ -349,7 +357,7 @@ And it checks the EE wrappers, which no amount of microcode comparison can:
 ```
 -- EE wrappers: the image they link, and the buffer ABI --
   StaPipVU1ClipD   ALIAS     StaPipVU1Clip_C   2 GS regs, 3 elements/vertex
-  StaPipVU1ClipTD  OWN       StaPipVU1Clip_TD   3 GS regs, 4 elements/vertex
+  StaPipVU1ClipTD  ALIAS     StaPipVU1Clip_TC   3 GS regs, 4 elements/vertex
 ```
 
 For every description, the emitted wrapper AND the one in `vendor/tyra` must
@@ -378,7 +386,7 @@ described program. It writes to a directory you name, **not** into
 Docker and looked at on hardware, so this stages it for a human to diff first.
 
 The output is copyable as a whole. That is worth saying because it was not: the
-wrappers for the aliased `D` and `TCE` programs used to name their own images, so
+wrappers for the aliased `D` and `TCE` programs (and now `TD`) used to name their own images, so
 copying everything this wrote would have relinked five clip bodies and silently
 put the resident set back over 2000 slots. They now declare the owner's symbols,
 their `.vclpp` carries a "NOT LINKED, and not meant to be" header, and

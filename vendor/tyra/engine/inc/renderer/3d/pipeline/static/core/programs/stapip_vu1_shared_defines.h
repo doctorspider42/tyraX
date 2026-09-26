@@ -105,3 +105,9 @@
 #define VU1_CLIP_PLANES_ADDR 944
 #define VU1_CLIP_POLY_A_ADDR 956
 #define VU1_CLIP_POLY_B_ADDR 986
+// Modified by TyraX: 1016..1018 hold three copies of the single colour,
+// written by the cull programs once per batch so their vertex loops read
+// colours through one pointer in both modes (stride 0 here, 3 over the
+// colour array). Like the clip scratch it is transient per program run.
+// 1019..1023 are still free. A literal, like the rest (see above).
+#define VU1_SINGLE_COLOR_COPIES_ADDR 1016

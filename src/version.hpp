@@ -5261,6 +5261,12 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.146.0 - VU1 audit: the billboard programs are resident whenever they fit
+// (no program-set swap), clip TD rides the TC image (clip_td unlinked), and
+// output-preserving trims (fog one multiply, no double clamp, no single-colour
+// branch in the cull loops). Resident VU1-clipping set 1944 -> 1698 words
+// (+206 billboards). Physical PS2: -0.38..-0.50 ms work on all four district
+// poses. MINOR.
 // 1.145.1 - Per-car EE cuts (docs/vehicles.md "Per-car EE cuts"): the
 // headlight pools and lamp halos are kept per car (-0.27..-0.30 ms on the
 // district, -0.32..-0.47 on the orbit), undriven paint re-colours by distance,
@@ -5452,8 +5458,8 @@
 // Particles face the camera a pass DRAWS with (cutscene override, shake,
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 145
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 146
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
