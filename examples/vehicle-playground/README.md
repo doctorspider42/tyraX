@@ -726,10 +726,13 @@ camera travels from garage Z -74 to 88 and across outer-road X 4 to 99, both
 by day and night. The recorder keeps 240 frames from each 360-frame phase.
 
 PCSX2 recorded 960 complete cost rows and 32 FPS samples, **49.992–50.007
-FPS**. Its relative attribution changes with the view: garage frames spend
-more in solo objects (median 0.92/0.98 emulator ms versus 0.43/0.44 in terrain
-draw), while outer-road frames spend more in terrain draw (1.18/1.17 versus
-0.25/0.52 in objects). There is no reproduced 25 FPS point in this route. The
+FPS**. Its relative attribution changes with the view: the garage's Objects
+bucket is 0.92/0.98 emulator ms versus 0.43/0.44 in terrain draw, while the
+outer road spends 1.18/1.17 in terrain draw versus 0.25/0.52 in Objects. A
+[fresh two-pass recheck](authoring/emu-profile-2026-09-27/README.md) showed that
+0.62–0.67 ms of the garage Objects bucket is actually road and static-batch
+submission interleaved between objects; object part draws are 0.08–0.09 ms.
+There is no reproduced 25 FPS point in this route. The
 [raw CSVs](authoring/fps-sweep-2026-09-27/) retain every sample; PCSX2's EE
 milliseconds must not be quoted as physical PS2 timings. The hardware attempt
 lost contact before `loadelf:` and yielded no current frame sample, so a new
