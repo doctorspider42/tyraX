@@ -60,6 +60,30 @@ draw units rejected from those considered. Compare the same camera pose with
 the project setting off. A street with long uninterrupted walls is a strong
 case; an open field can only add the visibility-buffer cost.
 
+## Hardware verdict on the unmerged rewrite (2026-09-27)
+
+The `ee-occlusion` branch made culling useful in the dense Motor District:
+one garage pose hid 23 of 48 tested units, and day triangles fell from 22,452
+to 10,291 in the garage and from 21,110 to 16,756 on the outer road. The
+result also passed its PCSX2 image comparison. Two physical-PS2 rounds on the
+same ELF, with runtime mode 70 as the disabled control, gave this median
+`work` cost for enabling the rewrite:
+
+| pose | enabled versus disabled |
+|---|---:|
+| garage day | +2.22 ms |
+| garage night | +1.88 ms |
+| outer day | +2.52 ms |
+| outer night | +2.58 ms |
+
+Both rounds agreed within 0.01 ms. Mode 72 (buffer and tests, no hiding) cost
+another 1.05–2.68 ms over enabled mode; mode 73 (no terrain/road tests) was
+0.73–1.03 ms slower in the garage and only 0.12–0.15 ms faster on the outer
+road than the enabled mode. The EE work to
+build and query visibility exceeds the rendering work saved on this fixture.
+The rewrite therefore remains unmerged, and `occlusionCulling` stays off in
+the Motor District. Counts and captures alone would have hidden this loss.
+
 ## What it costs, and why a city of buildings does not win yet (1.125.2)
 
 Measured on a physical PS2 (Motor District, devkit off, `FTOCC` with

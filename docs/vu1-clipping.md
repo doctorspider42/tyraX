@@ -447,7 +447,85 @@ single-colour corner as `vf00 + singleColor`, which adds 1.0 to the alpha, so
 the replicated copies at `VU1_SINGLE_COLOR_COPIES_ADDR` keep the `+ vf00`.
 What these do to CYCLES is unmeasured: removing a loop-head branch and a copy
 per vertex should only help, but the only arbiter is a console run
-(docs/backlog.md, "VU1 audit: what is left").
+(the measured follow-ups below).
+
+## Measured VU1 follow-ups (2026-09-27, 1.149.0)
+
+Three follow-ups of the audit that a simulator cannot judge, because what they
+trade is cycles and none of them removes enough words to matter. Each surviving
+winner is a
+compile-time toggle in `inc/renderer/3d/pipeline/static/core/stapip_vu1_experiments.hpp`.
+The winning (b) and (c) paths now default to 1. The slower (a) path was removed.
+`vclpp` has no `#if`, so a toggle
+selects a whole alternative program IMAGE: the experiment's `.vclpp` is
+assembled with everything else (`*_fold_vu1`, `*_envn_vu1`) and
+the wrapper picks its symbols under `#if TYRA_VU1_EXP_...`; with a toggle off
+the unused image stays out of the ELF, like the unlinked clip references.
+The image files are DERIVED from the original ones by a fixed
+rewrite (they say so in their header) - re-derive after editing the original.
+
+| toggle | what changes | VU1 cost | output |
+|---|---|---|---|
+| (b) `TYRA_VU1_EXP_EE_LIGHT_FOLD` | every static lit program (`cull_d/td`, `as_is_d/td`, the D path of clip C and the TD path of clip TC): the EE uploads the light directions already multiplied by the light matrix (`F_i = D0*M_i.x + D1*M_i.y + D2*M_i.z`, nine multiplies a bag) and skips the matrix upload; `CalculateTyraDirectionalLightsFolded` loses three instructions a vertex | nm words `cull_d` 142 -> 130, `cull_td` 156 -> 144, `as_is_d` 116 -> 104, `as_is_td` 128 -> 114, clip C 346 -> 338, clip TC 372 -> 364 | colour within 1 LSB |
+| (c) `TYRA_VU1_EXP_ENV_NORMALIZED` | `cull_tce`: `StaPipCore::render` normalizes an env bag's normal array in place once (pointer + count + bboxVersion + contentVersion, 32-entry table) and the program drops the rsqrt normalize (`CalculateTyraEnvStqUnit`) | nm words 150 -> 126 | ST within 2e-9 absolute |
+
+`as_is_tce` keeps its normalize under (c) - the EE clipper lerps normals, which
+shortens them - and so does the TC clip image's env path (same unit array; one
+toggle, one image). A project override of a lit program keeps the unfolded
+upload under (b): `litProgramOverridden()`.
+
+**The tolerance is measured, not promised.** `--vu-check` prints a
+"measured-only experiments" section that runs each experiment image against the
+shipping image it replaces, over 400 randomized trials, on the input the EE
+would hand EACH of them (for (b) the host folds with round-to-nearest, as the EE
+does, and poisons the matrix slots with FLT_MAX so an image that still read them
+would fail; for (c) the host normalizes the normal stream). Every GS word must
+match exactly except colour words (both <= 255, tolerated 2 LSB) and float words
+(ST, tolerated 1e-4 relative or 1e-6 absolute). Measured on the first run: (a)
+IDENTICAL everywhere; (b) ONE colour word off by 1 in 400 `cull_d` trials,
+everything else identical, the unlit paths of both clip images identical;
+(c) ST max absolute 2.1e-9 (relative 1.2e-3, but only on an ST near zero where
+the dot products cancel). Before (a)'s identity could mean anything the harness
+had to grow: every cull trial kept all corners inside the clip volume, so the ADC
+bit was 0 in every trial and a corrupted ADC table passed. Every fourth cull
+corner now spreads to +-80, past w = 60 - z; the same corruption fails at trial 0.
+
+**PCSX2 pixel A/B, all four arms** (debug builds of the augmented fixture,
+two or more captures per pose, HUD text excluded): garage day and outer road
+day are pixel-IDENTICAL to base for (a), (b) and (c) - the lit wobblers and
+the chrome boxes included - and the two night poses differ only within the
+base arm's own capture-to-capture noise. The pixel check earned its keep: the
+first cut of (b) skipped the light-COLOUR upload together with the matrix, and
+every lit mesh drew black. `--vu-check` could not see it - it stages VU1 memory
+itself - which is why an EE-side change needs a frame, not only a simulator.
+
+Each image also logs once when it runs - `VU1 experiment (b): first folded light
+upload`, `VU1 experiment (c): normalized N env normals` - because a scene that
+draws no lit mesh never takes (b)'s path and an arm that measures zero must be
+told apart from one that measured nothing. **The Motor District is such a
+scene**: it has no dynamically lit and no reflective mesh, and a plain-district
+boot of arms b and c printed neither line. The console fixture is therefore the
+district AUGMENTED for every arm, base included (`C:\tyra-vq\vux-augment.py`:
+sixteen paused animated wobblers in front of the benchmark cameras - an animated
+model always renders with a lighting bag, while a static `model` marked
+dynamicLighting is lit only when the scene has GI probes, which the district has
+not - and every 2nd box chrome with a static sphere map),
+so its numbers are not comparable with earlier district series. The arms and the one-command console
+series are in `C:\tyra-vq\vux-build.sh` / `vux-ab.sh` (local test artifacts).
+
+**Physical PS2 verdict, two boots per arm (augmented Motor District):**
+
+| change | garage day | garage night | outer day | outer night |
+|---|---:|---:|---:|---:|
+| (a) 255 register + ADC table, rejected | +0.19..+0.20 ms | +0.12..+0.14 ms | +0.12..+0.14 ms | +0.11..+0.12 ms |
+| (b) folded light directions, shipped | -0.24..-0.25 ms | -0.23..-0.24 ms | ~0 ms | +0.01..+0.04 ms |
+| (c) normalized env normals, shipped | -0.14 ms | -0.14..-0.16 ms | -0.02 ms | -0.04..-0.06 ms |
+
+The table compares median `work` with both base boots. The original and
+candidate ELFs had different hashes, and (b)/(c) logged that their modified
+paths ran. The (a) images, macros and wrapper switches were removed. The
+(b)/(c) switches remain for regression A/B builds; their defaults are enabled.
+The project format remains 80.
 
 ## See also
 

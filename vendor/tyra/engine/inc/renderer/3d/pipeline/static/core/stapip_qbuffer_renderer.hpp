@@ -897,6 +897,9 @@ class StaPipQBufferRenderer {
    * screen, which is the right failure for something the editor is supposed to
    * have proven unnecessary in the first place. */
   StaPipProgramName residentFallback(const StaPipProgramName& name) const;
+  /** TyraX addition: a project override replaces one of the six lit programs
+   * (experiment (b) then keeps the unfolded light upload). */
+  bool litProgramOverridden() const;
 
   u16 bufferSize, nextBufferIndex, currentBufferIndex;
   // Modified by TyraX: VU1 buffer capacity, used by clip() to drain the

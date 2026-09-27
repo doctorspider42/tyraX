@@ -3683,8 +3683,27 @@ static int vuCheckVu0(const std::string& engine) {
  * microcode image ends up in the ELF - `--vu-emit` writes it, the linker obeys
  * it, and nothing downstream can tell that two wrappers named the same image on
  * purpose from a generator that forgot they were supposed to. */
-static std::vector<std::string> wrapperImages(const std::string& text) {
+static std::vector<std::string> wrapperImages(const std::string& raw) {
     std::vector<std::string> out;
+    // A measured-only experiment's image sits in an `#if TYRA_VU1_EXP_...`
+    // branch with the shipping image under `#else`
+    // (stapip_vu1_experiments.hpp). Only the shipping one is the wrapper's
+    // image as far as this check is concerned: skip the experiment branch.
+    std::string text;
+    {
+        size_t pos = 0;
+        while (true) {
+            const size_t at = raw.find("#if TYRA_VU1_EXP_", pos);
+            if (at == std::string::npos) {
+                text += raw.substr(pos);
+                break;
+            }
+            text += raw.substr(pos, at - pos);
+            const size_t els = raw.find("#else", at);
+            if (els == std::string::npos) break;
+            pos = els;
+        }
+    }
     const std::string tail = "_CodeStart";
     size_t at = 0;
     while ((at = text.find(tail, at)) != std::string::npos) {
@@ -3882,6 +3901,88 @@ static int vuCheckFromCli(int argc, char** argv) {
     checkSharedClip("stapip_clip_tc_vu1", "stapip_clip_tce_vu1", "Clip TC/TCE");
     checkSharedClip("stapip_clip_tc_vu1", "stapip_clip_td_vu1", "Clip TC/TD", -1);
     std::printf("\n");
+
+    // The measured-only experiment images (stapip_vu1_experiments.hpp). Each
+    // is compared with the SHIPPING image it would replace, on the input the
+    // EE would hand it: (b) and (c) are NOT bit-identical, and
+    // print the difference they actually make so the tolerance is a
+    // measurement rather than a promise. A toggle that is off links none of
+    // these, so a failure here is a broken experiment, never a broken game -
+    // but it still fails the check: an A/B arm built from it would measure a
+    // program that draws something else.
+    std::printf("-- measured-only experiments (stapip_vu1_experiments.hpp) --\n");
+    auto checkExperiment = [&](const char* label, const char* dir,
+                               const char* shipStem, const char* expStem,
+                               vugen::Desc d, vugen::ExperimentInput input,
+                               int colorTol, double relTol, double absTol = 0.0) {
+        const fs::path root = fs::path(engine) / "src" / "renderer" / "3d" /
+                              "pipeline" / "static" / "core" / "programs" / dir;
+        vuasm::Options opt;
+        opt.includeRoot = engine;
+        vuir::Program ship, exp;
+        std::string err;
+        if (!vuasm::parseFile((root / (std::string(shipStem) + ".vclpp")).string(), opt, ship, err) ||
+            !vuasm::parseFile((root / (std::string(expStem) + ".vclpp")).string(), opt, exp, err)) {
+            std::printf("  %-22s FAILED: %s\n", label, err.c_str());
+            ++mismatches;
+            return;
+        }
+        const vugen::Tolerance t = vugen::experimentEquivalence(
+            ship, exp, d, input, 400, 0xE4B0A11Du, colorTol, relTol, absTol);
+        const bool exact = t.within && t.maxColorDelta == 0 && t.maxFloatRel == 0.0;
+        std::printf("  %-22s %-9s %d trials  colour max |d| %d (%d words), "
+                    "ST max rel %.2e abs %.2e   %d -> %d instr\n",
+                    label, !t.within ? "OUTSIDE" : exact ? "IDENTICAL" : "WITHIN",
+                    t.trials, t.maxColorDelta, t.colorWordsDiffering,
+                    t.maxFloatRel, t.maxFloatAbs, (int)ship.code.size(), (int)exp.code.size());
+        if (!t.within) {
+            ++mismatches;
+            if (!t.error.empty()) std::printf("      %s\n", t.error.c_str());
+            if (!t.detail.empty()) std::printf("      %s\n", t.detail.c_str());
+        } else if (input == vugen::ExperimentInput::Same && !exact) {
+            ++mismatches;
+        }
+    };
+    using XI = vugen::ExperimentInput;
+    // (b) light matrix folded on the EE. Colour words may move by rounding;
+    // positions, ST, fog and the tag block may not move at all.
+    const int kFoldColorTol = 2;
+    checkExperiment("(b) cull_d fold", "cull", "stapip_cull_d_vu1", "stapip_cull_d_fold_vu1",
+                    vugen::descCullDirLights(), XI::FoldedLights, kFoldColorTol, 0.0);
+    checkExperiment("(b) cull_td fold", "cull", "stapip_cull_td_vu1", "stapip_cull_td_fold_vu1",
+                    vugen::descCullTextureDirLights(), XI::FoldedLights, kFoldColorTol, 0.0);
+    checkExperiment("(b) as_is_d fold", "as_is", "stapip_as_is_d_vu1", "stapip_as_is_d_fold_vu1",
+                    vugen::descAsIsDirLights(), XI::FoldedLights, kFoldColorTol, 0.0);
+    checkExperiment("(b) as_is_td fold", "as_is", "stapip_as_is_td_vu1", "stapip_as_is_td_fold_vu1",
+                    vugen::descAsIsTextureDirLights(), XI::FoldedLights, kFoldColorTol, 0.0);
+    {
+        // The shared clip images: the lit peer path folds, and the others -
+        // which an unlit bag reaches with an unfolded upload - must not move.
+        vugen::Desc cd = vugen::descClipDirLights();
+        cd.runtimeClipVariant = 1;
+        checkExperiment("(b) clip C, D path", "clip", "stapip_clip_c_vu1", "stapip_clip_c_fold_vu1",
+                        cd, XI::FoldedLights, kFoldColorTol, 0.0);
+        checkExperiment("(b) clip C, C path", "clip", "stapip_clip_c_vu1", "stapip_clip_c_fold_vu1",
+                        vugen::descClipColor(), XI::Same, 0, 0.0);
+        vugen::Desc td = vugen::descClipTextureDirLights();
+        td.runtimeClipVariant = 1;
+        td.runtimeColorLane = -1;
+        checkExperiment("(b) clip TC, TD path", "clip", "stapip_clip_tc_vu1", "stapip_clip_tc_fold_vu1",
+                        td, XI::FoldedLights, kFoldColorTol, 0.0);
+        checkExperiment("(b) clip TC, TC path", "clip", "stapip_clip_tc_vu1", "stapip_clip_tc_fold_vu1",
+                        vugen::descClipTextureColor(), XI::Same, 0, 0.0);
+        vugen::Desc te = vugen::descClipTextureEnv();
+        te.runtimeClipVariant = 1;
+        checkExperiment("(b) clip TC, TCE path", "clip", "stapip_clip_tc_vu1", "stapip_clip_tc_fold_vu1",
+                        te, XI::Same, 0, 0.0);
+    }
+    // (c) env normals normalized once on the EE: the ST may move by the
+    // difference between VU1's rsqrt and the EE's 1/sqrtf.
+    checkExperiment("(c) cull_tce envn", "cull", "stapip_cull_tce_vu1", "stapip_cull_tce_envn_vu1",
+                    vugen::descCullTextureEnv(), XI::UnitEnvNormals, 0, 1e-4, 1e-6);
+    std::printf("  (IDENTICAL = bit for bit; WITHIN = only colour words by <= %d or ST\n"
+                "   by <= 1e-4 relative or 1e-6 absolute moved, every other GS word exact.)\n\n",
+                kFoldColorTol);
 
     // 3. The emitted SOURCE must behave like the IR it came from.
     //

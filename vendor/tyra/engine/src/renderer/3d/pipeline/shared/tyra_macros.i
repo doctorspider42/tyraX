@@ -411,3 +411,51 @@
    mul.xyz     spotAdd,       t_spotCol,     spotC[x]
    add.xyz     t_color,       t_color,       spotAdd
 #endmacro
+
+;//---------------------------------------------------------
+;// Modified by TyraX: the measured-only experiments of the VU1 audit
+;// (stapip_vu1_experiments.hpp). Used by the *_fold and *_envn images.
+;//---------------------------------------------------------
+;// (b): the light directions arrive pre-multiplied by the light matrix
+;// (the EE folds D * M per bag), so the object-space normal goes straight
+;// into the direction dot products - no matrix load, three instructions
+;// a vertex fewer. The normal register is left in OBJECT space.
+;//---------------------------------------------------------
+#macro LoadTyraDirectionalLightsFolded: t_lightDirections, t_lightsColors, t_ambientColor, t_dirOffset, t_colorOffset
+   lq.xyz      t_lightDirections[0],   t_dirOffset(vi00)
+   lq.xyz      t_lightDirections[1],   t_dirOffset+1(vi00)
+   lq.xyz      t_lightDirections[2],   t_dirOffset+2(vi00)
+   lq.xyz      t_lightsColors[0],      t_colorOffset(vi00)
+   lq.xyz      t_lightsColors[1],      t_colorOffset+1(vi00)
+   lq.xyz      t_lightsColors[2],      t_colorOffset+2(vi00)
+   lq.xyzw     t_ambientColor,         t_colorOffset+3(vi00)
+#endmacro
+
+#macro CalculateTyraDirectionalLightsFolded: t_outputColor, t_normal, t_lightDirections, t_lightColors, t_ambientColor
+   mula.xyz    acc,              t_lightDirections[0],   t_normal[x]
+   madd.xyz    acc,              t_lightDirections[1],   t_normal[y]
+   madd.xyz    t_outputColor,    t_lightDirections[2],   t_normal[z]
+   mini.xyz    t_outputColor,    t_outputColor,          vf00[w]
+   max.xyz     t_outputColor,    t_outputColor,          t_ambientColor[w]
+   mula.xyz    acc,              t_lightColors[0],       t_outputColor[x]
+   madda.xyz   acc,              t_lightColors[1],       t_outputColor[y]
+   madda.xyz   acc,              t_lightColors[2],       t_outputColor[z]
+   madd.xyz    t_outputColor,    t_ambientColor,         vf00[w]
+   loi         255
+   mini.xyz    t_outputColor,    t_outputColor,          i
+   max.xyz     t_outputColor,    t_outputColor,          vf00[x]
+   loi         128
+   addi.w      t_outputColor,    vf00,    i
+#endmacro
+
+;//---------------------------------------------------------
+;// (c): CalculateTyraEnvStq for a normal the EE already normalized - the
+;// same two scaled dot products, without the rsqrt (so no Q either).
+;//---------------------------------------------------------
+#macro CalculateTyraEnvStqUnit: t_stq, t_envBasisX, t_envBasisY, t_envBasisZ
+   mula.xy  acc,         t_envBasisX, t_stq[x]
+   madda.xy acc,         t_envBasisY, t_stq[y]
+   madd.xy  t_stq,       t_envBasisZ, t_stq[z]
+   add.xy   t_stq,       t_stq,       t_envBasisZ[w]
+   add.z    t_stq,       vf00,         t_envBasisZ[z]
+#endmacro

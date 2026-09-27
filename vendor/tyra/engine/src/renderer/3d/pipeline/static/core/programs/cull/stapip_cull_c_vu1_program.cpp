@@ -13,12 +13,14 @@
 
 extern u32 StaPipVU1Cull_C_CodeStart __attribute__((section(".vudata")));
 extern u32 StaPipVU1Cull_C_CodeEnd __attribute__((section(".vudata")));
+#define TYRA_WRAPPER_IMAGE_START (&StaPipVU1Cull_C_CodeStart)
+#define TYRA_WRAPPER_IMAGE_END (&StaPipVU1Cull_C_CodeEnd)
 
 namespace Tyra {
 
 StaPipCullCVU1Program::StaPipCullCVU1Program()
     : StaPipVU1Program(
-          StaPipCullColor, &StaPipVU1Cull_C_CodeStart, &StaPipVU1Cull_C_CodeEnd,
+          StaPipCullColor, TYRA_WRAPPER_IMAGE_START, TYRA_WRAPPER_IMAGE_END,
           ((u64)GIF_REG_RGBAQ) << 0 | ((u64)GIF_REG_XYZF2) << 4, 2, 2) {}
 
 StaPipCullCVU1Program::~StaPipCullCVU1Program() {}

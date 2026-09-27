@@ -19,6 +19,7 @@
 #include "renderer/core/renderer_core.hpp"
 #include "thread/threading.hpp"
 #include "debug/frame_profile.hpp"
+#include "renderer/3d/pipeline/static/core/stapip_vu1_experiments.hpp"
 
 // #define TYRA_RENDERER_VERBOSE_LOG 1
 
@@ -472,6 +473,38 @@ u32 StaPipCore::getMaxVertCountByParams(const bool& isSingleColor,
       ->getMaxVertCount(isSingleColor, qbufferRenderer.getBufferSize());
 }
 
+// Modified by TyraX: experiment (c) - see the header. The stapip_cull_tce_envn
+// image assumes unit normals and drops the per-vertex rsqrt; this is the EE
+// half of that bargain, paid once per array rather than once per vertex per
+// frame. The paint pass reads the same array for its fresnel and is happy
+// with unit normals too.
+void StaPipCore::ensureEnvNormalsUnit(StaPipBag* bag) {
+  Vec4* n = bag->texture->coordinates;
+  if (n == nullptr || bag->count == 0) return;
+  const u32 content =
+      bag->texture->contentVersion ? *bag->texture->contentVersion : 0;
+  EnvNormalsSeen& e =
+      envNormalsSeen[(reinterpret_cast<uintptr_t>(n) >> 4) & 31];
+  if (e.coordinates == n && e.count == bag->count &&
+      e.bboxVersion == bag->bboxVersion && e.content == content)
+    return;
+  for (u32 i = 0; i < bag->count; i++) {
+    const float l2 = n[i].x * n[i].x + n[i].y * n[i].y + n[i].z * n[i].z;
+    if (l2 > 1e-12F) {
+      const float inv = 1.0F / sqrtf(l2);
+      n[i].x *= inv, n[i].y *= inv, n[i].z *= inv;
+    }
+  }
+  e.coordinates = n, e.count = bag->count, e.bboxVersion = bag->bboxVersion,
+  e.content = content;
+  // A handful per boot (once per array), so an A/B arm can prove it ran.
+  static u32 logged = 0;
+  if (logged < 4) {
+    ++logged;
+    TYRA_LOG("VU1 experiment (c): normalized ", bag->count, " env normals");
+  }
+}
+
 void StaPipCore::render(StaPipBag* bag) {
   HardwareTrace::Scope traceBag("Static_bag");
   TYRA_ATTRIB_MARK(attribRenderStart);
@@ -533,6 +566,10 @@ void StaPipCore::render(StaPipBag* bag) {
   TYRA_ASSERT(!bag->texture || !bag->texture->coordinatesAreNormals ||
                   bag->lighting == nullptr,
               "Env (matcap) bags do not support lighting!");
+#if TYRA_VU1_EXP_ENV_NORMALIZED
+  if (bag->texture && bag->texture->coordinatesAreNormals)
+    ensureEnvNormalsUnit(bag);
+#endif
   TYRA_ASSERT(bag->info->transformationType == TyraMVP ||
                   (!bag->info->fullClipChecks && !frustumCull),
               "Please disable clip checks and frustum culling if not using MVP "

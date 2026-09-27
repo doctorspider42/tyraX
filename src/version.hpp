@@ -5261,6 +5261,10 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.149.0 - The measured VU1 winners ship: light directions folded on the EE
+// and env normals normalized once per unchanged bag. Physical PS2, augmented
+// Motor District: garage work -0.23..-0.25 ms and -0.14..-0.16 ms respectively;
+// the k255/ADC-table candidate slowed every pose and was removed. Format 80.
 // 1.148.1 - The static-batch report (staticbatch.cpp, the Rendering panel) now
 // prunes a multi-part model that has a lonely part, as the runtime has since
 // its all-or-nothing rule ("a part is alone"); both twin oracles compile again
@@ -5476,8 +5480,8 @@
 // Particles face the camera a pass DRAWS with (cutscene override, shake,
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 148
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 149
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

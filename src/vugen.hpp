@@ -740,6 +740,32 @@ Equivalence equivalence(const vuir::Program& a, const vuir::Program& b,
                         const float customParams[4] = nullptr,
                         float customTime = 0.0f);
 
+/** The input the EE hands an EXPERIMENT image (stapip_vu1_experiments.hpp)
+ * that it does not hand the shipping one. `b` runs on memory staged exactly
+ * like `a`'s and then rewritten this way. */
+enum class ExperimentInput {
+    Same,            // (a): nothing changes on the EE - must be bit-identical
+    FoldedLights,    // (b): dirs = D * M (EE rounding), matrix slots garbage
+    UnitEnvNormals,  // (c): the ST-slot normals normalized on the EE
+};
+
+/** An experiment's verdict: every GS word must match exactly EXCEPT colour
+ * words (both integers <= 255), which may differ by up to `colorTol`, and
+ * float words (both normal floats), which may differ by up to `floatRelTol`
+ * relative. The maxima actually seen are reported either way, so a pass
+ * states its own tolerance. */
+struct Tolerance {
+    bool ran = false, within = false;
+    int trials = 0, maxColorDelta = 0, colorWordsDiffering = 0, words = 0;
+    double maxFloatRel = 0.0;
+    double maxFloatAbs = 0.0;  // the same words, absolute
+    std::string detail, error;
+};
+Tolerance experimentEquivalence(const vuir::Program& a, const vuir::Program& b,
+                                const Desc& d, ExperimentInput input,
+                                int trials, uint32_t seed, int colorTol,
+                                double floatRelTol, double floatAbsTol = 0.0);
+
 // ---------------------------------------------------------------------------
 // Micro-memory budget
 // ---------------------------------------------------------------------------

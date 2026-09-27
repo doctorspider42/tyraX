@@ -4321,7 +4321,14 @@ std::vector<uint32_t> stageInput(const Desc& d, int top, int verts, uint32_t& s,
             // sides genuinely cross, so most trials exercise the clipper and
             // some still take the fully-inside fast path - which is the mix
             // worth comparing.
-            const float span = d.clip ? 40.0f : 5.0f;
+            //
+            // A CULL trial needs a few corners OUTSIDE the clip volume too: the
+            // cull family's output carries an ADC bit per vertex, and with every
+            // corner inside that bit was 0 in every trial - so a program that
+            // got the ADC wrong compared equal (the table-ADC experiment's check
+            // passed with a corrupted table until this). Every fourth corner
+            // spreads to +-80, past w = 60 - z.
+            const float span = d.clip ? 40.0f : (i % 4 == 3 ? 80.0f : 5.0f);
             putf(addr + i, 0, randomFloat(s, -span, span));
             putf(addr + i, 1, randomFloat(s, -span, span));
             putf(addr + i, 2, randomFloat(s, -5.0f, 5.0f));
@@ -4499,6 +4506,141 @@ Equivalence equivalence(const Program& a, const Program& b, const Desc& d,
             }
     }
     return eq;
+}
+
+Tolerance experimentEquivalence(const Program& a, const Program& b,
+                                const Desc& d, ExperimentInput input,
+                                int trials, uint32_t seed, int colorTol,
+                                double floatRelTol, double floatAbsTol) {
+    Tolerance tol;
+    if (a.code.empty() || b.code.empty()) {
+        tol.error = "one of the programs is empty";
+        return tol;
+    }
+    tol.ran = true;
+    tol.within = true;
+    const int top = 22;  // VU1_STAPIP_LAST_ITEM_ADDR + 1
+    // Where a block sits: the same list the EE upload and stageInput derive
+    // from, so the rewrite below cannot address the wrong stream.
+    const std::vector<AttrBlock> blocks = attrBlocks(d);
+    auto blockAt = [&](const char* member, int verts) {
+        for (size_t i = 0; i < blocks.size(); ++i)
+            if (std::string(blocks[i].member) == member)
+                return top + kVertDataAddr + (int)i * verts;
+        return -1;
+    };
+    auto getf = [](const std::vector<uint32_t>& m, int qw, int f) {
+        float v;
+        std::memcpy(&v, &m[(size_t)qw * 4 + f], 4);
+        return v;
+    };
+    auto setf = [](std::vector<uint32_t>& m, int qw, int f, float v) {
+        std::memcpy(&m[(size_t)qw * 4 + f], &v, 4);
+    };
+    auto isNormalFloat = [](uint32_t w) {
+        const uint32_t e = (w >> 23) & 0xFFu;
+        return e != 0u && e != 0xFFu;
+    };
+    for (int t = 0; t < trials; ++t) {
+        uint32_t s = seed + (uint32_t)t * 2654435761u;
+        if (s == 0) s = 1;
+        const int verts = 3 * (1 + (int)(xorshift(s) % 8));
+        const bool single = !d.dirLights && (xorshift(s) & 1) != 0;
+        const bool spotOn = (xorshift(s) & 1) != 0;
+        uint32_t sa = s, sb = s;
+        std::vector<uint32_t> memA =
+            stageInput(d, top, verts, sa, single, spotOn, nullptr, 0.0f);
+        std::vector<uint32_t> memB =
+            stageInput(d, top, verts, sb, single, spotOn, nullptr, 0.0f);
+        if (input == ExperimentInput::FoldedLights) {
+            // The EE's fold (StaPipQBufferRenderer::sendObjectData), in the
+            // host's round-to-nearest - which is the EE's rounding, and the
+            // whole reason this is a tolerance and not an identity.
+            float F[3][3];
+            for (int i = 0; i < 3; ++i)
+                for (int k = 0; k < 3; ++k)
+                    F[i][k] = getf(memA, kLightsDirsAddr + 0, k) *
+                                  getf(memA, kLightsMatrixAddr + i, 0) +
+                              getf(memA, kLightsDirsAddr + 1, k) *
+                                  getf(memA, kLightsMatrixAddr + i, 1) +
+                              getf(memA, kLightsDirsAddr + 2, k) *
+                                  getf(memA, kLightsMatrixAddr + i, 2);
+            for (int i = 0; i < 3; ++i) {
+                for (int k = 0; k < 3; ++k) setf(memB, kLightsDirsAddr + i, k, F[i][k]);
+                setf(memB, kLightsDirsAddr + i, 3, 0.0f);
+                // The folded image must not read the matrix: poison it.
+                for (int k = 0; k < 4; ++k)
+                    memB[(size_t)(kLightsMatrixAddr + i) * 4 + k] = 0x7F7FFFFFu;
+            }
+        } else if (input == ExperimentInput::UnitEnvNormals) {
+            const int at = blockAt("sts", verts);
+            for (int v = 0; at >= 0 && v < verts; ++v) {
+                const float x = getf(memB, at + v, 0), y = getf(memB, at + v, 1),
+                            z = getf(memB, at + v, 2);
+                const float l2 = x * x + y * y + z * z;
+                if (l2 <= 1e-12f) continue;
+                const float inv = 1.0f / std::sqrt(l2);
+                setf(memB, at + v, 0, x * inv);
+                setf(memB, at + v, 1, y * inv);
+                setf(memB, at + v, 2, z * inv);
+            }
+        }
+        vusim::Config cfg;
+        cfg.top = top;
+        const vusim::Result ra = vusim::run(a, memA, cfg);
+        const vusim::Result rb = vusim::run(b, memB, cfg);
+        tol.trials = t + 1;
+        if (!ra.ok || !rb.ok) {
+            tol.within = false;
+            tol.error = !ra.ok ? "shipping: " + ra.error : "experiment: " + rb.error;
+            return tol;
+        }
+        if (ra.kicks != rb.kicks) {
+            tol.within = false;
+            tol.detail = "the two programs kicked different addresses";
+            return tol;
+        }
+        const int start = ra.kicks.empty() ? 0 : ra.kicks.front();
+        const int fanOut = d.clip ? 8 : 1;
+        const int quads = tagQuads(d) + verts * fanOut * regsPerVertex(d);
+        for (int qw = start; qw < start + quads; ++qw)
+            for (int f = 0; f < 4; ++f) {
+                const size_t k = (size_t)qw * 4 + f;
+                if (k >= ra.mem.size() || k >= rb.mem.size()) continue;
+                ++tol.words;
+                const uint32_t x = ra.mem[k], y = rb.mem[k];
+                if (x == y) continue;
+                bool ok = false;
+                if (x <= 255u && y <= 255u) {
+                    const int dlt = x > y ? (int)(x - y) : (int)(y - x);
+                    if (dlt > tol.maxColorDelta) tol.maxColorDelta = dlt;
+                    ++tol.colorWordsDiffering;
+                    ok = dlt <= colorTol;
+                } else if (isNormalFloat(x) && isNormalFloat(y)) {
+                    float fx, fy;
+                    std::memcpy(&fx, &x, 4);
+                    std::memcpy(&fy, &y, 4);
+                    const double den = std::max(std::fabs((double)fx), std::fabs((double)fy));
+                    const double rel = den > 0.0 ? std::fabs((double)fx - fy) / den : 0.0;
+                    const double ad = std::fabs((double)fx - fy);
+                    if (rel > tol.maxFloatRel) tol.maxFloatRel = rel;
+                    if (ad > tol.maxFloatAbs) tol.maxFloatAbs = ad;
+                    // Relative OR absolute: an ST near zero (s*q where the
+                    // dot products cancel) has no meaningful relative error.
+                    ok = rel <= floatRelTol || ad <= floatAbsTol;
+                }
+                if (!ok && tol.within) {
+                    char buf[200];
+                    std::snprintf(buf, sizeof buf,
+                                  "quadword %d field %c: shipping 0x%08X, "
+                                  "experiment 0x%08X (trial %d, %d vertices)",
+                                  qw, "xyzw"[f], x, y, t, verts);
+                    tol.detail = buf;
+                    tol.within = false;
+                }
+            }
+    }
+    return tol;
 }
 
 // ---------------------------------------------------------------------------
