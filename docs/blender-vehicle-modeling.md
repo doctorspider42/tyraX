@@ -1,35 +1,90 @@
-# Prepare a vehicle in Blender
+# Bring a vehicle from Blender into TyraX
 
-Start with the editable [Ravager scene](../examples/vehicle-playground/authoring/ravager.blend). It uses the same authoring workflow as the [driveable Ravager](../examples/vehicle-playground/README.md), and its export passes the vehicle import. Open it in Blender, save a copy under your own car's name, and work through these five checks.
+Already have a car model? Use this checklist to make it driveable in TyraX.
+If you are building one from scratch, follow the same rules as you work. The
+editable [Ravager `.blend`](../examples/vehicle-playground/authoring/ravager.blend)
+is a working example, not a required template.
 
-![The Ravager body and four separate wheels, viewed from the front quarter](img/blender-vehicle-shape.png)
+## 1. Put the car in the right frame
 
-1. **Shape and axes.** Build at real-world size in metres. Point the nose along Blender **+X**, left along **+Y**, and up along **+Z**. Keep the front overhang shorter than the rear so the importer can recognize the nose. Apply object scale before export. The example body is a single editable mesh; its broad surfaces carry most of the silhouette. Spend triangles on the wheel arches, roofline and profile rather than tiny trim.
+In Blender, use metres and put the nose along **+X**, the car's left along
+**+Y**, and up along **+Z**. Centre the body between the axles. Apply rotation
+and scale (**Object → Apply → Rotation & Scale**) before export; check that the
+body and wheels still line up. If the importer later guesses the nose wrong,
+use **Flip front/rear** in the Vehicle Editor.
 
-2. **Four wheels.** Keep `wheel front left`, `wheel front right`, `wheel rear left`, and `wheel rear right` as separate objects. Put each origin at its hub. They may share one mesh, as the Ravager does. Make both faces of the wheel look complete: the game reuses one unmirrored wheel mesh on both sides. Check their spacing in side and top views.
+![Example body and four wheel objects viewed from the front quarter](img/blender-vehicle-shape.png)
 
-![Side view showing the axle positions and car profile](img/blender-vehicle-side.png)
+## 2. Give the importer four wheels to find
 
-3. **Materials and UVs.** Give opaque body surfaces one textured `body paint` material and pack their UVs into a small atlas. The Ravager uses a packed 256×256 image, so the `.blend` opens with its paint intact. Separate materials named `headlights` and `rear lights` let the game control lamp colour. A material with `glass` or `window` in its name marks the glazing. A simple dark interior is enough if the glass will be translucent.
+The body and **four wheels must be separate mesh objects** in one file. If an
+existing model has everything joined, select each wheel's connected geometry
+in Edit Mode and use **P → Selection**. Put each wheel object's origin at its
+hub; check their positions from above and from the side. Names such as `wheel
+front left` help you inspect the scene, but TyraX finds wheels by repeated
+shape and position. Matching wheels may share one mesh. Make both faces of a
+wheel complete: the game draws one unmirrored wheel mesh on both sides.
 
-   To allow colour changes in the Vehicle Editor, also make a grayscale PNG at
-   the atlas's resolution: paint white over body paint, black over lamps,
-   glass, wheels, trim and decals. Gray softens the border. Assign the PNG as
-   the vehicle's **Paint mask**; it is used when baking, not drawn on the PS2.
-   The example's Blender scripts can generate this mask with `--paint-mask`.
+![Example side view: wheel centres, wheelbase and body overhang](img/blender-vehicle-side.png)
 
-![The Ravager's compact colour and ambient-occlusion atlas](img/blender-vehicle-atlas.png)
+If TyraX finds fewer than four wheels, check that they are separate objects,
+roughly equal in size, low on the car, and not accidentally included in the
+body mesh. Its measured wheelbase, track and radius should match what you see
+in Blender.
 
-4. **Count and export.** In Blender, select the body and all four wheels. Choose **File → Export → glTF 2.0**, set **Format: glTF Binary (.glb)** and **Include: Selected Objects**, then export. Keep the body within your vehicle definition's triangle budget (2400 by default); aim for roughly 160 triangles per wheel. This source scene has 2072 body triangles and 160 per wheel. Put the `.glb` in your project's `res/models/` directory. The `.blend` is the editable source, not the game asset.
+## 3. Sort materials and textures
 
-5. **Check in TyraX.** Import the `.glb` in the Vehicle Editor. Confirm it detects four wheels and reports plausible wheelbase, track and radius. Check the preview for correct orientation, material grouping and transparency. Set the model's texture depth to **8 bit** if a shaded 256×256 paint atlas bands at 4 bit; watch the project's VRAM budget. Then test the car in the game, including from behind and at driving distance. If the car has an authored far model, rebuild it against the same atlas when changing the main model; otherwise the importer may discard the far tier. See [Vehicles: importing a model](vehicles.md#importing-a-model) for the full bake and runtime details.
+Keep the opaque body in as few materials as practical. A small UV atlas saves
+texture memory and draw submissions; the example uses **256×256**. Use material
+names containing `headlights` and `rear lights` for lamps that the game can
+light independently. A material containing `glass` or `window` identifies
+glazing; set **Glass opacity** below 1 in TyraX only if the car has an interior
+worth seeing. Names containing `rubber` or `trim` mark matte parts. For a
+simple untextured car, name the paint material with `paint`.
 
-To rebuild this exact source scene and the reference images from its authoring script, run from the repository root:
+![Example 256×256 body atlas; your model can use a different layout](img/blender-vehicle-atlas.png)
+
+To change a textured car's paint colour in TyraX, make a **grayscale PNG** at
+the atlas's exact size: white on paint, black on windows, lamps, wheels, trim
+and decals, and gray only for blended edges. Select it as the definition's
+**Paint mask**. The mask affects the bake; it is not drawn by the PS2. It must
+match exactly one texture in the model by dimensions. See
+[Changing body paint colour](vehicles.md#changing-body-paint-colour).
+
+## 4. Export one file
+
+Select the body and four wheels, then choose **File → Export → glTF 2.0**:
+**Format: glTF Binary (`.glb`)**, **Include: Selected Objects**. Keep the
+textures embedded, and put the `.glb` in your project's `res/models/`. Keep
+your `.blend` as the editable source. The vehicle definition's default body
+budget is **2400 triangles**; aim for about **160 per wheel**. TyraX can
+reduce an oversized body, but inspect the resulting silhouette. A heavily
+shaded atlas may need **8-bit Texture depth** in TyraX rather than 4-bit;
+check the project's VRAM budget.
+
+## 5. Import, inspect, drive
+
+Import the `.glb` into the project's assets, then select it in **Tools →
+Vehicle Editor → Model**. Check the detected four wheels, front direction,
+wheelbase, track, radius, material grouping and transparency. Fix the Blender
+source and export again when geometry or UVs are wrong. Build and drive the
+game: inspect the car from behind, the side and at distance, and spin the
+wheels. If you author a separate far model, build it in the same space and
+against the **same atlas** as the full model; otherwise the importer may
+discard that far tier. The full import and runtime rules are in
+[Vehicles](vehicles.md#importing-a-model).
+
+**Starting from nothing?** Make the silhouette and four symmetric wheel
+objects first, at real scale. Then add a compact atlas, separately named
+lamps, and an interior only if the windows will be translucent. That order
+keeps the import valid while detail is added.
+
+To regenerate the example `.blend` and these reference pictures from the
+repository root:
 
 ```sh
 blender -b --factory-startup --python examples/vehicle-playground/authoring/save-ravager-blend.py -- --preview <output-directory>
 ```
 
-You can also edit the `.blend` by hand and export its five selected meshes directly; the generator is only a reproducible starting point.
-
-The bundled Motor District `.glb` and far model are a matched older build. Keep them together when playing the example; this `.blend` is for authoring and learning.
+The Motor District game's Ravager GLB and far model are an older matched pair;
+replace both together if you use this source scene in that project.
