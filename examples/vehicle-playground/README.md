@@ -66,6 +66,23 @@ speed and a four-second refillable tank. Rally 04 is a lighter, deliberately
 more slippery alternative with a longer wheelbase and more suspension travel.
 These are arcade settings, not a real-world vehicle simulation.
 
+## Paint colours
+
+All six vehicle definitions include a grayscale paint mask in `res/textures/`.
+In **Vehicle Editor → Model**, enable **Override paint colour** and pick a
+colour; the definition already points to its mask. White mask areas change
+with the paint, while black areas keep the source colours of glass, lamps,
+wheels, trim and decals. The checked-in project leaves the override disabled,
+so it opens in its familiar colours. See [the vehicle guide](../../docs/vehicles.md#changing-body-paint-colour)
+for mask requirements and the per-definition scope.
+
+`authoring/make-ravager.py`, `authoring/make-pica.py`, and
+`authoring/make-strix.py` can emit their masks alongside a rebuilt GLB: pass
+`--paint-mask res/textures/<car>-paint-mask.png` after `--`. For the three
+older imported atlases, `python authoring/make-legacy-paint-masks.py`
+regenerates the curated masks from their current GLBs. Recheck and repaint
+the masks if those atlases or their UV layouts change.
+
 Rally 04's tyre smoke comes from the project's **particle library**: *Vehicle
 Editor > Effects > Tyre smoke* names the "Rally dust" effect (*Tools >
 Particle Editor*), a sandy tint over the library's generated smoke texture

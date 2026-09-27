@@ -414,6 +414,8 @@ void App::rebuildAssetUsage() {
             note(v.shiftSound, 2, "vehicle \"" + v.name + "\" (gear shift)");
         if (!v.bodyReflMap.empty())
             note(v.bodyReflMap, 2, "vehicle \"" + v.name + "\" (reflection map)");
+        if (!v.paintMask.empty())
+            note(v.paintMask, 2, "vehicle \"" + v.name + "\" (paint mask)");
     }
 
     auto noteHud = [&](const HudImage& h, const std::string& where) {
@@ -708,6 +710,7 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
         swap(v.screechSound);
         swap(v.shiftSound);
         swap(v.bodyReflMap);
+        swap(v.paintMask);
     }
 
     for (HudImage& h : project_.hud) swap(h.imagePath);

@@ -112,6 +112,40 @@ the distance to 0.
 
 ## Importing a model
 
+### Changing body paint colour
+
+In **Vehicle Editor → Model → Body paint colour**, enable **Override paint
+colour** and choose a colour. The setting belongs to a vehicle *definition*,
+so every instance of that definition uses the same baked colour. Create a
+second definition if the scene needs two colours of the same car. The editor
+rebakes the vehicle when the colour changes; there is no per-frame tint or
+additional runtime texture.
+
+![Three paint overrides in Motor District running in PCSX2: cyan Ravager, green Strix and yellow Pica](img/vehicle-paint-colours.png)
+
+For a textured body, choose a grayscale PNG in the mask picker. It must have
+the same dimensions as the car's paint atlas, and that size must identify one
+embedded model texture uniquely. White pixels select paint, black pixels keep
+the original atlas colour, and gray pixels blend at the edge. Keep glass,
+lamps, trim, wheels, and any decals that should retain their colour black.
+The alpha channel of the original atlas is preserved. The importer matches an
+authored far model against the original atlas before recolouring it, so both
+distance tiers use the same result. A missing or invalid selected mask fails
+the bake with an error; enabling a colour without choosing a mask leaves
+textured regions as authored and shows a warning.
+
+An untextured material with `paint` in its name also takes the chosen colour;
+other materials keep their authored colours. For textured cars the tint keeps
+the original atlas's brightness shading, including baked ambient occlusion.
+Quantization still follows the vehicle's **Texture depth** setting, so a
+heavily shaded colour may need 8-bit rather than 4-bit colour. The mask is an
+authoring input, not a texture the PS2 renderer loads. The project format
+stores the optional `paintColor` and `paintMask` fields from version 81.
+
+The [Motor District example](../examples/vehicle-playground/README.md#paint-colours)
+includes masks for its six vehicle definitions and Blender scripts that emit
+masks for its three original cars.
+
 **One file.** A car arrives from Blender, Sketchfab or a kitbash pack as a single
 `.glb`/`.fbx` with the wheels as separate nodes inside it, and that is what the
 importer takes. Asking an author to export the body and each wheel separately,

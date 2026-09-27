@@ -5261,6 +5261,10 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.150.0 - Per-definition body paint colour, with an authored atlas mask that
+// protects lamps, glass, trim and wheel art. The bake shares one recoloured
+// texture with the full and authored far tiers. Project format v81 adds
+// vehicle paintColor and paintMask; missing fields keep original paint. MINOR.
 // 1.149.3 - Resolve palette UVs on the optional @auto fast wheel before its
 // mesh is decimated, so the speed swap keeps visible, correctly coloured tyres.
 // The Motor District enables that variant on its sixth car. Format stays 80. PATCH.
@@ -5492,8 +5496,8 @@
 // Particles face the camera a pass DRAWS with (cutscene override, shake,
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 149
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_MINOR 150
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -5950,7 +5954,9 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // of the spec. Missing = the defaults, so a car saved before it gets the speed
 // feel too (it is presentation, and 0 switches each part off). Additive; no
 // migration step.
-inline constexpr int kFormatVersion = 80;
+// v81 (docs/vehicles.md, "Paint colour"): optional vehicle paintColor and
+// paintMask. Missing keys preserve the source model. Additive; no migration.
+inline constexpr int kFormatVersion = 81;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

@@ -1235,6 +1235,12 @@ struct VehicleDef {
     int bodyTriBudget = 2400;
     int wheelTriBudget = 700;
     bool mergeUntextured = true;
+    // Definition-wide paint colour. Textured cars use paintMask (white =
+    // paintable atlas texels, black = lamps/glass/trim/wheels); untextured
+    // paint-named materials can be coloured without a mask.
+    bool paintEnabled = false;
+    float paintColor[3] = {1.0f, 1.0f, 1.0f};
+    std::string paintMask;
     // Paint shine 0..1: a reflection pass on the baked body's paint (the
     // matte merge - rubber, near-black trim - is left out, and so are the
     // wheels). 0 = matte and writes nothing, so an existing definition
@@ -1403,6 +1409,10 @@ inline bool operator==(const VehicleDef& a, const VehicleDef& b) {
     if (a.id != b.id || a.name != b.name || a.notes != b.notes ||
         a.modelPath != b.modelPath || a.bodyTriBudget != b.bodyTriBudget ||
         a.wheelTriBudget != b.wheelTriBudget || a.mergeUntextured != b.mergeUntextured ||
+        a.paintEnabled != b.paintEnabled || a.paintMask != b.paintMask ||
+        a.paintColor[0] != b.paintColor[0] ||
+        a.paintColor[1] != b.paintColor[1] ||
+        a.paintColor[2] != b.paintColor[2] ||
         a.bodyShine != b.bodyShine || a.bodyReflMap != b.bodyReflMap ||
         a.flipFront != b.flipFront || a.wheels != b.wheels || a.camDist != b.camDist ||
         a.camHeight != b.camHeight || a.camPitch != b.camPitch ||

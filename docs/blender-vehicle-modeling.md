@@ -12,6 +12,12 @@ Start with the editable [Ravager scene](../examples/vehicle-playground/authoring
 
 3. **Materials and UVs.** Give opaque body surfaces one textured `body paint` material and pack their UVs into a small atlas. The Ravager uses a packed 256×256 image, so the `.blend` opens with its paint intact. Separate materials named `headlights` and `rear lights` let the game control lamp colour. A material with `glass` or `window` in its name marks the glazing. A simple dark interior is enough if the glass will be translucent.
 
+   To allow colour changes in the Vehicle Editor, also make a grayscale PNG at
+   the atlas's resolution: paint white over body paint, black over lamps,
+   glass, wheels, trim and decals. Gray softens the border. Assign the PNG as
+   the vehicle's **Paint mask**; it is used when baking, not drawn on the PS2.
+   The example's Blender scripts can generate this mask with `--paint-mask`.
+
 ![The Ravager's compact colour and ambient-occlusion atlas](img/blender-vehicle-atlas.png)
 
 4. **Count and export.** In Blender, select the body and all four wheels. Choose **File → Export → glTF 2.0**, set **Format: glTF Binary (.glb)** and **Include: Selected Objects**, then export. Keep the body within your vehicle definition's triangle budget (2400 by default); aim for roughly 160 triangles per wheel. This source scene has 2072 body triangles and 160 per wheel. Put the `.glb` in your project's `res/models/` directory. The `.blend` is the editable source, not the game asset.

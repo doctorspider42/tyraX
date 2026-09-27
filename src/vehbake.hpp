@@ -56,6 +56,14 @@ struct Options {
     // switch exists only so the panel can show what it costs.
     bool mergeUntextured = true;
 
+    // Optional definition-wide paint colour. The mask is an absolute PNG path
+    // with the source atlas's dimensions; white pixels are recoloured, black
+    // pixels keep their exact source colour. No mask is needed for untextured
+    // materials explicitly named "paint".
+    bool paintEnabled = false;
+    float paintColor[3] = {1.0f, 1.0f, 1.0f};
+    std::string paintMaskPath;
+
     // Bin-relative path the GAME will load the generated palette from, e.g.
     // "models/cars/car1-palette.png". Baked into the merged part's texture
     // field, so it has to be the path the importer actually writes the PNG to -

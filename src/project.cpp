@@ -3057,6 +3057,12 @@ static void writeVehiclesSection(std::ostream& json, const Project& p) {
         json << ", \"bodyTris\": " << v.bodyTriBudget
              << ", \"wheelTris\": " << v.wheelTriBudget;
         if (!v.mergeUntextured) json << ", \"merge\": false";
+        if (v.paintEnabled) {
+            json << ", \"paintColor\": [" << fmtFloat(v.paintColor[0]) << ", "
+                 << fmtFloat(v.paintColor[1]) << ", " << fmtFloat(v.paintColor[2]) << "]";
+        }
+        if (!v.paintMask.empty())
+            json << ", \"paintMask\": \"" << jsonEscape(v.paintMask) << "\"";
         if (v.bodyShine != 0.0f)
             json << ", \"bodyShine\": " << fmtFloat(v.bodyShine);
         if (!v.bodyReflMap.empty())
@@ -3189,6 +3195,16 @@ static void readVehiclesSection(const json::Value& root, Project& out) {
         if (const json::Value* x = e.find("bodyTris")) v.bodyTriBudget = (int)x->numberOr(2400);
         if (const json::Value* x = e.find("wheelTris")) v.wheelTriBudget = (int)x->numberOr(700);
         if (const json::Value* x = e.find("merge")) v.mergeUntextured = x->boolOr(true);
+        if (const json::Value* x = e.find("paintColor"))
+            if (x->type == json::Value::Type::Array && x->arr.size() >= 3) {
+                v.paintEnabled = true;
+                for (int a = 0; a < 3; ++a) {
+                    const float c = (float)x->arr[(size_t)a].numberOr(1.0);
+                    v.paintColor[a] = c < 0.0f ? 0.0f : (c > 1.0f ? 1.0f : c);
+                }
+            }
+        if (const json::Value* x = e.find("paintMask"))
+            v.paintMask = x->stringOr("");
         if (const json::Value* x = e.find("bodyShine"))
             v.bodyShine = (float)x->numberOr(0.0);
         if (const json::Value* x = e.find("bodyReflMap"))

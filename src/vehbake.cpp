@@ -463,7 +463,8 @@ void collect(const glbparser::Skel& sk, const std::vector<M4>& g, const M4& cano
              Merge& mg, tmdl::Model& out,
              int& srcParts, int& srcTris, bool shineSplit = false,
              int* lampRearVertsOut = nullptr, bool glassSplit = false,
-             std::vector<int>* glassCellsOut = nullptr) {
+             std::vector<int>* glassCellsOut = nullptr,
+             const float* paintColor = nullptr) {
     std::vector<float> mergedVerts;
     std::vector<float> glassVerts;
     std::vector<float> matteVerts;
@@ -510,6 +511,12 @@ void collect(const glbparser::Skel& sk, const std::vector<M4>& g, const M4& cano
         // its own, which the runtime can give an alpha and draw last.
         const bool glass = merge && glassSplit && !isTextured && !lamp &&
                            glassMaterial(p.material);
+        std::string materialLower;
+        for (char ch : p.material)
+            materialLower += (char)(ch >= 'A' && ch <= 'Z' ? ch - 'A' + 'a' : ch);
+        const bool paint = paintColor && !isTextured && !lamp && !glass &&
+                           materialLower.find("paint") != std::string::npos;
+        const float* baseColor = paint ? paintColor : p.baseColor;
         if (glass) {
             dst = &glassVerts;
             u = (float)mg.cellFor(p.baseColor);
@@ -528,7 +535,7 @@ void collect(const glbparser::Skel& sk, const std::vector<M4>& g, const M4& cano
             if (part.name.empty()) {
                 part.name = p.material;
                 if (isTextured) part.texture = imagePaths[(size_t)p.image];
-                for (int a = 0; a < 3; ++a) part.kd[a] = p.baseColor[a];
+                for (int a = 0; a < 3; ++a) part.kd[a] = baseColor[a];
             }
             tp = &part;
             dst = &part.verts;
@@ -545,7 +552,7 @@ void collect(const glbparser::Skel& sk, const std::vector<M4>& g, const M4& cano
             // palette before placing anything in it.
             dst = (shineSplit && !shinyMaterial(p)) ? &matteVerts : &mergedVerts;
             (void)tp;
-            u = (float)mg.cellFor(p.baseColor);
+            u = (float)mg.cellFor(baseColor);
             v = -1.0f;
         }
 
@@ -742,6 +749,78 @@ std::vector<unsigned char> decodeRgba(const std::vector<unsigned char>& png, int
     return out;
 }
 
+// Recolour one authored atlas AFTER the far model has matched its original
+// pixels to the full model. The grayscale mask is part of the vehicle source,
+// never a runtime texture: black protects glass, lamps, trim and wheel art;
+// white selects paint, with grey allowed at antialiased borders. A single
+// matching image is required so a mask cannot silently tint the wrong atlas.
+bool recolorPaintAtlas(const std::string& maskPath, const float color[3],
+                       std::vector<Result::Texture>& textures,
+                       std::vector<std::string>& notes, std::string& error) {
+    std::ifstream in(maskPath, std::ios::binary);
+    if (!in) {
+        error = "Paint mask cannot be opened: " + maskPath;
+        return false;
+    }
+    const std::vector<unsigned char> maskPng(
+        (std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    int mw = 0, mh = 0;
+    const auto mask = decodeRgba(maskPng, mw, mh);
+    if (mask.empty()) {
+        error = "Paint mask is not a readable PNG: " + maskPath;
+        return false;
+    }
+    int match = -1;
+    std::vector<unsigned char> source;
+    for (size_t i = 0; i < textures.size(); ++i) {
+        int w = 0, h = 0;
+        auto pixels = decodeRgba(textures[i].png, w, h);
+        if (w != mw || h != mh || pixels.empty()) continue;
+        if (match >= 0) {
+            error = "Paint mask matches multiple model textures; use an atlas "
+                    "with a unique size.";
+            return false;
+        }
+        match = (int)i;
+        source = std::move(pixels);
+    }
+    if (match < 0) {
+        error = "Paint mask dimensions do not match any model texture.";
+        return false;
+    }
+    double brightness = 0.0, weight = 0.0;
+    int selected = 0;
+    for (size_t i = 0; i < mask.size(); i += 4) {
+        const double m = mask[i] / 255.0;
+        if (m <= 0.0) continue;
+        brightness += m * (0.2126 * source[i] + 0.7152 * source[i + 1] +
+                           0.0722 * source[i + 2]);
+        weight += m;
+        ++selected;
+    }
+    if (weight < 1.0 || brightness / weight < 1.0) {
+        error = "Paint mask has no usable painted pixels.";
+        return false;
+    }
+    const float reference = (float)(brightness / weight);
+    for (size_t i = 0; i < mask.size(); i += 4) {
+        const float m = mask[i] / 255.0f;
+        if (m <= 0.0f) continue;
+        const float y = 0.2126f * source[i] + 0.7152f * source[i + 1] +
+                        0.0722f * source[i + 2];
+        const float shade = y / reference;
+        for (int c = 0; c < 3; ++c) {
+            const float dyed = std::clamp(color[c] * 255.0f * shade, 0.0f, 255.0f);
+            source[i + (size_t)c] = (unsigned char)std::lround(
+                source[i + (size_t)c] * (1.0f - m) + dyed * m);
+        }
+    }
+    textures[(size_t)match].png = encodePng(source, mw, mh);
+    notes.push_back("Paint: recoloured " + std::to_string(selected) +
+                    " masked atlas texels; other texels retain their source colour.");
+    return true;
+}
+
 // THE AUTHORED FAR MODEL (docs/vehicles.md, "An authored far model"). A
 // second file, authored in the SAME space as the full model, whose every
 // triangle - wheels included, at their rest spots - becomes the far tier of
@@ -766,7 +845,8 @@ bool collectFarModel(const std::string& path, const M4& canon, const float origi
                      const std::vector<Result::Texture>& bodyTextures,
                      const std::string& paletteTex, Merge& mg,
                      std::vector<std::vector<float>>& farVerts,
-                     std::vector<std::string>& notes) {
+                     std::vector<std::string>& notes,
+                     const float* paintColor) {
     farVerts.assign(body.parts.size(), {});
     glbparser::Skel fsk;
     std::string err;
@@ -798,7 +878,8 @@ bool collectFarModel(const std::string& path, const M4& canon, const float origi
     tmdl::Model fm;
     int srcParts = 0, srcTris = 0;
     collect(fsk, globals(fsk), canon, all, origin, /*merge=*/true, paletteTex,
-            farImagePaths, mg, fm, srcParts, srcTris);
+            farImagePaths, mg, fm, srcParts, srcTris, false, nullptr, false,
+            nullptr, paintColor);
     int dropped = 0;
     for (tmdl::Part& fp : fm.parts) {
         int target = -1;
@@ -916,7 +997,8 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
     collect(sk, g, canon, out.detection.bodyNodes, bodyOrigin, opt.mergeUntextured,
             paletteTex, imagePaths, mg, out.body, out.srcParts, out.srcTris,
             /*shineSplit=*/opt.bodyShine > 0.001f, &lampRearVerts,
-            opt.glassSplit, &glassCells);
+            opt.glassSplit, &glassCells,
+            opt.paintEnabled ? opt.paintColor : nullptr);
 
     if (!out.detection.wheels.empty()) {
         // One wheel is baked, hub at the origin. Which one does not matter for
@@ -956,7 +1038,18 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
     const bool farAuthored =
         !opt.farModel.empty() &&
         collectFarModel(opt.farModel, canon, bodyOrigin, out.body, out.textures,
-                        paletteTex, mg, farVerts, out.notes);
+                        paletteTex, mg, farVerts, out.notes,
+                        opt.paintEnabled ? opt.paintColor : nullptr);
+
+    // Match authored far images against the ORIGINAL atlas above. Both tiers
+    // now point to that same baked texture path, so one recolour reaches both.
+    if (opt.paintEnabled && !opt.paintMaskPath.empty() &&
+        !recolorPaintAtlas(opt.paintMaskPath, opt.paintColor, out.textures,
+                           out.notes, error))
+        return false;
+    if (opt.paintEnabled && opt.paintMaskPath.empty() && !out.textures.empty())
+        out.notes.push_back("Paint: textured regions need a paint-mask PNG; "
+                            "the source atlas remains unchanged.");
 
     if (!mg.colours.empty()) {
         out.paletteSize = paletteWidth((int)mg.colours.size());
@@ -1958,6 +2051,9 @@ std::string bakeProject(Project& p,
         opt.mergeUntextured = v.mergeUntextured;
         opt.bodyShine = v.bodyShine;
         opt.bodyReflMap = binReflPath(v.bodyReflMap);
+        opt.paintEnabled = v.paintEnabled;
+        for (int a = 0; a < 3; ++a) opt.paintColor[a] = v.paintColor[a];
+        if (!v.paintMask.empty()) opt.paintMaskPath = p.filePath(v.paintMask);
         opt.paletteTexture = bp.palette;
         opt.fastWheel = v.fastWheel;
         opt.fastWheelTriBudget = v.fastWheelTriBudget;

@@ -43,7 +43,12 @@ std::string bakeKey(const VehicleDef& v) {
                   v.wheelTriBudget, v.mergeUntextured ? 1 : 0, v.bodyShine,
                   v.fastWheelTriBudget, v.glassOpacity < 1.0f ? 1 : 0,
                   v.drive.damage > 0.0f && v.drive.damageLoose > 0.0f ? 1 : 0);
-    return v.modelPath + buf + v.bodyReflMap + "|" + v.fastWheel + "|" + v.farModel;
+    char paint[96];
+    std::snprintf(paint, sizeof(paint), "|%d|%.4f|%.4f|%.4f|",
+                  v.paintEnabled ? 1 : 0, v.paintColor[0], v.paintColor[1],
+                  v.paintColor[2]);
+    return v.modelPath + buf + v.bodyReflMap + "|" + v.fastWheel + "|" +
+           v.farModel + paint + v.paintMask;
 }
 
 // Unique "Car 1", "Car 2", ... - a definition is referenced BY NAME, so two
@@ -124,6 +129,9 @@ void App::vehicleRefreshBake(int index, bool force) {
     opt.mergeUntextured = v.mergeUntextured;
     opt.bodyShine = v.bodyShine;
     opt.bodyReflMap = vehbake::binReflPath(v.bodyReflMap);
+    opt.paintEnabled = v.paintEnabled;
+    for (int a = 0; a < 3; ++a) opt.paintColor[a] = v.paintColor[a];
+    if (!v.paintMask.empty()) opt.paintMaskPath = project_.filePath(v.paintMask);
     opt.fastWheel = v.fastWheel;
     opt.fastWheelTriBudget = v.fastWheelTriBudget;
     opt.glassSplit = v.glassOpacity < 1.0f;
@@ -677,6 +685,30 @@ void App::drawVehicleWindow() {
             prefHelp(
                 "One .glb or .fbx holding the body AND the wheels. The wheels are\n"
                 "found by their geometry, so their node names do not matter.");
+
+            ImGui::SeparatorText("Body paint colour");
+            ImGui::Checkbox("Override paint colour", &v.paintEnabled);
+            if (v.paintEnabled) {
+                ImGui::SetNextItemWidth(scaled(220));
+                ImGui::ColorEdit3("Paint colour", v.paintColor);
+                ImGui::TextDisabled("Mask: %s", v.paintMask.empty()
+                    ? "<none>" : v.paintMask.c_str());
+                (void)pickProjectTexture("vehicle-paint-mask", v.paintMask);
+                if (!v.paintMask.empty()) {
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Clear mask")) v.paintMask.clear();
+                }
+                prefHelp(
+                    "For a textured car, choose a grayscale PNG matching its\n"
+                    "atlas: white recolours paint, black protects glass,\n"
+                    "lamps, trim and wheels. A mask is unnecessary for\n"
+                    "untextured materials named paint. The full and far\n"
+                    "models share the recoloured atlas; each vehicle\n"
+                    "definition has one colour.");
+                if (v.paintMask.empty() && bake && bake->ok &&
+                    !bake->result.textures.empty())
+                    ImGui::TextDisabled("Choose a mask for textured paint.");
+            }
 
             ImGui::Separator();
             if (!bake || v.modelPath.empty()) {

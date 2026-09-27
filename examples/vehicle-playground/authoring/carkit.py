@@ -27,6 +27,7 @@ import os
 import struct
 import sys
 import tempfile
+import zlib
 
 import bmesh
 import bpy
@@ -192,6 +193,7 @@ class Atlas:
         self.wheel_disc = (240.0, 244.0, 11.5)
         self.rgb = None
         self.aomask = None
+        self.paintmask = None
 
     # ---- UVs ----
     def tile_uv(self, name, a, b):
@@ -245,6 +247,7 @@ class Atlas:
         self.rgb = np.zeros((TEX * SS, TEX * SS, 3), np.float32)
         self.rgb[:] = base
         self.aomask = np.ones((TEX * SS, TEX * SS), np.float32)
+        self.paintmask = np.ones((TEX * SS, TEX * SS), np.float32)
 
     def grid(self, name):
         """World coordinates of every supersampled texel of a tile."""
@@ -260,6 +263,10 @@ class Atlas:
         (u0, v0, w, h) = self.tile[name][0]
         return self.rgb[v0 * SS:(v0 + h) * SS, u0 * SS:(u0 + w) * SS]
 
+    def paint_view(self, name):
+        u0, v0, w, h = self.tile[name][0]
+        return self.paintmask[v0 * SS:(v0 + h) * SS, u0 * SS:(u0 + w) * SS]
+
     def flat(self, name, mask):
         """Keep the baked occlusion off these texels (far-only paint)."""
         (u0, v0, w, h) = self.tile[name][0]
@@ -270,6 +277,7 @@ class Atlas:
         t = self.view(name)
         m = (mask.astype(np.float32) * a)[..., None]
         t[:] = t * (1 - m) + np.asarray(col, np.float32) * m
+        self.paint_view(name)[:] *= 1 - mask.astype(np.float32) * a
 
     def mul(self, name, mask, f):
         t = self.view(name)
@@ -284,6 +292,7 @@ class Atlas:
         tv = self.view(name)
         m = mask.astype(np.float32)[..., None]
         tv[:] = tv * (1 - m) + c * m
+        self.paint_view(name)[:] *= 1 - mask.astype(np.float32)
 
     def glass(self, name, mask, sky, streak, tint):
         """The far model's windows, where the full model's glass parts cover
@@ -294,12 +303,14 @@ class Atlas:
         tv = self.view(name)
         m = mask.astype(np.float32)[..., None]
         tv[:] = tv * (1 - m) + np.clip(c, 0, 255) * m
+        self.paint_view(name)[:] *= 1 - mask.astype(np.float32)
         self.flat(name, mask)
 
     def paint_cells(self):
         for name, (x, y, w_, h) in self.cell_rect.items():
             sl = (slice(y * SS, (y + h) * SS), slice(x * SS, (x + w_) * SS))
             self.aomask[sl] = 0.0
+            self.paintmask[sl] = 1.0 if name == "paint" else 0.0
             if name in self.ramps:
                 prof = self.ramps[name](np.linspace(0, 1, h * SS))
                 self.rgb[sl] = prof[:, None, :]
@@ -320,6 +331,7 @@ class Atlas:
         up = (cy - py) / rr
         self.rgb[sl] = face_fn(r, ang, up)
         self.aomask[sl] = 0.0
+        self.paintmask[sl] = 0.0
 
     def paint_engine(self, bay, accent=(150, 28, 24)):
         """The picture under the bonnet, painted in the bay's own world
@@ -374,6 +386,7 @@ class Atlas:
             fins = 22 + 22 * (np.sin(Y * 160.0) > 0.3)
             t[:] = t * (1 - m(rad)) + np.stack([fins] * 3, -1) * m(rad)
         self.flat("engine", np.ones(X.shape, bool))
+        self.paint_view("engine")[:] = 0.0
 
     def finish(self, ao):
         img = self.rgb.reshape(TEX, SS, TEX, SS, 3).mean(axis=(1, 3))
@@ -848,13 +861,32 @@ def export(objs, out):
                               export_image_format="AUTO")
 
 
+def save_paint_mask(mask, path):
+    """Write an exact 8-bit grayscale PNG, top row first, without relying on
+    Blender colour management. 255 selects paint; 0 protects everything else."""
+    small = mask.reshape(TEX, SS, TEX, SS).mean(axis=(1, 3))
+    pixels = np.clip(np.rint(small * 255), 0, 255).astype(np.uint8)
+    raw = b"".join(b"\0" + row.tobytes() for row in pixels)
+
+    def chunk(tag, data):
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(
+            ">I", zlib.crc32(tag + data) & 0xffffffff)
+
+    png = (b"\x89PNG\r\n\x1a\n"
+           + chunk(b"IHDR", struct.pack(">IIBBBBB", TEX, TEX, 8, 0, 0, 0, 0))
+           + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "wb") as f:
+        f.write(png)
+
+
 def parse_args(defaults):
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     opt = dict(defaults)
     i = 0
     while i < len(argv):
         a = argv[i]
-        if a in ("--out", "--preview", "--full"):
+        if a in ("--out", "--preview", "--full", "--paint-mask"):
             opt[a[2:]] = argv[i + 1]
             i += 1
         elif a == "--no-bake":
@@ -919,6 +951,8 @@ def main(C):
         px = sum(pp[dy:dy + TEX, dx:dx + TEX] for dy in range(3) for dx in range(3)) / 9.0
         ao = np.clip(0.30 + 0.70 * px, 0, 1) ** 0.85
     texels = atlas.finish(ao)
+    save_paint_mask(atlas.paintmask, opt.get("paint-mask") or
+                    os.path.splitext(opt["out"])[0] + "-paint-mask.png")
     pix = np.ones((TEX, TEX, 4), np.float32)
     pix[..., :3] = texels[::-1] / 255.0
     img.pixels[:] = pix.ravel()

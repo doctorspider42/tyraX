@@ -562,10 +562,15 @@ def paint_atlas():
     rgb = np.zeros((TEX * SS, TEX * SS, 3), np.float32)
     rgb[:] = PAINT
     aomask = np.ones((TEX * SS, TEX * SS), np.float32)
+    paintmask = np.ones((TEX * SS, TEX * SS), np.float32)
 
     def view(name):
         (u0, v0, w, h) = TILE[name][0]
         return rgb[v0 * SS:(v0 + h) * SS, u0 * SS:(u0 + w) * SS]
+
+    def paint_view(name):
+        u0, v0, w, h = TILE[name][0]
+        return paintmask[v0 * SS:(v0 + h) * SS, u0 * SS:(u0 + w) * SS]
 
     def flat(name, mask):
         """Keep the baked occlusion off these texels: paint only the far model
@@ -584,6 +589,7 @@ def paint_atlas():
         tv = view(name)
         m = mask.astype(np.float32)[..., None]
         tv[:] = tv * (1 - m) + np.clip(c, 0, 255) * m
+        paint_view(name)[:] *= 1 - mask.astype(np.float32)
         flat(name, mask)
 
     def fill(name, mask, col, a=1.0):
@@ -591,6 +597,7 @@ def paint_atlas():
         m = (mask.astype(np.float32) * a)[..., None]
         c = np.asarray(col, np.float32)
         t[:] = t * (1 - m) + c * m
+        paint_view(name)[:] *= 1 - mask.astype(np.float32) * a
 
     def mul(name, mask, f):
         t = view(name)
@@ -605,6 +612,7 @@ def paint_atlas():
         tv = view(name)
         m = mask.astype(np.float32)[..., None]
         tv[:] = tv * (1 - m) + c * m
+        paint_view(name)[:] *= 1 - mask.astype(np.float32)
 
     def line(A, c, wdt):
         return np.abs(A - c) < wdt
@@ -812,6 +820,7 @@ def paint_atlas():
     for name, (x, y, w_, h) in CELL_RECT.items():
         sl = (slice(y * SS, (y + h) * SS), slice(x * SS, (x + w_) * SS))
         aomask[sl] = 0.0
+        paintmask[sl] = 1.0 if name == "paint" else 0.0
         col = {"black": BLACK, "dark": (10, 10, 11), "int": INT_C, "intdark": (15, 14, 14),
                "seat": SEAT, "paint": PAINT}.get(name)
         if name == "chrome":
@@ -843,11 +852,13 @@ def paint_atlas():
     reg[cap] = chrome_ramp(0.2 + r[cap] * 2.0)
     rgb[sl] = reg
     aomask[sl] = 0.0
+    paintmask[sl] = 0.0
 
     # the three calls carkit's painter makes, answered by this atlas
-    canvas = types.SimpleNamespace(grid=world_grid, view=view, flat=flat)
+    canvas = types.SimpleNamespace(grid=world_grid, view=view, flat=flat,
+                                   paint_view=paint_view)
     _kit().Atlas.paint_engine(canvas, BAY, ENGINE_ACCENT)
-    return rgb, aomask
+    return rgb, aomask, paintmask
 
 
 def finish(rgb, aomask, ao):
@@ -1033,13 +1044,15 @@ def render_previews(outdir, objs):
 
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
-    out, preview, do_bake, glass_alpha = OUT, None, True, 0.42
+    out, preview, do_bake, glass_alpha, paint_mask_out = OUT, None, True, 0.42, None
     i = 0
     while i < len(argv):
         if argv[i] == "--out":
             out = argv[i + 1]; i += 1
         elif argv[i] == "--preview":
             preview = argv[i + 1]; i += 1
+        elif argv[i] == "--paint-mask":
+            paint_mask_out = argv[i + 1]; i += 1
         elif argv[i] == "--no-bake":
             do_bake = False
         elif argv[i] == "--opaque-glass":
@@ -1082,7 +1095,7 @@ def main():
             sc.collection.objects.link(o)
             wheels.append(o)
 
-    rgb, aomask = paint_atlas()
+    rgb, aomask, paintmask = paint_atlas()
     ao = np.ones((TEX, TEX), np.float32)
     if do_bake:
         aoimg = bpy.data.images.new("ao", TEX, TEX, alpha=False, float_buffer=True)
@@ -1094,6 +1107,8 @@ def main():
         px = sum(pp[dy:dy + TEX, dx:dx + TEX] for dy in range(3) for dx in range(3)) / 9.0
         ao = np.clip(0.30 + 0.70 * px, 0, 1) ** 0.85
     texels = finish(rgb, aomask, ao)
+    _kit().save_paint_mask(paintmask, paint_mask_out or
+                           os.path.splitext(out)[0] + "-paint-mask.png")
     pix = np.ones((TEX, TEX, 4), np.float32)
     pix[..., :3] = texels[::-1] / 255.0
     img.pixels[:] = pix.ravel()
