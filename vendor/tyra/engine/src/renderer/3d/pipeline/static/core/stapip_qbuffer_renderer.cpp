@@ -1273,16 +1273,16 @@ void StaPipQBufferRenderer::sendObjectData(
   // pick from StaPipCore (flashlight or the strongest scene point light),
   // falling back to the global flashlight state when no pick was made.
   // The dir-lights addresses are free when the bag has no lighting - the
-  // C/TC programs read the three spot quads from there. Always uploaded and
-  // the same numbers go to the EE clipper for the as_is path.
+  // C/TC programs read the three spot quads from there. The same numbers go
+  // to the EE clipper for the as_is path.
   //
-  // Modified by TyraX: the quads are uploaded unconditionally, but the VU1
-  // ARITHMETIC is not - `spotActive` below rides in VU1_OPTIONS_ADDR.y and
+  // Modified by TyraX: the VU1 ARITHMETIC is gated - `spotActive` below rides
+  // in VU1_OPTIONS_ADDR.y and
   // the cull/clip colour programs branch over CalculateTyraSpotLight when it
   // is clear. `enabled` is exactly the predicate the EE clipper's
   // addSpotToColor already used, so the two halves of the formula are gated
-  // by one fact and a skipped mesh renders bit-identically (an inert light
-  // uploads a black colour, and colour * anything is 0 on VU1).
+  // by one fact and a skipped mesh renders bit-identically. An inactive
+  // spot's uniform quads are also omitted unless a custom program may read them.
   bool spotActive = false;
   if (!bag->lighting) {
     const auto& light = bagLight ? *bagLight : rendererCore->spot;
@@ -1290,7 +1290,9 @@ void StaPipQBufferRenderer::sendObjectData(
     clipper.setSpot(meshSpot);
     spotActive = meshSpot.enabled;
 
-    {
+    // Modified by TyraX: the VU1 colour programs never read an inactive
+    // spot's three quads. An override may, so preserve the upload for one.
+    if (meshSpot.enabled || repository.hasAnyOverride()) {
       alignas(16) const float s[12] = {
           meshSpot.position.x,  meshSpot.position.y,  meshSpot.position.z,
           meshSpot.invRange2,   meshSpot.direction.x, meshSpot.direction.y,
@@ -1319,7 +1321,9 @@ void StaPipQBufferRenderer::sendObjectData(
   // per-triangle crossing test (see stapip_vu1_shared_defines.h) and the six
   // clip planes as (A,B,C,D)+(E,0,0,0) pairs; inside = dot4(v,ABCD) + E >= 0.
   // Uploaded per mesh: other pipelines may reuse this VU1 memory in between.
-  if (vu1Clipping) {
+  const bool mayClip = bagMayClip;
+  bagMayClip = true;
+  if (vu1Clipping && mayClip) {
 #if TYRA_STAPIP_RETAINED_COMMANDS
     // Modified by TyraX: retained command data. These fifteen quadwords are
     // the same for every mesh in the run - their only inputs are the

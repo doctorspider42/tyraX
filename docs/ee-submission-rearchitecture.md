@@ -1285,6 +1285,33 @@ every EE saving now turns into the EE waiting in a full queue for VU1. EE-side
 savings there are worth less than they measure in `prepare` until the queue
 or the submission order changes.
 
+### Round six: skip unused spot and clip uniforms - MEASURED, 2026-09-27
+
+Two VIF uploads were still prepared for bags that could not use them. An
+unlit bag with no active spot light never reads the three spot quadwords;
+`sendObjectData` now omits them unless a project program override is present.
+The 15-quadword clip block is now sent only when `StaPipCore` identifies a
+partial-frustum bag with full clip checks. An override keeps the conservative
+upload. The decision is consumed once, so direct callers retain the old safe
+default. Neither change alters the VU1 programs or the project's file format.
+
+One physical-PS2 ELF selected modes at boot. Each mode ran old/new/old/new;
+both candidate boots agreed. Median `work` delta against the two controls:
+
+| mode | garage day | garage night | outer day | outer night | verdict |
+|---|---:|---:|---:|---:|---|
+| 8, skip inactive spot | -0.086 ms | -0.05..-0.06 ms | -0.04 ms | -0.03 ms | ship |
+| 16, clip block gate | -0.04 ms | -0.05 ms | -0.01..-0.02 ms | -0.01..-0.02 ms | ship |
+| 24, both | -0.13 ms | -0.09..-0.10 ms | -0.05..-0.06 ms | -0.04..-0.05 ms | ship |
+| 4, retained uniform copies | +0.80 ms | +0.62 ms | +0.33..+0.35 ms | +0.30 ms | reject |
+| 28, both cuts plus retained copies | +0.13..+0.14 ms | +0.25..+0.26 ms | +0.05 ms | +0.07..+0.08 ms | reject |
+
+Retained copies reduced dispatch and VIF wait but added 0.3–1.0 ms to
+`prepare`, so the experiment's storage and rewrite machinery was left out
+of the production patch. The spot-light cache was already rejected on the
+console (+0.006..+0.125 ms). Mode 28 did not recover the retained-copy cost,
+and all twenty per-bag boots completed without a VIF error or DMA hang.
+
 ### Where the EE waits, pass by pass - MEASURED, 2026-09-25
 
 Is it worth making any EE work cheaper? An EE saving counts in full only

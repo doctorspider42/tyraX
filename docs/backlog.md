@@ -216,14 +216,12 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
 - **The per-bag `prepare` bracket (2.0-3.0 ms).** Partly done in 1.127.2:
   uniform blocks, and since 1.127.3 the options block, are a cached header
   plus whole-qword copies (docs/ee-submission-rearchitecture.md, "Round
-  three"). Left: `sendObjectData` still rebuilds every uniform for every bag,
-  and the in-chain wrap write still uses packet2. The clip block is REF'd from
-  one shared copy since 1.127.5 (-0.03..-0.13 ms, "Round five"); in the garage
-  part of that saving went into `vif_wait`. A retained per-bag uniform block
-  patched only where the MVP or the light changed would also remove the +0.23 ms
-  the queue's inline copies added at night. Failure test: a re-shade or
-  camera-dependent term that the key cannot see, which is the same class as the
-  baked stream's content-version work.
+  three"). The clip block is REF'd from one shared copy since 1.127.5 and
+  skipped when no VU1 clip path can run since 1.149.1. Inactive spot uploads
+  are skipped too. The in-chain wrap write still uses packet2. Retaining each
+  bag's uniform groups was tested on a PS2 and **rejected**: despite lower
+  dispatch and VIF wait, `prepare` rose 0.3–1.0 ms and total `work` rose
+  0.30–0.80 ms ("Round six"). Target new work at a measured sub-bracket.
 - **The DMAC-interrupt variant** (`TYRA_VIF1_QUEUE_ISR 1`) crashes a real PS2
   and is off. Only worth reopening with the kernel's DMAC handler chain
   inspected on hardware, under ps2link, since PCSX2 ran it clean. It would only
@@ -447,16 +445,12 @@ against a 0.222 FPS control spread and a 0.001 FPS same-build repeatability,
 with 76 % of the frame's package command blocks replayed. What it does NOT
 cover, in order of what would pay:
 
-- **The per-bag UNIFORM tail is still rebuilt** — the OPTIONS/LOD/TEST/TEX0
-  group, the ALPHA quadword and the single colour are per-bag constants that
-  change only with a material, a z-test mode or a texture's VRAM address, but
-  they are not retained. That needs a key over the texture buffer as well, which
-  is the one input a pointer compare does not settle (eviction re-uploads to a
-  new address), so it was left for its own change with its own eviction stress.
-- **`buildSpotForBag` runs an affine inverse per bag per frame**, and the model
-  matrix it inverts is the same one `transformCacheModel` already proved
-  unchanged for consecutive parts of one model. Caching the inverse beside the
-  MVP is a small, self-contained follow-up.
+- **The per-bag UNIFORM tail is still rebuilt**, but retaining copies was
+  slower on hardware ("Round six"). Revisit only after a new attribution
+  identifies a smaller block that can be omitted without cold-cache traffic.
+- **`buildSpotForBag` still runs an affine inverse per bag**, but a keyed
+  model/light cache was slower on hardware (+0.006..+0.125 ms). Do not reopen
+  without a different cache layout and a physical-console A/B.
 - **The hardware number.** Everything measured for this change is PCSX2 and
   counts. PCSX2 emulates no EE data cache, and this change trades computing
   bytes for reading them out of a cold 128 KB arena, so the emulator sees the

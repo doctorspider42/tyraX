@@ -5261,6 +5261,11 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.149.1 - StaPip omits inactive spot-light quads and clip constants for bags
+// that cannot use them (project program overrides keep the uploads). One-ELF
+// physical-PS2 A/B, two boots: combined work -0.04..-0.13 ms across four
+// Motor District poses. Retained per-bag uniform copies were +0.30..+0.80 ms
+// and remain unshipped. Project format stays 80. PATCH.
 // 1.149.0 - The measured VU1 winners ship: light directions folded on the EE
 // and env normals normalized once per unchanged bag. Physical PS2, augmented
 // Motor District: garage work -0.23..-0.25 ms and -0.14..-0.16 ms respectively;
@@ -5481,7 +5486,7 @@
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 149
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

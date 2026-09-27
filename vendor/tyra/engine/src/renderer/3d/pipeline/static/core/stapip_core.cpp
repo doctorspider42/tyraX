@@ -1012,6 +1012,12 @@ void StaPipCore::render(StaPipBag* bag) {
                               bbox != nullptr ? bbox->getMainBBox() : nullptr);
 
   TYRA_ATTRIB_MARK(attribObjectDataStart);
+  // Modified by TyraX: only this partial-frustum route can run a VU1 clip
+  // program. The other routes do not need its 15-qword uniform block.
+  qbufferRenderer.setBagMayClip(qbufferRenderer.hasProgramOverrides() ||
+                                (frustumCull &&
+                                 frustumCheck == PARTIALLY_IN_FRUSTUM &&
+                                 bag->info->fullClipChecks));
   qbufferRenderer.sendObjectData(bag, &mvp, texBuffers);
 
   qbufferRenderer.setClipperMVP(&mvp);

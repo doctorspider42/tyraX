@@ -2397,6 +2397,15 @@ then one END. Never jump between the separately allocated chains. This ran past
 
 ## Static submission on physical PS2 (1.78)
 
+The 2026-09-27 per-bag A/B kept two small `sendObjectData` cuts: omit the
+three spot quads when the light is inactive, and omit the shared clip block
+unless the bag can enter a VU1 clip program. A project program override keeps
+both uploads; direct calls to `sendObjectData` default to the old clip upload.
+Mode 24 saved 0.04..0.13 ms of `work` over two hardware boots. Retaining copies
+of each bag's uniform groups instead added 0.30..0.80 ms and was rejected;
+do not transplant its DMA lifetime machinery into production for this fixture.
+See docs/ee-submission-rearchitecture.md, "Round six".
+
 `StaPipQBufferRenderer::sendObjectData` prepares uniforms without waiting for
 the previous mesh, at the head of the current double-buffered geometry packet.
 The first buffer flush appends to that packet instead of resetting it, writes

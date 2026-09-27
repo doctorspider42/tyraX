@@ -551,6 +551,10 @@ class StaPipQBufferRenderer {
 
   void setClipperMVP(M4x4* mvp) { clipper.setMVP(mvp); }
 
+  // Modified by TyraX: StaPipCore knows whether this bag can enter a VU1
+  // clip program. Consume once; direct callers keep the conservative default.
+  void setBagMayClip(bool mayClip) { bagMayClip = mayClip; }
+
   StaPipQBuffer* getBuffer();
 
   // Modified by TyraX: non-const - also pushes the per-mesh
@@ -912,6 +916,8 @@ class StaPipQBufferRenderer {
   float clipNearZ = 0.0F, clipFarZ = 0.0F;
   // Modified by TyraX: per-bag dynamic light (see setBagLight).
   const RendererCoreSpotLight* bagLight = nullptr;
+  // Modified by TyraX: one-shot VU1 clip-block upload decision.
+  bool bagMayClip = true;
   // Modified by TyraX: opt-in routing/VU1 back-pressure telemetry.
   StaPipTelemetry* telemetry = nullptr;
 #if TYRA_STAPIP_PACKET_PROFILE
