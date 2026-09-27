@@ -778,6 +778,24 @@ has EE headroom and does not reproduce a 25 FPS point; it does not cover a
 driven car, moving AI traffic, or every viewpoint. See the
 [full report and raw CSVs](authoring/fps-hardware-2026-09-28/README.md).
 
+## Vehicle entry and night driving on physical PS2 (2026-09-28)
+
+The normal night chase view reproduces the dip that the camera sweep missed.
+A continuous zero-throttle capture enters the Ravager after 180 walking
+frames: **50 FPS / 13.615 ms work** becomes **25 FPS / 23.923 ms warm work**,
+with speed zero and unchanged position. Render submission costs **21.561 ms**;
+vehicle update only **0.615 ms**. All 299 warm seated frames miss the 20 ms
+PAL budget. The exact entry frame has a separate **165.300 ms** hitch,
+including **57.195 ms HUD**; font and icon assets are first loaded during
+that draw. Warm seated frames have no texture uploads/reuploads.
+
+The full-throttle control records from about five metres after the start:
+ordinary rolling FPS rises from 25 to around 50 as the car leaves the garage.
+The profiled first 120 driving frames after five metres have median work
+**18.722 ms**, p95 **22.036 ms**, with **29/120** above 20 ms. The sustained
+slow point is the seated garage view, before acceleration. See the
+[continuous traces, breakdown and reproducer](authoring/night-entry-hardware-2026-09-28/README.md).
+
 ## Repeating performance comparisons
 
 `python authoring/benchmark-district.py <new-directory>` creates an isolated

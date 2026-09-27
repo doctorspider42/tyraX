@@ -4,17 +4,35 @@ This is only unfinished work that still has a clear payoff and a testable end.
 Finished investigations belong in commit history; reusable facts belong in the
 relevant guide or developer skill.
 
-## Reproduce the reported driving FPS dip
+## Bring the night garage chase view back under the PAL frame budget
 
-The [2026-09-28 physical PS2 sweep](../examples/vehicle-playground/authoring/fps-hardware-2026-09-28/README.md)
-completed the previously blocked moving-camera test: 32/32 baseline FPS
-samples stayed around 50, and the largest of 960 profiled active-work frames
-was 17.05 ms against a 20 ms PAL period. That fixture parks traffic and moves
-only the camera. If the reported drop still occurs while actually driving,
-record its road, direction, camera mode and time of day; build a repeatable
-route that includes moving traffic if applicable, capture per-frame work on
-the physical console, and hold the worst view for a focused attribution A/B.
-Do not optimize against PCSX2 milliseconds or the broad Objects label alone.
+The [2026-09-28 continuous vehicle-entry capture](../examples/vehicle-playground/authoring/night-entry-hardware-2026-09-28/README.md)
+reproduces the reported dip without acceleration: walking at the garage is
+50 FPS / 13.615 ms active work; entering the stationary Ravager gives 25 FPS /
+23.923 ms warm active work. All 299 warm seated frames exceed 20 ms. The car
+has zero speed and unchanged position. The earlier moving-camera sweep did
+not cover this normal chase-camera view.
+
+Target the same night start, camera mode 0 and parked traffic. Render
+submission is 21.561 ms; Objects (inclusive of interleaved road/static work)
+is 13.375 ms, direct object-part submission 7.375 ms, terrain draw 2.295 ms,
+night light/shadow effects 1.995 ms. VIF1 wait is 5.651 ms included in
+submission; vehicle update is only 0.615 ms. Do not treat these overlapping
+counters as additive or infer an exclusively EE/GS/VU1 limit from DMA waits.
+The view submits 46,096 triangles, against 22,425 in the walking control.
+Price any culling/submission candidate against this stationary view, then the
+recorded first 120 driving frames after five metres (29/120 over budget),
+and moving AI traffic separately. Do not use emulator milliseconds.
+
+Keep first-entry latency as a separate acceptance gate: the exact entry
+frame costs 165.300 ms, including 57.195 ms in HUD. The log confirms lazy
+font-atlas and icon-sheet reads over host: during entry. `drawFontText`
+requests the icon sheet even for the vehicle's icon-free strings. Move
+required HUD preparation to loading/prewarm and avoid unrelated icon work;
+measure the entry frame again and check memory/lifetime across scene changes.
+First-visible geometry/reflection caches and audio startup also contribute;
+fixing asset reads alone does not restore steady 50 FPS. The reproducer and
+complete stationary CSVs are in the linked report.
 
 ## Occlusion culling: make the visibility pass cheaper
 

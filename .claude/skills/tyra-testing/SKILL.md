@@ -3487,6 +3487,21 @@ route and identifies relative producer shifts; a physical PS2 is still needed
 to price a slow view in milliseconds (example README, "Moving-camera FPS
 recheck").
 
+
+For actual vehicle entry/driving, use
+`authoring/night-drive-2026-09-28.py FIXTURE --stage prepare` after fixture
+creation and before the editor asset build. Apply `--stage input` after
+generation and rebuild natively for the full-throttle FPS control; apply
+`--stage profile` for per-frame costs after five metres. Apply `--stage entry`
+after profile to delay entry until frame 180 and collect all 480 frames,
+then `--stage stationary` for zero throttle. Rebuild natively after each
+runtime override. The normal chase camera is never overridden; the CSV adds
+position/speed and (in the continuous trace) actual driver state. Pose exports
+are deferred until after timing has ended. The stationary garage view
+reproduced 25 FPS on hardware while the camera sweep stayed at 50, so entry
+and seated-view controls are required for vehicle FPS claims. See
+`examples/vehicle-playground/authoring/night-entry-hardware-2026-09-28/README.md`.
+
 After creating an isolated fixture with `examples/vehicle-playground/authoring/benchmark-district.py`
 and refreshing/building it, run `authoring/instrument-frame-cost.py FIXTURE` from
 the example. It patches only that fixture's generated loop. Compile with
