@@ -524,8 +524,8 @@ std::vector<SpecField> specFields(DriveSpec& s) {
         {"damageRadius", &s.damageRadius, 0.2f, 4.0f, "Dent radius",
          "How far one impact spreads over the body."},
         {"damagePerfLoss", &s.damagePerfLoss, 0.0f, 1.0f, "Wrecked power loss",
-         "Share of acceleration and top speed gone at full damage. 1 = a wreck "
-         "does not drive."},
+         "Share of acceleration and top speed lost as damage rises. At full "
+         "damage every vehicle stops driving until repaired."},
         {"damageSmoke", &s.damageSmoke, 0.0f, 1.0f, "Smoke from damage",
          "Damage level at which the engine starts to smoke (black when wrecked)."},
         // The Vehicle Editor shows every "lamp*" key on its Effects tab.
@@ -737,6 +737,7 @@ int applyDent(const Impact& im, float maxDent, const float* rest, int restStride
 }
 
 float damagePerformance(const DriveSpec& s, float damage) {
+    if (damage >= 0.999f) return 0.0f;
     return 1.0f - clampf(s.damagePerfLoss, 0.0f, 1.0f) * clampf(damage, 0.0f, 1.0f);
 }
 
@@ -1151,7 +1152,7 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
         // the tank with the car stationary (measured on the console - nos10 fell
         // 7 to 5 at spd10 0), which is a way to lose a resource without ever
         // seeing it do anything.
-        if (in.nos && state.nos > 0.0f && state.grounded && !shifting &&
+        if (state.damage < 0.999f && in.nos && state.nos > 0.0f && state.grounded && !shifting &&
             in.throttle > 0.01f) {
             state.nosActive = true;
             state.nos = std::max(0.0f, state.nos - dt / spec.nosCapacity);
@@ -1168,8 +1169,10 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
 
     // --- longitudinal -------------------------------------------------------
     if (state.grounded) {
-        const float throttle = shifting ? 0.0f : clampf(in.throttle, -1.0f, 1.0f);
-        const float brake = clampf(in.brake, 0.0f, 1.0f);
+        const float throttle = shifting || state.damage >= 0.999f
+                                   ? 0.0f : clampf(in.throttle, -1.0f, 1.0f);
+        const float brake = state.damage >= 0.999f
+                                ? 1.0f : clampf(in.brake, 0.0f, 1.0f);
         if (brake > 0.01f) {
             state.speed = approach(state.speed, 0.0f, spec.brakeDecel * brake * dt);
         } else if (throttle > 0.01f) {

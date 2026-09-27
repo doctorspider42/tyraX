@@ -3479,6 +3479,14 @@ screenshot.
 
 ## Motor District per-frame attribution
 
+For a changing view instead of the four parked poses, run
+`authoring/fps-sweep-2026-09-27.py FIXTURE` after `benchmark-district.py` and
+before generation, then instrument the result normally. It drives the camera
+through the garage and outer road in both lighting states. PCSX2 covers the
+route and identifies relative producer shifts; a physical PS2 is still needed
+to price a slow view in milliseconds (example README, "Moving-camera FPS
+recheck").
+
 After creating an isolated fixture with `examples/vehicle-playground/authoring/benchmark-district.py`
 and refreshing/building it, run `authoring/instrument-frame-cost.py FIXTURE` from
 the example. It patches only that fixture's generated loop. Compile with

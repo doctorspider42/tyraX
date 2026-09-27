@@ -5261,6 +5261,10 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.149.2 - Vehicle exit faces the car's travel direction (nose at rest). Full damage stops player/AI
+// drive and nitrous in both the generated runtime and host simulator, while
+// collisions can still push the wreck. The nitrous flame anchors beyond the
+// rear face without the lamp halo's camera pull. Format stays 80. PATCH.
 // 1.149.1 - StaPip omits inactive spot-light quads and clip constants for bags
 // that cannot use them (project program overrides keep the uploads). One-ELF
 // physical-PS2 A/B, two boots: combined work -0.04..-0.13 ms across four
@@ -5486,7 +5490,7 @@
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 149
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

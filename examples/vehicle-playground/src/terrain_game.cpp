@@ -19141,8 +19141,12 @@ void TerrainGame::renderVehicleLampGlow() {
       // sines so no two frames match - with the motion blur on top, that
       // reads as a flame rather than three sprites.
       const bool measured = s.lampRear[3] > 0.0F;
-      const float pz = measured ? s.lampRear[2] - 0.04F
-                                : -(0.5F * s.wheelBase + s.bodyOverhang + 0.05F);
+      // The lamp can sit IN the rear panel, and bodyOverhang is only a drive
+      // proxy. Start outside whichever puts the rear face further back.
+      const float bodyRear = -(0.5F * s.wheelBase + s.bodyOverhang);
+      const float rearFace = measured && s.lampRear[2] < bodyRear
+                                 ? s.lampRear[2] : bodyRear;
+      const float pz = rearFace - 0.08F;
       const float py = measured ? s.lampRear[1] * 0.45F : 0.08F;
       const float px = 0.26F * s.track;
       const float I = vehClamp(s.feelFlame, 0.0F, 2.0F) * v.nosFx * distFade;
@@ -19158,12 +19162,9 @@ void TerrainGame::renderVehicleLampGlow() {
           float c[3];
           for (int a = 0; a < 3; ++a)
             c[a] = bo[a] + (bx[a] * px * (float)side + by[a] * py + bz[a] * (pz - back)) * SC;
-          const float tx = cameraPosition.x - c[0], ty = cameraPosition.y - c[1],
-                      tz = cameraPosition.z - c[2];
-          const float tl = sqrtf(tx * tx + ty * ty + tz * tz);
-          if (tl < 0.3F) continue;
-          const float pull = 0.25F * SC < 0.5F * tl ? 0.25F * SC : 0.5F * tl;
-          c[0] += tx / tl * pull, c[1] += ty / tl * pull, c[2] += tz / tl * pull;
+          // A lamp halo needs a camera pull; a flame does not. Pulling it
+          // toward a side/rear camera detached its core from the pipe and
+          // could move it across the body plane.
           const float hw = hs * SC, hh = hs * SC * (layer == 2 ? 0.8F : 1.0F);
           Tyra::Color col;
           if (layer == 0) col = Tyra::Color(150.0F * I, 175.0F * I, 255.0F * I, 128.0F);
@@ -19714,9 +19715,14 @@ void TerrainGame::updateVehicles(float dt) {
     players[0].x = v.pos[0] + (s.exitOffset[0] * ec + s.exitOffset[2] * es) * SC;
     players[0].z = v.pos[2] + (-s.exitOffset[0] * es + s.exitOffset[2] * ec) * SC;
     players[0].y = v.pos[1] + s.exitOffset[1] * SC;
+    const float travelX = v.speed * es + v.lateral * ec;
+    const float travelZ = v.speed * ec - v.lateral * es;
+    players[0].yaw = travelX * travelX + travelZ * travelZ > 0.25F
+                         ? atan2f(travelX, travelZ) : v.yaw * kDeg;
     players[0].velY = 0.0F;
     vehicleDriver_ = -1;
-    TYRA_LOG("VEH exit at ", (int)players[0].x, " ", (int)players[0].z);
+    TYRA_LOG("VEH exit at ", (int)players[0].x, " ", (int)players[0].z,
+             " yaw10 ", (int)(players[0].yaw * kRad * 10.0F));
   };
   // The Enter Vehicle / Exit Vehicle flow nodes (docs/vehicles.md, "From a
   // flow graph"). A graph cannot call the game, so the node leaves a request
@@ -19901,7 +19907,7 @@ void TerrainGame::updateVehicles(float dt) {
         r = r * 0.65F + r * r * r * 0.35F;
         inSteer = inSteer < 0.0F ? -r : r;
       }
-    } else if (v.wpCount > 0) {
+    } else if (v.wpCount > 0 && v.damage < 0.999F) {
       // AI DRIVER (docs/vehicles.md): fills the IDENTICAL four numbers the
       // pad fills - the whole reason DriveInput is a struct and not a pad
       // read. Pure pursuit of the current baked waypoint: steer from the
@@ -20603,6 +20609,13 @@ void TerrainGame::updateVehicles(float dt) {
     }
     const int shifting = v.shiftTimer > 0.0F ? 1 : 0;
     if (shifting) inThrottle = 0.0F;
+    // A wreck may still coast or be pushed, but its driver (human or AI)
+    // cannot propel it in either direction. Repair restores the controls.
+    if (v.damage >= 0.999F) {
+      inThrottle = 0.0F;
+      inBrake = 1.0F;
+      inNos = 0;
+    }
 
     // Nitrous. The TANK is the switch (capacity 0 = this vehicle has none), so
     // there is no second flag that could disagree with it.

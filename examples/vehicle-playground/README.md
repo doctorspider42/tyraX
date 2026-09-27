@@ -213,6 +213,12 @@ Take the perimeter loop flat out to feel the
 [speed feel](../../docs/vehicles.md#speed-feel): near the top speed the camera
 shakes, the road blurs and the view widens, and Cross adds the nitrous kick
 and the blue exhaust flame.
+The flame starts beyond the rear bumper and stays attached to its procedural
+pipe pair when the camera moves around the car. Exiting with Use or the flow
+node leaves the player facing the car's travel direction, or its nose when stopped.
+In a PCSX2 reverse-exit check (`hold l2; wait 1.0; press square`), the runtime
+logged `spd10 -59` and `VEH exit ... yaw10 1799`: the player faced backward
+while the car was reversing.
 
 The coupe retains its engine/rev crossfade, tyre squeal, gear-shift sound,
 brake lamps, suspension and projected silhouette. The parked Rally also uses
@@ -234,6 +240,8 @@ docs/vehicles.md "Damage"). Drive straight ahead from the start into the arena
 wall: the log says `VEHDMG <car> hit dv10 ... dmg100 ...`, the front crumples,
 the headlamps go out and the HUD reads `DMG n`. A few more hits pass 50% and
 the bonnet smokes; Select repairs it. Parked cars dent too when rammed.
+At `WRECKED`, neither R2 nor L2 nor nitrous can move the car; an AI driver also
+stops pursuing its route. Select restores drive controls.
 
 A hard hit also tears the bonnet, boot or a door off and shatters the windows
 it reaches. The Ravager, Pica and Strix show an engine bay under the lost lid
@@ -702,6 +710,28 @@ Earlier agent fixtures lacked 66 PNGs and 11 TMDLs and are invalid as full-scene
 evidence. Complete deployments and matching day-view GS captures correct that
 failure. See [hardware recheck](../../docs/performance-hardware-recheck.md)
 and [raw evidence](authoring/hardware-recheck-2026-09-14/).
+
+## Moving-camera FPS recheck (2026-09-27)
+
+The four parked poses were still 50 FPS on the last physical PS2 control, but
+that does not answer a driver's changing view. For a repeatable sweep, create a
+`benchmark-district.py` fixture with `--profile quiet-debug`, run
+`python authoring/fps-sweep-2026-09-27.py <fixture>`, build it, then apply
+`instrument-frame-cost.py <fixture> --attribute` and rebuild natively. The
+camera travels from garage Z -74 to 88 and across outer-road X 4 to 99, both
+by day and night. The recorder keeps 240 frames from each 360-frame phase.
+
+PCSX2 recorded 960 complete cost rows and 32 FPS samples, **49.992–50.007
+FPS**. Its relative attribution changes with the view: garage frames spend
+more in solo objects (median 0.92/0.98 emulator ms versus 0.43/0.44 in terrain
+draw), while outer-road frames spend more in terrain draw (1.18/1.17 versus
+0.25/0.52 in objects). There is no reproduced 25 FPS point in this route. The
+[raw CSVs](authoring/fps-sweep-2026-09-27/) retain every sample; PCSX2's EE
+milliseconds must not be quoted as physical PS2 timings. The hardware attempt
+lost contact before `loadelf:` and yielded no current frame sample, so a new
+engine optimization awaits a physical worst-view trace. The stock example is
+debug with Remote Pad and Live Debugger enabled; compare a `quiet-debug` or
+release fixture before interpreting a devkit FPS dip as a rendering cost.
 
 ## Repeating performance comparisons
 

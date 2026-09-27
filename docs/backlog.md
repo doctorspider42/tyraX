@@ -4,6 +4,17 @@ This is only unfinished work that still has a clear payoff and a testable end.
 Finished investigations belong in commit history; reusable facts belong in the
 relevant guide or developer skill.
 
+## Moving-camera FPS on physical PS2
+
+The 2026-09-27 sweep in
+[the vehicle playground](../examples/vehicle-playground/README.md#moving-camera-fps-recheck-2026-09-27)
+held 50 FPS in PCSX2, and the last physical four-pose parked control also held
+50 FPS. Neither reproduces the reported driving fluctuation. Re-run the
+committed moving-camera fixture on a reachable physical PS2, record individual
+frame work and missed fields, then hold the worst view for an attribution A/B.
+The 2026-09-27 console attempt lost network contact before `loadelf:` and
+produced no frame samples. Do not tune against PCSX2 milliseconds.
+
 ## Occlusion culling: make the visibility pass cheaper
 
 The unmerged `ee-occlusion` rewrite hides 23/48 draw units in a dense district

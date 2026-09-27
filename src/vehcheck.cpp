@@ -593,22 +593,41 @@ void damage() {
                 graze.impactSerial);
     verdict(graze.damage < hit.damage, "a glancing grind hurts less than a head-on");
 
-    // A wrecked car is slower on open ground by exactly the power loss.
+    // Partial damage retains the authored power loss. A full wreck cannot
+    // accelerate forward, reverse, or burn nitrous until repaired.
     {
         DriveSpec s;
         s.damage = 1.0f;
         DriveState a, b;
         a.pos[1] = b.pos[1] = s.rideHeight;
-        b.damage = 1.0f;
+        b.damage = 0.75f;
         DriveInput in;
         in.throttle = 1.0f;
         for (int i = 0; i < 1500; ++i) {
             step(s, in, 1.0f / 50.0f, flat, a);
             step(s, in, 1.0f / 50.0f, flat, b);
         }
-        std::printf("  top speed: pristine %.2f, wrecked %.2f\n", a.speed, b.speed);
-        verdict(b.speed < a.speed * (1.0f - 0.8f * s.damagePerfLoss),
-                "a wrecked car loses its authored share of performance");
+        std::printf("  top speed: pristine %.2f, damaged %.2f\n", a.speed, b.speed);
+        verdict(std::fabs(damagePerformance(s, b.damage) -
+                          (1.0f - 0.75f * s.damagePerfLoss)) < 1e-6f &&
+                    b.speed < a.speed * 0.9f,
+                "partial damage applies the authored power loss");
+        DriveState wreck;
+        wreck.pos[1] = s.rideHeight;
+        wreck.damage = 1.0f;
+        in.nos = true;
+        for (int i = 0; i < 100; ++i) step(s, in, 1.0f / 50.0f, flat, wreck);
+        verdict(std::fabs(wreck.speed) < 0.01f && !wreck.nosActive,
+                "a wreck cannot drive forward or use nitrous");
+        in.throttle = -1.0f;
+        for (int i = 0; i < 100; ++i) step(s, in, 1.0f / 50.0f, flat, wreck);
+        verdict(std::fabs(wreck.speed) < 0.01f,
+                "a wreck cannot drive in reverse");
+        wreck.damage = 0.0f;  // Repair Vehicle's drive-state reset.
+        in.throttle = 1.0f;
+        in.nos = false;
+        for (int i = 0; i < 50; ++i) step(s, in, 1.0f / 50.0f, flat, wreck);
+        verdict(wreck.speed > 1.0f, "a repaired wreck drives again");
     }
 
     // The dent: a front hit, applied three times over a grid of rest vertices

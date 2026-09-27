@@ -1071,7 +1071,7 @@ undo and reach the console through `vehiclesim::specFields` like the rest:
 | Ignore hits below | speed change, units/s, a collision must cause before it dents - wall scrapes stay below it |
 | Deepest dent | no vertex ever moves further than this from where it was modelled |
 | Dent radius | how far one impact spreads over the body |
-| Wrecked power loss | share of acceleration and top speed gone at 100% damage (1 = a wreck does not drive) |
+| Wrecked power loss | share of acceleration and top speed lost as damage rises; at 100% damage every vehicle is immobilized regardless of this value |
 | Smoke from damage | damage level from which the bonnet smokes; black once wrecked |
 
 **What a hit does.** The body's own vertices are pushed in where it was struck,
@@ -1079,8 +1079,10 @@ with a per-vertex jitter so a panel buckles instead of pressing flat; the paint
 darkens with the dent's depth; a hard end-on hit smashes that end's lamps (dark,
 no headlight pool, no tail glow); the damage level rises, costing power; past the
 smoke threshold the engine smokes, and a burst of dust marks every hit. The HUD
-(when on) shows `DMG n` / `WRECKED`. The **Repair Vehicle** flow node puts it all
-right.
+(when on) shows `DMG n` / `WRECKED`. At `WRECKED`, the driver and AI cannot
+accelerate forward or reverse or use nitrous; the brakes bring the car to rest,
+while collisions can still push it. The **Repair Vehicle** flow node restores
+drive controls along with the body.
 
 **Detection needs no contact code.** The runtime remembers each car's world
 velocity at the start of the frame's collision stages and compares it with what
@@ -1109,8 +1111,8 @@ corners that share a position - a strip's welded seam, a list's shared corner -
 therefore always move together, and a dent can never tear the mesh open. The
 generated runtime's `vehicleDentApply` is its numeric twin (change one, change
 both); `--vehicle-check` holds the properties (strength 0 changes nothing, a
-head-on dents and a graze does not, a wrecked car is slower by the authored
-share, no vertex passes the limit, welded corners never split, a front hit leaves
+head-on dents and a graze does not, partial damage reduces performance by the
+authored share and a full wreck cannot drive, no vertex passes the limit, welded corners never split, a front hit leaves
 the rear alone).
 
 **What it costs, and why it is shaped this way.** Nothing runs per vertex per
@@ -1140,7 +1142,7 @@ us <microseconds>`, and `VEHDMG <car> repaired`.
 shows the undamaged decimated body (a few pixels by then). Panels and windows come off
 ([below](#loose-panels-and-glass)); bumpers and wheels do not. The shading is frozen at the undented
 normals, so a dent reads through its shape and the scuff rather than through
-lighting. AI drivers keep driving a wreck at reduced power. See
+lighting. AI drivers stop pursuing their route when wrecked. See
 docs/backlog.md.
 
 ### Loose panels and glass
@@ -1279,6 +1281,13 @@ more of all three - the FOV jumps wider, the shake and the blur grow - and
 lights a blue **flame** at two exhaust pipes, a hot core, a wider blue glow and
 an orange tip, flickering on two sines so no two frames match. When the boost
 stops, the kick drains away more slowly than it arrived.
+
+The flame starts behind the rear-most of the measured lamp face and the
+wheelbase/overhang proxy. Unlike a lamp halo it is not pulled toward the camera:
+that pull could shift the flame into the body and away from the pipe. The pipe
+pair remains a procedural approximation, not an imported exhaust marker.
+
+![Ravager boosting in PCSX2 from a side view: the blue cores begin at the rear pipes and remain outside the bumper](img/vehicle-nitro-pipe-side.png)
 
 The six knobs are the `feel*` keys on the Vehicle Editor's **Effects** tab.
 Every car has them, and a car saved before them gets the defaults, because
@@ -1852,7 +1861,7 @@ Three Player-category flow nodes act on a vehicle without a button:
 | Node | What it does |
 |---|---|
 | **Enter Vehicle** (object) | seats the player in that Vehicle object at once - from anywhere, with no USE press and without asking the Driveable flag. Already driving another car: out of that one at its door first. Empty object = the graph's own object |
-| **Exit Vehicle** | puts the player out at the driver's door, the same formula the USE button uses. On foot it does nothing |
+| **Exit Vehicle** | puts the player out at the driver's door facing the vehicle's travel direction (its nose when stopped), the same formula the USE button uses. On foot it does nothing |
 | **Repair Vehicle** (object) | takes the dents, the smoke, the smashed lamps and the lost power away ([Damage](#damage)). An object that is not a vehicle - or none, on a garage Area's graph - means the car the player is driving |
 
 They exist to set test cases up: `On Start -> Enter Vehicle` on the car
@@ -2328,10 +2337,12 @@ VEH pos 0 -8 spd10 0 mtx 1        ← in, matrix path on
 VEH pos 0 -3 spd10 84 mtx 1       ← accelerating
 VEH pos 0 29 spd10 219 mtx 1      ← top speed (22 u/s)
 VEH pos 0 32 spd10 0 mtx 1        ← the wall at z=34, minus half a car
-VEH exit at -2 32                 ← out at the scaled driver's door
+VEH exit at -2 32 yaw10 0         ← out at the scaled driver's door, facing +Z
 ```
 
-And steering has its own acceptance line — hold throttle, then push the stick
+`yaw10` is the on-foot heading in tenths of a degree; it follows the velocity
+when the car is moving and the body heading when it is nearly stopped. Steering
+has its own acceptance line — hold throttle, then push the stick
 left, and the story continues:
 
 ```
