@@ -5261,6 +5261,9 @@
 // Matrix-path owners are also excluded defensively from world-space static
 // batches, and the Motor District night script addresses dressing by stable
 // object-ID hash rather than mutable scene row.
+// 1.149.3 - Resolve palette UVs on the optional @auto fast wheel before its
+// mesh is decimated, so the speed swap keeps visible, correctly coloured tyres.
+// The Motor District enables that variant on its sixth car. Format stays 80. PATCH.
 // 1.149.2 - Vehicle exit faces the car's travel direction (nose at rest). Full damage stops player/AI
 // drive and nitrous in both the generated runtime and host simulator, while
 // collisions can still push the wreck. The nitrous flame anchors beyond the
@@ -5490,7 +5493,7 @@
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 149
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 3
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

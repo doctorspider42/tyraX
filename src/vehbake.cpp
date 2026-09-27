@@ -971,8 +971,10 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
                 paletteUv((int)std::lround(fv[c + 6]), out.paletteSize, fv[c + 6],
                           fv[c + 7]);
             }
-        if (opt.fastWheel != "@auto")  // "@auto" copied already-resolved UVs
-            resolvePaletteUvs(out.fastWheel, out.paletteSize, paletteTex);
+        // @auto is copied before either wheel has its palette placeholders
+        // resolved. Leaving its V at -1 makes the fast model sample outside
+        // the palette as soon as the speed threshold switches the mesh.
+        resolvePaletteUvs(out.fastWheel, out.paletteSize, paletteTex);
         out.palettePng = encodePng(paletteImage(mg, out.paletteSize), out.paletteSize);
         for (int cell : glassCells) {
             float gu = 0.0f, gv = 0.0f;

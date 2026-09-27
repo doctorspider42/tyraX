@@ -2266,6 +2266,11 @@ exactly when nobody can count its spokes.
   ordinary wheel, so the wheel batch keeps one texture.
 - A fast node whose material samples a different image is **dropped with a
   note**, because the four wheels of a definition are one bag with one texture.
+- The swap is optional. With **None**, a zero threshold, or an unavailable fast
+  mesh, the ordinary wheel remains in use at every speed.
+- `@auto` copies the ordinary wheel before palette UV resolution. The baker
+  resolves both models before decimation; otherwise the fast copy retains the
+  placeholder V of `-1` and can vanish when the speed threshold is crossed.
 - It goes through the same `kNoNormal` strip weld. The batch strips only when
   both models strip at the same run.
 - The per-wheel block is sized for the LARGER of the two models, padded like a
@@ -2299,8 +2304,9 @@ A GS dump taken at 28.9 u/s with `fw 1` renders the frame intact at 50 FPS.
 
 - **A lower-resolution copy cannot go below what the wheel's material seams
   allow.** CC96's 76-triangle wheel comes back from a 32-triangle budget the
-  same size, because meshlod locks seams. Rally 04's 300-triangle wheel is
-  where `@auto` pays. A blurred look needs the artist's node.
+  same size, because meshlod locks seams. Rally 04 already bakes to 28
+  triangles under its ordinary 300-triangle budget, so its 60-triangle fast
+  budget saves nothing either. A blurred look needs the artist's node.
 - **The editor viewport and the host sim draw the ordinary wheel only.** The
   viewport's four wheels do not spin, so there is no speed to swap on.
 

@@ -264,14 +264,16 @@ one 16-bit display buffer. That gives 512 KB of GS memory back at this
 "Hybrid"). On a physical PS2 it measured neutral on the EE: `work`
 -0.02 / -0.02 / +0.01 / -0.01 ms over the four benchmark poses.
 
-**CC96** and **Rally 04** carry a **fast wheel** (`"@auto"`, 45 rad/s;
+All six district cars carry an optional **fast wheel** (`"@auto"`, 45 rad/s;
 docs/vehicles.md, "A fast wheel"). Above that spin rate all four wheels swap to
 a lower-resolution copy, and the `VEH` telemetry line ends in `fw 1`. Drive it
 with
 `tyrax-editor --pad <project> "hold r2; wait 7; release all"`; R2 is this
 project's throttle. CC96's 76-triangle wheel cannot get smaller (material
 seams), so on that car the swap is the mechanism with no saving. Rally 04's
-300-triangle wheel is baked down to 60.
+wheel already bakes to 28 triangles under its ordinary budget, so its fast
+copy is the same size. Setting **Fast wheel** to **None** in
+any vehicle definition keeps its ordinary wheels at every speed.
 
 ## Reflections and cost
 
