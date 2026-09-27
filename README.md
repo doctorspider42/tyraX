@@ -248,7 +248,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   (shake, blur and a wider view near top speed, a nitrous flame). Try the
   [Motor District](examples/vehicle-playground) city course, strip-ready
   atlas-authored vehicle bodies and live paint reflections
-  of the sky, terrain, roads and selected scenery.
+  of the sky, terrain, roads and selected scenery. A short
+  [Blender vehicle tutorial](docs/blender-vehicle-modeling.md) includes an editable car.
 - **[NavMesh + NPC AI](docs/navigation-ai.md)** — baked on the host, A* on the EE.
 - **[Cinematics](docs/cutscenes.md)** — the Cutscene Director, fed by keyframes
   or by a [phone-recorded 6DoF take](docs/camera-takes.md) or the

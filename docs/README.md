@@ -141,6 +141,9 @@ their ownership and acceptance checks.
 - [Vehicles](vehicles.md) — driveable cars: one model in, wheels found by
   geometry, 36 submits merged down to two, a bicycle-model chassis, and a fast
   wheel model the four wheels swap to above a spin rate.
+- [Prepare a vehicle in Blender](blender-vehicle-modeling.md) — a short visual
+  walk-through using the editable Ravager source scene, from axes and wheel
+  objects to a PS2-ready `.glb` export.
 - [NavMesh + NPC AI](navigation-ai.md) — the host-side navigation bake, A* on
   the EE, and the guard-wiring flow nodes.
 - [Configurable buttons & keys](input-bindings.md) — named actions, binding

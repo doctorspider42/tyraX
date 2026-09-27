@@ -99,6 +99,10 @@ a coke-bottle hip, a tunnel rear window between flying-buttress sails, a vinyl
 roof, a bumblebee stripe, a full-width grille and Magnum-style wheels. It is
 modelled by `authoring/make-ravager.py`, which runs in Blender
 (`blender -b --factory-startup --python authoring/make-ravager.py -- --preview DIR`).
+The editable [Ravager Blender source](authoring/ravager.blend) and the short
+[vehicle modelling tutorial](../../docs/blender-vehicle-modeling.md) show the
+body, four wheel objects, materials and export steps. Rebuild the `.blend` with
+`authoring/save-ravager-blend.py`; it can also render the tutorial views.
 The script lofts eleven character lines per side, paints a 256x256 atlas in
 world coordinates, bakes Cycles ambient occlusion into it and exports
 `res/models/ravager.glb`.
