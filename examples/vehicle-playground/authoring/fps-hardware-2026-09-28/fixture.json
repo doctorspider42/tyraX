@@ -1,0 +1,9 @@
+{
+  "profile": "quiet-debug",
+  "meshLod": 0,
+  "terrainLod": 0,
+  "traffic": "parked; normal traffic must be tested separately",
+  "keepRoutes": false,
+  "sampler": "identical custom script; warmup120frames; samples every30frames; no sample-time host writes",
+  "cameraSweep": "garage +Z -74..88; outer +X 4..99; day/night each; samples after frame 120"
+}

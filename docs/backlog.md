@@ -4,16 +4,17 @@ This is only unfinished work that still has a clear payoff and a testable end.
 Finished investigations belong in commit history; reusable facts belong in the
 relevant guide or developer skill.
 
-## Moving-camera FPS on physical PS2
+## Reproduce the reported driving FPS dip
 
-The 2026-09-27 sweep in
-[the vehicle playground](../examples/vehicle-playground/README.md#moving-camera-fps-recheck-2026-09-27)
-held 50 FPS in PCSX2, and the last physical four-pose parked control also held
-50 FPS. Neither reproduces the reported driving fluctuation. Re-run the
-committed moving-camera fixture on a reachable physical PS2, record individual
-frame work and missed fields, then hold the worst view for an attribution A/B.
-The 2026-09-27 console attempt lost network contact before `loadelf:` and
-produced no frame samples. Do not tune against PCSX2 milliseconds.
+The [2026-09-28 physical PS2 sweep](../examples/vehicle-playground/authoring/fps-hardware-2026-09-28/README.md)
+completed the previously blocked moving-camera test: 32/32 baseline FPS
+samples stayed around 50, and the largest of 960 profiled active-work frames
+was 17.05 ms against a 20 ms PAL period. That fixture parks traffic and moves
+only the camera. If the reported drop still occurs while actually driving,
+record its road, direction, camera mode and time of day; build a repeatable
+route that includes moving traffic if applicable, capture per-frame work on
+the physical console, and hold the worst view for a focused attribution A/B.
+Do not optimize against PCSX2 milliseconds or the broad Objects label alone.
 
 ## Occlusion culling: make the visibility pass cheaper
 

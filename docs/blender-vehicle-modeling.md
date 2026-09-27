@@ -17,9 +17,10 @@ use **Flip front/rear** in the Vehicle Editor.
 
 ## 2. Give the importer four wheels to find
 
-The body and **four wheels must be separate mesh objects** in one file. If an
-existing model has everything joined, select each wheel's connected geometry
-in Edit Mode and use **P → Selection**. Put each wheel object's origin at its
+Keep **four wheels as separate mesh objects** in one file with the body; body
+panels may span several objects. If an existing model has everything joined,
+select each wheel's connected geometry in Edit Mode and use **P → Selection**.
+Put each wheel object's origin at its
 hub; check their positions from above and from the side. Names such as `wheel
 front left` help you inspect the scene, but TyraX finds wheels by repeated
 shape and position. Matching wheels may share one mesh. Make both faces of a

@@ -759,6 +759,25 @@ engine optimization awaits a physical worst-view trace. The stock example is
 debug with Remote Pad and Live Debugger enabled; compare a `quiet-debug` or
 release fixture before interpreting a devkit FPS dip as a rendering cost.
 
+## Physical PS2 moving-camera recheck (2026-09-28)
+
+After the console reset, the same four-phase camera sweep was run twice on a
+physical PAL PS2 from a freshly generated, complete `quiet-debug` fixture.
+The first boot sampled uninstrumented FPS; the second collected 960 per-frame
+cost and attribution rows. All 32 FPS samples in each boot stayed near **50**.
+Median active work in the four views was **7.14 / 8.73 / 6.89 / 7.81 ms**;
+the largest profiled frame was **17.05 ms**, under PAL's 20 ms period.
+Render submission was the largest active bucket (5.24–6.48 ms median);
+vehicle update was about 0.45 ms inside a 0.82–0.87 ms update. The longer
+11.24–13.05 ms presentation interval was mostly waiting for the next field.
+No warm sampled frame uploaded or reuploaded a texture. The garage's broad
+Objects bucket still includes interleaved road/static work; direct object
+submission was 0.22–0.26 ms. On the outer road, terrain draw dominated the
+named scene phases at about 2.15–2.17 ms. This particular moving-camera route
+has EE headroom and does not reproduce a 25 FPS point; it does not cover a
+driven car, moving AI traffic, or every viewpoint. See the
+[full report and raw CSVs](authoring/fps-hardware-2026-09-28/README.md).
+
 ## Repeating performance comparisons
 
 `python authoring/benchmark-district.py <new-directory>` creates an isolated
