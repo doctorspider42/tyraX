@@ -1,0 +1,1838 @@
+[    0,0370] Program Path: C:\Program Files\PCSX2\pcsx2-qt.exe
+[    0,0371] AppRoot Directory: C:\Program Files\PCSX2
+[    0,0371] Resources Directory: C:\Program Files\PCSX2\resources
+[    0,0378] DataRoot Directory: C:\Users\pawel\OneDrive\Documents\PCSX2
+[    0,0380] Loading config from C:\Users\pawel\OneDrive\Documents\PCSX2\inis\PCSX2.ini.
+[    0,0397] Loading secrets from C:\Users\pawel\OneDrive\Documents\PCSX2\inis\secrets.ini.
+[    0,0431] BIOS Directory: C:\Users\pawel\OneDrive\Documents\PCSX2\bios
+[    0,0432] Snapshots Directory: C:\Users\pawel\OneDrive\Documents\PCSX2\snaps
+[    0,0433] Savestates Directory: C:\Users\pawel\OneDrive\Documents\PCSX2\sstates
+[    0,0433] MemoryCards Directory: C:\Users\pawel\OneDrive\Documents\PCSX2\memcards
+[    0,0433] Logs Directory: C:\Users\pawel\OneDrive\Documents\PCSX2\logs
+[    0,0433] Cheats Directory: C:\Users\pawel\OneDrive\Documents\PCSX2\cheats
+[    0,0434] Patches Directory: C:\Users\pawel\OneDrive\Documents\PCSX2\patches
+[    0,0434] Covers Directory: C:\Users\pawel\OneDrive\Documents\PCSX2\covers
+[    0,0434] Game Settings Directory: C:\Users\pawel\OneDrive\Documents\PCSX2\gamesettings
+[    0,0434] Resources Directory: C:\Program Files\PCSX2\resources
+[    0,0434] User Resources Directory: C:\Users\pawel\OneDrive\Documents\PCSX2\resources
+[    0,0434] Cache Directory: C:\Users\pawel\OneDrive\Documents\PCSX2\cache
+[    0,0434] Textures Directory: C:\Users\pawel\OneDrive\Documents\PCSX2\textures
+[    0,0434] Input Profile Directory: C:\Users\pawel\OneDrive\Documents\PCSX2\inputprofiles
+[    0,0434] Video Dumping Directory: C:\Users\pawel\OneDrive\Documents\PCSX2\videos
+[    0,0434] Debugger Layouts Directory: C:\Users\pawel\OneDrive\Documents\PCSX2\inis\debuggerlayouts
+[    0,0434] Debugger Settings Directory: C:\Users\pawel\OneDrive\Documents\PCSX2\inis\debuggersettings
+[    0,0491] Loaded translation file for language en-US
+[    0,0546] PCSX2 v2.9.84
+[    0,0547] Savestate version: 0x9a590000
+[    0,0547]
+[    0,0547]
+[    0,0547] Host Machine Init:
+[    0,0548]   Operating System = Microsoft Windows 10+
+[    0,0548]   Available RAM    = 40755 MB (39.80 GB)
+[    0,0548]   Physical RAM     = 65409 MB (63.88 GB)
+[    0,0548]
+[    0,0548]   Processor        = AMD Ryzen Threadripper 1920X
+[    0,0548]   Core Count       = 12 cores
+[    0,0548]   Thread Count     = 24 threads
+[    0,0548]   Cluster Count    = 1 clusters
+[    0,0566]   Power Profile    = 'High performance'
+[    0,0567]   Power States (min/max)
+[    0,0567]     AC             = 50% / 100%
+[    0,0567]     Battery        = 5% / 100%
+[    0,0567]
+[    0,0567] CPU Extensions Detected:
+[    0,0567]   AVX AVX2
+[    0,0567]
+[    0,0567] Graphics Adapters Detected:
+[    0,0632]   GPU              = NVIDIA GeForce RTX 2070
+[    0,0632]   Driver Version   = 32.0.15.8088
+[    0,0632]
+[    0,0636]   GPU              = NVIDIA GeForce RTX 2070
+[    0,0636]   Driver Version   = 32.0.15.8088
+[    0,0636]
+[    0,0642]   GPU              = Microsoft Basic Render Driver
+[    0,0642]   Driver Version   = 10.0.19041.7548
+[    0,0642]
+[    0,0642] Allocating host memory for virtual systems...
+[    0,0665]   EE Main Memory                   @ 0x0000025F3E780000 -> 0x0000025F47680000 [143mb]
+[    0,0666]   IOP Main Memory                  @ 0x0000025F47680000 -> 0x0000025F4F780000 [129mb]
+[    0,0666]   VU0/1 On-Chip Memory             @ 0x0000025F4F780000 -> 0x0000025F4F880000 [1mb]
+[    0,0666]   VTLB Virtual Map                 @ 0x0000025F4F880000 -> 0x0000025F50080000 [8mb]
+[    0,0666]   VTLB Address Map                 @ 0x0000025F50080000 -> 0x0000025F50480000 [4mb]
+[    0,0666]   R5900 Recompiler Cache           @ 0x0000025F50480000 -> 0x0000025F54480000 [64mb]
+[    0,0666]   R3000A Recompiler Cache          @ 0x0000025F54480000 -> 0x0000025F56480000 [32mb]
+[    0,0666]   Micro VU0 Recompiler Cache       @ 0x0000025F57480000 -> 0x0000025F5B480000 [64mb]
+[    0,0666]   Micro VU1 Recompiler Cache       @ 0x0000025F5B480000 -> 0x0000025F5F480000 [64mb]
+[    0,0666]   VIF0 Unpack Recompiler Cache     @ 0x0000025F56480000 -> 0x0000025F56C80000 [8mb]
+[    0,0667]   VIF1 Unpack Recompiler Cache     @ 0x0000025F56C80000 -> 0x0000025F57480000 [8mb]
+[    0,0667]   VIF Unpack Recompiler Cache      @ 0x0000025F5F480000 -> 0x0000025F5F580000 [1mb]
+[    0,0667]   GS Software Renderer             @ 0x0000025F5F580000 -> 0x0000025F63580000 [64mb]
+[    0,0673] Fastmem area: 0000025F63780000 - 000002606377FFFF
+[    0,0680] Generating SSE-optimized unpacking functions for VIF interpreters...
+[    0,0681] Unpack function generation complete.  Generated function statistics:
+[    0,0681]   Reserved buffer    : 1048576 bytes @ 0x0000025F5F480000
+[    0,0681]   x86 code generated : 7422 bytes
+[    0,0681]
+[    0,0693] SDLInputSource: Using Controller DB from resources.
+[    0,3625] Scanning D:\PS2 (recursively)
+[    0,3627] Scanning F:\PS2\Games (recursively)
+[    0,8419] SDLInputSource: 887 gamepad mappings are loaded.
+[    0,8583] Surface refresh rate: 239.76 Hz
+[    1,0472] Enumerated 1 devices
+[    1,0549] Joystick (Razer Huntsman V2 Analog) has 24 buttons, 6 axes, 1 hats
+[    1,0558] Settings: Advanced Settings are enabled; only proceed if you know what you're doing! No support will be provided if you have the option enabled.
+[    1,0559] Loading BIOS...
+[    1,0561] BIOS Found: Europe  v02.00(14/06/2004)  Console 20040614-100914
+[    1,0633] Mechacon version: 0x00020603
+[    1,0633] Opening CDVD...
+[    1,0650] Initializing Elf: 4080024 bytes
+[    1,0655] Disc changed to .
+[    1,0655]   Name: vehicle-playground [?]
+[    1,0655]   Serial: vehicle-playground
+[    1,0655]   Version:
+[    1,0655]   CRC: 4A5B7443
+[    1,0656] No game settings found (tried 'C:\Users\pawel\OneDrive\Documents\PCSX2\gamesettings\4A5B7443.ini')
+[    1,0657] Applying settings...
+[    1,0670] GameDB: Has not been initialized yet, initializing...
+[    1,1219] GameDB: 12841 games on record (loaded in 54,93ms)
+[    1,1534] Reopening memory cards...
+[    1,1608] McdSlot 0 [File]: Mcd001.ps2 [8 MB, Formatted]
+[    1,1608] McdSlot 1 [File]: [disabled/empty filename]
+[    1,1620] HLE Host: Set 'host:' root path to: C:\tyra-vq\hud-lifecycle-0928\bin
+[    1,1624] EE/iR5900 Recompiler Reset
+[    1,1838] iR3000A Recompiler reset.
+[    1,1891] mVU Reset
+[    1,1892] mVU Reset
+[    1,1962] Resetting host memory for virtual systems...
+[    1,4176] Time Zone Offset: GMT+01:00
+[    1,4177] Time Zone Location: Berlin
+[    1,4177] DST: Winter Time
+[    1,4177] Time Format: 24-Hour
+[    1,4177] Date Format: DD/MM/YYYY
+[    1,4177] System Time Basis: Operating System Time
+[    1,4177] Resulting System Time: 2026-09-28 12:14:29
+[    1,4177] Close virtual disk tray
+[    1,4177] Media already loaded (fast boot)
+[    1,4177] Opening GS...
+[    1,4184] D3D: Found adapter 'NVIDIA GeForce RTX 2070'
+[    1,5474] D3D11 feature level for autodetection: c000
+[    1,5477] D3D: Found adapter 'NVIDIA GeForce RTX 2070'
+[    1,7607] D3D12: Agility version: 619
+[    1,8194] D3D12: Programmable Sample Position: Supported
+[    1,8194] D3D12: Shader Model: 6.5
+[    1,8194] D3D12: Non-Unified Memory Architecture
+[    1,8194] D3D12: Casting Fully Typed Formats: Supported
+[    1,8194] D3D12: Enhanced Barriers: Supported
+[    1,8195] D3D12: Rasterizer Ordered Views: Supported
+[    1,8195] D3D12: Tight Alignment: Supported
+[    1,8296] acquireRenderWindow() recreate=true fullscreen=false render_to_main=true surfaceless=false
+[    1,8334] Surface refresh rate: 239.76 Hz
+[    1,8369] D3D12: Creating a 1026x618 windowed swap chain
+[    1,8405] D3D12: Swap chain buffer size: 1026x618
+[    1,8443] Read 271 entries from 'C:\Users\pawel\OneDrive\Documents\PCSX2\cache\d3d12_shaders_sm65.idx'
+[    1,8448] Read 381 entries from 'C:\Users\pawel\OneDrive\Documents\PCSX2\cache\d3d12_pipelines_sm65.idx'
+[    1,9354] D3D12 Graphics Driver Info:
+[    1,9357] D3D_FEATURE_LEVEL_11_0
+[    1,9357] VID: 0x10DE PID: 0x1F02
+[    1,9357] NVIDIA GeForce RTX 2070
+[    1,9357] Driver Version: 32.0.15.8088
+[    1,9377] Processor count: 12 cores, 24 processors, 1 clusters
+[    1,9377] Ordered processor list: 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22
+[    1,9378] Not pinning SW threads, we need 4 processors, but only have 0
+[    1,9381] Opening SPU2...
+[    1,9391] Creating SDL audio stream, sample rate = 48000, expansion = Disabled, buffer = 50, latency = 32, stretching enabled, driver = wasapi, device =
+[    1,9485] MultiPause time: 10ns
+[    1,9486] MultiPause time: 10ns
+[    1,9487] MultiPause time: 11ns
+[    1,9489] MultiPause time: 7ns
+[    2,0471] Requested 2432 frame buffer, got 480 frame buffer
+[    2,0472] Allocated buffer of 38400 frames for buffer of 50 ms [expansion Disabled (block size 128), stretch enabled, target size 2432].
+[    2,0473] Initializing Pad...
+[    2,0473] Initializing SIO2...
+[    2,0473] Initializing SIO0...
+[    2,0473] Opening DEV9...
+[    2,0473] DEV9: DEV9init
+[    2,0474] DEV9: DEV9init2
+[    2,0474] DEV9: DEV9init3
+[    2,0507] DEV9: DEV9init ok
+[    2,0507] DEV9: DEV9open
+[    2,0507] Opening USB...
+[    2,0508] Opening FW...
+[    2,0511] Frame rate: 59.94, target speed: 1, target frame rate: 59.94, ticks per frame: 166833
+[    2,0624] VM subsystems initialized in 1006,59 ms
+[    2,0625] Processor order assignment: EE=0, VU=2, GS=4
+[    2,0626]   EE thread is on processor 0 (0x1)
+[    2,0626]   VU thread is on processor 2 (0x4)
+[    2,0636]   GS thread is on processor 4 (0x10)
+[    2,0849] # Initialize memory (rev:3.70, ctm:197Mhz, cpuclk:147Mhz detected)
+[    2,1020] R3000 Debugger: Branch to 0x890 (SYSMEM). Clearing modules.
+[    2,1047] RegisterLibraryEntries: excepman version 1.01
+[    2,1064] RegisterLibraryEntries:  intrman version 1.02
+[    2,1066] RegisterLibraryEntries:   ssbusc version 1.01
+[    2,1072] RegisterLibraryEntries:  dmacman version 1.02
+[    2,1080] RegisterLibraryEntries:  timrman version 1.01
+[    2,1084] RegisterLibraryEntries:  sysclib version 1.01
+[    2,1086] RegisterLibraryEntries:    stdio version 1.01
+[    2,1088] RegisterLibraryEntries:  heaplib version 1.01
+[    2,1096] FW: read mem 0x1f80847c: 0x10000001
+[    2,1096] FW: write mem 0x1f808414: 0x417f0000
+[    2,1096] FW: read mem 0x1f808400: 0xffc00001
+[    2,1096] FW: write mem 0x1f80844c: 0xffffffff
+[    2,1096] FW: write mem 0x1f808420: 0xffffffff
+[    2,1096] FW: write mem 0x1f808428: 0xffffffff
+[    2,1097] FW: write mem 0x1f808430: 0xffffffff
+[    2,1118] RegisterLibraryEntries:   thbase version 1.01
+[    2,1120] RegisterLibraryEntries:  thevent version 1.01
+[    2,1121] RegisterLibraryEntries:  thsemap version 1.01
+[    2,1121] RegisterLibraryEntries:  thmsgbx version 1.01
+[    2,1122] RegisterLibraryEntries:  thfpool version 1.01
+[    2,1123] RegisterLibraryEntries:  thvpool version 1.01
+[    2,1136] RegisterLibraryEntries:   vblank version 1.01
+[    2,1144] RegisterLibraryEntries:    ioman version 1.02
+[    2,1152] RegisterLibraryEntries:  modload version 1.01
+[    2,1156] RegisterLibraryEntries:   romdrv version 2.01
+[    2,1158] RegisterLibraryEntries:    stdio version 1.02
+[    2,1162] RegisterLibraryEntries:   sifman version 1.01
+[    2,1165]
+[    2,1165] PlayStation 2 ======== Hard reset boot
+[    2,1168]  ROMGEN=2004-0614, IOP info (CPUID=1f, CACH_CONFIG=0, 2MB, IOP mode)
+[    2,1169]  <20040614-100914,ROMconf,PS20200EC20040614.bin:11696>
+[    2,1238] # Total accessable memory size: 32 MB (B:2:8:0) (370:2:7c30)
+[    2,1248] # TLB spad=0 kernel=1:12 default=13:30 extended=31:38
+[    2,2908] # Initialize Start.
+[    2,2913] # Initialize GS ...
+[    2,2913] # Initialize INTC ...
+[    2,2913] # Initialize TIMER ...
+[    2,2914] # Initialize DMAC ...
+[    2,2914] # Initialize VU1 ...
+[    2,2917] # Initialize VIF1 ...
+[    2,2918] # Initialize GIF ...
+[    2,2918] # Initialize VU0 ...
+[    2,2920] # Initialize VIF0 ...
+[    2,2920] # Initialize IPU ...
+[    2,2922] # Initialize FPU ...
+[    2,2922] # Initialize User Memory ...
+[    2,3015] D3D12: Swap chain buffer size: 1026x615
+[    2,3352] # Initialize Scratch Pad ...
+[    2,3353] # Initialize Done.
+[    2,3366]
+[    2,3366] EE DECI2 Manager version 0.06 Feb  6 2003 08:38:48
+[    2,3366]   CPUID=2e20, BoardID=0, ROMGEN=2004-0614, 32M
+[    2,3366]
+[    2,3370] RegisterLibraryEntries:   sifcmd version 1.01
+[    2,3402] Initializing Elf: 4080024 bytes
+[    2,3417] ELF Loading: host:vehicle-playground.elf, Game CRC = 4A5B7443, EntryPoint = 0x00100E78
+[    2,3461] RegisterLibraryEntries:  cdvdman version 1.01
+[    2,3490] RegisterLibraryEntries:  cdvdfsv version 1.01
+[    2,3514] RegisterLibraryEntries:  secrman version 1.03
+[    2,3517] RegisterLibraryEntries:   eesync version 1.01
+[    2,3519]
+[    2,3519] IOP Realtime Kernel Ver.0.9.1
+[    2,3519]     Copyright 1999 (C) Sony Computer Entertainment Inc.
+[    2,3527] Reboot service module.(99/11/10)
+[    2,3560] cdvd driver module version 0.1.1 (C)SCEI
+[    2,3567] Load File service.(99/11/05)
+[    2,3568] Multi Threaded Fileio module.(99/11/15)
+[    2,3569] iop heap service (99/11/03)
+[    2,3812] loadelf: fname host:vehicle-playground.elf secname all
+[    2,3813] loadelf version 3.30
+[    2,3818] Input ELF format filename = host:vehicle-playground.elf
+[    2,3854] 1 00100000 003979bc ..........................................................
+[    2,3855] Loaded, host:vehicle-playground.elf
+[    2,3855] start address 0x100e78
+[    2,3856] gp address 00000000
+[    2,3861] # Restart Without Memory Clear.
+[    2,3965] # Initialize GS ...
+[    2,3965] # Initialize INTC ...
+[    2,3966] # Initialize TIMER ...
+[    2,3966] # Initialize DMAC ...
+[    2,3966] # Initialize VU1 ...
+[    2,3970] # Initialize VIF1 ...
+[    2,3971] # Initialize GIF ...
+[    2,3971] # Initialize VU0 ...
+[    2,3971] # Initialize VIF0 ...
+[    2,3971] # Initialize IPU ...
+[    2,3971] # Initialize FPU ...
+[    2,3971] # Initialize Scratch Pad ...
+[    2,3972] # Restart Without Memory Clear Done.
+[    2,3973] ELF host:vehicle-playground.elf with entry point at 0x00100E78 is executing.
+[    2,3974] ELF changed, active CRC 4A5B7443 (host:vehicle-playground.elf)
+[    2,3990] Applying core settings...
+[    2,3998] Updating CPU configuration...
+[    2,3998] iR3000A Recompiler reset.
+[    2,4049] mVU Reset
+[    2,4050] mVU Reset
+[    2,4481] iR3000A Recompiler reset.
+[    2,4513] mVU Reset
+[    2,4513] mVU Reset
+[    2,4627] EE/iR5900 Recompiler Reset
+[    2,4784] BIOS: Successfully found the instruction pattern. Assuming the thread list is here: 8001a640
+[    2,4807] Warning: GetOsdConfigParam2 Reading extended language/version configs, may be incorrect!
+[    2,4898] read/write allocate memory 4000
+[    2,4899] open name host:/ps2link.run flag 1 data 41378
+[    2,4900] open fd = -5
+[    2,4903] open name rom0:ROMVER flag 1 data 41378
+[    2,4906] open fd = 2
+[    2,4933] Get Reboot Request From EE
+[    2,4946] R3000 Debugger: Branch to 0x890 (SYSMEM). Clearing modules.
+[    2,4970] RegisterLibraryEntries: excepman version 1.01
+[    2,4981] RegisterLibraryEntries:  intrman version 1.02
+[    2,4982] RegisterLibraryEntries:   ssbusc version 1.01
+[    2,4989] RegisterLibraryEntries:  dmacman version 1.02
+[    2,4994] RegisterLibraryEntries:  timrman version 1.01
+[    2,4999] RegisterLibraryEntries:  sysclib version 1.01
+[    2,5000] RegisterLibraryEntries:    stdio version 1.01
+[    2,5002] RegisterLibraryEntries:  heaplib version 1.01
+[    2,5026] RegisterLibraryEntries:   thbase version 1.01
+[    2,5027] RegisterLibraryEntries:  thevent version 1.01
+[    2,5027] RegisterLibraryEntries:  thsemap version 1.01
+[    2,5028] RegisterLibraryEntries:  thmsgbx version 1.01
+[    2,5028] RegisterLibraryEntries:  thfpool version 1.01
+[    2,5029] RegisterLibraryEntries:  thvpool version 1.01
+[    2,5039] RegisterLibraryEntries:   vblank version 1.01
+[    2,5045] RegisterLibraryEntries:    ioman version 1.02
+[    2,5064] RegisterLibraryEntries:  modload version 1.01
+[    2,5070] RegisterLibraryEntries:   romdrv version 2.01
+[    2,5074] RegisterLibraryEntries:    stdio version 1.02
+[    2,5079] RegisterLibraryEntries:   sifman version 1.01
+[    2,5083]
+[    2,5083] PlayStation 2 ======== Soft reboot
+[    2,5091] RegisterLibraryEntries:   sifcmd version 1.01
+[    2,5128] RegisterLibraryEntries:  cdvdman version 1.01
+[    2,5145] RegisterLibraryEntries:  cdvdfsv version 1.01
+[    2,5174] RegisterLibraryEntries:  secrman version 1.03
+[    2,5176] RegisterLibraryEntries:   eesync version 1.01
+[    2,5178]
+[    2,5178] IOP Realtime Kernel Ver.0.9.1
+[    2,5178]     Copyright 1999 (C) Sony Computer Entertainment Inc.
+[    2,5183] Reboot service module.(99/11/10)
+[    2,5201] [EE] Skipping timeout loop at 0x002BE7E0 -> 0x002BE800
+[    2,5201] cdvd driver module version 0.1.1 (C)SCEI
+[    2,5204] Load File service.(99/11/05)
+[    2,5205] Multi Threaded Fileio module.(99/11/15)
+[    2,5205] iop heap service (99/11/03)
+[    2,5487] RegisterLibraryEntries:   iomanx version 1.01
+[    2,5499] fileXio: fileXio: fileXio RPC Server v1.00
+[    2,5499] Copyright (c) 2003 adresd
+[    2,5501] RegisterLibraryEntries:  sio2man version 2.07
+[    2,5503] RegisterLibraryEntries:  sio2man version 1.02
+[    2,5510] RegisterLibraryEntries:   padman version 1.02
+[    2,5512] Pad Driver for OSD
+[    2,5517] FREESD v1.01
+[    2,5518] RegisterLibraryEntries:    libsd version 1.04
+[    2,5635] debug_level = 1 (ps2snd 0.1
+[    2,5645] read/write allocate memory 4000
+[    2,5645] open name host:/log.txt flag 302 data 41378
+[    2,5650] open fd = 256
+[    2,5681] greetings from version 0.93 !
+[    2,5682] RegisterLibraryEntries:   audsrv version 1.04
+[    2,5682] audsrv_adpcm_init()
+[    2,5686] open name host:/log.txt flag 302 data 41378
+[    2,5689] open fd = 256
+[    2,5698] open name host:/log.txt flag 302 data 41378
+[    2,5701] open fd = 256
+[    2,5716] open name host:/log.txt flag 302 data 41378
+[    2,5720] open fd = 256
+[    2,5727] open name rom0:ROMVER flag 1 data 41378
+[    2,5729] open fd = 2
+[    2,5732] UpdateVSyncRate: Mode Changed to PAL.
+[    2,5732] Frame rate: 49.76, target speed: 1, target frame rate: 49.76, ticks per frame: 200964
+[    2,5732] Set GS CRTC configuration. PAL  640x512 @ 50.000 (49.76) Interlaced (FIELD)
+[    2,5734] UpdateVSyncRate: Mode Changed to PAL.
+[    2,5734] Frame rate: 50, target speed: 1, target frame rate: 50, ticks per frame: 200000
+[    2,5737] open name host:/log.txt flag 302 data 41378
+[    2,5740] open fd = 256
+[    2,5750] open name host:/log.txt flag 302 data 41378
+[    2,5752] open fd = 256
+[    2,5758] open name host:/log.txt flag 302 data 41378
+[    2,5760] open fd = 256
+[    2,5770] open name host:/log.txt flag 302 data 41378
+[    2,5773] open fd = 256
+[    2,5783] open name host:/log.txt flag 302 data 41378
+[    2,5785] open fd = 256
+[    2,5793] open name host:/log.txt flag 302 data 41378
+[    2,5796] open fd = 256
+[    2,5804] open name host:/log.txt flag 302 data 41378
+[    2,5806] open fd = 256
+[    2,5864] open name host:/log.txt flag 302 data 41378
+[    2,5868] open fd = 256
+[    2,5877] open name host:/log.txt flag 302 data 41378
+[    2,5880] open fd = 256
+[    2,5889] open name host:/log.txt flag 302 data 41378
+[    2,5891] open fd = 256
+[    4,6652]
+[    4,6655] -----------------------------------------
+[    4,6655]         _____        ____   ___
+[    4,6656]           |     /   ____| |___|
+[    4,6656]           |     |   |     |   |
+[    4,6657] -----------------------------------------
+[    4,6658] Copyright 2022
+[    4,6658] Repository: https://github.com/h4570/tyra
+[    4,6659] Licensed under Apache License 2.0
+[    4,6662] Version: 2.2.0
+[    4,6663] -----------------------------------------
+[    4,6664]
+[    4,8258] open name host:/log.txt flag 302 data 41378
+[    4,8261] open fd = 256
+[    4,8268] open name host:/log.txt flag 302 data 41378
+[    4,8270] open fd = 256
+[    4,8277] audsrv_adpcm_init()
+[    4,8297] open name host:/log.txt flag 302 data 41378
+[    4,8301] open fd = 256
+[    4,8311] [EE] Skipping timeout loop at 0x00102CB0 -> 0x00102CD0
+[    4,8664] open name host:/log.txt flag 302 data 41378
+[    4,8666] open fd = 256
+[    4,8675] open name host:/log.txt flag 302 data 41378
+[    4,8677] open fd = 256
+[    4,8686] Curent pad(0,0) status: EXECCMD
+[    5,1033] Pad: DS2 Config Finished - P1/S1 - AL: Off - AB: Usable - VS: Disabled - VL: Disabled - RB: D (0x00000000)
+[    5,1441] open name host:/log.txt flag 302 data 41378
+[    5,1444] open fd = 256
+[    5,1455] open name host:/log.txt flag 302 data 41378
+[    5,1459] open fd = 256
+[    5,1469] open name host:/log.txt flag 302 data 41378
+[    5,1472] open fd = 256
+[    5,1477] Curent pad(0,0) status: EXECCMD
+[    5,2233] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Disabled - VL: Disabled - RB: D (0x00000000)
+[    5,4633] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Disabled - VL: Disabled - RB: D (0x00000000)
+[    5,5035] open name host:/log.txt flag 302 data 41378
+[    5,5038] open fd = 256
+[    5,5049] open name host:/log.txt flag 302 data 41378
+[    5,5052] open fd = 256
+[    5,5062] open name host:/log.txt flag 302 data 41378
+[    5,5064] open fd = 256
+[    5,5070] Curent pad(0,0) status: EXECCMD
+[    5,8235] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Disabled - VL: Disabled - RB: D+A+P (0x0003FFFF)
+[    6,0631] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Disabled - VL: Disabled - RB: D+A+P (0x0003FFFF)
+[    6,1036] open name host:/log.txt flag 302 data 41378
+[    6,1039] open fd = 256
+[    6,1048] open name host:/log.txt flag 302 data 41378
+[    6,1050] open fd = 256
+[    6,1059] open name host:/log.txt flag 302 data 41378
+[    6,1061] open fd = 256
+[    6,1067] open name host:/log.txt flag 302 data 41378
+[    6,1069] open fd = 256
+[    6,1073] Curent pad(0,0) status: EXECCMD
+[    6,1833] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Normal - VL: Normal - RB: D+A+P (0x0003FFFF)
+[    6,2036] open name host:/log.txt flag 302 data 41378
+[    6,2039] open fd = 256
+[    6,2046] open name host:/log.txt flag 302 data 41378
+[    6,2048] open fd = 256
+[    6,2088] open name host:/log.txt flag 302 data 41378
+[    6,2091] open fd = 256
+[    6,2102] open name host:/log.txt flag 302 data 41378
+[    6,2105] open fd = 256
+[    6,2113] open name host:/log.txt flag 302 data 41378
+[    6,2115] open fd = 256
+[    6,2164] loadmodule: fname rom0:XMCMAN args 0 arg
+[    6,2250] RegisterLibraryEntries:    mcman version 2.03
+[    6,2259] loadmodule: id 32, ret 0
+[    6,2260] loadmodule: fname rom0:XMCSERV args 0 arg
+[    6,2263] RegisterLibraryEntries:   mcserv version 1.01
+[    6,2265] loadmodule: id 33, ret 0
+[    6,2266] [EE] Skipping timeout loop at 0x00104940 -> 0x00104960
+[    6,5260] OSD [MemoryCardSave0]: Memory Card 'Mcd001.ps2' was saved to storage.
+[    6,7248] open name host:/log.txt flag 302 data 41378
+[    6,7251] open fd = 256
+[    6,8865] open name host:/menus/save.png flag 1 data 41378
+[    6,8866] open fd = 256
+[    6,9272] open name host:/hud/save-cursor.png flag 1 data 41378
+[    6,9274] open fd = 256
+[    6,9283] open name host:/hud/save-used.png flag 1 data 41378
+[    6,9283] open fd = 256
+[    6,9299] open name host:/hud/save-saved.png flag 1 data 41378
+[    6,9300] open fd = 256
+[    6,9441] open name host:/hud/save-loaded.png flag 1 data 41378
+[    6,9443] open fd = 256
+[    6,9458] open name host:/hud/save-error.png flag 1 data 41378
+[    6,9459] open fd = 256
+[    6,9472] open name host:/hud/save-busy.png flag 1 data 41378
+[    6,9473] open fd = 256
+[    6,9862] open name host:/hud/save-spinner.png flag 1 data 41378
+[    6,9864] open fd = 256
+[    7,0052] open name host:/menus/save.png flag 1 data 41378
+[    7,0054] open fd = 256
+[    7,0455] open name host:/menus/district-pause.png flag 1 data 41378
+[    7,0457] open fd = 256
+[    7,0833] open name host:/menus/district-pause-values.png flag 1 data 41378
+[    7,0835] open fd = 256
+[    7,0858] open name host:/hud/save-cursor.png flag 1 data 41378
+[    7,0859] open fd = 256
+[    7,0868] open name host:/hud/save-cursor.png flag 1 data 41378
+[    7,0869] open fd = 256
+[    7,0875] open name host:/hud/save-cursor.png flag 1 data 41378
+[    7,0876] open fd = 256
+[    7,0882] open name host:/hud/menu-dim.png flag 1 data 41378
+[    7,0883] open fd = 256
+[    7,0895] open name host:/hud/flare-corona.png flag 1 data 41378
+[    7,0897] open fd = 256
+[    7,1063] open name host:/hud/flashlight-gobo.png flag 1 data 41378
+[    7,1065] open fd = 256
+[    7,1261] open name host:/hud/flare-glow.png flag 1 data 41378
+[    7,1263] open fd = 256
+[    7,1280] open name host:/hud/sun-disc.png flag 1 data 41378
+[    7,1280] open fd = 256
+[    7,1451] open name host:/hud/moon-disc.png flag 1 data 41378
+[    7,1452] open fd = 256
+[    7,1683] open name host:/hud/use-text.png flag 1 data 41378
+[    7,1685] open fd = 256
+[    7,1707] open name host:/hud/pick-text.png flag 1 data 41378
+[    7,1709] open fd = 256
+[    7,1849] open name host:/sfx/engine-loop.adpcm flag 1 data 41378
+[    7,1851] open fd = 256
+[    7,1867] open name host:/log.txt flag 302 data 41378
+[    7,1870] open fd = 256
+[    7,1878] open name host:/sfx/engine-high-loop.adpcm flag 1 data 41378
+[    7,1878] open fd = 256
+[    7,1885] open name host:/log.txt flag 302 data 41378
+[    7,1888] open fd = 256
+[    7,1893] open name host:/sfx/screech-loop.adpcm flag 1 data 41378
+[    7,1894] open fd = 256
+[    7,1900] open name host:/log.txt flag 302 data 41378
+[    7,1902] open fd = 256
+[    7,1907] open name host:/sfx/gear-shift.adpcm flag 1 data 41378
+[    7,1907] open fd = 256
+[    7,1913] open name host:/log.txt flag 302 data 41378
+[    7,1916] open fd = 256
+[    7,1921] open name host:/hardware-trace.cfg flag 1 data 41378
+[    7,1922] open fd = -5
+[    7,1930] open name host:/budget-scenario.cfg flag 1 data 41378
+[    7,1931] open fd = 256
+[    7,1940] open name host:/hud-entry-fix.cfg flag 1 data 41378
+[    7,1940] open fd = 256
+[    7,1947] open name host:/log.txt flag 302 data 41378
+[    7,1949] open fd = 256
+[    7,1961] open name host:/hud/loading.png flag 1 data 41378
+[    7,1962] open fd = 256
+[    7,2107] microVU1: Cached Prog = [000] [PC=3fd0] [List=01] (Cache=0,000%) [0,0mb]
+[    7,2250] open name host:/log.txt flag 302 data 41378
+[    7,2253] open fd = 256
+[    7,3107] open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+[    7,3109] open fd = 256
+[    7,3112] open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+[    7,3112] open fd = 256
+[    7,3148] [EE] Skipping timeout loop at 0x002D6498 -> 0x002D64A4
+[    7,3156] open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+[    7,3157] open fd = 256
+[    7,3158] open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+[    7,3159] open fd = 256
+[    7,3275] open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+[    7,3276] open fd = 256
+[    7,3278] open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+[    7,3279] open fd = 256
+[    7,3644] open name host:/textures/district-ground.png flag 1 data 41378
+[    7,3645] open fd = 256
+[    7,3647] open name host:/textures/district-ground.png flag 1 data 41378
+[    7,3648] open fd = 256
+[    7,3858] open name host:/materials/district-asphalt.mtl flag 1 data 41378
+[    7,3860] open fd = 256
+[    7,3912] open name host:/textures/district-asphalt.png flag 1 data 41378
+[    7,3913] open fd = 256
+[    7,3915] open name host:/textures/district-asphalt.png flag 1 data 41378
+[    7,3916] open fd = 256
+[    7,3940] open name host:/materials/district-sign.mtl flag 1 data 41378
+[    7,3941] open fd = 256
+[    7,3946] open name host:/textures/district-sign.png flag 1 data 41378
+[    7,3947] open fd = 256
+[    7,3948] open name host:/textures/district-sign.png flag 1 data 41378
+[    7,3949] open fd = 256
+[    7,3968] open name host:/materials/night-warm.mtl flag 1 data 41378
+[    7,3968] open fd = 256
+[    7,4054] open name host:/materials/night-cyan.mtl flag 1 data 41378
+[    7,4056] open fd = 256
+[    7,4062] open name host:/materials/night-pink.mtl flag 1 data 41378
+[    7,4062] open fd = 256
+[    7,4070] open name host:/models/urban/district-workshop.tmdl flag 1 data 41378
+[    7,4071] open fd = 256
+[    7,4094] open name host:/models/urban/Textures/district-facades.png flag 1 data 41378
+[    7,4096] open fd = 256
+[    7,4097] open name host:/models/urban/Textures/district-facades.png flag 1 data 41378
+[    7,4098] open fd = 256
+[    7,4260] open name host:/models/urban/district-tower.tmdl flag 1 data 41378
+[    7,4262] open fd = 256
+[    7,4442] open name host:/models/urban/district-loft.tmdl flag 1 data 41378
+[    7,4445] open fd = 256
+[    7,4451] open name host:/models/urban/detail-light-double.tmdl flag 1 data 41378
+[    7,4452] open fd = 256
+[    7,4473] open name host:/models/urban/Textures/metal.png flag 1 data 41378
+[    7,4474] open fd = 256
+[    7,4476] open name host:/models/urban/Textures/metal.png flag 1 data 41378
+[    7,4477] open fd = 256
+[    7,4489] open name host:/models/urban/detail-light-traffic.tmdl flag 1 data 41378
+[    7,4490] open fd = 256
+[    7,4509] open name host:/models/urban/Textures/roof.png flag 1 data 41378
+[    7,4510] open fd = 256
+[    7,4511] open name host:/models/urban/Textures/roof.png flag 1 data 41378
+[    7,4512] open fd = 256
+[    7,4647] open name host:/models/urban/tree-park-large.tmdl flag 1 data 41378
+[    7,4649] open fd = 256
+[    7,4664] open name host:/models/urban/Textures/treeA.png flag 1 data 41378
+[    7,4665] open fd = 256
+[    7,4667] open name host:/models/urban/Textures/treeA.png flag 1 data 41378
+[    7,4667] open fd = 256
+[    7,4677] open name host:/models/urban/Textures/tiles.png flag 1 data 41378
+[    7,4678] open fd = 256
+[    7,4680] open name host:/models/urban/Textures/tiles.png flag 1 data 41378
+[    7,4680] open fd = 256
+[    7,4695] open name host:/models/urban/Textures/dirt.png flag 1 data 41378
+[    7,4697] open fd = 256
+[    7,4698] open name host:/models/urban/Textures/dirt.png flag 1 data 41378
+[    7,4699] open fd = 256
+[    7,4710] open name host:/models/urban/tree-park-pine-large.tmdl flag 1 data 41378
+[    7,4711] open fd = 256
+[    7,4833] open name host:/models/urban/Textures/treeB.png flag 1 data 41378
+[    7,4835] open fd = 256
+[    7,4836] open name host:/models/urban/Textures/treeB.png flag 1 data 41378
+[    7,4838] open fd = 256
+[    7,4849] open name host:/models/urban/detail-barrier-type-a.tmdl flag 1 data 41378
+[    7,4850] open fd = 256
+[    7,4860] open name host:/models/urban/Textures/signs.png flag 1 data 41378
+[    7,4861] open fd = 256
+[    7,4863] open name host:/models/urban/Textures/signs.png flag 1 data 41378
+[    7,4863] open fd = 256
+[    7,4874] open name host:/models/urban/detail-dumpster-closed.tmdl flag 1 data 41378
+[    7,4875] open fd = 256
+[    7,4882] open name host:/models/urban/Textures/metal_wall.png flag 1 data 41378
+[    7,4883] open fd = 256
+[    7,4884] open name host:/models/urban/Textures/metal_wall.png flag 1 data 41378
+[    7,4885] open fd = 256
+[    7,4897] open name host:/models/urban/Textures/wall.png flag 1 data 41378
+[    7,4899] open fd = 256
+[    7,4901] open name host:/models/urban/Textures/wall.png flag 1 data 41378
+[    7,4902] open fd = 256
+[    7,4912] open name host:/models/urban/detail-bench.tmdl flag 1 data 41378
+[    7,4913] open fd = 256
+[    7,5052] open name host:/models/urban/Textures/planks.png flag 1 data 41378
+[    7,5054] open fd = 256
+[    7,5056] open name host:/models/urban/Textures/planks.png flag 1 data 41378
+[    7,5057] open fd = 256
+[    7,5239] open name host:/models/urban/pallet.tmdl flag 1 data 41378
+[    7,5241] open fd = 256
+[    7,5257] open name host:/vehicles/veh-ravager000001-body.tmdl flag 1 data 41378
+[    7,5258] open fd = 256
+[    7,5843] open name host:/vehicles/veh-ravager000001-palette.png flag 1 data 41378
+[    7,5845] open fd = 256
+[    7,5846] open name host:/vehicles/veh-ravager000001-palette.png flag 1 data 41378
+[    7,5847] open fd = 256
+[    7,5856] open name host:/vehicles/veh-ravager000001-palette-image-0.png flag 1 data 41378
+[    7,5856] open fd = 256
+[    7,5858] open name host:/vehicles/veh-ravager000001-palette-image-0.png flag 1 data 41378
+[    7,5859] open fd = 256
+[    7,6063] open name host:/vehicles/veh-pica00000001-body.tmdl flag 1 data 41378
+[    7,6065] open fd = 256
+[    7,6644] open name host:/vehicles/veh-pica00000001-palette.png flag 1 data 41378
+[    7,6646] open fd = 256
+[    7,6647] open name host:/vehicles/veh-pica00000001-palette.png flag 1 data 41378
+[    7,6648] open fd = 256
+[    7,6655] open name host:/vehicles/veh-pica00000001-palette-image-0.png flag 1 data 41378
+[    7,6656] open fd = 256
+[    7,6658] open name host:/vehicles/veh-pica00000001-palette-image-0.png flag 1 data 41378
+[    7,6659] open fd = 256
+[    7,6858] open name host:/vehicles/veh-strix0000001-body.tmdl flag 1 data 41378
+[    7,6860] open fd = 256
+[    7,7457] open name host:/vehicles/veh-strix0000001-palette.png flag 1 data 41378
+[    7,7458] open fd = 256
+[    7,7460] open name host:/vehicles/veh-strix0000001-palette.png flag 1 data 41378
+[    7,7461] open fd = 256
+[    7,7469] open name host:/vehicles/veh-strix0000001-palette-image-0.png flag 1 data 41378
+[    7,7470] open fd = 256
+[    7,7471] open name host:/vehicles/veh-strix0000001-palette-image-0.png flag 1 data 41378
+[    7,7472] open fd = 256
+[    8,1065] [EE] Skipping timeout loop at 0x001550F8 -> 0x00155104
+[    8,1068] [EE] Skipping timeout loop at 0x002D9248 -> 0x002D9254
+[    8,1073] open name host:/vehicles/fx-skid.png flag 1 data 41378
+[    8,1075] open fd = 256
+[    8,1076] open name host:/vehicles/fx-skid.png flag 1 data 41378
+[    8,1077] open fd = 256
+[    8,1089] open name host:/vehicles/fx-smoke.png flag 1 data 41378
+[    8,1090] open fd = 256
+[    8,1092] open name host:/vehicles/fx-smoke.png flag 1 data 41378
+[    8,1093] open fd = 256
+[    8,1109] open name host:/materials/particles/rally-dust.mtl flag 1 data 41378
+[    8,1110] open fd = 256
+[    8,1119] open name host:/materials/particles/rally-dust.png flag 1 data 41378
+[    8,1120] open fd = 256
+[    8,1122] open name host:/materials/particles/rally-dust.png flag 1 data 41378
+[    8,1122] open fd = 256
+[    8,1144] open name host:/materials/particles/rally-dust-f1.mtl flag 1 data 41378
+[    8,1144] open fd = 256
+[    8,1248] open name host:/materials/particles/rally-dust-f1.png flag 1 data 41378
+[    8,1250] open fd = 256
+[    8,1251] open name host:/materials/particles/rally-dust-f1.png flag 1 data 41378
+[    8,1252] open fd = 256
+[    8,1282] open name host:/log.txt flag 302 data 41378
+[    8,1285] open fd = 256
+[    8,1293] open name host:/vehicles/veh-ravager000001-wheel.tmdl flag 1 data 41378
+[    8,1294] open fd = 256
+[    8,1309] open name host:/vehicles/veh-ravager000001-wheelfast.tmdl flag 1 data 41378
+[    8,1310] open fd = 256
+[    8,1323] open name host:/fonts/atlas-default.png flag 1 data 41378
+[    8,1324] open fd = 256
+[    8,1459] open name host:/log.txt flag 302 data 41378
+[    8,1462] open fd = 256
+[    8,1468] open name host:/vehicles/veh-pica00000001-wheel.tmdl flag 1 data 41378
+[    8,1469] open fd = 256
+[    8,1484] open name host:/vehicles/veh-pica00000001-wheelfast.tmdl flag 1 data 41378
+[    8,1485] open fd = 256
+[    8,1496] open name host:/log.txt flag 302 data 41378
+[    8,1498] open fd = 256
+[    8,1503] open name host:/vehicles/veh-strix0000001-wheel.tmdl flag 1 data 41378
+[    8,1504] open fd = 256
+[    8,1647] open name host:/vehicles/veh-strix0000001-wheelfast.tmdl flag 1 data 41378
+[    8,1649] open fd = 256
+[    8,1697] open name host:/log.txt flag 302 data 41378
+[    8,1700] open fd = 256
+[    8,1710] open name host:/log.txt flag 302 data 41378
+[    8,1713] open fd = 256
+[    8,1721] open name host:/log.txt flag 302 data 41378
+[    8,1723] open fd = 256
+[    8,1736] open name host:/textures/district-road.png flag 1 data 41378
+[    8,1737] open fd = 256
+[    8,1738] open name host:/textures/district-road.png flag 1 data 41378
+[    8,1739] open fd = 256
+[    8,3051] open name host:/textures/district-asphalt.png flag 1 data 41378
+[    8,3053] open fd = 256
+[    8,3056] open name host:/textures/district-asphalt.png flag 1 data 41378
+[    8,3056] open fd = 256
+[    8,3094] open name host:/textures/district-plaza.png flag 1 data 41378
+[    8,3096] open fd = 256
+[    8,3099] open name host:/textures/district-plaza.png flag 1 data 41378
+[    8,3100] open fd = 256
+[    8,3316] open name host:/log.txt flag 302 data 41378
+[    8,3319] open fd = 256
+[    8,3490] open name host:/log.txt flag 302 data 41378
+[    8,3493] open fd = 256
+[    8,3501] open name host:/log.txt flag 302 data 41378
+[    8,3503] open fd = 256
+[    8,3639] open name host:/log.txt flag 302 data 41378
+[    8,3642] open fd = 256
+[    8,3655] open name host:/log.txt flag 302 data 41378
+[    8,3657] open fd = 256
+[    8,3668] open name host:/log.txt flag 302 data 41378
+[    8,3670] open fd = 256
+[    8,3681] open name host:/log.txt flag 302 data 41378
+[    8,3683] open fd = 256
+[    8,3693] open name host:/log.txt flag 302 data 41378
+[    8,3695] open fd = 256
+[    8,3704] open name host:/log.txt flag 302 data 41378
+[    8,3707] open fd = 256
+[    8,3843] open name host:/log.txt flag 302 data 41378
+[    8,3846] open fd = 256
+[    8,3857] open name host:/log.txt flag 302 data 41378
+[    8,3859] open fd = 256
+[    8,4057] open name host:/log.txt flag 302 data 41378
+[    8,4061] open fd = 256
+[    8,4072] open name host:/log.txt flag 302 data 41378
+[    8,4074] open fd = 256
+[    8,4085] open name host:/log.txt flag 302 data 41378
+[    8,4087] open fd = 256
+[    8,4098] open name host:/log.txt flag 302 data 41378
+[    8,4100] open fd = 256
+[    8,4110] open name host:/log.txt flag 302 data 41378
+[    8,4112] open fd = 256
+[    8,4248] open name host:/log.txt flag 302 data 41378
+[    8,4251] open fd = 256
+[    8,4262] open name host:/log.txt flag 302 data 41378
+[    8,4264] open fd = 256
+[    8,4275] open name host:/log.txt flag 302 data 41378
+[    8,4277] open fd = 256
+[    8,4446] open name host:/log.txt flag 302 data 41378
+[    8,4449] open fd = 256
+[    8,4461] open name host:/log.txt flag 302 data 41378
+[    8,4463] open fd = 256
+[    8,4473] open name host:/log.txt flag 302 data 41378
+[    8,4475] open fd = 256
+[    8,4487] open name host:/log.txt flag 302 data 41378
+[    8,4490] open fd = 256
+[    8,4502] open name host:/log.txt flag 302 data 41378
+[    8,4505] open fd = 256
+[    8,4648] open name host:/log.txt flag 302 data 41378
+[    8,4651] open fd = 256
+[    8,4662] open name host:/log.txt flag 302 data 41378
+[    8,4664] open fd = 256
+[    8,4674] open name host:/log.txt flag 302 data 41378
+[    8,4677] open fd = 256
+[    8,4880] open name host:/log.txt flag 302 data 41378
+[    8,4883] open fd = 256
+[    8,5062] open name host:/log.txt flag 302 data 41378
+[    8,5066] open fd = 256
+[    9,1086] open name host:/log.txt flag 302 data 41378
+[    9,1090] open fd = 256
+[    9,1334] open name host:/log.txt flag 302 data 41378
+[    9,1337] open fd = 256
+[    9,1571] microVU1: Cached Prog = [001] [PC=0710] [List=01] (Cache=0,000%) [0,0mb]
+[    9,1572] microVU1: 2 cycle stall on branch instruction [07c8]
+[    9,1575] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1575] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1578] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1578] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1579] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1580] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1583] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1583] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1586] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1586] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1588] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1588] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1590] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1590] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1590] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1590] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1591] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1592] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1595] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1595] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1596] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1597] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1601] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1602] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1604] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1604] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1606] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1606] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1612] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1612] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1614] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1615] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1619] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1619] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1621] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1621] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1623] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1623] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1624] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1625] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1626] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1626] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1628] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1629] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1630] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1630] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1632] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1632] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1633] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1634] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1636] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1636] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1638] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1639] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1640] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1640] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1642] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1642] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1644] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1644] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1646] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1646] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1648] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1648] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1649] microVU1: 3 cycle stall on branch instruction [07f0]
+[    9,1650] microVU1: Cached Prog = [002] [PC=1188] [List=01] (Cache=0,798%) [0,4mb]
+[    9,1650] microVU1: 2 cycle stall on branch instruction [07c8]
+[    9,1653] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1653] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1657] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1657] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1658] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1658] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1661] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1662] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1664] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1665] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1666] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1666] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1668] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1668] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1668] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1669] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1670] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1670] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1673] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1673] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1675] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1676] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1680] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1680] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1683] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1683] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1684] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1684] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1691] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1691] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1692] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1692] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1695] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1696] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1698] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1699] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1700] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1701] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1702] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1702] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1704] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1704] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1706] microVU1: 3 cycle stall on branch instruction [1108]
+[    9,1706] microVU1: 3 cycle stall on branch instruction [1130]
+[    9,1707] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1707] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1709] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1710] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1711] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1711] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1713] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1714] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1716] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1717] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1718] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1718] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1720] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1720] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1722] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1722] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1724] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1724] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1726] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9,1726] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9,1728] microVU1: 3 cycle stall on branch instruction [07f0]
+[    9,1729] microVU1: Cached Prog = [003] [PC=0000] [List=01] (Cache=1,595%) [0,9mb]
+[    9,1737] microVU1: Cached Prog = [004] [PC=1a30] [List=01] (Cache=1,688%) [1,0mb]
+[    9,1737] microVU1: 1 cycle stall on branch instruction [1ae0]
+[    9,1737] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1741] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1741] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1744] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1744] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1746] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1746] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1749] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1750] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1752] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1753] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1754] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1754] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1756] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1756] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1757] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1758] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1758] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1760] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1760] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1764] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1764] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1765] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1766] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1770] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1770] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1772] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1772] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1776] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1776] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1782] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1783] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1783] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1784] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1786] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1786] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1787] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1788] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1789] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1791] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1792] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1794] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1795] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1796] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1797] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1798] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1799] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1800] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1801] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1802] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1803] microVU1: Cached Prog = [005] [PC=2578] [List=01] (Cache=2,406%) [1,4mb]
+[    9,1803] microVU1: 1 cycle stall on branch instruction [1ae0]
+[    9,1803] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1806] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1806] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1810] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1810] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1811] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1812] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1815] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1815] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1819] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1819] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1820] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1820] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1822] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1823] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1823] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1824] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1825] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1826] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1826] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1830] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1830] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1832] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1832] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1837] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1837] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1839] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1839] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1843] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1843] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1849] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1849] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1850] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1851] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1852] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1853] microVU1: 3 cycle stall on branch instruction [2520]
+[    9,1853] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1854] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1856] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1857] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1858] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1860] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1861] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1863] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1863] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1864] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1866] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1867] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1868] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9,1869] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9,1906] microVU1: Cached Prog = [006] [PC=2590] [List=01] (Cache=3,123%) [1,9mb]
+[    9,1911] microVU1: 3 cycle stall on branch instruction [2b28]
+[    9,1916] microVU1: Cached Prog = [007] [PC=2f08] [List=01] (Cache=3,253%) [1,9mb]
+[    9,1921] microVU1: 3 cycle stall on branch instruction [2b28]
+[    9,2279] open name host:/log.txt flag 302 data 41378
+[    9,2283] open fd = 256
+[    9,4350] [EE] Skipping timeout loop at 0x002D63F4 -> 0x002D6400
+[    9,4354] [EE] Skipping timeout loop at 0x002D91A4 -> 0x002D91B0
+[    9,4375] [EE] Skipping timeout loop at 0x0016B2E8 -> 0x0016B2F4
+[    9,4376] [EE] Skipping timeout loop at 0x0016B2F8 -> 0x0016B304
+[    9,4376] [EE] Skipping timeout loop at 0x0016B308 -> 0x0016B314
+[    9,4377] [EE] Skipping timeout loop at 0x002DAB88 -> 0x002DAB94
+[    9,4377] [EE] Skipping timeout loop at 0x002DAB98 -> 0x002DABA4
+[    9,4377] [EE] Skipping timeout loop at 0x002DABA8 -> 0x002DABB4
+[    9,4437] open name host:/hud/debugfont.png flag 1 data 41378
+[    9,4439] open fd = 256
+[    9,7490] open name host:/log.txt flag 302 data 41378
+[    9,7493] open fd = 256
+[   12,0685] open name host:/log.txt flag 302 data 41378
+[   12,0689] open fd = 256
+[   13,0291] open name host:/log.txt flag 302 data 41378
+[   13,0295] open fd = 256
+[   13,0316] open name host:/log.txt flag 302 data 41378
+[   13,0319] open fd = 256
+[   13,0331] open name host:/log.txt flag 302 data 41378
+[   13,0333] open fd = 256
+[   13,0344] open name host:/log.txt flag 302 data 41378
+[   13,0346] open fd = 256
+[   13,0351] open name host:/log.txt flag 302 data 41378
+[   13,0354] open fd = 256
+[   13,0362] open name host:/log.txt flag 302 data 41378
+[   13,0365] open fd = 256
+[   13,0376] open name host:/log.txt flag 302 data 41378
+[   13,0378] open fd = 256
+[   13,0385] open name host:/log.txt flag 302 data 41378
+[   13,0389] open fd = 256
+[   13,0511] open name host:/log.txt flag 302 data 41378
+[   13,0514] open fd = 256
+[   13,0649] microVU1: Cached Prog = [008] [PC=0700] [List=01] (Cache=3,383%) [2,0mb]
+[   13,0675] open name host:/log.txt flag 302 data 41378
+[   13,0678] open fd = 256
+[   13,0694] open name host:/log.txt flag 302 data 41378
+[   13,0698] open fd = 256
+[   13,0714] microVU1: Cached Prog = [009] [PC=2f20] [List=01] (Cache=3,477%) [2,1mb]
+[   13,0719] microVU1: Cached Prog = [010] [PC=3300] [List=01] (Cache=3,529%) [2,1mb]
+[   13,0727] open name host:/log.txt flag 302 data 41378
+[   13,0729] open fd = 256
+[   13,0739] open name host:/log.txt flag 302 data 41378
+[   13,0741] open fd = 256
+[   13,0845] open name host:/log.txt flag 302 data 41378
+[   13,0849] open fd = 256
+[   13,0862] open name host:/log.txt flag 302 data 41378
+[   13,0865] open fd = 256
+[   13,5109] open name host:/log.txt flag 302 data 41378
+[   13,5113] open fd = 256
+[   14,0094] open name host:/log.txt flag 302 data 41378
+[   14,0098] open fd = 256
+[   14,0719] open name host:/log.txt flag 302 data 41378
+[   14,0723] open fd = 256
+[   14,4493] open name host:/log.txt flag 302 data 41378
+[   14,4497] open fd = 256
+[   14,5092] open name host:/log.txt flag 302 data 41378
+[   14,5097] open fd = 256
+[   15,0108] open name host:/log.txt flag 302 data 41378
+[   15,0111] open fd = 256
+[   15,0732] open name host:/log.txt flag 302 data 41378
+[   15,0735] open fd = 256
+[   15,5094] open name host:/log.txt flag 302 data 41378
+[   15,5098] open fd = 256
+[   16,0105] open name host:/log.txt flag 302 data 41378
+[   16,0108] open fd = 256
+[   16,0734] open name host:/log.txt flag 302 data 41378
+[   16,0738] open fd = 256
+[   16,5097] open name host:/log.txt flag 302 data 41378
+[   16,5101] open fd = 256
+[   16,7715] open name host:/log.txt flag 302 data 41378
+[   16,7719] open fd = 256
+[   17,0095] open name host:/log.txt flag 302 data 41378
+[   17,0098] open fd = 256
+[   17,0725] open name host:/log.txt flag 302 data 41378
+[   17,0729] open fd = 256
+[   17,5104] open name host:/log.txt flag 302 data 41378
+[   17,5108] open fd = 256
+[   18,0093] open name host:/log.txt flag 302 data 41378
+[   18,0097] open fd = 256
+[   18,0725] open name host:/log.txt flag 302 data 41378
+[   18,0729] open fd = 256
+[   18,5106] open name host:/log.txt flag 302 data 41378
+[   18,5110] open fd = 256
+[   19,0092] open name host:/log.txt flag 302 data 41378
+[   19,0096] open fd = 256
+[   19,0710] open name host:/log.txt flag 302 data 41378
+[   19,0714] open fd = 256
+[   19,0898] open name host:/log.txt flag 302 data 41378
+[   19,0902] open fd = 256
+[   19,5094] open name host:/log.txt flag 302 data 41378
+[   19,5098] open fd = 256
+[   20,0086] open name host:/log.txt flag 302 data 41378
+[   20,0090] open fd = 256
+[   20,0711] open name host:/log.txt flag 302 data 41378
+[   20,0714] open fd = 256
+[   20,5116] open name host:/log.txt flag 302 data 41378
+[   20,5119] open fd = 256
+[   21,0098] open name host:/log.txt flag 302 data 41378
+[   21,0101] open fd = 256
+[   21,0714] open name host:/log.txt flag 302 data 41378
+[   21,0718] open fd = 256
+[   21,4104] open name host:/log.txt flag 302 data 41378
+[   21,4107] open fd = 256
+[   21,5088] open name host:/log.txt flag 302 data 41378
+[   21,5092] open fd = 256
+[   22,0108] open name host:/log.txt flag 302 data 41378
+[   22,0111] open fd = 256
+[   22,0723] open name host:/log.txt flag 302 data 41378
+[   22,0727] open fd = 256
+[   22,5094] open name host:/log.txt flag 302 data 41378
+[   22,5098] open fd = 256
+[   23,0094] open name host:/log.txt flag 302 data 41378
+[   23,0098] open fd = 256
+[   23,0720] open name host:/log.txt flag 302 data 41378
+[   23,0724] open fd = 256
+[   23,5137] open name host:/log.txt flag 302 data 41378
+[   23,5140] open fd = 256
+[   23,7296] open name host:/log.txt flag 302 data 41378
+[   23,7300] open fd = 256
+[   24,0114] open name host:/log.txt flag 302 data 41378
+[   24,0117] open fd = 256
+[   24,0717] open name host:/log.txt flag 302 data 41378
+[   24,0721] open fd = 256
+[   24,5094] open name host:/log.txt flag 302 data 41378
+[   24,5097] open fd = 256
+[   25,0093] open name host:/log.txt flag 302 data 41378
+[   25,0096] open fd = 256
+[   25,0737] open name host:/log.txt flag 302 data 41378
+[   25,0741] open fd = 256
+[   25,5104] open name host:/log.txt flag 302 data 41378
+[   25,5109] open fd = 256
+[   26,0091] open name host:/log.txt flag 302 data 41378
+[   26,0094] open fd = 256
+[   26,0499] open name host:/log.txt flag 302 data 41378
+[   26,0502] open fd = 256
+[   26,0712] open name host:/log.txt flag 302 data 41378
+[   26,0717] open fd = 256
+[   26,5094] open name host:/log.txt flag 302 data 41378
+[   26,5098] open fd = 256
+[   26,8131] open name host:/log.txt flag 302 data 41378
+[   26,8134] open fd = 256
+[   27,0127] open name host:/log.txt flag 302 data 41378
+[   27,0131] open fd = 256
+[   27,0725] open name host:/log.txt flag 302 data 41378
+[   27,0729] open fd = 256
+[   27,5089] open name host:/log.txt flag 302 data 41378
+[   27,5092] open fd = 256
+[   28,0124] open name host:/log.txt flag 302 data 41378
+[   28,0127] open fd = 256
+[   28,0716] open name host:/log.txt flag 302 data 41378
+[   28,0721] open fd = 256
+[   28,3701] open name host:/log.txt flag 302 data 41378
+[   28,3705] open fd = 256
+[   28,5097] open name host:/log.txt flag 302 data 41378
+[   28,5100] open fd = 256
+[   28,6890] open name host:/frame-cost.csv flag 602 data 41378
+[   28,6894] open fd = 256
+[   29,2460] open name host:/frame-attrib.csv flag 602 data 41378
+[   29,2465] open fd = 256
+[   30,0687] open name host:/drive-pose.csv flag 602 data 41378
+[   30,0690] open fd = 256
+[   30,2098] open name host:/scenario.csv flag 602 data 41378
+[   30,2103] open fd = 256
+[   30,2109] open name host:/traffic.csv flag 602 data 41378
+[   30,2112] open fd = 256
+[   30,3655] open name host:/log.txt flag 302 data 41378
+[   30,3658] open fd = 256
+[   30,3665] open name host:/log.txt flag 302 data 41378
+[   30,3667] open fd = 256
+[   30,3673] open name host:/log.txt flag 302 data 41378
+[   30,3675] open fd = 256
+[   30,3681] open name host:/log.txt flag 302 data 41378
+[   30,3682] open fd = 256
+[   30,3692] open name host:/log.txt flag 302 data 41378
+[   30,3696] open fd = 256
+[   30,3751] open name host:/log.txt flag 302 data 41378
+[   30,3754] open fd = 256
+[   30,4036] open name host:/log.txt flag 302 data 41378
+[   30,4040] open fd = 256
+[   30,4086] open name host:/hud/icons.png flag 1 data 41378
+[   30,4169] open fd = 256
+[   30,4450] open name host:/log.txt flag 302 data 41378
+[   30,4454] open fd = 256
+[   30,4695] open name host:/log.txt flag 302 data 41378
+[   30,4699] open fd = 256
+[   30,4706] open name host:/hud-lifecycle.csv flag 602 data 41378
+[   30,4709] open fd = 256
+[   30,4719] open name host:/log.txt flag 302 data 41378
+[   30,4722] open fd = 256
+[   30,4730] open name host:/log.txt flag 302 data 41378
+[   30,4732] open fd = 256
+[   30,7313] open name host:/log.txt flag 302 data 41378
+[   30,7317] open fd = 256
+[   30,9695] open name host:/log.txt flag 302 data 41378
+[   30,9698] open fd = 256
+[   31,4700] open name host:/log.txt flag 302 data 41378
+[   31,4703] open fd = 256
+[   31,7314] open name host:/log.txt flag 302 data 41378
+[   31,7318] open fd = 256
+[   31,9703] open name host:/log.txt flag 302 data 41378
+[   31,9707] open fd = 256
+[   32,3507] open name host:/log.txt flag 302 data 41378
+[   32,3512] open fd = 256
+[   32,4692] open name host:/log.txt flag 302 data 41378
+[   32,4696] open fd = 256
+[   32,7325] open name host:/log.txt flag 302 data 41378
+[   32,7329] open fd = 256
+[   32,9713] open name host:/log.txt flag 302 data 41378
+[   32,9716] open fd = 256
+[   33,4687] open name host:/log.txt flag 302 data 41378
+[   33,4690] open fd = 256
+[   33,7337] open name host:/log.txt flag 302 data 41378
+[   33,7341] open fd = 256
+[   33,9687] open name host:/log.txt flag 302 data 41378
+[   33,9691] open fd = 256
+[   34,4689] open name host:/log.txt flag 302 data 41378
+[   34,4692] open fd = 256
+[   34,6722] open name host:/log.txt flag 302 data 41378
+[   34,6726] open fd = 256
+[   34,7318] open name host:/log.txt flag 302 data 41378
+[   34,7322] open fd = 256
+[   34,9702] open name host:/log.txt flag 302 data 41378
+[   34,9706] open fd = 256
+[   35,4722] open name host:/log.txt flag 302 data 41378
+[   35,4725] open fd = 256
+[   35,7318] open name host:/log.txt flag 302 data 41378
+[   35,7322] open fd = 256
+[   35,9705] open name host:/log.txt flag 302 data 41378
+[   35,9708] open fd = 256
+[   36,4708] open name host:/log.txt flag 302 data 41378
+[   36,4712] open fd = 256
+[   36,7312] open name host:/log.txt flag 302 data 41378
+[   36,7316] open fd = 256
+[   36,9707] open name host:/log.txt flag 302 data 41378
+[   36,9711] open fd = 256
+[   36,9894] open name host:/log.txt flag 302 data 41378
+[   36,9897] open fd = 256
+[   37,4687] open name host:/log.txt flag 302 data 41378
+[   37,4691] open fd = 256
+[   37,7326] open name host:/log.txt flag 302 data 41378
+[   37,7330] open fd = 256
+[   37,9688] open name host:/log.txt flag 302 data 41378
+[   37,9691] open fd = 256
+[   38,4687] open name host:/log.txt flag 302 data 41378
+[   38,4691] open fd = 256
+[   38,7312] open name host:/log.txt flag 302 data 41378
+[   38,7315] open fd = 256
+[   38,9688] open name host:/log.txt flag 302 data 41378
+[   38,9692] open fd = 256
+[   39,3140] open name host:/log.txt flag 302 data 41378
+[   39,3143] open fd = 256
+[   39,4692] open name host:/log.txt flag 302 data 41378
+[   39,4695] open fd = 256
+[   39,7313] open name host:/log.txt flag 302 data 41378
+[   39,7316] open fd = 256
+[   39,9695] open name host:/log.txt flag 302 data 41378
+[   39,9699] open fd = 256
+[   40,4691] open name host:/log.txt flag 302 data 41378
+[   40,4695] open fd = 256
+[   40,7323] open name host:/log.txt flag 302 data 41378
+[   40,7327] open fd = 256
+[   40,9734] open name host:/log.txt flag 302 data 41378
+[   40,9738] open fd = 256
+[   41,4710] open name host:/log.txt flag 302 data 41378
+[   41,4713] open fd = 256
+[   41,6296] open name host:/log.txt flag 302 data 41378
+[   41,6300] open fd = 256
+[   41,7331] open name host:/log.txt flag 302 data 41378
+[   41,7335] open fd = 256
+[   41,9688] open name host:/log.txt flag 302 data 41378
+[   41,9692] open fd = 256
+[   42,4690] open name host:/log.txt flag 302 data 41378
+[   42,4694] open fd = 256
+[   42,7315] open name host:/log.txt flag 302 data 41378
+[   42,7320] open fd = 256
+[   42,9691] open name host:/log.txt flag 302 data 41378
+[   42,9694] open fd = 256
+[   43,4697] open name host:/log.txt flag 302 data 41378
+[   43,4701] open fd = 256
+[   43,7308] open name host:/log.txt flag 302 data 41378
+[   43,7311] open fd = 256
+[   43,9494] open name host:/log.txt flag 302 data 41378
+[   43,9499] open fd = 256
+[   43,9712] open name host:/log.txt flag 302 data 41378
+[   43,9716] open fd = 256
+[   44,4708] open name host:/log.txt flag 302 data 41378
+[   44,4712] open fd = 256
+[   44,7320] open name host:/log.txt flag 302 data 41378
+[   44,7324] open fd = 256
+[   44,9692] open name host:/log.txt flag 302 data 41378
+[   44,9696] open fd = 256
+[   45,4691] open name host:/log.txt flag 302 data 41378
+[   45,4697] open fd = 256
+[   45,7312] open name host:/log.txt flag 302 data 41378
+[   45,7315] open fd = 256
+[   45,9692] open name host:/log.txt flag 302 data 41378
+[   45,9695] open fd = 256
+[   46,2694] open name host:/log.txt flag 302 data 41378
+[   46,2698] open fd = 256
+[   46,4687] open name host:/log.txt flag 302 data 41378
+[   46,4690] open fd = 256
+[   46,4698] open name host:/log.txt flag 302 data 41378
+[   46,4700] open fd = 256
+[   46,7313] open name host:/log.txt flag 302 data 41378
+[   46,7317] open fd = 256
+[   46,9687] open name host:/log.txt flag 302 data 41378
+[   46,9692] open fd = 256
+[   47,4691] open name host:/log.txt flag 302 data 41378
+[   47,4695] open fd = 256
+[   47,7309] open name host:/log.txt flag 302 data 41378
+[   47,7313] open fd = 256
+[   47,9703] open name host:/log.txt flag 302 data 41378
+[   47,9706] open fd = 256
+[   48,4715] open name host:/log.txt flag 302 data 41378
+[   48,4719] open fd = 256
+[   48,5897] open name host:/log.txt flag 302 data 41378
+[   48,5900] open fd = 256
+[   48,7314] open name host:/log.txt flag 302 data 41378
+[   48,7318] open fd = 256
+[   48,9710] open name host:/log.txt flag 302 data 41378
+[   48,9713] open fd = 256
+[   49,4699] open name host:/log.txt flag 302 data 41378
+[   49,4703] open fd = 256
+[   49,7313] open name host:/log.txt flag 302 data 41378
+[   49,7316] open fd = 256
+[   49,9689] open name host:/log.txt flag 302 data 41378
+[   49,9693] open fd = 256
+[   50,4686] open name host:/log.txt flag 302 data 41378
+[   50,4690] open fd = 256
+[   50,7324] open name host:/log.txt flag 302 data 41378
+[   50,7328] open fd = 256
+[   50,9118] open name host:/log.txt flag 302 data 41378
+[   50,9121] open fd = 256
+[   50,9704] open name host:/log.txt flag 302 data 41378
+[   50,9707] open fd = 256
+[   51,4699] open name host:/log.txt flag 302 data 41378
+[   51,4702] open fd = 256
+[   51,7312] open name host:/log.txt flag 302 data 41378
+[   51,7316] open fd = 256
+[   51,9692] open name host:/log.txt flag 302 data 41378
+[   51,9696] open fd = 256
+[   52,4692] open name host:/log.txt flag 302 data 41378
+[   52,4695] open fd = 256
+[   52,7319] open name host:/log.txt flag 302 data 41378
+[   52,7323] open fd = 256
+[   52,9686] open name host:/log.txt flag 302 data 41378
+[   52,9690] open fd = 256
+[   53,2293] open name host:/log.txt flag 302 data 41378
+[   53,2297] open fd = 256
+[   53,4698] open name host:/log.txt flag 302 data 41378
+[   53,4701] open fd = 256
+[   53,7313] open name host:/log.txt flag 302 data 41378
+[   53,7316] open fd = 256
+[   53,9706] open name host:/log.txt flag 302 data 41378
+[   53,9710] open fd = 256
+[   54,4689] open name host:/log.txt flag 302 data 41378
+[   54,4693] open fd = 256
+[   54,7323] open name host:/log.txt flag 302 data 41378
+[   54,7327] open fd = 256
+[   54,9685] open name host:/log.txt flag 302 data 41378
+[   54,9689] open fd = 256
+[   55,4687] open name host:/log.txt flag 302 data 41378
+[   55,4691] open fd = 256
+[   55,5506] open name host:/log.txt flag 302 data 41378
+[   55,5510] open fd = 256
+[   55,7317] open name host:/log.txt flag 302 data 41378
+[   55,7321] open fd = 256
+[   55,9694] open name host:/log.txt flag 302 data 41378
+[   55,9698] open fd = 256
+[   56,4685] open name host:/log.txt flag 302 data 41378
+[   56,4688] open fd = 256
+[   56,7318] open name host:/log.txt flag 302 data 41378
+[   56,7322] open fd = 256
+[   56,9696] open name host:/log.txt flag 302 data 41378
+[   56,9700] open fd = 256
+[   57,4689] open name host:/log.txt flag 302 data 41378
+[   57,4693] open fd = 256
+[   57,7311] open name host:/log.txt flag 302 data 41378
+[   57,7315] open fd = 256
+[   57,8713] open name host:/log.txt flag 302 data 41378
+[   57,8717] open fd = 256
+[   57,9700] open name host:/log.txt flag 302 data 41378
+[   57,9704] open fd = 256
+[   58,4687] open name host:/log.txt flag 302 data 41378
+[   58,4691] open fd = 256
+[   58,7328] open name host:/log.txt flag 302 data 41378
+[   58,7331] open fd = 256
+[   58,9687] open name host:/log.txt flag 302 data 41378
+[   58,9691] open fd = 256
+[   59,4688] open name host:/log.txt flag 302 data 41378
+[   59,4693] open fd = 256
+[   59,7318] open name host:/log.txt flag 302 data 41378
+[   59,7323] open fd = 256
+[   59,9693] open name host:/log.txt flag 302 data 41378
+[   59,9697] open fd = 256
+[   60,1902] open name host:/log.txt flag 302 data 41378
+[   60,1907] open fd = 256
+[   60,4687] open name host:/log.txt flag 302 data 41378
+[   60,4690] open fd = 256
+[   60,7318] open name host:/log.txt flag 302 data 41378
+[   60,7321] open fd = 256
+[   60,9698] open name host:/log.txt flag 302 data 41378
+[   60,9701] open fd = 256
+[   61,4704] open name host:/log.txt flag 302 data 41378
+[   61,4707] open fd = 256
+[   61,7313] open name host:/log.txt flag 302 data 41378
+[   61,7316] open fd = 256
+[   61,9715] open name host:/log.txt flag 302 data 41378
+[   61,9718] open fd = 256
+[   62,4692] open name host:/log.txt flag 302 data 41378
+[   62,4696] open fd = 256
+[   62,5109] open name host:/log.txt flag 302 data 41378
+[   62,5113] open fd = 256
+[   62,7314] open name host:/log.txt flag 302 data 41378
+[   62,7317] open fd = 256
+[   62,9696] open name host:/log.txt flag 302 data 41378
+[   62,9700] open fd = 256
+[   63,4698] open name host:/log.txt flag 302 data 41378
+[   63,4701] open fd = 256
+[   63,7332] open name host:/log.txt flag 302 data 41378
+[   63,7335] open fd = 256
+[   63,9686] open name host:/log.txt flag 302 data 41378
+[   63,9690] open fd = 256
+[   64,4684] open name host:/log.txt flag 302 data 41378
+[   64,4688] open fd = 256
+[   64,4695] open name host:/log.txt flag 302 data 41378
+[   64,4699] open fd = 256
+[   64,7352] open name host:/log.txt flag 302 data 41378
+[   64,7356] open fd = 256
+[   64,8306] open name host:/log.txt flag 302 data 41378
+[   64,8310] open fd = 256
+[   64,9692] open name host:/log.txt flag 302 data 41378
+[   64,9695] open fd = 256
+[   65,4697] open name host:/log.txt flag 302 data 41378
+[   65,4701] open fd = 256
+[   65,7317] open name host:/log.txt flag 302 data 41378
+[   65,7320] open fd = 256
+[   65,9700] open name host:/log.txt flag 302 data 41378
+[   65,9703] open fd = 256
+[   66,4718] open name host:/log.txt flag 302 data 41378
+[   66,4721] open fd = 256
+[   66,7313] open name host:/log.txt flag 302 data 41378
+[   66,7317] open fd = 256
+[   66,9701] open name host:/log.txt flag 302 data 41378
+[   66,9704] open fd = 256
+[   67,1502] open name host:/log.txt flag 302 data 41378
+[   67,1506] open fd = 256
+[   67,4694] open name host:/log.txt flag 302 data 41378
+[   67,4697] open fd = 256
+[   67,7322] open name host:/log.txt flag 302 data 41378
+[   67,7325] open fd = 256
+[   67,9687] open name host:/log.txt flag 302 data 41378
+[   67,9691] open fd = 256
+[   68,4690] open name host:/log.txt flag 302 data 41378
+[   68,4694] open fd = 256
+[   68,7311] open name host:/log.txt flag 302 data 41378
+[   68,7315] open fd = 256
+[   68,9718] open name host:/log.txt flag 302 data 41378
+[   68,9722] open fd = 256
+[   69,4693] open name host:/log.txt flag 302 data 41378
+[   69,4696] open fd = 256
+[   69,4710] open name host:/log.txt flag 302 data 41378
+[   69,4712] open fd = 256
+[   69,7312] open name host:/log.txt flag 302 data 41378
+[   69,7315] open fd = 256
+[   69,9688] open name host:/log.txt flag 302 data 41378
+[   69,9691] open fd = 256
+[   70,4693] open name host:/log.txt flag 302 data 41378
+[   70,4697] open fd = 256
+[   70,7311] open name host:/log.txt flag 302 data 41378
+[   70,7315] open fd = 256
+[   70,9693] open name host:/log.txt flag 302 data 41378
+[   70,9697] open fd = 256
+[   71,4693] open name host:/log.txt flag 302 data 41378
+[   71,4697] open fd = 256
+[   71,7319] open name host:/log.txt flag 302 data 41378
+[   71,7322] open fd = 256
+[   71,7931] open name host:/log.txt flag 302 data 41378
+[   71,7934] open fd = 256
+[   71,9694] open name host:/log.txt flag 302 data 41378
+[   71,9698] open fd = 256
+[   72,4694] open name host:/log.txt flag 302 data 41378
+[   72,4698] open fd = 256
+[   72,7324] open name host:/log.txt flag 302 data 41378
+[   72,7327] open fd = 256
+[   72,9703] open name host:/log.txt flag 302 data 41378
+[   72,9706] open fd = 256
+[   73,4694] open name host:/log.txt flag 302 data 41378
+[   73,4698] open fd = 256
+[   73,7316] open name host:/log.txt flag 302 data 41378
+[   73,7320] open fd = 256
+[   73,9698] open name host:/log.txt flag 302 data 41378
+[   73,9701] open fd = 256
+[   74,1101] open name host:/log.txt flag 302 data 41378
+[   74,1106] open fd = 256
+[   74,4744] open name host:/log.txt flag 302 data 41378
+[   74,4748] open fd = 256
+[   74,7571] open name host:/log.txt flag 302 data 41378
+[   74,7577] open fd = 256
+[   75,0044] open name host:/log.txt flag 302 data 41378
+[   75,0051] open fd = 256
+[   75,5735] open name host:/log.txt flag 302 data 41378
+[   75,5740] open fd = 256
+[   75,8892] open name host:/log.txt flag 302 data 41378
+[   75,8897] open fd = 256
+[   76,1758] open name host:/log.txt flag 302 data 41378
+[   76,1763] open fd = 256
+[   76,6603] open name host:/log.txt flag 302 data 41378
+[   76,6608] open fd = 256
+[   76,7032] open name host:/log.txt flag 302 data 41378
+[   76,7037] open fd = 256
+[   77,0009] open name host:/log.txt flag 302 data 41378
+[   77,0014] open fd = 256
+[   77,2959] open name host:/log.txt flag 302 data 41378
+[   77,2963] open fd = 256
+[   77,8502] open name host:/log.txt flag 302 data 41378
+[   77,8505] open fd = 256
+[   78,1257] open name host:/log.txt flag 302 data 41378
+[   78,1261] open fd = 256
+[   78,3491] open name host:/log.txt flag 302 data 41378
+[   78,3495] open fd = 256
+[   78,8512] open name host:/log.txt flag 302 data 41378
+[   78,8517] open fd = 256
+[   79,1120] open name host:/log.txt flag 302 data 41378
+[   79,1124] open fd = 256
+[   79,1296] open name host:/log.txt flag 302 data 41378
+[   79,1301] open fd = 256
+[   79,3520] open name host:/log.txt flag 302 data 41378
+[   79,3524] open fd = 256
+[   79,8503] open name host:/log.txt flag 302 data 41378
+[   79,8507] open fd = 256
+[   80,1144] open name host:/log.txt flag 302 data 41378
+[   80,1147] open fd = 256
+[   80,3531] open name host:/log.txt flag 302 data 41378
+[   80,3536] open fd = 256
+[   80,8496] open name host:/log.txt flag 302 data 41378
+[   80,8500] open fd = 256
+[   81,1156] open name host:/log.txt flag 302 data 41378
+[   81,1159] open fd = 256
+[   81,3494] open name host:/log.txt flag 302 data 41378
+[   81,3498] open fd = 256
+[   81,4502] open name host:/log.txt flag 302 data 41378
+[   81,4506] open fd = 256
+[   81,8707] open name host:/log.txt flag 302 data 41378
+[   81,8711] open fd = 256
+[   82,1317] open name host:/log.txt flag 302 data 41378
+[   82,1321] open fd = 256
+[   82,3730] open name host:/log.txt flag 302 data 41378
+[   82,3733] open fd = 256
+[   82,8727] open name host:/log.txt flag 302 data 41378
+[   82,8731] open fd = 256
+[   82,8739] open name host:/log.txt flag 302 data 41378
+[   82,8741] open fd = 256
+[   83,1466] open name host:/log.txt flag 302 data 41378
+[   83,1472] open fd = 256
+[   83,3718] open name host:/log.txt flag 302 data 41378
+[   83,3722] open fd = 256
+[   83,7924] open name host:/log.txt flag 302 data 41378
+[   83,7928] open fd = 256
+[   83,8724] open name host:/log.txt flag 302 data 41378
+[   83,8727] open fd = 256
+[   84,1346] open name host:/log.txt flag 302 data 41378
+[   84,1351] open fd = 256
+[   84,4514] open name host:/log.txt flag 302 data 41378
+[   84,4518] open fd = 256
+[   84,9820] open name host:/log.txt flag 302 data 41378
+[   84,9825] open fd = 256
+[   85,2350] open name host:/log.txt flag 302 data 41378
+[   85,2354] open fd = 256
+[   85,4752] open name host:/log.txt flag 302 data 41378
+[   85,4756] open fd = 256
+[   85,9707] open name host:/log.txt flag 302 data 41378
+[   85,9711] open fd = 256
+[   86,2171] open name host:/log.txt flag 302 data 41378
+[   86,2175] open fd = 256
+[   86,4190] open name host:/log.txt flag 302 data 41378
+[   86,4194] open fd = 256
+[   86,6495] open name host:/log.txt flag 302 data 41378
+[   86,6500] open fd = 256
+[   87,1583] open name host:/log.txt flag 302 data 41378
+[   87,1588] open fd = 256
+[   87,4148] open name host:/log.txt flag 302 data 41378
+[   87,4150] open fd = 256
+[   87,6549] open name host:/log.txt flag 302 data 41378
+[   87,6553] open fd = 256
+[   88,1503] open name host:/log.txt flag 302 data 41378
+[   88,1508] open fd = 256
+[   88,4144] open name host:/log.txt flag 302 data 41378
+[   88,4148] open fd = 256
+[   88,6509] open name host:/log.txt flag 302 data 41378
+[   88,6512] open fd = 256
+[   88,7124] open name host:/log.txt flag 302 data 41378
+[   88,7127] open fd = 256
+[   89,1495] open name host:/log.txt flag 302 data 41378
+[   89,1499] open fd = 256
+[   89,4136] open name host:/log.txt flag 302 data 41378
+[   89,4141] open fd = 256
+[   89,6513] open name host:/log.txt flag 302 data 41378
+[   89,6516] open fd = 256
+[   90,1726] open name host:/log.txt flag 302 data 41378
+[   90,1730] open fd = 256
+[   90,4319] open name host:/log.txt flag 302 data 41378
+[   90,4322] open fd = 256
+[   90,6699] open name host:/log.txt flag 302 data 41378
+[   90,6702] open fd = 256
+[   91,0515] open name host:/log.txt flag 302 data 41378
+[   91,0518] open fd = 256
+[   91,1716] open name host:/log.txt flag 302 data 41378
+[   91,1720] open fd = 256
+[   91,4339] open name host:/log.txt flag 302 data 41378
+[   91,4343] open fd = 256
+[   91,6697] open name host:/log.txt flag 302 data 41378
+[   91,6700] open fd = 256
+[   92,1704] open name host:/log.txt flag 302 data 41378
+[   92,1708] open fd = 256
+[   92,4351] open name host:/log.txt flag 302 data 41378
+[   92,4356] open fd = 256
+[   92,6721] open name host:/log.txt flag 302 data 41378
+[   92,6725] open fd = 256
+[   93,1732] open name host:/log.txt flag 302 data 41378
+[   93,1735] open fd = 256
+[   93,3714] open name host:/log.txt flag 302 data 41378
+[   93,3719] open fd = 256
+[   93,4344] open name host:/log.txt flag 302 data 41378
+[   93,4348] open fd = 256
+[   93,6717] open name host:/log.txt flag 302 data 41378
+[   93,6721] open fd = 256
+[   94,1723] open name host:/log.txt flag 302 data 41378
+[   94,1726] open fd = 256
+[   94,4342] open name host:/log.txt flag 302 data 41378
+[   94,4346] open fd = 256
+[   94,6719] open name host:/log.txt flag 302 data 41378
+[   94,6722] open fd = 256
+[   95,1708] open name host:/log.txt flag 302 data 41378
+[   95,1712] open fd = 256
+[   95,4330] open name host:/log.txt flag 302 data 41378
+[   95,4334] open fd = 256
+[   95,6707] open name host:/log.txt flag 302 data 41378
+[   95,6712] open fd = 256
+[   95,6921] open name host:/log.txt flag 302 data 41378
+[   95,6925] open fd = 256
+[   96,1719] open name host:/log.txt flag 302 data 41378
+[   96,1723] open fd = 256
+[   96,4333] open name host:/log.txt flag 302 data 41378
+[   96,4337] open fd = 256
+[   96,6705] open name host:/log.txt flag 302 data 41378
+[   96,6708] open fd = 256
+[   97,1694] open name host:/log.txt flag 302 data 41378
+[   97,1698] open fd = 256
+[   97,4435] open name host:/log.txt flag 302 data 41378
+[   97,4440] open fd = 256
+[   97,6720] open name host:/log.txt flag 302 data 41378
+[   97,6724] open fd = 256
+[   98,0104] open name host:/log.txt flag 302 data 41378
+[   98,0108] open fd = 256
+[   98,1775] open name host:/log.txt flag 302 data 41378
+[   98,1779] open fd = 256
+[   98,4323] open name host:/log.txt flag 302 data 41378
+[   98,4327] open fd = 256
+[   98,6697] open name host:/log.txt flag 302 data 41378
+[   98,6702] open fd = 256
+[   99,1708] open name host:/log.txt flag 302 data 41378
+[   99,1711] open fd = 256
+[   99,4318] open name host:/log.txt flag 302 data 41378
+[   99,4322] open fd = 256
+[   99,6712] open name host:/log.txt flag 302 data 41378
+[   99,6716] open fd = 256
+[  100,1703] open name host:/log.txt flag 302 data 41378
+[  100,1707] open fd = 256
+[  100,3308] open name host:/log.txt flag 302 data 41378
+[  100,3312] open fd = 256
+[  100,4322] open name host:/log.txt flag 302 data 41378
+[  100,4325] open fd = 256
+[  100,6697] open name host:/log.txt flag 302 data 41378
+[  100,6701] open fd = 256
+[  101,1699] open name host:/log.txt flag 302 data 41378
+[  101,1703] open fd = 256
+[  101,4745] open name host:/log.txt flag 302 data 41378
+[  101,4749] open fd = 256
+[  101,7199] open name host:/log.txt flag 302 data 41378
+[  101,7206] open fd = 256
+[  102,2128] open name host:/log.txt flag 302 data 41378
+[  102,2131] open fd = 256
+[  102,4721] open name host:/log.txt flag 302 data 41378
+[  102,4724] open fd = 256
+[  102,6903] open name host:/log.txt flag 302 data 41378
+[  102,6907] open fd = 256
+[  102,7110] open name host:/log.txt flag 302 data 41378
+[  102,7115] open fd = 256
+[  103,2144] open name host:/log.txt flag 302 data 41378
+[  103,2148] open fd = 256
+[  103,4721] open name host:/log.txt flag 302 data 41378
+[  103,4725] open fd = 256
+[  103,7115] open name host:/log.txt flag 302 data 41378
+[  103,7118] open fd = 256
+[  104,2101] open name host:/log.txt flag 302 data 41378
+[  104,2105] open fd = 256
+[  104,4742] open name host:/log.txt flag 302 data 41378
+[  104,4747] open fd = 256
+[  104,7091] open name host:/log.txt flag 302 data 41378
+[  104,7097] open fd = 256
+[  105,0119] open name host:/log.txt flag 302 data 41378
+[  105,0122] open fd = 256
+[  105,2118] open name host:/log.txt flag 302 data 41378
+[  105,2121] open fd = 256
+[  105,4732] open name host:/log.txt flag 302 data 41378
+[  105,4736] open fd = 256
+[  105,7150] open name host:/log.txt flag 302 data 41378
+[  105,7154] open fd = 256
+[  106,2106] open name host:/log.txt flag 302 data 41378
+[  106,2110] open fd = 256
+[  106,4723] open name host:/log.txt flag 302 data 41378
+[  106,4727] open fd = 256
+[  106,7212] open name host:/log.txt flag 302 data 41378
+[  106,7216] open fd = 256
+[  107,2113] open name host:/log.txt flag 302 data 41378
+[  107,2116] open fd = 256
+[  107,3312] open name host:/log.txt flag 302 data 41378
+[  107,3315] open fd = 256
+[  107,4766] open name host:/log.txt flag 302 data 41378
+[  107,4770] open fd = 256
+[  107,7100] open name host:/log.txt flag 302 data 41378
+[  107,7104] open fd = 256
+[  108,2099] open name host:/log.txt flag 302 data 41378
+[  108,2103] open fd = 256
+[  108,4719] open name host:/log.txt flag 302 data 41378
+[  108,4722] open fd = 256
+[  108,7100] open name host:/log.txt flag 302 data 41378
+[  108,7105] open fd = 256
+[  109,2098] open name host:/log.txt flag 302 data 41378
+[  109,2102] open fd = 256
+[  109,4723] open name host:/log.txt flag 302 data 41378
+[  109,4726] open fd = 256
+[  109,6519] open name host:/log.txt flag 302 data 41378
+[  109,6522] open fd = 256
+[  109,7100] open name host:/log.txt flag 302 data 41378
+[  109,7104] open fd = 256
+[  110,2092] open name host:/log.txt flag 302 data 41378
+[  110,2098] open fd = 256
+[  110,4728] open name host:/log.txt flag 302 data 41378
+[  110,4732] open fd = 256
+[  110,7128] open name host:/log.txt flag 302 data 41378
+[  110,7132] open fd = 256
+[  111,2225] open name host:/log.txt flag 302 data 41378
+[  111,2228] open fd = 256
+[  111,4739] open name host:/log.txt flag 302 data 41378
+[  111,4744] open fd = 256
+[  111,7144] open name host:/log.txt flag 302 data 41378
+[  111,7149] open fd = 256
+[  111,9694] open name host:/log.txt flag 302 data 41378
+[  111,9699] open fd = 256
+[  112,2107] open name host:/log.txt flag 302 data 41378
+[  112,2112] open fd = 256
+[  112,4714] open name host:/log.txt flag 302 data 41378
+[  112,4719] open fd = 256
+[  112,7109] open name host:/log.txt flag 302 data 41378
+[  112,7113] open fd = 256
+[  113,2119] open name host:/log.txt flag 302 data 41378
+[  113,2123] open fd = 256
+[  113,4734] open name host:/log.txt flag 302 data 41378
+[  113,4738] open fd = 256
+[  113,7104] open name host:/log.txt flag 302 data 41378
+[  113,7108] open fd = 256
+[  114,2118] open name host:/log.txt flag 302 data 41378
+[  114,2122] open fd = 256
+[  114,2906] open name host:/log.txt flag 302 data 41378
+[  114,2910] open fd = 256
+[  114,4761] open name host:/log.txt flag 302 data 41378
+[  114,4766] open fd = 256
+[  114,7103] open name host:/log.txt flag 302 data 41378
+[  114,7109] open fd = 256
+[  115,2129] open name host:/log.txt flag 302 data 41378
+[  115,2133] open fd = 256
+[  115,4751] open name host:/log.txt flag 302 data 41378
+[  115,4755] open fd = 256
+[  115,7151] open name host:/log.txt flag 302 data 41378
+[  115,7157] open fd = 256
+[  116,2746] open name host:/log.txt flag 302 data 41378
+[  116,2750] open fd = 256
+[  116,5661] open name host:/log.txt flag 302 data 41378
+[  116,5666] open fd = 256
+[  116,7146] open name host:/log.txt flag 302 data 41378
+[  116,7150] open fd = 256
+[  116,8179] open name host:/log.txt flag 302 data 41378
+[  116,8183] open fd = 256
+[  117,3474] open name host:/log.txt flag 302 data 41378
+[  117,3478] open fd = 256
+[  117,6086] open name host:/log.txt flag 302 data 41378
+[  117,6091] open fd = 256
+[  117,8660] open name host:/log.txt flag 302 data 41378
+[  117,8664] open fd = 256
+[  118,3497] open name host:/log.txt flag 302 data 41378
+[  118,3501] open fd = 256
+[  118,6132] open name host:/log.txt flag 302 data 41378
+[  118,6137] open fd = 256
+[  118,8526] open name host:/log.txt flag 302 data 41378
+[  118,8530] open fd = 256
+[  119,0723] open name host:/log.txt flag 302 data 41378
+[  119,0728] open fd = 256
+[  119,3524] open name host:/log.txt flag 302 data 41378
+[  119,3528] open fd = 256
+[  119,6131] open name host:/log.txt flag 302 data 41378
+[  119,6134] open fd = 256
+[  119,8491] open name host:/log.txt flag 302 data 41378
+[  119,8495] open fd = 256
+[  120,3494] open name host:/log.txt flag 302 data 41378
+[  120,3499] open fd = 256
+[  120,6158] open name host:/log.txt flag 302 data 41378
+[  120,6161] open fd = 256
+[  120,8573] open name host:/log.txt flag 302 data 41378
+[  120,8577] open fd = 256
+[  121,3499] open name host:/log.txt flag 302 data 41378
+[  121,3503] open fd = 256
+[  121,3902] open name host:/log.txt flag 302 data 41378
+[  121,3907] open fd = 256
+[  121,6133] open name host:/log.txt flag 302 data 41378
+[  121,6136] open fd = 256
+[  121,8499] open name host:/log.txt flag 302 data 41378
+[  121,8503] open fd = 256
+[  122,3567] open name host:/log.txt flag 302 data 41378
+[  122,3571] open fd = 256
+[  122,6130] open name host:/log.txt flag 302 data 41378
+[  122,6134] open fd = 256
+[  122,8508] open name host:/log.txt flag 302 data 41378
+[  122,8512] open fd = 256
+[  123,3510] open name host:/log.txt flag 302 data 41378
+[  123,3515] open fd = 256
+[  123,6209] open name host:/log.txt flag 302 data 41378
+[  123,6213] open fd = 256
+[  123,7137] open name host:/log.txt flag 302 data 41378
+[  123,7141] open fd = 256

@@ -38,15 +38,26 @@ nor clipping drawing to one pixel is a production optimization. Retain
 the exact chase-view and first-entry gates above and target the remaining
 submission/shader/raster cost with quality preserved.
 
-Keep first-entry latency as a separate acceptance gate: the exact entry
-frame costs 165.300 ms, including 57.195 ms in HUD. The log confirms lazy
-font-atlas and icon-sheet reads over host: during entry. `drawFontText`
-requests the icon sheet even for the vehicle's icon-free strings. Move
-required HUD preparation to loading/prewarm and avoid unrelated icon work;
-measure the entry frame again and check memory/lifetime across scene changes.
-First-visible geometry/reflection caches and audio startup also contribute;
-fixing asset reads alone does not restore steady 50 FPS. The reproducer and
-complete stationary CSVs are in the linked report.
+Keep first-entry latency as a separate acceptance gate. The
+[HUD A/B acceptance](../examples/vehicle-playground/authoring/night-entry-hardware-2026-09-28/hud-entry/README.md)
+removes 58–61 ms, but leaves about 109 ms of exact-entry work. The HUD font now
+prepares during scene loading for driveable vehicles, and plain runtime text
+does not request the icon sheet. The remaining target is the first chase-view
+geometry/reflection preparation, package bounds and command-stream creation,
+plus the first driven-vehicle update. Moving HUD reads is not a stable-FPS fix
+and does not remove those cold costs. Keep an exact entry-frame measurement,
+the warm-window budget and scene-revisit/VRAM-lifetime checks separate.
+Full scene-revisit acceptance is still open: the follow-up hardware launch
+stopped before startup, and the forced emulator transition did not complete.
+
+The [TyraX2 applicability review](ee-submission-rearchitecture.md#stationary-night-vehicle-entry-what-tyrax2-would-and-would-not-solve-2026-09-28)
+identifies the next steady-state probes: unchanged light setup and shader
+eligibility, visible work/coverage, then GPU-hold repricing of frame overlap
+in this actual chase view. The older sweep's GPU-only/EE ratio does not cap
+this view's gain. Seven of eight main-scene lamps do not flicker but all eight
+switch with the day/night script, so simply marking them static changes the
+scene's behavior; caching stable data or authored two-state lighting needs
+its own image and hardware gates.
 
 ## Occlusion culling: make the visibility pass cheaper
 

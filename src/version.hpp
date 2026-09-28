@@ -5497,7 +5497,9 @@
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 150
-#define TYRAX_VERSION_PATCH 0
+// 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
+// runtime text no longer loads the icon sheet before drawing an actual icon.
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

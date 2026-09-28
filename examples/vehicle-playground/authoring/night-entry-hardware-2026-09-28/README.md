@@ -143,3 +143,10 @@ This establishes a repeatable slow garage chase view with parked traffic.
 It does not establish a map-wide minimum or normal moving-AI performance.
 The next optimization must improve this exact seated view, not just the
 previous camera sweep, and keep a separate first-entry hitch control.
+
+## HUD preparation follow-up
+
+The [same-ELF HUD A/B](hud-entry/README.md) removes 58–61 ms from the entry
+frame after the bounded cache fix. The remaining first-entry frame still
+costs 109 ms and warm garage work remains about 21.17 ms / 25 FPS. Cold 3D
+preparation and sustained frame costs are tracked separately.

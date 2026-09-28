@@ -1,0 +1,8 @@
+{
+  "camera": "orbit",
+  "vehicles": false,
+  "fontCount": 1,
+  "fullyBaked": true,
+  "elfSha256": "81110d5396fefee6a04a579301d0d17991e7bdea5c56db7c66474a702718cbef",
+  "verification": "native full editor build, PCSX2 startup and script log; no emulator timing claim"
+}

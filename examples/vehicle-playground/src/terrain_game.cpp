@@ -1532,12 +1532,9 @@ float hudTextWidth(const char* s) { return (float)strlen(s) * 14.0F; }
 
 /** Runtime text drawn from a Font Manager glyph atlas (Display Text nodes).
  *
- * VRAM: the atlas Texture is only handed to the repository the first time this
- * font actually draws, and the engine only DMAs a texture to GS VRAM on its
- * first render - so a font nobody displays costs zero VRAM, and one that is
- * hidden again keeps costing only its EE-side copy. We deliberately never call
- * useTexture() eagerly here (unlike the streamed model textures), because that
- * would pin the sheet before anything asked for it. */
+ * Fonts load on demand, except a driveable vehicle's HUD font: scene loading
+ * prepares its EE copy and first VRAM upload before the player can enter.
+ * Prewarming uses normal evictable residency, not a pinned allocation. */
 /** Inline text icons: `{{name}}` / `{{action:jump}}` in a runtime string
  * (docs/text-icons.md). Baked text has its icons composited into the sprite at
  * build time; here the string is only known now, so the token is resolved per
@@ -1654,14 +1651,12 @@ float fontTextWidth(int fontIdx, const char* s, float size, float sx = 1.0F) {
   return w;
 }
 
-/** Draws a string centred on (cx, cy). `sx` squeezes the horizontal axis the
- * same way fontTextWidth measures it - 1 everywhere except inside a menu panel
- * compensated for anamorphic widescreen, where the glyphs have to be squeezed
- * with the panel or they come out fatter than the baked rows around them. */
-void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
-                  float cy, float size, float sx = 1.0F) {
+// Shared by normal drawing and loading-time vehicle HUD preparation. Reuse
+// the same sprite/link across scene revisits; never load a second atlas copy.
+Sprite* fontGlyphSprite(Engine* engine, int fontIdx) {
+  if (fontIdx < 0 || fontIdx >= FONT_COUNT) return nullptr;
   const FontData& f = FONTS[fontIdx];
-  if (!f.glyphs || !f.atlas[0]) return;
+  if (!f.glyphs || !f.atlas[0]) return nullptr;
 
   // One sprite per font, kept across frames: the texture link is by sprite id,
   // so every glyph of a font reuses the same id and the same atlas binding.
@@ -1675,7 +1670,19 @@ void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
     ready[fontIdx] = true;
   }
 
-  Sprite& sp = glyph[fontIdx];
+  return &glyph[fontIdx];
+}
+
+/** Draws a string centred on (cx, cy). `sx` squeezes the horizontal axis the
+ * same way fontTextWidth measures it - 1 everywhere except inside a menu panel
+ * compensated for anamorphic widescreen, where the glyphs have to be squeezed
+ * with the panel or they come out fatter than the baked rows around them. */
+void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
+                  float cy, float size, float sx = 1.0F) {
+  Sprite* glyph = fontGlyphSprite(engine, fontIdx);
+  if (!glyph) return;
+  const FontData& f = FONTS[fontIdx];
+  Sprite& sp = *glyph;
   const float k = size / (float)f.baseSize;
   const float kx = k * sx;  // the same factor with the horizontal squeeze in
   sp.scale = k;
@@ -1684,8 +1691,9 @@ void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
   const float startX = cx - fontTextWidth(fontIdx, s, size, sx) * 0.5F;
   const float top = cy - (float)f.lineH * k * 0.5F;
 
-  // The shared icon-sheet sprite (one texture, see iconSheetSprite).
-  Sprite* iconSp = iconSheetSprite(engine);
+  // Load the shared icon sheet only when a resolved icon is actually drawn.
+  // Plain speed/gear/NOS strings must not read an unrelated asset on entry.
+  Sprite* iconSp = nullptr;
 
   // Shadow first, then the glyphs: two passes over the same cells, the dark
   // one offset by a pixel (the baked texts get theirs at bake time instead).
@@ -1698,7 +1706,6 @@ void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
     // Icons carry their own colors (the DualShock palette for the face
     // buttons), so they draw untinted - and only on the glyph pass: a dark
     // offset copy under a colored icon just leaks a fringe around it.
-    if (iconSp) iconSp->color = Color(128.0F, 128.0F, 128.0F, 128.0F);
 
     float pen = startX;
     const char* c = s;
@@ -1711,7 +1718,10 @@ void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
         const float box = iconAdvanceFor(icon, size) - size * 0.12F;
         const float adv = iconAdvanceFor(icon, size) * sx;
         const IconRect& ir = ICONS[icon];
+        if (ir.h > 0 && pass == 1 && !iconSp)
+          iconSp = iconSheetSprite(engine);
         if (ir.h > 0 && pass == 1 && iconSp) {
+          iconSp->color = Color(128.0F, 128.0F, 128.0F, 128.0F);
           iconSp->size = Vec2((float)ir.w, (float)ir.h);
           iconSp->offset = Vec2((float)ir.u, (float)ir.v);
           iconSp->scale = box / (float)ir.h;
@@ -19502,6 +19512,18 @@ void TerrainGame::setupVehicles(int scene) {
       loadModelAsset(VEHICLE_DEFS[v.def].wheelModel);
     if (v.def >= 0 && VEHICLE_DEFS[v.def].fastWheelModel >= 0)
       loadModelAsset(VEHICLE_DEFS[v.def].fastWheelModel);
+    // This runs inside loadScene, behind its loading screen. Entry should
+    // draw the driver's readout, not synchronously decode/upload its atlas.
+    // AI-only and HUD-disabled vehicles keep fonts lazy; revisits reuse the
+    // existing sprite/texture and refresh only normal evictable residency.
+    if (v.driveable && v.def >= 0) {
+      Sprite* glyph = fontGlyphSprite(engine, VEHICLE_DEFS[v.def].hudFont);
+      if (glyph) {
+        auto* texture = engine->renderer.getTextureRepository().getBySpriteId(
+            glyph->id);
+        if (texture) engine->renderer.core.texture.useTexture(texture);
+      }
+    }
   }
 }
 

@@ -934,6 +934,69 @@ outside. The larger prize is the EE's own computation (`prepare`, `bounds`,
 less than what it implies there: about 16 qwords of uniforms per object plus a
 `CALL` into a prebaked block, i.e. almost no EE work per draw.
 
+## Stationary night vehicle entry: what TyraX2 would and would not solve (2026-09-28)
+
+The GPU-only table above describes the older Motor District sweep, not the
+ordinary chase camera immediately after entering a parked vehicle. Do not
+use its 2.5–3.5 ms overlap estimate as a bound for this newer view. A fresh
+GPU-hold/segment census in the actual chase view is required before assigning
+a numerical TyraX2 gain. The current [physical PS2 acceptance report](../examples/vehicle-playground/authoring/night-entry-hardware-2026-09-28/fix/README.md)
+records 21.232 ms production work, still above PAL's 20 ms budget. Reaching
+60 Hz would instead require 16.667 ms plus headroom: about 4.57 ms off this
+median, with the tail addressed separately.
+
+There is no evidence that this scene exceeds a fixed PS2 polygon limit.
+Entering changes the camera: 64 → 128 StaPip calls and 22,425 → 46,096
+submitted primitives, including strip degenerates and extra passes. This is
+not a count of unique visible triangles. It amplifies both per-bag EE work
+and downstream shading/raster cost. Three nearby cars account for 13,696
+submitted body/coat primitives in the deep-counter view; their wheels and
+other passes are additional. Per-object elapsed times include waits and do
+not assign the whole cost of a stall to whichever object encounters it.
+
+The same-ELF, deep-counter-off probes price dynamic scene-light slots at
+2.762 ms with normal rasterization and 2.223 ms with one-pixel scissors.
+Raster suppression saves 2.510 ms with lights and 1.971 ms without them;
+faster simulation also reduces update work, so these total deltas are not
+pure VU or GS clocks. Neither quality reduction ships. Physics for the three
+vehicles is about 0.61 ms; it is not the missing 4–5 ms.
+
+Useful next work, in order:
+
+1. **Lighting setup and shader eligibility.** Measure repeated picks and
+   transforms for unchanged receivers, and light a bag only when an actual
+   light can affect it. Preserve invalidation for moving lights, matrices,
+   changed intensity and scene generations. Static non-switchable lamps can
+   be baked; flickering/switchable lamps and headlights still need a live
+   path. Baking is an authoring decision and can change the image.
+   The example's authored night lamps use `dynamic: true`, projected spot
+   pools, beams and shadow volumes, including lamps with `flicker: 0`.
+   Seven of the eight main-scene lamps do not flicker, but `district_mood.cpp`
+   switches all eight with the day/night menu. A stationary lamp is still a
+   live lighting job under that setting. Caching stable setup or baking two
+   lighting states is a candidate; simply clearing `dynamic` loses the
+   switching contract, and a static point bake does not reproduce the authored
+   spot/shadow treatment automatically.
+2. **Visible work and pixel coverage.** Inspect the chase-view submission
+   producers and projected light/shadow coverage. Use geometry/visibility
+   boundaries and distance-appropriate traffic/prop detail; price each
+   candidate and verify images. One-pixel scissors prove a raster dependency,
+   not a measured overdraw multiplier or permission to remove effects.
+3. **TyraX2 overlap, repriced on this view.** Frame-lifetime arenas and ordered
+   uploads/state changes may hide waits and reduce producer overhead. Merely
+   combining sends cannot remove light selection, geometry rebuilds, VU
+   shader instructions or GS pixel work. The existing queue already overlaps
+   several packets, so the gain is the remaining overlap, not all submission
+   time. A frame pipeline also introduces storage/lifetime and latency costs.
+
+Burnout 3 remains a valid visual/performance target, but it does not imply
+that every visible feature used the same lighting workload. In a first-hand
+[interview with Alex Ward](https://www.gamesradar.com/burnouts-creative-director-alex-ward-takes-us-behind-the-scenes-of-the-acclaimed-racing-series/),
+he describes 60 FPS as a constraint on the lighting of Burnout 1–3. That
+supports choosing cheap lighting deliberately; it does not establish an exact
+Burnout 3 VU program, reflection cadence, polygon budget or DMA ABI. Our
+renderer conclusions above come from our captures, not that interview.
+
 ## A frame-pipelined engine ("TyraX2") - considered 2026-09-24, not now
 
 The reference title builds its whole 3D frame as one chain while the GPU draws

@@ -816,6 +816,12 @@ Three things are worth knowing before moving it:
   on therefore joins `Project::atlasFontIndices()`; without that the font ships no
   atlas and the readout draws *nothing*, which reads as a broken feature rather
   than as a missing asset.
+  A driveable vehicle prepares that font during scene loading, including its
+  first GS upload. The first entry does not decode the atlas inside the HUD
+  draw. Fonts share one sprite/texture across scene revisits and use normal
+  evictable VRAM residency; AI-only or HUD-disabled vehicles do not prewarm one.
+  This removes the HUD asset-loading component, not every cold geometry or
+  reflection cost of the first chase-camera frame.
 - **Every horizontal position carries the widescreen squeeze** (the
   4:3-over-window-aspect factor the menus call `uiAspectFix`). Anamorphic
   widescreen keeps the framebuffer's shape and lets the television stretch it, so

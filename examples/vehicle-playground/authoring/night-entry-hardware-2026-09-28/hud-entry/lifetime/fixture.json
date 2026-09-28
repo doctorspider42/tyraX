@@ -1,0 +1,8 @@
+{
+  "checks": 9,
+  "errors": 0,
+  "platform": "PCSX2",
+  "scope": "font helper/prewarm repetition, invalid indices, active-frame VRAM eviction/reupload, unknown token and resolved/repeated icon; not full scene revisits",
+  "gameCompilation": "terrain_game.cpp -O1 correctness probe; other game objects and engine -O3; no timings accepted",
+  "elfSha256": "55deb6bd3112382b1d29383c31d27ed04642dd1a335455835d3720ae61e20044"
+}

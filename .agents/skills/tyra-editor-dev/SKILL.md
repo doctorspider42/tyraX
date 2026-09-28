@@ -2842,3 +2842,17 @@ any chunk, so the overlay's height reaches the spill through the row's
 `lift`, not through `roadSurfaceAt`). The junction UI (markers, selection,
 the Junction section) is `src/junction_ui.cpp`; a junction is selected by
 identity (`App::junctionSel_`), not by object index.
+
+## Vehicle HUD font preparation (1.150.1)
+
+`fontGlyphSprite` in the shared generated helpers owns one persistent sprite
+and atlas link per font. `drawFontText` uses it; `setupVehicles`, called inside
+`loadScene`, also prepares valid HUD fonts for driveable instances and performs
+their first normal evictable `useTexture`. AI-only/HUD-disabled instances do
+not trigger this prewarm. Scene revisits must reuse the same font texture.
+The helper and vehicle runtime are shared by the orbit and FPP generators.
+
+Runtime inline icons remain lazy until a resolved, nonempty icon is drawn in
+the foreground pass. Numeric vehicle strings and unknown tokens must not load
+the sheet. Preserve glyph metrics, centering, shadow and widescreen squeeze.
+This fixes HUD cold asset work, not first-visible 3D caches or steady FPS.

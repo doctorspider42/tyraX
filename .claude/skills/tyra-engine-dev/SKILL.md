@@ -3201,3 +3201,15 @@ physical PS2: 52,273 comparisons, zero mismatches. Deep-counter-off same-ELF
 work drops 23.933–23.995 → 21.372 ms, still above the PAL budget. Raster and
 dynamic-light suppression are diagnostic probes, not shipped quality cuts.
 See `examples/vehicle-playground/authoring/night-entry-hardware-2026-09-28/fix/README.md`.
+
+### Current chase view versus the older TyraX2 overlap estimate
+
+The older GPU-hold sweep's 2.5–3.5 ms overlap estimate does not bound the
+stationary night entry chase view: its camera doubles StaPip calls and submits
+46,096 primitives including strip joins. Reprice GPU-hold/segments in that
+view before promising a frame-pipeline gain. Dynamic scene-light and raster
+suppression probes identify material costs without isolating exact VU1/GS
+utilization. See `docs/ee-submission-rearchitecture.md`, "Stationary night
+vehicle entry: what TyraX2 would and would not solve". The generated vehicle
+HUD font prewarm uses existing normal evictable texture residency; it changes
+no engine allocator or texture pinning rule.

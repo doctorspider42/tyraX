@@ -4032,3 +4032,28 @@ a nominal parked control if another car moves; the first acceptance fixture
 caught exactly that error. Continuous driving windows are selected by actual
 position, not a presumed frame count. Quality-reduction probes may change FPS
 and thus physics substep cost; compare render/finish as well as total work.
+
+## Exact first-entry HUD acceptance (1.150.1)
+
+Use the stationary night fixture and record every frame through the exact
+driver transition. Compare one ELF with a boot-only old/new HUD gate and
+repeat the control. A config read must be guarded by the one-time init result,
+not merely follow a helper whose internal `done` returns false on later frames:
+otherwise host I/O happens every frame and the timing control is invalid.
+Check single-init logs, identical ELF hashes, driver/speed/traffic state and
+aligned CSVs. Keep first-entry work/HUD/uploads separate from warm medians.
+
+For lifecycle acceptance, revisit scenes, count atlas copies and check sprite
+and texture identity; evict VRAM and reload normally. Plain and unknown-token
+strings must not request the icon sheet. A valid icon must load once and reuse
+its sheet thereafter. Run these loading/render checks after timing, never
+inside the benchmark window. Compile a non-vehicle orbit project too. Physical PS2 measurements are authoritative; emulator boots and
+images are correctness evidence only.
+
+For the HUD lifetime probe, mutate VRAM inside an active render frame after
+scene submission and before frame end, then test resolved icons in ordinary
+HUD frames. The between-frame forced mutation stalled at the barrier in
+PCSX2; do not count that or a blocked forced scene transition as passed
+lifecycle evidence. Repeated font preparation is distinct from full scene
+revisit acceptance. Correctness-only -O1 harness timings are never hardware
+performance evidence.

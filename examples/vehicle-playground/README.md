@@ -805,6 +805,12 @@ the stationary view still misses the PAL budget. Headlights alone do not
 explain the sustained dip. The report also prices dynamic lighting and GS
 raster cost using diagnostic quality-reduction arms.
 
+The [HUD preparation follow-up](authoring/night-entry-hardware-2026-09-28/hud-entry/README.md)
+removes 58–61 ms from first entry on physical PS2: 167–170 ms becomes 109 ms,
+with HUD draw falling to 0.61 ms and no entry upload. Warm work remains about
+21.17 ms / 25 FPS. The remaining first chase-view preparation is a separate
+109 ms hitch; this change does not claim to cure it or the steady budget.
+
 ## Repeating performance comparisons
 
 `python authoring/benchmark-district.py <new-directory>` creates an isolated
