@@ -59,6 +59,7 @@ split point of `Window/Label` is tried, longest window prefix first.
 | Command | What it does |
 |---|---|
 | `click <target> [dx,dy]` | hover, press, release — over three frames, like a real cursor; the optional offset moves off the target's centre |
+| `shiftclick <target> [dx,dy]` | click with Shift held through the press; useful for deleting road markers |
 | `rightclick <target>` | the context-menu button, same three frames - how a right-click menu is reached at all |
 | `doubleclick <target>` | two clicks inside ImGui's double-click time |
 | `hold <target> [seconds]` | press and keep it down (default 0.5 s) |

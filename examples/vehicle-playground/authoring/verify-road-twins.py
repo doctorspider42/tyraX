@@ -256,7 +256,11 @@ size_t check(const char* name, const std::vector<float>& points, float width,
   std::vector<int> chunkSizes;
   roadgen::tessellate(points,width,height,host,{},sampleStep);
   roadgen::tessellateStrips(points,width,height,hostStrip,&chunkSizes,sampleStep);
-  roadgen_dense::tessellate(points,width,height,dense);
+  // Closed-loop fixtures compare lateral reduction at the authored cadence.
+  // Coarse curved stations intentionally approximate a different surface.
+  // Existing open-road fixtures retain their original 1m baseline contract.
+  roadgen_dense::tessellate(points,width,height,dense,{},
+                          roadgen::isClosed(points) ? sampleStep : 1.0F);
   double worstY = 0.0, worstUv = 0.0;
   requireBaselineSurface(host,dense,&worstY,&worstUv);
   double seam = 0.0;
@@ -374,6 +378,31 @@ int main() {
   // has to stop at the fold rather than bridge it.
   check("heightfield crest",{-20,0,0,0,20,0},13,
         [](float x,float z){return gridHeight(x,z)+(x<0?0.f:0.05f*x);});
+  std::vector<float> loop={-20,-20,20,-20,20,20,-20,20,-20,-20};
+  require(roadgen::isClosed(loop) && roadgen::controlCount(loop)==4,"loop control count");
+  check("closed loop",loop,6,[](float,float){return 0.f;});
+  std::vector<roadgen::Vertex> seamMesh;
+  roadgen::tessellate(loop,6,[](float,float){return 0.f;},seamMesh);
+  const auto seamDistance=[](const roadgen::Vertex& a,const roadgen::Vertex& b) {
+    return std::fabs(a.x-b.x)+std::fabs(a.y-b.y)+std::fabs(a.z-b.z);
+  };
+  require(seamDistance(seamMesh.front(),seamMesh.back())<1e-4f &&
+          seamDistance(seamMesh[1],seamMesh[seamMesh.size()-4])<1e-4f,
+          "both closed shoulders must meet at the seam");
+  check("closed loop 2m",loop,6,[](float,float){return 0.f;},2.0F);
+  check("closed loop terrain",loop,8,gridHeight);
+  float sx,sz,ex,ez;
+  roadgen::splineAt(loop,0.f,&sx,&sz);
+  roadgen::splineAt(loop,1.f,&ex,&ez);
+  require(std::fabs(sx-ex)<1e-5f && std::fabs(sz-ez)<1e-5f,"closed spline seam");
+  roadgen::moveControl(loop,0,-24,-21);
+  require(roadgen::isClosed(loop) && loop.back()==-21,"moving seam keeps loop closed");
+  require(roadgen::removeControl(loop,0) && roadgen::isClosed(loop),"remove seam keeps closure");
+  require(roadgen::controlCount(loop)==3 && !roadgen::removeControl(loop,1),"minimum closed controls");
+  loop.resize(loop.size()-2);
+  require(!roadgen::isClosed(loop) && roadgen::controlCount(loop)==3,"reopen loop");
+  require(roadgen::removeControl(loop,1) && !roadgen::removeControl(loop,0),"minimum open controls");
+  std::printf("loop edits: periodic seam, move, delete, reopen and minimum counts passed\n");
   std::vector<roadgen::Junction> junctions;
   roadgen::findJunctions({-10,0,10,0},6,{0,-10,0,10},8,junctions);
   require(junctions.size()==1,"perpendicular roads must create one junction");

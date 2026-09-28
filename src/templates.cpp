@@ -42712,10 +42712,16 @@ void TerrainGame::buildRoads(int scene) {
                                  : 1.0F;
     int crossSteps = (int)ceilf((hw * 2.0F) / 0.5F);
     if (crossSteps < 1) crossSteps = 1;
-    // Catmull-Rom, clamped ends - the roadgen twin's cr()/pointAt()/sample().
+    // Catmull-Rom; repeated endpoint means periodic controls, as in roadgen.
+    const bool closed = n >= 4 && pts[0] == pts[(n - 1) * 2] &&
+                        pts[1] == pts[(n - 1) * 2 + 1];
     auto ptAt = [&](int i, float* x, float* z) {
-      if (i < 0) i = 0;
-      if (i > n - 1) i = n - 1;
+      if (closed) {
+        i = (i % (n - 1) + n - 1) % (n - 1);
+      } else {
+        if (i < 0) i = 0;
+        if (i > n - 1) i = n - 1;
+      }
       *x = pts[i * 2];
       *z = pts[i * 2 + 1];
     };
@@ -42809,7 +42815,9 @@ void TerrainGame::buildRoads(int scene) {
         float cx2, cz2, dx2, dz2;
         sampleAt(seg, t, &cx2, &cz2);
         float fromX = cx2, fromZ = cz2;
-        if (t + 0.05F <= 1.0F || seg + 1 < n - 1) {
+        if (closed && seg == n - 2 && t == 1.0F) {
+          sampleAt(0, 0.05F, &dx2, &dz2);
+        } else if (t + 0.05F <= 1.0F || seg + 1 < n - 1) {
           if (t + 0.05F <= 1.0F)
             sampleAt(seg, t + 0.05F, &dx2, &dz2);
           else
@@ -42942,6 +42950,7 @@ void TerrainGame::buildRoads(int scene) {
                          : (2 * cuts.size() + 2))
                   : (cuts.size() - 1) * 6;
           if (!c || stationsInChunk >= 36 ||
+              v - chunkVBase >= 16.0F ||
               c->vertices.size() + spanVertices > 1800) {
             closeChunk();
             procChunks.push_back(ProcChunk());

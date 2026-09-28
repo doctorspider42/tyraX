@@ -30,3 +30,15 @@ A static viewport crop matched pixel for pixel with rejection off/on. A host
 harness exercised all six clip planes, intersecting and large boxes, negative
 scale, perspective depth and near-plane crossings. The reported severe navigation
 hitches were not reproduced reliably by this measurement.
+
+## Road point editing
+
+Since 1.151.0, selected-road editing borders reuse the viewport road cache.
+Previously the UI tessellated every road again on every frame, including
+unselected roads whose overlay it never drew. The geometry cache follows
+points, width, authored spacing, materials, terrain revision and road rank;
+soft-edge roads keep the full outer outline as well as their opaque core.
+Both crossing-planner consumers retain their previous junction preview during
+a viewport point drag and rebuild after release. Road asphalt and handles
+remain live. This removes repeated CPU work; it is not a measured display-FPS
+guarantee, and the changed road still rebuilds its exact surface while dragging.

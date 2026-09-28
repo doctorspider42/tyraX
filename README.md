@@ -235,7 +235,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [world facts](docs/world-facts.md), runtime spawning and the
   [endless scroller](docs/endless-scroller.md).
 - **[Roads](docs/roads.md) and [vehicles](docs/vehicles.md)** — material-driven
-  spline roads with per-road longitudinal detail and automatically generated,
+  editable spline roads with reversible loops, per-road longitudinal detail and automatically generated,
   separately surfaced intersections (road ranks decide who runs through, and
   a clickable per-junction override changes one crossing's patch material,
   grip or winner),

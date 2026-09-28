@@ -23,6 +23,37 @@
 // in the .tyra and one texture in VRAM.
 namespace roadgen {
 
+// Closed roads keep one repeated endpoint in the existing point array.
+// Three distinct controls minimum; the repeated endpoint is not an edit handle.
+inline bool isClosed(const std::vector<float>& points) {
+    return points.size() >= 8 && points[0] == points[points.size() - 2] &&
+           points[1] == points.back();
+}
+inline int controlCount(const std::vector<float>& points) {
+    return (int)(points.size() / 2) - (isClosed(points) ? 1 : 0);
+}
+inline void moveControl(std::vector<float>& points, int i, float x, float z) {
+    const bool closed = isClosed(points);
+    points[(size_t)i * 2] = x;
+    points[(size_t)i * 2 + 1] = z;
+    if (closed && i == 0) {
+        points[points.size() - 2] = x;
+        points.back() = z;
+    }
+}
+inline bool removeControl(std::vector<float>& points, int i) {
+    const bool closed = isClosed(points);
+    const int count = controlCount(points);
+    if (i < 0 || i >= count || count <= (closed ? 3 : 2)) return false;
+    points.erase(points.begin() + (size_t)i * 2,
+                 points.begin() + (size_t)i * 2 + 2);
+    if (closed) {
+        points[points.size() - 2] = points[0];
+        points.back() = points[1];
+    }
+    return true;
+}
+
 struct Vertex {
     float x, y, z;  // world, y projected onto the height function
     float u, v;     // u 0..1 across the width, v = arc length / texLen
@@ -199,6 +230,7 @@ inline constexpr int kStripRun = 75;  // == meshstrip::kRun, asserted in the .cp
 // the chunk boundaries move padding into the array and the host has to agree
 // about where they fall or the twins no longer produce the same vertices.
 inline constexpr int kChunkSpans = 36;    // at most this many station pairs
+inline constexpr float kChunkTexRange = 16.0f; // bounded V even at 2m spacing
 inline constexpr int kChunkBudget = 1800; // ... and this many vertices
 
 // The same surface as tessellate(), emitted as triangle STRIP runs and cut

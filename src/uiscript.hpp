@@ -128,6 +128,7 @@ struct Step {
     Kind kind = Click;
     std::string arg;
     float dx = 0, dy = 0;
+    bool shiftClick = false;
     double seconds = 0;
     int n = 0;
     std::string source;  // the line it came from, for the log

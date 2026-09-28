@@ -32,6 +32,7 @@ std::string fileStem(const std::string& path) {
 }  // namespace
 
 const roadgen::CrossingPlan& App::sceneCrossings() {
+    if (roadDragPoint_ >= 0 && crossingPlanSig_ != 0) return crossingPlan_;
     const std::vector<SceneObject>& objs = project_.objects();
     std::vector<int> idx;
     std::vector<roadgen::CrossingRoad> roads = project::crossingRoads(objs, &idx);

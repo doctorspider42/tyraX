@@ -3398,10 +3398,12 @@ void App::uiScriptTick() {
         case uiscript::Step::Click:
             io.AddMousePosEvent(uiTargetX_, uiTargetY_);
             if (uiStepPhase_ == 1) {
+                if (s.shiftClick) io.AddKeyEvent(ImGuiMod_Shift, true);
                 io.AddMouseButtonEvent(0, true);
                 uiStepPhase_ = 2;
             } else if (uiStepPhase_ == 2) {
                 io.AddMouseButtonEvent(0, false);
+                if (s.shiftClick) io.AddKeyEvent(ImGuiMod_Shift, false);
                 uiStepPhase_ = 3;
             } else {
                 finishStep();  // one settle frame, so the UI has reacted

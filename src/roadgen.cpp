@@ -28,8 +28,12 @@ struct P {
 
 inline P pointAt(const std::vector<float>& pts, int i) {
     const int n = (int)(pts.size() / 2);
-    if (i < 0) i = 0;
-    if (i > n - 1) i = n - 1;  // clamped ends: the spline hits both endpoints
+    if (isClosed(pts)) {
+        i = (i % (n - 1) + n - 1) % (n - 1);
+    } else {
+        if (i < 0) i = 0;
+        if (i > n - 1) i = n - 1;
+    }
     return {pts[(size_t)i * 2], pts[(size_t)i * 2 + 1]};
 }
 
@@ -79,7 +83,9 @@ float buildRows(const std::vector<float>& pointsXZ, float width,
             // then rotated the last road row abruptly and made a flared/twisted
             // end cap.
             P tangentFrom = c, tangentTo = c;
-            if (t + 0.05f <= 1.0f || seg + 1 < n - 1) {
+            if (isClosed(pointsXZ) && seg == n - 2 && t == 1.0f) {
+                tangentTo = sample(pointsXZ, 0, 0.05f);
+            } else if (t + 0.05f <= 1.0f || seg + 1 < n - 1) {
                 tangentTo = t + 0.05f <= 1.0f
                                 ? sample(pointsXZ, seg, t + 0.05f)
                                 : sample(pointsXZ, seg + 1, 0.05f);
@@ -254,6 +260,7 @@ float tessellate(const std::vector<float>& pointsXZ, float width,
         spanCuts(rows, i, crossSteps, cuts);
         const size_t cost = (cuts.size() - 1) * 6;
         if (spansInChunk == 0 || spansInChunk >= kChunkSpans ||
+            rows[i + 1][0].v - chunkVBase >= kChunkTexRange ||
             verticesInChunk + cost > (size_t)kChunkBudget) {
             // The GS repeats the texture every integer V. Rebase each runtime
             // bag to a nearby integer so a long road never feeds a large ST
@@ -362,6 +369,7 @@ float tessellateStrips(const std::vector<float>& pointsXZ, float width,
         const size_t cost =
             collapsed ? (alongOpen ? 2u : 4u) : (2 * cuts.size() + 2);
         if (!open || spansInChunk >= kChunkSpans ||
+            rows[i + 1][0].v - chunkVBase >= kChunkTexRange ||
             (out.size() - chunkStart) + cost > (size_t)kChunkBudget) {
             closeChunk();
             alongOpen = false;

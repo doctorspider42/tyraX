@@ -393,7 +393,7 @@ bool parseScript(const std::string& text, std::vector<Step>& out,
         auto needArg = [&](size_t count) { return tok.size() == count; };
 
         if (cmd == "click" || cmd == "rightclick" || cmd == "right-click" ||
-            cmd == "doubleclick" || cmd == "hover" ||
+            cmd == "doubleclick" || cmd == "shiftclick" || cmd == "hover" ||
             cmd == "expect" || cmd == "expect-not" || cmd == "expectnot" ||
             cmd == "expect-checked" || cmd == "expect-unchecked") {
             // The pointing steps take an optional "<dx>,<dy>" offset from the
@@ -403,7 +403,7 @@ bool parseScript(const std::string& text, std::vector<Step>& out,
             // has no name of its own and used to be unclickable by any script
             // (docs/ui-scripting.md). The assertions take no offset: they name
             // a widget and never touch the mouse.
-            const bool pointing = cmd == "click" || cmd == "rightclick" ||
+            const bool pointing = cmd == "click" || cmd == "shiftclick" || cmd == "rightclick" ||
                                   cmd == "right-click" || cmd == "doubleclick" ||
                                   cmd == "hover";
             if (pointing && tok.size() == 3) {
@@ -419,7 +419,8 @@ bool parseScript(const std::string& text, std::vector<Step>& out,
                 return fail(cmd + " needs one target" +
                             (pointing ? " and an optional <dx>,<dy> offset" : ""));
             }
-            s.kind = cmd == "click"             ? Step::Click
+            s.shiftClick = cmd == "shiftclick";
+            s.kind = (cmd == "click" || cmd == "shiftclick") ? Step::Click
                      : cmd == "rightclick"      ? Step::RightClick
                      : cmd == "right-click"     ? Step::RightClick
                      : cmd == "doubleclick"     ? Step::DoubleClick

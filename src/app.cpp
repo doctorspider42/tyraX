@@ -1,4 +1,4 @@
-﻿#include "app.hpp"
+#include "app.hpp"
 #include "app_internal.hpp"
 #include "roadgen.hpp"
 #include "hudanim.hpp"
@@ -3068,6 +3068,7 @@ void App::drawViewportWindow() {
             }
             viewport_.setGsColorSim(quant, dith);
         }
+        viewport_.setRoadDragging(roadDragPoint_ >= 0);
         viewport_.setRoadJunctions(project_.active().roadJunctions);
         uint32_t tex = viewport_.render((int)avail.x, (int)avail.y, renderObjects,
                                         renderSel, renderPrimary);
@@ -3311,6 +3312,7 @@ void App::drawViewportWindow() {
             if (ro.type != PrimitiveType::Road || ro.roadPoints.size() < 4)
                 continue;
             const bool roSel = (int)roi == selectedObject_;
+            if (!roSel) continue;
             auto worldToImage = [&](float wx, float wy, float wz, ImVec2& out) {
                 const float* V = viewport_.viewMatrix();
                 const float* P = viewport_.projMatrix();
@@ -3325,11 +3327,8 @@ void App::drawViewportWindow() {
                              imgPos.y + (1.0f - (cy / cw * 0.5f + 0.5f)) * avail.y);
                 return true;
             };
-            std::vector<roadgen::Vertex> strip;
-            roadgen::tessellate(
-                ro.roadPoints, ro.roadWidth,
-                [&](float x, float z) { return viewport_.terrainHeight(x, z); },
-                strip, {}, ro.roadSampleStep);
+            const auto& strip = viewport_.roadOutline(
+                ro.id.empty() ? ("road-" + std::to_string(roi)) : ro.id);
             ImDrawList* dl = ImGui::GetWindowDrawList();
             // The filled, textured strip is real viewport geometry now. This
             // overlay owns only the selected road's handles and crisp edges.
@@ -3365,7 +3364,7 @@ void App::drawViewportWindow() {
                                      strip[s + 2].z, b))
                         dl->AddLine(a, b, edgeCol, 2.0f);
                 }
-                for (size_t k = 0; k + 1 < ro.roadPoints.size(); k += 2) {
+                for (size_t k = 0; k < (size_t)roadgen::controlCount(ro.roadPoints) * 2; k += 2) {
                     const float px = ro.roadPoints[k], pz = ro.roadPoints[k + 1];
                     ImVec2 pt;
                     if (worldToImage(
@@ -3378,6 +3377,13 @@ void App::drawViewportWindow() {
                                                 : IM_COL32(255, 220, 60, 235));
                         dl->AddCircle(pt, rr, IM_COL32(20, 20, 20, 235), 0,
                                       1.5f);
+                        if (roadEdit_) {
+                            const ImVec2 cursor = ImGui::GetCursorScreenPos();
+                            ImGui::SetCursorScreenPos(ImVec2(pt.x - 12, pt.y - 12));
+                            ImGui::InvisibleButton(("Road point " + std::to_string(k / 2 + 1)).c_str(),
+                                                   ImVec2(24, 24));
+                            ImGui::SetCursorScreenPos(cursor);
+                        }
                     }
                 }
             }
@@ -3671,7 +3677,7 @@ void App::drawViewportWindow() {
             if (!roadOk || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
                 roadEdit_ = false;
                 roadDragPoint_ = -1;
-            } else if (imageHovered && !gizmoBusy) {
+            } else if ((imageHovered || roadDragPoint_ >= 0) && !gizmoBusy) {
                 SceneObject& ro = project_.objects()[selectedObject_];
                 const float u = (io.MousePos.x - imgPos.x) / avail.x;
                 const float v = (io.MousePos.y - imgPos.y) / avail.y;
@@ -3696,18 +3702,33 @@ void App::drawViewportWindow() {
                 };
                 if (roadDragPoint_ >= 0) {
                     // Dragging: the point follows the ground hit.
-                    if (hit &&
+                    if (hit && ImGui::IsMouseHoveringRect(imgPos, ImVec2(imgPos.x + avail.x, imgPos.y + avail.y)) &&
                         (size_t)roadDragPoint_ * 2 + 1 < ro.roadPoints.size()) {
-                        ro.roadPoints[(size_t)roadDragPoint_ * 2] = ground[0];
-                        ro.roadPoints[(size_t)roadDragPoint_ * 2 + 1] = ground[2];
+                        roadgen::moveControl(ro.roadPoints, roadDragPoint_, ground[0], ground[2]);
+                        ro.roadHeights.clear();
                     }
-                    if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+                    if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+                        bool merged = false;
+                        const int count = roadgen::controlCount(ro.roadPoints);
+                        if (!roadgen::isClosed(ro.roadPoints) && count >= 4 &&
+                            roadDragPoint_ == count - 1) {
+                            ImVec2 first, last;
+                            if (toScreen(ro.roadPoints[0], ro.roadPoints[1], first) &&
+                                toScreen(ro.roadPoints[ro.roadPoints.size() - 2], ro.roadPoints.back(), last)) {
+                                const float dx = first.x - last.x, dy = first.y - last.y;
+                                if (dx * dx + dy * dy <= 14.0f * 14.0f) {
+                                    ro.roadPoints[ro.roadPoints.size() - 2] = ro.roadPoints[0];
+                                    ro.roadPoints.back() = ro.roadPoints[1];
+                                    merged = true;
+                                }
+                            }
+                        }
                         roadDragPoint_ = -1;
                         commitChange();
-                        statusMessage_ = "Road point moved";
+                        statusMessage_ = merged ? "Road loop closed (Ctrl+Z to undo)" : "Road point moved";
                     }
                 } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && hit) {
-                    const int np = (int)(ro.roadPoints.size() / 2);
+                    const int np = roadgen::controlCount(ro.roadPoints);
                     // 1) an existing point under the cursor? drag it.
                     int grab = -1;
                     for (int i = 0; i < np; ++i) {
@@ -3722,9 +3743,17 @@ void App::drawViewportWindow() {
                             break;
                         }
                     }
-                    if (grab >= 0) {
+                    if (grab >= 0 && io.KeyShift) {
+                        if (roadgen::removeControl(ro.roadPoints, grab)) {
+                            ro.roadHeights.clear();
+                            commitChange();
+                            statusMessage_ = "Road point removed";
+                        } else {
+                            statusMessage_ = "Keep at least two points (three for a loop)";
+                        }
+                    } else if (grab >= 0) {
                         roadDragPoint_ = grab;
-                    } else {
+                    } else if (!io.KeyShift) {
                         // 2) near the LINE? insert there. Sample the spline
                         // densely in screen space and find the closest station.
                         int insertSeg = -1;
@@ -3742,7 +3771,9 @@ void App::drawViewportWindow() {
                             if (d2 < bestD) {
                                 bestD = d2;
                                 insertSeg =
-                                    (int)((float)k / (float)dense * (np - 1));
+                                    std::min((int)((float)k / (float)dense *
+                                        (ro.roadPoints.size() / 2 - 1)),
+                                        (int)(ro.roadPoints.size() / 2) - 2);
                             }
                         }
                         if (insertSeg >= 0) {
@@ -3752,7 +3783,7 @@ void App::drawViewportWindow() {
                             ro.roadHeights.clear();
                             roadDragPoint_ = insertSeg + 1;
                             statusMessage_ = "Road point inserted";
-                        } else {
+                        } else if (!roadgen::isClosed(ro.roadPoints)) {
                             // 3) open ground: append.
                             ro.roadPoints.push_back(ground[0]);
                             ro.roadPoints.push_back(ground[2]);

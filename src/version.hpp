@@ -5496,12 +5496,14 @@
 // Particles face the camera a pass DRAWS with (cutscene override, shake,
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 150
+#define TYRAX_VERSION_MINOR 151
+// 1.151.0: collapsible road controls, reversible smooth loops, Shift-click
+// point deletion and cached editing outlines with deferred junction rebuilds.
 // 1.150.2: preserve light selection but skip zero-influence bags in the
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

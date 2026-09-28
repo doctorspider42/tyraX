@@ -4047,6 +4047,12 @@ void Viewport::clearRoadDraws() {
     roadCrossSig_ = 0;
 }
 
+const std::vector<roadgen::Vertex>& Viewport::roadOutline(const std::string& id) const {
+    static const std::vector<roadgen::Vertex> empty;
+    const auto it = roadDraws_.find(id);
+    return it == roadDraws_.end() ? empty : it->second.outline;
+}
+
 void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
     // FNV-1a over the authored shape plus the terrain revision. Float bits are
     // hashed verbatim: this is a same-process dirtiness key, not a file format.
@@ -4100,6 +4106,14 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
                      o.color[0], o.color[1], o.color[2], v.a, v.u, v.v});
         }
         RoadDraw next;
+        // Retain the exact outer-border source; the UI no longer tessellates
+        // every road again each frame. Soft edges need the full-width outline.
+        if (ef.columns > 0)
+            roadgen::tessellate(o.roadPoints, o.roadWidth,
+                [&](float x, float z) { return terrainHeight(x, z) + lift; },
+                next.outline, {}, o.roadSampleStep);
+        else
+            next.outline = std::move(strip);
         next.mesh = uploadMesh(interleaved);
         if (!edgeInterleaved.empty()) next.edgeMesh = uploadMesh9(edgeInterleaved);
         next.texture = project::resolveRoadTexture(projectDir_, o.roadTexture);
@@ -4122,6 +4136,8 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         it = roadDraws_.erase(it);
     }
 
+    // Rebuild the exact junctions after release, while the asphalt remains live.
+    if (roadDragging_ && roadCrossSig_ != 0) return;
     // Crossings (docs/roads.md, "Crossings" + "Junction overrides"): the
     // codegen's own roadgen::planCrossings over the same roads and the same
     // overrides, rebuilt when any road, the overrides or the terrain move.

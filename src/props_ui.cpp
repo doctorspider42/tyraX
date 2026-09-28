@@ -826,7 +826,7 @@ void App::drawPropertiesWindow() {
         // This road's crossings (docs/roads.md, "Junction overrides"): the
         // plan the build uses, one button each - the same junction the
         // viewport diamond selects.
-        {
+        if (ImGui::CollapsingHeader("Crossings")) {
             const roadgen::CrossingPlan& plan = sceneCrossings();
             const auto& objs = project_.objects();
             int shown = 0;
@@ -835,7 +835,7 @@ void App::drawPropertiesWindow() {
                 const bool mineA = crossingRoadList_[(size_t)c.a].id == o.id;
                 const bool mineB = crossingRoadList_[(size_t)c.b].id == o.id;
                 if (!mineA && !mineB) continue;
-                if (shown++ == 0) ImGui::SeparatorText("Crossings");
+                ++shown;
                 const SceneObject& other =
                     objs[(size_t)crossingRoadObj_[(size_t)(mineA ? c.b : c.a)]];
                 const char* what = c.kind == roadgen::kCrossPatch     ? "patch"
@@ -852,54 +852,77 @@ void App::drawPropertiesWindow() {
             for (size_t oi = 0; oi < ovs.size() && oi < plan.overrideCrossing.size(); ++oi) {
                 if (plan.overrideCrossing[oi] >= 0) continue;
                 if (ovs[oi].roadA != o.id && ovs[oi].roadB != o.id) continue;
-                if (shown++ == 0) ImGui::SeparatorText("Crossings");
+                ++shown;
                 ImGui::TextColored(theme::semantics().danger, "Orphaned junction override");
                 ImGui::SameLine();
                 if (ImGui::SmallButton(("Show##orphan" + std::to_string(oi)).c_str()))
                     selectJunction(-2 - (int)oi);
             }
+            if (shown == 0) ImGui::TextDisabled("No crossings on this road");
         }
         // The points, world-space XZ. A table, not a gizmo (yet): blunt but
         // complete - insert after, remove, drag both axes.
-        ImGui::SeparatorText("Points");
-        int removeAt = -1, insertAfter = -1;
-        const int np = (int)(o.roadPoints.size() / 2);
-        for (int i = 0; i < np; ++i) {
-            ImGui::PushID(i);
-            float* px = &o.roadPoints[(size_t)i * 2];
-            ImGui::SetNextItemWidth(scaled(170));
-            ImGui::DragFloat2("##pt", px, 0.25f, 0.0f, 0.0f, "%.1f");
-            ImGui::SameLine();
-            if (ImGui::SmallButton("+")) insertAfter = i;
-            ImGui::SameLine();
-            if (np > 2 && ImGui::SmallButton("-")) removeAt = i;
-            ImGui::PopID();
-        }
-        if (insertAfter >= 0) {
-            // Midway to the next point (or extended past the end).
-            const size_t at = (size_t)(insertAfter + 1) * 2;
-            float nx, nz;
-            if (insertAfter + 1 < np) {
-                nx = 0.5f * (o.roadPoints[at - 2] + o.roadPoints[at]);
-                nz = 0.5f * (o.roadPoints[at - 1] + o.roadPoints[at + 1]);
-            } else {
-                nx = 2.0f * o.roadPoints[at - 2] - o.roadPoints[at - 4];
-                nz = 2.0f * o.roadPoints[at - 1] - o.roadPoints[at - 3];
+        if (ImGui::CollapsingHeader("Points", ImGuiTreeNodeFlags_DefaultOpen)) {
+            bool loop = roadgen::isClosed(o.roadPoints);
+            if (roadgen::controlCount(o.roadPoints) >= 3 && ImGui::Checkbox("Closed loop", &loop)) {
+                if (loop) {
+                    const float x = o.roadPoints[0], z = o.roadPoints[1];
+                    o.roadPoints.insert(o.roadPoints.end(), {x, z});
+                } else {
+                    o.roadPoints.resize(o.roadPoints.size() - 2);
+                }
+                o.roadHeights.clear();
+                committed = true;
             }
-            o.roadPoints.insert(o.roadPoints.begin() + at, {nx, nz});
-            o.roadHeights.clear();
-        }
-        if (removeAt >= 0) {
-            o.roadPoints.erase(o.roadPoints.begin() + (size_t)removeAt * 2,
-                               o.roadPoints.begin() + (size_t)removeAt * 2 + 2);
-            o.roadHeights.clear();
+            int removeAt = -1, insertAfter = -1;
+            const int np = roadgen::controlCount(o.roadPoints);
+            for (int i = 0; i < np; ++i) {
+                ImGui::PushID(i);
+                float* px = &o.roadPoints[(size_t)i * 2];
+                ImGui::SetNextItemWidth(scaled(170));
+                if (ImGui::DragFloat2(("Point " + std::to_string(i + 1)).c_str(), px,
+                                      0.25f, 0.0f, 0.0f, "%.1f")) {
+                    if (loop && i == 0) {
+                        o.roadPoints[o.roadPoints.size() - 2] = o.roadPoints[0];
+                        o.roadPoints.back() = o.roadPoints[1];
+                    }
+                    o.roadHeights.clear();
+                }
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                ImGui::SameLine();
+                if (ImGui::SmallButton("+")) insertAfter = i;
+                ImGui::SameLine();
+                if (np > (roadgen::isClosed(o.roadPoints) ? 3 : 2) && ImGui::SmallButton("-")) removeAt = i;
+                ImGui::PopID();
+            }
+            if (insertAfter >= 0) {
+                // Midway to the next point (or extended past the end).
+                const size_t at = (size_t)(insertAfter + 1) * 2;
+                float nx, nz;
+                if (insertAfter + 1 < np || roadgen::isClosed(o.roadPoints)) {
+                    nx = 0.5f * (o.roadPoints[at - 2] + o.roadPoints[at]);
+                    nz = 0.5f * (o.roadPoints[at - 1] + o.roadPoints[at + 1]);
+                } else {
+                    nx = 2.0f * o.roadPoints[at - 2] - o.roadPoints[at - 4];
+                    nz = 2.0f * o.roadPoints[at - 1] - o.roadPoints[at - 3];
+                }
+                o.roadPoints.insert(o.roadPoints.begin() + at, {nx, nz});
+                o.roadHeights.clear();
+                committed = true;
+            }
+            if (removeAt >= 0 && roadgen::removeControl(o.roadPoints, removeAt)) {
+                o.roadHeights.clear();
+                committed = true;
+            }
         }
         if (ImGui::Button(roadEdit_ ? "Stop editing (Esc)" : "Edit in viewport"))
             roadEdit_ = !roadEdit_;
         prefHelp(
             "Click the ground to APPEND a point, click a point to DRAG it,\n"
-            "click the line between points to INSERT one there. Esc stops.\n"
-            "Every operation is one undo step (Ctrl+Z).");
+            "click the line between points to INSERT one there.\n"
+            "Shift+click a marker to DELETE it. Drag the final point onto\n"
+            "the first and release to CLOSE a loop. Uncheck Closed loop\n"
+            "to reopen it. Esc stops; Ctrl+Z undoes each operation.");
         ImGui::SameLine();
         if (ImGui::Button("Align terrain to road"))
             alignTerrainToRoad(selectedObject_);

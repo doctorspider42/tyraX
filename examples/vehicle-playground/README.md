@@ -1376,3 +1376,11 @@ conservative local bounds while retaining lamps, models, reflections and
 shadow effects. The experimental full light cache was slower and is absent
 from production. The report preserves hardware A/B data, oracle checks,
 nearby vehicle tiers, and the remaining PAL budget work.
+
+### Road editing loops
+
+Road Properties now folds Crossings and Points. In viewport editing, Shift-click
+a marker to delete it; drag the final marker onto the first and release to make
+a smooth loop. Ctrl+Z restores the drag, and Closed loop in Points can reopen it.
+The existing road twin oracle also covers periodic interpolation and loop edits.
+See [road authoring](../../docs/roads.md).

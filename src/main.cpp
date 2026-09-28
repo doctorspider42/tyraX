@@ -2528,7 +2528,7 @@ static int uiScriptFromCli(int argc, char** argv) {
             "usage: tyrax-editor --ui-script [projectDir] \"<script>\" [more...]\n"
             "       tyrax-editor --ui-script [projectDir] --file <script.ui>\n"
             "\n"
-            "script: click|rightclick|hover|doubleclick|expect|expect-not <target>\n"
+            "script: click|shiftclick|rightclick|hover|doubleclick|expect|expect-not <target>\n"
             "        hold <target> [seconds] | drag <target> <dx> <dy>\n"
             "        key <chord> | text <string> | wait <s> | frames <n>\n"
             "        shot <file.png> | dump | log <text> | quit\n"

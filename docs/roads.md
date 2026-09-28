@@ -17,6 +17,8 @@ in VRAM.** There is no baked geometry to store, ship or stream.
 
 ![Road surface and intersection material pickers](img/road-material-picker.png)
 
+- **Points** and **Crossings** are collapsible Properties sections.
+  Points opens by default; Crossings starts folded to keep long streets compact.
 - **Points** live in the Properties panel: a table of XZ pairs with insert
   (`+`, midway to the next point) and remove (`-`). The selected road draws
   editing edges and point markers over the road in the viewport. The surface
@@ -56,8 +58,26 @@ in VRAM.** There is no baked geometry to store, ship or stream.
 
 - **Edit in viewport**: click the ground to APPEND a point, click a point
   marker to DRAG it, click the line between points to INSERT one there;
+  **Shift+click** a point marker to delete it (at least two open-road controls
+  or three loop controls remain). Shift+click on empty ground does nothing.
   Esc stops, every operation is one undo step. Every road draws as its actual
   textured strip; the selected one additionally gets edges and markers.
+- **Close a loop**: drag the final point onto the first marker and release
+  within 14 screen pixels. The two endpoints become one edit handle, and the
+  Catmull-Rom neighbours wrap across the join so both road shoulders meet
+  smoothly. At least three remaining controls are required. **Ctrl+Z** restores
+  the point before the drag, including its original position. **Closed loop**
+  in Points also closes a road without moving existing controls; uncheck it to
+  reopen the road at its seam. Move the shared handle to move both endpoints.
+  Insert on the closing segment just like any other segment; a closed road
+  ignores empty-ground appends until reopened.
+- Editing outlines reuse the viewport's terrain-aware geometry cache instead
+  of tessellating every road again every frame. During a viewport point drag,
+  asphalt and handles update live; junction patches, spills and diamonds keep
+  their last completed positions and rebuild after release. This avoids two
+  full crossing-planner runs per drag frame. Build output always uses the final
+  exact points, with no preview simplification or changed road detail.
+
 - A road has no vertical authoring offset: every left and right edge vertex is
   sampled independently from the terrain. The short-lived `roadHeights`
   project field is still accepted when an older file contains it, but is
@@ -69,6 +89,20 @@ in VRAM.** There is no baked geometry to store, ship or stream.
   inside `width/2`), with the cosine falloff only on the ±3-unit
   shoulders — the per-station flatten brush crowned the surface. The road keeps
   its small surface lift afterward, so the aligned terrain does not z-fight it.
+
+![Closed road with collapsible point and crossing controls](img/road-loop-editor.png)
+
+## Closed-loop storage
+
+Loops use the existing `roadPoints` array: the final XZ pair exactly repeats
+the first. The repeated pair is a seam sentinel, not a second editable handle.
+No new project field or format version is needed; save/load, undo/redo and
+collaboration already carry the entire array. Existing roads with coincident
+endpoints now use the same periodic interpolation. Open roads retain their
+clamped interpolation. The host tessellator and generated runtime wrap the
+same controls and use the same final tangent. Longitudinal texture V remains
+arc-length based; a loop whose length is not a whole texture repeat may still
+have a texture phase seam.
 
 ## How it runs
 
@@ -116,7 +150,8 @@ topology out as the cause.
 The remaining hardware-specific hazard was the longitudinal V coordinate:
 `arc / 4` grew for the full road, even though the sampler repeats every integer.
 Each generated chunk now subtracts `floor(V at chunk start)` from all of its
-vertices. This changes no sampled texel or seam — the offset is a whole repeat —
+vertices. Since 1.151.0, a chunk also ends before its rebased V reaches 16,
+so the wider station spacing cannot evade the coordinate bound. This changes no sampled texel or seam — the offset is a whole repeat —
 but keeps the GS/VU ST values close to zero instead of eventually overflowing
 their useful fixed-precision range. The editor list, retained strip oracle and
 runtime twin all use the same rebasing; `verify-road-twins.py` compares V modulo

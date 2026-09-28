@@ -448,6 +448,8 @@ public:
     void setRoadJunctions(const std::vector<roadgen::JunctionOverride>& j) {
         if (j != roadJunctions_) roadJunctions_ = j;
     }
+    void setRoadDragging(bool dragging) { roadDragging_ = dragging; }
+    const std::vector<roadgen::Vertex>& roadOutline(const std::string& id) const;
 
     // Material Editor live preview: a lit primitive OR one of the project's
     // .obj models over a checker floor, rendered into its own framebuffer
@@ -1094,6 +1096,7 @@ private:
     struct RoadDraw {
         Mesh mesh;
         Mesh edgeMesh;   // the soft-edge bands (1.144.0), alpha-faded
+        std::vector<roadgen::Vertex> outline;
         std::string texture;
         uint64_t signature = 0;
     };
@@ -1110,6 +1113,7 @@ private:
     };
     std::vector<RoadCrossDraw> roadCross_;
     uint64_t roadCrossSig_ = 0;
+    bool roadDragging_ = false;
     std::vector<roadgen::JunctionOverride> roadJunctions_;
     uint64_t roadTerrainRevision_ = 1;
     void syncRoadDraws(const std::vector<SceneObject>& objects);

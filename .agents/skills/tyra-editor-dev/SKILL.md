@@ -2856,3 +2856,16 @@ Runtime inline icons remain lazy until a resolved, nonempty icon is drawn in
 the foreground pass. Numeric vehicle strings and unknown tokens must not load
 the sheet. Preserve glyph metrics, centering, shadow and widescreen squeeze.
 This fixes HUD cold asset work, not first-visible 3D caches or steady FPS.
+
+## Road editing (1.151.0)
+
+Road loops repeat the first XZ pair at the end of `roadPoints`; `roadgen::isClosed`
+and `controlCount` hide the seam sentinel from editing. The host and generated
+`buildRoads` wrap Catmull-Rom neighbours and final tangents together. No format
+field was added. `moveControl`/`removeControl` preserve closure and minimum counts.
+Properties has collapsible Crossings/Points and a reversible Closed loop toggle;
+viewport Shift-click deletes, endpoint snap closes at release, one undo each.
+Outlines reuse `Viewport::RoadDraw`; full-width soft borders retain a separate
+outline. During viewport drag only, both crossing caches defer work until release.
+Verify loop seams and open-road parity with the vehicle-playground road twin
+oracle; UI scripts can target `Road point N` handles and use `shiftclick`.
