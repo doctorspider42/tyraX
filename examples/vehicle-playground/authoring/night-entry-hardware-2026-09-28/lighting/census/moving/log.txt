@@ -1,0 +1,1502 @@
+LOG: IRX: Loading audsrv...
+LOG: IRX: Audsrv loaded!
+LOG: Path3 initialized
+LOG: GS buffers: frame 512x512 x2, z 512x512 at 393216, drawing into 0, showing 1
+LOG: Framebuffers, zBuffer set and allocated!
+LOG: Drawing environment initialized!
+LOG: Renderer core initialized!
+LOG: PostFx initialized!
+LOG: Dynamic env map initialized (VRAM at 667648)
+LOG: Env map target disabled - no VRAM reserved
+LOG: Renderer texture initialized!
+LOG: Clut set!
+LOG: Frustum planes initialized!
+LOG: RendererCore3D initialized!
+LOG: Creating audio semaphore
+LOG: AudioSong semaphore created
+LOG: Audio initialized!
+LOG: Initializing pad
+LOG: Pad state changed
+LOG: Pad is ready!
+LOG: Enabling dual shock functions.
+LOG: Pad state changed
+LOG: Pad is ready!
+LOG: Pad has pressure sensitive buttons? 1
+LOG: Pad state changed
+LOG: Pad is ready!
+LOG: # of actuators: 2
+LOG: padSetActAlign: 1
+LOG: Pad state changed
+LOG: Pad is ready!
+LOG: Pad initialized!
+LOG: StaPip VU1 program set: 12 programs, billboards resident
+LOG: StaPipQBufferRenderer initialized
+LOG: StaPip VU1 program set: 12 programs, billboards resident
+LOG: Save system: no memory card - using host files
+LOG: ADPCM loaded: host:/sfx/engine-loop.adpcm (2560 bytes, pitch 1881, id 5882096)
+LOG: ADPCM loaded: host:/sfx/engine-high-loop.adpcm (2560 bytes, pitch 1881, id 5882128)
+LOG: ADPCM loaded: host:/sfx/screech-loop.adpcm (2560 bytes, pitch 1881, id 5882160)
+LOG: ADPCM loaded: host:/sfx/gear-shift.adpcm (1552 bytes, pitch 1881, id 6156576)
+LOG: HUDENTRY fix 1
+LOG: LIGHTBOUNDS validate boxes=8192 rejected=4247 errors=0 forced_bad_detected=2961
+LOG: LIGHTCACHE validate cases=6144 errors=0 bytes=24576
+LOG: LIGHTREG validate cases=2048 errors=0
+LOG: LIGHTWORK mode 10
+LOG: SIF RPC guard: seen 565, guarded 0
+LOG: VEH setup obj 132 def 1
+LOG: VEH setup obj 133 def 2
+LOG: VEH setup obj 134 def 3
+LOG: Static batching: 41 objects in 30 batches
+LOG: Static batching: eligible 82, solo 41, base cell 80, widest cell 80
+LOG: Static batching: partial models kept solo 14
+LOG: ROADINDEX cells 1x1 entries 12
+LOG: ROADS scene 0 chunks 64 vertices 25629 y0x10 1
+LOG: ROADSTRIP scene 0 strips 1 packages 367 triangles 20487
+LOG: TERRAINSTRIP scene 0 chunk 2,2 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 2,1 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 1,2 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 3,2 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 1,1 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 3,1 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 2,3 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 1,3 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 3,3 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 2,0 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 1,0 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 0,2 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 3,0 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 4,2 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 0,1 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 4,1 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 2,4 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 0,3 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 4,3 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 1,4 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 3,4 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 0,0 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 4,0 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 0,4 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 4,4 strips 1 vertices 588 packages 8 triangles 512
+LOG: Hello from TyraX! Edit src/scripts/example_interaction.cpp.
+LOG: Motor District mood: NIGHT
+LOG: ROADINDEX cells 66x66 entries 50607
+LOG: VEHSHINE budget 2 mask 0 of 3
+LOG: INTERLEAVE auto on=42561us off=7370us -> plain wins=0/8 heavy=25 drawn=33 blendAt=19
+LOG: VEHSHINE budget 2 mask 4 of 3
+LOG: VEHSHINE budget 2 mask 6 of 3
+LOG: VEHAI 1 pos -4 -51 wp 0 spd10 197 av 0 lod 0 plan10 213
+LOG: VEHAI 2 pos 4 -47 wp 0 spd10 211 av 0 lod 0 plan10 198
+LOG: INTERLEAVE auto on=7151us off=7118us -> plain wins=1/8 heavy=25 drawn=33 blendAt=19
+LOG: VEHLOD car 2 tier 1 swap at 12
+LOG: VEHPAINT normals 1521 distinct 484
+LOG: VU1 experiment (c): normalized 1521 env normals
+LOG: VEHSHINE budget 2 mask 2 of 3
+LOG: VEH enter 0 from a flow graph
+LOG: SPU2 channel 21 = core 1 voice 21: voll 0 volr 0 pitch 1881 adsr1 0 adsr2 0 ssa 25584
+LOG: SPU2 core 1: vmixl 16777215 vmixr 16777215 vmixel 16777215 vmixer 16777215 mmix 4044 mvoll 16383 evoll 0
+LOG: SPU2 channel 23 = core 1 voice 23: voll 0 volr 0 pitch 1881 adsr1 0 adsr2 0 ssa 20496
+LOG: SPU2 core 1: vmixl 16777215 vmixr 16777215 vmixel 16777215 vmixer 16777215 mmix 4044 mvoll 16383 evoll 0
+LOG: VEH engine sound on channel 23 snd 0
+LOG: SPU2 channel 22 = core 1 voice 22: voll 0 volr 0 pitch 1881 adsr1 0 adsr2 0 ssa 23040
+LOG: SPU2 core 1: vmixl 16777215 vmixr 16777215 vmixel 16777215 vmixer 16777215 mmix 4044 mvoll 16383 evoll 0
+LOG: VEHSHINE budget 2 mask 1 of 3
+LOG: VEHPAINT normals 2025 distinct 796
+LOG: VU1 experiment (c): normalized 2025 env normals
+LOG: VEHLOD car 1 tier 2 swap at 12
+LOG: VEHLOD car 2 tier 2 swap at 12
+LOG: VEHDMG 1 lost 5 shattered verts 51
+LOG: VEHDMG 1 lost 7 shattered verts 42
+LOG: VEHDMG 1 lost 1 debris verts 375
+LOG: VEHDMG 1 hit dv10 179 dmg100 25 dents 1 total 1 moved 533 at -6 17 lamps 1 body10 17x35 us 6999
+LOG: VEHAI 1 pos -16 -24 wp 1 spd10 2 av 0 lod 1 plan10 258
+LOG: VEHAI 2 pos 22 -23 wp 1 spd10 186 av 0 lod 1 plan10 226
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEHDMG debris removed, out of range
+LOG: VEH pos 0 -73 spd10 50 lat10 0 yaw 0 gear 0 rpm 3471 slip10 0 nos10 10 cam 0 pitch 2688 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 -1 -1 -15 -15 roadlift1000 120 120 119 120
+LOG: SPU2 channel 20 = core 1 voice 20: voll 9080 volr 9080 pitch 1881 adsr1 0 adsr2 0 ssa 28128
+LOG: SPU2 core 1: vmixl 16777215 vmixr 16777215 vmixel 16777215 vmixer 16777215 mmix 4044 mvoll 16383 evoll 0
+LOG: INTERLEAVE auto on=10780us off=11489us -> interleaved wins=5/8 heavy=42 drawn=50 blendAt=24
+LOG: VEH pos 0 -68 spd10 114 lat10 0 yaw 0 gear 1 rpm 5945 slip10 0 nos10 10 cam 0 pitch 3904 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -61 spd10 155 lat10 0 yaw 0 gear 2 rpm 5290 slip10 0 nos10 10 cam 0 pitch 3584 lean10 0 mtx 1 fw 1 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 115 115 107 107 roadlift1000 139 139 120 120
+LOG: VEHAI 1 pos -16 -23 wp 1 spd10 0 av 0 lod 1 plan10 258
+LOG: VEHAI 2 pos 48 -37 wp 2 spd10 146 av 0 lod 1 plan10 270
+LOG: VEH pos 0 -52 spd10 209 lat10 0 yaw 0 gear 3 rpm 6530 slip10 0 nos10 10 cam 0 pitch 4160 lean10 0 mtx 1 fw 1 paved 4 grip100 100 shake 0 blur 5 fov 60
+LOG: VEH pos 0 -41 spd10 248 lat10 0 yaw 0 gear 3 rpm 6110 slip10 0 nos10 10 cam 0 pitch 3968 lean10 0 mtx 1 fw 1 paved 4 grip100 100 shake 4 blur 19 fov 62
+LOG: VEHCONTACT car 0 def 1 driven gap1000 119 119 113 113 roadlift1000 120 120 119 120
+LOG: VEH pos 0 -27 spd10 297 lat10 0 yaw 0 gear 3 rpm 7145 slip10 0 nos10 10 cam 0 pitch 4480 lean10 0 mtx 1 fw 1 paved 4 grip100 100 shake 19 blur 37 fov 64
+LOG: INTERLEAVE auto on=8917us off=9763us -> interleaved wins=6/8 heavy=35 drawn=40 blendAt=20
+LOG: VEH pos 0 -12 spd10 299 lat10 0 yaw 0 gear 3 rpm 7193 slip10 0 nos10 10 cam 0 pitch 4480 lean10 0 mtx 1 fw 1 paved 4 grip100 100 shake 27 blur 44 fov 65
+LOG: VEHCONTACT car 0 def 1 driven gap1000 122 122 122 122 roadlift1000 120 120 120 120
+LOG: VEHAI 1 pos -14 -28 wp 1 spd10 -39 av 0 lod 1 plan10 264
+LOG: VEHAI 2 pos 47 -69 wp 3 spd10 106 av 0 lod 1 plan10 292
+LOG: VEH pos 0 2 spd10 299 lat10 0 yaw 0 gear 3 rpm 7193 slip10 0 nos10 10 cam 0 pitch 4480 lean10 0 mtx 1 fw 1 paved 4 grip100 85 shake 29 blur 46 fov 65
+LOG: VEH pos 0 17 spd10 299 lat10 0 yaw 0 gear 3 rpm 7193 slip10 0 nos10 10 cam 0 pitch 4480 lean10 0 mtx 1 fw 1 paved 4 grip100 100 shake 29 blur 46 fov 65
+LOG: VEHCONTACT car 0 def 1 driven gap1000 122 122 122 122 roadlift1000 120 120 119 120
+LOG: VEHDMG 2 lost 5 shattered verts 42
+LOG: VEHDMG 2 hit dv10 140 dmg100 18 dents 1 total 1 moved 416 at 4 20 lamps 1 body10 19x42 us 3046
+LOG: VEH pos 0 32 spd10 299 lat10 0 yaw 0 gear 3 rpm 7193 slip10 0 nos10 10 cam 0 pitch 4480 lean10 0 mtx 1 fw 1 paved 4 grip100 100 shake 29 blur 46 fov 65
+LOG: VEH pos 0 47 spd10 299 lat10 0 yaw 0 gear 3 rpm 7193 slip10 0 nos10 10 cam 0 pitch 4480 lean10 0 mtx 1 fw 1 paved 4 grip100 100 shake 29 blur 46 fov 65
+LOG: VEHCONTACT car 0 def 1 driven gap1000 120 120 120 120 roadlift1000 120 120 120 120
+LOG: INTERLEAVE auto on=5620us off=6262us -> interleaved wins=6/8 heavy=13 drawn=28 blendAt=-1
+LOG: VEHAI 1 pos -15 -30 wp 1 spd10 0 av 0 lod 1 plan10 258
+LOG: VEHAI 2 pos 38 -76 wp 3 spd10 0 av 0 lod 1 plan10 264
+LOG: VEH pos 0 62 spd10 299 lat10 0 yaw 0 gear 3 rpm 7193 slip10 0 nos10 10 cam 0 pitch 4480 lean10 0 mtx 1 fw 1 paved 4 grip100 100 shake 29 blur 46 fov 65
+LOG: VEH pos 0 77 spd10 299 lat10 0 yaw 0 gear 3 rpm 7193 slip10 0 nos10 10 cam 0 pitch 4480 lean10 0 mtx 1 fw 1 paved 4 grip100 100 shake 29 blur 46 fov 65
+LOG: VEHCONTACT car 0 def 1 driven gap1000 121 121 121 121 roadlift1000 120 120 120 119
+LOG: VEH pos 0 92 spd10 299 lat10 0 yaw 0 gear 3 rpm 7193 slip10 0 nos10 10 cam 0 pitch 4480 lean10 0 mtx 1 fw 1 paved 4 grip100 100 shake 29 blur 46 fov 65
+LOG: VEH pos 0 107 spd10 299 lat10 0 yaw 0 gear 3 rpm 7193 slip10 0 nos10 10 cam 0 pitch 4480 lean10 0 mtx 1 fw 1 paved 4 grip100 100 shake 29 blur 46 fov 65
+LOG: VEHCONTACT car 0 def 1 driven gap1000 116 116 116 116 roadlift1000 139 139 139 139
+LOG: VEHAI 1 pos -16 -30 wp 1 spd10 0 av 0 lod 1 plan10 253
+LOG: VEHAI 2 pos 41 -73 wp 3 spd10 0 av 0 lod 1 plan10 277
+LOG: INTERLEAVE auto on=4856us off=4924us -> plain wins=2/8 heavy=4 drawn=25 blendAt=-1
+LOG: VEH pos 0 122 spd10 299 lat10 0 yaw 0 gear 3 rpm 7185 slip10 0 nos10 10 cam 0 pitch 4480 lean10 0 mtx 1 fw 1 paved 0 grip100 60 shake 29 blur 46 fov 65
+LOG: VEH pos 0 137 spd10 299 lat10 0 yaw 0 gear 3 rpm 7183 slip10 0 nos10 10 cam 0 pitch 4480 lean10 0 mtx 1 fw 1 paved 0 grip100 60 shake 29 blur 46 fov 65
+LOG: VEHCONTACT car 0 def 1 driven gap1000 115 115 115 115 roadlift1000 0 0 0 0
+LOG: VEHDMG 0 lost 5 shattered verts 54
+LOG: VEHDMG 0 lost 1 debris verts 375
+LOG: VEHDMG 0 hit dv10 299 dmg100 49 dents 1 total 1 moved 707 at 0 22 lamps 1 body10 18x48 us 5809
+LOG: VU1 experiment (c): normalized 2025 env normals
+LOG: VEH pos 0 147 spd10 -30 lat10 0 yaw 0 gear -1 rpm 7200 slip10 10 nos10 10 cam 0 pitch 4512 lean10 0 mtx 1 fw 1 paved 0 grip100 60 shake 14 blur 32 fov 64
+LOG: VEH pos 0 146 spd10 2 lat10 0 yaw 0 gear 0 rpm 3066 slip10 5 nos10 10 cam 0 pitch 2496 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 7 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 -1 -1 -1 -1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 253
+LOG: VEHAI 2 pos 40 -75 wp 3 spd10 30 av 0 lod 1 plan10 269
+LOG: VEH pos 0 147 spd10 36 lat10 0 yaw 0 gear 0 rpm 2725 slip10 0 nos10 10 cam 0 pitch 2336 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 1 fov 60
+LOG: INTERLEAVE auto on=3983us off=3885us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHDMG 2 hit dv10 53 dmg100 18 dents 1 total 2 moved 259 at 1 20 lamps 1 body10 19x42 us 1651
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 817 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 29 -75 wp 3 spd10 112 av 0 lod 1 plan10 218
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3637us off=3716us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHAILAP 2 t10 174 unstick 1
+LOG: SIF RPC guard: seen 3927, guarded 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 5 -71 wp 0 spd10 125 av 0 lod 1 plan10 298
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: INTERLEAVE auto on=3733us off=3902us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 857 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 4 -36 wp 1 spd10 160 av 0 lod 1 plan10 304
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3381us off=3387us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 34 -25 wp 1 spd10 177 av 0 lod 1 plan10 164
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3556us off=3333us -> plain wins=0/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 48 -45 wp 2 spd10 160 av 0 lod 1 plan10 233
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 -1 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 44 -73 wp 3 spd10 114 av 0 lod 1 plan10 282
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3596us off=3644us -> interleaved wins=5/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 14 -74 wp 3 spd10 134 av 0 lod 1 plan10 122
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHAILAP 2 t10 108 unstick 0
+LOG: INTERLEAVE auto on=3420us off=3338us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 3 -52 wp 0 spd10 228 av 0 lod 1 plan10 226
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3505us off=3418us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 18 -23 wp 1 spd10 174 av 0 lod 1 plan10 242
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3383us off=3701us -> plain wins=4/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 47 -33 wp 2 spd10 125 av 0 lod 1 plan10 284
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3381us off=3389us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: SIF RPC guard: seen 5618, guarded 0
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 47 -65 wp 2 spd10 129 av 0 lod 1 plan10 105
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3468us off=3334us -> plain wins=1/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 29 -75 wp 3 spd10 166 av 0 lod 1 plan10 213
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHAILAP 2 t10 108 unstick 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 3 -68 wp 0 spd10 144 av 0 lod 1 plan10 291
+LOG: INTERLEAVE auto on=3626us off=3481us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 6 -31 wp 1 spd10 172 av 0 lod 1 plan10 295
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3303us off=3505us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 38 -27 wp 1 spd10 143 av 0 lod 1 plan10 130
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3470us off=3399us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 48 -50 wp 2 spd10 174 av 0 lod 1 plan10 208
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: INTERLEAVE auto on=3372us off=3523us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 41 -75 wp 3 spd10 132 av 0 lod 1 plan10 270
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3351us off=3483us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 11 -74 wp 3 spd10 109 av 0 lod 1 plan10 98
+LOG: VEHAILAP 2 t10 108 unstick 0
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3518us off=3416us -> plain wins=1/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 4 -46 wp 0 spd10 206 av 0 lod 1 plan10 193
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: SIF RPC guard: seen 6562, guarded 0
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 23 -23 wp 1 spd10 186 av 0 lod 1 plan10 221
+LOG: INTERLEAVE auto on=3578us off=3469us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 48 -37 wp 2 spd10 142 av 0 lod 1 plan10 270
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3348us off=3535us -> plain wins=4/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 47 -68 wp 3 spd10 110 av 0 lod 1 plan10 293
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3511us off=3386us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 24 -75 wp 3 spd10 180 av 0 lod 1 plan10 185
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHAILAP 2 t10 108 unstick 0
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: INTERLEAVE auto on=3463us off=3476us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 3 -63 wp 0 spd10 182 av 0 lod 1 plan10 274
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3347us off=3526us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 10 -28 wp 1 spd10 174 av 0 lod 1 plan10 271
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3339us off=3376us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 42 -28 wp 2 spd10 130 av 0 lod 1 plan10 300
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: INTERLEAVE auto on=3513us off=3542us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 48 -56 wp 2 spd10 189 av 0 lod 1 plan10 203
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 37 -76 wp 3 spd10 140 av 0 lod 1 plan10 253
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3638us off=3461us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: SIF RPC guard: seen 7506, guarded 0
+LOG: VEHAILAP 2 t10 108 unstick 0
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 8 -73 wp 0 spd10 104 av 0 lod 1 plan10 294
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3384us off=3400us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 4 -40 wp 0 spd10 169 av 0 lod 1 plan10 155
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3478us off=3345us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 29 -24 wp 1 spd10 195 av 0 lod 1 plan10 192
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3351us off=3624us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 48 -41 wp 2 spd10 147 av 0 lod 1 plan10 251
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3328us off=3390us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 46 -71 wp 3 spd10 99 av 0 lod 1 plan10 289
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3466us off=3374us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 18 -74 wp 3 spd10 163 av 0 lod 1 plan10 149
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHAILAP 2 t10 108 unstick 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 3 -58 wp 0 spd10 199 av 0 lod 1 plan10 251
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3702us off=3725us -> plain wins=4/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 14 -25 wp 1 spd10 174 av 0 lod 1 plan10 257
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3369us off=3306us -> plain wins=1/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 45 -30 wp 2 spd10 123 av 0 lod 1 plan10 293
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3690us off=3582us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 48 -61 wp 2 spd10 185 av 0 lod 1 plan10 163
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3632us off=3933us -> interleaved wins=5/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 38 -75 wp 3 spd10 1 av 0 lod 1 plan10 263
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3601us off=3673us -> plain wins=4/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 27 -75 wp 3 spd10 114 av 0 lod 1 plan10 205
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHAILAP 2 t10 126 unstick 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3485us off=3397us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 3 -69 wp 0 spd10 144 av 0 lod 1 plan10 293
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 6 -32 wp 1 spd10 171 av 0 lod 1 plan10 296
+LOG: INTERLEAVE auto on=3622us off=3484us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 38 -26 wp 1 spd10 148 av 0 lod 1 plan10 136
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3344us off=3510us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 48 -49 wp 2 spd10 172 av 0 lod 1 plan10 212
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3503us off=3365us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 42 -74 wp 3 spd10 107 av 0 lod 1 plan10 274
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: INTERLEAVE auto on=3316us off=3465us -> plain wins=1/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 13 -74 wp 3 spd10 121 av 0 lod 1 plan10 110
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHAILAP 2 t10 109 unstick 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3343us off=3565us -> interleaved wins=6/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 4 -49 wp 0 spd10 225 av 0 lod 1 plan10 213
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3497us off=3351us -> plain wins=1/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 20 -23 wp 1 spd10 179 av 0 lod 1 plan10 234
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 47 -34 wp 2 spd10 131 av 0 lod 1 plan10 278
+LOG: INTERLEAVE auto on=3614us off=3519us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 47 -66 wp 2 spd10 111 av 0 lod 1 plan10 98
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3347us off=3473us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 27 -75 wp 3 spd10 172 av 0 lod 1 plan10 202
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3468us off=3346us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEHAILAP 2 t10 108 unstick 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 3 -66 wp 0 spd10 158 av 0 lod 1 plan10 285
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: INTERLEAVE auto on=3403us off=3601us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 4 4 4 4 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 7 -30 wp 1 spd10 174 av 0 lod 1 plan10 283
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3401us off=3503us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 40 -27 wp 1 spd10 133 av 0 lod 1 plan10 119
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3373us off=3384us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 48 -52 wp 2 spd10 184 av 0 lod 1 plan10 208
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 4 4 4 4 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: INTERLEAVE auto on=3475us off=3562us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 40 -76 wp 3 spd10 139 av 0 lod 1 plan10 264
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 4 4 4 4 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHAILAP 2 t10 108 unstick 0
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 10 -74 wp 0 spd10 108 av 0 lod 1 plan10 296
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3584us off=3510us -> plain wins=4/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 4 4 4 4 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 4 4 4 4 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 4 -43 wp 0 spd10 192 av 0 lod 1 plan10 178
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3364us off=3395us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 4 4 4 4 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 4 4 4 4 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 26 -23 wp 1 spd10 191 av 0 lod 1 plan10 211
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3528us off=3401us -> plain wins=1/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 4 4 4 4 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 4 4 4 4 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 48 -38 wp 2 spd10 141 av 0 lod 1 plan10 263
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 4 4 4 4 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3422us off=3703us -> plain wins=4/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 4 4 4 4 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 47 -70 wp 3 spd10 105 av 0 lod 1 plan10 292
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 4 4 4 4 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3329us off=3348us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 4 4 4 4 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 22 -74 wp 3 spd10 180 av 0 lod 1 plan10 172
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHAILAP 2 t10 108 unstick 0
+LOG: VEHCONTACT car 0 def 1 driven gap1000 4 4 4 4 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3477us off=3382us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 4 4 4 4 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 3 -61 wp 0 spd10 189 av 0 lod 1 plan10 267
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 4 4 4 4 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 4 4 4 4 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 11 -27 wp 1 spd10 173 av 0 lod 1 plan10 267
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3546us off=3662us -> interleaved wins=5/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 4 4 4 4 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 4 4 4 4 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 43 -29 wp 2 spd10 130 av 0 lod 1 plan10 298
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3350us off=3413us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 4 4 4 4 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 4 4 4 4 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 48 -57 wp 2 spd10 196 av 0 lod 1 plan10 193
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3544us off=3364us -> plain wins=0/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 4 4 4 4 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 36 -76 wp 3 spd10 143 av 0 lod 1 plan10 248
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 4 4 4 4 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3390us off=3652us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHAILAP 2 t10 108 unstick 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 4 4 4 4 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 7 -73 wp 0 spd10 114 av 0 lod 1 plan10 295
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 4 4 4 4 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3425us off=3426us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 4 -38 wp 0 spd10 159 av 0 lod 1 plan10 146
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 4 4 4 4 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3497us off=3368us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 31 -24 wp 1 spd10 193 av 0 lod 1 plan10 180
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 4 4 4 4 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 48 -43 wp 2 spd10 153 av 0 lod 1 plan10 243
+LOG: INTERLEAVE auto on=3610us off=3554us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 45 -72 wp 3 spd10 106 av 0 lod 1 plan10 286
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3384us off=3552us -> interleaved wins=5/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 16 -74 wp 3 spd10 149 av 0 lod 1 plan10 137
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHAILAP 2 t10 108 unstick 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3504us off=3344us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 3 -55 wp 0 spd10 212 av 0 lod 1 plan10 240
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: INTERLEAVE auto on=3359us off=3546us -> interleaved wins=5/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 16 -24 wp 1 spd10 173 av 0 lod 1 plan10 250
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3376us off=3514us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 46 -31 wp 2 spd10 117 av 0 lod 1 plan10 289
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3533us off=3395us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 48 -63 wp 2 spd10 159 av 0 lod 1 plan10 130
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 31 -76 wp 3 spd10 158 av 0 lod 1 plan10 225
+LOG: INTERLEAVE auto on=3598us off=3526us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHAILAP 2 t10 108 unstick 0
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 4 -70 wp 0 spd10 141 av 0 lod 1 plan10 297
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3390us off=3573us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 5 -33 wp 1 spd10 168 av 0 lod 1 plan10 302
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3493us off=3339us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 36 -26 wp 1 spd10 158 av 0 lod 1 plan10 147
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: INTERLEAVE auto on=3357us off=3508us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 48 -48 wp 2 spd10 168 av 0 lod 1 plan10 220
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3366us off=3536us -> interleaved wins=5/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 43 -74 wp 3 spd10 123 av 0 lod 1 plan10 276
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3359us off=3380us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 3 3 3 3 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 13 -74 wp 3 spd10 120 av 0 lod 1 plan10 107
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHAILAP 2 t10 108 unstick 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: INTERLEAVE auto on=3582us off=3614us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 4 -49 wp 0 spd10 224 av 0 lod 1 plan10 210
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 21 -23 wp 1 spd10 180 av 0 lod 1 plan10 232
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3625us off=3537us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 47 -35 wp 2 spd10 134 av 0 lod 1 plan10 277
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3351us off=3400us -> plain wins=4/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 47 -67 wp 2 spd10 110 av 0 lod 1 plan10 98
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3525us off=3363us -> plain wins=0/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 26 -75 wp 3 spd10 173 av 0 lod 1 plan10 200
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEHAILAP 2 t10 108 unstick 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3466us off=3651us -> plain wins=4/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 3 -66 wp 0 spd10 160 av 0 lod 1 plan10 284
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3428us off=3423us -> plain wins=4/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 8 -29 wp 1 spd10 174 av 0 lod 1 plan10 282
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3568us off=3408us -> plain wins=1/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 40 -27 wp 1 spd10 132 av 0 lod 1 plan10 119
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 48 -52 wp 2 spd10 185 av 0 lod 1 plan10 207
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3644us off=3659us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 39 -76 wp 3 spd10 140 av 0 lod 1 plan10 263
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3361us off=3362us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHAILAP 2 t10 108 unstick 0
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 10 -74 wp 0 spd10 109 av 0 lod 1 plan10 296
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3505us off=3403us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 4 -43 wp 0 spd10 189 av 0 lod 1 plan10 176
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3339us off=3681us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 26 -23 wp 1 spd10 192 av 0 lod 1 plan10 209
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3408us off=3408us -> plain wins=1/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 48 -39 wp 2 spd10 140 av 0 lod 1 plan10 262
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3540us off=3350us -> plain wins=0/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 47 -70 wp 3 spd10 104 av 0 lod 1 plan10 292
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 21 -74 wp 3 spd10 178 av 0 lod 1 plan10 170
+LOG: INTERLEAVE auto on=3602us off=3491us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHAILAP 2 t10 108 unstick 0
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 3 -61 wp 0 spd10 187 av 0 lod 1 plan10 264
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3434us off=3603us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 12 -26 wp 1 spd10 174 av 0 lod 1 plan10 264
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3454us off=3410us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 44 -29 wp 2 spd10 130 av 0 lod 1 plan10 297
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: INTERLEAVE auto on=3378us off=3552us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 48 -58 wp 2 spd10 196 av 0 lod 1 plan10 187
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3394us off=3555us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 35 -76 wp 3 spd10 145 av 0 lod 1 plan10 244
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHAILAP 2 t10 108 unstick 0
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3460us off=3467us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 6 -72 wp 0 spd10 114 av 0 lod 1 plan10 295
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 4 -38 wp 0 spd10 159 av 0 lod 1 plan10 146
+LOG: INTERLEAVE auto on=3636us off=3511us -> plain wins=4/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 32 -24 wp 1 spd10 188 av 0 lod 1 plan10 176
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3372us off=3558us -> plain wins=4/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 48 -43 wp 2 spd10 154 av 0 lod 1 plan10 241
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3540us off=3405us -> plain wins=1/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 45 -72 wp 3 spd10 108 av 0 lod 1 plan10 285
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: INTERLEAVE auto on=3369us off=3553us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 16 -74 wp 3 spd10 149 av 0 lod 1 plan10 134
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHAILAP 2 t10 108 unstick 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3397us off=3511us -> plain wins=4/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 3 -55 wp 0 spd10 214 av 0 lod 1 plan10 238
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3352us off=3350us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 16 -24 wp 1 spd10 173 av 0 lod 1 plan10 249
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: INTERLEAVE auto on=3509us off=3541us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 46 -32 wp 2 spd10 118 av 0 lod 1 plan10 288
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 48 -64 wp 2 spd10 150 av 0 lod 1 plan10 118
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3642us off=3533us -> plain wins=4/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 31 -76 wp 3 spd10 159 av 0 lod 1 plan10 223
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3400us off=3383us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHAILAP 2 t10 108 unstick 0
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 1 1 1 1 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 4 -70 wp 0 spd10 145 av 0 lod 1 plan10 296
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3607us off=3448us -> plain wins=1/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 5 -33 wp 1 spd10 167 av 0 lod 1 plan10 302
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3318us off=3631us -> plain wins=4/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 37 -26 wp 1 spd10 157 av 0 lod 1 plan10 144
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3374us off=3385us -> plain wins=1/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 48 -48 wp 2 spd10 168 av 0 lod 1 plan10 219
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3504us off=3385us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 43 -74 wp 3 spd10 125 av 0 lod 1 plan10 275
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 12 -74 wp 3 spd10 115 av 0 lod 1 plan10 105
+LOG: VEHAILAP 2 t10 108 unstick 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3777us off=3644us -> plain wins=4/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 4 -48 wp 0 spd10 221 av 0 lod 1 plan10 207
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3425us off=3429us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 21 -23 wp 1 spd10 181 av 0 lod 1 plan10 230
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3493us off=3387us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 48 -35 wp 2 spd10 135 av 0 lod 1 plan10 276
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3364us off=3686us -> plain wins=4/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 47 -67 wp 2 spd10 110 av 0 lod 1 plan10 98
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3350us off=3405us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 26 -75 wp 3 spd10 174 av 0 lod 1 plan10 198
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAILAP 2 t10 108 unstick 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3484us off=3416us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 3 -66 wp 0 spd10 163 av 0 lod 1 plan10 283
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 8 -29 wp 1 spd10 174 av 0 lod 1 plan10 282
+LOG: INTERLEAVE auto on=3633us off=3527us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 40 -27 wp 1 spd10 132 av 0 lod 1 plan10 119
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3414us off=3494us -> interleaved wins=5/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 48 -53 wp 2 spd10 186 av 0 lod 1 plan10 205
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3545us off=3353us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 39 -76 wp 3 spd10 141 av 0 lod 1 plan10 262
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: INTERLEAVE auto on=3337us off=3507us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHAILAP 2 t10 108 unstick 0
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 9 -74 wp 0 spd10 109 av 0 lod 1 plan10 296
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3411us off=3611us -> interleaved wins=5/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 4 -43 wp 0 spd10 185 av 0 lod 1 plan10 173
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3531us off=3390us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 26 -23 wp 1 spd10 192 av 0 lod 1 plan10 207
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 48 -39 wp 2 spd10 139 av 0 lod 1 plan10 261
+LOG: INTERLEAVE auto on=3639us off=3513us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 47 -70 wp 3 spd10 102 av 0 lod 1 plan10 292
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3369us off=3514us -> plain wins=4/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 21 -74 wp 3 spd10 179 av 0 lod 1 plan10 167
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3521us off=3336us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHAILAP 2 t10 108 unstick 0
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 3 -61 wp 0 spd10 188 av 0 lod 1 plan10 264
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: INTERLEAVE auto on=3388us off=3573us -> plain wins=3/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 12 -26 wp 1 spd10 173 av 0 lod 1 plan10 265
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3358us off=3597us -> plain wins=4/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 43 -29 wp 2 spd10 129 av 0 lod 1 plan10 297
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3410us off=3442us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 48 -58 wp 2 spd10 197 av 0 lod 1 plan10 189
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: INTERLEAVE auto on=3515us off=3525us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 35 -76 wp 3 spd10 145 av 0 lod 1 plan10 245
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHAILAP 2 t10 108 unstick 0
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 6 -72 wp 0 spd10 118 av 0 lod 1 plan10 294
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3638us off=3546us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 4 -37 wp 0 spd10 160 av 0 lod 1 plan10 146
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3378us off=3390us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 32 -24 wp 1 spd10 188 av 0 lod 1 plan10 175
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 807 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 1 lat10 0 yaw 0 gear 0 rpm 862 slip10 0 nos10 10 cam 0 pitch 1440 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=3514us off=3415us -> plain wins=2/8 heavy=1 drawn=25 blendAt=-1
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 0 0 0 0
+LOG: VEHAI 1 pos -16 -31 wp 1 spd10 0 av 0 lod 1 plan10 252
+LOG: VEHAI 2 pos 48 -43 wp 2 spd10 155 av 0 lod 1 plan10 240
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 820 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60
+LOG: VEH pos 0 148 spd10 0 lat10 0 yaw 0 gear 0 rpm 809 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60

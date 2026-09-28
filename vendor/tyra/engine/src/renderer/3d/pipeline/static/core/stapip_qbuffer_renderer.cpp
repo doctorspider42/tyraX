@@ -1,3 +1,4 @@
+#include "renderer/3d/pipeline/static/core/stapip_spot_bounds.hpp"
 /*
 # _____        ____   ___
 #   |     \/   ____| |___|
@@ -1286,7 +1287,13 @@ void StaPipQBufferRenderer::sendObjectData(
   bool spotActive = false;
   if (!bag->lighting) {
     const auto& light = bagLight ? *bagLight : rendererCore->spot;
-    const auto meshSpot = buildSpotForBag(light, bag->info->model);
+    auto meshSpot = buildSpotForBag(light, bag->info->model);
+    // Modified by TyraX: selection is unchanged. Skip the stock lighting
+    // loop only when the selected light contributes zero to every vertex.
+    // Custom VU stages retain their light/uniform contract even outside it.
+    if (meshSpot.enabled && bagLightBounds && !repository.hasAnyOverride() &&
+        stapipSpotHasNoInfluence(meshSpot, *bagLightBounds))
+      meshSpot.enabled = false;
     clipper.setSpot(meshSpot);
     spotActive = meshSpot.enabled;
 

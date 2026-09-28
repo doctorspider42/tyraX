@@ -579,7 +579,13 @@ class StaPipQBufferRenderer {
   // Modified by TyraX: the dynamic light this bag renders with (picked per
   // bag by StaPipCore::render from the flashlight + scene lights). Null =
   // fall back to the global flashlight state.
-  void setBagLight(const RendererCoreSpotLight* light) { bagLight = light; }
+  // Modified by TyraX: bounds are borrowed only through sendObjectData, never
+  // retained by DMA. Unknown bounds preserve the original lit path.
+  void setBagLight(const RendererCoreSpotLight* light,
+                   const CoreBBox* bounds = nullptr) {
+    bagLight = light;
+    bagLightBounds = bounds;
+  }
 
   void setMaxVertCount(const u32& count);
 
@@ -916,6 +922,7 @@ class StaPipQBufferRenderer {
   float clipNearZ = 0.0F, clipFarZ = 0.0F;
   // Modified by TyraX: per-bag dynamic light (see setBagLight).
   const RendererCoreSpotLight* bagLight = nullptr;
+  const CoreBBox* bagLightBounds = nullptr;  // Modified by TyraX: local bounds
   // Modified by TyraX: one-shot VU1 clip-block upload decision.
   bool bagMayClip = true;
   // Modified by TyraX: opt-in routing/VU1 back-pressure telemetry.

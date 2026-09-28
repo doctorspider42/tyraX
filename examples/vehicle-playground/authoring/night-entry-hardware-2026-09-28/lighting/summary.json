@@ -1,0 +1,44 @@
+{
+  "production": {
+    "control": {
+      "work_median_ms": 21.045549,
+      "work_p95_ms": 22.392096,
+      "work_max_ms": 23.650173999999996,
+      "over_20ms": 240,
+      "samples": 240,
+      "update_ms": 1.0525785,
+      "submit_ms": 18.8295155,
+      "finish_ms": 1.1432495,
+      "vif_wait_included_ms": 5.970019499999999,
+      "triangles": 46096.0,
+      "fps": 25.000004
+    },
+    "fixed": {
+      "work_median_ms": 20.220384499999998,
+      "work_p95_ms": 21.498094000000002,
+      "work_max_ms": 22.094774,
+      "over_20ms": 199,
+      "samples": 240,
+      "update_ms": 1.0399645,
+      "submit_ms": 18.035546,
+      "finish_ms": 1.1422560000000002,
+      "vif_wait_included_ms": 4.924879000000001,
+      "triangles": 46096.0,
+      "fps": 26.922026
+    },
+    "repeat": {
+      "work_median_ms": 21.0943995,
+      "work_p95_ms": 22.21125,
+      "work_max_ms": 23.502469,
+      "over_20ms": 240,
+      "samples": 240,
+      "update_ms": 1.048438,
+      "submit_ms": 18.8823685,
+      "finish_ms": 1.1424794999999999,
+      "vif_wait_included_ms": 5.971395,
+      "triangles": 46096.0,
+      "fps": 24.999998
+    }
+  },
+  "assets_unchanged": 156
+}

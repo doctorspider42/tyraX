@@ -1,0 +1,16 @@
+{
+  "elf_sha256": "ce7de72fe835876a52341d4771401fb056b5c4a9679fd28825225116055039d2",
+  "game_terrain_compilation": "-O1 (other copied game objects -O3)",
+  "engine_compilation": "-O3",
+  "timings_valid": false,
+  "modes": {
+    "lighting": 10,
+    "stationary_scenario": 0,
+    "moving_scenario": 3
+  },
+  "oracle_uses": "shipping stapip_spot_bounds.hpp",
+  "boxes": 8192,
+  "grid_points_per_box": 125,
+  "false_rejections": 0,
+  "forced_bad_detected": 2961
+}

@@ -1365,3 +1365,14 @@ Three things this round is worth remembering for:
   it (`walkSpeed`/`lookSpeed` 0) at a chosen vantage makes every boot render the
   same frame, which is what made a 0.9 ms effect readable at all. Restore the
   object afterwards — it is a committed example.
+
+
+## Night chase lighting eligibility (2026-09-28)
+
+The [lighting and geometry census](authoring/night-entry-hardware-2026-09-28/lighting/README.md)
+separates EE selection/transform costs from a light slot that computes zero
+on an entire bag. The engine now rejects that zero contribution with
+conservative local bounds while retaining lamps, models, reflections and
+shadow effects. The experimental full light cache was slower and is absent
+from production. The report preserves hardware A/B data, oracle checks,
+nearby vehicle tiers, and the remaining PAL budget work.

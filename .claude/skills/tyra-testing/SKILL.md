@@ -730,6 +730,14 @@ Notes:
   `%USERPROFILE%\Documents` — or `$XDG_CONFIG_HOME/PCSX2/inis` and the flatpak
   sandbox (`~/.var/app/net.pcsx2.PCSX2/config/PCSX2/inis`) on Linux. Logs and
   screenshots live next to it (`logs/emulog.txt`, `snaps/`).
+- **Normalize Windows PCSX2 CLI paths with `[IO.Path]::GetFullPath()`.** In
+  2.9.84, a forward-slash `C:/...` supplied to `-elf` reported that an existing
+  ELF did not exist; the same file booted with `C:\...`. Normalize `-logfile`
+  too. This does not apply to the game's PS2 `host:/` paths. For an isolated
+  `-datapath <parent>` on this Windows build, settings were created under
+  `<parent>/PCSX2/inis`, not `<parent>/inis`; inspect the actual created path
+  before diagnosing a first-run wizard. Keep isolated settings separate from
+  the user's configuration.
 - Missing `HostFs` = "Failed to load ...png" assert on the first fopen. The
   editor enforces it, but PCSX2 rewrites its ini on exit — if a game asserts on
   asset loading, check HostFs first. (The launcher also configures PCSX2's

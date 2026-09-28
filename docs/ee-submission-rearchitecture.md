@@ -940,10 +940,11 @@ The GPU-only table above describes the older Motor District sweep, not the
 ordinary chase camera immediately after entering a parked vehicle. Do not
 use its 2.5–3.5 ms overlap estimate as a bound for this newer view. A fresh
 GPU-hold/segment census in the actual chase view is required before assigning
-a numerical TyraX2 gain. The current [physical PS2 acceptance report](../examples/vehicle-playground/authoring/night-entry-hardware-2026-09-28/fix/README.md)
-records 21.232 ms production work, still above PAL's 20 ms budget. Reaching
-60 Hz would instead require 16.667 ms plus headroom: about 4.57 ms off this
-median, with the tail addressed separately.
+a numerical TyraX2 gain. The current [physical PS2 lighting acceptance report](../examples/vehicle-playground/authoring/night-entry-hardware-2026-09-28/lighting/README.md)
+records 20.220 ms fixed production work, versus 21.046–21.094 ms in its two
+controls. It still exceeds PAL's 20 ms budget in 199/240 warm frames; p95 is
+21.498 ms. Reaching 60 Hz would require 16.667 ms plus headroom: about 3.55 ms
+off this median, with the tail addressed separately.
 
 There is no evidence that this scene exceeds a fixed PS2 polygon limit.
 Entering changes the camera: 64 → 128 StaPip calls and 22,425 → 46,096
@@ -961,12 +962,32 @@ faster simulation also reduces update work, so these total deltas are not
 pure VU or GS clocks. Neither quality reduction ships. Physics for the three
 vehicles is about 0.61 ms; it is not the missing 4–5 ms.
 
+The [follow-up lighting/census investigation](../examples/vehicle-playground/authoring/night-entry-hardware-2026-09-28/lighting/README.md)
+measures approximately 0.47 ms selecting lights, 0.28 ms transforming the light to object space, and only 0.014 ms registering eight lamps.
+Those diagnostic brackets are included in frame work, not additional costs.
+Full transformed-light caching regresses even with 65 warm hits and no misses.
+The accepted direction is conservative zero-influence rejection in local
+shader space: 36 bags, 20,256 input vertices in the stationary hardware census,
+including material classes that already do not execute the spot macro.
+Therefore that vertex count is not a VU-cycle saving estimate. The diagnostic
+arm removes about 0.78 ms versus its two controls, largely reflected in less
+VIF backpressure, without deleting geometry or an authored effect.
+
+The count-only chase inventory is now explicit: 32 road bags, 14 terrain bags,
+14 static batches, 52 object/wheel bags, 11 effect bags and four surviving sky
+bags. Roads + terrain are about 39% of their input vertex total; the three
+nearby cars all show far tier 0. These are input counts, not unique surface
+triangles or a measurement of each producer's GPU time. The narrower AABB
+proof is an existing-program eligibility improvement; it does not quantify
+what a TyraX2 frame pipeline would gain.
+
 Useful next work, in order:
 
-1. **Lighting setup and shader eligibility.** Measure repeated picks and
-   transforms for unchanged receivers, and light a bag only when an actual
-   light can affect it. Preserve invalidation for moving lights, matrices,
-   changed intensity and scene generations. Static non-switchable lamps can
+1. **Lighting setup and shader eligibility.** Price the zero-influence test
+   per package inside a partially lit bag, including new option/state traffic.
+   Selection still costs about 0.47 ms; any reuse proposal must beat its value
+   comparisons and memory traffic in a same-ELF hardware control. Preserve
+   moving lights, matrices, changed intensity and scene generations. Static non-switchable lamps can
    be baked; flickering/switchable lamps and headlights still need a live
    path. Baking is an authoring decision and can change the image.
    The example's authored night lamps use `dynamic: true`, projected spot

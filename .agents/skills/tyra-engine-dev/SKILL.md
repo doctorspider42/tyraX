@@ -1265,6 +1265,18 @@ Rules the same evening paid for:
   pass draws that lamp projected instead). `dynLightPick = false` still means
   "no scene light at all", `spotLit = false` "no torch" - three different
   levers, do not conflate them.
+- **A selected light need not contribute to its bag.** Since 1.150.2,
+  `stapip_spot_bounds.hpp` checks the existing local AABB against the exact
+  `StaPipClipperSpot` constants, after selection/transform. Conservative
+  interval expansion retains boundary cases; unknown bounds, billboards and
+  custom overrides remain lit as before. `setBagLight(light, bounds)` borrows
+  bounds only for immediate uniform preparation, never for DMA. Do not use
+  the picker's approximate world sphere to switch off a shader: the shader's
+  object-space range, especially with nonuniform models, is the relevant one.
+  A full transformed-light cache was rejected in the same chase view:
+  65/65 warm hits still increased work 21.196 -> 21.436 ms and held 24 KiB.
+  A hit rate proves reuse, not an EE saving. Measurements and the falsified
+  rejection oracle: examples/vehicle-playground/authoring/night-entry-hardware-2026-09-28/lighting/README.md.
 - **DIMX entries are SIGNED 3-bit; keep them non-negative.** A dither
   offset below zero makes the 16-bit blender store `v - 1` when a pass adds
   zero to a pixel (`(v << 3 + dimx) >> 3`), so every additive quad - corona,

@@ -83,6 +83,17 @@ already hands a `spotLit = false` bag a deliberately inert light (`kNoSpotLight`
 — black, range 0) and `RendererCore::pickDynLight` can decline as well; the
 programs simply computed with it and added zero.
 
+Since **1.150.2**, the static pipeline also rejects a selected light whose
+contribution is zero over the complete **object-space bag AABB**. Selection
+and its soft cone ranking are unchanged. `stapip_spot_bounds.hpp` uses the
+same transformed light constants as the VU1/EE formula: a lower bound on
+squared distance and an upper bound on the axial dot product. Expanded
+intervals and extra slack retain borderline bags on the lit path. Unknown
+bounds, billboard descriptors and custom VU overrides keep the original
+contract. No vertex, texture, reflection, lamp intensity or VU program is
+removed; the existing disabled-light path handles both VU1 and the EE clipper.
+See the [hardware lighting investigation](../examples/vehicle-playground/authoring/night-entry-hardware-2026-09-28/lighting/README.md).
+
 They branch over it now. The EE already knew the answer at the moment it built
 the packet — `StaPipClipperSpot::enabled`, the same predicate the EE clipper's
 `addSpotToColor` has always used to decide whether to bake the term into an

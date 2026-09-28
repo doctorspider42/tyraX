@@ -38,6 +38,18 @@ nor clipping drawing to one pixel is a production optimization. Retain
 the exact chase-view and first-entry gates above and target the remaining
 submission/shader/raster cost with quality preserved.
 
+The [lighting investigation and zero-influence rejection](../examples/vehicle-playground/authoring/night-entry-hardware-2026-09-28/lighting/README.md)
+now identifies 36 submitted bags whose selected light adds zero, and routes
+them through the existing unlit path without changing selection or geometry.
+The diagnostic hardware arm saves about 0.78 ms against its two controls;
+production acceptance is recorded in the linked report. A full transformed
+light cache regresses despite perfect warm hits and is not shipped.
+The chase census remains substantial: roads and terrain together account for
+about 39% of visible bag input vertices, and the nearby cars remain in their
+full authored tier. Next price per-package shader eligibility, road/terrain
+sampling and batch visibility granularity on this pose; do not lower quality
+thresholds blindly. PAL tail/headroom and a fresh GPU-hold census remain open.
+
 Keep first-entry latency as a separate acceptance gate. The
 [HUD A/B acceptance](../examples/vehicle-playground/authoring/night-entry-hardware-2026-09-28/hud-entry/README.md)
 removes 58–61 ms, but leaves about 109 ms of exact-entry work. The HUD font now

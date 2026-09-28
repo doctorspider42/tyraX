@@ -1,0 +1,119 @@
+--- /dev/null
++++ b/vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_spot_bounds.hpp
+@@ -0,0 +1,45 @@
++/*
++# Modified by TyraX: conservative object-space rejection of a dynamic light
++# whose vertex contribution is zero over the complete bag bounds.
++*/
++#pragma once
++#include <math.h>
++#include "./stapip_clipper.hpp"
++#include "renderer/core/3d/bbox/core_bbox.hpp"
++
++namespace Tyra {
++
++// Uses the SAME object-space constants as the VU1 and EE clipper formula.
++// No world-scale assumption: nonuniform models use buildSpotForBag's existing
++// transform too. An interval expansion leaves borderline bags on the lit path.
++inline bool stapipSpotHasNoInfluence(const StaPipClipperSpot& light,
++                                     const CoreBBox& bounds) {
++  if (!light.enabled) return true;
++  const Vec4& lo = bounds[0];
++  const Vec4& hi = bounds[7];
++  float low[3] = {lo.x - light.position.x, lo.y - light.position.y,
++                  lo.z - light.position.z};
++  float high[3] = {hi.x - light.position.x, hi.y - light.position.y,
++                   hi.z - light.position.z};
++  const float dir[3] = {light.direction.x, light.direction.y, light.direction.z};
++  float nearest2 = 0.0F, maxAxial = 0.0F;
++  for (unsigned i = 0; i < 3; ++i) {
++    const float margin = 0.001F * (1.0F + fabsf(low[i]) + fabsf(high[i]));
++    low[i] -= margin;
++    high[i] += margin;
++    const float d = low[i] > 0.0F ? low[i] : (high[i] < 0.0F ? -high[i] : 0.0F);
++    nearest2 += d * d;
++    maxAxial += dir[i] * (dir[i] >= 0.0F ? high[i] : low[i]);
++  }
++  // All vertices are beyond the radial falloff. Extra slack covers differing
++  // EE/VU rounding at the zero boundary; this is not a brightness threshold.
++  if (nearest2 * light.invRange2 > 1.001F) return true;
++  // Point lights encode the cone with a negative cutoff; only range rejects.
++  if (light.cosCut2 <= 0.0F) return false;
++  if (maxAxial <= 0.0F) return true;
++  // t <= maxAxial and dist2 >= nearest2 everywhere in the expanded AABB.
++  // Thus the cone numerator is nonpositive throughout a rejected box.
++  return maxAxial * maxAxial < light.cosCut2 * nearest2 * 0.999F;
++}
++
++}  // namespace Tyra
+--- a/vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp
++++ b/vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp
+@@ -579,7 +579,13 @@
+   // Modified by TyraX: the dynamic light this bag renders with (picked per
+   // bag by StaPipCore::render from the flashlight + scene lights). Null =
+   // fall back to the global flashlight state.
+-  void setBagLight(const RendererCoreSpotLight* light) { bagLight = light; }
++  // Modified by TyraX: bounds are borrowed only through sendObjectData, never
++  // retained by DMA. Unknown bounds preserve the original lit path.
++  void setBagLight(const RendererCoreSpotLight* light,
++                   const CoreBBox* bounds = nullptr) {
++    bagLight = light;
++    bagLightBounds = bounds;
++  }
+ 
+   void setMaxVertCount(const u32& count);
+ 
+@@ -916,6 +922,7 @@
+   float clipNearZ = 0.0F, clipFarZ = 0.0F;
+   // Modified by TyraX: per-bag dynamic light (see setBagLight).
+   const RendererCoreSpotLight* bagLight = nullptr;
++  const CoreBBox* bagLightBounds = nullptr;  // Modified by TyraX: local bounds
+   // Modified by TyraX: one-shot VU1 clip-block upload decision.
+   bool bagMayClip = true;
+   // Modified by TyraX: opt-in routing/VU1 back-pressure telemetry.
+--- a/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp
++++ b/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp
+@@ -874,7 +874,11 @@
+   // flashlight", so opting out needs a light OBJECT rather than a null: the
+   // one below is off and black, which the programs compute with as a no-op.
+   if (!bag->info->spotLit) bagLight = &kNoSpotLight;
+-  qbufferRenderer.setBagLight(bagLight);
++  // Modified by TyraX: test the selected light in the same local space as
++  // its shader, using the existing versioned bounds. Particle descriptors
++  // do not enclose their expanded billboard corners, so remain unfiltered.
++  qbufferRenderer.setBagLight(
++      bagLight, bbox && !bag->billboard ? bbox->getMainBBox() : nullptr);
+   TYRA_ATTRIB_ADD(prepLightTicks, attribLightStart);
+ 
+   // Modified by TyraX: the BLSS bag feed. Inert when BLSS is off (and when it
+--- a/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp
++++ b/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp
+@@ -1,3 +1,4 @@
++#include "renderer/3d/pipeline/static/core/stapip_spot_bounds.hpp"
+ /*
+ # _____        ____   ___
+ #   |     \/   ____| |___|
+@@ -37,7 +38,7 @@
+ #define Verbose(...) ((void)0)
+ #endif
+ 
+-namespace Tyra {
++namespace Tyra { bool spotBoundsAcceptanceEnabled=true;
+ 
+ static inline u32 readTelemetryTicks() {
+   u32 result;
+@@ -1286,7 +1287,13 @@
+   bool spotActive = false;
+   if (!bag->lighting) {
+     const auto& light = bagLight ? *bagLight : rendererCore->spot;
+-    const auto meshSpot = buildSpotForBag(light, bag->info->model);
++    auto meshSpot = buildSpotForBag(light, bag->info->model);
++    // Modified by TyraX: selection is unchanged. Skip the stock lighting
++    // loop only when the selected light contributes zero to every vertex.
++    // Custom VU stages retain their light/uniform contract even outside it.
++    if (spotBoundsAcceptanceEnabled && meshSpot.enabled && bagLightBounds && !repository.hasAnyOverride() &&
++        stapipSpotHasNoInfluence(meshSpot, *bagLightBounds))
++      meshSpot.enabled = false;
+     clipper.setSpot(meshSpot);
+     spotActive = meshSpot.enabled;
+ 

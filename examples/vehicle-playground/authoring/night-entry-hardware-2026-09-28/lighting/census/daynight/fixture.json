@@ -1,0 +1,10 @@
+{
+  "elf_sha256": "0356d3dc97ecf7858e70bdaa672d0192c53275b59a75ea294328aef8d3e404e6",
+  "scenario": 3,
+  "lighting_mode": 10,
+  "day_frames": [
+    360,
+    479
+  ],
+  "timings_valid": false
+}

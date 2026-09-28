@@ -1,0 +1,265 @@
+--- a/vendor/tyra/engine/src/renderer/core/renderer_core.cpp
++++ b/vendor/tyra/engine/src/renderer/core/renderer_core.cpp
+@@ -1,3 +1,8 @@
++#include "debug/light_eligibility_probe.hpp"
++#include <string.h>
++#include "debug/light_work_probe.hpp"
++#include <stdio.h>
++#include "file/file_utils.hpp"
+ /*
+ # _____        ____   ___
+ #   |     \/   ____| |___|
+@@ -243,10 +248,18 @@
+   // Modified by TyraX: a scene spot light is the point-light registry entry
+   // with the cone constants filled - the VU1 slot has carried them since the
+   // camera torch, so no program changes.
++  unsigned lwStart; asm volatile("mfc0 %0, $9" : "=r"(lwStart));
+   const int slot = addDynPointLight(color, position, range);
+   if (slot < 0) return slot;
+   auto& l = dynLights[slot];
+   l.point = false;
++  struct Prepared { bool valid=false; float input[4]; Vec4 direction; float cosine=0.0F; };
++  static Prepared prepared[DYN_LIGHTS_MAX];
++  auto& c=prepared[slot];
++  const float input[4]={direction.x,direction.y,direction.z,cutoffDegrees};
++  if((LightWorkProbe::mode&4U) && c.valid && memcmp(c.input,input,sizeof(input))==0) {
++    l.direction=c.direction; l.cosCutoff=c.cosine;
++  } else {
+   l.direction = direction;
+   const float len = Math::sqrtNonNegative(direction.x * direction.x +
+                           direction.y * direction.y +
+@@ -259,12 +272,18 @@
+   l.direction.w = 0.0F;
+   const float halfAngle = cutoffDegrees * 3.14159265F / 180.0F;
+   l.cosCutoff = cosf(halfAngle);
++
++    if(LightWorkProbe::mode&4U) { c.valid=true;memcpy(c.input,input,sizeof(input));c.direction=l.direction;c.cosine=l.cosCutoff; }
++  }
+   l.softness = softness < 1.0F ? 1.0F : softness;
++  unsigned lwEnd; asm volatile("mfc0 %0, $9" : "=r"(lwEnd));
++  ++LightWorkProbe::registerCalls; LightWorkProbe::registerTicks += lwEnd-lwStart;
+   return slot;
+ }
+ 
+ const RendererCoreSpotLight* RendererCore::pickDynLight(
+     const Vec4& worldCenter, const float& worldRadius, int skipSlot) const {
++  unsigned lwStart; asm volatile("mfc0 %0, $9" : "=r"(lwStart));
+   // Score = luminance * quadratic falloff at the sphere's NEAREST point, so
+   // a big mesh near a torch competes fairly with the camera flashlight.
+   const RendererCoreSpotLight* best = &spot;
+@@ -309,6 +328,9 @@
+       best = l;
+     }
+   }
++  unsigned lwEnd; asm volatile("mfc0 %0, $9" : "=r"(lwEnd));
++  ++LightWorkProbe::pickCalls; LightWorkProbe::pickTicks += lwEnd-lwStart;
++  if(bestScore<0.0F) ++LightWorkProbe::noCandidate;
+   return best;
+ }
+ 
+@@ -560,3 +582,40 @@
+ }
+ 
+ }  // namespace Tyra
++
++namespace Tyra { namespace LightWorkProbe {
++unsigned mode=0, frame=0, producer=0;
++unsigned pickCalls=0,pickTicks=0,noCandidate=0,spotCalls=0,spotTicks=0,cacheHits=0,cacheMisses=0,mismatches=0,registerCalls=0,registerTicks=0;
++static unsigned rows[960][11]={};
++struct Bag { unsigned producer,count,stripped,lit,textured,pick,spot,visible,bag; float x,y,z; unsigned model; };
++static Bag bags[256]; static unsigned bagCount=0;
++void begin(unsigned f) { frame=f; beginEligibility(); producer=0; pickCalls=pickTicks=noCandidate=spotCalls=spotTicks=cacheHits=cacheMisses=mismatches=registerCalls=registerTicks=0; }
++void end() { endEligibility(); if(frame>=960)return; unsigned v[]={pickCalls,pickTicks,noCandidate,spotCalls,spotTicks,cacheHits,cacheMisses,mismatches,registerCalls,registerTicks,mode}; for(unsigned i=0;i<11;++i)rows[frame][i]=v[i]; }
++void bag(unsigned count,bool stripped,bool lit,bool textured,bool pick,bool spot,const float* model,unsigned bag) {
++ if(frame!=600||bagCount>=256)return; bags[bagCount++]={producer,count,(unsigned)stripped,(unsigned)lit,(unsigned)textured,(unsigned)pick,(unsigned)spot,0,bag,model[12],model[13],model[14],(unsigned)model};
++}
++void visible() { if(frame==600 && bagCount>0 && bagCount<=256) bags[bagCount-1].visible=1; }
++void save() {
++ saveEligibility();
++ FILE* f=fopen(FileUtils::fromCwd("light-work.csv").c_str(),"w");
++ if(f){fprintf(f,"frame,pick_calls,pick_ticks,no_candidate,spot_calls,spot_ticks,cache_hits,cache_misses,mismatches,register_calls,register_ticks,mode\n");for(unsigned j=0;j<960;++j){fprintf(f,"%u",j);for(unsigned i=0;i<11;++i)fprintf(f,",%u",rows[j][i]);fprintf(f,"\n");}fclose(f);}
++ f=fopen(FileUtils::fromCwd("bag-census.csv").c_str(),"w");if(f){fprintf(f,"bag,producer,vertices,stripped,lit,textured,pick,spot,visible,bag_ptr,x,y,z,model\n");for(unsigned i=0;i<bagCount;++i){auto& b=bags[i];fprintf(f,"%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%.6f,%.6f,%.6f,%u\n",i,b.producer,b.count,b.stripped,b.lit,b.textured,b.pick,b.spot,b.visible,b.bag,b.x,b.y,b.z,b.model);}fclose(f);}
++}
++}}
++
++namespace Tyra { namespace LightWorkProbe {
++void validateRegistry(RendererCore& core) {
++ unsigned saved=mode, errors=0,cases=0;
++ for(unsigned i=0;i<128;++i) {
++  RendererCoreSpotLight refs[8]; core.clearDynLights();mode=0;
++  for(unsigned j=0;j<8;++j) { core.addDynSpotLight(Color(64.0F+i,90.0F,100.0F),Vec4((float)j,4.0F,2.0F),Vec4((float)(i%5)*0.2F,-1.0F,(float)j*0.1F),12.0F+i%3,35.0F+j+(i%7),2.0F); refs[j]=core.dynLights[j]; }
++  core.clearDynLights();mode=4;
++  for(unsigned j=0;j<8;++j) { core.addDynSpotLight(Color(64.0F+i,90.0F,100.0F),Vec4((float)j,4.0F,2.0F),Vec4((float)(i%5)*0.2F,-1.0F,(float)j*0.1F),12.0F+i%3,35.0F+j+(i%7),2.0F);auto& a=refs[j];auto& b=core.dynLights[j];++cases;if(a.direction.x!=b.direction.x||a.direction.y!=b.direction.y||a.direction.z!=b.direction.z||a.cosCutoff!=b.cosCutoff)++errors; }
++  // An identical registration must restore the cached canonical direction
++  // even if a client directly changed the public registry between frames.
++  core.clearDynLights();
++  for(unsigned j=0;j<8;++j) { core.dynLights[j].direction=Vec4(9.0F,9.0F,9.0F);core.dynLights[j].cosCutoff=0.0F;core.addDynSpotLight(Color(64.0F+i,90.0F,100.0F),Vec4((float)j,4.0F,2.0F),Vec4((float)(i%5)*0.2F,-1.0F,(float)j*0.1F),12.0F+i%3,35.0F+j+(i%7),2.0F);auto& a=refs[j];auto& b=core.dynLights[j];++cases;if(a.direction.x!=b.direction.x||a.direction.y!=b.direction.y||a.direction.z!=b.direction.z||a.cosCutoff!=b.cosCutoff)++errors; }
++ }
++ core.clearDynLights();mode=saved;TYRA_LOG("LIGHTREG validate cases=",cases," errors=",errors);
++}
++}}
+--- a/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp
++++ b/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp
+@@ -1,3 +1,5 @@
++#include "debug/light_eligibility_probe.hpp"
++#include "debug/light_work_probe.hpp"
+ /*
+ # _____        ____   ___
+ #   |     \/   ____| |___|
+@@ -506,6 +508,7 @@
+ }
+ 
+ void StaPipCore::render(StaPipBag* bag) {
++  LightWorkProbe::bag(bag->count,bag->stripped,bag->lighting!=nullptr,bag->texture!=nullptr,bag->info->dynLightPick,bag->info->spotLit,bag->info->model->data,(unsigned)bag);
+   HardwareTrace::Scope traceBag("Static_bag");
+   TYRA_ATTRIB_MARK(attribRenderStart);
+   TYRA_ATTRIB_INC(renderCalls);
+@@ -818,6 +821,7 @@
+   qbufferRenderer.clearLastProgramName();
+   TYRA_ATTRIB_ADD(prepProgramTicks, attribProgramStart);
+ 
++  LightWorkProbe::visible();
+   TYRA_ATTRIB_MARK(attribLightStart);
+   // Modified by TyraX: pick this bag's dynamic light (flashlight vs scene
+   // point lights - the color programs have ONE light slot per mesh). The
+@@ -874,6 +878,8 @@
+   // flashlight", so opting out needs a light OBJECT rather than a null: the
+   // one below is off and black, which the programs compute with as a no-op.
+   if (!bag->info->spotLit) bagLight = &kNoSpotLight;
++  LightWorkProbe::boundsKnown=bbox && !bag->billboard;
++  if(LightWorkProbe::boundsKnown) { auto* box=bbox->getMainBBox();const auto& lo=(*box)[0];const auto& hi=(*box)[7];LightWorkProbe::boundsLow[0]=lo.x;LightWorkProbe::boundsLow[1]=lo.y;LightWorkProbe::boundsLow[2]=lo.z;LightWorkProbe::boundsHigh[0]=hi.x;LightWorkProbe::boundsHigh[1]=hi.y;LightWorkProbe::boundsHigh[2]=hi.z; }
+   qbufferRenderer.setBagLight(bagLight);
+   TYRA_ATTRIB_ADD(prepLightTicks, attribLightStart);
+ 
+--- a/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp
++++ b/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp
+@@ -1,3 +1,7 @@
++#include "debug/light_eligibility_probe.hpp"
++#include <stdio.h>
++#include "file/file_utils.hpp"
++#include "debug/light_work_probe.hpp"
+ /*
+ # _____        ____   ___
+ #   |     \/   ____| |___|
+@@ -1096,6 +1100,39 @@
+   out.invSoft = coneBase > 1e-10F ? spot.softness / coneBase : 0.0F;
+   return out;
+ }
++// Prototype: bounded exact-value cache; no retained client pointer dereferences.
++struct LightSpaceCacheEntry { bool valid=false; float model[16]; float geometry[10]; StaPipClipperSpot result; };
++static LightSpaceCacheEntry lightSpaceCache[128];
++StaPipClipperSpot cachedSpotForBag(const RendererCoreSpotLight& spot,const M4x4* model) {
++ if(!spot.enabled) return buildSpotForBag(spot,model);
++ const float key[10]={spot.position.x,spot.position.y,spot.position.z,spot.direction.x,spot.direction.y,spot.direction.z,spot.range,spot.cosCutoff,spot.softness,spot.point?1.0F:0.0F};
++ const unsigned ptr=(unsigned)model; auto& entry=lightSpaceCache[((ptr>>4)^(ptr>>12)^((unsigned)&spot>>4))&127];
++ StaPipClipperSpot out;
++ if(entry.valid && memcmp(entry.model,model->data,sizeof(entry.model))==0 && memcmp(entry.geometry,key,sizeof(key))==0) { ++LightWorkProbe::cacheHits; out=entry.result; }
++ else { ++LightWorkProbe::cacheMisses; out=buildSpotForBag(spot,model); entry.valid=true; memcpy(entry.model,model->data,sizeof(entry.model)); memcpy(entry.geometry,key,sizeof(key)); entry.result=out; }
++ // Intensity/color may flicker without invalidating the geometric transform.
++ out.color[0]=spot.color.r;out.color[1]=spot.color.g;out.color[2]=spot.color.b;
++ return out;
++}
++bool sameSpot(const StaPipClipperSpot& a,const StaPipClipperSpot& b) {
++ return a.enabled==b.enabled && (!a.enabled || (a.position.x==b.position.x && a.position.y==b.position.y && a.position.z==b.position.z && a.position.w==b.position.w && a.direction.x==b.direction.x && a.direction.y==b.direction.y && a.direction.z==b.direction.z && a.direction.w==b.direction.w && memcmp(a.color,b.color,12)==0 && a.invRange2==b.invRange2 && a.cosCut2==b.cosCut2 && a.invSoft==b.invSoft));
++}
++
++bool noSpotInfluence(const StaPipClipperSpot& light,const float* lo,const float* hi) {
++ if(!light.enabled)return true;
++ float low[3]={lo[0]-light.position.x,lo[1]-light.position.y,lo[2]-light.position.z};
++ float high[3]={hi[0]-light.position.x,hi[1]-light.position.y,hi[2]-light.position.z};
++ const float dir[3]={light.direction.x,light.direction.y,light.direction.z};
++ // Expand each interval to stay conservative under EE/VU float differences.
++ float nearest2=0.0F,maxAxial=0.0F;
++ for(unsigned i=0;i<3;++i){const float margin=0.001F*(1.0F+fabsf(low[i])+fabsf(high[i]));low[i]-=margin;high[i]+=margin;const float d=low[i]>0.0F?low[i]:(high[i]<0.0F?-high[i]:0.0F);nearest2+=d*d;maxAxial+=dir[i]*(dir[i]>=0.0F?high[i]:low[i]);}
++ if(nearest2*light.invRange2>1.001F)return true;
++ if(light.cosCut2<=0.0F)return false;
++ if(maxAxial<=0.0F)return true;
++ return maxAxial*maxAxial < light.cosCut2*nearest2*0.999F;
++}
++bool vertexGetsSpot(const Vec4& v,const StaPipClipperSpot& l){const float dx=v.x-l.position.x,dy=v.y-l.position.y,dz=v.z-l.position.z;const float d2=dx*dx+dy*dy+dz*dz;float t=dx*l.direction.x+dy*l.direction.y+dz*l.direction.z;if(t<0.0F)t=0.0F;return ((t*t-l.cosCut2*d2)*l.invSoft)>0.0F && (1.0F-d2*l.invRange2)>0.0F;}
++
+ }  // namespace
+ 
+ // Modified by TyraX: the VU1 clipping uniform chain - one quadword of
+@@ -1286,7 +1323,20 @@
+   bool spotActive = false;
+   if (!bag->lighting) {
+     const auto& light = bagLight ? *bagLight : rendererCore->spot;
+-    const auto meshSpot = buildSpotForBag(light, bag->info->model);
++    unsigned lwStart; asm volatile("mfc0 %0, $9" : "=r"(lwStart));
++    auto meshSpot = (LightWorkProbe::mode & 1U) ? cachedSpotForBag(light,bag->info->model) : buildSpotForBag(light,bag->info->model);
++    if((LightWorkProbe::mode & 2U) && !sameSpot(meshSpot,buildSpotForBag(light,bag->info->model))) ++LightWorkProbe::mismatches;
++    unsigned lwEnd; asm volatile("mfc0 %0, $9" : "=r"(lwEnd));
++    ++LightWorkProbe::spotCalls; LightWorkProbe::spotTicks += lwEnd-lwStart;
++    // Unknown bounds and custom stages keep their existing light contract.
++    if(meshSpot.enabled && LightWorkProbe::boundsKnown && !repository.hasAnyOverride() && ((LightWorkProbe::mode&8U) || LightWorkProbe::frame==600)) {
++      const bool reject=noSpotInfluence(meshSpot,LightWorkProbe::boundsLow,LightWorkProbe::boundsHigh);
++      extern void recordEligibility(unsigned,unsigned,bool);
++      unsigned errors=0;
++      if(reject && ((LightWorkProbe::mode&2U) || LightWorkProbe::frame==600)) for(unsigned i=0;i<bag->count;++i)if(vertexGetsSpot(bag->vertices[i],meshSpot))++errors;
++      recordEligibility((unsigned)bag,reject?bag->count:0,errors!=0);
++      if(reject && (LightWorkProbe::mode&8U))meshSpot.enabled=false;
++    }
+     clipper.setSpot(meshSpot);
+     spotActive = meshSpot.enabled;
+ 
+@@ -3105,3 +3155,34 @@
+ }
+ 
+ }  // namespace Tyra
++
++namespace Tyra { namespace LightWorkProbe {
++void validate() {
++ unsigned cases=0,errors=0; static M4x4 models[160]; RendererCoreSpotLight light;
++ for(unsigned i=0;i<2048;++i) {
++   M4x4& model=models[i%160]; model.identity(); model.data[0]=0.8F+(i%7)*0.1F;model.data[5]=1.1F;model.data[10]=0.9F;model.data[12]=(i%23)*0.25F;
++   light.enabled=(i%11)!=0;light.point=(i%3)==0;light.position=Vec4((i%17)*0.5F,4.0F,-3.0F);light.direction=Vec4(0.0F,-1.0F,0.2F);light.range=10.0F+(i%5);light.cosCutoff=0.7F+(i%4)*0.02F;light.softness=1.0F+(i%5);light.color=Color(64.0F+(i%19),128.0F,80.0F);
++   for(unsigned j=0;j<3;++j) { if(j==2)light.color.r+=7.0F; ++cases; if(!sameSpot(cachedSpotForBag(light,&model),buildSpotForBag(light,&model)))++errors; }
++ }
++ TYRA_LOG("LIGHTCACHE validate cases=",cases," errors=",errors," bytes=",sizeof(lightSpaceCache));
++}
++}}
++
++namespace Tyra { namespace LightWorkProbe {
++bool boundsKnown=false;float boundsLow[3]={},boundsHigh[3]={};
++static unsigned rejects=0,rejectVerts=0,rejectErrors=0;
++static unsigned eligibility[960][3]={};
++struct EligibilityBag {unsigned bag,vertices,error;};static EligibilityBag eligibilityBags[256];static unsigned eligibilityCount=0;
++void beginEligibility(){rejects=rejectVerts=rejectErrors=0;boundsKnown=false;}
++void endEligibility(){if(frame<960){eligibility[frame][0]=rejects;eligibility[frame][1]=rejectVerts;eligibility[frame][2]=rejectErrors;}}
++void saveEligibility(){
++ FILE* f=fopen(FileUtils::fromCwd("light-eligibility.csv").c_str(),"w");if(f){fprintf(f,"frame,rejects,vertices,errors\n");for(unsigned i=0;i<960;++i)fprintf(f,"%u,%u,%u,%u\n",i,eligibility[i][0],eligibility[i][1],eligibility[i][2]);fclose(f);}
++ f=fopen(FileUtils::fromCwd("eligibility-bags.csv").c_str(),"w");if(f){fprintf(f,"bag_ptr,rejected_vertices,error\n");for(unsigned i=0;i<eligibilityCount;++i)fprintf(f,"%u,%u,%u\n",eligibilityBags[i].bag,eligibilityBags[i].vertices,eligibilityBags[i].error);fclose(f);}
++}
++}
++void recordEligibility(unsigned bag,unsigned vertices,bool error) {
++ if(vertices){++LightWorkProbe::rejects;LightWorkProbe::rejectVerts+=vertices;}if(error)++LightWorkProbe::rejectErrors;
++ if(LightWorkProbe::frame==600 && LightWorkProbe::eligibilityCount<256)LightWorkProbe::eligibilityBags[LightWorkProbe::eligibilityCount++]={bag,vertices,(unsigned)error};
++}
++
++} // Tyra
+--- /dev/null
++++ b/vendor/tyra/engine/inc/debug/light_work_probe.hpp
+@@ -0,0 +1,13 @@
++#pragma once
++#include <tamtypes.h>
++namespace Tyra { class RendererCore; namespace LightWorkProbe {
++extern unsigned mode, frame, producer;
++extern unsigned pickCalls, pickTicks, noCandidate, spotCalls, spotTicks, cacheHits, cacheMisses, mismatches, registerCalls, registerTicks;
++void begin(unsigned f);
++void end();
++void save();
++void validate();
++void validateRegistry(RendererCore& core);
++void visible();
++void bag(unsigned count, bool stripped, bool lit, bool textured, bool pick, bool spot, const float* model, unsigned bag);
++}}
+--- /dev/null
++++ b/vendor/tyra/engine/inc/debug/light_eligibility_probe.hpp
+@@ -0,0 +1,6 @@
++#pragma once
++namespace Tyra { namespace LightWorkProbe {
++extern bool boundsKnown;
++extern float boundsLow[3],boundsHigh[3];
++void beginEligibility(); void endEligibility(); void saveEligibility();
++}}

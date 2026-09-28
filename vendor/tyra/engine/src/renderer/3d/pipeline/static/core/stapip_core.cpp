@@ -874,7 +874,11 @@ void StaPipCore::render(StaPipBag* bag) {
   // flashlight", so opting out needs a light OBJECT rather than a null: the
   // one below is off and black, which the programs compute with as a no-op.
   if (!bag->info->spotLit) bagLight = &kNoSpotLight;
-  qbufferRenderer.setBagLight(bagLight);
+  // Modified by TyraX: test the selected light in the same local space as
+  // its shader, using the existing versioned bounds. Particle descriptors
+  // do not enclose their expanded billboard corners, so remain unfiltered.
+  qbufferRenderer.setBagLight(
+      bagLight, bbox && !bag->billboard ? bbox->getMainBBox() : nullptr);
   TYRA_ATTRIB_ADD(prepLightTicks, attribLightStart);
 
   // Modified by TyraX: the BLSS bag feed. Inert when BLSS is off (and when it

@@ -1,0 +1,17 @@
+{
+  "elf_sha256": "8b1a19719215ff21fe1e652091175b3f90c42791448103f2b87a3184d0a890dc",
+  "samples": 960,
+  "warm_window": [
+    720,
+    959
+  ],
+  "gate": "spot-bounds-fix.cfg read once before measured frames",
+  "modes": {
+    "control": 0,
+    "fixed": 1,
+    "repeat": 0
+  },
+  "diagnostic_light_counters": false,
+  "hud_fix": true,
+  "scenario": 0
+}
