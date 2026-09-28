@@ -3993,8 +3993,12 @@ collision fields remain identical.
 
 For automatic road junctions, cross two roads with the same intersection
 texture, one road with no value and one pair with different values. The first
-pair alone must produce a `ROAD_JUNCTIONS` row, 12 vertices / four triangles /
-normally one package; the viewport and PCSX2 patch must match. Move one spline
+pair alone must produce a `ROAD_JUNCTIONS` row, with 12 vertices / four triangles
+on flat ground. Since 1.151.2, uneven junctions refine conformingly on the host
+(up to 256 triangles), then ship baked XYZUV in `ROAD_JUNCTION_VERTS`.
+The viewport and PCSX2 patch must match. `verify-road-twins.py` also exercises
+terrain folds and both Market endpoints, proves the old fan regression is
+triggered, sweeps clearance and checks nonempty runtime junction uploads. Move one spline
 off the crossing, resave and refresh: the row must disappear. Always rerun
 `verify-road-twins.py`. For the physical-PS2 stretched-road regression, inspect
 the generated road STs first: each chunk's V must begin in `[0,1)` and stay

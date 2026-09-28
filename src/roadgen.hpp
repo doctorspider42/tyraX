@@ -60,8 +60,8 @@ struct Vertex {
 };
 
 // A crossing of two sampled centre lines. `cornerXZ` is the convex overlap of
-// the two road-width strips, ordered around the centre. Codegen stores these
-// ten floats directly, so the PS2 never performs pairwise road detection.
+// the two road-width strips, ordered around the centre. This host footprint
+// seeds the fitted XYZUV patch; the PS2 never performs road detection.
 struct Junction {
     float x = 0, z = 0;
     float cornerXZ[8] = {};
@@ -189,6 +189,16 @@ float tessellate(const std::vector<float>& pointsXZ, float width,
                  const HeightFn& height, std::vector<Vertex>& out,
                  const std::vector<float>& lifts = {},
                  float sampleStep = kSampleStep, float uInset = 0.0f);
+
+// Conforming junction patch: sample the actual road triangles, refine the
+// shared fan grid, then bound clearance at every triangle intersection.
+// XYZUV is baked on the host; the EE only uploads it at scene load.
+void tessellateJunctionSurface(const Junction& junction,
+    const std::vector<Vertex>& roads, const HeightFn& terrain, float lift,
+    std::vector<Vertex>& out);
+// Render-grid interpolation (the two terrain triangles, not bilinear height).
+float terrainHeight(const std::vector<float>& heights, int columns, int rows,
+                    float width, float depth, float x, float z);
 
 // --- triangle strips (docs/model-pipeline.md, "Triangle strips") ------------
 //
@@ -350,7 +360,7 @@ inline bool operator!=(const JunctionOverride& a, const JunctionOverride& b) {
 
 enum CrossingKind : int {
     kCrossOverlap = 0,  // equal ranks, no patch: the roads simply overlap
-    kCrossPatch = 1,    // a junction patch (tessellateJunction)
+    kCrossPatch = 1,    // a fitted patch (tessellateJunctionSurface)
     kCrossThrough = 2,  // `winner` runs through, the other is covered
 };
 

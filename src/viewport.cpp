@@ -4179,14 +4179,16 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         const SceneObject& o = objects[(size_t)objIdx[(size_t)road]];
         return o.id.empty() ? ("road-" + std::to_string(objIdx[(size_t)road])) : o.id;
     };
+    std::vector<roadgen::Vertex> roadTriangles;
+    for (const auto& entry : roadDraws_)
+        roadTriangles.insert(roadTriangles.end(), entry.second.outline.begin(),
+                             entry.second.outline.end());
     for (const roadgen::Crossing& c : plan.crossings) {
         if (c.kind != roadgen::kCrossPatch || c.patchDuplicate) continue;
         const SceneObject& a = objects[(size_t)objIdx[(size_t)c.a]];
         std::vector<roadgen::Vertex> triangles;
-        const float lift = c.lift;
-        roadgen::tessellateJunction(
-            c.shape, [&](float x, float z) { return terrainHeight(x, z) + lift; },
-            triangles);
+        roadgen::tessellateJunctionSurface(c.shape, roadTriangles,
+            [&](float x, float z) { return terrainHeight(x, z); }, c.lift, triangles);
         std::vector<float> iv;
         for (const roadgen::Vertex& v : triangles)
             iv.insert(iv.end(), {v.x, v.y, v.z, 1.0f, 1.0f, 1.0f, v.u, v.v});

@@ -8,9 +8,9 @@ import subprocess
 import tempfile
 
 root = Path(__file__).resolve().parents[3]
-templates = (root/'src/templates.cpp').read_text()
-roadgen_source = (root/'src/roadgen.cpp').read_text()
-roadgen_header = (root/'src/roadgen.hpp').read_text()
+templates = (root/'src/templates.cpp').read_text(encoding='utf-8-sig')
+roadgen_source = (root/'src/roadgen.cpp').read_text(encoding='utf-8-sig')
+roadgen_header = (root/'src/roadgen.hpp').read_text(encoding='utf-8-sig')
 start = templates.index('void TerrainGame::buildRoads(int scene) {')
 end = templates.index('\n}\n)";', start) + 2
 runtime = templates[start:end]
@@ -22,6 +22,7 @@ stub = r'''
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
+#include <fstream>
 #include <vector>
 #define TYRA_LOG(...) ((void)0)
 namespace Tyra {
@@ -42,7 +43,8 @@ int ROAD_COUNT=1, ROAD_TEXTURE_COUNT=0;
 RoadDefRt ROAD_DEFS[1];
 float ROAD_POINTS[64];
 const char* ROAD_TEXTURE_PATHS[1]={""};
-struct RoadJunctionRt { int scene,tex; float xz[10]; float grip, lift; };
+struct RoadJunctionRt { int scene,tex,first,count; float grip; };
+float ROAD_JUNCTION_VERTS[3840]{};
 struct RoadSpillRt { int scene,road,first,count; float baseGrip, grip, lift; };
 int ROAD_SPILL_COUNT=0; RoadSpillRt ROAD_SPILLS[1]{}; float ROAD_SPILL_VERTS[1]{};
 int ROAD_EDGE_COUNT=0; RoadSpillRt ROAD_EDGES[1]{}; float ROAD_EDGE_VERTS[1]{};
@@ -340,7 +342,66 @@ static float gridHeight(float x, float z) {
   return corner(ix+1,iz+1) + (1.0f-fz)*(corner(ix+1,iz)-corner(ix+1,iz+1))
                            + (1.0f-fx)*(corner(ix,iz+1)-corner(ix+1,iz+1));
 }
-int main() {
+
+void checkJunctions(const char* name, const std::vector<roadgen::CrossingRoad>& roads,
+                    const roadgen::HeightFn& height, bool expectOldFailure=false) {
+  std::vector<roadgen::Vertex> source;
+  for(const auto& r:roads) {
+    std::vector<roadgen::Vertex> mesh;
+    roadgen::tessellate(r.points,r.width,[&](float x,float z){return height(x,z)+roadgen::rankLift(r.rank);},
+                       mesh,{},r.sampleStep);
+    source.insert(source.end(),mesh.begin(),mesh.end());
+  }
+  roadgen::Surface under; under.add(source); under.build();
+  auto plan=roadgen::planCrossings(roads,{},false);
+  bool oldFailed=false; int checked=0; size_t vertices=0;
+  for(const auto& crossing:plan.crossings) {
+    if(crossing.kind!=roadgen::kCrossPatch || crossing.patchDuplicate) continue;
+    ++checked;
+    std::vector<roadgen::Vertex> patch,old;
+    roadgen::tessellateJunctionSurface(crossing.shape,source,height,crossing.lift,patch);
+    roadgen::tessellateJunction(crossing.shape,[&](float x,float z){return height(x,z)+crossing.lift;},old);
+    require(patch.size()>=12 && patch.size()<=768 && patch.size()%3==0,"bounded junction mesh");
+    vertices+=patch.size();
+    roadgen::Surface over,previous; over.add(patch);over.build();previous.add(old);previous.build();
+    // Independent world-space sweep, including endpoints and road/terrain
+    // seams. No test samples are chosen by the candidate's subdivision.
+    const auto& j=crossing.shape;
+    for(int a=0;a<=80;++a)for(int b=0;b<=80;++b) {
+      float u=0.0001f+0.9998f*a/80.f,v=0.0001f+0.9998f*b/80.f;
+      float x=(1-u)*(1-v)*j.cornerXZ[0]+u*(1-v)*j.cornerXZ[2]+u*v*j.cornerXZ[4]+(1-u)*v*j.cornerXZ[6];
+      float z=(1-u)*(1-v)*j.cornerXZ[1]+u*(1-v)*j.cornerXZ[3]+u*v*j.cornerXZ[5]+(1-u)*v*j.cornerXZ[7];
+      float road=under.at(x,z);if(road<-1e29f)continue;
+      if(over.at(x,z)-road<0.0199f) std::fprintf(stderr,"%s at %.7f %.7f road %.7f patch %.7f\n",name,x,z,road,over.at(x,z));
+      require(over.at(x,z)-road>=0.0199f,"road penetrates junction clearance");
+      if(previous.at(x,z)<road)oldFailed=true;
+    }
+    // Exercise the extracted generated runtime with a nonempty baked row,
+    // not merely the zero-junction road fixture.
+    ROAD_COUNT=0;ROAD_JUNCTION_COUNT=1;
+    ROAD_JUNCTIONS[0]={0,-1,0,(int)patch.size(),0.73f};
+    for(size_t k=0;k<patch.size();++k) {
+      const auto& v=patch[k];float* p=&ROAD_JUNCTION_VERTS[k*5];
+      p[0]=v.x;p[1]=v.y;p[2]=v.z;p[3]=v.u;p[4]=v.v;
+    }
+    TerrainGame runtime;runtime.height=height;runtime.buildRoads(0);
+    require(runtime.procChunks.size()==1,"one bounded junction chunk");
+    const auto& chunk=runtime.procChunks[0];
+    require(chunk.vertices.size()==patch.size() && chunk.stripRun==0 &&
+            chunk.roadGrip==0.73f && chunk.owner==-3,"junction runtime metadata");
+    for(size_t k=0;k<patch.size();++k) {
+      const auto& v=patch[k];const auto& r=chunk.vertices[k];const auto& st=chunk.sts[k];
+      require(r.x==v.x && r.y==v.y && r.z==v.z && st.x==v.u && st.y==v.v,
+              "baked junction differs from generated runtime");
+    }
+    ROAD_JUNCTION_COUNT=0;ROAD_COUNT=1;
+  }
+  require(checked>0,"junction fixture found no crossings");
+  require(!expectOldFailure || oldFailed,"Market regression no longer exercises original bug");
+  std::printf("junction clearance %s: %d patches, %zu vertices, runtime XYZUV exact; old penetration=%d\n",
+              name,checked,vertices,(int)oldFailed);
+}
+int main(int argc,char** argv) {
   std::vector<float> straight={0,0,0,30};
   const auto flat=check("flat",straight,13,[](float,float){return 0.f;});
   const auto slope=check("slope",straight,13,[](float x,float z){return .1f*x+.2f*z;});
@@ -416,6 +477,29 @@ int main() {
   roadgen::findJunctions({-10,0,10,0},6,{-10,1,10,1},6,junctions);
   require(junctions.empty(),"near-parallel roads must not create a junction");
   std::printf("junctions: perpendicular=1 vertices=12; near-parallel=0\n");
+
+  std::vector<roadgen::CrossingRoad> crossing(2);
+  crossing[0].id="a";crossing[0].points={-12,0,12,0};crossing[0].width=6;
+  crossing[1].id="b";crossing[1].points={0,-12,0,12};crossing[1].width=8;
+  crossing[0].intersection=crossing[1].intersection="asphalt";
+  checkJunctions("flat",crossing,[](float,float){return 0.f;});
+  checkJunctions("slope",crossing,[](float x,float z){return 0.3f*x+0.2f*z;});
+  checkJunctions("terrain folds",crossing,gridHeight);
+  crossing[0].rank=crossing[1].rank=2;
+  checkJunctions("main rank",crossing,gridHeight);
+  require(argc==2,"pass example terrain heights");
+  std::ifstream terrainFile(argv[1]);int w=0,d=0;terrainFile>>w>>d;
+  require(w>=2 && d>=2,"read Market terrain grid");
+  std::vector<float> heights((size_t)w*d);for(float& v:heights)terrainFile>>v;
+  require((bool)terrainFile,"read Market terrain heights");
+  crossing[0].rank=crossing[1].rank=1;
+  crossing[0].points={-90.0194f,-102.631f,0,-108,96,-100,120,-64,122,44,94,103,0,112,-94,103,-122,64,-122,-64,-96,-100};
+  crossing[0].width=13;crossing[0].sampleStep=1;
+  crossing[1].points={-127.357f,.211319f,-65,0,0,0,62,0,126.84f,.554947f};
+  crossing[1].width=11;crossing[1].sampleStep=2;
+  checkJunctions("Market endpoints",crossing,[&](float x,float z){
+    return roadgen::terrainHeight(heights,w,d,320,320,x,z);
+  },true);
   return 0;
 }
 '''
@@ -444,4 +528,4 @@ with tempfile.TemporaryDirectory(prefix='tyrax-roads-') as tmp:
     subprocess.run(['g++','-std=c++20','-O2','-static','-DTYRA_STRIP_ROADS=1',
                     '-I',str(root/'src'),'-I',tmp,str(source),
                     str(root/'src/roadgen.cpp'),str(dense_source),'-o',str(binary)],check=True)
-    subprocess.run([str(binary)],check=True)
+    subprocess.run([str(binary),str(root/'examples/vehicle-playground/terrain-main.heights')],check=True)

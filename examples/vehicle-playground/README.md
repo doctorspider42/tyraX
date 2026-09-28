@@ -1384,3 +1384,14 @@ a marker to delete it; drag the final marker onto the first and release to make
 a smooth loop. Ctrl+Z restores the drag, and Closed loop in Points can reopen it.
 The existing road twin oracle also covers periodic interpolation and loop edits.
 See [road authoring](../../docs/roads.md).
+
+### Conforming junction surfaces (1.151.2)
+
+Market cross street's endpoints use the shared adaptive junction builder.
+Uneven terrain previously let the marked road pass through a four-triangle
+asphalt patch. The patch now follows the actual road mesh with a proven
+0.02-unit clearance; XYZUV is baked on the host and uploaded unchanged on PS2.
+Run `python authoring/verify-road-twins.py` from this directory (or its full
+repo-relative path from the root): it reproduces the old east-end penetration,
+checks both ends and compares generated-runtime uploads. See
+[Roads](../../docs/roads.md) for the geometry budget and screenshot.

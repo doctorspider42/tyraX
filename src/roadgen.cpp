@@ -1,6 +1,8 @@
 #include "roadgen.hpp"
 
 #include <algorithm>
+#include <array>
+#include <set>
 #include <cmath>
 #include <limits>
 #include <utility>
@@ -488,6 +490,169 @@ void tessellateJunction(const Junction& j, const HeightFn& height,
     }
 }
 
+float terrainHeight(const std::vector<float>& heights, int columns, int rows,
+                    float width, float depth, float x, float z) {
+    if (columns < 2 || rows < 2 || width <= 0 || depth <= 0 ||
+        heights.size() < (size_t)columns * rows) return 0.0f;
+    const float gx = std::clamp((x + width * 0.5f) / width * (columns - 1),
+                              0.0f, columns - 1.001f);
+    const float gz = std::clamp((z + depth * 0.5f) / depth * (rows - 1),
+                              0.0f, rows - 1.001f);
+    const int ix = (int)gx, iz = (int)gz;
+    const float fx = gx - ix, fz = gz - iz;
+    auto h = [&](int a, int b) { return heights[(size_t)b * columns + a]; };
+    if (fx + fz <= 1.0f)
+        return h(ix, iz) + fx * (h(ix + 1, iz) - h(ix, iz)) +
+               fz * (h(ix, iz + 1) - h(ix, iz));
+    return h(ix + 1, iz + 1) + (1 - fz) * (h(ix + 1, iz) - h(ix + 1, iz + 1)) +
+           (1 - fx) * (h(ix, iz + 1) - h(ix + 1, iz + 1));
+}
+
+void tessellateJunctionSurface(const Junction& j,
+    const std::vector<Vertex>& roads, const HeightFn& terrain, float lift,
+    std::vector<Vertex>& out) {
+    // Only triangles near this junction participate in the host-side proof.
+    float minX = j.x, maxX = j.x, minZ = j.z, maxZ = j.z;
+    for (int k = 0; k < 4; ++k) {
+        minX = std::min(minX, j.cornerXZ[k * 2]);
+        maxX = std::max(maxX, j.cornerXZ[k * 2]);
+        minZ = std::min(minZ, j.cornerXZ[k * 2 + 1]);
+        maxZ = std::max(maxZ, j.cornerXZ[k * 2 + 1]);
+    }
+    std::vector<Vertex> local;
+    for (size_t i = 0; i + 2 < roads.size(); i += 3) {
+        const Vertex* t = &roads[i];
+        if (std::max({t[0].x, t[1].x, t[2].x}) < minX ||
+            std::min({t[0].x, t[1].x, t[2].x}) > maxX ||
+            std::max({t[0].z, t[1].z, t[2].z}) < minZ ||
+            std::min({t[0].z, t[1].z, t[2].z}) > maxZ) continue;
+        local.insert(local.end(), t, t + 3);
+    }
+    auto plane = [](const Vertex* t, double x, double z, double* a = nullptr,
+                    double* b = nullptr) {
+        const double den = (double)(t[1].z - t[2].z) * (t[0].x - t[2].x) +
+                           (double)(t[2].x - t[1].x) * (t[0].z - t[2].z);
+        if (std::abs(den) < 1e-12) return -1e30;
+        const double u = ((t[1].z - t[2].z) * (x - t[2].x) +
+                          (t[2].x - t[1].x) * (z - t[2].z)) / den;
+        const double v = ((t[2].z - t[0].z) * (x - t[2].x) +
+                          (t[0].x - t[2].x) * (z - t[2].z)) / den;
+        if (a) *a = u;
+        if (b) *b = v;
+        return u * t[0].y + v * t[1].y + (1 - u - v) * t[2].y;
+    };
+    auto vertex = [&](float x, float z) {
+        float y = (terrain ? terrain(x, z) : 0.0f) + kLift + lift;
+        for (size_t i = 0; i + 2 < local.size(); i += 3) {
+            double a = -1, b = -1;
+            const double h = plane(&local[i], x, z, &a, &b);
+            if (a >= -1e-6 && b >= -1e-6 && a + b <= 1.000001)
+                y = std::max(y, (float)h);
+        }
+        return Vertex{x, y + kSpillLift, z, 0.5f + (x - j.x) / 32.0f,
+                      0.5f + (z - j.z) / 32.0f};
+    };
+    out.clear();
+    const Vertex center = vertex(j.x, j.z);
+    for (int k = 0; k < 4; ++k) {
+        const int n = (k + 1) & 3;
+        out.insert(out.end(), {center, vertex(j.cornerXZ[k * 2], j.cornerXZ[k * 2 + 1]),
+                              vertex(j.cornerXZ[n * 2], j.cornerXZ[n * 2 + 1])});
+    }
+    struct Q { double x, z; };
+    // The difference of two triangle planes is affine. Its maximum over
+    // their overlap is at an overlap corner: this is a bound, not a sampling
+    // heuristic that can miss a narrow ridge between test points.
+    auto deficit = [&]() {
+        std::vector<float> errors;
+        for (size_t p = 0; p + 2 < out.size(); p += 3) {
+            double worst = 0;
+            const Vertex* t = &out[p];
+            const double sign = ((double)(t[1].x - t[0].x) * (t[2].z - t[0].z) -
+                                 (double)(t[1].z - t[0].z) * (t[2].x - t[0].x)) >= 0 ? 1 : -1;
+            for (size_t r = 0; r + 2 < local.size(); r += 3) {
+                const Vertex* road = &local[r];
+                if (std::max({road[0].x, road[1].x, road[2].x}) <
+                        std::min({t[0].x, t[1].x, t[2].x}) ||
+                    std::min({road[0].x, road[1].x, road[2].x}) >
+                        std::max({t[0].x, t[1].x, t[2].x}) ||
+                    std::max({road[0].z, road[1].z, road[2].z}) <
+                        std::min({t[0].z, t[1].z, t[2].z}) ||
+                    std::min({road[0].z, road[1].z, road[2].z}) >
+                        std::max({t[0].z, t[1].z, t[2].z})) continue;
+                std::vector<Q> poly{{road[0].x, road[0].z}, {road[1].x, road[1].z},
+                                    {road[2].x, road[2].z}};
+                for (int e = 0; e < 3 && !poly.empty(); ++e) {
+                    const Vertex& a = t[e]; const Vertex& b = t[(e + 1) % 3];
+                    auto side = [&](Q q) { return sign * ((b.x - a.x) * (q.z - a.z) -
+                                                         (b.z - a.z) * (q.x - a.x)); };
+                    std::vector<Q> next;
+                    Q prev = poly.back(); double dp = side(prev);
+                    for (Q q : poly) {
+                        const double dq = side(q);
+                        if ((dp >= 0) != (dq >= 0)) {
+                            const double f = dp / (dp - dq);
+                            next.push_back({prev.x + f * (q.x - prev.x),
+                                            prev.z + f * (q.z - prev.z)});
+                        }
+                        if (dq >= 0) next.push_back(q);
+                        prev = q; dp = dq;
+                    }
+                    poly.swap(next);
+                }
+                for (Q q : poly)
+                    worst = std::max(worst, plane(road, q.x, q.z) + kSpillLift -
+                                            plane(t, q.x, q.z));
+            }
+            errors.push_back((float)worst);
+        }
+        return errors;
+    };
+    auto edge = [](Vertex a, Vertex b) {
+        if (a.x > b.x || (a.x == b.x && a.z > b.z)) std::swap(a, b);
+        return std::array<float, 4>{a.x, a.z, b.x, b.z};
+    };
+    float guard = 0;
+    for (int level = 0; ; ++level) {
+        const std::vector<float> errors = deficit();
+        guard = *std::max_element(errors.begin(), errors.end());
+        // Split only triangles that need it, and split their neighbours on
+        // the same edges. No T-junctions; flat patches retain four triangles.
+        // The final bound still guarantees clearance at the safety cap.
+        if (guard <= 0.01f || level == 3) break;
+        std::set<std::array<float, 4>> split;
+        for (size_t i = 0; i < errors.size(); ++i) {
+            if (errors[i] <= 0.01f) continue;
+            const Vertex* t = &out[i * 3];
+            for (int k = 0; k < 3; ++k) split.insert(edge(t[k], t[(k + 1) % 3]));
+        }
+        std::vector<Vertex> refined;
+        refined.reserve(out.size() * 4);
+        for (size_t i = 0; i + 2 < out.size(); i += 3) {
+            const Vertex a = out[i], b = out[i + 1], c = out[i + 2];
+            const int mask = (split.count(edge(a, b)) ? 1 : 0) |
+                             (split.count(edge(b, c)) ? 2 : 0) |
+                             (split.count(edge(c, a)) ? 4 : 0);
+            auto mid = [&](Vertex p, Vertex q) {
+                return vertex((p.x + q.x) * 0.5f, (p.z + q.z) * 0.5f);
+            };
+            const Vertex ab = mid(a, b), bc = mid(b, c), ca = mid(c, a);
+            switch (mask) {
+            case 0: refined.insert(refined.end(), {a, b, c}); break;
+            case 1: refined.insert(refined.end(), {a, ab, c, ab, b, c}); break;
+            case 2: refined.insert(refined.end(), {b, bc, a, bc, c, a}); break;
+            case 4: refined.insert(refined.end(), {c, ca, b, ca, a, b}); break;
+            case 3: refined.insert(refined.end(), {b, bc, ab, a, ab, c, ab, bc, c}); break;
+            case 6: refined.insert(refined.end(), {c, ca, bc, b, bc, a, bc, ca, a}); break;
+            case 5: refined.insert(refined.end(), {a, ab, ca, c, ca, b, ca, ab, b}); break;
+            case 7: refined.insert(refined.end(), {a, ab, ca, ab, b, bc, ca, bc, c, ab, bc, ca}); break;
+            }
+        }
+        out.swap(refined);
+    }
+    for (Vertex& v : out) v.y += guard + 0.0001f;
+}
+
 void tessellateSpill(const std::vector<float>& lowPts, float lowWidth,
                      float lowSampleStep, const std::vector<float>& highPts,
                      float highWidth, float spill, std::vector<SpillVertex>& out,
@@ -881,16 +1046,21 @@ CrossingPlan planCrossings(const std::vector<CrossingRoad>& roads,
 
 void addCrossingsToSurface(Surface& s, const std::vector<CrossingRoad>& roads,
                            const CrossingPlan& plan, const HeightFn& terrain) {
+    std::vector<Vertex> roadTriangles;
+    for (const CrossingRoad& r : roads) {
+        std::vector<Vertex> mesh;
+        tessellate(r.points, r.width,
+            [&](float x, float z) { return terrain(x, z) + rankLift(r.rank); },
+            mesh, {}, r.sampleStep);
+        roadTriangles.insert(roadTriangles.end(), mesh.begin(), mesh.end());
+    }
     for (const Crossing& c : plan.crossings) {
         if (c.kind != kCrossPatch || c.patchDuplicate) continue;
         std::vector<Vertex> tris;
-        const float lift = c.lift;
-        tessellateJunction(
-            c.shape, [&](float x, float z) { return terrain(x, z) + lift; }, tris);
+        tessellateJunctionSurface(c.shape, roadTriangles, terrain, c.lift, tris);
         s.add(tris, c.grip);
     }
     for (const CrossingDecal& d : plan.decals) {
-        (void)roads;
         std::vector<Vertex> tris;
         std::vector<float> grips;
         for (const SpillVertex& v : d.verts) {

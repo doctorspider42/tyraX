@@ -2823,9 +2823,15 @@ stores a material path in the legacy-named `roadTexture` /
 first `map_Kd`, while direct PNG values remain a backwards-compatible path.
 Two crossing roads' authored intersection references must match;
 `roadgen::findJunctions` samples the same Catmull-Rom centre line, codegen
-stores centre plus four strip-overlap corners, and `buildRoads` only emits the
-resulting four triangles. Keep the viewport's junction mesh and generated data
-on that shared host result; do not move pairwise road detection onto the EE.
+uses the centre plus four strip-overlap corners as the footprint. Since
+1.151.2, `roadgen::tessellateJunctionSurface` fits an adaptive, conforming mesh
+against actual road triangles and proves 0.02-unit clearance at triangle
+intersection corners. Codegen bakes XYZUV in `ROAD_JUNCTION_VERTS`; `buildRoads`
+only uploads it. Flat patches retain four triangles. Use the rendered terrain
+triangle sampler (`roadgen::terrainHeight`) when generating the source roads,
+not `project::heightAtWorld`'s bilinear interpolation. Keep the viewport,
+test drive and generated data on that shared host result; never move road
+pairing or surface fitting onto the EE.
 
 **Every crossing decision is `roadgen::planCrossings` (1.145.0,
 docs/roads.md "Junction overrides").** Patch or not, who runs through, which

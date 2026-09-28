@@ -32088,9 +32088,9 @@ can produce it (baking is an explicit, minutes-long step), so it is checked in
 like an authored asset and travels with the project.
 )";
 
-static std::string floatLit(float v) {
+static std::string floatLit(float v, int precision = 6) {
     char buf[40];
-    std::snprintf(buf, sizeof(buf), "%.6g", (double)v);
+    std::snprintf(buf, sizeof(buf), "%.*g", precision, (double)v);
     std::string s = buf;
     // "8" -> "8.0": the F suffix is only valid on floating-point literals
     if (s.find('.') == std::string::npos && s.find('e') == std::string::npos &&
@@ -34184,9 +34184,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             };
             struct JunctionRow {
                 int scene, tex;
-                roadgen::Junction shape;
+                int first, count;
                 float grip;
-                float lift;
             };
             // A spill (1.143.0): road `road`'s surface trailing onto a
             // higher-rank road, baked here by roadgen::tessellateSpill.
@@ -34204,6 +34203,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             std::vector<float> edgeVerts;
             std::vector<RoadRow> roadRows;
             std::vector<JunctionRow> junctionRows;
+            std::vector<roadgen::Vertex> junctionVerts;
             for (size_t si = 0; si < p.scenes.size(); ++si)
                 for (const SceneObject& o : p.scenes[si].objects) {
                     if (o.type != PrimitiveType::Road || o.roadPoints.size() < 4)
@@ -34267,11 +34267,29 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                 const roadgen::CrossingPlan plan =
                     roadgen::planCrossings(cr, p.scenes[si].roadJunctions);
                 crossingOrphans += plan.orphans;
+                const SceneData& sc = p.scenes[si];
+                auto ground = [&](float x, float z) {
+                    return sc.terrain.enabled ? roadgen::terrainHeight(sc.heights,
+                        sc.hmW, sc.hmD, (float)sc.terrain.width, (float)sc.terrain.depth,
+                        x, z) : -1000000.0f;
+                };
+                std::vector<roadgen::Vertex> roadTriangles;
+                for (const roadgen::CrossingRoad& r : cr) {
+                    std::vector<roadgen::Vertex> mesh;
+                    roadgen::tessellate(r.points, r.width,
+                        [&](float x, float z) { return ground(x, z) + roadgen::rankLift(r.rank); },
+                        mesh, {}, r.sampleStep);
+                    roadTriangles.insert(roadTriangles.end(), mesh.begin(), mesh.end());
+                }
                 for (const roadgen::Crossing& c : plan.crossings) {
                     if (c.kind != roadgen::kCrossPatch || c.patchDuplicate) continue;
+                    std::vector<roadgen::Vertex> mesh;
+                    roadgen::tessellateJunctionSurface(c.shape, roadTriangles, ground,
+                                                     c.lift, mesh);
                     junctionRows.push_back(
                         {(int)si, textureIndex(project::resolveRoadTexture(p, c.material)),
-                         c.shape, c.grip, c.lift});
+                         (int)junctionVerts.size(), (int)mesh.size(), c.grip});
+                    junctionVerts.insert(junctionVerts.end(), mesh.begin(), mesh.end());
                 }
                 for (const roadgen::CrossingDecal& d : plan.decals) {
                     if (d.verts.empty() || rowOf[(size_t)d.road] < 0) continue;
@@ -34310,24 +34328,25 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                 for (size_t k = 0; k < roadPts.size(); ++k)
                     out << (k ? ", " : "") << floatLit(roadPts[k]);
                 out << "};\n"
-                    << "struct RoadJunctionRt { int scene; int tex; float xz[10];"
-                       " float grip; float lift; };\n";
+                    << "struct RoadJunctionRt { int scene; int tex; int first; int count;"
+                       " float grip; };\n";
                 if (junctionRows.empty()) {
                     out << "constexpr RoadJunctionRt ROAD_JUNCTIONS[1] = {};\n";
                 } else {
                     out << "constexpr RoadJunctionRt ROAD_JUNCTIONS["
                         << junctionRows.size() << "] = {\n";
-                    for (const JunctionRow& j : junctionRows) {
-                        out << "    {" << j.scene << ", " << j.tex << ", {"
-                            << floatLit(j.shape.x) << ", "
-                            << floatLit(j.shape.z);
-                        for (float v : j.shape.cornerXZ)
-                            out << ", " << floatLit(v);
-                        out << "}, " << floatLit(j.grip) << ", "
-                            << floatLit(j.lift) << "},\n";
-                    }
+                    for (const JunctionRow& j : junctionRows)
+                        out << "    {" << j.scene << ", " << j.tex << ", " << j.first
+                            << ", " << j.count << ", " << floatLit(j.grip) << "},\n";
                     out << "};\n";
                 }
+                out << "constexpr float ROAD_JUNCTION_VERTS["
+                    << std::max((size_t)1, junctionVerts.size() * 5) << "] = {\n";
+                for (const roadgen::Vertex& v : junctionVerts)
+                    out << "    " << floatLit(v.x, 9) << ", " << floatLit(v.y, 9) << ", "
+                        << floatLit(v.z, 9) << ", " << floatLit(v.u, 9) << ", "
+                        << floatLit(v.v, 9) << ",\n";
+                out << "};\n";
                 // Spills (1.143.0, docs/roads.md "Crossings"): baked XZ + UV +
                 // fade; the EE lifts them onto the road surface at boot.
                 out << "struct RoadSpillRt { int scene; int road; int first;"
@@ -43050,9 +43069,9 @@ void TerrainGame::buildRoads(int scene) {
     // This road's last chunk still has an open run.
     closeChunk();
   }
-  // Junction detection ran on the host during codegen. The EE receives only
-  // ready convex patches: four triangles, one material, one ordinary proc
-  // chunk each. There is no O(roads^2) work in-game and no per-frame branch.
+  // Junction clearance is proven against the road triangles on the host.
+  // XYZUV arrives ready to upload: no pairwise search or height-index rebuild
+  // on the EE. Flat junctions still use twelve vertices.
   for (int ji = 0; ji < ROAD_JUNCTION_COUNT; ++ji) {
     const RoadJunctionRt& j = ROAD_JUNCTIONS[ji];
     if (j.scene != scene) continue;
@@ -43063,28 +43082,21 @@ void TerrainGame::buildRoads(int scene) {
         roadTextures_[j.tex] = acquireTexture(ROAD_TEXTURE_PATHS[j.tex]);
       tex = roadTextures_[j.tex];
     }
-    procChunks.push_back(ProcChunk());
-    ProcChunk& c = procChunks.back();
-    c.owner = -3;
-    c.roadTex = tex;
-    c.roadGrip = j.grip;
-    c.stripRun = 0;
-    const Tyra::Vec4 center(j.xz[0], terrainHeightAt(j.xz[0], j.xz[1]) + 0.14F + j.lift,
-                            j.xz[1], 1.0F);
-    const Tyra::Vec4 centerSt(0.5F, 0.5F, 1.0F, 0.0F);
-    for (int k = 0; k < 4; ++k) {
-      const int n = (k + 1) & 3;
-      const float ax = j.xz[2 + k * 2], az = j.xz[3 + k * 2];
-      const float bx = j.xz[2 + n * 2], bz = j.xz[3 + n * 2];
-      const Tyra::Vec4 a(ax, terrainHeightAt(ax, az) + 0.14F + j.lift, az, 1.0F);
-      const Tyra::Vec4 b(bx, terrainHeightAt(bx, bz) + 0.14F + j.lift, bz, 1.0F);
-      const Tyra::Vec4 ast(0.5F + (ax - j.xz[0]) / 32.0F,
-                           0.5F + (az - j.xz[1]) / 32.0F, 1.0F, 0.0F);
-      const Tyra::Vec4 bst(0.5F + (bx - j.xz[0]) / 32.0F,
-                           0.5F + (bz - j.xz[1]) / 32.0F, 1.0F, 0.0F);
-      c.vertices.push_back(center); c.sts.push_back(centerSt); c.colors.push_back(grey);
-      c.vertices.push_back(a); c.sts.push_back(ast); c.colors.push_back(grey);
-      c.vertices.push_back(b); c.sts.push_back(bst); c.colors.push_back(grey);
+    // Triangle-list chunks share the road's bounded upload budget.
+    for (int first = 0; first < j.count; first += 1800) {
+      procChunks.push_back(ProcChunk());
+      ProcChunk& c = procChunks.back();
+      c.owner = -3;
+      c.roadTex = tex;
+      c.roadGrip = j.grip;
+      c.stripRun = 0;
+      const int count = std::min(1800, j.count - first);
+      for (int k = 0; k < count; ++k) {
+        const float* v = &ROAD_JUNCTION_VERTS[(size_t)(j.first + first + k) * 5];
+        c.vertices.push_back(Tyra::Vec4(v[0], v[1], v[2], 1.0F));
+        c.sts.push_back(Tyra::Vec4(v[3], v[4], 1.0F, 0.0F));
+        c.colors.push_back(grey);
+      }
     }
   }
   // SPILLS (1.143.0, docs/roads.md "Crossings"): a lower-rank road's surface

@@ -43,7 +43,8 @@ in VRAM.** There is no baked geometry to store, ship or stream.
   the same **rank** in the same scene cross and both name the same non-empty
   material (roads of different ranks follow "Crossings" below), codegen samples the
   two Catmull-Rom centre lines, finds the crossing and emits the convex overlap
-  of their widths as a terrain-hugging four-triangle patch. Empty or different
+  of their widths as a surface-conforming patch. Flat junctions keep four
+  triangles; uneven ones refine only where needed. Empty or different
   values are deliberately left alone instead of choosing a material by object
   order. Its first `map_Kd` supplies the patch texture; legacy direct PNG
   references still work. Crossings below roughly 14 degrees are also left
@@ -129,12 +130,39 @@ scene load, and the first placement of this call built five chunks that were
 wiped ten lines later (a road only the boot log ever saw). `ROADS scene N
 chunks M` in `bin/log.txt` is the acceptance line.
 
-Intersection detection is entirely a host/codegen job. The generated project
-stores ten floats per junction (centre plus four corners); scene load turns
-that into four ordinary proc triangles in one material chunk, 12 submitted
-vertices and normally one VU1 package. There is no pairwise road search and no
-special intersection logic per frame. The patch sits 0.02 units above the road
-surface to cover lane markings without z-fighting.
+Intersection detection and surface fitting are entirely host/codegen jobs.
+Since 1.151.2, `tessellateJunctionSurface` fits the patch to the **actual road
+triangles**, including rank lift, rather than sampling only its centre and four
+corners on the terrain. That old fan let curved roads protrude through the
+intersection material on uneven ground (Market cross street's east endpoint).
+The editor, vehicle test drive and generated game use the same patch builder.
+
+The builder clips each nearby road triangle against each patch triangle and
+checks their height difference at every overlap corner. Since the difference
+of the two planes is affine, this bounds the entire overlap, including narrow
+ridges missed by a sampling grid. It refines triangles needing more than
+0.01 units of correction, splitting neighbouring edges too so no T-junctions
+appear. After at most three passes (256 triangles), the remaining measured
+correction plus a 0.0001 float guard guarantees the normal 0.02-unit clearance.
+The safety cap preserves clearance on extreme terrain; its remaining correction
+can exceed 0.01, so a sharply folded junction may still look raised.
+
+Generated `ROAD_JUNCTIONS` rows select baked **XYZUV** vertices from
+`ROAD_JUNCTION_VERTS`. Scene load only uploads those vertices in bounded
+triangle-list chunks; the EE does no road pairing, surface fitting or additional
+per-frame junction work. Flat/slope-only patches retain 12 vertices. Geometry
+on uneven junctions costs additional rendering work: this is a correctness fix,
+not an FPS optimization. In the saved Motor District, the main scene's 14
+patches increase from 168 to 1,362 vertices (+1,194); dense's six increase from
+72 to 312. Most flat patches remain at 12 vertices.
+
+`authoring/verify-road-twins.py` checks flat and sloped crossings, terrain folds,
+Main rank and both Market endpoints against an independent world-space sweep,
+then uploads nonempty baked rows through the extracted generated `buildRoads`
+and compares XYZUV exactly. The saved Market fixture reproduces penetration in
+the old fan and passes with the new patches (225 vertices across both ends).
+
+![Market cross street's east endpoint: fitted asphalt covers the road without broken lane markings](img/road-junction-conforming.png)
 
 Road tables are emitted independently of vehicle tables. A road-only project
 therefore gets `ROAD_DEFS`/`ROAD_JUNCTIONS` even when it has no vehicle

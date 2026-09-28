@@ -23061,9 +23061,9 @@ void TerrainGame::buildRoads(int scene) {
     // This road's last chunk still has an open run.
     closeChunk();
   }
-  // Junction detection ran on the host during codegen. The EE receives only
-  // ready convex patches: four triangles, one material, one ordinary proc
-  // chunk each. There is no O(roads^2) work in-game and no per-frame branch.
+  // Junction clearance is proven against the road triangles on the host.
+  // XYZUV arrives ready to upload: no pairwise search or height-index rebuild
+  // on the EE. Flat junctions still use twelve vertices.
   for (int ji = 0; ji < ROAD_JUNCTION_COUNT; ++ji) {
     const RoadJunctionRt& j = ROAD_JUNCTIONS[ji];
     if (j.scene != scene) continue;
@@ -23074,28 +23074,21 @@ void TerrainGame::buildRoads(int scene) {
         roadTextures_[j.tex] = acquireTexture(ROAD_TEXTURE_PATHS[j.tex]);
       tex = roadTextures_[j.tex];
     }
-    procChunks.push_back(ProcChunk());
-    ProcChunk& c = procChunks.back();
-    c.owner = -3;
-    c.roadTex = tex;
-    c.roadGrip = j.grip;
-    c.stripRun = 0;
-    const Tyra::Vec4 center(j.xz[0], terrainHeightAt(j.xz[0], j.xz[1]) + 0.14F + j.lift,
-                            j.xz[1], 1.0F);
-    const Tyra::Vec4 centerSt(0.5F, 0.5F, 1.0F, 0.0F);
-    for (int k = 0; k < 4; ++k) {
-      const int n = (k + 1) & 3;
-      const float ax = j.xz[2 + k * 2], az = j.xz[3 + k * 2];
-      const float bx = j.xz[2 + n * 2], bz = j.xz[3 + n * 2];
-      const Tyra::Vec4 a(ax, terrainHeightAt(ax, az) + 0.14F + j.lift, az, 1.0F);
-      const Tyra::Vec4 b(bx, terrainHeightAt(bx, bz) + 0.14F + j.lift, bz, 1.0F);
-      const Tyra::Vec4 ast(0.5F + (ax - j.xz[0]) / 32.0F,
-                           0.5F + (az - j.xz[1]) / 32.0F, 1.0F, 0.0F);
-      const Tyra::Vec4 bst(0.5F + (bx - j.xz[0]) / 32.0F,
-                           0.5F + (bz - j.xz[1]) / 32.0F, 1.0F, 0.0F);
-      c.vertices.push_back(center); c.sts.push_back(centerSt); c.colors.push_back(grey);
-      c.vertices.push_back(a); c.sts.push_back(ast); c.colors.push_back(grey);
-      c.vertices.push_back(b); c.sts.push_back(bst); c.colors.push_back(grey);
+    // Triangle-list chunks share the road's bounded upload budget.
+    for (int first = 0; first < j.count; first += 1800) {
+      procChunks.push_back(ProcChunk());
+      ProcChunk& c = procChunks.back();
+      c.owner = -3;
+      c.roadTex = tex;
+      c.roadGrip = j.grip;
+      c.stripRun = 0;
+      const int count = std::min(1800, j.count - first);
+      for (int k = 0; k < count; ++k) {
+        const float* v = &ROAD_JUNCTION_VERTS[(size_t)(j.first + first + k) * 5];
+        c.vertices.push_back(Tyra::Vec4(v[0], v[1], v[2], 1.0F));
+        c.sts.push_back(Tyra::Vec4(v[3], v[4], 1.0F, 0.0F));
+        c.colors.push_back(grey);
+      }
     }
   }
   // SPILLS (1.143.0, docs/roads.md "Crossings"): a lower-rank road's surface
