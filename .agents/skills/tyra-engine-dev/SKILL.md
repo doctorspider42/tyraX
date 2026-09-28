@@ -3183,3 +3183,18 @@ demand, with frame selection, zoom, raw marker tooltips and inclusive totals.
 No browser, Python or extra debugger polling is required. Engine detail scopes
 separate package creation/classification, qbuffer copies and packet construction.
 See `docs/hardware-profiler.md`; use unarmed controls to rank performance.
+
+### Full geometry and reflective prefixes can thrash bbox counts
+
+The 2026-09-28 stationary night-entry probes found four fresh package-bbox
+replacements per frame in Ravager/Pica, about 2.9 ms of EE recomputation.
+Their base and coat bags share a vertex pointer and VU package size but use
+different counts. The pointer/package-size cache key merges them; its count
+validation then rebuilds the entry twice per car, every frame. This differs
+from the older parked-view result with zero fresh allocations. A bounded
+two-count-variant diagnostic removes that waste while preserving the coat;
+it is archived, not enabled in the production engine. Keep version-in-place
+invalidation and bound variants (dynamic particle counts must not produce
+250 frames of growing entries). Validate changing counts, recycled buffers,
+expiry, canonical bounds and uninstrumented hardware timing before shipping.
+See `examples/vehicle-playground/authoring/night-entry-hardware-2026-09-28/causal/README.md`.

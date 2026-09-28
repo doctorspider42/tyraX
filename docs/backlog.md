@@ -24,6 +24,16 @@ Price any culling/submission candidate against this stationary view, then the
 recorded first 120 driving frames after five metres (29/120 over budget),
 and moving AI traffic separately. Do not use emulator milliseconds.
 
+The [same-ELF causal probes](../examples/vehicle-playground/authoring/night-entry-hardware-2026-09-28/causal/README.md)
+identify a concrete EE waste: the full body and reflective prefix share a
+vertex-pointer/package-size bbox cache entry but alternate vertex counts.
+Ravager and Pica each replace that entry twice per frame, spending about
+2.9 ms rebuilding package bounds. Preserve both count variants with bounded
+storage, then validate dynamic versions, changing counts and expiry before
+shipping. Headlights alone are not the sustained slowdown's cause. Retain
+the exact chase-view and first-entry gates above; eliminating this waste
+does not by itself prove stable 50 FPS.
+
 Keep first-entry latency as a separate acceptance gate: the exact entry
 frame costs 165.300 ms, including 57.195 ms in HUD. The log confirms lazy
 font-atlas and icon-sheet reads over host: during entry. `drawFontText`

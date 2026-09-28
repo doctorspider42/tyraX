@@ -796,6 +796,12 @@ The profiled first 120 driving frames after five metres have median work
 slow point is the seated garage view, before acceleration. See the
 [continuous traces, breakdown and reproducer](authoring/night-entry-hardware-2026-09-28/README.md).
 
+[Same-ELF causal probes](authoring/night-entry-hardware-2026-09-28/causal/README.md)
+identify four full-body/reflective-prefix bbox cache replacements per frame.
+A bounded count-variant prototype preserves the coat and saves about 2.6–2.9 ms
+on hardware, but still misses the PAL budget; it is not shipped. Headlights
+alone do not explain the sustained dip.
+
 ## Repeating performance comparisons
 
 `python authoring/benchmark-district.py <new-directory>` creates an isolated

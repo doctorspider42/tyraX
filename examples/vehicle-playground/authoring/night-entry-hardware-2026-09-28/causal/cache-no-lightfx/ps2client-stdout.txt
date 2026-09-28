@@ -1,0 +1,466 @@
+loadelf: fname host:vehicle-playground.elf secname all
+`ŽEªžInput ELF format filename = host:vehicle-playground.elf
+1 00100000 003b5bbc ............................................................
+Loaded, host:vehicle-playground.elf
+start address 0x100e78
+gp address 00000000
+read/write allocate memory 4000
+open name rom0:ROMVER flag 1 data 41378
+open fd = 3
+LOG: IRX: Loading sio2man...
+LOG: IRX: Sio2man loaded!
+LOG: IRX: Loading padman...
+Pad Driver for OSD
+LOG: IRX: Padman loaded!
+LOG: IRX: Loading libsd...
+FREESD v1.01
+LOG: IRX: Libsd loaded!
+LOG: IRX: Loading ps2snd...
+debug_level = 1 (ps2snd 0.1
+LOG: IRX: ps2snd loaded!
+LOG: IRX: Loading audsrv...
+greetings from version 0.93 !
+audsrv_adpcm_init()
+LOG: IRX: Audsrv loaded!
+LOG: Path3 initialized
+LOG: GS buffers: frame 512x512 x2, z 512x512 at 393216, drawing into 0, showing 1
+open name rom0:ROMVER flag 1 data 41378
+open fd = 3
+LOG: Framebuffers, zBuffer set and allocated!
+LOG: Drawing environment initialized!
+LOG: Renderer core initialized!
+LOG: PostFx initialized!
+LOG: Dynamic env map initialized (VRAM at 667648)
+LOG: Env map target disabled - no VRAM reserved
+LOG: Renderer texture initialized!
+LOG: Clut set!
+LOG: Frustum planes initialized!
+LOG: RendererCore3D initialized!
+
+-----------------------------------------
+        _____        ____   ___
+          |     \/   ____| |___|
+          |     |   |   \  |   |
+-----------------------------------------
+Copyright 2022
+Repository: https://github.com/h4570/tyra
+Licensed under Apache License 2.0
+Version: 2.2.0
+-----------------------------------------
+
+LOG: Creating audio semaphore
+LOG: AudioSong semaphore created
+audsrv_adpcm_init()
+LOG: Audio initialized!
+LOG: Initializing pad
+LOG: Pad state changed
+Curent pad(0,0) status: EXECCMD
+LOG: Pad state changed
+Curent pad(0,0) status: FINDPAD
+LOG: Pad state changed
+Curent pad(0,0) status: EXECCMD
+LOG: Pad is ready!
+LOG: Enabling dual shock functions.
+LOG: Pad state changed
+Curent pad(0,0) status: EXECCMD
+LOG: Pad is ready!
+LOG: Pad has pressure sensitive buttons? 1
+LOG: Pad state changed
+Curent pad(0,0) status: EXECCMD
+LOG: Pad is ready!
+LOG: # of actuators: 2
+LOG: padSetActAlign: 1
+LOG: Pad state changed
+Curent pad(0,0) status: EXECCMD
+LOG: Pad is ready!
+LOG: Pad initialized!
+LOG: StaPip VU1 program set: 12 programs, billboards resident
+LOG: StaPipQBufferRenderer initialized
+LOG: StaPip VU1 program set: 12 programs, billboards resident
+loadmodule: fname rom0:XMCMAN args 0 arg
+loadmodule: id 38, ret 0
+loadmodule: fname rom0:XMCSERV args 0 arg
+loadmodule: id 39, ret 0
+LOG: Save system: no memory card - using host files
+open name host:/save0.sav flag 1 data 41378
+open fd = -1
+open name host:/save1.sav flag 1 data 41378
+open fd = -1
+open name host:/save2.sav flag 1 data 41378
+open fd = -1
+open name host:/menus/save.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-cursor.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-used.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-saved.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-loaded.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-error.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-busy.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-spinner.png flag 1 data 41378
+open fd = 3
+open name host:/menus/save.png flag 1 data 41378
+open fd = 3
+open name host:/menus/district-pause.png flag 1 data 41378
+open fd = 3
+open name host:/menus/district-pause-values.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-cursor.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-cursor.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-cursor.png flag 1 data 41378
+open fd = 3
+open name host:/hud/menu-dim.png flag 1 data 41378
+open fd = 3
+open name host:/hud/flare-corona.png flag 1 data 41378
+open fd = 3
+open name host:/hud/flashlight-gobo.png flag 1 data 41378
+open fd = 3
+open name host:/hud/flare-glow.png flag 1 data 41378
+open fd = 3
+open name host:/hud/sun-disc.png flag 1 data 41378
+open fd = 3
+open name host:/hud/moon-disc.png flag 1 data 41378
+open fd = 3
+open name host:/hud/use-text.png flag 1 data 41378
+open fd = 3
+open name host:/hud/pick-text.png flag 1 data 41378
+open fd = 3
+open name host:/sfx/engine-loop.adpcm flag 1 data 41378
+open fd = 3
+LOG: ADPCM loaded: host:/sfx/engine-loop.adpcm (2560 bytes, pitch 1881, id 6228000)
+open name host:/sfx/engine-high-loop.adpcm flag 1 data 41378
+open fd = 3
+LOG: ADPCM loaded: host:/sfx/engine-high-loop.adpcm (2560 bytes, pitch 1881, id 6228048)
+open name host:/sfx/screech-loop.adpcm flag 1 data 41378
+open fd = 3
+LOG: ADPCM loaded: host:/sfx/screech-loop.adpcm (2560 bytes, pitch 1881, id 6228096)
+open name host:/sfx/gear-shift.adpcm flag 1 data 41378
+open fd = 3
+LOG: ADPCM loaded: host:/sfx/gear-shift.adpcm (1552 bytes, pitch 1881, id 6228160)
+open name host:/hardware-trace.cfg flag 1 data 41378
+open fd = -1
+open name host:/budget-probe.cfg flag 1 data 41378
+open fd = 3
+open name host:/hud/loading.png flag 1 data 41378
+open fd = 3
+LOG: SIF RPC guard: seen 380, guarded 0
+open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+open fd = 3
+open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+open fd = 3
+open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+open fd = 3
+open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+open fd = 3
+open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+open fd = 3
+open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+open fd = 3
+open name host:/textures/district-ground.png flag 1 data 41378
+open fd = 3
+open name host:/textures/district-ground.png flag 1 data 41378
+open fd = 3
+open name host:/materials/district-asphalt.mtl flag 1 data 41378
+open fd = 3
+open name host:/textures/district-asphalt.png flag 1 data 41378
+open fd = 3
+open name host:/textures/district-asphalt.png flag 1 data 41378
+open fd = 3
+open name host:/materials/district-sign.mtl flag 1 data 41378
+open fd = 3
+open name host:/textures/district-sign.png flag 1 data 41378
+open fd = 3
+open name host:/textures/district-sign.png flag 1 data 41378
+open fd = 3
+open name host:/materials/night-warm.mtl flag 1 data 41378
+open fd = 3
+open name host:/materials/night-cyan.mtl flag 1 data 41378
+open fd = 3
+open name host:/materials/night-pink.mtl flag 1 data 41378
+open fd = 3
+open name host:/models/urban/district-workshop.tmdl flag 1 data 41378
+open fd = 3
+open name host:/models/urban/Textures/district-facades.png flag 1 data 41378
+open fd = 3
+open name host:/models/urban/Textures/district-facades.png flag 1 data 41378
+open fd = 3
+open name host:/models/urban/district-tower.tmdl flag 1 data 41378
+open fd = 3
+open name host:/models/urban/district-loft.tmdl flag 1 data 41378
+open fd = 3
+open name host:/models/urban/detail-light-double.tmdl flag 1 data 41378
+open fd = 3
+open name host:/models/urban/Textures/metal.png flag 1 data 41378
+open fd = 3
+open name host:/models/urban/Textures/metal.png flag 1 data 41378
+open fd = 3
+open name host:/models/urban/detail-light-traffic.tmdl flag 1 data 41378
+open fd = 3
+open name host:/models/urban/Textures/roof.png flag 1 data 41378
+open fd = 3
+open name host:/models/urban/Textures/roof.png flag 1 data 41378
+open fd = 3
+open name host:/models/urban/tree-park-large.tmdl flag 1 data 41378
+open fd = 3
+open name host:/models/urban/Textures/treeA.png flag 1 data 41378
+open fd = 3
+open name host:/models/urban/Textures/treeA.png flag 1 data 41378
+open fd = 3
+open name host:/models/urban/Textures/tiles.png flag 1 data 41378
+open fd = 3
+open name host:/models/urban/Textures/tiles.png flag 1 data 41378
+open fd = 3
+open name host:/models/urban/Textures/dirt.png flag 1 data 41378
+open fd = 3
+open name host:/models/urban/Textures/dirt.png flag 1 data 41378
+open fd = 3
+open name host:/models/urban/tree-park-pine-large.tmdl flag 1 data 41378
+open fd = 3
+open name host:/models/urban/Textures/treeB.png flag 1 data 41378
+open fd = 3
+open name host:/models/urban/Textures/treeB.png flag 1 data 41378
+open fd = 3
+open name host:/models/urban/detail-barrier-type-a.tmdl flag 1 data 41378
+open fd = 3
+open name host:/models/urban/Textures/signs.png flag 1 data 41378
+open fd = 3
+open name host:/models/urban/Textures/signs.png flag 1 data 41378
+open fd = 3
+open name host:/models/urban/detail-dumpster-closed.tmdl flag 1 data 41378
+open fd = 3
+open name host:/models/urban/Textures/metal_wall.png flag 1 data 41378
+open fd = 3
+open name host:/models/urban/Textures/metal_wall.png flag 1 data 41378
+open fd = 3
+open name host:/models/urban/Textures/wall.png flag 1 data 41378
+open fd = 3
+open name host:/models/urban/Textures/wall.png flag 1 data 41378
+open fd = 3
+open name host:/models/urban/detail-bench.tmdl flag 1 data 41378
+open fd = 3
+open name host:/models/urban/Textures/planks.png flag 1 data 41378
+open fd = 3
+open name host:/models/urban/Textures/planks.png flag 1 data 41378
+open fd = 3
+open name host:/models/urban/pallet.tmdl flag 1 data 41378
+open fd = 3
+open name host:/vehicles/veh-ravager000001-body.tmdl flag 1 data 41378
+open fd = 3
+open name host:/vehicles/veh-ravager000001-palette.png flag 1 data 41378
+open fd = 3
+open name host:/vehicles/veh-ravager000001-palette.png flag 1 data 41378
+open fd = 3
+open name host:/vehicles/veh-ravager000001-palette-image-0.png flag 1 data 41378
+open fd = 3
+open name host:/vehicles/veh-ravager000001-palette-image-0.png flag 1 data 41378
+open fd = 3
+open name host:/vehicles/veh-pica00000001-body.tmdl flag 1 data 41378
+open fd = 3
+open name host:/vehicles/veh-pica00000001-palette.png flag 1 data 41378
+open fd = 3
+open name host:/vehicles/veh-pica00000001-palette.png flag 1 data 41378
+open fd = 3
+open name host:/vehicles/veh-pica00000001-palette-image-0.png flag 1 data 41378
+open fd = 3
+open name host:/vehicles/veh-pica00000001-palette-image-0.png flag 1 data 41378
+open fd = 3
+open name host:/vehicles/veh-strix0000001-body.tmdl flag 1 data 41378
+open fd = 3
+open name host:/vehicles/veh-strix0000001-palette.png flag 1 data 41378
+open fd = 3
+open name host:/vehicles/veh-strix0000001-palette.png flag 1 data 41378
+open fd = 3
+open name host:/vehicles/veh-strix0000001-palette-image-0.png flag 1 data 41378
+open fd = 3
+open name host:/vehicles/veh-strix0000001-palette-image-0.png flag 1 data 41378
+open fd = 3
+open name host:/vehicles/fx-skid.png flag 1 data 41378
+open fd = 3
+open name host:/vehicles/fx-skid.png flag 1 data 41378
+open fd = 3
+open name host:/vehicles/fx-smoke.png flag 1 data 41378
+open fd = 3
+open name host:/vehicles/fx-smoke.png flag 1 data 41378
+open fd = 3
+open name host:/materials/particles/rally-dust.mtl flag 1 data 41378
+open fd = 3
+open name host:/materials/particles/rally-dust.png flag 1 data 41378
+open fd = 3
+open name host:/materials/particles/rally-dust.png flag 1 data 41378
+open fd = 3
+open name host:/materials/particles/rally-dust-f1.mtl flag 1 data 41378
+open fd = 3
+open name host:/materials/particles/rally-dust-f1.png flag 1 data 41378
+open fd = 3
+open name host:/materials/particles/rally-dust-f1.png flag 1 data 41378
+open fd = 3
+LOG: VEH setup obj 132 def 1
+open name host:/vehicles/veh-ravager000001-wheel.tmdl flag 1 data 41378
+open fd = 3
+open name host:/vehicles/veh-ravager000001-wheelfast.tmdl flag 1 data 41378
+open fd = 3
+LOG: VEH setup obj 133 def 2
+open name host:/vehicles/veh-pica00000001-wheel.tmdl flag 1 data 41378
+open fd = 3
+open name host:/vehicles/veh-pica00000001-wheelfast.tmdl flag 1 data 41378
+open fd = 3
+LOG: VEH setup obj 134 def 3
+open name host:/vehicles/veh-strix0000001-wheel.tmdl flag 1 data 41378
+open fd = 3
+open name host:/vehicles/veh-strix0000001-wheelfast.tmdl flag 1 data 41378
+open fd = 3
+LOG: Static batching: 41 objects in 30 batches
+LOG: Static batching: eligible 82, solo 41, base cell 80, widest cell 80
+LOG: Static batching: partial models kept solo 14
+open name host:/textures/district-road.png flag 1 data 41378
+open fd = 3
+open name host:/textures/district-road.png flag 1 data 41378
+open fd = 3
+open name host:/textures/district-asphalt.png flag 1 data 41378
+open fd = 3
+open name host:/textures/district-asphalt.png flag 1 data 41378
+open fd = 3
+open name host:/textures/district-plaza.png flag 1 data 41378
+open fd = 3
+open name host:/textures/district-plaza.png flag 1 data 41378
+open fd = 3
+LOG: ROADINDEX cells 1x1 entries 12
+LOG: ROADS scene 0 chunks 64 vertices 25629 y0x10 1
+LOG: ROADSTRIP scene 0 strips 1 packages 367 triangles 20487
+LOG: TERRAINSTRIP scene 0 chunk 2,2 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 2,1 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 1,2 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 3,2 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 1,1 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 3,1 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 2,3 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 1,3 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 3,3 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 2,0 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 1,0 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 0,2 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 3,0 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 4,2 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 0,1 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 4,1 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 2,4 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 0,3 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 4,3 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 1,4 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 3,4 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 0,0 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 4,0 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 0,4 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 4,4 strips 1 vertices 588 packages 8 triangles 512
+LOG: Hello from TyraX! Edit src/scripts/example_interaction.cpp.
+==WARN: SIF RPC: guarded 1 of 2466 completion(s) - noPacket 1, badClient 0 (docs/ps2link-setup.md)
+LOG: Motor District mood: NIGHT
+LOG: ROADINDEX cells 66x66 entries 50607
+LOG: VEHSHINE budget 2 mask 0 of 3
+open name host:/hud/debugfont.png flag 1 data 41378
+open fd = 3
+LOG: INTERLEAVE auto on=51175us off=14720us -> interleaved wins=5/8 heavy=25 drawn=33 blendAt=19
+LOG: INTERLEAVE auto on=12989us off=13458us -> interleaved wins=8/8 heavy=25 drawn=33 blendAt=19
+LOG: VEH enter 0 from a flow graph
+LOG: SPU2 channel 21 = core 1 voice 21: voll 0 volr 0 pitch 1881 adsr1 0 adsr2 0 ssa 25584
+LOG: SPU2 core 1: vmixl 16777215 vmixr 16777215 vmixel 16777215 vmixer 16777215 mmix 4044 mvoll 16383 evoll 0
+LOG: SPU2 channel 23 = core 1 voice 23: voll 0 volr 0 pitch 1881 adsr1 0 adsr2 0 ssa 20496
+LOG: SPU2 core 1: vmixl 16777215 vmixr 16777215 vmixel 16777215 vmixer 16777215 mmix 4044 mvoll 16383 evoll 0
+LOG: VEH engine sound on channel 23 snd 0
+LOG: SPU2 channel 22 = core 1 voice 22: voll 0 volr 0 pitch 1881 adsr1 0 adsr2 0 ssa 23040
+LOG: SPU2 core 1: vmixl 16777215 vmixr 16777215 vmixel 16777215 vmixer 16777215 mmix 4044 mvoll 16383 evoll 0
+LOG: VEHSHINE budget 2 mask 3 of 3
+LOG: VEHPAINT normals 2025 distinct 796
+LOG: VU1 experiment (c): normalized 2025 env normals
+LOG: VEHPAINT normals 1725 distinct 632
+LOG: VU1 experiment (c): normalized 1725 env normals
+LOG: VEHCONTACT car 1 def 2 parked gap1000 6 6 6 6 roadlift1000 119 119 119 119
+LOG: VEHCONTACT car 2 def 3 parked gap1000 0 0 0 0 roadlift1000 119 119 119 119
+open name host:/fonts/atlas-default.png flag 1 data 41378
+open fd = 3
+open name host:/hud/icons.png flag 1 data 41378
+open fd = 3
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 119 119 119 119
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=20573us off=20891us -> interleaved wins=6/8 heavy=46 drawn=50 blendAt=24
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 119 119 119 119
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 119 119 119 119
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=20405us off=21198us -> interleaved wins=8/8 heavy=46 drawn=50 blendAt=24
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 119 119 119 119
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 119 119 119 119
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 119 119 119 119
+open name host:/frame-cost.csv flag 602 data 41378
+open fd = 3
+open name host:/frame-attrib.csv flag 602 data 41378
+open fd = 3
+open name host:/drive-pose.csv flag 602 data 41378
+open fd = 3
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=20486us off=240648us -> interleaved wins=7/8 heavy=46 drawn=50 blendAt=24
+open name host:/object-cost.csv flag 602 data 41378
+open fd = 3
+open name host:/budget-probe.csv flag 602 data 41378
+open fd = 3
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 119 119 119 119
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 119 119 119 119
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=20145us off=20887us -> interleaved wins=7/8 heavy=46 drawn=50 blendAt=24
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 119 119 119 119
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 119 119 119 119
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: INTERLEAVE auto on=20308us off=20822us -> interleaved wins=7/8 heavy=46 drawn=50 blendAt=24
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 119 119 119 119
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEHCONTACT car 0 def 1 driven gap1000 0 0 0 0 roadlift1000 119 119 119 119
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60
+LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1408 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60

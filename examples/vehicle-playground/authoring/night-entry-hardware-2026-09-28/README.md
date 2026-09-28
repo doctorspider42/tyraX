@@ -5,6 +5,10 @@ start (X 0, Z -74.3035), at night, with the normal mode-0 chase camera.
 **No acceleration is needed: entering the stationary car changes 50 FPS to
 25 FPS.** This is a different workload from the earlier moving-camera sweep.
 
+[Follow-up causal probes](causal/README.md) isolate the full-body/reflective-prefix
+bbox cache collision, price headlights and coat removal, and test a bounded
+count-variant candidate without removing the coat.
+
 All fixtures were regenerated from editor commit `4be1d46b`, used complete
 current baked assets and `quiet-debug`, and parked the other traffic. Remote
 Pad, Live Debugger, Live Link, Live Logic, Time Machine and Input Recorder were

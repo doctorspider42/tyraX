@@ -3997,3 +3997,17 @@ Road strips ship on since 1.117.2. `ROADSTRIP ... strips 1` is expected; use
 `TYRA_STRIP_ROADS=0` only as the list control. Across an A/B, compare the
 producer's surface-triangle count (it must be identical), then packages,
 vertices, synchronized frame costs and several physical-console road views.
+
+### Read live bbox counters for per-object attribution
+
+`StaPipCore::takeTelemetry()` folds `cacher.stats` into `telemetry.attrib`
+and resets it. Peeking `telemetry.attrib.bboxCache*` around an individual draw
+therefore yields zero deltas even when that draw replaces cached boxes.
+Instrumented per-object probes must snapshot the live `cacher.stats` as well
+as the live telemetry brackets. Frame exports taken via `takeTelemetry()`
+remain correct. The first three 2026-09-28 causal arms retain those deferred
+per-object zeros; the cache control/candidate/repeat arms fix that reader and
+identify two fresh replacements per frame in each of Ravager and Pica.
+Keep each A/B group on one ELF with a boot-only switch; report instrumented
+times separately from the production 23.923 ms baseline. The archived probe
+patches and complete captures are in the example's `night-entry-hardware-2026-09-28/causal/`.

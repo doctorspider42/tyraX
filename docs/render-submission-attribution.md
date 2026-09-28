@@ -462,7 +462,17 @@ fresh entries in every pose. All 226.5 lookups together cost **0.118 ms**,
 each**: bags whose caller bumped `bboxVersion`, so `recalculate()` rescans the
 whole vertex buffer and rebuilds every part box.
 
-That is the `renderVehicleWheels` finding above, priced from the other side.
+That verdict applies to those poses and assets. The newer stationary night
+vehicle-entry view exposes a different failure: a full body and its reflective
+prefix alternate counts under one pointer/package-size key, causing **four
+fresh bbox replacements per frame** (Ravager and Pica). A same-ELF bounded
+count-variant probe eliminates those replacements and reduces total active
+work by about **2.6 ms**, with unchanged submitted primitive counts. See the
+[2026-09-28 causal captures](../examples/vehicle-playground/authoring/night-entry-hardware-2026-09-28/causal/README.md).
+This is a measured candidate, not a shipped cache change or a 50 FPS claim.
+
+The earlier recomputation result matches the `renderVehicleWheels` finding
+above, priced from the other side.
 The bag is handed `bboxVersion = ++g_bboxStamp` unconditionally every frame, so
 on top of its 1.970 ms of EE rebake it also spends **0.618 ms of `bounds`**
 rebuilding bounding boxes for geometry it could have declared unchanged. The
