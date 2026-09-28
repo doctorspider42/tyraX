@@ -3192,9 +3192,12 @@ Their base and coat bags share a vertex pointer and VU package size but use
 different counts. The pointer/package-size cache key merges them; its count
 validation then rebuilds the entry twice per car, every frame. This differs
 from the older parked-view result with zero fresh allocations. A bounded
-two-count-variant diagnostic removes that waste while preserving the coat;
-it is archived, not enabled in the production engine. Keep version-in-place
-invalidation and bound variants (dynamic particle counts must not produce
-250 frames of growing entries). Validate changing counts, recycled buffers,
-expiry, canonical bounds and uninstrumented hardware timing before shipping.
-See `examples/vehicle-playground/authoring/night-entry-hardware-2026-09-28/causal/README.md`.
+two-count-variant cache now preserves the coat in production. Keep
+version-in-place invalidation and bound variants (dynamic particle counts
+must not produce 250 frames of growing entries). A third count replaces
+the least recently touched variant; expiry stays 250 frames. Canonical bounds,
+changing counts, recycled-buffer versions and full/partial expiry passed on
+physical PS2: 52,273 comparisons, zero mismatches. Deep-counter-off same-ELF
+work drops 23.933–23.995 → 21.372 ms, still above the PAL budget. Raster and
+dynamic-light suppression are diagnostic probes, not shipped quality cuts.
+See `examples/vehicle-playground/authoring/night-entry-hardware-2026-09-28/fix/README.md`.

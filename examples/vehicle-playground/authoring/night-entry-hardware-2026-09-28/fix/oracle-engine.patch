@@ -1,0 +1,57 @@
+--- a/src/renderer/3d/pipeline/static/core/stapip_bag_bboxes_cacher.cpp
++++ b/src/renderer/3d/pipeline/static/core/stapip_bag_bboxes_cacher.cpp
+@@ -60,6 +60,38 @@
+ #endif
+ }
+ 
++
++bool budgetBBoxOracle = false;
++unsigned budgetBBoxChecked = 0, budgetBBoxFailures = 0;
++static bool budgetEqualVec(const Vec4& a, const Vec4& b) {
++  return a.x==b.x && a.y==b.y && a.z==b.z && a.w==b.w;
++}
++bool budgetCheckBBox(StaPipBagPackagesBBox* got, const Vec4* vertices,
++                      unsigned count, unsigned maxVertCount) {
++  ++budgetBBoxChecked;
++  StaPipBagPackagesBBox fresh(vertices,count,maxVertCount);
++  bool same=got->getVertexCount()==fresh.getVertexCount() &&
++            got->getPartsCount()==fresh.getPartsCount();
++  if(same) {
++    for(unsigned k=0;k<8;++k)
++      same = budgetEqualVec(got->getMainBBox()->vertices[k],fresh.getMainBBox()->vertices[k]) && same;
++    for(unsigned i=0;i<fresh.getPartsCount();++i) {
++      for(unsigned k=0;k<8;++k)
++        same = budgetEqualVec(got->getParts()[i].vertices[k],fresh.getParts()[i].vertices[k]) && same;
++      unsigned n=fresh.getPartsCount()-i;
++      if(n>3)n=3;
++      Vec4 a,b,x,y;
++      got->getMergedMinMax(i,n,&a,&b);fresh.getMergedMinMax(i,n,&x,&y);
++      same = budgetEqualVec(a,x) && budgetEqualVec(b,y) && same;
++    }
++    for(unsigned g=0;g<(fresh.getPartsCount()+23)/24;++g)
++      same = budgetEqualVec(got->coarseMin(g),fresh.coarseMin(g)) &&
++             budgetEqualVec(got->coarseMax(g),fresh.coarseMax(g)) && same;
++  }
++  if(!same)++budgetBBoxFailures;
++  return same;
++}
++
+ StaPipBagPackagesBBox* StapipBagBBoxesCacher::getBBoxes(
+     const Vec4* vertices, const u32& count, const u32& id, const u32& version,
+     const u32& maxVertCount) {
+@@ -96,6 +128,7 @@
+     } else {
+       TYRA_CACHER_INC(hits);
+     }
++    if(budgetBBoxOracle) budgetCheckBBox(cache->bboxes.get(),vertices,count,maxVertCount);
+     return cache->bboxes.get();
+   }
+   TYRA_CACHER_INC(fresh);
+@@ -111,6 +144,7 @@
+ 
+   indexBuckets[bucket] = static_cast<int>(storage.size() - 1);
+ 
++  if(budgetBBoxOracle) budgetCheckBBox(storage.back().bboxes.get(),vertices,count,maxVertCount);
+   return storage.back().bboxes.get();
+ }
+ 

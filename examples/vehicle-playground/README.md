@@ -798,9 +798,12 @@ slow point is the seated garage view, before acceleration. See the
 
 [Same-ELF causal probes](authoring/night-entry-hardware-2026-09-28/causal/README.md)
 identify four full-body/reflective-prefix bbox cache replacements per frame.
-A bounded count-variant prototype preserves the coat and saves about 2.6–2.9 ms
-on hardware, but still misses the PAL budget; it is not shipped. Headlights
-alone do not explain the sustained dip.
+The [accepted bounded count-variant fix](authoring/night-entry-hardware-2026-09-28/fix/README.md)
+preserves the coat and saves about 2.6 ms with deep counters off. Canonical
+bounds, dynamic versions, changing counts and expiry pass on hardware;
+the stationary view still misses the PAL budget. Headlights alone do not
+explain the sustained dip. The report also prices dynamic lighting and GS
+raster cost using diagnostic quality-reduction arms.
 
 ## Repeating performance comparisons
 

@@ -4011,3 +4011,24 @@ identify two fresh replacements per frame in each of Ravager and Pica.
 Keep each A/B group on one ELF with a boot-only switch; report instrumented
 times separately from the production 23.923 ms baseline. The archived probe
 patches and complete captures are in the example's `night-entry-hardware-2026-09-28/causal/`.
+
+### Accept a bbox-cache change against fresh canonical bounds
+
+The 2026-09-28 count-variant acceptance compares cached main boxes, every
+child box, merged min/max ranges and coarse bounds to freshly constructed
+`StaPipBagPackagesBBox` instances on physical PS2. It also checks repeated
+full/prefix requests, content-version bumps, hundreds of changing counts,
+different VU package sizes, recycled-address versions, full expiry and hash
+index reconstruction after partial expiry. The oracle is a correctness arm;
+its timings cannot be used as performance data. The shipped engine keeps
+`TYRA_STAPIP_ATTRIB=0` and carries none of the oracle/boot-toggle/raster hooks.
+See the example's `night-entry-hardware-2026-09-28/fix/README.md` for patches
+and the 3,470 lifecycle cases plus 48,803 live requests.
+
+Scenario overrides must run after the initial scene creates vehicle instances,
+at the simulation boundary. A first-loop override can see an empty array and
+be replaced by `bootFirstScene()`. Export traffic positions/speeds and reject
+a nominal parked control if another car moves; the first acceptance fixture
+caught exactly that error. Continuous driving windows are selected by actual
+position, not a presumed frame count. Quality-reduction probes may change FPS
+and thus physics substep cost; compare render/finish as well as total work.

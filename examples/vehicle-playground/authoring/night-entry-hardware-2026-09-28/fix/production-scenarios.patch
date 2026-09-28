@@ -1,0 +1,124 @@
+--- a/src/terrain_game.cpp
++++ b/src/terrain_game.cpp
+@@ -2725,6 +2725,27 @@
+ }
+ 
+ 
++namespace budgetScenario {
++static unsigned mask = 0;
++static bool init() {
++  static bool done = false;
++  if(done)return false;
++  done=true;
++  FILE* f=fopen(Tyra::FileUtils::fromCwd("budget-scenario.cfg").c_str(),"r");
++  if(f){fscanf(f,"%u",&mask);fclose(f);}
++  return true;
++}
++struct Traffic {float x,z,speed;};
++static Traffic traffic[960][2];
++static void save() {
++  FILE* f=fopen(Tyra::FileUtils::fromCwd("scenario.csv").c_str(),"w");
++  if(f){fprintf(f,"mask,samples\n%u,960\n",mask);fclose(f);}
++  f=fopen(Tyra::FileUtils::fromCwd("traffic.csv").c_str(),"w");
++  if(f){fprintf(f,"frame,pica_x,pica_z,pica_speed,strix_x,strix_z,strix_speed\n");
++    for(unsigned i=0;i<960;++i)fprintf(f,"%u,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n",i,traffic[i][0].x,traffic[i][0].z,traffic[i][0].speed,traffic[i][1].x,traffic[i][1].z,traffic[i][1].speed);
++    fclose(f);}
++}
++}
+ namespace districtMeasure {
+ static unsigned frame = 0, count = 0;
+ static bool written = false;
+@@ -2843,6 +2864,7 @@
+ }
+ }
+ void TerrainGame::loop() {
++  budgetScenario::init();
+   districtMeasure::resetPhases();
+   const unsigned dmStart = districtMeasure::ticks();
+   unsigned dmVehicles = 0;
+@@ -3574,7 +3596,12 @@
+   const auto dmPipe = stapip.core.takeTelemetry();
+   const auto dmTex = engine->renderer.core.texture.stats;
+   const unsigned dmF = districtMeasure::frame++;
+-  if (districtMeasure::count < 480) {
++  if(dmF < 960)for(unsigned j=0;j<2;++j) {
++    const auto& v=vehicles_[j+1];
++    budgetScenario::traffic[dmF][j]={v.pos[0],v.pos[2],v.speed};
++  }
++  if(dmF==961)budgetScenario::save();
++  if (districtMeasure::count < 960) {
+     districtMeasure::rows[districtMeasure::count++] = {
+       dmF,dmRender-dmStart,dmVehicles,dmFinish-dmRender,dmEnd-dmFinish-dmStall,
+       dmStall,dmEnd-dmStart,dmPipe.boundsTicks,dmPipe.prepareTicks,
+@@ -3607,7 +3634,7 @@
+       districtMeasure::arsTotal, districtMeasure::arsHead, districtMeasure::arsEnvProbe, districtMeasure::arsPortal, districtMeasure::arsSky, districtMeasure::arsTerrain, districtMeasure::arsTerrainDraw, districtMeasure::arsBatches, districtMeasure::arsProc, districtMeasure::arsObjects, districtMeasure::arsObjSubmit, districtMeasure::arsWheels, districtMeasure::arsWheelSubmit, districtMeasure::arsAnim, districtMeasure::arsDecorate, districtMeasure::arsLightFx, districtMeasure::arsHighlight, districtMeasure::arsParticles, districtMeasure::admPost, districtMeasure::admHud,
+       dmEng[0], dmEng[1], dmEng[2], dmEng[3], dmEng[4], dmEng[5], dmEng[6], dmEng[7], dmEng[8], dmEng[9], dmEng[10], dmEng[11], dmEng[12], dmEng[13], dmEng[14], dmEng[15], dmEng[16], dmEng[17], dmEng[18], dmEng[19], dmEng[20], dmEng[21], dmEng[22], dmEng[23], dmEng[24], dmEng[25], dmEng[26], dmEng[27], dmEng[28], dmEng[29], dmEng[30], dmEng[31], dmEng[32], dmEng[33], dmEng[34], dmEng[35], dmEng[36]};
+   }
+-  if (districtMeasure::count == 480 && !districtMeasure::written) {
++  if (districtMeasure::count == 960 && !districtMeasure::written) {
+     districtMeasure::save(); districtMeasure::saveAtt(); districtMeasure::written = true;
+   }
+   // Frame extrapolation (docs/frame-extrapolation.md): synthesise one extra
+@@ -19867,6 +19894,10 @@
+ }
+ 
+ void TerrainGame::updateVehicles(float dt) {
++  // The first scene loads after the first loop; apply the route override
++  // at the actual simulation boundary, after vehicle instances exist.
++  for(auto& v:vehicles_)
++    if(v.object==133 || v.object==134)v.wpCount = (budgetScenario::mask & 2U) ? 4 : 0;
+   if (dt <= 0.0F) return;
+   if (dt > 0.05F) dt = 0.05F;
+   if (vehicleDriver_ < 0 && (vehFeel_ > 0.0F || vehNosFeel_ > 0.0F || vehFovBase_ >= 0.0F ||
+@@ -20081,7 +20112,7 @@
+         inSteer = inSteer < 0.0F ? -r : r;
+       }
+       // Test fixture: full R2-equivalent throttle after warm-up, no host polling.
+-      inThrottle = 0.0F; // Stationary entry control: no gas.
++      inThrottle = (budgetScenario::mask & 1U) && driveTest::frame >= 210 ? 1.0F : 0.0F;
+       inBrake = inSteer = 0.0F; inHand = inNos = 0;
+       v.lightsOn = 1;
+     } else if (v.wpCount > 0 && v.damage < 0.999F) {
+--- a/src/scripts/zz_district_benchmark.cpp
++++ b/src/scripts/zz_district_benchmark.cpp
+@@ -6,7 +6,7 @@
+ namespace Vehicle_playground {
+ class NightDriveBenchmark : public Script {
+   struct Row { unsigned frame; float x,z,fps; };
+-  Row rows[480]; unsigned count=0; bool done=false;
++  Row rows[960]; unsigned count=0; bool done=false;
+ public:
+   void update(ScriptContext& ctx) override {
+     if (ctx.saveValues && DISTRICT_NIGHT_VALUE < ctx.saveValueCount)
+@@ -15,9 +15,9 @@
+     ++driveTest::frame;
+     if (ctx.objectCount <= 132 || done) return;
+     const auto& p = ctx.objects[132].data.position;
+-    if (count < 480)
++    if (count < 960)
+       rows[count++] = {driveTest::frame,p[0],p[2],ctx.engine->info.getFps()};
+-    if (count == 480 && driveTest::frame > rows[count-1].frame) {
++    if (count == 960 && driveTest::frame > rows[count-1].frame) {
+       FILE* f=std::fopen(Tyra::FileUtils::fromCwd("drive-pose.csv").c_str(),"w");
+       if(f) {
+         std::fprintf(f,"frame,x,z,fps\n");
+--- a/inc/scene_data.hpp
++++ b/inc/scene_data.hpp
+@@ -946,11 +946,14 @@
+ constexpr int VEHICLE_COUNT = 4;
+ constexpr VehicleInstData VEHICLES[4] = {
+     {0, 132, 1, 1, -1, 0},
+-    {0, 133, 2, 1, -1, 0},
+-    {0, 134, 3, 1, -1, 0},
++    {0, 133, 2, 1, 0, 4},
++    {0, 134, 3, 1, 4, 4},
+     {1, 132, 1, 1, -1, 0}
+ };
+-constexpr float VEH_WAYPOINTS[3] = {0.0F, 0.0F, 0.0F};
++constexpr float VEH_WAYPOINTS[24] = {
++  -4.5F,0.5F,-30.0F, -48.0F,0.5F,-30.0F, -48.0F,0.5F,-74.3035F, -4.5F,0.5F,-74.3035F,
++   4.5F,0.5F,-30.0F,  48.0F,0.5F,-30.0F,  48.0F,0.5F,-74.3035F,  4.5F,0.5F,-74.3035F
++};
+ 
+ constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0, 0};
+ constexpr int SCENE_MAX_LAYERS = 1;

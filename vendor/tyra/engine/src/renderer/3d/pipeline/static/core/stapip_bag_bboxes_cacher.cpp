@@ -8,6 +8,8 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 */
 
+// Modified by TyraX: bounded count variants prevent a full body and its
+// reflective prefix from rebuilding one shared cache entry every frame.
 #include "renderer/3d/pipeline/static/core/stapip_bag_bboxes_cacher.hpp"
 #include <algorithm>
 
@@ -63,7 +65,7 @@ void StapipBagBBoxesCacher::onFrameEnd() {
 StaPipBagPackagesBBox* StapipBagBBoxesCacher::getBBoxes(
     const Vec4* vertices, const u32& count, const u32& id, const u32& version,
     const u32& maxVertCount) {
-  auto* cache = getCache(maxVertCount, id);
+  auto* cache = getCache(maxVertCount, id, count);
 
   if (cache) {
     cache->framesLeftToDestroy = cacheFramesCount * cacheSecondsCount;
@@ -115,18 +117,26 @@ StaPipBagPackagesBBox* StapipBagBBoxesCacher::getBBoxes(
 }
 
 StapipBagBBoxesCacheItem* StapipBagBBoxesCacher::getCache(
-    const u32& maxVertCount, const u32& id) {
+    const u32& maxVertCount, const u32& id, const u32& count) {
+  // Keep two common count variants (base + coat), but never one entry for
+  // every changing particle count. Missing third counts reuse the least
+  // recently touched variant; getBBoxes replaces its split and version.
+  StapipBagBBoxesCacheItem* oldest = nullptr;
+  u32 variants = 0;
   int itemIndex = indexBuckets[getBucket(maxVertCount, id)];
   while (itemIndex >= 0) {
     auto& item = storage[itemIndex];
     TYRA_CACHER_INC(probes);
     if (item.vu1MaxVertCount == maxVertCount && item.id == id) {
-      return &item;
+      if (item.bboxes->getVertexCount() == count) return &item;
+      ++variants;
+      if (!oldest || item.framesLeftToDestroy < oldest->framesLeftToDestroy)
+        oldest = &item;
     }
     itemIndex = item.nextInBucket;
   }
 
-  return nullptr;
+  return variants >= 2 ? oldest : nullptr;
 }
 
 u32 StapipBagBBoxesCacher::getBucket(const u32& maxVertCount,

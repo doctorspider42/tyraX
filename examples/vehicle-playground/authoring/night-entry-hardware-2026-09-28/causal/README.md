@@ -1,5 +1,10 @@
 # Why the stationary night chase view misses 20 ms
 
+This report records the initial causal investigation. The subsequent
+[acceptance report](../fix/README.md) ships the bounded cache fix and adds
+deep-counter-off, GS raster and dynamic-light probes. References below to
+an unshipped candidate describe the state at these initial captures.
+
 Physical PAL PS2, 2026-09-28. Same Ravager garage start, zero throttle and
 speed, X 0 / Z -74.303497, ordinary mode-0 chase camera, parked traffic and
 complete assets as the [continuous entry capture](../README.md).

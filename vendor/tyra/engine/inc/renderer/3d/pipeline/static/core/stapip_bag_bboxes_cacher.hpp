@@ -8,9 +8,11 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 */
 
-// Modified by TyraX: version-aware entries and a bounded hash index. A bag
-// whose vertex buffer
-// is rewritten in place (skinned meshes, particles) bumps its bboxVersion;
+// Modified by TyraX: version-aware entries, a bounded hash index and at most
+// two vertex-count variants per pointer/package-size key. Full geometry and
+// a reflective prefix may share a buffer without replacing each other's boxes.
+// A bag whose vertex buffer is rewritten in place (skinned meshes, particles)
+// bumps its bboxVersion;
 // the cacher recomputes that entry instead of piling up a new one per frame
 // (250-frame retention made per-frame versions leak entries and allocations).
 
@@ -76,7 +78,8 @@ class StapipBagBBoxesCacher {
  private:
   static const u32 indexBucketCount = 256;
 
-  StapipBagBBoxesCacheItem* getCache(const u32& maxVertCount, const u32& id);
+  StapipBagBBoxesCacheItem* getCache(const u32& maxVertCount, const u32& id,
+                                    const u32& count);
   u32 getBucket(const u32& maxVertCount, const u32& id) const;
   void rebuildIndex();
 

@@ -469,7 +469,9 @@ fresh bbox replacements per frame** (Ravager and Pica). A same-ELF bounded
 count-variant probe eliminates those replacements and reduces total active
 work by about **2.6 ms**, with unchanged submitted primitive counts. See the
 [2026-09-28 causal captures](../examples/vehicle-playground/authoring/night-entry-hardware-2026-09-28/causal/README.md).
-This is a measured candidate, not a shipped cache change or a 50 FPS claim.
+The [follow-up acceptance and counters-out captures](../examples/vehicle-playground/authoring/night-entry-hardware-2026-09-28/fix/README.md)
+ship the bounded two-count cache fix. The same-ELF 23.933–23.995 → 21.372 ms
+result preserves geometry/lighting but still does not establish 50 FPS.
 
 The earlier recomputation result matches the `renderVehicleWheels` finding
 above, priced from the other side.

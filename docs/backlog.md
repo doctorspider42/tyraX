@@ -27,12 +27,16 @@ and moving AI traffic separately. Do not use emulator milliseconds.
 The [same-ELF causal probes](../examples/vehicle-playground/authoring/night-entry-hardware-2026-09-28/causal/README.md)
 identify a concrete EE waste: the full body and reflective prefix share a
 vertex-pointer/package-size bbox cache entry but alternate vertex counts.
-Ravager and Pica each replace that entry twice per frame, spending about
-2.9 ms rebuilding package bounds. Preserve both count variants with bounded
-storage, then validate dynamic versions, changing counts and expiry before
-shipping. Headlights alone are not the sustained slowdown's cause. Retain
-the exact chase-view and first-entry gates above; eliminating this waste
-does not by itself prove stable 50 FPS.
+Ravager and Pica each replaced that entry twice per frame, spending about
+2.9 ms rebuilding package bounds. The [accepted bounded count-variant fix](../examples/vehicle-playground/authoring/night-entry-hardware-2026-09-28/fix/README.md)
+preserves both variants and passes canonical-bounds, changing-count,
+dynamic-version and expiry checks. With deep counters off, same-ELF work
+drops 23.933–23.995 → 21.372 ms; the garage still misses the PAL budget.
+Headlights alone are not the sustained slowdown's cause. Further probes
+price dynamic mesh lighting and GS raster work; neither disabling lights
+nor clipping drawing to one pixel is a production optimization. Retain
+the exact chase-view and first-entry gates above and target the remaining
+submission/shader/raster cost with quality preserved.
 
 Keep first-entry latency as a separate acceptance gate: the exact entry
 frame costs 165.300 ms, including 57.195 ms in HUD. The log confirms lazy

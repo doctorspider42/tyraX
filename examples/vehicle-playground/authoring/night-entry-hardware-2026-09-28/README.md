@@ -9,6 +9,11 @@ start (X 0, Z -74.3035), at night, with the normal mode-0 chase camera.
 bbox cache collision, price headlights and coat removal, and test a bounded
 count-variant candidate without removing the coat.
 
+[Accepted fix and further pipeline probes](fix/README.md) retain both bbox
+count variants in the engine after canonical-bounds and lifecycle acceptance,
+then validate the production engine and driving/traffic scenarios. The cache
+fix saves about 2.6 ms; the stationary night view still exceeds 20 ms.
+
 All fixtures were regenerated from editor commit `4be1d46b`, used complete
 current baked assets and `quiet-debug`, and parked the other traffic. Remote
 Pad, Live Debugger, Live Link, Live Logic, Time Machine and Input Recorder were
