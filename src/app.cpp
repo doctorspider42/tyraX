@@ -2791,7 +2791,10 @@ void App::drawViewportWindow() {
     // arrow keys cycle focus through the overlay tool buttons (Move/Rotate/...)
     // instead of - or on top of - flying the camera when arrow-key movement is
     // selected. The buttons all have 1/2/3/5 hotkeys, so nothing is lost.
-    ImGui::Begin("Viewport", nullptr, ImGuiWindowFlags_NoNav);
+    // The scene canvas owns the wheel for camera zoom, not window scrolling.
+    // The welcome screen still needs its ordinary scrolling project list.
+    ImGui::Begin("Viewport", nullptr, ImGuiWindowFlags_NoNav |
+        (hasProject_ ? ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse : 0));
     ImGui::PopStyleVar();
 
     if (!hasProject_) {
@@ -2799,6 +2802,8 @@ void App::drawViewportWindow() {
         ImGui::End();
         return;
     }
+    ImGui::SetScrollX(0.0f);
+    ImGui::SetScrollY(0.0f);
 
     ImVec2 avail = ImGui::GetContentRegionAvail();
     if (avail.x >= 8 && avail.y >= 8) {
@@ -3333,6 +3338,7 @@ void App::drawViewportWindow() {
             // The filled, textured strip is real viewport geometry now. This
             // overlay owns only the selected road's handles and crisp edges.
             if (roSel) {
+                dl->PushClipRect(imgPos, ImVec2(imgPos.x + avail.x, imgPos.y + avail.y), true);
                 const ImU32 edgeCol = IM_COL32(90, 200, 255, 220);
                 // The two authored borders, found by U rather than by
                 // counting. A station pair emits SIX vertices per lateral
@@ -3378,14 +3384,23 @@ void App::drawViewportWindow() {
                         dl->AddCircle(pt, rr, IM_COL32(20, 20, 20, 235), 0,
                                       1.5f);
                         if (roadEdit_) {
-                            const ImVec2 cursor = ImGui::GetCursorScreenPos();
-                            ImGui::SetCursorScreenPos(ImVec2(pt.x - 12, pt.y - 12));
-                            ImGui::InvisibleButton(("Road point " + std::to_string(k / 2 + 1)).c_str(),
-                                                   ImVec2(24, 24));
-                            ImGui::SetCursorScreenPos(cursor);
+                            // Off-canvas ItemSize calls grow the window's scroll
+                            // extent even when the draw list clips their pixels.
+                            const ImVec2 a(std::max(pt.x - 12, imgPos.x),
+                                           std::max(pt.y - 12, imgPos.y));
+                            const ImVec2 b(std::min(pt.x + 12, imgPos.x + avail.x),
+                                           std::min(pt.y + 12, imgPos.y + avail.y));
+                            if (b.x > a.x && b.y > a.y) {
+                                const ImVec2 cursor = ImGui::GetCursorScreenPos();
+                                ImGui::SetCursorScreenPos(a);
+                                ImGui::InvisibleButton(("Road point " + std::to_string(k / 2 + 1)).c_str(),
+                                                       ImVec2(b.x - a.x, b.y - a.y));
+                                ImGui::SetCursorScreenPos(cursor);
+                            }
                         }
                     }
                 }
+                dl->PopClipRect();
             }
         }
 

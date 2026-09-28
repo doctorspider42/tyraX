@@ -2869,3 +2869,10 @@ Outlines reuse `Viewport::RoadDraw`; full-width soft borders retain a separate
 outline. During viewport drag only, both crossing caches defer work until release.
 Verify loop seams and open-road parity with the vehicle-playground road twin
 oracle; UI scripts can target `Road point N` handles and use `shiftclick`.
+
+Road-handle overlays must clip both pixels AND ImGui item bounds to the scene
+canvas (1.151.1). An off-canvas InvisibleButton calls ItemSize and grows the
+window's scroll extent; restoring cursor position alone does not undo that.
+The scene Viewport uses NoScrollbar/NoScrollWithMouse plus zero offsets, while
+the welcome project list preserves its scrolling. Test wheel zoom with road
+controls outside the frame and compare Viewport canvas rectangles before/after.

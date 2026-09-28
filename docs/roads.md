@@ -71,6 +71,9 @@ in VRAM.** There is no baked geometry to store, ship or stream.
   reopen the road at its seam. Move the shared handle to move both endpoints.
   Insert on the closing segment just like any other segment; a closed road
   ignores empty-ground appends until reopened.
+- The mouse wheel zooms the camera during road editing. Point hit areas and
+  road borders are clipped to the scene image, so off-screen controls cannot
+  grow a scrollbar or move the viewport panel (fixed in 1.151.1).
 - Editing outlines reuse the viewport's terrain-aware geometry cache instead
   of tessellating every road again every frame. During a viewport point drag,
   asphalt and handles update live; junction patches, spills and diamonds keep

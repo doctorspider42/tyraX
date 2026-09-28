@@ -42,3 +42,12 @@ Both crossing-planner consumers retain their previous junction preview during
 a viewport point drag and rebuild after release. Road asphalt and handles
 remain live. This removes repeated CPU work; it is not a measured display-FPS
 guarantee, and the changed road still rebuilds its exact surface while dragging.
+
+Road handles are overlay hit regions, not layout content. Since 1.151.1 their
+hit boxes intersect the scene canvas and their drawing is clipped to it.
+Registering a normal ImGui button outside the image grows the window's content
+extent even if the draw list clips it, producing an unwanted scrollbar. Scene
+viewports disable panel wheel scrolling and reset scroll offsets; the welcome
+screen keeps ordinary project-list scrolling.
+
+![Road editing zoom with off-canvas controls clipped to the scene image](img/road-zoom-editor.png)
