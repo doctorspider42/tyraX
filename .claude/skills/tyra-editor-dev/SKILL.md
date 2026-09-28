@@ -2882,3 +2882,16 @@ window's scroll extent; restoring cursor position alone does not undo that.
 The scene Viewport uses NoScrollbar/NoScrollWithMouse plus zero offsets, while
 the welcome project list preserves its scrolling. Test wheel zoom with road
 controls outside the frame and compare Viewport canvas rectangles before/after.
+
+### Material refresh and primitive UV parity (1.152.0)
+
+`App::listMaterialAssets` returns a cached const reference; asset mutations invalidate
+it and external changes are picked up within 1.5 s. `drawMaterialCombo` owns the
+direct Edit button before Texture feed. Material saves use
+`Viewport::invalidateMaterial`, preserving unrelated geometry and textures. Static
+models record parsed mtllib dependencies; animated overrides become stale without
+joining background jobs. Road and crossing draws record their source material.
+Do not replace this with global `invalidateAssets` on a slider commit.
+Box front/back V=0 is the top: keep `primmesh::unitBox`, generated `addBox` and
+the atlas region inverse mapping in `aobake.cpp` inverse mapping together. Geometry UV changes also invalidate
+procedural bake hashes and GI caches (including derived prelit freshness).

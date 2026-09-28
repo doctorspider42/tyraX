@@ -28,7 +28,7 @@ namespace {
 
 constexpr float kPi = 3.14159265358979f;
 constexpr uint32_t kCacheMagic = 0x49475854u;  // "TXGI"
-constexpr uint32_t kCacheVersion = 6;  // ground grid follows object footprints
+constexpr uint32_t kCacheVersion = 7;  // upright box front/back UVs
 
 // Rotation order X, then Y, then Z - the twin of templates.cpp rotated(),
 // aobake's and the viewport's model matrix. Keep in sync.

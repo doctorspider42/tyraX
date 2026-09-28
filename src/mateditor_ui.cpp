@@ -348,13 +348,15 @@ void App::saveMaterialFile() {
     out.close();
     // every consumer caches the parsed file - drop them so the scene viewport
     // and the properties panel pick the change up next frame
-    viewport_.invalidateAssets();
+    viewport_.invalidateMaterial(matEdPath_);
     modelInfoCache_.clear();
     statusMessage_ = "Saved " + matEdPath_;
 }
 
 void App::openMaterialEditor(const std::string& relPath,
                              const std::string& modelHint) {
+    matEdFocusNext_ = true;
+    if (!matEdFilter_.PassFilter(relPath.c_str())) matEdFilter_.Clear();
     showMaterialEditor_ = true;
     // preview straight on the mesh the material is used by - static .obj or
     // animated .glb/.fbx (both take the assigned .mtl as an override)
@@ -2564,6 +2566,7 @@ void App::drawMaterialEditorWindow() {
 
     ImGui::SetNextWindowSize(ImVec2(scaled(1020), scaled(600)),
                              ImGuiCond_FirstUseEver);
+    if (matEdFocusNext_) { ImGui::SetNextWindowFocus(); matEdFocusNext_ = false; }
     if (!ImGui::Begin("Material Editor", &showMaterialEditor_)) {
         matEdFocused_ = false;
         ImGui::End();
@@ -2581,14 +2584,22 @@ void App::drawMaterialEditorWindow() {
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Creates a .mtl in res/materials - assign it to any\n"
                           "object in Properties > Material.");
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (ImGui::InputTextWithHint("##material_search", "Search materials...",
+            matEdFilter_.InputBuf, sizeof(matEdFilter_.InputBuf))) matEdFilter_.Build();
     ImGui::Separator();
-    for (const std::string& rel : listMaterialAssets()) {
+    const auto& materials = listMaterialAssets();
+    int shown = 0;
+    for (const std::string& rel : materials) {
+        if (!matEdFilter_.PassFilter(rel.c_str())) continue;
+        ++shown;
         if (ImGui::Selectable(rel.substr(4).c_str(), rel == matEdPath_))
             openMaterialEditor(rel);
     }
-    if (listMaterialAssets().empty())
+    if (materials.empty())
         ImGui::TextDisabled("No materials yet.\nA material is a color +\n"
                             "optional texture shared\nby any number of objects.");
+    else if (!shown) ImGui::TextDisabled("No matching materials.");
     ImGui::EndChild();
 
     // --- "New material" modal ------------------------------------------------
@@ -2882,8 +2893,16 @@ void App::drawMaterialEditorWindow() {
             ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
                                "Texture missing - renders as plain color.");
         } else {
-            int tw = 0, th = 0, comp = 0;
-            if (stbi_info(texAbs.string().c_str(), &tw, &th, &comp)) {
+            const auto stamp = std::filesystem::last_write_time(texAbs, ec);
+            const std::string infoPath = texAbs.lexically_normal().generic_string();
+            if (matEdInfoPath_ != infoPath || matEdInfoTime_ != stamp) {
+                matEdInfoPath_ = infoPath;
+                matEdInfoTime_ = stamp;
+                int comp = 0;
+                matEdInfoOk_ = stbi_info(texAbs.string().c_str(), &matEdInfoW_, &matEdInfoH_, &comp) != 0;
+            }
+            const int tw = matEdInfoW_, th = matEdInfoH_;
+            if (matEdInfoOk_) {
                 const bool pow2 = tw > 0 && th > 0 && (tw & (tw - 1)) == 0 &&
                                   (th & (th - 1)) == 0;
                 if (!pow2)

@@ -630,9 +630,10 @@ public:
                         float strength);
 
     // Drops every disk-derived cache (models, materials, GL textures). Call
-    // after an asset file changed on disk (e.g. the Material Editor saved a
-    // .mtl) so the next frame re-reads it.
+    // after a broad asset change so the next frame re-reads it.
+    // Material setting saves use invalidateMaterial to preserve unrelated assets.
     void invalidateAssets();
+    void invalidateMaterial(const std::string& relPath);
     // docs/particles.md: the extra layers of every linked emitter in the scene.
     struct EmitterLayerPreview {
         SceneObject look;  // the emitter wearing the layer
@@ -1097,7 +1098,7 @@ private:
         Mesh mesh;
         Mesh edgeMesh;   // the soft-edge bands (1.144.0), alpha-faded
         std::vector<roadgen::Vertex> outline;
-        std::string texture;
+        std::string texture, material;
         uint64_t signature = 0;
     };
     std::map<std::string, RoadDraw> roadDraws_;  // keyed by stable object id
@@ -1106,7 +1107,7 @@ private:
     // (blended, drawn after the scene in plan order), rebuilt together.
     struct RoadCrossDraw {
         Mesh mesh;
-        std::string texture;
+        std::string texture, material;
         std::string owner;  // road key: a patch's road A, a decal's own road
         float color[3] = {1.0f, 1.0f, 1.0f};
         bool blended = false;
@@ -1155,6 +1156,7 @@ private:
     };
     struct ModelDraw {
         std::vector<ModelPart> parts;  // empty = missing/unparseable model
+        std::vector<std::string> materialFiles;  // normalized absolute dependencies
         float mn[3] = {0, 0, 0};       // model-space AABB (AO occluder shape)
         float mx[3] = {0, 0, 0};
     };

@@ -2085,7 +2085,7 @@ Result evaluate(const Project& p, const SceneData& s, const SceneObject& volume,
 }
 
 uint64_t bakeHash(const Project& p, const SceneData& s, const SceneObject& volume) {
-    uint64_t h = 0x243f6a8885a308d3ULL;
+    uint64_t h = 0x243f6a8885a308d4ULL;  // upright box front/back UVs
     const ProcGraph& g = volume.procGraph;
     h = hashCombine(h, g.seed);
     // Flipping a volume between baked and runtime changes what the build has

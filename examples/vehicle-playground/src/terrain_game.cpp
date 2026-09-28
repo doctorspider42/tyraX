@@ -1304,12 +1304,15 @@ void addBox(BagArray<Vec4>& verts, BagArray<Color>& cols,
           return {c0.x + du.x * s + dv.x * t, c0.y + du.y * s + dv.y * t,
                   c0.z + du.z * s + dv.z * t};
         };
-        pushVert(verts, cols, sts, o, P(s0, t0), nrm, s0, t0);
-        pushVert(verts, cols, sts, o, P(s1, t0), nrm, s1, t0);
-        pushVert(verts, cols, sts, o, P(s1, t1), nrm, s1, t1);
-        pushVert(verts, cols, sts, o, P(s0, t0), nrm, s0, t0);
-        pushVert(verts, cols, sts, o, P(s1, t1), nrm, s1, t1);
-        pushVert(verts, cols, sts, o, P(s0, t1), nrm, s0, t1);
+        // Front/back V=0 at the top, matching primmesh and the light atlas.
+        const float v0 = nrm.z != 0 ? 1.0F - t0 : t0;
+        const float v1 = nrm.z != 0 ? 1.0F - t1 : t1;
+        pushVert(verts, cols, sts, o, P(s0, t0), nrm, s0, v0);
+        pushVert(verts, cols, sts, o, P(s1, t0), nrm, s1, v0);
+        pushVert(verts, cols, sts, o, P(s1, t1), nrm, s1, v1);
+        pushVert(verts, cols, sts, o, P(s0, t0), nrm, s0, v0);
+        pushVert(verts, cols, sts, o, P(s1, t1), nrm, s1, v1);
+        pushVert(verts, cols, sts, o, P(s0, t1), nrm, s0, v1);
       }
   };
   face({h, -h, -h}, {0, H, 0}, {0, 0, H}, {1, 0, 0});    // +X

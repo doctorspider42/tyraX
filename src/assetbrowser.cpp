@@ -301,6 +301,7 @@ void App::scanAssetTree() {
 }
 
 void App::assetsChanged() {
+    materialAssetScanTime_ = -1.0;
     modelInfoCache_.clear();
     glbInfoCache_.clear();
     wavIssueCache_.clear();

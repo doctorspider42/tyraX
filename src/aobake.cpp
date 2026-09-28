@@ -1291,8 +1291,8 @@ void regionPoint(PrimitiveType type, int region, float u, float v,
                 case 1: set(-h, -h + u, h - v, -1, 0, 0); break;
                 case 2: set(-h + v, h, -h + u, 0, 1, 0); break;
                 case 3: set(-h + v, -h, h - u, 0, -1, 0); break;
-                case 4: set(-h + u, -h + v, h, 0, 0, 1); break;
-                default: set(h - u, -h + v, -h, 0, 0, -1); break;
+                case 4: set(-h + u, h - v, h, 0, 0, 1); break;
+                default: set(h - u, h - v, -h, 0, 0, -1); break;
             }
             break;
         case PrimitiveType::Sphere: {

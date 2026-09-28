@@ -407,7 +407,10 @@ private:
     std::string importMaterialAsset();
     // All .mtl assets an object can use: res/materials + res/models, as
     // project-relative paths ("res/materials/walls.mtl")
-    std::vector<std::string> listMaterialAssets();
+    const std::vector<std::string>& listMaterialAssets();
+    std::vector<std::string> materialAssetCache_;
+    std::string materialAssetProject_;
+    double materialAssetScanTime_ = -1.0;
     // Combo picking an .mtl for the object (primitives: surface; models:
     // override). Returns true when materialPath changed.
     bool drawMaterialCombo(SceneObject& o);
@@ -2779,6 +2782,12 @@ private:
     // updates live. Not project data, so no undo history (same as imports).
     bool showMaterialEditor_ = false;
     bool showTerrainEditor_ = false;  // the unified Sculpt + Paint terrain tool
+    ImGuiTextFilter matEdFilter_;
+    bool matEdFocusNext_ = false;
+    std::string matEdInfoPath_;
+    std::filesystem::file_time_type matEdInfoTime_{};
+    int matEdInfoW_ = 0, matEdInfoH_ = 0;
+    bool matEdInfoOk_ = false;
     std::string matEdPath_;  // project-relative path of the open .mtl ("" = none)
     struct MatEdEntry {
         std::string name;

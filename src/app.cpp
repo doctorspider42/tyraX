@@ -8669,13 +8669,19 @@ const App::ModelInfo& App::materialInfo(const std::string& relPath) {
     return modelInfoCache_.emplace(key, std::move(info)).first->second;
 }
 
-std::vector<std::string> App::listMaterialAssets() {
-    std::vector<std::string> result;
+const std::vector<std::string>& App::listMaterialAssets() {
+    const double now = ImGui::GetTime();
+    if (materialAssetProject_ == project_.dir && materialAssetScanTime_ >= 0 &&
+        now - materialAssetScanTime_ < 1.5) return materialAssetCache_;
+    materialAssetCache_.clear();
     for (const std::string& m : listAssetFiles("materials", ".mtl"))
-        result.push_back("res/materials/" + m);
+        materialAssetCache_.push_back("res/materials/" + m);
     for (const std::string& m : listAssetFiles("models", ".mtl"))
-        result.push_back("res/models/" + m);
-    return result;
+        materialAssetCache_.push_back("res/models/" + m);
+    std::sort(materialAssetCache_.begin(), materialAssetCache_.end());
+    materialAssetProject_ = project_.dir;
+    materialAssetScanTime_ = now;
+    return materialAssetCache_;
 }
 
 // Material combo shared by every solid object. Lists the project's .mtl
@@ -8688,6 +8694,11 @@ bool App::drawMaterialCombo(SceneObject& o) {
     if (current.rfind("res/", 0) == 0) current = current.substr(4);
 
     bool changed = false;
+    const bool canEdit = !o.materialPath.empty();
+    if (canEdit)
+        ImGui::SetNextItemWidth(std::max(scaled(60.0f), ImGui::CalcItemWidth() -
+            ImGui::CalcTextSize("Edit...").x - ImGui::GetStyle().FramePadding.x * 2 -
+            ImGui::GetStyle().ItemSpacing.x));
     if (ImGui::BeginCombo("Material", current.c_str())) {
         if (ImGui::Selectable(noneLabel, o.materialPath.empty()) &&
             !o.materialPath.empty()) {
@@ -8718,6 +8729,14 @@ bool App::drawMaterialCombo(SceneObject& o) {
                     "this model.");
         }
         ImGui::EndCombo();
+    }
+
+    if (!o.materialPath.empty()) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Edit...##material"))
+            openMaterialEditor(o.materialPath, isModel ? o.modelPath : "");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Open this material in the Material Editor.");
     }
 
     // Live texture feed: override the surface with a feed camera's view

@@ -51,3 +51,45 @@ viewports disable panel wheel scrolling and reset scroll offsets; the welcome
 screen keeps ordinary project-list scrolling.
 
 ![Road editing zoom with off-canvas controls clipped to the scene image](img/road-zoom-editor.png)
+
+## Material editing
+
+Previously the Material Editor scanned both material directories twice per frame,
+read a PNG header every frame, and saving any material cleared all viewport
+models, textures, roads and crossings. The next frame rebuilt unrelated assets.
+The material list now has a 1.5-second cache with immediate asset-operation
+invalidation; texture dimensions reload only when the path or file timestamp
+changes. Saves invalidate static model material-library dependencies and matching
+animated overrides (asynchronously), plus roads using the changed material.
+Crossings rebuild only when a road or crossing material is affected.
+
+Set `TYRAX_MATERIAL_PROFILE=1` to log affected and retained model/road cache counts
+on a save. This diagnoses invalidation scope, not frame duration or display FPS.
+Preview framebuffer, primitive lighting and model geometry were already cached;
+this fix does not lower preview quality or replace the paint compositing path.
+
+### Verification on the garage sign
+
+Release 1.151.2 and 1.152.0 used the same copied vehicle-playground scene,
+1920x1017 editor window, fixed sign camera and spinning sphere preview.
+After 200 warm-up frames, the script measured 600 frames and one Brightness
+drag followed by two frames. Alternating old/new/new/old/old/new runs gave:
+
+| Diagnostic | Before (median of 3) | After (median of 3) |
+| --- | ---: | ---: |
+| Warm UI-script throughput, ms/frame | 67.27 | 2.64 |
+| Complete scripted save interaction, ms | 981.07 | 31.87 |
+
+The frame range was 64.64–68.91 ms before and 2.53–2.76 ms after; interaction
+ranges were 967.92–1008.85 ms and 31.62–34.20 ms. These are wall-clock script
+measurements with synchronization disabled, not presented FPS or isolated GPU
+time. One old warm run overlapped a short road-refresh verification; the other
+two old runs and all new runs had no build or second editor test running.
+
+Sign saves retained 11 static model and 7 road entries. A road-material save
+refreshed its 6 roads while retaining 11 models and the unrelated road. A
+material-lab altar save refreshed its one dependent model. UI assertions cover
+case-insensitive filtering, empty results, filter clearing on direct Edit and
+opening the assigned file. Box geometry tests compare every vertex against the
+PS2 builder and the light-atlas inverse at details 1, 2 and 16; a native PS2
+build of the copied scene passed. No new physical-console measurement is claimed.

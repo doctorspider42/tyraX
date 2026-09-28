@@ -3975,6 +3975,50 @@ void Viewport::invalidateAssets() {
     emisGlowCache_.clear();  // .mtl emission re-read on the next frame
 }
 
+void Viewport::invalidateMaterial(const std::string& relPath) {
+    const auto full = (std::filesystem::path(projectDir_) / relPath).lexically_normal().generic_string();
+    const auto uses = [&](const ModelDraw& d) {
+        return std::find(d.materialFiles.begin(), d.materialFiles.end(), full) != d.materialFiles.end();
+    };
+    const std::string suffix = "|" + relPath;
+    size_t models = 0, animated = 0, roads = 0;
+    for (auto it = modelCache_.begin(); it != modelCache_.end();) {
+        if (!uses(it->second) && !it->first.ends_with(suffix)) { ++it; continue; }
+        for (ModelPart& p : it->second.parts) destroyMesh(p.mesh);
+        it = modelCache_.erase(it); ++models;
+    }
+    // Keep animated geometry visible while only affected overrides rebake.
+    for (auto& entry : animModelCache_)
+        if (entry.first.size() >= suffix.size() &&
+            entry.first.compare(entry.first.size() - suffix.size(), suffix.size(), suffix) == 0) {
+            entry.second.stale = true; ++animated;
+        }
+    for (auto& job : animBakeJobs_)
+        if (job->materialRel == relPath) job->restale = true;
+    bool crossingChanged = false;
+    for (auto it = roadDraws_.begin(); it != roadDraws_.end();) {
+        if (it->second.material != relPath) { ++it; continue; }
+        destroyMesh(it->second.mesh); destroyMesh(it->second.edgeMesh);
+        it = roadDraws_.erase(it); ++roads; crossingChanged = true;
+    }
+    for (const RoadCrossDraw& c : roadCross_)
+        if (c.material == relPath) crossingChanged = true;
+    if (crossingChanged) {
+        for (RoadCrossDraw& c : roadCross_) destroyMesh(c.mesh);
+        roadCross_.clear(); roadCrossSig_ = 0;
+    }
+    materialCache_.erase(relPath);
+    emisGlowCache_.erase(relPath);
+    // Picking can depend on a changed alpha texture reference. It is rebuilt
+    // lazily on a pick, while geometry bounds and resident textures stay valid.
+    pickModelCache_.clear();
+    clearThumbCache();
+    clearMatPrevModel();
+    if (std::getenv("TYRAX_MATERIAL_PROFILE"))
+        std::fprintf(stderr, "[material-refresh] models=%zu animated=%zu roads=%zu preserved-models=%zu preserved-roads=%zu\n",
+                     models, animated, roads, modelCache_.size(), roadDraws_.size());
+}
+
 uint32_t Viewport::glTexture(const std::string& relPath) {
     if (relPath.empty()) return 0;
     auto it = texCache_.find(relPath);
@@ -4116,6 +4160,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
             next.outline = std::move(strip);
         next.mesh = uploadMesh(interleaved);
         if (!edgeInterleaved.empty()) next.edgeMesh = uploadMesh9(edgeInterleaved);
+        next.material = o.roadTexture;
         next.texture = project::resolveRoadTexture(projectDir_, o.roadTexture);
         next.signature = sig;
         if (it != roadDraws_.end()) {
@@ -4194,6 +4239,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
             iv.insert(iv.end(), {v.x, v.y, v.z, 1.0f, 1.0f, 1.0f, v.u, v.v});
         RoadCrossDraw d;
         d.mesh = uploadMesh(iv);
+        d.material = c.material;
         d.texture = project::resolveRoadTexture(projectDir_, c.material);
         d.owner = keyOf(c.a);
         d.color[0] = a.color[0], d.color[1] = a.color[1], d.color[2] = a.color[2];
@@ -4209,6 +4255,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
                                  o.color[1], o.color[2], v.a, v.u, v.v});
         RoadCrossDraw d;
         d.mesh = uploadMesh9(iv);
+        d.material = o.roadTexture;
         d.texture = project::resolveRoadTexture(projectDir_, o.roadTexture);
         d.owner = keyOf(dc.road);
         d.blended = true;
@@ -4571,6 +4618,9 @@ const Viewport::ModelDraw* Viewport::modelDraw(const std::string& relPath,
             materialRel.empty()
                 ? ""
                 : (std::filesystem::path(projectDir_) / materialRel).string())) {
+        for (const std::string& lib : model.mtlLibs)
+            draw.materialFiles.push_back((std::filesystem::path(projectDir_) /
+                std::filesystem::path(relPath).parent_path() / lib).lexically_normal().generic_string());
         // map_Kd paths resolve relative to the file that defined them: the
         // override .mtl when one is assigned, the model otherwise
         const std::filesystem::path modelDir =

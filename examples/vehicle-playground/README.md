@@ -1395,3 +1395,7 @@ Run `python authoring/verify-road-twins.py` from this directory (or its full
 repo-relative path from the root): it reproduces the old east-end penetration,
 checks both ends and compares generated-runtime uploads. See
 [Roads](../../docs/roads.md) for the geometry budget and screenshot.
+
+The garage sign uses an upright source PNG on a Box front face. Since 1.152.0,
+front/back Box UVs keep the PNG upright in both preview and generated games;
+regenerate older game output to pick up the corrected mapping.

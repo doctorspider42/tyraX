@@ -1004,15 +1004,6 @@ void App::drawPropertiesWindow() {
         // a replacement. An animated override is resolved into the .tskl at
         // build time (docs/animated-models.md).
         if (drawMaterialCombo(o)) committed = true;
-        if (!o.materialPath.empty()) {
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Edit..."))
-                // preview the material on the object's own mesh (static .obj
-                // AND animated .glb/.fbx); primitives leave the hint off
-                openMaterialEditor(o.materialPath,
-                                   o.type == PrimitiveType::Model ? o.modelPath
-                                                                  : "");
-        }
         if (!o.materialPath.empty() && o.type != PrimitiveType::Model) {
             const ModelInfo& mat = materialInfo(o.materialPath);
             if (mat.ok && !mat.materials.empty()) {
@@ -2092,10 +2083,6 @@ void App::drawPropertiesWindow() {
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         // optional texture: the material's map_Kd, tinted by the color
         if (drawMaterialCombo(o)) committed = true;
-        if (!o.materialPath.empty()) {
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Edit...")) openMaterialEditor(o.materialPath);
-        }
         if (o.emitterKind == 2) {  // fog density
             ImGui::DragFloat("Opacity", &o.emitterOpacity, 0.01f, 0.0f, 1.0f,
                              "%.2f");
