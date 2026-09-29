@@ -43,7 +43,7 @@ exactly why the feature needs a third buffer and cannot be done with two:
 | `pendingBuffer` | finished, waiting for the next vblank (-1 = none) |
 | `context` | the EE/GS, drawing into it |
 
-The queue needs **no interrupt masking**, and that property is worth keeping:
+With the frame limiter on, the queue needs **no interrupt masking**:
 the handler only ever acts when `pendingBuffer >= 0`, so while the main thread
 has waited for it to reach -1 the handler is inert and `displayedBuffer` cannot
 move under it. `flipBuffers` therefore writes `context` first and
@@ -53,6 +53,49 @@ The other ordering rule is the `draw_finish` handshake inside
 `emitDrawTargetSwitch`: the GIF is in-order, so when FINISH comes back every
 triangle of the finished frame has been rasterised. Queueing before that would
 let the handler put a half-drawn frame on screen.
+
+## Hybrid triple buffering
+
+Hybrid colour depth supports the same vblank queue with different buffer roles:
+slot 0 is always the PSMCT32 draw target, and slots 1 and 2 are PSMCT16 display
+targets. One display target is scanned out while the other holds the queued
+copy. The next frame renders into slot 0 while that copy waits for vblank.
+The single scene depth buffer stays PSMZ32 (24-bit Z values in XYZF2).
+
+At frame end, wait until the previous queued copy has been presented, copy the
+32-bit source into the unscanned 16-bit target, restore the draw state and
+consume a GS FINISH before publishing `pendingBuffer`. The interrupt must never
+see a half-copied frame. With the limiter off, withdraw an unshown copy under
+interrupt masking before reusing its target. The two-buffer hybrid path keeps
+its existing after-vsync copy without adding an unwaited FINISH.
+
+The extra display buffer costs **448 KiB at 512x448**, **512 KiB at 512x512**,
+or **256 KiB at 512x224** (the 16-bit GS page height rounds 224 up to 256).
+At heights divisible by 64 it costs half the corresponding 32-bit third buffer.
+One 32-bit plus two 16-bit colour buffers occupy the same VRAM as two 32-bit
+colour buffers. The copy still costs GS work; this is no promise of a measured
+speedup. The headroom check and double-buffer fallback apply on every display
+mode or raster-layout rebuild, using the 16-bit third-buffer size. The BLSS
+colour-target reserve is tracked independently of the Z raster: mixed projects
+with full-size depth still recheck headroom when the low-res target is first
+configured, and retain that reserve during video-mode switches in native scenes.
+
+There is still no previous 32-bit image: motion blur, BLSS temporal history and
+frame extrapolation stay disabled. A scene capture reads the finished 32-bit
+draw buffer, rather than either display target. Before a scan-mode change resets
+the GS, both drawing paths are drained: a double-buffer hybrid fallback can
+still have an asynchronous copy in flight.
+
+**Verification (1.153.0):** Windows Release editor and native PS2DEV builds,
+then PCSX2 2.6.3 software-renderer boots of hybrid double/triple, unlimited,
+field and BLSS variants. A frozen 512x512 fixture had **zero differing scene
+pixels out of 200,704** between double and triple (excluding the HUD), and a
+31-capture sequence had no missing scene frames. GS dumps checked the CT32
+draw target, CT16 display copies, copy-only dithering and PSMZ32 depth. A mixed
+BLSS fixture completed two field/full-PAL cycles, granting three/two buffers
+each time, then produced fresh captures; ordinary 32-bit triple buffering
+still drew into all three CT32 targets. These are correctness checks, not a
+hardware speedup measurement.
 
 ## The measurements
 

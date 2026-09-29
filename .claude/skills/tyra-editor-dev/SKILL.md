@@ -1010,6 +1010,23 @@ same generated TU (`inputApplyKeyboardMouse`), so keys rebind too. The raw
 `OnButton` flow node stays raw on purpose; `OnAction` is the configurable one.
 
 **A project preference a SCENE can override** → one `bool` on `SceneOverrides` (+ its `operator==`, or undo drops it), a branch in `project::resolvedSettings`, and - the part that is easy to get wrong - a serializer that writes the flag and the scene-local values **only when the override is on**. `writeSceneVisuals` emits every other category whether it is active or not, so following that pattern would add a key to every existing project's `.tyra` and break `--resave` byte-identity; the neural upscaler's `"upscaler"` / `"blss"` pair is the worked example (see also the shot plan, where a default plan writes nothing at all). Everything downstream then reads `resolvedSettings` and never the raw field.
+The BLSS colour-target reserve uses `RendererCoreGS::setLowResTargetScale`,
+separately from pinned Z and active scene raster. `configure()` sets it before
+`needsBufferRealloc()`: a mixed project must recheck triple-buffer headroom
+even when Z never shrinks. Preserve the reserve across native-scene video-mode
+switches; `setScene()` must not change it.
+
+GS headroom uses whole page rows: 64x32 at 32 bits, 64x64 at 16 bits,
+including the Z format. A 512x224 CT16 target costs 256 KiB, not 224 KiB;
+rounding a total pixel count to 2048 words is not the allocator's layout.
+
+**Hybrid triple buffering** (1.153.0): `project::tripleBufferingFit` charges
+one PSMCT32 draw target plus two PSMCT16 display targets, with a PSMZ32 scene
+z buffer. The engine rotates only display slots 1/2 and fences the finished
+copy before queueing it; slot 0 remains the draw target. The existing project
+flag and generated option are reused, so no format migration or template edit
+is needed. Temporal history and extrapolation remain unavailable.
+
 **Two settings whose ANSWER lives in the engine** (docs/frame-pacing.md,
 docs/frame-extrapolation.md). `tripleBuffering` is the pattern worth copying:
 the engine can REFUSE it - a third display buffer that would starve post fx, the

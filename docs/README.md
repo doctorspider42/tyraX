@@ -341,7 +341,8 @@ Developer design docs (internals, not user guides):
   geometry needs no clipping at all (the GS scissor crops it), and the measured
   cost of getting that decision wrong.
 - [GS VRAM residency](gs-vram.md) — where the 4 MB goes, 16-bit frame buffers
-  and dithering, the hybrid mode (draw 32-bit, show a dithered 16-bit copy), what a texture really costs, the texture heap and its eviction
+  and dithering, the hybrid mode (draw 32-bit, show a dithered 16-bit copy,
+  optionally queued through two display buffers), what a texture really costs, the texture heap and its eviction
   policy, the residency census that names what is resident, the Motor District
   garage inventory, measured before/after numbers.
 - [Frame extrapolation](frame-extrapolation.md) — synthesising an extra frame

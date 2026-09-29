@@ -157,7 +157,14 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
     // buffers is the safe direction, and the engine's own constants would
     // have to move with it.)
     const int kNeed = 98304 + 65536;
-    auto pageUp = [&](int w) { return ((w + kPage - 1) / kPage) * kPage; };
+    // Whole GS pages, not a page-rounded pixel count. PSMCT32/PSMZ32
+    // pages are 64x32; PSMCT16/PSMZ16 pages are 64x64. In particular a
+    // 512x224 CT16 display occupies 512x256 pixels' worth of VRAM.
+    // Keep equal to RendererCoreGSVRam::getSize(..., GRAPH_ALIGN_PAGE).
+    auto bufferSizeWords = [&](int width, int height, bool bits16) {
+        const int pageH = bits16 ? 64 : 32;
+        return ((width + 63) / 64) * ((height + pageH - 1) / pageH) * kPage;
+    };
 
     // THE MODE IS A PARAMETER, because the boot mode is not the only mode the
     // game runs in. `supportedModes` declares the scan modes a player can
@@ -175,7 +182,7 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
     // to. Keep in step with RendererCoreGS::allocateVramBuffers.
     const bool halfDepth = s.colorDepth == "16bit";
     const bool hybrid = s.colorDepth == "hybrid";
-    const int bufferWords = pageUp(halfDepth ? (w * h + 1) / 2 : w * h);
+    const int bufferWords = bufferSizeWords(w, h, halfDepth);
 
     // THE UPSCALER IS A PER-SCENE SETTING, so `s.blssEnabled` is the project
     // DEFAULT and almost never the question (docs/neural-upscaler.md, "Per
@@ -193,7 +200,8 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
     // used to read the project default alone and promised a third buffer such
     // a project cannot have.
     const bool zShrinks = u.any && !u.mixed;
-    const int zWords = pageUp(zShrinks ? (w / sx) * (h / sy) : w * h);
+    const int zWords = bufferSizeWords(zShrinks ? w / sx : w,
+                                     zShrinks ? h / sy : h, halfDepth);
 
     // The low-res colour target, which exists whenever the upscaler is on
     // ANYWHERE (configure() is given the widest configuration the run takes).
@@ -203,8 +211,7 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
     int lowWords = 0;
     if (u.any) {
         const int lowBufW = -64 & ((w / sx) + 63);  // 64-aligned, as BLSS sizes it
-        const int lowPixels = lowBufW * (h / sy);
-        lowWords = pageUp(halfDepth ? (lowPixels + 1) / 2 : lowPixels);
+        lowWords = bufferSizeWords(lowBufW, h / sy, halfDepth);
     }
 
     // The flashlight shadow volumes' COUNT target (docs/flashlight.md "The
@@ -221,7 +228,7 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
     // this must not charge it twice.
     int countWords = 0;
     if (s.flashShadowVolumes || s.spotShadowVolumes)
-        countWords = pageUp((w * h + 1) / 2);
+        countWords = bufferSizeWords(w, h, true);
 
     TripleBufferFit f;
     f.bufferWords = bufferWords;
@@ -230,18 +237,18 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
                   (2 * bufferWords + zWords + lowWords + countWords) -
                   bufferWords;
     f.fits = f.leftWords >= kNeed;
-    // Hybrid: one 32-bit draw buffer plus ONE 16-bit display buffer and never a
-    // third (RendererSettings::getFrameBufferCount). leftWords + bufferWords is
+    // Hybrid: one 32-bit draw buffer plus two 16-bit display buffers when
+    // triple buffering fits. leftWords + bufferWords is
     // still "what the permanent region leaves", the number textureHeapEstimate
     // reads. Keep in step with RendererCoreGS::allocateVramBuffers.
     if (hybrid) {
-        const int displayWords = pageUp((w * h + 1) / 2);
+        const int displayWords = bufferSizeWords(w, h, true);
         f.bufferWords = displayWords;
         f.leftWords = kVramWords -
                       (bufferWords + displayWords + zWords + lowWords +
                        countWords) -
                       displayWords;
-        f.fits = false;
+        f.fits = f.leftWords >= kNeed;
     }
     f.mode = d.key;
     return f;

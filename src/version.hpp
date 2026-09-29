@@ -5496,7 +5496,9 @@
 // Particles face the camera a pass DRAWS with (cutscene override, shake,
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 152
+#define TYRAX_VERSION_MINOR 153
+// 1.153.0: Hybrid triple buffering keeps one PSMCT32 draw target and queues
+// finished copies through two PSMCT16 display targets; depth stays PSMZ32.
 // 1.152.0: direct material editing, searchable cached asset list, selective
 // material refresh and cached PNG metadata; upright box front/back UVs.
 // 1.151.2: bound junction clearance against actual road triangles; adaptive

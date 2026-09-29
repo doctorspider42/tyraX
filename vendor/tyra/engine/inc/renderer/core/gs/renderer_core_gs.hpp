@@ -139,10 +139,17 @@ class RendererCoreGS {
    */
   void reallocateBuffers();
 
-  /** True when the z buffer on the GS was allocated for a different raster
-   * scale than the settings now ask for (TyraX fork, BLSS) - i.e. the
+  /** True when the Z raster or the permanent low-res target reserve changed
+   * (TyraX fork, BLSS) - i.e. the
    * permanent VRAM region has to be laid out again. */
   bool needsBufferRealloc() const;
+  /** Modified by TyraX: permanent BLSS target reserve, independent of the
+   * active scene raster and the pinned Z raster. Configure before laying out
+   * VRAM; retained across scene and display-mode changes. */
+  void setLowResTargetScale(int sx, int sy) {
+    lowResTargetScaleX = sx > 0 ? sx : 1;
+    lowResTargetScaleY = sy > 0 ? sy : 1;
+  }
 
   /**
    * Modified by TyraX (BLSS per scene): PIN the raster scale the z buffer is
@@ -376,6 +383,12 @@ class RendererCoreGS {
   // so a later configure() can tell whether the layout has to be redone.
   int zRasterScaleX = 1;
   int zRasterScaleY = 1;
+  // Modified by TyraX: BLSS still needs a colour target when native scenes
+  // pin Z at full resolution. Its reserve must trigger a layout rebuild too.
+  int lowResTargetScaleX = 1;
+  int lowResTargetScaleY = 1;
+  int layoutLowResScaleX = 1;
+  int layoutLowResScaleY = 1;
   // Modified by TyraX (BLSS per scene): the pinned z raster scale, 0 = follow
   // the settings' active raster scale. See setZRasterScale().
   int zPinScaleX = 0;
@@ -401,10 +414,10 @@ class RendererCoreGS {
   // at frameBuffers[target] and, in InterlacedField, re-bias XYOFFSET for the
   // field that frame will be scanned in. Shared by both flip paths.
   void emitDrawTargetSwitch(u8 target);
-  /** Hybrid colour depth: copy frameBuffers[0] (PSMCT32) into
-   * frameBuffers[1] (PSMCT16) with DTHE armed, then restore the raster state
+  /** Hybrid colour depth: copy frameBuffers[0] (PSMCT32) into the selected
+   * PSMCT16 display buffer with DTHE armed, then restore the raster state
    * the frame's drawing expects. See ColorDepth::Hybrid. */
-  void emitHybridPresent();
+  void emitHybridPresent(u8 target);
   // Install / tear down the INTC vblank handler that latches DISPFB. Only
   // used with three buffers; with two, RendererCore's graph_wait_vsync is the
   // whole story and no handler is installed.

@@ -18,12 +18,12 @@ anyone has over the texture budget:
 | Region | Words (32bpp) | Words (16bpp) | Notes |
 |---|---|---|---|
 | Frame buffer × 2 (512×448) | 458 752 | 229 376 | halves again in the `InterlacedField` scan mode |
-| Z buffer (512×448, always 32bpp) | 229 376 | 229 376 | |
+| Z buffer (512×448, follows draw depth) | 229 376 | 114 688 | Hybrid keeps the 32-bit Z format |
 | Post-fx scratch `lowVram[0..1]` | ~8 192 | ~4 096 | bloom/DoF blur chain; follows the frame format |
 | Film-grain noise (always 32bpp) | 4 096 | 4 096 | uploaded, not rendered |
 | Env-map target + its z (128×128) | 32 768 | 32 768 | **only if the project has a reflective `@sky` material** |
 | Camera-feed target + its z (128×128) | 32 768 | 32 768 | **only if the project has a feed camera** |
-| **Left for textures** | **~282 000 (1.08 MB)** | **~511 000 (1.95 MB)** | plus 65 536 more per unreserved target |
+| **Left for textures** | **~282 000 (1.08 MB)** | **~631 000 (2.41 MB)** | plus 65 536 more per unreserved target |
 
 `Pal576i` costs ~380 KB more at 32bpp (three 512-line buffers); at 16bpp the
 colour half of that comes back.
@@ -177,16 +177,24 @@ same DIMX matrix — see [ps2-viewport.md](ps2-viewport.md).
 ## Hybrid: draw 32-bit, show 16-bit
 
 `colorDepth: "hybrid"` (*Preferences > Colour depth > Hybrid*, engine
-`ColorDepth::Hybrid`) splits the two frame buffers by job:
+`ColorDepth::Hybrid`) splits the frame buffers by job:
 
 - The scene, post fx and 2D draw into **one PSMCT32 buffer over a 32-bit z**,
   so blending and depth are full precision.
-- After the vsync, **one blit** copies that buffer, with `DTHE` armed, into
-  **one PSMCT16 buffer**, and that buffer is what `DISPFB` scans.
+- With double buffering, after the vsync **one blit** copies that buffer,
+  with `DTHE` armed, into **one PSMCT16 buffer**, which `DISPFB` scans.
+- With **triple buffering**, two PSMCT16 display buffers alternate: one is
+  scanned out, the other receives the finished copy and is queued for vblank.
+  The PSMCT32 draw buffer stays at index 0. See
+  [frame pacing](frame-pacing.md#hybrid-triple-buffering).
 
-The copy is what the TV shows, so the GS can start the next frame in the 32-bit
-buffer at once. That is the same overlap two display buffers give, for a 32-bit
+With double buffering, the copy is what the TV shows, so the GS can start the
+next frame in the 32-bit buffer at once. That is the same overlap two display
+buffers give, for a 32-bit
 buffer plus half of one: **512 KB back at 512x512, 448 KB at 512x448**.
+Triple-buffer hybrid spends that saving on the second 16-bit display target:
+its colour and depth buffers together cost the same as ordinary double-buffer
+32-bit rendering. The scene still renders and blends in 32 bits.
 
 The layout, as the boot line prints it on `examples/vehicle-playground`
 (Pal576i):
@@ -210,18 +218,23 @@ The rules it keeps:
   into the draw buffer runs with `isDitherActive()` false. The DIMX matrix is
   the hand-packed one above.
 - **No `draw_finish` in the blit.** `draw_wait_finish` consumes the FINISH bit,
-  so a FINISH nobody waits for would make the next barrier return at once. The
-  flip therefore does not wait for the copy, which is why the frame capture
-  (`writeFrameCapture`) now starts with `sync.align2D()`. Without it, the
+  so a FINISH nobody waits for would make the next barrier return at once.
+  Triple buffering follows the copy with a separate FINISH handshake and waits
+  before queueing it. The double-buffer flip does not wait for the copy, which
+  is why the frame capture (`writeFrameCapture`) now starts with
+  `sync.align2D()`. Without it, the
   reverse-FIFO download met a GS still copying and hung, every time, in PCSX2.
+- **The final DTHE restore tag has EOP set.** The copy must release PATH3
+  before a between-frame PATH1 FINISH can run; without EOP, switching video
+  mode after double-buffer hybrid presentation could spin in `align3D`.
 - **The state comes back through `emitRasterRestore`**, the one shared restore,
   and `DTHE` is written back to 0 after it. `CLAMP` is left for
   `Path3::clearScreen`, which re-asserts REPEAT before any 3D draws.
 - **There is no previous 32-bit frame.** `hasRealFrame()` stays false, so
   motion blur stays off. BLSS refuses the history and drops its temporal pass.
   `presentWarpFrame` presents no synthetic frames, and
-  `getFrameBufferCount()` never asks for a third buffer. The frame capture
-  photographs the 32-bit draw buffer (the finished frame, before the next
+  triple buffering rotates only the two 16-bit display buffers. The frame
+  capture photographs the 32-bit draw buffer (the finished frame, before the next
   clear), because pointing it at the 16-bit display buffer froze PCSX2 in
   `ps2_screenshot`.
 

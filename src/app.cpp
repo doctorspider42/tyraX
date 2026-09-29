@@ -15440,11 +15440,12 @@ void App::drawPreferencesWindow() {
             "drops with it: keep the near plane up.\n"
             "Hybrid draws the whole frame in ONE 32-bit buffer over a 32-bit\n"
             "z (full-precision blending and depth), then one dithered copy per\n"
-            "frame puts it in ONE 16-bit buffer the TV shows: half a frame\n"
+            "frame puts it in a 16-bit buffer the TV shows: half a frame\n"
             "buffer back for textures without 16-bit banding in the blends.\n"
             "In Hybrid there is no previous frame to sample, so motion blur,\n"
-            "the upscaler's temporal pass, frame extrapolation and triple\n"
-            "buffering are off. See docs/gs-vram.md.");
+            "the upscaler's temporal pass and frame extrapolation are off.\n"
+            "Triple buffering adds a second 16-bit display buffer while\n"
+            "the 32-bit draw buffer stays fixed. See docs/gs-vram.md.");
         ImGui::BeginDisabled(prefSettings_.colorDepth == "32bit");
         ImGui::Indent(scaled(16));
         ImGui::Checkbox("Dithering", &prefSettings_.dither);
@@ -15492,7 +15493,8 @@ void App::drawPreferencesWindow() {
         "frame is queued and a vblank interrupt presents it, so it is one\n"
         "field late instead, and the EE spends the wait rendering: the\n"
         "same work runs at ~49 fps.\n\n"
-        "Costs a THIRD display buffer of GS VRAM - 0.875 MB of the\n"
+        "Costs a THIRD display buffer of GS VRAM (16-bit in Hybrid) -\n"
+        "at 32-bit, 0.875 MB of the\n"
         "~1.08 MB texture budget at 512x448, about half that in\n"
         "interlaced-field - so it does not fit in every display mode, and\n"
         "the list below says which of the modes this project supports it\n"

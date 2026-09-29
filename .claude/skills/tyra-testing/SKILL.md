@@ -4082,3 +4082,22 @@ Outlines reuse `Viewport::RoadDraw`; full-width soft borders retain a separate
 outline. During viewport drag only, both crossing caches defer work until release.
 Verify loop seams and open-road parity with the vehicle-playground road twin
 oracle; UI scripts can target `Road point N` handles and use `shiftclick`.
+
+## Hybrid triple-buffer acceptance (1.153.0)
+
+Use a frozen-camera scratch project with solid geometry and HUD. Boot hybrid
+double/triple variants in the software renderer; compare the finished scene
+captures and inspect GS dumps for CT32 draw at slot 0, CT16 copies to slots
+1/2, DTHE on only during copies, and PSMZ32 depth. Check fresh frame progress
+and absence of alternating black frames. Exercise limiter on/off, field mode,
+a BLSS layout rebuild and a mode with insufficient headroom. In a mixed
+project, use a scratch global script with `ctx.requestDisplayMode` to switch
+field/full PAL at the normal pre-frame boundary, including while BLSS is
+scene-disabled; check 3/2 buffer grants and fresh captures after both switches.
+Regular 32-bit
+triple buffering must still rotate all three draw targets. Verify the
+Preferences checkbox can be enabled in Hybrid and persists after reopening.
+Space repeated `--capture-frame` CLI calls by more than one second: their
+command sequence is wall-clock seconds, so two calls in the same second are
+seen as the same command. A PCSX2 run establishes correctness, not hardware
+frame-pacing performance.

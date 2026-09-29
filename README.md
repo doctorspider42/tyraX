@@ -296,7 +296,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - **[GS VRAM residency](docs/gs-vram.md)** — the frame buffers can be **16-bit**
   (with the GS's ordered dithering to keep skies from banding), which roughly
   doubles the texture budget, or **hybrid** (draw 32-bit, show a dithered 16-bit
-  copy: half a buffer back, no banding in the blends); a texture is charged the GS blocks it really
+  copy: half a buffer back, no banding in the blends, with optional
+  [triple buffering](docs/frame-pacing.md#hybrid-triple-buffering)); a texture is charged the GS blocks it really
   spans instead of a flat pad; and the env-map and camera-feed render targets
   are reserved only for the projects that read them.
 - **[VU1 clipping and the guard band](docs/vu1-clipping.md)** — geometry that

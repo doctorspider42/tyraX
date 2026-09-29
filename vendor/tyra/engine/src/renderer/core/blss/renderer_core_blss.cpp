@@ -323,12 +323,17 @@ void RendererCoreBlss::configure(int t_scaleX, int t_scaleY, float t_sharpen,
   // BLSS PER SCENE: pin what the z buffer is sized for BEFORE the realloc
   // decision below, so that decision is made once and for the whole run. A
   // game that mixes upscaled and native scenes pins 1,1 - z covers the display,
-  // needsBufferRealloc() stays false forever after, and setScene() is free.
+  // after the initial colour-target reserve rebuild, setScene() is free.
   // A game whose scenes all agree pins nothing and gets the small z buffer it
   // always got.
   if (gs != nullptr && enabled && t_nativeScenes) gs->setZRasterScale(1, 1);
 
   settings->setRasterScale(enabled ? scaleX : 1, enabled ? scaleY : 1);
+  // Modified by TyraX: a mixed project pins Z at full size, but still reserves
+  // a low-res colour target. That reserve must re-decide triple buffering at
+  // configure(), and remain present when a native scene changes video mode.
+  if (gs != nullptr)
+    gs->setLowResTargetScale(enabled ? scaleX : 1, enabled ? scaleY : 1);
   // The projection's raster scale changed; the world-space frustum planes did
   // not (they come from fov + aspectRatio) - see RendererCore3D::setProjection.
   if (core3D != nullptr) core3D->setFov(core3D->getFov());
@@ -339,9 +344,10 @@ void RendererCoreBlss::configure(int t_scaleX, int t_scaleY, float t_sharpen,
   // the way a display-mode switch does it: textures evicted, frame/z buffers
   // rebuilt (the frame buffers land at the same addresses, z at the smaller
   // one), then every permanent buffer above them re-placed in the same
-  // relative order. Only when the size actually changes - a project with BLSS
-  // off never reaches this, and calling configure() twice with the same scale
-  // is free.
+  // relative order. Also rebuild when the colour-target reserve changes,
+  // even if native scenes pinned Z at full size. Only when the layout changes:
+  // a project with BLSS off never reaches this, and calling configure() twice
+  // with the same scale is free.
   //
   // Safe HERE and nowhere later: generated games call configure() at the top
   // of init(), before buildScene() loads a single asset, so the eviction the
