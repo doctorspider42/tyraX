@@ -45,6 +45,7 @@ The window lets you:
 
 Graphs pass three data types: **points**, **masks** (0–1 fields over the region)
 and **curves**. Pins only accept their own type, and cycles are refused.
+Input labels sit on the left; output labels sit on the right beside their pins.
 
 ## Node cheat sheet
 

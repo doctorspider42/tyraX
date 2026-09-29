@@ -1079,6 +1079,7 @@ void App::drawProceduralWindow() {
         if (n.bypass) title = IM_COL32(90, 90, 90, 255);
         ImNodes::PushColorStyle(ImNodesCol_TitleBar, title);
         ImNodes::BeginNode(n.id);
+        ImGui::BeginGroup();
         ImNodes::BeginNodeTitleBar();
         ImGui::TextUnformatted(t->title);
         if (n.bypass) {
@@ -1562,13 +1563,25 @@ void App::drawProceduralWindow() {
             }
         }
 
-        // Output pins, right-aligned-ish (imnodes right-aligns the pin itself).
+        // Measure this frame's title and controls: pool rows and parameter
+        // labels can make a node wider than its nominal item width.
+        ImGui::EndGroup();
+        const float contentLeft = ImGui::GetItemRectMin().x;
+        float outputRight = ImGui::GetItemRectMax().x;
+        for (const auto& pin : t->outs)
+            outputRight = std::max(outputRight,
+                                  contentLeft + ImGui::CalcTextSize(pin.label).x);
+
+        // Imnodes aligns the pin itself; align its label to the same edge.
         for (size_t i = 0; i < t->outs.size(); ++i) {
             ImNodes::PushColorStyle(ImNodesCol_Pin, procTypeColor(t->outs[i].type));
             ImNodes::BeginOutputAttribute(procOutPin(n.id, (int)i),
                                           t->outs[i].type == ProcType::Points
                                               ? ImNodesPinShape_CircleFilled
                                               : ImNodesPinShape_QuadFilled);
+            ImGui::SetCursorScreenPos(ImVec2(
+                outputRight - ImGui::CalcTextSize(t->outs[i].label).x,
+                ImGui::GetCursorScreenPos().y));
             ImGui::TextUnformatted(t->outs[i].label);
             ImNodes::EndOutputAttribute();
             ImNodes::PopColorStyle();

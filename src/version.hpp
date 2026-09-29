@@ -5497,6 +5497,7 @@
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 155
+// 1.155.1: procedural output labels align beside their right-hand pins.
 // 1.155.0: placement road modes include origin-on-road path scattering and
 // an optional road target; old roads=0/1 retain ignore/avoid semantics.
 // 1.154.0: host placement filter skips road footprints, rejects model overlaps
@@ -5515,7 +5516,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
