@@ -2929,3 +2929,18 @@ Road modes (1.155.0): keep the roads key values 0=Ignore, 1=Avoid, 2=Only;
 old boolean graphs retain their meaning. Only constrains the origin in XZ,
 not the model footprint, and does not snap height/heading. roadtarget is an
 optional object name; never fall back to all roads when it is missing.
+
+## Frozen procedural bakes (1.156.0)
+
+ProcGraph::frozen is optional JSON (format v84), defaults off and participates
+in model equality/history/session sync. procbake::setFrozen bakes a stale layout
+before freezing; bakeAll skips frozen volumes even when forced, anyStale ignores
+them and bakeVolume refuses them. Unfreeze restores normal hash-based updates.
+The flag is deliberately absent from bakeHash: toggling it alone changes no
+geometry. updateProcPreview skips evaluation and passes frozen volume ids to
+Viewport::ScatterPreview::frozenSources; the viewport draws their saved chunk
+objects through the ordinary model path. Show preview still controls visibility.
+Graph edits are staged until unfreezing; explicit bake/clear, instance editing
+and runtime mode changes are disabled while frozen. clearVolume still supports
+volume deletion. Never implement freeze only in the UI: headless builds and
+reopening must preserve the same saved geometry.

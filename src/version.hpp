@@ -5496,7 +5496,8 @@
 // Particles face the camera a pass DRAWS with (cutscene override, shake,
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 155
+#define TYRAX_VERSION_MINOR 156
+// 1.156.0: frozen procedural volumes retain their baked output until unfrozen.
 // 1.155.1: procedural output labels align beside their right-hand pins.
 // 1.155.0: placement road modes include origin-on-road path scattering and
 // an optional road target; old roads=0/1 retain ignore/avoid semantics.
@@ -5516,7 +5517,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -5980,7 +5981,9 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // prevents old editors from silently losing the placement behavior.
 // v83: FilterPlacement roads=2 means Only on roads; roadtarget selects a road.
 // Existing 0/1 values stay compatible; older editors would misread 2 as avoid.
-inline constexpr int kFormatVersion = 83;
+// v84: optional ProcGraph frozen flag. Missing = automatic bake/preview updates.
+// Additive; no migration needed. Older editors must not silently unfreeze it.
+inline constexpr int kFormatVersion = 84;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

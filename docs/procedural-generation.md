@@ -29,6 +29,23 @@ Try the six graphs in [examples/procedural](../examples/procedural).
 
    ![The same result baked into chunk meshes with the live preview disabled again.](img/procedural-baked.png)
 
+## Freeze a finished layout
+
+In baked mode, check **Frozen** beside **Clear bake**. If the current layout
+has not been baked, or its bake is stale, the editor bakes it first. The saved
+chunks then stay in place when roads, painted materials, terrain, the volume
+transform or graph parameters change. The viewport draws those chunks, and
+builds keep them even after saving and reopening the project.
+
+The graph remains editable; its changes take effect after unchecking **Frozen**.
+Unfreezing resumes live preview and the next build refreshes a stale bake.
+**Bake now**, **Clear bake**, instance editing and the runtime-mode switch are
+disabled while frozen. Runtime volumes must switch to baked mode before freezing.
+**Show preview** also hides or shows frozen geometry. Deleting a volume still
+deletes its generated output.
+
+![A frozen painted district keeps its baked layout and retains the editable graph.](img/procedural-frozen.png)
+
 ## Start a volume
 
 Add **Procedural volume** from the object menu or click **New volume** in the

@@ -4122,3 +4122,15 @@ Only must ignore canopy width but retain independent collision/material checks.
 Procedural parameter combos now register their scoped labels for UI scripts.
 Open Roads/Road/Material by name and assert the popup options; no coordinate
 workaround is needed for these node controls.
+
+## Frozen procedural bake acceptance (1.156.0)
+
+Freeze a stale/unbaked scratch volume, then move roads, edit terrain/materials,
+seed and graph parameters. Compare generated object JSON and mesh hashes before
+and after both ordinary and forced bakeAll and refresh-gen. Save/reload and
+repeat; anyStale must ignore it and explicit bakeVolume must refuse. Unfreeze,
+assert staleness and rebake; output must change. Verify missing frozen defaults
+off and equality notices the flag. Runtime freezing must fail without mutation.
+Drive Frozen with --ui-script, save/reopen, inspect the checkbox and disabled
+bake/clear/mode/instance controls. Capture the viewport too: frozen chunks must
+remain visible without live instances, and Show preview must hide them.

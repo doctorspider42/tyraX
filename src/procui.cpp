@@ -196,6 +196,10 @@ void App::updateProcPreview() {
     int nodesRun = 0, candidates = 0;
     for (int idx : vols) {
         const SceneObject& vol = project_.objects()[idx];
+        if (vol.procGraph.frozen) {
+            if (idx == procVolume_) procBudget_ = procbake::Report{};
+            continue;
+        }
         if (vol.procGraph.empty()) continue;
         procgen::Options opt;
         opt.contextSerial = serial;
@@ -301,6 +305,9 @@ void App::updateProcPreview() {
     // tools, not its output, and a "Preview this node" that showed nothing
     // because a different toggle is off would be its own bug report.
     if (showProcPreview_) {
+        for (int idx : vols)
+            if (project_.objects()[idx].procGraph.frozen)
+                sp.frozenSources.push_back(project_.objects()[idx].id);
         sp.assets = merged.assets;
         sp.instances = merged.instances;
         sp.prefabObjects = std::move(prefabObjs);
@@ -311,7 +318,8 @@ void App::updateProcPreview() {
     // selected instance when the override tool is on (one highlighted marker
     // is all the feedback either tool needs).
     if (procCurveNode_ != 0 && procVolume_ >= 0 &&
-        procVolume_ < (int)project_.objects().size()) {
+        procVolume_ < (int)project_.objects().size() &&
+        !project_.objects()[procVolume_].procGraph.frozen) {
         const ProcNode* cn =
             procgraph::node(project_.objects()[procVolume_].procGraph, procCurveNode_);
         if (cn && cn->type == "Curve") {
@@ -628,7 +636,8 @@ void App::drawProceduralWindow() {
     if (!procStaleValid_ || procStaleSerial_ != modelEditSerial_) {
         procStaleSerial_ = modelEditSerial_;
         procStaleValid_ = true;
-        procStale_ = g.bakedHash != procgen::bakeHash(project_, project_.active(), vol);
+        procStale_ = !g.frozen &&
+                     g.bakedHash != procgen::bakeHash(project_, project_.active(), vol);
     }
     const bool stale = procStale_;
     ImGui::SameLine();
@@ -640,7 +649,11 @@ void App::drawProceduralWindow() {
     {
         int mode = g.runtime ? 1 : 0;
         ImGui::SetNextItemWidth(scaled(150.0f));
-        if (ImGui::Combo("##procmode", &mode, "Baked (build time)\0Runtime (on the console)\0")) {
+        ImGui::BeginDisabled(g.frozen);
+        const bool modeChanged = ImGui::Combo(
+            "##procmode", &mode, "Baked (build time)\0Runtime (on the console)\0");
+        ImGui::EndDisabled();
+        if (modeChanged) {
             g.runtime = mode == 1;
             changed = true;
             // Leaving runtime mode leaves nothing behind; entering it throws
@@ -711,17 +724,22 @@ void App::drawProceduralWindow() {
         for (const procrt::Issue& i : issues)
             ImGui::TextColored(ImVec4(0.9f, 0.55f, 0.5f, 1.0f), "- %s",
                                i.text.c_str());
-    } else if (ImGui::Button(stale ? "Bake now *" : "Bake now")) {
-        const procbake::Report rep = bakeProcVolume(procVolume_);
-        procStatus_ = "Baked " + std::to_string(rep.instances) + " instances into " +
-                      std::to_string(rep.chunks) + " chunk meshes (" +
-                      std::to_string(rep.triangles) + " triangles)";
-        for (const std::string& w : rep.warnings) procStatus_ += " | " + w;
-        statusMessage_ = procStatus_;
-        // The bake inserted/removed chunk objects, so every reference into the
-        // objects vector below this point is dangling - finish the frame here.
-        ImGui::End();
-        return;
+    } else {
+        ImGui::BeginDisabled(g.frozen);
+        const bool bakeClicked = ImGui::Button(stale ? "Bake now *" : "Bake now");
+        ImGui::EndDisabled();
+        if (bakeClicked) {
+            const procbake::Report rep = bakeProcVolume(procVolume_);
+            procStatus_ = "Baked " + std::to_string(rep.instances) + " instances into " +
+                          std::to_string(rep.chunks) + " chunk meshes (" +
+                          std::to_string(rep.triangles) + " triangles)";
+            for (const std::string& w : rep.warnings) procStatus_ += " | " + w;
+            statusMessage_ = procStatus_;
+            // The bake inserted/removed chunk objects, so every reference into the
+            // objects vector below this point is dangling - finish the frame here.
+            ImGui::End();
+            return;
+        }
     }
     if (!g.runtime) {
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
@@ -730,7 +748,10 @@ void App::drawProceduralWindow() {
                 "them.\nA build does this automatically for every stale volume - "
                 "this button is for when you want to look at the result now.");
         ImGui::SameLine();
-        if (ImGui::SmallButton("Clear bake")) {
+        ImGui::BeginDisabled(g.frozen);
+        const bool clearClicked = ImGui::SmallButton("Clear bake");
+        ImGui::EndDisabled();
+        if (clearClicked) {
             procbake::clearVolume(project_, project_.active(), vol.id);
             commitChange();
             statusMessage_ = "Cleared the baked chunks of " + vol.name;
@@ -738,7 +759,33 @@ void App::drawProceduralWindow() {
             return;  // objects vector changed under us
         }
         ImGui::SameLine();
-        if (stale)
+        bool frozen = g.frozen;
+        if (ImGui::Checkbox("Frozen", &frozen)) {
+            const std::string id = vol.id;
+            const procbake::Report rep = procbake::setFrozen(
+                project_, project_.active(), id, frozen, &procCaches_[id]);
+            if (rep.error.empty()) {
+                procPreviewNode_ = procCurveNode_ = 0;
+                procSelInstance_ = procSeedPreview_ = 0;
+                procOverrideMode_ = false;
+                commitChange();
+                statusMessage_ = frozen ? "Frozen procedural bake" :
+                                          "Unfrozen procedural volume";
+            } else {
+                statusMessage_ = "Cannot freeze: " + rep.error;
+            }
+            ImGui::End();
+            return;  // freezing can insert/remove chunks and invalidate vol/g
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip(
+                "Bake the current layout and keep it unchanged by roads, terrain\n"
+                "and graph edits. Builds keep these chunks, even after reopening.\n"
+                "Uncheck to resume live preview and automatic baking.");
+        ImGui::SameLine();
+        if (g.frozen)
+            ImGui::TextDisabled("frozen bake");
+        else if (stale)
             ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.25f, 1.0f), "bake is stale");
         else
             ImGui::TextColored(ImVec4(0.4f, 0.85f, 0.5f, 1.0f), "baked");
@@ -747,27 +794,35 @@ void App::drawProceduralWindow() {
     // --- live budget (BAKE-03) ---------------------------------------------
     const ProcNode* outNode = procgraph::outputNode(g);
     const int budget = outNode ? std::max(1, procgraph::inum(*outNode, "budget")) : 20000;
-    ImGui::Text("%d instances (of %d candidates) | %d chunks | %d triangles | ~%.0f KB "
-                "| %d nodes run, %.1f ms",
-                procInstances_, procCandidates_, procBudget_.chunks,
-                procBudget_.triangles, procBudget_.vertexBytes / 1024.0, procNodesRun_,
-                procLastMs_);
-    {
-        const float frac = std::clamp((float)procBudget_.triangles / (float)budget,
-                                      0.0f, 1.0f);
-        const bool over = procBudget_.triangles > budget;
-        ImGui::PushStyleColor(ImGuiCol_PlotHistogram,
-                              over ? ImVec4(0.9f, 0.35f, 0.3f, 1.0f)
-                                   : ImVec4(0.35f, 0.7f, 0.45f, 1.0f));
-        char label[64];
-        std::snprintf(label, sizeof(label), "%d / %d tris", procBudget_.triangles, budget);
-        ImGui::ProgressBar(frac, ImVec2(scaled(220.0f), 0.0f), label);
-        ImGui::PopStyleColor();
-    }
-    if (procFraction_ < 1.0f) {
-        ImGui::SameLine();
-        ImGui::TextDisabled("(preview at %.0f%% density while dragging)",
-                            procFraction_ * 100.0f);
+    if (g.frozen) {
+        const int chunks = (int)std::count_if(
+            project_.objects().begin(), project_.objects().end(),
+            [&](const SceneObject& o) { return o.procSource == vol.id; });
+        ImGui::Text("Frozen bake | %d generated objects | graph edits apply after unfreezing",
+                    chunks);
+    } else {
+        ImGui::Text("%d instances (of %d candidates) | %d chunks | %d triangles | ~%.0f KB "
+                    "| %d nodes run, %.1f ms",
+                    procInstances_, procCandidates_, procBudget_.chunks,
+                    procBudget_.triangles, procBudget_.vertexBytes / 1024.0, procNodesRun_,
+                    procLastMs_);
+        {
+            const float frac = std::clamp((float)procBudget_.triangles / (float)budget,
+                                          0.0f, 1.0f);
+            const bool over = procBudget_.triangles > budget;
+            ImGui::PushStyleColor(ImGuiCol_PlotHistogram,
+                                  over ? ImVec4(0.9f, 0.35f, 0.3f, 1.0f)
+                                       : ImVec4(0.35f, 0.7f, 0.45f, 1.0f));
+            char label[64];
+            std::snprintf(label, sizeof(label), "%d / %d tris", procBudget_.triangles, budget);
+            ImGui::ProgressBar(frac, ImVec2(scaled(220.0f), 0.0f), label);
+            ImGui::PopStyleColor();
+        }
+        if (procFraction_ < 1.0f) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("(preview at %.0f%% density while dragging)",
+                                procFraction_ * 100.0f);
+        }
     }
     for (const std::string& w : procResult_.warnings)
         ImGui::TextColored(ImVec4(0.95f, 0.8f, 0.35f, 1.0f), "! %s", w.c_str());
@@ -812,6 +867,9 @@ void App::drawProceduralWindow() {
     ImGui::Checkbox("Show preview", &showProcPreview_);
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         ImGui::SetTooltip(
+            g.frozen ?
+            "Show the saved frozen chunks. Hiding them keeps the bake intact;\n"
+            "unfreeze to resume graph evaluation and instance editing." :
             "Draw what the volumes generate. Off = work on what is underneath;\n"
             "a finished forest hides the ground it grows on. The graph keeps\n"
             "being evaluated either way, so the numbers above, the warnings and\n"
@@ -819,10 +877,12 @@ void App::drawProceduralWindow() {
             "curve handles are still drawn, because those are tools rather than\n"
             "output. Also View > Procedural preview.");
     ImGui::SameLine();
+    ImGui::BeginDisabled(g.frozen);
     if (ImGui::Checkbox("Edit instances", &procOverrideMode_)) {
         procCurveNode_ = 0;
         procSelInstance_ = 0;
     }
+    ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         ImGui::SetTooltip(
             "Click an instance in the viewport to move, rotate, rescale or delete "
@@ -1779,7 +1839,7 @@ void App::drawProceduralWindow() {
             ImGui::TextDisabled("%s", t ? t->title : n->type.c_str());
             ImGui::Separator();
             if (ImGui::MenuItem("Preview this node", nullptr,
-                                procPreviewNode_ == n->id))
+                                procPreviewNode_ == n->id, !g.frozen))
                 procPreviewNode_ = procPreviewNode_ == n->id ? 0 : n->id;
             if (ImGui::MenuItem("Bypass", nullptr, n->bypass)) {
                 n->bypass = !n->bypass;

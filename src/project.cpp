@@ -511,6 +511,7 @@ std::string procGraphJson(const ProcGraph& g) {
     std::string json = "{ \"seed\": " + std::to_string((long long)g.seed) +
                        ", \"nextId\": " + std::to_string(g.nextId);
     if (g.bakedHash) json += ", \"baked\": \"" + hex64(g.bakedHash) + "\"";
+    if (g.frozen) json += ", \"frozen\": true";
     // Runtime mode (docs/procedural-runtime.md). Omitted while off, so every
     // project authored before it round-trips byte-identically.
     if (g.runtime) {
@@ -594,6 +595,7 @@ static void readProcGraph(const json::Value& jg, ProcGraph& g) {
     if (const auto* v = jg.find("nextId")) g.nextId = (int)v->numberOr(1);
     if (const auto* v = jg.find("baked")) g.bakedHash = parseHex64(v->stringOr(""));
     if (const auto* v = jg.find("runtime")) g.runtime = v->boolOr(false);
+    if (const auto* v = jg.find("frozen")) g.frozen = !g.runtime && v->boolOr(false);
     if (const auto* v = jg.find("runAtStart")) g.runAtStart = v->boolOr(true);
     if (const auto* v = jg.find("seedMode")) g.seedMode = (int)v->numberOr(0);
     if (const auto* nodes = jg.find("nodes");
@@ -1073,7 +1075,8 @@ std::string objectJson(const SceneObject& o) {
         json += "]";
     }
     if (!o.flowGraph.empty()) json += ", \"flowGraph\": " + flowGraphJson(o.flowGraph);
-    if (!o.procGraph.empty()) json += ", \"procGraph\": " + procGraphJson(o.procGraph);
+    if (!o.procGraph.empty() || o.procGraph.frozen || o.procGraph.bakedHash)
+        json += ", \"procGraph\": " + procGraphJson(o.procGraph);
     if (!o.roadPoints.empty()) {
         json += ", \"roadPoints\": [";
         for (size_t k = 0; k < o.roadPoints.size(); ++k)

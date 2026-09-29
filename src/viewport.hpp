@@ -372,6 +372,8 @@ public:
         // world would not produce). A Pick Prefab point carries no asset, so
         // without these such an instance draws as nothing at all.
         std::vector<SceneObject> prefabObjects;
+        // Frozen volumes draw their saved chunks instead of live instances.
+        std::vector<std::string> frozenSources;
         // An isolated node's own output, shown instead of instances: a mask
         // draped over the terrain, or a curve as a polyline (UX-01).
         std::shared_ptr<const procgen::Mask> mask;

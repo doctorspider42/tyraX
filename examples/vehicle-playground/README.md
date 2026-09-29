@@ -34,6 +34,9 @@ both species. The graph is baked into ordinary chunk meshes for the game.
 Gameplay chunk collision is off: a box around an entire merged chunk could
 block roads between its members. Placement overlap detection remains on.
 Set start scene to 2 to boot it; `main` remains the default reference.
+When a layout is ready, check **Frozen** in the Procedural window to preserve
+its current bake through road/terrain edits and future builds. Uncheck it to
+resume live generation; staged graph edits then apply too.
 The seed-42 fixture produces 66 buildings and 157 trees (25,316 triangles in
 96 chunks). Trees use the original district's 5x park-tree and 7x pine scale.
 The full host graph takes about 13 ms in the editor's Release build;
