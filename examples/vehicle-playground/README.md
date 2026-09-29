@@ -37,14 +37,19 @@ Set start scene to 2 to boot it; `main` remains the default reference.
 When a layout is ready, check **Frozen** in the Procedural window to preserve
 its current bake through road/terrain edits and future builds. Uncheck it to
 resume live generation; staged graph edits then apply too.
-The seed-42 fixture produces 66 buildings and 157 trees (25,316 triangles in
-96 chunks). Trees use the original district's 5x park-tree and 7x pine scale.
+The saved scene uses seed 508781842 and an adjusted ring-road seam: its bake
+contains 70 buildings and 144 trees (23,428 triangles in 102 chunks). Its graph
+node positions and editor layout preserve the latest authored arrangement.
+The seed-42 authoring-script fixture produces 66 buildings and 157 trees
+(25,316 triangles in 96 chunks). Trees use the original district's 5x park-tree and 7x pine scale.
 The full host graph takes about 13 ms in the editor's Release build;
 this is generation time, not a PS2 frame-time measurement.
 
 ![Painted procedural district in PCSX2](preview/procedural.png)
 
-Verified with a host all-pairs oracle, zero-rotation checks for all 66 buildings,
+The saved variant passes object/mesh-reference and TMDL-completeness checks,
+and Release `--refresh-gen` succeeds. The seed-42 fixture was verified with a
+host all-pairs oracle, zero-rotation checks for all 66 buildings,
 graph serialization/determinism checks,
 repeated baking, scripted editor checkbox toggles, a native PS2 debug build,
 and PCSX2 boot, camera turn, walking and GS frame capture. The smaller final
