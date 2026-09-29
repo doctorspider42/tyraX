@@ -4101,3 +4101,15 @@ Space repeated `--capture-frame` CLI calls by more than one second: their
 command sequence is wall-clock seconds, so two calls in the same second are
 seen as the same command. A PCSX2 run establishes correctness, not hardware
 frame-pacing performance.
+
+## Procedural placement validation (1.154.0)
+
+Use a host harness to compare the spatial hash with an independent all-pairs
+AABB rejection oracle, including rotated/off-centre assets, differently sized
+models, clearance, cell boundaries and the giant-bound overflow. Check painted
+islands inside a footprint, upper-layer occlusion, absent terrain, spline bends,
+closed roads and road width/point edits invalidating bakeHash. Repeat evaluation
+and baking, and verify serialization and the runtime capability rejection.
+Drive Validate Placement's checkboxes and material picker through --ui-script.
+Use vehicle-playground's procedural scene for refresh-gen and a game boot;
+benchmark many candidates only in the host filter, not as a PS2 timing claim.

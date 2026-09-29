@@ -52,7 +52,7 @@ and **curves**. Pins only accept their own type, and cycles are refused.
 |---|---|---|
 | Sources | Scatter on Surface/Grid/in Volume/along Curve, Single Point, Blocks Fill | Create points |
 | Masks | Noise, Terrain, Combine, Remap | Say where or how densely |
-| Filters | Attribute, Mask, Minimum Distance, Keep Away, Limit Count | Remove unwanted points |
+| Filters | Attribute, Mask, Minimum Distance, Keep Away, Validate Placement, Limit Count | Remove unwanted points |
 | Repeat | Array, Radial Array | Exact rows, stacks, rings and arcs |
 | Assign | Pick Asset, Pick Prefab, Vary Transform, Set Attribute | Choose and vary the result |
 | Output | Output, Object Settings | Set chunks, budget and shared properties |
@@ -80,6 +80,51 @@ painted over grass counts as rock. This source is build-time only.
 
 Use **Single Point > Radial Array > Pick Asset > Output**. Arrays are exact and
 do not add random placement.
+
+**Buildings on concrete, trees on grass, roads kept clear**
+
+Use **Scatter on Surface > Pick Asset > Vary Transform > Validate Placement**
+for each species. Enable **Skip roads**, **Restrict terrain material** and
+choose the allowed **Material**: concrete for buildings, grass for
+trees. **Min coverage = 1** requires fully visible material throughout
+the footprint, including any clearance. A centre on concrete is insufficient
+when part of the building would extend onto grass.
+
+Enable **Avoid model overlap** to reject intersections between accepted
+instances, and **Avoid scene models** to include placed static models and
+solid primitives. These switches are independent. **Clearance** adds a gap
+in world units. Merge the species, then add one final **Validate Placement**
+with model overlap enabled to check them together; earlier input wins, so
+connect buildings to Merge's first input to give them priority. Two separate
+volumes do not check each other's generated instances; baked procedural chunks
+are excluded to keep previews and repeated bakes independent of bake order.
+
+The check uses conservative world AABBs from actual OBJ bounds, transformed
+with rotation, offset and scale. It can leave extra room beside rotated or
+concave models. Roads use the full authored width (including faded edges) and
+the same spline triangles as the road renderer. Painted coverage uses a lower
+bound across all intersected splat cells, including layers painted on top;
+blended borders may reject additional placements. Material checks require
+terrain and reject footprints outside its bounds. Missing models and prefab
+instances are rejected with a warning; use Pick Asset for this workflow.
+
+Keep this filter after all automatic transform edits. Manual instance overrides
+apply after graph evaluation and can intentionally move an accepted object
+across a boundary. This is an authoring placement check; **Output > Collision**
+separately controls the baked geometry's gameplay collision.
+
+The host CPU evaluates the filter on the background preview worker. A spatial
+hash checks nearby occupied cells rather than every model against every other
+model; giant bounds use a bounded overflow path. No GPU or runtime PS2 work is
+required. Validate Placement is build-time only and the runtime capability
+checker reports it as unsupported.
+
+Try the **procedural** scene (index 2) in
+[vehicle-playground](../examples/vehicle-playground): existing urban buildings
+and park trees, painted concrete lots, grass strips and seven roads, with one
+merged scatter graph. The project's default start scene remains `main`.
+
+![Concrete buildings and grass trees merge into a shared placement check](img/procedural-placement.png)
 
 ## Curves and hand edits
 

@@ -176,6 +176,12 @@ path that needs no GUI dialog.
 
 ## Format history
 
+Format 82 (editor 1.154.0) adds the `FilterPlacement` procedural node with
+road, model-overlap and full-footprint terrain-material checks. Parameters
+use the existing generic node maps; no migration is needed. The version gate
+prevents older editors from opening graphs whose placement semantics they
+cannot evaluate.
+
 **The per-version record is the comment block above `kFormatVersion` in
 `src/version.hpp`** — one entry per landing, saying what the version added and
 why it did or did not need a step. Read it there; rule 5 above is why it is the

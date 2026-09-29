@@ -5496,7 +5496,9 @@
 // Particles face the camera a pass DRAWS with (cutscene override, shake,
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 153
+#define TYRAX_VERSION_MINOR 154
+// 1.154.0: host placement filter skips road footprints, rejects model overlaps
+// with a spatial hash and keeps complete transformed bounds on painted terrain.
 // 1.153.0: Hybrid triple buffering keeps one PSMCT32 draw target and queues
 // finished copies through two PSMCT16 display targets; depth stays PSMZ32.
 // 1.152.0: direct material editing, searchable cached asset list, selective
@@ -5970,7 +5972,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // migration step.
 // v81 (docs/vehicles.md, "Paint colour"): optional vehicle paintColor and
 // paintMask. Missing keys preserve the source model. Additive; no migration.
-inline constexpr int kFormatVersion = 81;
+// v82 (docs/procedural-generation.md): FilterPlacement's generic node keys
+// carry road, overlap and material-footprint checks. No migration; the gate
+// prevents old editors from silently losing the placement behavior.
+inline constexpr int kFormatVersion = 82;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

@@ -2912,3 +2912,15 @@ Do not replace this with global `invalidateAssets` on a slider commit.
 Box front/back V=0 is the top: keep `primmesh::unitBox`, generated `addBox` and
 the atlas region inverse mapping in `aobake.cpp` inverse mapping together. Geometry UV changes also invalidate
 procedural bake hashes and GI caches (including derived prelit freshness).
+
+## Procedural placement validation (1.154.0)
+
+`FilterPlacement` lives in the procgraph registry and host procgen evaluator;
+its generic nums serialize through the existing graph maps (format 82).
+Use actual mesh bounds transformed at all eight corners, and index every XZ
+cell a bound covers. Road rejection uses roadgen's full-width spline triangles,
+not the road object's unit box. Material containment bounds visible coverage
+across every intersected splat cell; checking only the centre or corners misses
+paint islands. Merge species before the final collision filter; exclude all
+baked chunks to avoid bake-order dependence. Keep the node out of procrt's
+supported list. bakeHash must include road points, width and sample spacing.
