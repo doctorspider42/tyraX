@@ -90,6 +90,12 @@ trees. **Min coverage = 1** requires fully visible material throughout
 the footprint, including any clearance. A centre on concrete is insufficient
 when part of the building would extend onto grass.
 
+For a uniform building heading, set the building branch's **Vary Transform >
+Yaw range = 0**, **Tilt jitter = 0** and **Align to normal = 0**. Terrain
+scatter starts with zero rotation, so every building keeps that heading while
+scale can still vary. The vehicle-playground procedural scene uses this setup;
+its trees retain random yaw.
+
 Enable **Avoid model overlap** to reject intersections between accepted
 instances, and **Avoid scene models** to include placed static models and
 solid primitives. These switches are independent. **Clearance** adds a gap

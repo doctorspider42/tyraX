@@ -54,7 +54,7 @@ for base, y, layer, assets, density in (
     node(base, "ScatterSurface", 0, y, {"density": density, "max": 12000})
     asset_scale = {"tree-park-large": 5, "tree-park-pine-large": 7}
     node(base+1, "PickAsset", 280, y, rows=[{"s": "res/models/urban/" + a + ".obj", "v": [1, asset_scale.get(a, 1), asset_scale.get(a, 1), 0]} for a in assets])
-    node(base+2, "Vary", 560, y, {"yaw": 360, "tilt": 0, "align": 0, "jitter": 0, "scalemin": 0.85, "scalemax": 1.1})
+    node(base+2, "Vary", 560, y, {"yaw": 0 if base == 1 else 360, "tilt": 0, "align": 0, "jitter": 0, "scalemin": 0.85, "scalemax": 1.1})
     node(base+3, "FilterPlacement", 840, y, {"roads": 1, "collisions": 1, "scene": 0, "clearance": 1, "material": 1, "layer": layer, "coverage": 1})
     connect(base, base+1)
     connect(base+1, base+2)

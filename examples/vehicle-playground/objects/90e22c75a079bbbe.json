@@ -1,1 +1,0 @@
-{ "id": "90e22c75a079bbbe", "name": "Painted district scatter#district-workshop-xm2zm1", "type": "model", "position": [-96, 0, -32], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.6, 0.6, 0.6], "physics": false, "collision": "none", "castShadow": false, "model": "res/models/urban/procgen-procpain-district-workshop-xm2zm1.obj", "procSource": "procpaint00000001" }

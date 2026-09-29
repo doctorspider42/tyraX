@@ -1,1 +1,0 @@
-{ "id": "2c28b937cb23414b", "name": "Painted district scatter#tree-park-pine-large-xm3zm1", "type": "model", "position": [-160, 0, -32], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.6, 0.6, 0.6], "physics": false, "collision": "none", "castShadow": false, "model": "res/models/urban/procgen-procpain-tree-park-pine-large-xm3zm1.obj", "procSource": "procpaint00000001" }

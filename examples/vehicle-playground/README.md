@@ -26,20 +26,23 @@ project's existing urban OBJ assets. Select that scene in the editor and open
 the Procedural layout; select **Painted district scatter**. Its two branches
 place workshops/lofts/towers on fully painted concrete and park trees on the
 grass base. Each branch checks its full transformed model footprint against
-the material and all seven roads, with one unit of clearance. Merge gives
+the material and all seven roads, with one unit of clearance. Buildings keep
+the same 0-degree heading: their Vary Transform has Yaw range, Tilt jitter and
+Align to normal at 0. The tree branch retains random yaw. Merge gives
 buildings priority, then a final **Validate Placement** rejects overlaps across
 both species. The graph is baked into ordinary chunk meshes for the game.
 Gameplay chunk collision is off: a box around an entire merged chunk could
 block roads between its members. Placement overlap detection remains on.
 Set start scene to 2 to boot it; `main` remains the default reference.
-The seed-42 fixture produces 46 buildings and 157 trees (24,876 triangles in
-87 chunks). Trees use the original district's 5x park-tree and 7x pine scale.
-The full host graph takes about 13 ms in the editor's development build;
+The seed-42 fixture produces 66 buildings and 157 trees (25,316 triangles in
+96 chunks). Trees use the original district's 5x park-tree and 7x pine scale.
+The full host graph takes about 13 ms in the editor's Release build;
 this is generation time, not a PS2 frame-time measurement.
 
 ![Painted procedural district in PCSX2](preview/procedural.png)
 
-Verified with a host all-pairs oracle, graph serialization/determinism checks,
+Verified with a host all-pairs oracle, zero-rotation checks for all 66 buildings,
+graph serialization/determinism checks,
 repeated baking, scripted editor checkbox toggles, a native PS2 debug build,
 and PCSX2 boot, camera turn, walking and GS frame capture. The smaller final
 fixture rendered beyond 1,000 frames; an earlier 80,812-triangle fixture
