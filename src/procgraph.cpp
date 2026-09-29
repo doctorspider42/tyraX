@@ -426,8 +426,12 @@ const std::vector<ProcNodeType>& procNodeTypes() {
          .ins = {{.label = "points", .type = ProcType::Points}},
          .outs = {{.label = "points", .type = ProcType::Points}},
          .params = {
-             {.key = "roads", .label = "Skip roads", .kind = PK::Bool, .def = 1,
-              .tip = "Reject model footprints touching any road, including soft edges."},
+             {.key = "roads", .label = "Roads", .kind = PK::Enum, .def = 1,
+              .lo = 0, .hi = 2, .choices = "Ignore roads|Avoid roads|Only on roads",
+              .tip = "Ignore = unrestricted. Avoid = reject full footprints touching roads. Only = keep model origins on road ribbons, including soft edges; does not snap height or heading."},
+             {.key = "roadtarget", .label = "Road", .kind = PK::ObjectName,
+              .emptyLabel = "(every road)",
+              .tip = "Optional road object name. Empty checks every road; selecting a non-road or missing name produces a warning."},
              {.key = "collisions", .label = "Avoid model overlap", .kind = PK::Bool, .def = 1,
               .tip = "Reject overlaps with earlier accepted instances. Use after Merge to check different species together."},
              {.key = "scene", .label = "Avoid scene models", .kind = PK::Bool, .def = 1,
@@ -443,7 +447,8 @@ const std::vector<ProcNodeType>& procNodeTypes() {
               .def = 0.95f, .lo = 0.01f, .hi = 1,
               .tip = "Minimum visible material coverage throughout the footprint. 1 requires fully painted ground."}},
          .desc = "Build-time placement check using transformed model bounds and a spatial hash. "
-                 "Put after Pick Asset and Vary, before Output. Omits road overlaps, model "
+                 "Put after Pick Asset and Vary, before Output. Ignores roads, omits road overlaps or "
+                 "keeps origins on a selected road ribbon. Also checks model "
                  "collisions and footprints crossing painted material borders. Conservative "
                  "world AABBs include rotation and scale; missing assets and prefabs are rejected. "
                  "Merge branches before a final overlap check to prevent trees and buildings intersecting."},

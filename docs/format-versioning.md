@@ -176,6 +176,11 @@ path that needs no GUI dialog.
 
 ## Format history
 
+Format 83 (editor 1.155.0) adds `FilterPlacement.nums.roads=2` for Only on roads
+and optional `strs.roadtarget`. Existing roads=0/1 retain Ignore/Avoid behavior;
+no migration is needed. The format gate keeps old editors from interpreting
+Only as the former Skip roads boolean. See [procedural generation](procedural-generation.md).
+
 Format 82 (editor 1.154.0) adds the `FilterPlacement` procedural node with
 road, model-overlap and full-footprint terrain-material checks. Parameters
 use the existing generic node maps; no migration is needed. The version gate

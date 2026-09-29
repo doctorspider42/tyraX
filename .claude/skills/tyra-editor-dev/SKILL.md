@@ -2916,7 +2916,7 @@ procedural bake hashes and GI caches (including derived prelit freshness).
 ## Procedural placement validation (1.154.0)
 
 `FilterPlacement` lives in the procgraph registry and host procgen evaluator;
-its generic nums serialize through the existing graph maps (format 82).
+its generic nums/strs serialize through the existing graph maps (format 83).
 Use actual mesh bounds transformed at all eight corners, and index every XZ
 cell a bound covers. Road rejection uses roadgen's full-width spline triangles,
 not the road object's unit box. Material containment bounds visible coverage
@@ -2924,3 +2924,8 @@ across every intersected splat cell; checking only the centre or corners misses
 paint islands. Merge species before the final collision filter; exclude all
 baked chunks to avoid bake-order dependence. Keep the node out of procrt's
 supported list. bakeHash must include road points, width and sample spacing.
+
+Road modes (1.155.0): keep the roads key values 0=Ignore, 1=Avoid, 2=Only;
+old boolean graphs retain their meaning. Only constrains the origin in XZ,
+not the model footprint, and does not snap height/heading. roadtarget is an
+optional object name; never fall back to all roads when it is missing.

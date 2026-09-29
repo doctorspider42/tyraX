@@ -84,7 +84,7 @@ do not add random placement.
 **Buildings on concrete, trees on grass, roads kept clear**
 
 Use **Scatter on Surface > Pick Asset > Vary Transform > Validate Placement**
-for each species. Enable **Skip roads**, **Restrict terrain material** and
+for each species. Set **Roads = Avoid roads**, enable **Restrict terrain material** and
 choose the allowed **Material**: concrete for buildings, grass for
 trees. **Min coverage = 1** requires fully visible material throughout
 the footprint, including any clearance. A centre on concrete is insufficient
@@ -98,6 +98,28 @@ with model overlap enabled to check them together; earlier input wins, so
 connect buildings to Merge's first input to give them priority. Two separate
 volumes do not check each other's generated instances; baked procedural chunks
 are excluded to keep previews and repeated bakes independent of bake order.
+
+**Using a road as a scatter path**
+
+Set **Validate Placement > Roads = Only on roads**. **Road** selects a named
+road; **(every road)** accepts any road in the scene. Feed points from **Scatter
+on Surface** or **Scatter on Grid** through Pick Asset and Vary Transform first.
+Only origins inside the road's full spline ribbon survive, including soft edges
+and bends; a canopy or arch can extend outside it. This is an area filter, not
+centreline spacing, and does not change height or heading. Keep the source's
+terrain snap and height offset as appropriate for the asset.
+
+**Ignore roads** disables road filtering. **Avoid roads** checks the whole
+transformed model footprint plus clearance. **Only on roads** checks the origin
+without a road inset; clearance still applies to model overlap and painted
+material checks. Collision and material switches remain independent. Turn off
+**Restrict terrain material** when the path should ignore the paint under it,
+and turn off both overlap switches if models should intersect. No road surface
+means an empty result in Only mode. A missing or non-road target warns rather
+than silently falling back to all roads. Existing saved `roads=0/1` values keep
+their Ignore/Avoid behavior.
+
+![Pallet markers follow the selected Ring road with Only on roads](img/procedural-road-path.png)
 
 The check uses conservative world AABBs from actual OBJ bounds, transformed
 with rotation, offset and scale. It can leave extra room beside rotated or

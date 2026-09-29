@@ -53,6 +53,17 @@ game data. This replaces only this demo's authored scene, paint and objects.
 See [the placement recipe](../../docs/procedural-generation.md) for the flags,
 conservative bounds and difference between placement checks and game collision.
 
+To use a road as a scatter path, change a branch's **Roads** to **Only on roads**
+and choose a **Road** (or leave **(every road)**). Disable its terrain-material
+restriction if the path should ignore the paint underneath. This keeps model
+origins on the road ribbon; model overlap and scene-model avoidance are still
+independent switches. **Avoid roads** retains the original demo behavior.
+The road-only check used a scratch copy with one branch: Surface density 1,
+`pallet.obj` at scale 2, Only on roads targeting Ring road, material restriction
+off and 0.5 clearance. It produced 100 markers / 16,800 triangles in 15 chunks.
+Serialization, repeat evaluation/bake and UI selection passed; a native debug
+build ran beyond 2,400 frames in PCSX2 with camera turn, walking and GS capture.
+
 ## The district
 
 - Seven spline roads: a wide perimeter loop, Garage Boulevard, two cross-city

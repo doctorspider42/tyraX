@@ -1716,7 +1716,8 @@ bool materialFits(Ctx& ctx, const ObjBox& b, int layer, float threshold) {
 
 Points filterPlacement(Ctx& ctx, const ProcNode& n, const Points& in) {
     Points out = in;
-    const bool roads = procgraph::flag(n,"roads");
+    const int roads = std::clamp(procgraph::inum(n,"roads"),0,2);
+    const std::string& roadTarget = procgraph::str(n,"roadtarget");
     const bool collisions = procgraph::flag(n,"collisions");
     const bool scene = procgraph::flag(n,"scene");
     const bool material = procgraph::flag(n,"material");
@@ -1725,10 +1726,12 @@ Points filterPlacement(Ctx& ctx, const ProcNode& n, const Points& in) {
     std::vector<std::shared_ptr<const AssetMesh>> meshes;
     for (const auto& path : ctx.assets) meshes.push_back(assetMesh(ctx.p,path));
     std::vector<roadgen::Vertex> triangles;
+    bool foundRoad = false;
     for (const auto& o : ctx.s.objects) {
         if (ctx.canceled()) break;
         if (o.type == PrimitiveType::Road) {
-            if (!roads) continue;
+            if (!roads || (!roadTarget.empty() && o.name != roadTarget)) continue;
+            foundRoad = true;
             std::vector<roadgen::Vertex> verts;
             roadgen::tessellate(o.roadPoints,o.roadWidth,[](float,float){ return 0.0f; },
                                 verts,{},o.roadSampleStep);
@@ -1754,6 +1757,10 @@ Points filterPlacement(Ctx& ctx, const ProcNode& n, const Points& in) {
             solids.add(placementBox(mn,mx,o.position,o.rotation,o.scale));
         }
     }
+    if (roads && !roadTarget.empty() && !foundRoad)
+        ctx.res->warnings.push_back("Validate Placement: no road named '" + roadTarget + "'.");
+    else if (roads == 2 && triangles.empty())
+        ctx.res->warnings.push_back("Validate Placement: Only on roads requires a road surface.");
     std::vector<char> keep(out.pts.size(),0);
     int missing = 0;
     for (size_t i = 0; i < out.pts.size(); ++i) {
@@ -1767,7 +1774,18 @@ Points filterPlacement(Ctx& ctx, const ProcNode& n, const Points& in) {
         b.minX -= gap; b.maxX += gap; b.minZ -= gap; b.maxZ += gap;
         b.bottom -= gap; b.top += gap;
         if (material && !materialFits(ctx,b,procgraph::inum(n,"layer"),procgraph::num(n,"coverage"))) continue;
-        if (roads && roadIndex.any(b,[&](int j){ return roadTriangleOverlap(b,&triangles[j*3]); })) continue;
+        if (roads == 1 && roadIndex.any(b,[&](int j){ return roadTriangleOverlap(b,&triangles[j*3]); })) continue;
+        if (roads == 2) {
+            // A path constrains the anchor, not the canopy or the whole model.
+            // Clearance still applies to model/material checks, not the path.
+            const ObjBox anchor{inst.pos[0],inst.pos[0],inst.pos[2],inst.pos[2],0,0};
+            if (!roadIndex.any(anchor,[&](int j){
+                const auto* t = &triangles[j*3];
+                const float area = (t[1].x-t[0].x)*(t[2].z-t[0].z) -
+                                   (t[1].z-t[0].z)*(t[2].x-t[0].x);
+                return std::fabs(area) > 1e-8f && roadTriangleOverlap(anchor,t);
+            })) continue;
+        }
         if (solids.any(b,[&](int j){ return b.bottom < solids.boxes[j].top && b.top > solids.boxes[j].bottom; })) continue;
         keep[i] = 1;
         // Store unpadded accepted bounds: clearance is paid once per pair.

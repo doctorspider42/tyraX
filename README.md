@@ -187,7 +187,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - **[Materials and texture painting](docs/material-painting.md)** — searchable library, direct object material editing, `.mtl`
   authoring, a layer stack painted onto your own mesh, UV unwrap/validator, and
   [raytraced map bakes](docs/material-baking.md) with smart masks.
-- **Generators** — [procedural scatter graphs](docs/procedural-generation.md) with road avoidance, material footprints and model overlap checks,
+- **Generators** — [procedural scatter graphs](docs/procedural-generation.md) with road avoidance or path scattering, material footprints and model overlap checks,
   baked to chunk meshes or [run on the EE](docs/procedural-runtime.md),
   [prefabs](docs/prefabs.md), the [Tree Generator](docs/tree-generator.md),
   [GPU/CPU impostors with 4/8/16 views plus one-material hull proxies](docs/impostors.md) and

@@ -23,6 +23,7 @@
 #include "procgen.hpp"
 #include "procgraph.hpp"
 #include "procrt.hpp"
+#include "uiscript.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>  // ImPow (the graph zoom curve)
@@ -1180,7 +1181,10 @@ void App::drawProceduralWindow() {
                     }
                     int v = std::clamp(procgraph::inum(n, p.key), 0,
                                        (int)opts.size() - 1);
-                    if (ImGui::BeginCombo(p.label, opts[v].c_str())) {
+                    const ImGuiID id = ImGui::GetID(p.label);
+                    const bool open = ImGui::BeginCombo(p.label, opts[v].c_str());
+                    uiscript::nameItem(id, p.label);
+                    if (open) {
                         for (int i = 0; i < (int)opts.size(); ++i)
                             if (ImGui::Selectable(opts[i].c_str(), i == v) && i != v) {
                                 n.nums[p.key] = (float)i;
@@ -1195,7 +1199,10 @@ void App::drawProceduralWindow() {
                     const char* none = p.emptyLabel && *p.emptyLabel
                                            ? p.emptyLabel
                                            : "(terrain)";
-                    if (ImGui::BeginCombo(p.label, cur.empty() ? none : cur.c_str())) {
+                    const ImGuiID id = ImGui::GetID(p.label);
+                    const bool open = ImGui::BeginCombo(p.label, cur.empty() ? none : cur.c_str());
+                    uiscript::nameItem(id, p.label);
+                    if (open) {
                         if (ImGui::Selectable(none, cur.empty())) {
                             n.strs[p.key] = "";
                             changed = true;
@@ -1206,6 +1213,8 @@ void App::drawProceduralWindow() {
                         const std::vector<SceneObject>& objs = project_.objects();
                         for (size_t oi = 0; oi < objs.size(); ++oi) {
                             const SceneObject& o = objs[oi];
+                            if (n.type == "FilterPlacement" && std::strcmp(p.key, "roadtarget") == 0 &&
+                                o.type != PrimitiveType::Road) continue;
                             if (o.type == PrimitiveType::Scatter) continue;
                             if (!o.procSource.empty()) continue;
                             const std::string id = o.name + "##o" + std::to_string(oi);
@@ -1252,7 +1261,10 @@ void App::drawProceduralWindow() {
                             return "Layer " + std::to_string(i) + " (missing)";
                         return layers[(size_t)i].name;
                     };
-                    if (ImGui::BeginCombo(p.label, nameOf(v).c_str())) {
+                    const ImGuiID id = ImGui::GetID(p.label);
+                    const bool open = ImGui::BeginCombo(p.label, nameOf(v).c_str());
+                    uiscript::nameItem(id, p.label);
+                    if (open) {
                         if (ImGui::Selectable("Base material##pl-1", v < 0) && v != -1) {
                             n.nums[p.key] = -1.0f;
                             changed = true;

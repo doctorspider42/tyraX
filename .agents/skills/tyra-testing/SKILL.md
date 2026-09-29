@@ -4113,3 +4113,12 @@ and baking, and verify serialization and the runtime capability rejection.
 Drive Validate Placement's checkboxes and material picker through --ui-script.
 Use vehicle-playground's procedural scene for refresh-gen and a game boot;
 benchmark many candidates only in the host filter, not as a PS2 timing claim.
+
+For road path filtering (1.155.0), compare origins against an independent
+point-in-triangle oracle over straight, curved and closed road ribbons. Check
+legacy roads=0/1, both road targets, no roads and missing/non-road targets;
+Only must ignore canopy width but retain independent collision/material checks.
+
+Procedural parameter combos now register their scoped labels for UI scripts.
+Open Roads/Road/Material by name and assert the popup options; no coordinate
+workaround is needed for these node controls.

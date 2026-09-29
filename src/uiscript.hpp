@@ -96,6 +96,10 @@ std::string dumpText();
  * A no-op while collection is off. */
 void markLastItemChecked(bool checked);
 
+/** Name an already submitted item by id. BeginCombo omits ItemInfo; callers
+ * inside PushID scopes must provide its label for scripts to find it. */
+void nameItem(uint32_t id, const char* label);
+
 // ------------------------------------------------------------------ script ---
 
 struct Step {

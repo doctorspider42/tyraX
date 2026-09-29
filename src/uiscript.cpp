@@ -168,6 +168,12 @@ void markLastItemChecked(bool checked) {
     it.checked = checked;
 }
 
+void nameItem(uint32_t id, const char* label) {
+    if (!g_enabled) return;
+    auto found = g_byId.find(id);
+    if (found != g_byId.end()) g_items[found->second].label = displayLabel(label);
+}
+
 const Item* find(const std::string& target, bool clickable) {
     const std::string t = trim(target);
     if (t.empty()) return nullptr;

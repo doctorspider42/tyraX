@@ -82,6 +82,11 @@ that opened it, and `click "Remote Pad"` simply waits for it to appear. A step
 that times out fails the run and prints **what was on screen instead** — the
 expensive part of UI automation is otherwise a blank "not found".
 
+Procedural node parameter combos announce their labels explicitly, including
+controls inside each node's ID scope. Use `click "Roads"`, `click "Road"` or
+`click "Material"`, then click the named popup choice. With repeated labels,
+the first submitted matching node is selected; use a focused graph fixture.
+
 ## Start with `dump`
 
 Nothing else in this doc matters as much:

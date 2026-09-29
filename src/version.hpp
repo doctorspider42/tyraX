@@ -5496,7 +5496,9 @@
 // Particles face the camera a pass DRAWS with (cutscene override, shake,
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 154
+#define TYRAX_VERSION_MINOR 155
+// 1.155.0: placement road modes include origin-on-road path scattering and
+// an optional road target; old roads=0/1 retain ignore/avoid semantics.
 // 1.154.0: host placement filter skips road footprints, rejects model overlaps
 // with a spatial hash and keeps complete transformed bounds on painted terrain.
 // 1.153.0: Hybrid triple buffering keeps one PSMCT32 draw target and queues
@@ -5975,7 +5977,9 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v82 (docs/procedural-generation.md): FilterPlacement's generic node keys
 // carry road, overlap and material-footprint checks. No migration; the gate
 // prevents old editors from silently losing the placement behavior.
-inline constexpr int kFormatVersion = 82;
+// v83: FilterPlacement roads=2 means Only on roads; roadtarget selects a road.
+// Existing 0/1 values stay compatible; older editors would misread 2 as avoid.
+inline constexpr int kFormatVersion = 83;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects
