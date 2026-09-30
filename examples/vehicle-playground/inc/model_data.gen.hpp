@@ -3,7 +3,7 @@
 
 namespace Vehicle_playground {
 
-constexpr int MODEL_COUNT = 28;
+constexpr int MODEL_COUNT = 20;
 inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "models/urban/district-workshop.tmdl",
     "models/urban/district-tower.tmdl",
@@ -16,35 +16,19 @@ inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "models/urban/detail-dumpster-closed.tmdl",
     "models/urban/detail-bench.tmdl",
     "models/urban/pallet.tmdl",
-    "vehicles/veh-cc96playground01-body.tmdl",
-    "vehicles/veh-cc96playground01-wheel.tmdl",
     "vehicles/veh-ravager000001-body.tmdl",
     "vehicles/veh-ravager000001-wheel.tmdl",
     "vehicles/veh-pica00000001-body.tmdl",
     "vehicles/veh-pica00000001-wheel.tmdl",
     "vehicles/veh-strix0000001-body.tmdl",
     "vehicles/veh-strix0000001-wheel.tmdl",
-    "vehicles/veh-ggbotrally0001-body.tmdl",
-    "vehicles/veh-ggbotrally0001-wheel.tmdl",
-    "vehicles/veh-tristarplay01-body.tmdl",
-    "vehicles/veh-tristarplay01-wheel.tmdl",
-    "vehicles/veh-cc96playground01-wheelfast.tmdl",
     "vehicles/veh-ravager000001-wheelfast.tmdl",
     "vehicles/veh-pica00000001-wheelfast.tmdl",
     "vehicles/veh-strix0000001-wheelfast.tmdl",
-    "vehicles/veh-ggbotrally0001-wheelfast.tmdl",
 };
 // per-model .mtl override, for the .obj fallback path only (a
 // .tmdl already carries the resolved override) - "" = none
 inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
     "",
     "",
     "",
@@ -82,20 +66,14 @@ inline const char* MODEL_SOURCES[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "res/models/urban/detail-dumpster-closed.obj",
     "res/models/urban/detail-bench.obj",
     "res/models/urban/pallet.obj",
-    "res/models/cc96-strip-study/cc96-strip-study.glb",
-    "res/models/cc96-strip-study/cc96-strip-study.glb",
     "res/models/ravager.glb",
     "res/models/ravager.glb",
     "res/models/pica.glb",
     "res/models/pica.glb",
     "res/models/strix.glb",
     "res/models/strix.glb",
-    "res/models/ggbot-rally.glb",
-    "res/models/ggbot-rally.glb",
-    "res/models/tristar-efficient.glb",
-    "res/models/tristar-efficient.glb",
 };
-constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false};
+constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false};
 
 constexpr int ANIM_MODEL_COUNT = 0;
 inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {
@@ -126,18 +104,19 @@ struct PhysHullData {
   int vert0, plane0;    // first entry in the tables below
   float volume, com[3], cov[6];
 };
-constexpr int PHYS_HULL_COUNT = 5;
+constexpr int PHYS_HULL_COUNT = 6;
 inline const PhysHullData PHYS_HULLS[PHYS_HULL_COUNT > 0 ? PHYS_HULL_COUNT : 1] = {
     {8, 6, 0, 0, 1.0F, {0.0F, 0.0F, 0.0F}, {0.0833333F, 0.0833333F, 0.0833333F, 0.0F, 0.0F, 0.0F}},
     {24, 14, 8, 6, 0.75F, {5.13002e-09F, -1.04083e-17F, 1.93636e-09F}, {0.0447816F, 0.0625F, 0.0447816F, 5.42101e-19F, -7.52724e-10F, 1.0842e-18F}},
     {17, 17, 32, 20, 0.255122F, {1.00612e-10F, -0.25F, -1.33053e-09F}, {0.00932434F, 0.00956709F, 0.00932434F, -1.28342e-12F, -1.73645e-10F, 1.69725e-11F}},
     {8, 6, 49, 37, 0.03F, {0.0F, -0.005F, 0.0F}, {0.0025F, 2.25e-06F, 0.0025F, 0.0F, 0.0F, 0.0F}},
-    {8, 6, 57, 43, 0.15F, {0.0F, 0.075F, -7.67007e-13F}, {0.0125F, 0.00028125F, 0.0125F, 2.71051e-20F, 0.0F, 8.62887e-15F}},
+    {8, 6, 57, 43, 0.0159344F, {8.5052e-19F, 0.169565F, -1.06315e-19F}, {0.00024896F, 0.000197699F, 1.35814e-05F, -4.66973e-21F, -2.11758e-22F, -8.98591e-22F}},
+    {8, 6, 65, 49, 0.15F, {0.0F, 0.075F, -7.67007e-13F}, {0.0125F, 0.00028125F, 0.0125F, 2.71051e-20F, 0.0F, 8.62887e-15F}},
 };
-inline const float PHYS_HULL_VERTS[195] = {0.5F, -0.5F, -0.5F, -0.5F, -0.5F, 0.5F, 0.5F, 0.5F, -0.5F, 0.5F, 0.5F, 0.5F, -0.5F, 0.5F, -0.5F, -0.5F, 0.5F, 0.5F, -0.5F, -0.5F, -0.5F, 0.5F, -0.5F, 0.5F, 0.5F, -0.5F, 0.0F, -0.5F, 0.5F, -4.37114e-08F, 0.5F, 0.5F, 0.0F, -2.18557e-08F, 0.5F, 0.5F, 5.96244e-09F, 0.5F, -0.5F, -0.433013F, 0.5F, -0.25F, -0.25F, 0.5F, 0.433013F, 0.25F, 0.5F, -0.433013F, 0.25F, 0.5F, 0.433013F, -0.433013F, -0.5F, -0.25F, -0.25F, -0.5F, 0.433013F, 0.25F, -0.5F, -0.433013F, 0.25F, -0.5F, 0.433013F, 5.96244e-09F, -0.5F, -0.5F, -2.18557e-08F, -0.5F, 0.5F, -0.5F, -0.5F, -4.37114e-08F, -0.433013F, 0.5F, 0.25F, 0.433013F, 0.5F, -0.25F, -0.25F, 0.5F, -0.433013F, 0.433013F, 0.5F, 0.25F, 0.433013F, -0.5F, -0.25F, -0.25F, -0.5F, -0.433013F, 0.433013F, -0.5F, 0.25F, -0.433013F, -0.5F, 0.25F, 0.5F, -0.5F, 0.0F, -0.5F, -0.5F, -4.37114e-08F, 0.0F, 0.5F, 0.0F, 0.46194F, -0.5F, 0.191342F, -2.18557e-08F, -0.5F, 0.5F, 5.96244e-09F, -0.5F, -0.5F, -0.353553F, -0.5F, -0.353553F, -0.353553F, -0.5F, 0.353553F, 0.353554F, -0.5F, -0.353553F, 0.353553F, -0.5F, 0.353553F, 0.191342F, -0.5F, -0.46194F, 0.191342F, -0.5F, 0.46194F, -0.46194F, -0.5F, -0.191342F, 0.46194F, -0.5F, -0.191342F, -0.191342F, -0.5F, 0.46194F, -0.191342F, -0.5F, -0.46194F, -0.46194F, -0.5F, 0.191342F, -0.5F, 0.01F, -0.5F, -0.5F, -0.02F, 0.5F, -0.5F, 0.01F, 0.5F, 0.5F, 0.01F, -0.5F, 0.5F, 0.01F, 0.5F, -0.5F, -0.02F, -0.5F, 0.5F, -0.02F, -0.5F, 0.5F, -0.02F, 0.5F, -0.5F, 0.15F, -0.5F, -0.5F, 0.15F, 0.5F, 0.5F, 0.15F, -0.5F, 0.5F, 0.15F, 0.5F, -0.5F, 0.0F, -0.5F, -0.5F, 1.38062e-12F, 0.5F, 0.5F, 0.0F, -0.5F, 0.5F, 1.38062e-12F, 0.5F};
-inline const float PHYS_HULL_PLANES[196] = {0.0F, -1.0F, 0.0F, 0.5F, 1.0F, 0.0F, 0.0F, 0.5F, -0.0F, 0.0F, -1.0F, 0.5F, 0.0F, 0.0F, 1.0F, 0.5F, -1.0F, 0.0F, -0.0F, 0.5F, -0.0F, 1.0F, -0.0F, 0.5F, 0.965926F, -0.0F, -0.258819F, 0.482963F, 0.965926F, -0.0F, 0.258819F, 0.482963F, -0.0F, -1.0F, -0.0F, 0.5F, -0.0F, 1.0F, -0.0F, 0.5F, -0.965926F, 0.0F, -0.258819F, 0.482963F, -0.965926F, 0.0F, 0.258819F, 0.482963F, -0.258819F, 0.0F, 0.965926F, 0.482963F, 0.258819F, -0.0F, 0.965926F, 0.482963F, 0.258819F, 0.0F, -0.965926F, 0.482963F, -0.258819F, -0.0F, -0.965926F, 0.482963F, -0.707107F, -0.0F, -0.707107F, 0.482963F, -0.707107F, -0.0F, 0.707107F, 0.482963F, 0.707107F, -0.0F, -0.707107F, 0.482963F, 0.707107F, 0.0F, 0.707107F, 0.482963F, -0.0F, -1.0F, -0.0F, 0.5F, 0.880599F, 0.4403F, 0.175162F, 0.22015F, 0.880599F, 0.4403F, -0.175162F, 0.22015F, -0.880599F, 0.4403F, -0.175162F, 0.22015F, -0.880599F, 0.4403F, 0.175162F, 0.22015F, 0.746536F, 0.4403F, 0.498819F, 0.22015F, 0.175162F, 0.4403F, 0.880599F, 0.22015F, -0.175162F, 0.4403F, 0.880599F, 0.22015F, 0.175162F, 0.440299F, -0.880599F, 0.22015F, -0.175162F, 0.4403F, -0.880599F, 0.22015F, -0.746536F, 0.440299F, -0.498819F, 0.22015F, -0.498819F, 0.4403F, -0.746536F, 0.22015F, -0.498819F, 0.4403F, 0.746536F, 0.22015F, -0.746536F, 0.4403F, 0.498819F, 0.22015F, 0.498819F, 0.440299F, -0.746536F, 0.22015F, 0.746536F, 0.4403F, -0.498819F, 0.22015F, 0.498819F, 0.440299F, 0.746536F, 0.22015F, 0.0F, -0.0F, 1.0F, 0.5F, 1.0F, -0.0F, 0.0F, 0.5F, -1.0F, -0.0F, 0.0F, 0.5F, 0.0F, 0.0F, -1.0F, 0.5F, 0.0F, 1.0F, 0.0F, 0.01F, 0.0F, -1.0F, 0.0F, 0.02F, 1.0F, -0.0F, -0.0F, 0.5F, -0.0F, -0.0F, 1.0F, 0.5F, 0.0F, -0.0F, -1.0F, 0.5F, -1.0F, -0.0F, -0.0F, 0.5F, 0.0F, 1.0F, 0.0F, 0.15F, -0.0F, -1.0F, 1.38062e-12F, -6.90311e-13F};
+inline const float PHYS_HULL_VERTS[219] = {0.5F, -0.5F, -0.5F, -0.5F, -0.5F, 0.5F, 0.5F, 0.5F, -0.5F, 0.5F, 0.5F, 0.5F, -0.5F, 0.5F, -0.5F, -0.5F, 0.5F, 0.5F, -0.5F, -0.5F, -0.5F, 0.5F, -0.5F, 0.5F, 0.5F, -0.5F, 0.0F, -0.5F, 0.5F, -4.37114e-08F, 0.5F, 0.5F, 0.0F, -2.18557e-08F, 0.5F, 0.5F, 5.96244e-09F, 0.5F, -0.5F, -0.433013F, 0.5F, -0.25F, -0.25F, 0.5F, 0.433013F, 0.25F, 0.5F, -0.433013F, 0.25F, 0.5F, 0.433013F, -0.433013F, -0.5F, -0.25F, -0.25F, -0.5F, 0.433013F, 0.25F, -0.5F, -0.433013F, 0.25F, -0.5F, 0.433013F, 5.96244e-09F, -0.5F, -0.5F, -2.18557e-08F, -0.5F, 0.5F, -0.5F, -0.5F, -4.37114e-08F, -0.433013F, 0.5F, 0.25F, 0.433013F, 0.5F, -0.25F, -0.25F, 0.5F, -0.433013F, 0.433013F, 0.5F, 0.25F, 0.433013F, -0.5F, -0.25F, -0.25F, -0.5F, -0.433013F, 0.433013F, -0.5F, 0.25F, -0.433013F, -0.5F, 0.25F, 0.5F, -0.5F, 0.0F, -0.5F, -0.5F, -4.37114e-08F, 0.0F, 0.5F, 0.0F, 0.46194F, -0.5F, 0.191342F, -2.18557e-08F, -0.5F, 0.5F, 5.96244e-09F, -0.5F, -0.5F, -0.353553F, -0.5F, -0.353553F, -0.353553F, -0.5F, 0.353553F, 0.353554F, -0.5F, -0.353553F, 0.353553F, -0.5F, 0.353553F, 0.191342F, -0.5F, -0.46194F, 0.191342F, -0.5F, 0.46194F, -0.46194F, -0.5F, -0.191342F, 0.46194F, -0.5F, -0.191342F, -0.191342F, -0.5F, 0.46194F, -0.191342F, -0.5F, -0.46194F, -0.46194F, -0.5F, 0.191342F, -0.5F, 0.01F, -0.5F, -0.5F, -0.02F, 0.5F, -0.5F, 0.01F, 0.5F, 0.5F, 0.01F, -0.5F, 0.5F, 0.01F, 0.5F, -0.5F, -0.02F, -0.5F, 0.5F, -0.02F, -0.5F, 0.5F, -0.02F, 0.5F, 0.2165F, 0.0F, -0.067F, -0.2165F, 0.0F, 0.067F, 0.2165F, 0.4F, 0.025F, -0.2165F, 0.4F, -0.025F, -0.2165F, 0.4F, 0.025F, 0.2165F, 0.4F, -0.025F, -0.2165F, 0.0F, -0.067F, 0.2165F, 0.0F, 0.067F, -0.5F, 0.15F, -0.5F, -0.5F, 0.15F, 0.5F, 0.5F, 0.15F, -0.5F, 0.5F, 0.15F, 0.5F, -0.5F, 0.0F, -0.5F, -0.5F, 1.38062e-12F, 0.5F, 0.5F, 0.0F, -0.5F, 0.5F, 1.38062e-12F, 0.5F};
+inline const float PHYS_HULL_PLANES[220] = {0.0F, -1.0F, 0.0F, 0.5F, 1.0F, 0.0F, 0.0F, 0.5F, -0.0F, 0.0F, -1.0F, 0.5F, 0.0F, 0.0F, 1.0F, 0.5F, -1.0F, 0.0F, -0.0F, 0.5F, -0.0F, 1.0F, -0.0F, 0.5F, 0.965926F, -0.0F, -0.258819F, 0.482963F, 0.965926F, -0.0F, 0.258819F, 0.482963F, -0.0F, -1.0F, -0.0F, 0.5F, -0.0F, 1.0F, -0.0F, 0.5F, -0.965926F, 0.0F, -0.258819F, 0.482963F, -0.965926F, 0.0F, 0.258819F, 0.482963F, -0.258819F, 0.0F, 0.965926F, 0.482963F, 0.258819F, -0.0F, 0.965926F, 0.482963F, 0.258819F, 0.0F, -0.965926F, 0.482963F, -0.258819F, -0.0F, -0.965926F, 0.482963F, -0.707107F, -0.0F, -0.707107F, 0.482963F, -0.707107F, -0.0F, 0.707107F, 0.482963F, 0.707107F, -0.0F, -0.707107F, 0.482963F, 0.707107F, 0.0F, 0.707107F, 0.482963F, -0.0F, -1.0F, -0.0F, 0.5F, 0.880599F, 0.4403F, 0.175162F, 0.22015F, 0.880599F, 0.4403F, -0.175162F, 0.22015F, -0.880599F, 0.4403F, -0.175162F, 0.22015F, -0.880599F, 0.4403F, 0.175162F, 0.22015F, 0.746536F, 0.4403F, 0.498819F, 0.22015F, 0.175162F, 0.4403F, 0.880599F, 0.22015F, -0.175162F, 0.4403F, 0.880599F, 0.22015F, 0.175162F, 0.440299F, -0.880599F, 0.22015F, -0.175162F, 0.4403F, -0.880599F, 0.22015F, -0.746536F, 0.440299F, -0.498819F, 0.22015F, -0.498819F, 0.4403F, -0.746536F, 0.22015F, -0.498819F, 0.4403F, 0.746536F, 0.22015F, -0.746536F, 0.4403F, 0.498819F, 0.22015F, 0.498819F, 0.440299F, -0.746536F, 0.22015F, 0.746536F, 0.4403F, -0.498819F, 0.22015F, 0.498819F, 0.440299F, 0.746536F, 0.22015F, 0.0F, -0.0F, 1.0F, 0.5F, 1.0F, -0.0F, 0.0F, 0.5F, -1.0F, -0.0F, 0.0F, 0.5F, 0.0F, 0.0F, -1.0F, 0.5F, 0.0F, 1.0F, 0.0F, 0.01F, 0.0F, -1.0F, 0.0F, 0.02F, -0.0F, -1.0F, -0.0F, -0.0F, 1.0F, -0.0F, -0.0F, 0.2165F, 0.0F, 0.104426F, -0.994533F, 0.0666337F, -0.0F, 0.104426F, 0.994533F, 0.0666337F, -1.0F, -0.0F, -0.0F, 0.2165F, 0.0F, 1.0F, 0.0F, 0.4F, 1.0F, -0.0F, -0.0F, 0.5F, -0.0F, -0.0F, 1.0F, 0.5F, 0.0F, -0.0F, -1.0F, 0.5F, -1.0F, -0.0F, -0.0F, 0.5F, 0.0F, 1.0F, 0.0F, 0.15F, -0.0F, -1.0F, 1.38062e-12F, -6.90311e-13F};
 // PHYS_HULLS slot per MODEL_PATHS slot (-1 = collide as the mesh box)
-inline const short MODEL_PHYS_HULL[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 4, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+inline const short MODEL_PHYS_HULL[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {-1, -1, -1, -1, -1, -1, -1, 4, -1, -1, 5, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 // unit box, cylinder, cone, plane
 inline const short PHYS_PRIM_HULL[4] = {0, 1, 2, 3};
 

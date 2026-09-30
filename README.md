@@ -234,14 +234,15 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [streaming layers](docs/streaming-layers.md),
   [world facts](docs/world-facts.md), runtime spawning and the
   [endless scroller](docs/endless-scroller.md).
-- **[Roads](docs/roads.md) and [vehicles](docs/vehicles.md)** — material-driven
+- **[Roads](docs/roads.md) and [vehicles](docs/vehicles.md)** — global tuning with automatic per-field
+  overrides and section resets, live wheel/engine preview with any imported WAV, third-person entry and collision-aware chase cameras, material-driven
   editable spline roads with reversible loops, per-road longitudinal detail and automatically generated,
   separately surfaced intersections (road ranks decide who runs through, and
   a clickable per-junction override changes one crossing's patch material,
   grip or winner),
   projected onto the terrain in both the editor and game, plus imported,
   budgeted cars with wheel suspension, gears, drifting, AI drivers, a
-  "fast wheel" model that swaps in above a spin rate and an authored low-poly
+  tyre-safe automatic and authored "fast wheel" models that swap at speed and an authored low-poly
   far/traffic model per car, and [crash damage](docs/vehicles.md#damage) -
   dented bodies, smashed lamps and windows, bonnets and doors torn off,
   engine smoke, lost power - and [speed feel](docs/vehicles.md#speed-feel)
@@ -258,7 +259,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - **Input** — [named actions and rebinding](docs/input-bindings.md),
   [button glyphs in text](docs/text-icons.md), and
   [USB keyboard & mouse](docs/keyboard-mouse.md).
-- **Audio** — music, sound emitters, [voice priority](docs/sound.md) and
+- **Audio** — music, automatic PS2 WAV conversion, sound emitters, [voice priority](docs/sound.md) and
   [hardware reverb rooms](docs/reverb.md).
 
 **The game around the game**

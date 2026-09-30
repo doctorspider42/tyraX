@@ -56,19 +56,15 @@ scenes keep separate object copies, so editing one does not touch the other.
   the existing 320 × 320 metre boundary.
 - Three placed vehicles in `main`, side by side at (-4.5 / 0 / +4.5, -74): the
   Pica Turbo, the Ravager you start in, and the Strix V12. `dense` places the
-  Ravager alone on the same spot. All three are driveable. The CC96, Rally 04
-  and Tristar Racer definitions (and the Strata GT model) still ship, unplaced:
-  the studies below were measured on them, and the authoring scripts that
-  rebuild them read their definitions.
+  Ravager alone on the same spot as a separate performance fixture. The vehicle library contains only these three definitions. Each keeps its full model and authored far companion; unused legacy vehicle models have been removed from res/models. Urban scenery stays unchanged.
 
-The CC96 has a 29 m/s target speed before nitrous, more steering authority at
-speed and a four-second refillable tank. Rally 04 is a lighter, deliberately
-more slippery alternative with a longer wheelbase and more suspension travel.
-These are arcade settings, not a real-world vehicle simulation.
+All three cars inherit the supplied recordings from Global defaults: `res/sfx/engine_idle.wav` for idle, `res/sfx/engine_high.wav` for high revs and `res/sfx/tires_screech.wav` for tyre squeal. They were imported as mono 16-bit PCM at 22050 Hz; the originals in Downloads were left untouched. Idle pitch is 1x. Vehicle sound pickers accept any imported WAV; continuous engine/tyre roles are encoded as loops automatically, and builds normalize a copy of older/hand-dropped samples too. Headlights is in Effects. Use Vehicle Editor's Live preview to check wheel placement, steering, the fast-wheel swap and engine sound before building. The previously supplied `freesound_community-engine-47745.mp3` conversion is still available as `engine-idle-loop.wav`.
+
+The CC96, Rally 04, Tristar and Strata results later in this README are historical measurements. Their old GLBs and definitions are available in Git history; historical authoring scripts may require that earlier fixture.
 
 ## Paint colours
 
-All six vehicle definitions include a grayscale paint mask in `res/textures/`.
+All three vehicle definitions include a grayscale paint mask in `res/textures/`.
 In **Vehicle Editor → Model**, enable **Override paint colour** and pick a
 colour; the definition already points to its mask. White mask areas change
 with the paint, while black areas keep the source colours of glass, lamps,
@@ -78,36 +74,7 @@ for mask requirements and the per-definition scope.
 
 `authoring/make-ravager.py`, `authoring/make-pica.py`, and
 `authoring/make-strix.py` can emit their masks alongside a rebuilt GLB: pass
-`--paint-mask res/textures/<car>-paint-mask.png` after `--`. For the three
-older imported atlases, `python authoring/make-legacy-paint-masks.py`
-regenerates the curated masks from their current GLBs. Recheck and repaint
-the masks if those atlases or their UV layouts change.
-
-Rally 04's tyre smoke comes from the project's **particle library**: *Vehicle
-Editor > Effects > Tyre smoke* names the "Rally dust" effect (*Tools >
-Particle Editor*), a sandy tint over the library's generated smoke texture
-with a two-frame flipbook, sized and timed like the built-in puff. The other
-cars keep the built-in puff. See
-[docs/particles.md](../../docs/particles.md), "Vehicle tyre smoke".
-
-The Tristar Racer parks west of the coupe, opposite the Rally. It has a 32 m/s
-target speed, stronger grip and the same refillable nitrous controls. Its original prepared source
-body has 2276 triangles. The efficient game variant bakes to 789 body triangles and
-76 per wheel (1093 total near geometry). The original and earlier lean
-prepared GLBs remain available; the game uses `tristar-efficient.glb`. It uses a cheap
-blob shadow and a 48 m distance tier.
-
-An unplaced sixth body ships beside them: the **Strata GT**
-(`res/models/strata-gt.glb`, [preview](preview/strata-gt.png)), a 90s coupe made
-for this project by `authoring/make-strata-gt.py` (deterministic, no source
-asset, no licence to track). It is built to the vehicle import's rules: the
-wheels are four identical nodes found by shape, the untextured materials merge
-into one palette part, and the lamp materials are named `headlights` / `rear
-lights`. The bake measures wheelbase 2.540, track 1.520 and radius 0.325,
-which is what the script built. The body is 2164 triangles in 2 parts
-(paint + lamps), and each wheel is 143 triangles, because the wheels are what
-the EE rebuilds per frame. That is 3 submits near and 1 past 40 units (the far
-tier, 1134 triangles, wheels in). It has no definition in the scene yet.
+`--paint-mask res/textures/<car>-paint-mask.png` after `--`. The remaining paint masks are Ravager, Pica and Strix; removed legacy cars' masks are no longer project assets.
 
 The **Ravager** ([preview](preview/ravager.png)) is parked beside the gold
 coupe in the main scene (object `ravager-1`, press Square next to it). It is an
@@ -281,16 +248,23 @@ one 16-bit display buffer. That gives 512 KB of GS memory back at this
 "Hybrid"). On a physical PS2 it measured neutral on the EE: `work`
 -0.02 / -0.02 / +0.01 / -0.01 ms over the four benchmark poses.
 
-All six district cars carry an optional **fast wheel** (`"@auto"`, 45 rad/s;
-docs/vehicles.md, "A fast wheel"). Above that spin rate all four wheels swap to
-a lower-resolution copy, and the `VEH` telemetry line ends in `fw 1`. Drive it
-with
-`tyrax-editor --pad <project> "hold r2; wait 7; release all"`; R2 is this
-project's throttle. CC96's 76-triangle wheel cannot get smaller (material
-seams), so on that car the swap is the mechanism with no saving. Rally 04's
-wheel already bakes to 28 triangles under its ordinary budget, so its fast
-copy is the same size. Setting **Fast wheel** to **None** in
-any vehicle definition keeps its ordinary wheels at every speed.
+All three cars carry an authored **fast wheel** (`wheel_blur`, 144 triangles,
+45 rad/s; docs/vehicles.md, "A fast wheel"). Each has a symmetric closed tyre
+and concentric blurred rim matched to that car. Above the threshold all four
+wheels swap and `VEH` telemetry ends in `fw 1`. Check Live preview or drive with
+`tyrax-editor --pad <project> "hold r2; wait 7; neutral"`.
+
+After regenerating any car, rebuild the auxiliary wheels:
+
+```sh
+blender --background --python authoring/add-fast-wheels.py -- --project .
+```
+
+This appends only the new wheel; original geometry and texture bytes stay
+unchanged. Repeated runs replace the previous auxiliary mesh. None and
+Automatic remain usable because `wheel_blur` stays excluded from chassis and
+wheel detection. Automatic reduction preserves tyres even at tiny budgets;
+the actual triangle count can exceed the requested budget.
 
 ## Reflections and cost
 
@@ -379,10 +353,9 @@ inspection remains.
 
 ## Reproduce and verify
 
-### Active CC96 strip study
+### Historical CC96 strip study
 
-[CC96 strip study](res/models/cc96-strip-study/README.md) is the indexed model
-used by the scene's single driveable optimization-test car. It has an editable
+The CC96 strip study (source assets and study README retained in Git history) was the indexed model used by the earlier single-car optimization fixture. It has an editable
 quad-body OBJ, a 256x256 atlas and inspection views. Its
 new 3,782-triangle body retains detailed panel grids and the existing efficient
 wheel anchors. The unchanged host stripifier reduces the main body's vertex
@@ -391,8 +364,7 @@ offline result is also exercised by the vehicle importer: the main body bakes
 to 4,212 strip vertices in 57 packages, while ordered lamp ranges remain lists.
 The manifest names this asset directly instead of hiding it behind the old
 `cc96-efficient.glb` path, so the viewport and generated game resolve the same
-source. Rally and Tristar remain available definitions but are not placed in
-the canonical scene.
+source in that historical fixture. Those definitions and GLBs are no longer in the current three-car project.
 
 ### Remodeled body experiment (not adopted)
 
@@ -982,18 +954,14 @@ switching. This smoke test is separate from the frozen FPS measurements.
 
 - **Kenney** — Retro Urban Kit 2.0, CC0. Included source OBJ/MTL files, textures
   and `res/models/urban/LICENSE.txt`; building kitbashes are adaptations.
-- **GGBotNet** — PSX Style Cars, Car 04, CC0. Wheels separated, source scaled to
-  about 4.1 m long, orange texture retained. `res/models/ggbot-CC0.txt`.
-- **designersoup** — Tristar Racer, Low Poly Car Starter Pack. Source: [author page](https://designersoup.itch.io/low-poly-car-pack-1). The page permits use and modification in games, but pairs its CC0 label with conflicting standalone redistribution restrictions. We do not describe this model as unambiguously CC0; see `res/models/tristar-USAGE.txt`.
-- **CC96** — original coupe supplied with this example under CC0. The supplied
-  license does not identify an author; `res/models/car1-CC0-licence.txt`.
-- **TyraX contributors** — district layout, sign, asphalt and ground textures,
-  preparation scripts and synthesized vehicle sounds.
+- **TyraX contributors** — Ravager, Pica and Strix models, district layout, sign, asphalt and ground textures, preparation scripts and synthesized vehicle sounds.
+- **MagiaZ** — [Car brake3](https://pixabay.com/pl/sound-effects/filmy-i-efekty-specjalne-car-brake3-325523/), Pixabay; adapted vehicle samples: `tires_screech.wav` and `magiaz-car-brake3-325523.wav`.
+- **Eponn (Freesound), shared by freesound_community** — [Engine](https://pixabay.com/pl/sound-effects/filmy-i-efekty-specjalne-engine-47745/), Pixabay; adapted vehicle samples: `engine_idle.wav` and `engine-idle-loop.wav`.
+- **TanwerAman** — [Car Throttle Static](https://pixabay.com/pl/sound-effects/filmy-i-efekty-specjalne-car-throttle-static-337873/), Pixabay; adapted vehicle samples: `engine_high.wav` and `tanweraman-car-throttle-static-337873.wav`.
 
-The shipped `THIRD-PARTY-NOTICES.txt` repeats the asset credits. Tristar is a
-game-use asset with the published terms recorded below; the other imported
-district assets retain their CC0 notices.
+The vehicle recordings are available under the [Pixabay Content License](https://pixabay.com/service/license-summary/). Project WAVs are adapted to mono PCM16/22050; preparation of the earlier idle loop is recorded in `res/sfx/engine-idle-source.txt`.
 
+The shipped `THIRD-PARTY-NOTICES.txt` lists the current assets. Earlier CC96, GGBotNet and designersoup assets and their original notices remain in Git history alongside the historical measurements below.
 
 ## Lean vehicles (2026-09-14)
 
@@ -1399,3 +1367,12 @@ checks both ends and compares generated-runtime uploads. See
 The garage sign uses an upright source PNG on a Box front face. Since 1.152.0,
 front/back Box UVs keep the PNG upright in both preview and generated games;
 regenerate older game output to pick up the corrected mapping.
+
+### Shared tuning and camera clearance
+
+Vehicle Editor > Global defaults provides shared handling, damage, nitrous,
+sounds, effects and driver-camera settings. These cars inherit common tuning;
+their handling differences are individual overrides. Edit a value directly
+to customise it; Use defaults resets the current tuning tab. Has nitrous uses the existing tank. Chase/far views shorten their
+boom against colliders and terrain. A third-person Player can enter with Use,
+hides while seated and reappears on exit. VEH reports boom100/want100 and avatar.

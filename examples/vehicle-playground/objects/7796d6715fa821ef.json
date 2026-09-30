@@ -1,0 +1,1 @@
+{ "id": "7796d6715fa821ef", "name": "Night garage blade-copy", "type": "box", "position": [-19.9155, 4.36261, -22.6844], "rotation": [0, -0, 0], "scale": [0.15, 3.4, 0.15], "color": [1, 1, 1], "physics": false, "collision": "none", "reflected": true, "castShadow": false, "material": "res/materials/night-pink.mtl" }

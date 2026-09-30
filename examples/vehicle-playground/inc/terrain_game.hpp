@@ -1137,6 +1137,8 @@ class TerrainGame : public Tyra::Game {
   std::vector<unsigned char> vehColIsVeh_;
   unsigned int vehColGen_ = ~0u;
   void buildVehicleColliders();
+  void collideVehicleCamera();
+  float vehCamWanted_ = 0.0F, vehCamAllowed_ = 0.0F;
   int vehicleDriver_ = -1;  // which vehicle the player is in, -1 = on foot
   // Speed feel (docs/vehicles.md, "Speed feel"): the driven car's eased
   // speed and nitrous blends, and the FOV the camera had before the car

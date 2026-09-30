@@ -1262,6 +1262,9 @@ struct VehicleDef {
     // How it drives. Carried verbatim rather than flattened, so vehiclesim
     // stays the one definition of what a vehicle's tuning IS.
     vehiclesim::DriveSpec drive;
+    // New definitions inherit; legacy local tuning is migrated to field overrides.
+    bool inheritDefaults = true;
+    std::vector<std::string> tuningOverrides;
 
     // The camera while the player is driving. Same rig shape as the
     // third-person player camera, which is what the spring arm already knows.
@@ -1349,9 +1352,9 @@ struct VehicleDef {
 
     // The engine note (docs/vehicles.md, "Engine sound"). A path into the
     // project's own sound list, NOT an index: an index would retarget itself
-    // the moment somebody reordered the Sounds panel. It must name a
-    // `*-loop.wav`, because the loop lives in the ENCODED sample (adpenc -L)
-    // and nothing at runtime can make a one-shot repeat. An asset path, so it
+    // the moment somebody reordered the Sounds panel. It names a
+    // project WAV: selecting it declares encoded loop intent (adpenc -L).
+    // Nothing at runtime can make a one-shot repeat. An asset path, so it
     // belongs in App::retargetAssetPath and App::rebuildAssetUsage.
     std::string engineSound;
     // The pitch the sample plays at, as a multiple of its own encoded rate, at
@@ -1406,7 +1409,9 @@ struct VehicleDef {
 };
 
 inline bool operator==(const VehicleDef& a, const VehicleDef& b) {
-    if (a.id != b.id || a.name != b.name || a.notes != b.notes ||
+    if (a.inheritDefaults != b.inheritDefaults ||
+        a.tuningOverrides != b.tuningOverrides ||
+        a.id != b.id || a.name != b.name || a.notes != b.notes ||
         a.modelPath != b.modelPath || a.bodyTriBudget != b.bodyTriBudget ||
         a.wheelTriBudget != b.wheelTriBudget || a.mergeUntextured != b.mergeUntextured ||
         a.paintEnabled != b.paintEnabled || a.paintMask != b.paintMask ||
@@ -1453,6 +1458,62 @@ inline bool operator==(const VehicleDef& a, const VehicleDef& b) {
     return true;
 }
 inline bool operator!=(const VehicleDef& a, const VehicleDef& b) { return !(a == b); }
+
+inline VehicleDef defaultVehicleTuning() {
+    VehicleDef v;
+    v.name = "Global defaults";
+    v.inheritDefaults = false;
+    v.drive.damage = 1.0f;
+    v.drive.lampGlow = 1.0f;
+    return v;
+}
+
+// Import measurements always stay local, even on an inheriting definition.
+inline bool vehicleGeometryKey(const std::string& key) {
+    return key == "wheelBase" || key == "track" || key == "wheelRadius" ||
+           key == "bodyOverhang" || key == "rideHeight";
+}
+inline bool vehicleTuningOverride(const VehicleDef& v, const std::string& key) {
+    for (const auto& k : v.tuningOverrides) if (k == key) return true;
+    return false;
+}
+
+// One registry for resolution, legacy migration and the editor's automatic
+// overrides. Geometry and import/paint settings deliberately stay local.
+template <class Fn>
+inline void visitVehicleTuning(VehicleDef& v, const VehicleDef& defaults, Fn fn) {
+    auto baseDrive = defaults.drive;
+    const auto base = vehiclesim::specFields(baseDrive);
+    const auto fields = vehiclesim::specFields(v.drive);
+    for (size_t k = 0; k < fields.size(); ++k) {
+        const std::string key = fields[k].key;
+        if (vehicleGeometryKey(key)) continue;
+        const char* section = key.rfind("damage", 0) == 0 ? "damage" :
+            (key.rfind("lamp", 0) == 0 || key.rfind("feel", 0) == 0) ? "effects" : "driving";
+        fn(key, section, *fields[k].value, *base[k].value);
+    }
+#define VEH_TUNING(section, member) fn(std::string(#member), section, v.member, defaults.member)
+    VEH_TUNING("driver", camDist);
+    VEH_TUNING("driver", camHeight);
+    VEH_TUNING("driver", camPitch);
+    VEH_TUNING("driver", showHud);
+    VEH_TUNING("driver", hudFont);
+    VEH_TUNING("driver", hudSpeedScale);
+    VEH_TUNING("sounds", engineSound);
+    VEH_TUNING("sounds", engineHighSound);
+    VEH_TUNING("sounds", screechSound);
+    VEH_TUNING("sounds", shiftSound);
+    VEH_TUNING("sounds", enginePitchIdle);
+    VEH_TUNING("sounds", enginePitchRedline);
+    VEH_TUNING("sounds", engineVolume);
+    VEH_TUNING("sounds", screechVolume);
+    VEH_TUNING("sounds", shiftVolume);
+    VEH_TUNING("effects", headlights);
+    VEH_TUNING("effects", skidMaterial);
+    VEH_TUNING("effects", smokeMaterial);
+    VEH_TUNING("effects", smokeEffect);
+#undef VEH_TUNING
+}
 
 const char* primitiveTypeName(PrimitiveType t);
 
@@ -4115,6 +4176,7 @@ struct Project {
     // one dirties the project and syncs to session peers but takes no undo
     // step, because History carries the scenes alone.
     std::vector<VehicleDef> vehicles;
+    VehicleDef vehicleDefaults = defaultVehicleTuning();
 
     // World Facts (Tools > World Facts, docs/world-facts.md): the project's
     // central memory of game state - the declared catalog, the reusable named
@@ -4392,6 +4454,7 @@ void ensureFactIds(Project& p);
 // the starting point "New effect" offers for each emitterKind.
 const ParticleEffect* findParticleEffect(const Project& p, const std::string& name);
 bool applyParticleEffects(Project& p);
+void applyVehicleDefaults(Project& p);
 void applyParticleEffect(const ParticleEffect& fx, SceneObject& o);
 void applyParticleLayer(const ParticleLayer& L, SceneObject& o);
 // The EXTRA layers of a linked emitter as ordinary emitter objects: a copy of

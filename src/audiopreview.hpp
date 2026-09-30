@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <atomic>
 #include <memory>
 #include <string>
 
@@ -9,10 +10,8 @@
 // ALSA/PulseAudio/JACK on Linux, all dlopen'd at run time, so no new system
 // package and no link-time dependency).
 //
-// It exists for the Drone Generator: a synthesizer you cannot hear while you
-// turn its knobs is not a synthesizer, it is a batch renderer. Nothing else in
-// the editor makes sound - the PS2 game's audio still only ever plays in PCSX2
-// or on the console.
+// Used by Drone Generator synthesis and Vehicle Editor engine-loop audition.
+// The generated game's SPU2 playback still runs on PCSX2 or the console.
 //
 // Everything here is host-only, and a machine with no sound card is an expected
 // state, not an error: start() returns false, `error()` says why, and the tool
@@ -52,6 +51,21 @@ class Device {
     std::unique_ptr<Impl> d_;
     std::string error_;
     std::string name_;
+};
+
+// Host audition of the vehicle's two looping samples. Decoding stays off the
+// audio thread; live controls are atomic and stopping joins the device thread.
+class EngineLoop {
+ public:
+    EngineLoop();
+    ~EngineLoop();
+    bool start(const std::string& idle, const std::string& high);
+    void update(float pitch, float revs, float volume);
+    void stop();
+    const std::string& error() const;
+ private:
+    struct Impl;
+    std::unique_ptr<Impl> d_;
 };
 
 }  // namespace audiopreview

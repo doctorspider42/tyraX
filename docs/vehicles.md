@@ -6,6 +6,52 @@ scenes as you like out. The player walks up to one, presses USE and drives it.
 This page is the contract between the four pieces: the import bake, the drive
 model, the editor's Vehicle Editor, and the generated PS2 runtime.
 
+## Global defaults and local overrides
+
+The Vehicle Editor's **Global defaults** row edits shared Driving, Damage,
+Driver, Sounds and Effects settings. New vehicles follow these defaults. Edit
+any control directly to override only that parameter; no inheritance or
+Override checkbox is required. Each tuning tab shows whether it has custom
+values and offers **Use defaults** to reset that section immediately.
+Other sections remain untouched.
+
+Individual camera/HUD fields, sound paths, pitches, volumes, headlights and
+tyre effects all support separate overrides. An empty sound path or zero
+nitrous tank is a valid override. Engine power is **Acceleration**; **Has
+nitrous** controls the existing tank via **Nitrous seconds**, seeding five
+seconds when enabled. Zero disables boost, the tank HUD and nitrous flame.
+
+Measured wheelbase, track, radius, overhang and ride height, model import,
+paint, LOD and exit offsets always stay local. Changing a global value updates
+each field that has no local override.
+
+Format 83 stores the singleton `vehicleDefaults` array, explicit
+`inheritDefaults` and per-field `tuningOverrides`. Drive keys use spec-registry
+names; other keys use C++ member names (`engineVolume`, `camDist`, `showHud`).
+Pre-83 local definitions keep their non-default values as overrides. Historical
+`sounds`/`driver`/`effects` overrides expand into the fields they covered.
+Resolution runs at load, section application, editor commit and codegen.
+Preview, test drive and PS2 share tuning; Save remains explicit.
+
+![Shared vehicle damage tuning in the Vehicle Editor](img/vehicle-global-defaults.png)
+
+![Per-section Use defaults and editable inherited camera values](img/vehicle-inheritance.png)
+
+## Entry and camera clearance
+
+Walk up to a driveable car in first or third person and press **Use**. Press it
+again to exit at the door offset. The walker is suspended and the third-person
+model hidden while seated; exit restores it unless a cutscene hides the player.
+The second player's avatar retains its own visibility rules.
+
+Chase and far cameras sweep their full elevated boom against rotated collision
+boxes and terrain, excluding their own chassis. Blockers shorten the boom
+immediately; a clear boom returns to the authored distance. The final sweep runs
+after speed shake and vehicle separation. Collision-none and non-geometric
+markers retain their usual opt-out. Bumper and cutscene cameras retain their own
+placement. `VEH` telemetry reports `boom100` / `want100` (actual/requested boom
+distance in hundredths) and `avatar` visibility for verification.
+
 ## The constraint everything here is shaped by
 
 A PS2 StaPip submit costs **~0.7–1.5 ms of fixed EE time whatever it holds**, and
@@ -143,7 +189,7 @@ authoring input, not a texture the PS2 renderer loads. The project format
 stores the optional `paintColor` and `paintMask` fields from version 81.
 
 The [Motor District example](../examples/vehicle-playground/README.md#paint-colours)
-includes masks for its six vehicle definitions and Blender scripts that emit
+includes masks for its three vehicle definitions and Blender scripts that emit
 masks for its three original cars.
 
 **One file.** A car arrives from Blender, Sketchfab or a kitbash pack as a single
@@ -774,12 +820,12 @@ one, so it is the era-correct step up from 16 colours.
 Past the base loop, three optional companions (all per definition, in the
 Vehicle Editor's **Sounds** tab; every one silent until authored):
 
-- **High-rev loop** (`engineHighSound`, `*-loop.wav`): the era's two-sample
+- **High-rev loop** (`engineHighSound`, any imported WAV): the era's two-sample
   engine — the base loop fades out toward the redline as this fades in, both
   riding the same authored pitch curve against their own natural rates.
   Volumes quantise to 8 steps and write on change, the pitch discipline's
   twin: a steady cruise is zero RPCs.
-- **Tyre squeal** (`screechSound`, `*-loop.wav`): volume rides
+- **Tyre squeal** (`screechSound`, any imported WAV): volume rides
   `DriveState::slip` — the one number the smoke and telemetry already read,
   so all three agree when a tyre lets go. Silent under slip 0.3, squared
   above it.
@@ -792,6 +838,14 @@ one-shot at `+20`), so the emitter bank runs four slots short there
 (`{{SND_SLOTS}}`). The shift deliberately does not borrow a script voice:
 `flowPickSfxChannel` exists only in projects whose flow graph plays sounds.
 `tools/veh-sound-pack.py` generates the example's deterministic set.
+
+![Every imported WAV is available in the vehicle sound picker](img/vehicle-sounds.png)
+
+Headlights is a visual setting in **Effects > Lighting**. It has its own
+per-field override and resets with Effects' **Use defaults**, independently of
+sound selections. Historical Sounds group overrides still preserve its value.
+
+![Headlights in the Effects tab](img/vehicle-effects.png)
 
 ### Nitrous
 
@@ -951,18 +1005,29 @@ their first tenth instead of popping, start small and billow out. They spawn
 
 ### Engine sound
 
+Vehicle WAVs use the same converter as other effects: **Project > Sounds >
+Convert** fixes an existing project file, and every build automatically converts
+a copy to mono PCM16/22050 before encoding. Stereo or 24-bit WAVs may sound fine
+in the editor but require this conversion for the game. See
+[sound.md](sound.md#wav-conversion-for-effects).
+
+
 A looping sample whose **SPU2 pitch register** follows the engine speed. Set it in
-*Vehicle Editor > Driver*: a sound, a pitch multiplier at idle and one at the
+*Vehicle Editor > Sounds*: an idle loop, a pitch multiplier at idle and one at the
 redline, and a volume.
 
-**The loop lives in the encoded sample, not in the play call.** The build runs
-`adpenc -L` over any `res/sfx/*-loop.wav`, which sets the SPU2 block loop flags;
-nothing at runtime can make a one-shot repeat, so a definition pointing at an
-ordinary WAV plays for a fifth of a second and stops. That is why the picker only
-offers `*-loop.wav` files — offering the rest would be offering a broken choice.
-The convention is in the *file name* because `adpenc` runs over `res/sfx` as a
-directory and has no access to the project model; it is the `*-lit.png`
-arrangement.
+**The loop lives in the encoded sample, not in the play call.** Choose any
+imported WAV for idle, high revs or tyre squeal. Both native and Docker builds
+encode these continuous vehicle roles with `adpenc -L`; no filename suffix is
+required. Legacy `*-loop.wav` samples still loop independently of their role.
+Codegen writes ordinary-WAV paths to `inc/vehicle_sound_loops.gen.txt`, removing
+the file when no such role remains. Encoders compare ADPCM header byte 6 in
+both directions, so assigning or removing a loop role re-encodes a fresh cache
+without touching the source WAV. Gear shift alone remains a one-shot.
+
+Looping is asset-wide: if the same WAV is also played by a flow graph or gear
+shift it uses the same encoded loop. Use a separate source file for a one-shot
+version. No duplicate samples are generated automatically.
 
 The pitch itself needed no new plumbing: `SD_VPARAM_PITCH` is an ordinary libsd
 register, the engine already links libsd, and `logVoiceState` already *reads* it.
@@ -1809,7 +1874,8 @@ unstick count per lap.
 
 ## The Vehicle Editor
 
-*Tools > Vehicle Editor.* A definition list on the left, four tabs on the right.
+*Tools > Vehicle Editor*, in the **Assets** section. Entries within each Tools
+section are alphabetical. Choose a car or Global defaults on the left, edit its settings in the middle, and inspect it in the Live preview on the right. Settings scroll independently from the preview.
 
 A definition is **project-wide data** (`Project::vehicles`, `Section::Vehicles`)
 and an instance names it. That is the same shape as an `AmbiencePreset` or a
@@ -1819,7 +1885,7 @@ someone else's format or carry C++. Being a Section buys the collaboration wire,
 the AI Assistant's `get_section`/`set_section` and the `sectionJson` edit guard
 with no code of its own.
 
-- **Model** — the asset, then every line the importer decided, verbatim. The
+- **Model** — the asset and a compact import summary; **Import details** expands the full diagnostic notes. The
   wheel table lists what was found; **Steered** and **Driven** are per wheel, so
   a rear-steer forklift and a 4WD are the same asset with different boxes
   ticked. When the front end was assumed rather than read, the tab says so and
@@ -1829,7 +1895,7 @@ with no code of its own.
   editable, saveable, loadable and documented by appearing in that one list.
 - **Driver** — the camera rig while driving, and the exit offset (the driver's
   door).
-- **Effects** — what the tyres leave behind: the skid-mark material and the
+- **Effects** — **Headlights** (ground beams), what the tyres leave behind: the skid-mark material and the
   tyre smoke, which is the built-in puff, a material or a
   [particle-library](particles.md) effect (**New library smoke** makes one
   from the built-in look). See *Skid marks and smoke*. The library entry that
@@ -1839,9 +1905,15 @@ with no code of its own.
   submits per vehicle, triangles, what the source was, the far tier's cost and
   distance, the *Far model* picker and the *Parked / AI cars from* distance
   (see "An authored far model"), and what the placed instances would total if
-  they were all on screen. Measured on the reference
-  car: *submits 2 (~2.0 ms), body 1072 + 4 wheels 1664 = 2736 triangles, source
-  was 18 parts and 5312 triangles.*
+  they were all on screen. Triangle budgets are read-only until **Edit triangle budgets (advanced)** is checked; this also gates the fast-wheel budget. Reflection map uses a searchable texture picker with thumbnails, an Import PNG action, and **Use sky** to restore dynamic reflections. Submission counts are geometry costs, not a measured frame-time estimate.
+
+**Live preview** draws the same baked body and wheel meshes shipped to the game, independently of placed instances. Drag its image to orbit, scroll to zoom, and use **Reset view** to reframe. **Steering** honours the per-wheel Steered flags. **Spin wheels** animates at **Speed** in km/h; the fast-wheel mesh switches at the authored rad/s threshold and returns below 80% of it, like the runtime. Damage-tab test hits and Repair also update this preview. The preview does not move scene entities or save its controls. Global defaults previews the first car's geometry with global tuning.
+
+**Engine audition** is separate from wheel speed: **Revs** moves from idle to redline and **Listen to engine** plays the selected idle/high loops at the authored pitch and volume. It uses the runtime's two-sample gain curves (idle retains 15% at redline), through host float audio rather than PS2 ADPCM. Editing sound choices restarts the samples; changing revs, pitch or volume updates playback live. Closing/collapsing the window, switching cars/projects or exiting stops audition. Missing files and unavailable output devices show an inline error.
+
+Record engine loops at steady RPM, without acceleration ramps or gear changes; the game supplies pitch changes. Use a clean idle and a sustained higher-RPM recording, trim each to a seamless loop, then import as 16-bit PCM WAV. Every project sound is selectable; continuous vehicle roles are looped automatically during the build. A short mono loop saves SPU2 sample RAM. Match recording conditions and balance the two samples by listening across the entire Revs slider; the current runtime applies the same pitch curve to both recordings.
+
+![Vehicle Editor with independent vehicle and engine preview](img/vehicle-live-preview.png)
 
 Two things the window does deliberately:
 
@@ -2276,6 +2348,22 @@ triangles, IS byte-identical.
 
 ## A fast wheel
 
+Wheel simplification protects the outer 15% radial band (tyre tread and
+sidewalls), simplifying only the inner rim/hub. Budgets below this safe minimum
+are soft; Import details reports actual triangle cost. Ordinary and Automatic
+fast wheels both retain their tyre. The reserved `wheel_blur` auxiliary node
+is excluded from chassis/wheel detection even in None or Automatic modes.
+
+The playground's Ravager, Pica Turbo and Strix V12 each carry an authored
+144-triangle `wheel_blur`: closed tyre, symmetric dish and a concentric blurred
+rim matched to its dimensions and colours. No alternating spokes alias at high
+speeds. `authoring/add-fast-wheels.py` builds only these meshes in Blender and
+splices them into the original GLBs, preserving existing body, ordinary-wheel,
+material and embedded-image bytes. Re-run it after regenerating a car.
+
+![Authored Ravager fast wheels at 106 km/h in PCSX2](img/vehicle-fast-wheel-ps2.png)
+
+
 A definition can carry a **second wheel model**, and the game swaps all four
 wheels of a car to it while they spin faster than a threshold. That is the old
 arcade trick for selling speed: a motion-blurred wheel reads as speed in a way a
@@ -2284,7 +2372,7 @@ exactly when nobody can count its spokes.
 
 **Authoring.**
 
-- *Vehicle Editor > Model > Fast wheel* has three settings:
+- *Vehicle Editor > Cost > Fast wheel* has three settings:
   - **None**.
   - **Lower-resolution copy**, stored as `"@auto"`: the ordinary wheel again,
     decimated to *Fast wheel triangles*.
@@ -2584,14 +2672,12 @@ an axis convention again.
 
 The reference vehicle used to develop and verify this is the **CC96** car by its
 author, released under CC0 (see the model pack's own `licence.txt`). It is
-included in `examples/` and listed in the generated project's
-`THIRD-PARTY-NOTICES.txt`.
+retained in repository history; the current Motor District fixture ships only Ravager, Pica Turbo and Strix V12. Historic CC96 measurements below refer to that earlier fixture.
 
 ## Motor District example
 
 [vehicle-playground](../examples/vehicle-playground/README.md) now supplies a
-seven-road city course, Kenney scenery and a second driveable CC0 model by
-GGBotNet. Paint uses the shared dynamic sky/scenery environment target; selected
+seven-road city course, Kenney scenery and three original vehicles: Ravager, Pica Turbo and Strix V12. Paint uses the shared dynamic sky/scenery environment target; selected
 building blocks opt into the reflection pass. The example documents credits,
 reproducible preparation and the flat-road memory reduction needed for its
 larger network.

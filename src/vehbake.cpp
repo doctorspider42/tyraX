@@ -213,7 +213,10 @@ bool inspect(const std::string& modelPath, vehiclesim::Detection& out,
     glbparser::Skel sk;
     if (!animimport::parseSkel(modelPath, sk, error)) return false;
     nodes = meshNodes(sk);
-    out = vehiclesim::detectWheels(nodes);
+    auto detectionNodes = nodes;
+    for (auto& node : detectionNodes)
+        if (node.name == "wheel_blur") node.vertexCount = 0;
+    out = vehiclesim::detectWheels(detectionNodes);
     return true;
 }
 
@@ -304,6 +307,34 @@ void decimateTo(std::vector<float>& verts, int triBudget) {
     if (out.size() >= 24) {
         recomputeCreasedNormals(out);
         verts.swap(out);
+    }
+}
+
+// A wheel's tyre is its silhouette, not expendable detail. Generic QEM can
+// collapse a dark, low-area sidewall into the spokes at tiny budgets. Keep
+// the outer radial band intact and simplify only the hub/rim. Budgets below
+// that safe minimum are intentionally soft (the bake reports actual cost).
+void decimateWheel(tmdl::Model& wheel, int budget) {
+    float radius2 = 0.0f;
+    for (const auto& part : wheel.parts)
+        for (size_t k = 0; k + 7 < part.verts.size(); k += 8)
+            radius2 = std::max(radius2, part.verts[k + 1] * part.verts[k + 1] +
+                                        part.verts[k + 2] * part.verts[k + 2]);
+    const float keepFrom2 = radius2 * 0.85f * 0.85f;
+    for (auto& part : wheel.parts) {
+        if (budget <= 0 || triCount(part.verts) <= budget) continue;
+        std::vector<float> tyre, inner;
+        for (size_t k = 0; k + 23 < part.verts.size(); k += 24) {
+            bool outer = false;
+            for (size_t j = k; j < k + 24; j += 8)
+                outer |= part.verts[j + 1] * part.verts[j + 1] +
+                         part.verts[j + 2] * part.verts[j + 2] >= keepFrom2;
+            auto& dest = outer ? tyre : inner;
+            dest.insert(dest.end(), part.verts.begin() + k, part.verts.begin() + k + 24);
+        }
+        decimateTo(inner, std::max(12, budget - triCount(tyre)));
+        tyre.insert(tyre.end(), inner.begin(), inner.end());
+        part.verts.swap(tyre);
     }
 }
 
@@ -960,6 +991,11 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
             if (nodes[i].name == opt.fastWheel && nodes[i].vertexCount > 0) fastNode = i;
     }
     std::vector<vehiclesim::MeshNode> detNodes = nodes;
+    // wheel_blur is reserved for an auxiliary authored wheel even when
+    // the author chooses None/@auto. Otherwise the fifth wheel can confuse
+    // detection or appear as a stray wheel embedded in the chassis.
+    for (auto& node : detNodes)
+        if (node.name == "wheel_blur") node.vertexCount = 0;
     if (fastNode >= 0) detNodes[(size_t)fastNode].vertexCount = 0;
     out.detection = vehiclesim::detectWheels(detNodes);
     out.notes = out.detection.notes;
@@ -1128,8 +1164,17 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
                 decimateTo(p.verts,
                            (int)((long long)opt.bodyTriBudget * triCount(p.verts) /
                                  bodyBefore));
-    for (tmdl::Part& p : out.wheel.parts) decimateTo(p.verts, opt.wheelTriBudget);
-    for (tmdl::Part& p : out.fastWheel.parts) decimateTo(p.verts, opt.fastWheelTriBudget);
+    decimateWheel(out.wheel, opt.wheelTriBudget);
+    decimateWheel(out.fastWheel, opt.fastWheelTriBudget);
+    const auto wheelBudgetNote = [&](const tmdl::Model& wheel, int budget, const char* label) {
+        int tris = 0;
+        for (const auto& part : wheel.parts) tris += triCount(part.verts);
+        if (budget > 0 && tris > budget)
+            out.notes.push_back(std::string(label) + ": kept " + std::to_string(tris) +
+                " triangles to preserve the tyre silhouette (requested " + std::to_string(budget) + ").");
+    };
+    wheelBudgetNote(out.wheel, opt.wheelTriBudget, "Wheel");
+    wheelBudgetNote(out.fastWheel, opt.fastWheelTriBudget, "Fast wheel");
     // The wheel batch draws parts[0] of either model through ONE texture, so a
     // fast wheel that would sample a different image cannot share the bag.
     if (!out.fastWheel.parts.empty() && !out.wheel.parts.empty() &&

@@ -418,6 +418,11 @@ void App::rebuildAssetUsage() {
         if (!v.paintMask.empty())
             note(v.paintMask, 2, "vehicle \"" + v.name + "\" (paint mask)");
     }
+    const VehicleDef& defaults = project_.vehicleDefaults;
+    for (const auto* path : {&defaults.engineSound, &defaults.engineHighSound,
+                             &defaults.screechSound, &defaults.shiftSound,
+                             &defaults.skidMaterial, &defaults.smokeMaterial})
+        if (!path->empty()) note(*path, 2, "vehicle global defaults");
 
     auto noteHud = [&](const HudImage& h, const std::string& where) {
         if (!h.imagePath.empty()) note(h.imagePath, 2, where);
@@ -713,6 +718,14 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
         swap(v.bodyReflMap);
         swap(v.paintMask);
     }
+    VehicleDef& defaults = project_.vehicleDefaults;
+    swap(defaults.engineSound);
+    swap(defaults.engineHighSound);
+    swap(defaults.screechSound);
+    swap(defaults.shiftSound);
+    swap(defaults.skidMaterial);
+    swap(defaults.smokeMaterial);
+    project::applyVehicleDefaults(project_);
 
     for (HudImage& h : project_.hud) swap(h.imagePath);
     swap(project_.usePrompt.imagePath);

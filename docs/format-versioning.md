@@ -291,3 +291,14 @@ Format 61 adds the project-wide `occlusionCulling` opt-in and the per-object
 allows the object to receive culling if the project is later enabled and lets
 proved-safe static geometry act as an occluder. The fields are additive, so no
 migration step is required.
+
+Format 82 adds `vehicleDefaults` to the Vehicles section and optional
+`inheritDefaults` / `tuningOverrides` to definitions. Missing inheritance is
+false, preserving old tuning; new definitions opt in. The singleton uses the
+existing vehicle serializer. Geometry remains local. Additive; no migration.
+
+Format 83 makes vehicle inheritance automatic and tracks each field separately.
+`inheritDefaults` is explicit on save. A missing pre-83 flag retains legacy
+local semantics while reading; resolution marks non-default values as overrides
+and expands old group overrides. This preserves resolved tuning, so no
+value-changing migration step is required. Section resets clear only their keys.

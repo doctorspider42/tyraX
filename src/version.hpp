@@ -5496,7 +5496,19 @@
 // Particles face the camera a pass DRAWS with (cutscene override, shake,
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 152
+#define TYRAX_VERSION_MINOR 157
+// 1.157.0: normalize sound effects to mono PCM16/22050 at import and build;
+// Convert fixes stereo/extended-header WAVs, and build copies preserve sources.
+// 1.156.0: vehicle sound pickers accept every imported WAV; native/Docker
+// builds encode continuous vehicle roles as loops. Headlights move to Effects.
+// 1.155.1: Vehicle Editor belongs to Tools' Assets group; all tool groups
+// keep their entries alphabetical.
+// 1.155.0: automatic per-field vehicle defaults and section resets; tyre-safe
+// wheel simplification and authored playground motion-blur wheels. Format 83.
+// 1.154.0: live vehicle/wheel preview, engine audition, guided Cost controls,
+// reflection texture picker and compact import/help UX.
+// 1.153.0: global vehicle tuning with local overrides, explicit nitrous
+// enable control, and final chase/far camera collision. Project format 82.
 // 1.152.0: direct material editing, searchable cached asset list, selective
 // material refresh and cached PNG metadata; upright box front/back UVs.
 // 1.151.2: bound junction clearance against actual road triangles; adaptive
@@ -5968,7 +5980,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // migration step.
 // v81 (docs/vehicles.md, "Paint colour"): optional vehicle paintColor and
 // paintMask. Missing keys preserve the source model. Additive; no migration.
-inline constexpr int kFormatVersion = 81;
+// v82: project vehicleDefaults and per-definition inheritDefaults/tuningOverrides.
+// Missing inheritance keeps every existing vehicle local; no migration needed.
+// v83: automatic per-field tuning overrides; legacy local/section tuning is
+// migrated without changing values. New cars inherit defaults immediately.
+inline constexpr int kFormatVersion = 83;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

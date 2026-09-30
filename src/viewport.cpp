@@ -1812,6 +1812,7 @@ void Viewport::shutdown() {
     destroyMesh(wireCone_);
     destroyMesh(cameraBody_);
     destroyMesh(cameraFrustum_);
+    clearVehicleDraws();
     clearRoadDraws();
     destroyMesh(segment_);
     destroyMesh(portalArrow_);
@@ -4768,10 +4769,20 @@ void Viewport::setVehicleDraw(const std::string& name, const tmdl::Model& body,
     v.track = track;
     v.wheelRadius = wheelRadius;
     v.rideHeight = rideHeight;
+    if (auto old = vehicleDraws_.find(name); old != vehicleDraws_.end()) {
+        for (auto& part : old->second.body.parts) destroyMesh(part.mesh);
+        for (auto& part : old->second.wheel.parts) destroyMesh(part.mesh);
+    }
     vehicleDraws_[name] = std::move(v);
 }
 
-void Viewport::clearVehicleDraws() { vehicleDraws_.clear(); }
+void Viewport::clearVehicleDraws() {
+    for (auto& [name, v] : vehicleDraws_) {
+        for (auto& part : v.body.parts) destroyMesh(part.mesh);
+        for (auto& part : v.wheel.parts) destroyMesh(part.mesh);
+    }
+    vehicleDraws_.clear();
+}
 
 bool Viewport::vehicleLocalBounds(const SceneObject& o, float mn[3], float mx[3]) const {
     if (o.type != PrimitiveType::Vehicle) return false;
@@ -6305,6 +6316,8 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                                            model.m[4 + a] * local[w][1] +
                                            model.m[8 + a] * local[w][2] +
                                            model.m[12 + a];
+                        wm = mul(wm, rotY(vehiclePreviewSteered_[w] ? vehiclePreviewSteer_ : 0));
+                        wm = mul(wm, rotX(vehiclePreviewSpin_));
                         drawParts(vd.wheel, wm);
                     }
                     glUniform1i(uPaintFx_, 0);
@@ -6761,9 +6774,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     }
 
     // Grid lines, axes and the selection outline are unaffected by view mode
-    for (const Mesh& chunkLines : terrainLineMeshes_)
+    if (guidesVisible_) for (const Mesh& chunkLines : terrainLineMeshes_)
         draw(chunkLines, GL_LINES, viewProj, 1.0f, 1.0f, 1.0f);
-    draw(axes_, GL_LINES, viewProj, 1.0f, 1.0f, 1.0f);
+    if (guidesVisible_) draw(axes_, GL_LINES, viewProj, 1.0f, 1.0f, 1.0f);
 
     // Nav-mesh overlay: translucent green quads over the walkable cells
     // (View > Nav Mesh Overlay; baked app-side, see setNavOverlay).

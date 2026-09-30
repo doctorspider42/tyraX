@@ -7,6 +7,30 @@ number, and a small one. This page is what that number is, who spends it, and
 what happens when a game asks for one more sound than the chip has left. For
 the reverb those sounds are heard through, see [reverb.md](reverb.md).
 
+## WAV conversion for effects
+
+![Convert fixes existing stereo WAV effects](img/sound-wav-convert.png)
+
+**Project > Sounds** converts imported effects to **mono, 16-bit integer PCM,
+22050 Hz**, including stereo, 24/32-bit PCM and float WAVs. Existing files that
+need conversion show a **Convert** button; it rewrites the project copy in
+`res/sfx`. The original file selected in the import dialog stays untouched.
+
+Every game build also prepares a compatible copy in `.res-baked/sfx`, so WAVs
+dropped into the folder by hand and previously imported stereo clips work
+without reimporting. Native and Docker encode this normalized copy with
+`adpenc`; `res/sfx` stays unchanged by the build. Unsupported or damaged WAVs
+stop the build with the filename and conversion error instead of shipping noise.
+No additional per-track setting is needed: all effects use the same voice format.
+Music has its own streaming conversion controls and can remain stereo.
+
+The editor's engine audition decodes the source WAV, so successful audition alone
+does not prove the encoded game sample works. In particular, `adpenc` accepts
+stereo but its stereo reader overlaps two-byte samples in a byte buffer; audsrv
+also starts a sample on a single SPU2 voice rather than two stereo voices.
+Downmixing before encoding avoids both problems. Cached ADPCM files with a
+stereo header are re-encoded even when their timestamps appear current.
+
 ## The budget
 
 The SPU2 has 48 ADPCM voices, 24 per core. A core is also a **reverb bus**
@@ -92,18 +116,23 @@ your own game rather than assuming either answer.
 ## Looping samples
 
 **A WAV under `res/sfx` whose name ends in `-loop.wav` is encoded with
-`adpenc -L`**, which sets the SPU2 block loop flags so the voice repeats instead
-of ending. Everything else is encoded as a one-shot.
+`adpenc -L`**. An ordinary WAV selected as a vehicle's idle, high-rev or tyre
+squeal sound is also encoded as a loop. Vehicle sound pickers show every
+imported project WAV; filenames need no special suffix. Gear shift and other
+unmarked sounds remain one-shots.
 
-The loop is therefore a property of the **encoded sample**, not of the play call:
-no runtime call can turn a one-shot into a loop, and none can stop a loop either
-(`AudioAdpcm`'s own doc comment — "ADPCM sample can't be stopped"). Silence a
-looping voice by setting its volume to zero.
+The native backend and Docker encoder consume the optional
+`inc/vehicle_sound_loops.gen.txt` generated from resolved vehicle tuning.
+It contains deduplicated project-relative paths for continuous samples without
+the legacy suffix. Refresh rewrites it or removes it when the last role goes
+away. Encoders check ADPCM header byte 6 against desired loop mode even when
+source timestamps are unchanged, handling both one-shot-to-loop and the reverse.
 
-The convention lives in the file name rather than in the project because `adpenc`
-runs over `res/sfx` as a directory during the build and has no access to the
-project model — the same reasoning as `*-lit.png`. A picker that offers a looping
-sound should filter on that suffix; the Vehicle Editor's engine-sound picker does.
+Loop flags belong to the **encoded sample**, not the play call. Silence a
+looping voice by setting its volume to zero. Every use of the same sample
+shares its loop mode; use a separate file when a one-shot version is needed.
+Loop preparation sets hardware flags; it does not trim, crossfade or repair a
+recording's seam. Prepare a seamless source recording before importing.
 
 **Pitch.** `AudioAdpcm::setPitch(channel, reg)` retunes a playing voice
 (`SD_VPARAM_PITCH`). `reg` is relative to the sample's **own** encoded rate, which

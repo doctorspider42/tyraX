@@ -728,7 +728,7 @@ private:
     // nothing changed.
     void rescanAssets(bool announce);
     // Cached format problem of a project WAV ("" = fine). sfx = adpenc rules
-    // (16-bit PCM 22050 Hz); music = the song player rules.
+    // (mono PCM16/22050 + standard header); music = the song player rules.
     const std::string& wavIssue(const std::string& relPath, bool sfx);
     std::map<std::string, std::string> wavIssueCache_;
     void importHudImage();
@@ -1957,6 +1957,15 @@ private:
     float particlePreviewAcc_ = 0.0f;
     bool showVehicles_ = false;
     int vehicleSel_ = -1;  // selected definition in the Vehicle Editor
+    void drawVehiclePreview(const VehicleDef& v, int modelIndex);
+    std::unique_ptr<Viewport> vehiclePreview_;
+    std::unique_ptr<audiopreview::EngineLoop> vehicleEnginePreview_;
+    std::string vehiclePreviewKey_, vehicleAudioKey_, vehiclePreviewModel_;
+    float vehiclePreviewSpeed_ = 0, vehiclePreviewSteer_ = 0, vehiclePreviewSpin_ = 0;
+    float vehiclePreviewRevs_ = 0;
+    bool vehiclePreviewPlay_ = false, vehiclePreviewSound_ = false;
+    bool vehiclePreviewFast_ = false;
+    bool vehicleBudgetEdit_ = false;
     // Cached import bakes, one per definition, keyed by what the bake depends
     // on. A bake parses a .glb/.fbx and decimates it - far too slow for a
     // frame - so the window shows the last result and re-runs it only when

@@ -689,7 +689,7 @@ nobody sees".
 ### The vehicle BODIES: 0.757x is on the table and cannot be taken yet
 
 An additional authored CC96 source is now available for a separate importer
-experiment: [CC96 strip study](../examples/vehicle-playground/res/models/cc96-strip-study/README.md).
+experiment: CC96 strip study (study files retained in Git history; the current fixture contains Ravager, Pica and Strix).
 Its main body accepts the existing full-attribute stripifier (11,058 list
 vertices → 4,212 strip vertices, unchanged triangles/normals/UVs). It is not
 active in the scene and has not passed through the vehicle importer or console

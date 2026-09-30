@@ -1188,11 +1188,20 @@ private:
                         float wheelBase, float track, float wheelRadius,
                         float rideHeight, int lampPart = -1, int lampRearVerts = 0);
     void clearVehicleDraws();
+    // Tool-only animation; the scene viewport leaves the pose at zero.
+    void setVehiclePreviewPose(float spin, float steer, const bool steered[4]) {
+        vehiclePreviewSpin_ = spin; vehiclePreviewSteer_ = steer;
+        for (int i = 0; i < 4; ++i) vehiclePreviewSteered_[i] = steered[i];
+    }
+    void setGuidesVisible(bool visible) { guidesVisible_ = visible; }
     // World-space bounds of a placed vehicle, body and wheels together - what
     // a click tests against and what the selection outline wraps.
     bool vehicleLocalBounds(const SceneObject& o, float mn[3], float mx[3]) const;
 
    private:
+    float vehiclePreviewSpin_ = 0, vehiclePreviewSteer_ = 0;
+    bool guidesVisible_ = true;
+    bool vehiclePreviewSteered_[4] = {true, true, false, false};
     ModelDraw uploadTmdl(const tmdl::Model& m, const std::string& paletteRel,
                          int lampPart = -1, int lampRearVerts = 0);
 

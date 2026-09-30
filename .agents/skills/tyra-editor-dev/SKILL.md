@@ -2098,7 +2098,9 @@ simply delegates are not.
   answer "what am I working on" - *Assets*, *Scene*, *Lighting & rendering*,
   *Screens & menus*, *Gameplay*, *Running game*, *AI* (the assistant, last, as
   its own group). A new tool window joins the header whose question it
-  answers, at its alphabetical place; appending it at the bottom is how the
+  answers, at its alphabetical place. Vehicle Editor belongs to Assets, after
+  Tree Generator; Global Illumination follows Color Grading in Lighting &
+  rendering. Appending a tool at the bottom is how the
   menu became a 29-entry pile in the first place.
 - **DPI/zoom: wrap literal pixel sizes in `App::scaled(px)`.** `applyUiScale()`
   scales fonts (`FontScaleMain`) and style spacing (`ScaleAllSizes`) but NOT the
@@ -2895,3 +2897,47 @@ Do not replace this with global `invalidateAssets` on a slider commit.
 Box front/back V=0 is the top: keep `primmesh::unitBox`, generated `addBox` and
 the atlas region inverse mapping in `aobake.cpp` inverse mapping together. Geometry UV changes also invalidate
 procedural bake hashes and GI caches (including derived prelit freshness).
+
+## Vehicle tuning inheritance (1.153.0)
+
+Project::vehicleDefaults is a singleton in Section::Vehicles, serialized with
+writeVehicleArray/readVehicleArray. VehicleDef::inheritDefaults is true for new
+definitions; pre-83 local files normalize to field overrides without changing
+tuning. `visitVehicleTuning` is the shared registry for all tunable fields and
+section ownership. `tuningOverrides` contains individual field keys; historical
+group keys expand during resolution. UI controls edit directly. Diff against
+the resolved pre-frame definition creates only the changed keys. Section Use
+defaults clears its keys; skip those keys in the same-frame diff or the reset
+will recreate overrides. Geometry keys stay local
+(vehicleGeometryKey). applyVehicleDefaults resolves at section-read, commit and
+codegen. Include global asset refs in assetbrowser and particle-effect renaming.
+Global UI reuses tuning tabs without import/test-drive tabs. collideVehicleCamera
+runs in both game tails after shake and separation, excluding the driven chassis.
+
+Vehicle Editor live preview uses a separate lazily initialized Viewport owned by App. It reuses the cached vehbake models, previews wheel spin/steering and the fast-wheel hysteresis, and never moves scene entities. `audiopreview::EngineLoop` decodes samples off the audio thread and owns host audition; atomics carry pitch/revs/volume. Stop audio before destroying callback state and shut down the preview before the GL context. Replacing/clearing vehicle draws must destroy their VAO/VBOs; live preview drops its private texture cache on bake changes so reused palette paths show edited colours. Triangle budgets require an explicit editor-only unlock; reflection maps use project texture thumbnails.
+
+Wheel simplification protects the outer tyre band; tiny budgets are soft and
+Import details reports actual cost. `wheel_blur` is a reserved auxiliary node,
+excluded from detection in every mode, including None and Automatic. Verify
+both automatic and authored modes at swap speed; body decimation is independent.
+
+Vehicle sound selectors show all project WAVs. Continuous roles (engineSound,
+engineHighSound, screechSound) declare encoded loop intent through optional
+`inc/vehicle_sound_loops.gen.txt`, generated from resolved definitions. Refresh
+must rewrite it and remove stale intent when roles disappear. Legacy -loop.wav
+still works. Headlights belongs to Effects for both UI and Use defaults; expand
+historical sounds group overrides to headlights too when reading old data.
+
+
+Sound effect conversion (1.157.0): `wavconvert::soundIssue` requires canonical
+mono PCM16/22050; import and Project > Sounds > Convert downmix too. Runner calls
+`wavconvert::bakeSounds` AFTER texbake and BEFORE either build backend, preparing
+`.res-baked/sfx` without modifying `res/sfx`. Both encoders read this mirror,
+check cached APCM byte 5 for mono as well as byte 6 for loop intent, and preserve
+the source path for role matching. A conversion error must fail the build.
+Test stereo PCM16, PCM24, float, extended headers and an odd metadata chunk;
+verify duration, source hashes, incremental mtime stability and ADPCM mono/loop
+headers in BOTH backends. Decode the actual ADPCM and compare the waveform to
+the converted WAV: header checks alone missed adpenc's corrupt stereo reader
+(`fread(wave+i, 2, ...)` advances by one byte). Music conversion stays stereo
+unless its own mono option is chosen.

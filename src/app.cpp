@@ -812,6 +812,8 @@ int App::run(const std::string& initialProjectDir) {
 
     devsession::retire(devsession::selfPid());  // stop claiming to be live
     viewport_.shutdown();
+    if (vehicleEnginePreview_) vehicleEnginePreview_->stop();
+    if (vehiclePreview_) vehiclePreview_->shutdown();
     if (flowEditorCtx_) ImNodes::EditorContextFree((ImNodesEditorContext*)flowEditorCtx_);
     if (procEditorCtx_) ImNodes::EditorContextFree((ImNodesEditorContext*)procEditorCtx_);
     flowEditorCtx_ = procEditorCtx_ = nullptr;
@@ -1779,6 +1781,14 @@ void App::drawMenuBar() {
                 treePreviewDirty_ = true;
             }
 
+            if (ImGui::MenuItem("Vehicle Editor...")) showVehicles_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Driveable cars. Define one - model, wheels, how it drives -\n"
+                    "and place it in as many scenes as you like. The wheels are\n"
+                    "found in the model by their geometry, so their names in\n"
+                    "Blender do not matter.");
+
             ImGui::SeparatorText("Scene");
             if (ImGui::MenuItem("Cutscene Director...")) showCutsceneEditor_ = true;
             if (ImGui::MenuItem("Phone Camera...")) showPhoneCamWindow_ = true;
@@ -1788,24 +1798,11 @@ void App::drawMenuBar() {
                     "Reusable groups of objects - a hut, a room, a lamp post\n"
                     "with its light and its script. Stamp them by hand, scatter\n"
                     "them with a procedural graph, or spawn them at runtime.");
-            if (ImGui::MenuItem("Vehicle Editor...")) showVehicles_ = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Driveable cars. Define one - model, wheels, how it drives -\n"
-                    "and place it in as many scenes as you like. The wheels are\n"
-                    "found in the model by their geometry, so their names in\n"
-                    "Blender do not matter.");
             if (ImGui::MenuItem("Procedural...")) showProcedural_ = true;
             if (ImGui::MenuItem("Terrain Editor...")) showTerrainEditor_ = true;
 
             ImGui::SeparatorText("Lighting & rendering");
             if (ImGui::MenuItem("Ambience Editor...")) showAmbienceEditor_ = true;
-            // The two bakes live in the Ambience Editor now; the menu items
-            // still work and simply open that window on their tab.
-            if (ImGui::MenuItem("Global Illumination...")) {
-                showAmbienceEditor_ = true;
-                showGiBake_ = true;
-            }
             if (ImGui::MenuItem("Baked Lighting...")) {
                 showAmbienceEditor_ = true;
                 showBakedLighting_ = true;
@@ -1815,6 +1812,12 @@ void App::drawMenuBar() {
                     "Light baked on the host and shipped as pixels: automatic\n"
                     "model AO multiplied into each model's own texture.");
             if (ImGui::MenuItem("Color Grading...")) showGradingEditor_ = true;
+            // The two bakes live in the Ambience Editor now; the menu items
+            // still work and simply open that window on their tab.
+            if (ImGui::MenuItem("Global Illumination...")) {
+                showAmbienceEditor_ = true;
+                showGiBake_ = true;
+            }
             if (ImGui::MenuItem("Neural Upscaler (BLSS)...")) showBlss_ = true;
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
@@ -5859,6 +5862,7 @@ void App::commitChange() {
     project::ensureFactIds(project_);
     // A linked emitter wears its library effect (docs/particles.md): copy the
     // effect in before the snapshot, so undo and the session see the result.
+    project::applyVehicleDefaults(project_);
     project::applyParticleEffects(project_);
     ++modelEditSerial_;  // let the session diff pick up this edit (see sessionTick)
     // The undo snapshot only carries the SCENES, so push() returns false for an
@@ -9987,12 +9991,7 @@ const std::string& App::wavIssue(const std::string& relPath, bool sfx) {
     if (!readWavFormat(full, audioFormat, channels, rate, bits)) {
         issue = "unreadable WAV";
     } else if (sfx) {
-        if (audioFormat != 1 || rate != 22050 || bits != 16)
-            issue = std::string(audioFormat != 1 ? "non-PCM" : "") +
-                    (audioFormat == 1 ? std::to_string(bits) + "-bit " +
-                                            std::to_string(rate) + " Hz"
-                                      : "") +
-                    " - adpenc needs 16-bit 22050 Hz";
+        issue = wavconvert::soundIssue(full);
     } else {
         if (audioFormat != 1 || (bits != 8 && bits != 16) || channels > 2 ||
             rate < 11025 || rate > 48000)
@@ -10132,8 +10131,7 @@ void App::importSoundEffect() {
     const std::string src = pickWavFile();
     if (src.empty()) return;
 
-    // adpenc (runs in the toolchain container at build) expects 16-bit PCM
-    // 22 kHz. Anything else is converted in place right after the copy.
+    // Effects occupy one SPU2 voice, so stereo must be downmixed too.
     int audioFormat = 0, channels = 0, rate = 0, bits = 0;
     if (!readWavFormat(src, audioFormat, channels, rate, bits)) {
         statusMessage_ = "Sound import failed: not a readable WAV file";
@@ -10153,10 +10151,11 @@ void App::importSoundEffect() {
     }
 
     std::string warning;
-    if (audioFormat != 1 || rate != 22050 || bits != 16) {
+    const bool needsConversion = !wavconvert::soundIssue(destDir / fileName).empty();
+    if (needsConversion) {
         std::string convErr;
-        if (!wavconvert::convertTo16(destDir / fileName, 22050, convErr))
-            warning = "adpenc expects 16-bit PCM 22050 Hz and the converter "
+        if (!wavconvert::convertTo16(destDir / fileName, 22050, convErr, true))
+            warning = "PS2 sounds need mono 16-bit PCM 22050 Hz and the converter "
                       "failed (" + convErr + ") - the sound may play wrong";
     }
     wavIssueCache_.clear();
@@ -10179,8 +10178,8 @@ void App::importSoundEffect() {
     for (const std::string& s : project_.sounds) exists |= (s == relPath);
     if (!exists) project_.sounds.push_back(relPath);
     const std::string status =
-        (audioFormat != 1 || rate != 22050 || bits != 16) && warning.empty()
-            ? "Imported " + fileName + " - converted to 16-bit PCM 22050 Hz"
+        needsConversion && warning.empty()
+            ? "Imported " + fileName + " - converted to mono 16-bit PCM 22050 Hz"
         : warning.empty() ? "Imported " + fileName
                           : "Imported " + fileName + " - WARNING: " + warning;
     saveAll(status.c_str());
@@ -10197,8 +10196,9 @@ void App::drawSoundsSection() {
     ImGui::SameLine();
     ImGui::TextDisabled("(?)");
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Short one-shot SFX for sound emitters and the Flow Graph\n"
-                          "Play Sound node. Best as mono 16-bit 22050 Hz WAV.\n"
+        ImGui::SetTooltip("Effects and vehicle sounds use mono 16-bit 22050 Hz WAV.\n"
+                          "Import converts automatically. Convert fixes existing files;\n"
+                          "builds also convert a copy, keeping the source untouched.\n"
                           "All sounds are loaded into SPU2's ~2 MB sample RAM at\n"
                           "scene start, so keep them short - use Music for full tracks.");
 
@@ -10226,8 +10226,8 @@ void App::drawSoundsSection() {
                 std::string err;
                 const std::filesystem::path full =
                     std::filesystem::path(project_.dir) / project_.sounds[i];
-                statusMessage_ = wavconvert::convertTo16(full, 22050, err)
-                                     ? name + " converted to 16-bit PCM 22050 Hz"
+                statusMessage_ = wavconvert::convertTo16(full, 22050, err, true)
+                                     ? name + " converted to mono 16-bit PCM 22050 Hz"
                                      : name + ": conversion failed - " + err;
                 wavIssueCache_.clear();
             }

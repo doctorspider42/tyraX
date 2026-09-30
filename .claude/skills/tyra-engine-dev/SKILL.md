@@ -3225,3 +3225,25 @@ utilization. See `docs/ee-submission-rearchitecture.md`, "Stationary night
 vehicle entry: what TyraX2 would and would not solve". The generated vehicle
 HUD font prewarm uses existing normal evictable texture residency; it changes
 no engine allocator or texture pinning rule.
+
+Vehicle loop encoding: arbitrary project WAVs assigned to idle, high revs or
+squeal are listed in optional `inc/vehicle_sound_loops.gen.txt`. Both shared
+native-build.sh (Windows bridges through native-build.ps1) and the Docker
+fragment in Runner encode these with -L, plus legacy *-loop.wav. Header byte 6
+must match desired mode in both directions; mtime alone misses assigning or
+removing a continuous role. Loop flags affect every use of a sample, so use a
+separate file for a one-shot version. Source seam preparation remains authored.
+
+
+Sound effect conversion (1.157.0): `wavconvert::soundIssue` requires canonical
+mono PCM16/22050; import and Project > Sounds > Convert downmix too. Runner calls
+`wavconvert::bakeSounds` AFTER texbake and BEFORE either build backend, preparing
+`.res-baked/sfx` without modifying `res/sfx`. Both encoders read this mirror,
+check cached APCM byte 5 for mono as well as byte 6 for loop intent, and preserve
+the source path for role matching. A conversion error must fail the build.
+Test stereo PCM16, PCM24, float, extended headers and an odd metadata chunk;
+verify duration, source hashes, incremental mtime stability and ADPCM mono/loop
+headers in BOTH backends. Decode the actual ADPCM and compare the waveform to
+the converted WAV: header checks alone missed adpenc's corrupt stereo reader
+(`fread(wave+i, 2, ...)` advances by one byte). Music conversion stays stereo
+unless its own mono option is chosen.

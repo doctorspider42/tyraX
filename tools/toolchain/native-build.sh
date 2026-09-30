@@ -132,25 +132,33 @@ make -C "$PROJECT" -j"$(getconf _NPROCESSORS_ONLN)" \
 while IFS= read -r -d '' wav; do
   rel=${wav#"$PROJECT/res/"}
   out="$PROJECT/bin/${rel%.wav}.adpcm"
+  input="$PROJECT/.res-baked/$rel"
+  [ -f "$input" ] || { echo "[editor] Missing normalized sound: $rel" >&2; exit 1; }
   mkdir -p "$(dirname "$out")"
   loop=0
   case "$wav" in *-loop.wav) loop=1;; esac
+  if [ -f "$PROJECT/inc/vehicle_sound_loops.gen.txt" ] &&
+     grep -Fqx -- "res/$rel" "$PROJECT/inc/vehicle_sound_loops.gen.txt"; then
+    loop=1
+  fi
   stale=0
-  if [ ! -e "$out" ] || [ "$wav" -nt "$out" ]; then
+  if [ ! -e "$out" ] || [ "$input" -nt "$out" ]; then
     stale=1
-  elif [ "$loop" = 1 ]; then
-    # Offset 6 is adpenc's loop byte. Re-encode outputs produced by the first
-    # native backend, which omitted -L and therefore looked fresh forever.
-    loop_byte=$(od -An -tu1 -j6 -N1 "$out" | tr -d '[:space:]')
-    [ "$loop_byte" = 1 ] || stale=1
+  else
+    # Loop intent can change without changing the source WAV's timestamp.
+    # Offset 6 is adpenc's loop byte; check both loop and one-shot transitions.
+    loop_byte=$(od -An -tu1 -j6 -N1 "$out" 2>/dev/null | tr -d '[:space:]') || loop_byte=invalid
+    channels=$(od -An -tu1 -j5 -N1 "$out" 2>/dev/null | tr -d '[:space:]') || channels=invalid
+    [ "$channels" = 1 ] || stale=1
+    [ "$loop_byte" = "$loop" ] || stale=1
   fi
   if [ "$stale" = 1 ]; then
     if [ "$loop" = 1 ]; then
       echo "[editor] adpenc -L ${wav#"$PROJECT/"}"
-      adpenc -L "$wav" "$out"
+      adpenc -L "$input" "$out"
     else
       echo "[editor] adpenc ${wav#"$PROJECT/"}"
-      adpenc "$wav" "$out"
+      adpenc "$input" "$out"
     fi
   fi
 done < <(find "$PROJECT/res/sfx" -maxdepth 3 -type f -name '*.wav' -print0 2>/dev/null)

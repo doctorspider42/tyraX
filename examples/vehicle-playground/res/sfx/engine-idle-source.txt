@@ -1,0 +1,6 @@
+Engine idle loop
+Source supplied by the project owner: freesound_community-engine-47745.mp3.
+Converted to mono 16-bit PCM, 22050 Hz. 100 ms tail/head crossfade for a 2.324 s loop.
+Source: Engine by Eponn (Freesound), shared by freesound_community on Pixabay.
+https://pixabay.com/pl/sound-effects/filmy-i-efekty-specjalne-engine-47745/
+Pixabay Content License: https://pixabay.com/service/license-summary/

@@ -1,4 +1,8 @@
-# Windows bridge for native-build.sh. The game and cache stay on the Windows
+# Windows bridge for native-build.sh. Continuous vehicle WAV loop intent comes
+# from inc/vehicle_sound_loops.gen.txt in the shared Windows/Linux backend.
+# Runner prepares mono PCM16/22050 WAVs in .res-baked/sfx before this bridge;
+# native-build.sh encodes that mirror and preserves the res/sfx originals.
+# The game and cache stay on the Windows
 # filesystem; only the compiler process runs in WSL, with no Docker daemon.
 [CmdletBinding()]
 param(

@@ -1245,6 +1245,16 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
             !err.empty())
             appendLine("[editor] Warning: texture bake failed: " + err);
 
+        // Both encoders consume the normalized mirror. Stereo ADPCM cannot
+        // play through audsrv's single-voice API, even if editor audition works.
+        if (auto err = wavconvert::bakeSounds(
+                p.dir, [this](const std::string& l) { appendLine(l); }); !err.empty()) {
+            appendLine("[editor] Sound conversion failed: " + err);
+            appendLine("[editor] === Build FAILED ===");
+            state_ = State::Failed;
+            return;
+        }
+
         if (p.buildBackend != "docker") {
 #ifdef _WIN32
             const std::string script = findTool("toolchain/native-build.ps1");
@@ -1715,16 +1725,10 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
         // hold a continuous sound - an engine note, a siren - on this hardware:
         // the loop is a property of the ENCODED sample and not of the play
         // call, so nothing at runtime can turn a one-shot into a loop. The
-        // convention is in the file name rather than in the project because
-        // adpenc runs over `res/sfx` as a directory and has no access to the
-        // model; it is the `*-lit.png` arrangement.
-        // The staleness test is mtime PLUS, for a loop file, the encoded
-        // header's own loop byte (offset 6 of the .adpcm): a project built
-        // before -L existed has a bin/sfx/x-loop.adpcm NEWER than its WAV,
-        // encoded as a one-shot - mtime alone would skip it for ever and the
-        // engine note would play for a fifth of a second and stop, with no
-        // error anywhere. Reading the byte back asks the FILE what it is
-        // instead of trusting the calendar.
+        // encoder also reads inc/vehicle_sound_loops.gen.txt for ordinary
+        // WAVs chosen for idle/high-rev/tyre loops. Both native and Docker
+        // compare header byte 6 in both directions, so adding/removing a
+        // continuous role invalidates an otherwise fresh encoded cache.
         // NO QUOTES OF ANY KIND may appear in this fragment. The block comment
         // above already says double quotes cannot survive the cmd.exe /S +
         // docker.exe argv unquoting - the first version of the loop-byte test
@@ -1742,14 +1746,22 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                            "res/sfx/*/*.wav res/sfx/*/*/*.wav; do "
                            "[ -e $f ] || continue; "
                            "o=${f%.wav}.adpcm && o=bin/${o#res/} && "
+                           "w=.res-baked/${f#res/}; "
+                           "[ -e $w ] || exit 1; "
                            "mkdir -p $(dirname $o); "
                            "L= && case $f in *-loop.wav) L=-L;; esac; "
-                           "R=0; if [ x$L = x-L ] && [ -e $o ]; then "
+                           "if [ -f inc/vehicle_sound_loops.gen.txt ] && "
+                           "grep -Fqx -e $f inc/vehicle_sound_loops.gen.txt; then L=-L; fi; "
+                           "R=0; if [ -e $o ]; then "
+                           "C=$(od -An -tu1 -j5 -N1 $o); "
                            "B=$(od -An -tu1 -j6 -N1 $o); "
-                           "case $B in *1) R=0;; *) R=1;; esac; fi; "
-                           "if [ ! $o -nt $f ] || [ $R = 1 ]; then "
+                           "if [ x$L = x-L ]; then "
+                           "case $B in *1) R=0;; *) R=1;; esac; "
+                           "else case $B in *0) R=0;; *) R=1;; esac; fi; "
+                           "case $C in *1) ;; *) R=1;; esac; fi; "
+                           "if [ ! $o -nt $w ] || [ $R = 1 ]; then "
                            "echo [editor] adpenc $L $f && "
-                           "adpenc $L $f $o || exit 1; "
+                           "adpenc $L $w $o || exit 1; "
                           "fi; done"),
                       p.dir) == 0;
             if (!ok) appendLine("[editor] Sound conversion (adpenc) failed.");

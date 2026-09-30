@@ -3044,14 +3044,21 @@ static void readParticlesSection(const json::Value& root, Project& out) {
 // The drive spec goes out through vehiclesim::specFields, which is the ONE list
 // of what a spec contains - so a tunable added there is saved and loaded by
 // existing here, and cannot be the field somebody forgot to write.
-static void writeVehiclesSection(std::ostream& json, const Project& p) {
-    if (p.vehicles.empty()) return;
-    json << "\"vehicles\": [";
-    for (size_t i = 0; i < p.vehicles.size(); ++i) {
-        const VehicleDef& v = p.vehicles[i];
+static void writeVehicleArray(std::ostream& json, const std::vector<VehicleDef>& defs,
+                              const char* key) {
+    json << "\"" << key << "\": [";
+    for (size_t i = 0; i < defs.size(); ++i) {
+        const VehicleDef& v = defs[i];
         json << (i ? ",\n    " : "\n    ") << "{ \"id\": \"" << jsonEscape(v.id)
              << "\", \"name\": \"" << jsonEscape(v.name) << "\"";
         if (!v.notes.empty()) json << ", \"notes\": \"" << jsonEscape(v.notes) << "\"";
+        json << ", \"inheritDefaults\": " << (v.inheritDefaults ? "true" : "false");
+        if (!v.tuningOverrides.empty()) {
+            json << ", \"tuningOverrides\": [";
+            for (size_t k = 0; k < v.tuningOverrides.size(); ++k)
+                json << (k ? ", " : "") << "\"" << jsonEscape(v.tuningOverrides[k]) << "\"";
+            json << "]";
+        }
         if (!v.modelPath.empty())
             json << ", \"model\": \"" << jsonEscape(v.modelPath) << "\"";
         json << ", \"bodyTris\": " << v.bodyTriBudget
@@ -3180,18 +3187,39 @@ static void writeVehiclesSection(std::ostream& json, const Project& p) {
     json << "\n  ]";
 }
 
-static void readVehiclesSection(const json::Value& root, Project& out) {
-    out.vehicles.clear();
-    const json::Value* arr = root.find("vehicles");
+static void writeVehiclesSection(std::ostream& json, const Project& p) {
+    bool defaults = p.vehicleDefaults != defaultVehicleTuning();
+    for (const auto& v : p.vehicles) defaults |= v.inheritDefaults;
+    if (p.vehicles.empty() && !defaults) return;
+    writeVehicleArray(json, p.vehicles, "vehicles");
+    if (defaults) {
+        json << ",\n  ";
+        writeVehicleArray(json, {p.vehicleDefaults}, "vehicleDefaults");
+    }
+}
+
+static void readVehicleArray(const json::Value& root, std::vector<VehicleDef>& defs,
+                             const char* key) {
+    defs.clear();
+    const json::Value* arr = root.find(key);
     if (!arr || arr->type != json::Value::Type::Array) return;
+    const bool global = std::string(key) == "vehicleDefaults";
     for (const json::Value& e : arr->arr) {
-        VehicleDef v;
+        VehicleDef v = global ? defaultVehicleTuning() : VehicleDef{};
+        const auto* stamp = root.find("formatVersion");
+        if (!global && (!stamp || stamp->numberOr(0) < 83)) v.inheritDefaults = false;
         if (const json::Value* x = e.find("id")) v.id = x->stringOr("");
         if (const json::Value* x = e.find("name")) v.name = x->stringOr("");
         if (const json::Value* x = e.find("notes")) v.notes = x->stringOr("");
+        if (const json::Value* x = e.find("inheritDefaults"))
+            v.inheritDefaults = x->boolOr(false);
+        if (const json::Value* x = e.find("tuningOverrides");
+            x && x->type == json::Value::Type::Array)
+            for (const auto& k : x->arr)
+                if (k.type == json::Value::Type::String) v.tuningOverrides.push_back(k.str);
         if (const json::Value* x = e.find("model")) v.modelPath = x->stringOr("");
         if (v.name.empty()) continue;
-        if (v.id.empty()) v.id = project::newObjectId();
+        if (v.id.empty() && !global) v.id = project::newObjectId();
         if (const json::Value* x = e.find("bodyTris")) v.bodyTriBudget = (int)x->numberOr(2400);
         if (const json::Value* x = e.find("wheelTris")) v.wheelTriBudget = (int)x->numberOr(700);
         if (const json::Value* x = e.find("merge")) v.mergeUntextured = x->boolOr(true);
@@ -3321,8 +3349,20 @@ static void readVehiclesSection(const json::Value& root, Project& out) {
                 if (const json::Value* x = d->find(f.key))
                     *f.value = (float)x->numberOr(*f.value);
         }
-        out.vehicles.push_back(std::move(v));
+        defs.push_back(std::move(v));
     }
+}
+
+static void readVehiclesSection(const json::Value& root, Project& out) {
+    readVehicleArray(root, out.vehicles, "vehicles");
+    std::vector<VehicleDef> defaults;
+    readVehicleArray(root, defaults, "vehicleDefaults");
+    out.vehicleDefaults = defaults.empty() ? defaultVehicleTuning() : defaults.front();
+    // The defaults are a singleton, not a collaborative collection identity.
+    out.vehicleDefaults.id.clear();
+    out.vehicleDefaults.inheritDefaults = false;
+    out.vehicleDefaults.tuningOverrides.clear();
+    project::applyVehicleDefaults(out);
 }
 
 // Non-destructive clip edits (Tools > Animation Editor). Conditional: an
@@ -4150,6 +4190,32 @@ void applyParticleLayer(const ParticleLayer& fx, SceneObject& o) {
     o.emitterFps = fx.texGen.fps;
 }
 
+void applyVehicleDefaults(Project& p) {
+    const VehicleDef& d = p.vehicleDefaults;
+    for (auto& v : p.vehicles) {
+        const bool legacyLocal = !v.inheritDefaults;
+        // Expand the old section checkboxes once, preserving their explicit
+        // choices. Fully local legacy cars keep every non-default value.
+        visitVehicleTuning(v, d, [&](const std::string& key, const char* section,
+                                     auto& value, const auto& base) {
+            const bool oldSection = (std::string(section) == "sounds" ||
+                std::string(section) == "driver") && vehicleTuningOverride(v, section);
+            const bool oldEffects = std::string(section) == "effects" &&
+                (key == "skidMaterial" || key == "smokeMaterial" || key == "smokeEffect") &&
+                vehicleTuningOverride(v, "effects");
+            if ((legacyLocal && value != base) || oldSection || oldEffects ||
+                (key == "headlights" && vehicleTuningOverride(v, "sounds")))
+                if (!vehicleTuningOverride(v, key)) v.tuningOverrides.push_back(key);
+            if (!vehicleTuningOverride(v, key)) value = base;
+        });
+        auto& keys = v.tuningOverrides;
+        keys.erase(std::remove_if(keys.begin(), keys.end(), [](const std::string& key) {
+            return key == "sounds" || key == "driver" || key == "effects";
+        }), keys.end());
+        v.inheritDefaults = true;
+    }
+}
+
 bool applyParticleEffects(Project& p) {
     if (p.particleEffects.empty()) return false;
     bool changed = false;
@@ -4222,6 +4288,7 @@ void renameParticleEffectRefs(Project& p, const std::string& from, const std::st
             if (o.particleEffect == from) o.particleEffect = to;
     for (VehicleDef& v : p.vehicles)
         if (v.smokeEffect == from) v.smokeEffect = to;
+    if (p.vehicleDefaults.smokeEffect == from) p.vehicleDefaults.smokeEffect = to;
 }
 
 void ensureFactIds(Project& p) {
@@ -8735,6 +8802,7 @@ std::string refreshGenerated(const Project& p) {
             // deletes it when it stops, which is the half that matters - a
             // stale refusal would block a build that is fine.
             f.relativePath == "src\\gen\\blss_interlock.gen.cpp" ||
+            f.relativePath == "inc\\vehicle_sound_loops.gen.txt" ||
             f.relativePath == "inc\\daynight.gen.hpp" ||
             f.relativePath == "inc\\probe_data.gen.hpp" ||
             f.relativePath == "inc\\prefab_data.gen.hpp" ||
@@ -8989,6 +9057,18 @@ std::string refreshGenerated(const Project& p) {
             std::error_code ec;
             fs::remove(fs::path(p.dir) / "src" / "gen" / "blss_interlock.gen.cpp",
                        ec);
+        }
+    }
+
+    // Removing the last ordinary WAV from continuous vehicle roles must
+    // remove loop intent too, so the encoder can restore its one-shot cache.
+    {
+        bool wanted = false;
+        for (const auto& f : generated)
+            wanted |= f.relativePath == "inc\\vehicle_sound_loops.gen.txt";
+        if (!wanted) {
+            std::error_code ec;
+            fs::remove(fs::path(p.dir) / "inc" / "vehicle_sound_loops.gen.txt", ec);
         }
     }
 

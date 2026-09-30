@@ -3194,6 +3194,7 @@ void TerrainGame::loop() {
     // The aim moves less than the eye: a touch of angular jitter too.
     cameraLookAt = cameraLookAt + Vec4(off.x * 0.6F, off.y * 0.6F, off.z * 0.6F);
   }
+  collideVehicleCamera();
   // Cutscene "Hide player": drop the third-person avatar for this frame
   // (applied after scripts so the sequence player's flag wins).
   if (PLAYER_INDEX >= 0 && PLAYER_MODE == 2)
@@ -19718,6 +19719,39 @@ void TerrainGame::updateVehicleSpeedFeel(const VehicleRt* v, float dt) {
   }
 }
 
+// Run after camera shake and car-car separation, immediately before drawing.
+void TerrainGame::collideVehicleCamera() {
+  vehCamWanted_ = vehCamAllowed_ = 0.0F;
+  if (vehicleDriver_ < 0 || vehicleDriver_ >= vehicleCount_ ||
+      vehCamMode_ == 1 || scriptCtx.cameraOverride) return;
+  const VehicleRt& v = vehicles_[vehicleDriver_];
+  const VehicleDefData& s = VEHICLE_DEFS[v.def];
+  const float px = v.pos[0], pz = v.pos[2];
+  float py = v.pos[1] + s.camHeight * v.scale * 0.35F;
+  const float floor = terrainHeightAt(px, pz) + CAM_RADIUS;
+  if (py < floor) py = floor;
+  const float dx = cameraPosition.x - px, dy = cameraPosition.y - py,
+              dz = cameraPosition.z - pz;
+  vehCamWanted_ = sqrtf(dx * dx + dy * dy + dz * dz);
+  vehCamAllowed_ = vehCamWanted_;
+  if (vehCamWanted_ <= 0.0001F) {
+    cameraLookAt.set(px + sinf(v.yaw * 0.0174532925F), py,
+                     pz + cosf(v.yaw * 0.0174532925F), 1.0F);
+    return;
+  }
+  vehCamAllowed_ = sweepSphere(px, py, pz, dx / vehCamWanted_,
+      dy / vehCamWanted_, dz / vehCamWanted_, vehCamWanted_, CAM_RADIUS, v.object);
+  const float fraction = vehCamAllowed_ / vehCamWanted_;
+  cameraPosition.set(px + dx * fraction, py + dy * fraction,
+                     pz + dz * fraction, 1.0F);
+  players[0].x = cameraPosition.x;
+  players[0].y = cameraPosition.y;
+  players[0].z = cameraPosition.z;
+  if (vehCamAllowed_ <= 0.0001F)
+    cameraLookAt.set(px + sinf(v.yaw * 0.0174532925F), py,
+                     pz + cosf(v.yaw * 0.0174532925F), 1.0F);
+}
+
 void TerrainGame::updateVehicles(float dt) {
   if (dt <= 0.0F) return;
   if (dt > 0.05F) dt = 0.05F;
@@ -21436,7 +21470,10 @@ void TerrainGame::updateVehicles(float dt) {
                  // Speed feel (docs/vehicles.md): shake in mm, the blur
                  // floor FIX, the FOV the camera is drawing with.
                  " shake ", (int)(g_vehShake * 1000.0F), " blur ", g_vehBlurFix,
-                 " fov ", (int)engine->renderer.core.renderer3D.getFov());
+                 " fov ", (int)engine->renderer.core.renderer3D.getFov(),
+                 " boom100 ", (int)(vehCamAllowed_ * 100.0F),
+                 " want100 ", (int)(vehCamWanted_ * 100.0F),
+                 " avatar ", PLAYER_INDEX >= 0 ? runtimeObjects[PLAYER_INDEX].visible : 0);
       }
     }
   }
@@ -21616,7 +21653,8 @@ void TerrainGame::updateVehicles(float dt) {
 // Three things decide the shape of this function.
 //
 // The LOOP is a property of the encoded sample, not of the play call: the build
-// runs `adpenc -L` over any `res/sfx/*-loop.wav`, which sets the SPU2 block loop
+// runs `adpenc -L` for continuous vehicle sounds and legacy *-loop.wav files,
+// which sets the SPU2 block loop
 // flags. Nothing here can make a one-shot repeat, which is why a definition
 // pointing at an ordinary WAV goes quiet after a fifth of a second instead of
 // misbehaving in some more interesting way.

@@ -4082,3 +4082,53 @@ Outlines reuse `Viewport::RoadDraw`; full-width soft borders retain a separate
 outline. During viewport drag only, both crossing caches defer work until release.
 Verify loop seams and open-road parity with the vehicle-playground road twin
 oracle; UI scripts can target `Road point N` handles and use `shiftclick`.
+
+## Vehicle defaults and chase-camera acceptance (1.153.0)
+
+Resave a legacy definition and verify its tuning stays local. In a scratch
+project, change global accel, damage and nosCapacity; verify inheritance, local
+accel and zero-capacity overrides plus a silent sounds override survive save/load
+and reach VEHICLE_DEFS. Global defaults must work without vehicles. UI scripts
+can target Global defaults, Inherit global defaults and Has nitrous. Boot a
+third-person Player beside a car, press Use, verify VEH avatar 0 while seated,
+then exit and check visibility/door placement. A blocker behind the chase boom
+must reduce boom100 below want100; removing it must restore the distance. Include
+rotated boxes, terrain, collision-none, self exclusion and far/rear views. The
+clearance pass runs after shake, not only on the unshaken rig.
+
+Vehicle Editor UX: use an isolated vehicle-playground copy. Assert three car rows, `Vehicle preview canvas`, `Spin wheels`, and `Listen to engine`; set Speed above/below the fast-wheel threshold, orbit/zoom, capture normal/fast/steered previews for all three cars, and check audition stays checked (device/decoder opened), updates with Revs, and stops on selection/close. In Cost, attempting to change a triangle slider before the advanced checkbox must leave the saved budget unchanged; unlock and verify edit/save/reload. Reflection texture choices are thumbnails with Dynamic sky and Import PNG. Host audition differs from SPU2 ADPCM; a native build verifies the new idle WAV encodes as a loop.
+
+Vehicle inheritance: create a new car, save and assert no tuningOverrides plus
+resolved global fields. Edit a single Driving/Driver/Sounds parameter and check
+only its field key is added. Change a global sibling field and check it reaches
+all cars while the edited field survives. Use defaults must remove only the
+current section's overrides, then survive save/reload. Pre-83 local/group files
+must preserve authored values, including empty sounds and zero volumes.
+For tyre reduction, test @auto at 32 triangles on all three models, inspect
+actual cost and the continuous outer tyre, then test authored wheel_blur at
+speed and from both sides. None/@auto must still detect exactly four wheels
+when the source GLB contains wheel_blur. Verify original GLB mesh/material/image
+prefixes remain unchanged and repeat authoring is byte-identical.
+
+Vehicle sound import: select an ordinary WAV without -loop.wav in idle/high-rev
+and tyre-squeal dropdowns, save/reload and audition. Headlights must appear only
+in Effects; its Use defaults resets the Effects override without resetting
+Sounds. Verify optional vehicle_sound_loops.gen.txt is rewritten/deduplicated
+and deleted when the last ordinary continuous role is removed. Check native
+and Docker encoder header byte 6 through one-shot -> loop -> one-shot while WAV
+mtime is unchanged; gear-shift-only sounds stay one-shots, suffix loops stay
+loops. Include paths with spaces and an already-fresh encoded cache.
+
+
+Sound effect conversion (1.157.0): `wavconvert::soundIssue` requires canonical
+mono PCM16/22050; import and Project > Sounds > Convert downmix too. Runner calls
+`wavconvert::bakeSounds` AFTER texbake and BEFORE either build backend, preparing
+`.res-baked/sfx` without modifying `res/sfx`. Both encoders read this mirror,
+check cached APCM byte 5 for mono as well as byte 6 for loop intent, and preserve
+the source path for role matching. A conversion error must fail the build.
+Test stereo PCM16, PCM24, float, extended headers and an odd metadata chunk;
+verify duration, source hashes, incremental mtime stability and ADPCM mono/loop
+headers in BOTH backends. Decode the actual ADPCM and compare the waveform to
+the converted WAV: header checks alone missed adpenc's corrupt stereo reader
+(`fread(wave+i, 2, ...)` advances by one byte). Music conversion stays stereo
+unless its own mono option is chosen.

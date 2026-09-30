@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <memory>
 #include <set>
 #include <sstream>
 #include <utility>
@@ -7866,6 +7867,7 @@ void TerrainGame::loop() {
     // The aim moves less than the eye: a touch of angular jitter too.
     cameraLookAt = cameraLookAt + Vec4(off.x * 0.6F, off.y * 0.6F, off.z * 0.6F);
   }
+{{VEHICLE_CAMERA_COLLISION}}
   // Cutscene "Hide player": drop the third-person avatar for this frame
   // (applied after scripts so the sequence player's flag wins).
   if (PLAYER_INDEX >= 0 && PLAYER_MODE == 2)
@@ -29899,6 +29901,7 @@ void TerrainGame::loop() {
     // The aim moves less than the eye: a touch of angular jitter too.
     cameraLookAt = cameraLookAt + Vec4(off.x * 0.6F, off.y * 0.6F, off.z * 0.6F);
   }
+{{VEHICLE_CAMERA_COLLISION}}
   // Cutscene "Hide player": drop the third-person avatar for this frame
   // (applied after scripts so the sequence player's flag wins).
   if (PLAYER_INDEX >= 0 && PLAYER_MODE == 2)
@@ -37340,6 +37343,8 @@ static std::string vehicleMembers(const Project& p) {
   std::vector<unsigned char> vehColIsVeh_;
   unsigned int vehColGen_ = ~0u;
   void buildVehicleColliders();
+  void collideVehicleCamera();
+  float vehCamWanted_ = 0.0F, vehCamAllowed_ = 0.0F;
   int vehicleDriver_ = -1;  // which vehicle the player is in, -1 = on foot
   // Speed feel (docs/vehicles.md, "Speed feel"): the driven car's eased
   // speed and nitrous blends, and the FOV the camera had before the car
@@ -39645,6 +39650,39 @@ void TerrainGame::updateVehicleSpeedFeel(const VehicleRt* v, float dt) {
   }
 }
 
+// Run after camera shake and car-car separation, immediately before drawing.
+void TerrainGame::collideVehicleCamera() {
+  vehCamWanted_ = vehCamAllowed_ = 0.0F;
+  if (vehicleDriver_ < 0 || vehicleDriver_ >= vehicleCount_ ||
+      vehCamMode_ == 1 || scriptCtx.cameraOverride) return;
+  const VehicleRt& v = vehicles_[vehicleDriver_];
+  const VehicleDefData& s = VEHICLE_DEFS[v.def];
+  const float px = v.pos[0], pz = v.pos[2];
+  float py = v.pos[1] + s.camHeight * v.scale * 0.35F;
+  const float floor = terrainHeightAt(px, pz) + CAM_RADIUS;
+  if (py < floor) py = floor;
+  const float dx = cameraPosition.x - px, dy = cameraPosition.y - py,
+              dz = cameraPosition.z - pz;
+  vehCamWanted_ = sqrtf(dx * dx + dy * dy + dz * dz);
+  vehCamAllowed_ = vehCamWanted_;
+  if (vehCamWanted_ <= 0.0001F) {
+    cameraLookAt.set(px + sinf(v.yaw * 0.0174532925F), py,
+                     pz + cosf(v.yaw * 0.0174532925F), 1.0F);
+    return;
+  }
+  vehCamAllowed_ = sweepSphere(px, py, pz, dx / vehCamWanted_,
+      dy / vehCamWanted_, dz / vehCamWanted_, vehCamWanted_, CAM_RADIUS, v.object);
+  const float fraction = vehCamAllowed_ / vehCamWanted_;
+  cameraPosition.set(px + dx * fraction, py + dy * fraction,
+                     pz + dz * fraction, 1.0F);
+  players[0].x = cameraPosition.x;
+  players[0].y = cameraPosition.y;
+  players[0].z = cameraPosition.z;
+  if (vehCamAllowed_ <= 0.0001F)
+    cameraLookAt.set(px + sinf(v.yaw * 0.0174532925F), py,
+                     pz + cosf(v.yaw * 0.0174532925F), 1.0F);
+}
+
 void TerrainGame::updateVehicles(float dt) {
   if (dt <= 0.0F) return;
   if (dt > 0.05F) dt = 0.05F;
@@ -41363,7 +41401,10 @@ void TerrainGame::updateVehicles(float dt) {
                  // Speed feel (docs/vehicles.md): shake in mm, the blur
                  // floor FIX, the FOV the camera is drawing with.
                  " shake ", (int)(g_vehShake * 1000.0F), " blur ", g_vehBlurFix,
-                 " fov ", (int)engine->renderer.core.renderer3D.getFov());
+                 " fov ", (int)engine->renderer.core.renderer3D.getFov(),
+                 " boom100 ", (int)(vehCamAllowed_ * 100.0F),
+                 " want100 ", (int)(vehCamWanted_ * 100.0F),
+                 " avatar ", PLAYER_INDEX >= 0 ? runtimeObjects[PLAYER_INDEX].visible : 0);
       }
     }
   }
@@ -41543,7 +41584,8 @@ void TerrainGame::updateVehicles(float dt) {
 // Three things decide the shape of this function.
 //
 // The LOOP is a property of the encoded sample, not of the play call: the build
-// runs `adpenc -L` over any `res/sfx/*-loop.wav`, which sets the SPU2 block loop
+// runs `adpenc -L` for continuous vehicle sounds and legacy *-loop.wav files,
+// which sets the SPU2 block loop
 // flags. Nothing here can make a one-shot repeat, which is why a definition
 // pointing at an ordinary WAV goes quiet after a fifth of a second instead of
 // misbehaving in some more interesting way.
@@ -43656,6 +43698,7 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
                                          : "nullptr");
     s = replaceAll(s, "{{OBJECT_BLOB_IMPL}}", objectBlobImpl(p));
     s = replaceAll(s, "{{VEHICLE_DRIVING_AND}}", vehicleDrivingAnd(p));
+    s = replaceAll(s, "{{VEHICLE_CAMERA_COLLISION}}", projectHasVehicles(p) ? "  collideVehicleCamera();" : "");
     s = replaceAll(s, "{{VEHICLE_UPDATE}}", vehicleUpdateCall(p));
     s = replaceAll(s, "{{VEHICLE_RENDER}}", vehicleRenderCall(p));
     s = replaceAll(s, "{{VEHICLE_SMOKE_RENDER}}", vehicleSmokeRenderCall(p));
@@ -59205,7 +59248,16 @@ std::string vuProgramsSource(const Project& p, const VuBuild& vb) {
 
 }  // namespace
 
-std::vector<File> generate(const Project& p) {
+std::vector<File> generate(const Project& source) {
+    // Resolve once at the boundary, including callers that constructed a
+    // Project directly rather than loading it or using the editor.
+    std::unique_ptr<Project> resolved;
+    if (std::any_of(source.vehicles.begin(), source.vehicles.end(),
+                    [](const VehicleDef& v) { return v.inheritDefaults; })) {
+        resolved = std::make_unique<Project>(source);
+        project::applyVehicleDefaults(*resolved);
+    }
+    const Project& p = resolved ? *resolved : source;
     const std::string ns = sanitizeNamespace(p.name);
     auto fill = [&](const char* tpl) { return fillTemplate(p, tpl); };
 
@@ -59364,6 +59416,21 @@ std::vector<File> generate(const Project& p) {
     // is what it always was. project::refreshGenerated deletes a leftover.
     if (!blssRefusal.empty())
         files.push_back({"src\\gen\\blss_interlock.gen.cpp", blssRefusal});
+    // Source names need no magic suffix. The encoder is outside the model,
+    // so supply just the additional paths that continuous vehicle roles use.
+    // Legacy *-loop.wav still works without this optional manifest.
+    std::set<std::string> vehicleLoops;
+    for (const auto& v : p.vehicles)
+        for (const auto* path : {&v.engineSound, &v.engineHighSound, &v.screechSound})
+            if (!path->empty() &&
+                !(path->size() >= 9 && path->compare(path->size() - 9, 9, "-loop.wav") == 0) &&
+                std::find(p.sounds.begin(), p.sounds.end(), *path) != p.sounds.end())
+                vehicleLoops.insert(*path);
+    if (!vehicleLoops.empty()) {
+        std::string list;
+        for (const auto& path : vehicleLoops) list += path + "\n";
+        files.push_back({"inc\\vehicle_sound_loops.gen.txt", list});
+    }
     for (const File& f : vuBuild.files) files.push_back(f);
     return files;
 }
