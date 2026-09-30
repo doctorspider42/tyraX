@@ -407,6 +407,12 @@ motion to handle. (4) Codegen clamps again on the way out, because
 show a wrong number. Omit it from the JSON at its default so existing projects
 don't change shape.
 
+Editor Play is a separate one-run choice: `App` passes `activeScene` to
+`Runner`, which writes `bin/launch.scene` just before launch. The generated
+boot reads and removes it once, otherwise using `START_SCENE`. Keep build-only,
+CLI and exported games on the saved default; both generated boot loops and the
+boot loading screen must use the same chosen scene.
+
 And the part that cost the most: **the generated game's boot path had scene 0
 baked into it in places that are not a `loadScene` call** - the built-in FPP
 player was positioned from scene 0's spawn point in `init()` (which runs before
@@ -2406,6 +2412,10 @@ uses a private function table, never overwrites gl_loader's viewport pointers,
 and allocates texture storage before filling it (AMD driver workaround).
 
 ## Vehicle damage (1.138.0)
+
+Vehicle exit in the generated runtime clamps the authored door-side offset
+outside half the track plus tyre radius and player clearance, then floors the
+player at terrain height. Use and Exit Vehicle share `exitAtDoor`.
 
 docs/vehicles.md, "Damage". `damageVisual` gates dents, loose pieces, broken
 lamps, damage dust and engine smoke while the meter still accumulates if

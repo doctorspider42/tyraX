@@ -1072,19 +1072,19 @@ void App::drawUI() {
         const bool ps2Ready = !project_.ps2LinkIp.empty();
         if (ImGui::IsKeyChordPressed(ImGuiKey_F5)) {
             openDebuggerForLaunch();
-            runner_.buildAndRun(projectForBuild(), true);
+            runner_.buildAndRun(projectForBuild(), true, false, project_.activeScene);
         }
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F5)) {
             openDebuggerForLaunch();
-            runner_.runEmulatorOnly(project_);
+            runner_.runEmulatorOnly(project_, project_.activeScene);
         }
         if (ps2Ready && ImGui::IsKeyChordPressed(ImGuiKey_F6)) {
             openDebuggerForLaunch();
-            runner_.buildAndRunPs2(projectForBuild(), true);
+            runner_.buildAndRunPs2(projectForBuild(), true, false, project_.activeScene);
         }
         if (ps2Ready && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F6)) {
             openDebuggerForLaunch();
-            runner_.buildAndRunPs2(projectForBuild(), false);
+            runner_.buildAndRunPs2(projectForBuild(), false, false, project_.activeScene);
         }
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_B))
             runner_.buildAndRun(projectForBuild(), false);
@@ -1650,15 +1650,15 @@ void App::drawMenuBar() {
                     "when an incremental build\nmisbehaves. Clean also wipes "
                     "bin\\ on this machine; Rebuild does not.");
             if (ImGui::MenuItem("Build && Run in PCSX2", "F5", false, !busy))
-                runner_.buildAndRun(projectForBuild(), true);
+                runner_.buildAndRun(projectForBuild(), true, false, project_.activeScene);
             if (ImGui::MenuItem("Run in PCSX2 (no build)", "Ctrl+F5", false, !busy))
-                runner_.runEmulatorOnly(project_);
+                runner_.runEmulatorOnly(project_, project_.activeScene);
             ImGui::Separator();
             const bool ps2Ready = !project_.ps2LinkIp.empty();
             if (ImGui::MenuItem("Build && Run on PS2", "F6", false, !busy && ps2Ready))
-                runner_.buildAndRunPs2(projectForBuild(), true);
+                runner_.buildAndRunPs2(projectForBuild(), true, false, project_.activeScene);
             if (ImGui::MenuItem("Run on PS2 (no build)", "Ctrl+F6", false, !busy && ps2Ready))
-                runner_.buildAndRunPs2(projectForBuild(), false);
+                runner_.buildAndRunPs2(projectForBuild(), false, false, project_.activeScene);
             if (!ps2Ready && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("Set 'PS2 (ps2link) IP' in Edit > Preferences first.");
             if (ImGui::MenuItem("Stop on PS2", nullptr, false, !busy && ps2Ready))
@@ -1960,9 +1960,9 @@ void App::openDebuggerForLaunch() {
 
 void App::runSelectedTarget(bool build) {
     openDebuggerForLaunch();
-    if (runOnPs2_) runner_.buildAndRunPs2(projectForBuild(), build);
-    else if (build) runner_.buildAndRun(projectForBuild(), true);
-    else runner_.runEmulatorOnly(project_);
+    if (runOnPs2_) runner_.buildAndRunPs2(projectForBuild(), build, false, project_.activeScene);
+    else if (build) runner_.buildAndRun(projectForBuild(), true, false, project_.activeScene);
+    else runner_.runEmulatorOnly(project_, project_.activeScene);
 }
 
 // Icon toolbar drawn inline in the main menu bar, after the menus. Layout:

@@ -1,2 +1,0 @@
-In src/scripts/zz_district_benchmark.cpp, replace the forced-night assignment with:
-ctx.saveValues[DISTRICT_NIGHT_VALUE] = (driveTest::frame>=360 && driveTest::frame<480) ? 0.0F : 1.0F;

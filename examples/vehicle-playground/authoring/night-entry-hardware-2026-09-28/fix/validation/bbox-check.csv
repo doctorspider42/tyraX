@@ -1,9 +1,0 @@
-case,checks,failures,entries,fresh,recalcs,hits
-stable_full_prefix_1000_frames,2000,0,2,2,0,1998
-dynamic_versions_same_buffer,2060,0,2,2,60,1998
-changing_count_bounded,2960,0,2,902,60,1998
-different_package_capacity,2962,0,4,904,60,1998
-recycled_address_new_version,2966,0,4,906,62,1998
-all_entries_expire,2966,0,0,906,62,1998
-index_rebuilt_after_partial_expiry,3470,0,3,910,62,2498
-TOTAL,3470,0,3,910,62,2498

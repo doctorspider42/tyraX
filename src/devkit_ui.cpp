@@ -1782,7 +1782,8 @@ void App::drawDebuggerWindow() {
             dbgCrash_ = DbgCrash();
             dbgCrashSize_ = 0;
             if (onPs2)
-                runner_.buildAndRunPs2(projectForBuild(), false);
+                runner_.buildAndRunPs2(projectForBuild(), false, false,
+                                       project_.activeScene);
             else
                 runner_.buildAndRun(projectForBuild(), false);
         }

@@ -1214,8 +1214,7 @@ emulators. Garage day/night moved 25.00 / 20.37 FPS to 25.00 / 25.00; outer
 day/night remained 50.00 / 50.00. Quiet-debug and release repeated the
 integrated 25 / 25 / 50 / 50 samples. These are ordinary-FPS measurements, not
 serialized profile times and not a 60 FPS, hardware, Linux, traffic-drive or
-complete reflection-state claim. See [Motor District performance work
-plan](motor-district-performance-plan.md).
+complete reflection-state claim.
 
 The shared `@sky` target was already every-second-frame before this pass. Its
 accepted change is capture-basis and scene-reload correctness plus a dedicated

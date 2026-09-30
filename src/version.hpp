@@ -5496,7 +5496,10 @@
 // Particles face the camera a pass DRAWS with (cutscene override, shake,
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 159
+#define TYRAX_VERSION_MINOR 160
+// 1.160.0: editor Play boots the selected scene for one run, vehicle exit
+// clears the chassis, and the vehicle release docs and example are pared down.
+// No project-format change.
 // 1.159.0: independent cosmetic/mechanical vehicle damage, a tunable partial
 // power-loss curve and a per-vehicle high-rev sound switch. Format v87.
 // 1.158.0: speed-dependent vehicle power fade, separate high-rev sound onset

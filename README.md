@@ -234,24 +234,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [streaming layers](docs/streaming-layers.md),
   [world facts](docs/world-facts.md), runtime spawning and the
   [endless scroller](docs/endless-scroller.md).
-- **[Roads](docs/roads.md) and [vehicles](docs/vehicles.md)** — global tuning with automatic per-field
-  overrides and section resets, live wheel/engine preview with any imported WAV, third-person entry and collision-aware chase cameras, material-driven
-  editable spline roads with reversible loops, per-road longitudinal detail and automatically generated,
-  separately surfaced intersections (road ranks decide who runs through, and
-  a clickable per-junction override changes one crossing's patch material,
-  grip or winner),
-  projected onto the terrain in both the editor and game, plus imported,
-  budgeted cars with wheel suspension, gears, drifting, AI drivers, a
-  tyre-safe automatic, high-speed power fade with nitrous recovery, separate idle/high-rev sound curves, authored "fast wheel" models that swap at speed and an authored low-poly
-  far/traffic model per car, and [crash damage](docs/vehicles.md#damage) with independent visual and performance switches and a partial-loss curve -
-  dented bodies, smashed lamps and windows, bonnets and doors torn off,
-  engine smoke, lost power - and [speed feel](docs/vehicles.md#speed-feel)
-  (shake, blur and a wider view near top speed, a nitrous flame). Try the
-  [Motor District](examples/vehicle-playground) city course, strip-ready
-  atlas-authored vehicle bodies, editable paint colours with protected glass
-  and lamp colours, and live paint reflections
-  of the sky, terrain, roads and selected scenery. A short
-  [Blender vehicle tutorial](docs/blender-vehicle-modeling.md) includes an editable car.
+- **[Roads](docs/roads.md) and [vehicles](docs/vehicles.md)** — terrain-following streets, driveable and AI cars, model and sound authoring, damage and live previews. Try [Motor District](examples/vehicle-playground/README.md) or follow the [Blender vehicle tutorial](docs/blender-vehicle-modeling.md).
 - **[NavMesh + NPC AI](docs/navigation-ai.md)** — baked on the host, A* on the EE.
 - **[Cinematics](docs/cutscenes.md)** — the Cutscene Director, fed by keyframes
   or by a [phone-recorded 6DoF take](docs/camera-takes.md) or the

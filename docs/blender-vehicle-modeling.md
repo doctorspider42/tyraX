@@ -87,5 +87,7 @@ repository root:
 blender -b --factory-startup --python examples/vehicle-playground/authoring/save-ravager-blend.py -- --preview <output-directory>
 ```
 
-The Motor District game's Ravager GLB and far model are an older matched pair;
-replace both together if you use this source scene in that project.
+When replacing a car in Motor District, rebuild its full and far models
+together so they continue to share the atlas. The example's
+[short README](../examples/vehicle-playground/README.md) lists the current
+authoring scripts.

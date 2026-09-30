@@ -7,10 +7,6 @@ for people building games with it. Internals live in code comments, the git log
 (commit messages carry what changed and how it was verified) and the
 `.claude/skills/` developer guides. What's queued is in [Backlog](backlog.md).
 
-The [Motor District performance work plan](motor-district-performance-plan.md)
-details the current wheel, road, LOD, reflection and measurement tasks, including
-their ownership and acceptance checks.
-
 **World & objects**
 
 - [Animated models (.glb / .fbx)](animated-models.md) — authoring in Blender, import,
@@ -138,9 +134,8 @@ their ownership and acceptance checks.
   authored segments forever; the train-window level generator.
 - [Two-player games](multiplayer.md) — shared or split screen, pad-2 hot-join,
   and what the second player costs.
-- [Vehicles](vehicles.md) — driveable cars: one model in, wheels found by
-  geometry, 36 submits merged down to two, a bicycle-model chassis, and a fast
-  wheel model the four wheels swap to above a spin rate.
+- [Vehicles](vehicles.md) — model import, the Vehicle Editor, driving, sounds,
+  damage, effects and verification.
 - [Bring a vehicle from Blender into TyraX](blender-vehicle-modeling.md) — a
   short visual checklist for adapting an existing model, exporting it, and
   checking the import; the editable Ravager scene is an example.

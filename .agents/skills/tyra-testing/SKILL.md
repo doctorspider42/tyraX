@@ -609,6 +609,12 @@ prompt was declined.
 
 ## Layer 3 — full e2e: native build + PCSX2 boot
 
+For editor Play, select a scene other than the saved startup scene and launch
+from the toolbar or F5. Check the Runner log's `Play scene:` line and the
+game's loaded scene, then check that `bin/launch.scene` was consumed. Build-only
+and CLI launches still use the saved startup scene; the marker must never enter
+an exported ISO.
+
 Prerequisites: WSL on Windows or the packages named by
 `tools/toolchain/setup.sh` on Linux, and PCSX2 with a BIOS configured — auto-detected in
 `Program Files\PCSX2`, or on Linux from PATH / flatpak / an AppImage under
@@ -3295,19 +3301,6 @@ the `execee` inside the script that checks it - a guard that only `exit`s is
 bypassed by the next command in a `;` chain, which is how a launch without the
 marker reset the IOP mid-load and cost a power cycle.
 
-### Static packet structure capture
-
-For DMA/VIF/GIF structure rather than time, temporarily build both the engine
-and generated game with `TYRA_FRAME_PROFILE=1`. Pipe the physical ps2link
-session through PowerShell `Tee-Object`; otherwise the bounded benchmark can
-finish with no durable log. Run
-`examples/vehicle-playground/authoring/summarize-packet-profile.py LOG -o CSV`
-afterward. It rejects transition margins, divides each 50-frame `FTPKT` window
-to per-frame values and reports producer medians for all four poses. Accept only
-rows with `bad=0`, and restore the profile macro to zero before the final
-release build. The parser itself adds EE work, so compare time only between
-equally instrumented arms; structural counts remain exact.
-
 ### PCSX2 savestates and GS dumps, unattended (docs/emulator-captures.md)
 
 `scripts/pcsx2-capture.py run <elf> --stage --states 3 --gsdump` starts a
@@ -3329,42 +3322,6 @@ dump, writes `report.txt` and stops only the PID it started. `gs <dump>` /
   build one frame chain.
 - **GS pixel counts are scissored coverage, not fill.** Compare with them; do
   not price the GS with them.
-
-## What is the frame MADE OF? The per-producer inventory
-
-Before asking where a frame's milliseconds go, ask what the frame **contains** —
-that question is cheaper, it needs no console, and skipping it is how a whole
-front got aimed at the wrong thing (the Motor District plan promoted the road
-budget on a map-wide count, and the pose it was about held 1.5% of it).
-
-`authoring/inventory-frame.py FIXTURE` instruments a `benchmark-district.py`
-fixture **instead of** `instrument-frame-cost.py` and writes
-`bin/frame-inventory.csv`: triangles, VU1 packages, bags, submitted vertices,
-packet flushes and rejected packages **per producer** (terrain, roads, static
-batches, solo objects, wheels, the reflection probe split into its sky and its
-objects, particles, light pools, shadow decals, …) in each of the four parked
-poses, plus one row per solo object and per object drawn into the probe.
-`authoring/summarize_inventory.py FIXTURE --phase 0` prints it, grouping the
-object rows by their `MODEL_PATHS` entry.
-
-Three things make it exact, and they generalise to any "split this frame" tool:
-
-- **`StaPipCore::takeTelemetry()` clears as it reads**, so a drain at every
-  producer boundary IS an exclusive split — no engine counter is added, no
-  engine file is touched, and `TYRA_STAPIP_ATTRIB` is not needed.
-- **Every bracket opens with a drain into `rest`**, so code between two
-  brackets is charged to `rest` instead of leaking into the producer after it.
-  Without that the first producer of each group silently absorbs its neighbours.
-- **Check the total against a published frame before reading any row.** This
-  one reproduces the plan's four-pose hardware table minus the road round's
-  measured reduction to the triangle in all four poses; that is what says the
-  split is complete rather than merely plausible.
-
-It is a COUNTS instrument: it drains dozens of times a frame, so its own
-milliseconds are meaningless — which is fine, because PCSX2's would be
-inadmissible anyway (no EE data cache) while its counters are exact. Evidence
-and the worked reading:
-`examples/vehicle-playground/authoring/reflection-probe-2026-09-16/README.md`.
 
 ### What is SUBMITTED is not what is SEEN: ask by REMOVAL
 
@@ -3484,101 +3441,6 @@ change is written in and record it FROM INSIDE the game: this one reports the
 worst staleness it actually permitted, in pixels of the reflection's own
 128-pixel target, so the acceptance criterion is a measurement rather than a
 screenshot.
-
-## Motor District per-frame attribution
-
-For a changing view instead of the four parked poses, run
-`authoring/fps-sweep-2026-09-27.py FIXTURE` after `benchmark-district.py` and
-before generation, then instrument the result normally. It drives the camera
-through the garage and outer road in both lighting states. PCSX2 covers the
-route and identifies relative producer shifts; a physical PS2 is still needed
-to price a slow view in milliseconds (example README, "Moving-camera FPS
-recheck").
-
-
-For actual vehicle entry/driving, use
-`authoring/night-drive-2026-09-28.py FIXTURE --stage prepare` after fixture
-creation and before the editor asset build. Apply `--stage input` after
-generation and rebuild natively for the full-throttle FPS control; apply
-`--stage profile` for per-frame costs after five metres. Apply `--stage entry`
-after profile to delay entry until frame 180 and collect all 480 frames,
-then `--stage stationary` for zero throttle. Rebuild natively after each
-runtime override. The normal chase camera is never overridden; the CSV adds
-position/speed and (in the continuous trace) actual driver state. Pose exports
-are deferred until after timing has ended. The stationary garage view
-reproduced 25 FPS on hardware while the camera sweep stayed at 50, so entry
-and seated-view controls are required for vehicle FPS claims. See
-`examples/vehicle-playground/authoring/night-entry-hardware-2026-09-28/README.md`.
-
-After creating an isolated fixture with `examples/vehicle-playground/authoring/benchmark-district.py`
-and refreshing/building it, run `authoring/instrument-frame-cost.py FIXTURE` from
-the example. It patches only that fixture's generated loop. Compile with
-`tools/toolchain/native-build.ps1` / `.sh` directly: an editor build would
-regenerate the instrumentation away. No engine source switch is needed.
-
-**Build the fixture where it will live, and keep it off a full disk.** The
-build runs under WSL, and `make` there does not respect an NTFS junction: point
-a fixture's in-tree `bin/` or `obj/` at another volume and `make` REPLACES the
-junction with a real directory on the original one. On a disk with no free
-space the compile then proceeds normally and the LINK dies with
-`ld: final link failed: Input/output error` - which reads as a toolchain fault,
-not as a full disk, and sends you hunting the linker. Put the whole fixture
-under a root with room (`benchmark-district.py <dir>` takes one, and
-`native-build.ps1 -Project/-Cache` take explicit paths) rather than redirecting
-pieces of it. The same full disk also produces a **torn `host:` write**: a CSV
-that comes back truncated or malformed reads as a corrupt capture rather than
-as a disk error, so check free space before suspecting the change under test.
-
-The 960 raw rows in `bin/frame-cost.csv` are written after four warmed-up phases.
-Do not capture or write commands during sampling. Update/submit/finish/present
-are disjoint, but the included telemetry buckets overlap. Finish is not a GS-only
-clock. The engine's outer pad/info work is outside the loop bracket. Keep BLSS,
-adaptation and extrapolation off; use separate ordinary-FPS controls and repeat
-on physical hardware. See the example README for asset budgets and caveats.
-
-**`submit_ms` is the whole `beginFrame()`..`endFrame()` block, and reading it
-against `bounds`/`prepare`/`dispatch` compares a frame to a function.** Those
-three brackets only ever cover `StaPipCore::render`; `submit` also carries the
-post-process passes, the 2D HUD and every game-side per-object test. On the
-garage-day pose that is a 7.5 ms difference nobody had looked inside. Add
-`--attribute` to the same script for the split - it brackets every renderScene
-phase, the object loop (whole loop minus the per-object submit block = the
-tests), and the post-fx/HUD blocks, into a second file `bin/frame-attrib.csv` -
-and set `TYRA_STAPIP_ATTRIB` to 1 in
-`vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_attrib.hpp` for
-the engine's own per-bag split in the same run. Both default to OFF and neither
-may ship on: **`#ifndef NDEBUG` is not the devkit gate here** - a game build
-never defines NDEBUG, and a census keyed that way shipped live at ~1 ms a
-frame. Price the hooks with three arms of one fixture (plain / `--attribute` /
-`--attribute` + macro 1), and remember PCSX2 emulates no EE data cache, so its
-shares travel and its milliseconds do not. See
-[docs/render-submission-attribution.md](../../../docs/render-submission-attribution.md).
-
-**The macro now also splits `bounds` five ways and the package-creation box
-inside `dispatch`, and at that density the hooks ARE measurable** - +0.122 ms on
-`bounds`, +0.062 on `dispatch`, so the children over-report by 6.3% and 1.1%.
-Run the counters-out control every time and subtract; the first round's "the
-hooks are under the noise floor" was true of ten brackets and is not true of
-forty. Same-ELF repeatability on `bounds` is 0.000-0.004 ms, which is what makes
-a 0.34 ms delta unarguable.
-
-**A pixel A/B of this fixture must crop the emulator's own chrome, and the
-NIGHT poses cannot be used at all.** A `-PrintWindow` grab of the PCSX2 window
-includes its title bar (top ~31 rows) and its live FPS readout (bottom ~30);
-those are the only things that move in a parked frame, and with them in, three
-captures of ONE arm differ and nothing is comparable. Cropped
-(`--crop-top 35 --crop-bottom 30`), the two DAY poses are byte-identical across
-repeats AND across arms - twelve captures, 0 pixels. The night poses have
-authored lamp flicker and twinkling stars, so their within-arm repeats never
-settle; that is the fixture, not the change. `compare_captures.py` in
-[authoring/bounds-attribution-2026-09-16](../../../examples/vehicle-playground/authoring/bounds-attribution-2026-09-16/README.md)
-checks the within-arm repeats first and refuses to report a between-arm number
-until they are clean.
-
-**Hold a pose without touching the sampling window:** the benchmark fixture
-reads `bin/district-benchmark-pose.txt` every 30 frames only AFTER its 1440
-measured frames, which is also when the CSVs appear - so the CSV is the "it is
-safe to drive this" signal, and nothing is written during sampling.
 
 ### Devkit cadence overrides
 

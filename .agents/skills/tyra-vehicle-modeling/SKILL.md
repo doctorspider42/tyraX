@@ -17,9 +17,8 @@ description: >
 The worked example is **`examples/vehicle-playground/authoring/make-ravager.py`**
 (the Ravager, a late-60s muscle coupe). Copy it and change its design data
 rather than starting from nothing: every lesson below is already encoded in it.
-Its older siblings `make-strata-gt.py` / `remodel-vehicles.py` are plain-Python
-lofts without Blender, and they are the "before" picture of why that is not
-enough (few stations, vertical sides, flat palette colours, no texture detail).
+`make-pica.py` and `make-strix.py` use the shared `carkit.py` helpers for two
+other current vehicle designs.
 
 ## 0. Find Blender (never hard-code a path in anything committed)
 

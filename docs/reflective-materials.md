@@ -294,10 +294,8 @@ The cadence above halves the probe's cost and stops there. What it cannot do is
 notice that the capture it is about to take would come out the same as the one
 already in VRAM — and on a parked camera under a still sky, every second one
 does. *Preferences > Rendering > Reflection reuse budget* is that second half,
-and it is the half Task 5 of the
-[Motor District plan](motor-district-performance-plan.md) asked for: "detect
-conditions permitting reuse: unchanged capture pose and unchanged relevant
-scene/lighting".
+and it avoids recapturing an unchanged view when the capture pose and relevant
+scene lighting remain stable.
 
 **The budget is the quality contract, and its unit is pixels of the probe's own
 128-pixel target.** Not frames, not milliseconds — how far the retained image

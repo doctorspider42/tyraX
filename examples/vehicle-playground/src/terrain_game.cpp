@@ -2736,6 +2736,8 @@ void TerrainGame::init() {
         engine->audio.adpcm.load(FileUtils::fromCwd(SND_PATHS[i])));
 }
 
+static int editorBootScene();
+
 void TerrainGame::loop() {
   const u32 traceUpdateStart = Tyra::HardwareTrace::active ? Tyra::HardwareTrace::ticks() : 0;
   beamBatchCall = 0;  // the light-beam batch slots start over (see BeamBatch)
@@ -2774,7 +2776,7 @@ void TerrainGame::loop() {
 
   // Boot sequence (the engine holds the Tyra logo ~2s before this):
   //   phase 0 - boot splash images, each shown for its duration (in order),
-  //   phase 1 - load START_SCENE behind the loading screen (when enabled).
+  //   phase 1 - load the selected boot scene behind the loading screen.
   // Everything runs from the loop, not init(): a frame presented from init()
   // (before the main loop) isn't vsync-paced and flashes by, so the boot
   // visuals were invisible; from the loop they pace normally.
@@ -2797,7 +2799,7 @@ void TerrainGame::loop() {
       }
       bootPhase = 1;
       if (LOADING_SCREEN) {
-        loadingTarget = START_SCENE;
+        loadingTarget = editorBootScene();
         loadingFrames = loadingTotal = everyFrames(0.7F);
       }
     }
@@ -2809,7 +2811,7 @@ void TerrainGame::loop() {
       } else {
         if (loadingFrames > 0) {
           const bool preLoad = loadingFrames > loadingTotal - 5;
-          loadingscreen::renderFrame(engine, START_SCENE, preLoad ? 0.0F : 1.0F);
+          loadingscreen::renderFrame(engine, editorBootScene(), preLoad ? 0.0F : 1.0F);
           --loadingFrames;
           if (loadingFrames == loadingTotal - 5) {
             bootFirstScene();
@@ -4186,12 +4188,30 @@ void TerrainGame::buildScene() {
   // its load is vsync-paced behind the loading screen after the logo hold.
 }
 
-// Loads scene 0 and runs the scripts' init() once - the boot equivalent of a
+// An editor Play launch may choose a scene without changing the project's
+// saved startup scene. The runner writes a one-shot marker beside the ELF.
+static int editorBootScene() {
+  static int scene = -1;
+  if (scene >= 0) return scene;
+  scene = START_SCENE;
+  const std::string path = Tyra::FileUtils::fromCwd("launch.scene");
+  FILE* f = fopen(path.c_str(), "rb");
+  if (f) {
+    int requested = -1;
+    if (fscanf(f, "%d", &requested) == 1 && requested >= 0 &&
+        requested < SCENE_COUNT) scene = requested;
+    fclose(f);
+    remove(path.c_str());
+  }
+  return scene;
+}
+
+// Loads the chosen boot scene and runs the scripts' init() once - the boot equivalent of a
 // scene switch. Deferred out of init()/buildScene() into the loop's boot
 // sequence so the load runs at vsync pace (a visible loading-screen progress
 // bar) instead of flashing by before the first presented frame.
 void TerrainGame::bootFirstScene() {
-  loadScene(START_SCENE);
+  loadScene(editorBootScene());
   scriptCtx.engine = engine;
   scriptCtx.objects = runtimeObjects.data();
   scriptCtx.objectCount = (int)runtimeObjects.size();
@@ -19791,9 +19811,17 @@ void TerrainGame::updateVehicles(float dt) {
     const VehicleDefData& s = VEHICLE_DEFS[v.def];
     const float SC = v.scale;
     const float ec = cosf(v.yaw * kDeg), es = sinf(v.yaw * kDeg);
-    players[0].x = v.pos[0] + (s.exitOffset[0] * ec + s.exitOffset[2] * es) * SC;
-    players[0].z = v.pos[2] + (-s.exitOffset[0] * es + s.exitOffset[2] * ec) * SC;
-    players[0].y = v.pos[1] + s.exitOffset[1] * SC;
+    // Keep the authored door side, but place the walker's whole capsule beyond
+    // the tyres. A fixed 1.4-unit offset left their feet inside wider cars.
+    const float side = s.exitOffset[0] < 0.0F ? -1.0F : 1.0F;
+    const float minSide = (s.track * 0.5F + s.wheelRadius) * SC + 0.65F;
+    const float authoredSide = fabsf(s.exitOffset[0] * SC);
+    const float localSide = side * fmaxf(authoredSide, minSide);
+    const float localForward = s.exitOffset[2] * SC;
+    players[0].x = v.pos[0] + localSide * ec + localForward * es;
+    players[0].z = v.pos[2] - localSide * es + localForward * ec;
+    players[0].y = fmaxf(v.pos[1] + s.exitOffset[1] * SC,
+                          terrainHeightAt(players[0].x, players[0].z));
     const float travelX = v.speed * es + v.lateral * ec;
     const float travelZ = v.speed * ec - v.lateral * es;
     players[0].yaw = travelX * travelX + travelZ * travelZ > 0.25F

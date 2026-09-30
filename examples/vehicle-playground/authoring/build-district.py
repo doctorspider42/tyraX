@@ -2,7 +2,7 @@
 
 Run from any directory. Inputs live in res/models/urban; no external asset
 folder, network service or Blender installation is needed to rebuild the map.
-The separately prepared GGBot vehicle is already shipped as a GLB.
+The current Ravager, Pica and Strix models are separate Blender assets.
 """
 from pathlib import Path
 import hashlib

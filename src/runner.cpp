@@ -201,28 +201,33 @@ void Runner::appendLine(const std::string& line) {
     log_ += '\n';
 }
 
-void Runner::buildAndRun(const Project& p, bool runEmulator, bool rebuild) {
+void Runner::buildAndRun(const Project& p, bool runEmulator, bool rebuild,
+                         int launchScene) {
     if (busy()) return;
     join();
     cancelRequested_ = false;
     state_ = State::Running;
-    thread_ = std::thread(&Runner::worker, this, p, true, runEmulator, false, rebuild);
+    thread_ = std::thread(&Runner::worker, this, p, true, runEmulator, false, rebuild,
+                          launchScene);
 }
 
-void Runner::runEmulatorOnly(const Project& p) {
+void Runner::runEmulatorOnly(const Project& p, int launchScene) {
     if (busy()) return;
     join();
     cancelRequested_ = false;
     state_ = State::Running;
-    thread_ = std::thread(&Runner::worker, this, p, false, true, false, false);
+    thread_ = std::thread(&Runner::worker, this, p, false, true, false, false,
+                          launchScene);
 }
 
-void Runner::buildAndRunPs2(const Project& p, bool build, bool rebuild) {
+void Runner::buildAndRunPs2(const Project& p, bool build, bool rebuild,
+                            int launchScene) {
     if (busy()) return;
     join();
     cancelRequested_ = false;
     state_ = State::Running;
-    thread_ = std::thread(&Runner::worker, this, p, build, true, true, rebuild);
+    thread_ = std::thread(&Runner::worker, this, p, build, true, true, rebuild,
+                          launchScene);
 }
 
 void Runner::clean(const Project& p) {
@@ -1147,7 +1152,8 @@ bool Runner::deployToPs2(const Project& p) {
     return true;
 }
 
-void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
+void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild,
+                    int launchScene) {
     bool ok = true;
     // exec() reads this to export TYRAX_IMAGE for the compose commands. Latched
     // here rather than passed down: every compose call site would otherwise have
@@ -1902,7 +1908,30 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                                       : "[editor] === Build FAILED ===");
     }
 
-    if (ok && run && !cancelRequested_) ok = ps2 ? deployToPs2(p) : launchPCSX2(p);
+    if (ok && run && !cancelRequested_) {
+        // A Play request selects the editor's current scene for this boot only.
+        // The marker is consumed by the game; the project's startup scene and
+        // exported ELF remain unchanged. Remove a stale marker for CLI runs.
+        const fs::path marker = fs::path(p.dir) / "bin" / "launch.scene";
+        std::error_code ec;
+        fs::remove(marker, ec);
+        if (ec) {
+            appendLine("[editor] Cannot clear the previous Play scene: " + ec.message());
+            ok = false;
+        }
+        if (ok && launchScene >= 0 && launchScene < (int)p.scenes.size()) {
+            std::ofstream out(marker, std::ios::trunc);
+            out << launchScene << '\n';
+            out.close();
+            if (!out) {
+                appendLine("[editor] Cannot set the Play scene: " + marker.string());
+                ok = false;
+            } else {
+                appendLine("[editor] Play scene: " + p.scenes[launchScene].name);
+            }
+        }
+        if (ok) ok = ps2 ? deployToPs2(p) : launchPCSX2(p);
+    }
 
     state_ = (ok && !cancelRequested_) ? State::Success : State::Failed;
 }
